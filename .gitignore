@@ -1,0 +1,13 @@
+.venv
+frontend/src-tauri/binaries/*
+
+frontend/scripts/binaries
+*.pyc
+.trae/
+test_*.csv
+test_qlib_data/
+qlib/
+*.log
+frontend/design-proposal.md
+backend/collector/README.md
+backend/data/system.db

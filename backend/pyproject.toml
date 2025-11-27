@@ -1,0 +1,22 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.13.2",
+    "certifi>=2025.11.12",
+    "duckdb>=1.4.2",
+    "fastapi[standard]>=0.121.3",
+    "fire>=0.7.1",
+    "flake8>=7.3.0",
+    "joblib>=1.5.2",
+    "loguru>=0.7.3",
+    "mypy>=1.18.2",
+    "pandas>=2.3.3",
+    "pyqlib>=0.9.7",
+    "pytest>=9.0.1",
+    "tqdm>=4.67.1",
+    "uvicorn>=0.38.0",
+]
