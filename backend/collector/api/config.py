@@ -1,11 +1,20 @@
 # 配置管理API路由
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from typing import Optional, Dict, Any
 from loguru import logger
 
 from ..schemas import ApiResponse
-from ..db import SystemConfig
+from ..db import SystemConfigBusiness as SystemConfig
+
+# 导入系统配置加载函数
+import sys
+import os
+
+# 添加项目根目录到Python路径
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
+
+from config_manager import load_system_configs
 
 # 创建API路由实例
 router = APIRouter(prefix="/api/config", tags=["config-management"])
@@ -84,10 +93,11 @@ def get_config(key: str):
 
 
 @router.post("/", response_model=ApiResponse)
-def update_config(config: Dict[str, Any]):
+def update_config(request: Request, config: Dict[str, Any]):
     """更新或创建系统配置
     
     Args:
+        request: FastAPI请求对象，用于访问应用实例
         config: 配置字典，包含key、value和可选的description
         
     Returns:
@@ -109,6 +119,10 @@ def update_config(config: Dict[str, Any]):
         
         if success:
             logger.info(f"成功更新配置: key={key}")
+            # 刷新应用上下文配置
+            request.app.state.configs = load_system_configs()
+            logger.info("系统配置上下文已刷新")
+            
             return ApiResponse(
                 code=0,
                 message="更新配置成功",
@@ -129,10 +143,11 @@ def update_config(config: Dict[str, Any]):
 
 
 @router.delete("/{key}", response_model=ApiResponse)
-def delete_config(key: str):
+def delete_config(request: Request, key: str):
     """删除指定键的系统配置
     
     Args:
+        request: FastAPI请求对象，用于访问应用实例
         key: 配置键名
         
     Returns:
@@ -146,6 +161,10 @@ def delete_config(key: str):
         
         if success:
             logger.info(f"成功删除配置: {key}")
+            # 刷新应用上下文配置
+            request.app.state.configs = load_system_configs()
+            logger.info("系统配置上下文已刷新")
+            
             return ApiResponse(
                 code=0,
                 message="删除配置成功",
@@ -156,4 +175,40 @@ def delete_config(key: str):
             raise HTTPException(status_code=500, detail="删除配置失败")
     except Exception as e:
         logger.error(f"删除配置失败: key={key}, error={e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/batch", response_model=ApiResponse)
+def update_configs_batch(request: Request, configs: Dict[str, Any]):
+    """批量更新系统配置
+    
+    Args:
+        request: FastAPI请求对象，用于访问应用实例
+        configs: 配置字典，键为配置名，值为配置值
+        
+    Returns:
+        ApiResponse: 包含更新结果的响应
+    """
+    try:
+        logger.info("开始批量更新系统配置")
+        logger.info(f"批量更新的配置数量: {len(configs)}")
+        
+        # 遍历配置，逐个更新
+        for key, value in configs.items():
+            # 跳过非配置项（如__v_id等Vue内部属性）
+            if not key.startswith("__v"):
+                logger.info(f"更新配置: key={key}, value={value}")
+                SystemConfig.set(key, value)
+        
+        # 刷新应用上下文配置
+        request.app.state.configs = load_system_configs()
+        logger.info("系统配置上下文已刷新")
+        
+        return ApiResponse(
+            code=0,
+            message="批量更新配置成功",
+            data={"updated_count": len(configs)}
+        )
+    except Exception as e:
+        logger.error(f"批量更新配置失败: error={e}")
         raise HTTPException(status_code=500, detail=str(e))

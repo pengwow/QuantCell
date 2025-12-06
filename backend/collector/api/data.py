@@ -1,6 +1,6 @@
 # 数据相关API路由
 
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Request, Depends
 from typing import Optional, Dict, List, Any
 from loguru import logger
 from sqlalchemy.orm import Session
@@ -682,6 +682,141 @@ def get_task_status(task_id: str):
         logger.error(f"查询任务状态失败，任务ID: {task_id}, 错误: {e}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/crypto/symbols", response_model=ApiResponse)
+def get_crypto_symbols(
+    request: Request,
+    exchange: str = Query(default="binance", description="交易所名称，如binance、okx等"),
+    filter: Optional[str] = Query(default=None, description="过滤条件，如'USDT'表示只返回USDT交易对"),
+    limit: Optional[int] = Query(default=100, description="返回数量限制"),
+    offset: Optional[int] = Query(default=0, description="返回偏移量")
+):
+    """获取加密货币对列表
+    
+    Args:
+        request: FastAPI请求对象，用于访问应用实例
+        exchange: 交易所名称，如binance、okx等
+        filter: 过滤条件，如'USDT'表示只返回USDT交易对
+        limit: 返回数量限制
+        offset: 返回偏移量
+        
+    Returns:
+        ApiResponse: 包含货币对列表的响应
+    """
+    try:
+        logger.info(f"开始获取加密货币对列表，交易所: {exchange}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
+        
+        # 导入ccxt库
+        import ccxt
+        
+        # 从应用上下文中读取代理配置
+        configs = request.app.state.configs
+        
+        # 读取代理配置
+        proxy_enabled = configs.get("proxy_enabled") == "true"
+        proxy_url = configs.get("proxy_url")
+        proxy_username = configs.get("proxy_username")
+        proxy_password = configs.get("proxy_password")
+        
+        logger.info(f"代理配置: enabled={proxy_enabled}, url={proxy_url}")
+        
+        # 创建交易所实例
+        exchange_instance = getattr(ccxt, exchange)()
+        # 添加超时设置
+        exchange_instance.timeout = 10000  # 10秒超时
+        
+        # 如果启用代理，设置代理参数
+        if proxy_enabled and proxy_url:
+            # 处理代理认证
+            if proxy_username and proxy_password:
+                # 构建带认证的代理URL
+                from urllib.parse import urlparse
+                parsed_url = urlparse(proxy_url)
+                proxy_with_auth = f"{parsed_url.scheme}://{proxy_username}:{proxy_password}@{parsed_url.netloc}{parsed_url.path}"
+                exchange_instance.proxy = proxy_with_auth
+                logger.info(f"使用带认证的代理: {proxy_with_auth}")
+            else:
+                # 使用不带认证的代理
+                exchange_instance.proxy = proxy_url
+                logger.info(f"使用不带认证的代理: {proxy_url}")
+        else:
+            logger.info("未启用代理")
+        
+        logger.info(f"成功创建{exchange}交易所实例")
+        
+        # 获取货币对列表，添加错误处理
+        try:
+            markets = exchange_instance.fetch_markets()
+            logger.info(f"成功获取{exchange}交易所的货币对列表，共{len(markets)}个货币对")
+        except Exception as e:
+            logger.error(f"调用{exchange}.fetch_markets()失败: {e}")
+            # 返回友好的错误信息给客户端
+            return ApiResponse(
+                code=1,
+                message=f"获取{exchange}交易所货币对列表失败，请检查网络连接或交易所状态",
+                data={
+                    "error": str(e),
+                    "exchange": exchange
+                }
+            )
+        
+        # 处理货币对列表
+        symbols = []
+        for market in markets:
+            # 过滤无效或不活跃的货币对
+            if not market.get("active", True):
+                continue
+            
+            # 提取必要的信息
+            symbol_info = {
+                "symbol": market.get("symbol"),
+                "base": market.get("base"),
+                "quote": market.get("quote"),
+                "active": market.get("active"),
+                "precision": market.get("precision"),
+                "limits": market.get("limits"),
+                "type": market.get("type")
+            }
+            
+            # 应用过滤条件
+            if filter:
+                if filter not in symbol_info["symbol"]:
+                    continue
+            
+            symbols.append(symbol_info)
+        
+        # 实现分页
+        paginated_symbols = symbols[offset:offset+limit]
+        
+        logger.info(f"处理完成，共{len(symbols)}个符合条件的货币对，返回{len(paginated_symbols)}个货币对")
+        
+        # 构建响应
+        response_data = {
+            "symbols": paginated_symbols,
+            "total": len(symbols),
+            "offset": offset,
+            "limit": limit,
+            "exchange": exchange
+        }
+        
+        return ApiResponse(
+            code=0,
+            message="获取加密货币对列表成功",
+            data=response_data
+        )
+    except Exception as e:
+        logger.error(f"获取加密货币对列表失败: {e}")
+        logger.exception(e)
+        # 返回友好的错误信息给客户端
+        return ApiResponse(
+            code=1,
+            message="获取加密货币对列表失败，请检查参数或稍后重试",
+            data={
+                "error": str(e),
+                "exchange": exchange
+            }
+        )
 
 
 @router.get("/tasks", response_model=ApiResponse)

@@ -64,6 +64,10 @@ class Feature(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
+# 从database.py导入SessionLocal和相关依赖
+from .database import SessionLocal
+from sqlalchemy.orm import Session
+
 # 保留现有的业务逻辑类，确保向后兼容
 class SystemConfigBusiness:
     """系统配置模型类
@@ -81,16 +85,15 @@ class SystemConfigBusiness:
         Returns:
             Optional[str]: 配置值，如果不存在则返回None
         """
+        db: Session = SessionLocal()
         try:
-            conn = get_db_connection()
-            result = conn.execute(
-                "SELECT value FROM system_config WHERE key = ?",
-                (key,)
-            ).fetchone()
-            return result[0] if result else None
+            config = db.query(SystemConfig).filter_by(key=key).first()
+            return config.value if config else None
         except Exception as e:
             logger.error(f"获取配置失败: key={key}, error={e}")
             return None
+        finally:
+            db.close()
     
     @staticmethod
     def get_all() -> Dict[str, str]:
@@ -99,15 +102,15 @@ class SystemConfigBusiness:
         Returns:
             Dict[str, str]: 所有配置的字典，键为配置名，值为配置值
         """
+        db: Session = SessionLocal()
         try:
-            conn = get_db_connection()
-            results = conn.execute(
-                "SELECT key, value FROM system_config ORDER BY key"
-            ).fetchall()
-            return {row[0]: row[1] for row in results}
+            configs = db.query(SystemConfig).order_by(SystemConfig.key).all()
+            return {config.key: config.value for config in configs}
         except Exception as e:
             logger.error(f"获取所有配置失败: error={e}")
             return {}
+        finally:
+            db.close()
     
     @staticmethod
     def set(key: str, value: str, description: Optional[str] = None) -> bool:
@@ -121,21 +124,32 @@ class SystemConfigBusiness:
         Returns:
             bool: 设置成功返回True，失败返回False
         """
+        db: Session = SessionLocal()
         try:
-            conn = get_db_connection()
-            # 使用UPSERT语法，存在则更新，不存在则插入
-            conn.execute("""
-            INSERT INTO system_config (key, value, description)
-            VALUES (?, ?, ?)
-            ON CONFLICT (key) DO UPDATE SET
-                value = EXCLUDED.value,
-                description = COALESCE(EXCLUDED.description, system_config.description)
-            """, (key, value, description))
+            # 查询是否存在该配置
+            config = db.query(SystemConfig).filter_by(key=key).first()
+            
+            if config:
+                # 如果存在，更新配置
+                config.value = value
+                if description is not None:
+                    config.description = description
+            else:
+                # 如果不存在，创建新配置
+                config = SystemConfig(key=key, value=value, description=description)
+                db.add(config)
+            
+            # 提交更改
+            db.commit()
             logger.info(f"配置已更新: key={key}, value={value}")
             return True
         except Exception as e:
+            # 回滚事务
+            db.rollback()
             logger.error(f"设置配置失败: key={key}, value={value}, error={e}")
             return False
+        finally:
+            db.close()
     
     @staticmethod
     def delete(key: str) -> bool:
@@ -147,14 +161,28 @@ class SystemConfigBusiness:
         Returns:
             bool: 删除成功返回True，失败返回False
         """
+        db: Session = SessionLocal()
         try:
-            conn = get_db_connection()
-            conn.execute("DELETE FROM system_config WHERE key = ?", (key,))
-            logger.info(f"配置已删除: key={key}")
-            return True
+            # 查询是否存在该配置
+            config = db.query(SystemConfig).filter_by(key=key).first()
+            
+            if config:
+                # 如果存在，删除配置
+                db.delete(config)
+                db.commit()
+                logger.info(f"配置已删除: key={key}")
+                return True
+            else:
+                # 如果不存在，返回True表示操作成功
+                logger.info(f"配置不存在，无需删除: key={key}")
+                return True
         except Exception as e:
+            # 回滚事务
+            db.rollback()
             logger.error(f"删除配置失败: key={key}, error={e}")
             return False
+        finally:
+            db.close()
     
     @staticmethod
     def get_with_details(key: str) -> Optional[Dict[str, Any]]:
@@ -166,24 +194,23 @@ class SystemConfigBusiness:
         Returns:
             Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、创建时间和更新时间
         """
+        db: Session = SessionLocal()
         try:
-            conn = get_db_connection()
-            result = conn.execute(
-                "SELECT key, value, description, created_at, updated_at FROM system_config WHERE key = ?",
-                (key,)
-            ).fetchone()
-            if result:
+            config = db.query(SystemConfig).filter_by(key=key).first()
+            if config:
                 return {
-                    "key": result[0],
-                    "value": result[1],
-                    "description": result[2],
-                    "created_at": result[3],
-                    "updated_at": result[4]
+                    "key": config.key,
+                    "value": config.value,
+                    "description": config.description,
+                    "created_at": config.created_at,
+                    "updated_at": config.updated_at
                 }
             return None
         except Exception as e:
             logger.error(f"获取配置详情失败: key={key}, error={e}")
             return None
+        finally:
+            db.close()
     
     @staticmethod
     def get_all_with_details() -> Dict[str, Dict[str, Any]]:

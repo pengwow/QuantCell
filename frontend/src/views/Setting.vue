@@ -197,8 +197,102 @@
           </div>
         </div>
 
+        <!-- 系统配置 -->
+        <div v-if="currentTab === 'system-config'" class="settings-panel">
+          <h2>系统配置</h2>
+          
+          <el-form :model="systemConfig" label-width="180px" size="large">
+            <!-- 数据目录配置 -->
+            <el-divider content-position="left">数据目录配置</el-divider>
+            
+            <el-form-item label="QLib数据目录">
+              <el-input v-model="systemConfig.qlib_data_dir" placeholder="请输入QLib数据目录"></el-input>
+            </el-form-item>
+            
+            <el-form-item label="数据下载目录">
+              <el-input v-model="systemConfig.data_download_dir" placeholder="请输入数据下载目录"></el-input>
+            </el-form-item>
+            
+            <!-- 交易设置 -->
+            <el-divider content-position="left">交易设置</el-divider>
+            
+            <el-form-item label="当前交易模式">
+              <el-select v-model="systemConfig.current_market_type" placeholder="请选择当前交易模式">
+                <el-option label="加密货币" value="crypto"></el-option>
+                <el-option label="股票" value="stock"></el-option>
+              </el-select>
+            </el-form-item>
+            
+            <!-- 加密货币交易设置 -->
+            <template v-if="systemConfig.current_market_type === 'crypto'">
+              <el-form-item label="加密货币蜡烛图类型">
+                <el-select v-model="systemConfig.crypto_candle_type" placeholder="请选择加密货币蜡烛图类型">
+                  <el-option label="现货" value="spot"></el-option>
+                  <el-option label="期货" value="futures"></el-option>
+                </el-select>
+              </el-form-item>
+              
+              <el-form-item label="默认交易所">
+                <el-select v-model="systemConfig.default_exchange" placeholder="请选择默认交易所">
+                  <el-option label="币安" value="binance"></el-option>
+                  <el-option label="OKX" value="okx"></el-option>
+                  <el-option label="火币" value="huobi"></el-option>
+                </el-select>
+              </el-form-item>
+            </template>
+            
+            <!-- 股票交易设置 -->
+            <template v-else-if="systemConfig.current_market_type === 'stock'">
+              <el-form-item label="股票交易所">
+                <el-select v-model="systemConfig.default_exchange" placeholder="请选择股票交易所">
+                  <el-option label="上交所" value="shanghai"></el-option>
+                  <el-option label="深交所" value="shenzhen"></el-option>
+                  <el-option label="港交所" value="hongkong"></el-option>
+                </el-select>
+              </el-form-item>
+            </template>
+            
+            <el-form-item label="默认时间间隔">
+              <el-select v-model="systemConfig.default_interval" placeholder="请选择默认时间间隔">
+                <el-option label="1分钟" value="1m"></el-option>
+                <el-option label="5分钟" value="5m"></el-option>
+                <el-option label="15分钟" value="15m"></el-option>
+                <el-option label="30分钟" value="30m"></el-option>
+                <el-option label="1小时" value="1h"></el-option>
+                <el-option label="4小时" value="4h"></el-option>
+                <el-option label="1天" value="1d"></el-option>
+              </el-select>
+            </el-form-item>
+            
+            <!-- 代理设置 -->
+            <el-divider content-position="left">代理设置</el-divider>
+            
+            <el-form-item label="是否启动代理">
+              <el-switch v-model="systemConfig.proxy_enabled" active-value="true" inactive-value="false"></el-switch>
+            </el-form-item>
+            
+            <el-form-item label="代理地址" v-if="systemConfig.proxy_enabled === 'true'">
+              <el-input v-model="systemConfig.proxy_url" placeholder="请输入代理地址"></el-input>
+            </el-form-item>
+            
+            <el-form-item label="代理用户名" v-if="systemConfig.proxy_enabled === 'true'">
+              <el-input v-model="systemConfig.proxy_username" placeholder="请输入代理用户名"></el-input>
+            </el-form-item>
+            
+            <el-form-item label="代理密码" v-if="systemConfig.proxy_enabled === 'true'">
+              <el-input v-model="systemConfig.proxy_password" type="password" placeholder="请输入代理密码"></el-input>
+            </el-form-item>
+          </el-form>
+          
+          <!-- 底部按钮 -->
+          <div class="settings-footer">
+            <el-button @click="resetSystemConfig">重置</el-button>
+            <el-button type="primary" @click="saveSystemConfig">保存设置</el-button>
+          </div>
+        </div>
+        
         <!-- 系统信息 -->
-        <div v-if="currentTab === 'system'" class="settings-panel">
+        <div v-else-if="currentTab === 'system'" class="settings-panel">
           <h2>系统信息</h2>
           
           <!-- 加载状态 -->
@@ -211,7 +305,7 @@
           <div v-else-if="error" class="error-state">
             <div class="error-icon">⚠️</div>
             <span>{{ error }}</span>
-            <button class="btn btn-secondary" @click="getSystemInfo">重试</button>
+            <button class="btn btn-secondary" @click="saveSystemConfig">重试</button>
           </div>
           
           <!-- 系统信息内容 -->
@@ -273,7 +367,7 @@
         </div>
 
         <!-- 底部操作按钮 -->
-        <div class="settings-footer" v-if="currentTab !== 'system'">
+        <div class="settings-footer" v-if="currentTab !== 'system' && currentTab !== 'system-config'">
           <button class="btn btn-secondary" @click="resetSettings">
             重置
           </button>
@@ -294,6 +388,22 @@
 <script lang="ts">
 import { defineComponent, reactive, ref, onMounted } from 'vue'
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
+
+// 导入系统配置相关类型定义
+interface SystemConfig {
+  qlib_data_dir: string
+  max_workers: string
+  data_download_dir: string
+  current_market_type: string
+  crypto_candle_type: string
+  default_exchange: string
+  default_interval: string
+  proxy_enabled: string
+  proxy_url: string
+  proxy_username: string
+  proxy_password: string
+}
 
 /**
  * 菜单项类型定义
@@ -409,10 +519,26 @@ export default defineComponent({
     // 菜单项列表
     const menuItems: MenuItem[] = [
       { id: 'basic', title: '基本设置', icon: 'icon-basic' },
+      { id: 'system-config', title: '系统配置', icon: 'icon-system-config' },
       { id: 'notifications', title: '通知设置', icon: 'icon-notification' },
       { id: 'api', title: 'API 配置', icon: 'icon-api' },
       { id: 'system', title: '系统信息', icon: 'icon-system' }
     ]
+    
+    // 系统配置
+    const systemConfig = reactive<SystemConfig>({
+      qlib_data_dir: 'data/qlib_data',
+      max_workers: '4',
+      data_download_dir: 'data/source',
+      current_market_type: 'crypto',
+      crypto_candle_type: 'spot',
+      default_exchange: 'binance',
+      default_interval: '1d',
+      proxy_enabled: 'true',
+      proxy_url: 'http://127.0.0.1:7897',
+      proxy_username: '',
+      proxy_password: ''
+    })
     
     // 用户设置
     const settings = reactive<UserSettings>({
@@ -557,7 +683,66 @@ export default defineComponent({
     }
     
     /**
-     * 组件挂载时保存原始设置并获取系统信息
+     * 获取系统配置
+     */
+    const getSystemConfig = async () => {
+      try {
+        const response = await axios.get('/api/config/')
+        if (response.data.code === 0) {
+          // 更新系统配置，直接赋值，因为结构已经匹配
+          Object.assign(systemConfig, response.data.data)
+          console.log('更新后的系统配置:', systemConfig)
+        } else {
+          console.error('获取系统配置失败:', response.data.message)
+          ElMessage.error(`获取系统配置失败: ${response.data.message}`)
+        }
+      } catch (err: any) {
+        console.error('获取系统配置异常:', err)
+        ElMessage.error(`获取系统配置失败: ${err.message || '未知错误'}`)
+      }
+    }
+    
+    /**
+     * 保存系统配置
+     */
+    const saveSystemConfig = async (): Promise<void> => {
+      try {
+        console.log('保存系统配置:', systemConfig)
+        
+        // 一次请求保存所有配置
+        await axios.post('/api/config/batch', systemConfig)
+        
+        ElMessage.success('系统配置保存成功！')
+      } catch (err: any) {
+        console.error('保存系统配置失败:', err)
+        ElMessage.error(`保存系统配置失败: ${err.message || '未知错误'}`)
+      }
+    }
+    
+    /**
+     * 重置系统配置
+     */
+    const resetSystemConfig = (): void => {
+      if (confirm('确定要重置系统配置吗？')) {
+        Object.assign(systemConfig, {
+          qlib_data_dir: 'data/qlib_data',
+          max_workers: '4',
+          data_download_dir: 'data/source',
+          current_market_type: 'crypto',
+          crypto_candle_type: 'spot',
+          default_exchange: 'binance',
+          default_interval: '1d',
+          proxy_enabled: 'true',
+          proxy_url: 'http://127.0.0.1:7897',
+          proxy_username: '',
+          proxy_password: ''
+        })
+        ElMessage.info('系统配置已重置为默认值')
+      }
+    }
+    
+    /**
+     * 组件挂载时保存原始设置并获取系统信息和配置
      */
     onMounted(() => {
       // 保存原始设置，用于重置功能
@@ -569,6 +754,9 @@ export default defineComponent({
       
       // 获取系统信息
       getSystemInfo()
+      
+      // 获取系统配置
+      getSystemConfig()
     })
     
     return {
@@ -578,11 +766,14 @@ export default defineComponent({
       settings,
       notificationSettings,
       apiSettings,
+      systemConfig,
       systemInfo,
       originalSettings,
       saveSettings,
       resetSettings,
       regenerateApiKey,
+      saveSystemConfig,
+      resetSystemConfig,
       isLoading,
       error
     }
@@ -657,6 +848,7 @@ export default defineComponent({
 
 /* 模拟图标 */
 .icon-basic::before { content: '⚙️'; }
+.icon-system-config::before { content: '🔧'; }
 .icon-notification::before { content: '🔔'; }
 .icon-api::before { content: '🔑'; }
 .icon-system::before { content: '🖥️'; }

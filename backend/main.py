@@ -55,6 +55,10 @@ def init_qlib():
         logger.exception(e)
 
 
+# 导入系统配置加载函数
+from config_manager import load_system_configs
+
+
 def start_scheduler():
     """启动定时任务调度器
     
@@ -107,6 +111,9 @@ async def lifespan(app: FastAPI):
     
     # 初始化QLib数据加载器
     init_qlib()
+    
+    # 加载系统配置到应用上下文
+    app.state.configs = load_system_configs()
     
     # 启动定时任务
     scheduler = start_scheduler()
