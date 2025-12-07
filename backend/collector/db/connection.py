@@ -6,11 +6,8 @@ import threading
 from pathlib import Path
 from loguru import logger
 
-# 导入配置管理器
-from backend.config import get_config
-
 # 数据库文件路径
-default_db_path = Path(__file__).parent.parent.parent / "data" / "system.db"
+default_db_path = Path(__file__).parent.parent.parent / "data" / "qbot.db"
 
 # 确保数据库目录存在
 default_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -45,6 +42,8 @@ class DBConnection:
         # 检查当前线程是否已有连接
         if not hasattr(self._local, '_conn') or self._local._conn is None:
             # 从配置获取数据库类型和文件路径
+            # 延迟导入，避免循环导入
+            from backend.config_manager import get_config
             db_type = get_config("database.type", "sqlite")
             db_file = get_config("database.file", str(default_db_path))
             
@@ -133,7 +132,11 @@ def init_db():
     try:
         logger.info("开始初始化数据库...")
         
-        # 使用SQLAlchemy创建表
+        # 先初始化数据库配置和引擎
+        from .database import init_database_config
+        init_database_config()
+        
+        # 然后再导入engine变量，确保它已经被初始化
         from .database import Base, engine
         from . import models
         
@@ -144,14 +147,24 @@ def init_db():
         
         # 验证表是否存在
         logger.info("验证表是否存在...")
-        conn = get_db_connection()
         
-        # 检查system_config表
-        system_config_exists = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='system_config'").fetchone()
+        # 直接使用SQLAlchemy引擎进行表验证，避免创建新连接导致的配置冲突
+        from sqlalchemy import text
+        from .database import db_type
+        from sqlalchemy.orm import Session
+        
+        # 使用Session进行表验证
+        with Session(engine) as session:
+            if db_type == "sqlite":
+                # SQLite使用sqlite_master表
+                system_config_exists = session.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='system_config'")).fetchone()
+                tasks_exists = session.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")).fetchone()
+            else:
+                # DuckDB使用information_schema.tables视图
+                system_config_exists = session.execute(text("SELECT table_name FROM information_schema.tables WHERE table_name='system_config'")).fetchone()
+                tasks_exists = session.execute(text("SELECT table_name FROM information_schema.tables WHERE table_name='tasks'")).fetchone()
+        
         logger.info(f"system_config表存在: {system_config_exists is not None}")
-        
-        # 检查tasks表
-        tasks_exists = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'").fetchone()
         logger.info(f"tasks表存在: {tasks_exists is not None}")
         
         if not system_config_exists or not tasks_exists:
@@ -182,27 +195,46 @@ def init_db():
         fixed_defaults = [
             ("data_download_dir", "data/source", "数据下载目录"),
             ("current_market_type", "crypto", "当前交易模式: crypto(加密货币) 或 stock(股票)"),
-            ("crypto_candle_type", "spot", "加密货币蜡烛图类型: spot(现货) 或 futures(期货)"),
+            ("crypto_trading_mode", "spot", "加密货币蜡烛图类型: spot(现货) 或 futures(期货)"),
             ("default_exchange", "binance", "默认交易所"),
             ("default_interval", "1d", "默认时间间隔"),
+            ("data_write_to_db", "false", "是否将下载的数据写入数据库，true为写入，false为不写入"),
         ]
         default_configs.extend(fixed_defaults)
         
-        # 使用UPSERT插入默认配置
+        # 使用INSERT插入默认配置
         inserted_count = 0
-        for key, value, description in default_configs:
-            result = conn.execute("""
-            INSERT INTO system_config (key, value, description)
-            VALUES (?, ?, ?)
-            ON CONFLICT (key) DO NOTHING
-            """, (key, value, description))
-            if result.rowcount > 0:
-                inserted_count += 1
+        with Session(engine) as session:
+            for key, value, description in default_configs:
+                try:
+                    # 先检查配置是否存在
+                    existing_config = session.execute(
+                        text("SELECT key FROM system_config WHERE key = :key"),
+                        {"key": key}
+                    ).fetchone()
+                    
+                    if not existing_config:
+                        # 配置不存在，插入新配置
+                        session.execute(
+                            text("INSERT INTO system_config (key, value, description) VALUES (:key, :value, :description)"),
+                            {
+                                "key": key,
+                                "value": value,
+                                "description": description
+                            }
+                        )
+                        inserted_count += 1
+                except Exception as e:
+                    logger.error(f"插入配置失败: key={key}, value={value}, error={e}")
+            
+            # 提交事务
+            session.commit()
         
         logger.info(f"默认配置插入完成，新增配置数: {inserted_count}")
         
         # 验证默认配置是否插入成功
-        config_count = conn.execute("SELECT COUNT(*) FROM system_config").fetchone()[0]
+        with Session(engine) as session:
+            config_count = session.execute(text("SELECT COUNT(*) FROM system_config")).fetchone()[0]
         logger.info(f"系统配置表中配置数量: {config_count}")
         
         logger.info("数据库初始化完成")

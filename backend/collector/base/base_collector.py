@@ -104,7 +104,7 @@ class BaseCollector(abc.ABC):
     
     @abc.abstractmethod
     def get_data(
-        self, symbol: str, interval: str, start_datetime: pd.Timestamp, end_datetime: pd.Timestamp
+        self, symbol: str, interval: str, start_datetime: pd.Timestamp, end_datetime: pd.Timestamp, progress_callback=None
     ) -> pd.DataFrame:
         """获取标的数据
         
@@ -112,6 +112,7 @@ class BaseCollector(abc.ABC):
         :param interval: 时间间隔
         :param start_datetime: 开始时间
         :param end_datetime: 结束时间
+        :param progress_callback: 进度回调函数，格式为 callback(symbol, current, total, status)
         :return: 标的数据DataFrame
         """
         raise NotImplementedError("请重写get_data方法")
@@ -120,10 +121,15 @@ class BaseCollector(abc.ABC):
         """休眠指定时间，用于控制请求频率"""
         time.sleep(self.delay)
     
-    def _simple_collector(self, symbol: str):
-        """简单收集器，用于单个标的的数据收集"""
+    def _simple_collector(self, symbol: str, progress_callback=None):
+        """简单收集器，用于单个标的的数据收集
+        
+        :param symbol: 标的代码
+        :param progress_callback: 进度回调函数，格式为 callback(symbol, current, total, status)
+        :return: 收集结果标志
+        """
         self.sleep()
-        df = self.get_data(symbol, self.interval, self.start_datetime, self.end_datetime)
+        df = self.get_data(symbol, self.interval, self.start_datetime, self.end_datetime, progress_callback)
         _result = self.NORMAL_FLAG
         if self.check_data_length > 0:
             _result = self.cache_small_data(symbol, df)
@@ -148,6 +154,7 @@ class BaseCollector(abc.ABC):
             _old_df = pd.read_csv(instrument_path)
             df = pd.concat([_old_df, df], sort=False)
         df.to_csv(instrument_path, index=False)
+        logger.info(f"成功将 {symbol} 数据保存到文件: {instrument_path}")
     
     def cache_small_data(self, symbol, df):
         """缓存数据量较小的标的数据
@@ -182,11 +189,17 @@ class BaseCollector(abc.ABC):
         def collect_with_progress(_inst, index):
             nonlocal completed, failed
             
+            # 创建一个适配器函数，将底层下载进度转换为上层进度格式
+            def download_progress_callback(symbol, current, total, status):
+                if progress_callback:
+                    # 传递完整的进度信息，包括status参数
+                    progress_callback(_inst, current, total, failed, status)
+            
             # 调用回调函数更新进度
             if progress_callback:
                 progress_callback(_inst, completed, total, failed)
             
-            result = self._simple_collector(_inst)
+            result = self._simple_collector(_inst, download_progress_callback)
             completed += 1
             
             if result != self.NORMAL_FLAG:

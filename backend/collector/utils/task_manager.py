@@ -146,7 +146,7 @@ class TaskManager:
         logger.info(f"开始任务: {task_id}")
         return True
     
-    def update_progress(self, task_id: str, current: str, completed: int, total: int, failed: int = 0) -> bool:
+    def update_progress(self, task_id: str, current: str, completed: int, total: int, failed: int = 0, status: str = None) -> bool:
         """更新任务进度
         
         Args:
@@ -155,6 +155,7 @@ class TaskManager:
             completed: 已完成的项目数
             total: 总项目数
             failed: 失败的项目数，默认为0
+            status: 详细的状态描述，例如"Downloaded 2025-11-01"
             
         Returns:
             bool: 成功返回True，失败返回False
@@ -174,17 +175,18 @@ class TaskManager:
             "completed": completed,
             "failed": failed,
             "current": current,
-            "percentage": percentage
+            "percentage": percentage,
+            "status": status  # 添加详细的状态描述
         }
         
         # 更新数据库中的进度信息
         try:
             from ..db.models import TaskBusiness
-            TaskBusiness.update_progress(task_id, current, completed, total, failed)
+            TaskBusiness.update_progress(task_id, current, completed, total, failed, status)
         except Exception as e:
             logger.error(f"更新数据库任务进度失败: task_id={task_id}, error={e}")
         
-        logger.debug(f"更新任务进度: {task_id}, 当前: {current}, 进度: {percentage}%")
+        logger.debug(f"更新任务进度: {task_id}, 当前: {current}, 进度: {percentage}%, 状态: {status}")
         return True
     
     def complete_task(self, task_id: str) -> bool:
@@ -266,6 +268,11 @@ class TaskManager:
             except Exception as e:
                 logger.error(f"从数据库获取任务失败: task_id={task_id}, error={e}")
         
+        # 确保进度信息中包含status字段
+        if task and "progress" in task and "status" not in task["progress"]:
+            # 如果progress字典中没有status字段，添加它
+            task["progress"]["status"] = task["progress"].get("current", "")
+        
         return task
     
     def get_all_tasks(self) -> Dict[str, Any]:
@@ -284,6 +291,13 @@ class TaskManager:
         except Exception as e:
             logger.warning(f"更新任务列表失败: {e}")
             # 继续返回内存中的任务列表，不影响应用运行
+        
+        # 确保所有任务的进度信息中包含status字段
+        for task_id, task in self._tasks.items():
+            if "progress" in task and "status" not in task["progress"]:
+                # 如果progress字典中没有status字段，添加它
+                task["progress"]["status"] = task["progress"].get("current", "")
+        
         return self._tasks
     
     def delete_task(self, task_id: str) -> bool:

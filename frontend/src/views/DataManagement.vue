@@ -323,6 +323,15 @@
             </div>
           </div>
         </div>
+        
+        <!-- 资产池管理 -->
+        <div v-if="currentTab === 'asset-pools'" class="data-panel">
+          <h2>资产池管理</h2>
+          <div class="data-section">
+            <!-- 资产池管理组件 -->
+            <asset-pool-manager></asset-pool-manager>
+          </div>
+        </div>
 
         <!-- 数据采集 -->
         <div v-if="currentTab === 'collection'" class="data-panel">
@@ -723,6 +732,8 @@
 <script lang="ts">
 import { defineComponent, reactive, ref, onMounted } from 'vue'
 import axios from 'axios'
+/* @ts-ignore */
+import AssetPoolManager from '../components/AssetPoolManager.vue'
 
 /**
  * 菜单项类型定义
@@ -766,6 +777,9 @@ interface Stock {
  */
 export default defineComponent({
   name: 'DataManagement',
+  components: {
+    AssetPoolManager
+  },
   setup() {
     // 当前选中的标签页
     const currentTab = ref<string>('crypto')
@@ -783,7 +797,8 @@ export default defineComponent({
       { id: 'import', title: '数据导入', icon: 'icon-import' },
       { id: 'collection', title: 'crypto数据采集', icon: 'icon-collection' },
       { id: 'quality', title: '数据质量', icon: 'icon-quality' },
-      { id: 'visualization', title: '数据可视化', icon: 'icon-visualization' }
+      { id: 'visualization', title: '数据可视化', icon: 'icon-visualization' },
+      { id: 'asset-pools', title: '资产池管理', icon: 'icon-asset-pool' }
     ]
     
     // 加密货币数据

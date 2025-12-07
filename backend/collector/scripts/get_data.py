@@ -12,7 +12,7 @@ from loguru import logger
 
 from backend.collector.crypto.binance.collector import BinanceCollector
 from backend.collector.crypto.okx.collector import OKXCollector
-from backend.collector.db.models import SystemConfig
+from backend.collector.db.models import SystemConfigBusiness as SystemConfig
 
 
 class GetData:
@@ -21,6 +21,135 @@ class GetData:
     def __init__(self):
         """初始化数据下载工具"""
         self.default_save_dir = Path.home() / ".qlib" / "crypto_data" / "source"
+    
+    def _write_to_db(self, data_dir: Path, interval: str, symbols: list = None):
+        """
+        将数据写入数据库
+        
+        :param data_dir: 数据目录，包含CSV文件
+        :param interval: 时间间隔
+        :param symbols: 交易对列表，如为None则处理所有文件
+        """
+        try:
+            logger.info(f"开始将数据写入数据库，数据目录: {data_dir}, 时间间隔: {interval}")
+            
+            # 导入所需模块
+            import pandas as pd
+            from backend.collector.db.database import SessionLocal, engine, db_type, init_database_config
+            from backend.collector.db.models import Kline, SystemConfigBusiness as SystemConfig
+            from sqlalchemy import insert, func, text
+            from sqlalchemy.orm import Session
+            
+            # 初始化数据库配置和引擎
+            init_database_config()
+            
+            # 使用SessionLocal创建会话，而不是直接使用Session(engine)
+            from backend.collector.db.database import SessionLocal
+            
+            # 获取所有CSV文件
+            csv_files = list(data_dir.glob("*.csv"))
+            logger.info(f"找到 {len(csv_files)} 个CSV文件")
+            
+            # 如果指定了symbols，过滤文件
+            if symbols:
+                symbol_set = set(symbol.replace("/", "") for symbol in symbols)
+                csv_files = [f for f in csv_files if f.stem in symbol_set]
+                logger.info(f"过滤后找到 {len(csv_files)} 个CSV文件")
+            
+            # 处理每个CSV文件
+            for csv_file in csv_files:
+                symbol = csv_file.stem
+                logger.info(f"开始处理文件: {csv_file}")
+                
+                # 读取CSV文件
+                df = pd.read_csv(csv_file)
+                if df is None or df.empty:
+                    logger.warning(f"{symbol} 数据为空，跳过写入数据库")
+                    continue
+                
+                # 准备数据，确保只包含需要的列
+                kline_list = []
+                for _, row in df.iterrows():
+                    # 跳过无效行
+                    if pd.isna(row['date']) or pd.isna(row['open']) or pd.isna(row['high']) or pd.isna(row['low']) or pd.isna(row['close']) or pd.isna(row['volume']):
+                        continue
+                        
+                    # 转换date列为datetime对象
+                    date = row['date']
+                    if isinstance(date, str):
+                        date = pd.to_datetime(date)
+                    
+                    kline_list.append({
+                        'symbol': symbol,
+                        'interval': interval,
+                        'date': date,
+                        'open': row['open'],
+                        'high': row['high'],
+                        'low': row['low'],
+                        'close': row['close'],
+                        'volume': row['volume']
+                    })
+                
+                if not kline_list:
+                    logger.warning(f"没有有效数据可以写入数据库: {symbol}")
+                    continue
+                
+                # 创建数据库会话
+                db = SessionLocal()
+                try:
+                    # 使用session.merge()方法，这是SQLAlchemy提供的通用方式来处理UPSERT
+                    # 这种方式会自动处理不同数据库的差异
+                    for kline_data in kline_list:
+                        # 创建Kline对象
+                        kline = Kline(**kline_data)
+                        # 使用merge方法，存在则更新，不存在则插入
+                        db.merge(kline)
+                    
+                    db.commit()
+                    logger.info(f"成功将 {len(kline_list)} 条 {symbol} 数据写入数据库")
+                except Exception as e:
+                    logger.error(f"写入数据库失败: {e}")
+                    logger.exception(e)
+                    db.rollback()
+                finally:
+                    db.close()
+        except Exception as e:
+            logger.error(f"处理数据库写入时发生异常: {e}")
+            logger.exception(e)
+    
+    def _convert_to_qlib(self, data_dir: Path, qlib_dir: Path, interval: str):
+        """
+        将数据转换为QLib格式
+        
+        :param data_dir: 原始数据目录
+        :param qlib_dir: QLib数据保存目录
+        :param interval: 时间间隔
+        """
+        try:
+            logger.info(f"开始将数据转换为QLib格式，数据目录: {data_dir}, QLib目录: {qlib_dir}, 时间间隔: {interval}")
+            
+            # 导入转换函数
+            from backend.collector.scripts.convert_to_qlib import convert_crypto_to_qlib
+            
+            # 调用转换函数
+            success = convert_crypto_to_qlib(
+                csv_dir=str(data_dir),
+                qlib_dir=str(qlib_dir),
+                freq=interval,
+                date_field_name="date",
+                file_suffix=".csv",
+                symbol_field_name="symbol",
+                include_fields="date,open,high,low,close,volume",
+                max_workers=16
+            )
+            
+            if success:
+                logger.info(f"数据转换为QLib格式成功")
+            else:
+                logger.error(f"数据转换为QLib格式失败")
+        except Exception as e:
+            logger.error(f"处理QLib转换时发生异常: {e}")
+            logger.exception(e)
     
     def crypto_binance(
         self,
@@ -38,6 +167,7 @@ class GetData:
         convert_to_qlib=False,
         qlib_dir=None,
         progress_callback=None,
+        data_write_to_db=None,
     ):
         """
         从币安交易所下载加密货币数据
@@ -56,6 +186,7 @@ class GetData:
         :param convert_to_qlib: 是否将数据转换为QLib格式，默认False
         :param qlib_dir: QLib数据保存目录，如果为None则自动生成
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
+        :param data_write_to_db: 是否将数据写入数据库，True/False，如为None则从配置获取
         """
         if save_dir is None:
             # 从数据库中读取下载目录配置
@@ -107,7 +238,28 @@ class GetData:
         )
         
         # 执行数据收集
-        collector.collect_data(convert_to_qlib=convert_to_qlib, qlib_dir=qlib_dir, progress_callback=progress_callback)
+        collector.collect_data(progress_callback=progress_callback)
+        
+        # 处理数据写入数据库
+        if data_write_to_db is None:
+            # 从配置获取
+            try:
+                write_to_db = SystemConfig.get("data_write_to_db")
+                data_write_to_db = write_to_db and write_to_db.lower() == "true"
+                logger.info(f"从配置获取数据写入设置: data_write_to_db={data_write_to_db}")
+            except Exception as e:
+                logger.warning(f"从配置获取数据写入设置失败: {e}，默认不写入数据库")
+                data_write_to_db = False
+        
+        if data_write_to_db:
+            self._write_to_db(save_dir, interval, symbols)
+        
+        # 处理QLib转换
+        if convert_to_qlib:
+            if qlib_dir is None:
+                # 自动生成QLib数据目录
+                qlib_dir = self.default_save_dir.parent.parent / "qlib_data"
+            self._convert_to_qlib(save_dir, qlib_dir, interval)
         
         logger.info("数据下载完成！")
     
@@ -127,6 +279,7 @@ class GetData:
         convert_to_qlib=False,
         qlib_dir=None,
         progress_callback=None,
+        data_write_to_db=None,
     ):
         """
         从OKX交易所下载加密货币数据
@@ -145,6 +298,7 @@ class GetData:
         :param convert_to_qlib: 是否将数据转换为QLib格式，默认False
         :param qlib_dir: QLib数据保存目录，如果为None则自动生成
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
+        :param data_write_to_db: 是否将数据写入数据库，True/False，如为None则从配置获取
         """
         if save_dir is None:
             # 从数据库中读取下载目录配置
@@ -196,7 +350,28 @@ class GetData:
         )
         
         # 执行数据收集
-        collector.collect_data(convert_to_qlib=convert_to_qlib, qlib_dir=qlib_dir, progress_callback=progress_callback)
+        collector.collect_data(progress_callback=progress_callback)
+        
+        # 处理数据写入数据库
+        if data_write_to_db is None:
+            # 从配置获取
+            try:
+                write_to_db = SystemConfig.get("data_write_to_db")
+                data_write_to_db = write_to_db and write_to_db.lower() == "true"
+                logger.info(f"从配置获取数据写入设置: data_write_to_db={data_write_to_db}")
+            except Exception as e:
+                logger.warning(f"从配置获取数据写入设置失败: {e}，默认不写入数据库")
+                data_write_to_db = False
+        
+        if data_write_to_db:
+            self._write_to_db(save_dir, interval, symbols)
+        
+        # 处理QLib转换
+        if convert_to_qlib:
+            if qlib_dir is None:
+                # 自动生成QLib数据目录
+                qlib_dir = self.default_save_dir.parent.parent / "qlib_data"
+            self._convert_to_qlib(save_dir, qlib_dir, interval)
         
         logger.info("数据下载完成！")
     
@@ -217,6 +392,7 @@ class GetData:
         convert_to_qlib=False,
         qlib_dir=None,
         progress_callback=None,
+        data_write_to_db=None,
     ):
         """
         从指定交易所下载加密货币数据
@@ -236,6 +412,7 @@ class GetData:
         :param convert_to_qlib: 是否将数据转换为QLib格式，默认False
         :param qlib_dir: QLib数据保存目录，如果为None则自动生成
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
+        :param data_write_to_db: 是否将数据写入数据库，True/False，如为None则从配置获取
         """
         if exchange == "binance":
             self.crypto_binance(
@@ -253,6 +430,7 @@ class GetData:
                 convert_to_qlib=convert_to_qlib,
                 qlib_dir=qlib_dir,
                 progress_callback=progress_callback,
+                data_write_to_db=data_write_to_db,
             )
         elif exchange == "okx":
             self.crypto_okx(
@@ -270,6 +448,7 @@ class GetData:
                 convert_to_qlib=convert_to_qlib,
                 qlib_dir=qlib_dir,
                 progress_callback=progress_callback,
+                data_write_to_db=data_write_to_db,
             )
         else:
             logger.error(f"不支持的交易所: {exchange}")

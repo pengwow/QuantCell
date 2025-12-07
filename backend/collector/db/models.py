@@ -6,7 +6,7 @@ from .connection import get_db_connection
 from loguru import logger
 
 # SQLAlchemy模型定义
-from sqlalchemy import Column, String, Integer, Text, DateTime
+from sqlalchemy import Column, String, Integer, Text, DateTime, ForeignKey, Float
 from sqlalchemy.sql import func
 from .database import Base
 
@@ -64,6 +64,67 @@ class Feature(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
+class DataPool(Base):
+    """资产池SQLAlchemy模型
+    
+    对应data_pools表的SQLAlchemy模型定义，用于存储资产池信息
+    """
+    __tablename__ = "data_pools"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String, unique=True, index=True)
+    type = Column(String, index=True)  # stock/crypto
+    description = Column(Text, nullable=True)
+    color = Column(String, default="#409EFF")  # 卡片颜色
+    tags = Column(String, nullable=True)  # 标签，JSON格式存储
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+
+class DataPoolAsset(Base):
+    """资产池资产关联SQLAlchemy模型
+    
+    对应data_pool_assets表的SQLAlchemy模型定义，用于存储资产池与资产的关联关系
+    """
+    __tablename__ = "data_pool_assets"
+    
+    pool_id = Column(Integer, ForeignKey("data_pools.id"), primary_key=True)
+    asset_id = Column(String, primary_key=True)  # 股票代码或加密货币对
+    asset_type = Column(String)  # stock/crypto
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Kline(Base):
+    """K线数据SQLAlchemy模型
+    
+    对应klines表的SQLAlchemy模型定义，用于存储加密货币K线数据
+    """
+    __tablename__ = "klines"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    symbol = Column(String, nullable=False, index=True)
+    interval = Column(String, nullable=False, index=True)
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+    open = Column(Float, nullable=False)
+    high = Column(Float, nullable=False)
+    low = Column(Float, nullable=False)
+    close = Column(Float, nullable=False)
+    volume = Column(Float, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+    
+    # 设置唯一约束，确保symbol + interval + date的组合唯一
+    __table_args__ = (
+        Column(
+            "unique_kline", 
+            String,
+            primary_key=False,
+            default=lambda context: f"{context.current_parameters.get('symbol')}_{context.current_parameters.get('interval')}_{context.current_parameters.get('date').isoformat()}",
+            unique=True
+        ),
+    )
+
+
 # 从database.py导入SessionLocal和相关依赖
 from .database import SessionLocal
 from sqlalchemy.orm import Session
@@ -85,6 +146,10 @@ class SystemConfigBusiness:
         Returns:
             Optional[str]: 配置值，如果不存在则返回None
         """
+        # 初始化数据库配置，确保SessionLocal已绑定引擎
+        from .database import init_database_config
+        init_database_config()
+        
         db: Session = SessionLocal()
         try:
             config = db.query(SystemConfig).filter_by(key=key).first()
@@ -102,6 +167,10 @@ class SystemConfigBusiness:
         Returns:
             Dict[str, str]: 所有配置的字典，键为配置名，值为配置值
         """
+        # 初始化数据库配置，确保SessionLocal已绑定引擎
+        from .database import init_database_config
+        init_database_config()
+        
         db: Session = SessionLocal()
         try:
             configs = db.query(SystemConfig).order_by(SystemConfig.key).all()
@@ -124,6 +193,10 @@ class SystemConfigBusiness:
         Returns:
             bool: 设置成功返回True，失败返回False
         """
+        # 初始化数据库配置，确保SessionLocal已绑定引擎
+        from .database import init_database_config
+        init_database_config()
+        
         db: Session = SessionLocal()
         try:
             # 查询是否存在该配置
@@ -161,6 +234,10 @@ class SystemConfigBusiness:
         Returns:
             bool: 删除成功返回True，失败返回False
         """
+        # 初始化数据库配置，确保SessionLocal已绑定引擎
+        from .database import init_database_config
+        init_database_config()
+        
         db: Session = SessionLocal()
         try:
             # 查询是否存在该配置
@@ -194,6 +271,10 @@ class SystemConfigBusiness:
         Returns:
             Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、创建时间和更新时间
         """
+        # 初始化数据库配置，确保SessionLocal已绑定引擎
+        from .database import init_database_config
+        init_database_config()
+        
         db: Session = SessionLocal()
         try:
             config = db.query(SystemConfig).filter_by(key=key).first()
@@ -220,6 +301,10 @@ class SystemConfigBusiness:
             Dict[str, Dict[str, Any]]: 所有配置的详细信息，键为配置名，值为配置详情字典
         """
         try:
+            # 初始化数据库配置，确保数据库连接正常
+            from .database import init_database_config
+            init_database_config()
+            
             conn = get_db_connection()
             results = conn.execute(
                 "SELECT key, value, description, created_at, updated_at FROM system_config ORDER BY key"
@@ -261,6 +346,16 @@ class TaskBusiness:
         try:
             import json
             conn = get_db_connection()
+            
+            # 检查tasks表是否存在，如果不存在则初始化数据库
+            try:
+                conn.execute("SELECT 1 FROM tasks LIMIT 1")
+            except Exception as e:
+                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
+                from .connection import init_db
+                init_db()
+                conn = get_db_connection()
+            
             # 序列化参数为JSON字符串
             params_json = json.dumps(params)
             
@@ -287,6 +382,16 @@ class TaskBusiness:
         """
         try:
             conn = get_db_connection()
+            
+            # 检查tasks表是否存在，如果不存在则初始化数据库
+            try:
+                conn.execute("SELECT 1 FROM tasks LIMIT 1")
+            except Exception as e:
+                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
+                from .connection import init_db
+                init_db()
+                conn = get_db_connection()
+            
             conn.execute("""
             UPDATE tasks 
             SET status = ?, start_time = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -300,7 +405,7 @@ class TaskBusiness:
             return False
     
     @staticmethod
-    def update_progress(task_id: str, current: str, completed: int, total: int, failed: int = 0) -> bool:
+    def update_progress(task_id: str, current: str, completed: int, total: int, failed: int = 0, status: str = None) -> bool:
         """更新任务进度
         
         Args:
@@ -309,16 +414,30 @@ class TaskBusiness:
             completed: 已完成的项目数
             total: 总项目数
             failed: 失败的项目数
+            status: 详细的状态描述，例如"Downloaded 2025-11-01"
             
         Returns:
             bool: 操作成功返回True，失败返回False
         """
         try:
             conn = get_db_connection()
+            
+            # 检查tasks表是否存在，如果不存在则初始化数据库
+            try:
+                conn.execute("SELECT 1 FROM tasks LIMIT 1")
+            except Exception as e:
+                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
+                from .connection import init_db
+                init_db()
+                conn = get_db_connection()
+            
             # 计算进度百分比
             percentage = 0
             if total > 0:
                 percentage = int((completed + failed) / total * 100)
+            
+            # 使用current字段存储详细状态描述
+            detailed_current = f"{current} - {status}" if status else current
             
             conn.execute("""
             UPDATE tasks 
@@ -330,9 +449,9 @@ class TaskBusiness:
                 percentage = ?, 
                 updated_at = CURRENT_TIMESTAMP
             WHERE task_id = ?
-            """, (total, completed, failed, current, percentage, task_id))
+            """, (total, completed, failed, detailed_current, percentage, task_id))
             
-            logger.debug(f"任务进度已更新: task_id={task_id}, current={current}, progress={percentage}%")
+            logger.debug(f"任务进度已更新: task_id={task_id}, current={detailed_current}, progress={percentage}%")
             return True
         except Exception as e:
             logger.error(f"更新任务进度失败: task_id={task_id}, error={e}")
@@ -350,6 +469,16 @@ class TaskBusiness:
         """
         try:
             conn = get_db_connection()
+            
+            # 检查tasks表是否存在，如果不存在则初始化数据库
+            try:
+                conn.execute("SELECT 1 FROM tasks LIMIT 1")
+            except Exception as e:
+                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
+                from .connection import init_db
+                init_db()
+                conn = get_db_connection()
+            
             conn.execute("""
             UPDATE tasks 
             SET status = ?, end_time = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -375,6 +504,16 @@ class TaskBusiness:
         """
         try:
             conn = get_db_connection()
+            
+            # 检查tasks表是否存在，如果不存在则初始化数据库
+            try:
+                conn.execute("SELECT 1 FROM tasks LIMIT 1")
+            except Exception as e:
+                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
+                from .connection import init_db
+                init_db()
+                conn = get_db_connection()
+            
             conn.execute("""
             UPDATE tasks 
             SET 
@@ -404,6 +543,16 @@ class TaskBusiness:
         try:
             import json
             conn = get_db_connection()
+            
+            # 检查tasks表是否存在，如果不存在则初始化数据库
+            try:
+                conn.execute("SELECT 1 FROM tasks LIMIT 1")
+            except Exception as e:
+                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
+                from .connection import init_db
+                init_db()
+                conn = get_db_connection()
+            
             result = conn.execute(
                 "SELECT * FROM tasks WHERE task_id = ?",
                 (task_id,)
@@ -422,7 +571,8 @@ class TaskBusiness:
                     "completed": result[4],
                     "failed": result[5],
                     "current": result[6],
-                    "percentage": result[7]
+                    "percentage": result[7],
+                    "status": result[6]  # 使用current字段作为status，因为current字段已经包含了详细的状态描述
                 },
                 "params": json.loads(result[8]),
                 "start_time": result[9],
@@ -448,6 +598,16 @@ class TaskBusiness:
         try:
             import json
             conn = get_db_connection()
+            
+            # 检查tasks表是否存在，如果不存在则初始化数据库
+            try:
+                conn.execute("SELECT 1 FROM tasks LIMIT 1")
+            except Exception as e:
+                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
+                from .connection import init_db
+                init_db()
+                conn = get_db_connection()
+            
             results = conn.execute(
                 "SELECT * FROM tasks ORDER BY created_at DESC"
             ).fetchall()
@@ -456,23 +616,24 @@ class TaskBusiness:
             for result in results:
                 task_id = result[0]
                 tasks[task_id] = {
-                    "task_id": task_id,
-                    "task_type": result[1],
-                    "status": result[2],
-                    "progress": {
-                        "total": result[3],
-                        "completed": result[4],
-                        "failed": result[5],
-                        "current": result[6],
-                        "percentage": result[7]
-                    },
-                    "params": json.loads(result[8]),
-                    "start_time": result[9],
-                    "end_time": result[10],
-                    "error_message": result[11],
-                    "created_at": result[12],
-                    "updated_at": result[13]
-                }
+                "task_id": task_id,
+                "task_type": result[1],
+                "status": result[2],
+                "progress": {
+                    "total": result[3],
+                    "completed": result[4],
+                    "failed": result[5],
+                    "current": result[6],
+                    "percentage": result[7],
+                    "status": result[6]  # 使用current字段作为status，包含详细的状态描述
+                },
+                "params": json.loads(result[8]),
+                "start_time": result[9],
+                "end_time": result[10],
+                "error_message": result[11],
+                "created_at": result[12],
+                "updated_at": result[13]
+            }
             
             return tasks
         except Exception as e:
@@ -497,6 +658,15 @@ class TaskBusiness:
         try:
             import json
             conn = get_db_connection()
+            
+            # 检查tasks表是否存在，如果不存在则初始化数据库
+            try:
+                conn.execute("SELECT 1 FROM tasks LIMIT 1")
+            except Exception as e:
+                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
+                from .connection import init_db
+                init_db()
+                conn = get_db_connection()
             
             # 构建查询条件
             where_clauses = []
@@ -574,7 +744,8 @@ class TaskBusiness:
                         "completed": result[4],
                         "failed": result[5],
                         "current": result[6],
-                        "percentage": result[7]
+                        "percentage": result[7],
+                        "status": result[6]  # 使用current字段作为status，包含详细的状态描述
                     },
                     "params": json.loads(result[8]),
                     "start_time": result[9],
@@ -622,6 +793,16 @@ class TaskBusiness:
         """
         try:
             conn = get_db_connection()
+            
+            # 检查tasks表是否存在，如果不存在则初始化数据库
+            try:
+                conn.execute("SELECT 1 FROM tasks LIMIT 1")
+            except Exception as e:
+                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
+                from .connection import init_db
+                init_db()
+                conn = get_db_connection()
+            
             conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
             
             logger.info(f"任务已删除: task_id={task_id}")
@@ -629,3 +810,364 @@ class TaskBusiness:
         except Exception as e:
             logger.error(f"删除任务失败: task_id={task_id}, error={e}")
             return False
+
+
+class DataPoolBusiness:
+    """资产池业务逻辑类
+    
+    用于操作data_pools和data_pool_assets表，提供资产池的CRUD操作方法
+    """
+    
+    @staticmethod
+    def get_all(type: Optional[str] = None) -> Dict[str, Any]:
+        """获取所有资产池
+        
+        Args:
+            type: 资产池类型过滤（stock/crypto）
+            
+        Returns:
+            Dict[str, Any]: 所有资产池的字典，键为资产池ID，值为资产池详情
+        """
+        db: Session = SessionLocal()
+        try:
+            query = db.query(DataPool)
+            if type:
+                query = query.filter_by(type=type)
+            
+            pools = query.order_by(DataPool.name).all()
+            
+            result = {}
+            for pool in pools:
+                # 获取资产池包含的资产数量
+                asset_count = db.query(DataPoolAsset).filter_by(pool_id=pool.id).count()
+                
+                result[pool.id] = {
+                    "id": pool.id,
+                    "name": pool.name,
+                    "type": pool.type,
+                    "description": pool.description,
+                    "color": pool.color,
+                    "tags": pool.tags,
+                    "asset_count": asset_count,
+                    "created_at": pool.created_at,
+                    "updated_at": pool.updated_at
+                }
+            
+            return result
+        except Exception as e:
+            logger.error(f"获取所有资产池失败: error={e}")
+            return {}
+        finally:
+            db.close()
+    
+    @staticmethod
+    def get(pool_id: int) -> Optional[Dict[str, Any]]:
+        """获取指定ID的资产池
+        
+        Args:
+            pool_id: 资产池ID
+            
+        Returns:
+            Optional[Dict[str, Any]]: 资产池详情，如果不存在则返回None
+        """
+        db: Session = SessionLocal()
+        try:
+            pool = db.query(DataPool).filter_by(id=pool_id).first()
+            if not pool:
+                return None
+            
+            # 获取资产池包含的资产
+            assets = db.query(DataPoolAsset).filter_by(pool_id=pool.id).all()
+            asset_list = [asset.asset_id for asset in assets]
+            
+            return {
+                "id": pool.id,
+                "name": pool.name,
+                "type": pool.type,
+                "description": pool.description,
+                "color": pool.color,
+                "tags": pool.tags,
+                "assets": asset_list,
+                "created_at": pool.created_at,
+                "updated_at": pool.updated_at
+            }
+        except Exception as e:
+            logger.error(f"获取资产池失败: pool_id={pool_id}, error={e}")
+            return None
+        finally:
+            db.close()
+    
+    @staticmethod
+    def create(name: str, type: str, description: Optional[str] = None, color: Optional[str] = None, tags: Optional[str] = None) -> Optional[int]:
+        """创建新资产池
+        
+        Args:
+            name: 资产池名称
+            type: 资产池类型（stock/crypto）
+            description: 资产池描述
+            color: 卡片颜色
+            tags: 标签，JSON格式
+            
+        Returns:
+            Optional[int]: 创建的资产池ID，如果失败则返回None
+        """
+        db: Session = SessionLocal()
+        try:
+            # 检查资产池名称是否已存在
+            existing_pool = db.query(DataPool).filter_by(name=name).first()
+            if existing_pool:
+                logger.error(f"资产池名称已存在: name={name}")
+                return None
+            
+            # 创建新资产池
+            pool = DataPool(
+                name=name,
+                type=type,
+                description=description,
+                color=color or "#409EFF",
+                tags=tags
+            )
+            db.add(pool)
+            db.commit()
+            db.refresh(pool)
+            
+            logger.info(f"资产池已创建: id={pool.id}, name={name}, type={type}")
+            return pool.id
+        except Exception as e:
+            db.rollback()
+            logger.error(f"创建资产池失败: name={name}, type={type}, error={e}")
+            return None
+        finally:
+            db.close()
+    
+    @staticmethod
+    def update(pool_id: int, name: Optional[str] = None, description: Optional[str] = None, color: Optional[str] = None, tags: Optional[str] = None) -> bool:
+        """更新资产池
+        
+        Args:
+            pool_id: 资产池ID
+            name: 资产池名称
+            description: 资产池描述
+            color: 卡片颜色
+            tags: 标签，JSON格式
+            
+        Returns:
+            bool: 更新成功返回True，失败返回False
+        """
+        db: Session = SessionLocal()
+        try:
+            pool = db.query(DataPool).filter_by(id=pool_id).first()
+            if not pool:
+                logger.error(f"资产池不存在: pool_id={pool_id}")
+                return False
+            
+            # 更新资产池信息
+            if name:
+                pool.name = name
+            if description is not None:
+                pool.description = description
+            if color:
+                pool.color = color
+            if tags is not None:
+                pool.tags = tags
+            
+            db.commit()
+            logger.info(f"资产池已更新: pool_id={pool_id}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"更新资产池失败: pool_id={pool_id}, error={e}")
+            return False
+        finally:
+            db.close()
+    
+    @staticmethod
+    def delete(pool_id: int) -> bool:
+        """删除资产池
+        
+        Args:
+            pool_id: 资产池ID
+            
+        Returns:
+            bool: 删除成功返回True，失败返回False
+        """
+        db: Session = SessionLocal()
+        try:
+            # 删除资产池关联的资产
+            db.query(DataPoolAsset).filter_by(pool_id=pool_id).delete()
+            
+            # 删除资产池
+            pool = db.query(DataPool).filter_by(id=pool_id).first()
+            if pool:
+                db.delete(pool)
+                db.commit()
+                logger.info(f"资产池已删除: pool_id={pool_id}, name={pool.name}")
+            
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"删除资产池失败: pool_id={pool_id}, error={e}")
+            return False
+        finally:
+            db.close()
+    
+    @staticmethod
+    def add_asset(pool_id: int, asset_id: str, asset_type: str) -> bool:
+        """向资产池添加资产
+        
+        Args:
+            pool_id: 资产池ID
+            asset_id: 资产ID（股票代码或加密货币对）
+            asset_type: 资产类型（stock/crypto）
+            
+        Returns:
+            bool: 添加成功返回True，失败返回False
+        """
+        db: Session = SessionLocal()
+        try:
+            # 检查资产池是否存在
+            pool = db.query(DataPool).filter_by(id=pool_id).first()
+            if not pool:
+                logger.error(f"资产池不存在: pool_id={pool_id}")
+                return False
+            
+            # 检查资产是否已存在于资产池中
+            existing_asset = db.query(DataPoolAsset).filter_by(pool_id=pool_id, asset_id=asset_id).first()
+            if existing_asset:
+                logger.warning(f"资产已存在于资产池中: pool_id={pool_id}, asset_id={asset_id}")
+                return True
+            
+            # 添加资产到资产池
+            pool_asset = DataPoolAsset(
+                pool_id=pool_id,
+                asset_id=asset_id,
+                asset_type=asset_type
+            )
+            db.add(pool_asset)
+            db.commit()
+            
+            logger.info(f"资产已添加到资产池: pool_id={pool_id}, asset_id={asset_id}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"添加资产到资产池失败: pool_id={pool_id}, asset_id={asset_id}, error={e}")
+            return False
+        finally:
+            db.close()
+    
+    @staticmethod
+    def add_assets(pool_id: int, assets: list, asset_type: str) -> bool:
+        """批量向资产池添加资产
+        
+        Args:
+            pool_id: 资产池ID
+            assets: 资产列表（股票代码或加密货币对）
+            asset_type: 资产类型（stock/crypto）
+            
+        Returns:
+            bool: 批量添加成功返回True，失败返回False
+        """
+        db: Session = SessionLocal()
+        try:
+            # 检查资产池是否存在
+            pool = db.query(DataPool).filter_by(id=pool_id).first()
+            if not pool:
+                logger.error(f"资产池不存在: pool_id={pool_id}")
+                return False
+            
+            # 批量添加资产
+            for asset_id in assets:
+                # 检查资产是否已存在于资产池中
+                existing_asset = db.query(DataPoolAsset).filter_by(pool_id=pool_id, asset_id=asset_id).first()
+                if not existing_asset:
+                    pool_asset = DataPoolAsset(
+                        pool_id=pool_id,
+                        asset_id=asset_id,
+                        asset_type=asset_type
+                    )
+                    db.add(pool_asset)
+            
+            db.commit()
+            logger.info(f"批量添加资产到资产池成功: pool_id={pool_id}, asset_count={len(assets)}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"批量添加资产到资产池失败: pool_id={pool_id}, error={e}")
+            return False
+        finally:
+            db.close()
+    
+    @staticmethod
+    def remove_asset(pool_id: int, asset_id: str) -> bool:
+        """从资产池移除资产
+        
+        Args:
+            pool_id: 资产池ID
+            asset_id: 资产ID（股票代码或加密货币对）
+            
+        Returns:
+            bool: 移除成功返回True，失败返回False
+        """
+        db: Session = SessionLocal()
+        try:
+            # 检查资产是否存在于资产池中
+            existing_asset = db.query(DataPoolAsset).filter_by(pool_id=pool_id, asset_id=asset_id).first()
+            if existing_asset:
+                db.delete(existing_asset)
+                db.commit()
+                logger.info(f"资产已从资产池移除: pool_id={pool_id}, asset_id={asset_id}")
+            
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"从资产池移除资产失败: pool_id={pool_id}, asset_id={asset_id}, error={e}")
+            return False
+        finally:
+            db.close()
+    
+    @staticmethod
+    def remove_assets(pool_id: int, assets: list) -> bool:
+        """批量从资产池移除资产
+        
+        Args:
+            pool_id: 资产池ID
+            assets: 资产列表（股票代码或加密货币对）
+            
+        Returns:
+            bool: 批量移除成功返回True，失败返回False
+        """
+        db: Session = SessionLocal()
+        try:
+            # 批量移除资产
+            for asset_id in assets:
+                db.query(DataPoolAsset).filter_by(pool_id=pool_id, asset_id=asset_id).delete()
+            
+            db.commit()
+            logger.info(f"批量从资产池移除资产成功: pool_id={pool_id}, asset_count={len(assets)}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"批量从资产池移除资产失败: pool_id={pool_id}, error={e}")
+            return False
+        finally:
+            db.close()
+    
+    @staticmethod
+    def get_assets(pool_id: int) -> list:
+        """获取资产池包含的资产列表
+        
+        Args:
+            pool_id: 资产池ID
+            
+        Returns:
+            list: 资产列表（股票代码或加密货币对）
+        """
+        db: Session = SessionLocal()
+        try:
+            assets = db.query(DataPoolAsset).filter_by(pool_id=pool_id).all()
+            return [asset.asset_id for asset in assets]
+        except Exception as e:
+            logger.error(f"获取资产池资产列表失败: pool_id={pool_id}, error={e}")
+            return []
+        finally:
+            db.close()

@@ -223,25 +223,13 @@ class OKXCollector(CryptoBaseCollector):
             logger.error(f"数据转换失败: {e}")
             return False
     
-    def collect_data(self, convert_to_qlib=False, qlib_dir=None, progress_callback=None):
+    def collect_data(self, progress_callback=None):
         """
-        执行数据收集，并可选转换为QLib格式
+        执行数据收集
         
-        :param convert_to_qlib: 是否将数据转换为QLib格式
-        :param qlib_dir: QLib数据保存目录，如果为None则自动生成
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
         :return: 收集结果
         """
         # 执行数据收集
         result = super().collect_data(progress_callback=progress_callback)
-        
-        # 如果需要转换为QLib格式
-        if convert_to_qlib:
-            if qlib_dir is None:
-                # 自动生成QLib数据目录
-                qlib_dir = self.save_dir.parent.parent / "qlib_data"
-            
-            # 转换数据
-            self.convert_to_qlib(self.save_dir, qlib_dir, self.interval)
-        
         return result

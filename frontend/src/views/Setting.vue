@@ -226,7 +226,7 @@
             <!-- 加密货币交易设置 -->
             <template v-if="systemConfig.current_market_type === 'crypto'">
               <el-form-item label="加密货币蜡烛图类型">
-                <el-select v-model="systemConfig.crypto_candle_type" placeholder="请选择加密货币蜡烛图类型">
+                <el-select v-model="systemConfig.crypto_trading_mode" placeholder="请选择加密货币蜡烛图类型">
                   <el-option label="现货" value="spot"></el-option>
                   <el-option label="期货" value="futures"></el-option>
                 </el-select>
@@ -396,7 +396,7 @@ interface SystemConfig {
   max_workers: string
   data_download_dir: string
   current_market_type: string
-  crypto_candle_type: string
+  crypto_trading_mode: string
   default_exchange: string
   default_interval: string
   proxy_enabled: string
@@ -531,7 +531,7 @@ export default defineComponent({
       max_workers: '4',
       data_download_dir: 'data/source',
       current_market_type: 'crypto',
-      crypto_candle_type: 'spot',
+      crypto_trading_mode: 'spot',
       default_exchange: 'binance',
       default_interval: '1d',
       proxy_enabled: 'true',
@@ -729,7 +729,7 @@ export default defineComponent({
           max_workers: '4',
           data_download_dir: 'data/source',
           current_market_type: 'crypto',
-          crypto_candle_type: 'spot',
+          crypto_trading_mode: 'spot',
           default_exchange: 'binance',
           default_interval: '1d',
           proxy_enabled: 'true',

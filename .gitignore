@@ -15,3 +15,4 @@ crypto_data/
 backend/data/
 backend/test_data/
 
+frontend/test_data/*

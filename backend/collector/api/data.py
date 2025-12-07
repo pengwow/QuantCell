@@ -524,7 +524,7 @@ def async_download_crypto(task_id: str, request: DownloadCryptoRequest):
         get_data = GetData()
         
         # 定义进度回调函数
-        def progress_callback(current, completed, total, failed):
+        def progress_callback(current, completed, total, failed, status=None):
             """进度回调函数
             
             Args:
@@ -532,14 +532,15 @@ def async_download_crypto(task_id: str, request: DownloadCryptoRequest):
                 completed: 已完成的项目数
                 total: 总项目数
                 failed: 失败的项目数
+                status: 详细的状态描述，例如"Downloaded 2025-11-01"
             """
             # 计算进度百分比
             progress = 0
             if total > 0:
                 progress = (completed / total) * 100
             
-            # 更新任务进度
-            task_manager.update_progress(task_id, current, completed, total, failed)
+            # 更新任务进度，传递详细的状态描述
+            task_manager.update_progress(task_id, current, completed, total, failed, status)
         
         # 处理保存目录：根据接口类型拼接路径
         save_dir = request.save_dir
@@ -718,6 +719,7 @@ def get_crypto_symbols(
         proxy_url = configs.get("proxy_url")
         proxy_username = configs.get("proxy_username")
         proxy_password = configs.get("proxy_password")
+        # configs.get("proxy_timeout")
         
         logger.info(f"代理配置: enabled={proxy_enabled}, url={proxy_url}")
         
@@ -738,7 +740,11 @@ def get_crypto_symbols(
                 logger.info(f"使用带认证的代理: {proxy_with_auth}")
             else:
                 # 使用不带认证的代理
-                exchange_instance.proxy = proxy_url
+                exchange_instance.proxies = {
+                    'https': proxy_url,
+                    'http': proxy_url
+                }
+                # exchange_instance.proxy = proxy_url
                 logger.info(f"使用不带认证的代理: {proxy_url}")
         else:
             logger.info("未启用代理")

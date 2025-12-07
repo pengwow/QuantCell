@@ -113,6 +113,7 @@ class DownloadCryptoRequest(BaseModel):
         max_workers: 最大工作线程数
         candle_type: 蜡烛图类型
         save_dir: 保存目录
+        update_mode: bool = False,  # 更新模式，设置为true时只下载缺失的数据
     """
     symbols: List[str] = Field(..., description="品种列表")
     interval: List[str] = Field(..., description="时间间隔列表")
@@ -122,6 +123,7 @@ class DownloadCryptoRequest(BaseModel):
     max_workers: int = Field(default=1, description="最大工作线程数")
     candle_type: str = Field(default="spot", description="蜡烛图类型")
     save_dir: Optional[str] = Field(None, description="保存目录，如果不提供则从系统配置中读取data_download_dir")
+    update_mode: bool = Field(default=False, description="更新模式，设置为true时只下载缺失的数据")
 
 
 class TaskStatusResponse(BaseModel):

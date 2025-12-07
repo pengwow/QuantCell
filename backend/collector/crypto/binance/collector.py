@@ -123,7 +123,7 @@ class BinanceCollector(CryptoBaseCollector):
         return symbol.replace('/', '')
     
     def get_data(
-        self, symbol: str, interval: str, start_datetime: pd.Timestamp, end_datetime: pd.Timestamp
+        self, symbol: str, interval: str, start_datetime: pd.Timestamp, end_datetime: pd.Timestamp, progress_callback=None
     ) -> pd.DataFrame:
         """
         获取指定交易对的K线数据
@@ -132,21 +132,118 @@ class BinanceCollector(CryptoBaseCollector):
         :param interval: 时间间隔
         :param start_datetime: 开始时间
         :param end_datetime: 结束时间
+        :param progress_callback: 进度回调函数，格式为 callback(symbol, current, total, status)
         :return: K线数据DataFrame
         """
         try:
+            # 检查是否启用了增量更新模式
+            update_mode = getattr(self, 'update_mode', False)
+            
+            # 初始化已有数据的时间范围
+            existing_start = None
+            existing_end = None
+            existing_df = pd.DataFrame()
+            
+            # 如果启用了增量更新，检查数据库中已有数据
+            if update_mode:
+                try:
+                    # 导入数据库相关模块
+                    from ...db.database import SessionLocal
+                    from ...db.models import Kline
+                    
+                    # 创建数据库会话
+                    db = SessionLocal()
+                    
+                    try:
+                        # 查询现有数据的时间范围
+                        logger.info(f"检查数据库中已有的 {symbol} {interval} 数据")
+                        
+                        # 查询最早和最晚的日期
+                        earliest_date = db.query(Kline.date).filter(
+                            Kline.symbol == symbol,
+                            Kline.interval == interval
+                        ).order_by(Kline.date.asc()).first()
+                        
+                        latest_date = db.query(Kline.date).filter(
+                            Kline.symbol == symbol,
+                            Kline.interval == interval
+                        ).order_by(Kline.date.desc()).first()
+                        
+                        # 获取现有数据
+                        existing_klines = db.query(Kline).filter(
+                            Kline.symbol == symbol,
+                            Kline.interval == interval,
+                            Kline.date >= start_datetime,
+                            Kline.date <= end_datetime
+                        ).all()
+                        
+                        if existing_klines:
+                            # 转换为DataFrame
+                            existing_df = pd.DataFrame([{
+                                'date': k.date,
+                                'open': k.open,
+                                'high': k.high,
+                                'low': k.low,
+                                'close': k.close,
+                                'volume': k.volume
+                            } for k in existing_klines])
+                            
+                            if not existing_df.empty:
+                                existing_df = existing_df.sort_values('date')
+                                existing_start = existing_df['date'].min()
+                                existing_end = existing_df['date'].max()
+                                logger.info(f"数据库中已有 {symbol} {interval} 数据，时间范围: {existing_start} 至 {existing_end}")
+                                logger.info(f"已有数据行数: {len(existing_df)}")
+                        else:
+                            logger.info(f"数据库中没有 {symbol} {interval} 数据")
+                    except Exception as e:
+                        logger.error(f"查询数据库失败: {e}")
+                        logger.exception(e)
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.error(f"初始化数据库连接失败: {e}")
+                    logger.exception(e)
+            
+            # 计算需要下载的时间范围
+            download_start = start_datetime
+            download_end = end_datetime
+            
+            # 如果启用了增量更新且已有数据，计算缺失的时间范围
+            if update_mode and existing_start and existing_end:
+                # 检查是否需要下载开始到现有开始之间的数据
+                missing_before = existing_start > start_datetime
+                # 检查是否需要下载现有结束到结束之间的数据
+                missing_after = existing_end < end_datetime
+                
+                # 如果没有缺失数据，直接返回已有数据
+                if not missing_before and not missing_after:
+                    logger.info(f"数据库中已有完整的 {symbol} {interval} 数据，不需要下载")
+                    return existing_df
+                
+                # 如果需要下载开始到现有开始之间的数据
+                if missing_before:
+                    download_start = start_datetime
+                    download_end = existing_start
+                    logger.info(f"需要下载 {symbol} {interval} 缺失数据，时间范围: {download_start} 至 {download_end}")
+                # 如果需要下载现有结束到结束之间的数据
+                if missing_after:
+                    download_start = existing_end
+                    download_end = end_datetime
+                    logger.info(f"需要下载 {symbol} {interval} 缺失数据，时间范围: {download_start} 至 {download_end}")
+            
             # 将时间转换为字符串格式
-            start_date = start_datetime.strftime('%Y-%m-%d')
-            end_date = end_datetime.strftime('%Y-%m-%d')
+            start_date = download_start.strftime('%Y-%m-%d')
+            end_date = download_end.strftime('%Y-%m-%d')
             
             logger.info(f"开始下载 {symbol} {interval} 数据，时间范围: {start_date} 至 {end_date}")
             
             # 使用下载器下载数据
-            df = self.downloader.download(symbol, interval, start_date, end_date)
+            df = self.downloader.download(symbol, interval, start_date, end_date, progress_callback)
             
             if df.empty:
                 logger.warning(f"{symbol} {interval} 数据为空")
-                return df
+                return existing_df  # 如果下载的数据为空，返回已有数据
             
             # 数据处理
             logger.info(f"原始数据行数: {len(df)}")
@@ -164,7 +261,7 @@ class BinanceCollector(CryptoBaseCollector):
             
             if df.empty:
                 logger.warning(f"{symbol} {interval} 数据在转换为数值类型后为空")
-                return df
+                return existing_df  # 如果转换后的数据为空，返回已有数据
             
             # 2. 记录open_time列的统计信息
             logger.info(f"open_time列的统计信息:")
@@ -244,8 +341,22 @@ class BinanceCollector(CryptoBaseCollector):
             # 8. 过滤时间范围
             filtered_df = filtered_df[(filtered_df['date'] >= start_datetime) & (filtered_df['date'] <= end_datetime)]
             
-            logger.info(f"成功下载 {symbol} {interval} 数据，共 {len(filtered_df)} 条")
-            return filtered_df
+            # 9. 如果有现有数据，合并下载的数据与现有数据
+            if not existing_df.empty:
+                logger.info(f"合并下载的数据与已有数据")
+                # 合并数据
+                combined_df = pd.concat([existing_df, filtered_df], ignore_index=True)
+                # 去重，保留最新的数据
+                combined_df = combined_df.drop_duplicates(subset=['date'], keep='last')
+                # 排序
+                combined_df = combined_df.sort_values('date')
+                # 过滤时间范围
+                combined_df = combined_df[(combined_df['date'] >= start_datetime) & (combined_df['date'] <= end_datetime)]
+                logger.info(f"合并后的数据行数: {len(combined_df)}")
+                return combined_df
+            else:
+                logger.info(f"成功下载 {symbol} {interval} 数据，共 {len(filtered_df)} 条")
+                return filtered_df
         except Exception as e:
             logger.error(f"下载 {symbol} {interval} 数据失败: {e}")
             logger.exception(e)  # 记录完整的异常堆栈
@@ -313,25 +424,13 @@ class BinanceCollector(CryptoBaseCollector):
             logger.error(f"数据转换失败: {e}")
             return False
     
-    def collect_data(self, convert_to_qlib=False, qlib_dir=None, progress_callback=None):
+    def collect_data(self, progress_callback=None):
         """
-        执行数据收集，并可选转换为QLib格式
+        执行数据收集
         
-        :param convert_to_qlib: 是否将数据转换为QLib格式
-        :param qlib_dir: QLib数据保存目录，如果为None则自动生成
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
         :return: 收集结果
         """
         # 执行数据收集
         result = super().collect_data(progress_callback=progress_callback)
-        
-        # 如果需要转换为QLib格式
-        if convert_to_qlib:
-            if qlib_dir is None:
-                # 自动生成QLib数据目录
-                qlib_dir = self.save_dir.parent.parent / "qlib_data"
-            
-            # 转换数据
-            self.convert_to_qlib(self.save_dir, qlib_dir, self.interval)
-        
         return result

@@ -1,11 +1,13 @@
 # 数据库连接管理模块
 
 from .connection import get_db_connection, init_db
-from .models import SystemConfig, SystemConfigBusiness
+from .models import SystemConfig, SystemConfigBusiness, DataPool, DataPoolBusiness
 
 __all__ = [
     "get_db_connection",
     "init_db",
     "SystemConfig",
-    "SystemConfigBusiness"
+    "SystemConfigBusiness",
+    "DataPool",
+    "DataPoolBusiness"
 ]

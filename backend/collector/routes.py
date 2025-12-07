@@ -16,6 +16,7 @@ from .scripts.convert_to_qlib import convert_crypto_to_qlib
 from .api.config import router as config_router
 from .api.data import router as data_router
 from .api.system import router as system_router
+from .api.data_pool import router as data_pool_router
 from .db.models import Task
 
 # 创建API路由实例
@@ -29,6 +30,9 @@ router.include_router(data_router)
 
 # 注册系统信息API路由
 router.include_router(system_router)
+
+# 注册资产池管理API路由
+router.include_router(data_pool_router)
 
 # 创建数据处理API路由子路由
 router_data = APIRouter(prefix="/api/data", tags=["data-processing"])

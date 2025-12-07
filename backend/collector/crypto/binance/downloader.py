@@ -101,7 +101,8 @@ class BinanceDownloader:
                     logger.debug(f"成功下载 {url}")
                     
                     with zipfile.ZipFile(BytesIO(content)) as zipf:
-                        with zipf.open(zipf.namelist()[0]) as csvf:
+                        filename = zipf.namelist()[0]
+                        with zipf.open(filename) as csvf:
                             # 检查CSV文件是否有表头
                             first_line = csvf.readline().decode('utf-8')
                             csvf.seek(0)
@@ -123,13 +124,13 @@ class BinanceDownloader:
                             # 确保列名与预期一致
                             df.columns = self.candle_names
                             
-                            logger.debug(f"处理{self.candle_type}数据: {symbol}-{timeframe}-{date}, 行数: {len(df)}, 表头: {'有' if has_header else '无'}")
+                            logger.info(f"成功处理 {symbol} {timeframe} 数据 ({date}): 共 {len(df)} 条记录, 文件: {filename}, 表头: {'有' if has_header else '无'}")
                             return df
                 else:
                     logger.warning(f"下载失败 {url}，状态码: {resp.status}")
                     return None
     
-    async def download_daily_klines(self, symbol, timeframe, start_date, end_date):
+    async def download_daily_klines(self, symbol, timeframe, start_date, end_date, progress_callback=None):
         """
         异步下载指定日期范围内的K线数据
         
@@ -137,22 +138,28 @@ class BinanceDownloader:
         :param timeframe: 时间间隔，如'1m'、'1h'、'1d'等
         :param start_date: 开始日期，格式为'YYYY-MM-DD'
         :param end_date: 结束日期，格式为'YYYY-MM-DD'
+        :param progress_callback: 进度回调函数，格式为 callback(symbol, current, total, status)
         :return: K线数据DataFrame
         """
         date_range = get_date_range(start_date, end_date)
         all_data = []
+        total_dates = len(date_range)
         
-        for date in date_range:
+        for idx, date in enumerate(date_range):
             df = await self.get_daily_klines(symbol, timeframe, date)
             if df is not None and not df.empty:
                 all_data.append(df)
+            
+            # 更新进度
+            if progress_callback:
+                progress_callback(symbol, idx + 1, total_dates, f"Downloaded {date}")
         
         if all_data:
             return pd.concat(all_data, ignore_index=True)
         else:
             return pd.DataFrame()
     
-    def download(self, symbol, timeframe, start_date, end_date):
+    def download(self, symbol, timeframe, start_date, end_date, progress_callback=None):
         """
         下载指定日期范围内的K线数据（同步接口）
         
@@ -160,9 +167,10 @@ class BinanceDownloader:
         :param timeframe: 时间间隔，如'1m'、'1h'、'1d'等
         :param start_date: 开始日期，格式为'YYYY-MM-DD'
         :param end_date: 结束日期，格式为'YYYY-MM-DD'
+        :param progress_callback: 进度回调函数，格式为 callback(symbol, current, total, status)
         :return: K线数据DataFrame
         """
-        return asyncio.run(self.download_daily_klines(symbol, timeframe, start_date, end_date))
+        return asyncio.run(self.download_daily_klines(symbol, timeframe, start_date, end_date, progress_callback))
     
     def save_data(self, df, save_path):
         """
