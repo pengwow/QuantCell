@@ -72,7 +72,8 @@ def download_crypto_data(request: DataDownloadRequest):
             candle_type=request.candle_type,
             symbols=request.symbols,
             convert_to_qlib=request.convert_to_qlib,
-            qlib_dir=request.qlib_dir
+            qlib_dir=request.qlib_dir,
+            data_write_to_db=request.data_write_to_db
         )
         
         logger.info("加密货币数据下载请求处理完成")

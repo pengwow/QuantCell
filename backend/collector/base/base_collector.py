@@ -153,6 +153,12 @@ class BaseCollector(abc.ABC):
         if instrument_path.exists():
             _old_df = pd.read_csv(instrument_path)
             df = pd.concat([_old_df, df], sort=False)
+            # 将date列统一转换为datetime类型，解决混合类型排序问题
+            df['date'] = pd.to_datetime(df['date'])
+            # 去重，基于date列，保留最新数据
+            df = df.drop_duplicates(subset=['date'], keep='last')
+            # 按date排序
+            df = df.sort_values('date')
         df.to_csv(instrument_path, index=False)
         logger.info(f"成功将 {symbol} 数据保存到文件: {instrument_path}")
     

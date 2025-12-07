@@ -79,6 +79,9 @@ class GetData:
                     if isinstance(date, str):
                         date = pd.to_datetime(date)
                     
+                    # 直接生成unique_kline值，避免批量插入时的参数名问题
+                    unique_kline = f"{symbol}_{interval}_{date.isoformat()}"
+                    
                     kline_list.append({
                         'symbol': symbol,
                         'interval': interval,
@@ -87,7 +90,8 @@ class GetData:
                         'high': row['high'],
                         'low': row['low'],
                         'close': row['close'],
-                        'volume': row['volume']
+                        'volume': row['volume'],
+                        'unique_kline': unique_kline  # 直接提供unique_kline值，不依赖模型默认生成
                     })
                 
                 if not kline_list:
@@ -97,16 +101,31 @@ class GetData:
                 # 创建数据库会话
                 db = SessionLocal()
                 try:
-                    # 使用session.merge()方法，这是SQLAlchemy提供的通用方式来处理UPSERT
-                    # 这种方式会自动处理不同数据库的差异
-                    for kline_data in kline_list:
-                        # 创建Kline对象
-                        kline = Kline(**kline_data)
-                        # 使用merge方法，存在则更新，不存在则插入
-                        db.merge(kline)
+                    # 使用SQLAlchemy的insert().on_conflict_do_update()方法实现UPSERT
+                    # 这是处理唯一约束冲突的最佳方式，支持SQLite、PostgreSQL等多种数据库
+                    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
                     
-                    db.commit()
-                    logger.info(f"成功将 {len(kline_list)} 条 {symbol} 数据写入数据库")
+                    if kline_list:
+                        # 使用bulk insert方式，提高写入效率
+                        stmt = sqlite_insert(Kline).values(kline_list)
+                        
+                        # 定义冲突处理策略：当unique_kline冲突时，更新除unique_kline外的所有列
+                        stmt = stmt.on_conflict_do_update(
+                            index_elements=['unique_kline'],  # 唯一索引列
+                            set_={
+                                'open': stmt.excluded.open,
+                                'high': stmt.excluded.high,
+                                'low': stmt.excluded.low,
+                                'close': stmt.excluded.close,
+                                'volume': stmt.excluded.volume,
+                                'updated_at': func.now()
+                            }
+                        )
+                        
+                        # 执行UPSERT操作
+                        db.execute(stmt)
+                        db.commit()
+                        logger.info(f"成功将 {len(kline_list)} 条 {symbol} 数据写入数据库")
                 except Exception as e:
                     logger.error(f"写入数据库失败: {e}")
                     logger.exception(e)

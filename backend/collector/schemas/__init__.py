@@ -36,6 +36,7 @@ class DataDownloadRequest(BaseModel):
         symbols: 交易对列表，如['BTCUSDT', 'ETHUSDT']，如果为None则获取全量交易对
         convert_to_qlib: 是否将数据转换为QLib格式，默认False
         qlib_dir: QLib数据保存目录，如果为None则自动生成
+        data_write_to_db: 是否将数据写入数据库，如为None则从配置获取默认值
     """
     exchange: str = Field(default="binance", description="交易所名称，目前支持'binance'")
     save_dir: Optional[str] = Field(None, description="数据保存目录，可选")
@@ -49,6 +50,7 @@ class DataDownloadRequest(BaseModel):
     symbols: Optional[List[str]] = Field(None, description="交易对列表，如['BTCUSDT', 'ETHUSDT']，如果为None则获取全量交易对")
     convert_to_qlib: bool = Field(default=False, description="是否将数据转换为QLib格式，默认False")
     qlib_dir: Optional[str] = Field(None, description="QLib数据保存目录，如果为None则自动生成")
+    data_write_to_db: Optional[bool] = Field(default=True, description="是否将数据写入数据库，如为None则从配置获取默认值")
 
 
 class DataConvertRequest(BaseModel):

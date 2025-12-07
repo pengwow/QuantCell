@@ -588,7 +588,7 @@ def async_download_crypto(task_id: str, request: DownloadCryptoRequest):
         logger.exception(e)
         
         # 更新任务状态为失败
-        task_manager.fail_task(task_id, error=str(e))
+        task_manager.fail_task(task_id, error_message=str(e))
 
 
 @router.post("/download/crypto", response_model=ApiResponse)
