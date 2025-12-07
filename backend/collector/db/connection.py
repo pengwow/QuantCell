@@ -94,7 +94,17 @@ class DBConnection:
             elif db_type == "duckdb":
                 # DuckDB连接
                 import duckdb
-                conn = duckdb.connect(str(db_path))
+                # 统一DuckDB连接配置，确保所有连接使用相同的配置
+                conn = duckdb.connect(
+                    str(db_path),
+                    read_only=False,  # 确保连接是可写的
+                    # 设置统一的配置选项，避免连接配置冲突
+                    # 与SQLAlchemy连接使用完全相同的配置
+                    config={
+                        "enable_external_access": "true",
+                        "enable_object_cache": "true"
+                    }
+                )
             else:
                 # 默认使用SQLite
                 logger.warning(f"未知的数据库类型: {db_type}，使用SQLite")

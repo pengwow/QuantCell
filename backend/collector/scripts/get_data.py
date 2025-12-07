@@ -101,29 +101,61 @@ class GetData:
                 # 创建数据库会话
                 db = SessionLocal()
                 try:
-                    # 使用SQLAlchemy的insert().on_conflict_do_update()方法实现UPSERT
-                    # 这是处理唯一约束冲突的最佳方式，支持SQLite、PostgreSQL等多种数据库
-                    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-                    
+                    # 实现跨数据库兼容的UPSERT逻辑
+                    # 对于SQLite和PostgreSQL/DuckDB，使用不同的实现方式
                     if kline_list:
-                        # 使用bulk insert方式，提高写入效率
-                        stmt = sqlite_insert(Kline).values(kline_list)
+                        # 获取当前使用的数据库类型
+                        from ...db.database import db_type
                         
-                        # 定义冲突处理策略：当unique_kline冲突时，更新除unique_kline外的所有列
-                        stmt = stmt.on_conflict_do_update(
-                            index_elements=['unique_kline'],  # 唯一索引列
-                            set_={
-                                'open': stmt.excluded.open,
-                                'high': stmt.excluded.high,
-                                'low': stmt.excluded.low,
-                                'close': stmt.excluded.close,
-                                'volume': stmt.excluded.volume,
-                                'updated_at': func.now()
-                            }
-                        )
+                        if db_type == "sqlite":
+                            # SQLite使用on_conflict_do_update
+                            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+                            stmt = sqlite_insert(Kline).values(kline_list)
+                            stmt = stmt.on_conflict_do_update(
+                                index_elements=['unique_kline'],
+                                set_={
+                                    'open': stmt.excluded.open,
+                                    'high': stmt.excluded.high,
+                                    'low': stmt.excluded.low,
+                                    'close': stmt.excluded.close,
+                                    'volume': stmt.excluded.volume,
+                                    'updated_at': func.now()
+                                }
+                            )
+                            db.execute(stmt)
+                        elif db_type == "duckdb":
+                            # DuckDB使用PostgreSQL兼容的ON CONFLICT语法
+                            from sqlalchemy.dialects.postgresql import insert as pg_insert
+                            stmt = pg_insert(Kline).values(kline_list)
+                            stmt = stmt.on_conflict_do_update(
+                                index_elements=['unique_kline'],
+                                set_={
+                                    'open': stmt.excluded.open,
+                                    'high': stmt.excluded.high,
+                                    'low': stmt.excluded.low,
+                                    'close': stmt.excluded.close,
+                                    'volume': stmt.excluded.volume,
+                                    'updated_at': func.now()
+                                }
+                            )
+                            db.execute(stmt)
+                        else:
+                            # 其他数据库类型，使用BULK INSERT + 错误处理
+                            try:
+                                # 尝试直接插入
+                                db.execute("INSERT INTO klines (symbol, interval, date, open, high, low, close, volume) VALUES ", kline_list)
+                            except Exception as e:
+                                # 插入失败时，尝试单个UPSERT
+                                for kline in kline_list:
+                                    try:
+                                        db.execute("INSERT INTO klines (symbol, interval, date, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
+                                                (kline['symbol'], kline['interval'], kline['date'], kline['open'], kline['high'], kline['low'], kline['close'], kline['volume']))
+                                    except Exception as single_e:
+                                        # 发生冲突时，执行UPDATE
+                                        db.execute("UPDATE klines SET open = ?, high = ?, low = ?, close = ?, volume = ?, updated_at = CURRENT_TIMESTAMP WHERE unique_kline = ?", 
+                                                (kline['open'], kline['high'], kline['low'], kline['close'], kline['volume'], 
+                                                f"{kline['symbol']}_{kline['interval']}_{kline['date'].isoformat()}"))
                         
-                        # 执行UPSERT操作
-                        db.execute(stmt)
                         db.commit()
                         logger.info(f"成功将 {len(kline_list)} 条 {symbol} 数据写入数据库")
                 except Exception as e:

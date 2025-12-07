@@ -64,6 +64,18 @@ def init_database_config():
     if db_type == "sqlite":
         # SQLite特定配置，允许同一连接在不同线程中使用
         connect_args["check_same_thread"] = False
+    elif db_type == "duckdb":
+        # DuckDB特定配置，与原生连接使用相同的配置
+        # 注意：DuckDB对配置的比较非常严格，必须确保所有配置参数完全相同
+        connect_args = {
+            "read_only": False,
+            # 使用与原生连接完全相同的配置，避免配置冲突
+            # 简化配置，只使用DuckDB支持的核心配置
+            "config": {
+                "enable_external_access": "true",
+                "enable_object_cache": "true"
+            }
+        }
     
     engine = create_engine(
         db_url,

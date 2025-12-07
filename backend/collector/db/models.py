@@ -301,26 +301,35 @@ class SystemConfigBusiness:
             Dict[str, Dict[str, Any]]: 所有配置的详细信息，键为配置名，值为配置详情字典
         """
         try:
-            # 初始化数据库配置，确保数据库连接正常
+            # 初始化数据库配置，确保SessionLocal已绑定引擎
             from .database import init_database_config
             init_database_config()
             
-            conn = get_db_connection()
-            results = conn.execute(
-                "SELECT key, value, description, created_at, updated_at FROM system_config ORDER BY key"
-            ).fetchall()
-            return {
-                row[0]: {
-                    "key": row[0],
-                    "value": row[1],
-                    "description": row[2],
-                    "created_at": row[3],
-                    "updated_at": row[4]
+            # 使用SQLAlchemy连接，确保统一的连接方式
+            from .database import SessionLocal
+            from . import models
+            
+            db = SessionLocal()
+            try:
+                # 查询所有配置
+                configs = db.query(models.SystemConfig).order_by(models.SystemConfig.key).all()
+                
+                return {
+                    config.key: {
+                        "key": config.key,
+                        "value": config.value,
+                        "description": config.description,
+                        "created_at": config.created_at,
+                        "updated_at": config.updated_at
+                    }
+                    for config in configs
                 }
-                for row in results
-            }
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"获取所有配置详情失败: error={e}")
+            import traceback
+            traceback.print_exc()
             return {}
 
 
@@ -329,6 +338,7 @@ class TaskBusiness:
     
     用于操作tasks表，提供CRUD操作方法
     兼容SQLite和DuckDB
+    使用ORM方式操作数据库，避免原生SQL语句
     """
     
     @staticmethod
@@ -345,29 +355,41 @@ class TaskBusiness:
         """
         try:
             import json
-            conn = get_db_connection()
             
-            # 检查tasks表是否存在，如果不存在则初始化数据库
+            # 使用SQLAlchemy连接，确保统一的连接方式
+            from .database import init_database_config, SessionLocal
+            init_database_config()
+            
+            db = SessionLocal()
+            
             try:
-                conn.execute("SELECT 1 FROM tasks LIMIT 1")
-            except Exception as e:
-                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
-                from .connection import init_db
-                init_db()
-                conn = get_db_connection()
-            
-            # 序列化参数为JSON字符串
-            params_json = json.dumps(params)
-            
-            conn.execute("""
-            INSERT INTO tasks (task_id, task_type, status, params)
-            VALUES (?, ?, ?, ?)
-            """, (task_id, task_type, "pending", params_json))
-            
-            logger.info(f"任务已创建: task_id={task_id}, task_type={task_type}")
-            return True
+                # 序列化参数为JSON字符串
+                params_json = json.dumps(params)
+                
+                # 创建Task模型实例
+                from .database import Base
+                from sqlalchemy.orm import Session
+                
+                # 直接使用Task模型类
+                task = Task(
+                    task_id=task_id,
+                    task_type=task_type,
+                    status="pending",
+                    params=params_json
+                )
+                
+                # 添加到会话并提交
+                db.add(task)
+                db.commit()
+                
+                logger.info(f"任务已创建: task_id={task_id}, task_type={task_type}")
+                return True
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"创建任务失败: task_id={task_id}, error={e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     @staticmethod
@@ -381,27 +403,37 @@ class TaskBusiness:
             bool: 操作成功返回True，失败返回False
         """
         try:
-            conn = get_db_connection()
+            from datetime import datetime
             
-            # 检查tasks表是否存在，如果不存在则初始化数据库
+            # 使用SQLAlchemy连接，确保统一的连接方式
+            from .database import init_database_config, SessionLocal
+            init_database_config()
+            
+            db = SessionLocal()
+            
             try:
-                conn.execute("SELECT 1 FROM tasks LIMIT 1")
-            except Exception as e:
-                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
-                from .connection import init_db
-                init_db()
-                conn = get_db_connection()
-            
-            conn.execute("""
-            UPDATE tasks 
-            SET status = ?, start_time = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-            WHERE task_id = ?
-            """, ("running", task_id))
-            
-            logger.info(f"任务已开始: task_id={task_id}")
-            return True
+                # 使用ORM查询任务
+                task = db.query(Task).filter(Task.task_id == task_id).first()
+                if not task:
+                    logger.error(f"任务不存在: task_id={task_id}")
+                    return False
+                
+                # 更新任务状态
+                task.status = "running"
+                task.start_time = datetime.now()
+                task.updated_at = datetime.now()
+                
+                # 提交更改
+                db.commit()
+                
+                logger.info(f"任务已开始: task_id={task_id}")
+                return True
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"开始任务失败: task_id={task_id}, error={e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     @staticmethod
@@ -420,41 +452,48 @@ class TaskBusiness:
             bool: 操作成功返回True，失败返回False
         """
         try:
-            conn = get_db_connection()
+            from datetime import datetime
             
-            # 检查tasks表是否存在，如果不存在则初始化数据库
+            # 使用SQLAlchemy连接，确保统一的连接方式
+            from .database import init_database_config, SessionLocal
+            init_database_config()
+            
+            db = SessionLocal()
+            
             try:
-                conn.execute("SELECT 1 FROM tasks LIMIT 1")
-            except Exception as e:
-                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
-                from .connection import init_db
-                init_db()
-                conn = get_db_connection()
-            
-            # 计算进度百分比
-            percentage = 0
-            if total > 0:
-                percentage = int((completed + failed) / total * 100)
-            
-            # 使用current字段存储详细状态描述
-            detailed_current = f"{current} - {status}" if status else current
-            
-            conn.execute("""
-            UPDATE tasks 
-            SET 
-                total = ?, 
-                completed = ?, 
-                failed = ?, 
-                current = ?, 
-                percentage = ?, 
-                updated_at = CURRENT_TIMESTAMP
-            WHERE task_id = ?
-            """, (total, completed, failed, detailed_current, percentage, task_id))
-            
-            logger.debug(f"任务进度已更新: task_id={task_id}, current={detailed_current}, progress={percentage}%")
-            return True
+                # 使用ORM查询任务
+                task = db.query(Task).filter(Task.task_id == task_id).first()
+                if not task:
+                    logger.error(f"任务不存在: task_id={task_id}")
+                    return False
+                
+                # 计算进度百分比
+                percentage = 0
+                if total > 0:
+                    percentage = int((completed + failed) / total * 100)
+                
+                # 使用current字段存储详细状态描述
+                detailed_current = f"{current} - {status}" if status else current
+                
+                # 更新任务进度
+                task.total = total
+                task.completed = completed
+                task.failed = failed
+                task.current = detailed_current
+                task.percentage = percentage
+                task.updated_at = datetime.now()
+                
+                # 提交更改
+                db.commit()
+                
+                logger.debug(f"任务进度已更新: task_id={task_id}, current={detailed_current}, progress={percentage}%")
+                return True
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"更新任务进度失败: task_id={task_id}, error={e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     @staticmethod
@@ -468,27 +507,37 @@ class TaskBusiness:
             bool: 操作成功返回True，失败返回False
         """
         try:
-            conn = get_db_connection()
+            from datetime import datetime
             
-            # 检查tasks表是否存在，如果不存在则初始化数据库
+            # 使用SQLAlchemy连接，确保统一的连接方式
+            from .database import init_database_config, SessionLocal
+            init_database_config()
+            
+            db = SessionLocal()
+            
             try:
-                conn.execute("SELECT 1 FROM tasks LIMIT 1")
-            except Exception as e:
-                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
-                from .connection import init_db
-                init_db()
-                conn = get_db_connection()
-            
-            conn.execute("""
-            UPDATE tasks 
-            SET status = ?, end_time = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-            WHERE task_id = ?
-            """, ("completed", task_id))
-            
-            logger.info(f"任务已完成: task_id={task_id}")
-            return True
+                # 使用ORM查询任务
+                task = db.query(Task).filter(Task.task_id == task_id).first()
+                if not task:
+                    logger.error(f"任务不存在: task_id={task_id}")
+                    return False
+                
+                # 更新任务状态
+                task.status = "completed"
+                task.end_time = datetime.now()
+                task.updated_at = datetime.now()
+                
+                # 提交更改
+                db.commit()
+                
+                logger.info(f"任务已完成: task_id={task_id}")
+                return True
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"完成任务失败: task_id={task_id}, error={e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     @staticmethod
@@ -503,31 +552,38 @@ class TaskBusiness:
             bool: 操作成功返回True，失败返回False
         """
         try:
-            conn = get_db_connection()
+            from datetime import datetime
             
-            # 检查tasks表是否存在，如果不存在则初始化数据库
+            # 使用SQLAlchemy连接，确保统一的连接方式
+            from .database import init_database_config, SessionLocal
+            init_database_config()
+            
+            db = SessionLocal()
+            
             try:
-                conn.execute("SELECT 1 FROM tasks LIMIT 1")
-            except Exception as e:
-                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
-                from .connection import init_db
-                init_db()
-                conn = get_db_connection()
-            
-            conn.execute("""
-            UPDATE tasks 
-            SET 
-                status = ?, 
-                error_message = ?, 
-                end_time = CURRENT_TIMESTAMP, 
-                updated_at = CURRENT_TIMESTAMP
-            WHERE task_id = ?
-            """, ("failed", error_message, task_id))
-            
-            logger.error(f"任务已失败: task_id={task_id}, error={error_message}")
-            return True
+                # 使用ORM查询任务
+                task = db.query(Task).filter(Task.task_id == task_id).first()
+                if not task:
+                    logger.error(f"任务不存在: task_id={task_id}")
+                    return False
+                
+                # 更新任务状态
+                task.status = "failed"
+                task.error_message = error_message
+                task.end_time = datetime.now()
+                task.updated_at = datetime.now()
+                
+                # 提交更改
+                db.commit()
+                
+                logger.error(f"任务已失败: task_id={task_id}, error={error_message}")
+                return True
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"标记任务失败: task_id={task_id}, error={e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     @staticmethod
@@ -542,49 +598,47 @@ class TaskBusiness:
         """
         try:
             import json
-            conn = get_db_connection()
             
-            # 检查tasks表是否存在，如果不存在则初始化数据库
+            # 使用SQLAlchemy连接，确保统一的连接方式
+            from .database import init_database_config, SessionLocal
+            init_database_config()
+            
+            db = SessionLocal()
+            
             try:
-                conn.execute("SELECT 1 FROM tasks LIMIT 1")
-            except Exception as e:
-                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
-                from .connection import init_db
-                init_db()
-                conn = get_db_connection()
-            
-            result = conn.execute(
-                "SELECT * FROM tasks WHERE task_id = ?",
-                (task_id,)
-            ).fetchone()
-            
-            if not result:
-                return None
-            
-            # 解析结果
-            task_info = {
-                "task_id": result[0],
-                "task_type": result[1],
-                "status": result[2],
-                "progress": {
-                    "total": result[3],
-                    "completed": result[4],
-                    "failed": result[5],
-                    "current": result[6],
-                    "percentage": result[7],
-                    "status": result[6]  # 使用current字段作为status，因为current字段已经包含了详细的状态描述
-                },
-                "params": json.loads(result[8]),
-                "start_time": result[9],
-                "end_time": result[10],
-                "error_message": result[11],
-                "created_at": result[12],
-                "updated_at": result[13]
-            }
-            
-            return task_info
+                # 使用ORM查询任务
+                task = db.query(Task).filter(Task.task_id == task_id).first()
+                if not task:
+                    return None
+                
+                # 解析结果
+                task_info = {
+                    "task_id": task.task_id,
+                    "task_type": task.task_type,
+                    "status": task.status,
+                    "progress": {
+                        "total": task.total,
+                        "completed": task.completed,
+                        "failed": task.failed,
+                        "current": task.current,
+                        "percentage": task.percentage,
+                        "status": task.current  # 使用current字段作为status，因为current字段已经包含了详细的状态描述
+                    },
+                    "params": task.params,
+                    "start_time": task.start_time,
+                    "end_time": task.end_time,
+                    "error_message": task.error_message,
+                    "created_at": task.created_at,
+                    "updated_at": task.updated_at
+                }
+                
+                return task_info
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"获取任务信息失败: task_id={task_id}, error={e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     @staticmethod
@@ -597,47 +651,47 @@ class TaskBusiness:
         """
         try:
             import json
-            conn = get_db_connection()
             
-            # 检查tasks表是否存在，如果不存在则初始化数据库
+            # 使用SQLAlchemy连接，确保统一的连接方式
+            from .database import init_database_config, SessionLocal
+            init_database_config()
+            
+            db = SessionLocal()
+            
             try:
-                conn.execute("SELECT 1 FROM tasks LIMIT 1")
-            except Exception as e:
-                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
-                from .connection import init_db
-                init_db()
-                conn = get_db_connection()
-            
-            results = conn.execute(
-                "SELECT * FROM tasks ORDER BY created_at DESC"
-            ).fetchall()
-            
-            tasks = {}
-            for result in results:
-                task_id = result[0]
-                tasks[task_id] = {
-                "task_id": task_id,
-                "task_type": result[1],
-                "status": result[2],
-                "progress": {
-                    "total": result[3],
-                    "completed": result[4],
-                    "failed": result[5],
-                    "current": result[6],
-                    "percentage": result[7],
-                    "status": result[6]  # 使用current字段作为status，包含详细的状态描述
-                },
-                "params": json.loads(result[8]),
-                "start_time": result[9],
-                "end_time": result[10],
-                "error_message": result[11],
-                "created_at": result[12],
-                "updated_at": result[13]
-            }
-            
-            return tasks
+                # 使用ORM查询所有任务，按created_at降序排序
+                tasks_list = db.query(Task).order_by(Task.created_at.desc()).all()
+                
+                tasks = {}
+                for task in tasks_list:
+                    task_id = task.task_id
+                    tasks[task_id] = {
+                    "task_id": task_id,
+                    "task_type": task.task_type,
+                    "status": task.status,
+                    "progress": {
+                        "total": task.total,
+                        "completed": task.completed,
+                        "failed": task.failed,
+                        "current": task.current,
+                        "percentage": task.percentage,
+                        "status": task.current  # 使用current字段作为status，包含详细的状态描述
+                    },
+                    "params": task.params,
+                    "start_time": task.start_time,
+                    "end_time": task.end_time,
+                    "error_message": task.error_message,
+                    "created_at": task.created_at,
+                    "updated_at": task.updated_at
+                }
+                
+                return tasks
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"获取所有任务信息失败: error={e}")
+            import traceback
+            traceback.print_exc()
             return {}
     
     @staticmethod
@@ -657,120 +711,111 @@ class TaskBusiness:
         """
         try:
             import json
-            conn = get_db_connection()
             
-            # 检查tasks表是否存在，如果不存在则初始化数据库
+            # 使用SQLAlchemy连接，确保统一的连接方式
+            from .database import init_database_config, SessionLocal
+            init_database_config()
+            
+            db = SessionLocal()
+            
             try:
-                conn.execute("SELECT 1 FROM tasks LIMIT 1")
-            except Exception as e:
-                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
-                from .connection import init_db
-                init_db()
-                conn = get_db_connection()
-            
-            # 构建查询条件
-            where_clauses = []
-            params = []
-            
-            if filters:
-                # 任务类型过滤
-                if "task_type" in filters and filters["task_type"]:
-                    where_clauses.append("task_type = ?")
-                    params.append(filters["task_type"])
+                # 构建查询
+                query = db.query(Task)
                 
-                # 任务状态过滤
-                if "status" in filters and filters["status"]:
-                    where_clauses.append("status = ?")
-                    params.append(filters["status"])
+                # 应用过滤条件
+                if filters:
+                    # 任务类型过滤
+                    if "task_type" in filters and filters["task_type"]:
+                        query = query.filter(Task.task_type == filters["task_type"])
+                    
+                    # 任务状态过滤
+                    if "status" in filters and filters["status"]:
+                        query = query.filter(Task.status == filters["status"])
+                    
+                    # 开始时间过滤
+                    if "start_time" in filters and filters["start_time"]:
+                        query = query.filter(Task.start_time >= filters["start_time"])
+                    
+                    # 结束时间过滤
+                    if "end_time" in filters and filters["end_time"]:
+                        query = query.filter(Task.end_time <= filters["end_time"])
+                    
+                    # 创建时间过滤
+                    if "created_at" in filters and filters["created_at"]:
+                        query = query.filter(Task.created_at >= filters["created_at"])
+                    
+                    # 更新时间过滤
+                    if "updated_at" in filters and filters["updated_at"]:
+                        query = query.filter(Task.updated_at <= filters["updated_at"])
                 
-                # 开始时间过滤
-                if "start_time" in filters and filters["start_time"]:
-                    where_clauses.append("start_time >= ?")
-                    params.append(filters["start_time"])
+                # 验证排序字段，防止SQL注入
+                allowed_sort_fields = ["task_id", "task_type", "status", "start_time", "end_time", "created_at", "updated_at"]
+                if sort_by not in allowed_sort_fields:
+                    sort_by = "created_at"
                 
-                # 结束时间过滤
-                if "end_time" in filters and filters["end_time"]:
-                    where_clauses.append("end_time <= ?")
-                    params.append(filters["end_time"])
+                # 验证排序顺序
+                if sort_order not in ["asc", "desc"]:
+                    sort_order = "desc"
                 
-                # 创建时间过滤
-                if "created_at" in filters and filters["created_at"]:
-                    where_clauses.append("created_at >= ?")
-                    params.append(filters["created_at"])
+                # 应用排序
+                sort_column = getattr(Task, sort_by)
+                if sort_order == "desc":
+                    query = query.order_by(sort_column.desc())
+                else:
+                    query = query.order_by(sort_column.asc())
                 
-                # 更新时间过滤
-                if "updated_at" in filters and filters["updated_at"]:
-                    where_clauses.append("updated_at <= ?")
-                    params.append(filters["updated_at"])
-            
-            # 构建WHERE子句
-            where_sql = "" if not where_clauses else f"WHERE {' AND '.join(where_clauses)}"  
-            
-            # 构建排序子句
-            # 验证排序字段，防止SQL注入
-            allowed_sort_fields = ["task_id", "task_type", "status", "start_time", "end_time", "created_at", "updated_at"]
-            if sort_by not in allowed_sort_fields:
-                sort_by = "created_at"
-            
-            # 验证排序顺序
-            if sort_order not in ["asc", "desc"]:
-                sort_order = "desc"
-            
-            order_sql = f"ORDER BY {sort_by} {sort_order}"
-            
-            # 获取总记录数
-            count_sql = f"SELECT COUNT(*) FROM tasks {where_sql}"
-            total = conn.execute(count_sql, params).fetchone()[0]
-            
-            # 计算分页参数
-            offset = (page - 1) * page_size
-            
-            # 构建分页查询SQL
-            paginated_sql = f"SELECT * FROM tasks {where_sql} {order_sql} LIMIT ? OFFSET ?"
-            params.extend([page_size, offset])
-            
-            # 执行查询
-            results = conn.execute(paginated_sql, params).fetchall()
-            
-            # 处理结果
-            tasks = []
-            for result in results:
-                task = {
-                    "task_id": result[0],
-                    "task_type": result[1],
-                    "status": result[2],
-                    "progress": {
-                        "total": result[3],
-                        "completed": result[4],
-                        "failed": result[5],
-                        "current": result[6],
-                        "percentage": result[7],
-                        "status": result[6]  # 使用current字段作为status，包含详细的状态描述
-                    },
-                    "params": json.loads(result[8]),
-                    "start_time": result[9],
-                    "end_time": result[10],
-                    "error_message": result[11],
-                    "created_at": result[12],
-                    "updated_at": result[13]
+                # 获取总记录数
+                total = query.count()
+                
+                # 计算分页参数
+                offset = (page - 1) * page_size
+                
+                # 应用分页
+                paginated_tasks = query.limit(page_size).offset(offset).all()
+                
+                # 处理结果
+                tasks = []
+                for task in paginated_tasks:
+                    task_info = {
+                        "task_id": task.task_id,
+                        "task_type": task.task_type,
+                        "status": task.status,
+                        "progress": {
+                            "total": task.total,
+                            "completed": task.completed,
+                            "failed": task.failed,
+                            "current": task.current,
+                            "percentage": task.percentage,
+                            "status": task.current  # 使用current字段作为status，包含详细的状态描述
+                        },
+                        "params": task.params,
+                        "start_time": task.start_time,
+                        "end_time": task.end_time,
+                        "error_message": task.error_message,
+                        "created_at": task.created_at,
+                        "updated_at": task.updated_at
+                    }
+                    tasks.append(task_info)
+                
+                # 计算总页数
+                pages = (total + page_size - 1) // page_size
+                
+                # 返回结果
+                return {
+                    "tasks": tasks,
+                    "pagination": {
+                        "page": page,
+                        "page_size": page_size,
+                        "total": total,
+                        "pages": pages
+                    }
                 }
-                tasks.append(task)
-            
-            # 计算总页数
-            pages = (total + page_size - 1) // page_size
-            
-            # 返回结果
-            return {
-                "tasks": tasks,
-                "pagination": {
-                    "page": page,
-                    "page_size": page_size,
-                    "total": total,
-                    "pages": pages
-                }
-            }
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"获取分页任务列表失败: error={e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "tasks": [],
                 "pagination": {
@@ -792,23 +837,31 @@ class TaskBusiness:
             bool: 操作成功返回True，失败返回False
         """
         try:
-            conn = get_db_connection()
+            # 使用SQLAlchemy连接，确保统一的连接方式
+            from .database import init_database_config, SessionLocal
+            init_database_config()
             
-            # 检查tasks表是否存在，如果不存在则初始化数据库
+            db = SessionLocal()
+            
             try:
-                conn.execute("SELECT 1 FROM tasks LIMIT 1")
-            except Exception as e:
-                logger.warning(f"tasks表不存在，尝试初始化数据库: {e}")
-                from .connection import init_db
-                init_db()
-                conn = get_db_connection()
-            
-            conn.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
-            
-            logger.info(f"任务已删除: task_id={task_id}")
-            return True
+                # 使用ORM删除任务
+                result = db.query(Task).filter(Task.task_id == task_id).delete()
+                
+                # 提交更改
+                db.commit()
+                
+                if result > 0:
+                    logger.info(f"任务已删除: task_id={task_id}")
+                    return True
+                else:
+                    logger.warning(f"任务不存在: task_id={task_id}")
+                    return False
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"删除任务失败: task_id={task_id}, error={e}")
+            import traceback
+            traceback.print_exc()
             return False
 
 
