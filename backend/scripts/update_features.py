@@ -87,8 +87,8 @@ def update_features_to_db(features: Dict[str, List[Dict[str, str]]]):
     try:
         # 导入数据库相关模块
         from sqlalchemy.orm import Session
-        from collector.db import crud, models, schemas
-        from collector.db.database import engine, SessionLocal
+        from backend.collector.db import crud, models, schemas
+        from backend.collector.db.database import engine, SessionLocal
         
         # 创建数据库会话
         db = SessionLocal()
@@ -97,10 +97,6 @@ def update_features_to_db(features: Dict[str, List[Dict[str, str]]]):
             # 遍历所有货币的特征
             for symbol, symbol_features in features.items():
                 logger.info(f"开始更新货币{symbol}的特征信息到数据库")
-                
-                # 先删除该货币的现有特征
-                crud.delete_features_by_symbol(db, symbol)
-                logger.info(f"已删除货币{symbol}的现有特征")
                 
                 # 批量创建新特征
                 feature_create_list = []
@@ -112,12 +108,21 @@ def update_features_to_db(features: Dict[str, List[Dict[str, str]]]):
                     )
                     feature_create_list.append(feature_create)
                 
+                # 在同一个事务中完成删除和插入操作
+                # 先删除该货币的现有特征
+                crud.delete_features_by_symbol(db, symbol)
+                logger.info(f"已删除货币{symbol}的现有特征")
+                
                 # 批量创建特征
                 if feature_create_list:
                     created_features = crud.create_features(db, feature_create_list)
                     logger.info(f"已创建货币{symbol}的{len(created_features)}个特征")
             
             logger.info("特征信息更新到数据库完成")
+        except Exception as e:
+            # 事务回滚
+            db.rollback()
+            raise
         finally:
             # 关闭数据库会话
             db.close()
@@ -134,7 +139,7 @@ def main():
     
     try:
         # 从系统配置中获取qlib_data_dir
-        from collector.db import SystemConfigBusiness as SystemConfig
+        from backend.collector.db import SystemConfigBusiness as SystemConfig
         qlib_dir = SystemConfig.get("qlib_data_dir")
         
         if not qlib_dir:

@@ -25,10 +25,12 @@ engine = None
 SessionLocal = sessionmaker(autocommit=False, autoflush=False)
 
 # 初始化数据库配置
+
 def init_database_config():
     """初始化数据库配置
     
     延迟加载配置，避免循环导入问题
+    支持从环境变量或默认配置读取数据库类型
     """
     # 声明global变量
     global db_type, db_url, engine
@@ -37,9 +39,13 @@ def init_database_config():
     if engine is not None:
         return
     
-    # 直接使用默认值，避免调用get_config()，防止循环导入
-    db_type = "sqlite"
-    db_file = str(default_db_path)
+    # 从环境变量读取数据库类型和文件路径，支持配置文件覆盖
+    # 避免调用get_config()，防止循环导入
+    import os
+    
+    # 优先从环境变量读取配置
+    db_type = os.environ.get("DB_TYPE", "duckdb")  # 默认使用duckdb
+    db_file = os.environ.get("DB_FILE", str(default_db_path))
     
     # 构建数据库URL
     if db_type == "sqlite":

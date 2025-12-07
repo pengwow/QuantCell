@@ -41,11 +41,26 @@ class DBConnection:
         """
         # 检查当前线程是否已有连接
         if not hasattr(self._local, '_conn') or self._local._conn is None:
-            # 从配置获取数据库类型和文件路径
-            # 延迟导入，避免循环导入
-            from backend.config_manager import get_config
-            db_type = get_config("database.type", "sqlite")
-            db_file = get_config("database.file", str(default_db_path))
+            # 从环境变量或配置获取数据库类型和文件路径
+            # 避免循环依赖，优先使用环境变量
+            import os
+            
+            # 优先从环境变量读取配置
+            db_type = os.environ.get("DB_TYPE", "duckdb")  # 默认使用duckdb
+            db_file = os.environ.get("DB_FILE", str(default_db_path))
+            
+            # 如果环境变量未设置，尝试从配置读取
+            try:
+                from backend.config_manager import get_config
+                config_db_type = get_config("database.type")
+                if config_db_type:
+                    db_type = config_db_type
+                
+                config_db_file = get_config("database.file")
+                if config_db_file:
+                    db_file = config_db_file
+            except Exception as e:
+                logger.warning(f"从配置读取数据库信息失败，使用默认配置: {e}")
             
             logger.info(f"从配置读取数据库信息: type={db_type}, file={db_file}")
             logger.info(f"默认数据库路径: {default_db_path}")

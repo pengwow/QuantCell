@@ -395,18 +395,47 @@ def create_features(
     Returns:
         List[models.Feature]: 创建后的特征模型实例列表
     """
-    # 将Pydantic模型转换为SQLAlchemy模型
-    db_features = [models.Feature(**feature.model_dump()) for feature in features]
+    # 使用原始SQL插入，避免SQLAlchemy批量插入时的排序问题
+    created_features = []
     
-    # 添加到会话并提交
-    db.add_all(db_features)
+    from sqlalchemy import text
+    
+    # 准备插入语句
+    insert_sql = text("""
+    INSERT INTO features (symbol, feature_name, freq)
+    VALUES (:symbol, :feature_name, :freq)
+    RETURNING id, created_at, updated_at
+    """)
+    
+    for feature in features:
+        # 准备插入数据
+        insert_data = {
+            "symbol": feature.symbol,
+            "feature_name": feature.feature_name,
+            "freq": feature.freq
+        }
+        
+        # 执行原始SQL插入，获取自动生成的字段值
+        result = db.execute(insert_sql, insert_data)
+        
+        # 获取插入结果
+        insert_result = result.fetchone()
+        if insert_result:
+            # 创建Feature实例，不需要添加到会话中，因为数据已经插入到数据库中
+            db_feature = models.Feature(
+                id=insert_result[0],
+                symbol=feature.symbol,
+                feature_name=feature.feature_name,
+                freq=feature.freq,
+                created_at=insert_result[1],
+                updated_at=insert_result[2]
+            )
+            created_features.append(db_feature)
+    
+    # 提交事务，确保所有操作都已完成
     db.commit()
     
-    # 刷新会话以获取最新数据（包括自动生成的字段）
-    for db_feature in db_features:
-        db.refresh(db_feature)
-    
-    return db_features
+    return created_features
 
 
 def update_feature(
