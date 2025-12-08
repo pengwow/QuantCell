@@ -69,11 +69,13 @@ def init_database_config():
         # 注意：DuckDB对配置的比较非常严格，必须确保所有配置参数完全相同
         connect_args = {
             "read_only": False,
+            
             # 使用与原生连接完全相同的配置，避免配置冲突
             # 简化配置，只使用DuckDB支持的核心配置
             "config": {
                 "enable_external_access": "true",
-                "enable_object_cache": "true"
+                "enable_object_cache": "true",
+                # "locking_mode": "optimistic",  # 乐观锁模式
             }
         }
     

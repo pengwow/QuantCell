@@ -102,7 +102,8 @@ class DBConnection:
                     # 与SQLAlchemy连接使用完全相同的配置
                     config={
                         "enable_external_access": "true",
-                        "enable_object_cache": "true"
+                        "enable_object_cache": "true",
+                        # "locking_mode": "optimistic",  # 乐观锁模式
                     }
                 )
             else:
