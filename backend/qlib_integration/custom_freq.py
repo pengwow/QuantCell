@@ -59,6 +59,7 @@ class CustomFreq(QlibFreq):
         重写__str__方法，确保返回正确的文件名格式
         - 分钟：返回"1m"而不是"1min"
         - 小时：返回"1h"而不是"1hour"
+        - 天：返回"1d"而不是"day"
         - 其他格式保持不变
         
         Returns
@@ -66,11 +67,16 @@ class CustomFreq(QlibFreq):
         str
             格式化后的频率字符串，用于生成文件名
         """
-        # 特殊处理分钟和小时格式
+        # 特殊处理分钟、小时和天格式
         if self.base == "min":
+            # 分钟频率使用m作为后缀
             return f"{self.count if self.count != 1 else ''}m"
         elif self.base == "hour":
+            # 小时频率使用h作为后缀
             return f"{self.count if self.count != 1 else ''}h"
+        elif self.base == "day":
+            # 天频率使用d作为后缀，确保返回1d而不是day
+            return f"{self.count if self.count != 1 else ''}d"
         # 其他格式使用默认实现
         return super().__str__()
 

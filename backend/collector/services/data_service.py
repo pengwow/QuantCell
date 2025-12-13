@@ -797,6 +797,129 @@ class DataService:
                 )
                 
                 logger.info(f"时间周期 {interval} 数据下载成功")
+                
+                # 添加数据库写入功能
+                try:
+                    logger.info(f"开始将 {interval} 数据写入数据库")
+                    
+                    # 构建数据目录路径
+                    data_dir = Path(save_dir) / interval if save_dir else Path(get_data.default_save_dir) / interval
+                    
+                    # 导入数据库相关模块
+                    import pandas as pd
+                    from backend.collector.db.database import SessionLocal, init_database_config
+                    from backend.collector.db.models import Kline
+                    from sqlalchemy import insert, func
+                    from sqlalchemy.orm import Session
+                    
+                    # 初始化数据库配置
+                    init_database_config()
+                    
+                    # 获取所有CSV文件
+                    csv_files = list(data_dir.glob("*.csv"))
+                    logger.info(f"找到 {len(csv_files)} 个CSV文件")
+                    
+                    # 过滤文件（只处理当前下载的交易对）
+                    if request.symbols:
+                        symbol_set = set(symbol.replace("/", "") for symbol in request.symbols)
+                        csv_files = [f for f in csv_files if f.stem in symbol_set]
+                        logger.info(f"过滤后找到 {len(csv_files)} 个CSV文件")
+                    
+                    # 处理每个CSV文件
+                    for csv_file in csv_files:
+                        symbol = csv_file.stem
+                        logger.info(f"开始处理文件: {csv_file}")
+                        
+                        # 读取CSV文件
+                        df = pd.read_csv(csv_file)
+                        if df is None or df.empty:
+                            logger.warning(f"{symbol} 数据为空，跳过写入数据库")
+                            continue
+                        
+                        # 准备数据，确保只包含需要的列
+                        kline_list = []
+                        for _, row in df.iterrows():
+                            # 跳过无效行
+                            if pd.isna(row['date']) or pd.isna(row['open']) or pd.isna(row['high']) or pd.isna(row['low']) or pd.isna(row['close']) or pd.isna(row['volume']):
+                                continue
+                                
+                            # 转换date列为datetime对象
+                            date = row['date']
+                            if isinstance(date, str):
+                                date = pd.to_datetime(date)
+                            
+                            # 直接生成unique_kline值
+                            unique_kline = f"{symbol}_{interval}_{date.isoformat()}"
+                            
+                            kline_list.append({
+                                'symbol': symbol,
+                                'interval': interval,
+                                'date': date,
+                                'open': row['open'],
+                                'high': row['high'],
+                                'low': row['low'],
+                                'close': row['close'],
+                                'volume': row['volume'],
+                                'unique_kline': unique_kline
+                            })
+                        
+                        if not kline_list:
+                            logger.warning(f"没有有效数据可以写入数据库: {symbol}")
+                            continue
+                        
+                        # 创建数据库会话
+                        db = SessionLocal()
+                        try:
+                            # 实现跨数据库兼容的UPSERT逻辑
+                            from backend.collector.db.database import db_type
+                            
+                            if db_type == "sqlite":
+                                # SQLite使用on_conflict_do_update
+                                from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+                                stmt = sqlite_insert(Kline).values(kline_list)
+                                stmt = stmt.on_conflict_do_update(
+                                    index_elements=['unique_kline'],
+                                    set_={
+                                        'open': stmt.excluded.open,
+                                        'high': stmt.excluded.high,
+                                        'low': stmt.excluded.low,
+                                        'close': stmt.excluded.close,
+                                        'volume': stmt.excluded.volume,
+                                        'updated_at': func.now()
+                                    }
+                                )
+                                db.execute(stmt)
+                            elif db_type == "duckdb":
+                                # DuckDB使用PostgreSQL兼容的ON CONFLICT语法
+                                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                                stmt = pg_insert(Kline).values(kline_list)
+                                stmt = stmt.on_conflict_do_update(
+                                    index_elements=['unique_kline'],
+                                    set_={
+                                        'open': stmt.excluded.open,
+                                        'high': stmt.excluded.high,
+                                        'low': stmt.excluded.low,
+                                        'close': stmt.excluded.close,
+                                        'volume': stmt.excluded.volume,
+                                        'updated_at': func.now()
+                                    }
+                                )
+                                db.execute(stmt)
+                            else:
+                                # 其他数据库类型，使用BULK INSERT + 错误处理
+                                raise ValueError(f"不支持的数据库类型: {db_type}")
+                        
+                            db.commit()
+                            logger.info(f"成功将 {len(kline_list)} 条 {symbol} 数据写入数据库")
+                        except Exception as e:
+                            logger.error(f"写入数据库失败: {e}")
+                            logger.exception(e)
+                            db.rollback()
+                        finally:
+                            db.close()
+                except Exception as e:
+                    logger.error(f"处理数据库写入时发生异常: {e}")
+                    logger.exception(e)
             
             logger.info(f"所有时间周期数据下载成功，任务ID: {task_id}")
             
