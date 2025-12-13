@@ -1,9 +1,27 @@
+# 确保在导入任何QLib模块之前，将项目根目录添加到sys.path
+import sys
+from pathlib import Path
+
+# 获取当前文件的绝对路径
+current_file = Path(__file__).resolve()
+# 获取项目根目录 (backend/qlib_integration/custom_freq.py -> backend -> qbot)
+project_root = current_file.parent.parent.parent
+
+# 将项目根目录添加到sys.path
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+    print(f"[INFO] custom_freq: 已将项目根目录添加到sys.path: {project_root}")
+
 import re
 from typing import Tuple, Union
+
+print(f"[INFO] custom_freq: 开始导入QLib的Freq类")
 from qlib.utils.time import Freq as QlibFreq
+print(f"[INFO] custom_freq: 成功导入QLib的Freq类")
 
 # 保存原始Freq类，以便需要时恢复
 OriginalFreq = QlibFreq
+print(f"[INFO] custom_freq: 已保存原始Freq类")
 
 class CustomFreq(QlibFreq):
     """
@@ -70,28 +88,56 @@ class CustomFreq(QlibFreq):
         # 特殊处理分钟、小时和天格式
         if self.base == "min":
             # 分钟频率使用m作为后缀
-            return f"{self.count if self.count != 1 else ''}m"
+            return f"{self.count}m" if self.count > 1 else "1m"
         elif self.base == "hour":
             # 小时频率使用h作为后缀
-            return f"{self.count if self.count != 1 else ''}h"
+            return f"{self.count}h" if self.count > 1 else "1h"
         elif self.base == "day":
             # 天频率使用d作为后缀，确保返回1d而不是day
-            return f"{self.count if self.count != 1 else ''}d"
+            return f"{self.count}d" if self.count > 1 else "1d"
         # 其他格式使用默认实现
         return super().__str__()
+    
+    def __repr__(self) -> str:
+        """
+        重写__repr__方法，提供更有用的调试信息
+        
+        Returns
+        -------
+        str
+            格式化后的频率字符串，用于调试
+        """
+        return f"CustomFreq(base={self.base}, count={self.count}, str={str(self)})"
 
 # Monkey patching：替换qlib.utils.time.Freq为自定义类
+print(f"[INFO] custom_freq: 开始替换QLib的Freq类")
 import qlib.utils.time
+
+# 替换原始Freq类为自定义类
 qlib.utils.time.Freq = CustomFreq
+print(f"[INFO] custom_freq: 已将QLib的Freq类替换为CustomFreq")
+
+# 验证替换是否成功
+from qlib.utils.time import Freq
+print(f"[INFO] custom_freq: 验证替换结果，Freq类是: {Freq}")
+print(f"[INFO] custom_freq: Freq.__str__方法是: {Freq.__str__}")
+
+# 测试CustomFreq的__str__方法
+freq_obj = Freq("1d")
+print(f"[INFO] custom_freq: 测试Freq('1d'): {freq_obj}, str(freq_obj): {str(freq_obj)}")
+print(f"[INFO] custom_freq: freq_obj.base: {freq_obj.base}, freq_obj.count: {freq_obj.count}")
 
 # 更新SUPPORT_CAL_LIST，添加小时支持
+print(f"[INFO] custom_freq: 开始更新SUPPORT_CAL_LIST")
 qlib.utils.time.Freq.SUPPORT_CAL_LIST = [
     qlib.utils.time.Freq.NORM_FREQ_MINUTE, 
     "hour", 
     qlib.utils.time.Freq.NORM_FREQ_DAY
 ]
+print(f"[INFO] custom_freq: SUPPORT_CAL_LIST已更新为: {qlib.utils.time.Freq.SUPPORT_CAL_LIST}")
 
 # 更新get_timedelta方法，添加小时处理
+print(f"[INFO] custom_freq: 开始更新get_timedelta方法")
 original_get_timedelta = QlibFreq.get_timedelta
 
 def custom_get_timedelta(n: int, freq: str):
@@ -103,8 +149,10 @@ def custom_get_timedelta(n: int, freq: str):
     return original_get_timedelta(n, freq)
 
 qlib.utils.time.Freq.get_timedelta = custom_get_timedelta
+print(f"[INFO] custom_freq: get_timedelta方法已更新")
 
 # 更新minutes_map，添加小时对应的分钟数
+print(f"[INFO] custom_freq: 开始更新get_min_delta方法")
 original_get_min_delta = QlibFreq.get_min_delta
 
 def custom_get_min_delta(left_frq: str, right_freq: str):
@@ -130,3 +178,5 @@ def custom_get_min_delta(left_frq: str, right_freq: str):
     return left_minutes - right_minutes
 
 qlib.utils.time.Freq.get_min_delta = custom_get_min_delta
+print(f"[INFO] custom_freq: get_min_delta方法已更新")
+print(f"[INFO] custom_freq: 所有补丁已应用完成")
