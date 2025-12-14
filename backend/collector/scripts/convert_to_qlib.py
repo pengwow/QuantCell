@@ -90,8 +90,8 @@ def convert_crypto_to_qlib(
                     # 过滤掉无法解析的日期（NaT值）
                     df = df.dropna(subset=[date_field_name])
                     # 如果是日线数据，只保留日期部分
-                    if freq == 'day' and not df.empty:
-                        df[date_field_name] = df[date_field_name].dt.strftime('%Y-%m-%d')
+                if (freq == 'day' or freq == '1d') and not df.empty:
+                    df[date_field_name] = df[date_field_name].dt.strftime('%Y-%m-%d')
                 
                 # 将预处理后的数据保存到临时目录
                 df.to_csv(dest_file, index=False)

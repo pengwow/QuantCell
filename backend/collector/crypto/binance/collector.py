@@ -107,8 +107,17 @@ class BinanceCollector(CryptoBaseCollector):
         :return: 交易对列表
         """
         # 如果有指定的交易对列表，直接返回
-        if hasattr(self, 'symbols') and self.symbols:
-            return self.symbols
+        if hasattr(self, 'symbols'):
+            # 如果symbols为空列表或None，直接返回，不获取全量交易对
+            if self.symbols is None:
+                # 如果symbols为None，获取全量交易对列表
+                return self.get_all_symbols()
+            elif isinstance(self.symbols, (list, tuple)) and len(self.symbols) == 0:
+                # 如果symbols为空列表，返回空列表
+                return []
+            else:
+                # 否则返回指定的交易对列表
+                return self.symbols
         
         # 否则从API获取全量交易对列表
         return self.get_all_symbols()

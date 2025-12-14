@@ -153,12 +153,20 @@ class BaseCollector(abc.ABC):
         if instrument_path.exists():
             _old_df = pd.read_csv(instrument_path)
             df = pd.concat([_old_df, df], sort=False)
-            # 将date列统一转换为datetime类型，解决混合类型排序问题
-            df['date'] = pd.to_datetime(df['date'])
-            # 去重，基于date列，保留最新数据
-            df = df.drop_duplicates(subset=['date'], keep='last')
-            # 按date排序
-            df = df.sort_values('date')
+        
+        # 将date列统一转换为datetime类型，解决混合类型排序问题
+        # 使用format='mixed'处理混合日期格式（带时间和不带时间的情况）
+        df['date'] = pd.to_datetime(df['date'], format='mixed')
+        
+        # 去重，基于date列，保留最新数据
+        df = df.drop_duplicates(subset=['date'], keep='last')
+        
+        # 按date排序
+        df = df.sort_values('date')
+        
+        # 保存前将日期格式统一为ISO格式，避免混合格式问题
+        df['date'] = df['date'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        
         df.to_csv(instrument_path, index=False)
         logger.info(f"成功将 {symbol} 数据保存到文件: {instrument_path}")
     

@@ -148,9 +148,11 @@ class GetData:
             
             # 过滤掉已经存在的文件对应的交易对
             symbols_to_download = []
+            # 创建一个临时收集器实例，用于标准化交易对名称
+            collector = BinanceCollector(save_dir=save_dir, interval=interval)
             for symbol in all_symbols:
-                # 标准化交易对名称，去除可能的分隔符
-                normalized_symbol = symbol.replace('/', '') if '/' in symbol else symbol
+                # 使用收集器的normalize_symbol方法标准化交易对名称，确保与实际保存的文件名一致
+                normalized_symbol = collector.normalize_symbol(symbol)
                 file_path = save_dir / f"{normalized_symbol}.csv"
                 if not file_path.exists():
                     symbols_to_download.append(symbol)
