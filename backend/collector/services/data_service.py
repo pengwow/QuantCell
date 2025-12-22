@@ -505,102 +505,205 @@ class DataService:
         """
         logger.info(f"开始获取加密货币对列表，交易所: {exchange}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
         
-        # 导入ccxt库
-        import ccxt
-        
-        # 读取代理配置
-        proxy_enabled = configs.get("proxy_enabled") == "true"
-        proxy_url = configs.get("proxy_url")
-        proxy_username = configs.get("proxy_username")
-        proxy_password = configs.get("proxy_password")
-        
-        logger.info(f"代理配置: enabled={proxy_enabled}, url={proxy_url}")
-        
-        # 创建交易所实例
-        exchange_instance = getattr(ccxt, exchange)()
-        # 添加超时设置
-        exchange_instance.timeout = 10000  # 10秒超时
-        
-        # 如果启用代理，设置代理参数
-        if proxy_enabled and proxy_url:
-            # 处理代理认证
-            if proxy_username and proxy_password:
-                # 构建带认证的代理URL
-                from urllib.parse import urlparse
-                parsed_url = urlparse(proxy_url)
-                proxy_with_auth = f"{parsed_url.scheme}://{proxy_username}:{proxy_password}@{parsed_url.netloc}{parsed_url.path}"
-                exchange_instance.proxy = proxy_with_auth
-                logger.info(f"使用带认证的代理: {proxy_with_auth}")
-            else:
-                # 使用不带认证的代理
-                exchange_instance.proxies = {
-                    'https': proxy_url,
-                    'http': proxy_url
-                }
-                logger.info(f"使用不带认证的代理: {proxy_url}")
-        else:
-            logger.info("未启用代理")
-        
-        logger.info(f"成功创建{exchange}交易所实例")
-        
-        # 获取货币对列表，添加错误处理
+        # 优先从数据库读取货币对数据
         try:
-            markets = exchange_instance.fetch_markets()
-            logger.info(f"成功获取{exchange}交易所的货币对列表，共{len(markets)}个货币对")
+            from ..db.database import SessionLocal
+            from ..db.models import CryptoSymbol
+            import json
+            
+            db = SessionLocal()
+            try:
+                # 查询数据库中的货币对
+                query = db.query(CryptoSymbol).filter(CryptoSymbol.exchange == exchange)
+                
+                # 应用过滤条件
+                if filter:
+                    query = query.filter(CryptoSymbol.symbol.contains(filter))
+                
+                # 获取总数量
+                total = query.count()
+                
+                # 应用分页
+                paginated_symbols = query.offset(offset).limit(limit).all()
+                
+                logger.info(f"从数据库获取到{total}个{exchange}货币对，返回{len(paginated_symbols)}个货币对")
+                
+                if total > 0:
+                    # 转换为API响应格式
+                    symbols_list = []
+                    for symbol in paginated_symbols:
+                        symbols_list.append({
+                            "symbol": symbol.symbol,
+                            "base": symbol.base,
+                            "quote": symbol.quote,
+                            "active": symbol.active,
+                            "precision": json.loads(symbol.precision),
+                            "limits": json.loads(symbol.limits),
+                            "type": symbol.type
+                        })
+                    
+                    # 构建响应
+                    response_data = {
+                        "symbols": symbols_list,
+                        "total": total,
+                        "offset": offset,
+                        "limit": limit,
+                        "exchange": exchange
+                    }
+                    
+                    return {
+                        "success": True,
+                        "message": "从数据库获取加密货币对列表成功",
+                        "response_data": response_data
+                    }
+                else:
+                    logger.info(f"数据库中没有{exchange}的货币对数据，将从API获取")
+            finally:
+                db.close()
         except Exception as e:
-            logger.error(f"调用{exchange}.fetch_markets()失败: {e}")
-            # 返回友好的错误信息给客户端
+            logger.error(f"从数据库获取货币对失败: {e}")
+            logger.info(f"将从API获取{exchange}的货币对数据")
+        
+        # 数据库中没有数据，从交易所API获取
+        try:
+            # 导入ccxt库
+            import ccxt
+            
+            # 读取代理配置
+            proxy_enabled = configs.get("proxy_enabled") == "true"
+            proxy_url = configs.get("proxy_url")
+            proxy_username = configs.get("proxy_username")
+            proxy_password = configs.get("proxy_password")
+            
+            logger.info(f"代理配置: enabled={proxy_enabled}, url={proxy_url}")
+            
+            # 创建交易所实例
+            exchange_instance = getattr(ccxt, exchange)()
+            # 添加超时设置
+            exchange_instance.timeout = 10000  # 10秒超时
+            
+            # 如果启用代理，设置代理参数
+            if proxy_enabled and proxy_url:
+                # 处理代理认证
+                if proxy_username and proxy_password:
+                    # 构建带认证的代理URL
+                    from urllib.parse import urlparse
+                    parsed_url = urlparse(proxy_url)
+                    proxy_with_auth = f"{parsed_url.scheme}://{proxy_username}:{proxy_password}@{parsed_url.netloc}{parsed_url.path}"
+                    exchange_instance.proxy = proxy_with_auth
+                    logger.info(f"使用带认证的代理: {proxy_with_auth}")
+                else:
+                    # 使用不带认证的代理
+                    exchange_instance.proxies = {
+                        'https': proxy_url,
+                        'http': proxy_url
+                    }
+                    logger.info(f"使用不带认证的代理: {proxy_url}")
+            else:
+                logger.info("未启用代理")
+            
+            logger.info(f"成功创建{exchange}交易所实例")
+            
+            # 获取货币对列表，添加错误处理
+            try:
+                markets = exchange_instance.fetch_markets()
+                logger.info(f"成功获取{exchange}交易所的货币对列表，共{len(markets)}个货币对")
+            except Exception as e:
+                logger.error(f"调用{exchange}.fetch_markets()失败: {e}")
+                # 返回友好的错误信息给客户端
+                return {
+                    "success": False,
+                    "message": f"获取{exchange}交易所货币对列表失败，请检查网络连接或交易所状态",
+                    "error": str(e),
+                    "exchange": exchange
+                }
+            
+            # 处理货币对列表
+            symbols = []
+            for market in markets:
+                # 过滤无效或不活跃的货币对
+                if not market.get("active", True):
+                    continue
+                
+                # 提取必要的信息
+                symbol_info = {
+                    "symbol": market.get("symbol"),
+                    "base": market.get("base"),
+                    "quote": market.get("quote"),
+                    "active": market.get("active"),
+                    "precision": market.get("precision"),
+                    "limits": market.get("limits"),
+                    "type": market.get("type")
+                }
+                
+                # 应用过滤条件
+                if filter:
+                    if filter not in symbol_info["symbol"]:
+                        continue
+                
+                symbols.append(symbol_info)
+            
+            # 实现分页
+            paginated_symbols = symbols[offset:offset+limit]
+            
+            logger.info(f"处理完成，共{len(symbols)}个符合条件的货币对，返回{len(paginated_symbols)}个货币对")
+            
+            # 同步到数据库
+            try:
+                from ..db.database import SessionLocal
+                from ..db.models import CryptoSymbol
+                import json
+                
+                db = SessionLocal()
+                try:
+                    # 先删除旧数据
+                    db.query(CryptoSymbol).filter(CryptoSymbol.exchange == exchange).delete()
+                    
+                    # 批量插入新数据
+                    crypto_symbol_objects = []
+                    for symbol in symbols:
+                        crypto_symbol_objects.append(CryptoSymbol(
+                            symbol=symbol["symbol"],
+                            base=symbol["base"],
+                            quote=symbol["quote"],
+                            exchange=exchange,
+                            active=symbol["active"],
+                            precision=json.dumps(symbol["precision"]),
+                            limits=json.dumps(symbol["limits"]),
+                            type=symbol["type"]
+                        ))
+                    
+                    db.bulk_save_objects(crypto_symbol_objects)
+                    db.commit()
+                    logger.info(f"成功将{len(crypto_symbol_objects)}个{exchange}货币对同步到数据库")
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.error(f"同步货币对到数据库失败: {e}")
+                # 不影响正常返回，只记录错误
+            
+            # 构建响应
+            response_data = {
+                "symbols": paginated_symbols,
+                "total": len(symbols),
+                "offset": offset,
+                "limit": limit,
+                "exchange": exchange
+            }
+            
+            return {
+                "success": True,
+                "message": "从交易所API获取加密货币对列表成功",
+                "response_data": response_data
+            }
+        except Exception as e:
+            logger.error(f"获取加密货币对列表失败: {e}")
             return {
                 "success": False,
-                "message": f"获取{exchange}交易所货币对列表失败，请检查网络连接或交易所状态",
+                "message": f"获取加密货币对列表失败: {str(e)}",
                 "error": str(e),
                 "exchange": exchange
             }
-        
-        # 处理货币对列表
-        symbols = []
-        for market in markets:
-            # 过滤无效或不活跃的货币对
-            if not market.get("active", True):
-                continue
-            
-            # 提取必要的信息
-            symbol_info = {
-                "symbol": market.get("symbol"),
-                "base": market.get("base"),
-                "quote": market.get("quote"),
-                "active": market.get("active"),
-                "precision": market.get("precision"),
-                "limits": market.get("limits"),
-                "type": market.get("type")
-            }
-            
-            # 应用过滤条件
-            if filter:
-                if filter not in symbol_info["symbol"]:
-                    continue
-            
-            symbols.append(symbol_info)
-        
-        # 实现分页
-        paginated_symbols = symbols[offset:offset+limit]
-        
-        logger.info(f"处理完成，共{len(symbols)}个符合条件的货币对，返回{len(paginated_symbols)}个货币对")
-        
-        # 构建响应
-        response_data = {
-            "symbols": paginated_symbols,
-            "total": len(symbols),
-            "offset": offset,
-            "limit": limit,
-            "exchange": exchange
-        }
-        
-        return {
-            "success": True,
-            "message": "获取加密货币对列表成功",
-            "response_data": response_data
-        }
     
     def get_all_tasks(self, page: int = 1, page_size: int = 10, task_type: Optional[str] = None, status: Optional[str] = None, start_time: Optional[str] = None, end_time: Optional[str] = None, created_at: Optional[str] = None, updated_at: Optional[str] = None, sort_by: str = "created_at", sort_order: str = "desc") -> Dict[str, Any]:
         """查询所有任务状态，支持分页和过滤

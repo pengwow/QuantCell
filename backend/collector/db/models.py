@@ -1,17 +1,12 @@
-# 数据库模型定义
-
-from datetime import datetime
+from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, func
+import sqlalchemy
 from typing import Optional, Dict, Any
-from .connection import get_db_connection
 from loguru import logger
+from .database import Base
+from sqlalchemy.orm import Session
 
 # SQLAlchemy模型定义
-from sqlalchemy import Column, String, Integer, Text, DateTime, ForeignKey, Float
-from sqlalchemy.sql import func
-from .database import Base
 
-
-# SQLAlchemy模型类
 class SystemConfig(Base):
     """系统配置SQLAlchemy模型
     
@@ -67,16 +62,15 @@ class Feature(Base):
 class DataPool(Base):
     """资产池SQLAlchemy模型
     
-    对应data_pools表的SQLAlchemy模型定义，用于存储资产池信息
+    对应data_pools表的SQLAlchemy模型定义
     """
     __tablename__ = "data_pools"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    name = Column(String, unique=True, index=True)
-    type = Column(String, index=True)  # stock/crypto
+    name = Column(String, nullable=False, index=True)
     description = Column(Text, nullable=True)
-    color = Column(String, default="#409EFF")  # 卡片颜色
-    tags = Column(String, nullable=True)  # 标签，JSON格式存储
+    is_public = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
@@ -84,20 +78,49 @@ class DataPool(Base):
 class DataPoolAsset(Base):
     """资产池资产关联SQLAlchemy模型
     
-    对应data_pool_assets表的SQLAlchemy模型定义，用于存储资产池与资产的关联关系
+    对应data_pool_assets表的SQLAlchemy模型定义
     """
     __tablename__ = "data_pool_assets"
     
-    pool_id = Column(Integer, ForeignKey("data_pools.id"), primary_key=True)
-    asset_id = Column(String, primary_key=True)  # 股票代码或加密货币对
-    asset_type = Column(String)  # stock/crypto
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    pool_id = Column(Integer, nullable=False, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+    asset_type = Column(String, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+
+class CryptoSymbol(Base):
+    """加密货币对SQLAlchemy模型
+    
+    对应crypto_symbols表的SQLAlchemy模型定义，用于存储加密货币对信息
+    """
+    __tablename__ = "crypto_symbols"
+    
+    # DuckDB使用INTEGER类型结合PRIMARY KEY来实现自增主键
+    # 移除autoincrement=True，避免SQLAlchemy生成SERIAL类型
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String, nullable=False, index=True)
+    base = Column(String, nullable=False, index=True)
+    quote = Column(String, nullable=False, index=True)
+    exchange = Column(String, nullable=False, index=True)
+    active = Column(Boolean, default=True)
+    precision = Column(Text, nullable=True)  # JSON字符串，存储精度信息
+    limits = Column(Text, nullable=True)  # JSON字符串，存储限制信息
+    type = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+    
+    # 设置唯一约束，确保symbol + exchange的组合唯一
+    __table_args__ = (
+        sqlalchemy.UniqueConstraint('symbol', 'exchange', name='unique_symbol_exchange'),
+    )
 
 
 class Kline(Base):
     """K线数据SQLAlchemy模型
     
-    对应klines表的SQLAlchemy模型定义，用于存储加密货币K线数据
+    对应klines表的SQLAlchemy模型定义，用于存储K线数据
     """
     __tablename__ = "klines"
     
@@ -105,75 +128,125 @@ class Kline(Base):
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False, index=True)
-    open = Column(Float, nullable=False)
-    high = Column(Float, nullable=False)
-    low = Column(Float, nullable=False)
-    close = Column(Float, nullable=False)
-    volume = Column(Float, nullable=False)
+    open = Column(String, nullable=False)  # 使用字符串避免精度问题
+    high = Column(String, nullable=False)  # 使用字符串避免精度问题
+    low = Column(String, nullable=False)  # 使用字符串避免精度问题
+    close = Column(String, nullable=False)  # 使用字符串避免精度问题
+    volume = Column(String, nullable=False)  # 使用字符串避免精度问题
+    unique_kline = Column(String, nullable=False, unique=True, index=True)  # 唯一标识符
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
-    
-    # 设置唯一约束，确保symbol + interval + date的组合唯一
-    __table_args__ = (
-        Column(
-            "unique_kline", 
-            String,
-            primary_key=False,
-            default=lambda context: f"{context.current_parameters.get('symbol')}_{context.current_parameters.get('interval')}_{context.current_parameters.get('date').isoformat()}",
-            unique=True
-        ),
-    )
 
 
-# 从database.py导入SessionLocal和相关依赖
-from .database import SessionLocal
-from sqlalchemy.orm import Session
+# 业务逻辑类
 
-# 保留现有的业务逻辑类，确保向后兼容
 class SystemConfigBusiness:
     """系统配置模型类
     
     用于操作system_config表，提供CRUD操作方法
+    兼容SQLite和DuckDB
     """
     
     @staticmethod
-    def get(key: str) -> Optional[str]:
-        """获取指定键的配置值
+    def get(key: str, default: Any = None) -> Any:
+        """获取配置项的值
         
         Args:
-            key: 配置键名
+            key: 配置项键名
+            default: 默认值，如果配置项不存在则返回默认值
             
         Returns:
-            Optional[str]: 配置值，如果不存在则返回None
+            Any: 配置项的值或默认值
         """
-        # 初始化数据库配置，确保SessionLocal已绑定引擎
-        from .database import init_database_config
-        init_database_config()
-        
+        from .database import SessionLocal
         db: Session = SessionLocal()
         try:
             config = db.query(SystemConfig).filter_by(key=key).first()
-            return config.value if config else None
+            if config:
+                return config.value
+            return default
         except Exception as e:
             logger.error(f"获取配置失败: key={key}, error={e}")
-            return None
+            return default
+        finally:
+            db.close()
+    
+    @staticmethod
+    def set(key: str, value: str, description: str = "") -> bool:
+        """设置配置项的值
+        
+        Args:
+            key: 配置项键名
+            value: 配置项值
+            description: 配置项描述
+            
+        Returns:
+            bool: 设置成功返回True，失败返回False
+        """
+        from .database import SessionLocal
+        db: Session = SessionLocal()
+        try:
+            # 检查配置是否已存在
+            config = db.query(SystemConfig).filter_by(key=key).first()
+            if config:
+                # 更新现有配置
+                config.value = value
+                config.description = description
+            else:
+                # 创建新配置
+                config = SystemConfig(
+                    key=key,
+                    value=value,
+                    description=description
+                )
+                db.add(config)
+            db.commit()
+            logger.info(f"配置已更新: key={key}, value={value}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"更新配置失败: key={key}, error={e}")
+            return False
+        finally:
+            db.close()
+    
+    @staticmethod
+    def delete(key: str) -> bool:
+        """删除配置项
+        
+        Args:
+            key: 配置项键名
+            
+        Returns:
+            bool: 删除成功返回True，失败返回False
+        """
+        from .database import SessionLocal
+        db: Session = SessionLocal()
+        try:
+            config = db.query(SystemConfig).filter_by(key=key).first()
+            if config:
+                db.delete(config)
+                db.commit()
+                logger.info(f"配置已删除: key={key}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"删除配置失败: key={key}, error={e}")
+            return False
         finally:
             db.close()
     
     @staticmethod
     def get_all() -> Dict[str, str]:
-        """获取所有配置
+        """获取所有配置项
         
         Returns:
-            Dict[str, str]: 所有配置的字典，键为配置名，值为配置值
+            Dict[str, str]: 所有配置项，键为配置项键名，值为配置项值
         """
-        # 初始化数据库配置，确保SessionLocal已绑定引擎
-        from .database import init_database_config
-        init_database_config()
-        
+        from .database import SessionLocal
         db: Session = SessionLocal()
         try:
-            configs = db.query(SystemConfig).order_by(SystemConfig.key).all()
+            configs = db.query(SystemConfig).all()
             return {config.key: config.value for config in configs}
         except Exception as e:
             logger.error(f"获取所有配置失败: error={e}")
@@ -182,99 +255,16 @@ class SystemConfigBusiness:
             db.close()
     
     @staticmethod
-    def set(key: str, value: str, description: Optional[str] = None) -> bool:
-        """设置配置值
-        
-        Args:
-            key: 配置键名
-            value: 配置值
-            description: 配置描述，可选
-            
-        Returns:
-            bool: 设置成功返回True，失败返回False
-        """
-        # 初始化数据库配置，确保SessionLocal已绑定引擎
-        from .database import init_database_config
-        init_database_config()
-        
-        db: Session = SessionLocal()
-        try:
-            # 查询是否存在该配置
-            config = db.query(SystemConfig).filter_by(key=key).first()
-            
-            if config:
-                # 如果存在，更新配置
-                config.value = value
-                if description is not None:
-                    config.description = description
-            else:
-                # 如果不存在，创建新配置
-                config = SystemConfig(key=key, value=value, description=description)
-                db.add(config)
-            
-            # 提交更改
-            db.commit()
-            logger.info(f"配置已更新: key={key}, value={value}")
-            return True
-        except Exception as e:
-            # 回滚事务
-            db.rollback()
-            logger.error(f"设置配置失败: key={key}, value={value}, error={e}")
-            return False
-        finally:
-            db.close()
-    
-    @staticmethod
-    def delete(key: str) -> bool:
-        """删除指定键的配置
-        
-        Args:
-            key: 配置键名
-            
-        Returns:
-            bool: 删除成功返回True，失败返回False
-        """
-        # 初始化数据库配置，确保SessionLocal已绑定引擎
-        from .database import init_database_config
-        init_database_config()
-        
-        db: Session = SessionLocal()
-        try:
-            # 查询是否存在该配置
-            config = db.query(SystemConfig).filter_by(key=key).first()
-            
-            if config:
-                # 如果存在，删除配置
-                db.delete(config)
-                db.commit()
-                logger.info(f"配置已删除: key={key}")
-                return True
-            else:
-                # 如果不存在，返回True表示操作成功
-                logger.info(f"配置不存在，无需删除: key={key}")
-                return True
-        except Exception as e:
-            # 回滚事务
-            db.rollback()
-            logger.error(f"删除配置失败: key={key}, error={e}")
-            return False
-        finally:
-            db.close()
-    
-    @staticmethod
     def get_with_details(key: str) -> Optional[Dict[str, Any]]:
-        """获取配置的详细信息
+        """获取配置项的详细信息
         
         Args:
-            key: 配置键名
+            key: 配置项键名
             
         Returns:
             Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、创建时间和更新时间
         """
-        # 初始化数据库配置，确保SessionLocal已绑定引擎
-        from .database import init_database_config
-        init_database_config()
-        
+        from .database import SessionLocal
         db: Session = SessionLocal()
         try:
             config = db.query(SystemConfig).filter_by(key=key).first()
@@ -295,42 +285,30 @@ class SystemConfigBusiness:
     
     @staticmethod
     def get_all_with_details() -> Dict[str, Dict[str, Any]]:
-        """获取所有配置的详细信息
+        """获取所有配置项的详细信息
         
         Returns:
-            Dict[str, Dict[str, Any]]: 所有配置的详细信息，键为配置名，值为配置详情字典
+            Dict[str, Dict[str, Any]]: 所有配置项的详细信息，键为配置项键名
         """
+        from .database import SessionLocal
+        db: Session = SessionLocal()
         try:
-            # 初始化数据库配置，确保SessionLocal已绑定引擎
-            from .database import init_database_config
-            init_database_config()
-            
-            # 使用SQLAlchemy连接，确保统一的连接方式
-            from .database import SessionLocal
-            from . import models
-            
-            db = SessionLocal()
-            try:
-                # 查询所有配置
-                configs = db.query(models.SystemConfig).order_by(models.SystemConfig.key).all()
-                
-                return {
-                    config.key: {
-                        "key": config.key,
-                        "value": config.value,
-                        "description": config.description,
-                        "created_at": config.created_at,
-                        "updated_at": config.updated_at
-                    }
-                    for config in configs
+            configs = db.query(SystemConfig).all()
+            result = {}
+            for config in configs:
+                result[config.key] = {
+                    "key": config.key,
+                    "value": config.value,
+                    "description": config.description,
+                    "created_at": config.created_at,
+                    "updated_at": config.updated_at
                 }
-            finally:
-                db.close()
+            return result
         except Exception as e:
             logger.error(f"获取所有配置详情失败: error={e}")
-            import traceback
-            traceback.print_exc()
             return {}
+        finally:
+            db.close()
 
 
 class TaskBusiness:
@@ -338,7 +316,6 @@ class TaskBusiness:
     
     用于操作tasks表，提供CRUD操作方法
     兼容SQLite和DuckDB
-    使用ORM方式操作数据库，避免原生SQL语句
     """
     
     @staticmethod
@@ -353,44 +330,29 @@ class TaskBusiness:
         Returns:
             bool: 创建成功返回True，失败返回False
         """
+        from .database import SessionLocal
+        import json
+        db: Session = SessionLocal()
         try:
-            import json
+            # 序列化参数为JSON字符串
+            params_json = json.dumps(params)
             
-            # 使用SQLAlchemy连接，确保统一的连接方式
-            from .database import init_database_config, SessionLocal
-            init_database_config()
-            
-            db = SessionLocal()
-            
-            try:
-                # 序列化参数为JSON字符串
-                params_json = json.dumps(params)
-                
-                # 创建Task模型实例
-                from .database import Base
-                from sqlalchemy.orm import Session
-                
-                # 直接使用Task模型类
-                task = Task(
-                    task_id=task_id,
-                    task_type=task_type,
-                    status="pending",
-                    params=params_json
-                )
-                
-                # 添加到会话并提交
-                db.add(task)
-                db.commit()
-                
-                logger.info(f"任务已创建: task_id={task_id}, task_type={task_type}")
-                return True
-            finally:
-                db.close()
+            task = Task(
+                task_id=task_id,
+                task_type=task_type,
+                status="pending",
+                params=params_json
+            )
+            db.add(task)
+            db.commit()
+            logger.info(f"任务已创建: task_id={task_id}, task_type={task_type}")
+            return True
         except Exception as e:
+            db.rollback()
             logger.error(f"创建任务失败: task_id={task_id}, error={e}")
-            import traceback
-            traceback.print_exc()
             return False
+        finally:
+            db.close()
     
     @staticmethod
     def start(task_id: str) -> bool:
@@ -402,39 +364,22 @@ class TaskBusiness:
         Returns:
             bool: 操作成功返回True，失败返回False
         """
+        from .database import SessionLocal
+        db: Session = SessionLocal()
         try:
-            from datetime import datetime
-            
-            # 使用SQLAlchemy连接，确保统一的连接方式
-            from .database import init_database_config, SessionLocal
-            init_database_config()
-            
-            db = SessionLocal()
-            
-            try:
-                # 使用ORM查询任务
-                task = db.query(Task).filter(Task.task_id == task_id).first()
-                if not task:
-                    logger.error(f"任务不存在: task_id={task_id}")
-                    return False
-                
-                # 更新任务状态
+            task = db.query(Task).filter_by(task_id=task_id).first()
+            if task:
                 task.status = "running"
-                task.start_time = datetime.now()
-                task.updated_at = datetime.now()
-                
-                # 提交更改
+                task.start_time = func.now()
                 db.commit()
-                
                 logger.info(f"任务已开始: task_id={task_id}")
-                return True
-            finally:
-                db.close()
+            return True
         except Exception as e:
+            db.rollback()
             logger.error(f"开始任务失败: task_id={task_id}, error={e}")
-            import traceback
-            traceback.print_exc()
             return False
+        finally:
+            db.close()
     
     @staticmethod
     def update_progress(task_id: str, current: str, completed: int, total: int, failed: int = 0, status: str = None) -> bool:
@@ -446,55 +391,36 @@ class TaskBusiness:
             completed: 已完成的项目数
             total: 总项目数
             failed: 失败的项目数
-            status: 详细的状态描述，例如"Downloaded 2025-11-01"
+            status: 可选的状态描述
             
         Returns:
             bool: 操作成功返回True，失败返回False
         """
+        from .database import SessionLocal
+        db: Session = SessionLocal()
         try:
-            from datetime import datetime
-            
-            # 使用SQLAlchemy连接，确保统一的连接方式
-            from .database import init_database_config, SessionLocal
-            init_database_config()
-            
-            db = SessionLocal()
-            
-            try:
-                # 使用ORM查询任务
-                task = db.query(Task).filter(Task.task_id == task_id).first()
-                if not task:
-                    logger.error(f"任务不存在: task_id={task_id}")
-                    return False
-                
+            task = db.query(Task).filter_by(task_id=task_id).first()
+            if task:
                 # 计算进度百分比
                 percentage = 0
                 if total > 0:
                     percentage = int((completed + failed) / total * 100)
                 
-                # 使用current字段存储详细状态描述
-                detailed_current = f"{current} - {status}" if status else current
-                
-                # 更新任务进度
                 task.total = total
                 task.completed = completed
                 task.failed = failed
-                task.current = detailed_current
+                task.current = current
                 task.percentage = percentage
-                task.updated_at = datetime.now()
                 
-                # 提交更改
                 db.commit()
-                
-                logger.debug(f"任务进度已更新: task_id={task_id}, current={detailed_current}, progress={percentage}%")
-                return True
-            finally:
-                db.close()
+                logger.debug(f"任务进度已更新: task_id={task_id}, current={current}, progress={percentage}%")
+            return True
         except Exception as e:
+            db.rollback()
             logger.error(f"更新任务进度失败: task_id={task_id}, error={e}")
-            import traceback
-            traceback.print_exc()
             return False
+        finally:
+            db.close()
     
     @staticmethod
     def complete(task_id: str) -> bool:
@@ -506,39 +432,22 @@ class TaskBusiness:
         Returns:
             bool: 操作成功返回True，失败返回False
         """
+        from .database import SessionLocal
+        db: Session = SessionLocal()
         try:
-            from datetime import datetime
-            
-            # 使用SQLAlchemy连接，确保统一的连接方式
-            from .database import init_database_config, SessionLocal
-            init_database_config()
-            
-            db = SessionLocal()
-            
-            try:
-                # 使用ORM查询任务
-                task = db.query(Task).filter(Task.task_id == task_id).first()
-                if not task:
-                    logger.error(f"任务不存在: task_id={task_id}")
-                    return False
-                
-                # 更新任务状态
+            task = db.query(Task).filter_by(task_id=task_id).first()
+            if task:
                 task.status = "completed"
-                task.end_time = datetime.now()
-                task.updated_at = datetime.now()
-                
-                # 提交更改
+                task.end_time = func.now()
                 db.commit()
-                
                 logger.info(f"任务已完成: task_id={task_id}")
-                return True
-            finally:
-                db.close()
+            return True
         except Exception as e:
+            db.rollback()
             logger.error(f"完成任务失败: task_id={task_id}, error={e}")
-            import traceback
-            traceback.print_exc()
             return False
+        finally:
+            db.close()
     
     @staticmethod
     def fail(task_id: str, error_message: str) -> bool:
@@ -551,40 +460,23 @@ class TaskBusiness:
         Returns:
             bool: 操作成功返回True，失败返回False
         """
+        from .database import SessionLocal
+        db: Session = SessionLocal()
         try:
-            from datetime import datetime
-            
-            # 使用SQLAlchemy连接，确保统一的连接方式
-            from .database import init_database_config, SessionLocal
-            init_database_config()
-            
-            db = SessionLocal()
-            
-            try:
-                # 使用ORM查询任务
-                task = db.query(Task).filter(Task.task_id == task_id).first()
-                if not task:
-                    logger.error(f"任务不存在: task_id={task_id}")
-                    return False
-                
-                # 更新任务状态
+            task = db.query(Task).filter_by(task_id=task_id).first()
+            if task:
                 task.status = "failed"
                 task.error_message = error_message
-                task.end_time = datetime.now()
-                task.updated_at = datetime.now()
-                
-                # 提交更改
+                task.end_time = func.now()
                 db.commit()
-                
                 logger.error(f"任务已失败: task_id={task_id}, error={error_message}")
-                return True
-            finally:
-                db.close()
+            return True
         except Exception as e:
+            db.rollback()
             logger.error(f"标记任务失败: task_id={task_id}, error={e}")
-            import traceback
-            traceback.print_exc()
             return False
+        finally:
+            db.close()
     
     @staticmethod
     def get(task_id: str) -> Optional[Dict[str, Any]]:
@@ -596,50 +488,40 @@ class TaskBusiness:
         Returns:
             Optional[Dict[str, Any]]: 任务信息，如果不存在则返回None
         """
+        from .database import SessionLocal
+        import json
+        db: Session = SessionLocal()
         try:
-            import json
+            task = db.query(Task).filter_by(task_id=task_id).first()
+            if not task:
+                return None
             
-            # 使用SQLAlchemy连接，确保统一的连接方式
-            from .database import init_database_config, SessionLocal
-            init_database_config()
+            # 解析结果
+            task_info = {
+                "task_id": task.task_id,
+                "task_type": task.task_type,
+                "status": task.status,
+                "progress": {
+                    "total": task.total,
+                    "completed": task.completed,
+                    "failed": task.failed,
+                    "current": task.current,
+                    "percentage": task.percentage
+                },
+                "params": json.loads(task.params),
+                "start_time": task.start_time,
+                "end_time": task.end_time,
+                "error_message": task.error_message,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at
+            }
             
-            db = SessionLocal()
-            
-            try:
-                # 使用ORM查询任务
-                task = db.query(Task).filter(Task.task_id == task_id).first()
-                if not task:
-                    return None
-                
-                # 解析结果
-                task_info = {
-                    "task_id": task.task_id,
-                    "task_type": task.task_type,
-                    "status": task.status,
-                    "progress": {
-                        "total": task.total,
-                        "completed": task.completed,
-                        "failed": task.failed,
-                        "current": task.current,
-                        "percentage": task.percentage,
-                        "status": task.current  # 使用current字段作为status，因为current字段已经包含了详细的状态描述
-                    },
-                    "params": task.params,
-                    "start_time": task.start_time,
-                    "end_time": task.end_time,
-                    "error_message": task.error_message,
-                    "created_at": task.created_at,
-                    "updated_at": task.updated_at
-                }
-                
-                return task_info
-            finally:
-                db.close()
+            return task_info
         except Exception as e:
             logger.error(f"获取任务信息失败: task_id={task_id}, error={e}")
-            import traceback
-            traceback.print_exc()
             return None
+        finally:
+            db.close()
     
     @staticmethod
     def get_all() -> Dict[str, Dict[str, Any]]:
@@ -649,24 +531,16 @@ class TaskBusiness:
         Returns:
             Dict[str, Dict[str, Any]]: 所有任务信息，键为任务ID
         """
+        from .database import SessionLocal
+        import json
+        db: Session = SessionLocal()
         try:
-            import json
+            tasks = db.query(Task).order_by(Task.created_at.desc()).all()
             
-            # 使用SQLAlchemy连接，确保统一的连接方式
-            from .database import init_database_config, SessionLocal
-            init_database_config()
-            
-            db = SessionLocal()
-            
-            try:
-                # 使用ORM查询所有任务，按created_at降序排序
-                tasks_list = db.query(Task).order_by(Task.created_at.desc()).all()
-                
-                tasks = {}
-                for task in tasks_list:
-                    task_id = task.task_id
-                    tasks[task_id] = {
-                    "task_id": task_id,
+            result = {}
+            for task in tasks:
+                result[task.task_id] = {
+                    "task_id": task.task_id,
                     "task_type": task.task_type,
                     "status": task.status,
                     "progress": {
@@ -674,25 +548,22 @@ class TaskBusiness:
                         "completed": task.completed,
                         "failed": task.failed,
                         "current": task.current,
-                        "percentage": task.percentage,
-                        "status": task.current  # 使用current字段作为status，包含详细的状态描述
+                        "percentage": task.percentage
                     },
-                    "params": task.params,
+                    "params": json.loads(task.params),
                     "start_time": task.start_time,
                     "end_time": task.end_time,
                     "error_message": task.error_message,
                     "created_at": task.created_at,
                     "updated_at": task.updated_at
                 }
-                
-                return tasks
-            finally:
-                db.close()
+            
+            return result
         except Exception as e:
             logger.error(f"获取所有任务信息失败: error={e}")
-            import traceback
-            traceback.print_exc()
             return {}
+        finally:
+            db.close()
     
     @staticmethod
     def get_paginated(page: int = 1, page_size: int = 10, filters: dict = None, sort_by: str = "created_at", sort_order: str = "desc") -> dict:
@@ -709,113 +580,97 @@ class TaskBusiness:
         Returns:
             dict: 包含任务列表和分页信息的字典
         """
+        from .database import SessionLocal
+        import json
+        db: Session = SessionLocal()
         try:
-            import json
+            # 构建查询
+            query = db.query(Task)
             
-            # 使用SQLAlchemy连接，确保统一的连接方式
-            from .database import init_database_config, SessionLocal
-            init_database_config()
+            # 应用过滤条件
+            if filters:
+                # 任务类型过滤
+                if "task_type" in filters and filters["task_type"]:
+                    query = query.filter(Task.task_type == filters["task_type"])
+                
+                # 任务状态过滤
+                if "status" in filters and filters["status"]:
+                    query = query.filter(Task.status == filters["status"])
+                
+                # 开始时间过滤
+                if "start_time" in filters and filters["start_time"]:
+                    query = query.filter(Task.start_time >= filters["start_time"])
+                
+                # 结束时间过滤
+                if "end_time" in filters and filters["end_time"]:
+                    query = query.filter(Task.end_time <= filters["end_time"])
+                
+                # 创建时间过滤
+                if "created_at" in filters and filters["created_at"]:
+                    query = query.filter(Task.created_at >= filters["created_at"])
+                
+                # 更新时间过滤
+                if "updated_at" in filters and filters["updated_at"]:
+                    query = query.filter(Task.updated_at <= filters["updated_at"])
             
-            db = SessionLocal()
+            # 计算总记录数
+            total = query.count()
             
-            try:
-                # 构建查询
-                query = db.query(Task)
-                
-                # 应用过滤条件
-                if filters:
-                    # 任务类型过滤
-                    if "task_type" in filters and filters["task_type"]:
-                        query = query.filter(Task.task_type == filters["task_type"])
-                    
-                    # 任务状态过滤
-                    if "status" in filters and filters["status"]:
-                        query = query.filter(Task.status == filters["status"])
-                    
-                    # 开始时间过滤
-                    if "start_time" in filters and filters["start_time"]:
-                        query = query.filter(Task.start_time >= filters["start_time"])
-                    
-                    # 结束时间过滤
-                    if "end_time" in filters and filters["end_time"]:
-                        query = query.filter(Task.end_time <= filters["end_time"])
-                    
-                    # 创建时间过滤
-                    if "created_at" in filters and filters["created_at"]:
-                        query = query.filter(Task.created_at >= filters["created_at"])
-                    
-                    # 更新时间过滤
-                    if "updated_at" in filters and filters["updated_at"]:
-                        query = query.filter(Task.updated_at <= filters["updated_at"])
-                
-                # 验证排序字段，防止SQL注入
-                allowed_sort_fields = ["task_id", "task_type", "status", "start_time", "end_time", "created_at", "updated_at"]
-                if sort_by not in allowed_sort_fields:
-                    sort_by = "created_at"
-                
-                # 验证排序顺序
-                if sort_order not in ["asc", "desc"]:
-                    sort_order = "desc"
-                
-                # 应用排序
-                sort_column = getattr(Task, sort_by)
-                if sort_order == "desc":
-                    query = query.order_by(sort_column.desc())
-                else:
-                    query = query.order_by(sort_column.asc())
-                
-                # 获取总记录数
-                total = query.count()
-                
-                # 计算分页参数
-                offset = (page - 1) * page_size
-                
-                # 应用分页
-                paginated_tasks = query.limit(page_size).offset(offset).all()
-                
-                # 处理结果
-                tasks = []
-                for task in paginated_tasks:
-                    task_info = {
-                        "task_id": task.task_id,
-                        "task_type": task.task_type,
-                        "status": task.status,
-                        "progress": {
-                            "total": task.total,
-                            "completed": task.completed,
-                            "failed": task.failed,
-                            "current": task.current,
-                            "percentage": task.percentage,
-                            "status": task.current  # 使用current字段作为status，包含详细的状态描述
-                        },
-                        "params": task.params,
-                        "start_time": task.start_time,
-                        "end_time": task.end_time,
-                        "error_message": task.error_message,
-                        "created_at": task.created_at,
-                        "updated_at": task.updated_at
-                    }
-                    tasks.append(task_info)
-                
-                # 计算总页数
-                pages = (total + page_size - 1) // page_size
-                
-                # 返回结果
-                return {
-                    "tasks": tasks,
-                    "pagination": {
-                        "page": page,
-                        "page_size": page_size,
-                        "total": total,
-                        "pages": pages
-                    }
+            # 验证排序字段，防止SQL注入
+            allowed_sort_fields = ["task_id", "task_type", "status", "start_time", "end_time", "created_at", "updated_at"]
+            if sort_by not in allowed_sort_fields:
+                sort_by = "created_at"
+            
+            # 验证排序顺序
+            if sort_order not in ["asc", "desc"]:
+                sort_order = "desc"
+            
+            # 应用排序和分页
+            if sort_order == "desc":
+                query = query.order_by(getattr(Task, sort_by).desc())
+            else:
+                query = query.order_by(getattr(Task, sort_by).asc())
+            
+            # 计算分页参数
+            offset = (page - 1) * page_size
+            paginated_tasks = query.offset(offset).limit(page_size).all()
+            
+            # 处理结果
+            tasks = []
+            for task in paginated_tasks:
+                tasks.append({
+                    "task_id": task.task_id,
+                    "task_type": task.task_type,
+                    "status": task.status,
+                    "progress": {
+                        "total": task.total,
+                        "completed": task.completed,
+                        "failed": task.failed,
+                        "current": task.current,
+                        "percentage": task.percentage
+                    },
+                    "params": json.loads(task.params),
+                    "start_time": task.start_time,
+                    "end_time": task.end_time,
+                    "error_message": task.error_message,
+                    "created_at": task.created_at,
+                    "updated_at": task.updated_at
+                })
+            
+            # 计算总页数
+            pages = (total + page_size - 1) // page_size
+            
+            return {
+                "tasks": tasks,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total": total,
+                    "pages": pages
                 }
-            finally:
-                db.close()
+            }
         except Exception as e:
             logger.error(f"获取分页任务列表失败: error={e}")
-            import traceback
-            traceback.print_exc()
             return {
                 "tasks": [],
                 "pagination": {
@@ -825,6 +680,8 @@ class TaskBusiness:
                     "pages": 0
                 }
             }
+        finally:
+            db.close()
     
     @staticmethod
     def delete(task_id: str) -> bool:
@@ -836,177 +693,84 @@ class TaskBusiness:
         Returns:
             bool: 操作成功返回True，失败返回False
         """
+        from .database import SessionLocal
+        db: Session = SessionLocal()
         try:
-            # 使用SQLAlchemy连接，确保统一的连接方式
-            from .database import init_database_config, SessionLocal
-            init_database_config()
-            
-            db = SessionLocal()
-            
-            try:
-                # 使用ORM删除任务
-                result = db.query(Task).filter(Task.task_id == task_id).delete()
-                
-                # 提交更改
+            task = db.query(Task).filter_by(task_id=task_id).first()
+            if task:
+                db.delete(task)
                 db.commit()
-                
-                if result > 0:
-                    logger.info(f"任务已删除: task_id={task_id}")
-                    return True
-                else:
-                    logger.warning(f"任务不存在: task_id={task_id}")
-                    return False
-            finally:
-                db.close()
+                logger.info(f"任务已删除: task_id={task_id}")
+            return True
         except Exception as e:
+            db.rollback()
             logger.error(f"删除任务失败: task_id={task_id}, error={e}")
-            import traceback
-            traceback.print_exc()
             return False
+        finally:
+            db.close()
 
 
 class DataPoolBusiness:
-    """资产池业务逻辑类
+    """资产池模型类
     
-    用于操作data_pools和data_pool_assets表，提供资产池的CRUD操作方法
+    用于操作data_pools和data_pool_assets表，提供CRUD操作方法
     """
     
     @staticmethod
-    def get_all(type: Optional[str] = None) -> Dict[str, Any]:
-        """获取所有资产池
-        
-        Args:
-            type: 资产池类型过滤（stock/crypto）
-            
-        Returns:
-            Dict[str, Any]: 所有资产池的字典，键为资产池ID，值为资产池详情
-        """
-        db: Session = SessionLocal()
-        try:
-            query = db.query(DataPool)
-            if type:
-                query = query.filter_by(type=type)
-            
-            pools = query.order_by(DataPool.name).all()
-            
-            result = {}
-            for pool in pools:
-                # 获取资产池包含的资产数量
-                asset_count = db.query(DataPoolAsset).filter_by(pool_id=pool.id).count()
-                
-                result[pool.id] = {
-                    "id": pool.id,
-                    "name": pool.name,
-                    "type": pool.type,
-                    "description": pool.description,
-                    "color": pool.color,
-                    "tags": pool.tags,
-                    "asset_count": asset_count,
-                    "created_at": pool.created_at,
-                    "updated_at": pool.updated_at
-                }
-            
-            return result
-        except Exception as e:
-            logger.error(f"获取所有资产池失败: error={e}")
-            return {}
-        finally:
-            db.close()
-    
-    @staticmethod
-    def get(pool_id: int) -> Optional[Dict[str, Any]]:
-        """获取指定ID的资产池
-        
-        Args:
-            pool_id: 资产池ID
-            
-        Returns:
-            Optional[Dict[str, Any]]: 资产池详情，如果不存在则返回None
-        """
-        db: Session = SessionLocal()
-        try:
-            pool = db.query(DataPool).filter_by(id=pool_id).first()
-            if not pool:
-                return None
-            
-            # 获取资产池包含的资产
-            assets = db.query(DataPoolAsset).filter_by(pool_id=pool.id).all()
-            asset_list = [asset.asset_id for asset in assets]
-            
-            return {
-                "id": pool.id,
-                "name": pool.name,
-                "type": pool.type,
-                "description": pool.description,
-                "color": pool.color,
-                "tags": pool.tags,
-                "assets": asset_list,
-                "created_at": pool.created_at,
-                "updated_at": pool.updated_at
-            }
-        except Exception as e:
-            logger.error(f"获取资产池失败: pool_id={pool_id}, error={e}")
-            return None
-        finally:
-            db.close()
-    
-    @staticmethod
-    def create(name: str, type: str, description: Optional[str] = None, color: Optional[str] = None, tags: Optional[str] = None) -> Optional[int]:
-        """创建新资产池
+    def create(name: str, description: str = "", is_public: bool = True, is_default: bool = False) -> Optional[int]:
+        """创建资产池
         
         Args:
             name: 资产池名称
-            type: 资产池类型（stock/crypto）
             description: 资产池描述
-            color: 卡片颜色
-            tags: 标签，JSON格式
+            is_public: 是否公开
+            is_default: 是否为默认资产池
             
         Returns:
-            Optional[int]: 创建的资产池ID，如果失败则返回None
+            Optional[int]: 创建成功返回资产池ID，失败返回None
         """
+        from .database import SessionLocal
         db: Session = SessionLocal()
         try:
-            # 检查资产池名称是否已存在
-            existing_pool = db.query(DataPool).filter_by(name=name).first()
-            if existing_pool:
-                logger.error(f"资产池名称已存在: name={name}")
-                return None
+            # 如果设置为默认资产池，先将其他默认资产池设置为非默认
+            if is_default:
+                db.query(DataPool).filter_by(is_default=True).update({"is_default": False})
             
-            # 创建新资产池
+            # 创建资产池
             pool = DataPool(
                 name=name,
-                type=type,
                 description=description,
-                color=color or "#409EFF",
-                tags=tags
+                is_public=is_public,
+                is_default=is_default
             )
             db.add(pool)
             db.commit()
             db.refresh(pool)
             
-            logger.info(f"资产池已创建: id={pool.id}, name={name}, type={type}")
+            logger.info(f"资产池已创建: id={pool.id}, name={name}")
             return pool.id
         except Exception as e:
             db.rollback()
-            logger.error(f"创建资产池失败: name={name}, type={type}, error={e}")
+            logger.error(f"创建资产池失败: name={name}, error={e}")
             return None
         finally:
             db.close()
     
     @staticmethod
-    def update(pool_id: int, name: Optional[str] = None, description: Optional[str] = None, color: Optional[str] = None, tags: Optional[str] = None) -> bool:
+    def update(pool_id: int, name: str = None, description: str = None, is_public: bool = None, is_default: bool = None) -> bool:
         """更新资产池
         
         Args:
             pool_id: 资产池ID
             name: 资产池名称
             description: 资产池描述
-            color: 卡片颜色
-            tags: 标签，JSON格式
+            is_public: 是否公开
+            is_default: 是否为默认资产池
             
         Returns:
             bool: 更新成功返回True，失败返回False
         """
+        from .database import SessionLocal
         db: Session = SessionLocal()
         try:
             pool = db.query(DataPool).filter_by(id=pool_id).first()
@@ -1014,18 +778,23 @@ class DataPoolBusiness:
                 logger.error(f"资产池不存在: pool_id={pool_id}")
                 return False
             
-            # 更新资产池信息
-            if name:
+            # 如果设置为默认资产池，先将其他默认资产池设置为非默认
+            if is_default is True:
+                db.query(DataPool).filter_by(is_default=True).update({"is_default": False})
+                pool.is_default = True
+            elif is_default is not None:
+                pool.is_default = is_default
+            
+            # 更新其他字段
+            if name is not None:
                 pool.name = name
             if description is not None:
                 pool.description = description
-            if color:
-                pool.color = color
-            if tags is not None:
-                pool.tags = tags
+            if is_public is not None:
+                pool.is_public = is_public
             
             db.commit()
-            logger.info(f"资产池已更新: pool_id={pool_id}")
+            logger.info(f"资产池已更新: pool_id={pool_id}, name={pool.name}")
             return True
         except Exception as e:
             db.rollback()
@@ -1044,6 +813,7 @@ class DataPoolBusiness:
         Returns:
             bool: 删除成功返回True，失败返回False
         """
+        from .database import SessionLocal
         db: Session = SessionLocal()
         try:
             # 删除资产池关联的资产
@@ -1076,6 +846,7 @@ class DataPoolBusiness:
         Returns:
             bool: 添加成功返回True，失败返回False
         """
+        from .database import SessionLocal
         db: Session = SessionLocal()
         try:
             # 检查资产池是否存在
@@ -1120,6 +891,7 @@ class DataPoolBusiness:
         Returns:
             bool: 批量添加成功返回True，失败返回False
         """
+        from .database import SessionLocal
         db: Session = SessionLocal()
         try:
             # 检查资产池是否存在
@@ -1161,6 +933,7 @@ class DataPoolBusiness:
         Returns:
             bool: 移除成功返回True，失败返回False
         """
+        from .database import SessionLocal
         db: Session = SessionLocal()
         try:
             # 检查资产是否存在于资产池中
@@ -1189,6 +962,7 @@ class DataPoolBusiness:
         Returns:
             bool: 批量移除成功返回True，失败返回False
         """
+        from .database import SessionLocal
         db: Session = SessionLocal()
         try:
             # 批量移除资产
@@ -1215,6 +989,7 @@ class DataPoolBusiness:
         Returns:
             list: 资产列表（股票代码或加密货币对）
         """
+        from .database import SessionLocal
         db: Session = SessionLocal()
         try:
             assets = db.query(DataPoolAsset).filter_by(pool_id=pool_id).all()

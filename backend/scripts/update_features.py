@@ -88,7 +88,10 @@ def update_features_to_db(features: Dict[str, List[Dict[str, str]]]):
         # 导入数据库相关模块
         from sqlalchemy.orm import Session
         from backend.collector.db import crud, models, schemas
-        from backend.collector.db.database import engine, SessionLocal
+        from backend.collector.db.database import engine, SessionLocal, init_database_config
+        
+        # 初始化数据库配置
+        init_database_config()
         
         # 创建数据库会话
         db = SessionLocal()

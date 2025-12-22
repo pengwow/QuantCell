@@ -68,6 +68,7 @@ def start_scheduler():
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
     from scripts.update_features import main as update_features_main
+    from scripts.sync_crypto_symbols import sync_crypto_symbols
     
     # 创建后台调度器
     scheduler = BackgroundScheduler()
@@ -88,6 +89,25 @@ def start_scheduler():
         run_date=None,  # 立即执行
         id='update_features_init',
         name='Initialize features information',
+        replace_existing=True
+    )
+    
+    # 添加定时任务：每周日凌晨2点执行一次，同步加密货币对
+    scheduler.add_job(
+        func=lambda: sync_crypto_symbols(),
+        trigger=CronTrigger(day_of_week=6, hour=2, minute=0),  # 每周日凌晨2点
+        id='sync_crypto_symbols',
+        name='Sync cryptocurrency symbols',
+        replace_existing=True
+    )
+    
+    # 添加立即执行一次的任务，用于初始化货币对数据
+    scheduler.add_job(
+        func=lambda: sync_crypto_symbols(),
+        trigger='date',
+        run_date=None,  # 立即执行
+        id='sync_crypto_symbols_init',
+        name='Initialize cryptocurrency symbols',
         replace_existing=True
     )
     
