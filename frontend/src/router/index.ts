@@ -6,6 +6,7 @@ import Setting from '../views/Setting.vue'
 import DataManagement from '../views/DataManagement.vue'
 import FactorAnalysis from '../views/FactorAnalysis.vue'
 import ModelManagement from '../views/ModelManagement.vue'
+import ChartPage from '../views/ChartPage.vue'
 
 /**
  * 路由配置项类型
@@ -69,6 +70,14 @@ const router = createRouter({
       component: () => import('../views/BacktestResults.vue'),
       meta: {
         title: '回测结果'
+      }
+    },
+    {
+      path: '/chart',
+      name: 'ChartPage',
+      component: ChartPage,
+      meta: {
+        title: 'K线图表'
       }
     },
     // 默认重定向到策略代理页面

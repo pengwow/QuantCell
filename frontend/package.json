@@ -18,6 +18,7 @@
     "axios": "^1.13.2",
     "echarts": "^6.0.0",
     "element-plus": "^2.11.9",
+    "klinecharts": "^10.0.0-beta1",
     "pinia": "^3.0.4",
     "vue": "^3.5.13",
     "vue-router": "^4.6.3"
