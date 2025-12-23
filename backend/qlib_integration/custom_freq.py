@@ -17,6 +17,7 @@ from typing import Tuple, Union
 
 print(f"[INFO] custom_freq: 开始导入QLib的Freq类")
 from qlib.utils.time import Freq as QlibFreq
+
 print(f"[INFO] custom_freq: 成功导入QLib的Freq类")
 
 # 保存原始Freq类，以便需要时恢复
@@ -119,6 +120,7 @@ print(f"[INFO] custom_freq: 已将QLib的Freq类替换为CustomFreq")
 
 # 验证替换是否成功
 from qlib.utils.time import Freq
+
 print(f"[INFO] custom_freq: 验证替换结果，Freq类是: {Freq}")
 print(f"[INFO] custom_freq: Freq.__str__方法是: {Freq.__str__}")
 

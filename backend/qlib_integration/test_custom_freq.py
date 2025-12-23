@@ -5,7 +5,6 @@
 
 # 导入自定义Freq类，触发monkey patching
 import custom_freq
-
 # 测试各种频率格式
 from qlib.utils.time import Freq
 

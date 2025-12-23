@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # 测试/api/data/calendars接口
 
-import requests
 import json
+
+import requests
+
 
 # 测试接口
 def test_calendars_api():

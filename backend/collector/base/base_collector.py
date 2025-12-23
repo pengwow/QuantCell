@@ -1,14 +1,14 @@
 # 基础收集器类
 import abc
-import time
 import datetime
+import time
 from pathlib import Path
-from typing import Type, Iterable, Union, Optional
+from typing import Iterable, Optional, Type, Union
 
 import pandas as pd
+from joblib import Parallel, delayed
 from loguru import logger
 from tqdm import tqdm
-from joblib import Parallel, delayed
 
 
 class BaseCollector(abc.ABC):

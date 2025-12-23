@@ -7,6 +7,7 @@
 import os
 import sys
 from pathlib import Path
+
 from loguru import logger
 
 # 添加当前目录到Python路径
@@ -33,7 +34,7 @@ def test_duckdb_config_consistency():
     logger.info("测试1: 测试原生DuckDB连接配置")
     try:
         import duckdb
-        
+
         # 使用修复后的配置
         conn1 = duckdb.connect(
             str(temp_db_path),
@@ -64,7 +65,7 @@ def test_duckdb_config_consistency():
     logger.info("测试2: 测试SQLAlchemy连接配置")
     try:
         from sqlalchemy import create_engine, text
-        
+
         # 构建DuckDB连接URL
         db_url = f"duckdb:///{temp_db_path}"
         
@@ -104,7 +105,7 @@ def test_duckdb_config_consistency():
     try:
         import duckdb
         from sqlalchemy import create_engine, text
-        
+
         # 先创建原生连接
         conn1 = duckdb.connect(
             str(temp_db_path),

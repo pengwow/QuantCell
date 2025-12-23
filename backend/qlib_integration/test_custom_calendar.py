@@ -3,22 +3,22 @@
 测试自定义日历提供者是否能正常工作
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 # 添加项目根目录到Python路径
 sys.path.append('/Users/liupeng/workspace/qbot')
 
-# 导入自定义日历提供者
-from backend.qlib_integration.custom_calendar_provider import CustomCalendarProvider
-
-# 导入自定义Freq类，确保支持更多频率格式
-from backend.qlib_integration import custom_freq
-
 # 初始化qlib
 import qlib
 from qlib.config import C
+
+# 导入自定义Freq类，确保支持更多频率格式
+from backend.qlib_integration import custom_freq
+# 导入自定义日历提供者
+from backend.qlib_integration.custom_calendar_provider import \
+    CustomCalendarProvider
 
 # 设置qlib配置
 qlib.init(

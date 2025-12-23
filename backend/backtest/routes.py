@@ -1,18 +1,14 @@
 # 回测服务API路由
 
+from typing import Any, Dict, List
+
 from fastapi import APIRouter, HTTPException
-from typing import List, Dict, Any
 from loguru import logger
 
-from .schemas import (
-    ApiResponse,
-    BacktestListRequest,
-    BacktestRunRequest,
-    BacktestAnalyzeRequest,
-    BacktestDeleteRequest,
-    StrategyConfigRequest,
-    ExecutorConfigRequest
-)
+from .schemas import (ApiResponse, BacktestAnalyzeRequest,
+                      BacktestDeleteRequest, BacktestListRequest,
+                      BacktestRunRequest, ExecutorConfigRequest,
+                      StrategyConfigRequest)
 from .service import BacktestService
 
 # 创建API路由实例

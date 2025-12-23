@@ -2,8 +2,9 @@
 
 import uuid
 from datetime import datetime
-from typing import Dict, Any, Optional
 from enum import Enum
+from typing import Any, Dict, Optional
+
 from loguru import logger
 
 
@@ -60,7 +61,7 @@ class TaskManager:
         """
         try:
             from ..db.models import TaskBusiness
-            
+
             # 从数据库获取所有任务
             tasks_from_db = TaskBusiness.get_all()
             

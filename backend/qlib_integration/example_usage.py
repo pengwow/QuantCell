@@ -6,7 +6,6 @@
 # 导入自定义Freq类，触发monkey patching
 # 注意：这个导入需要在使用qlib的Freq类之前执行
 import custom_freq
-
 # 现在可以正常使用qlib的Freq类，支持更多频率格式
 from qlib.utils.time import Freq
 

@@ -4,14 +4,16 @@
 专门测试16位微秒时间戳的转换问题
 """
 
-import pandas as pd
-import sys
 import os
+import sys
+
+import pandas as pd
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from backend.collector.crypto.binance.collector import BinanceCollector
+
 
 def test_microsecond_timestamp_fix():
     """

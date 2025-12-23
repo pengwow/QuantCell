@@ -4,8 +4,8 @@
 验证不同频率格式下生成的日历文件名是否符合预期
 """
 
-import sys
 import os
+import sys
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
@@ -13,7 +13,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from qlib.utils.time import Freq
 
 # 导入自定义存储类
-from backend.qlib_integration.custom_calendar_provider import CustomFileCalendarStorage
+from backend.qlib_integration.custom_calendar_provider import \
+    CustomFileCalendarStorage
 
 
 def test_calendar_filename():
@@ -61,7 +62,7 @@ def test_calendar_filename():
     
     # 直接测试uri属性的核心功能：根据_freq_file结果生成文件名
     from pathlib import Path
-    
+
     # 频率映射，模拟_freq_file的返回值
     freq_mapping = {
         "1m.txt": "1m",
@@ -123,6 +124,6 @@ def test_calendar_filename():
 if __name__ == "__main__":
     # 先导入自定义频率
     from backend.qlib_integration import custom_freq
-    
+
     # 运行测试
     test_calendar_filename()

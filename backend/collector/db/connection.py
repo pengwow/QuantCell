@@ -1,9 +1,10 @@
 # 数据库连接管理
 
-import sqlite3
 import os
+import sqlite3
 import threading
 from pathlib import Path
+
 from loguru import logger
 
 # 数据库文件路径
@@ -44,7 +45,7 @@ class DBConnection:
             # 从环境变量或配置获取数据库类型和文件路径
             # 避免循环依赖，优先使用环境变量
             import os
-            
+
             # 优先从环境变量读取配置
             db_type = os.environ.get("DB_TYPE", "duckdb")  # 默认使用duckdb
             db_file = os.environ.get("DB_FILE", str(default_db_path))
@@ -94,6 +95,7 @@ class DBConnection:
             elif db_type == "duckdb":
                 # DuckDB连接
                 import duckdb
+
                 # 统一DuckDB连接配置，确保所有连接使用相同的配置
                 conn = duckdb.connect(
                     str(db_path),
@@ -163,8 +165,8 @@ def init_db():
         init_database_config()
         
         # 然后再导入engine变量，确保它已经被初始化
-        from .database import Base, engine
         from . import models
+        from .database import Base, engine
         
         logger.info("使用SQLAlchemy创建数据库表...")
         # 创建所有表
@@ -176,9 +178,10 @@ def init_db():
         
         # 直接使用SQLAlchemy引擎进行表验证，避免创建新连接导致的配置冲突
         from sqlalchemy import text
-        from .database import db_type
         from sqlalchemy.orm import Session
-        
+
+        from .database import db_type
+
         # 使用Session进行表验证
         with Session(engine) as session:
             if db_type == "sqlite":
@@ -201,7 +204,7 @@ def init_db():
         logger.info("插入默认配置...")
         # 先从配置文件读取相关配置
         from backend.config import get_config
-        
+
         # 配置映射：配置文件key -> (system_config_key, 默认值, 描述)
         config_mapping = {
             "quant.qlib_data_dir": ("qlib_data_dir", "data/source", "QLib数据目录"),

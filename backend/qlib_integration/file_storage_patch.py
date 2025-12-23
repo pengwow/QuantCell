@@ -61,6 +61,7 @@ def apply_patches():
     
     try:
         from pathlib import Path
+
         from qlib.data.storage.file_storage import FileCalendarStorage
         print("[INFO] 成功导入QLib模块")
     except ImportError as e:
@@ -239,6 +240,7 @@ def apply_patches():
             # 检查是否支持该频率
             if freq_obj not in self.support_freq:
                 from qlib.utils.time import Freq
+
                 # 尝试获取最近的频率
                 freq_obj = Freq.get_recent_freq(freq_obj, self.support_freq)
                 if freq_obj is None:
@@ -301,9 +303,8 @@ print("[INFO] 文件存储补丁模块加载完成")
 # 这样当使用joblib/ParallelExt创建子进程时，会自动调用我们的初始化函数
 try:
     import joblib
-    from joblib.parallel import register_parallel_backend
-    from joblib.parallel import Parallel
-    
+    from joblib.parallel import Parallel, register_parallel_backend
+
     # 修改joblib.Parallel的默认初始化器
     original_init = Parallel.__init__
     def patched_init(self, *args, **kwargs):
@@ -322,9 +323,9 @@ except ImportError as e:
 
 # 尝试修改QLib的ParallelExt类
 try:
-    from qlib.utils.paral import ParallelExt
     from joblib.parallel import Parallel
-    
+    from qlib.utils.paral import ParallelExt
+
     # 修改ParallelExt的默认初始化器
     original_paral_init = ParallelExt.__init__
     def patched_paral_init(self, *args, **kwargs):

@@ -1,23 +1,16 @@
 # 因子计算服务API路由
 
+from typing import Any, Dict, List
+
 from fastapi import APIRouter, HTTPException
-from typing import List, Dict, Any
 from loguru import logger
 
-from .schemas import (
-    ApiResponse,
-    FactorAddRequest,
-    FactorCalculateRequest,
-    FactorCalculateMultiRequest,
-    FactorValidateRequest,
-    FactorCorrelationRequest,
-    FactorStatsRequest,
-    FactorICRequest,
-    FactorIRRequest,
-    FactorGroupAnalysisRequest,
-    FactorMonotonicityRequest,
-    FactorStabilityRequest
-)
+from .schemas import (ApiResponse, FactorAddRequest,
+                      FactorCalculateMultiRequest, FactorCalculateRequest,
+                      FactorCorrelationRequest, FactorGroupAnalysisRequest,
+                      FactorICRequest, FactorIRRequest,
+                      FactorMonotonicityRequest, FactorStabilityRequest,
+                      FactorStatsRequest, FactorValidateRequest)
 from .service import FactorService
 
 # 创建API路由实例

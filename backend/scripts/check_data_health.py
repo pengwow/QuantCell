@@ -13,7 +13,8 @@
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Dict, List, Optional
+
 import pandas as pd
 from loguru import logger
 
@@ -152,7 +153,7 @@ class DataHealthChecker:
         try:
             import qlib
             from qlib.data import D
-            
+
             # 初始化QLib
             qlib.init(provider_uri=qlib_dir)
             logger.info(f"成功初始化QLib，数据目录: {qlib_dir}")

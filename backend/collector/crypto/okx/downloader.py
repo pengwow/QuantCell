@@ -1,8 +1,9 @@
 # OKX数据下载器
-import requests
-import pandas as pd
-from loguru import logger
 from pathlib import Path
+
+import pandas as pd
+import requests
+from loguru import logger
 
 
 class OKXDownloader:

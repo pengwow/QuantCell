@@ -3,9 +3,9 @@
 全面测试频率格式处理，特别是1d频率的处理
 """
 
+import os
 import sys
 from pathlib import Path
-import os
 
 # 添加项目根目录到sys.path
 current_dir = Path(os.getcwd())
@@ -14,11 +14,12 @@ sys.path.append(str(project_root))
 
 # 在导入qlib之前应用补丁
 from backend.qlib_integration import file_storage_patch
+
 print("✓ 已应用文件存储补丁")
 
+import qlib
 # 导入必要的库
 from qlib.data import D
-import qlib
 
 # 初始化qlib
 data_dir = os.path.join(project_root, 'backend/data/source')
@@ -127,9 +128,10 @@ def test_freq_str_parsing():
     """
     print("\n=== 测试频率字符串解析 ===")
     
-    from backend.qlib_integration.custom_freq import CustomFreq
     from qlib.utils.time import Freq
-    
+
+    from backend.qlib_integration.custom_freq import CustomFreq
+
     # 测试原始Freq和自定义Freq的解析
     for freq_str in test_freqs:
         try:
@@ -158,7 +160,7 @@ def test_file_name_generation():
     
     from qlib.data.storage.file_storage import FileCalendarStorage
     from qlib.utils.time import Freq
-    
+
     # 创建一个测试用的FileCalendarStorage实例
     try:
         # 获取数据路径管理器

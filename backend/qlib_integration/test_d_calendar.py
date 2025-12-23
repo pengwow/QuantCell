@@ -5,7 +5,6 @@
 
 # 导入自定义Freq类，触发monkey patching
 import custom_freq
-
 # 测试用户提供的代码
 from qlib.data import D
 

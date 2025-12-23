@@ -8,19 +8,21 @@ K线数据健康检查脚本
 """
 
 import sys
-import pandas as pd
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
 from loguru import logger
-from typing import Dict, Any, Optional, List
 
 # 添加项目根目录到Python路径
 sys.path.append('/Users/liupeng/workspace/qbot')
 
+from sqlalchemy import and_
+from sqlalchemy.orm import Session
+
+from backend.collector.db.database import SessionLocal
 # 数据库连接和模型
 from backend.collector.db.models import Kline
-from backend.collector.db.database import SessionLocal
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
 
 
 class KlineHealthChecker:
@@ -312,6 +314,7 @@ class KlineHealthChecker:
 # 命令行调用支持
 import fire
 
+
 def cli_check(symbol: str, interval: str, start: Optional[str] = None, end: Optional[str] = None):
     """
     命令行调用的健康检查函数
@@ -354,7 +357,7 @@ def cli_check(symbol: str, interval: str, start: Optional[str] = None, end: Opti
 
 
 # FastAPI路由支持
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 router_health = APIRouter(prefix="/api/health", tags=["health"])

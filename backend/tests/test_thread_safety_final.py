@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # 最终测试数据库连接线程安全性
 
-import sys
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -36,7 +36,7 @@ class TestDBConnection:
             sqlite3.Connection: 数据库连接对象
         """
         import sqlite3
-        
+
         # 检查当前线程是否已有连接
         if not hasattr(self._local, '_conn') or self._local._conn is None:
             # 创建新连接

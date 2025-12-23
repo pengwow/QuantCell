@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 # 数据下载脚本，用于从命令行下载各种资产类型的数据
 
-import sys
 import os
+import sys
+
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-import fire
 from pathlib import Path
+
+import fire
 from loguru import logger
 
 from backend.collector.crypto.binance.collector import BinanceCollector
@@ -35,8 +37,9 @@ class GetData:
             logger.info(f"开始将数据转换为QLib格式，数据目录: {data_dir}, QLib目录: {qlib_dir}, 时间间隔: {interval}")
             
             # 导入转换函数
-            from backend.collector.scripts.convert_to_qlib import convert_crypto_to_qlib
-            
+            from backend.collector.scripts.convert_to_qlib import \
+                convert_crypto_to_qlib
+
             # 调用转换函数
             success = convert_crypto_to_qlib(
                 csv_dir=str(data_dir),

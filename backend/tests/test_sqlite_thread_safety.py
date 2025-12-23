@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # 简单测试SQLite数据库线程安全性
 
-import sys
 import os
+import sys
 import threading
 import time
 from pathlib import Path

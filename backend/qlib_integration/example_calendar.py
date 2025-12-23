@@ -3,8 +3,8 @@
 示例脚本：展示如何使用自定义日历提供者
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 # 添加项目根目录到Python路径
@@ -17,15 +17,14 @@ print("=" * 50)
 print("\n1. 基本使用:")
 print("=" * 30)
 
-# 导入自定义Freq类，确保支持更多频率格式
-# 注意：这个导入需要在使用qlib的任何功能之前执行，并且要在custom_calendar_provider之前导入
-from backend.qlib_integration import custom_freq
-
-# 导入自定义日历提供者，自动触发monkey patching
-from backend.qlib_integration import custom_calendar_provider
-
 # 初始化qlib
 import qlib
+
+# 导入自定义日历提供者，自动触发monkey patching
+# 导入自定义Freq类，确保支持更多频率格式
+# 注意：这个导入需要在使用qlib的任何功能之前执行，并且要在custom_calendar_provider之前导入
+from backend.qlib_integration import custom_calendar_provider, custom_freq
+
 qlib.init(
     provider_uri='~/.qlib/crypto_data/qlib_data',
     region='us'

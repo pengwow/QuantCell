@@ -1,6 +1,6 @@
 # 测试数据库连接和查询
 
-from collector.db import get_db_connection, SystemConfig
+from collector.db import SystemConfig, get_db_connection
 
 # 测试数据库连接
 conn = get_db_connection()

@@ -1,28 +1,22 @@
 # 数据服务类，处理数据相关的业务逻辑
 
-from typing import Optional, Dict, List, Any, Tuple
-from sqlalchemy.orm import Session
-from loguru import logger
-from datetime import datetime
 import json
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
+from loguru import logger
+from sqlalchemy.orm import Session
 
 from ..data_loader import data_loader
-from ..utils.task_manager import task_manager
-from ..db import crud
 from ..db import SystemConfigBusiness as SystemConfig
-from ..schemas.data import (
-    LoadDataRequest,
-    DownloadCryptoRequest,
-    DataInfoResponse,
-    CalendarInfoResponse,
-    InstrumentInfoResponse,
-    FeatureInfoResponse,
-    SymbolFeaturesResponse,
-    DataResponse,
-    TaskStatusResponse,
-    TaskProgressResponse,
-    TaskResponse
-)
+from ..db import crud
+from ..schemas.data import (CalendarInfoResponse, DataInfoResponse,
+                            DataResponse, DownloadCryptoRequest,
+                            FeatureInfoResponse, InstrumentInfoResponse,
+                            LoadDataRequest, SymbolFeaturesResponse,
+                            TaskProgressResponse, TaskResponse,
+                            TaskStatusResponse)
+from ..utils.task_manager import task_manager
 
 
 class DataService:
@@ -507,9 +501,10 @@ class DataService:
         
         # 优先从数据库读取货币对数据
         try:
+            import json
+
             from ..db.database import SessionLocal
             from ..db.models import CryptoSymbol
-            import json
             
             db = SessionLocal()
             try:
@@ -568,7 +563,7 @@ class DataService:
         try:
             # 导入ccxt库
             import ccxt
-            
+
             # 读取代理配置
             proxy_enabled = configs.get("proxy_enabled") == "true"
             proxy_url = configs.get("proxy_url")
@@ -650,9 +645,10 @@ class DataService:
             
             # 同步到数据库
             try:
+                import json
+
                 from ..db.database import SessionLocal
                 from ..db.models import CryptoSymbol
-                import json
                 
                 db = SessionLocal()
                 try:
@@ -730,7 +726,7 @@ class DataService:
         
         # 转换时间字符串为datetime对象
         from datetime import datetime
-        
+
         # 处理开始时间
         start_time_dt = None
         if start_time:
@@ -835,8 +831,9 @@ class DataService:
             request: 下载加密货币数据请求
         """
         try:
-            from ..scripts.get_data import GetData
             from pathlib import Path
+
+            from ..scripts.get_data import GetData
             
             logger.info(f"开始异步下载加密货币数据，任务ID: {task_id}, 请求参数: {request.model_dump()}")
             
@@ -910,11 +907,13 @@ class DataService:
                     
                     # 导入数据库相关模块
                     import pandas as pd
-                    from backend.collector.db.database import SessionLocal, init_database_config
-                    from backend.collector.db.models import Kline
-                    from sqlalchemy import insert, func
+                    from sqlalchemy import func, insert
                     from sqlalchemy.orm import Session
-                    
+
+                    from backend.collector.db.database import (
+                        SessionLocal, init_database_config)
+                    from backend.collector.db.models import Kline
+
                     # 初始化数据库配置
                     init_database_config()
                     
@@ -978,7 +977,8 @@ class DataService:
                             
                             if db_type == "sqlite":
                                 # SQLite使用on_conflict_do_update
-                                from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+                                from sqlalchemy.dialects.sqlite import \
+                                    insert as sqlite_insert
                                 stmt = sqlite_insert(Kline).values(kline_list)
                                 stmt = stmt.on_conflict_do_update(
                                     index_elements=['unique_kline'],
@@ -994,7 +994,8 @@ class DataService:
                                 db.execute(stmt)
                             elif db_type == "duckdb":
                                 # DuckDB使用PostgreSQL兼容的ON CONFLICT语法
-                                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                                from sqlalchemy.dialects.postgresql import \
+                                    insert as pg_insert
                                 stmt = pg_insert(Kline).values(kline_list)
                                 stmt = stmt.on_conflict_do_update(
                                     index_elements=['unique_kline'],

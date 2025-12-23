@@ -1,20 +1,13 @@
 # 模型训练服务API路由
 
+from typing import Any, Dict, List
+
 from fastapi import APIRouter, HTTPException
-from typing import List, Dict, Any
 from loguru import logger
 
-from .schemas import (
-    ApiResponse,
-    ModelListRequest,
-    ModelTrainRequest,
-    ModelEvaluateRequest,
-    ModelPredictRequest,
-    ModelSaveRequest,
-    ModelLoadRequest,
-    ModelDeleteRequest,
-    ModelConfigRequest
-)
+from .schemas import (ApiResponse, ModelConfigRequest, ModelDeleteRequest,
+                      ModelEvaluateRequest, ModelListRequest, ModelLoadRequest,
+                      ModelPredictRequest, ModelSaveRequest, ModelTrainRequest)
 from .service import ModelService
 
 # 创建API路由实例

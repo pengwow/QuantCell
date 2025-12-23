@@ -8,14 +8,16 @@
 2. 增量更新功能（只下载缺失的数据）
 """
 
-import sys
 import os
+import sys
+
 # 添加当前目录到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pandas as pd
 from datetime import datetime, timedelta
+
+import pandas as pd
 from loguru import logger
 
 from collector.crypto.binance.collector import BinanceCollector

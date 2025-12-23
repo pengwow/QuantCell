@@ -3,9 +3,10 @@
 使用Pydantic定义数据验证模型，用于请求和响应的数据验证和序列化
 """
 
-from pydantic import BaseModel
-from typing import Optional, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel
 
 
 # 系统配置模型

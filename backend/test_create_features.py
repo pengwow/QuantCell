@@ -4,16 +4,17 @@
 直接测试修复后的create_features函数，验证批量插入功能是否正常工作
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 # 添加当前目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent))
 
 from sqlalchemy.orm import Session
+
 from collector.db import crud, models, schemas
-from collector.db.database import init_database_config, SessionLocal
+from collector.db.database import SessionLocal, init_database_config
 
 
 def test_create_features():

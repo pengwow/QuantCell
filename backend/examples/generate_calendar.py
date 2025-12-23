@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
 
 # 读取CSV文件
 csv_path = Path("/Users/liupeng/.qlib/crypto_data/source/1d/BTCUSDT.csv")

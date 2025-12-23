@@ -1,17 +1,15 @@
 from typing import List
+
 from qlib.data.data import LocalCalendarProvider
-
-# 确保先导入自定义Freq类，这样修改load_calendar方法时使用的就是自定义的Freq类
-from backend.qlib_integration import custom_freq
-
+# 导入FileCalendarStorage类
+from qlib.data.storage.file_storage import FileCalendarStorage
 # 现在导入的Freq就是自定义的Freq类
 from qlib.utils.time import Freq
 
+# 确保先导入自定义Freq类，这样修改load_calendar方法时使用的就是自定义的Freq类
+from backend.qlib_integration import custom_freq
 # 导入配置
-from backend.qlib_integration.config import FREQ_MAP, CALENDAR_DIR
-
-# 导入FileCalendarStorage类
-from qlib.data.storage.file_storage import FileCalendarStorage
+from backend.qlib_integration.config import CALENDAR_DIR, FREQ_MAP
 
 
 class CustomFileCalendarStorage(FileCalendarStorage):

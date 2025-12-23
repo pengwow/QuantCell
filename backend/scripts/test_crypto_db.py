@@ -7,8 +7,8 @@
 """
 
 import logging
-import sys
 import os
+import sys
 from datetime import datetime
 
 # 添加项目根目录到Python路径
@@ -40,34 +40,50 @@ def test_crypto_db():
         logger.info("开始测试加密货币数据库功能...")
         
         # 1. 初始化数据库配置
-        from collector.db.database import init_database_config, SessionLocal
+        from collector.db.database import SessionLocal, init_database_config
         logger.info("初始化数据库配置...")
         init_database_config()
         
         # 2. 导入所需模块
-        from collector.db.database import engine
         import json
+
         from sqlalchemy import text
-        
-        # 3. 表迁移：使用SQLAlchemy ORM功能创建表，自动处理不同数据库语法差异
+
+        from collector.db.database import engine
+
+        # 3. 表迁移：使用原始SQL创建表，使用序列实现自增主键，兼容DuckDB
         logger.info("开始表迁移...")
         
-        # 动态导入模型，避免循环导入问题
-        from collector.db.database import Base
-        from collector.db.models import CryptoSymbol
-        from sqlalchemy import inspect
-        
-        # 先检查并删除旧表
-        inspector = inspect(engine)
-        if CryptoSymbol.__tablename__ in inspector.get_table_names():
-            logger.info("检测到旧表，开始删除...")
-            CryptoSymbol.__table__.drop(bind=engine)
+        with engine.begin() as conn:
+            from sqlalchemy import text
+
+            # 先删除旧表
+            conn.execute(text("DROP TABLE IF EXISTS crypto_symbols CASCADE"))
             logger.info("旧表删除成功")
-        
-        # 创建新表
-        logger.info("开始创建新表...")
-        Base.metadata.create_all(bind=engine)
-        logger.info("数据库表创建成功")
+            
+            # 创建序列用于id自增
+            conn.execute(text("DROP SEQUENCE IF EXISTS crypto_symbols_id_seq CASCADE"))
+            conn.execute(text("CREATE SEQUENCE crypto_symbols_id_seq START 1"))
+            logger.info("序列创建成功")
+            
+            # 创建新表，使用序列的nextval作为id的默认值
+            conn.execute(text("""
+            CREATE TABLE crypto_symbols (
+                id INTEGER PRIMARY KEY DEFAULT nextval('crypto_symbols_id_seq'),
+                symbol VARCHAR NOT NULL,
+                base VARCHAR NOT NULL,
+                quote VARCHAR NOT NULL,
+                exchange VARCHAR NOT NULL,
+                active BOOLEAN DEFAULT TRUE,
+                precision TEXT,
+                limits TEXT,
+                type VARCHAR,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+                CONSTRAINT unique_symbol_exchange UNIQUE (symbol, exchange)
+            )
+            """))
+            logger.info("数据库表创建成功")
         
         # 4. 测试数据插入
         logger.info("开始测试数据插入...")

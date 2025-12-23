@@ -1,25 +1,20 @@
 # 数据相关API路由
 
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Request, Depends
-from typing import Optional, Dict, List, Any
+from typing import Any, Dict, List, Optional
+
+from fastapi import (APIRouter, BackgroundTasks, Depends, HTTPException, Query,
+                     Request)
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from ..schemas import ApiResponse
 from ..db.database import get_db
-from ..schemas.data import (
-    DataInfoResponse,
-    CalendarInfoResponse,
-    InstrumentInfoResponse,
-    FeatureInfoResponse,
-    LoadDataRequest,
-    SymbolFeaturesResponse,
-    DataResponse,
-    DownloadCryptoRequest,
-    TaskStatusResponse,
-    TaskProgressResponse,
-    TaskResponse
-)
+from ..schemas import ApiResponse
+from ..schemas.data import (CalendarInfoResponse, DataInfoResponse,
+                            DataResponse, DownloadCryptoRequest,
+                            FeatureInfoResponse, InstrumentInfoResponse,
+                            LoadDataRequest, SymbolFeaturesResponse,
+                            TaskProgressResponse, TaskResponse,
+                            TaskStatusResponse)
 from ..services import DataService
 
 # 创建API路由实例

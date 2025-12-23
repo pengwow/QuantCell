@@ -1,7 +1,8 @@
 # 模型训练服务API数据模型
 
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
 
 
 class ApiResponse(BaseModel):

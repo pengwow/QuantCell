@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+
 # 方法2：手动构建路径
 project_root = Path("/Users/liupeng/workspace/qbot")
 

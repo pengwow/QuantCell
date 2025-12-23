@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # 测试数据库切换功能
 
-import sys
 import os
+import sys
 
 # 添加项目根目录到Python路径
 sys.path.append('/Users/liupeng/workspace/qbot')

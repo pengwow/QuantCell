@@ -12,6 +12,7 @@ sys.path.append(str(backend_root))
 from collector.data_loader import data_loader
 from collector.db import SystemConfigBusiness as SystemConfig
 
+
 # 测试数据加载功能
 def test_data_loader():
     print("开始测试数据加载功能...")

@@ -2,11 +2,12 @@
 
 按照FastAPI官方文档标准结构，配置SQLAlchemy数据库连接
 """
+import os
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from pathlib import Path
 
 # 数据库文件默认路径
 default_db_path = Path(__file__).parent.parent.parent / "data" / "qbot.db"
@@ -18,6 +19,10 @@ default_db_path.parent.mkdir(parents=True, exist_ok=True)
 db_type = None
 db_url = None
 engine = None
+
+# 创建基础模型类
+# 所有SQLAlchemy模型都将继承自这个类
+Base = declarative_base()
 
 # 创建会话工厂
 # autocommit=False: 不自动提交事务
@@ -41,8 +46,8 @@ def init_database_config():
     
     # 从环境变量读取数据库类型和文件路径，支持配置文件覆盖
     # 避免调用get_config()，防止循环导入
-    import os
-    
+
+
     # 优先从环境变量读取配置
     db_type = os.environ.get("DB_TYPE", "duckdb")  # 默认使用duckdb
     db_file = os.environ.get("DB_FILE", str(default_db_path))
@@ -81,10 +86,9 @@ def init_database_config():
     
     # 配置SessionLocal的bind参数
     SessionLocal.configure(bind=engine)
-
-# 创建基础模型类
-# 所有SQLAlchemy模型都将继承自这个类
-Base = declarative_base()
+    
+    # 设置Base.metadata的bind属性，确保所有模型都能正确绑定到引擎
+    Base.metadata.bind = engine
 
 
 

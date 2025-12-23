@@ -1,14 +1,15 @@
-from typing import Union
+import asyncio
 from contextlib import asynccontextmanager
+from typing import Union
 
 from fastapi import FastAPI
+# 配置日志
+from loguru import logger
+
+from backtest.routes import router as backtest_router
 from collector.routes import router as collector_router
 from factor.routes import router as factor_router
 from model.routes import router as model_router
-from backtest.routes import router as backtest_router
-
-# 配置日志
-from loguru import logger
 
 
 def init_database():
@@ -59,17 +60,29 @@ def init_qlib():
 from config_manager import load_system_configs
 
 
-def start_scheduler():
+def start_scheduler(
+    proxy_enabled: bool = False,
+    proxy_url: str = None,
+    proxy_username: str = None,
+    proxy_password: str = None
+):
     """启动定时任务调度器
+    
+    Args:
+        proxy_enabled: 是否启用代理
+        proxy_url: 代理地址
+        proxy_username: 代理用户名
+        proxy_password: 代理密码
     
     Returns:
         BackgroundScheduler: 后台调度器实例
     """
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
-    from scripts.update_features import main as update_features_main
+
     from scripts.sync_crypto_symbols import sync_crypto_symbols
-    
+    from scripts.update_features import main as update_features_main
+
     # 创建后台调度器
     scheduler = BackgroundScheduler()
     
@@ -94,7 +107,12 @@ def start_scheduler():
     
     # 添加定时任务：每周日凌晨2点执行一次，同步加密货币对
     scheduler.add_job(
-        func=lambda: sync_crypto_symbols(),
+        func=lambda: sync_crypto_symbols(
+            proxy_enabled=proxy_enabled,
+            proxy_url=proxy_url,
+            proxy_username=proxy_username,
+            proxy_password=proxy_password
+        ),
         trigger=CronTrigger(day_of_week=6, hour=2, minute=0),  # 每周日凌晨2点
         id='sync_crypto_symbols',
         name='Sync cryptocurrency symbols',
@@ -103,7 +121,12 @@ def start_scheduler():
     
     # 添加立即执行一次的任务，用于初始化货币对数据
     scheduler.add_job(
-        func=lambda: sync_crypto_symbols(),
+        func=lambda: sync_crypto_symbols(
+            proxy_enabled=proxy_enabled,
+            proxy_url=proxy_url,
+            proxy_username=proxy_username,
+            proxy_password=proxy_password
+        ),
         trigger='date',
         run_date=None,  # 立即执行
         id='sync_crypto_symbols_init',
@@ -126,22 +149,36 @@ async def lifespan(app: FastAPI):
     Yields:
         None: 无返回值
     """
-    # 启动时初始化数据库
-    init_database()
+    # 启动时异步初始化数据库
+    await asyncio.to_thread(init_database)
     
-    # 初始化QLib数据加载器
-    init_qlib()
+    # 异步初始化QLib数据加载器
+    await asyncio.to_thread(init_qlib)
     
-    # 加载系统配置到应用上下文
-    app.state.configs = load_system_configs()
+    # 异步加载系统配置到应用上下文
+    app.state.configs = await asyncio.to_thread(load_system_configs)
     
-    # 启动定时任务
-    scheduler = start_scheduler()
+    # 从配置中提取代理信息
+    proxy_enabled = app.state.configs.get("proxy_enabled", False)
+    proxy_url = app.state.configs.get("proxy_url", None)
+    proxy_username = app.state.configs.get("proxy_username", None)
+    proxy_password = app.state.configs.get("proxy_password", None)
+    
+    logger.info(f"代理配置: enabled={proxy_enabled}, url={proxy_url}")
+    
+    # 异步启动定时任务，传递代理配置
+    scheduler = await asyncio.to_thread(
+        start_scheduler,
+        proxy_enabled=proxy_enabled,
+        proxy_url=proxy_url,
+        proxy_username=proxy_username,
+        proxy_password=proxy_password
+    )
     
     yield
     
-    # 关闭时的清理工作
-    scheduler.shutdown()
+    # 异步关闭调度器，确保清理完成后再退出
+    await asyncio.to_thread(scheduler.shutdown)
 
 
 
@@ -191,6 +228,7 @@ if __name__ == "__main__":
     禁用自动重载功能，避免DuckDB锁冲突
     """
     from collector.db import init_db
+
     # 只在主进程中初始化数据库，避免热重载时的锁冲突
     init_db()
     import uvicorn

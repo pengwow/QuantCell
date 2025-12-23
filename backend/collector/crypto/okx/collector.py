@@ -188,7 +188,8 @@ class OKXCollector(CryptoBaseCollector):
         :return: 转换结果
         """
         try:
-            from backend.collector.scripts.convert_to_qlib import convert_crypto_to_qlib
+            from backend.collector.scripts.convert_to_qlib import \
+                convert_crypto_to_qlib
             
             logger.info(f"开始将CSV数据转换为QLib格式...")
             logger.info(f"CSV目录: {csv_dir}")

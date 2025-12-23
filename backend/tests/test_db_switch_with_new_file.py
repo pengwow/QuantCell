@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 # 测试数据库切换功能 - 使用新的测试数据库文件
 
-import sys
 import os
-import yaml
+import sys
 from pathlib import Path
+
+import yaml
 
 # 添加项目根目录到Python路径
 sys.path.append('/Users/liupeng/workspace/qbot')
 
-from backend.collector.db.connection import get_db_connection, init_db, db_instance
+from backend.collector.db.connection import (db_instance, get_db_connection,
+                                             init_db)
 from backend.collector.db.models import SystemConfig, Task
 from backend.config import config_manager
 

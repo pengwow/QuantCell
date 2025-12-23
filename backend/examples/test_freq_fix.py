@@ -17,9 +17,9 @@ print("=" * 50)
 # 1. 导入自定义Freq和日历提供器，确保在使用qlib的任何功能之前执行
 print("1. 导入自定义Freq和日历提供器")
 try:
-    from backend.qlib_integration import custom_freq
-    from backend.qlib_integration import custom_calendar_provider
-    from backend.qlib_integration import CustomCalendarProvider
+    from backend.qlib_integration import (CustomCalendarProvider,
+                                          custom_calendar_provider,
+                                          custom_freq)
     print("✓ 成功导入自定义模块")
 except Exception as e:
     print(f"✗ 导入自定义模块失败: {e}")
@@ -29,7 +29,7 @@ except Exception as e:
 print("\n2. 测试Freq对象的__str__方法")
 try:
     from qlib.utils.time import Freq
-    
+
     # 测试不同频率的字符串表示
     test_cases = [
         ("1d", "1d"),
@@ -56,8 +56,9 @@ except Exception as e:
 # 3. 测试CustomFileCalendarStorage的_freq_file方法
 print("\n3. 测试CustomFileCalendarStorage的_freq_file方法")
 try:
-    from backend.qlib_integration.custom_calendar_provider import CustomFileCalendarStorage
-    
+    from backend.qlib_integration.custom_calendar_provider import \
+        CustomFileCalendarStorage
+
     # 测试不同频率的_freq_file返回值
     test_cases = [
         ("1d", "1d"),
@@ -92,7 +93,7 @@ try:
     
     import qlib
     from qlib.config import C
-    
+
     # 初始化qlib
     data_dir = '/Users/liupeng/workspace/qbot/backend/data/source'
     qlib.init(provider_uri=data_dir)
@@ -100,7 +101,7 @@ try:
     
     # 现在导入D，确保使用补丁后的FileCalendarStorage
     from qlib.data import D
-    
+
     # 测试D.features方法，使用freq="1d"
     print("\n测试D.features方法，使用freq='1d':")
     df = D.features(

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # 直接测试DBConnection类的线程安全性
 
-import sys
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -12,7 +12,6 @@ sys.path.append('/Users/liupeng/workspace/qbot')
 
 # 直接导入DBConnection类，测试其线程安全性
 from backend.collector.db.connection import DBConnection
-
 
 # 测试线程数量
 TEST_THREADS = 5

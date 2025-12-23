@@ -17,6 +17,7 @@ sys.path.append(str(project_root))  # 添加项目根目录
 
 # 配置日志
 from loguru import logger
+
 logger.remove()
 logger.add(sys.stdout, level="INFO", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
 
@@ -71,10 +72,9 @@ def test_feature_parsing():
     logger.info("\n开始测试特征文件解析")
     
     # 导入脚本中的函数
-    from scripts.update_features import load_features_from_dir
-    
     # 从配置获取 qlib_dir
     from collector.db import SystemConfigBusiness as SystemConfig
+    from scripts.update_features import load_features_from_dir
     qlib_dir = SystemConfig.get("qlib_data_dir")
     qlib_dir_path = Path(qlib_dir)
     
@@ -102,8 +102,9 @@ def test_db_update():
     logger.info("\n开始测试数据库更新")
     
     # 先获取一些测试数据
-    from scripts.update_features import load_features_from_dir, update_features_to_db
     from collector.db import SystemConfigBusiness as SystemConfig
+    from scripts.update_features import (load_features_from_dir,
+                                         update_features_to_db)
     
     qlib_dir = SystemConfig.get("qlib_data_dir")
     qlib_dir_path = Path(qlib_dir)
@@ -126,6 +127,7 @@ def test_db_update():
     # 验证数据库中的数据
     logger.info("验证数据库中的特征数据")
     from sqlalchemy.orm import Session
+
     from collector.db import crud, models
     from collector.db.database import engine
     

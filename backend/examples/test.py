@@ -1,10 +1,10 @@
+# 方法1：使用os.getcwd()
+import os
 import sys
 from pathlib import Path
 from pprint import pprint
-from pathlib import Path
+
 import pandas as pd
-# 方法1：使用os.getcwd()
-import os
 
 if __name__ == '__main__':
     current_dir = Path(os.getcwd())
@@ -20,8 +20,9 @@ if __name__ == '__main__':
     # from backend.qlib_integration import CustomCalendarProvider
     # calendar_provider = CustomCalendarProvider()
     # 导入文件存储补丁，修复freq="1d"导致的日历文件路径错误
-    from backend.qlib_integration import file_storage_patch
     import qlib
+
+    from backend.qlib_integration import file_storage_patch
     
     print("已应用文件存储补丁")
     data_dir =os.path.join(project_root, 'backend/data/qlib_data')
@@ -32,6 +33,7 @@ if __name__ == '__main__':
     
     
     from qlib.data import D
+
     # from backend.qlib_integration import CustomCalendarProvider 
     # calendar_provider = CustomCalendarProvider()
     # from backend.qlib_integration import file_storage_patch

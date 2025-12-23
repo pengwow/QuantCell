@@ -1,13 +1,14 @@
 # 模型训练服务
 # 实现模型训练、评估、保存和加载等功能
 
+import json
+import pickle
 import sys
 from pathlib import Path
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from loguru import logger
-import pickle
-import json
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent.parent  # /Users/liupeng/workspace/qbot
@@ -15,13 +16,13 @@ sys.path.append(str(project_root))
 
 # 导入QLib相关模块
 from qlib.data import D
-from qlib.data.dataset.handler import DataHandlerLP
 from qlib.data.dataset import DatasetH
-from qlib.model.trainer import TrainerR
+from qlib.data.dataset.handler import DataHandlerLP
 from qlib.model.base import Model
-from qlib.workflow import R
-from qlib.workflow.record_temp import SignalRecord, PortAnaRecord
+from qlib.model.trainer import TrainerR
 from qlib.utils import init_instance_by_config
+from qlib.workflow import R
+from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
 
 
 class ModelService:
@@ -123,7 +124,8 @@ class ModelService:
             labels = test_dataset["label"]
 
             # 计算评估指标
-            from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+            from sklearn.metrics import (mean_absolute_error,
+                                         mean_squared_error, r2_score)
 
             mse = mean_squared_error(labels, preds)
             mae = mean_absolute_error(labels, preds)

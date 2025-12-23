@@ -1,14 +1,13 @@
-from loguru import logger
 import os
-from typing import Optional, Dict, Any
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 import fire
 import pandas as pd
 import qlib
-from tqdm import tqdm
-
+from loguru import logger
 from qlib.data import D
+from tqdm import tqdm
 
 
 class DataHealthChecker:

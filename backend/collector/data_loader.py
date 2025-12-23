@@ -3,7 +3,8 @@
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+
 from loguru import logger
 
 # 添加项目根目录到Python路径
@@ -25,9 +26,9 @@ except Exception as e:
 
 # 导入QLib相关模块
 try:
+    from qlib.config import C
     from qlib.data import D
     from qlib.data.dataset.handler import DataHandlerLP
-    from qlib.config import C
     logger.info("成功导入QLib模块")
 except Exception as e:
     logger.error(f"导入QLib模块失败: {e}")
@@ -92,7 +93,7 @@ class QLibDataLoader:
             
             # 导入qlib模块
             import qlib
-            
+
             # 初始化qlib
             qlib.init(
                 provider_uri=str(qlib_dir_path),

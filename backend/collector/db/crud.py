@@ -3,14 +3,14 @@
 包含所有数据库操作的函数，使用SQLAlchemy ORM进行数据库交互
 """
 
-from sqlalchemy.orm import Session
-from typing import Optional, List, Tuple
-from datetime import datetime
 import json
+from datetime import datetime
+from typing import List, Optional, Tuple
+
+from sqlalchemy.orm import Session
 
 # 导入SQLAlchemy模型和Pydantic模型
 from . import models, schemas
-
 
 # 系统配置CRUD操作
 
@@ -170,8 +170,8 @@ def get_tasks_paginated(
     Returns:
         Tuple[List[models.Task], int]: 任务模型实例列表和总记录数
     """
-    from sqlalchemy import desc, asc
-    
+    from sqlalchemy import asc, desc
+
     # 构建查询
     query = db.query(models.Task)
     
@@ -399,7 +399,7 @@ def create_features(
     created_features = []
     
     from sqlalchemy import text
-    
+
     # 准备插入语句
     insert_sql = text("""
     INSERT INTO features (symbol, feature_name, freq)

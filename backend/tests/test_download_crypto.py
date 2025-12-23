@@ -6,9 +6,10 @@
 该脚本用于测试 /api/data/download/crypto 接口，发送POST请求下载加密货币数据
 """
 
-import requests
 import json
 import sys
+
+import requests
 
 
 def test_download_crypto():

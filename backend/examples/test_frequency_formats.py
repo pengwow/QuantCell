@@ -27,7 +27,7 @@ except Exception as e:
 print("\n2. 测试不同频率格式的文件名生成")
 try:
     from qlib.data.storage.file_storage import FileCalendarStorage
-    
+
     # 测试用例：不同的频率格式
     test_cases = [
         ("1d", "1d.txt"),
@@ -71,7 +71,7 @@ print("\n3. 测试D.features()方法，使用15m频率")
 try:
     import qlib
     from qlib.data import D
-    
+
     # 初始化qlib
     data_dir = '/Users/liupeng/workspace/qbot/backend/data/source'
     qlib.init(provider_uri=data_dir)
@@ -102,7 +102,7 @@ except Exception as e:
 print("\n4. 测试D.features()方法，使用30min频率")
 try:
     from qlib.data.storage.file_storage import FileCalendarStorage
-    
+
     # 创建模拟实例，使用30min频率
     storage = FileCalendarStorage.__new__(FileCalendarStorage)
     storage.freq = "30min"

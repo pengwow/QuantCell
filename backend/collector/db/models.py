@@ -1,9 +1,11 @@
-from sqlalchemy import Column, Integer, String, Boolean, Text, DateTime, func
+from typing import Any, Dict, Optional
+
 import sqlalchemy
-from typing import Optional, Dict, Any
 from loguru import logger
-from .database import Base
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Session
+
+from .database import Base
 
 # SQLAlchemy模型定义
 
@@ -158,7 +160,8 @@ class SystemConfigBusiness:
         Returns:
             Any: 配置项的值或默认值
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             config = db.query(SystemConfig).filter_by(key=key).first()
@@ -183,7 +186,8 @@ class SystemConfigBusiness:
         Returns:
             bool: 设置成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             # 检查配置是否已存在
@@ -220,7 +224,8 @@ class SystemConfigBusiness:
         Returns:
             bool: 删除成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             config = db.query(SystemConfig).filter_by(key=key).first()
@@ -243,7 +248,8 @@ class SystemConfigBusiness:
         Returns:
             Dict[str, str]: 所有配置项，键为配置项键名，值为配置项值
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             configs = db.query(SystemConfig).all()
@@ -264,7 +270,8 @@ class SystemConfigBusiness:
         Returns:
             Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、创建时间和更新时间
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             config = db.query(SystemConfig).filter_by(key=key).first()
@@ -290,7 +297,8 @@ class SystemConfigBusiness:
         Returns:
             Dict[str, Dict[str, Any]]: 所有配置项的详细信息，键为配置项键名
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             configs = db.query(SystemConfig).all()
@@ -330,7 +338,8 @@ class TaskBusiness:
         Returns:
             bool: 创建成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         import json
         db: Session = SessionLocal()
         try:
@@ -364,7 +373,8 @@ class TaskBusiness:
         Returns:
             bool: 操作成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             task = db.query(Task).filter_by(task_id=task_id).first()
@@ -396,7 +406,8 @@ class TaskBusiness:
         Returns:
             bool: 操作成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             task = db.query(Task).filter_by(task_id=task_id).first()
@@ -432,7 +443,8 @@ class TaskBusiness:
         Returns:
             bool: 操作成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             task = db.query(Task).filter_by(task_id=task_id).first()
@@ -460,7 +472,8 @@ class TaskBusiness:
         Returns:
             bool: 操作成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             task = db.query(Task).filter_by(task_id=task_id).first()
@@ -488,7 +501,8 @@ class TaskBusiness:
         Returns:
             Optional[Dict[str, Any]]: 任务信息，如果不存在则返回None
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         import json
         db: Session = SessionLocal()
         try:
@@ -531,7 +545,8 @@ class TaskBusiness:
         Returns:
             Dict[str, Dict[str, Any]]: 所有任务信息，键为任务ID
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         import json
         db: Session = SessionLocal()
         try:
@@ -580,7 +595,8 @@ class TaskBusiness:
         Returns:
             dict: 包含任务列表和分页信息的字典
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         import json
         db: Session = SessionLocal()
         try:
@@ -693,7 +709,8 @@ class TaskBusiness:
         Returns:
             bool: 操作成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             task = db.query(Task).filter_by(task_id=task_id).first()
@@ -729,7 +746,8 @@ class DataPoolBusiness:
         Returns:
             Optional[int]: 创建成功返回资产池ID，失败返回None
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             # 如果设置为默认资产池，先将其他默认资产池设置为非默认
@@ -770,7 +788,8 @@ class DataPoolBusiness:
         Returns:
             bool: 更新成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             pool = db.query(DataPool).filter_by(id=pool_id).first()
@@ -813,7 +832,8 @@ class DataPoolBusiness:
         Returns:
             bool: 删除成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             # 删除资产池关联的资产
@@ -846,7 +866,8 @@ class DataPoolBusiness:
         Returns:
             bool: 添加成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             # 检查资产池是否存在
@@ -891,7 +912,8 @@ class DataPoolBusiness:
         Returns:
             bool: 批量添加成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             # 检查资产池是否存在
@@ -933,7 +955,8 @@ class DataPoolBusiness:
         Returns:
             bool: 移除成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             # 检查资产是否存在于资产池中
@@ -962,7 +985,8 @@ class DataPoolBusiness:
         Returns:
             bool: 批量移除成功返回True，失败返回False
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             # 批量移除资产
@@ -989,7 +1013,8 @@ class DataPoolBusiness:
         Returns:
             list: 资产列表（股票代码或加密货币对）
         """
-        from .database import SessionLocal
+        from .database import SessionLocal, init_database_config
+        init_database_config()
         db: Session = SessionLocal()
         try:
             assets = db.query(DataPoolAsset).filter_by(pool_id=pool_id).all()

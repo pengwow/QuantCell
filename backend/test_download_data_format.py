@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # 测试下载数据格式
 
-import sys
 import os
+import sys
 
 # 添加项目根目录到Python路径
 sys.path.append('/Users/liupeng/workspace/qbot')
@@ -37,7 +37,7 @@ def test_download_data_format():
         # 测试pd.to_datetime转换
         print("\n测试pd.to_datetime转换...")
         import pandas as pd
-        
+
         # 测试转换
         df['date'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
         print("转换后的数据:")

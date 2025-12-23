@@ -7,6 +7,7 @@
 import os
 import sys
 from pathlib import Path
+
 from loguru import logger
 
 # 添加当前目录到Python路径
@@ -42,7 +43,7 @@ def test_duckdb_connection():
     try:
         # 测试1: 初始化数据库配置
         logger.info("测试1: 初始化数据库配置")
-        from collector.db.database import init_database_config, Base, engine
+        from collector.db.database import Base, engine, init_database_config
         init_database_config()
         logger.info("✓ 数据库配置初始化成功")
         
@@ -54,9 +55,8 @@ def test_duckdb_connection():
         
         # 测试2: 使用SQLAlchemy连接
         logger.info("测试2: 使用SQLAlchemy连接")
+        from collector.db import crud, schemas
         from collector.db.database import SessionLocal
-        from collector.db import schemas
-        from collector.db import crud
         
         db = SessionLocal()
         try:

@@ -1,8 +1,9 @@
 # 数据相关的Pydantic模型定义
 
-from pydantic import BaseModel, Field
-from typing import Dict, List, Optional
 from datetime import datetime
+from typing import Dict, List, Optional
+
+from pydantic import BaseModel, Field
 
 
 class DataInfoResponse(BaseModel):

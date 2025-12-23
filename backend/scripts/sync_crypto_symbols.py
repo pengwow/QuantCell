@@ -8,10 +8,11 @@
 """
 
 import logging
-import sys
 import os
-from typing import Dict, Any, Optional
+import sys
 from datetime import datetime
+from typing import Any, Dict, Optional
+
 import fire
 
 # 添加项目根目录到Python路径
@@ -64,7 +65,7 @@ def sync_crypto_symbols(
         
         # 动态导入CCXT库
         import ccxt
-        
+
         # 1. 先从交易所获取数据，避免数据库锁导致无法获取市场数据
         logger.info(f"从{exchange}获取市场数据...")
         
@@ -118,18 +119,19 @@ def sync_crypto_symbols(
         logger.info(f"开始保存{exchange}货币对到数据库...")
         
         # 动态导入数据库相关模块
-        from collector.db.database import init_database_config, SessionLocal
-        import collector.db.models as models
         import json
         import time
-        
+
+        import collector.db.models as models
+        from collector.db.database import SessionLocal, init_database_config
+
         # 初始化数据库配置
         init_database_config()
         
         # 重新导入Base、engine和db_type，确保它们已经被初始化
-        from collector.db.database import Base, engine, db_type
+        from collector.db.database import Base, db_type, engine
         from collector.db.models import CryptoSymbol
-        
+
         # 表迁移逻辑：先删除旧表再创建新表，确保表结构正确
         logger.info("开始表迁移...")
         

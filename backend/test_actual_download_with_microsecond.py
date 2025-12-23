@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # 测试实际下载数据，验证微秒级时间戳处理
 
-import sys
 import os
+import sys
 
 # 添加项目根目录到Python路径
 sys.path.append('/Users/liupeng/workspace/qbot')

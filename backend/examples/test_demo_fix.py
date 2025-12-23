@@ -37,7 +37,7 @@ except Exception as e:
 print("\n3. 测试D.features()方法")
 try:
     from qlib.data import D
-    
+
     # 测试使用freq="1d"参数
     df = D.features(
         ["btcusdt"],

@@ -5,7 +5,6 @@ from ..schemas import ApiResponse
 from ..schemas.system import SystemInfoResponse
 from ..services import SystemService
 
-
 # 创建API路由实例
 router = APIRouter(prefix="/api/system", tags=["system-info"])
 

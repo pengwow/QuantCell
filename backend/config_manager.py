@@ -13,7 +13,8 @@ def load_system_configs():
     try:
         logger.info("开始加载系统配置")
         # 延迟导入，避免循环导入
-        from backend.collector.db.models import SystemConfigBusiness as SystemConfig
+        from backend.collector.db.models import \
+            SystemConfigBusiness as SystemConfig
         configs = SystemConfig.get_all()
         logger.info(f"成功加载 {len(configs)} 项系统配置")
         return configs

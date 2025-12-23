@@ -2,11 +2,12 @@
 # 加密货币数据转换为QLib格式脚本
 
 import os
-import sys
 import shutil
+import sys
 import tempfile
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
 from loguru import logger
 
 # 添加项目根目录到Python路径
@@ -232,7 +233,7 @@ def convert_data_to_qlib(
 
 if __name__ == "__main__":
     import fire
-    
+
     # 配置日志
     logger.add(
         "convert_to_qlib.log",

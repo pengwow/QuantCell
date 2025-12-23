@@ -37,7 +37,7 @@ except Exception as e:
 print("\n3. 测试D.instruments()方法")
 try:
     from qlib.data import D
-    
+
     # 测试使用D.instruments("all")获取标的列表
     instruments = D.instruments(market="all")
     print(f"✓ D.instruments(market='all')调用成功")
@@ -59,7 +59,7 @@ except Exception as e:
 print("\n4. 测试D.features()方法，使用D.instruments()的结果")
 try:
     from qlib.data import D
-    
+
     # 使用前5个标的进行测试，避免数据量过大
     instruments = ["btcusdt"]  # 只测试btcusdt，避免数据量过大
     
@@ -87,7 +87,7 @@ except Exception as e:
 print("\n5. 测试D.features()方法，使用D.instruments(\"all\")的结果")
 try:
     from qlib.data import D
-    
+
     # 获取instruments
     instruments = D.instruments(market="all")
     # 使用前1个标的进行测试，避免数据量过大
