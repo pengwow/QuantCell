@@ -1,0 +1,241 @@
+.factor-analysis-container {
+  padding: 20px;
+}
+
+h1 {
+  font-size: 24px;
+  margin-bottom: 20px;
+  color: #333;
+}
+
+.tabs {
+  display: flex;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.tab-item {
+  padding: 10px 20px;
+  cursor: pointer;
+  color: #666;
+  font-size: 16px;
+  border-bottom: 2px solid transparent;
+  transition: all 0.3s;
+}
+
+.tab-item:hover {
+  color: #1890ff;
+}
+
+.tab-item.active {
+  color: #1890ff;
+  border-bottom-color: #1890ff;
+}
+
+.tab-content {
+  background-color: #fff;
+  padding: 20px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.section {
+  margin-bottom: 30px;
+}
+
+h2 {
+  font-size: 18px;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+/* 因子列表 */
+.factor-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.factor-item {
+  padding: 8px 16px;
+  background-color: #f0f0f0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.factor-item:hover {
+  background-color: #1890ff;
+  color: #fff;
+}
+
+.factor-item.selected {
+  background-color: #1890ff;
+  color: #fff;
+}
+
+/* 表单样式 */
+.custom-factor-form,
+.calculate-form,
+.validation-form,
+.visualization-form {
+  background-color: #fafafa;
+  padding: 20px;
+  border-radius: 4px;
+}
+
+.form-item {
+  margin-bottom: 15px;
+}
+
+.form-row {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 15px;
+}
+
+.form-row .form-item {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.form-item label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+  color: #333;
+}
+
+.form-item input,
+.form-item select,
+.form-item textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.form-item textarea {
+  resize: vertical;
+}
+
+.form-actions {
+  margin-top: 20px;
+  display: flex;
+  gap: 10px;
+}
+
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.btn-primary {
+  background-color: #1890ff;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background-color: #40a9ff;
+}
+
+.btn-secondary {
+  background-color: #f0f0f0;
+  color: #333;
+}
+
+.btn-secondary:hover {
+  background-color: #e0e0e0;
+}
+
+/* 结果样式 */
+.result-info {
+  background-color: #f0f0f0;
+  padding: 15px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.result-info p {
+  margin: 5px 0;
+}
+
+.result-table {
+  overflow-x: auto;
+}
+
+.result-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.result-table th,
+.result-table td {
+  padding: 8px 12px;
+  border: 1px solid #d9d9d9;
+  text-align: left;
+}
+
+.result-table th {
+  background-color: #f0f0f0;
+  font-weight: 500;
+}
+
+.more-data {
+  margin-top: 10px;
+  text-align: center;
+  color: #666;
+  font-size: 14px;
+}
+
+/* 验证结果样式 */
+.validation-result {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.result-item {
+  background-color: #fafafa;
+  padding: 20px;
+  border-radius: 4px;
+}
+
+.result-item h3 {
+  font-size: 16px;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.ir-value {
+  font-size: 24px;
+  font-weight: bold;
+  color: #1890ff;
+  text-align: center;
+}
+
+.monotonicity-info {
+  background-color: #f0f0f0;
+  padding: 15px;
+  border-radius: 4px;
+}
+
+.monotonicity-info p {
+  margin: 5px 0;
+}
+
+/* 图表样式 */
+.chart-container {
+  width: 100%;
+  height: 400px;
+}
+
+.chart {
+  width: 100%;
+  height: 100%;
+}

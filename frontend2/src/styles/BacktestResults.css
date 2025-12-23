@@ -1,0 +1,278 @@
+.backtest-results-container {
+  padding: 20px;
+}
+
+.backtest-layout {
+  display: flex;
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.backtest-list {
+  width: 300px;
+  flex-shrink: 0;
+}
+
+.backtest-detail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.panel {
+  background-color: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.panel-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  color: #1f2937;
+}
+
+.panel-body {
+  padding: 20px;
+}
+
+/* 回测任务列表 */
+.backtest-task-item {
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.backtest-task-item:hover {
+  border-color: #4a6cf7;
+  box-shadow: 0 2px 8px rgba(74, 108, 247, 0.1);
+}
+
+.backtest-task-item.active {
+  border-color: #4a6cf7;
+  background-color: #f0f4ff;
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.task-name {
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.task-status {
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.task-status.completed {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.task-status.running {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.task-status.failed {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.task-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.task-return {
+  font-weight: 500;
+  color: #10b981;
+}
+
+/* 概览网格 */
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+}
+
+.metric-card {
+  background-color: #f9fafb;
+  padding: 16px;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.metric-label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.metric-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.metric-value.positive {
+  color: #10b981;
+}
+
+.metric-value.negative {
+  color: #ef4444;
+}
+
+/* 图表容器 */
+.chart-container {
+  height: 300px;
+  margin-top: 20px;
+}
+
+.chart-container.small {
+  height: 200px;
+}
+
+.chart {
+  width: 100%;
+  height: 100%;
+}
+
+/* 网格布局 */
+.grid-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* 表格容器 */
+.table-container {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.data-table th {
+  background-color: #f9fafb;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.data-table td {
+  color: #6b7280;
+}
+
+.data-table tr:hover {
+  background-color: #f9fafb;
+}
+
+.positive {
+  color: #10b981;
+}
+
+.negative {
+  color: #ef4444;
+}
+
+/* 风险指标 */
+.risk-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.risk-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background-color: #f9fafb;
+  border-radius: 6px;
+}
+
+.risk-label {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.risk-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+/* 按钮样式 */
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-primary {
+  background-color: #4a6cf7;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #3b5bdb;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+/* 响应式设计 */
+@media (max-width: 1200px) {
+  .backtest-layout {
+    flex-direction: column;
+  }
+  
+  .backtest-list {
+    width: 100%;
+  }
+  
+  .grid-layout {
+    grid-template-columns: 1fr;
+  }
+}
