@@ -107,6 +107,7 @@ class CryptoSymbol(Base):
     quote = Column(String, nullable=False, index=True)
     exchange = Column(String, nullable=False, index=True)
     active = Column(Boolean, default=True)
+    is_deleted = Column(Boolean, default=False, index=True)  # 软删除标记
     precision = Column(Text, nullable=True)  # JSON字符串，存储精度信息
     limits = Column(Text, nullable=True)  # JSON字符串，存储限制信息
     type = Column(String, nullable=True)

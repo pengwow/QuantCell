@@ -513,3 +513,55 @@ def get_all_tasks(
         logger.error(f"查询任务列表失败: {e}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/klines", response_model=ApiResponse)
+def get_klines(
+    symbol: str = Query(..., description="货币对"),
+    interval: str = Query(..., description="周期"),
+    start_time: Optional[str] = Query(None, description="开始时间，格式YYYY-MM-DD HH:MM:SS"),
+    end_time: Optional[str] = Query(None, description="结束时间，格式YYYY-MM-DD HH:MM:SS"),
+    limit: Optional[int] = Query(1000, ge=1, le=10000, description="返回数量限制"),
+    db: Session = Depends(get_db)
+):
+    """获取K线数据
+    
+    从数据库中查询指定货币对和周期的K线数据
+    
+    Args:
+        symbol: 货币对
+        interval: 周期
+        start_time: 开始时间，格式YYYY-MM-DD HH:MM:SS
+        end_time: 结束时间，格式YYYY-MM-DD HH:MM:SS
+        limit: 返回数量限制
+        db: 数据库会话
+        
+    Returns:
+        ApiResponse: 包含K线数据的响应
+    """
+    try:
+        data_service = DataService(db)
+        result = data_service.get_kline_data(
+            symbol=symbol,
+            interval=interval,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit
+        )
+        
+        if result["success"]:
+            return ApiResponse(
+                code=0,
+                message=result["message"],
+                data=result["kline_data"]
+            )
+        else:
+            return ApiResponse(
+                code=1,
+                message=result["message"],
+                data=[]
+            )
+    except Exception as e:
+        logger.error(f"获取K线数据失败: {e}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=str(e))

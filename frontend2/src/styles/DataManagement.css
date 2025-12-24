@@ -390,3 +390,120 @@
     min-width: 100%;
   }
 }
+
+/* K线图表样式 */
+.kline-chart-container {
+  margin-top: 20px;
+  background-color: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.kline-chart {
+  width: 100%;
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.chart-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
+.chart-stats {
+  display: flex;
+  gap: 20px;
+  font-size: 14px;
+  color: #666;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.stat-item .label {
+  font-weight: 500;
+  color: #999;
+}
+
+.stat-item .value {
+  font-weight: 600;
+  color: #333;
+}
+
+.chart-content {
+  width: 100%;
+  overflow: auto;
+}
+
+.kline-table-container {
+  overflow-x: auto;
+}
+
+.kline-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.kline-table th,
+.kline-table td {
+  padding: 12px 8px;
+  text-align: right;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.kline-table th {
+  background-color: #fafafa;
+  font-weight: 600;
+  color: #666;
+  text-align: center;
+}
+
+.kline-table td:first-child,
+.kline-table th:first-child {
+  text-align: left;
+  min-width: 180px;
+}
+
+.error-message {
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 15px;
+}
+
+.loading-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  font-size: 16px;
+  color: #666;
+  background-color: #fafafa;
+  border-radius: 4px;
+}
+
+.empty-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  font-size: 16px;
+  color: #999;
+  background-color: #fafafa;
+  border-radius: 4px;
+}

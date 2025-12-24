@@ -822,6 +822,83 @@ class DataService:
             "result": result
         }
     
+    def get_kline_data(self, symbol: str, interval: str, start_time: Optional[str] = None, end_time: Optional[str] = None, limit: Optional[int] = 1000) -> Dict[str, Any]:
+        """获取K线数据
+        
+        从数据库中查询指定货币对和周期的K线数据
+        
+        Args:
+            symbol: 货币对
+            interval: 周期
+            start_time: 开始时间，格式YYYY-MM-DD HH:MM:SS
+            end_time: 结束时间，格式YYYY-MM-DD HH:MM:SS
+            limit: 返回数量限制
+            
+        Returns:
+            Dict[str, Any]: 包含K线数据的字典
+        """
+        if self.db is None:
+            raise ValueError("数据库会话未初始化")
+        
+        logger.info(f"查询K线数据: symbol={symbol}, interval={interval}, start_time={start_time}, end_time={end_time}, limit={limit}")
+        
+        from datetime import datetime
+        from ..db.models import Kline
+        
+        # 构建查询
+        query = self.db.query(Kline).filter(
+            Kline.symbol == symbol,
+            Kline.interval == interval
+        )
+        
+        # 处理时间过滤
+        if start_time:
+            try:
+                start_dt = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
+                query = query.filter(Kline.date >= start_dt)
+            except ValueError:
+                logger.warning(f"无效的开始时间格式: {start_time}，忽略该过滤条件")
+        
+        if end_time:
+            try:
+                end_dt = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
+                query = query.filter(Kline.date <= end_dt)
+            except ValueError:
+                logger.warning(f"无效的结束时间格式: {end_time}，忽略该过滤条件")
+        
+        # 按时间降序排序并限制数量
+        query = query.order_by(Kline.date.desc()).limit(limit)
+        
+        # 执行查询
+        klines = query.all()
+        
+        # 转换为指定格式
+        kline_data = []
+        for kline in klines:
+            # 转换时间为毫秒级时间戳
+            timestamp = int(kline.date.timestamp() * 1000)
+            
+            kline_data.append({
+                "timestamp": timestamp,
+                "open": float(kline.open),
+                "close": float(kline.close),
+                "high": float(kline.high),
+                "low": float(kline.low),
+                "volume": float(kline.volume),
+                "turnover": 0.0  # 成交额字段，当前版本返回0
+            })
+        
+        # 按时间升序返回
+        kline_data.reverse()
+        
+        logger.info(f"查询K线数据成功: symbol={symbol}, interval={interval}, count={len(kline_data)}")
+        
+        return {
+            "success": True,
+            "message": "查询K线数据成功",
+            "kline_data": kline_data
+        }
+    
     @staticmethod
     def async_download_crypto(task_id: str, request: DownloadCryptoRequest):
         """异步下载加密货币数据

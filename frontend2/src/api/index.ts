@@ -245,6 +245,15 @@ export const dataApi = {
   getServiceStatus: () => {
     return apiRequest.get('/data/status');
   },
+
+  /**
+   * 获取K线数据
+   * @param params 查询参数，包括symbol、interval、limit等
+   * @returns K线数据
+   */
+  getKlines: (params: any) => {
+    return apiRequest.get('/data/klines', params);
+  },
 };
 
 export default api;

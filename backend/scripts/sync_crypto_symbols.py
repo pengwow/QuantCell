@@ -122,53 +122,31 @@ def sync_crypto_symbols(
         import json
         import time
 
-        import collector.db.models as models
-        from collector.db.database import SessionLocal, init_database_config
+        from collector.db.database import SessionLocal, init_database_config, engine
+        from collector.db.models import CryptoSymbol
 
         # 初始化数据库配置
         init_database_config()
         
-        # 重新导入Base、engine和db_type，确保它们已经被初始化
-        from collector.db.database import Base, db_type, engine
-        from collector.db.models import CryptoSymbol
-
-        # 表迁移逻辑：先删除旧表再创建新表，确保表结构正确
-        logger.info("开始表迁移...")
-        
-        try:
-            # 使用原始SQL语句创建表，完全控制生成的SQL
-            from sqlalchemy import text
-            with engine.begin() as conn:
-                # 先删除旧表
-                conn.execute(text("DROP TABLE IF EXISTS crypto_symbols CASCADE"))
-                logger.info("旧表删除成功")
-                
-                # 创建序列用于id自增
-                conn.execute(text("DROP SEQUENCE IF EXISTS crypto_symbols_id_seq CASCADE"))
-                conn.execute(text("CREATE SEQUENCE crypto_symbols_id_seq START 1"))
-                logger.info("序列创建成功")
-                
-                # 创建新表，使用序列的nextval作为id的默认值
+        # 添加字段的简单迁移逻辑
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            # 检查is_deleted字段是否存在
+            result = conn.execute(text("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'crypto_symbols' AND column_name = 'is_deleted'
+            """))
+            
+            if not result.fetchone():
+                # 添加is_deleted字段
                 conn.execute(text("""
-                CREATE TABLE crypto_symbols (
-                    id INTEGER PRIMARY KEY DEFAULT nextval('crypto_symbols_id_seq'),
-                    symbol VARCHAR NOT NULL,
-                    base VARCHAR NOT NULL,
-                    quote VARCHAR NOT NULL,
-                    exchange VARCHAR NOT NULL,
-                    active BOOLEAN DEFAULT TRUE,
-                    precision TEXT,
-                    limits TEXT,
-                    type VARCHAR,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-                    CONSTRAINT unique_symbol_exchange UNIQUE (symbol, exchange)
-                )
+                ALTER TABLE crypto_symbols 
+                ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE
                 """))
-                logger.info("数据库表创建成功")
-        except Exception as e:
-            logger.error(f"表迁移失败: {e}")
-            raise
+                logger.info("已添加is_deleted字段到crypto_symbols表")
+            else:
+                logger.info("is_deleted字段已存在")
         
         # 重试机制
         max_retries = 3
@@ -179,51 +157,76 @@ def sync_crypto_symbols(
                 logger.info(f"开始数据库操作，重试次数: {retry_count + 1}/{max_retries}")
                 db = SessionLocal()
                 try:
-                    # 先删除该交易所的旧数据
-                    logger.info(f"开始删除{exchange}的旧货币对数据...")
-                    from sqlalchemy import text
-                    result = db.execute(text("DELETE FROM crypto_symbols WHERE exchange = :exchange"), {'exchange': exchange})
-                    deleted_count = result.rowcount
-                    logger.info(f"已删除{exchange}的{deleted_count}条旧货币对数据")
+                    # 开始事务
+                    logger.info(f"开始处理{exchange}的货币对数据...")
                     
-                    # 批量插入新数据
-                    logger.info(f"开始批量插入{exchange}的{len(valid_symbols)}条货币对数据...")
+                    # 1. 获取当前交易所的所有货币对
+                    logger.info(f"获取{exchange}的现有货币对数据...")
+                    existing_symbols = db.query(CryptoSymbol).filter_by(exchange=exchange).all()
+                    existing_symbol_map = {sym.symbol: sym for sym in existing_symbols}
+                    logger.info(f"已获取{exchange}的{len(existing_symbol_map)}条现有货币对数据")
                     
-                    # 使用原始SQL批量插入，不包含id字段
-                    insert_stmt = text("""
-                    INSERT INTO crypto_symbols (symbol, base, quote, exchange, active, precision, limits, type)
-                    VALUES (:symbol, :base, :quote, :exchange, :active, :precision, :limits, :type)
-                    """)
+                    # 2. 提取新获取的货币对符号
+                    new_symbol_map = {sym['symbol']: sym for sym in valid_symbols}
                     
-                    for i, symbol_info in enumerate(valid_symbols):
-                        # 每处理100条记录记录一次日志
-                        if i % 100 == 0:
-                            logger.debug(f"已处理{exchange}的{i}/{len(valid_symbols)}条货币对数据")
-                        
+                    # 3. 标记不再存在的货币对为已删除
+                    logger.info(f"标记不再存在的{exchange}货币对...")
+                    deleted_count = 0
+                    for symbol, existing_sym in existing_symbol_map.items():
+                        if symbol not in new_symbol_map:
+                            existing_sym.is_deleted = True
+                            existing_sym.active = False
+                            deleted_count += 1
+                    if deleted_count > 0:
+                        logger.info(f"已标记{deleted_count}条{exchange}货币对为已删除")
+                    
+                    # 4. 更新现有货币对和插入新货币对
+                    logger.info(f"更新和插入{exchange}货币对数据...")
+                    updated_count = 0
+                    inserted_count = 0
+                    
+                    for symbol, symbol_info in new_symbol_map.items():
                         # 将JSON对象转换为字符串
                         precision_str = json.dumps(symbol_info['precision'])
                         limits_str = json.dumps(symbol_info['limits'])
                         
-                        # 执行单条插入
-                        db.execute(insert_stmt, {
-                            'symbol': symbol_info['symbol'],
-                            'base': symbol_info['base'],
-                            'quote': symbol_info['quote'],
-                            'exchange': symbol_info['exchange'],
-                            'active': symbol_info['active'],
-                            'precision': precision_str,
-                            'limits': limits_str,
-                            'type': symbol_info['type']
-                        })
+                        if symbol in existing_symbol_map:
+                            # 更新现有货币对
+                            existing_sym = existing_symbol_map[symbol]
+                            existing_sym.active = symbol_info['active']
+                            existing_sym.is_deleted = False  # 如果之前被标记为删除，现在恢复
+                            existing_sym.precision = precision_str
+                            existing_sym.limits = limits_str
+                            existing_sym.type = symbol_info['type']
+                            updated_count += 1
+                        else:
+                            # 插入新货币对
+                            new_symbol = CryptoSymbol(
+                                symbol=symbol_info['symbol'],
+                                base=symbol_info['base'],
+                                quote=symbol_info['quote'],
+                                exchange=symbol_info['exchange'],
+                                active=symbol_info['active'],
+                                precision=precision_str,
+                                limits=limits_str,
+                                type=symbol_info['type'],
+                                is_deleted=False
+                            )
+                            db.add(new_symbol)
+                            inserted_count += 1
                     
+                    # 提交事务
                     db.commit()
-                    logger.info(f"成功将{len(valid_symbols)}个{exchange}货币对保存到数据库")
+                    logger.info(f"成功处理{exchange}货币对数据: 更新{updated_count}条，插入{inserted_count}条，标记删除{deleted_count}条")
                     
                     return {
                         'success': True,
                         'message': f"成功同步{len(valid_symbols)}个{exchange}货币对到数据库",
                         'exchange': exchange,
                         'symbol_count': len(valid_symbols),
+                        'updated_count': updated_count,
+                        'inserted_count': inserted_count,
+                        'deleted_count': deleted_count,
                         'timestamp': datetime.now().isoformat()
                     }
                 finally:

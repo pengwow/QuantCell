@@ -17,7 +17,7 @@ class ApiResponse(BaseModel):
     """
     code: int = Field(..., description="响应状态码，0表示成功，非0表示失败")
     message: str = Field(..., description="响应消息，描述操作结果")
-    data: Optional[dict] = Field(None, description="响应数据，可选")
+    data: Optional[dict | list] = Field(None, description="响应数据，可选")
     timestamp: datetime = Field(default_factory=datetime.now, description="响应时间戳")
 
 

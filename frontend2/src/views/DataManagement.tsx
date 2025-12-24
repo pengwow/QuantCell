@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useDataManagementStore } from '../store';
+import { dataApi } from '../api';
 import AssetPoolManager from '../components/AssetPoolManager';
 import '../styles/DataManagement.css';
 
@@ -30,6 +31,18 @@ const DataManagement = () => {
   const [importProgress, setImportProgress] = useState(0);
   // 导入日志
   const [importLog, setImportLog] = useState<string[]>([]);
+  // K线数据
+  const [klineData, setKlineData] = useState<any[]>([]);
+  // K线数据加载状态
+  const [isLoadingKline, setIsLoadingKline] = useState(false);
+  // K线数据错误信息
+  const [klineError, setKlineError] = useState<string | null>(null);
+  // 当前K线配置
+  const [klineConfig, setKlineConfig] = useState({
+    symbol: 'BTCUSDT',
+    interval: '15m',
+    limit: 500
+  });
 
   // 菜单项列表
   const menuItems = [
@@ -97,6 +110,59 @@ const DataManagement = () => {
         return newProgress;
       });
     }, 500);
+  };
+
+  /**
+   * 获取K线数据
+   */
+  const fetchKlineData = async (): Promise<void> => {
+    setIsLoadingKline(true);
+    setKlineError(null);
+    
+    try {
+      const response = await dataApi.getKlines(klineConfig);
+      setKlineData(response.data);
+    } catch (error) {
+      console.error('获取K线数据失败:', error);
+      setKlineError('获取K线数据失败，请稍后重试');
+      // 生成模拟数据作为fallback
+      generateMockKlineData();
+    } finally {
+      setIsLoadingKline(false);
+    }
+  };
+
+  /**
+   * 生成模拟K线数据
+   */
+  const generateMockKlineData = (): void => {
+    const mockData: any[] = [];
+    let currentPrice = 50000;
+    const now = Date.now();
+    const intervalMs = 15 * 60 * 1000; // 15分钟
+    
+    for (let i = 500; i >= 0; i--) {
+      const timestamp = now - i * intervalMs;
+      const open = currentPrice;
+      const change = (Math.random() - 0.5) * 2000;
+      const close = open + change;
+      const high = Math.max(open, close) + Math.random() * 500;
+      const low = Math.min(open, close) - Math.random() * 500;
+      const volume = Math.random() * 1000 + 500;
+      
+      mockData.push({
+        timestamp,
+        open: parseFloat(open.toFixed(2)),
+        high: parseFloat(high.toFixed(2)),
+        low: parseFloat(low.toFixed(2)),
+        close: parseFloat(close.toFixed(2)),
+        volume: parseFloat(volume.toFixed(2))
+      });
+      
+      currentPrice = close;
+    }
+    
+    setKlineData(mockData);
   };
 
   return (
@@ -416,6 +482,149 @@ const DataManagement = () => {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 数据可视化 */}
+          {selectedTab === 'visualization' && (
+            <div className="data-panel">
+              <h2>数据可视化</h2>
+              
+              {/* K线图表配置 */}
+              <div className="data-section">
+                <div className="import-form">
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label htmlFor="klineSymbol">交易对</label>
+                      <select 
+                        id="klineSymbol" 
+                        className="form-control"
+                        value={klineConfig.symbol}
+                        onChange={(e) => setKlineConfig(prev => ({ ...prev, symbol: e.target.value }))}
+                      >
+                        <option value="BTCUSDT">BTCUSDT</option>
+                        <option value="ETHUSDT">ETHUSDT</option>
+                        <option value="BNBUSDT">BNBUSDT</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="klineInterval">时间周期</label>
+                      <select 
+                        id="klineInterval" 
+                        className="form-control"
+                        value={klineConfig.interval}
+                        onChange={(e) => setKlineConfig(prev => ({ ...prev, interval: e.target.value }))}
+                      >
+                        <option value="1m">1分钟</option>
+                        <option value="5m">5分钟</option>
+                        <option value="15m">15分钟</option>
+                        <option value="30m">30分钟</option>
+                        <option value="1h">1小时</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="klineLimit">数据数量</label>
+                      <input 
+                        type="number" 
+                        id="klineLimit" 
+                        className="form-control"
+                        value={klineConfig.limit}
+                        min="100"
+                        max="2000"
+                        step="100"
+                        onChange={(e) => setKlineConfig(prev => ({ ...prev, limit: parseInt(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>操作</label>
+                      <div className="data-actions">
+                        <button 
+                          className="btn btn-primary"
+                          onClick={fetchKlineData}
+                          disabled={isLoadingKline}
+                        >
+                          {isLoadingKline ? '加载中...' : '获取数据'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* K线图表 */}
+              <div className="data-section">
+                <h3>K线图表</h3>
+                {klineError && (
+                  <div className="error-message">
+                    {klineError}
+                  </div>
+                )}
+                <div className="kline-chart-container">
+                  {isLoadingKline ? (
+                    <div className="loading-state">
+                      加载中...
+                    </div>
+                  ) : (
+                    <div className="kline-chart">
+                      <div className="chart-header">
+                        <div className="chart-title">
+                          {klineConfig.symbol} {klineConfig.interval} K线图
+                        </div>
+                        <div className="chart-stats">
+                          {klineData.length > 0 && (
+                            <div>
+                              <span className="stat-item">
+                                <span className="label">最新价格: </span>
+                                <span className="value">{klineData[klineData.length - 1].close.toLocaleString()}</span>
+                              </span>
+                              <span className="stat-item">
+                                <span className="label">交易量: </span>
+                                <span className="value">{klineData[klineData.length - 1].volume.toLocaleString()}</span>
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="chart-content">
+                        {klineData.length > 0 ? (
+                          <div className="kline-table-container">
+                            <table className="kline-table">
+                              <thead>
+                                <tr>
+                                  <th>时间</th>
+                                  <th>开盘</th>
+                                  <th>最高</th>
+                                  <th>最低</th>
+                                  <th>收盘</th>
+                                  <th>成交量</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {klineData.slice(-50).map((kline) => (
+                                  <tr key={kline.timestamp}>
+                                    <td>{new Date(kline.timestamp).toLocaleString()}</td>
+                                    <td>{kline.open}</td>
+                                    <td>{kline.high}</td>
+                                    <td>{kline.low}</td>
+                                    <td className={kline.close >= kline.open ? 'price-up' : 'price-down'}>
+                                      {kline.close}
+                                    </td>
+                                    <td>{kline.volume}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div className="empty-state">
+                            暂无数据，请点击"获取数据"按钮加载
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

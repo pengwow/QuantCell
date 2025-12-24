@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.13.2",
+    "alembic>=1.17.2",
     "apscheduler>=3.11.1",
     "catboost>=1.2.8",
     "ccxt>=4.5.24",
