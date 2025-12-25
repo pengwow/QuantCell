@@ -122,7 +122,7 @@ class OKXCollector(CryptoBaseCollector):
         return symbol.replace('/', '').replace('-', '')
     
     def get_data(
-        self, symbol: str, interval: str, start_datetime: pd.Timestamp, end_datetime: pd.Timestamp
+        self, symbol: str, interval: str, start_datetime: pd.Timestamp, end_datetime: pd.Timestamp, progress_callback=None
     ) -> pd.DataFrame:
         """
         获取指定交易对的K线数据

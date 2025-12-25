@@ -1,6 +1,7 @@
 # 加密货币基础类
 import abc
 from pathlib import Path
+from typing import Optional, Union
 
 import pandas as pd
 from loguru import logger
@@ -13,15 +14,15 @@ class CryptoBaseCollector(BaseCollector):
     
     def __init__(
         self,
-        save_dir: [str, Path],
+        save_dir: Union[str, Path],
         start=None,
         end=None,
         interval="1d",
         max_workers=1,
         max_collector_count=2,
         delay=0,
-        check_data_length: int = None,
-        limit_nums: int = None,
+        check_data_length: Optional[int] = None,
+        limit_nums: Optional[int] = None,
     ):
         """
         初始化加密货币收集器

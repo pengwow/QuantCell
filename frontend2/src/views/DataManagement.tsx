@@ -2,9 +2,10 @@
  * 数据管理页面组件
  * 功能：展示和管理加密货币与股票数据
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useDataManagementStore } from '../store';
 import { dataApi } from '../api';
+import { init, dispose } from 'klinecharts';
 import AssetPoolManager from '../components/AssetPoolManager';
 import '../styles/DataManagement.css';
 
@@ -43,6 +44,10 @@ const DataManagement = () => {
     interval: '15m',
     limit: 500
   });
+  // 图表实例
+  const chartRef = useRef<any>(null);
+  // 图表容器引用
+  const chartContainerRef = useRef<HTMLDivElement>(null);
 
   // 菜单项列表
   const menuItems = [
@@ -116,21 +121,145 @@ const DataManagement = () => {
    * 获取K线数据
    */
   const fetchKlineData = async (): Promise<void> => {
+    console.log('开始获取K线数据，配置:', klineConfig);
     setIsLoadingKline(true);
     setKlineError(null);
     
     try {
-      const response = await dataApi.getKlines(klineConfig);
-      setKlineData(response.data);
+      const data = await dataApi.getKlines(klineConfig);
+      console.log('获取K线数据成功，数量:', data.length);
+      console.log('数据示例:', data.slice(0, 2));
+      
+      setKlineData(data);
+      
+      // 更新图表数据
+      if (chartRef.current) {
+        console.log('通过API获取数据后更新图表');
+        chartRef.current.setDataLoader({
+          getBars: ({ callback }: { callback: (data: any[]) => void }) => {
+            callback(data);
+          }
+        });
+      }
     } catch (error) {
       console.error('获取K线数据失败:', error);
       setKlineError('获取K线数据失败，请稍后重试');
       // 生成模拟数据作为fallback
+      console.log('使用模拟数据作为fallback');
       generateMockKlineData();
     } finally {
       setIsLoadingKline(false);
     }
   };
+
+  /**
+   * 初始化和清理图表
+   */
+  useEffect(() => {
+    // 初始化图表
+    const initChart = async () => {
+      try {
+        if (chartContainerRef.current) {
+          // 检查容器尺寸
+          const container = chartContainerRef.current;
+          const rect = container.getBoundingClientRect();
+          
+          // 确保容器有正确的尺寸
+          if (rect.width === 0 || rect.height === 0) {
+            console.warn('图表容器尺寸为0，等待容器可见后重试');
+            return;
+          }
+          
+          console.log('初始化图表，容器尺寸:', rect.width, 'x', rect.height);
+          // 简化图表初始化，使用默认配置
+          const chart = init(container);
+          
+          if (chart) {
+            chartRef.current = chart;
+            console.log('图表实例创建成功');
+            
+            // 设置图表信息
+            chart.setSymbol({ ticker: klineConfig.symbol });
+            chart.setPeriod({ span: parseInt(klineConfig.interval.replace('m', '')), type: 'minute' });
+            
+            // 添加默认指标
+            chart.createIndicator('MA');
+            
+            // 设置数据加载器
+            chart.setDataLoader({
+              getBars: async (params) => {
+                try {
+                  console.log('获取K线数据，参数:', params.type, params.timestamp);
+                  if (klineData.length > 0) {
+                    console.log('使用已有的K线数据，数量:', klineData.length);
+                    params.callback(klineData);
+                  } else {
+                    // 如果没有数据，尝试获取数据
+                    console.log('没有现有数据，调用fetchKlineData');
+                    await fetchKlineData();
+                    params.callback(klineData);
+                  }
+                } catch (error) {
+                  console.error('获取K线数据失败:', error);
+                  params.callback([]);
+                }
+              }
+            });
+            
+            // 如果已有数据，直接更新图表
+            if (klineData.length > 0) {
+              console.log('直接设置K线数据，数量:', klineData.length);
+              chart.setDataLoader({
+                getBars: ({ callback }) => {
+                  callback(klineData);
+                }
+              });
+            }
+          } else {
+            console.error('图表初始化失败，返回null');
+          }
+        }
+      } catch (error) {
+        console.error('图表初始化过程中发生错误:', error);
+      }
+    };
+    
+    initChart();
+    
+    // 清理函数
+    return () => {
+      try {
+        if (chartRef.current) {
+          console.log('销毁图表实例');
+          dispose(chartRef.current);
+          chartRef.current = null;
+        }
+      } catch (error) {
+        console.error('销毁图表过程中发生错误:', error);
+      }
+    };
+  }, [klineConfig.symbol, klineConfig.interval, klineData]);
+
+  /**
+   * 当K线数据变化时更新图表
+   */
+  useEffect(() => {
+    if (chartRef.current && klineData.length > 0) {
+      console.log('K线数据变化，更新图表数据，数量:', klineData.length);
+      // 直接更新图表数据
+      try {
+        // 使用setDataLoader更新数据
+        chartRef.current.setDataLoader({
+          getBars: ({ callback }: { callback: (data: any[]) => void }) => {
+            callback(klineData);
+          }
+        });
+        console.log('图表数据更新成功');
+      } catch (error) {
+        console.error('更新图表数据失败:', error);
+      }
+    }
+  }, [klineData]);
 
   /**
    * 生成模拟K线数据
@@ -591,34 +720,11 @@ const DataManagement = () => {
                       </div>
                       <div className="chart-content">
                         {klineData.length > 0 ? (
-                          <div className="kline-table-container">
-                            <table className="kline-table">
-                              <thead>
-                                <tr>
-                                  <th>时间</th>
-                                  <th>开盘</th>
-                                  <th>最高</th>
-                                  <th>最低</th>
-                                  <th>收盘</th>
-                                  <th>成交量</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {klineData.slice(-50).map((kline) => (
-                                  <tr key={kline.timestamp}>
-                                    <td>{new Date(kline.timestamp).toLocaleString()}</td>
-                                    <td>{kline.open}</td>
-                                    <td>{kline.high}</td>
-                                    <td>{kline.low}</td>
-                                    <td className={kline.close >= kline.open ? 'price-up' : 'price-down'}>
-                                      {kline.close}
-                                    </td>
-                                    <td>{kline.volume}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                          <div 
+                            ref={chartContainerRef}
+                            className="kline-chart-wrapper"
+                            style={{ width: '100%', height: '600px' }}
+                          />
                         ) : (
                           <div className="empty-state">
                             暂无数据，请点击"获取数据"按钮加载

@@ -34,63 +34,7 @@ router.include_router(data_pool_router)
 router_data = APIRouter(prefix="/api/data", tags=["data-processing"])
 
 
-@router_data.post("/download/crypto", response_model=ApiResponse)
-def download_crypto_data(request: DataDownloadRequest):
-    """下载加密货币数据API
-    
-    从指定交易所下载加密货币数据，支持多种参数配置
-    
-    Args:
-        request: 数据下载请求参数，包含交易所、时间范围、间隔等信息
-        
-    Returns:
-        ApiResponse: API响应，包含下载状态和结果信息
-        
-    Raises:
-        HTTPException: 当下载过程中发生错误时抛出
-    """
-    try:
-        logger.info(f"开始处理加密货币数据下载请求: {request.model_dump()}")
-        
-        # 创建GetData实例
-        getData = GetData()
-        
-        # 调用crypto方法下载数据
-        getData.crypto(
-            exchange=request.exchange,
-            save_dir=request.save_dir,
-            start=request.start,
-            end=request.end,
-            interval=request.interval,
-            max_workers=request.max_workers,
-            max_collector_count=request.max_collector_count,
-            delay=request.delay,
-            candle_type=request.candle_type,
-            symbols=request.symbols,
-            convert_to_qlib=request.convert_to_qlib,
-            qlib_dir=request.qlib_dir,
-            data_write_to_db=request.data_write_to_db
-        )
-        
-        logger.info("加密货币数据下载请求处理完成")
-        
-        # 返回成功响应
-        return ApiResponse(
-            code=0,
-            message="加密货币数据下载成功",
-            data={
-                "exchange": request.exchange,
-                "start": request.start,
-                "end": request.end,
-                "interval": request.interval,
-                "candle_type": request.candle_type,
-                "symbols": request.symbols,
-                "convert_to_qlib": request.convert_to_qlib
-            }
-        )
-    except Exception as e:
-        logger.error(f"加密货币数据下载失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router_data.post("/convert/qlib", response_model=ApiResponse)

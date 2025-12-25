@@ -3,16 +3,29 @@ import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse 
 /**
  * API 响应类型
  */
-interface ApiResponse<T = any> {
+export interface ApiResponse<T = any> {
   code: number;
   message: string;
   data: T;
 }
 
 /**
+ * API 错误类型
+ */
+export class ApiError extends Error {
+  code: number;
+  
+  constructor(code: number, message: string) {
+    super(message);
+    this.code = code;
+    this.name = 'ApiError';
+  }
+}
+
+/**
  * 配置 Axios 实例
  */
-const api: AxiosInstance = axios.create({
+export const api: AxiosInstance = axios.create({
   baseURL: '/api', // 基础 URL，会被 Vite 代理转发到后端
   timeout: 30000, // 请求超时时间
   headers: {
@@ -46,7 +59,7 @@ api.interceptors.response.use(
     } else {
       // 处理业务错误
       console.error('API 错误:', message);
-      return Promise.reject(new Error(message));
+      return Promise.reject(new ApiError(code, message));
     }
   },
   (error) => {
@@ -67,8 +80,8 @@ export const apiRequest = {
    * @param config 请求配置
    * @returns 响应数据
    */
-  get: <T = any>(url: string, params?: any, config?: AxiosRequestConfig) => {
-    return api.get<T>(url, { params, ...config });
+  get: <T = any>(url: string, params?: any, config?: AxiosRequestConfig): Promise<T> => {
+    return api.get(url, { params, ...config }) as Promise<T>;
   },
 
   /**
@@ -78,8 +91,8 @@ export const apiRequest = {
    * @param config 请求配置
    * @returns 响应数据
    */
-  post: <T = any>(url: string, data?: any, config?: AxiosRequestConfig) => {
-    return api.post<T>(url, data, config);
+  post: <T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
+    return api.post(url, data, config) as Promise<T>;
   },
 
   /**
@@ -89,8 +102,8 @@ export const apiRequest = {
    * @param config 请求配置
    * @returns 响应数据
    */
-  put: <T = any>(url: string, data?: any, config?: AxiosRequestConfig) => {
-    return api.put<T>(url, data, config);
+  put: <T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> => {
+    return api.put(url, data, config) as Promise<T>;
   },
 
   /**
@@ -100,8 +113,8 @@ export const apiRequest = {
    * @param config 请求配置
    * @returns 响应数据
    */
-  delete: <T = any>(url: string, params?: any, config?: AxiosRequestConfig) => {
-    return api.delete<T>(url, { params, ...config });
+  delete: <T = any>(url: string, params?: any, config?: AxiosRequestConfig): Promise<T> => {
+    return api.delete(url, { params, ...config }) as Promise<T>;
   },
 };
 

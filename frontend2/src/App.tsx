@@ -29,9 +29,7 @@ const App = () => {
         {/* 侧边栏顶部品牌 */}
         <div className="nav-brand">
           <div className="brand-icon">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-            </svg>
+            <img src="/src/assets/react.svg" alt="QBot Logo" className="brand-image" />
           </div>
           <div className="brand-text">QBot</div>
         </div>
