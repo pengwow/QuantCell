@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import { useResponsive } from './hooks/useResponsive';
 import './App.css';
 
 /**
@@ -7,24 +8,25 @@ import './App.css';
  * 功能：实现左侧图标菜单布局，支持鼠标悬停显示文字描述，设置按钮位于底部，支持收放功能
  */
 const App = () => {
-  // 侧边栏收放状态 - 默认收起
+  const { isMobile, isTablet } = useResponsive();
   const [isCollapsed, setIsCollapsed] = useState(true);
   const location = useLocation();
 
-  /**
-   * 处理菜单点击事件
-   */
   const handleMenuClick = (): void => {
-    setIsCollapsed(true);
+    if (isMobile) {
+      setIsCollapsed(true);
+    }
   };
 
+  const isVerticalLayout = isMobile || isTablet;
+
   return (
-    <div className="app-container">
+    <div className={`app-container ${isVerticalLayout ? 'vertical-layout' : 'horizontal-layout'}`}>
       {/* 侧边栏导航 */}
       <aside 
-        className={`side-nav ${isCollapsed ? 'collapsed' : ''}`} 
-        onMouseEnter={() => setIsCollapsed(false)}
-        onMouseLeave={() => setIsCollapsed(true)}
+        className={`side-nav ${isCollapsed ? 'collapsed' : ''} ${isVerticalLayout ? 'top-nav' : ''}`} 
+        onMouseEnter={() => !isVerticalLayout && setIsCollapsed(false)}
+        onMouseLeave={() => !isVerticalLayout && setIsCollapsed(true)}
       >
         {/* 侧边栏顶部品牌 */}
         <div className="nav-brand">

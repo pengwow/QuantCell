@@ -484,8 +484,8 @@ class DataService:
             "task_info": task_info
         }
     
-    def get_crypto_symbols(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Dict[str, Any] = {}) -> Dict[str, Any]:
-        """获取加密货币对列表
+    def fetch_symbols_from_exchange(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Dict[str, Any] = {}, type: Optional[str] = None) -> Dict[str, Any]:
+        """从第三方交易所API获取货币对列表
         
         Args:
             exchange: 交易所名称，如binance、okx等
@@ -493,73 +493,13 @@ class DataService:
             limit: 返回数量限制
             offset: 返回偏移量
             configs: 应用配置，包含代理信息等
+            type: 加密货币类型，如spot（现货）、future（合约）等
             
         Returns:
             Dict[str, Any]: 包含货币对列表的数据
         """
-        logger.info(f"开始获取加密货币对列表，交易所: {exchange}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
+        logger.info(f"开始从交易所API获取加密货币对列表，交易所: {exchange}, 类型: {type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
         
-        # 优先从数据库读取货币对数据
-        try:
-            import json
-
-            from ..db.database import SessionLocal
-            from ..db.models import CryptoSymbol
-            
-            db = SessionLocal()
-            try:
-                # 查询数据库中的货币对
-                query = db.query(CryptoSymbol).filter(CryptoSymbol.exchange == exchange)
-                
-                # 应用过滤条件
-                if filter:
-                    query = query.filter(CryptoSymbol.symbol.contains(filter))
-                
-                # 获取总数量
-                total = query.count()
-                
-                # 应用分页
-                paginated_symbols = query.offset(offset).limit(limit).all()
-                
-                logger.info(f"从数据库获取到{total}个{exchange}货币对，返回{len(paginated_symbols)}个货币对")
-                
-                if total > 0:
-                    # 转换为API响应格式
-                    symbols_list = []
-                    for symbol in paginated_symbols:
-                        symbols_list.append({
-                            "symbol": symbol.symbol,
-                            "base": symbol.base,
-                            "quote": symbol.quote,
-                            "active": symbol.active,
-                            "precision": json.loads(symbol.precision),
-                            "limits": json.loads(symbol.limits),
-                            "type": symbol.type
-                        })
-                    
-                    # 构建响应
-                    response_data = {
-                        "symbols": symbols_list,
-                        "total": total,
-                        "offset": offset,
-                        "limit": limit,
-                        "exchange": exchange
-                    }
-                    
-                    return {
-                        "success": True,
-                        "message": "从数据库获取加密货币对列表成功",
-                        "response_data": response_data
-                    }
-                else:
-                    logger.info(f"数据库中没有{exchange}的货币对数据，将从API获取")
-            finally:
-                db.close()
-        except Exception as e:
-            logger.error(f"从数据库获取货币对失败: {e}")
-            logger.info(f"将从API获取{exchange}的货币对数据")
-        
-        # 数据库中没有数据，从交易所API获取
         try:
             # 导入ccxt库
             import ccxt
@@ -697,6 +637,88 @@ class DataService:
             return {
                 "success": False,
                 "message": f"获取加密货币对列表失败: {str(e)}",
+                "error": str(e),
+                "exchange": exchange
+            }
+    
+    def get_crypto_symbols(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Dict[str, Any] = {}, type: Optional[str] = None) -> Dict[str, Any]:
+        """获取加密货币对列表
+        
+        Args:
+            exchange: 交易所名称，如binance、okx等
+            filter: 过滤条件，如'USDT'表示只返回USDT交易对
+            limit: 返回数量限制
+            offset: 返回偏移量
+            configs: 应用配置，包含代理信息等
+            type: 加密货币类型，如spot（现货）、future（合约）等
+            
+        Returns:
+            Dict[str, Any]: 包含货币对列表的数据
+        """
+        logger.info(f"开始获取加密货币对列表，交易所: {exchange}, 类型: {type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
+        
+        # 只从数据库读取货币对数据，不直接调用第三方API
+        try:
+            import json
+
+            from ..db.database import SessionLocal
+            from ..db.models import CryptoSymbol
+            
+            db = SessionLocal()
+            try:
+                # 查询数据库中的货币对
+                query = db.query(CryptoSymbol).filter(CryptoSymbol.exchange == exchange)
+                
+                # 应用类型过滤条件
+                if type:
+                    query = query.filter(CryptoSymbol.type == type)
+                
+                # 应用过滤条件
+                if filter:
+                    query = query.filter(CryptoSymbol.symbol.contains(filter))
+                
+                # 获取总数量
+                total = query.count()
+                
+                # 应用分页
+                paginated_symbols = query.offset(offset).limit(limit).all()
+                
+                logger.info(f"从数据库获取到{total}个{exchange}货币对，返回{len(paginated_symbols)}个货币对")
+                
+                # 转换为API响应格式
+                symbols_list = []
+                for symbol in paginated_symbols:
+                    symbols_list.append({
+                        "symbol": symbol.symbol,
+                        "base": symbol.base,
+                        "quote": symbol.quote,
+                        "active": symbol.active,
+                        "precision": json.loads(symbol.precision),
+                        "limits": json.loads(symbol.limits),
+                        "type": symbol.type
+                    })
+                
+                # 构建响应
+                response_data = {
+                    "symbols": symbols_list,
+                    "total": total,
+                    "offset": offset,
+                    "limit": limit,
+                    "exchange": exchange
+                }
+                
+                return {
+                    "success": True,
+                    "message": "从数据库获取加密货币对列表成功",
+                    "response_data": response_data
+                }
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"从数据库获取货币对失败: {e}")
+            return {
+                "success": False,
+                "message": "从数据库获取加密货币对列表失败",
                 "error": str(e),
                 "exchange": exchange
             }

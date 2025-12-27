@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Strategy, Task, CryptoCurrency, Stock } from '../types';
+import { dataApi } from '../api';
 
 /**
  * 策略状态管理
@@ -343,8 +344,22 @@ export const useDataManagementStore = create<DataManagementState>((set) => ({
   getTasks: async () => {
     set({ isLoading: true });
     try {
-      // 模拟API调用获取任务列表
-      const tasks: Task[] = [];
+      // 调用API获取任务列表，只获取download_crypto类型的任务
+      const params = {
+        page: 1,
+        page_size: 5,
+        sort_by: 'created_at',
+        sort_order: 'desc',
+        task_type: 'download_crypto'
+      };
+      
+      // 调用API获取任务列表
+      const response = await dataApi.getTasks(params);
+      
+      // 处理API响应，提取任务列表数据
+      // 注意：由于API响应拦截器直接返回data字段，所以这里直接使用response.tasks
+      const tasks: Task[] = Array.isArray(response.tasks) ? response.tasks : [];
+      
       set({ tasks, isLoading: false });
     } catch (error) {
       console.error('获取任务列表失败:', error);

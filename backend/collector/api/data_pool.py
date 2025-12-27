@@ -133,12 +133,12 @@ def update_pool(pool_id: int, pool: Dict[str, Any]):
         name = pool.get("name")
         description = pool.get("description")
         color = pool.get("color")
-        tags = pool.get("tags")
+        _type = pool.get("type")
         
         logger.info(f"开始更新资产池: pool_id={pool_id}")
         
         # 更新资产池
-        success = DataPool.update(pool_id, name, description, color, tags)
+        success = DataPool.update(pool_id, name=name, description=description, type=_type)
         
         if success:
             logger.info(f"成功更新资产池: pool_id={pool_id}")
@@ -251,6 +251,78 @@ def add_pool_assets(pool_id: int, assets: Dict[str, Any]):
         raise
     except Exception as e:
         logger.error(f"向资产池添加资产失败: pool_id={pool_id}, error={e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/collection/symbols", response_model=ApiResponse)
+def get_collection_symbols(type: Optional[str] = None, exchange: Optional[str] = None):
+    """获取数据采集页面的品种选项数据
+    
+    包含资产池和直接货币对数据
+    
+    Args:
+        type: 交易类型，如 spot 或合约
+        exchange: 交易商，如 binance
+    
+    Returns:
+        ApiResponse: 包含资产池和直接货币对数据的响应
+    """
+    try:
+        logger.info(f"开始获取数据采集页面的品种选项数据，type={type}, exchange={exchange}")
+        
+        # 1. 获取所有加密货币资产池
+        asset_pools = DataPool.get_all(type="crypto")
+        
+        # 2. 构建资产池数据，包含资产池ID、名称和包含的资产列表
+        pool_data = []
+        for pool in asset_pools:
+            # 获取资产池包含的资产
+            assets = DataPool.get_assets(pool["id"])
+            pool_data.append({
+                "id": pool["id"],
+                "name": pool["name"],
+                "symbols": assets
+            })
+        
+        # 3. 获取直接货币对数据
+        # 从数据库中获取有效的加密货币符号
+        from collector.db.models import CryptoSymbol
+        from collector.db.database import SessionLocal, init_database_config
+        
+        init_database_config()
+        db = SessionLocal()
+        try:
+            # 查询所有有效的加密货币符号
+            crypto_symbols = db.query(CryptoSymbol)
+            crypto_symbols = crypto_symbols.filter_by(active=True, is_deleted=False)
+            crypto_symbols = crypto_symbols.filter(CryptoSymbol.symbol.isnot(None))
+            
+            # 添加类型和交易商过滤
+            if type:
+                crypto_symbols = crypto_symbols.filter_by(type=type)
+            if exchange:
+                crypto_symbols = crypto_symbols.filter_by(exchange=exchange)
+            
+            crypto_symbols = crypto_symbols.all()
+            
+            # 提取symbol字段，去重并排序
+            direct_symbols = list(set([symbol.symbol for symbol in crypto_symbols if symbol.symbol]))
+            direct_symbols.sort()
+        finally:
+            db.close()
+        
+        logger.info(f"成功获取数据采集页面的品种选项数据: asset_pools_count={len(pool_data)}, direct_symbols_count={len(direct_symbols)}")
+        
+        return ApiResponse(
+            code=0,
+            message="获取品种选项数据成功",
+            data={
+                "asset_pools": pool_data,
+                "direct_symbols": direct_symbols
+            }
+        )
+    except Exception as e:
+        logger.error(f"获取数据采集页面的品种选项数据失败: error={e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

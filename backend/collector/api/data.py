@@ -400,6 +400,7 @@ def get_task_status(task_id: str):
 def get_crypto_symbols(
     request: Request,
     exchange: str = Query(default="binance", description="交易所名称，如binance、okx等"),
+    type: Optional[str] = Query(default=None, description="加密货币类型，如spot（现货）、future（合约）等"),
     filter: Optional[str] = Query(default=None, description="过滤条件，如'USDT'表示只返回USDT交易对"),
     limit: Optional[int] = Query(default=100, description="返回数量限制"),
     offset: Optional[int] = Query(default=0, description="返回偏移量")
@@ -409,6 +410,7 @@ def get_crypto_symbols(
     Args:
         request: FastAPI请求对象，用于访问应用实例
         exchange: 交易所名称，如binance、okx等
+        type: 加密货币类型，如spot（现货）、future（合约）等
         filter: 过滤条件，如'USDT'表示只返回USDT交易对
         limit: 返回数量限制
         offset: 返回偏移量
@@ -419,7 +421,7 @@ def get_crypto_symbols(
     try:
         data_service = DataService()
         configs = request.app.state.configs
-        result = data_service.get_crypto_symbols(exchange, filter, limit, offset, configs)
+        result = data_service.get_crypto_symbols(exchange, filter, limit, offset, configs, type)
         
         if result["success"]:
             return ApiResponse(

@@ -267,6 +267,118 @@ export const dataApi = {
   getKlines: (params: any) => {
     return apiRequest.get('/data/klines', params);
   },
+
+  /**
+   * 获取加密货币符号列表
+   * @param params 查询参数，包括type、exchange、filter、limit、offset等
+   * @returns 加密货币符号列表
+   */
+  getCryptoSymbols: (params?: any) => {
+    return apiRequest.get('/data/crypto/symbols', params);
+  },
+
+  /**
+   * 获取数据采集页面的品种选项数据
+   * @param params 查询参数，包括type和exchange
+   * @returns 包含资产池和直接货币对数据的响应
+   */
+  getCollectionSymbols: (params?: any) => {
+    return apiRequest.get('/data-pools/collection/symbols', params);
+  },
+};
+
+/**
+ * 配置相关 API
+ */
+export const configApi = {
+  /**
+   * 获取配置
+   * @returns 配置数据
+   */
+  getConfig: () => {
+    return apiRequest.get('/config/');
+  },
+
+  /**
+   * 更新配置
+   * @param data 配置数据
+   * @returns 更新结果
+   */
+  updateConfig: (data: any) => {
+    return apiRequest.post('/config/batch', data);
+  }
+};
+
+/**
+ * 资产池相关 API
+ */
+export const assetPoolApi = {
+  /**
+   * 获取资产池列表
+   * @param type 资产池类型
+   * @returns 资产池列表数据
+   */
+  getAssetPools: (type: string) => {
+    return apiRequest.get('/data-pools/', { params: { type } });
+  },
+
+  /**
+   * 创建资产池
+   * @param data 资产池数据
+   * @returns 创建的资产池数据
+   */
+  createAssetPool: (data: any) => {
+    return apiRequest.post('/data-pools/', data);
+  },
+
+  /**
+   * 更新资产池
+   * @param id 资产池 ID
+   * @param data 资产池数据
+   * @returns 更新后的资产池数据
+   */
+  updateAssetPool: (id: string, data: any) => {
+    return apiRequest.put(`/data-pools/${id}`, data);
+  },
+
+  /**
+   * 删除资产池
+   * @param id 资产池 ID
+   * @param type 资产池类型
+   * @returns 删除结果
+   */
+  deleteAssetPool: (id: string, type: string) => {
+    return apiRequest.delete(`/data-pools/${id}`, { params: { type } });
+  },
+
+  /**
+   * 获取资产池详情
+   * @param id 资产池 ID
+   * @param type 资产池类型
+   * @returns 资产池详情数据
+   */
+  getAssetPoolDetail: (id: string, type: string) => {
+    return apiRequest.get(`/data-pools/${id}`, { params: { type } });
+  },
+
+  /**
+   * 获取资产池包含的资产
+   * @param poolId 资产池 ID
+   * @returns 资产列表
+   */
+  getPoolAssets: (poolId: string) => {
+    return apiRequest.get(`/data-pools/${poolId}/assets`);
+  },
+
+  /**
+   * 向资产池添加资产
+   * @param poolId 资产池 ID
+   * @param data 资产添加请求，包含assets列表和asset_type字段
+   * @returns 添加结果
+   */
+  addPoolAssets: (poolId: string, data: any) => {
+    return apiRequest.post(`/data-pools/${poolId}/assets`, data);
+  },
 };
 
 export default api;

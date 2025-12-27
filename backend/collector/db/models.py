@@ -1,8 +1,9 @@
+import json
 from typing import Any, Dict, Optional
 
 import sqlalchemy
 from loguru import logger
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, func, text
 from sqlalchemy.orm import Session
 
 from .database import Base
@@ -70,11 +71,19 @@ class DataPool(Base):
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String, nullable=False, index=True)
+    type = Column(String, nullable=True, index=True)
     description = Column(Text, nullable=True)
+    color = Column(String, nullable=True)
+    tags = Column(Text, nullable=True)
     is_public = Column(Boolean, default=True)
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+    
+    # 添加联合唯一约束，确保同一类型下的资源池名称不重复
+    __table_args__ = (
+        sqlalchemy.UniqueConstraint('name', 'type', name='unique_name_type'),
+    )
 
 
 class DataPoolAsset(Base):
@@ -196,7 +205,8 @@ class SystemConfigBusiness:
             if config:
                 # 更新现有配置
                 config.value = value
-                config.description = description
+                if description:
+                    config.description = description
             else:
                 # 创建新配置
                 config = SystemConfig(
@@ -254,7 +264,7 @@ class SystemConfigBusiness:
         db: Session = SessionLocal()
         try:
             configs = db.query(SystemConfig).all()
-            return {config.key: config.value for config in configs}
+            return {config.key: config.value for config in configs}  # pyright: ignore[reportReturnType]
         except Exception as e:
             logger.error(f"获取所有配置失败: error={e}")
             return {}
@@ -735,12 +745,16 @@ class DataPoolBusiness:
     """
     
     @staticmethod
-    def create(name: str, description: str = "", is_public: bool = True, is_default: bool = False) -> Optional[int]:
-        """创建资产池
+    def create(name: str, type: str = "", description: str = "", color: str = "", tags: list = None, is_public: bool = True, is_default: bool = False) -> Optional[int]:
+        """
+        创建资产池
         
         Args:
             name: 资产池名称
+            type: 资产池类型
             description: 资产池描述
+            color: 资产池颜色
+            tags: 资产池标签
             is_public: 是否公开
             is_default: 是否为默认资产池
             
@@ -751,14 +765,28 @@ class DataPoolBusiness:
         init_database_config()
         db: Session = SessionLocal()
         try:
+            # 检查是否已经存在相同名称和类型的资产池
+            existing_pool = db.query(DataPool).filter_by(name=name, type=type).first()
+            if existing_pool:
+                logger.error(f"创建资产池失败: 已存在相同名称和类型的资产池: name={name}, type={type}")
+                return None
+            
             # 如果设置为默认资产池，先将其他默认资产池设置为非默认
             if is_default:
                 db.query(DataPool).filter_by(is_default=True).update({"is_default": False})
             
+            # 获取当前最大id值，手动生成新id
+            max_id_result = db.query(func.max(DataPool.id)).first()
+            new_id = (max_id_result[0] + 1) if max_id_result[0] is not None else 1
+            
             # 创建资产池
             pool = DataPool(
+                id=new_id,
                 name=name,
+                type=type,
                 description=description,
+                color=color,
+                tags=json.dumps(tags) if tags else None,
                 is_public=is_public,
                 is_default=is_default
             )
@@ -766,23 +794,27 @@ class DataPoolBusiness:
             db.commit()
             db.refresh(pool)
             
-            logger.info(f"资产池已创建: id={pool.id}, name={name}")
+            logger.info(f"资产池已创建: id={pool.id}, name={name}, type={type}")
             return pool.id
         except Exception as e:
             db.rollback()
-            logger.error(f"创建资产池失败: name={name}, error={e}")
+            logger.error(f"创建资产池失败: name={name}, type={type}, error={e}")
             return None
         finally:
             db.close()
     
     @staticmethod
-    def update(pool_id: int, name: str = None, description: str = None, is_public: bool = None, is_default: bool = None) -> bool:
-        """更新资产池
+    def update(pool_id: int, name: str = None, type: str = None, description: str = None, color: str = None, tags: list = None, is_public: bool = None, is_default: bool = None) -> bool:
+        """
+        更新资产池
         
         Args:
             pool_id: 资产池ID
             name: 资产池名称
+            type: 资产池类型
             description: 资产池描述
+            color: 资产池颜色
+            tags: 资产池标签
             is_public: 是否公开
             is_default: 是否为默认资产池
             
@@ -798,6 +830,18 @@ class DataPoolBusiness:
                 logger.error(f"资产池不存在: pool_id={pool_id}")
                 return False
             
+            # 检查是否要更新name或type，如果是，需要检查是否已经存在相同名称和类型的资产池
+            if name is not None or type is not None:
+                # 确定要使用的name和type值
+                new_name = name if name is not None else pool.name
+                new_type = type if type is not None else pool.type
+                
+                # 检查是否已经存在相同名称和类型的资产池，并且该资产池的id不是当前要更新的资产池的id
+                existing_pool = db.query(DataPool).filter_by(name=new_name, type=new_type).filter(DataPool.id != pool_id).first()
+                if existing_pool:
+                    logger.error(f"更新资产池失败: 已存在相同名称和类型的资产池: name={new_name}, type={new_type}")
+                    return False
+            
             # 如果设置为默认资产池，先将其他默认资产池设置为非默认
             if is_default is True:
                 db.query(DataPool).filter_by(is_default=True).update({"is_default": False})
@@ -808,13 +852,19 @@ class DataPoolBusiness:
             # 更新其他字段
             if name is not None:
                 pool.name = name
+            if type is not None:
+                pool.type = type
             if description is not None:
                 pool.description = description
+            if color is not None:
+                pool.color = color
+            if tags is not None:
+                pool.tags = json.dumps(tags)
             if is_public is not None:
                 pool.is_public = is_public
             
             db.commit()
-            logger.info(f"资产池已更新: pool_id={pool_id}, name={pool.name}")
+            logger.info(f"资产池已更新: pool_id={pool_id}, name={pool.name}, type={pool.type}")
             return True
         except Exception as e:
             db.rollback()
@@ -923,24 +973,33 @@ class DataPoolBusiness:
                 logger.error(f"资产池不存在: pool_id={pool_id}")
                 return False
             
+            # 先删除该资产池的所有现有资产，然后添加新的资产
+            # 这样可以确保资产池内的资产数量正确
+            db.query(DataPoolAsset).filter_by(pool_id=pool_id).delete()
+            
             # 批量添加资产
+            max_id = db.query(func.max(DataPoolAsset.id)).scalar() or 0
             for asset_id in assets:
-                # 检查资产是否已存在于资产池中
-                existing_asset = db.query(DataPoolAsset).filter_by(pool_id=pool_id, asset_id=asset_id).first()
-                if not existing_asset:
-                    pool_asset = DataPoolAsset(
-                        pool_id=pool_id,
-                        asset_id=asset_id,
-                        asset_type=asset_type
-                    )
-                    db.add(pool_asset)
+                # 手动计算id值
+                max_id += 1
+                
+                # 直接执行INSERT语句，显式指定所有字段
+                db.execute(
+                    text("INSERT INTO data_pool_assets (id, pool_id, asset_id, asset_type, created_at, updated_at) VALUES (:id, :pool_id, :asset_id, :asset_type, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"),
+                    {
+                        "id": max_id,
+                        "pool_id": pool_id,
+                        "asset_id": asset_id,
+                        "asset_type": asset_type
+                    }
+                )
             
             db.commit()
-            logger.info(f"批量添加资产到资产池成功: pool_id={pool_id}, asset_count={len(assets)}")
+            logger.info(f"批量更新资产池资产成功: pool_id={pool_id}, asset_count={len(assets)}")
             return True
         except Exception as e:
             db.rollback()
-            logger.error(f"批量添加资产到资产池失败: pool_id={pool_id}, error={e}")
+            logger.error(f"批量更新资产池资产失败: pool_id={pool_id}, error={e}")
             return False
         finally:
             db.close()
@@ -1005,8 +1064,95 @@ class DataPoolBusiness:
             db.close()
     
     @staticmethod
+    def get_all(type: str = None) -> list:
+        """
+        获取所有资产池，支持按类型过滤
+        
+        Args:
+            type: 资产池类型过滤
+            
+        Returns:
+            list: 资产池列表
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            query = db.query(DataPool)
+            if type:
+                query = query.filter_by(type=type)
+            
+            pools = query.all()
+            result = []
+            for pool in pools:
+                # 获取资产池包含的资产数量，使用func.count()直接计算行数，避免使用id字段
+                asset_count = db.query(func.count()).select_from(DataPoolAsset).filter_by(pool_id=pool.id).scalar() or 0
+                
+                result.append({
+                    "id": pool.id,
+                    "name": pool.name,
+                    "type": pool.type,
+                    "description": pool.description,
+                    "color": pool.color,
+                    "tags": json.loads(pool.tags) if pool.tags else [],
+                    "is_public": pool.is_public,
+                    "is_default": pool.is_default,
+                    "asset_count": asset_count,
+                    "created_at": pool.created_at,
+                    "updated_at": pool.updated_at
+                })
+            return result
+        except Exception as e:
+            logger.error(f"获取所有资产池失败: type={type}, error={e}")
+            return []
+        finally:
+            db.close()
+    
+    @staticmethod
+    def get(pool_id: int) -> dict:
+        """
+        获取指定ID的资产池
+        
+        Args:
+            pool_id: 资产池ID
+            
+        Returns:
+            dict: 资产池详情
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            pool = db.query(DataPool).filter_by(id=pool_id).first()
+            if not pool:
+                return None
+            
+            # 获取资产池包含的资产数量，使用func.count()直接计算行数，避免使用id字段
+            asset_count = db.query(func.count()).select_from(DataPoolAsset).filter_by(pool_id=pool.id).scalar() or 0
+            
+            return {
+                "id": pool.id,
+                "name": pool.name,
+                "type": pool.type,
+                "description": pool.description,
+                "color": pool.color,
+                "tags": json.loads(pool.tags) if pool.tags else [],
+                "is_public": pool.is_public,
+                "is_default": pool.is_default,
+                "asset_count": asset_count,
+                "created_at": pool.created_at,
+                "updated_at": pool.updated_at
+            }
+        except Exception as e:
+            logger.error(f"获取资产池失败: pool_id={pool_id}, error={e}")
+            return None
+        finally:
+            db.close()
+    
+    @staticmethod
     def get_assets(pool_id: int) -> list:
-        """获取资产池包含的资产列表
+        """
+        获取资产池包含的资产列表
         
         Args:
             pool_id: 资产池ID
