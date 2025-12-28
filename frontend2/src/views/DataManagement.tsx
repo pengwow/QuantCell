@@ -102,8 +102,6 @@ const DataManagement = () => {
   const [taskProgress, setTaskProgress] = useState<number>(0);
   // 任务状态轮询定时器引用
   const taskIntervalRef = useRef<number | null>(null);
-  // 任务列表刷新定时器引用
-  const taskListIntervalRef = useRef<number | null>(null);
 
   // 菜单项列表
   const menuItems = [
@@ -211,30 +209,44 @@ const DataManagement = () => {
     // 避免不必要的API请求
   }, [systemConfig.crypto_trading_mode, systemConfig.exchange]);
 
-  // 组件挂载时启动任务列表定时刷新
+  // 组件挂载时获取一次任务列表，不再定时刷新
   useEffect(() => {
     // 初始获取任务列表
     getTasks();
-    
-    // 设置任务列表刷新定时器，每10秒刷新一次
-    taskListIntervalRef.current = setInterval(() => {
-      getTasks();
-    }, 10000);
-    
-    // 清理函数
-    return () => {
-      // 清理任务状态轮询定时器
+  }, [getTasks]);
+
+  // 专门用于轮询当前任务状态的useEffect钩子
+  useEffect(() => {
+    // 只有当currentTaskId存在时才设置轮询
+    if (currentTaskId) {
+      console.log(`当前任务ID: ${currentTaskId}，设置轮询定时器，每1秒查询一次`);
+      
+      // 立即查询一次任务状态
+      queryTaskStatus();
+      
+      // 设置轮询定时器，每1秒查询一次
+      const intervalId = setInterval(queryTaskStatus, 1000);
+      
+      // 保存定时器ID，用于清理
+      taskIntervalRef.current = intervalId;
+      
+      // 清理函数
+      return () => {
+        console.log(`清除轮询定时器，任务ID: ${currentTaskId}`);
+        if (intervalId) {
+          clearInterval(intervalId);
+          taskIntervalRef.current = null;
+        }
+      };
+    } else {
+      // 如果currentTaskId不存在，清理轮询定时器
       if (taskIntervalRef.current) {
+        console.log('currentTaskId不存在，清除轮询定时器');
         clearInterval(taskIntervalRef.current);
         taskIntervalRef.current = null;
       }
-      // 清理任务列表刷新定时器
-      if (taskListIntervalRef.current) {
-        clearInterval(taskListIntervalRef.current);
-        taskListIntervalRef.current = null;
-      }
-    };
-  }, [getTasks]);
+    }
+  }, [currentTaskId]);
 
   /**
    * 格式化大数字
@@ -438,38 +450,56 @@ const DataManagement = () => {
   const queryTaskStatus = async () => {
     if (!currentTaskId) return;
     
+    console.log(`开始查询任务状态，任务ID: ${currentTaskId}`);
+    
     try {
       // 使用相对路径，通过Vite代理发送请求
       const taskData = await dataApi.getTaskStatus(currentTaskId);
       
+      console.log(`任务状态查询结果:`, taskData);
+      
+      // 确保taskData是对象
+      if (typeof taskData !== 'object' || taskData === null) {
+        console.error('任务状态查询结果格式异常:', taskData);
+        return;
+      }
+      
       // 更新任务状态
-      setTaskStatus(taskData.status || 'unknown');
+      const newStatus = taskData.status || 'unknown';
+      setTaskStatus(newStatus);
       
       // 更新任务进度
       let progressValue = 0;
-      if (taskData.progress && typeof taskData.progress === 'object') {
-        // 如果progress是对象，使用percentage字段
-        progressValue = taskData.progress.percentage || 0;
-      } else {
-        // 否则直接使用progress值
-        progressValue = taskData.progress || 0;
+      if (taskData.progress) {
+        if (typeof taskData.progress === 'object') {
+          // 如果progress是对象，使用percentage字段
+          progressValue = taskData.progress.percentage || 0;
+        } else {
+          // 否则直接使用progress值
+          progressValue = Number(taskData.progress) || 0;
+        }
       }
       setTaskProgress(progressValue);
       
+      console.log(`任务状态更新: ${newStatus}, 进度: ${progressValue}%`);
+      
+      // 每次查询任务状态后都刷新任务列表，确保列表始终显示最新状态
+      getTasks();
+      
       // 如果任务完成、失败、取消或进度达到100%，停止定时查询
-      if (taskData.status === 'completed' || taskData.status === 'failed' || taskData.status === 'canceled' || progressValue >= 100) {
+      if (newStatus === 'completed' || newStatus === 'failed' || newStatus === 'canceled' || progressValue >= 100) {
         if (taskIntervalRef.current) {
+          console.log(`任务${newStatus}，停止轮询`);
           clearInterval(taskIntervalRef.current);
           taskIntervalRef.current = null;
         }
-        message.success(`任务${taskData.status === 'completed' ? '完成' : taskData.status === 'failed' ? '失败' : taskData.status === 'canceled' ? '已取消' : '完成'}`);
-        // 任务完成后刷新任务列表
-        getTasks();
+        message.success(`任务${newStatus === 'completed' ? '完成' : newStatus === 'failed' ? '失败' : newStatus === 'canceled' ? '已取消' : '完成'}`);
       }
     } catch (error) {
       console.error('查询任务状态失败:', error);
       // 后端报错，停止轮询
       if (taskIntervalRef.current) {
+        console.log('查询任务状态失败，停止轮询');
         clearInterval(taskIntervalRef.current);
         taskIntervalRef.current = null;
       }
@@ -899,21 +929,33 @@ const DataManagement = () => {
                             // 保存返回的task_id
                             if (response.task_id) {
                               const taskId = response.task_id;
+                              console.log(`获取到任务ID: ${taskId}，开始设置轮询`);
+                               
+                              // 设置当前任务ID
                               setCurrentTaskId(taskId);
+                              // 初始化任务状态
                               setTaskStatus('running');
                               setTaskProgress(0);
-                              
+                               
+                              // 立即刷新任务列表，确保新创建的任务显示在列表中
+                              getTasks();
+                               
                               // 开始定时查询任务状态，每1秒查询一次
                               if (taskIntervalRef.current) {
+                                console.log('清除旧的轮询定时器');
                                 clearInterval(taskIntervalRef.current);
                               }
+                               
+                              console.log('设置新的轮询定时器，每1秒查询一次');
                               taskIntervalRef.current = setInterval(queryTaskStatus, 1000);
-                              
+                               
                               // 立即查询一次任务状态
+                              console.log('立即查询一次任务状态');
                               await queryTaskStatus();
-                              
+                               
                               message.success('数据下载任务已启动');
                             } else {
+                              console.error('未获取到任务ID，响应数据:', response);
                               message.error('数据下载任务启动失败，未获取到任务ID');
                             }
                           } catch (error) {
@@ -963,6 +1005,18 @@ const DataManagement = () => {
                              taskStatus === 'completed' ? '已完成' : 
                              taskStatus === 'failed' ? '失败' : 
                              taskStatus === 'pending' ? '等待中' : taskStatus}
+                          </Text>
+                        </div>
+                        <div className="polling-status" style={{ flex: 1, textAlign: 'right' }}>
+                          <Text strong>轮询状态:</Text>
+                          <Text 
+                            style={{ 
+                              marginLeft: 8, 
+                              color: taskIntervalRef.current ? '#52c41a' : '#ff4d4f',
+                              fontWeight: 500
+                            }}
+                          >
+                            {taskIntervalRef.current ? '运行中' : '已停止'}
                           </Text>
                         </div>
                       </Space.Compact>
