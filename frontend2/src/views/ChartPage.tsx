@@ -2,8 +2,13 @@ import { useEffect, useState } from 'react'
 import { init, dispose, registerLocale } from 'klinecharts'
 import generatedDataList from '../utils/generatedDataList'
 import {
-  MenuUnfoldOutlined
+  MenuUnfoldOutlined,
+  BarChartOutlined
 } from '@ant-design/icons';
+import {
+  Modal,
+  Input
+} from 'antd';
 
 // 注册繁体中文语言包
 registerLocale('zh-HK', {
@@ -29,10 +34,30 @@ export default function ChartPage () {
   const [isToolbarExpanded, setIsToolbarExpanded] = useState(false)
   // 控制周期按钮展开状态
   const [isPeriodsExpanded, setIsPeriodsExpanded] = useState(false)
+  // 控制商品搜索弹窗显示状态
+  const [isSearchModalVisible, setIsSearchModalVisible] = useState(false)
   // 当前选中的周期
   const [selectedPeriod, setSelectedPeriod] = useState('15m')
-  // 当前商品名
-  const [symbol] = useState('BABA')
+  // 当前商品信息
+  const [currentSymbol, setCurrentSymbol] = useState({
+    code: 'BABA',
+    name: 'Alibaba Group Holding Ltd.',
+    icon: 'S' // 默认股票图标
+  })
+  // 搜索关键词
+  const [searchKeyword, setSearchKeyword] = useState('')
+  
+  // 模拟商品数据 - 带图标
+  const mockProducts = [
+    { code: 'A', name: 'Agilent Technologies Inc.', exchange: 'XNYS', icon: 'S' },
+    { code: 'AA', name: 'Alcoa Corporation', exchange: 'XNYS', icon: 'S' },
+    { code: 'AAA', name: 'Alternative Access First Priority CLO Bond', exchange: 'ARCX', icon: 'B' },
+    { code: 'AAAA', name: 'Amplius Aggressive Asset Allocation ETF', exchange: 'BATS', icon: 'E' },
+    { code: 'AAAC', name: 'Columbia AAA CLO ETF', exchange: 'ARCX', icon: 'E' },
+    { code: 'BABA', name: 'Alibaba Group Holding Ltd.', exchange: 'NYSE', icon: 'S' },
+    { code: 'TSLA', name: 'Tesla, Inc.', exchange: 'NASDAQ', icon: 'S' },
+    { code: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ', icon: 'S' }
+  ]
   
   // 周期列表 - 分为常用和不常用
   const commonPeriods = ['1m', '5m', '15m', '1H', '4H', 'D'] // 常用周期
@@ -45,7 +70,7 @@ export default function ChartPage () {
     // 确保图表初始化成功
     if (chart) {
       // 设置交易对信息
-      chart.setSymbol({ ticker: symbol })
+      chart.setSymbol({ ticker: currentSymbol.code })
       
       // 设置周期
       chart.setPeriod({ span: 1, type: 'day' })
@@ -64,7 +89,7 @@ export default function ChartPage () {
     return () => {
       dispose('language-k-line')
     }
-  }, [symbol])
+  }, [currentSymbol.code])
 
   // 工具按钮点击处理函数
   const handleToolButtonClick = (toolName: string) => {
@@ -88,10 +113,10 @@ export default function ChartPage () {
             </span>
           </div>
           
-          {/* 商品名 */}
-          <div className="symbol-name">
-            <span className="symbol-icon">$</span>
-            <span className="symbol-text">{symbol}</span>
+          {/* 商品名 - 点击弹出搜索框 */}
+          <div className="symbol-name" onClick={() => setIsSearchModalVisible(true)}>
+            <span className="symbol-icon">{currentSymbol.icon}</span>
+            <span className="symbol-text">{currentSymbol.code}</span>
           </div>
           
           {/* 时间周期切换 - 分为常用和更多 */}
@@ -166,10 +191,8 @@ export default function ChartPage () {
         {/* 垂直悬浮按钮列表 - 绝对定位 */}
         {isToolbarExpanded && (
           <div className="vertical-toolbar">
-            <button className="vertical-btn" title="直线" onClick={() => handleToolButtonClick('直线')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-              </svg>
+            <button className="vertical-btn" title="图表" onClick={() => handleToolButtonClick('图表')}>
+              <BarChartOutlined />
             </button>
             <button className="vertical-btn" title="水平线" onClick={() => handleToolButtonClick('水平线')}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -260,6 +283,80 @@ export default function ChartPage () {
         }} 
       />
       
+      {/* 商品搜索弹窗 - 使用Ant Design组件 */}
+      <Modal
+        title="商品搜索"
+        open={isSearchModalVisible}
+        onCancel={() => setIsSearchModalVisible(false)}
+        footer={null}
+        width={600}
+      >
+        {/* 搜索输入框 */}
+        <Input
+          placeholder="商品代码"
+          value={searchKeyword}
+          onChange={(e) => setSearchKeyword(e.target.value)}
+          allowClear
+          style={{ marginBottom: 16 }}
+        />
+        {/* 商品列表 - 使用div和map替代List组件 */}
+        <div style={{ maxHeight: 'calc(80vh - 200px)', overflowY: 'auto' }}>
+          {mockProducts.map((product) => (
+            <div
+              key={product.code}
+              onClick={() => {
+                setCurrentSymbol({
+                  code: product.code,
+                  name: product.name,
+                  icon: product.icon
+                })
+                setIsSearchModalVisible(false)
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '12px 20px',
+                cursor: 'pointer',
+                transition: 'background-color 0.2s ease',
+                borderBottom: '1px solid #f0f0f0'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fafafa'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              {/* 商品图标 */}
+              <div style={{
+                width: '20px',
+                height: '20px',
+                borderRadius: '50%',
+                backgroundColor: '#ffc53d',
+                color: 'white',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 'bold',
+                marginRight: '12px'
+              }}>
+                {product.icon}
+              </div>
+              
+              {/* 商品信息 */}
+              <div style={{ flex: 1 }}>
+                <div>
+                  <span style={{ marginRight: '8px', fontWeight: 'bold' }}>{product.code}</span>
+                  <span style={{ color: '#666', fontSize: '14px' }}>({product.name})</span>
+                </div>
+              </div>
+              
+              {/* 交易所信息 */}
+              <span style={{ color: '#999', fontSize: '14px' }}>
+                {product.exchange}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Modal>
+      
       {/* 工具栏样式 */}
       <style>{`
         .chart-toolbar {
@@ -324,6 +421,7 @@ export default function ChartPage () {
           transform: rotate(-180deg);
         }
         
+        /* 商品名样式 - 添加点击效果 */
         .symbol-name {
           display: flex;
           align-items: center;
@@ -333,6 +431,13 @@ export default function ChartPage () {
           padding: 0 10px;
           color: #333;
           border-right: 1px solid #e8e8e8;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        
+        /* 商品名悬停效果 */
+        .symbol-name:hover {
+          background-color: #e8f0fe;
         }
         
         .symbol-icon {
@@ -341,6 +446,12 @@ export default function ChartPage () {
         
         .symbol-text {
           color: #333;
+        }
+        
+        /* 商品名下拉箭头 */
+        .symbol-arrow {
+          font-size: 12px;
+          color: #999;
         }
         
         /* 时间周期按钮容器 - 相对定位 */
