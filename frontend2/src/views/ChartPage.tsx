@@ -1,459 +1,536 @@
-/**
- * 图表页面组件
- * 功能：展示K线图表，支持多种指标和筛选条件
- */
-import { useState, useEffect, useRef } from 'react';
-import { init, dispose } from 'klinecharts';
-import '../styles/ChartPage.css';
+import { useEffect, useState } from 'react'
+import { init, dispose, registerLocale } from 'klinecharts'
+import generatedDataList from '../utils/generatedDataList'
+import {
+  MenuUnfoldOutlined
+} from '@ant-design/icons';
 
-// 筛选参数类型定义
-interface FilterParams {
-  symbol: string;
-  startTime: string;
-  endTime: string;
-  period: string;
-  limit: number;
-}
+// 注册繁体中文语言包
+registerLocale('zh-HK', {
+  time: '時間：',
+  open: '開：',
+  high: '高：',
+  low: '低：',
+  close: '收：',
+  volume: '成交量：',
+  change: '漲跌：',
+  turnover: '成交額：',
+  second: '秒',
+  minute: '分',
+  hour: '時',
+  day: '日',
+  week: '週',
+  month: '月',
+  year: '年'
+})
 
-// 指标类型定义
-interface Indicator {
-  id: string;
-  name: string;
-  description: string;
-}
-
-// 指标配置类型定义
-interface IndicatorConfig {
-  [key: string]: any;
-}
-
-// K线数据类型定义
-interface KlineData {
-  timestamp: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-  change: number;
-  changePercent: number;
-}
-
-const ChartPage = () => {
-  // 图表容器引用
-  const chartRef = useRef<HTMLDivElement>(null);
-  // 图表实例
-  const chart = useRef<any>(null);
-
-  // 筛选参数
-  const [filterParams, setFilterParams] = useState<FilterParams>({
-    symbol: 'BTCUSDT',
-    startTime: '2024-01-01',
-    endTime: new Date().toISOString().split('T')[0],
-    period: '1d',
-    limit: 500
-  });
-
-  // 图表数据
-  const [chartData, setChartData] = useState<KlineData[]>([]);
-
-  // 指标列表
-  const [indicators] = useState<Indicator[]>([
-    { id: 'ma', name: 'MA', description: '移动平均线' },
-    { id: 'ema', name: 'EMA', description: '指数移动平均线' },
-    { id: 'macd', name: 'MACD', description: '平滑异同移动平均线' },
-    { id: 'rsi', name: 'RSI', description: '相对强弱指标' },
-    { id: 'kdj', name: 'KDJ', description: '随机指标' },
-    { id: 'boll', name: 'BOLL', description: '布林带' }
-  ]);
-
-  // 已选指标
-  const [selectedIndicators, setSelectedIndicators] = useState<string[]>(['ma', 'macd']);
-
-  // 指标配置
-  const [indicatorConfigs, setIndicatorConfigs] = useState<IndicatorConfig>({
-    ma: { period: 14, color: '#1890ff' },
-    ema: { period: 20, color: '#52c41a' },
-    macd: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
-    rsi: { period: 14, color: '#faad14' },
-    kdj: { kPeriod: 9, dPeriod: 3, jPeriod: 3 },
-    boll: { period: 20, stdDev: 2 }
-  });
-
-  /**
-   * 初始化图表
-   */
-  const initChart = () => {
-    if (chartRef.current) {
-      // 销毁现有图表
-      if (chart.current) {
-        dispose('kline-chart');
-      }
+export default function ChartPage () {
+  // 控制工具栏展开状态
+  const [isToolbarExpanded, setIsToolbarExpanded] = useState(false)
+  // 控制周期按钮展开状态
+  const [isPeriodsExpanded, setIsPeriodsExpanded] = useState(false)
+  // 当前选中的周期
+  const [selectedPeriod, setSelectedPeriod] = useState('15m')
+  // 当前商品名
+  const [symbol] = useState('BABA')
+  
+  // 周期列表 - 分为常用和不常用
+  const commonPeriods = ['1m', '5m', '15m', '1H', '4H', 'D'] // 常用周期
+  const morePeriods = ['2H', 'W', 'M', 'Y'] // 不常用周期
+  
+  useEffect(() => {
+    // 初始化图表
+    const chart = init('language-k-line')
+    
+    // 确保图表初始化成功
+    if (chart) {
+      // 设置交易对信息
+      chart.setSymbol({ ticker: symbol })
       
-      // 创建新图表
-      chart.current = init('kline-chart');
-      chart.current.setSymbol({ ticker: filterParams.symbol });
-      chart.current.setPeriod({ span: 1, type: 'day' });
+      // 设置周期
+      chart.setPeriod({ span: 1, type: 'day' })
       
       // 设置数据加载器
-      chart.current.setDataLoader({
-        getBars: ({ callback }: { callback: (data: any[]) => void }) => {
-          callback(chartData);
+      chart.setDataLoader({
+        getBars: ({ callback }) => {
+          // 使用生成的数据
+          const data = generatedDataList()
+          callback(data, false)
         }
-      });
-      
-      // 应用初始指标
-      applyIndicators();
-    }
-  };
-
-  /**
-   * 应用指标
-   */
-  const applyIndicators = () => {
-    if (!chart.current) return;
-    
-    // 清除所有指标
-    if (typeof chart.current.removeAllIndicators === 'function') {
-      chart.current.removeAllIndicators();
+      })
     }
     
-    // 应用选中的指标
-    selectedIndicators.forEach(indicatorId => {
-      try {
-        // 暂时注释指标添加代码，因为addIndicator不是chart对象的方法
-        console.log(`指标 ${indicatorId} 暂时不可用，已注释相关代码`);
-      } catch (error) {
-        console.error(`Failed to add indicator ${indicatorId}:`, error);
-      }
-    });
-  };
-
-  /**
-   * 生成模拟K线数据
-   * @param symbol 货币对
-   * @param count 数据数量
-   * @returns K线数据数组
-   */
-  const generateDemoData = (symbol: string, count: number): KlineData[] => {
-    // 不同货币对的基础价格
-    const basePrices: Record<string, number> = {
-      BTCUSDT: 50000,
-      ETHUSDT: 3000,
-      BNBUSDT: 300,
-      SOLUSDT: 100
-    };
-    
-    // 不同时间周期的毫秒数
-    const intervals: Record<string, number> = {
-      '1min': 60000,
-      '5min': 300000,
-      '15min': 900000,
-      '30min': 1800000,
-      '1h': 3600000,
-      '4h': 14400000,
-      '1d': 86400000,
-      '1w': 604800000
-    };
-    
-    const basePrice = basePrices[symbol] || 50000;
-    const interval = intervals[filterParams.period] || 86400000;
-    
-    const data: KlineData[] = [];
-    let currentPrice = basePrice;
-    const now = Date.now();
-    
-    // 生成更真实的价格走势
-    for (let i = count - 1; i >= 0; i--) {
-      const timestamp = now - i * interval;
-      
-      // 添加一些趋势性
-      const trendFactor = Math.sin(i / 20) * 0.1; // 周期性趋势
-      const randomFactor = (Math.random() - 0.5) * 0.05; // 随机波动
-      const volatility = Math.random() * 0.02; // 波动率
-      
-      const open = currentPrice;
-      const close = open * (1 + trendFactor + randomFactor);
-      const high = Math.max(open, close) * (1 + volatility);
-      const low = Math.min(open, close) * (1 - volatility);
-      const volume = Math.abs((close - open) / open) * 100000 * (0.5 + Math.random());
-      
-      const prevClose = data.length > 0 ? data[data.length - 1].close : open;
-      const change = close - prevClose;
-      const changePercent = (change / prevClose) * 100;
-      
-      data.push({
-        timestamp,
-        open: parseFloat(open.toFixed(2)),
-        high: parseFloat(high.toFixed(2)),
-        low: parseFloat(low.toFixed(2)),
-        close: parseFloat(close.toFixed(2)),
-        volume: parseFloat(volume.toFixed(2)),
-        change: parseFloat(change.toFixed(2)),
-        changePercent: parseFloat(changePercent.toFixed(2))
-      });
-      
-      currentPrice = close;
-    }
-    
-    return data;
-  };
-
-  /**
-   * 获取图表数据
-   */
-  const fetchChartData = async () => {
-    try {
-      // 这里使用模拟数据，实际应该调用后端接口
-      const mockData = generateDemoData(filterParams.symbol, filterParams.limit);
-      setChartData(mockData);
-      
-      // 更新图表
-      if (chart.current) {
-        chart.current.resetData();
-        applyIndicators();
-      }
-    } catch (error) {
-      console.error('获取图表数据失败:', error);
-      alert('获取数据失败');
-    }
-  };
-
-  /**
-   * 重置筛选条件
-   */
-  const resetFilters = () => {
-    setFilterParams({
-      symbol: 'BTCUSDT',
-      startTime: '2024-01-01',
-      endTime: new Date().toISOString().split('T')[0],
-      period: '1d',
-      limit: 500
-    });
-  };
-
-  /**
-   * 切换指标选择
-   * @param indicatorId 指标ID
-   */
-  const toggleIndicator = (indicatorId: string) => {
-    setSelectedIndicators(prev => {
-      const index = prev.indexOf(indicatorId);
-      let newSelected;
-      if (index > -1) {
-        newSelected = prev.filter(id => id !== indicatorId);
-      } else {
-        newSelected = [...prev, indicatorId];
-      }
-      
-      // 应用指标变化
-      setTimeout(() => applyIndicators(), 0);
-      return newSelected;
-    });
-  };
-
-  /**
-   * 更新指标配置
-   * @param indicatorId 指标ID
-   * @param key 配置键
-   * @param value 配置值
-   */
-  const updateIndicatorConfig = (indicatorId: string, key: string, value: any) => {
-    setIndicatorConfigs(prev => {
-      const newConfigs = {
-        ...prev,
-        [indicatorId]: {
-          ...prev[indicatorId],
-          [key]: value
-        }
-      };
-      
-      // 应用指标配置变化
-      setTimeout(() => applyIndicators(), 0);
-      return newConfigs;
-    });
-  };
-
-  // 监听筛选参数变化
-  useEffect(() => {
-    // 如果symbol或period变化，重新获取数据
-    fetchChartData();
-  }, [filterParams.symbol, filterParams.period]);
-
-  // 初始化
-  useEffect(() => {
-    initChart();
-    fetchChartData();
-
     // 组件卸载时销毁图表
     return () => {
-      if (chart.current) {
-        dispose('kline-chart');
-        chart.current = null;
-      }
-    };
-  }, []);
+      dispose('language-k-line')
+    }
+  }, [symbol])
+
+  // 工具按钮点击处理函数
+  const handleToolButtonClick = (toolName: string) => {
+    console.log(`点击了工具按钮: ${toolName}`);
+    // 这里可以添加具体的工具功能实现
+  };
 
   return (
-    <div className="chart-page-container">
-      <h1>K线图表</h1>
-      
-      {/* 筛选条件区域 */}
-      <div className="filter-section">
-        <div className="filter-row">
-          <div className="filter-item">
-            <label>货币模式</label>
-            <select 
-              value={filterParams.symbol} 
-              onChange={(e) => setFilterParams(prev => ({ ...prev, symbol: e.target.value }))}
-            >
-              <option value="BTCUSDT">BTCUSDT</option>
-              <option value="ETHUSDT">ETHUSDT</option>
-              <option value="BNBUSDT">BNBUSDT</option>
-              <option value="SOLUSDT">SOLUSDT</option>
-            </select>
+    <div className="chart-page-container">      
+      {/* 工具栏容器 */}
+      <div className="chart-toolbar-container">
+        {/* 顶部工具栏 */}
+        <div className="toolbar-top">
+          {/* 伸缩按钮 */}
+          <div 
+            className={`toolbar-toggle ${isToolbarExpanded ? 'expanded' : ''}`} 
+            onClick={() => setIsToolbarExpanded(!isToolbarExpanded)}
+          >
+            <span className="toggle-icon">
+              <MenuUnfoldOutlined />
+            </span>
           </div>
           
-          <div className="filter-item">
-            <label>开始时间</label>
-            <input 
-              value={filterParams.startTime} 
-              type="date"
-              onChange={(e) => setFilterParams(prev => ({ ...prev, startTime: e.target.value }))}
-            />
+          {/* 商品名 */}
+          <div className="symbol-name">
+            <span className="symbol-icon">$</span>
+            <span className="symbol-text">{symbol}</span>
           </div>
           
-          <div className="filter-item">
-            <label>结束时间</label>
-            <input 
-              value={filterParams.endTime} 
-              type="date"
-              onChange={(e) => setFilterParams(prev => ({ ...prev, endTime: e.target.value }))}
-            />
-          </div>
-          
-          <div className="filter-item">
-            <label>时间周期</label>
-            <select 
-              value={filterParams.period}
-              onChange={(e) => setFilterParams(prev => ({ ...prev, period: e.target.value }))}
-            >
-              <option value="1min">1分钟</option>
-              <option value="5min">5分钟</option>
-              <option value="15min">15分钟</option>
-              <option value="30min">30分钟</option>
-              <option value="1h">1小时</option>
-              <option value="4h">4小时</option>
-              <option value="1d">日线</option>
-              <option value="1w">周线</option>
-            </select>
-          </div>
-          
-          <div className="filter-item">
-            <label>数据周期数</label>
-            <input 
-              value={filterParams.limit} 
-              type="number" 
-              min="100" 
-              max="2000" 
-              step="100"
-              onChange={(e) => setFilterParams(prev => ({ ...prev, limit: parseInt(e.target.value) }))}
-            />
-          </div>
-          
-          <div className="filter-actions">
-            <button className="btn btn-primary" onClick={fetchChartData}>
-              获取数据
-            </button>
-            <button className="btn btn-secondary" onClick={resetFilters}>
-              重置
-            </button>
-          </div>
-        </div>
-        
-        {/* 指标选择区域 */}
-        <div className="indicator-section">
-          <div className="indicator-header">
-            <h3>指标选择</h3>
-            <div className="indicator-info">
-              <span>已选指标: {selectedIndicators.length}</span>
-            </div>
-          </div>
-          
-          <div className="indicator-list">
-            {indicators.map(indicator => (
-              <div 
-                key={indicator.id}
-                className={`indicator-item ${selectedIndicators.includes(indicator.id) ? 'active' : ''}`}
-                onClick={() => toggleIndicator(indicator.id)}
+          {/* 时间周期切换 - 分为常用和更多 */}
+          <div className="period-buttons-container">
+            {/* 常用周期和更多按钮容器 */}
+            <div className="period-buttons">
+              {/* 常用周期 */}
+              {commonPeriods.map((period) => (
+                <button
+                  key={period}
+                  className={`period-btn ${selectedPeriod === period ? 'active' : ''}`}
+                  onClick={() => setSelectedPeriod(period)}
+                >
+                  {period}
+                </button>
+              ))}
+              {/* 更多按钮 */}
+              <button 
+                className="period-btn more-btn"
+                onClick={() => setIsPeriodsExpanded(!isPeriodsExpanded)}
               >
-                <div className="indicator-name">{indicator.name}</div>
-                <div className="indicator-desc">{indicator.description}</div>
+                {isPeriodsExpanded ? '收起' : '更多'}
+              </button>
+            </div>
+            {/* 不常用周期 - 绝对定位在更多按钮下方 */}
+            {isPeriodsExpanded && (
+              <div 
+                className="more-periods-dropdown"
+                onMouseLeave={() => setIsPeriodsExpanded(false)}
+              >
+                {morePeriods.map((period) => (
+                  <button
+                    key={period}
+                    className={`period-btn ${selectedPeriod === period ? 'active' : ''}`}
+                    onClick={() => {
+                      setSelectedPeriod(period)
+                      setIsPeriodsExpanded(false) // 选择后自动收起
+                    }}
+                  >
+                    {period}
+                  </button>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      
-      {/* 图表区域 */}
-      <div className="chart-section">
-        <div className="chart-header">
-          <div className="chart-title">{filterParams.symbol} K线图</div>
-          <div className="chart-stats">
-            {chartData.length > 0 && (
-              <span>
-                最新价格: {chartData[chartData.length - 1].close.toFixed(2)} 
-                ({chartData[chartData.length - 1].changePercent.toFixed(2)}%)
-              </span>
             )}
           </div>
+          
+          {/* 其他功能按钮 */}
+          {/* <div className="function-buttons">
+            <button className="func-btn" onClick={() => handleToolButtonClick('指标')}>
+              <span className="func-icon">📊</span>
+              <span className="func-text">指标</span>
+            </button>
+            <button className="func-btn" onClick={() => handleToolButtonClick('时区')}>
+              <span className="func-icon">🌍</span>
+              <span className="func-text">时区</span>
+            </button>
+            <button className="func-btn" onClick={() => handleToolButtonClick('设置')}>
+              <span className="func-icon">⚙️</span>
+              <span className="func-text">设置</span>
+            </button>
+            <button className="func-btn" onClick={() => handleToolButtonClick('截屏')}>
+              <span className="func-icon">📷</span>
+              <span className="func-text">截屏</span>
+            </button>
+            <button className="func-btn" onClick={() => handleToolButtonClick('全屏')}>
+              <span className="func-icon">⛶</span>
+              <span className="func-text">全屏</span>
+            </button>
+          </div> */}
         </div>
         
-        <div className="chart-container">
-          <div id="kline-chart" ref={chartRef}></div>
-        </div>
+        {/* 垂直悬浮按钮列表 - 绝对定位 */}
+        {isToolbarExpanded && (
+          <div className="vertical-toolbar">
+            <button className="vertical-btn" title="直线" onClick={() => handleToolButtonClick('直线')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+              </svg>
+            </button>
+            <button className="vertical-btn" title="水平线" onClick={() => handleToolButtonClick('水平线')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            <button className="vertical-btn" title="趋势线" onClick={() => handleToolButtonClick('趋势线')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+              </svg>
+            </button>
+            <button className="vertical-btn" title="平行线" onClick={() => handleToolButtonClick('平行线')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="21" y1="16" x2="3" y2="16"></line>
+                <line x1="21" y1="8" x2="3" y2="8"></line>
+                <line x1="3" y1="8" x2="3" y2="16"></line>
+              </svg>
+            </button>
+            <button className="vertical-btn" title="圆" onClick={() => handleToolButtonClick('圆')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+              </svg>
+            </button>
+            <button className="vertical-btn" title="三角形" onClick={() => handleToolButtonClick('三角形')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 2 22 22 22"></polygon>
+              </svg>
+            </button>
+            <button className="vertical-btn" title="矩形" onClick={() => handleToolButtonClick('矩形')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              </svg>
+            </button>
+            <button className="vertical-btn" title="箭头" onClick={() => handleToolButtonClick('箭头')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <polyline points="19 12 12 19 5 12"></polyline>
+              </svg>
+            </button>
+            <button className="vertical-btn" title="文字" onClick={() => handleToolButtonClick('文字')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="4" y1="7" x2="20" y2="7"></line>
+                <line x1="4" y1="12" x2="20" y2="12"></line>
+                <line x1="4" y1="17" x2="20" y2="17"></line>
+                <line x1="10" y1="2" x2="10" y2="22"></line>
+              </svg>
+            </button>
+            <button className="vertical-btn" title="斐波那契" onClick={() => handleToolButtonClick('斐波那契')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="16 2 16 6 22 6 22 18 16 18 16 22 2 22 2 16 8 16 8 6 2 6 2 2"></polyline>
+              </svg>
+            </button>
+            <button className="vertical-btn" title="锁定" onClick={() => handleToolButtonClick('锁定')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+            </button>
+            <button className="vertical-btn" title="眼睛" onClick={() => handleToolButtonClick('眼睛')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="4"></circle>
+                <line x1="2" y1="12" x2="22" y2="12"></line>
+              </svg>
+            </button>
+            <button className="vertical-btn" title="橡皮擦" onClick={() => handleToolButtonClick('橡皮擦')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+                <line x1="22" y1="2" x2="11.5" y2="12.5"></line>
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
       
-      {/* 指标配置区域 */}
-      {selectedIndicators.length > 0 && (
-        <div className="indicator-config-section">
-          <h3>指标配置</h3>
-          <div className="indicator-config-list">
-            {selectedIndicators.map(indicatorId => (
-              <div key={indicatorId} className="indicator-config-item">
-                <div className="config-header">
-                  <span>{indicators.find(ind => ind.id === indicatorId)?.name}</span>
-                  <button className="btn-remove" onClick={() => toggleIndicator(indicatorId)}>
-                    ×
-                  </button>
-                </div>
-                <div className="config-content">
-                  {/* 这里可以根据指标类型动态生成配置项 */}
-                  <div className="config-row">
-                    <label>周期</label>
-                    <input 
-                      type="number" 
-                      value={indicatorConfigs[indicatorId]?.period || 14} 
-                      min="1" 
-                      onChange={(e) => updateIndicatorConfig(indicatorId, 'period', parseInt(e.target.value))}
-                    />
-                  </div>
-                  <div className="config-row">
-                    <label>颜色</label>
-                    <input 
-                      type="color" 
-                      value={indicatorConfigs[indicatorId]?.color || '#1890ff'} 
-                      onChange={(e) => updateIndicatorConfig(indicatorId, 'color', e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* 图表容器 - 使用固定宽高确保图表正确渲染 */}
+      <div 
+        id="language-k-line" 
+        className="k-line-chart" 
+        style={{ 
+          width: '100%', 
+          height: '600px',
+          minWidth: '600px',
+          border: '1px solid #f0f0f0', 
+          borderRadius: '4px',
+          backgroundColor: '#ffffff',
+          // marginTop: '5px'
+        }} 
+      />
+      
+      {/* 工具栏样式 */}
+      <style>{`
+        .chart-toolbar {
+          background-color: #ffffff;
+          border: 1px solid #f0f0f0;
+          border-radius: 4px;
+          padding: 5px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .toolbar-top {
+          display: flex;
+          align-items: center;
+          gap: 2px; /* 减少按钮间间隙 */
+          flex-wrap: wrap;
+          background-color: #fafafa;
+          padding: 5px;
+          border-radius: 4px;
+          border: 1px solid #e8e8e8;
+        }
+        
+        .toolbar-toggle {
+          cursor: pointer;
+          padding: 5px;
+          background-color: transparent;
+          border: none;
+          border-radius: 3px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s ease;
+          color: #666;
+          /* 调整div大小 */
+          width: 36px;
+          height: 36px;
+        }
+        
+        .toolbar-toggle:hover {
+          background-color: #e8f0fe;
+          color: #1890ff;
+        }
+        
+        /* 图标容器样式 */
+        .toggle-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 100%;
+        }
+        
+        /* 图标样式 - 更大并添加旋转动画 */
+        .toggle-icon svg {
+          width: 24px;
+          height: 24px;
+          transition: transform 0.5s ease;
+          transform: rotate(0deg);
+        }
+        
+        /* 展开状态下图标向左旋转180度 */
+        .toolbar-toggle.expanded .toggle-icon svg {
+          transform: rotate(-180deg);
+        }
+        
+        .symbol-name {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 16px;
+          font-weight: bold;
+          padding: 0 10px;
+          color: #333;
+          border-right: 1px solid #e8e8e8;
+        }
+        
+        .symbol-icon {
+          color: #1890ff;
+        }
+        
+        .symbol-text {
+          color: #333;
+        }
+        
+        /* 时间周期按钮容器 - 相对定位 */
+        .period-buttons-container {
+          position: relative;
+          display: inline-block;
+        }
+        
+        .period-buttons {
+          display: flex;
+          // gap: 1px; /* 减少按钮间间隙 */
+          background-color: white;
+          /* 移除圆角 - 确保直角 */
+          overflow: hidden;
+          // border: 1px solid #e8e8e8;
+        }
+        
+        .period-btn {
+          padding: 4px 8px;
+          border: none;
+          background-color: transparent;
+          cursor: pointer;
+          font-size: 13px;
+          transition: all 0.2s ease;
+          color: #666;
+          /* 明确设置为直角 */
+          border-radius: 0;
+          /* 移除焦点轮廓 */
+          outline: none;
+        }
+        
+        .period-btn:hover {
+          background-color: #e8f0fe;
+          color: #1890ff;
+        }
+        
+        .period-btn.active {
+          background-color: #1890ff;
+          color: white;
+          /* 明确设置选中状态为直角 */
+          border-radius: 0;
+        }
+        
+        /* 移除所有按钮的焦点轮廓 */
+        button {
+          outline: none;
+        }
+        
+        /* 更多按钮特殊样式 */
+        .period-btn.more-btn {
+          border-left: 1px solid #e8e8e8;
+          color: #1890ff;
+          /* 明确设置为直角 */
+          border-radius: 0;
+        }
+        
+        .period-btn.more-btn:hover {
+          background-color: #e8f0fe;
+        }
+        
+        /* 下拉菜单样式 - 绝对定位在更多按钮下方 */
+        .more-periods-dropdown {
+          position: absolute;
+          top: 100%; /* 在更多按钮下方 */
+          right: 0; /* 右对齐 */
+          background-color: white;
+          border: 1px solid #e8e8e8;
+          /* 移除圆角 - 确保直角 */
+          overflow: hidden;
+          z-index: 2000; /* 确保在最上方图层 */
+          /* 平滑显示/隐藏 */
+          opacity: 1;
+          transition: all 0.2s ease;
+          display: flex;
+          flex-direction: column;
+          gap: 1px;
+        }
+        
+        /* 下拉菜单中的按钮 */
+        .more-periods-dropdown .period-btn {
+          width: 100%;
+          text-align: center;
+          border-bottom: 1px solid #e8e8e8;
+        }
+        
+        /* 下拉菜单中最后一个按钮移除底边框 */
+        .more-periods-dropdown .period-btn:last-child {
+          border-bottom: none;
+        }
+        
+        .function-buttons {
+          display: flex;
+          gap: 1px; /* 减少按钮间间隙 */
+          margin-left: auto;
+          background-color: white;
+          /* 移除圆角 - 确保直角 */
+          overflow: hidden;
+          border: 1px solid #e8e8e8;
+        }
+        
+        .func-btn {
+          display: flex;
+          align-items: center;
+          gap: 3px;
+          padding: 4px 8px;
+          border: none;
+          background-color: transparent;
+          cursor: pointer;
+          font-size: 13px;
+          transition: all 0.2s ease;
+          color: #666;
+          /* 明确设置为直角 */
+          border-radius: 0;
+        }
+        
+        .func-btn:hover {
+          background-color: #e8f0fe;
+          color: #1890ff;
+        }
+        
+        /* 垂直按钮样式 */
+        .vertical-btn {
+          width: 36px;
+          height: 36px;
+          border: 1px solid #d9d9d9;
+          /* 明确设置为直角 */
+          border-radius: 0;
+          background-color: white;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.3s;
+          color: #333;
+        }
+        
+        .vertical-btn:hover {
+          border-color: #1890ff;
+          color: #1890ff;
+          background-color: #f0f7ff;
+        }
+        
+        .func-icon {
+          font-size: 14px;
+        }
+        
+        /* 垂直悬浮工具栏样式 - 绝对定位，在伸缩按钮下方 */
+        .vertical-toolbar {
+          position: absolute;
+          top: 35px; /* 在伸缩按钮下方 */
+          left: 0; /* 左侧对齐 */
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          z-index: 1000; /* 确保在顶部图层 */
+          background-color: rgba(255, 255, 255, 0.9);
+          padding: 10px;
+          border-radius: 4px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          opacity: 1;
+          transition: all 0.3s ease-in-out; /* 添加过渡动画 */
+        }
+        
+        /* 垂直按钮样式 */
+        .vertical-btn {
+          width: 36px;
+          height: 36px;
+          border: 1px solid #d9d9d9;
+          border-radius: 4px;
+          background-color: white;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.3s;
+          color: #333;
+        }
+        
+        .vertical-btn:hover {
+          border-color: #1890ff;
+          color: #1890ff;
+          background-color: #f0f7ff;
+        }
+        
+        /* 确保图表容器不受工具栏影响 */
+        .chart-toolbar-container {
+          position: relative;
+          margin-bottom: 10px;
+        }
+      `}</style>
     </div>
-  );
-};
-
-export default ChartPage;
+  )
+}

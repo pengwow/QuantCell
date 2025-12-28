@@ -38,6 +38,18 @@ const App = () => {
 
         {/* 侧边栏菜单 */}
         <div className="nav-menu">
+          <NavLink 
+              to="/chart" 
+              className={`nav-item ${location.pathname === '/chart' ? 'active' : ''}`}
+              onClick={handleMenuClick}
+            >
+              <div className="nav-icon">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3 3v18h18V3H3zm16 16H5V5h14v14zm-5.5-4.37L14.59 16 16 14.59 13.41 12 16 9.41 14.59 8 12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41z" />
+                </svg>
+              </div>
+              <span className="nav-text">图表</span>
+            </NavLink>
           {/* 策略管理分组 */}
           <div className="menu-group">
             <div className="menu-group-title">策略管理</div>
@@ -115,18 +127,6 @@ const App = () => {
                 </svg>
               </div>
               <span className="nav-text">数据管理</span>
-            </NavLink>
-            <NavLink 
-              to="/chart" 
-              className={`nav-item ${location.pathname === '/chart' ? 'active' : ''}`}
-              onClick={handleMenuClick}
-            >
-              <div className="nav-icon">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M3 3v18h18V3H3zm16 16H5V5h14v14zm-5.5-4.37L14.59 16 16 14.59 13.41 12 16 9.41 14.59 8 12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41z" />
-                </svg>
-              </div>
-              <span className="nav-text">K线图表</span>
             </NavLink>
           </div>
         </div>
