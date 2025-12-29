@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { useResponsive } from './hooks/useResponsive';
 import { BarChartOutlined } from '@ant-design/icons';
+import { useConfigStore } from './store';
 import './App.css';
 
 /**
@@ -12,6 +13,14 @@ const App = () => {
   const { isMobile, isTablet } = useResponsive();
   const [isCollapsed, setIsCollapsed] = useState(true);
   const location = useLocation();
+  
+  // 从全局配置store获取加载配置的方法
+  const { loadConfigs } = useConfigStore();
+
+  // 组件挂载时加载系统配置
+  useEffect(() => {
+    loadConfigs();
+  }, [loadConfigs]);
 
   const handleMenuClick = (): void => {
     if (isMobile) {

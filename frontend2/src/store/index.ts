@@ -1,6 +1,32 @@
 import { create } from 'zustand';
 import type { Strategy, Task, CryptoCurrency, Stock } from '../types';
-import { dataApi } from '../api';
+import { dataApi, configApi } from '../api';
+
+/**
+ * 配置项类型定义
+ */
+export interface ConfigItem {
+  key: string;
+  value: any;
+  description: string;
+}
+
+/**
+ * 系统配置状态管理
+ */
+export interface ConfigState {
+  // 配置数据，以键值对形式存储
+  configs: Record<string, ConfigItem>;
+  // 加载状态
+  isLoading: boolean;
+  // 最后加载时间戳
+  lastLoaded: number | null;
+  // 操作方法
+  loadConfigs: () => Promise<void>;
+  updateConfig: (key: string, value: any, description: string) => Promise<void>;
+  updateConfigs: (configs: ConfigItem[]) => Promise<void>;
+  refreshConfigs: () => Promise<void>;
+}
 
 /**
  * 策略状态管理
@@ -365,5 +391,128 @@ export const useDataManagementStore = create<DataManagementState>((set) => ({
       console.error('获取任务列表失败:', error);
       set({ isLoading: false });
     }
+  }
+}));
+
+/**
+ * 创建系统配置状态管理
+ */
+export const useConfigStore = create<ConfigState>((set, get) => ({
+  // 初始状态
+  configs: {},
+  isLoading: false,
+  lastLoaded: null,
+
+  /**
+   * 加载系统配置
+   */
+  loadConfigs: async () => {
+    const state = get();
+    const now = Date.now();
+    const CACHE_DURATION = 5 * 60 * 1000; // 缓存有效期5分钟
+    
+    // 检查是否正在加载或缓存未过期
+    if (state.isLoading) {
+      return; // 已有请求正在进行，直接返回
+    }
+    
+    if (state.lastLoaded && (now - state.lastLoaded < CACHE_DURATION)) {
+      return; // 缓存未过期，直接返回
+    }
+    
+    set({ isLoading: true });
+    try {
+      // 调用API获取配置数据
+      const configData = await configApi.getConfig();
+      console.log('加载配置成功:', configData);
+      
+      // 将配置数据转换为键值对形式存储
+      const formattedConfigs: Record<string, ConfigItem> = {};
+      
+      // 如果configData是数组形式，转换为键值对
+      if (Array.isArray(configData)) {
+        configData.forEach(item => {
+          formattedConfigs[item.key] = item;
+        });
+      } else {
+        // 如果configData已经是对象形式，直接使用
+        Object.keys(configData).forEach(key => {
+          const item = configData[key];
+          formattedConfigs[key] = {
+            key,
+            value: item.value,
+            description: item.description || ''
+          };
+        });
+      }
+      
+      set({ configs: formattedConfigs, isLoading: false, lastLoaded: now });
+    } catch (error) {
+      console.error('加载配置失败:', error);
+      set({ isLoading: false });
+    }
+  },
+
+  /**
+   * 更新单个配置项
+   * @param key 配置键名
+   * @param value 配置值
+   * @param description 配置描述
+   */
+  updateConfig: async (key: string, value: any, description: string) => {
+    try {
+      // 调用API更新单个配置
+      await configApi.updateConfig([{
+        key,
+        value,
+        description
+      }]);
+      
+      // 更新本地状态
+      set(state => ({
+        configs: {
+          ...state.configs,
+          [key]: {
+            key,
+            value,
+            description
+          }
+        }
+      }));
+    } catch (error) {
+      console.error('更新配置失败:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * 批量更新配置项
+   * @param configs 配置项数组
+   */
+  updateConfigs: async (configs: ConfigItem[]) => {
+    try {
+      // 调用API批量更新配置
+      await configApi.updateConfig(configs);
+      
+      // 更新本地状态
+      set(state => {
+        const newConfigs = { ...state.configs };
+        configs.forEach(item => {
+          newConfigs[item.key] = item;
+        });
+        return { configs: newConfigs };
+      });
+    } catch (error) {
+      console.error('批量更新配置失败:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * 刷新配置数据
+   */
+  refreshConfigs: async () => {
+    console.log('刷新配置数据');
+    await get().loadConfigs();
   }
 }));

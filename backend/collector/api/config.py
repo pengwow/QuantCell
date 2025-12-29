@@ -3,7 +3,7 @@
 import os
 # 导入系统配置加载函数
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
@@ -249,7 +249,7 @@ def delete_config(request: Request, key: str):
 
 
 @router.post("/batch", response_model=ApiResponse)
-def update_configs_batch(request: Request, configs: Dict[str, Any]):
+def update_configs_batch(request: Request, configs: List[Dict[str, Any]]|Dict[str, Any]):
     """批量更新系统配置
     
     Args:
@@ -262,13 +262,21 @@ def update_configs_batch(request: Request, configs: Dict[str, Any]):
     try:
         logger.info("开始批量更新系统配置")
         logger.info(f"批量更新的配置数量: {len(configs)}")
-        
-        # 遍历配置，逐个更新
-        for key, value in configs.items():
-            # 跳过非配置项（如__v_id等Vue内部属性）
-            if not key.startswith("__v"):
+        if isinstance(configs, dict):
+            # 遍历配置，逐个更新
+            for key, value in configs.items():
+                # 跳过非配置项（如__v_id等Vue内部属性）
+                if not key.startswith("__v"):
+                    logger.info(f"更新配置: key={key}, value={value}")
+                    SystemConfig.set(key, value)
+        if isinstance(configs, list):
+            # 遍历配置，逐个更新
+            for config in configs:
+                key = config["key"]
+                value = config["value"]
+                description = config.get("description", "")
                 logger.info(f"更新配置: key={key}, value={value}")
-                SystemConfig.set(key, value)
+                SystemConfig.set(key, value, description)
         
         # 刷新应用上下文配置
         request.app.state.configs = load_system_configs()
