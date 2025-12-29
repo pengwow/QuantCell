@@ -8,6 +8,8 @@ import { dataApi, configApi } from '../api';
 import { init, dispose } from 'klinecharts';
 import AssetPoolManager from '../components/AssetPoolManager';
 import '../styles/DataManagement.css';
+import dayjs from 'dayjs';
+
 import {
   Layout,
   Menu,
@@ -78,9 +80,42 @@ const DataManagement = () => {
     limit: 500
   });
 
-  // 表单实例
+  // 表单实例 - 始终在组件顶层创建
   const [importForm] = Form.useForm();
   const [collectionForm] = Form.useForm();
+  
+  // 设置表单默认日期范围
+  useEffect(() => {
+    if (collectionForm) {
+      // 计算当前时间作为结束日期
+      const endDate = dayjs();
+      // 计算一个月前的时间作为开始日期
+      const startDate = dayjs().subtract(1, 'month');
+      
+      // 设置数据采集表单默认值 - 使用dayjs对象
+      collectionForm.setFieldsValue({
+        start: startDate,
+        end: endDate
+      });
+    }
+  }, [collectionForm]);
+  
+  // 设置数据导入表单默认值
+  useEffect(() => {
+    if (importForm) {
+      // 计算当前时间作为结束日期
+      const endDate = dayjs();
+      // 计算一个月前的时间作为开始日期
+      const startDate = dayjs().subtract(1, 'month');
+      
+      // 设置数据导入表单默认值 - 使用YYYY-MM-DD格式字符串
+      importForm.setFieldsValue({
+        startDate: startDate.format('YYYY-MM-DD'),
+        endDate: endDate.format('YYYY-MM-DD')
+      });
+    }
+  }, [importForm]);
+  
   // 图表实例
   const chartRef = useRef<any>(null);
   // 图表容器引用
@@ -553,24 +588,19 @@ const DataManagement = () => {
             mode="inline"
             selectedKeys={[selectedTab]}
             style={{ height: '100%', borderRight: 0 }}
-            onClick={({ key }) => setSelectedTab(key)}
-          >
-            {/* 菜单项配置 */}
-            {menuItems.map(menu => (
-              <Menu.Item
-                key={menu.id}
-                icon={menu.icon === 'icon-crypto' ? <DatabaseOutlined /> :
-                       menu.icon === 'icon-stock' ? <DatabaseOutlined /> :
-                       menu.icon === 'icon-import' ? <ImportOutlined /> :
-                       menu.icon === 'icon-collection' ? <DownloadOutlined /> :
-                       menu.icon === 'icon-quality' ? <InfoCircleOutlined /> :
-                       menu.icon === 'icon-visualization' ? <BarChartOutlined /> :
-                       menu.icon === 'icon-asset-pool' ? <PlusOutlined /> : <SettingOutlined />}
-              >
-                {menu.title}
-              </Menu.Item>
-            ))}
-          </Menu>
+            onSelect={({ key }) => setSelectedTab(key)}
+            items={menuItems.map(menu => ({
+              key: menu.id,
+              label: menu.title,
+              icon: menu.icon === 'icon-crypto' ? <DatabaseOutlined /> :
+                     menu.icon === 'icon-stock' ? <DatabaseOutlined /> :
+                     menu.icon === 'icon-import' ? <ImportOutlined /> :
+                     menu.icon === 'icon-collection' ? <DownloadOutlined /> :
+                     menu.icon === 'icon-quality' ? <InfoCircleOutlined /> :
+                     menu.icon === 'icon-visualization' ? <BarChartOutlined /> :
+                     menu.icon === 'icon-asset-pool' ? <PlusOutlined /> : <SettingOutlined />
+            }))}
+          />
         </Sider>
 
         {/* 主内容区域 */}
@@ -1051,7 +1081,7 @@ const DataManagement = () => {
                       <Empty description="暂无任务记录" />
                     </div>
                   ) : (
-                    <Space direction="vertical" style={{ width: '100%' }}>
+                    <Space orientation="vertical" style={{ width: '100%' }}>
                       {tasks.map(task => (
                         <Card key={task.task_id} className="task-card">
                           <div className="task-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -1075,7 +1105,7 @@ const DataManagement = () => {
                           </div>
                           
                           <div className="task-details" style={{ marginBottom: 16 }}>
-                            <Space direction="vertical" style={{ width: '100%' }}>
+                            <Space orientation="vertical" style={{ width: '100%' }}>
                               {/* 任务参数信息 */}
                               {task.params && (
                                 <Space.Compact style={{ width: '100%' }}>
@@ -1124,7 +1154,7 @@ const DataManagement = () => {
                           
                           {/* 任务进度 */}
                           <div className="task-progress-info">
-                            <Space direction="vertical" style={{ width: '100%' }}>
+                            <Space orientation="vertical" style={{ width: '100%' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 8 }}>
                                 <Text strong style={{ width: 60 }}>进度:</Text>
                                 <Progress 
@@ -1164,14 +1194,10 @@ const DataManagement = () => {
               
               {/* K线图表配置 */}
               <div className="data-section">
-                <Form layout="vertical" className="import-form">
+                <div className="import-form">
                   <Space.Compact style={{ width: '100%' }}>
-                    <Form.Item
-                      name="klineSymbol"
-                      label="交易对"
-                      initialValue={klineConfig.symbol}
-                      style={{ flex: 1, marginRight: 16 }}
-                    >
+                    <div style={{ flex: 1, marginRight: 16 }}>
+                      <div style={{ marginBottom: 8 }}>交易对</div>
                       <Select
                         value={klineConfig.symbol}
                         onChange={(value) => setKlineConfig(prev => ({ ...prev, symbol: value }))}
@@ -1180,13 +1206,9 @@ const DataManagement = () => {
                         <Select.Option value="ETHUSDT">ETHUSDT</Select.Option>
                         <Select.Option value="BNBUSDT">BNBUSDT</Select.Option>
                       </Select>
-                    </Form.Item>
-                    <Form.Item
-                      name="klineInterval"
-                      label="时间周期"
-                      initialValue={klineConfig.interval}
-                      style={{ flex: 1, marginRight: 16 }}
-                    >
+                    </div>
+                    <div style={{ flex: 1, marginRight: 16 }}>
+                      <div style={{ marginBottom: 8 }}>时间周期</div>
                       <Select
                         value={klineConfig.interval}
                         onChange={(value) => setKlineConfig(prev => ({ ...prev, interval: value }))}
@@ -1197,13 +1219,9 @@ const DataManagement = () => {
                         <Select.Option value="30m">30分钟</Select.Option>
                         <Select.Option value="1h">1小时</Select.Option>
                       </Select>
-                    </Form.Item>
-                    <Form.Item
-                      name="klineLimit"
-                      label="数据数量"
-                      initialValue={klineConfig.limit}
-                      style={{ flex: 1, marginRight: 16 }}
-                    >
+                    </div>
+                    <div style={{ flex: 1, marginRight: 16 }}>
+                      <div style={{ marginBottom: 8 }}>数据数量</div>
                       <InputNumber
                         value={klineConfig.limit}
                         min={100}
@@ -1211,11 +1229,9 @@ const DataManagement = () => {
                         step={100}
                         onChange={(value: number | null) => setKlineConfig(prev => ({ ...prev, limit: value || 500 }))}
                       />
-                    </Form.Item>
-                    <Form.Item
-                      label="操作"
-                      style={{ flex: 1 }}
-                    >
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ marginBottom: 8 }}>操作</div>
                       <Button 
                         type="primary"
                         onClick={fetchKlineData}
@@ -1225,9 +1241,9 @@ const DataManagement = () => {
                       >
                         {isLoadingKline ? '加载中...' : '获取数据'}
                       </Button>
-                    </Form.Item>
+                    </div>
                   </Space.Compact>
-                </Form>
+                </div>
               </div>
               
               {/* K线图表 */}
@@ -1246,7 +1262,7 @@ const DataManagement = () => {
                   ) : (
                     <div className="kline-chart">
                       <div className="chart-header" style={{ marginBottom: 16 }}>
-                        <Space direction="vertical" style={{ width: '100%' }}>
+                        <Space orientation="vertical" style={{ width: '100%' }}>
                           <div className="chart-title" style={{ fontSize: 18, fontWeight: 'bold' }}>
                             {klineConfig.symbol} {klineConfig.interval} K线图
                           </div>

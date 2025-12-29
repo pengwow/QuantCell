@@ -207,19 +207,46 @@ const Setting = () => {
         const configData = await configApi.getConfig();
         console.log('获取配置成功:', configData);
         
+        // 从扁平的配置数据中构建分组结构
+        const basicConfig: any = {
+          language: configData.language?.value || settings.language,
+          theme: configData.theme?.value || settings.theme,
+          showTips: configData.showTips?.value || settings.showTips
+        };
+        
+        const notificationConfig: any = {
+          enableEmail: configData.enableEmail?.value || notificationSettings.enableEmail,
+          enableWebhook: configData.enableWebhook?.value || notificationSettings.enableWebhook,
+          webhookUrl: configData.webhookUrl?.value || notificationSettings.webhookUrl,
+          notifyOnAlert: configData.notifyOnAlert?.value || notificationSettings.notifyOnAlert,
+          notifyOnTaskComplete: configData.notifyOnTaskComplete?.value || notificationSettings.notifyOnTaskComplete,
+          notifyOnSystemUpdate: configData.notifyOnSystemUpdate?.value || notificationSettings.notifyOnSystemUpdate
+        };
+        
+        const apiConfig: any = {
+          apiKey: configData.apiKey?.value || apiSettings.apiKey,
+          permissions: configData.apiPermissions?.value ? JSON.parse(configData.apiPermissions.value) : apiSettings.permissions
+        };
+        
+        const systemConfigFromApi: any = {
+          qlib_data_dir: configData.qlib_data_dir?.value || systemConfig.qlib_data_dir,
+          max_workers: configData.max_workers?.value || systemConfig.max_workers,
+          data_download_dir: configData.data_download_dir?.value || systemConfig.data_download_dir,
+          current_market_type: configData.current_market_type?.value || systemConfig.current_market_type,
+          crypto_trading_mode: configData.crypto_trading_mode?.value || systemConfig.crypto_trading_mode,
+          default_exchange: configData.default_exchange?.value || systemConfig.default_exchange,
+          default_interval: configData.default_interval?.value || systemConfig.default_interval,
+          proxy_enabled: configData.proxy_enabled?.value || systemConfig.proxy_enabled,
+          proxy_url: configData.proxy_url?.value || systemConfig.proxy_url,
+          proxy_username: configData.proxy_username?.value || systemConfig.proxy_username,
+          proxy_password: configData.proxy_password?.value || systemConfig.proxy_password
+        };
+        
         // 更新状态
-        if (configData.basic) {
-          setSettings(configData.basic);
-        }
-        if (configData.notifications) {
-          setNotificationSettings(configData.notifications);
-        }
-        if (configData.api) {
-          setApiSettings(configData.api);
-        }
-        if (configData.system) {
-          setSystemConfig(configData.system);
-        }
+        setSettings(basicConfig);
+        setNotificationSettings(notificationConfig);
+        setApiSettings(apiConfig);
+        setSystemConfig(systemConfigFromApi);
       } catch (error) {
         console.error('加载配置失败:', error);
         setSaveError('加载配置失败，使用默认设置');
@@ -239,11 +266,58 @@ const Setting = () => {
     setSaveError(null);
     
     try {
-      // 准备请求数据
-      const requestData = {
-        basic: settings,
-        notifications: notificationSettings,
-        api: apiSettings
+      // 准备请求数据 - 将配置转换为扁平化键值对，每个配置项包含description字段
+      const requestData: any = {};
+      
+      // 处理basic配置
+      requestData['language'] = {
+        value: settings.language,
+        description: 'basic.language'
+      };
+      requestData['theme'] = {
+        value: settings.theme,
+        description: 'basic.theme'
+      };
+      requestData['showTips'] = {
+        value: settings.showTips,
+        description: 'basic.showTips'
+      };
+      
+      // 处理notifications配置
+      requestData['enableEmail'] = {
+        value: notificationSettings.enableEmail,
+        description: 'notifications.enableEmail'
+      };
+      requestData['enableWebhook'] = {
+        value: notificationSettings.enableWebhook,
+        description: 'notifications.enableWebhook'
+      };
+      requestData['webhookUrl'] = {
+        value: notificationSettings.webhookUrl,
+        description: 'notifications.webhookUrl'
+      };
+      requestData['notifyOnAlert'] = {
+        value: notificationSettings.notifyOnAlert,
+        description: 'notifications.notifyOnAlert'
+      };
+      requestData['notifyOnTaskComplete'] = {
+        value: notificationSettings.notifyOnTaskComplete,
+        description: 'notifications.notifyOnTaskComplete'
+      };
+      requestData['notifyOnSystemUpdate'] = {
+        value: notificationSettings.notifyOnSystemUpdate,
+        description: 'notifications.notifyOnSystemUpdate'
+      };
+      
+      // 处理api配置
+      requestData['apiKey'] = {
+        value: apiSettings.apiKey,
+        description: 'api.apiKey'
+      };
+      // 处理API权限，将数组转换为字符串存储
+      requestData['apiPermissions'] = {
+        value: JSON.stringify(apiSettings.permissions),
+        description: 'api.permissions'
       };
       
       console.log('保存设置:', requestData);
@@ -301,9 +375,53 @@ const Setting = () => {
     setSaveError(null);
     
     try {
-      // 准备请求数据
-      const requestData = {
-        system: systemConfig
+      // 准备请求数据 - 将系统配置转换为扁平化键值对，每个配置项包含description字段
+      const requestData: any = {};
+      
+      // 处理system配置
+      requestData['qlib_data_dir'] = {
+        value: systemConfig.qlib_data_dir,
+        description: 'system.qlib_data_dir'
+      };
+      requestData['max_workers'] = {
+        value: systemConfig.max_workers,
+        description: 'system.max_workers'
+      };
+      requestData['data_download_dir'] = {
+        value: systemConfig.data_download_dir,
+        description: 'system.data_download_dir'
+      };
+      requestData['current_market_type'] = {
+        value: systemConfig.current_market_type,
+        description: 'system.current_market_type'
+      };
+      requestData['crypto_trading_mode'] = {
+        value: systemConfig.crypto_trading_mode,
+        description: 'system.crypto_trading_mode'
+      };
+      requestData['default_exchange'] = {
+        value: systemConfig.default_exchange,
+        description: 'system.default_exchange'
+      };
+      requestData['default_interval'] = {
+        value: systemConfig.default_interval,
+        description: 'system.default_interval'
+      };
+      requestData['proxy_enabled'] = {
+        value: systemConfig.proxy_enabled,
+        description: 'system.proxy_enabled'
+      };
+      requestData['proxy_url'] = {
+        value: systemConfig.proxy_url,
+        description: 'system.proxy_url'
+      };
+      requestData['proxy_username'] = {
+        value: systemConfig.proxy_username,
+        description: 'system.proxy_username'
+      };
+      requestData['proxy_password'] = {
+        value: systemConfig.proxy_password,
+        description: 'system.proxy_password'
       };
       
       console.log('保存系统配置:', requestData);
@@ -408,9 +526,10 @@ const Setting = () => {
                 layout="vertical"
                 initialValues={settings}
               >
-                <Form.Item label="个人信息" name="personal" noStyle>
-                  <Card size="small" style={{ marginBottom: 16 }}>
-                    <Form.Item
+                {/* <Form.Item label="个人信息" name="personal" noStyle> */}
+                  {/* <Card size="small" style={{ marginBottom: 16 }}> */}
+                    {/* 暂时隐藏个人信息字段 */}
+                    {/* <Form.Item
                       label="用户名"
                       name="username"
                       rules={[{ required: true, message: '请输入用户名' }]}
@@ -439,9 +558,9 @@ const Setting = () => {
                         placeholder="请输入邮箱地址" 
                         onChange={(e) => setSettings(prev => ({ ...prev, email: e.target.value }))}
                       />
-                    </Form.Item>
-                  </Card>
-                </Form.Item>
+                    </Form.Item> */}
+                  {/* </Card> */}
+                {/* </Form.Item> */}
 
                 <Form.Item label="界面设置" name="interface" noStyle>
                   <Card size="small">
@@ -467,10 +586,10 @@ const Setting = () => {
                         onChange={(value) => setSettings(prev => ({ ...prev, language: value as 'zh-CN' | 'en-US' }))}
                       >
                         <Select.Option value="zh-CN">简体中文</Select.Option>
-                        <Select.Option value="en-US">English (US)</Select.Option>
+                        <Select.Option value="en-US">English</Select.Option>
                       </Select>
                     </Form.Item>
-                    <Form.Item
+                    {/* <Form.Item
                       name="showTips"
                       valuePropName="checked"
                     >
@@ -480,7 +599,7 @@ const Setting = () => {
                         onChange={(checked) => setSettings(prev => ({ ...prev, showTips: checked }))}
                       />
                       <Text style={{ marginLeft: 8 }}>显示功能提示</Text>
-                    </Form.Item>
+                    </Form.Item> */}
                   </Card>
                 </Form.Item>
 

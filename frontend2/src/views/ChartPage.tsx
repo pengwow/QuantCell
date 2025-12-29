@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { init, dispose, registerLocale } from 'klinecharts'
-import generatedDataList from '../utils/generatedDataList'
+import { dataApi } from '../api'
 import {
   MenuUnfoldOutlined,
   BarChartOutlined
 } from '@ant-design/icons';
 import {
   Modal,
-  Input
+  Input,
+  Spin,
+  Alert
 } from 'antd';
+
 
 // 注册繁体中文语言包
 registerLocale('zh-HK', {
@@ -47,49 +50,169 @@ export default function ChartPage () {
   // 搜索关键词
   const [searchKeyword, setSearchKeyword] = useState('')
   
-  // 模拟商品数据 - 带图标
-  const mockProducts = [
-    { code: 'A', name: 'Agilent Technologies Inc.', exchange: 'XNYS', icon: 'S' },
-    { code: 'AA', name: 'Alcoa Corporation', exchange: 'XNYS', icon: 'S' },
-    { code: 'AAA', name: 'Alternative Access First Priority CLO Bond', exchange: 'ARCX', icon: 'B' },
-    { code: 'AAAA', name: 'Amplius Aggressive Asset Allocation ETF', exchange: 'BATS', icon: 'E' },
-    { code: 'AAAC', name: 'Columbia AAA CLO ETF', exchange: 'ARCX', icon: 'E' },
-    { code: 'BABA', name: 'Alibaba Group Holding Ltd.', exchange: 'NYSE', icon: 'S' },
-    { code: 'TSLA', name: 'Tesla, Inc.', exchange: 'NASDAQ', icon: 'S' },
-    { code: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ', icon: 'S' }
-  ]
+  // 数据加载状态
+  const [loading, setLoading] = useState(false)
+  // 错误状态
+  const [error, setError] = useState<string | null>(null)
+  // K线数据
+  const [klineData, setKlineData] = useState<any[]>([])
+  // 市场类型
+  const [marketType] = useState('crypto')
+  // 加密货币类型
+  const [cryptoType] = useState('spot')
+  // 商品列表数据
+  const [products, setProducts] = useState<any[]>([])
+  // 商品列表加载状态
+  const [productsLoading, setProductsLoading] = useState(false)
+  // 商品列表错误信息
+  const [productsError, setProductsError] = useState<string | null>(null)
+  
+  // 图表实例引用
+  const chartRef = useRef<any>(null)
   
   // 周期列表 - 分为常用和不常用
   const commonPeriods = ['1m', '5m', '15m', '1H', '4H', 'D'] // 常用周期
   const morePeriods = ['2H', 'W', 'M', 'Y'] // 不常用周期
   
+  // 获取K线数据的函数
+  const fetchKlineData = async () => {
+    setLoading(true)
+    setError(null)
+    
+    try {
+      // 调用API获取K线数据
+      const data = await dataApi.getKlines({
+        symbol: currentSymbol.code,
+        interval: selectedPeriod,
+        market_type: marketType,
+        crypto_type: cryptoType,
+        limit: 5000
+      })
+      
+      setKlineData(data)
+    } catch (err) {
+      console.error('获取K线数据失败:', err)
+      setError('获取K线数据失败，请稍后重试')
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  // 辅助函数：根据周期字符串获取周期数值
+  const getPeriodSpan = (period: string) => {
+    // 提取周期数值部分
+    const match = period.match(/\d+/)
+    if (match) {
+      return parseInt(match[0])
+    }
+    // 默认返回1
+    return 1
+  }
+  
+  // 辅助函数：根据周期字符串获取周期类型
+  const getPeriodType = (period: string) => {
+    if (period.includes('m')) {
+      return 'minute'
+    } else if (period.includes('H')) {
+      return 'hour'
+    } else if (period.includes('D')) {
+      return 'day'
+    } else if (period.includes('W')) {
+      return 'week'
+    } else if (period.includes('M')) {
+      return 'month'
+    } else if (period.includes('Y')) {
+      return 'year'
+    }
+    // 默认返回day
+    return 'day'
+  }
+  
   useEffect(() => {
     // 初始化图表
     const chart = init('language-k-line')
+    chartRef.current = chart
     
     // 确保图表初始化成功
     if (chart) {
       // 设置交易对信息
       chart.setSymbol({ ticker: currentSymbol.code })
       
-      // 设置周期
-      chart.setPeriod({ span: 1, type: 'day' })
+      // 动态设置周期
+      chart.setPeriod({ span: getPeriodSpan(selectedPeriod), type: getPeriodType(selectedPeriod) })
       
       // 设置数据加载器
       chart.setDataLoader({
         getBars: ({ callback }) => {
-          // 使用生成的数据
-          const data = generatedDataList()
-          callback(data, false)
+          // 使用API获取的数据
+          callback(klineData)
         }
       })
+      
+      // 初始加载数据
+      fetchKlineData()
     }
     
     // 组件卸载时销毁图表
     return () => {
       dispose('language-k-line')
+      chartRef.current = null
     }
-  }, [currentSymbol.code])
+  }, [currentSymbol.code, selectedPeriod])
+  
+  // 获取商品列表的函数
+  const fetchProducts = async () => {
+    setProductsLoading(true)
+    setProductsError(null)
+    
+    try {
+      // 调用API获取商品列表
+      const response = await dataApi.getProducts({
+        market_type: marketType,
+        crypto_type: cryptoType,
+        exchange: 'binance', // 默认使用binance交易商，可根据系统配置调整
+        filter: searchKeyword || undefined,
+        limit: 100
+      })
+      
+      setProducts(response.products || [])
+    } catch (err) {
+      console.error('获取商品列表失败:', err)
+      setProductsError('获取商品列表失败，请稍后重试')
+    } finally {
+      setProductsLoading(false)
+    }
+  }
+  
+  // 当klineData变化时更新图表
+  useEffect(() => {
+    if (chartRef.current) {
+      chartRef.current.setDataLoader({
+        getBars: ({ callback }: { callback: (data: any[]) => void }) => {
+          callback(klineData)
+        }
+      })
+    }
+  }, [klineData])
+  
+  // 当周期变化时更新图表周期
+  useEffect(() => {
+    if (chartRef.current) {
+      chartRef.current.setPeriod({ span: getPeriodSpan(selectedPeriod), type: getPeriodType(selectedPeriod) })
+    }
+  }, [selectedPeriod])
+  
+  // 当周期或商品变化时重新获取数据
+  useEffect(() => {
+    fetchKlineData()
+  }, [selectedPeriod, currentSymbol.code, marketType, cryptoType])
+  
+  // 当搜索关键词变化时重新获取商品列表
+  useEffect(() => {
+    if (isSearchModalVisible) {
+      fetchProducts()
+    }
+  }, [searchKeyword, isSearchModalVisible])
 
   // 工具按钮点击处理函数
   const handleToolButtonClick = (toolName: string) => {
@@ -269,19 +392,37 @@ export default function ChartPage () {
       </div>
       
       {/* 图表容器 - 使用固定宽高确保图表正确渲染 */}
-      <div 
-        id="language-k-line" 
-        className="k-line-chart" 
-        style={{ 
-          width: '100%', 
-          height: '600px',
-          minWidth: '600px',
-          border: '1px solid #f0f0f0', 
-          borderRadius: '4px',
-          backgroundColor: '#ffffff',
-          // marginTop: '5px'
-        }} 
-      />
+      <div className="chart-container">
+        {/* 加载状态 */}
+        {loading && (
+          <div className="chart-loading">
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <Spin size="large" />
+              <div style={{ marginTop: 8 }}>加载中...</div>
+            </div>
+          </div>
+        )}
+        
+        {/* 错误信息 */}
+        {error && (
+          <div className="chart-error">
+            <Alert message="错误" description={error} type="error" showIcon />
+          </div>
+        )}
+        
+        <div 
+          id="language-k-line" 
+          className="k-line-chart" 
+          style={{ 
+            width: '100%', 
+            height: '600px',
+            minWidth: '600px',
+            border: '1px solid #f0f0f0', 
+            borderRadius: '4px',
+            backgroundColor: '#ffffff',
+          }} 
+        />
+      </div>
       
       {/* 商品搜索弹窗 - 使用Ant Design组件 */}
       <Modal
@@ -299,61 +440,81 @@ export default function ChartPage () {
           allowClear
           style={{ marginBottom: 16 }}
         />
+        
         {/* 商品列表 - 使用div和map替代List组件 */}
         <div style={{ maxHeight: 'calc(80vh - 200px)', overflowY: 'auto' }}>
-          {mockProducts.map((product) => (
-            <div
-              key={product.code}
-              onClick={() => {
-                setCurrentSymbol({
-                  code: product.code,
-                  name: product.name,
-                  icon: product.icon
-                })
-                setIsSearchModalVisible(false)
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                padding: '12px 20px',
-                cursor: 'pointer',
-                transition: 'background-color 0.2s ease',
-                borderBottom: '1px solid #f0f0f0'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fafafa'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-            >
-              {/* 商品图标 */}
-              <div style={{
-                width: '20px',
-                height: '20px',
-                borderRadius: '50%',
-                backgroundColor: '#ffc53d',
-                color: 'white',
-                fontSize: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 'bold',
-                marginRight: '12px'
-              }}>
-                {product.icon}
-              </div>
-              
-              {/* 商品信息 */}
-              <div style={{ flex: 1 }}>
-                <div>
-                  <span style={{ marginRight: '8px', fontWeight: 'bold' }}>{product.code}</span>
-                  <span style={{ color: '#666', fontSize: '14px' }}>({product.name})</span>
-                </div>
-              </div>
-              
-              {/* 交易所信息 */}
-              <span style={{ color: '#999', fontSize: '14px' }}>
-                {product.exchange}
-              </span>
+          {/* 加载状态 */}
+          {productsLoading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+              <Spin size="large" />
+              <div style={{ marginTop: 8 }}>加载中...</div>
             </div>
-          ))}
+          ) : productsError ? (
+            /* 错误信息 */
+            <div style={{ padding: '20px' }}>
+              <Alert message="错误" description={productsError} type="error" showIcon />
+            </div>
+          ) : products.length === 0 ? (
+            /* 无数据提示 */
+            <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+              未找到匹配的商品
+            </div>
+          ) : (
+            /* 商品列表 */
+            products.map((product) => (
+              <div
+                key={product.symbol}
+                onClick={() => {
+                  setCurrentSymbol({
+                    code: product.symbol,
+                    name: product.name,
+                    icon: product.icon
+                  })
+                  setIsSearchModalVisible(false)
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '12px 20px',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.2s ease',
+                  borderBottom: '1px solid #f0f0f0'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fafafa'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                {/* 商品图标 */}
+                <div style={{
+                  width: '20px',
+                  height: '20px',
+                  borderRadius: '50%',
+                  backgroundColor: '#ffc53d',
+                  color: 'white',
+                  fontSize: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 'bold',
+                  marginRight: '12px'
+                }}>
+                  {product.icon}
+                </div>
+                
+                {/* 商品信息 */}
+                <div style={{ flex: 1 }}>
+                  <div>
+                    <span style={{ marginRight: '8px', fontWeight: 'bold' }}>{product.symbol}</span>
+                    <span style={{ color: '#666', fontSize: '14px' }}>({product.name})</span>
+                  </div>
+                </div>
+                
+                {/* 交易所信息 */}
+                <span style={{ color: '#999', fontSize: '14px' }}>
+                  {product.exchange}
+                </span>
+              </div>
+            ))
+          )}
         </div>
       </Modal>
       
@@ -640,6 +801,36 @@ export default function ChartPage () {
         .chart-toolbar-container {
           position: relative;
           margin-bottom: 10px;
+        }
+        
+        /* 图表容器 */
+        .chart-container {
+          position: relative;
+          width: 100%;
+          height: 600px;
+        }
+        
+        /* 图表加载状态 */
+        .chart-loading {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          background-color: rgba(255, 255, 255, 0.8);
+          z-index: 100;
+        }
+        
+        /* 图表错误信息 */
+        .chart-error {
+          position: absolute;
+          top: 20px;
+          left: 20px;
+          right: 20px;
+          z-index: 100;
         }
       `}</style>
     </div>

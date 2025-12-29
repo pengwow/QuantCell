@@ -519,33 +519,56 @@ def get_all_tasks(
 
 @router.get("/klines", response_model=ApiResponse)
 def get_klines(
-    symbol: str = Query(..., description="货币对"),
-    interval: str = Query(..., description="周期"),
+    symbol: str = Query(..., description="交易商标识"),
+    interval: str = Query(..., description="时间周期，如5m、10m、1H、D等"),
+    market_type: str = Query("crypto", description="市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币）"),
+    crypto_type: Optional[str] = Query("spot", description="加密货币类型，当market_type为crypto时有效，可选值：spot（现货）、future（合约）"),
     start_time: Optional[str] = Query(None, description="开始时间，格式YYYY-MM-DD HH:MM:SS"),
     end_time: Optional[str] = Query(None, description="结束时间，格式YYYY-MM-DD HH:MM:SS"),
-    limit: Optional[int] = Query(1000, ge=1, le=10000, description="返回数量限制"),
+    limit: Optional[int] = Query(5000, ge=1, le=10000, description="返回数据条数，默认5000条"),
     db: Session = Depends(get_db)
 ):
     """获取K线数据
     
-    从数据库中查询指定货币对和周期的K线数据
+    从数据库中查询指定交易对和周期的K线数据，支持不同市场类型
     
     Args:
-        symbol: 货币对
-        interval: 周期
+        symbol: 交易商标识
+        interval: 时间周期，如5m、10m、1H、D等
+        market_type: 市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币）
+        crypto_type: 加密货币类型，当market_type为crypto时有效，可选值：spot（现货）、future（合约）
         start_time: 开始时间，格式YYYY-MM-DD HH:MM:SS
         end_time: 结束时间，格式YYYY-MM-DD HH:MM:SS
-        limit: 返回数量限制
+        limit: 返回数据条数，默认5000条
         db: 数据库会话
         
     Returns:
         ApiResponse: 包含K线数据的响应
     """
     try:
+        # 验证市场类型参数
+        valid_market_types = ["stock", "futures", "crypto"]
+        if market_type not in valid_market_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"无效的市场类型: {market_type}，可选值：{', '.join(valid_market_types)}"
+            )
+        
+        # 验证加密货币类型参数
+        if market_type == "crypto":
+            valid_crypto_types = ["spot", "future"]
+            if crypto_type not in valid_crypto_types:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"无效的加密货币类型: {crypto_type}，可选值：{', '.join(valid_crypto_types)}"
+                )
+        
         data_service = DataService(db)
         result = data_service.get_kline_data(
             symbol=symbol,
             interval=interval,
+            market_type=market_type,
+            crypto_type=crypto_type,
             start_time=start_time,
             end_time=end_time,
             limit=limit
@@ -563,7 +586,89 @@ def get_klines(
                 message=result["message"],
                 data=[]
             )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"获取K线数据失败: {e}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/products", response_model=ApiResponse)
+def get_products(
+    market_type: str = Query("crypto", description="市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币）"),
+    crypto_type: Optional[str] = Query("spot", description="加密货币类型，当market_type为crypto时有效，可选值：spot（现货）、future（合约）"),
+    exchange: Optional[str] = Query(None, description="交易商名称"),
+    filter: Optional[str] = Query(None, description="过滤条件"),
+    limit: Optional[int] = Query(100, ge=1, le=1000, description="返回数量限制，默认100条"),
+    offset: Optional[int] = Query(0, ge=0, description="返回偏移量，默认0"),
+    db: Session = Depends(get_db)
+):
+    """获取商品列表
+    
+    根据市场类型和交易商获取商品列表数据
+    
+    Args:
+        market_type: 市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币）
+        crypto_type: 加密货币类型，当market_type为crypto时有效，可选值：spot（现货）、future（合约）
+        exchange: 交易商名称
+        filter: 过滤条件
+        limit: 返回数量限制，默认100条
+        offset: 返回偏移量，默认0
+        db: 数据库会话
+        
+    Returns:
+        ApiResponse: 包含商品列表的响应
+    """
+    try:
+        # 验证市场类型参数
+        valid_market_types = ["stock", "futures", "crypto"]
+        if market_type not in valid_market_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"无效的市场类型: {market_type}，可选值：{', '.join(valid_market_types)}"
+            )
+        
+        # 验证加密货币类型参数
+        if market_type == "crypto":
+            valid_crypto_types = ["spot", "future"]
+            if crypto_type not in valid_crypto_types:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"无效的加密货币类型: {crypto_type}，可选值：{', '.join(valid_crypto_types)}"
+                )
+        
+        data_service = DataService(db)
+        result = data_service.get_product_list(
+            market_type=market_type,
+            crypto_type=crypto_type,
+            exchange=exchange,
+            filter=filter,
+            limit=limit,
+            offset=offset
+        )
+        
+        if result["success"]:
+            return ApiResponse(
+                code=0,
+                message=result["message"],
+                data={
+                    "products": result["products"],
+                    "total": result["total"]
+                }
+            )
+        else:
+            return ApiResponse(
+                code=1,
+                message=result["message"],
+                data={
+                    "products": [],
+                    "total": 0
+                }
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取商品列表失败: {e}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))

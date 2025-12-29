@@ -844,17 +844,19 @@ class DataService:
             "result": result
         }
     
-    def get_kline_data(self, symbol: str, interval: str, start_time: Optional[str] = None, end_time: Optional[str] = None, limit: Optional[int] = 1000) -> Dict[str, Any]:
+    def get_kline_data(self, symbol: str, interval: str, market_type: str = "crypto", crypto_type: Optional[str] = "spot", start_time: Optional[str] = None, end_time: Optional[str] = None, limit: Optional[int] = 5000) -> Dict[str, Any]:
         """获取K线数据
         
-        从数据库中查询指定货币对和周期的K线数据
+        从数据库中查询指定交易对和周期的K线数据，支持不同市场类型
         
         Args:
-            symbol: 货币对
-            interval: 周期
+            symbol: 交易商标识
+            interval: 时间周期
+            market_type: 市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币），默认crypto
+            crypto_type: 加密货币类型，当market_type为crypto时必填，可选值：spot（现货）、future（合约），默认spot
             start_time: 开始时间，格式YYYY-MM-DD HH:MM:SS
             end_time: 结束时间，格式YYYY-MM-DD HH:MM:SS
-            limit: 返回数量限制
+            limit: 返回数量限制，默认5000条
             
         Returns:
             Dict[str, Any]: 包含K线数据的字典
@@ -862,64 +864,91 @@ class DataService:
         if self.db is None:
             raise ValueError("数据库会话未初始化")
         
-        logger.info(f"查询K线数据: symbol={symbol}, interval={interval}, start_time={start_time}, end_time={end_time}, limit={limit}")
+        logger.info(f"查询K线数据: symbol={symbol}, interval={interval}, market_type={market_type}, crypto_type={crypto_type}, start_time={start_time}, end_time={end_time}, limit={limit}")
         
-        from datetime import datetime
-        from ..db.models import Kline
+        # 导入K线数据工厂
+        from .kline_factory import KlineDataFactory
         
-        # 构建查询
-        query = self.db.query(Kline).filter(
-            Kline.symbol == symbol,
-            Kline.interval == interval
-        )
-        
-        # 处理时间过滤
-        if start_time:
-            try:
-                start_dt = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
-                query = query.filter(Kline.date >= start_dt)
-            except ValueError:
-                logger.warning(f"无效的开始时间格式: {start_time}，忽略该过滤条件")
-        
-        if end_time:
-            try:
-                end_dt = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
-                query = query.filter(Kline.date <= end_dt)
-            except ValueError:
-                logger.warning(f"无效的结束时间格式: {end_time}，忽略该过滤条件")
-        
-        # 按时间降序排序并限制数量
-        query = query.order_by(Kline.date.desc()).limit(limit)
-        
-        # 执行查询
-        klines = query.all()
-        
-        # 转换为指定格式
-        kline_data = []
-        for kline in klines:
-            # 转换时间为毫秒级时间戳
-            timestamp = int(kline.date.timestamp() * 1000)
+        try:
+            # 创建对应的K线数据获取器
+            fetcher = KlineDataFactory.create_fetcher(market_type, crypto_type)
             
-            kline_data.append({
-                "timestamp": timestamp,
-                "open": float(kline.open),
-                "close": float(kline.close),
-                "high": float(kline.high),
-                "low": float(kline.low),
-                "volume": float(kline.volume),
-                "turnover": 0.0  # 成交额字段，当前版本返回0
-            })
+            # 使用获取器获取K线数据
+            result = fetcher.fetch_kline_data(
+                db=self.db,
+                symbol=symbol,
+                interval=interval,
+                start_time=start_time,
+                end_time=end_time,
+                limit=limit
+            )
+            
+            logger.info(f"查询K线数据成功: symbol={symbol}, interval={interval}, count={len(result.get('kline_data', []))}")
+            
+            return result
+        except Exception as e:
+            logger.error(f"查询K线数据失败: {e}")
+            logger.exception(e)
+            return {
+                "success": False,
+                "message": f"查询K线数据失败: {str(e)}",
+                "kline_data": []
+            }
+    
+    def get_product_list(
+        self,
+        market_type: str = "crypto",
+        crypto_type: Optional[str] = "spot",
+        exchange: Optional[str] = None,
+        filter: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """获取商品列表
         
-        # 按时间升序返回
-        kline_data.reverse()
+        根据市场类型和交易商获取商品列表数据
         
-        logger.info(f"查询K线数据成功: symbol={symbol}, interval={interval}, count={len(kline_data)}")
+        Args:
+            market_type: 市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币），默认crypto
+            crypto_type: 加密货币类型，当market_type为crypto时必填，可选值：spot（现货）、future（合约），默认spot
+            exchange: 交易商名称
+            filter: 过滤条件
+            limit: 返回数量限制，默认100条
+            offset: 返回偏移量，默认0
+            
+        Returns:
+            Dict[str, Any]: 包含商品列表的字典
+        """
+        logger.info(f"查询商品列表: market_type={market_type}, crypto_type={crypto_type}, exchange={exchange}, filter={filter}, limit={limit}, offset={offset}")
         
-        return {
-            "success": True,
-            "message": "查询K线数据成功",
-            "kline_data": kline_data
-        }
+        # 导入商品列表工厂
+        from .product_factory import ProductListFactory
+        
+        try:
+            # 创建对应的商品列表获取器
+            fetcher = ProductListFactory.create_fetcher(market_type, crypto_type)
+            
+            # 使用获取器获取商品列表
+            result = fetcher.fetch_products(
+                db=self.db,
+                exchange=exchange,
+                filter=filter,
+                limit=limit,
+                offset=offset
+            )
+            
+            logger.info(f"查询商品列表成功: market_type={market_type}, count={len(result.get('products', []))}")
+            
+            return result
+        except Exception as e:
+            logger.error(f"查询商品列表失败: {e}")
+            logger.exception(e)
+            return {
+                "success": False,
+                "message": f"查询商品列表失败: {str(e)}",
+                "products": [],
+                "total": 0
+            }
     
     @staticmethod
     def async_download_crypto(task_id: str, request: DownloadCryptoRequest):

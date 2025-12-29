@@ -285,6 +285,15 @@ export const dataApi = {
   getCollectionSymbols: (params?: any) => {
     return apiRequest.get('/data-pools/collection/symbols', params);
   },
+
+  /**
+   * 获取商品列表
+   * @param params 查询参数，包括market_type、crypto_type、exchange、filter、limit、offset等
+   * @returns 商品列表数据
+   */
+  getProducts: (params?: any) => {
+    return apiRequest.get('/data/products', params);
+  },
 };
 
 /**
