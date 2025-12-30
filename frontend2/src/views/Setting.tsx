@@ -3,8 +3,22 @@
  * 功能：提供用户界面配置、通知设置、API配置、系统信息等功能
  */
 import { useState, useEffect } from 'react';
-import { useConfigStore } from '../store';
-import type { ConfigItem } from '../store';
+import { configApi } from '../api';
+import type { AppConfig } from '../utils/configLoader';
+
+// 扩展Window接口，添加APP_CONFIG属性
+declare global {
+  interface Window {
+    APP_CONFIG: AppConfig;
+  }
+}
+
+// 定义请求配置项类型，用于API请求
+type ConfigItem = {
+  key: string;
+  value: any;
+  description: string;
+}
 import {
   Layout, Menu, Form, Input, Select, Switch, Button,
   Typography, Card, Space
@@ -107,9 +121,6 @@ const Setting = () => {
   // 保存错误信息
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // 从全局配置store获取数据和操作方法
-  const { configs, isLoading, loadConfigs, updateConfigs } = useConfigStore();
-
   // 表单实例 - 始终在组件顶层创建
   const [basicForm] = Form.useForm();
   const [notificationForm] = Form.useForm();
@@ -203,131 +214,124 @@ const Setting = () => {
     api: { ...apiSettings }
   });
 
-  // 当全局配置变化时，更新本地状态
+
+
+  // 组件挂载时，直接使用window.APP_CONFIG更新本地状态和表单
   useEffect(() => {
-    // 从全局配置中构建分组结构
-    const basicConfig: any = {
-      language: configs.language?.value,
-      theme: configs.theme?.value,
-      showTips: configs.showTips?.value
-    };
+    console.log('Setting component: 组件挂载，开始使用APP_CONFIG初始化配置');
+    console.log('Setting component: 当前APP_CONFIG:', window.APP_CONFIG);
+    
+    // 手动触发配置更新
+    updateLocalStateAndForm();
+  }, []);
 
-    const notificationConfig: any = {
-      enableEmail: configs.enableEmail?.value,
-      enableWebhook: configs.enableWebhook?.value,
-      webhookUrl: configs.webhookUrl?.value,
-      notifyOnAlert: configs.notifyOnAlert?.value,
-      notifyOnTaskComplete: configs.notifyOnTaskComplete?.value,
-      notifyOnSystemUpdate: configs.notifyOnSystemUpdate?.value
-    };
-
-    const apiConfig: any = {
-      apiKey: configs.apiKey?.value,
-      permissions: configs.apiPermissions?.value ? JSON.parse(configs.apiPermissions.value) : undefined
-    };
-
-    const systemConfigFromApi: any = {
-      qlib_data_dir: configs.qlib_data_dir?.value,
-      max_workers: configs.max_workers?.value,
-      data_download_dir: configs.data_download_dir?.value,
-      current_market_type: configs.current_market_type?.value,
-      crypto_trading_mode: configs.crypto_trading_mode?.value,
-      default_exchange: configs.default_exchange?.value,
-      default_interval: configs.default_interval?.value,
-      proxy_enabled: configs.proxy_enabled?.value ? configs.proxy_enabled.value === 'true' : undefined,
-      proxy_url: configs.proxy_url?.value,
-      proxy_username: configs.proxy_username?.value,
-      proxy_password: configs.proxy_password?.value
-    };
-
-    // 只在配置有实际变化时才更新状态和表单
+  // 更新本地状态和表单数据
+  const updateLocalStateAndForm = () => {
+    console.log('Setting component: 开始更新本地状态和表单');
+    console.log('Setting component: APP_CONFIG数据:', window.APP_CONFIG);
+    
+    const configs = window.APP_CONFIG || {};
+    
+    // 只在配置有数据时更新
     if (Object.keys(configs).length > 0) {
-      // 使用函数式更新，获取最新状态值作为备选
-      setSettings(prev => ({
-        ...prev,
-        ...(basicConfig.language && { language: basicConfig.language }),
-        ...(basicConfig.theme && { theme: basicConfig.theme }),
-        ...(basicConfig.showTips !== undefined && { showTips: basicConfig.showTips })
-      }));
+      console.log('Setting component: 配置有数据，开始更新状态');
+      
+      // 记录language字段的具体值
+      console.log('Setting component: APP_CONFIG中的language:', configs.language);
+      
+      // 更新本地状态，确保UserSettings的language从系统配置获取
+      setSettings(prev => {
+        console.log('Setting component: 更新settings前的language:', prev.language);
+        const newLanguage = configs.language !== undefined ? configs.language : prev.language;
+        console.log('Setting component: 更新settings后的language:', newLanguage);
+        return {
+          ...prev,
+          language: newLanguage,
+          theme: configs.theme !== undefined ? configs.theme : prev.theme,
+          showTips: configs.showTips !== undefined ? (configs.showTips === 'true' || configs.showTips === true) : prev.showTips
+        };
+      });
 
       setNotificationSettings(prev => ({
         ...prev,
-        ...(notificationConfig.enableEmail !== undefined && { enableEmail: notificationConfig.enableEmail }),
-        ...(notificationConfig.enableWebhook !== undefined && { enableWebhook: notificationConfig.enableWebhook }),
-        ...(notificationConfig.webhookUrl && { webhookUrl: notificationConfig.webhookUrl }),
-        ...(notificationConfig.notifyOnAlert !== undefined && { notifyOnAlert: notificationConfig.notifyOnAlert }),
-        ...(notificationConfig.notifyOnTaskComplete !== undefined && { notifyOnTaskComplete: notificationConfig.notifyOnTaskComplete }),
-        ...(notificationConfig.notifyOnSystemUpdate !== undefined && { notifyOnSystemUpdate: notificationConfig.notifyOnSystemUpdate })
+        enableEmail: configs.enableEmail !== undefined ? (configs.enableEmail === 'true' || configs.enableEmail === true) : prev.enableEmail,
+        enableWebhook: configs.enableWebhook !== undefined ? (configs.enableWebhook === 'true' || configs.enableWebhook === true) : prev.enableWebhook,
+        webhookUrl: configs.webhookUrl || prev.webhookUrl,
+        notifyOnAlert: configs.notifyOnAlert !== undefined ? (configs.notifyOnAlert === 'true' || configs.notifyOnAlert === true) : prev.notifyOnAlert,
+        notifyOnTaskComplete: configs.notifyOnTaskComplete !== undefined ? (configs.notifyOnTaskComplete === 'true' || configs.notifyOnTaskComplete === true) : prev.notifyOnTaskComplete,
+        notifyOnSystemUpdate: configs.notifyOnSystemUpdate !== undefined ? (configs.notifyOnSystemUpdate === 'true' || configs.notifyOnSystemUpdate === true) : prev.notifyOnSystemUpdate
       }));
 
       setApiSettings(prev => ({
         ...prev,
-        ...(apiConfig.apiKey && { apiKey: apiConfig.apiKey }),
-        ...(apiConfig.permissions && { permissions: apiConfig.permissions })
+        apiKey: configs.apiKey || prev.apiKey,
+        permissions: configs.apiPermissions ? JSON.parse(configs.apiPermissions) : prev.permissions
       }));
 
       setSystemConfig(prev => ({
         ...prev,
-        ...(systemConfigFromApi.qlib_data_dir && { qlib_data_dir: systemConfigFromApi.qlib_data_dir }),
-        ...(systemConfigFromApi.max_workers && { max_workers: systemConfigFromApi.max_workers }),
-        ...(systemConfigFromApi.data_download_dir && { data_download_dir: systemConfigFromApi.data_download_dir }),
-        ...(systemConfigFromApi.current_market_type && { current_market_type: systemConfigFromApi.current_market_type }),
-        ...(systemConfigFromApi.crypto_trading_mode && { crypto_trading_mode: systemConfigFromApi.crypto_trading_mode }),
-        ...(systemConfigFromApi.default_exchange && { default_exchange: systemConfigFromApi.default_exchange }),
-        ...(systemConfigFromApi.default_interval && { default_interval: systemConfigFromApi.default_interval }),
-        ...(systemConfigFromApi.proxy_enabled !== undefined && { proxy_enabled: systemConfigFromApi.proxy_enabled }),
-        ...(systemConfigFromApi.proxy_url && { proxy_url: systemConfigFromApi.proxy_url }),
-        ...(systemConfigFromApi.proxy_username && { proxy_username: systemConfigFromApi.proxy_username }),
-        ...(systemConfigFromApi.proxy_password && { proxy_password: systemConfigFromApi.proxy_password })
+        qlib_data_dir: configs.qlib_data_dir || prev.qlib_data_dir,
+        max_workers: configs.max_workers || prev.max_workers,
+        data_download_dir: configs.data_download_dir || prev.data_download_dir,
+        current_market_type: configs.current_market_type || prev.current_market_type,
+        crypto_trading_mode: configs.crypto_trading_mode || prev.crypto_trading_mode,
+        default_exchange: configs.default_exchange || prev.default_exchange,
+        default_interval: configs.default_interval || prev.default_interval,
+        proxy_enabled: configs.proxy_enabled !== undefined ? (configs.proxy_enabled === 'true' || configs.proxy_enabled === true) : prev.proxy_enabled,
+        proxy_url: configs.proxy_url || prev.proxy_url,
+        proxy_username: configs.proxy_username || prev.proxy_username,
+        proxy_password: configs.proxy_password || prev.proxy_password
       }));
 
-      // 更新所有表单实例的数据
-      // 当全局配置中存在数据时，使用全局配置中的数据；当全局配置中不存在数据时，使用本地状态中的默认值
+      // 构建表单数据，使用APP_CONFIG数据或本地状态默认值
       const finalBasicConfig = {
-        language: configs.language?.value || settings.language,
-        theme: configs.theme?.value || settings.theme,
-        showTips: configs.showTips?.value !== undefined ? configs.showTips.value : settings.showTips
+        language: configs.language !== undefined ? configs.language : settings.language,
+        theme: configs.theme !== undefined ? configs.theme : settings.theme,
+        showTips: configs.showTips !== undefined ? (configs.showTips === 'true' || configs.showTips === true) : settings.showTips
       };
 
+      console.log('Setting component: 最终用于更新表单的basicConfig:', finalBasicConfig);
+      console.log('Setting component: finalBasicConfig中的language:', finalBasicConfig.language);
+      
       const finalNotificationConfig = {
-        enableEmail: configs.enableEmail?.value !== undefined ? configs.enableEmail.value : notificationSettings.enableEmail,
-        enableWebhook: configs.enableWebhook?.value !== undefined ? configs.enableWebhook.value : notificationSettings.enableWebhook,
-        webhookUrl: configs.webhookUrl?.value || notificationSettings.webhookUrl,
-        notifyOnAlert: configs.notifyOnAlert?.value !== undefined ? configs.notifyOnAlert.value : notificationSettings.notifyOnAlert,
-        notifyOnTaskComplete: configs.notifyOnTaskComplete?.value !== undefined ? configs.notifyOnTaskComplete.value : notificationSettings.notifyOnTaskComplete,
-        notifyOnSystemUpdate: configs.notifyOnSystemUpdate?.value !== undefined ? configs.notifyOnSystemUpdate.value : notificationSettings.notifyOnSystemUpdate
+        enableEmail: configs.enableEmail !== undefined ? (configs.enableEmail === 'true' || configs.enableEmail === true) : notificationSettings.enableEmail,
+        enableWebhook: configs.enableWebhook !== undefined ? (configs.enableWebhook === 'true' || configs.enableWebhook === true) : notificationSettings.enableWebhook,
+        webhookUrl: configs.webhookUrl || notificationSettings.webhookUrl,
+        notifyOnAlert: configs.notifyOnAlert !== undefined ? (configs.notifyOnAlert === 'true' || configs.notifyOnAlert === true) : notificationSettings.notifyOnAlert,
+        notifyOnTaskComplete: configs.notifyOnTaskComplete !== undefined ? (configs.notifyOnTaskComplete === 'true' || configs.notifyOnTaskComplete === true) : notificationSettings.notifyOnTaskComplete,
+        notifyOnSystemUpdate: configs.notifyOnSystemUpdate !== undefined ? (configs.notifyOnSystemUpdate === 'true' || configs.notifyOnSystemUpdate === true) : notificationSettings.notifyOnSystemUpdate
       };
 
       const finalApiConfig = {
-        apiKey: configs.apiKey?.value || apiSettings.apiKey,
-        permissions: configs.apiPermissions?.value ? JSON.parse(configs.apiPermissions.value) : apiSettings.permissions
+        apiKey: configs.apiKey || apiSettings.apiKey,
+        permissions: configs.apiPermissions ? JSON.parse(configs.apiPermissions) : apiSettings.permissions
       };
 
       const finalSystemConfig = {
-        qlib_data_dir: configs.qlib_data_dir?.value || systemConfig.qlib_data_dir,
-        max_workers: configs.max_workers?.value || systemConfig.max_workers,
-        data_download_dir: configs.data_download_dir?.value || systemConfig.data_download_dir,
-        current_market_type: configs.current_market_type?.value || systemConfig.current_market_type,
-        crypto_trading_mode: configs.crypto_trading_mode?.value || systemConfig.crypto_trading_mode,
-        default_exchange: configs.default_exchange?.value || systemConfig.default_exchange,
-        default_interval: configs.default_interval?.value || systemConfig.default_interval,
-        proxy_enabled: configs.proxy_enabled?.value ? configs.proxy_enabled.value === 'true' : systemConfig.proxy_enabled,
-        proxy_url: configs.proxy_url?.value || systemConfig.proxy_url,
-        proxy_username: configs.proxy_username?.value || systemConfig.proxy_username,
-        proxy_password: configs.proxy_password?.value || systemConfig.proxy_password
+        qlib_data_dir: configs.qlib_data_dir || systemConfig.qlib_data_dir,
+        max_workers: configs.max_workers || systemConfig.max_workers,
+        data_download_dir: configs.data_download_dir || systemConfig.data_download_dir,
+        current_market_type: configs.current_market_type || systemConfig.current_market_type,
+        crypto_trading_mode: configs.crypto_trading_mode || systemConfig.crypto_trading_mode,
+        default_exchange: configs.default_exchange || systemConfig.default_exchange,
+        default_interval: configs.default_interval || systemConfig.default_interval,
+        proxy_enabled: configs.proxy_enabled !== undefined ? (configs.proxy_enabled === 'true' || configs.proxy_enabled === true) : systemConfig.proxy_enabled,
+        proxy_url: configs.proxy_url || systemConfig.proxy_url,
+        proxy_username: configs.proxy_username || systemConfig.proxy_username,
+        proxy_password: configs.proxy_password || systemConfig.proxy_password
       };
 
+      // 更新表单
+      console.log('Setting component: 开始更新basicForm');
       basicForm.setFieldsValue(finalBasicConfig);
       notificationForm.setFieldsValue(finalNotificationConfig);
       apiForm.setFieldsValue(finalApiConfig);
       systemConfigForm.setFieldsValue(finalSystemConfig);
+      console.log('Setting component: 表单更新完成');
+    } else {
+      console.log('Setting component: APP_CONFIG没有数据，跳过更新');
     }
-  }, [configs, basicForm, notificationForm, apiForm, systemConfigForm]);
-
-  // 组件挂载时加载配置数据
-  useEffect(() => {
-    loadConfigs();
-  }, [loadConfigs]);
+  };
 
 
 
@@ -406,8 +410,19 @@ const Setting = () => {
 
       console.log('保存设置:', requestData);
 
-      // 使用全局store更新配置
-      await updateConfigs(requestData);
+      // 直接调用API保存配置
+      await configApi.updateConfig(requestData);
+      
+      // 保存成功后，重新加载配置数据
+      console.log('保存设置成功，重新加载配置');
+      const newConfigData = await configApi.getConfig();
+      
+      // 直接使用API返回的数据，不需要转换，保持与后端一致
+      console.log('更新window.APP_CONFIG:', newConfigData);
+      window.APP_CONFIG = newConfigData;
+      
+      // 更新本地状态和表单
+      updateLocalStateAndForm();
 
       // 显示成功消息
       setShowSuccessMessage(true);
@@ -521,8 +536,19 @@ const Setting = () => {
 
       console.log('保存系统配置:', requestData);
 
-      // 使用全局store更新配置
-      await updateConfigs(requestData);
+      // 直接调用API保存配置
+      await configApi.updateConfig(requestData);
+      
+      // 保存成功后，重新加载配置数据
+      console.log('保存系统配置成功，重新加载配置');
+      const newConfigData = await configApi.getConfig();
+      
+      // 直接使用API返回的数据，不需要转换，保持与后端一致
+      console.log('更新window.APP_CONFIG:', newConfigData);
+      window.APP_CONFIG = newConfigData;
+      
+      // 更新本地状态和表单
+      updateLocalStateAndForm();
 
       // 显示成功消息
       setShowSuccessMessage(true);
@@ -1127,7 +1153,7 @@ const Setting = () => {
           <div style={{ display: currentTab === 'system' ? 'block' : 'none' }}>
             <Card className="settings-panel" title="系统信息" variant="outlined">
               {/* 加载状态 */}
-              {isLoading ? (
+              {isSaving ? (
                 <div className="loading-state" style={{ textAlign: 'center', padding: '40px' }}>
                   <div className="loading-spinner"></div>
                   <span style={{ display: 'block', marginTop: '16px' }}>加载系统信息中...</span>
@@ -1136,7 +1162,7 @@ const Setting = () => {
                 <div className="error-state" style={{ textAlign: 'center', padding: '40px' }}>
                   <div className="error-icon" style={{ fontSize: '24px', marginBottom: '8px' }}>⚠️</div>
                   <span style={{ display: 'block', marginBottom: '16px' }}>{saveError}</span>
-                  <Button type="default" onClick={() => loadConfigs()}>
+                  <Button type="default" onClick={updateLocalStateAndForm}>
                     重试
                   </Button>
                 </div>

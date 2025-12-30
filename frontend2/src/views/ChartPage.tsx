@@ -1,6 +1,14 @@
 import { useEffect, useState, useRef } from 'react'
 import { init, dispose, registerLocale } from 'klinecharts'
+import { type AppConfig } from '../utils/configLoader'
 import { dataApi } from '../api'
+
+// 扩展Window接口，添加APP_CONFIG属性
+declare global {
+  interface Window {
+    APP_CONFIG: AppConfig;
+  }
+}
 import {
   MenuUnfoldOutlined,
   BarChartOutlined
@@ -47,6 +55,8 @@ export default function ChartPage () {
     name: 'Alibaba Group Holding Ltd.',
     icon: 'S' // 默认股票图标
   })
+  // 当前语言配置 - 从全局APP_CONFIG读取
+  const [language, setLanguage] = useState(window.APP_CONFIG?.language || 'zh-CN')
   // 搜索关键词
   const [searchKeyword, setSearchKeyword] = useState('')
   
@@ -69,6 +79,21 @@ export default function ChartPage () {
   
   // 图表实例引用
   const chartRef = useRef<any>(null)
+  
+  // 监听APP_CONFIG.language变化
+  useEffect(() => {
+    // 当APP_CONFIG.language变化时更新语言状态
+    const updateLanguage = () => {
+      const currentLanguage = window.APP_CONFIG?.language || 'zh-CN';
+      setLanguage(currentLanguage);
+    };
+    
+    // 初始调用
+    updateLanguage();
+    
+    // 可以考虑添加一个事件监听机制，当APP_CONFIG变化时自动更新
+    // 这里简单实现，组件挂载时检查一次
+  }, []);
   
   // 周期列表 - 分为常用和不常用
   const commonPeriods = ['1m', '5m', '15m', '1H', '4H', 'D'] // 常用周期
@@ -129,8 +154,8 @@ export default function ChartPage () {
   }
   
   useEffect(() => {
-    // 初始化图表
-    const chart = init('language-k-line')
+    // 初始化图表，传递语言选项
+    const chart = init('language-k-line', { locale: language })
     chartRef.current = chart
     
     // 确保图表初始化成功
@@ -158,7 +183,7 @@ export default function ChartPage () {
       dispose('language-k-line')
       chartRef.current = null
     }
-  }, [currentSymbol.code, selectedPeriod])
+  }, [currentSymbol.code, selectedPeriod, language])
   
   // 获取商品列表的函数
   const fetchProducts = async () => {
