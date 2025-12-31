@@ -1,0 +1,8 @@
+{
+  "name": "demo-plugin",
+  "version": "1.0.0",
+  "description": "前端插件demo",
+  "author": "QBot Team",
+  "main": "index.tsx",
+  "dependencies": []
+}

@@ -12,6 +12,9 @@ from collector.routes import router as collector_router
 from factor.routes import router as factor_router
 from model.routes import router as model_router
 
+# 导入插件系统
+from plugins import init_plugin_system, global_plugin_manager
+
 
 def init_database():
     """初始化数据库
@@ -176,10 +179,24 @@ async def lifespan(app: FastAPI):
         proxy_password=proxy_password
     )
     
+    # 初始化插件系统
+    plugin_manager, plugin_api = await asyncio.to_thread(init_plugin_system)
+    # 加载所有插件
+    await asyncio.to_thread(plugin_manager.load_all_plugins)
+    
+    # 注册插件路由
+    plugin_manager.register_plugins(app)
+    
+    # 将插件管理器保存到应用状态，供后续使用
+    app.state.plugin_manager = plugin_manager
+    app.state.plugin_api = plugin_api
+    
     yield
     
     # 异步关闭调度器，确保清理完成后再退出
     await asyncio.to_thread(scheduler.shutdown)
+    # 停止所有插件
+    await asyncio.to_thread(plugin_manager.stop_all_plugins)
 
 
 
@@ -210,6 +227,9 @@ app.include_router(model_router)
 
 # 注册回测服务API路由
 app.include_router(backtest_router)
+
+# 插件路由注册会在应用启动时通过lifespan函数完成
+# 这里不需要提前注册，插件会在应用启动时动态加载和注册
 
 
 @app.get("/")

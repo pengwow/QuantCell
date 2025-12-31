@@ -1,0 +1,9 @@
+{
+  "name": "example_plugin",
+  "version": "1.0.0",
+  "description": "Example backend plugin for QBot",
+  "author": "QBot Team",
+  "main": "plugin.py",
+  "routes": "routes.py",
+  "dependencies": []
+}
