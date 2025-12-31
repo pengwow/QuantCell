@@ -11,12 +11,12 @@ import pandas as pd
 from loguru import logger
 
 # 添加项目根目录到Python路径
-project_root = Path(__file__).parent.parent.parent.parent  # /Users/liupeng/workspace/qbot
+project_root = Path(__file__).parent.parent.parent.parent
 sys.path.append(str(project_root))
 
 # 添加qlib目录到Python路径，以便导入scripts模块
-qlib_dir = project_root / "qlib"
-sys.path.append(str(qlib_dir))
+# qlib_dir = project_root / "qlib"
+# sys.path.append(str(qlib_dir))
 
 # 导入QLib的dump_bin模块
 from scripts.dump_bin import DumpDataAll
