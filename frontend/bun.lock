@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "frontend2",
+      "name": "frontend",
       "dependencies": {
         "@ant-design/icons": "6.x",
         "@klinecharts/pro": "^0.1.1",
