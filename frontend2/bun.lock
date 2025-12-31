@@ -11,6 +11,7 @@
         "@tauri-apps/plugin-log": "^2.7.1",
         "@tauri-apps/plugin-opener": "^2.5.2",
         "@tauri-apps/plugin-shell": "^2.3.3",
+        "@web3icons/react": "^4.1.9",
         "antd": "^6.1.2",
         "axios": "^1.13.2",
         "dayjs": "^1.11.19",
@@ -505,6 +506,10 @@
     "@vitest/spy": ["@vitest/spy@2.1.9", "", { "dependencies": { "tinyspy": "^3.0.2" } }, "sha512-E1B35FwzXXTs9FHNK6bDszs7mtydNi5MIfUWpceJ8Xbfb1gBMscAnwLbEu+B44ed6W3XjL9/ehLPHR1fkf1KLQ=="],
 
     "@vitest/utils": ["@vitest/utils@2.1.9", "", { "dependencies": { "@vitest/pretty-format": "2.1.9", "loupe": "^3.1.2", "tinyrainbow": "^1.2.0" } }, "sha512-v0psaMSkNJ3A2NMrUEHFRzJtDPFn+/VWZ5WxImB21T9fjucJRmS7xCS3ppEnARb9y11OAzaD+P2Ps+b+BGX5iQ=="],
+
+    "@web3icons/common": ["@web3icons/common@0.11.38", "", { "peerDependencies": { "typescript": "^5.0.0" } }, "sha512-n2Qkem68dQYWbH5/2B4b/mQMcEwspEdhskWXIJunRmnO99QRHIkSkMV03qwKAn1riBsrKKFLGkCwC2K2C37BYw=="],
+
+    "@web3icons/react": ["@web3icons/react@4.1.9", "", { "dependencies": { "@web3icons/common": "0.11.38" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0" } }, "sha512-XxPqZAjeDuyLqQrHOa9yLs6gTOuu2k/W9YOAR0H5OEfildYAD5yAvg0naAxXuti00BDtAIcimh+nDDavRwtwLA=="],
 
     "abab": ["abab@2.0.6", "", {}, "sha512-j2afSsaIENvHZN2B8GOpF566vZ5WVk5opAiMTvWgaQT8DkbOqsTfvNAvHoRGU2zzP8cPoqys+xHTRDWW8L+/BA=="],
 

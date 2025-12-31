@@ -20,6 +20,7 @@
     "@tauri-apps/plugin-log": "^2.7.1",
     "@tauri-apps/plugin-opener": "^2.5.2",
     "@tauri-apps/plugin-shell": "^2.3.3",
+    "@web3icons/react": "^4.1.9",
     "antd": "^6.1.2",
     "axios": "^1.13.2",
     "dayjs": "^1.11.19",

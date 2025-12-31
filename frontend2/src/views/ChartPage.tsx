@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { init, dispose, registerLocale } from 'klinecharts'
+import { TokenDisplay } from '../components/TokenDisplay'
 import { type AppConfig } from '../utils/configLoader'
 import { dataApi } from '../api'
 
@@ -51,9 +52,10 @@ export default function ChartPage () {
   const [selectedPeriod, setSelectedPeriod] = useState('15m')
   // 当前商品信息
   const [currentSymbol, setCurrentSymbol] = useState({
-    code: 'BABA',
-    name: 'Alibaba Group Holding Ltd.',
-    icon: 'S' // 默认股票图标
+    code: 'BTC/USDT',
+    name: 'Bitcoin/USDT',
+    icon: 'S', // 默认股票图标
+    base: 'BTC'
   })
   // 当前语言配置 - 从全局APP_CONFIG读取
   const [language, setLanguage] = useState(window.APP_CONFIG?.language || 'zh-CN')
@@ -80,6 +82,27 @@ export default function ChartPage () {
   // 图表实例引用
   const chartRef = useRef<any>(null)
   
+  // 本地存储相关常量和函数
+  const STORAGE_KEY = 'chart_user_preferences';
+  
+  /**
+   * 保存用户偏好设置到本地存储
+   * @param symbol 商品代码
+   * @param period 时间周期
+   */
+  const saveUserPreferences = (symbol: string, period: string) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ symbol, period }));
+  };
+  
+  /**
+   * 从本地存储读取用户偏好设置
+   * @returns 用户偏好设置对象或null
+   */
+  const getUserPreferences = () => {
+    const preferences = localStorage.getItem(STORAGE_KEY);
+    return preferences ? JSON.parse(preferences) : null;
+  };
+  
   // 监听APP_CONFIG.language变化
   useEffect(() => {
     // 当APP_CONFIG.language变化时更新语言状态
@@ -93,6 +116,16 @@ export default function ChartPage () {
     
     // 可以考虑添加一个事件监听机制，当APP_CONFIG变化时自动更新
     // 这里简单实现，组件挂载时检查一次
+  }, []);
+  
+  // 组件挂载时读取本地存储的偏好设置
+  useEffect(() => {
+    const preferences = getUserPreferences();
+    if (preferences) {
+      // 更新周期状态
+      setSelectedPeriod(preferences.period);
+      // 商品将在fetchProducts后更新
+    }
   }, []);
   
   // 周期列表 - 分为常用和不常用
@@ -200,7 +233,39 @@ export default function ChartPage () {
         limit: 100
       })
       
-      setProducts(response.products || [])
+      const productsList = response.products || [];
+      setProducts(productsList);
+      
+      // 如果商品列表不为空，检查是否需要更新默认商品
+      if (productsList.length > 0) {
+        const preferences = getUserPreferences();
+        
+        // 情况1：有本地存储的偏好，且当前商品不是偏好的商品
+          if (preferences && currentSymbol.code !== preferences.symbol) {
+            // 查找偏好的商品
+            const preferredProduct = productsList.find((product: any) => product.symbol === preferences.symbol);
+            if (preferredProduct) {
+              setCurrentSymbol({
+                code: preferredProduct.symbol,
+                name: preferredProduct.name,
+                icon: preferredProduct.icon,
+                base: preferredProduct.base
+              });
+            }
+          } 
+        // 情况2：没有本地存储的偏好，且当前商品是默认的BABA
+        else if (!preferences && currentSymbol.code === 'BABA') {
+          // 使用列表第一个商品作为默认商品
+          const firstProduct = productsList[0];
+          setCurrentSymbol({
+            code: firstProduct.symbol,
+            name: firstProduct.name,
+            icon: firstProduct.icon,
+            base: firstProduct.base
+          });
+          saveUserPreferences(firstProduct.symbol, selectedPeriod);
+        }
+      }
     } catch (err) {
       console.error('获取商品列表失败:', err)
       setProductsError('获取商品列表失败，请稍后重试')
@@ -263,7 +328,7 @@ export default function ChartPage () {
           
           {/* 商品名 - 点击弹出搜索框 */}
           <div className="symbol-name" onClick={() => setIsSearchModalVisible(true)}>
-            <span className="symbol-icon">{currentSymbol.icon}</span>
+            <TokenDisplay symbol={currentSymbol.base} size={20} style={{ marginRight: '8px' }} />
             <span className="symbol-text">{currentSymbol.code}</span>
           </div>
           
@@ -272,22 +337,26 @@ export default function ChartPage () {
             {/* 常用周期和更多按钮容器 */}
             <div className="period-buttons">
               {/* 常用周期 */}
-              {commonPeriods.map((period) => (
-                <button
-                  key={period}
-                  className={`period-btn ${selectedPeriod === period ? 'active' : ''}`}
-                  onClick={() => setSelectedPeriod(period)}
-                >
-                  {period}
-                </button>
-              ))}
-              {/* 更多按钮 */}
-              <button 
-                className="period-btn more-btn"
-                onClick={() => setIsPeriodsExpanded(!isPeriodsExpanded)}
+            {commonPeriods.map((period) => (
+              <button
+                key={period}
+                className={`period-btn ${selectedPeriod === period ? 'active' : ''}`}
+                onClick={() => {
+                  setSelectedPeriod(period);
+                  // 保存用户偏好设置
+                  saveUserPreferences(currentSymbol.code, period);
+                }}
               >
-                {isPeriodsExpanded ? '收起' : '更多'}
+                {period}
               </button>
+            ))}
+            {/* 更多按钮 */}
+            <button 
+              className="period-btn more-btn"
+              onClick={() => setIsPeriodsExpanded(!isPeriodsExpanded)}
+            >
+              {isPeriodsExpanded ? '收起' : '更多'}
+            </button>
             </div>
             {/* 不常用周期 - 绝对定位在更多按钮下方 */}
             {isPeriodsExpanded && (
@@ -301,6 +370,8 @@ export default function ChartPage () {
                     className={`period-btn ${selectedPeriod === period ? 'active' : ''}`}
                     onClick={() => {
                       setSelectedPeriod(period)
+                      // 保存用户偏好设置
+                      saveUserPreferences(currentSymbol.code, period);
                       setIsPeriodsExpanded(false) // 选择后自动收起
                     }}
                   >
@@ -442,9 +513,11 @@ export default function ChartPage () {
             width: '100%', 
             height: '600px',
             minWidth: '600px',
-            border: '1px solid #f0f0f0', 
-            borderRadius: '4px',
             backgroundColor: '#ffffff',
+            margin: '0', /* 消除可能的外边距 */
+            padding: '0', /* 消除可能的内边距 */
+            border: 'none', /* 移除边框，避免边框占用空间 */
+            borderRadius: '0', /* 移除圆角 */
           }} 
         />
       </div>
@@ -493,8 +566,11 @@ export default function ChartPage () {
                   setCurrentSymbol({
                     code: product.symbol,
                     name: product.name,
-                    icon: product.icon
+                    icon: product.icon,
+                    base: product.base,
                   })
+                  // 保存用户偏好设置
+                  saveUserPreferences(product.symbol, selectedPeriod);
                   setIsSearchModalVisible(false)
                 }}
                 style={{
@@ -509,20 +585,8 @@ export default function ChartPage () {
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
               >
                 {/* 商品图标 */}
-                <div style={{
-                  width: '20px',
-                  height: '20px',
-                  borderRadius: '50%',
-                  backgroundColor: '#ffc53d',
-                  color: 'white',
-                  fontSize: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 'bold',
-                  marginRight: '12px'
-                }}>
-                  {product.icon}
+                <div style={{ marginRight: '12px' }}>
+                  <TokenDisplay symbol={product.base} size={20} />
                 </div>
                 
                 {/* 商品信息 */}
@@ -626,18 +690,8 @@ export default function ChartPage () {
           background-color: #e8f0fe;
         }
         
-        .symbol-icon {
-          color: #1890ff;
-        }
-        
         .symbol-text {
           color: #333;
-        }
-        
-        /* 商品名下拉箭头 */
-        .symbol-arrow {
-          font-size: 12px;
-          color: #999;
         }
         
         /* 时间周期按钮容器 - 相对定位 */
@@ -825,14 +879,34 @@ export default function ChartPage () {
         /* 确保图表容器不受工具栏影响 */
         .chart-toolbar-container {
           position: relative;
-          margin-bottom: 10px;
+          margin-bottom: 0 !important; /* 消除工具栏和图表之间的间隔 */
+          padding-bottom: 0 !important;
+        }
+        
+        /* 确保k-line-chart div与内部canvas之间没有间隔 */
+        .k-line-chart {
+          margin: 0 !important;
+          padding: 0 !important;
+          line-height: 0 !important;
+          border: none !important; /* 移除边框，避免边框占用空间 */
+          border-radius: 0 !important;
+        }
+        
+        /* 确保canvas元素与容器之间没有间隔 */
+        .k-line-chart canvas {
+          display: block !important;
+          vertical-align: top !important;
+          margin: 0 !important;
+          padding: 0 !important;
         }
         
         /* 图表容器 */
         .chart-container {
           position: relative;
           width: 100%;
-          height: 600px;
+          height: 600px; /* 确保完整显示横轴 */
+          margin-top: 0 !important;
+          padding-top: 0 !important;
         }
         
         /* 图表加载状态 */

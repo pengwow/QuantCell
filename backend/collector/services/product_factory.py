@@ -91,7 +91,8 @@ class BaseProductListFetcher(ProductListFetcher):
                 "symbol": product.symbol,
                 "name": product.symbol,
                 "exchange": product.exchange,
-                "icon": self._get_product_icon(product)
+                "icon": self._get_product_icon(product),
+                "base": product.base,
             })
         
         return {
@@ -265,6 +266,7 @@ class CryptoFutureProductListFetcher(BaseProductListFetcher):
                 "symbol": product.symbol,
                 "name": product.symbol,
                 "exchange": product.exchange,
+                "base": product.base,
                 "icon": "CF"  # 加密货币合约图标
             })
         
