@@ -128,26 +128,6 @@ def sync_crypto_symbols(
         # 初始化数据库配置
         init_database_config()
         
-        # 添加字段的简单迁移逻辑
-        from sqlalchemy import text
-        with engine.begin() as conn:
-            # 检查is_deleted字段是否存在
-            result = conn.execute(text("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'crypto_symbols' AND column_name = 'is_deleted'
-            """))
-            
-            if not result.fetchone():
-                # 添加is_deleted字段
-                conn.execute(text("""
-                ALTER TABLE crypto_symbols 
-                ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE
-                """))
-                logger.info("已添加is_deleted字段到crypto_symbols表")
-            else:
-                logger.info("is_deleted字段已存在")
-        
         # 重试机制
         max_retries = 3
         retry_count = 0

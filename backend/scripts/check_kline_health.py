@@ -151,7 +151,9 @@ class KlineHealthChecker:
             "expected_records": 0,
             "actual_records": len(df),
             "missing_records": 0,
-            "missing_periods": []
+            "missing_periods": [],
+            "coverage_ratio": 1.0,
+            "missing_time_ranges": []
         }
         
         if df.empty:
@@ -179,12 +181,104 @@ class KlineHealthChecker:
         result["expected_records"] = len(expected_index)
         result["actual_records"] = len(df)
         
+        # 计算覆盖率
+        if len(expected_index) > 0:
+            result["coverage_ratio"] = len(df) / len(expected_index)
+        
         # 找出缺失的时间点
         missing_periods = expected_index.difference(df.index)
         if len(missing_periods) > 0:
             result["status"] = "fail"
             result["missing_records"] = len(missing_periods)
             result["missing_periods"] = [str(period) for period in missing_periods]
+            
+            # 分析缺失时间段
+            if len(missing_periods) > 0:
+                # 排序缺失的时间点
+                missing_sorted = sorted(missing_periods)
+                
+                # 找出连续缺失的时间段
+                ranges = []
+                start_range = missing_sorted[0]
+                prev = missing_sorted[0]
+                
+                for period in missing_sorted[1:]:
+                    # 如果当前时间与前一个时间间隔超过预期，则视为新的缺失时间段
+                    if (period - prev) > delta:
+                        ranges.append({
+                            "start": str(start_range),
+                            "end": str(prev),
+                            "duration": str(prev - start_range),
+                            "count": int((prev - start_range) / delta) + 1
+                        })
+                        start_range = period
+                    prev = period
+                
+                # 添加最后一个时间段
+                ranges.append({
+                    "start": str(start_range),
+                    "end": str(missing_sorted[-1]),
+                    "duration": str(missing_sorted[-1] - start_range),
+                    "count": int((missing_sorted[-1] - start_range) / delta) + 1
+                })
+                
+                result["missing_time_ranges"] = ranges
+        
+        return result
+    
+    def check_coverage(self, df: pd.DataFrame, interval: str, symbol: str) -> Dict[str, Any]:
+        """
+        检查数据覆盖率，包括历史数据和未来数据
+        
+        Args:
+            df: kline数据DataFrame
+            interval: 时间周期，如1m, 5m, 1h, 1d
+            symbol: 货币对名称
+            
+        Returns:
+            Dict[str, Any]: 覆盖率检查结果
+        """
+        result = {
+            "status": "pass",
+            "data_start_date": None,
+            "data_end_date": None,
+            "expected_start_date": None,
+            "expected_end_date": None,
+            "missing_historical_data": False,
+            "missing_future_data": False,
+            "historical_gap_days": 0,
+            "future_gap_days": 0
+        }
+        
+        if df.empty:
+            result["status"] = "fail"
+            return result
+        
+        # 数据的实际起止时间
+        data_start = df.index.min()
+        data_end = df.index.max()
+        result["data_start_date"] = str(data_start)
+        result["data_end_date"] = str(data_end)
+        
+        # 计算预期的起始时间（假设应该从2023年1月1日开始）
+        expected_start = datetime(2023, 1, 1, tzinfo=data_start.tzinfo)
+        result["expected_start_date"] = str(expected_start)
+        
+        # 计算预期的结束时间（假设应该到当前时间）
+        expected_end = datetime.now(data_start.tzinfo)
+        result["expected_end_date"] = str(expected_end)
+        
+        # 检查是否缺少历史数据
+        if data_start > expected_start:
+            result["missing_historical_data"] = True
+            result["historical_gap_days"] = (data_start - expected_start).days
+            result["status"] = "fail"
+        
+        # 检查是否缺少未来数据（允许有1天的延迟）
+        if expected_end - data_end > timedelta(days=1):
+            result["missing_future_data"] = True
+            result["future_gap_days"] = (expected_end - data_end).days
+            result["status"] = "fail"
         
         return result
     
@@ -287,9 +381,10 @@ class KlineHealthChecker:
         continuity_result = self.check_continuity(df, interval)
         validity_result = self.check_validity(df)
         uniqueness_result = self.check_uniqueness(df)
+        coverage_result = self.check_coverage(df, interval, symbol)
         
         # 汇总结果
-        all_checks = [integrity_result, continuity_result, validity_result, uniqueness_result]
+        all_checks = [integrity_result, continuity_result, validity_result, uniqueness_result, coverage_result]
         overall_status = "pass" if all(check["status"] == "pass" for check in all_checks) else "fail"
         
         result = {
@@ -302,7 +397,8 @@ class KlineHealthChecker:
                 "integrity": integrity_result,
                 "continuity": continuity_result,
                 "validity": validity_result,
-                "uniqueness": uniqueness_result
+                "uniqueness": uniqueness_result,
+                "coverage": coverage_result
             },
             "total_records": len(df)
         }

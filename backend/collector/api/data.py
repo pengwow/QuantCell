@@ -20,6 +20,68 @@ from ..services import DataService
 # 创建API路由实例
 router = APIRouter(prefix="/api/data", tags=["data-management"])
 
+# 数据质量相关API
+from datetime import datetime
+from fastapi import APIRouter, HTTPException, Query
+from ..schemas import ApiResponse
+
+# 创建数据质量API子路由
+quality_router = APIRouter(prefix="/quality", tags=["data-quality"])
+
+@quality_router.get("/kline", response_model=ApiResponse)
+async def check_kline_quality(
+    symbol: str = Query(..., description="货币对，如BTCUSDT"),
+    interval: str = Query(..., description="时间周期，如1m, 5m, 1h, 1d"),
+    start: Optional[str] = Query(None, description="开始时间，格式为YYYY-MM-DD HH:MM:SS或YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="结束时间，格式为YYYY-MM-DD HH:MM:SS或YYYY-MM-DD")
+):
+    """
+    K线数据质量检查API
+    
+    用于检查数据库中K线数据的质量，包括完整性、连续性、有效性和唯一性
+    """
+    # 动态导入健康检查模块，避免路径问题
+    import sys
+    import os
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+    
+    from scripts.check_kline_health import KlineHealthChecker
+    
+    # 解析时间参数
+    start_dt = None
+    end_dt = None
+    
+    if start:
+        try:
+            start_dt = datetime.fromisoformat(start)
+        except ValueError:
+            try:
+                start_dt = datetime.strptime(start, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"无效的开始时间格式: {start}")
+    
+    if end:
+        try:
+            end_dt = datetime.fromisoformat(end)
+        except ValueError:
+            try:
+                end_dt = datetime.strptime(end, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"无效的结束时间格式: {end}")
+    
+    # 执行健康检查
+    checker = KlineHealthChecker()
+    result = checker.check_all(symbol, interval, start_dt, end_dt)
+    
+    return ApiResponse(
+        code=0,
+        message="获取K线数据质量报告成功",
+        data=result
+    )
+
+# 将数据质量路由挂载到主路由下
+router.include_router(quality_router)
+
 
 @router.post("/load", response_model=ApiResponse)
 def load_data(request: LoadDataRequest):

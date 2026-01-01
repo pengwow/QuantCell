@@ -8,10 +8,10 @@ from pathlib import Path
 from loguru import logger
 
 # 数据库文件路径
-default_db_path = Path(__file__).parent.parent.parent / "data" / "qbot.db"
+default_db_dir = Path(__file__).parent.parent.parent / "data"
 
 # 确保数据库目录存在
-default_db_path.parent.mkdir(parents=True, exist_ok=True)
+default_db_dir.mkdir(parents=True, exist_ok=True)
 
 
 class DBConnection:
@@ -47,8 +47,12 @@ class DBConnection:
             import os
 
             # 优先从环境变量读取配置
-            db_type = os.environ.get("DB_TYPE", "duckdb")  # 默认使用duckdb
-            db_file = os.environ.get("DB_FILE", str(default_db_path))
+            db_type = os.environ.get("DB_TYPE", "sqlite")  # 默认使用sqlite
+            
+            # 根据数据库类型使用不同的默认文件名
+            default_db_filename = f"qbot_{db_type}.db" if db_type in ["sqlite", "duckdb"] else "qbot.db"
+            default_db_file = str(default_db_dir / default_db_filename)
+            db_file = os.environ.get("DB_FILE", default_db_file)
             
             # 如果环境变量未设置，尝试从配置读取
             try:
@@ -56,6 +60,12 @@ class DBConnection:
                 config_db_type = get_config("database.type")
                 if config_db_type:
                     db_type = config_db_type
+                    # 如果从配置读取了数据库类型，重新生成默认文件名
+                    default_db_filename = f"qbot_{db_type}.db" if db_type in ["sqlite", "duckdb"] else "qbot.db"
+                    default_db_file = str(default_db_dir / default_db_filename)
+                    # 只有当db_file仍为默认值时，才更新它
+                    if db_file == os.environ.get("DB_FILE", default_db_file):
+                        db_file = default_db_file
                 
                 config_db_file = get_config("database.file")
                 if config_db_file:
@@ -64,7 +74,7 @@ class DBConnection:
                 logger.warning(f"从配置读取数据库信息失败，使用默认配置: {e}")
             
             logger.info(f"从配置读取数据库信息: type={db_type}, file={db_file}")
-            logger.info(f"默认数据库路径: {default_db_path}")
+            logger.info(f"默认数据库路径: {default_db_file}")
             
             # 解析数据库文件路径
             db_path = Path(db_file).expanduser()
@@ -165,8 +175,20 @@ def init_db():
         init_database_config()
         
         # 然后再导入engine变量，确保它已经被初始化
-        from . import models
         from .database import Base, engine
+        # 显式导入所有模型，确保它们被注册到Base.metadata中
+        from .models import (
+            SystemConfig,
+            Task,
+            Feature,
+            DataPool,
+            DataPoolAsset,
+            CryptoSymbol,
+            CryptoSpotKline,
+            CryptoFutureKline,
+            StockKline,
+            ScheduledTask
+        )
         
         logger.info("使用SQLAlchemy创建数据库表...")
         # 创建所有表

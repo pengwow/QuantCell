@@ -6,7 +6,7 @@ from datetime import datetime
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from ..db.models import Kline
+from ..db.models import CryptoSpotKline, CryptoFutureKline, StockKline
 
 
 class KlineDataFetcher(ABC):
@@ -49,6 +49,141 @@ class KlineDataFetcher(ABC):
 class BaseKlineFetcher(KlineDataFetcher):
     """K线数据获取器基类，实现通用的数据库查询逻辑"""
     
+    def __init__(self):
+        self.kline_model = None
+    
+    def _save_to_database(
+        self,
+        db: Session,
+        symbol: str,
+        interval: str,
+        kline_data: List[Dict[str, Any]]
+    ) -> bool:
+        """将K线数据保存到数据库
+        
+        Args:
+            db: 数据库会话
+            symbol: 交易商标识，如BTCUSDT
+            interval: 时间周期，如1m, 5m, 1h, 1d
+            kline_data: K线数据列表，每条数据包含timestamp, open, close, high, low, volume, turnover字段
+            
+        Returns:
+            bool: 保存成功返回True，失败返回False
+        """
+        try:
+            # 记录保存K线数据的尝试
+            logger.info(f"尝试保存{len(kline_data)}条K线数据到数据库: symbol={symbol}, interval={interval}, model={self.kline_model.__tablename__ if self.kline_model else 'None'}")
+            
+            if not self.kline_model:
+                logger.error(f"保存K线数据到数据库失败: 未设置kline_model")
+                return False
+            
+            # 创建模型实例列表
+            kline_instances = []
+            for kline in kline_data:
+                # 转换timestamp为datetime对象
+                timestamp = kline.get("timestamp")
+                date = datetime.fromtimestamp(timestamp / 1000)  # 转换为秒级时间戳
+                
+                # 生成unique_kline字段
+                unique_kline = f"{symbol}_{interval}_{timestamp}"
+                
+                # 创建模型实例
+                kline_instance = self.kline_model(
+                    symbol=symbol,
+                    interval=interval,
+                    date=date,
+                    open=str(kline.get("open")),
+                    high=str(kline.get("high")),
+                    low=str(kline.get("low")),
+                    close=str(kline.get("close")),
+                    volume=str(kline.get("volume")),
+                    unique_kline=unique_kline
+                )
+                
+                kline_instances.append(kline_instance)
+            
+            # 批量添加到数据库
+            db.bulk_save_objects(kline_instances)
+            db.commit()
+            
+            logger.info(f"成功保存{len(kline_instances)}条K线数据到数据库: symbol={symbol}, interval={interval}, table={self.kline_model.__tablename__}")
+            return True
+        except Exception as e:
+            logger.error(f"保存K线数据到数据库失败: symbol={symbol}, interval={interval}, error={e}")
+            logger.exception(e)
+            # 回滚事务
+            db.rollback()
+            return False
+    
+    def _fetch_from_ccxt(
+        self,
+        symbol: str,
+        interval: str,
+        limit: Optional[int] = 5000,
+        proxy_config: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """从ccxt获取K线数据的通用方法
+        
+        Args:
+            symbol: 交易商标识，如BTC/USDT
+            interval: 时间周期，如1m, 5m, 1h, 1d
+            limit: 返回数据条数，默认5000条
+            proxy_config: 代理配置，包含enabled, url, username, password等字段
+            
+        Returns:
+            List[Dict[str, Any]]: 包含K线数据的列表
+        """
+        import ccxt
+        from datetime import datetime
+        
+        # 初始化ccxt交易所客户端（默认使用binance）
+        exchange = ccxt.binance()
+        
+        # 配置代理
+        if proxy_config and proxy_config.get("enabled", False):
+            proxy_url = proxy_config.get("url")
+            proxy_username = proxy_config.get("username")
+            proxy_password = proxy_config.get("password")
+            
+            if proxy_url:
+                exchange.proxies = {
+                    "http": proxy_url,
+                    "https": proxy_url
+                }
+                
+                # 如果有用户名和密码，添加到代理配置中
+                if proxy_username and proxy_password:
+                    exchange.proxy_auth = (proxy_username, proxy_password)
+        
+        # 调用ccxt的fetchOHLCV方法获取K线数据
+        # ccxt返回的OHLCV数据格式：[[timestamp, open, high, low, close, volume], ...]
+        try:
+            ohlcv_data = exchange.fetchOHLCV(
+                symbol=symbol,
+                timeframe=interval,
+                limit=limit
+            )
+            
+            # 转换为指定格式
+            kline_data = []
+            for ohlcv in ohlcv_data:
+                timestamp = ohlcv[0]
+                kline_data.append({
+                    "timestamp": timestamp,
+                    "open": float(ohlcv[1]),
+                    "close": float(ohlcv[4]),
+                    "high": float(ohlcv[2]),
+                    "low": float(ohlcv[3]),
+                    "volume": float(ohlcv[5]),
+                    "turnover": 0.0  # 成交额字段，当前版本返回0
+                })
+            
+            return kline_data
+        except Exception as e:
+            logger.error(f"从ccxt获取K线数据失败: symbol={symbol}, interval={interval}, error={e}")
+            return []
+    
     def _fetch_from_database(
         self,
         db: Session,
@@ -59,29 +194,37 @@ class BaseKlineFetcher(KlineDataFetcher):
         limit: Optional[int] = 5000
     ) -> Dict[str, Any]:
         """从数据库获取K线数据的通用方法"""
+        if not self.kline_model:
+            logger.error("未设置K线模型，无法从数据库获取数据")
+            return {
+                "success": False,
+                "message": "未设置K线模型",
+                "kline_data": []
+            }
+        
         # 构建查询
-        query = db.query(Kline).filter(
-            Kline.symbol == symbol,
-            Kline.interval == interval
+        query = db.query(self.kline_model).filter(
+            self.kline_model.symbol == symbol,
+            self.kline_model.interval == interval
         )
         
         # 处理时间过滤
         if start_time:
             try:
                 start_dt = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
-                query = query.filter(Kline.date >= start_dt)
+                query = query.filter(self.kline_model.date >= start_dt)
             except ValueError:
                 logger.warning(f"无效的开始时间格式: {start_time}，忽略该过滤条件")
         
         if end_time:
             try:
                 end_dt = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
-                query = query.filter(Kline.date <= end_dt)
+                query = query.filter(self.kline_model.date <= end_dt)
             except ValueError:
                 logger.warning(f"无效的结束时间格式: {end_time}，忽略该过滤条件")
         
         # 按时间降序排序并限制数量
-        query = query.order_by(Kline.date.desc()).limit(limit)
+        query = query.order_by(self.kline_model.date.desc()).limit(limit)
         
         # 执行查询
         klines = query.all()
@@ -115,6 +258,10 @@ class BaseKlineFetcher(KlineDataFetcher):
 class StockKlineFetcher(BaseKlineFetcher):
     """股票市场K线数据获取器"""
     
+    def __init__(self):
+        super().__init__()
+        self.kline_model = StockKline
+    
     def fetch_kline_data(
         self,
         db: Session,
@@ -134,6 +281,10 @@ class StockKlineFetcher(BaseKlineFetcher):
 
 class FuturesKlineFetcher(BaseKlineFetcher):
     """期货市场K线数据获取器"""
+    
+    def __init__(self):
+        super().__init__()
+        self.kline_model = CryptoFutureKline
     
     def fetch_kline_data(
         self,
@@ -155,6 +306,10 @@ class FuturesKlineFetcher(BaseKlineFetcher):
 class CryptoSpotKlineFetcher(BaseKlineFetcher):
     """加密货币现货K线数据获取器"""
     
+    def __init__(self):
+        super().__init__()
+        self.kline_model = CryptoSpotKline
+    
     def fetch_kline_data(
         self,
         db: Session,
@@ -168,14 +323,45 @@ class CryptoSpotKlineFetcher(BaseKlineFetcher):
         # 格式化symbol，移除斜杠等分隔符，转换为数据库存储格式（如BTC/USDT -> BTCUSDT）
         formatted_symbol = symbol.replace('/', '')
         logger.info(f"获取加密货币现货K线数据: symbol={symbol}, formatted_symbol={formatted_symbol}, interval={interval}, limit={limit}")
+        interval = interval.lower()
+        # 首先从数据库获取K线数据
+        result = self._fetch_from_database(db, formatted_symbol, interval, start_time, end_time, limit)
         
-        # 实现加密货币现货的K线数据获取逻辑
-        # 这里复用现有的数据库查询逻辑
-        return self._fetch_from_database(db, formatted_symbol, interval, start_time, end_time, limit)
+        # 检查数据库返回的K线数据是否为空
+        if not result['kline_data']:
+            logger.warning(f"数据库中未找到K线数据，尝试从ccxt获取: symbol={symbol}, interval={interval}")
+            
+            # 获取系统配置中的代理信息
+            from config_manager import load_system_configs
+            configs = load_system_configs()
+            proxy_config = {
+                "enabled": configs.get("proxy_enabled", False),
+                "url": configs.get("proxy_url", None),
+                "username": configs.get("proxy_username", None),
+                "password": configs.get("proxy_password", None)
+            }
+            
+            # 从ccxt获取K线数据
+            ccxt_data = self._fetch_from_ccxt(symbol, interval, limit, proxy_config)
+            
+            if ccxt_data:
+                result['kline_data'] = ccxt_data
+                result['message'] = "从ccxt获取K线数据成功"
+                
+                # 将从ccxt获取的K线数据保存到数据库
+                self._save_to_database(db, formatted_symbol, interval, ccxt_data)
+            else:
+                result['message'] = "数据库和ccxt均未找到K线数据"
+        
+        return result
 
 
 class CryptoFutureKlineFetcher(BaseKlineFetcher):
     """加密货币合约K线数据获取器"""
+    
+    def __init__(self):
+        super().__init__()
+        self.kline_model = CryptoFutureKline
     
     def fetch_kline_data(
         self,
@@ -190,10 +376,37 @@ class CryptoFutureKlineFetcher(BaseKlineFetcher):
         # 格式化symbol，移除斜杠等分隔符，转换为数据库存储格式（如BTC/USDT -> BTCUSDT）
         formatted_symbol = symbol.replace('/', '')
         logger.info(f"获取加密货币合约K线数据: symbol={symbol}, formatted_symbol={formatted_symbol}, interval={interval}, limit={limit}")
+        interval = interval.lower()
+        # 首先从数据库获取K线数据
+        result = self._fetch_from_database(db, formatted_symbol, interval, start_time, end_time, limit)
         
-        # 实现加密货币合约的K线数据获取逻辑
-        # 这里复用现有的数据库查询逻辑
-        return self._fetch_from_database(db, formatted_symbol, interval, start_time, end_time, limit)
+        # 检查数据库返回的K线数据是否为空
+        if not result['kline_data']:
+            logger.warning(f"数据库中未找到K线数据，尝试从ccxt获取: symbol={symbol}, interval={interval}")
+            
+            # 获取系统配置中的代理信息
+            from config_manager import load_system_configs
+            configs = load_system_configs()
+            proxy_config = {
+                "enabled": configs.get("proxy_enabled", False),
+                "url": configs.get("proxy_url", None),
+                "username": configs.get("proxy_username", None),
+                "password": configs.get("proxy_password", None)
+            }
+            
+            # 从ccxt获取K线数据
+            ccxt_data = self._fetch_from_ccxt(symbol, interval, limit, proxy_config)
+            
+            if ccxt_data:
+                result['kline_data'] = ccxt_data
+                result['message'] = "从ccxt获取K线数据成功"
+                
+                # 将从ccxt获取的K线数据保存到数据库
+                self._save_to_database(db, formatted_symbol, interval, ccxt_data)
+            else:
+                result['message'] = "数据库和ccxt均未找到K线数据"
+        
+        return result
 
 
 class KlineDataFactory:

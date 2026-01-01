@@ -77,3 +77,89 @@ class DataConvertRequest(BaseModel):
     include_fields: str = Field(default="date,open,high,low,close,volume", description="要转换的字段列表，逗号分隔")
     max_workers: int = Field(default=16, description="最大工作线程数")
     limit_nums: Optional[int] = Field(None, description="限制转换的文件数量，用于调试")
+
+
+class ScheduledTaskCreate(BaseModel):
+    """定时任务创建请求模型
+    
+    Attributes:
+        name: 任务名称
+        description: 任务描述
+        task_type: 任务类型，如download_crypto
+        cron_expression: CRON表达式
+        interval: 时间间隔，如1h, 1d, 1w
+        start_time: 开始执行时间
+        end_time: 结束执行时间
+        frequency_type: 频率类型：hourly, daily, weekly, monthly, cron, interval, date
+        symbols: 交易对列表
+        exchange: 交易所
+        candle_type: 蜡烛图类型
+        save_dir: 保存目录
+        max_workers: 最大工作线程数
+        incremental_enabled: 是否启用增量采集
+        notification_enabled: 是否启用通知
+        notification_type: 通知类型
+        notification_email: 通知邮箱
+        notification_webhook: 通知Webhook
+    """
+    name: str = Field(..., description="任务名称")
+    description: Optional[str] = Field(None, description="任务描述")
+    task_type: str = Field(default="download_crypto", description="任务类型")
+    cron_expression: Optional[str] = Field(None, description="CRON表达式")
+    interval: Optional[str] = Field(None, description="时间间隔，如1h, 1d, 1w")
+    start_time: Optional[datetime] = Field(None, description="开始执行时间")
+    end_time: Optional[datetime] = Field(None, description="结束执行时间")
+    frequency_type: str = Field(..., description="频率类型：hourly, daily, weekly, monthly, cron, interval, date")
+    symbols: Optional[List[str]] = Field(None, description="交易对列表")
+    exchange: Optional[str] = Field(None, description="交易所")
+    candle_type: str = Field(default="spot", description="蜡烛图类型")
+    save_dir: Optional[str] = Field(None, description="保存目录")
+    max_workers: int = Field(default=1, description="最大工作线程数")
+    incremental_enabled: bool = Field(default=True, description="是否启用增量采集")
+    notification_enabled: bool = Field(default=False, description="是否启用通知")
+    notification_type: Optional[str] = Field(None, description="通知类型")
+    notification_email: Optional[str] = Field(None, description="通知邮箱")
+    notification_webhook: Optional[str] = Field(None, description="通知Webhook")
+
+
+class ScheduledTaskUpdate(BaseModel):
+    """定时任务更新请求模型
+    
+    Attributes:
+        name: 任务名称
+        description: 任务描述
+        status: 任务状态，如pending, running, completed, failed, paused
+        cron_expression: CRON表达式
+        interval: 时间间隔，如1h, 1d, 1w
+        start_time: 开始执行时间
+        end_time: 结束执行时间
+        frequency_type: 频率类型：hourly, daily, weekly, monthly, cron, interval, date
+        symbols: 交易对列表
+        exchange: 交易所
+        candle_type: 蜡烛图类型
+        save_dir: 保存目录
+        max_workers: 最大工作线程数
+        incremental_enabled: 是否启用增量采集
+        notification_enabled: 是否启用通知
+        notification_type: 通知类型
+        notification_email: 通知邮箱
+        notification_webhook: 通知Webhook
+    """
+    name: Optional[str] = Field(None, description="任务名称")
+    description: Optional[str] = Field(None, description="任务描述")
+    status: Optional[str] = Field(None, description="任务状态")
+    cron_expression: Optional[str] = Field(None, description="CRON表达式")
+    interval: Optional[str] = Field(None, description="时间间隔，如1h, 1d, 1w")
+    start_time: Optional[datetime] = Field(None, description="开始执行时间")
+    end_time: Optional[datetime] = Field(None, description="结束执行时间")
+    frequency_type: Optional[str] = Field(None, description="频率类型：hourly, daily, weekly, monthly, cron, interval, date")
+    symbols: Optional[List[str]] = Field(None, description="交易对列表")
+    exchange: Optional[str] = Field(None, description="交易所")
+    candle_type: Optional[str] = Field(None, description="蜡烛图类型")
+    save_dir: Optional[str] = Field(None, description="保存目录")
+    max_workers: Optional[int] = Field(None, description="最大工作线程数")
+    incremental_enabled: Optional[bool] = Field(None, description="是否启用增量采集")
+    notification_enabled: Optional[bool] = Field(None, description="是否启用通知")
+    notification_type: Optional[str] = Field(None, description="通知类型")
+    notification_email: Optional[str] = Field(None, description="通知邮箱")
+    notification_webhook: Optional[str] = Field(None, description="通知Webhook")

@@ -28,6 +28,10 @@ def init_database():
     # 初始化任务管理器，确保数据库表已创建
     from collector.utils.task_manager import task_manager
     task_manager.init()
+    
+    # 初始化定时任务管理器，确保数据库表已创建
+    from collector.utils.scheduled_task_manager import scheduled_task_manager
+    logger.info("初始化定时任务管理器")
 
 
 def init_qlib():
@@ -170,14 +174,18 @@ async def lifespan(app: FastAPI):
     
     logger.info(f"代理配置: enabled={proxy_enabled}, url={proxy_url}")
     
-    # 异步启动定时任务，传递代理配置
-    scheduler = await asyncio.to_thread(
+    # 异步启动传统定时任务，传递代理配置
+    traditional_scheduler = await asyncio.to_thread(
         start_scheduler,
         proxy_enabled=proxy_enabled,
         proxy_url=proxy_url,
         proxy_username=proxy_username,
         proxy_password=proxy_password
     )
+    
+    # 异步启动新的定时任务管理器
+    from collector.utils.scheduled_task_manager import scheduled_task_manager
+    await asyncio.to_thread(scheduled_task_manager.start)
     
     # 初始化插件系统
     plugin_manager, plugin_api = await asyncio.to_thread(init_plugin_system)
@@ -193,8 +201,10 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # 异步关闭调度器，确保清理完成后再退出
-    await asyncio.to_thread(scheduler.shutdown)
+    # 异步关闭传统调度器，确保清理完成后再退出
+    await asyncio.to_thread(traditional_scheduler.shutdown)
+    # 异步关闭新的定时任务管理器
+    await asyncio.to_thread(scheduled_task_manager.shutdown)
     # 停止所有插件
     await asyncio.to_thread(plugin_manager.stop_all_plugins)
 

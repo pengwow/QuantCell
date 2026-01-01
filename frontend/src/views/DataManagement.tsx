@@ -7,11 +7,11 @@ import { useDataManagementStore } from '../store';
 import { dataApi, configApi } from '../api';
 import { init, dispose } from 'klinecharts';
 import AssetPoolManager from '../components/AssetPoolManager';
+import DataQuality from '../components/DataQuality';
 import '../styles/DataManagement.css';
 import dayjs from 'dayjs';
 
 import {
-  Layout,
   Menu,
   Table,
   Form,
@@ -30,7 +30,6 @@ import {
   DatePicker
 } from 'antd';
 import {
-  DatabaseOutlined,
   ImportOutlined,
   ExportOutlined,
   DownloadOutlined,
@@ -41,7 +40,6 @@ import {
   BarChartOutlined
 } from '@ant-design/icons';
 
-const { Sider, Content } = Layout;
 const { Text } = Typography;
 
 const DataManagement = () => {
@@ -59,6 +57,14 @@ const DataManagement = () => {
 
   // 当前选中的标签页
   const [selectedTab, setSelectedTab] = useState(currentTab);
+
+  // 菜单项列表
+  const menuItems = [
+    { id: 'asset-pools', title: '资产池管理', icon: 'icon-asset-pool' },
+    { id: 'collection', title: '数据采集', icon: 'icon-collection' },
+    { id: 'quality', title: '数据质量', icon: 'icon-quality' },
+    { id: 'visualization', title: '数据可视化', icon: 'icon-visualization' },
+  ];
   // 显示成功消息标志
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   // 成功消息内容
@@ -138,14 +144,7 @@ const DataManagement = () => {
   // 任务状态轮询定时器引用
   const taskIntervalRef = useRef<number | null>(null);
 
-  // 菜单项列表
-  const menuItems = [
-    { id: 'asset-pools', title: '资产池管理', icon: 'icon-asset-pool' },
-    { id: 'collection', title: '数据采集', icon: 'icon-collection' },
-    { id: 'quality', title: '数据质量', icon: 'icon-quality' },
-    { id: 'visualization', title: '数据可视化', icon: 'icon-visualization' },
-    
-  ];
+
 
   // 加载系统配置
   const loadSystemConfig = async () => {
@@ -576,37 +575,27 @@ const DataManagement = () => {
   };
 
   return (
-    <Layout className="data-management-container">
-      {/* <Header className="page-header">
-        <h2 style={{ margin: 0, color: '#333' }}>数据管理</h2>
-      </Header> */}
+    <div className="data-management-main">
+      {/* 内部导航菜单 */}
+      <div className="data-management-nav">
+        <Menu
+          mode="horizontal"
+          selectedKeys={[selectedTab]}
+          style={{ marginBottom: 20 }}
+          onSelect={({ key }) => setSelectedTab(key)}
+          items={menuItems.map(menu => ({
+            key: menu.id,
+            label: menu.title,
+            icon: menu.icon === 'icon-asset-pool' ? <PlusOutlined /> :
+                   menu.icon === 'icon-collection' ? <DownloadOutlined /> :
+                   menu.icon === 'icon-quality' ? <InfoCircleOutlined /> :
+                   menu.icon === 'icon-visualization' ? <BarChartOutlined /> : <SettingOutlined />
+          }))}
+        />
+      </div>
 
-      <Layout>
-        {/* 侧边栏导航 */}
-        <Sider width={200} className="data-management-sidebar">
-          <Menu
-            mode="inline"
-            selectedKeys={[selectedTab]}
-            style={{ height: '100%', borderRight: 0 }}
-            onSelect={({ key }) => setSelectedTab(key)}
-            items={menuItems.map(menu => ({
-              key: menu.id,
-              label: menu.title,
-              icon: menu.icon === 'icon-crypto' ? <DatabaseOutlined /> :
-                     menu.icon === 'icon-stock' ? <DatabaseOutlined /> :
-                     menu.icon === 'icon-import' ? <ImportOutlined /> :
-                     menu.icon === 'icon-collection' ? <DownloadOutlined /> :
-                     menu.icon === 'icon-quality' ? <InfoCircleOutlined /> :
-                     menu.icon === 'icon-visualization' ? <BarChartOutlined /> :
-                     menu.icon === 'icon-asset-pool' ? <PlusOutlined /> : <SettingOutlined />
-            }))}
-          />
-        </Sider>
-
-        {/* 主内容区域 */}
-        <Content className="data-management-main">
-          {/* 加密货币数据 */}
-          {selectedTab === 'crypto' && (
+      {/* 加密货币数据 */}
+      {selectedTab === 'crypto' && (
             <div className="data-panel">
               <h2>加密货币数据</h2>
               <div className="data-section">
@@ -1187,6 +1176,13 @@ const DataManagement = () => {
             </div>
           )}
 
+          {/* 数据质量 */}
+          {selectedTab === 'quality' && (
+            <div className="data-panel">
+              <DataQuality systemConfig={systemConfig} />
+            </div>
+          )}
+
           {/* 数据可视化 */}
           {selectedTab === 'visualization' && (
             <div className="data-panel">
@@ -1319,9 +1315,7 @@ const DataManagement = () => {
               {successMessage}
             </div>
           )}
-        </Content>
-      </Layout>
-    </Layout>
+    </div>
   );
 };
 

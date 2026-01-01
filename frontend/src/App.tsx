@@ -85,6 +85,10 @@ const App = () => {
           {
             path: '/data-management',
             name: '数据管理'
+          },
+          {
+            path: '/scheduled-tasks',
+            name: '定时任务'
           }
         ]
       }

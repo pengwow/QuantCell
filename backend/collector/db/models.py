@@ -3,12 +3,14 @@ from typing import Any, Dict, Optional
 
 import sqlalchemy
 from loguru import logger
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, func, text
+from sqlalchemy import Boolean, Column, DateTime, Integer, Identity, String, Text, func, text
 from sqlalchemy.orm import Session
 
 from .database import Base
 
 # SQLAlchemy模型定义
+
+from datetime import datetime
 
 class SystemConfig(Base):
     """系统配置SQLAlchemy模型
@@ -54,7 +56,7 @@ class Feature(Base):
     """
     __tablename__ = "features"
     
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     feature_name = Column(String, nullable=False, index=True)
     freq = Column(String, nullable=False, index=True)
@@ -69,7 +71,7 @@ class DataPool(Base):
     """
     __tablename__ = "data_pools"
     
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
     name = Column(String, nullable=False, index=True)
     type = Column(String, nullable=True, index=True)
     description = Column(Text, nullable=True)
@@ -93,7 +95,7 @@ class DataPoolAsset(Base):
     """
     __tablename__ = "data_pool_assets"
     
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
     pool_id = Column(Integer, nullable=False, index=True)
     asset_id = Column(String, nullable=False, index=True)
     asset_type = Column(String, nullable=False, index=True)
@@ -108,9 +110,8 @@ class CryptoSymbol(Base):
     """
     __tablename__ = "crypto_symbols"
     
-    # DuckDB使用INTEGER类型结合PRIMARY KEY来实现自增主键
-    # 移除autoincrement=True，避免SQLAlchemy生成SERIAL类型
-    id = Column(Integer, primary_key=True, index=True)
+    # 使用Identity约束实现自增主键，兼容SQLite和DuckDB
+    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     base = Column(String, nullable=False, index=True)
     quote = Column(String, nullable=False, index=True)
@@ -129,14 +130,14 @@ class CryptoSymbol(Base):
     )
 
 
-class Kline(Base):
-    """K线数据SQLAlchemy模型
+class CryptoSpotKline(Base):
+    """加密货币现货K线数据SQLAlchemy模型
     
-    对应klines表的SQLAlchemy模型定义，用于存储K线数据
+    对应crypto_spot_klines表的SQLAlchemy模型定义，用于存储加密货币现货K线数据
     """
-    __tablename__ = "klines"
+    __tablename__ = "crypto_spot_klines"
     
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False, index=True)
@@ -148,6 +149,106 @@ class Kline(Base):
     unique_kline = Column(String, nullable=False, unique=True, index=True)  # 唯一标识符
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+
+class CryptoFutureKline(Base):
+    """加密货币合约K线数据SQLAlchemy模型
+    
+    对应crypto_future_klines表的SQLAlchemy模型定义，用于存储加密货币合约K线数据
+    """
+    __tablename__ = "crypto_future_klines"
+    
+    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
+    symbol = Column(String, nullable=False, index=True)
+    interval = Column(String, nullable=False, index=True)
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+    open = Column(String, nullable=False)  # 使用字符串避免精度问题
+    high = Column(String, nullable=False)  # 使用字符串避免精度问题
+    low = Column(String, nullable=False)  # 使用字符串避免精度问题
+    close = Column(String, nullable=False)  # 使用字符串避免精度问题
+    volume = Column(String, nullable=False)  # 使用字符串避免精度问题
+    unique_kline = Column(String, nullable=False, unique=True, index=True)  # 唯一标识符
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+
+class StockKline(Base):
+    """股票K线数据SQLAlchemy模型
+    
+    对应stock_klines表的SQLAlchemy模型定义，用于存储股票K线数据
+    """
+    __tablename__ = "stock_klines"
+    
+    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
+    symbol = Column(String, nullable=False, index=True)
+    interval = Column(String, nullable=False, index=True)
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+    open = Column(String, nullable=False)  # 使用字符串避免精度问题
+    high = Column(String, nullable=False)  # 使用字符串避免精度问题
+    low = Column(String, nullable=False)  # 使用字符串避免精度问题
+    close = Column(String, nullable=False)  # 使用字符串避免精度问题
+    volume = Column(String, nullable=False)  # 使用字符串避免精度问题
+    unique_kline = Column(String, nullable=False, unique=True, index=True)  # 唯一标识符
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+
+class ScheduledTask(Base):
+    """定时任务SQLAlchemy模型
+    
+    对应scheduled_tasks表的SQLAlchemy模型定义，用于存储定时任务配置
+    """
+    __tablename__ = "scheduled_tasks"
+    
+    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    task_type = Column(String, nullable=False, default="download_crypto")
+    status = Column(String, nullable=False, default="pending")  # pending, running, completed, failed, paused
+    
+    # 调度配置
+    cron_expression = Column(String, nullable=True)  # CRON表达式
+    interval = Column(String, nullable=True)  # 时间间隔，如1h, 1d, 1w
+    start_time = Column(DateTime(timezone=True), nullable=True)  # 开始执行时间
+    end_time = Column(DateTime(timezone=True), nullable=True)  # 结束执行时间
+    frequency_type = Column(String, nullable=True)  # 频率类型：hourly, daily, weekly, monthly, cron
+    
+    # 数据采集配置
+    symbols = Column(Text, nullable=True)  # JSON字符串，存储交易对列表
+    exchange = Column(String, nullable=True)
+    candle_type = Column(String, nullable=True, default="spot")
+    save_dir = Column(String, nullable=True)
+    max_workers = Column(Integer, nullable=True, default=1)
+    
+    # 执行状态
+    last_run_time = Column(DateTime(timezone=True), nullable=True)  # 上次执行时间
+    next_run_time = Column(DateTime(timezone=True), nullable=True)  # 下次执行时间
+    last_result = Column(String, nullable=True)  # 上次执行结果
+    error_message = Column(Text, nullable=True)  # 错误信息
+    run_count = Column(Integer, default=0)  # 执行次数
+    success_count = Column(Integer, default=0)  # 成功次数
+    fail_count = Column(Integer, default=0)  # 失败次数
+    
+    # 增量采集配置
+    incremental_enabled = Column(Boolean, default=True)  # 是否启用增量采集
+    last_collected_date = Column(DateTime(timezone=True), nullable=True)  # 上次采集日期
+    
+    # 通知配置
+    notification_enabled = Column(Boolean, default=False)  # 是否启用通知
+    notification_type = Column(String, nullable=True)  # 通知类型：email, webhook
+    notification_email = Column(String, nullable=True)  # 通知邮箱
+    notification_webhook = Column(String, nullable=True)  # 通知Webhook
+    
+    # 元数据
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+    created_by = Column(String, nullable=True, default="system")  # 创建者
+    
+    __table_args__ = (
+        # 添加索引，提高查询性能
+        sqlalchemy.Index('idx_scheduled_tasks_status', 'status'),
+        sqlalchemy.Index('idx_scheduled_tasks_next_run_time', 'next_run_time'),
+    )
 
 
 # 业务逻辑类
@@ -1169,5 +1270,473 @@ class DataPoolBusiness:
         except Exception as e:
             logger.error(f"获取资产池资产列表失败: pool_id={pool_id}, error={e}")
             return []
+        finally:
+            db.close()
+
+
+class ScheduledTaskBusiness:
+    """定时任务模型类
+    
+    用于操作scheduled_tasks表，提供CRUD操作方法
+    """
+    
+    @staticmethod
+    def create(
+        name: str,
+        description: str = "",
+        task_type: str = "download_crypto",
+        cron_expression: Optional[str] = None,
+        interval: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        frequency_type: Optional[str] = None,
+        symbols: Optional[list] = None,
+        exchange: Optional[str] = None,
+        candle_type: str = "spot",
+        save_dir: Optional[str] = None,
+        max_workers: int = 1,
+        incremental_enabled: bool = True,
+        notification_enabled: bool = False,
+        notification_type: Optional[str] = None,
+        notification_email: Optional[str] = None,
+        notification_webhook: Optional[str] = None,
+        created_by: str = "system"
+    ) -> Optional[int]:
+        """
+        创建定时任务
+        
+        Args:
+            name: 任务名称
+            description: 任务描述
+            task_type: 任务类型
+            cron_expression: CRON表达式
+            interval: 时间间隔
+            start_time: 开始执行时间
+            end_time: 结束执行时间
+            frequency_type: 频率类型
+            symbols: 交易对列表
+            exchange: 交易所
+            candle_type: 蜡烛图类型
+            save_dir: 保存目录
+            max_workers: 最大工作线程数
+            incremental_enabled: 是否启用增量采集
+            notification_enabled: 是否启用通知
+            notification_type: 通知类型
+            notification_email: 通知邮箱
+            notification_webhook: 通知Webhook
+            created_by: 创建者
+            
+        Returns:
+            Optional[int]: 创建成功返回任务ID，失败返回None
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            # 获取当前最大id值，手动生成新id
+            max_id_result = db.query(func.max(ScheduledTask.id)).first()
+            new_id = (max_id_result[0] + 1) if max_id_result[0] is not None else 1
+            
+            # 创建定时任务
+            task = ScheduledTask(
+                id=new_id,
+                name=name,
+                description=description,
+                task_type=task_type,
+                status="pending",
+                cron_expression=cron_expression,
+                interval=interval,
+                start_time=start_time,
+                end_time=end_time,
+                frequency_type=frequency_type,
+                symbols=json.dumps(symbols) if symbols else None,
+                exchange=exchange,
+                candle_type=candle_type,
+                save_dir=save_dir,
+                max_workers=max_workers,
+                incremental_enabled=incremental_enabled,
+                notification_enabled=notification_enabled,
+                notification_type=notification_type,
+                notification_email=notification_email,
+                notification_webhook=notification_webhook,
+                created_by=created_by
+            )
+            db.add(task)
+            db.commit()
+            db.refresh(task)
+            
+            logger.info(f"定时任务已创建: id={task.id}, name={name}")
+            return task.id
+        except Exception as e:
+            db.rollback()
+            logger.error(f"创建定时任务失败: name={name}, error={e}")
+            return None
+        finally:
+            db.close()
+    
+    @staticmethod
+    def get(task_id: int) -> Optional[Dict[str, Any]]:
+        """
+        获取定时任务详情
+        
+        Args:
+            task_id: 任务ID
+            
+        Returns:
+            Optional[Dict[str, Any]]: 任务详情，如果不存在则返回None
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            task = db.query(ScheduledTask).filter_by(id=task_id).first()
+            if not task:
+                return None
+            
+            return {
+                "id": task.id,
+                "name": task.name,
+                "description": task.description,
+                "task_type": task.task_type,
+                "status": task.status,
+                "cron_expression": task.cron_expression,
+                "interval": task.interval,
+                "start_time": task.start_time,
+                "end_time": task.end_time,
+                "frequency_type": task.frequency_type,
+                "symbols": json.loads(task.symbols) if task.symbols else [],
+                "exchange": task.exchange,
+                "candle_type": task.candle_type,
+                "save_dir": task.save_dir,
+                "max_workers": task.max_workers,
+                "incremental_enabled": task.incremental_enabled,
+                "last_collected_date": task.last_collected_date,
+                "notification_enabled": task.notification_enabled,
+                "notification_type": task.notification_type,
+                "notification_email": task.notification_email,
+                "notification_webhook": task.notification_webhook,
+                "last_run_time": task.last_run_time,
+                "next_run_time": task.next_run_time,
+                "last_result": task.last_result,
+                "error_message": task.error_message,
+                "run_count": task.run_count,
+                "success_count": task.success_count,
+                "fail_count": task.fail_count,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
+                "created_by": task.created_by
+            }
+        except Exception as e:
+            logger.error(f"获取定时任务失败: task_id={task_id}, error={e}")
+            return None
+        finally:
+            db.close()
+    
+    @staticmethod
+    def get_all(filters: dict = None) -> Dict[str, Dict[str, Any]]:
+        """
+        获取所有定时任务
+        
+        Args:
+            filters: 过滤条件
+            
+        Returns:
+            Dict[str, Dict[str, Any]]: 所有定时任务，键为任务ID
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            query = db.query(ScheduledTask)
+            
+            # 应用过滤条件
+            if filters:
+                # 状态过滤，支持单个状态值或状态列表
+                if "status" in filters and filters["status"]:
+                    status = filters["status"]
+                    if isinstance(status, list):
+                        # 如果是列表，使用 in_ 操作符
+                        query = query.filter(ScheduledTask.status.in_(status))
+                    else:
+                        # 否则使用相等比较
+                        query = query.filter(ScheduledTask.status == status)
+                
+                # 任务类型过滤，支持单个任务类型或任务类型列表
+                if "task_type" in filters and filters["task_type"]:
+                    task_type = filters["task_type"]
+                    if isinstance(task_type, list):
+                        # 如果是列表，使用 in_ 操作符
+                        query = query.filter(ScheduledTask.task_type.in_(task_type))
+                    else:
+                        # 否则使用相等比较
+                        query = query.filter(ScheduledTask.task_type == task_type)
+            
+            tasks = query.all()
+            result = {}
+            
+            for task in tasks:
+                result[task.id] = {
+                    "id": task.id,
+                    "name": task.name,
+                    "description": task.description,
+                    "task_type": task.task_type,
+                    "status": task.status,
+                    "cron_expression": task.cron_expression,
+                    "interval": task.interval,
+                    "start_time": task.start_time,
+                    "end_time": task.end_time,
+                    "frequency_type": task.frequency_type,
+                    "symbols": json.loads(task.symbols) if task.symbols else [],
+                    "exchange": task.exchange,
+                    "candle_type": task.candle_type,
+                    "save_dir": task.save_dir,
+                    "max_workers": task.max_workers,
+                    "incremental_enabled": task.incremental_enabled,
+                    "last_collected_date": task.last_collected_date,
+                    "notification_enabled": task.notification_enabled,
+                    "notification_type": task.notification_type,
+                    "notification_email": task.notification_email,
+                    "notification_webhook": task.notification_webhook,
+                    "last_run_time": task.last_run_time,
+                    "next_run_time": task.next_run_time,
+                    "last_result": task.last_result,
+                    "error_message": task.error_message,
+                    "run_count": task.run_count,
+                    "success_count": task.success_count,
+                    "fail_count": task.fail_count,
+                    "created_at": task.created_at,
+                    "updated_at": task.updated_at,
+                    "created_by": task.created_by
+                }
+            
+            return result
+        except Exception as e:
+            logger.error(f"获取所有定时任务失败: error={e}")
+            return {}
+        finally:
+            db.close()
+    
+    @staticmethod
+    def update(
+        task_id: int,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        status: Optional[str] = None,
+        cron_expression: Optional[str] = None,
+        interval: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        frequency_type: Optional[str] = None,
+        symbols: Optional[list] = None,
+        exchange: Optional[str] = None,
+        candle_type: Optional[str] = None,
+        save_dir: Optional[str] = None,
+        max_workers: Optional[int] = None,
+        incremental_enabled: Optional[bool] = None,
+        notification_enabled: Optional[bool] = None,
+        notification_type: Optional[str] = None,
+        notification_email: Optional[str] = None,
+        notification_webhook: Optional[str] = None,
+        # 添加缺失的参数
+        last_run_time: Optional[datetime] = None,
+        next_run_time: Optional[datetime] = None,
+        last_result: Optional[str] = None,
+        error_message: Optional[str] = None,
+        run_count: Optional[int] = None,
+        success_count: Optional[int] = None,
+        fail_count: Optional[int] = None,
+        last_collected_date: Optional[datetime] = None
+    ) -> bool:
+        """
+        更新定时任务
+        
+        Args:
+            task_id: 任务ID
+            name: 任务名称
+            description: 任务描述
+            status: 任务状态
+            cron_expression: CRON表达式
+            interval: 时间间隔
+            start_time: 开始执行时间
+            end_time: 结束执行时间
+            frequency_type: 频率类型
+            symbols: 交易对列表
+            exchange: 交易所
+            candle_type: 蜡烛图类型
+            save_dir: 保存目录
+            max_workers: 最大工作线程数
+            incremental_enabled: 是否启用增量采集
+            notification_enabled: 是否启用通知
+            notification_type: 通知类型
+            notification_email: 通知邮箱
+            notification_webhook: 通知Webhook
+            
+        Returns:
+            bool: 更新成功返回True，失败返回False
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            task = db.query(ScheduledTask).filter_by(id=task_id).first()
+            if not task:
+                logger.error(f"定时任务不存在: task_id={task_id}")
+                return False
+            
+            # 更新字段
+            if name is not None:
+                task.name = name
+            if description is not None:
+                task.description = description
+            if status is not None:
+                task.status = status
+            if cron_expression is not None:
+                task.cron_expression = cron_expression
+            if interval is not None:
+                task.interval = interval
+            if start_time is not None:
+                task.start_time = start_time
+            if end_time is not None:
+                task.end_time = end_time
+            if frequency_type is not None:
+                task.frequency_type = frequency_type
+            if symbols is not None:
+                task.symbols = json.dumps(symbols)
+            if exchange is not None:
+                task.exchange = exchange
+            if candle_type is not None:
+                task.candle_type = candle_type
+            if save_dir is not None:
+                task.save_dir = save_dir
+            if max_workers is not None:
+                task.max_workers = max_workers
+            if incremental_enabled is not None:
+                task.incremental_enabled = incremental_enabled
+            if notification_enabled is not None:
+                task.notification_enabled = notification_enabled
+            if notification_type is not None:
+                task.notification_type = notification_type
+            if notification_email is not None:
+                task.notification_email = notification_email
+            if notification_webhook is not None:
+                task.notification_webhook = notification_webhook
+            # 处理新增的参数
+            if last_run_time is not None:
+                task.last_run_time = last_run_time
+            if next_run_time is not None:
+                task.next_run_time = next_run_time
+            if last_result is not None:
+                task.last_result = last_result
+            if error_message is not None:
+                task.error_message = error_message
+            if run_count is not None:
+                task.run_count = run_count
+            if success_count is not None:
+                task.success_count = success_count
+            if fail_count is not None:
+                task.fail_count = fail_count
+            if last_collected_date is not None:
+                task.last_collected_date = last_collected_date
+            
+            db.commit()
+            logger.info(f"定时任务已更新: task_id={task_id}, name={task.name}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"更新定时任务失败: task_id={task_id}, error={e}")
+            return False
+        finally:
+            db.close()
+    
+    @staticmethod
+    def delete(task_id: int) -> bool:
+        """
+        删除定时任务
+        
+        Args:
+            task_id: 任务ID
+            
+        Returns:
+            bool: 删除成功返回True，失败返回False
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            task = db.query(ScheduledTask).filter_by(id=task_id).first()
+            if task:
+                db.delete(task)
+                db.commit()
+                logger.info(f"定时任务已删除: task_id={task_id}, name={task.name}")
+            
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"删除定时任务失败: task_id={task_id}, error={e}")
+            return False
+        finally:
+            db.close()
+    
+    @staticmethod
+    def update_execution_status(
+        task_id: int,
+        status: str,
+        last_result: Optional[str] = None,
+        error_message: Optional[str] = None,
+        last_run_time: Optional[datetime] = None,
+        next_run_time: Optional[datetime] = None,
+        last_collected_date: Optional[datetime] = None
+    ) -> bool:
+        """
+        更新任务执行状态
+        
+        Args:
+            task_id: 任务ID
+            status: 任务状态
+            last_result: 上次执行结果
+            error_message: 错误信息
+            last_run_time: 上次执行时间
+            next_run_time: 下次执行时间
+            last_collected_date: 上次采集日期
+            
+        Returns:
+            bool: 更新成功返回True，失败返回False
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            task = db.query(ScheduledTask).filter_by(id=task_id).first()
+            if not task:
+                logger.error(f"定时任务不存在: task_id={task_id}")
+                return False
+            
+            # 更新执行状态
+            if status is not None:
+                task.status = status
+            if last_result is not None:
+                task.last_result = last_result
+            if error_message is not None:
+                task.error_message = error_message
+            if last_run_time is not None:
+                task.last_run_time = last_run_time
+                # 增加执行次数
+                task.run_count += 1
+                if last_result == "success":
+                    task.success_count += 1
+                elif last_result == "failed":
+                    task.fail_count += 1
+            if next_run_time is not None:
+                task.next_run_time = next_run_time
+            if last_collected_date is not None:
+                task.last_collected_date = last_collected_date
+            
+            db.commit()
+            logger.info(f"定时任务执行状态已更新: task_id={task_id}, status={status}, last_result={last_result}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"更新定时任务执行状态失败: task_id={task_id}, error={e}")
+            return False
         finally:
             db.close()

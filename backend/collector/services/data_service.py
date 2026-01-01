@@ -1040,7 +1040,7 @@ class DataService:
 
                     from backend.collector.db.database import (
                         SessionLocal, init_database_config)
-                    from backend.collector.db.models import Kline
+                    from backend.collector.db.models import CryptoSpotKline, CryptoFutureKline
 
                     # 初始化数据库配置
                     init_database_config()
@@ -1097,6 +1097,10 @@ class DataService:
                             logger.warning(f"没有有效数据可以写入数据库: {symbol}")
                             continue
                         
+                        # 根据candle_type选择对应的K线模型
+                        kline_model = CryptoSpotKline if request.candle_type == "spot" else CryptoFutureKline
+                        logger.info(f"使用K线模型: {kline_model.__tablename__}, candle_type: {request.candle_type}")
+                        
                         # 创建数据库会话
                         db = SessionLocal()
                         try:
@@ -1107,7 +1111,7 @@ class DataService:
                                 # SQLite使用on_conflict_do_update
                                 from sqlalchemy.dialects.sqlite import \
                                     insert as sqlite_insert
-                                stmt = sqlite_insert(Kline).values(kline_list)
+                                stmt = sqlite_insert(kline_model).values(kline_list)
                                 stmt = stmt.on_conflict_do_update(
                                     index_elements=['unique_kline'],
                                     set_={
@@ -1124,7 +1128,7 @@ class DataService:
                                 # DuckDB使用PostgreSQL兼容的ON CONFLICT语法
                                 from sqlalchemy.dialects.postgresql import \
                                     insert as pg_insert
-                                stmt = pg_insert(Kline).values(kline_list)
+                                stmt = pg_insert(kline_model).values(kline_list)
                                 stmt = stmt.on_conflict_do_update(
                                     index_elements=['unique_kline'],
                                     set_={
@@ -1142,7 +1146,7 @@ class DataService:
                                 raise ValueError(f"不支持的数据库类型: {db_type}")
                         
                             db.commit()
-                            logger.info(f"成功将 {len(kline_list)} 条 {symbol} 数据写入数据库")
+                            logger.info(f"成功将 {len(kline_list)} 条 {symbol} 数据写入 {kline_model.__tablename__} 表")
                         except Exception as e:
                             logger.error(f"写入数据库失败: {e}")
                             logger.exception(e)

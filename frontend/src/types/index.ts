@@ -161,3 +161,40 @@ export interface Asset {
   change: number;
   changePercent: number;
 }
+
+/**
+ * 定时任务类型定义
+ */
+export interface ScheduledTask {
+  id: number;
+  name: string;
+  description: string | null;
+  task_type: string;
+  status: string;
+  cron_expression: string | null;
+  interval: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  frequency_type: string;
+  symbols: string[] | null;
+  exchange: string | null;
+  candle_type: string;
+  save_dir: string | null;
+  max_workers: number;
+  incremental_enabled: boolean;
+  last_collected_date: string | null;
+  notification_enabled: boolean;
+  notification_type: string | null;
+  notification_email: string | null;
+  notification_webhook: string | null;
+  last_run_time: string | null;
+  next_run_time: string | null;
+  last_result: string | null;
+  error_message: string | null;
+  run_count: number;
+  success_count: number;
+  fail_count: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+}

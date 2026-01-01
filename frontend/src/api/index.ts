@@ -294,6 +294,15 @@ export const dataApi = {
   getProducts: (params?: any) => {
     return apiRequest.get('/data/products', params);
   },
+  
+  /**
+   * 检查K线数据质量
+   * @param params 查询参数，包括symbol、interval、start、end等
+   * @returns K线数据质量报告
+   */
+  checkKlineQuality: (params: any) => {
+    return apiRequest.get('/data/quality/kline', { params });
+  },
 };
 
 /**
@@ -387,6 +396,83 @@ export const assetPoolApi = {
    */
   addPoolAssets: (poolId: string, data: any) => {
     return apiRequest.post(`/data-pools/${poolId}/assets`, data);
+  },
+};
+
+/**
+ * 定时任务相关 API
+ */
+export const scheduledTaskApi = {
+  /**
+   * 获取定时任务列表
+   * @returns 定时任务列表数据
+   */
+  getTasks: () => {
+    return apiRequest.get('/scheduled-tasks');
+  },
+
+  /**
+   * 获取定时任务详情
+   * @param taskId 任务ID
+   * @returns 定时任务详情数据
+   */
+  getTask: (taskId: string) => {
+    return apiRequest.get(`/scheduled-tasks/${taskId}`);
+  },
+
+  /**
+   * 创建定时任务
+   * @param data 任务数据
+   * @returns 创建的任务数据
+   */
+  createTask: (data: any) => {
+    return apiRequest.post('/scheduled-tasks', data);
+  },
+
+  /**
+   * 更新定时任务
+   * @param taskId 任务ID
+   * @param data 任务数据
+   * @returns 更新后的任务数据
+   */
+  updateTask: (taskId: string, data: any) => {
+    return apiRequest.put(`/scheduled-tasks/${taskId}`, data);
+  },
+
+  /**
+   * 删除定时任务
+   * @param taskId 任务ID
+   * @returns 删除结果
+   */
+  deleteTask: (taskId: string) => {
+    return apiRequest.delete(`/scheduled-tasks/${taskId}`);
+  },
+
+  /**
+   * 运行定时任务
+   * @param taskId 任务ID
+   * @returns 运行结果
+   */
+  runTask: (taskId: string) => {
+    return apiRequest.post(`/scheduled-tasks/${taskId}/run`);
+  },
+
+  /**
+   * 暂停定时任务
+   * @param taskId 任务ID
+   * @returns 暂停结果
+   */
+  pauseTask: (taskId: string) => {
+    return apiRequest.post(`/scheduled-tasks/${taskId}/pause`);
+  },
+
+  /**
+   * 恢复定时任务
+   * @param taskId 任务ID
+   * @returns 恢复结果
+   */
+  resumeTask: (taskId: string) => {
+    return apiRequest.post(`/scheduled-tasks/${taskId}/resume`);
   },
 };
 

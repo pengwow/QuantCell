@@ -10,6 +10,8 @@ import FactorAnalysis from '../views/FactorAnalysis';
 import ModelManagement from '../views/ModelManagement';
 import BacktestResults from '../views/BacktestResults';
 import ChartPage from '../views/ChartPage';
+import ScheduledTasks from '../views/ScheduledTasks';
+import ScheduledTaskForm from '../views/ScheduledTasks/ScheduledTaskForm';
 
 // 导入插件管理器
 import { pluginManager } from '../plugins';
@@ -52,6 +54,18 @@ export const createRouter = () => {
         {
           path: '/chart',
           element: <ChartPage />
+        },
+        {
+          path: '/scheduled-tasks',
+          element: <ScheduledTasks />
+        },
+        {
+          path: '/scheduled-tasks/create',
+          element: <ScheduledTaskForm />
+        },
+        {
+          path: '/scheduled-tasks/edit/:id',
+          element: <ScheduledTaskForm />
         },
         // 默认重定向到策略代理页面
         {
