@@ -1,9 +1,12 @@
 # 数据服务类，处理数据相关的业务逻辑
-
+import os
+from pathlib import Path
 import json
 from datetime import datetime
+from math import log
 from typing import Any, Dict, List, Optional, Tuple
 
+import pandas as pd
 from loguru import logger
 from sqlalchemy.orm import Session
 
@@ -1029,12 +1032,15 @@ class DataService:
                 # 添加数据库写入功能
                 try:
                     logger.info(f"开始将 {interval} 数据写入数据库")
-                    
+                    # 获取当前项目根目录
+                    project_root = Path(__file__).parent.parent.parent
+                    logger.info(f"当前项目根目录: {project_root}")
+
                     # 构建数据目录路径
                     data_dir = Path(save_dir) / interval if save_dir else Path(get_data.default_save_dir) / interval
-                    
+                    data_dir = project_root / data_dir
+                    logger.info(f"数据目录: {data_dir}")
                     # 导入数据库相关模块
-                    import pandas as pd
                     from sqlalchemy import func, insert
                     from sqlalchemy.orm import Session
 
@@ -1069,10 +1075,10 @@ class DataService:
                         # 准备数据，确保只包含需要的列
                         kline_list = []
                         for _, row in df.iterrows():
-                            # 跳过无效行
-                            if pd.isna(row['date']) or pd.isna(row['open']) or pd.isna(row['high']) or pd.isna(row['low']) or pd.isna(row['close']) or pd.isna(row['volume']):
+                            # 跳过无效行 - 使用pandas Series的isna()方法检查相关字段
+                            if row[['date', 'open', 'high', 'low', 'close', 'volume']].isna().any(axis=None):
                                 continue
-                                
+                            
                             # 转换date列为datetime对象
                             date = row['date']
                             if isinstance(date, str):
@@ -1111,19 +1117,25 @@ class DataService:
                                 # SQLite使用on_conflict_do_update
                                 from sqlalchemy.dialects.sqlite import \
                                     insert as sqlite_insert
-                                stmt = sqlite_insert(kline_model).values(kline_list)
-                                stmt = stmt.on_conflict_do_update(
-                                    index_elements=['unique_kline'],
-                                    set_={
-                                        'open': stmt.excluded.open,
-                                        'high': stmt.excluded.high,
-                                        'low': stmt.excluded.low,
-                                        'close': stmt.excluded.close,
-                                        'volume': stmt.excluded.volume,
-                                        'updated_at': func.now()
-                                    }
-                                )
-                                db.execute(stmt)
+                                
+                                # 分批插入数据，避免SQLite变量数量超限
+                                batch_size = 100
+                                total_rows = len(kline_list)
+                                for i in range(0, total_rows, batch_size):
+                                    batch = kline_list[i:i+batch_size]
+                                    stmt = sqlite_insert(kline_model).values(batch)
+                                    stmt = stmt.on_conflict_do_update(
+                                        index_elements=['unique_kline'],
+                                        set_={
+                                            'open': stmt.excluded.open,
+                                            'high': stmt.excluded.high,
+                                            'low': stmt.excluded.low,
+                                            'close': stmt.excluded.close,
+                                            'volume': stmt.excluded.volume,
+                                            'updated_at': func.now()
+                                        }
+                                    )
+                                    db.execute(stmt)
                             elif db_type == "duckdb":
                                 # DuckDB使用PostgreSQL兼容的ON CONFLICT语法
                                 from sqlalchemy.dialects.postgresql import \

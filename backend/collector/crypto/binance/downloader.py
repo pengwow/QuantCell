@@ -103,9 +103,13 @@ class BinanceDownloader:
                     with zipfile.ZipFile(BytesIO(content)) as zipf:
                         filename = zipf.namelist()[0]
                         with zipf.open(filename) as csvf:
+                            # 读取整个CSV文件内容到BytesIO
+                            csv_content = BytesIO(csvf.read())
+                            csv_content.seek(0)
+                            
                             # 检查CSV文件是否有表头
-                            first_line = csvf.readline().decode('utf-8')
-                            csvf.seek(0)
+                            first_line = csv_content.readline().decode('utf-8')
+                            csv_content.seek(0)
                             
                             # 判断第一行是否为数字开头（无表头）
                             has_header = not first_line.strip()[0].isdigit()
@@ -114,9 +118,10 @@ class BinanceDownloader:
                             header = 0 if has_header else None
                             
                             # 读取CSV文件
+                            # 修复参数不匹配问题：将usecols转换为具体的索引列表
                             df = pd.read_csv(
-                                csvf,
-                                usecols=list(range(12)),
+                                csv_content,
+                                usecols=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
                                 names=self.candle_names,
                                 header=header
                             )

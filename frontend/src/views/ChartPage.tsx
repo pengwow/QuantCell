@@ -129,8 +129,8 @@ export default function ChartPage () {
   }, []);
   
   // 周期列表 - 分为常用和不常用
-  const commonPeriods = ['1m', '5m', '15m', '1H', '4H', 'D'] // 常用周期
-  const morePeriods = ['2H', 'W', 'M', 'Y'] // 不常用周期
+  const commonPeriods = ['1m', '5m', '15m', '1H', '4H', '1D'] // 常用周期
+  const morePeriods = ['2H', '1W', '1M', '1Y'] // 不常用周期
   
   // 获取K线数据的函数
   const fetchKlineData = async () => {

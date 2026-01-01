@@ -19,3 +19,4 @@ frontend/test_data/*
 data/source/*
 backend/.DS_Store
 */.DS_Store
+.DS_Store

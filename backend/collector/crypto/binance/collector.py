@@ -253,7 +253,10 @@ class BinanceCollector(CryptoBaseCollector):
             filtered_df.columns = ['date', 'open', 'high', 'low', 'close', 'volume']
             
             # 8. 过滤时间范围
-            filtered_df = filtered_df[(filtered_df['date'] >= start_datetime) & (filtered_df['date'] <= end_datetime)]
+            # 将带时区的Timestamp转换为不带时区的datetime64[ns]类型，确保类型匹配
+            start_dt_naive = start_datetime.tz_localize(None)
+            end_dt_naive = end_datetime.tz_localize(None)
+            filtered_df = filtered_df[(filtered_df['date'] >= start_dt_naive) & (filtered_df['date'] <= end_dt_naive)]
             
             logger.info(f"成功下载 {symbol} {interval} 数据，共 {len(filtered_df)} 条")
             return filtered_df
