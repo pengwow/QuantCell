@@ -1299,10 +1299,10 @@ const DataManagement = () => {
           )}
 
           {/* 资产池管理 */}
-          {selectedTab === 'asset-pools' && (
-            <div className="data-panel">
-              {/* <h2>资产池管理</h2> */}
-              <div className="data-section">
+      {selectedTab === 'asset-pools' && (
+        <div className="data-panel">
+          {/* <h2>资产池管理</h2> */}
+          <div className="data-section">
                 {/* 资产池管理组件 */}
                 <AssetPoolManager />
               </div>

@@ -909,6 +909,13 @@ export default function ChartPage () {
           padding-top: 0 !important;
         }
         
+        /* 图表页面主容器 - 添加滚动条 */
+        .chart-page-container {
+          height: 100vh;
+          overflow-y: auto;
+          overflow-x: hidden;
+        }
+        
         /* 图表加载状态 */
         .chart-loading {
           position: absolute;
