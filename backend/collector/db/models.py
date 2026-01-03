@@ -1054,7 +1054,8 @@ class DataPoolBusiness:
     
     @staticmethod
     def add_assets(pool_id: int, assets: list, asset_type: str) -> bool:
-        """批量向资产池添加资产
+        """
+        批量向资产池添加资产
         
         Args:
             pool_id: 资产池ID
@@ -1078,23 +1079,18 @@ class DataPoolBusiness:
             # 这样可以确保资产池内的资产数量正确
             db.query(DataPoolAsset).filter_by(pool_id=pool_id).delete()
             
-            # 批量添加资产
-            max_id = db.query(func.max(DataPoolAsset.id)).scalar() or 0
+            # 批量添加资产，使用ORM方式
+            pool_assets = []
             for asset_id in assets:
-                # 手动计算id值
-                max_id += 1
-                
-                # 直接执行INSERT语句，显式指定所有字段
-                db.execute(
-                    text("INSERT INTO data_pool_assets (id, pool_id, asset_id, asset_type, created_at, updated_at) VALUES (:id, :pool_id, :asset_id, :asset_type, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"),
-                    {
-                        "id": max_id,
-                        "pool_id": pool_id,
-                        "asset_id": asset_id,
-                        "asset_type": asset_type
-                    }
+                pool_asset = DataPoolAsset(
+                    pool_id=pool_id,
+                    asset_id=asset_id,
+                    asset_type=asset_type
                 )
+                pool_assets.append(pool_asset)
             
+            # 批量添加到会话
+            db.add_all(pool_assets)
             db.commit()
             logger.info(f"批量更新资产池资产成功: pool_id={pool_id}, asset_count={len(assets)}")
             return True

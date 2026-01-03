@@ -358,6 +358,13 @@ const AssetPoolManager = () => {
     },
   ];
 
+  // 处理模态框关闭
+  const handleModalCancel = () => {
+    setModalVisible(false);
+    setCurrentPool(null);
+    setSelectedSymbols([]);
+  };
+
   return (
     <div className="asset-pool-manager">
       <div className="asset-pool-header">
@@ -390,13 +397,13 @@ const AssetPoolManager = () => {
         title={modalTitle}
         open={modalVisible}
         footer={null}
-        onCancel={() => setModalVisible(false)}
+        onCancel={handleModalCancel}
         width={1000}
       >
         <AssetPoolForm
           initialData={currentPool || { name: '', description: '' }}
           onSubmit={currentPool ? handleEditPool : handleCreatePool}
-          onCancel={() => setModalVisible(false)}
+          onCancel={handleModalCancel}
           // 资产池名称列表，用于前端校验
           assetPoolNames={assetPools.map(pool => pool.name)}
           // 资产相关属性

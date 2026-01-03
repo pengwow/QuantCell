@@ -3,8 +3,8 @@
  * 功能：用于创建和编辑资产池的表单
  * @param props 组件属性
  */
-import { Form, Input, Button, Space, Transfer, Spin } from 'antd';
 import { useEffect } from 'react';
+import { Form, Input, Button, Space, Transfer, Spin } from 'antd';
 
 interface AssetPoolFormProps {
   initialData?: {
@@ -48,12 +48,14 @@ const AssetPoolForm = (props: AssetPoolFormProps) => {
   
   const [form] = Form.useForm();
 
-  // 监听initialData变化，更新表单值
+  // 监听initialData变化，动态更新表单值
   useEffect(() => {
-    form.setFieldsValue({
-      name: initialData.name,
-      description: initialData.description
-    });
+    if (initialData) {
+      form.setFieldsValue({
+        name: initialData.name,
+        description: initialData.description
+      });
+    }
   }, [initialData, form]);
 
   const handleSubmit = (values: { name: string; description: string }) => {

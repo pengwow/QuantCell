@@ -195,6 +195,12 @@ def init_db():
         Base.metadata.create_all(bind=engine)
         logger.info("数据库表创建成功")
         
+        # 运行数据库迁移脚本，更新表结构
+        logger.info("运行数据库迁移脚本...")
+        from .migrations import run_migrations
+        run_migrations()
+        logger.info("数据库迁移脚本执行成功")
+        
         # 验证表是否存在
         logger.info("验证表是否存在...")
         
