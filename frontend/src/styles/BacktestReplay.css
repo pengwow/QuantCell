@@ -1,0 +1,278 @@
+/**
+ * 回测回放页面样式
+ */
+.backtest-replay-container {
+  padding: 20px;
+  background-color: #f0f2f5;
+  min-height: 100vh;
+}
+
+.backtest-replay-container h1 {
+  margin-bottom: 20px;
+  color: #1f2937;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+/* 图表容器 */
+.chart-container {
+  width: 100%;
+  height: 600px;
+  background-color: #18191d;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.chart {
+  width: 100%;
+  height: 100%;
+}
+
+/* 回放控制面板 */
+.replay-controls {
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 控制按钮 */
+.control-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.control-buttons .btn {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s;
+  border: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn-primary {
+  background-color: #4a6cf7;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background-color: #3a5bde;
+}
+
+.btn-primary.active {
+  background-color: #2a4adf;
+}
+
+.btn-secondary {
+  background-color: #f3f4f6;
+  color: #374151;
+}
+
+.btn-secondary:hover {
+  background-color: #e5e7eb;
+}
+
+/* 进度条 */
+.progress-control {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background-color: #e5e7eb;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.progress-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: #4a6cf7;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.progress-bar::-webkit-slider-thumb:hover {
+  background-color: #3a5bde;
+  transform: scale(1.2);
+}
+
+.progress-bar::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: #4a6cf7;
+  cursor: pointer;
+  border: none;
+  transition: all 0.3s;
+}
+
+.progress-bar::-moz-range-thumb:hover {
+  background-color: #3a5bde;
+  transform: scale(1.2);
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.progress-text {
+  font-weight: 500;
+}
+
+.progress-percentage {
+  font-weight: 600;
+  color: #4a6cf7;
+}
+
+/* 速度控制 */
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.speed-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+}
+
+.speed-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.speed-buttons .btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s;
+  border: none;
+}
+
+/* 回放信息 */
+.replay-info {
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  display: flex;
+  gap: 30px;
+  flex-wrap: wrap;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.info-item .label {
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.info-item .value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+/* 加载和错误状态 */
+.loading-container,
+.error-container,
+.empty-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.loading {
+  font-size: 16px;
+  color: #4a6cf7;
+  font-weight: 500;
+}
+
+.error {
+  font-size: 16px;
+  color: #ef4444;
+  font-weight: 500;
+  margin-bottom: 20px;
+}
+
+.empty {
+  font-size: 16px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .backtest-replay-container {
+    padding: 10px;
+  }
+
+  .chart-container {
+    height: 400px;
+  }
+
+  .replay-controls {
+    padding: 15px;
+  }
+
+  .control-buttons {
+    flex-direction: column;
+  }
+
+  .speed-control {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 15px;
+  }
+
+  .speed-buttons {
+    justify-content: center;
+  }
+
+  .replay-info {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .info-item {
+    align-items: center;
+  }
+}

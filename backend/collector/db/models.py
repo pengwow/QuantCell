@@ -251,6 +251,60 @@ class ScheduledTask(Base):
     )
 
 
+class BacktestTask(Base):
+    """回测任务SQLAlchemy模型
+    
+    对应backtest_tasks表的SQLAlchemy模型定义，用于存储回测任务信息
+    """
+    __tablename__ = "backtest_tasks"
+    
+    id = Column(String, primary_key=True, index=True)  # 任务唯一标识
+    strategy_name = Column(String, nullable=False, index=True)  # 策略名称
+    backtest_config = Column(Text, nullable=False)  # JSON格式，回测配置
+    status = Column(String, nullable=False, default="pending", index=True)  # 任务状态: pending/running/completed/failed
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)  # 创建时间
+    started_at = Column(DateTime(timezone=True), nullable=True)  # 开始执行时间
+    completed_at = Column(DateTime(timezone=True), nullable=True)  # 完成时间
+    result_id = Column(String, nullable=True)  # 关联的回测结果ID
+
+
+class BacktestResult(Base):
+    """回测结果SQLAlchemy模型
+    
+    对应backtest_results表的SQLAlchemy模型定义，用于存储回测结果信息
+    """
+    __tablename__ = "backtest_results"
+    
+    id = Column(String, primary_key=True, index=True)  # 结果唯一标识
+    task_id = Column(String, nullable=False, index=True)  # 关联的回测任务ID
+    strategy_name = Column(String, nullable=False, index=True)  # 策略名称
+    metrics = Column(Text, nullable=False)  # JSON格式，包含翻译后的指标
+    trades = Column(Text, nullable=False)  # JSON格式，交易记录
+    equity_curve = Column(Text, nullable=False)  # JSON格式，资金曲线
+    strategy_data = Column(Text, nullable=False)  # JSON格式，策略数据
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)  # 创建时间
+    
+    # 添加外键约束
+    __table_args__ = (
+        sqlalchemy.ForeignKeyConstraint(['task_id'], ['backtest_tasks.id']),
+    )
+
+
+class Strategy(Base):
+    """策略SQLAlchemy模型
+    
+    对应strategies表的SQLAlchemy模型定义，用于存储策略信息
+    """
+    __tablename__ = "strategies"
+    
+    name = Column(String, primary_key=True, index=True)  # 策略名称
+    filename = Column(String, nullable=False)  # 策略文件名
+    description = Column(Text, nullable=True)  # 策略描述
+    parameters = Column(Text, nullable=True)  # JSON格式，策略参数定义
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())  # 更新时间
+
+
 # 业务逻辑类
 
 class SystemConfigBusiness:

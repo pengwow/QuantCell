@@ -476,4 +476,88 @@ export const scheduledTaskApi = {
   },
 };
 
+/**
+ * 回测相关 API
+ */
+export const backtestApi = {
+  /**
+   * 获取回测结果列表
+   * @returns 回测结果列表数据
+   */
+  getBacktestList: () => {
+    return apiRequest.get('/backtest/list');
+  },
+
+  /**
+   * 获取策略列表
+   * @returns 策略列表数据
+   */
+  getStrategies: () => {
+    return apiRequest.get('/backtest/strategies');
+  },
+
+  /**
+   * 执行回测
+   * @param data 回测数据，包括策略配置和回测配置
+   * @returns 回测结果数据
+   */
+  runBacktest: (data: any) => {
+    return apiRequest.post('/backtest/run', data);
+  },
+
+  /**
+   * 分析回测结果
+   * @param backtestId 回测ID
+   * @returns 回测分析结果
+   */
+  analyzeBacktest: (backtestId: string) => {
+    return apiRequest.post('/backtest/analyze', { backtest_id: backtestId });
+  },
+
+  /**
+   * 获取回测结果详情
+   * @param backtestId 回测ID
+   * @returns 回测结果详情
+   */
+  getBacktestDetail: (backtestId: string) => {
+    return apiRequest.get(`/backtest/${backtestId}`);
+  },
+
+  /**
+   * 删除回测结果
+   * @param backtestId 回测ID
+   * @returns 删除结果
+   */
+  deleteBacktest: (backtestId: string) => {
+    return apiRequest.delete(`/backtest/delete/${backtestId}`);
+  },
+
+  /**
+   * 上传策略文件
+   * @param data 策略文件数据，包括策略名称和文件内容
+   * @returns 上传结果
+   */
+  uploadStrategy: (data: any) => {
+    return apiRequest.post('/backtest/strategy', data);
+  },
+
+  /**
+   * 创建策略配置
+   * @param data 策略配置数据，包括策略名称和参数
+   * @returns 创建的策略配置
+   */
+  createStrategyConfig: (data: any) => {
+    return apiRequest.post('/backtest/strategy/config', data);
+  },
+
+  /**
+   * 获取回测回放数据
+   * @param backtestId 回测ID
+   * @returns 回放数据
+   */
+  getReplayData: (backtestId: string) => {
+    return apiRequest.get(`/backtest/${backtestId}/replay`);
+  },
+};
+
 export default api;

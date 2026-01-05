@@ -7,8 +7,8 @@ from loguru import logger
 
 from .schemas import (ApiResponse, BacktestAnalyzeRequest,
                       BacktestDeleteRequest, BacktestListRequest,
-                      BacktestRunRequest, ExecutorConfigRequest,
-                      StrategyConfigRequest)
+                      BacktestRunRequest, StrategyConfigRequest,
+                      StrategyUploadRequest, BacktestReplayRequest)
 from .service import BacktestService
 
 # 创建API路由实例
@@ -79,7 +79,7 @@ def run_backtest(request: BacktestRunRequest):
     执行回测
     
     Args:
-        request: 回测执行请求参数，包含策略配置、执行器配置和回测配置
+        request: 回测执行请求参数，包含策略配置和回测配置
         
     Returns:
         ApiResponse: API响应，包含回测结果
@@ -90,7 +90,6 @@ def run_backtest(request: BacktestRunRequest):
         # 执行回测
         result = backtest_service.run_backtest(
             strategy_config=request.strategy_config,
-            executor_config=request.executor_config,
             backtest_config=request.backtest_config
         )
         
@@ -112,16 +111,16 @@ def analyze_backtest(request: BacktestAnalyzeRequest):
     分析回测结果
     
     Args:
-        request: 回测分析请求参数，包含回测名称
+        request: 回测分析请求参数，包含回测ID
         
     Returns:
         ApiResponse: API响应，包含回测分析结果
     """
     try:
-        logger.info(f"分析回测结果请求，回测名称: {request.backtest_name}")
+        logger.info(f"分析回测结果请求，回测ID: {request.backtest_id}")
         
         # 分析回测结果
-        result = backtest_service.analyze_backtest(request.backtest_name)
+        result = backtest_service.analyze_backtest(request.backtest_id)
         
         logger.info(f"回测结果分析完成，结果: {result}")
         
@@ -135,36 +134,36 @@ def analyze_backtest(request: BacktestAnalyzeRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router_backtest.delete("/delete/{backtest_name}", response_model=ApiResponse)
-def delete_backtest(backtest_name: str):
+@router_backtest.delete("/delete/{backtest_id}", response_model=ApiResponse)
+def delete_backtest(backtest_id: str):
     """
     删除回测结果
     
     Args:
-        backtest_name: 回测名称
+        backtest_id: 回测ID
         
     Returns:
         ApiResponse: API响应，包含回测删除结果
     """
     try:
-        logger.info(f"删除回测结果请求，回测名称: {backtest_name}")
+        logger.info(f"删除回测结果请求，回测ID: {backtest_id}")
         
         # 删除回测结果
-        result = backtest_service.delete_backtest_result(backtest_name)
+        result = backtest_service.delete_backtest_result(backtest_id)
         
         if result:
-            logger.info(f"回测结果删除成功，回测名称: {backtest_name}")
+            logger.info(f"回测结果删除成功，回测ID: {backtest_id}")
             return ApiResponse(
                 code=0,
                 message="回测结果删除成功",
-                data={"backtest_name": backtest_name, "result": result}
+                data={"backtest_id": backtest_id, "result": result}
             )
         else:
-            logger.warning(f"回测结果删除失败，回测名称: {backtest_name}")
+            logger.warning(f"回测结果删除失败，回测ID: {backtest_id}")
             return ApiResponse(
                 code=1,
                 message="回测结果删除失败",
-                data={"backtest_name": backtest_name, "result": result}
+                data={"backtest_id": backtest_id, "result": result}
             )
     except Exception as e:
         logger.error(f"回测结果删除失败: {e}")
@@ -177,75 +176,139 @@ def create_strategy_config(request: StrategyConfigRequest):
     创建策略配置
     
     Args:
-        request: 策略配置请求参数，包含策略类型和参数
+        request: 策略配置请求参数，包含策略名称和参数
         
     Returns:
         ApiResponse: API响应，包含策略配置
     """
     try:
-        logger.info(f"创建策略配置请求，策略类型: {request.strategy_type}")
+        logger.info(f"创建策略配置请求，策略名称: {request.strategy_name}")
         
         # 创建策略配置
-        strategy_config = backtest_service.create_strategy_config(
-            strategy_type=request.strategy_type,
-            params=request.params
-        )
+        strategy_config = {
+            "strategy_name": request.strategy_name,
+            "params": request.params
+        }
         
-        if strategy_config:
-            logger.info(f"策略配置创建成功，策略类型: {request.strategy_type}")
-            return ApiResponse(
-                code=0,
-                message="策略配置创建成功",
-                data={"strategy_config": strategy_config}
-            )
-        else:
-            logger.error(f"策略配置创建失败，策略类型: {request.strategy_type}")
-            return ApiResponse(
-                code=1,
-                message="策略配置创建失败",
-                data={}
-            )
+        logger.info(f"策略配置创建成功，策略名称: {request.strategy_name}")
+        return ApiResponse(
+            code=0,
+            message="策略配置创建成功",
+            data={"strategy_config": strategy_config}
+        )
     except Exception as e:
         logger.error(f"策略配置创建失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router_backtest.post("/executor/config", response_model=ApiResponse)
-def create_executor_config(request: ExecutorConfigRequest):
+@router_backtest.post("/strategy", response_model=ApiResponse)
+def upload_strategy(request: StrategyUploadRequest):
     """
-    创建执行器配置
+    上传策略文件
     
     Args:
-        request: 执行器配置请求参数，包含执行器类型和参数
+        request: 策略上传请求参数，包含策略名称和文件内容
         
     Returns:
-        ApiResponse: API响应，包含执行器配置
+        ApiResponse: API响应，包含策略上传结果
     """
     try:
-        logger.info(f"创建执行器配置请求，执行器类型: {request.executor_type}")
+        logger.info(f"上传策略文件请求，策略名称: {request.strategy_name}")
         
-        # 创建执行器配置
-        executor_config = backtest_service.create_executor_config(
-            executor_type=request.executor_type,
-            params=request.params
+        # 上传策略文件
+        result = backtest_service.upload_strategy_file(
+            strategy_name=request.strategy_name,
+            file_content=request.file_content
         )
         
-        if executor_config:
-            logger.info(f"执行器配置创建成功，执行器类型: {request.executor_type}")
+        if result:
+            logger.info(f"策略文件上传成功，策略名称: {request.strategy_name}")
             return ApiResponse(
                 code=0,
-                message="执行器配置创建成功",
-                data={"executor_config": executor_config}
+                message="策略文件上传成功",
+                data={"strategy_name": request.strategy_name}
             )
         else:
-            logger.error(f"执行器配置创建失败，执行器类型: {request.executor_type}")
+            logger.error(f"策略文件上传失败，策略名称: {request.strategy_name}")
             return ApiResponse(
                 code=1,
-                message="执行器配置创建失败",
+                message="策略文件上传失败",
                 data={}
             )
     except Exception as e:
-        logger.error(f"执行器配置创建失败: {e}")
+        logger.error(f"策略文件上传失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router_backtest.get("/{backtest_id}", response_model=ApiResponse)
+def get_backtest_detail(backtest_id: str):
+    """
+    获取回测结果详情
+    
+    Args:
+        backtest_id: 回测ID
+        
+    Returns:
+        ApiResponse: API响应，包含回测结果详情
+    """
+    try:
+        logger.info(f"获取回测结果详情请求，回测ID: {backtest_id}")
+        
+        # 获取回测结果详情
+        result = backtest_service.analyze_backtest(backtest_id)
+        
+        if result and result.get("status") == "success":
+            logger.info(f"成功获取回测结果详情，回测ID: {backtest_id}")
+            return ApiResponse(
+                code=0,
+                message="获取回测结果详情成功",
+                data=result
+            )
+        else:
+            logger.error(f"获取回测结果详情失败，回测ID: {backtest_id}")
+            return ApiResponse(
+                code=1,
+                message="获取回测结果详情失败",
+                data={}
+            )
+    except Exception as e:
+        logger.error(f"获取回测结果详情失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router_backtest.get("/{backtest_id}/replay", response_model=ApiResponse)
+def get_replay_data(backtest_id: str):
+    """
+    获取回测回放数据
+    
+    Args:
+        backtest_id: 回测ID
+        
+    Returns:
+        ApiResponse: API响应，包含回测回放数据
+    """
+    try:
+        logger.info(f"获取回测回放数据请求，回测ID: {backtest_id}")
+        
+        # 获取回测回放数据
+        result = backtest_service.get_replay_data(backtest_id)
+        
+        if result and result.get("status") == "success":
+            logger.info(f"成功获取回测回放数据，回测ID: {backtest_id}")
+            return ApiResponse(
+                code=0,
+                message="获取回测回放数据成功",
+                data=result
+            )
+        else:
+            logger.error(f"获取回测回放数据失败，回测ID: {backtest_id}")
+            return ApiResponse(
+                code=1,
+                message="获取回测回放数据失败",
+                data={}
+            )
+    except Exception as e:
+        logger.error(f"获取回测回放数据失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

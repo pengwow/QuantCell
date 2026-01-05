@@ -9,12 +9,28 @@ import DataManagement from '../views/DataManagement';
 import FactorAnalysis from '../views/FactorAnalysis';
 import ModelManagement from '../views/ModelManagement';
 import BacktestResults from '../views/BacktestResults';
+import BacktestReplay from '../views/BacktestReplay';
 import ChartPage from '../views/ChartPage';
 import ScheduledTasks from '../views/ScheduledTasks';
 import ScheduledTaskForm from '../views/ScheduledTasks/ScheduledTaskForm';
 
 // 导入插件管理器
 import { pluginManager } from '../plugins';
+
+// 插件页面样式包裹组件
+const PluginPageWrapper = ({ children }: { children: React.ReactNode }) => {
+  return (
+    <div style={{ 
+      background: 'white', 
+      borderRadius: '8px', 
+      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)', 
+      padding: '20px', 
+      minWidth: 0 
+    }}>
+      {children}
+    </div>
+  );
+};
 
 /**
  * 创建路由配置
@@ -67,6 +83,10 @@ export const createRouter = () => {
           path: '/scheduled-tasks/edit/:id',
           element: <ScheduledTaskForm />
         },
+        {
+          path: '/backtest/replay/:backtestId',
+          element: <BacktestReplay />
+        },
         // 默认重定向到策略代理页面
         {
           index: true,
@@ -84,7 +104,7 @@ export const createRouter = () => {
     for (const route of pluginRoutes) {
       baseRoutes[0].children.push({
         path: route.path,
-        element: route.element
+        element: <PluginPageWrapper>{route.element}</PluginPageWrapper>
       });
     }
   }
