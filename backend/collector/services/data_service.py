@@ -15,10 +15,12 @@ from ..db import SystemConfigBusiness as SystemConfig
 from ..db import crud
 from ..schemas.data import (CalendarInfoResponse, DataInfoResponse,
                             DataResponse, DownloadCryptoRequest,
+                            ExportCryptoRequest, ExportCryptoResponse,
                             FeatureInfoResponse, InstrumentInfoResponse,
                             LoadDataRequest, SymbolFeaturesResponse,
                             TaskProgressResponse, TaskResponse,
                             TaskStatusResponse)
+from ..scripts.export_data import ExportData
 from ..utils.task_manager import task_manager
 
 
@@ -1024,7 +1026,8 @@ class DataService:
                     symbols=",".join(request.symbols),
                     convert_to_qlib=True,
                     qlib_dir=qlib_dir,  # 传递从数据库读取的qlib_data_dir作为转换地址
-                    progress_callback=progress_callback
+                    progress_callback=progress_callback,
+                    mode=request.mode
                 )
                 
                 logger.info(f"时间周期 {interval} 数据下载成功")
@@ -1179,3 +1182,46 @@ class DataService:
             
             # 更新任务状态为失败
             task_manager.fail_task(task_id, error_message=str(e))
+    
+    def export_crypto_data(self, request: ExportCryptoRequest) -> Dict[str, Any]:
+        """导出加密货币数据
+        
+        Args:
+            request: 导出加密货币数据请求
+            
+        Returns:
+            Dict[str, Any]: 包含导出结果的数据
+        """
+        logger.info(f"开始导出加密货币数据，请求参数: {request.model_dump()}")
+        
+        try:
+            # 实例化导出工具
+            export_data = ExportData()
+            
+            # 执行导出
+            result = export_data.export_kline_data(
+                symbols=request.symbols,
+                interval=request.interval,
+                start=request.start,
+                end=request.end,
+                exchange=request.exchange,
+                candle_type=request.candle_type,
+                save_dir=request.save_dir,
+                max_workers=request.max_workers,
+                auto_download=request.auto_download
+            )
+            
+            logger.info(f"加密货币数据导出完成，结果: {result}")
+            return {
+                "success": True,
+                "message": "加密货币数据导出成功",
+                "data": result
+            }
+        except Exception as e:
+            logger.error(f"导出加密货币数据失败: {e}")
+            logger.exception(e)
+            return {
+                "success": False,
+                "message": f"导出加密货币数据失败: {str(e)}",
+                "data": {}
+            }

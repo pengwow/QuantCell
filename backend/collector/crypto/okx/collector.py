@@ -27,6 +27,7 @@ class OKXCollector(CryptoBaseCollector):
         limit_nums=None,
         candle_type='spot',
         symbols=None,
+        mode='inc',  # 添加模式参数，支持inc（增量）和full（全量），默认inc
     ):
         """
         初始化OKX数据收集器
@@ -42,6 +43,7 @@ class OKXCollector(CryptoBaseCollector):
         :param limit_nums: 限制收集的标的数量，用于调试
         :param candle_type: 蜡烛图类型，可选'spot'（现货）、'futures'（期货）或'option'（期权）
         :param symbols: 交易对列表，如['BTC-USDT', 'ETH-USDT']，如果为None则获取全量交易对
+        :param mode: 下载模式，可选'inc'（增量）或'full'（全量），默认'inc'
         """
         # 先设置必要的属性，再调用父类的__init__方法
         self.candle_type = candle_type
@@ -57,6 +59,7 @@ class OKXCollector(CryptoBaseCollector):
             delay=delay,
             check_data_length=check_data_length,
             limit_nums=limit_nums,
+            mode=mode,  # 传递模式参数
         )
         
         self.downloader = OKXDownloader(candle_type=candle_type)

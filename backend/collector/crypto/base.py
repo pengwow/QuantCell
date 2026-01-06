@@ -23,6 +23,7 @@ class CryptoBaseCollector(BaseCollector):
         delay=0,
         check_data_length: Optional[int] = None,
         limit_nums: Optional[int] = None,
+        mode='inc',  # 添加模式参数，支持inc（增量）和full（全量），默认inc
     ):
         """
         初始化加密货币收集器
@@ -36,6 +37,7 @@ class CryptoBaseCollector(BaseCollector):
         :param delay: 请求延迟时间（秒）
         :param check_data_length: 数据长度检查阈值
         :param limit_nums: 限制收集的标的数量，用于调试
+        :param mode: 下载模式，可选'inc'（增量）或'full'（全量），默认'inc'
         """
         super().__init__(
             save_dir=save_dir,
@@ -47,6 +49,7 @@ class CryptoBaseCollector(BaseCollector):
             delay=delay,
             check_data_length=check_data_length,
             limit_nums=limit_nums,
+            mode=mode,  # 传递模式参数
         )
         
         # 初始化加密货币相关配置

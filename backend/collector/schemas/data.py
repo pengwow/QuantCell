@@ -114,7 +114,7 @@ class DownloadCryptoRequest(BaseModel):
         max_workers: 最大工作线程数
         candle_type: 蜡烛图类型
         save_dir: 保存目录
-        update_mode: bool = False,  # 更新模式，设置为true时只下载缺失的数据
+        mode: 下载模式，可选'inc'（增量）或'full'（全量）
     """
     symbols: List[str] = Field(..., description="品种列表")
     interval: List[str] = Field(..., description="时间间隔列表")
@@ -124,7 +124,7 @@ class DownloadCryptoRequest(BaseModel):
     max_workers: int = Field(default=1, description="最大工作线程数")
     candle_type: str = Field(default="spot", description="蜡烛图类型")
     save_dir: Optional[str] = Field(None, description="保存目录，如果不提供则从系统配置中读取data_download_dir")
-    update_mode: bool = Field(default=False, description="更新模式，设置为true时只下载缺失的数据")
+    mode: str = Field(default="inc", description="下载模式，可选'inc'（增量）或'full'（全量）")
 
 
 class TaskStatusResponse(BaseModel):
@@ -184,3 +184,41 @@ class TaskResponse(BaseModel):
     task_id: str = Field(..., description="任务ID")
     status: str = Field(..., description="任务状态")
     message: str = Field(..., description="任务创建消息")
+
+
+class ExportCryptoRequest(BaseModel):
+    """导出加密货币数据请求模型
+    
+    Attributes:
+        symbols: 品种列表
+        interval: 时间间隔
+        start: 开始时间
+        end: 结束时间
+        exchange: 交易所
+        candle_type: 蜡烛图类型
+        save_dir: 保存目录
+        max_workers: 最大工作线程数
+        auto_download: 是否自动下载缺失数据
+    """
+    symbols: List[str] = Field(..., description="品种列表")
+    interval: str = Field(..., description="时间间隔")
+    start: str = Field(..., description="开始时间")
+    end: str = Field(..., description="结束时间")
+    exchange: str = Field(default="binance", description="交易所")
+    candle_type: str = Field(default="spot", description="蜡烛图类型")
+    save_dir: Optional[str] = Field(None, description="保存目录，如果不提供则使用默认值")
+    max_workers: int = Field(default=1, description="最大工作线程数")
+    auto_download: bool = Field(default=True, description="是否自动下载缺失数据")
+
+
+class ExportCryptoResponse(BaseModel):
+    """导出加密货币数据响应模型
+    
+    Attributes:
+        success: 导出是否成功
+        exported_files: 成功导出的文件列表
+        missing_ranges: 缺失的数据范围
+    """
+    success: bool = Field(..., description="导出是否成功")
+    exported_files: List[str] = Field(default_factory=list, description="成功导出的文件列表")
+    missing_ranges: Dict[str, List[Dict[str, str]]] = Field(default_factory=dict, description="缺失的数据范围")

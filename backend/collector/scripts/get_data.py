@@ -77,6 +77,7 @@ class GetData:
         qlib_dir=None,
         progress_callback=None,
         exists_skip=False,
+        mode='inc',  # 添加模式参数，支持inc（增量）和full（全量），默认inc
     ):
         """
         从币安交易所下载加密货币数据
@@ -96,6 +97,7 @@ class GetData:
         :param qlib_dir: QLib数据保存目录，如果为None则自动生成
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
         :param exists_skip: 是否跳过已存在的文件，默认False
+        :param mode: 下载模式，可选'inc'（增量）或'full'（全量），默认'inc'
         """
         if save_dir is None:
             # 从数据库中读取下载目录配置
@@ -180,6 +182,7 @@ class GetData:
             limit_nums=limit_nums,
             candle_type=candle_type,
             symbols=symbols,
+            mode=mode,  # 传递模式参数
         )
         
         # 执行数据收集
@@ -213,6 +216,7 @@ class GetData:
         qlib_dir=None,
         progress_callback=None,
         exists_skip=False,
+        mode='inc',  # 添加模式参数，支持inc（增量）和full（全量），默认inc
     ):
         """
         从OKX交易所下载加密货币数据
@@ -232,6 +236,7 @@ class GetData:
         :param qlib_dir: QLib数据保存目录，如果为None则自动生成
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
         :param exists_skip: 是否跳过已存在的文件，默认False
+        :param mode: 下载模式，可选'inc'（增量）或'full'（全量），默认'inc'
         """
         if save_dir is None:
             # 从数据库中读取下载目录配置
@@ -314,6 +319,7 @@ class GetData:
             limit_nums=limit_nums,
             candle_type=candle_type,
             symbols=symbols,
+            mode=mode,  # 传递模式参数
         )
         
         # 执行数据收集
@@ -348,6 +354,7 @@ class GetData:
         qlib_dir=None,
         progress_callback=None,
         exists_skip=False,
+        mode='inc',  # 添加模式参数，支持inc（增量）和full（全量），默认inc
     ):
         """
         从指定交易所下载加密货币数据
@@ -368,6 +375,7 @@ class GetData:
         :param qlib_dir: QLib数据保存目录，如果为None则自动生成
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
         :param exists_skip: 是否跳过已存在的文件，默认False
+        :param mode: 下载模式，可选'inc'（增量）或'full'（全量），默认'inc'
         """
         if exchange == "binance":
             self.crypto_binance(
@@ -386,6 +394,7 @@ class GetData:
                 qlib_dir=qlib_dir,
                 progress_callback=progress_callback,
                 exists_skip=exists_skip,
+                mode=mode,  # 传递模式参数
             )
         elif exchange == "okx":
             self.crypto_okx(
@@ -404,6 +413,7 @@ class GetData:
                 qlib_dir=qlib_dir,
                 progress_callback=progress_callback,
                 exists_skip=exists_skip,
+                mode=mode,  # 传递模式参数
             )
         else:
             logger.error(f"不支持的交易所: {exchange}")
@@ -458,15 +468,17 @@ class GetData:
         print("数据下载工具使用说明：")
         print("\n1. 下载加密货币数据：")
         print("   python get_data.py crypto --exchange binance --start 2024-01-01 --end 2024-10-31 --interval 1d")
-        print("\n2. 下载指定交易对数据：")
-        print("   python get_data.py crypto_binance --start 2024-01-01 --end 2024-10-31 --interval 1h --symbols BTCUSDT,ETHUSDT")
-        print("\n3. 下载全量交易对数据：")
+        print("\n2. 增量模式下载数据：")
+        print("   python get_data.py crypto_binance --start 2024-01-01 --end 2024-10-31 --interval 1h --symbols BTCUSDT,ETHUSDT --mode inc")
+        print("\n3. 全量模式下载数据：")
+        print("   python get_data.py crypto_binance --start 2024-01-01 --end 2024-10-31 --interval 1h --symbols BTCUSDT,ETHUSDT --mode full")
+        print("\n4. 下载全量交易对数据：")
         print("   python get_data.py crypto_binance --start 2024-01-01 --end 2024-10-31 --interval 1d --limit_nums 10")
-        print("\n4. 下载币安现货数据并转换为QLib格式：")
+        print("\n5. 下载币安现货数据并转换为QLib格式：")
         print("   python get_data.py crypto_binance --start 2024-01-01 --end 2024-10-31 --interval 1h --candle_type spot --convert_to_qlib")
-        print("\n5. 下载币安期货数据：")
+        print("\n6. 下载币安期货数据：")
         print("   python get_data.py crypto_binance --start 2024-01-01 --end 2024-10-31 --interval 4h --candle_type futures")
-        print("\n6. 查看详细帮助：")
+        print("\n7. 查看详细帮助：")
         print("   python get_data.py crypto_binance --help")
 
 

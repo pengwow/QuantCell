@@ -11,6 +11,7 @@ from ..db.database import get_db
 from ..schemas import ApiResponse
 from ..schemas.data import (CalendarInfoResponse, DataInfoResponse,
                             DataResponse, DownloadCryptoRequest,
+                            ExportCryptoRequest, ExportCryptoResponse,
                             FeatureInfoResponse, InstrumentInfoResponse,
                             LoadDataRequest, SymbolFeaturesResponse,
                             TaskProgressResponse, TaskResponse,
@@ -454,6 +455,38 @@ def get_task_status(task_id: str):
             )
     except Exception as e:
         logger.error(f"查询任务状态失败，任务ID: {task_id}, 错误: {e}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/export/crypto", response_model=ApiResponse)
+def export_crypto(request: ExportCryptoRequest):
+    """导出加密货币数据
+    
+    Args:
+        request: 导出加密货币数据请求
+        
+    Returns:
+        ApiResponse: 包含导出结果的响应
+    """
+    try:
+        data_service = DataService()
+        result = data_service.export_crypto_data(request)
+        
+        if result["success"]:
+            return ApiResponse(
+                code=0,
+                message=result["message"],
+                data=result["data"]
+            )
+        else:
+            return ApiResponse(
+                code=1,
+                message=result["message"],
+                data={}
+            )
+    except Exception as e:
+        logger.error(f"导出加密货币数据失败: {e}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
 
