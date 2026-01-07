@@ -124,6 +124,82 @@ class BaseCollector(abc.ABC):
         """休眠指定时间，用于控制请求频率"""
         time.sleep(self.delay)
     
+    def _get_interval_freq(self):
+        """
+        将间隔字符串映射到 pandas 频率字符串
+        
+        :return: pandas 频率字符串
+        """
+        interval_map = {
+            '1m': 'T',
+            '5m': '5T',
+            '15m': '15T',
+            '30m': '30T',
+            '1h': 'H',
+            '4h': '4H',
+            '1d': 'D'
+        }
+        return interval_map.get(self.interval, 'D')
+    
+    def _generate_complete_date_range(self):
+        """
+        生成完整的日期范围
+        
+        :return: 完整的日期范围 DatetimeIndex
+        """
+        freq = self._get_interval_freq()
+        return pd.date_range(start=self.start_datetime, end=self.end_datetime, freq=freq)
+    
+    def _calculate_missing_ranges(self, existing_dates):
+        """
+        计算缺失的日期范围
+        
+        :param existing_dates: 现有日期的 DatetimeIndex
+        :return: 缺失的日期范围列表，每个元素是 (start, end) 元组
+        """
+        # 生成完整的日期范围
+        complete_range = self._generate_complete_date_range()
+        
+        # 找出缺失的日期
+        missing_dates = complete_range.difference(existing_dates)
+        
+        if missing_dates.empty:
+            return []
+        
+        # 将缺失的日期分组为连续范围
+        missing_dates = missing_dates.sort_values()
+        ranges = []
+        start = missing_dates[0]
+        
+        for i in range(1, len(missing_dates)):
+            # 检查当前日期是否与前一个日期连续
+            if (missing_dates[i] - missing_dates[i-1]).total_seconds() > self._get_interval_seconds():
+                # 不连续，结束当前范围，开始新范围
+                ranges.append((start, missing_dates[i-1]))
+                start = missing_dates[i]
+        
+        # 添加最后一个范围
+        ranges.append((start, missing_dates[-1]))
+        
+        return ranges
+    
+    def _get_interval_seconds(self):
+        """
+        获取间隔对应的秒数
+        
+        :return: 间隔的秒数
+        """
+        interval_seconds_map = {
+            '1m': 60,
+            '5m': 300,
+            '15m': 900,
+            '30m': 1800,
+            '1h': 3600,
+            '4h': 14400,
+            '1d': 86400
+        }
+        return interval_seconds_map.get(self.interval, 86400)
+    
     def _simple_collector(self, symbol: str, progress_callback=None):
         """简单收集器，用于单个标的的数据收集
         
@@ -137,54 +213,57 @@ class BaseCollector(abc.ABC):
         normalized_symbol = self.normalize_symbol(symbol)
         instrument_path = self.save_dir.joinpath(f"{normalized_symbol}.csv")
         
-        # 断点续传逻辑：如果是增量模式且文件存在，获取最新日期作为新的开始日期
-        actual_start_datetime = self.start_datetime
+        # 处理现有数据
+        existing_dates = pd.DatetimeIndex([])
         if self.mode == 'inc' and instrument_path.exists():
             try:
                 _old_df = pd.read_csv(instrument_path)
                 if not _old_df.empty:
                     _old_df['date'] = pd.to_datetime(_old_df['date'], format='mixed')
-                    latest_date = _old_df['date'].max()
-                    if latest_date > self.start_datetime:
-                        actual_start_datetime = latest_date
-                        logger.info(f"[断点续传] {symbol} 最新数据日期: {latest_date}, 将从该日期开始增量下载")
+                    existing_dates = pd.DatetimeIndex(_old_df['date'])
+                    logger.info(f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_dates)} 条记录")
             except Exception as e:
-                logger.error(f"[断点续传] 读取 {symbol} 历史数据失败: {e}")
+                logger.error(f"[增量模式] 读取 {symbol} 历史数据失败: {e}")
         
-        # 如果计算出的开始日期已经大于等于结束日期，说明不需要下载新数据
-        if actual_start_datetime >= self.end_datetime:
-            logger.info(f"[增量模式] {symbol} 数据已是最新，无需下载")
+        # 计算缺失的日期范围
+        missing_ranges = self._calculate_missing_ranges(existing_dates)
+        
+        if not missing_ranges:
+            logger.info(f"[增量模式] {symbol} 在指定时间范围内数据完整，无需下载")
             return self.NORMAL_FLAG
         
-        # 记录下载状态
-        download_status = {
-            'symbol': symbol,
-            'start_datetime': actual_start_datetime,
-            'end_datetime': self.end_datetime,
-            'status': 'downloading',
-            'progress': 0
-        }
-        
-        try:
-            # 下载数据
-            df = self.get_data(symbol, self.interval, actual_start_datetime, self.end_datetime, progress_callback)
-            download_status['status'] = 'completed'
-            download_status['progress'] = 100
+        # 下载所有缺失的数据范围
+        all_df = pd.DataFrame()
+        for i, (range_start, range_end) in enumerate(missing_ranges):
+            logger.info(f"[增量模式] {symbol} 缺失数据范围 {i+1}/{len(missing_ranges)}: {range_start} 至 {range_end}")
             
-            _result = self.NORMAL_FLAG
-            if self.check_data_length > 0:
-                _result = self.cache_small_data(symbol, df)
-            if _result == self.NORMAL_FLAG:
-                self.save_instrument(symbol, df)
-            return _result
-        except Exception as e:
-            download_status['status'] = 'failed'
-            logger.error(f"[下载失败] {symbol} 数据下载失败: {e}")
-            # 即使下载失败，也尝试保存已下载的数据
-            if 'df' in locals() and df is not None and not df.empty:
-                logger.info(f"[断点续传] 尝试保存 {symbol} 已下载的数据")
-                self.save_instrument(symbol, df)
+            try:
+                # 下载当前范围的数据
+                df = self.get_data(symbol, self.interval, range_start, range_end, progress_callback)
+                
+                if df is not None and not df.empty:
+                    # 将当前范围的数据添加到总数据中
+                    all_df = pd.concat([all_df, df]) if not all_df.empty else df
+                    logger.info(f"[增量模式] 成功下载 {symbol} 数据范围: {range_start} 至 {range_end}")
+                else:
+                    logger.warning(f"[增量模式] {symbol} 数据范围 {range_start} 至 {range_end} 下载结果为空")
+            except Exception as e:
+                logger.error(f"[增量模式] 下载 {symbol} 数据范围 {range_start} 至 {range_end} 失败: {e}")
+                # 继续下载其他范围，不中断整个过程
+        
+        # 如果没有下载到任何数据，返回失败
+        if all_df.empty:
+            logger.error(f"[增量模式] {symbol} 所有缺失范围下载失败，无数据可保存")
             return self.CACHE_FLAG
+        
+        # 处理下载的数据
+        _result = self.NORMAL_FLAG
+        if self.check_data_length > 0:
+            _result = self.cache_small_data(symbol, all_df)
+        if _result == self.NORMAL_FLAG:
+            self.save_instrument(symbol, all_df)
+        
+        return _result
     
     def save_instrument(self, symbol, df: pd.DataFrame):
         """保存标的数据到文件

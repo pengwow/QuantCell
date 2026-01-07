@@ -60,6 +60,154 @@ class GetData:
             logger.error(f"处理QLib转换时发生异常: {e}")
             logger.exception(e)
     
+    def _write_to_database(self, save_dir, interval, symbols, candle_type):
+        """
+        将数据写入数据库
+        
+        :param save_dir: 数据保存目录
+        :param interval: 时间间隔
+        :param symbols: 交易对列表
+        :param candle_type: 蜡烛图类型
+        """
+        try:
+            logger.info(f"开始将 {interval} 数据写入数据库")
+            # 获取当前项目根目录
+            project_root = Path(__file__).parent.parent.parent
+            logger.info(f"当前项目根目录: {project_root}")
+
+            # 构建数据目录路径
+            data_dir = Path(save_dir) / interval
+            data_dir = project_root / data_dir
+            logger.info(f"数据目录: {data_dir}")
+            # 导入数据库相关模块
+            from sqlalchemy import func, insert
+            from sqlalchemy.orm import Session
+
+            from backend.collector.db.database import (
+                SessionLocal, init_database_config)
+            from backend.collector.db.models import CryptoSpotKline, CryptoFutureKline
+
+            # 初始化数据库配置
+            init_database_config()
+            
+            # 获取所有CSV文件
+            csv_files = list(data_dir.glob("*.csv"))
+            logger.info(f"找到 {len(csv_files)} 个CSV文件")
+            
+            # 过滤文件（只处理当前下载的交易对）
+            if symbols:
+                symbol_set = set(symbol.replace("/", "") for symbol in symbols)
+                csv_files = [f for f in csv_files if f.stem in symbol_set]
+                logger.info(f"过滤后找到 {len(csv_files)} 个CSV文件")
+            
+            # 处理每个CSV文件
+            for csv_file in csv_files:
+                symbol = csv_file.stem
+                logger.info(f"开始处理文件: {csv_file}")
+                
+                # 读取CSV文件
+                df = pd.read_csv(csv_file)
+                if df is None or df.empty:
+                    logger.warning(f"{symbol} 数据为空，跳过写入数据库")
+                    continue
+                
+                # 准备数据，确保只包含需要的列
+                kline_list = []
+                for _, row in df.iterrows():
+                    # 跳过无效行 - 使用pandas Series的isna()方法检查相关字段
+                    if row[['date', 'open', 'high', 'low', 'close', 'volume']].isna().any(axis=None):
+                        continue
+                    
+                    # 转换date列为datetime对象
+                    date = row['date']
+                    if isinstance(date, str):
+                        date = pd.to_datetime(date)
+                    
+                    # 直接生成unique_kline值
+                    unique_kline = f"{symbol}_{interval}_{date.isoformat()}"
+                    
+                    kline_list.append({
+                        'symbol': symbol,
+                        'interval': interval,
+                        'date': date,
+                        'open': row['open'],
+                        'high': row['high'],
+                        'low': row['low'],
+                        'close': row['close'],
+                        'volume': row['volume'],
+                        'unique_kline': unique_kline
+                    })
+                
+                if not kline_list:
+                    logger.warning(f"没有有效数据可以写入数据库: {symbol}")
+                    continue
+                
+                # 根据candle_type选择对应的K线模型
+                kline_model = CryptoSpotKline if candle_type == "spot" else CryptoFutureKline
+                logger.info(f"使用K线模型: {kline_model.__tablename__}, candle_type: {candle_type}")
+                
+                # 创建数据库会话
+                db = SessionLocal()
+                try:
+                    # 实现跨数据库兼容的UPSERT逻辑
+                    from backend.collector.db.database import db_type
+                    
+                    if db_type == "sqlite":
+                        # SQLite使用on_conflict_do_update
+                        from sqlalchemy.dialects.sqlite import \
+                            insert as sqlite_insert
+                        
+                        # 分批插入数据，避免SQLite变量数量超限
+                        batch_size = 100
+                        total_rows = len(kline_list)
+                        for i in range(0, total_rows, batch_size):
+                            batch = kline_list[i:i+batch_size]
+                            stmt = sqlite_insert(kline_model).values(batch)
+                            stmt = stmt.on_conflict_do_update(
+                                index_elements=['unique_kline'],
+                                set_={
+                                    'open': stmt.excluded.open,
+                                    'high': stmt.excluded.high,
+                                    'low': stmt.excluded.low,
+                                    'close': stmt.excluded.close,
+                                    'volume': stmt.excluded.volume,
+                                    'updated_at': func.now()
+                                }
+                            )
+                            db.execute(stmt)
+                    elif db_type == "duckdb":
+                        # DuckDB使用PostgreSQL兼容的ON CONFLICT语法
+                        from sqlalchemy.dialects.postgresql import \
+                            insert as pg_insert
+                        stmt = pg_insert(kline_model).values(kline_list)
+                        stmt = stmt.on_conflict_do_update(
+                            index_elements=['unique_kline'],
+                            set_={
+                                'open': stmt.excluded.open,
+                                'high': stmt.excluded.high,
+                                'low': stmt.excluded.low,
+                                'close': stmt.excluded.close,
+                                'volume': stmt.excluded.volume,
+                                'updated_at': func.now()
+                            }
+                        )
+                        db.execute(stmt)
+                    else:
+                        # 其他数据库类型，使用BULK INSERT + 错误处理
+                        raise ValueError(f"不支持的数据库类型: {db_type}")
+                    
+                    db.commit()
+                    logger.info(f"成功将 {len(kline_list)} 条 {symbol} 数据写入 {kline_model.__tablename__} 表")
+                except Exception as e:
+                    logger.error(f"写入数据库失败: {e}")
+                    logger.exception(e)
+                    db.rollback()
+                finally:
+                    db.close()
+        except Exception as e:
+            logger.error(f"处理数据库写入时发生异常: {e}")
+            logger.exception(e)
+    
     def crypto_binance(
         self,
         save_dir=None,
@@ -78,6 +226,7 @@ class GetData:
         progress_callback=None,
         exists_skip=False,
         mode='inc',  # 添加模式参数，支持inc（增量）和full（全量），默认inc
+        write_to_db=False,  # 添加数据库写入参数，默认False（不写入）
     ):
         """
         从币安交易所下载加密货币数据
@@ -97,7 +246,8 @@ class GetData:
         :param qlib_dir: QLib数据保存目录，如果为None则自动生成
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
         :param exists_skip: 是否跳过已存在的文件，默认False
-        :param mode: 下载模式，可选'inc'（增量）或'full'（全量），默认'inc'
+        :param mode: 下载模式，可选'inc'（增量）和full（全量），默认'inc'
+        :param write_to_db: 是否将数据写入数据库，默认False（不写入）
         """
         if save_dir is None:
             # 从数据库中读取下载目录配置
@@ -188,7 +338,9 @@ class GetData:
         # 执行数据收集
         collector.collect_data(progress_callback=progress_callback)
         
-        # 数据写入数据库的逻辑已移至API层，此处不再处理
+        # 数据写入数据库（可选）
+        if write_to_db:
+            self._write_to_database(save_dir, interval, symbols, candle_type)
         
         # 处理QLib转换
         if convert_to_qlib:
@@ -217,6 +369,7 @@ class GetData:
         progress_callback=None,
         exists_skip=False,
         mode='inc',  # 添加模式参数，支持inc（增量）和full（全量），默认inc
+        write_to_db=False,  # 添加数据库写入参数，默认False（不写入）
     ):
         """
         从OKX交易所下载加密货币数据
@@ -237,6 +390,7 @@ class GetData:
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
         :param exists_skip: 是否跳过已存在的文件，默认False
         :param mode: 下载模式，可选'inc'（增量）或'full'（全量），默认'inc'
+        :param write_to_db: 是否将数据写入数据库，默认False（不写入）
         """
         if save_dir is None:
             # 从数据库中读取下载目录配置
@@ -325,7 +479,9 @@ class GetData:
         # 执行数据收集
         collector.collect_data(progress_callback=progress_callback)
         
-        # 数据写入数据库的逻辑已移至API层，此处不再处理
+        # 数据写入数据库（可选）
+        if write_to_db:
+            self._write_to_database(save_dir, interval, symbols, candle_type)
         
         # 处理QLib转换
         if convert_to_qlib:
@@ -355,6 +511,7 @@ class GetData:
         progress_callback=None,
         exists_skip=False,
         mode='inc',  # 添加模式参数，支持inc（增量）和full（全量），默认inc
+        write_to_db=False,  # 添加数据库写入参数，默认False（不写入）
     ):
         """
         从指定交易所下载加密货币数据
@@ -376,6 +533,7 @@ class GetData:
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
         :param exists_skip: 是否跳过已存在的文件，默认False
         :param mode: 下载模式，可选'inc'（增量）或'full'（全量），默认'inc'
+        :param write_to_db: 是否将数据写入数据库，默认False（不写入）
         """
         if exchange == "binance":
             self.crypto_binance(
@@ -395,6 +553,7 @@ class GetData:
                 progress_callback=progress_callback,
                 exists_skip=exists_skip,
                 mode=mode,  # 传递模式参数
+                write_to_db=write_to_db,  # 传递数据库写入参数
             )
         elif exchange == "okx":
             self.crypto_okx(
@@ -414,6 +573,7 @@ class GetData:
                 progress_callback=progress_callback,
                 exists_skip=exists_skip,
                 mode=mode,  # 传递模式参数
+                write_to_db=write_to_db,  # 传递数据库写入参数
             )
         else:
             logger.error(f"不支持的交易所: {exchange}")
