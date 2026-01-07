@@ -20,4 +20,4 @@ data/source/*
 backend/.DS_Store
 */.DS_Store
 .DS_Store
-
+results/*
