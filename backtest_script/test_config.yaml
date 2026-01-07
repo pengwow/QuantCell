@@ -4,7 +4,7 @@
 symbol: BTCUSDT
 
 # 回测时间范围
-start_time: "2025-08-01"
+start_time: "2025-01-01"
 end_time: "2025-12-05"
 
 # 策略配置
@@ -22,10 +22,10 @@ data:
 
 # 回测配置
 backtest:
-  initial_cash: 10000  # 初始资金
+  initial_cash: 1000  # 初始资金
   commission: 0.001     # 手续费率
 
 # 输出配置
 output:
   path: ./results/test_result.json
-  format: console  # json 或 console
+  format: json  # json 或 console

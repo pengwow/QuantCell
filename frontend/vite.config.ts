@@ -23,10 +23,11 @@ export default defineConfig({
       }
     }
   },
-  // 配置插件目录别名
+  // 配置别名
   resolve: {
     alias: {
-      '@plugins': resolve(__dirname, 'src/plugins')
+      '@plugins': resolve(__dirname, 'src/plugins'),
+      '@i18n': resolve(__dirname, '../i18n')
     }
   },
   // 开发服务器配置

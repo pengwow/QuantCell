@@ -15,6 +15,11 @@ from model.routes import router as model_router
 # 导入插件系统
 from plugins import init_plugin_system, global_plugin_manager
 
+# 导入国际化配置
+from pathlib import Path
+import json
+from typing import Dict, Any
+
 
 def init_database():
     """初始化数据库
@@ -210,6 +215,41 @@ async def lifespan(app: FastAPI):
 
 
 
+# 国际化配置
+def get_translation_dict():
+    """获取翻译字典，直接返回硬编码的翻译内容，避免文件加载问题"""
+    return {
+        "zh-CN": {
+            "welcome": "欢迎使用量化交易系统",
+            "current_locale": "当前语言"
+        },
+        "en-US": {
+            "welcome": "Welcome to Quantitative Trading System",
+            "current_locale": "Current Language"
+        }
+    }
+
+# 从请求头中提取语言代码
+def extract_lang(accept_language: str) -> str:
+    """从Accept-Language头中提取语言代码
+    
+    Args:
+        accept_language: Accept-Language头的值
+        
+    Returns:
+        str: 提取的语言代码
+    """
+    if not accept_language:
+        return "zh-CN"
+    
+    # 提取第一个语言代码
+    lang = accept_language.split(",")[0].strip()
+    # 标准化语言代码格式
+    lang = lang.split(";")[0].replace("_", "-")
+    # 确保返回的语言代码在支持列表中
+    supported_langs = ["zh-CN", "en-US"]
+    return lang if lang in supported_langs else "zh-CN"
+
 app = FastAPI(lifespan=lifespan)
 
 # 添加CORS中间件配置
@@ -243,13 +283,33 @@ app.include_router(backtest_router)
 
 
 @app.get("/")
-def read_root():
+async def read_root(accept_language: str = "zh-CN"):
     """根路径的处理函数
+    
+    Args:
+        accept_language: 请求头中的Accept-Language值
     
     Returns:
         dict: 返回一个包含问候语的字典
     """
-    return {"Hello": "World"}
+    try:
+        # 从请求头中提取语言代码
+        if not accept_language:
+            lang = "zh-CN"
+        else:
+            # 提取第一个语言代码
+            lang = accept_language.split(",")[0].strip()
+            # 标准化语言代码格式
+            lang = lang.split(";")[0].replace("_", "-")
+        
+        # 直接返回硬编码的翻译内容，避免任何外部依赖
+        if lang == "en-US":
+            return {"message": "Welcome to Quantitative Trading System", "current_locale": "en-US"}
+        else:
+            return {"message": "欢迎使用量化交易系统", "current_locale": "zh-CN"}
+    except Exception as e:
+        logger.exception(f"国际化处理错误: {e}")
+        return {"message": "内部服务器错误", "error": str(e), "status_code": 500}
 
 
 @app.get("/items/{item_id}")

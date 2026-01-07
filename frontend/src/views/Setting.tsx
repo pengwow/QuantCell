@@ -5,6 +5,7 @@
 import { useState, useEffect } from 'react';
 import { configApi } from '../api';
 import type { AppConfig } from '../utils/configLoader';
+import { useTranslation } from 'react-i18next';
 
 // 扩展Window接口，添加APP_CONFIG属性
 declare global {
@@ -120,6 +121,9 @@ const Setting = () => {
   const [isSaving, setIsSaving] = useState(false);
   // 保存错误信息
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // 国际化支持
+  const { t, i18n } = useTranslation();
 
   // 表单实例 - 始终在组件顶层创建
   const [basicForm] = Form.useForm();
@@ -612,11 +616,11 @@ const Setting = () => {
 
   // 菜单项配置
   const menuConfig = [
-    { key: 'basic', label: '基本设置', icon: <UserOutlined /> },
-    { key: 'system-config', label: '系统配置', icon: <SettingOutlined /> },
-    { key: 'notifications', label: '通知设置', icon: <BellOutlined /> },
-    { key: 'api', label: 'API 配置', icon: <ApiOutlined /> },
-    { key: 'system', label: '系统信息', icon: <InfoCircleOutlined /> }
+    { key: 'basic', label: t('basic_settings'), icon: <UserOutlined /> },
+    { key: 'system-config', label: t('system_config'), icon: <SettingOutlined /> },
+    { key: 'notifications', label: t('notification_settings'), icon: <BellOutlined /> },
+    { key: 'api', label: t('api_settings'), icon: <ApiOutlined /> },
+    { key: 'system', label: t('system_info'), icon: <InfoCircleOutlined /> }
   ];
 
   return (
@@ -642,73 +646,42 @@ const Setting = () => {
         <Content className="settings-main">
           {/* 基本设置 */}
           <div style={{ display: currentTab === 'basic' ? 'block' : 'none' }}>
-            <Card className="settings-panel" title="基本设置" variant="outlined">
+            <Card className="settings-panel" title={t('basic_settings')} variant="outlined">
               <Form
                 form={basicForm}
                 layout="vertical"
                 initialValues={settings}
               >
-                {/* <Form.Item label="个人信息" name="personal" noStyle> */}
-                {/* <Card size="small" style={{ marginBottom: 16 }}> */}
-                {/* 暂时隐藏个人信息字段 */}
-                {/* <Form.Item
-                      label="用户名"
-                      name="username"
-                      rules={[{ required: true, message: '请输入用户名' }]}
-                    >
-                      <Input disabled />
-                    </Form.Item>
-                    <Form.Item
-                      label="显示名称"
-                      name="displayName"
-                      rules={[{ required: true, message: '请输入显示名称' }]}
-                    >
-                      <Input 
-                        placeholder="请输入显示名称" 
-                        onChange={(e) => setSettings(prev => ({ ...prev, displayName: e.target.value }))}
-                      />
-                    </Form.Item>
-                    <Form.Item
-                      label="邮箱"
-                      name="email"
-                      rules={[
-                        { required: true, message: '请输入邮箱地址' },
-                        { type: 'email', message: '请输入有效的邮箱地址' }
-                      ]}
-                    >
-                      <Input 
-                        placeholder="请输入邮箱地址" 
-                        onChange={(e) => setSettings(prev => ({ ...prev, email: e.target.value }))}
-                      />
-                    </Form.Item> */}
-                {/* </Card> */}
-                {/* </Form.Item> */}
                 <Card size="small">
                   <Form.Item
-                    label="主题"
+                    label={t('theme')}
                     name="theme"
-                    rules={[{ required: true, message: '请选择主题' }]}
+                    rules={[{ required: true, message: t('please_select') }]}
                   >
                     <Select
                       onChange={(value) => setSettings(prev => ({ ...prev, theme: value as 'light' | 'dark' | 'auto' }))}
                       options={[
-                        { value: 'light', label: '浅色' },
-                        { value: 'dark', label: '深色' },
-                        { value: 'auto', label: '跟随系统' }
+                        { value: 'light', label: t('light') },
+                        { value: 'dark', label: t('dark') },
+                        { value: 'auto', label: t('follow_system') }
                       ]}
                     >
                     </Select>
                   </Form.Item>
                   <Form.Item
-                    label="语言"
+                    label={t('language')}
                     name="language"
-                    rules={[{ required: true, message: '请选择语言' }]}
+                    rules={[{ required: true, message: t('please_select') }]}
                   >
                     <Select
-                      onChange={(value) => setSettings(prev => ({ ...prev, language: value as 'zh-CN' | 'en-US' }))}
+                      onChange={(value) => {
+                        setSettings(prev => ({ ...prev, language: value as 'zh-CN' | 'en-US' }));
+                        // 更新i18n语言
+                        i18n.changeLanguage(value);
+                      }}
                       options={[
-                        { value: 'zh-CN', label: '简体中文' },
-                        { value: 'en-US', label: 'English' }
+                        { value: 'zh-CN', label: t('chinese') },
+                        { value: 'en-US', label: t('english') }
                       ]}
                     >
                     </Select>
@@ -738,7 +711,7 @@ const Setting = () => {
                       disabled={isSaving}
                       icon={<ReloadOutlined />}
                     >
-                      重置
+                      {t('reset')}
                     </Button>
                     <Button
                       type="primary"
@@ -746,7 +719,7 @@ const Setting = () => {
                       disabled={isSaving}
                       icon={<SaveOutlined />}
                     >
-                      {isSaving ? '保存中...' : '保存设置'}
+                      {isSaving ? t('saving') : t('save_settings')}
                     </Button>
                   </Space>
                 </div>

@@ -7,6 +7,9 @@ import { router, updateRouter } from './router'
 import { loadConfig, updateConfig } from './utils/configLoader'
 import { pluginManager } from './plugins'
 
+// 导入i18n配置
+import './i18n/config'
+
 /**
  * 渲染应用
  * 1. 先加载配置数据

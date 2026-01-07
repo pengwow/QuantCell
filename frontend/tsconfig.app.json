@@ -15,6 +15,12 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@plugins": ["src/plugins"],
+      "@i18n/*": ["../i18n/*"]
+    },
 
     /* Linting */
     "strict": true,

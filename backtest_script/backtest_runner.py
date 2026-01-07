@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 from backtesting import Backtest
-from backtesting.lib import crossover
+from backtesting.lib import crossover, FractionalBacktest
 
 
 def parse_args():
@@ -235,8 +235,8 @@ def run_backtest(data, strategy_class, config):
     print(f"初始资金: {initial_cash}")
     print(f"手续费率: {commission}")
     
-    # 初始化回测
-    bt = Backtest(
+    # 初始化回测，使用FractionalBacktest支持分数交易
+    bt = FractionalBacktest(
         data,
         strategy_class,
         cash=initial_cash,
@@ -332,8 +332,26 @@ def output_results(results, config):
     
     if output_format == "json" and output_path:
         # 输出到JSON文件
+        
+        def json_serializer(obj):
+            """
+            自定义JSON序列化器，处理非序列化对象
+            """
+            from datetime import datetime, date
+            import pandas as pd
+            
+            # 处理pandas Timestamp对象
+            if isinstance(obj, pd.Timestamp):
+                return obj.strftime("%Y-%m-%d %H:%M:%S")
+            # 处理datetime对象
+            elif isinstance(obj, (datetime, date)):
+                return obj.strftime("%Y-%m-%d %H:%M:%S")
+            # 处理其他非序列化对象，转换为字符串
+            else:
+                return str(obj)
+        
         with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
+            json.dump(results, f, ensure_ascii=False, indent=2, default=json_serializer)
         print(f"结果已输出到: {output_path}")
     else:
         # 控制台输出
