@@ -76,16 +76,11 @@ def get_strategy_list():
     try:
         logger.info("获取策略类型列表请求")
         
-        # 获取策略类型列表
-        strategy_names = backtest_service.get_strategy_list()
+        # 直接返回空列表，保持原有接口，但实际不再使用
+        # 建议前端使用新的 /api/strategy/list 接口
+        strategies = []
         
-        # 转换为前端期望的格式：包含name和params字段的对象列表
-        strategies = [
-            {"name": name, "params": {}}
-            for name in strategy_names
-        ]
-        
-        logger.info(f"成功获取策略类型列表，共 {len(strategies)} 个策略类型")
+        logger.info("成功获取策略类型列表")
         
         return ApiResponse(
             code=0,

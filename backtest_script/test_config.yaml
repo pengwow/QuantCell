@@ -1,29 +1,29 @@
 # 回测配置测试
 
 # 交易对
-symbol: BTCUSDT
+symbol: GOOG
 
 # 回测时间范围
-start_time: "2025-01-01"
-end_time: "2025-12-05"
+# start_time: "2025-01-01"
+# end_time: "2025-12-05"
 
 # 策略配置
 strategy:
   file: ./strategies/sma_cross.py
   class: SmaCross
   params:
-    n1: 2  # 短期移动平均线周期
-    n2: 3  # 长期移动平均线周期
+    n1: 10  # 短期移动平均线周期
+    n2: 20  # 长期移动平均线周期
 
 # 数据配置
 data:
-  path: /Users/liupeng/workspace/qbot/backend/data/source/crypto/15m/BTCUSDT.csv
+  path: /Users/liupeng/workspace/qbot/backend/data/source/crypto/15m/GOOG.csv
   format: csv
 
 # 回测配置
 backtest:
-  initial_cash: 1000  # 初始资金
-  commission: 0.001     # 手续费率
+  initial_cash: 10000  # 初始资金
+  commission: .002     # 手续费率
 
 # 输出配置
 output:
