@@ -41,7 +41,16 @@ router_data = APIRouter(prefix="/api/data", tags=["data-processing"])
 
 
 
-@router_data.post("/convert/qlib", response_model=ApiResponse)
+@router_data.post(
+    "/convert/qlib", 
+    response_model=ApiResponse,
+    summary="将CSV数据转换为QLib格式",
+    description="将指定目录下的CSV数据转换为QLib格式，支持多种参数配置，包括频率、字段映射等",
+    responses={
+        200: {"description": "数据转换成功", "model": ApiResponse},
+        500: {"description": "数据转换失败"}
+    }
+)
 def convert_data_to_qlib(request: DataConvertRequest):
     """将CSV数据转换为QLib格式API
     

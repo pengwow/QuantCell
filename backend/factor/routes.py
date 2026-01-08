@@ -20,7 +20,14 @@ router = APIRouter()
 factor_service = FactorService()
 
 # 创建因子计算API路由子路由
-router_factor = APIRouter(prefix="/api/factor", tags=["factor-calculation"])
+router_factor = APIRouter(
+    prefix="/api/factor", 
+    tags=["factor-calculation"],
+    responses={
+        200: {"description": "成功响应", "model": ApiResponse},
+        500: {"description": "内部服务器错误"}
+    }
+)
 
 
 @router_factor.get("/list", response_model=ApiResponse)

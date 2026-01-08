@@ -5,6 +5,7 @@
   "factor_analysis": "因子分析",
   "model_management": "模型管理",
   "backtest": "回测",
+  "strategy_backtest": "策略回测",
   "setting": "设置",
   "scheduled_tasks": "定时任务",
   "strategy_agent": "策略代理",

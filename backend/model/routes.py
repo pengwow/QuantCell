@@ -17,29 +17,61 @@ router = APIRouter()
 model_service = ModelService()
 
 # 创建模型训练API路由子路由
-router_model = APIRouter(prefix="/api/model", tags=["model-training"])
+router_model = APIRouter(
+    prefix="/api/model", 
+    tags=["model-training"],
+    responses={
+        200: {"description": "成功响应", "model": ApiResponse},
+        500: {"description": "内部服务器错误"}
+    }
+)
 
 
-@router_model.get("/list", response_model=ApiResponse)
-def get_model_list():
+@router_model.get(
+    "/list", 
+    response_model=ApiResponse,
+    summary="获取模型列表",
+    description="获取所有可用的模型列表，支持按模型类型过滤和分页",
+    responses={
+        200: {
+            "description": "获取模型列表成功",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": 0,
+                        "message": "获取模型列表成功",
+                        "data": {
+                            "models": ["xgboost", "catboost", "random_forest"]
+                        }
+                    }
+                }
+            }
+        },
+        500: {"description": "获取模型列表失败"}
+    }
+)
+def get_model_list(request: ModelListRequest = None):
     """
-    获取所有支持的模型类型列表
+    获取模型列表
     
+    Args:
+        request: 模型列表请求参数，包含模型类型过滤和分页信息，可选
+        
     Returns:
-        ApiResponse: API响应，包含模型类型列表
+        ApiResponse: API响应，包含模型列表
     """
     try:
-        logger.info("获取模型列表请求")
+        logger.info(f"获取模型列表请求，参数: {request.model_dump() if request else {}}")
         
         # 获取模型列表
-        models = model_service.get_model_list()
+        result = model_service.get_model_list(request)
         
-        logger.info(f"成功获取模型列表，共 {len(models)} 个模型类型")
+        logger.info(f"获取模型列表成功，结果: {result}")
         
         return ApiResponse(
             code=0,
             message="获取模型列表成功",
-            data={"models": models}
+            data=result
         )
     except Exception as e:
         logger.error(f"获取模型列表失败: {e}")
@@ -105,7 +137,16 @@ def train_model(request: ModelTrainRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router_model.post("/evaluate", response_model=ApiResponse)
+@router_model.post(
+    "/evaluate", 
+    response_model=ApiResponse,
+    summary="评估模型性能",
+    description="根据模型名称和数据集配置评估模型性能，返回评估指标",
+    responses={
+        200: {"description": "模型评估成功", "model": ApiResponse},
+        500: {"description": "模型评估失败"}
+    }
+)
 def evaluate_model(request: ModelEvaluateRequest):
     """
     评估模型

@@ -6,6 +6,8 @@ import { useState, useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import { backtestApi } from '../api';
 import '../styles/BacktestResults.css';
+import { useTranslation } from 'react-i18next';
+
 
 // 回测任务类型定义
 interface BacktestTask {
@@ -63,6 +65,9 @@ const BacktestResults = () => {
 
   // 回测结果详情
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
+
+  // 国际化支持
+  const { t } = useTranslation();
 
   // 交易数据
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -394,7 +399,7 @@ const BacktestResults = () => {
 
   return (
     <div className="backtest-results-container">
-      <h1>回测结果</h1>
+      <h1>{t('strategy_backtest')}</h1>
       
       <div className="backtest-layout">
         {/* 左侧：回测任务列表 */}
