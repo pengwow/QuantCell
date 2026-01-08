@@ -115,5 +115,16 @@
   "strategy_updated": "Strategy updated",
   "strategy_deleted": "Strategy deleted",
   "backtest_started": "Backtest started",
-  "backtest_completed": "Backtest completed"
+  "backtest_completed": "Backtest completed",
+  "entry_time": "Entry Time",
+  "exit_time": "Exit Time",
+  "hold_time": "Hold Time",
+  "entry_price": "Entry Price",
+  "exit_price": "Exit Price",
+  "position_size": "Position Size",
+  "pnl": "PnL",
+  "return_pct": "Return %",
+  "direction": "Direction",
+  "long": "Long",
+  "short": "Short"
 }

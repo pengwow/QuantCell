@@ -116,5 +116,16 @@
   "strategy_updated": "策略已更新",
   "strategy_deleted": "策略已删除",
   "backtest_started": "回测已开始",
-  "backtest_completed": "回测已完成"
+  "backtest_completed": "回测已完成",
+  "entry_time": "入场时间",
+  "exit_time": "出场时间",
+  "hold_time": "持仓时间",
+  "entry_price": "入场价格",
+  "exit_price": "出场价格",
+  "position_size": "仓位大小",
+  "pnl": "盈亏金额",
+  "return_pct": "收益率",
+  "direction": "方向",
+  "long": "多头",
+  "short": "空头"
 }

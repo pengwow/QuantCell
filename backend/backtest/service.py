@@ -3,7 +3,6 @@
 
 import sys
 import os
-import importlib.util
 import json
 from pathlib import Path
 import pandas as pd
@@ -19,6 +18,7 @@ sys.path.append(str(project_root))
 
 # 导入现有模块
 from collector.services.data_service import DataService
+from strategy.service import StrategyService
 
 
 class BacktestService:
@@ -28,9 +28,8 @@ class BacktestService:
     
     def __init__(self):
         """初始化回测服务"""
-        # 策略存储路径
-        self.strategy_dir = Path(project_root) / "backend" / "backtest" / "strategies"
-        self.strategy_dir.mkdir(parents=True, exist_ok=True)
+        # 策略服务实例 - 使用独立的策略模块
+        self.strategy_service = StrategyService()
         
         # 回测结果保存路径
         self.backtest_result_dir = Path(project_root) / "backend" / "backtest" / "results"
@@ -86,12 +85,14 @@ class BacktestService:
         :return: 策略类型列表
         """
         try:
-            # 从策略目录中获取所有策略文件
-            strategy_files = list(self.strategy_dir.glob("*.py"))
-            strategies = [file.stem for file in strategy_files]
+            # 调用策略服务获取策略列表
+            strategies = self.strategy_service.get_strategy_list()
             
-            logger.info(f"获取策略列表成功，共 {len(strategies)} 个策略")
-            return strategies
+            # 只返回策略名称列表，保持原有接口兼容性
+            strategy_names = [strategy["name"] for strategy in strategies]
+            
+            logger.info(f"获取策略列表成功，共 {len(strategy_names)} 个策略")
+            return strategy_names
         except Exception as e:
             logger.error(f"获取策略列表失败: {e}")
             logger.exception(e)
@@ -105,26 +106,15 @@ class BacktestService:
         :return: 策略类
         """
         try:
-            strategy_file = self.strategy_dir / f"{strategy_name}.py"
-            if not strategy_file.exists():
-                logger.error(f"策略文件不存在: {strategy_file}")
+            # 调用策略服务加载策略
+            strategy_class = self.strategy_service.load_strategy(strategy_name)
+            
+            if strategy_class:
+                logger.info(f"成功加载策略: {strategy_name}")
+                return strategy_class
+            else:
+                logger.error(f"加载策略失败: {strategy_name}")
                 return None
-            
-            # 动态导入策略模块
-            spec = importlib.util.spec_from_file_location(strategy_name, strategy_file)
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[strategy_name] = module
-                spec.loader.exec_module(module)
-                
-                # 查找Strategy子类
-                for name, cls in module.__dict__.items():
-                    if isinstance(cls, type) and issubclass(cls, Strategy) and cls != Strategy:
-                        logger.info(f"成功加载策略: {strategy_name}.{name}")
-                        return cls
-            
-            logger.error(f"在策略文件中未找到Strategy子类: {strategy_file}")
-            return None
         except Exception as e:
             logger.error(f"加载策略失败: {e}")
             logger.exception(e)
@@ -139,12 +129,15 @@ class BacktestService:
         :return: 是否上传成功
         """
         try:
-            strategy_file = self.strategy_dir / f"{strategy_name}.py"
-            with open(strategy_file, "w") as f:
-                f.write(file_content)
+            # 调用策略服务上传策略文件
+            success = self.strategy_service.upload_strategy_file(strategy_name, file_content)
             
-            logger.info(f"策略文件上传成功: {strategy_file}")
-            return True
+            if success:
+                logger.info(f"策略文件上传成功: {strategy_name}")
+            else:
+                logger.error(f"策略文件上传失败: {strategy_name}")
+            
+            return success
         except Exception as e:
             logger.error(f"策略文件上传失败: {e}")
             logger.exception(e)

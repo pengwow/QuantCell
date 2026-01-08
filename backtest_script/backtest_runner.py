@@ -16,6 +16,42 @@ import pandas as pd
 from backtesting import Backtest
 from backtesting.lib import crossover, FractionalBacktest
 
+# 国际化支持
+class Translator:
+    """简单的翻译器类"""
+    def __init__(self, lang="zh-CN"):
+        """初始化翻译器
+        
+        Args:
+            lang: 语言代码，默认为中文
+        """
+        self.lang = lang
+        self.translations = {}
+        self._load_translations()
+    
+    def _load_translations(self):
+        """加载翻译文件"""
+        i18n_dir = Path(__file__).parent.parent / "i18n"
+        lang_file = i18n_dir / f"{self.lang}.json"
+        
+        if lang_file.exists():
+            with open(lang_file, "r", encoding="utf-8") as f:
+                self.translations = json.load(f)
+    
+    def get(self, key, default=None):
+        """获取翻译
+        
+        Args:
+            key: 翻译键
+            default: 默认值
+            
+        Returns:
+            str: 翻译后的文本
+        """
+        return self.translations.get(key, default or key)
+
+# 创建翻译器实例（默认中文）
+translator = Translator()
 
 def parse_args():
     """
@@ -44,6 +80,9 @@ def parse_args():
     # 回测配置参数
     parser.add_argument("--initial-cash", type=float, help="初始资金")
     parser.add_argument("--commission", type=float, help="手续费率")
+    
+    # 国际化参数
+    parser.add_argument("--lang", type=str, default="zh-CN", help="语言代码，默认为中文（zh-CN）")
     
     return parser.parse_args()
 
@@ -236,7 +275,7 @@ def run_backtest(data, strategy_class, config):
     print(f"手续费率: {commission}")
     
     # 初始化回测，使用FractionalBacktest支持分数交易
-    bt = FractionalBacktest(
+    bt = Backtest(
         data,
         strategy_class,
         cash=initial_cash,
@@ -301,15 +340,15 @@ def format_results(stats, bt):
         trade_df = stats["_trades"]
         for _, trade in trade_df.iterrows():
             trades.append({
-                "入场时间": trade.EntryTime.strftime("%Y-%m-%d %H:%M:%S"),
-                "出场时间": trade.ExitTime.strftime("%Y-%m-%d %H:%M:%S"),
-                "持仓时间": str(trade.Duration),
-                "入场价格": round(trade.EntryPrice, 2),
-                "出场价格": round(trade.ExitPrice, 2),
-                "仓位大小": round(trade.Size, 2),
-                "盈亏金额": round(trade.PnL, 2),
-                "收益率": f"{trade.ReturnPct:.2f}%",
-                "方向": "多头" if trade.Size > 0 else "空头"
+                translator.get("entry_time"): trade.EntryTime.strftime("%Y-%m-%d %H:%M:%S"),
+                translator.get("exit_time"): trade.ExitTime.strftime("%Y-%m-%d %H:%M:%S"),
+                translator.get("hold_time"): str(trade.Duration),
+                translator.get("entry_price"): round(trade.EntryPrice, 2),
+                translator.get("exit_price"): round(trade.ExitPrice, 2),
+                translator.get("position_size"): round(trade.Size, 2),
+                translator.get("pnl"): round(trade.PnL, 2),
+                translator.get("return_pct"): f"{trade.ReturnPct:.2f}%",
+                translator.get("direction"): translator.get("long") if trade.Size > 0 else translator.get("short")
             })
     
     return {
@@ -492,6 +531,10 @@ def main():
     try:
         # 解析命令行参数
         args = parse_args()
+        
+        # 根据命令行参数更新翻译器语言
+        global translator
+        translator = Translator(args.lang)
         
         # 创建示例文件
         create_example_strategy()

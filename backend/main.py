@@ -11,6 +11,7 @@ from backtest.routes import router as backtest_router
 from collector.routes import router as collector_router
 from factor.routes import router as factor_router
 from model.routes import router as model_router
+from strategy.routes import router_strategy as strategy_router
 
 # 导入插件系统
 from plugins import init_plugin_system, global_plugin_manager
@@ -274,6 +275,9 @@ app.include_router(factor_router)
 
 # 注册模型训练API路由
 app.include_router(model_router)
+
+# 注册策略服务API路由
+app.include_router(strategy_router)
 
 # 注册回测服务API路由
 app.include_router(backtest_router)
