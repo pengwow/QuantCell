@@ -18,14 +18,32 @@ router = APIRouter()
 backtest_service = BacktestService()
 
 # 创建回测API路由子路由
-router_backtest = APIRouter(prefix="/api/backtest", tags=["backtest"])
+router_backtest = APIRouter(
+    prefix="/api/backtest", 
+    tags=["backtest"],
+    responses={
+        200: {"description": "成功响应", "model": ApiResponse},
+        500: {"description": "内部服务器错误"}
+    }
+)
 
-
-@router_backtest.get("/list", response_model=ApiResponse)
-def get_backtest_list():
+@router_backtest.get(
+    "/list", 
+    response_model=ApiResponse,
+    summary="获取回测列表",
+    description="获取所有回测任务的列表，支持分页查询",
+    responses={
+        200: {"description": "获取回测列表成功"},
+        500: {"description": "获取回测列表失败"}
+    }
+)
+def get_backtest_list(request: BacktestListRequest = None):
     """
     获取所有回测结果列表
     
+    Args:
+        request: 回测列表请求参数，包含分页信息，可选
+        
     Returns:
         ApiResponse: API响应，包含回测结果列表
     """
@@ -73,7 +91,31 @@ def get_strategy_list():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router_backtest.post("/run", response_model=ApiResponse)
+@router_backtest.post(
+    "/run", 
+    response_model=ApiResponse,
+    summary="执行回测",
+    description="根据策略配置和回测配置执行回测，返回回测结果",
+    responses={
+        200: {
+            "description": "回测执行成功",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": 0,
+                        "message": "回测执行成功",
+                        "data": {
+                            "task_id": "bt_1234567890",
+                            "status": "completed",
+                            "message": "回测完成"
+                        }
+                    }
+                }
+            }
+        },
+        500: {"description": "回测执行失败"}
+    }
+)
 def run_backtest(request: BacktestRunRequest):
     """
     执行回测
@@ -85,12 +127,12 @@ def run_backtest(request: BacktestRunRequest):
         ApiResponse: API响应，包含回测结果
     """
     try:
-        logger.info("执行回测请求")
+        logger.info(f"执行回测请求，参数: {request.model_dump()}")
         
         # 执行回测
         result = backtest_service.run_backtest(
-            strategy_config=request.strategy_config,
-            backtest_config=request.backtest_config
+            strategy_config=request.strategy_config.model_dump(),
+            backtest_config=request.backtest_config.model_dump()
         )
         
         logger.info(f"回测执行完成，结果: {result}")

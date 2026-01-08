@@ -132,20 +132,20 @@ def start_scheduler(
         replace_existing=True
     )
     
-    # 添加立即执行一次的任务，用于初始化货币对数据
-    scheduler.add_job(
-        func=lambda: sync_crypto_symbols(
-            proxy_enabled=proxy_enabled,
-            proxy_url=proxy_url,
-            proxy_username=proxy_username,
-            proxy_password=proxy_password
-        ),
-        trigger='date',
-        run_date=None,  # 立即执行
-        id='sync_crypto_symbols_init',
-        name='Initialize cryptocurrency symbols',
-        replace_existing=True
-    )
+    # 注释掉立即执行的加密货币对同步任务，避免启动时连接交易所API失败
+    # scheduler.add_job(
+    #     func=lambda: sync_crypto_symbols(
+    #         proxy_enabled=proxy_enabled,
+    #         proxy_url=proxy_url,
+    #         proxy_username=proxy_username,
+    #         proxy_password=proxy_password
+    #     ),
+    #     trigger='date',
+    #     run_date=None,  # 立即执行
+    #     id='sync_crypto_symbols_init',
+    #     name='Initialize cryptocurrency symbols',
+    #     replace_existing=True
+    # )
     
     # 启动调度器
     scheduler.start()

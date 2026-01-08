@@ -58,8 +58,8 @@ const App = () => {
             name: t('strategy_agent')
           },
           {
-            path: '/backtest-results',
-            name: t('backtest_results')
+            path: '/backtest',
+            name: t('strategy_backtest')
           }
         ]
       },

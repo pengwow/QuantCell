@@ -64,7 +64,7 @@ export const createRouter = () => {
           element: <ModelManagement />
         },
         {
-          path: '/backtest-results',
+          path: '/backtest',
           element: <BacktestResults />
         },
         {
