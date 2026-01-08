@@ -7,6 +7,8 @@ import * as echarts from 'echarts';
 import { backtestApi } from '../api';
 import '../styles/BacktestResults.css';
 import { useTranslation } from 'react-i18next';
+import BacktestConfig from './BacktestConfig';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 
 // 回测任务类型定义
@@ -77,6 +79,9 @@ const BacktestResults = () => {
 
   // 加载状态
   const [loading, setLoading] = useState<boolean>(false);
+
+  // 是否显示回测配置页面
+  const [showConfig, setShowConfig] = useState<boolean>(false);
 
   // 图表引用
   const returnChartRef = useRef<HTMLDivElement>(null);
@@ -397,6 +402,32 @@ const BacktestResults = () => {
     }
   };
 
+  // 切换到回测配置页面
+  const handleNewBacktest = () => {
+    setShowConfig(true);
+  };
+
+  // 从回测配置页面返回
+  const handleBack = () => {
+    setShowConfig(false);
+  };
+
+  // 执行回测后返回列表页面并刷新数据
+  const handleRunBacktest = () => {
+    setShowConfig(false);
+    loadBacktestList();
+  };
+
+  // 如果显示回测配置页面，使用错误边界包裹渲染
+  if (showConfig) {
+    return (
+      <ErrorBoundary>
+        <BacktestConfig onBack={handleBack} onRunBacktest={handleRunBacktest} />
+      </ErrorBoundary>
+    );
+  }
+
+  // 否则渲染回测列表和详情
   return (
     <div className="backtest-results-container">
       <h1>{t('strategy_backtest')}</h1>
@@ -407,7 +438,9 @@ const BacktestResults = () => {
           <div className="panel">
             <div className="panel-header">
               <h2>回测任务</h2>
-              <button className="btn btn-primary btn-sm">新建回测</button>
+              <button className="btn btn-primary btn-sm" onClick={handleNewBacktest}>
+                新建回测
+              </button>
             </div>
             <div className="panel-body">
               {loading ? (

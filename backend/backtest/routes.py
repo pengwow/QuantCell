@@ -77,7 +77,13 @@ def get_strategy_list():
         logger.info("获取策略类型列表请求")
         
         # 获取策略类型列表
-        strategies = backtest_service.get_strategy_list()
+        strategy_names = backtest_service.get_strategy_list()
+        
+        # 转换为前端期望的格式：包含name和params字段的对象列表
+        strategies = [
+            {"name": name, "params": {}}
+            for name in strategy_names
+        ]
         
         logger.info(f"成功获取策略类型列表，共 {len(strategies)} 个策略类型")
         
