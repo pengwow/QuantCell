@@ -296,7 +296,7 @@ const DataQuality = ({ systemConfig }: DataQualityProps) => {
               
               <Divider />
               
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
                 <div className="coverage-item">
                   <Text strong>历史数据缺失:</Text>
                   <Tag color={qualityReport.checks.coverage.missing_historical_data ? 'red' : 'green'} style={{ marginLeft: 8 }}>
@@ -482,7 +482,7 @@ const DataQuality = ({ systemConfig }: DataQualityProps) => {
           <Spin tip="正在生成数据质量报告..." size="large" />
         </div>
       ) : qualityReport ? (
-        <Space direction="vertical" size="large" style={{ width: '100%', marginTop: 16 }}>
+        <Space orientation="vertical" size="large" style={{ width: '100%', marginTop: 16 }}>
           {renderOverview()}
           {renderCheckDetails()}
         </Space>

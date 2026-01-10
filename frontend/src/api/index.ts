@@ -175,6 +175,15 @@ export const strategyApi = {
   getExecutionStats: () => {
     return apiRequest.get('/strategy/stats');
   },
+
+  /**
+   * 上传策略文件
+   * @param data 策略数据，包括策略名称和文件内容
+   * @returns 上传结果
+   */
+  uploadStrategyFile: (data: any) => {
+    return apiRequest.post('/strategy/upload', data);
+  },
 };
 
 /**
@@ -493,7 +502,7 @@ export const backtestApi = {
    * @returns 策略列表数据
    */
   getStrategies: () => {
-    return apiRequest.get('/backtest/strategies');
+    return apiRequest.get('/strategy/list');
   },
 
   /**
