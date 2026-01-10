@@ -187,7 +187,10 @@ def init_db():
             CryptoSpotKline,
             CryptoFutureKline,
             StockKline,
-            ScheduledTask
+            ScheduledTask,
+            BacktestTask,
+            BacktestResult,
+            Strategy
         )
         
         logger.info("使用SQLAlchemy创建数据库表...")

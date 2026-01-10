@@ -35,48 +35,54 @@ class StrategyService:
         
         logger.info(f"策略服务初始化成功，策略目录: {self.strategy_dir}")
     
-    def _parse_strategy_file(self, file_path):
+    def _parse_strategy_content(self, file_content, strategy_name):
         """
-        解析策略文件，提取策略信息
+        解析策略文件内容，提取策略信息
         
-        :param file_path: 策略文件路径
-        :return: 策略信息字典
+        :param file_content: 策略文件内容
+        :param strategy_name: 策略名称
+        :return: 策略信息字典，如果没有找到策略类则返回None
         """
         try:
-            # 读取文件内容
-            with open(file_path, 'r', encoding='utf-8') as f:
-                file_content = f.read()
-            
             # 解析Python代码
             tree = ast.parse(file_content)
             
             # 初始化策略信息
             strategy_info = {
-                "name": file_path.stem,
-                "file_name": file_path.name,
-                "file_path": str(file_path),
+                "name": strategy_name,
+                "file_name": f"{strategy_name}.py",
+                "file_path": str(self.strategy_dir / f"{strategy_name}.py"),
                 "description": "",
                 "version": "1.0.0",
                 "params": [],
-                "created_at": datetime.fromtimestamp(file_path.stat().st_ctime),
-                "updated_at": datetime.fromtimestamp(file_path.stat().st_mtime),
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
                 "code": file_content
             }
             
+            logger.info(f"开始查找策略类，代码内容: {file_content[:100]}...")
             # 查找策略类
+            found_strategy_class = False
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
+                    logger.info(f"找到类定义: {node.name}")
                     # 检查是否继承自Strategy或StrategyBase
                     has_strategy_base = False
                     for base in node.bases:
+                        logger.info(f"检查基类: {base}")
                         if isinstance(base, ast.Name) and (base.id == 'Strategy' or base.id == 'StrategyBase'):
                             has_strategy_base = True
+                            logger.info(f"找到直接继承: {base.id}")
                         elif isinstance(base, ast.Attribute) and (base.attr == 'Strategy' or base.attr == 'StrategyBase'):
                             has_strategy_base = True
+                            logger.info(f"找到属性继承: {base.attr}")
                     
                     if has_strategy_base:
+                        found_strategy_class = True
+                        logger.info(f"找到策略类: {node.name}")
                         # 提取类文档字符串
                         strategy_info["description"] = ast.get_docstring(node) or ""
+                        logger.info(f"策略描述: {strategy_info['description']}")
                         
                         # 提取类属性（策略参数）
                         for item in node.body:
@@ -124,61 +130,148 @@ class StrategyService:
                                         "required": False
                                     })
             
-            return strategy_info
+            logger.info(f"策略类查找结果: {found_strategy_class}")
+            # 只有当找到策略类时才返回策略信息
+            return strategy_info if found_strategy_class else None
+        except Exception as e:
+            logger.error(f"解析策略内容失败: {strategy_name}, 错误: {e}")
+            logger.exception(e)
+            return None
+    
+    def _parse_strategy_file(self, file_path):
+        """
+        解析策略文件，提取策略信息
+        
+        :param file_path: 策略文件路径
+        :return: 策略信息字典
+        """
+        try:
+            # 读取文件内容
+            with open(file_path, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+            
+            # 调用解析内容方法
+            return self._parse_strategy_content(file_content, file_path.stem)
         except Exception as e:
             logger.error(f"解析策略文件失败: {file_path}, 错误: {e}")
             logger.exception(e)
             return None
     
-    def get_strategy_list(self):
+    def get_strategy_list(self, source=None):
         """
         获取所有支持的策略列表
         
-        :return: 策略列表，每个策略包含完整的策略信息
+        :param source: 策略来源，"files"表示从实体文件获取，"db"表示从数据库表获取，None表示两者都获取
+        :return: 策略列表，每个策略包含完整的策略信息，并添加source字段区分来源
         """
         try:
-            # 从策略目录中获取所有策略文件
-            strategy_files = list(self.strategy_dir.glob("*.py"))
-            
-            # 构建策略列表，包含完整的策略信息
             strategies = []
-            for file in strategy_files:
-                if file.stem == "__init__":
-                    continue
-                    
-                strategy_info = self._parse_strategy_file(file)
-                if strategy_info:
-                    # 移除code字段，列表接口不需要返回完整代码
-                    strategy_info.pop("code")
-                    strategies.append(strategy_info)
             
-            logger.info(f"获取策略列表成功，共 {len(strategies)} 个策略")
-            return strategies
+            # 如果source为None或包含"files"，则从文件获取策略
+            if source is None or source == "files":
+                # 从策略目录中获取所有策略文件
+                strategy_files = list(self.strategy_dir.glob("*.py"))
+                
+                # 构建策略列表，包含完整的策略信息
+                for file in strategy_files:
+                    if file.stem == "__init__":
+                        continue
+                        
+                    strategy_info = self._parse_strategy_file(file)
+                    if strategy_info:
+                        # 移除code字段，列表接口不需要返回完整代码
+                        strategy_info.pop("code")
+                        # 添加source字段
+                        strategy_info["source"] = "files"
+                        strategies.append(strategy_info)
+                
+                logger.info(f"从文件获取策略列表成功，共 {len(strategies)} 个策略")
+            
+            # 如果source为None或包含"db"，则从数据库获取策略
+            if source is None or source == "db":
+                try:
+                    # 从数据库表中获取策略列表
+                    from collector.db.database import SessionLocal, init_database_config
+                    from collector.db.models import Strategy
+                    import json
+                    
+                    init_database_config()
+                    db = SessionLocal()
+                    try:
+                        # 查询所有策略
+                        db_strategies = db.query(Strategy).all()
+                        
+                        # 构建策略列表
+                        db_strategies_list = []
+                        for strategy in db_strategies:
+                            db_strategies_list.append({
+                                "name": strategy.name,
+                                "file_name": strategy.filename,
+                                "file_path": str(self.strategy_dir / strategy.filename),
+                                "description": strategy.description or "",
+                                "version": "1.0.0",
+                                "params": json.loads(strategy.parameters) if strategy.parameters else [],
+                                "created_at": strategy.created_at,
+                                "updated_at": strategy.updated_at,
+                                "source": "db"
+                            })
+                        
+                        strategies.extend(db_strategies_list)
+                        logger.info(f"从数据库获取策略列表成功，共 {len(db_strategies_list)} 个策略")
+                    finally:
+                        db.close()
+                except ImportError:
+                    logger.warning("无法导入数据库模块，跳过从数据库获取策略")
+                except Exception as e:
+                    logger.error(f"从数据库获取策略列表失败: {e}")
+                    logger.exception(e)
+            
+            # 去重，优先保留文件策略
+            strategy_dict = {}
+            for strategy in strategies:
+                if strategy["name"] not in strategy_dict or strategy["source"] == "files":
+                    strategy_dict[strategy["name"]] = strategy
+            
+            final_strategies = list(strategy_dict.values())
+            logger.info(f"最终获取策略列表成功，共 {len(final_strategies)} 个策略")
+            return final_strategies
         except Exception as e:
             logger.error(f"获取策略列表失败: {e}")
             logger.exception(e)
             return []
     
-    def get_strategy_detail(self, strategy_name):
+    def get_strategy_detail(self, strategy_name, file_content=None):
         """
         获取单个策略的详细信息
         
         :param strategy_name: 策略名称
+        :param file_content: 策略文件内容（可选），如果提供则直接解析
         :return: 策略详细信息，如果获取失败返回None
         """
         try:
-            strategy_file = self.strategy_dir / f"{strategy_name}.py"
-            if not strategy_file.exists():
-                logger.error(f"策略文件不存在: {strategy_file}")
+            if file_content is not None:
+                # 如果提供了文件内容，直接解析
+                strategy_info = self._parse_strategy_content(file_content, strategy_name)
+                if strategy_info:
+                    logger.info(f"通过内容获取策略详情成功: {strategy_name}")
+                    return strategy_info
+                
+                logger.error(f"解析策略内容失败: {strategy_name}")
                 return None
-            
-            strategy_info = self._parse_strategy_file(strategy_file)
-            if strategy_info:
-                logger.info(f"获取策略详情成功: {strategy_name}")
-                return strategy_info
-            
-            logger.error(f"解析策略文件失败: {strategy_file}")
-            return None
+            else:
+                # 否则，读取文件后解析
+                strategy_file = self.strategy_dir / f"{strategy_name}.py"
+                if not strategy_file.exists():
+                    logger.error(f"策略文件不存在: {strategy_file}")
+                    return None
+                
+                strategy_info = self._parse_strategy_file(strategy_file)
+                if strategy_info:
+                    logger.info(f"获取策略详情成功: {strategy_name}")
+                    return strategy_info
+                
+                logger.error(f"解析策略文件失败: {strategy_file}")
+                return None
         except Exception as e:
             logger.error(f"获取策略详情失败: {e}")
             logger.exception(e)
@@ -462,20 +555,104 @@ class StrategyService:
             logger.exception(e)
             return False
     
-    def upload_strategy_file(self, strategy_name: str, file_content: str) -> bool:
+    def upload_strategy_file(self, strategy_name: str, file_content: str, version: Optional[str] = None, description: Optional[str] = None, id: Optional[int] = None) -> bool:
         """
         上传策略文件
         
         :param strategy_name: 策略名称
         :param file_content: 文件内容
+        :param version: 策略版本（可选），如果提供则使用，否则从文件内容中提取
+        :param description: 策略描述（可选），如果提供则使用，否则从文件内容中提取
+        :param id: 策略ID（可选），如果提供则更新现有策略，否则根据策略名称判断
         :return: 是否上传成功
         """
         try:
+            # 保存策略文件
             strategy_file = self.strategy_dir / f"{strategy_name}.py"
             with open(strategy_file, "w") as f:
                 f.write(file_content)
             
             logger.info(f"策略文件上传成功: {strategy_file}")
+            
+            # 将策略信息保存到数据库
+            from collector.db.database import SessionLocal, init_database_config
+            from collector.db.models import Strategy
+            import json
+            from datetime import datetime
+            
+            init_database_config()
+            db = SessionLocal()
+            try:
+                # 检查策略是否已存在
+                logger.info(f"检查策略是否已存在: id={id}, name={strategy_name}")
+                existing_strategy = None
+                if id:
+                    # 如果提供了id，根据id查询
+                    existing_strategy = db.query(Strategy).filter_by(id=id).first()
+                else:
+                    # 否则根据策略名称查询
+                    existing_strategy = db.query(Strategy).filter_by(name=strategy_name).first()
+                logger.info(f"现有策略: {existing_strategy}")
+                
+                # 初始化基本策略信息
+                strategy_info = {
+                    "name": strategy_name,
+                    "file_name": f"{strategy_name}.py",
+                    "description": description or "",
+                    "version": version or "1.0.0",
+                    "params": []
+                }
+                
+                # 尝试解析策略内容，提取策略信息
+                try:
+                    parsed_info = self._parse_strategy_content(file_content, strategy_name)
+                    if parsed_info:
+                        strategy_info["description"] = description or parsed_info["description"]
+                        strategy_info["params"] = parsed_info["params"]
+                        logger.info(f"策略解析成功，使用解析的信息")
+                    else:
+                        logger.info(f"策略解析失败，使用默认信息")
+                except Exception as parse_e:
+                    logger.error(f"解析策略内容失败: {parse_e}")
+                    logger.exception(parse_e)
+                
+                # 准备参数JSON
+                params_json = json.dumps(strategy_info["params"]) if strategy_info["params"] else None
+                logger.info(f"准备保存的参数: {params_json}")
+                
+                if existing_strategy:
+                    # 更新现有策略
+                    logger.info(f"更新现有策略: id={id}, name={strategy_name}")
+                    existing_strategy.name = strategy_name
+                    existing_strategy.filename = strategy_info["file_name"]
+                    existing_strategy.description = strategy_info["description"]
+                    existing_strategy.parameters = params_json
+                    existing_strategy.updated_at = datetime.now()
+                    logger.info(f"更新策略信息到数据库: {strategy_name}")
+                else:
+                    # 创建新策略
+                    logger.info(f"创建新策略: {strategy_name}")
+                    new_strategy = Strategy(
+                        name=strategy_name,
+                        filename=strategy_info["file_name"],
+                        description=strategy_info["description"],
+                        parameters=params_json
+                    )
+                    logger.info(f"新策略对象: {new_strategy}")
+                    db.add(new_strategy)
+                    logger.info(f"保存策略信息到数据库: {strategy_name}")
+                
+                # 提交事务
+                logger.info(f"提交事务: {strategy_name}")
+                db.commit()
+                logger.info(f"策略信息保存到数据库成功: {strategy_name}")
+            except Exception as db_e:
+                db.rollback()
+                logger.error(f"保存策略信息到数据库失败: {db_e}")
+                logger.exception(db_e)
+            finally:
+                db.close()
+            
             return True
         except Exception as e:
             logger.error(f"策略文件上传失败: {e}")
@@ -500,6 +677,67 @@ class StrategyService:
             return True
         except Exception as e:
             logger.error(f"策略文件删除失败: {e}")
+            logger.exception(e)
+            return False
+    
+    def delete_strategy(self, strategy_name: str, strategy_id: Optional[int] = None) -> bool:
+        """
+        删除策略，包括策略文件和数据库记录
+        
+        :param strategy_name: 策略名称
+        :param strategy_id: 策略ID（可选）
+        :return: 是否删除成功
+        """
+        try:
+            logger.info(f"开始删除策略: name={strategy_name}, id={strategy_id}")
+            
+            # 1. 删除策略文件
+            delete_file_success = self.delete_strategy_file(strategy_name)
+            if not delete_file_success:
+                logger.warning(f"策略文件删除失败，但继续尝试删除数据库记录: {strategy_name}")
+            
+            # 2. 从数据库中删除策略记录
+            try:
+                from collector.db.database import SessionLocal, init_database_config
+                from collector.db.models import Strategy
+                
+                init_database_config()
+                db = SessionLocal()
+                try:
+                    # 构建查询条件
+                    query = db.query(Strategy)
+                    if strategy_id:
+                        # 如果提供了ID，优先使用ID查询
+                        query = query.filter_by(id=strategy_id)
+                    else:
+                        # 否则使用策略名称查询
+                        query = query.filter_by(name=strategy_name)
+                    
+                    # 执行删除
+                    deleted_count = query.delete()
+                    
+                    if deleted_count > 0:
+                        logger.info(f"从数据库中删除策略成功，删除了 {deleted_count} 条记录")
+                        db.commit()
+                    else:
+                        logger.warning(f"数据库中未找到要删除的策略: name={strategy_name}, id={strategy_id}")
+                except Exception as db_e:
+                    db.rollback()
+                    logger.error(f"从数据库中删除策略失败: {db_e}")
+                    logger.exception(db_e)
+                    return False
+                finally:
+                    db.close()
+            except Exception as db_import_e:
+                logger.error(f"导入数据库模块失败: {db_import_e}")
+                logger.exception(db_import_e)
+                # 如果数据库操作失败，但文件已删除，仍返回成功
+                return delete_file_success
+            
+            logger.info(f"删除策略成功: {strategy_name}")
+            return True
+        except Exception as e:
+            logger.error(f"删除策略失败: {e}")
             logger.exception(e)
             return False
     

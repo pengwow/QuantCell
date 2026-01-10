@@ -297,7 +297,8 @@ class Strategy(Base):
     """
     __tablename__ = "strategies"
     
-    name = Column(String, primary_key=True, index=True)  # 策略名称
+    id = Column(Integer, Identity(always=True), primary_key=True, index=True)  # 主键ID
+    name = Column(String, unique=True, index=True)  # 策略名称，唯一
     filename = Column(String, nullable=False)  # 策略文件名
     description = Column(Text, nullable=True)  # 策略描述
     parameters = Column(Text, nullable=True)  # JSON格式，策略参数定义
