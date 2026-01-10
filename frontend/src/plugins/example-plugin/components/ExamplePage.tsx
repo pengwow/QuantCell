@@ -9,8 +9,8 @@ const { Title, Paragraph, Text } = Typography;
 export const ExamplePage: React.FC = () => {
   return (
     <div style={{ padding: '20px' }}>
-      <Card title="示例插件页面" bordered={false}>
-        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Card title="示例插件页面" variant="borderless">
+        <Space orientation="vertical" size="large" style={{ width: '100%' }}>
           <div>
             <Title level={3}>插件功能演示</Title>
             <Paragraph>

@@ -52,6 +52,8 @@
 /* 导入日志样式 */
 .import-log {
   margin-top: 20px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .import-log h3 {
@@ -64,12 +66,20 @@
   border-radius: 4px;
   max-height: 200px;
   overflow-y: auto;
+  width: 100%;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  white-space: normal;
 }
 
 .log-item {
   margin-bottom: 5px;
   font-size: 14px;
   color: #666;
+  width: 100%;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  white-space: normal;
 }
 
 /* 任务列表样式 */

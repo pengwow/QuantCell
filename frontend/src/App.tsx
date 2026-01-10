@@ -54,6 +54,10 @@ const App = () => {
         group: t('strategy_management'),
         items: [
           {
+            path: '/strategy-management',
+            name: t('strategy_management')
+          },
+          {
             path: '/agent/StrategyAgent',
             name: t('strategy_agent')
           },

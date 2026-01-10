@@ -16,16 +16,35 @@ import {
   Col,
   Spin,
   message,
+  Modal,
+  Upload,
+  Tabs,
 } from 'antd';
-import { BackwardOutlined } from '@ant-design/icons';
-import { backtestApi } from '../api';
+import { BackwardOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { backtestApi, strategyApi } from '../api';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
+const { TabPane } = Tabs;
+const { Dragger } = Upload;
+
+interface StrategyParam {
+  name: string;
+  type: string;
+  default: any;
+  description: string;
+  required: boolean;
+}
 
 interface Strategy {
   name: string;
-  params: Record<string, any>;
+  file_name: string;
+  file_path: string;
+  description: string;
+  version: string;
+  params: StrategyParam[];
+  created_at: string;
+  updated_at: string;
 }
 
 interface BacktestConfigProps {
@@ -37,6 +56,12 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest }
   const [form] = Form.useForm();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  
+  // 策略创建相关状态
+  const [createModalVisible, setCreateModalVisible] = useState<boolean>(false);
+  const [createForm] = Form.useForm();
+  const [activeTab, setActiveTab] = useState<string>('new'); // 'new' 或 'upload'
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   // 加载策略列表
   const loadStrategies = async () => {
@@ -68,6 +93,61 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest }
   useEffect(() => {
     loadStrategies();
   }, []);
+
+  // 打开策略创建模态框
+  const handleCreateStrategy = () => {
+    setCreateModalVisible(true);
+    createForm.resetFields();
+    setActiveTab('new');
+    setUploadFile(null);
+  };
+
+  // 关闭策略创建模态框
+  const handleCreateModalClose = () => {
+    setCreateModalVisible(false);
+  };
+
+  // 处理策略创建提交
+  const handleCreateSubmit = async (values: any) => {
+    try {
+      setLoading(true);
+      
+      if (activeTab === 'new') {
+        // 创建新策略
+        const strategyData = {
+          name: values.strategyName,
+          description: values.description,
+          params: values.params ? JSON.parse(values.params) : {},
+        };
+        
+        await strategyApi.createStrategy(strategyData);
+        message.success('策略创建成功');
+      } else if (activeTab === 'upload' && uploadFile) {
+        // 上传策略文件
+        const formData = new FormData();
+        formData.append('file', uploadFile);
+        formData.append('name', values.strategyName || uploadFile.name.replace('.py', ''));
+        
+        await backtestApi.uploadStrategy(formData);
+        message.success('策略上传成功');
+      }
+      
+      // 重新加载策略列表
+      loadStrategies();
+      setCreateModalVisible(false);
+    } catch (error) {
+      console.error('创建策略失败:', error);
+      message.error('创建策略失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 处理文件上传
+  const handleFileUpload = (file: File) => {
+    setUploadFile(file);
+    return false; // 阻止自动上传
+  };
 
   // 处理表单提交
   const handleSubmit = async (values: any) => {
@@ -160,7 +240,10 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest }
                     label="策略名称"
                     rules={[{ required: true, message: '请选择策略名称' }]}
                   >
-                    <Select placeholder="请选择策略">
+                    <Select 
+                      placeholder="请选择策略"
+                      style={{ width: '100%' }}
+                    >
                       {strategies.map((strategy) => (
                         <Option key={strategy.name} value={strategy.name}>
                           {strategy.name}
@@ -168,6 +251,15 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest }
                       ))}
                     </Select>
                   </Form.Item>
+                  <div style={{ marginBottom: 16, textAlign: 'right' }}>
+                    <Button 
+                      type="dashed" 
+                      icon={<PlusOutlined />} 
+                      onClick={handleCreateStrategy}
+                    >
+                      创建新策略
+                    </Button>
+                  </div>
                 </Col>
 
                 <Col span={24}>
@@ -283,6 +375,122 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest }
           </Form>
         </Spin>
       </Card>
+
+      {/* 策略创建模态框 */}
+      <Modal
+        title="创建策略"
+        open={createModalVisible}
+        onCancel={handleCreateModalClose}
+        footer={null}
+        width={800}
+      >
+        <Tabs activeKey={activeTab} onChange={setActiveTab}>
+          <TabPane tab="新建策略" key="new">
+            <Form
+              form={createForm}
+              layout="vertical"
+              onFinish={handleCreateSubmit}
+            >
+              <Form.Item
+                name="strategyName"
+                label="策略名称"
+                rules={[{ required: true, message: '请输入策略名称' }]}
+              >
+                <Input placeholder="请输入策略名称" />
+              </Form.Item>
+              
+              <Form.Item
+                name="description"
+                label="策略描述"
+              >
+                <Input.TextArea placeholder="请输入策略描述" rows={3} />
+              </Form.Item>
+              
+              <Form.Item
+                name="params"
+                label="策略参数"
+                rules={[
+                  {
+                    validator: (_, value) => {
+                      try {
+                        if (value) {
+                          JSON.parse(value);
+                        }
+                        return Promise.resolve();
+                      } catch (error) {
+                        return Promise.reject(new Error('策略参数必须是有效的JSON格式'));
+                      }
+                    },
+                  },
+                ]}
+              >
+                <Input.TextArea 
+                  placeholder="请输入策略参数，格式为JSON字符串" 
+                  rows={4} 
+                  defaultValue="{}"
+                />
+              </Form.Item>
+              
+              <Form.Item style={{ textAlign: 'right' }}>
+                <Space>
+                  <Button onClick={handleCreateModalClose}>取消</Button>
+                  <Button type="primary" htmlType="submit" loading={loading}>
+                    创建设置
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          </TabPane>
+          
+          <TabPane tab="上传策略文件" key="upload">
+            <Form
+              form={createForm}
+              layout="vertical"
+              onFinish={handleCreateSubmit}
+            >
+              <Form.Item
+                name="strategyName"
+                label="策略名称"
+                rules={[{ required: true, message: '请输入策略名称' }]}
+              >
+                <Input placeholder="请输入策略名称（留空则使用文件名）" />
+              </Form.Item>
+              
+              <Form.Item label="上传策略文件">
+                <Dragger
+                  name="file"
+                  multiple={false}
+                  beforeUpload={handleFileUpload}
+                  showUploadList={false}
+                  accept=".py"
+                >
+                  <p className="ant-upload-drag-icon">
+                    <UploadOutlined />
+                  </p>
+                  <p className="ant-upload-text">点击或拖拽Python文件到此处上传</p>
+                  <p className="ant-upload-hint">
+                    支持单个Python文件上传，文件大小不超过2MB
+                  </p>
+                </Dragger>
+                {uploadFile && (
+                  <div style={{ marginTop: 16 }}>
+                    <p>已选择文件: {uploadFile.name}</p>
+                  </div>
+                )}
+              </Form.Item>
+              
+              <Form.Item style={{ textAlign: 'right' }}>
+                <Space>
+                  <Button onClick={handleCreateModalClose}>取消</Button>
+                  <Button type="primary" htmlType="submit" loading={loading}>
+                    上传策略
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          </TabPane>
+        </Tabs>
+      </Modal>
     </div>
   );
 };

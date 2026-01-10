@@ -13,6 +13,8 @@ import BacktestReplay from '../views/BacktestReplay';
 import ChartPage from '../views/ChartPage';
 import ScheduledTasks from '../views/ScheduledTasks';
 import ScheduledTaskForm from '../views/ScheduledTasks/ScheduledTaskForm';
+import StrategyEditor from '../views/StrategyEditor';
+import StrategyManagement from '../views/StrategyManagement';
 
 // 导入插件管理器
 import { pluginManager } from '../plugins';
@@ -46,6 +48,18 @@ export const createRouter = () => {
         {
           path: '/agent/StrategyAgent',
           element: <StrategyAgent />
+        },
+        {
+          path: '/strategy-management',
+          element: <StrategyManagement />
+        },
+        {
+          path: '/strategy-editor',
+          element: <StrategyEditor />
+        },
+        {
+          path: '/strategy-editor/:strategyName?',
+          element: <StrategyEditor />
         },
         {
           path: '/setting',

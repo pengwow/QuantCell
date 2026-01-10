@@ -9,8 +9,8 @@ const { Title, Paragraph, Text } = Typography;
 export const DemoPage: React.FC = () => {
   return (
     <div style={{ padding: '20px' }}>
-      <Card title="Demo插件页面" bordered={false}>
-        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Card title="Demo插件页面" variant="borderless">
+        <Space orientation="vertical" size="large" style={{ width: '100%' }}>
           <Alert
             message="欢迎使用Demo插件"
             description="这是一个前端插件demo，展示了QBot插件系统的基本功能。"
@@ -33,7 +33,7 @@ export const DemoPage: React.FC = () => {
           
           <div>
             <Title level={4}>插件信息</Title>
-            <Space direction="vertical" size="middle">
+            <Space orientation="vertical" size="middle">
               <div>
                 <Text strong>插件名称：</Text>
                 <Text>demo-plugin</Text>
