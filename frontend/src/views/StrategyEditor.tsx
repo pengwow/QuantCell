@@ -65,6 +65,14 @@ const StrategyEditor: React.FC = () => {
   const [isEditingName, setIsEditingName] = useState<boolean>(false);
   const [tempName, setTempName] = useState<string>('');
   
+  // 策略版本编辑状态
+  const [isEditingVersion, setIsEditingVersion] = useState<boolean>(false);
+  const [tempVersion, setTempVersion] = useState<string>('');
+  
+  // 策略描述编辑状态
+  const [isEditingDescription, setIsEditingDescription] = useState<boolean>(false);
+  const [tempDescription, setTempDescription] = useState<string>('');
+  
   const navigate = useNavigate();
   const params = useParams<{ strategyName?: string }>();
   const { t } = useTranslation();
@@ -88,6 +96,48 @@ const StrategyEditor: React.FC = () => {
   // 处理临时名称变化
   const handleTempNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setTempName(e.target.value);
+  };
+
+  // 开始编辑策略版本
+  const handleStartEditVersion = () => {
+    if (selectedStrategy) {
+      setTempVersion(selectedStrategy.version);
+      setIsEditingVersion(true);
+    }
+  };
+
+  // 保存策略版本
+  const handleSaveVersion = () => {
+    if (selectedStrategy && tempVersion.trim()) {
+      setSelectedStrategy(prev => prev ? { ...prev, version: tempVersion.trim() } : null);
+      setIsEditingVersion(false);
+    }
+  };
+
+  // 处理临时版本变化
+  const handleTempVersionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setTempVersion(e.target.value);
+  };
+
+  // 开始编辑策略描述
+  const handleStartEditDescription = () => {
+    if (selectedStrategy) {
+      setTempDescription(selectedStrategy.description);
+      setIsEditingDescription(true);
+    }
+  };
+
+  // 保存策略描述
+  const handleSaveDescription = () => {
+    if (selectedStrategy) {
+      setSelectedStrategy(prev => prev ? { ...prev, description: tempDescription } : null);
+      setIsEditingDescription(false);
+    }
+  };
+
+  // 处理临时描述变化
+  const handleTempDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setTempDescription(e.target.value);
   };
 
   // 处理编辑器滚动事件
@@ -217,12 +267,10 @@ const StrategyEditor: React.FC = () => {
           
           // 调用保存策略的API
           await strategyApi.uploadStrategyFile({
-            name: selectedStrategy.name,
-            code: code,
-            file_name: selectedStrategy.file_name,
-            description: selectedStrategy.description,
+            strategy_name: selectedStrategy.name,
+            file_content: code,
             version: selectedStrategy.version,
-            params: selectedStrategy.params,
+            description: selectedStrategy.description
           });
           
           message.success('策略保存成功');
@@ -457,9 +505,58 @@ const StrategyEditor: React.FC = () => {
                   <div style={{ padding: '20px' }}>
                     <h3>{t('strategy_information')}</h3>
                     <Descriptions bordered column={1} style={{ marginBottom: '20px' }}>
-                      <Descriptions.Item label={t('name')}>{selectedStrategy?.name || ''}</Descriptions.Item>
-                      <Descriptions.Item label={t('version')}>{selectedStrategy?.version || ''}</Descriptions.Item>
-                      <Descriptions.Item label={t('description')}>{selectedStrategy?.description || t('no_description')}</Descriptions.Item>
+                      <Descriptions.Item label={t('name')}>
+                        {isEditingName ? (
+                          <Space>
+                            <Input
+                              value={tempName}
+                              onChange={handleTempNameChange}
+                              onPressEnter={handleSaveName}
+                              onBlur={handleSaveName}
+                              autoFocus
+                            />
+                          </Space>
+                        ) : (
+                          <span onClick={handleStartEditName} style={{ cursor: 'pointer' }}>
+                            {selectedStrategy?.name || ''}
+                          </span>
+                        )}
+                      </Descriptions.Item>
+                      <Descriptions.Item label={t('version')}>
+                        {isEditingVersion ? (
+                          <Space>
+                            <Input
+                              value={tempVersion}
+                              onChange={handleTempVersionChange}
+                              onPressEnter={handleSaveVersion}
+                              onBlur={handleSaveVersion}
+                              autoFocus
+                            />
+                          </Space>
+                        ) : (
+                          <span onClick={handleStartEditVersion} style={{ cursor: 'pointer' }}>
+                            {selectedStrategy?.version || ''}
+                          </span>
+                        )}
+                      </Descriptions.Item>
+                      <Descriptions.Item label={t('description')}>
+                        {isEditingDescription ? (
+                          <Space>
+                            <Input.TextArea
+                              value={tempDescription}
+                              onChange={handleTempDescriptionChange}
+                              onPressEnter={handleSaveDescription}
+                              onBlur={handleSaveDescription}
+                              autoFocus
+                              rows={3}
+                            />
+                          </Space>
+                        ) : (
+                          <span onClick={handleStartEditDescription} style={{ cursor: 'pointer' }}>
+                            {selectedStrategy?.description || t('no_description')}
+                          </span>
+                        )}
+                      </Descriptions.Item>
                       <Descriptions.Item label={t('created_at')}>{selectedStrategy ? new Date(selectedStrategy.created_at).toLocaleString() : ''}</Descriptions.Item>
                       <Descriptions.Item label={t('updated_at')}>{selectedStrategy ? new Date(selectedStrategy.updated_at).toLocaleString() : ''}</Descriptions.Item>
                     </Descriptions>

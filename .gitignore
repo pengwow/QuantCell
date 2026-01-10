@@ -22,3 +22,4 @@ backend/.DS_Store
 .DS_Store
 results/*
 SmaCross.html
+backend/strategies/*
