@@ -202,21 +202,11 @@ const StrategyEditor: React.FC = () => {
   const loadStrategyByName = async (strategyName: string) => {
     try {
       setEditorLoading(true);
-      // TODO: 实现获取策略详情的API调用
-      // 暂时使用模拟数据
-      const mockStrategy: Strategy = {
-        name: strategyName,
-        file_name: `${strategyName}.py`,
-        file_path: `/strategies/${strategyName}.py`,
-        description: `这是策略 ${strategyName} 的描述`,
-        version: '1.0.0',
-        params: [],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        code: `# 策略 ${strategyName} 的代码\nclass ${strategyName}Strategy:\n    def __init__(self):\n        pass`
-      };
-      setSelectedStrategy(mockStrategy);
-      setCode(mockStrategy.code);
+      // 调用实际API获取策略详情
+      const response = await strategyApi.getStrategyDetail(strategyName);
+      const strategy = response;
+      setSelectedStrategy(strategy);
+      setCode(strategy.code);
     } catch (error) {
       console.error('加载策略失败:', error);
       message.error('加载策略失败');
@@ -313,7 +303,7 @@ const StrategyEditor: React.FC = () => {
       return;
     }
     
-    navigate('/backtest', { state: { strategy: selectedStrategy } });
+    navigate('/backtest', { state: { strategy: selectedStrategy, showConfig: true } });
   };
 
 

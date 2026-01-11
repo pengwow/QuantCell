@@ -22,7 +22,7 @@ class ApiResponse(BaseModel):
         description="响应消息，描述操作结果",
         example="操作成功",
     )
-    data: Optional[Dict[str, Any] | List[Any]] = Field(
+    data: Optional[Any] = Field(
         None,
         description="响应数据，可选",
         example={"key": "value"},

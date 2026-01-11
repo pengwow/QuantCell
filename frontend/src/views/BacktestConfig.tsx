@@ -21,7 +21,7 @@ import {
   Tabs,
 } from 'antd';
 import { BackwardOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
-import { backtestApi, strategyApi } from '../api';
+import { backtestApi, configApi, strategyApi } from '../api';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -50,18 +50,72 @@ interface Strategy {
 interface BacktestConfigProps {
   onBack: () => void;
   onRunBacktest: () => void;
+  strategy?: Strategy; // 新增：接收外部传入的策略信息
 }
 
-const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest }) => {
+const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, strategy }) => {
   const [form] = Form.useForm();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [defaultInterval, setDefaultInterval] = useState<string>('1d'); // 系统配置的默认时间间隔
+  const [defaultCommission, setDefaultCommission] = useState<number>(0.001); // 系统配置的默认手续费
+  const [defaultInitialCash, setDefaultInitialCash] = useState<number>(1000000); // 系统配置的默认初始资金
   
   // 策略创建相关状态
   const [createModalVisible, setCreateModalVisible] = useState<boolean>(false);
   const [createForm] = Form.useForm();
   const [activeTab, setActiveTab] = useState<string>('new'); // 'new' 或 'upload'
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+
+  // 加载系统配置
+  const loadSystemConfig = async () => {
+    try {
+      const configData = await configApi.getConfig();
+      console.log('系统配置响应:', configData);
+      
+      // 正确处理后端返回的数据格式，提取配置项
+      if (configData && typeof configData === 'object') {
+        // 检查配置数据的格式，可能是直接对象或包含configs字段
+        let configs: any = configData;
+        if (configData.configs && typeof configData.configs === 'object') {
+          configs = configData.configs;
+        }
+        
+        // 获取default_interval配置
+        const intervalConfig = configs.default_interval || configs.DEFAULT_INTERVAL;
+        if (intervalConfig) {
+          // 如果是对象形式，可能包含value字段
+          const intervalValue = intervalConfig.value || intervalConfig;
+          setDefaultInterval(intervalValue);
+          console.log('成功加载默认时间间隔:', intervalValue);
+        }
+        
+        // 获取default_commission配置
+        const commissionConfig = configs.default_commission || configs.DEFAULT_COMMISSION;
+        if (commissionConfig !== undefined) {
+          // 如果是对象形式，可能包含value字段
+          const commissionValue = commissionConfig.value || commissionConfig;
+          setDefaultCommission(Number(commissionValue));
+          console.log('成功加载默认手续费:', commissionValue);
+        }
+        
+        // 获取default_initial_cash配置
+        const initialCashConfig = configs.default_initial_cash || configs.DEFAULT_INITIAL_CASH;
+        if (initialCashConfig !== undefined) {
+          // 如果是对象形式，可能包含value字段
+          const initialCashValue = initialCashConfig.value || initialCashConfig;
+          setDefaultInitialCash(Number(initialCashValue));
+          console.log('成功加载默认初始资金:', initialCashValue);
+        }
+      }
+    } catch (error) {
+      console.error('加载系统配置失败:', error);
+      // 使用默认值，不影响组件正常使用
+      setDefaultInterval('1d');
+      setDefaultCommission(0.001);
+      setDefaultInitialCash(1000000);
+    }
+  };
 
   // 加载策略列表
   const loadStrategies = async () => {
@@ -89,10 +143,31 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest }
     }
   };
 
-  // 组件挂载时加载策略列表
+  // 组件挂载时加载策略列表和系统配置
   useEffect(() => {
     loadStrategies();
+    loadSystemConfig();
   }, []);
+
+  // 当传入的策略信息变化时，初始化表单
+  useEffect(() => {
+    if (strategy) {
+      // 设置表单值，包括策略名称和默认参数
+      form.setFieldsValue({
+        strategy: strategy.name,
+        strategyParams: JSON.stringify(strategy.params || {}, null, 2),
+      });
+    }
+  }, [strategy, form]);
+
+  // 当默认配置项变化时，更新表单初始值
+  useEffect(() => {
+    form.setFieldsValue({
+      interval: defaultInterval,
+      commission: defaultCommission,
+      initialCash: defaultInitialCash
+    });
+  }, [defaultInterval, defaultCommission, defaultInitialCash, form]);
 
   // 打开策略创建模态框
   const handleCreateStrategy = () => {
@@ -181,8 +256,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest }
           params: strategyParams,
         },
         backtest_config: {
-          start_time: startTime.format('YYYY-MM-DD HH:mm:ss'),
-          end_time: endTime.format('YYYY-MM-DD HH:mm:ss'),
+          start_time: startTime.format('YYYY-MM-DD'),
+          end_time: endTime.format('YYYY-MM-DD'),
           interval: values.interval,
           commission: values.commission,
           initial_cash: values.initialCash,
@@ -267,7 +342,6 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest }
                     name="strategyParams"
                     label="策略参数"
                     rules={[
-                      { required: true, message: '请配置策略参数' },
                       {
                         validator: (_, value) => {
                           try {
@@ -283,7 +357,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest }
                     ]}
                   >
                     <Input.TextArea
-                      placeholder="请输入策略参数，格式为JSON字符串"
+                      placeholder="请输入策略参数（可选，格式为JSON字符串，不填则使用脚本默认参数）"
                       rows={4}
                       defaultValue="{}"
                     />
@@ -302,9 +376,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest }
                     rules={[{ required: true, message: '请选择回测时间范围' }]}
                   >
                     <RangePicker
-                      showTime
-                      format="YYYY-MM-DD HH:mm:ss"
-                      placeholder={['开始时间', '结束时间']}
+                      format="YYYY-MM-DD"
+                      placeholder={['开始日期', '结束日期']}
                     />
                   </Form.Item>
                 </Col>

@@ -151,7 +151,11 @@ class StrategyService:
                 file_content = f.read()
             
             # 调用解析内容方法
-            return self._parse_strategy_content(file_content, file_path.stem)
+            strategy_info = self._parse_strategy_content(file_content, file_path.stem)
+            if strategy_info:
+                # 添加来源字段
+                strategy_info["source"] = "files"
+            return strategy_info
         except Exception as e:
             logger.error(f"解析策略文件失败: {file_path}, 错误: {e}")
             logger.exception(e)
@@ -205,16 +209,17 @@ class StrategyService:
                         db_strategies_list = []
                         for strategy in db_strategies:
                             db_strategies_list.append({
-                                "name": strategy.name,
-                                "file_name": strategy.filename,
-                                "file_path": str(self.strategy_dir / strategy.filename),
-                                "description": strategy.description or "",
-                                "version": "1.0.0",
-                                "params": json.loads(strategy.parameters) if strategy.parameters else [],
-                                "created_at": strategy.created_at,
-                                "updated_at": strategy.updated_at,
-                                "source": "db"
-                            })
+                            "name": strategy.name,
+                            "file_name": strategy.filename,
+                            "file_path": str(self.strategy_dir / strategy.filename),
+                            "description": strategy.description or "",
+                            "version": "1.0.0",
+                            "params": json.loads(strategy.parameters) if strategy.parameters else [],
+                            "created_at": strategy.created_at,
+                            "updated_at": strategy.updated_at,
+                            "source": "db",
+                            "code": strategy.content or ""
+                        })
                         
                         strategies.extend(db_strategies_list)
                         logger.info(f"从数据库获取策略列表成功，共 {len(db_strategies_list)} 个策略")
@@ -253,24 +258,65 @@ class StrategyService:
                 # 如果提供了文件内容，直接解析
                 strategy_info = self._parse_strategy_content(file_content, strategy_name)
                 if strategy_info:
+                    # 添加来源字段
+                    strategy_info["source"] = "content"
                     logger.info(f"通过内容获取策略详情成功: {strategy_name}")
                     return strategy_info
                 
                 logger.error(f"解析策略内容失败: {strategy_name}")
                 return None
             else:
-                # 否则，读取文件后解析
+                # 首先尝试从文件获取
                 strategy_file = self.strategy_dir / f"{strategy_name}.py"
-                if not strategy_file.exists():
-                    logger.error(f"策略文件不存在: {strategy_file}")
-                    return None
+                if strategy_file.exists():
+                    strategy_info = self._parse_strategy_file(strategy_file)
+                    if strategy_info:
+                        logger.info(f"从文件获取策略详情成功: {strategy_name}")
+                        return strategy_info
+                    
+                    logger.error(f"解析策略文件失败: {strategy_file}")
                 
-                strategy_info = self._parse_strategy_file(strategy_file)
-                if strategy_info:
-                    logger.info(f"获取策略详情成功: {strategy_name}")
-                    return strategy_info
+                # 如果文件不存在或解析失败，尝试从数据库获取
+                try:
+                    from collector.db.database import SessionLocal, init_database_config
+                    from collector.db.models import Strategy
+                    import json
+                    
+                    init_database_config()
+                    db = SessionLocal()
+                    try:
+                        # 查询策略
+                        strategy = db.query(Strategy).filter_by(name=strategy_name).first()
+                        if strategy:
+                            logger.info(f"从数据库获取策略详情: {strategy_name}")
+                            # 使用数据库中的内容解析策略
+                            if strategy.content:
+                                strategy_info = self._parse_strategy_content(strategy.content, strategy_name)
+                                if strategy_info:
+                                    logger.info(f"通过数据库内容获取策略详情成功: {strategy_name}")
+                                    return strategy_info
+                                
+                            # 如果解析失败，构建基本策略信息
+                            logger.info(f"构建基本策略信息: {strategy_name}")
+                            return {
+                                "name": strategy.name,
+                                "file_name": strategy.filename,
+                                "file_path": str(self.strategy_dir / strategy.filename),
+                                "description": strategy.description or "",
+                                "version": "1.0.0",
+                                "params": json.loads(strategy.parameters) if strategy.parameters else [],
+                                "created_at": strategy.created_at,
+                                "updated_at": strategy.updated_at,
+                                "code": strategy.content or "",
+                                "source": "db"
+                            }
+                    finally:
+                        db.close()
+                except Exception as db_e:
+                    logger.error(f"从数据库获取策略详情失败: {db_e}")
+                    logger.exception(db_e)
                 
-                logger.error(f"解析策略文件失败: {strategy_file}")
+                logger.error(f"获取策略详情失败: {strategy_name}")
                 return None
         except Exception as e:
             logger.error(f"获取策略详情失败: {e}")
@@ -625,6 +671,7 @@ class StrategyService:
                     logger.info(f"更新现有策略: id={id}, name={strategy_name}")
                     existing_strategy.name = strategy_name
                     existing_strategy.filename = strategy_info["file_name"]
+                    existing_strategy.content = file_content  # 保存策略内容到数据库
                     existing_strategy.description = strategy_info["description"]
                     existing_strategy.parameters = params_json
                     existing_strategy.updated_at = datetime.now()
@@ -635,6 +682,7 @@ class StrategyService:
                     new_strategy = Strategy(
                         name=strategy_name,
                         filename=strategy_info["file_name"],
+                        content=file_content,  # 保存策略内容到数据库
                         description=strategy_info["description"],
                         parameters=params_json
                     )

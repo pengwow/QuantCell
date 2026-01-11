@@ -127,5 +127,17 @@
   "return_pct": "收益率",
   "direction": "方向",
   "long": "多头",
-  "short": "空头"
+  "short": "空头",
+  "create_strategy": "创建策略",
+  "edit_strategy": "编辑策略",
+  "delete_strategy": "删除策略",
+  "backtest_strategy": "回测策略",
+  "strategy_description": "策略描述",
+  "no_description": "无描述",
+  "created_at": "创建于",
+  "updated_at": "更新于",
+  "no_strategies": "暂无策略",
+  "create_first_strategy": "创建第一个策略",
+  "confirm_delete_strategy": "确认删除策略",
+  "delete_strategy_confirm_msg": "您确定要删除策略「{{name}}」吗？此操作不可恢复。"
 }

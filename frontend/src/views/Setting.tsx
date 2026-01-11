@@ -22,7 +22,7 @@ type ConfigItem = {
 }
 import {
   Layout, Menu, Form, Input, Select, Switch, Button,
-  Typography, Card, Space
+  Typography, Card, Space, InputNumber
 } from 'antd';
 import {
   UserOutlined, BellOutlined, ApiOutlined, SettingOutlined,
@@ -76,6 +76,8 @@ interface SystemConfig {
   crypto_trading_mode: string;
   default_exchange: string;
   default_interval: string;
+  default_commission: number;
+  default_initial_cash: number;
   proxy_enabled: boolean;
   proxy_url: string;
   proxy_username: string;
@@ -185,6 +187,8 @@ const Setting = () => {
     crypto_trading_mode: 'spot',
     default_exchange: 'binance',
     default_interval: '1d',
+    default_commission: 0.001,
+    default_initial_cash: 1000000,
     proxy_enabled: true,
     proxy_url: 'http://127.0.0.1:7897',
     proxy_username: '',
@@ -281,6 +285,8 @@ const Setting = () => {
         crypto_trading_mode: configs.crypto_trading_mode || prev.crypto_trading_mode,
         default_exchange: configs.default_exchange || prev.default_exchange,
         default_interval: configs.default_interval || prev.default_interval,
+        default_commission: configs.default_commission !== undefined ? Number(configs.default_commission) : prev.default_commission,
+        default_initial_cash: configs.default_initial_cash !== undefined ? Number(configs.default_initial_cash) : prev.default_initial_cash,
         proxy_enabled: configs.proxy_enabled !== undefined ? (configs.proxy_enabled === 'true' || configs.proxy_enabled === true) : prev.proxy_enabled,
         proxy_url: configs.proxy_url || prev.proxy_url,
         proxy_username: configs.proxy_username || prev.proxy_username,
@@ -319,6 +325,8 @@ const Setting = () => {
         crypto_trading_mode: configs.crypto_trading_mode || systemConfig.crypto_trading_mode,
         default_exchange: configs.default_exchange || systemConfig.default_exchange,
         default_interval: configs.default_interval || systemConfig.default_interval,
+        default_commission: configs.default_commission !== undefined ? Number(configs.default_commission) : systemConfig.default_commission,
+        default_initial_cash: configs.default_initial_cash !== undefined ? Number(configs.default_initial_cash) : systemConfig.default_initial_cash,
         proxy_enabled: configs.proxy_enabled !== undefined ? (configs.proxy_enabled === 'true' || configs.proxy_enabled === true) : systemConfig.proxy_enabled,
         proxy_url: configs.proxy_url || systemConfig.proxy_url,
         proxy_username: configs.proxy_username || systemConfig.proxy_username,
@@ -518,6 +526,16 @@ const Setting = () => {
         description: 'system.default_interval'
       });
       requestData.push({
+        key: 'default_commission',
+        value: systemConfig.default_commission,
+        description: 'system.default_commission'
+      });
+      requestData.push({
+        key: 'default_initial_cash',
+        value: systemConfig.default_initial_cash,
+        description: 'system.default_initial_cash'
+      });
+      requestData.push({
         key: 'proxy_enabled',
         value: systemConfig.proxy_enabled,
         description: 'system.proxy_enabled'
@@ -584,6 +602,8 @@ const Setting = () => {
         crypto_trading_mode: 'spot',
         default_exchange: 'binance',
         default_interval: '1d',
+        default_commission: 0.001,
+        default_initial_cash: 1000000,
         proxy_enabled: true,
         proxy_url: 'http://127.0.0.1:7897',
         proxy_username: '',
@@ -1040,6 +1060,34 @@ const Setting = () => {
                         <Select.Option value="4h">4小时</Select.Option>
                         <Select.Option value="1d">1天</Select.Option>
                       </Select>
+                    </Form.Item>
+                    
+                    <Form.Item
+                      label="默认手续费"
+                      name="default_commission"
+                      rules={[{ required: true, message: '请输入默认手续费率' }]}
+                    >
+                      <InputNumber
+                        onChange={(value: number | null) => setSystemConfig(prev => ({ ...prev, default_commission: value || 0 }))}
+                        min={0}
+                        max={1}
+                        step={0.0001}
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                    
+                    <Form.Item
+                      label="默认初始资金"
+                      name="default_initial_cash"
+                      rules={[{ required: true, message: '请输入默认初始资金' }]}
+                    >
+                      <InputNumber
+                        onChange={(value: number | null) => setSystemConfig(prev => ({ ...prev, default_initial_cash: value || 1000000 }))}
+                        min={1000}
+                        max={100000000}
+                        step={1000}
+                        style={{ width: '100%' }}
+                      />
                     </Form.Item>
                   </Card>
                 {/* <Form.Item label="交易设置" name="tradingConfig" noStyle>

@@ -47,15 +47,16 @@ const StrategyManagement: React.FC = () => {
   // 删除策略
   const handleDeleteStrategy = (strategy: Strategy) => {
     confirm({
-      title: '确认删除策略',
-      content: `您确定要删除策略「${strategy.name}」吗？此操作不可恢复。`,
-      okText: '删除',
+      title: t('confirm_delete_strategy'),
+      content: t('delete_strategy_confirm_msg', { name: strategy.name }),
+      okText: t('delete'),
       okType: 'danger',
-      cancelText: '取消',
+      cancelText: t('cancel'),
       onOk: async () => {
         try {
           setLoading(true);
-          // TODO: 实现删除策略的API调用
+          // 调用删除策略的API
+          await strategyApi.deleteStrategy(strategy.name);
           message.success('策略删除成功');
           loadStrategies();
         } catch (error) {
@@ -70,12 +71,29 @@ const StrategyManagement: React.FC = () => {
 
   // 回测策略
   const handleBacktestStrategy = (strategy: Strategy) => {
-    navigate('/backtest', { state: { strategy } });
+    navigate('/backtest', { state: { strategy, showConfig: true } });
   };
 
   // 创建新策略
   const handleCreateStrategy = () => {
     navigate('/strategy-editor');
+  };
+
+  // 安全的日期格式化函数
+  const formatDate = (dateString: string | undefined): string => {
+    if (!dateString) {
+      return '';
+    }
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return '';
+      }
+      return date.toLocaleString();
+    } catch (error) {
+      console.error('日期解析错误:', error);
+      return '';
+    }
   };
 
   return (
@@ -93,7 +111,7 @@ const StrategyManagement: React.FC = () => {
         </Button>
       </div>
 
-      <Spin spinning={loading} tip="加载中...">
+      <Spin spinning={loading} tip={t('loading')}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '24px' }}>
           {strategies.length > 0 ? (
             strategies.map((strategy) => (
@@ -160,11 +178,11 @@ const StrategyManagement: React.FC = () => {
                   <Space orientation="vertical" size="small" style={{ width: '100%' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666' }}>
                       <span>{t('created_at')}:</span>
-                      <span>{new Date((strategy as any).createdAt).toLocaleString()}</span>
+                      <span>{formatDate((strategy as any).created_at)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666' }}>
                       <span>{t('updated_at')}:</span>
-                      <span>{new Date((strategy as any).updatedAt).toLocaleString()}</span>
+                      <span>{formatDate((strategy as any).updated_at)}</span>
                     </div>
                   </Space>
                 </div>
