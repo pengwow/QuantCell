@@ -213,7 +213,7 @@ class StrategyService:
                             "file_name": strategy.filename,
                             "file_path": str(self.strategy_dir / strategy.filename),
                             "description": strategy.description or "",
-                            "version": "1.0.0",
+                            "version": strategy.version or "1.0.0",
                             "params": json.loads(strategy.parameters) if strategy.parameters else [],
                             "created_at": strategy.created_at,
                             "updated_at": strategy.updated_at,
@@ -293,6 +293,13 @@ class StrategyService:
                             if strategy.content:
                                 strategy_info = self._parse_strategy_content(strategy.content, strategy_name)
                                 if strategy_info:
+                                    # 使用数据库中的版本值覆盖解析结果中的版本值
+                                    strategy_info["version"] = strategy.version or "1.0.0"
+                                    # 使用数据库中的创建时间和更新时间
+                                    strategy_info["created_at"] = strategy.created_at
+                                    strategy_info["updated_at"] = strategy.updated_at
+                                    # 设置来源为db
+                                    strategy_info["source"] = "db"
                                     logger.info(f"通过数据库内容获取策略详情成功: {strategy_name}")
                                     return strategy_info
                                 
@@ -303,7 +310,7 @@ class StrategyService:
                                 "file_name": strategy.filename,
                                 "file_path": str(self.strategy_dir / strategy.filename),
                                 "description": strategy.description or "",
-                                "version": "1.0.0",
+                                "version": strategy.version or "1.0.0",
                                 "params": json.loads(strategy.parameters) if strategy.parameters else [],
                                 "created_at": strategy.created_at,
                                 "updated_at": strategy.updated_at,
@@ -674,6 +681,7 @@ class StrategyService:
                     existing_strategy.content = file_content  # 保存策略内容到数据库
                     existing_strategy.description = strategy_info["description"]
                     existing_strategy.parameters = params_json
+                    existing_strategy.version = strategy_info["version"]
                     existing_strategy.updated_at = datetime.now()
                     logger.info(f"更新策略信息到数据库: {strategy_name}")
                 else:
@@ -684,7 +692,8 @@ class StrategyService:
                         filename=strategy_info["file_name"],
                         content=file_content,  # 保存策略内容到数据库
                         description=strategy_info["description"],
-                        parameters=params_json
+                        parameters=params_json,
+                        version=strategy_info["version"]
                     )
                     logger.info(f"新策略对象: {new_strategy}")
                     db.add(new_strategy)

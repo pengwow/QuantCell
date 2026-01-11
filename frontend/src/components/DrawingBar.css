@@ -1,0 +1,198 @@
+.drawing-bar {
+  display: flex;
+  align-items: center;
+  background-color: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 垂直工具栏中的绘图栏样式 */
+.vertical-toolbar .drawing-bar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px;
+  box-shadow: none;
+  border: none;
+  background-color: transparent;
+}
+
+.vertical-toolbar .drawing-bar-item {
+  margin: 0;
+  border-radius: 2px;
+}
+
+.vertical-toolbar .drawing-bar-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.vertical-toolbar .drawing-bar-split {
+  width: 100%;
+  height: 1px;
+  margin: 4px 0;
+}
+
+.vertical-toolbar .drawing-bar-arrow {
+  width: 36px;
+  height: 16px;
+  justify-content: center;
+}
+
+.drawing-bar-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0 2px;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px;
+  transition: background-color 0.2s ease;
+}
+
+.drawing-bar-item:hover {
+  background-color: #f5f5f5;
+}
+
+.drawing-bar-item:focus {
+  outline: none;
+  background-color: #e3f2fd;
+}
+
+.drawing-bar-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+  color: #333333;
+}
+
+.drawing-bar-icon:hover {
+  background-color: #e0e0e0;
+}
+
+.drawing-bar-icon.selected {
+  background-color: #2196f3;
+  color: #ffffff;
+}
+
+.drawing-bar-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 32px;
+  color: #666666;
+  transition: transform 0.2s ease;
+}
+
+.drawing-bar-arrow:hover {
+  color: #333333;
+}
+
+.drawing-bar-arrow svg {
+  transition: transform 0.2s ease;
+}
+
+.drawing-bar-arrow svg.rotate {
+  transform: rotate(180deg);
+}
+
+.drawing-bar-split {
+  width: 1px;
+  height: 24px;
+  background-color: #e0e0e0;
+  margin: 0 4px;
+}
+
+.drawing-bar-list {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  background-color: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 4px 0;
+  margin: 0 0 0 2px;
+  list-style: none;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  min-width: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 垂直工具栏中的子菜单样式 */
+.vertical-toolbar .drawing-bar-list {
+  left: 100%;
+  top: 0;
+  flex-direction: column;
+}
+
+.drawing-bar-list li {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  color: #333333;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.drawing-bar-list li:hover {
+  background-color: #f5f5f5;
+}
+
+.drawing-bar-item-text {
+  margin-left: 8px;
+  font-size: 14px;
+  font-family: Arial, sans-serif;
+}
+
+/* 滚动条样式 */
+.drawing-bar-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.drawing-bar-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.drawing-bar-list::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.drawing-bar-list::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .drawing-bar {
+    flex-wrap: wrap;
+    padding: 2px;
+  }
+  
+  .drawing-bar-item {
+    margin: 1px;
+  }
+  
+  .drawing-bar-icon {
+    width: 28px;
+    height: 28px;
+  }
+  
+  .drawing-bar-list {
+    min-width: 180px;
+  }
+}

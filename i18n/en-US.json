@@ -138,5 +138,7 @@
   "no_strategies": "No Strategies",
   "create_first_strategy": "Create First Strategy",
   "confirm_delete_strategy": "Confirm Delete Strategy",
-  "delete_strategy_confirm_msg": "Are you sure you want to delete strategy \"{{name}}\"? This operation cannot be undone."
+  "delete_strategy_confirm_msg": "Are you sure you want to delete strategy \"{{name}}\"? This operation cannot be undone.",
+  "back":"Back",
+  "ai_optimize":"AI Optimize"
 }

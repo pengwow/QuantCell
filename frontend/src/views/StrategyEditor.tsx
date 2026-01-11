@@ -451,6 +451,7 @@ const StrategyEditor: React.FC = () => {
             icon={<RobotOutlined />}
             onClick={handleOpenAIModal}
             loading={aiLoading}
+            disabled={true}
           >
             {t('ai_optimize')}
           </Button>
@@ -621,8 +622,8 @@ const StrategyEditor: React.FC = () => {
               style={{ flex: 1 }}
             />
             <Space>
-              <Button onClick={handleClearAIHistory}>{t('clear')}</Button>
-              <Button type="primary" onClick={handleSendAIRequest} loading={aiLoading}>
+              <Button onClick={handleClearAIHistory} disabled={true}>{t('clear')}</Button>
+              <Button type="primary" onClick={handleSendAIRequest} loading={aiLoading} disabled={true}>
                 {t('send')}
               </Button>
             </Space>
