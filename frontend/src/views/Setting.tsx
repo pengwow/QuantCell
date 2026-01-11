@@ -995,7 +995,8 @@ const Setting = () => {
                         onChange={(value) => setSystemConfig(prev => ({ ...prev, current_market_type: value }))}
                       >
                         <Select.Option value="crypto">加密货币</Select.Option>
-                        <Select.Option value="stock">股票</Select.Option>
+                        <Select.Option value="stock" disabled>股票</Select.Option>
+                        <Select.Option value="future" disabled>期货</Select.Option>
                       </Select>
                     </Form.Item>
 
@@ -1010,7 +1011,7 @@ const Setting = () => {
                             onChange={(value) => setSystemConfig(prev => ({ ...prev, crypto_trading_mode: value }))}
                           >
                             <Select.Option value="spot">现货</Select.Option>
-                            <Select.Option value="futures">期货</Select.Option>
+                            <Select.Option value="futures" disabled>合约</Select.Option>
                           </Select>
                         </Form.Item>
                         <Form.Item
@@ -1022,7 +1023,7 @@ const Setting = () => {
                             onChange={(value) => setSystemConfig(prev => ({ ...prev, default_exchange: value }))}
                           >
                             <Select.Option value="binance">Binance</Select.Option>
-                            <Select.Option value="okx">OKX</Select.Option>
+                            <Select.Option value="okx" disabled>OKX</Select.Option>
                           </Select>
                         </Form.Item>
                       </>

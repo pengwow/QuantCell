@@ -139,5 +139,7 @@
   "no_strategies": "暂无策略",
   "create_first_strategy": "创建第一个策略",
   "confirm_delete_strategy": "确认删除策略",
-  "delete_strategy_confirm_msg": "您确定要删除策略「{{name}}」吗？此操作不可恢复。"
+  "delete_strategy_confirm_msg": "您确定要删除策略「{{name}}」吗？此操作不可恢复。",
+  "back":"返回",
+  "ai_optimize":"AI优化"
 }

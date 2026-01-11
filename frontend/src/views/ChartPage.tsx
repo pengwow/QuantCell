@@ -1,6 +1,9 @@
 import { useEffect, useState, useRef } from 'react'
-import { init, dispose, registerLocale } from 'klinecharts'
+import { init, dispose, registerLocale, registerOverlay } from 'klinecharts'
+// 导入自定义绘图工具扩展
+import overlays from '../extension/index'
 import { TokenDisplay } from '../components/TokenDisplay'
+import DrawingBar from '../components/DrawingBar'
 import { type AppConfig } from '../utils/configLoader'
 import { dataApi } from '../api'
 
@@ -11,8 +14,7 @@ declare global {
   }
 }
 import {
-  MenuUnfoldOutlined,
-  BarChartOutlined
+  MenuUnfoldOutlined
 } from '@ant-design/icons';
 import {
   Modal,
@@ -185,8 +187,13 @@ export default function ChartPage () {
     // 默认返回day
     return 'day'
   }
-  
+ // 组件挂载时初始化图表
   useEffect(() => {
+    // 注册自定义绘图工具扩展
+    overlays.forEach(overlay => {
+      registerOverlay(overlay)
+    })
+    
     // 初始化图表，传递语言选项
     const chart = init('language-k-line', { locale: language })
     chartRef.current = chart
@@ -201,7 +208,7 @@ export default function ChartPage () {
       
       // 设置数据加载器
       chart.setDataLoader({
-        getBars: ({ callback }) => {
+        getBars: ({ callback }: { callback: (data: any[]) => void }) => {
           // 使用API获取的数据
           callback(klineData)
         }
@@ -304,11 +311,7 @@ export default function ChartPage () {
     }
   }, [searchKeyword, isSearchModalVisible])
 
-  // 工具按钮点击处理函数
-  const handleToolButtonClick = (toolName: string) => {
-    console.log(`点击了工具按钮: ${toolName}`);
-    // 这里可以添加具体的工具功能实现
-  };
+
 
   return (
     <div className="chart-page-container">      
@@ -407,82 +410,55 @@ export default function ChartPage () {
           </div> */}
         </div>
         
-        {/* 垂直悬浮按钮列表 - 绝对定位 */}
+        {/* 绘图工具栏 */}
         {isToolbarExpanded && (
           <div className="vertical-toolbar">
-            <button className="vertical-btn" title="图表" onClick={() => handleToolButtonClick('图表')}>
-              <BarChartOutlined />
-            </button>
-            <button className="vertical-btn" title="水平线" onClick={() => handleToolButtonClick('水平线')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            </button>
-            <button className="vertical-btn" title="趋势线" onClick={() => handleToolButtonClick('趋势线')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-              </svg>
-            </button>
-            <button className="vertical-btn" title="平行线" onClick={() => handleToolButtonClick('平行线')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="21" y1="16" x2="3" y2="16"></line>
-                <line x1="21" y1="8" x2="3" y2="8"></line>
-                <line x1="3" y1="8" x2="3" y2="16"></line>
-              </svg>
-            </button>
-            <button className="vertical-btn" title="圆" onClick={() => handleToolButtonClick('圆')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-              </svg>
-            </button>
-            <button className="vertical-btn" title="三角形" onClick={() => handleToolButtonClick('三角形')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="12 2 2 22 22 22"></polygon>
-              </svg>
-            </button>
-            <button className="vertical-btn" title="矩形" onClick={() => handleToolButtonClick('矩形')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              </svg>
-            </button>
-            <button className="vertical-btn" title="箭头" onClick={() => handleToolButtonClick('箭头')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <polyline points="19 12 12 19 5 12"></polyline>
-              </svg>
-            </button>
-            <button className="vertical-btn" title="文字" onClick={() => handleToolButtonClick('文字')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="4" y1="7" x2="20" y2="7"></line>
-                <line x1="4" y1="12" x2="20" y2="12"></line>
-                <line x1="4" y1="17" x2="20" y2="17"></line>
-                <line x1="10" y1="2" x2="10" y2="22"></line>
-              </svg>
-            </button>
-            <button className="vertical-btn" title="斐波那契" onClick={() => handleToolButtonClick('斐波那契')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="16 2 16 6 22 6 22 18 16 18 16 22 2 22 2 16 8 16 8 6 2 6 2 2"></polyline>
-              </svg>
-            </button>
-            <button className="vertical-btn" title="锁定" onClick={() => handleToolButtonClick('锁定')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-              </svg>
-            </button>
-            <button className="vertical-btn" title="眼睛" onClick={() => handleToolButtonClick('眼睛')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <circle cx="12" cy="12" r="4"></circle>
-                <line x1="2" y1="12" x2="22" y2="12"></line>
-              </svg>
-            </button>
-            <button className="vertical-btn" title="橡皮擦" onClick={() => handleToolButtonClick('橡皮擦')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
-                <line x1="22" y1="2" x2="11.5" y2="12.5"></line>
-              </svg>
-            </button>
+            <DrawingBar
+              onDrawingItemClick={(overlay) => {
+                console.log('Drawing item clicked:', overlay);
+                if (chartRef.current) {
+                  // 调用klinecharts的绘图API，创建绘图对象
+                  chartRef.current.createOverlay({
+                    name: overlay.name,
+                    groupId: overlay.groupId || 'drawing_tools',
+                    lock: overlay.lock,
+                    mode: overlay.mode as 'normal' | 'weak_magnet' | 'strong_magnet',
+                    visible: true
+                  });
+                }
+              }}
+              onModeChange={(mode) => {
+                console.log('Mode changed:', mode);
+                // 当前klinecharts版本不支持全局设置绘图模式，模式在创建overlay时指定
+              }}
+              onLockChange={(lock) => {
+                console.log('Lock changed:', lock);
+                if (chartRef.current) {
+                  // 获取所有绘图对象并设置锁定状态
+                  const overlays = chartRef.current.getOverlays({ groupId: 'drawing_tools' });
+                  overlays.forEach((overlay: any) => {
+                    chartRef.current?.overrideOverlay({ id: overlay.id, lock });
+                  });
+                }
+              }}
+              onVisibleChange={(visible) => {
+                console.log('Visible changed:', visible);
+                if (chartRef.current) {
+                  // 获取所有绘图对象并设置可见性
+                  const overlays = chartRef.current.getOverlays({ groupId: 'drawing_tools' });
+                  overlays.forEach((overlay: any) => {
+                    chartRef.current?.overrideOverlay({ id: overlay.id, visible });
+                  });
+                }
+              }}
+              onRemoveClick={(groupId) => {
+                console.log('Remove clicked:', groupId);
+                if (chartRef.current) {
+                  // 删除指定分组的所有绘图对象
+                  chartRef.current.removeOverlay({ groupId });
+                }
+              }}
+            />
           </div>
         )}
       </div>

@@ -190,7 +190,7 @@ const StrategyManagement: React.FC = () => {
             ))
           ) : (
             <Card 
-              bordered={false}
+              variant="borderless"
               style={{ 
                 gridColumn: '1 / -1', 
                 textAlign: 'center', 

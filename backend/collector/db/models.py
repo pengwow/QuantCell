@@ -303,6 +303,7 @@ class Strategy(Base):
     content = Column(Text, nullable=True)  # 策略内容，存储策略的实际代码
     description = Column(Text, nullable=True)  # 策略描述
     parameters = Column(Text, nullable=True)  # JSON格式，策略参数定义
+    version = Column(String, nullable=True, default="1.0.0")  # 策略版本
     created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())  # 更新时间
 
