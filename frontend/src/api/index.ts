@@ -155,7 +155,7 @@ export const strategyApi = {
    * @returns 删除结果
    */
   deleteStrategy: (id: string) => {
-    return apiRequest.delete(`/strategy/delete/${id}`);
+    return apiRequest.delete(`/strategy/${id}`);
   },
 
   /**
@@ -177,13 +177,22 @@ export const strategyApi = {
   },
 
   /**
-   * 上传策略文件
-   * @param data 策略数据，包括策略名称和文件内容
-   * @returns 上传结果
-   */
-  uploadStrategyFile: (data: any) => {
-    return apiRequest.post('/strategy/upload', data);
-  },
+ * 上传策略文件
+ * @param data 策略数据，包括策略名称和文件内容
+ * @returns 上传结果
+ */
+uploadStrategyFile: (data: any) => {
+  return apiRequest.post('/strategy/upload', data);
+},
+
+/**
+ * 获取策略详情
+ * @param strategy_name 策略名称
+ * @returns 策略详情数据
+ */
+getStrategyDetail: (strategy_name: string) => {
+  return apiRequest.post('/strategy/detail', { strategy_name });
+},
 };
 
 /**

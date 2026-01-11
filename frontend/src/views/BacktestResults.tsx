@@ -3,6 +3,7 @@
  * 功能：展示回测任务列表和详细的回测结果，包括概览、绩效分析、交易详情和风险分析
  */
 import { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import * as echarts from 'echarts';
 import { backtestApi } from '../api';
 import '../styles/BacktestResults.css';
@@ -82,6 +83,10 @@ const BacktestResults = () => {
 
   // 是否显示回测配置页面
   const [showConfig, setShowConfig] = useState<boolean>(false);
+  
+  // 从路由状态获取策略信息
+  const location = useLocation();
+  const [initialStrategy, setInitialStrategy] = useState<any>(null);
 
   // 图表引用
   const returnChartRef = useRef<HTMLDivElement>(null);
@@ -357,6 +362,19 @@ const BacktestResults = () => {
     };
   }, []);
 
+  // 监听路由状态，检查是否需要显示配置页面并传入策略信息
+  useEffect(() => {
+    if (location.state) {
+      const { strategy, showConfig: showConfigFromState } = location.state;
+      if (showConfigFromState) {
+        setShowConfig(true);
+        setInitialStrategy(strategy);
+      }
+      // 清除路由状态，避免刷新页面后重复显示
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
+
   // 选中任务变化时加载详情
   useEffect(() => {
     if (selectedTaskId) {
@@ -422,7 +440,11 @@ const BacktestResults = () => {
   if (showConfig) {
     return (
       <ErrorBoundary>
-        <BacktestConfig onBack={handleBack} onRunBacktest={handleRunBacktest} />
+        <BacktestConfig 
+          onBack={handleBack} 
+          onRunBacktest={handleRunBacktest} 
+          strategy={initialStrategy} // 传递策略信息
+        />
       </ErrorBoundary>
     );
   }

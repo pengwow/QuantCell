@@ -300,6 +300,7 @@ class Strategy(Base):
     id = Column(Integer, Identity(always=True), primary_key=True, index=True)  # 主键ID
     name = Column(String, unique=True, index=True)  # 策略名称，唯一
     filename = Column(String, nullable=False)  # 策略文件名
+    content = Column(Text, nullable=True)  # 策略内容，存储策略的实际代码
     description = Column(Text, nullable=True)  # 策略描述
     parameters = Column(Text, nullable=True)  # JSON格式，策略参数定义
     created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间

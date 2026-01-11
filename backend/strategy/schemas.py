@@ -95,23 +95,40 @@ class StrategyUploadRequest(BaseModel):
     策略文件上传请求模型
     """
 
-    id: Optional[int] = Field(None, description="策略ID（可选），如果提供则更新现有策略，否则创建新策略", example=1)
+    id: Optional[int] = Field(
+        None,
+        description="策略ID（可选），如果提供则更新现有策略，否则创建新策略",
+        example=1,
+    )
     strategy_name: str = Field(..., description="策略名称", example="sma_cross")
     file_content: str = Field(
         ...,
         description="策略文件内容",
         example="class MyStrategy(Strategy):\n    def next(self):\n        self.buy()",
     )
-    version: Optional[str] = Field(None, description="策略版本（可选），如果提供则使用，否则从文件内容中提取", example="1.0.0")
-    description: Optional[str] = Field(None, description="策略描述（可选），如果提供则使用，否则从文件内容中提取", example="基于SMA交叉的策略")
+    version: Optional[str] = Field(
+        None,
+        description="策略版本（可选），如果提供则使用，否则从文件内容中提取",
+        example="1.0.0",
+    )
+    description: Optional[str] = Field(
+        None,
+        description="策略描述（可选），如果提供则使用，否则从文件内容中提取",
+        example="基于SMA交叉的策略",
+    )
 
 
 class StrategyDetailRequest(BaseModel):
     """
     策略详情请求模型
     """
+
     strategy_name: str = Field(..., description="策略名称", example="sma_cross")
-    file_content: Optional[str] = Field(None, description="策略文件内容（可选），如果提供则直接解析", example="class MyStrategy(Strategy):\n    def next(self):\n        self.buy()")
+    file_content: Optional[str] = Field(
+        None,
+        description="策略文件内容（可选），如果提供则直接解析",
+        example="class MyStrategy(Strategy):\n    def next(self):\n        self.buy()",
+    )
 
 
 class StrategyUploadResponse(ApiResponse):
@@ -126,28 +143,19 @@ class StrategyUploadResponse(ApiResponse):
     )
 
 
-class StrategyDetailResponse(ApiResponse):
+
+from typing import Any, Dict, Optional
+from pydantic import BaseModel, Field
+from datetime import datetime
+
+class StrategyDetailResponse(BaseModel):
     """
     策略详情响应模型
     """
-
-    data: Optional[Dict[str, StrategyInfo]] = Field(
-        None,
-        description="响应数据，包含策略详情",
-        example={
-            "strategy": {
-                "name": "sma_cross",
-                "file_name": "sma_cross.py",
-                "file_path": "/backend/strategies/sma_cross.py",
-                "description": "基于SMA交叉的策略",
-                "version": "1.0.0",
-                "params": [],
-                "created_at": "2023-01-01T00:00:00",
-                "updated_at": "2023-01-01T00:00:00",
-                "code": "class SmaCross(Strategy):\n    def next(self):\n        self.buy()",
-            }
-        },
-    )
+    code: int = Field(..., description="响应状态码", example=0)
+    message: str = Field(..., description="响应消息", example="获取策略详情成功")
+    data: Optional[Dict[str, Any]] = Field(None, description="策略详情")
+    timestamp: datetime = Field(default_factory=datetime.now, description="响应时间戳")
 
 
 class BacktestConfig(BaseModel):

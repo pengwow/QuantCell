@@ -176,6 +176,104 @@ def update_data_pool_assets_table(session: Session, db_type: str) -> None:
 
 
 
+def update_strategies_table(session: Session, db_type: str) -> None:
+    """更新strategies表结构，添加content列用于存储策略内容
+    
+    Args:
+        session: SQLAlchemy会话对象
+        db_type: 数据库类型（sqlite或duckdb）
+    """
+    logger.info("开始更新strategies表结构...")
+    
+    # 检查表是否存在
+    table_exists = False
+    try:
+        if db_type == "sqlite":
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='strategies'")
+            ).fetchone()
+        elif db_type == "duckdb":
+            table_exists = session.execute(
+                text("SELECT table_name FROM information_schema.tables WHERE table_name='strategies'")
+            ).fetchone()
+        else:
+            # 默认使用sqlite语法
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='strategies'")
+            ).fetchone()
+    except Exception as e:
+        logger.error(f"检查表是否存在失败: {e}")
+        return
+    
+    if not table_exists:
+        logger.info("strategies表不存在，跳过更新")
+        return
+    
+    # 检查并添加content列
+    logger.info("检查content列是否存在...")
+    try:
+        column_exists = False
+        if db_type == "sqlite":
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('strategies') WHERE name='content'")
+            ).fetchone()
+        elif db_type == "duckdb":
+            column_exists = session.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name='strategies' AND column_name='content'")
+            ).fetchone()
+        
+        if not column_exists:
+            logger.info("添加content列...")
+            # 使用ALTER TABLE语句添加列
+            session.execute(
+                text("ALTER TABLE strategies ADD COLUMN content TEXT")
+            )
+            logger.info("content列添加成功")
+        else:
+            logger.info("content列已存在，跳过")
+    except Exception as e:
+        logger.error(f"添加content列失败: {e}")
+        # 如果是SQLite，尝试使用创建新表的方式添加列
+        if db_type == "sqlite":
+            try:
+                logger.info("尝试使用创建新表的方式添加content列...")
+                
+                # 0. 如果临时表已存在，先删除它
+                session.execute(text("DROP TABLE IF EXISTS strategies_new"))
+                
+                # 1. 创建临时表，包含所有现有列和新的content列
+                session.execute(
+                    text("""CREATE TABLE strategies_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name VARCHAR(255) UNIQUE,
+                        filename VARCHAR(255) NOT NULL,
+                        content TEXT,
+                        description TEXT,
+                        parameters TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )""")
+                )
+                
+                # 2. 复制旧表数据到新表
+                session.execute(
+                    text("""INSERT INTO strategies_new (id, name, filename, description, parameters, created_at, updated_at) 
+                           SELECT id, name, filename, description, parameters, created_at, updated_at FROM strategies""")
+                )
+                
+                # 3. 删除旧表
+                session.execute(text("DROP TABLE strategies"))
+                
+                # 4. 将新表重命名为旧表名称
+                session.execute(text("ALTER TABLE strategies_new RENAME TO strategies"))
+                logger.info("使用创建新表的方式添加content列成功")
+            except Exception as sqlite_e:
+                logger.error(f"使用创建新表的方式添加content列失败: {sqlite_e}")
+                raise
+    
+    logger.info("strategies表结构更新完成")
+
+
 def run_migrations() -> None:
     """运行所有迁移脚本
     
@@ -197,6 +295,9 @@ def run_migrations() -> None:
             
             # 更新data_pool_assets表结构
             update_data_pool_assets_table(session, db_type)
+            
+            # 更新strategies表结构，添加content列
+            update_strategies_table(session, db_type)
             
             # 提交所有更改
             session.commit()

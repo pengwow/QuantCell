@@ -126,5 +126,17 @@
   "return_pct": "Return %",
   "direction": "Direction",
   "long": "Long",
-  "short": "Short"
+  "short": "Short",
+  "create_strategy": "Create Strategy",
+  "edit_strategy": "Edit Strategy",
+  "delete_strategy": "Delete Strategy",
+  "backtest_strategy": "Backtest Strategy",
+  "strategy_description": "Strategy Description",
+  "no_description": "No Description",
+  "created_at": "Created At",
+  "updated_at": "Updated At",
+  "no_strategies": "No Strategies",
+  "create_first_strategy": "Create First Strategy",
+  "confirm_delete_strategy": "Confirm Delete Strategy",
+  "delete_strategy_confirm_msg": "Are you sure you want to delete strategy \"{{name}}\"? This operation cannot be undone."
 }

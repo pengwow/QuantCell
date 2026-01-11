@@ -161,6 +161,14 @@ body {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* 品牌图片样式 */
+.brand-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 .brand-text {
   font-size: 18px;
   font-weight: 600;

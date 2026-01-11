@@ -2,6 +2,7 @@
 # 实现策略相关的API接口
 
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Path
 from loguru import logger
 
@@ -10,13 +11,14 @@ from .schemas import (
     StrategyListResponse,
     StrategyUploadRequest,
     StrategyUploadResponse,
-    StrategyDetailResponse,
     StrategyExecutionRequest,
     StrategyExecutionResponse,
     StrategyParseRequest,
     StrategyParseResponse,
-    StrategyDetailRequest
+    StrategyDetailRequest,
+    StrategyInfo
 )
+from common.schemas import ApiResponse
 
 # 创建策略API路由实例
 router_strategy = APIRouter(
@@ -76,14 +78,14 @@ def get_strategy_list(source: Optional[str] = None):
 
 @router_strategy.post(
     "/detail",
-    response_model=StrategyDetailResponse,
+    response_model=ApiResponse,
     summary="获取策略详情",
     description="获取单个策略的详细信息，包含策略代码、参数定义等完整信息，支持通过文件名或文件内容获取",
     responses={
         200: {"description": "获取策略详情成功"},
         404: {"description": "策略不存在"},
         500: {"description": "获取策略详情失败"},
-    },
+    }
 )
 def get_strategy_detail(request: StrategyDetailRequest):
     """
@@ -93,7 +95,7 @@ def get_strategy_detail(request: StrategyDetailRequest):
         request: 策略详情请求，包含策略名称和可选的文件内容
 
     Returns:
-        StrategyDetailResponse: 策略详情响应，包含策略的完整信息
+        dict: 策略详情响应，包含策略的完整信息
     """
     try:
         logger.info(f"获取策略详情请求，策略名称: {request.strategy_name}")
@@ -110,8 +112,10 @@ def get_strategy_detail(request: StrategyDetailRequest):
 
         logger.info(f"成功获取策略详情: {request.strategy_name}")
 
-        return StrategyDetailResponse(
-            code=0, message="获取策略详情成功", data={"strategy": strategy_info}
+        return ApiResponse(
+            code=0,
+            message="获取策略详情成功",
+            data=strategy_info
         )
     except HTTPException:
         raise

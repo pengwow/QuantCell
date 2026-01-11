@@ -258,6 +258,8 @@ def init_db():
             ("crypto_trading_mode", "spot", "加密货币蜡烛图类型: spot(现货) 或 futures(期货)"),
             ("default_exchange", "binance", "默认交易所"),
             ("default_interval", "1d", "默认时间间隔"),
+            ("default_commission", "0.001", "默认手续费率"),
+            ("default_initial_cash", "1000000", "默认初始资金"),
             ("data_write_to_db", "false", "是否将下载的数据写入数据库，true为写入，false为不写入"),
         ]
         default_configs.extend(fixed_defaults)
