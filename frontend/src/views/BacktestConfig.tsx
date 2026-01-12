@@ -304,6 +304,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
               interval: '1d',
               commission: 0.001,
               initialCash: 1000000,
+              strategyParams: "{}",
             }}
           >
             {/* 策略信息部分 */}
@@ -359,7 +360,6 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
                     <Input.TextArea
                       placeholder="请输入策略参数（可选，格式为JSON字符串，不填则使用脚本默认参数）"
                       rows={4}
-                      defaultValue="{}"
                     />
                   </Form.Item>
                 </Col>
@@ -463,6 +463,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
               form={createForm}
               layout="vertical"
               onFinish={handleCreateSubmit}
+              initialValues={{
+                params: "{}",
+              }}
             >
               <Form.Item
                 name="strategyName"
@@ -500,7 +503,6 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
                 <Input.TextArea 
                   placeholder="请输入策略参数，格式为JSON字符串" 
                   rows={4} 
-                  defaultValue="{}"
                 />
               </Form.Item>
               

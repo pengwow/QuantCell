@@ -4,6 +4,7 @@
 import sys
 import os
 import json
+import concurrent.futures
 from pathlib import Path
 import pandas as pd
 from datetime import datetime
@@ -37,6 +38,10 @@ class BacktestService:
         
         # 数据服务实例
         self.data_service = DataService()
+        
+        # 数据管理器实例，用于管理多时间周期数据
+        from .data_manager import DataManager
+        self.data_manager = DataManager(self.data_service)
         
         # 指标翻译映射
         self.translations = {
@@ -143,13 +148,13 @@ class BacktestService:
             logger.exception(e)
             return False
     
-    def run_backtest(self, strategy_config, backtest_config):
+    def run_single_backtest(self, strategy_config, backtest_config):
         """
-        执行回测
+        执行单个货币对的回测
         
         :param strategy_config: 策略配置
-        :param backtest_config: 回测配置
-        :return: 回测结果
+        :param backtest_config: 回测配置，包含单个货币对信息
+        :return: 单个货币对的回测结果
         """
         try:
             from collector.db.database import SessionLocal, init_database_config
@@ -157,7 +162,8 @@ class BacktestService:
             import json
             
             strategy_name = strategy_config.get("strategy_name")
-            logger.info(f"开始回测，策略名称: {strategy_name}")
+            symbol = backtest_config.get("symbol", "BTCUSDT")
+            logger.info(f"开始回测，策略名称: {strategy_name}, 货币对: {symbol}")
             
             # 加载策略类
             strategy_class = self.load_strategy_from_file(strategy_name)
@@ -167,13 +173,24 @@ class BacktestService:
                     "message": f"策略加载失败: {strategy_name}"
                 }
             
-            # 获取K线数据
-            symbol = backtest_config.get("symbol", "BTCUSDT")
+            # 获取回测配置
             interval = backtest_config.get("interval", "1d")
             start_time = backtest_config.get("start_time")
             end_time = backtest_config.get("end_time")
             
-            logger.info(f"获取K线数据: {symbol}, {interval}, {start_time} to {end_time}")
+            logger.info(f"回测配置: {symbol}, {interval}, {start_time} to {end_time}")
+            
+            # 预加载多种时间周期的数据
+            self.data_manager.preload_data(
+                symbol=symbol,
+                base_interval=interval,
+                start_time=start_time,
+                end_time=end_time,
+                preload_intervals=['1m', '5m', '15m', '30m', '1h', '4h', '1d']  # 预加载常用周期
+            )
+            
+            # 获取主周期K线数据
+            logger.info(f"获取主周期 {interval} 的K线数据")
             
             # 使用数据服务获取K线数据
             candles = self.data_service.get_kline_data(
@@ -188,7 +205,7 @@ class BacktestService:
                 logger.error(f"未获取到K线数据: {symbol}, {interval}, {start_time} to {end_time}")
                 return {
                     "status": "failed",
-                    "message": "未获取到K线数据"
+                    "message": f"未获取到货币对 {symbol} 的K线数据"
                 }
             
             # 转换数据格式为backtesting.py所需格式
@@ -210,6 +227,13 @@ class BacktestService:
             # 初始化回测
             initial_cash = backtest_config.get("initial_cash", 10000)
             commission = backtest_config.get("commission", 0.001)
+            
+            # 设置全局数据管理器，供策略访问
+            from .strategies.base import set_data_manager
+            set_data_manager(self.data_manager)
+            
+            # 为数据添加交易对符号属性
+            candles.symbol = symbol
             
             bt = Backtest(
                 candles, 
@@ -247,7 +271,7 @@ class BacktestService:
             translated_metrics = self.translate_backtest_results(stats)
             
             # 生成回测ID
-            backtest_id = f"{strategy_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            backtest_id = f"{strategy_name}_{symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             
             # 初始化数据库配置
             init_database_config()
@@ -306,8 +330,177 @@ class BacktestService:
             # 保存回测结果到文件（兼容旧版本）
             self.save_backtest_result(backtest_id, result)
             
-            logger.info(f"回测完成，回测ID: {backtest_id}")
+            logger.info(f"回测完成，策略: {strategy_name}, 货币对: {symbol}, 回测ID: {backtest_id}")
             return result
+        except Exception as e:
+            logger.error(f"回测失败: {e}")
+            logger.exception(e)
+            return {
+                "status": "failed",
+                "message": str(e)
+            }
+    
+    def merge_backtest_results(self, results):
+        """
+        合并多个货币对的回测结果
+        
+        :param results: 各货币对的回测结果字典，格式为 {symbol: result}
+        :return: 合并后的回测结果
+        """
+        try:
+            logger.info(f"开始合并回测结果，共 {len(results)} 个货币对")
+            
+            # 提取第一个成功的回测结果作为基础
+            base_result = None
+            for symbol, result in results.items():
+                if result["status"] == "success":
+                    base_result = result
+                    break
+            
+            if not base_result:
+                logger.error("所有货币对回测失败，无法合并结果")
+                return {
+                    "status": "failed",
+                    "message": "所有货币对回测失败",
+                    "currencies": results
+                }
+            
+            # 计算整体统计指标
+            total_trades = 0
+            successful_currencies = []
+            returns = []
+            max_drawdowns = []
+            sharpe_ratios = []
+            win_rates = []
+            
+            for symbol, result in results.items():
+                if result["status"] == "success":
+                    successful_currencies.append(symbol)
+                    
+                    # 统计交易次数
+                    total_trades += len(result["trades"])
+                    
+                    # 提取关键指标
+                    for metric in result["metrics"]:
+                        if metric["name"] == "Return [%]":
+                            returns.append(metric["value"])
+                        elif metric["name"] == "Max. Drawdown [%]":
+                            max_drawdowns.append(metric["value"])
+                        elif metric["name"] == "Sharpe Ratio":
+                            sharpe_ratios.append(metric["value"])
+                        elif metric["name"] == "Win Rate [%]":
+                            win_rates.append(metric["value"])
+            
+            # 计算平均值
+            average_return = sum(returns) / len(returns) if returns else 0
+            average_max_drawdown = sum(max_drawdowns) / len(max_drawdowns) if max_drawdowns else 0
+            average_sharpe_ratio = sum(sharpe_ratios) / len(sharpe_ratios) if sharpe_ratios else 0
+            overall_win_rate = sum(win_rates) / len(win_rates) if win_rates else 0
+            
+            # 生成合并后的回测ID
+            merged_backtest_id = f"{base_result['strategy_name']}_multi_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            # 构建合并后的回测结果
+            merged_result = {
+                "task_id": merged_backtest_id,
+                "status": "success",
+                "message": "多货币对回测完成",
+                "strategy_name": base_result["strategy_name"],
+                "backtest_config": base_result["backtest_config"],
+                "summary": {
+                    "total_currencies": len(results),
+                    "successful_currencies": len(successful_currencies),
+                    "average_return": round(average_return, 2),
+                    "average_max_drawdown": round(average_max_drawdown, 2),
+                    "average_sharpe_ratio": round(average_sharpe_ratio, 2),
+                    "total_trades": total_trades,
+                    "overall_win_rate": round(overall_win_rate, 2)
+                },
+                "currencies": results,
+                "merged_equity_curve": []  # 合并后的资金曲线，后续可以实现
+            }
+            
+            logger.info(f"回测结果合并完成，共 {len(successful_currencies)} 个货币对回测成功")
+            return merged_result
+        except Exception as e:
+            logger.error(f"合并回测结果失败: {e}")
+            logger.exception(e)
+            return {
+                "status": "failed",
+                "message": f"合并回测结果失败: {str(e)}",
+                "currencies": results
+            }
+    
+    def run_backtest(self, strategy_config, backtest_config):
+        """
+        执行回测，支持多货币对并行回测
+        
+        :param strategy_config: 策略配置
+        :param backtest_config: 回测配置，包含symbols列表
+        :return: 回测结果，单个货币对返回BacktestResult，多个货币对返回MultiBacktestResult
+        """
+        try:
+            # 从配置中获取货币对列表
+            symbols = backtest_config.get("symbols", ["BTCUSDT"])
+            
+            logger.info(f"开始回测，策略名称: {strategy_config.get('strategy_name')}, 货币对: {symbols}")
+            
+            # 如果只有一个货币对，直接执行回测
+            if len(symbols) == 1:
+                # 复制配置，使用单个货币对
+                single_config = backtest_config.copy()
+                single_config["symbol"] = symbols[0]
+                del single_config["symbols"]
+                
+                return self.run_single_backtest(strategy_config, single_config)
+            
+            # 多个货币对，使用并行回测
+            logger.info(f"开始多货币对并行回测，共 {len(symbols)} 个货币对")
+            
+            # 限制线程数量，避免系统过载
+            max_workers = min(len(symbols), os.cpu_count() * 2)
+            logger.info(f"使用线程池执行回测，最大线程数: {max_workers}")
+            
+            # 使用线程池并行执行回测
+            results = {}
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # 提交所有回测任务
+                future_to_symbol = {}
+                for symbol in symbols:
+                    # 复制配置，替换货币对
+                    single_config = backtest_config.copy()
+                    single_config["symbol"] = symbol
+                    del single_config["symbols"]
+                    
+                    future = executor.submit(
+                        self.run_single_backtest,
+                        strategy_config,
+                        single_config
+                    )
+                    future_to_symbol[future] = symbol
+                
+                # 收集回测结果
+                for future in concurrent.futures.as_completed(future_to_symbol):
+                    symbol = future_to_symbol[future]
+                    try:
+                        result = future.result(timeout=3600)  # 1小时超时
+                        results[symbol] = result
+                    except concurrent.futures.TimeoutError:
+                        logger.error(f"货币对 {symbol} 回测超时")
+                        results[symbol] = {
+                            "status": "failed",
+                            "message": "回测超时"
+                        }
+                    except Exception as e:
+                        logger.error(f"货币对 {symbol} 回测失败: {e}")
+                        results[symbol] = {
+                            "status": "failed",
+                            "message": str(e)
+                        }
+            
+            # 合并回测结果
+            merged_result = self.merge_backtest_results(results)
+            return merged_result
         except Exception as e:
             logger.error(f"回测失败: {e}")
             logger.exception(e)
