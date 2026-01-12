@@ -40,10 +40,10 @@ class BacktestConfig(BaseModel):
     """
     回测配置详细模型
     """
-    symbol: str = Field(
-        default="BTCUSDT",
-        description="交易对",
-        example="BTCUSDT",
+    symbols: List[str] = Field(
+        default_factory=lambda: ["BTCUSDT"],
+        description="交易对列表，支持多货币对同时回测",
+        example=["BTCUSDT", "ETHUSDT"],
     )
     interval: str = Field(
         default="1d",
@@ -426,7 +426,7 @@ class BacktestResult(BaseModel):
         ...,
         description="回测配置",
         example={
-            "symbol": "BTCUSDT",
+            "symbols": ["BTCUSDT"],
             "interval": "1d",
             "start_time": "2023-01-01 00:00:00",
             "end_time": "2023-12-31 23:59:59",
@@ -468,6 +468,101 @@ class BacktestResult(BaseModel):
         default_factory=list,
         description="策略数据",
         example=[],
+    )
+
+
+class MultiBacktestResult(BaseModel):
+    """
+    多货币对回测结果响应模型
+    """
+    task_id: str = Field(
+        ...,
+        description="回测任务ID",
+        example="bt_1234567890",
+    )
+    status: str = Field(
+        ...,
+        description="回测状态",
+        example="completed",
+    )
+    message: str = Field(
+        ...,
+        description="回测消息",
+        example="多货币对回测完成",
+    )
+    strategy_name: str = Field(
+        ...,
+        description="策略名称",
+        example="SmaCross",
+    )
+    backtest_config: BacktestConfig = Field(
+        ...,
+        description="回测配置",
+        example={
+            "symbols": ["BTCUSDT", "ETHUSDT"],
+            "interval": "1d",
+            "start_time": "2023-01-01 00:00:00",
+            "end_time": "2023-12-31 23:59:59",
+            "initial_cash": 10000.0,
+            "commission": 0.001,
+            "exclusive_orders": True
+        },
+    )
+    summary: Dict[str, Any] = Field(
+        ...,
+        description="整体统计分析",
+        example={
+            "total_currencies": 2,
+            "average_return": 12.5,
+            "average_max_drawdown": 8.2,
+            "average_sharpe_ratio": 1.8,
+            "total_trades": 156,
+            "overall_win_rate": 62.5
+        },
+    )
+    currencies: Dict[str, BacktestResult] = Field(
+        ...,
+        description="各货币对回测结果",
+        example={
+            "BTCUSDT": {
+                "task_id": "bt_1234567890_btcusdt",
+                "status": "completed",
+                "message": "回测完成",
+                "strategy_name": "SmaCross",
+                "backtest_config": {
+                    "symbols": ["BTCUSDT"],
+                    "interval": "1d",
+                    "start_time": "2023-01-01 00:00:00",
+                    "end_time": "2023-12-31 23:59:59",
+                    "initial_cash": 10000.0,
+                    "commission": 0.001,
+                    "exclusive_orders": True
+                },
+                "metrics": [
+                    {
+                        "name": "Return [%]",
+                        "value": 15.5,
+                        "cn_name": "总收益率",
+                        "en_name": "Total Return",
+                        "description": "回测期间的总收益率"
+                    }
+                ],
+                "trades": [],
+                "equity_curve": [],
+                "strategy_data": []
+            }
+        },
+    )
+    merged_equity_curve: List[EquityPoint] = Field(
+        ...,
+        description="合并后的资金曲线",
+        example=[
+            {
+                "datetime": "2023-01-01 00:00:00",
+                "Equity": 10000.0,
+                "Drawdown": 0.0
+            }
+        ],
     )
 
 
