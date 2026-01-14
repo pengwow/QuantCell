@@ -123,6 +123,19 @@ const Setting = () => {
   const [isSaving, setIsSaving] = useState(false);
   // 保存错误信息
   const [saveError, setSaveError] = useState<string | null>(null);
+  // 菜单模式状态
+  const [menuMode, setMenuMode] = useState<'horizontal' | 'inline'>(window.innerWidth < 768 ? 'horizontal' : 'inline');
+
+  // 监听窗口大小变化
+  useEffect(() => {
+    const handleResize = () => {
+      const width = window.innerWidth;
+      setMenuMode(width < 768 ? 'horizontal' : 'inline');
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // 国际化支持
   const { t, i18n } = useTranslation();
@@ -652,18 +665,22 @@ const Setting = () => {
 
       <Layout>
         {/* 侧边栏导航 */}
-        <Sider width={200} className="settings-sidebar">
+        <Sider 
+          width={menuMode === 'inline' ? 200 : 'auto'} 
+          className="settings-sidebar"
+          style={menuMode === 'horizontal' ? { overflow: 'visible' } : {}}
+        >
           <Menu
-            mode="inline"
+            mode={menuMode}
             selectedKeys={[currentTab]}
             items={menuConfig}
             onSelect={({ key }) => setCurrentTab(key)}
-            style={{ height: '100%', borderRight: 0 }}
+            style={menuMode === 'inline' ? { height: '100%', borderRight: 0 } : { width: '100%' }}
           />
         </Sider>
 
         {/* 主内容区域 */}
-        <Content className="settings-main">
+        <Content className="settings-main" style={{ flex: 1, minWidth: 0 }}>
           {/* 基本设置 */}
           <div style={{ display: currentTab === 'basic' ? 'block' : 'none' }}>
             <Card className="settings-panel" title={t('basic_settings')} variant="outlined">

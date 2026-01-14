@@ -60,6 +60,44 @@
 /* 二级 Layout 样式 */
 .ant-layout .ant-layout {
   background: transparent;
+  display: flex;
+  flex: 1;
+}
+
+/* 确保在小屏幕下，Content组件能够铺满宽度 */
+@media (max-width: 768px) {
+  .ant-layout .ant-layout {
+    flex-direction: column;
+    flex: 1;
+  }
+  
+  .ant-layout .ant-layout .ant-layout-content {
+    width: 100%;
+    flex: 1;
+    min-width: 0;
+  }
+  
+  .settings-main {
+    width: calc(100% - 24px);
+  }
+}
+
+@media (max-width: 576px) {
+  .ant-layout .ant-layout {
+    flex-direction: column;
+    flex: 1;
+  }
+  
+  .ant-layout .ant-layout .ant-layout-content {
+    width: 100%;
+    flex: 1;
+    min-width: 0;
+  }
+  
+  .settings-main {
+    width: 100%;
+    margin: 0;
+  }
 }
 
 /* 设置面板样式 */
@@ -402,6 +440,26 @@ input:checked + .slider:before {
     margin-bottom: 12px;
   }
   
+  /* 在小屏幕下，将菜单横向排列 */
+  .settings-sidebar .ant-menu-inline,
+  .settings-sidebar .ant-menu-horizontal {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    flex-direction: row;
+    border-right: none;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  
+  .settings-sidebar .ant-menu-item {
+    flex: 1;
+    min-width: 120px;
+    text-align: center;
+    border-right: 1px solid #f0f0f0;
+    border-bottom: none;
+    padding: 8px 16px !important;
+  }
+  
   .settings-main {
     margin: 12px;
     padding: 16px;
@@ -436,9 +494,49 @@ input:checked + .slider:before {
 }
 
 @media (max-width: 576px) {
+  /* 确保布局容器正确排列 */
+  .ant-layout .ant-layout {
+    flex-direction: column;
+  }
+  
+  /* 侧边栏样式调整 */
+  .settings-sidebar {
+    width: 100%;
+    margin: 0;
+    flex-shrink: 0;
+  }
+  
+  /* 菜单横向排列 */
+  .settings-sidebar .ant-menu-inline,
+  .settings-sidebar .ant-menu-horizontal {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    flex-direction: row;
+    border-right: none;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  
+  /* 菜单项样式 */
+  .settings-sidebar .ant-menu-item {
+    flex: 1;
+    min-width: 100px;
+    text-align: center;
+    border-right: 1px solid #f0f0f0;
+    border-bottom: none;
+    padding: 6px 12px !important;
+  }
+  
+  /* 移除最后一个菜单项的右边框 */
+  .settings-sidebar .ant-menu-item:last-child {
+    border-right: none;
+  }
+  
+  /* 主内容区域样式调整 */
   .settings-main {
     padding: 12px;
-    margin: 8px;
+    margin: 0;
+    border-radius: 0;
   }
   
   .settings-panel {
@@ -469,5 +567,10 @@ input:checked + .slider:before {
   
   .permission-item .ant-switch {
     align-self: flex-end;
+  }
+  
+  /* 确保Layout容器充满整个高度 */
+  .ant-layout {
+    min-height: 100vh;
   }
 }

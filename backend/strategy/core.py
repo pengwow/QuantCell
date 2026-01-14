@@ -1,0 +1,640 @@
+# 策略核心模块，定义与回测引擎无关的策略逻辑
+# 用于实现策略逻辑与回测引擎的分离
+# 详细文档请查看: docs/strategy_architecture.md
+
+import pandas as pd
+import numpy as np
+from abc import ABC, abstractmethod
+from typing import Dict, Any, Optional, List, Callable, Tuple
+import hashlib
+import pickle
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+class StrategyCore(ABC):
+    """
+    策略核心抽象类，定义策略的核心逻辑
+    与回测引擎无关，仅包含策略的计算和信号生成逻辑
+    """
+    
+    def __init__(self, params: Dict[str, Any]):
+        """
+        初始化策略核心
+        
+        Args:
+            params: 策略参数
+        """
+        self.params = params
+        self.indicators = {}
+        self.custom_indicators = {}
+        self._indicator_cache = {}  # 指标计算结果缓存
+        self._cache_enabled = True  # 缓存开关
+        self._cache_hits = 0  # 缓存命中次数
+        self._cache_misses = 0  # 缓存未命中次数
+        
+    def register_indicator(self, name: str, indicator_func: Callable):
+        """
+        注册自定义指标
+        
+        Args:
+            name: 指标名称
+            indicator_func: 指标计算函数，接受数据和参数，返回计算结果
+        """
+        self.custom_indicators[name] = indicator_func
+    
+    def calculate_custom_indicator(self, name: str, data: pd.DataFrame, **kwargs) -> Any:
+        """
+        计算自定义指标
+        
+        Args:
+            name: 指标名称
+            data: K线数据
+            **kwargs: 指标参数
+        
+        Returns:
+            Any: 指标计算结果
+        """
+        if name in self.custom_indicators:
+            return self.custom_indicators[name](data, **kwargs)
+        raise ValueError(f"Custom indicator '{name}' not registered")
+    
+    def _generate_cache_key(self, data: pd.DataFrame, method_name: str, **kwargs) -> str:
+        """
+        生成缓存键
+        
+        Args:
+            data: K线数据
+            method_name: 方法名称
+            **kwargs: 额外参数
+        
+        Returns:
+            str: 缓存键
+        """
+        # 提取数据的关键信息用于生成缓存键
+        data_hash = hashlib.md5(pickle.dumps((
+            data.index.values, 
+            data.columns.tolist(), 
+            data.shape,
+            data.iloc[0].values,
+            data.iloc[-1].values
+        ))).hexdigest()
+        
+        # 生成参数哈希
+        params_hash = hashlib.md5(pickle.dumps((self.params, kwargs))).hexdigest()
+        
+        # 生成方法名哈希
+        method_hash = hashlib.md5(method_name.encode()).hexdigest()
+        
+        # 组合成最终的缓存键
+        return f"{method_hash}:{data_hash}:{params_hash}"
+    
+    def enable_cache(self, enable: bool = True):
+        """
+        启用或禁用缓存
+        
+        Args:
+            enable: 是否启用缓存
+        """
+        self._cache_enabled = enable
+    
+    def clear_cache(self):
+        """
+        清除缓存
+        """
+        self._indicator_cache.clear()
+        self._cache_hits = 0
+        self._cache_misses = 0
+    
+    def get_cache_stats(self) -> Dict[str, int]:
+        """
+        获取缓存统计信息
+        
+        Returns:
+            Dict[str, int]: 缓存统计信息
+        """
+        return {
+            'hits': self._cache_hits,
+            'misses': self._cache_misses,
+            'total': self._cache_hits + self._cache_misses,
+            'hit_rate': (self._cache_hits / (self._cache_hits + self._cache_misses) * 100) if (self._cache_hits + self._cache_misses) > 0 else 0
+        }
+    
+    def run(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """
+        完整运行策略，计算指标并生成信号
+        
+        Args:
+            data: K线数据
+        
+        Returns:
+            Dict[str, Any]: 包含指标、交易信号、止损止盈信号和仓位大小的字典
+        """
+        # 数据预处理
+        data = self.preprocess_data(data)
+        
+        # 计算指标（使用缓存）
+        if self._cache_enabled:
+            cache_key = self._generate_cache_key(data, 'calculate_indicators')
+            if cache_key in self._indicator_cache:
+                indicators = self._indicator_cache[cache_key]
+                self._cache_hits += 1
+            else:
+                indicators = self.calculate_indicators(data)
+                self._indicator_cache[cache_key] = indicators
+                self._cache_misses += 1
+        else:
+            indicators = self.calculate_indicators(data)
+        
+        self.indicators = indicators
+        
+        # 生成交易信号 - 支持多头和空头
+        signals = self.generate_signals(indicators)
+        
+        # 生成多头信号
+        long_entries, long_exits = self.generate_long_signals(indicators)
+        signals['long_entries'] = long_entries
+        signals['long_exits'] = long_exits
+        
+        # 生成空头信号
+        short_entries, short_exits = self.generate_short_signals(indicators)
+        signals['short_entries'] = short_entries
+        signals['short_exits'] = short_exits
+        
+        # 合并信号（默认实现，子类可重写）
+        if 'entries' not in signals:
+            signals['entries'] = signals['long_entries']
+        if 'exits' not in signals:
+            signals['exits'] = signals['long_exits']
+        
+        # 信号过滤
+        signals = self.filter_signals(data, signals, indicators)
+        
+        # 生成止损止盈信号
+        sl_tp_signals = self.generate_stop_loss_take_profit(data, signals, indicators)
+        signals.update(sl_tp_signals)
+        
+        # 计算仓位大小 - 支持多头和空头
+        capital = self.params.get('initial_capital', 10000)
+        long_sizes = self.calculate_long_position_size(data, signals, indicators, capital)
+        short_sizes = self.calculate_short_position_size(data, signals, indicators, capital)
+        signals['long_sizes'] = long_sizes
+        signals['short_sizes'] = short_sizes
+        
+        # 通用仓位大小（兼容旧接口）
+        if 'position_sizes' not in signals:
+            signals['position_sizes'] = long_sizes
+        
+        # 信号后处理
+        signals = self.postprocess_signals(data, signals, indicators)
+        
+        return {
+            'indicators': indicators,
+            'signals': signals
+        }
+    
+    @abstractmethod
+    def calculate_indicators(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """
+        计算策略所需的指标
+        
+        Args:
+            data: K线数据，包含Open, High, Low, Close, Volume等列
+        
+        Returns:
+            Dict[str, Any]: 计算得到的指标字典
+        """
+        pass
+    
+    @abstractmethod
+    def generate_signals(self, indicators: Dict[str, Any]) -> Dict[str, pd.Series]:
+        """
+        根据指标生成交易信号
+        
+        Args:
+            indicators: 计算得到的指标字典
+        
+        Returns:
+            Dict[str, pd.Series]: 交易信号字典，包含entries和exits等信号
+        """
+        pass
+    
+    def generate_stop_loss_take_profit(self, data: pd.DataFrame, signals: Dict[str, pd.Series], indicators: Dict[str, Any]) -> Dict[str, pd.Series]:
+        """
+        生成止损止盈信号
+        
+        Args:
+            data: K线数据
+            signals: 交易信号字典
+            indicators: 指标字典
+        
+        Returns:
+            Dict[str, pd.Series]: 止损止盈信号字典
+        """
+        # 默认实现，子类可以重写
+        return {
+            'stop_loss': pd.Series(False, index=data.index),
+            'take_profit': pd.Series(False, index=data.index)
+        }
+    
+    def calculate_position_size(self, data: pd.DataFrame, signals: Dict[str, pd.Series], indicators: Dict[str, Any], capital: float) -> pd.Series:
+        """
+        计算仓位大小
+        
+        Args:
+            data: K线数据
+            signals: 交易信号字典
+            indicators: 指标字典
+            capital: 可用资金
+        
+        Returns:
+            pd.Series: 仓位大小序列
+        """
+        # 默认实现，等比例仓位
+        return pd.Series(1.0, index=data.index)
+    
+    def preprocess_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        数据预处理钩子
+        
+        Args:
+            data: 原始K线数据
+        
+        Returns:
+            pd.DataFrame: 预处理后的数据
+        """
+        # 默认实现，直接返回原始数据
+        return data
+    
+    def filter_signals(self, data: pd.DataFrame, signals: Dict[str, pd.Series], indicators: Dict[str, Any]) -> Dict[str, pd.Series]:
+        """
+        信号过滤钩子
+        
+        Args:
+            data: K线数据
+            signals: 原始交易信号
+            indicators: 指标字典
+        
+        Returns:
+            Dict[str, pd.Series]: 过滤后的交易信号
+        """
+        # 默认实现，直接返回原始信号
+        return signals
+    
+    def generate_long_signals(self, indicators: Dict[str, Any]) -> Tuple[pd.Series, pd.Series]:
+        """
+        生成多头信号
+        
+        Args:
+            indicators: 指标字典
+        
+        Returns:
+            Tuple[pd.Series, pd.Series]: (多头入场信号, 多头出场信号)
+        """
+        # 从指标字典中获取索引
+        for v in indicators.values():
+            if isinstance(v, pd.Series):
+                index = v.index
+                break
+        else:
+            raise ValueError("No Series found in indicators")
+        
+        # 默认实现，返回空信号
+        return pd.Series(False, index=index), pd.Series(False, index=index)
+    
+    def generate_short_signals(self, indicators: Dict[str, Any]) -> Tuple[pd.Series, pd.Series]:
+        """
+        生成空头信号
+        
+        Args:
+            indicators: 指标字典
+        
+        Returns:
+            Tuple[pd.Series, pd.Series]: (空头入场信号, 空头出场信号)
+        """
+        # 从指标字典中获取索引
+        for v in indicators.values():
+            if isinstance(v, pd.Series):
+                index = v.index
+                break
+        else:
+            raise ValueError("No Series found in indicators")
+        
+        # 默认实现，返回空信号
+        return pd.Series(False, index=index), pd.Series(False, index=index)
+    
+    def calculate_position_size(self, data: pd.DataFrame, signals: Dict[str, pd.Series], indicators: Dict[str, Any], capital: float) -> pd.Series:
+        """
+        计算仓位大小
+        
+        Args:
+            data: K线数据
+            signals: 交易信号字典
+            indicators: 指标字典
+            capital: 可用资金
+        
+        Returns:
+            pd.Series: 仓位大小序列
+        """
+        # 默认实现，等比例仓位
+        return pd.Series(1.0, index=data.index)
+    
+    def calculate_long_position_size(self, data: pd.DataFrame, signals: Dict[str, pd.Series], indicators: Dict[str, Any], capital: float) -> pd.Series:
+        """
+        计算多头仓位大小
+        
+        Args:
+            data: K线数据
+            signals: 交易信号字典
+            indicators: 指标字典
+            capital: 可用资金
+        
+        Returns:
+            pd.Series: 多头仓位大小序列
+        """
+        # 默认实现，使用通用仓位计算
+        return self.calculate_position_size(data, signals, indicators, capital)
+    
+    def calculate_short_position_size(self, data: pd.DataFrame, signals: Dict[str, pd.Series], indicators: Dict[str, Any], capital: float) -> pd.Series:
+        """
+        计算空头仓位大小
+        
+        Args:
+            data: K线数据
+            signals: 交易信号字典
+            indicators: 指标字典
+            capital: 可用资金
+        
+        Returns:
+            pd.Series: 空头仓位大小序列
+        """
+        # 默认实现，使用通用仓位计算
+        return self.calculate_position_size(data, signals, indicators, capital)
+    
+    def postprocess_signals(self, data: pd.DataFrame, signals: Dict[str, pd.Series], indicators: Dict[str, Any]) -> Dict[str, pd.Series]:
+        """
+        信号后处理钩子
+        
+        Args:
+            data: K线数据
+            signals: 交易信号
+            indicators: 指标字典
+        
+        Returns:
+            Dict[str, pd.Series]: 后处理后的交易信号
+        """
+        # 默认实现，直接返回原始信号
+        return signals
+    
+    def run(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """
+        完整运行策略，计算指标并生成信号
+        
+        Args:
+            data: K线数据
+        
+        Returns:
+            Dict[str, Any]: 包含指标、交易信号、止损止盈信号和仓位大小的字典
+        """
+        # 数据预处理
+        data = self.preprocess_data(data)
+        
+        # 计算指标
+        indicators = self.calculate_indicators(data)
+        self.indicators = indicators
+        
+        # 生成交易信号 - 支持多头和空头
+        signals = self.generate_signals(indicators)
+        
+        # 生成多头信号
+        long_entries, long_exits = self.generate_long_signals(indicators)
+        signals['long_entries'] = long_entries
+        signals['long_exits'] = long_exits
+        
+        # 生成空头信号
+        short_entries, short_exits = self.generate_short_signals(indicators)
+        signals['short_entries'] = short_entries
+        signals['short_exits'] = short_exits
+        
+        # 合并信号（默认实现，子类可重写）
+        if 'entries' not in signals:
+            signals['entries'] = signals['long_entries']
+        if 'exits' not in signals:
+            signals['exits'] = signals['long_exits']
+        
+        # 信号过滤
+        signals = self.filter_signals(data, signals, indicators)
+        
+        # 生成止损止盈信号
+        sl_tp_signals = self.generate_stop_loss_take_profit(data, signals, indicators)
+        signals.update(sl_tp_signals)
+        
+        # 计算仓位大小 - 支持多头和空头
+        capital = self.params.get('initial_capital', 10000)
+        long_sizes = self.calculate_long_position_size(data, signals, indicators, capital)
+        short_sizes = self.calculate_short_position_size(data, signals, indicators, capital)
+        signals['long_sizes'] = long_sizes
+        signals['short_sizes'] = short_sizes
+        
+        # 通用仓位大小（兼容旧接口）
+        if 'position_sizes' not in signals:
+            signals['position_sizes'] = long_sizes
+        
+        # 信号后处理
+        signals = self.postprocess_signals(data, signals, indicators)
+        
+        return {
+            'indicators': indicators,
+            'signals': signals
+        }
+    
+    def run_multiple(self, data_dict: Dict[str, pd.DataFrame]) -> Dict[str, Dict[str, Any]]:
+        """
+        运行多资产策略
+        
+        Args:
+            data_dict: 多资产K线数据字典，键为资产名称，值为K线数据
+        
+        Returns:
+            Dict[str, Dict[str, Any]]: 多资产策略运行结果
+        """
+        # 多资产策略的预处理
+        data_dict = self.preprocess_multiple_data(data_dict)
+        
+        # 运行单资产策略
+        results = {}
+        for asset, data in data_dict.items():
+            results[asset] = self.run(data)
+        
+        # 多资产策略的协调
+        results = self.coordinate_multiple_assets(results, data_dict)
+        
+        return results
+    
+    def preprocess_multiple_data(self, data_dict: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+        """
+        多资产数据预处理钩子
+        
+        Args:
+            data_dict: 原始多资产K线数据字典
+        
+        Returns:
+            Dict[str, pd.DataFrame]: 预处理后的多资产K线数据字典
+        """
+        # 默认实现，对每个资产调用单资产预处理
+        processed = {}
+        for asset, data in data_dict.items():
+            processed[asset] = self.preprocess_data(data)
+        return processed
+    
+    def coordinate_multiple_assets(self, results_dict: Dict[str, Dict[str, Any]], data_dict: Dict[str, pd.DataFrame]) -> Dict[str, Dict[str, Any]]:
+        """
+        多资产策略协调钩子
+        
+        Args:
+            results_dict: 各资产策略运行结果字典
+            data_dict: 多资产K线数据字典
+        
+        Returns:
+            Dict[str, Dict[str, Any]]: 协调后的多资产策略运行结果
+        """
+        # 默认实现，直接返回原始结果
+        return results_dict
+
+
+
+
+
+class StrategyRunner:
+    """
+    策略运行器，统一管理不同回测引擎的策略运行
+    """
+    
+    def __init__(self, strategy_core: StrategyCore, engine: str = "backtesting.py"):
+        """
+        初始化策略运行器
+        
+        Args:
+            strategy_core: 策略核心实例
+            engine: 回测引擎名称，可选值：backtesting.py, vectorbt
+        """
+        self.strategy_core = strategy_core
+        self.engine = engine
+        self.adapter = self._get_adapter()
+    
+    def _get_adapter(self, engine: Optional[str] = None) -> 'StrategyAdapter':
+        """
+        获取对应的适配器
+        
+        Args:
+            engine: 回测引擎名称，可选
+        
+        Returns:
+            StrategyAdapter: 适配器实例
+        """
+        engine = engine or self.engine
+        from .backtest.adapters import BacktestingPyAdapter, VectorBTAdapter
+        if engine == "backtesting.py":
+            return BacktestingPyAdapter(self.strategy_core)
+        elif engine == "vectorbt":
+            return VectorBTAdapter(self.strategy_core)
+        else:
+            raise ValueError(f"Unknown engine: {engine}")
+    
+    def run(self, data: pd.DataFrame, **kwargs) -> Any:
+        """
+        运行策略回测
+        
+        Args:
+            data: K线数据
+            **kwargs: 额外的回测参数
+        
+        Returns:
+            Any: 回测结果
+        """
+        return self.adapter.run_backtest(data, **kwargs)
+    
+    def run_on_multiple_engines(self, data: pd.DataFrame, engines: List[str], max_workers: int = None, **kwargs) -> Dict[str, Any]:
+        """
+        在多个回测引擎上并行运行策略
+        
+        Args:
+            data: K线数据
+            engines: 要使用的回测引擎列表
+            max_workers: 最大工作线程数
+            **kwargs: 额外的回测参数
+        
+        Returns:
+            Dict[str, Any]: 各引擎的回测结果
+        """
+        results = {}
+        
+        def run_on_engine(engine):
+            """在单个引擎上运行策略"""
+            adapter = self._get_adapter(engine)
+            return engine, adapter.run_backtest(data, **kwargs)
+        
+        # 使用线程池并行运行
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(run_on_engine, engine) for engine in engines]
+            
+            for future in as_completed(futures):
+                engine, result = future.result()
+                results[engine] = result
+        
+        return results
+    
+    def run_on_multiple_data(self, data_dict: Dict[str, pd.DataFrame], max_workers: int = None, **kwargs) -> Dict[str, Any]:
+        """
+        在多个数据上并行运行策略
+        
+        Args:
+            data_dict: 数据字典，键为数据名称，值为K线数据
+            max_workers: 最大工作线程数
+            **kwargs: 额外的回测参数
+        
+        Returns:
+            Dict[str, Any]: 各数据的回测结果
+        """
+        results = {}
+        
+        def run_on_single_data(name, data):
+            """在单个数据上运行策略"""
+            return name, self.adapter.run_backtest(data, **kwargs)
+        
+        # 使用线程池并行运行
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(run_on_single_data, name, data) for name, data in data_dict.items()]
+            
+            for future in as_completed(futures):
+                name, result = future.result()
+                results[name] = result
+        
+        return results
+    
+    def switch_engine(self, engine: str):
+        """
+        切换回测引擎
+        
+        Args:
+            engine: 回测引擎名称
+        """
+        self.engine = engine
+        self.adapter = self._get_adapter()
+    
+    def enable_cache(self, enable: bool = True):
+        """
+        启用或禁用策略核心的缓存
+        
+        Args:
+            enable: 是否启用缓存
+        """
+        self.strategy_core.enable_cache(enable)
+    
+    def get_cache_stats(self) -> Dict[str, int]:
+        """
+        获取策略核心的缓存统计信息
+        
+        Returns:
+            Dict[str, int]: 缓存统计信息
+        """
+        return self.strategy_core.get_cache_stats()

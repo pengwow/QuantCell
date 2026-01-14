@@ -13,8 +13,8 @@ sys.path.insert(0, project_root)
 sys.path.insert(0, backend_path)
 
 # 从策略模块导入所需类
-from backtest.strategies.core import StrategyRunner
-from backtest.strategies.sma_cross_core import SmaCrossCore
+from strategy.core import StrategyRunner
+from strategy.sma_cross_core import SmaCrossCore
 
 
 def load_test_data():
