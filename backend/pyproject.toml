@@ -28,6 +28,7 @@ dependencies = [
     "pytest>=9.0.1",
     "sqlalchemy>=2.0.35",
     "statsmodels>=0.14.6",
+    "ta-lib>=0.6.8",
     "torch>=2.9.1",
     "torchaudio>=2.9.1",
     "torchvision>=0.24.1",
