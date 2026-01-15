@@ -6,6 +6,7 @@ import { useConfigStore } from './store';
 import { pluginManager } from './plugins';
 import type { MenuGroup } from './plugins/PluginBase';
 import { useTranslation } from 'react-i18next';
+import { initTheme } from './utils/themeManager';
 import './App.css';
 
 /**
@@ -26,6 +27,7 @@ const App = () => {
   useEffect(() => {
     loadConfigs();
     loadMenus();
+    initTheme();
   }, [loadConfigs]);
 
   const handleMenuClick = (): void => {
