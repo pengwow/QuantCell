@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { configApi } from '../api';
 import type { AppConfig } from '../utils/configLoader';
 import { useTranslation } from 'react-i18next';
+import { applyTheme } from '../utils/themeManager';
 
 // 扩展Window接口，添加APP_CONFIG属性
 declare global {
@@ -438,7 +439,7 @@ const Setting = () => {
       // 直接调用API保存配置
       await configApi.updateConfig(requestData);
       
-      // 保存成功后，重新加载配置数据
+      // 保存设置成功后，重新加载配置数据
       console.log('保存设置成功，重新加载配置');
       const newConfigData = await configApi.getConfig();
       
@@ -448,6 +449,9 @@ const Setting = () => {
       
       // 更新本地状态和表单
       updateLocalStateAndForm();
+      
+      // 应用新的主题设置
+      applyTheme(settings.theme);
 
       // 显示成功消息
       setShowSuccessMessage(true);
@@ -696,7 +700,11 @@ const Setting = () => {
                     rules={[{ required: true, message: t('please_select') }]}
                   >
                     <Select
-                      onChange={(value) => setSettings(prev => ({ ...prev, theme: value as 'light' | 'dark' | 'auto' }))}
+                      onChange={(value) => {
+                        const themeValue = value as 'light' | 'dark' | 'auto';
+                        setSettings(prev => ({ ...prev, theme: themeValue }));
+                        applyTheme(themeValue);
+                      }}
                       options={[
                         { value: 'light', label: t('light') },
                         { value: 'dark', label: t('dark') },

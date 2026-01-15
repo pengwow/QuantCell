@@ -586,11 +586,11 @@ export default function ChartPage () {
       {/* 工具栏样式 */}
       <style>{`
         .chart-toolbar {
-          background-color: #ffffff;
-          border: 1px solid #f0f0f0;
+          background-color: var(--bg-secondary);
+          border: 1px solid var(--border-color);
           border-radius: 4px;
           padding: 5px;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          box-shadow: var(--shadow-sm);
         }
         
         .toolbar-top {
@@ -598,10 +598,10 @@ export default function ChartPage () {
           align-items: center;
           gap: 2px; /* 减少按钮间间隙 */
           flex-wrap: wrap;
-          background-color: #fafafa;
+          background-color: var(--bg-tertiary);
           padding: 5px;
           border-radius: 4px;
-          border: 1px solid #e8e8e8;
+          border: 1px solid var(--border-color);
         }
         
         .toolbar-toggle {
@@ -614,15 +614,15 @@ export default function ChartPage () {
           align-items: center;
           justify-content: center;
           transition: all 0.2s ease;
-          color: #666;
+          color: var(--text-secondary);
           /* 调整div大小 */
           width: 36px;
           height: 36px;
         }
         
         .toolbar-toggle:hover {
-          background-color: #e8f0fe;
-          color: #1890ff;
+          background-color: rgba(100, 108, 255, 0.1);
+          color: var(--primary-color);
         }
         
         /* 图标容器样式 */
@@ -655,19 +655,19 @@ export default function ChartPage () {
           font-size: 16px;
           font-weight: bold;
           padding: 0 10px;
-          color: #333;
-          border-right: 1px solid #e8e8e8;
+          color: var(--text-primary);
+          border-right: 1px solid var(--border-color);
           cursor: pointer;
           transition: all 0.2s ease;
         }
         
         /* 商品名悬停效果 */
         .symbol-name:hover {
-          background-color: #e8f0fe;
+          background-color: rgba(100, 108, 255, 0.1);
         }
         
         .symbol-text {
-          color: #333;
+          color: var(--text-primary);
         }
         
         /* 时间周期按钮容器 - 相对定位 */
@@ -679,10 +679,10 @@ export default function ChartPage () {
         .period-buttons {
           display: flex;
           // gap: 1px; /* 减少按钮间间隙 */
-          background-color: white;
+          background-color: var(--bg-secondary);
           /* 移除圆角 - 确保直角 */
           overflow: hidden;
-          // border: 1px solid #e8e8e8;
+          // border: 1px solid var(--border-color);
         }
         
         .period-btn {
@@ -692,7 +692,7 @@ export default function ChartPage () {
           cursor: pointer;
           font-size: 13px;
           transition: all 0.2s ease;
-          color: #666;
+          color: var(--text-secondary);
           /* 明确设置为直角 */
           border-radius: 0;
           /* 移除焦点轮廓 */
@@ -700,12 +700,12 @@ export default function ChartPage () {
         }
         
         .period-btn:hover {
-          background-color: #e8f0fe;
-          color: #1890ff;
+          background-color: rgba(100, 108, 255, 0.1);
+          color: var(--primary-color);
         }
         
         .period-btn.active {
-          background-color: #1890ff;
+          background-color: var(--primary-color);
           color: white;
           /* 明确设置选中状态为直角 */
           border-radius: 0;
@@ -718,14 +718,14 @@ export default function ChartPage () {
         
         /* 更多按钮特殊样式 */
         .period-btn.more-btn {
-          border-left: 1px solid #e8e8e8;
-          color: #1890ff;
+          border-left: 1px solid var(--border-color);
+          color: var(--primary-color);
           /* 明确设置为直角 */
           border-radius: 0;
         }
         
         .period-btn.more-btn:hover {
-          background-color: #e8f0fe;
+          background-color: rgba(100, 108, 255, 0.1);
         }
         
         /* 下拉菜单样式 - 绝对定位在更多按钮下方 */
@@ -733,8 +733,8 @@ export default function ChartPage () {
           position: absolute;
           top: 100%; /* 在更多按钮下方 */
           right: 0; /* 右对齐 */
-          background-color: white;
-          border: 1px solid #e8e8e8;
+          background-color: var(--bg-secondary);
+          border: 1px solid var(--border-color);
           /* 移除圆角 - 确保直角 */
           overflow: hidden;
           z-index: 2000; /* 确保在最上方图层 */
@@ -750,7 +750,7 @@ export default function ChartPage () {
         .more-periods-dropdown .period-btn {
           width: 100%;
           text-align: center;
-          border-bottom: 1px solid #e8e8e8;
+          border-bottom: 1px solid var(--border-color);
         }
         
         /* 下拉菜单中最后一个按钮移除底边框 */
@@ -762,10 +762,10 @@ export default function ChartPage () {
           display: flex;
           gap: 1px; /* 减少按钮间间隙 */
           margin-left: auto;
-          background-color: white;
+          background-color: var(--bg-secondary);
           /* 移除圆角 - 确保直角 */
           overflow: hidden;
-          border: 1px solid #e8e8e8;
+          border: 1px solid var(--border-color);
         }
         
         .func-btn {
@@ -778,36 +778,36 @@ export default function ChartPage () {
           cursor: pointer;
           font-size: 13px;
           transition: all 0.2s ease;
-          color: #666;
+          color: var(--text-secondary);
           /* 明确设置为直角 */
           border-radius: 0;
         }
         
         .func-btn:hover {
-          background-color: #e8f0fe;
-          color: #1890ff;
+          background-color: rgba(100, 108, 255, 0.1);
+          color: var(--primary-color);
         }
         
         /* 垂直按钮样式 */
         .vertical-btn {
           width: 36px;
           height: 36px;
-          border: 1px solid #d9d9d9;
+          border: 1px solid var(--border-color);
           /* 明确设置为直角 */
           border-radius: 0;
-          background-color: white;
+          background-color: var(--bg-secondary);
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
           transition: all 0.3s;
-          color: #333;
+          color: var(--text-primary);
         }
         
         .vertical-btn:hover {
-          border-color: #1890ff;
-          color: #1890ff;
-          background-color: #f0f7ff;
+          border-color: var(--primary-color);
+          color: var(--primary-color);
+          background-color: rgba(100, 108, 255, 0.1);
         }
         
         .func-icon {
@@ -823,10 +823,10 @@ export default function ChartPage () {
           flex-direction: column;
           gap: 8px;
           z-index: 1000; /* 确保在顶部图层 */
-          background-color: rgba(255, 255, 255, 0.9);
+          background-color: var(--bg-secondary);
           padding: 10px;
           border-radius: 4px;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          box-shadow: var(--shadow-sm);
           opacity: 1;
           transition: all 0.3s ease-in-out; /* 添加过渡动画 */
         }
@@ -835,21 +835,21 @@ export default function ChartPage () {
         .vertical-btn {
           width: 36px;
           height: 36px;
-          border: 1px solid #d9d9d9;
+          border: 1px solid var(--border-color);
           border-radius: 4px;
-          background-color: white;
+          background-color: var(--bg-secondary);
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
           transition: all 0.3s;
-          color: #333;
+          color: var(--text-primary);
         }
         
         .vertical-btn:hover {
-          border-color: #1890ff;
-          color: #1890ff;
-          background-color: #f0f7ff;
+          border-color: var(--primary-color);
+          color: var(--primary-color);
+          background-color: rgba(100, 108, 255, 0.1);
         }
         
         /* 确保图表容器不受工具栏影响 */
@@ -890,6 +890,7 @@ export default function ChartPage () {
           height: 100vh;
           overflow-y: auto;
           overflow-x: hidden;
+          background-color: var(--bg-primary);
         }
         
         /* 图表加载状态 */

@@ -1,10 +1,18 @@
-/* 主内容区域 */
+/* 主内容区域 - Web3科技感设计 */
 .data-management-main {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background-color: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lg);
   padding: 20px;
   min-width: 0;
+  position: relative;
+  z-index: 1;
+  transition: all var(--transition-normal);
+}
+
+.data-management-main:hover {
+  box-shadow: var(--shadow-lg), 0 0 30px rgba(100, 108, 255, 0.1);
 }
 
 .data-panel {
@@ -15,38 +23,62 @@
   margin-top: 0;
   margin-bottom: 20px;
   font-size: 20px;
-  color: #333;
-  border-bottom: 1px solid #e0e0e0;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  border-bottom: 1px solid var(--border-color);
   padding-bottom: 10px;
+  font-weight: 600;
 }
 
 .data-section {
   margin-bottom: 25px;
+  position: relative;
 }
 
 .data-section h3 {
   margin-top: 0;
   margin-bottom: 15px;
   font-size: 16px;
-  color: #555;
+  color: var(--text-primary);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-/* 价格变化样式 */
+.data-section h3::before {
+  content: '';
+  width: 4px;
+  height: 16px;
+  background: var(--gradient-primary);
+  border-radius: 2px;
+}
+
+/* 价格变化样式 - Web3配色 */
 .price-up {
-  color: #2ed573;
-  font-weight: 500;
+  color: var(--success-color);
+  font-weight: 600;
 }
 
 .price-down {
-  color: #ff4757;
-  font-weight: 500;
+  color: var(--error-color);
+  font-weight: 600;
 }
 
-/* 表单样式 */
+/* 表单样式 - Web3科技感 */
 .import-form {
-  background: #fafafa;
+  background-color: var(--bg-primary);
   padding: 20px;
-  border-radius: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  transition: all var(--transition-normal);
+}
+
+.import-form:hover {
+  border-color: var(--primary-color);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 导入日志样式 */
@@ -61,21 +93,23 @@
 }
 
 .log-content {
-  background: #f0f0f0;
+  background-color: var(--bg-primary);
   padding: 15px;
-  border-radius: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
   max-height: 200px;
   overflow-y: auto;
   width: 100%;
   box-sizing: border-box;
   word-wrap: break-word;
   white-space: normal;
+  font-family: 'Courier New', monospace;
 }
 
 .log-item {
   margin-bottom: 5px;
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
   width: 100%;
   box-sizing: border-box;
   word-wrap: break-word;
@@ -89,15 +123,50 @@
 
 .task-card {
   margin-bottom: 15px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  transition: all var(--transition-normal);
+  position: relative;
+  overflow: hidden;
 }
 
-/* K线图表样式 */
+.task-card:hover {
+  border-color: var(--primary-color);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.task-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--gradient-primary);
+  transform: scaleY(0);
+  transition: transform var(--transition-fast);
+}
+
+.task-card:hover::before {
+  transform: scaleY(1);
+}
+
+/* K线图表样式 - Web3科技感 */
 .kline-chart-container {
   margin-top: 20px;
-  background-color: #fff;
+  background-color: var(--bg-secondary);
   padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lg);
+  transition: all var(--transition-normal);
+}
+
+.kline-chart-container:hover {
+  box-shadow: var(--shadow-lg), 0 0 30px rgba(100, 108, 255, 0.1);
 }
 
 .kline-chart {
@@ -107,18 +176,23 @@
 .chart-header {
   margin-bottom: 15px;
   padding-bottom: 10px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .chart-title {
   font-size: 18px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .chart-stats {
   font-size: 14px;
-  color: #666;
+  color: var(--text-muted);
+  display: flex;
+  gap: 16px;
 }
 
 .stat-item {
@@ -130,36 +204,47 @@
 .chart-content {
   width: 100%;
   overflow: auto;
+  background-color: var(--bg-primary);
+  border-radius: 8px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
 }
 
 .kline-chart-wrapper {
   width: 100%;
 }
 
+/* 消息样式 - Web3设计 */
 .error-message {
-  background-color: #f8d7da;
-  border: 1px solid #f5c6cb;
-  color: #721c24;
+  background-color: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--error-color);
+  color: var(--error-color);
   padding: 12px;
-  border-radius: 4px;
+  border-radius: 8px;
   margin-bottom: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-/* 成功消息样式 */
+/* 成功消息样式 - Web3设计 */
 .success-message {
   position: fixed;
   top: 20px;
   right: 20px;
-  background: #d4edda;
-  color: #155724;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.9) 0%, rgba(56, 189, 248, 0.9) 100%);
+  color: white;
   padding: 12px 20px;
-  border-radius: 4px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
   z-index: 1000;
-  animation: slideIn 0.3s ease;
+  animation: slideInRight 0.3s ease;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-@keyframes slideIn {
+/* 滑入动画 */
+@keyframes slideInRight {
   from {
     transform: translateX(100%);
     opacity: 0;
@@ -186,6 +271,12 @@
   
   .data-section h3 {
     font-size: 15px;
+  }
+  
+  .chart-stats {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
   }
 }
 
@@ -214,5 +305,11 @@
   
   .chart-title {
     font-size: 16px;
+  }
+  
+  .success-message {
+    right: 10px;
+    left: 10px;
+    top: 10px;
   }
 }
