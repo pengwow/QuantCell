@@ -4,12 +4,16 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
+import { Table } from 'antd';
+import type { TableProps } from 'antd';
 import * as echarts from 'echarts';
 import { backtestApi } from '../api';
+import { generateBacktestReportHtml } from '../utils/exportBacktest';
 import '../styles/BacktestResults.css';
 import { useTranslation } from 'react-i18next';
 import BacktestConfig from './BacktestConfig';
 import ErrorBoundary from '../components/ErrorBoundary';
+import dayjs from 'dayjs';
 
 
 // 回测任务类型定义
@@ -52,6 +56,7 @@ interface BacktestResult {
   status: string;
   message: string;
   strategy_name: string;
+  strategy_config?: any; // Add strategy_config
   backtest_config: any;
   metrics: MetricItem[];
   trades: Trade[];
@@ -74,6 +79,14 @@ const BacktestResults = () => {
 
   // 交易数据
   const [trades, setTrades] = useState<Trade[]>([]);
+  
+  // 交易表格分页和排序状态
+  const [tableParams, setTableParams] = useState<TableProps<Trade>['pagination']>({
+    current: 1,
+    pageSize: 10,
+    showSizeChanger: true,
+    pageSizeOptions: ['10', '20', '50', '100'],
+  });
 
   // 回测指标
   const [metrics, setMetrics] = useState<MetricItem[]>([]);
@@ -339,9 +352,82 @@ const BacktestResults = () => {
     riskChart.current.setOption(option);
   };
 
-  /**
-   * 监听窗口大小变化，调整图表大小
-   */
+  // 表格列定义
+  const columns: TableProps<Trade>['columns'] = [
+    {
+      title: t('entry_time'),
+      dataIndex: 'EntryTime',
+      key: 'EntryTime',
+      sorter: (a, b) => new Date(a.EntryTime).getTime() - new Date(b.EntryTime).getTime(),
+    },
+    {
+      title: t('exit_time'),
+      dataIndex: 'ExitTime',
+      key: 'ExitTime',
+      sorter: (a, b) => new Date(a.ExitTime).getTime() - new Date(b.ExitTime).getTime(),
+    },
+    {
+      title: t('direction'),
+      dataIndex: 'Direction',
+      key: 'Direction',
+      filters: [
+        { text: 'LONG', value: 'LONG' },
+        { text: 'SHORT', value: 'SHORT' },
+      ],
+      onFilter: (value, record) => record.Direction.indexOf(value as string) === 0,
+    },
+    {
+      title: t('entry_price'),
+      dataIndex: 'EntryPrice',
+      key: 'EntryPrice',
+      sorter: (a, b) => a.EntryPrice - b.EntryPrice,
+      render: (value) => typeof value === 'number' ? value.toFixed(2) : value,
+    },
+    {
+      title: t('exit_price'),
+      dataIndex: 'ExitPrice',
+      key: 'ExitPrice',
+      sorter: (a, b) => a.ExitPrice - b.ExitPrice,
+      render: (value) => typeof value === 'number' ? value.toFixed(2) : value,
+    },
+    {
+      title: t('position_size'),
+      dataIndex: 'Size',
+      key: 'Size',
+      sorter: (a, b) => a.Size - b.Size,
+    },
+    {
+      title: t('pnl'),
+      dataIndex: 'PnL',
+      key: 'PnL',
+      sorter: (a, b) => a.PnL - b.PnL,
+      render: (value) => (
+        <span className={value >= 0 ? 'positive' : 'negative'}>
+          {value >= 0 ? '+' : ''}{typeof value === 'number' ? value.toFixed(2) : value}
+        </span>
+      ),
+    },
+    {
+      title: t('return_pct'),
+      dataIndex: 'ReturnPct',
+      key: 'ReturnPct',
+      sorter: (a, b) => a.ReturnPct - b.ReturnPct,
+      render: (value) => (
+        <span className={value >= 0 ? 'positive' : 'negative'}>
+          {value >= 0 ? '+' : ''}{typeof value === 'number' ? value.toFixed(2) : value}%
+        </span>
+      ),
+    },
+  ];
+
+  // 处理表格变更
+  const handleTableChange: TableProps<Trade>['onChange'] = (pagination) => {
+    setTableParams({
+      ...pagination,
+    });
+  };
+
+  // 监听窗口大小变化，调整图表大小
   const handleResize = () => {
     returnChart.current?.resize();
     riskChart.current?.resize();
@@ -436,6 +522,52 @@ const BacktestResults = () => {
     loadBacktestList();
   };
 
+  /**
+   * 导出回测报告
+   */
+  const handleExportReport = async (taskId?: string) => {
+    let dataToExport = backtestResult;
+
+    // 如果指定了 taskId 且不是当前选中的任务，或者当前没有 backtestResult，则尝试加载
+    if (taskId && taskId !== selectedTaskId) {
+       // 提示用户正在准备导出
+       const loadingMsg = document.createElement('div');
+       loadingMsg.id = 'export-loading-msg';
+       loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.7);color:#fff;padding:12px 24px;border-radius:4px;z-index:9999;';
+       loadingMsg.innerText = '正在准备导出数据...';
+       document.body.appendChild(loadingMsg);
+
+       try {
+         const response = await backtestApi.getBacktestDetail(taskId);
+         if (response && response.status === 'success') {
+           dataToExport = response;
+         }
+       } catch (error) {
+         console.error('加载导出数据失败:', error);
+       } finally {
+         const msg = document.getElementById('export-loading-msg');
+         if (msg) document.body.removeChild(msg);
+       }
+    }
+
+    if (!dataToExport) return;
+    
+    try {
+      const htmlContent = generateBacktestReportHtml(dataToExport);
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `backtest_report_${dataToExport.strategy_name}_${dayjs().format('YYYYMMDDHHmmss')}.html`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('导出报告失败:', error);
+    }
+  };
+
   // 如果显示回测配置页面，使用错误边界包裹渲染
   if (showConfig) {
     return (
@@ -459,16 +591,16 @@ const BacktestResults = () => {
         <div className="backtest-list">
           <div className="panel">
             <div className="panel-header">
-              <h2>回测任务</h2>
+              <h2>{t('backtest_tasks')}</h2>
               <button className="btn btn-primary btn-sm" onClick={handleNewBacktest}>
-                新建回测
+                {t('new_backtest')}
               </button>
             </div>
             <div className="panel-body">
               {loading ? (
                 <div className="loading">加载中...</div>
               ) : backtestTasks.length === 0 ? (
-                <div className="empty">暂无回测任务</div>
+                <div className="empty">{t('no_backtest_tasks')}</div>
               ) : (
                 backtestTasks.map(task => (
                   <div 
@@ -487,6 +619,16 @@ const BacktestResults = () => {
                       </div>
                     </div>
                     <div className="task-actions">
+                      <button 
+                        className="btn btn-primary btn-xs"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleExportReport(task.id);
+                        }}
+                        style={{ marginBottom: '4px' }}
+                      >
+                        {t('export')}
+                      </button>
                       <button 
                         className="btn btn-danger btn-xs"
                         onClick={(e) => {
@@ -508,10 +650,61 @@ const BacktestResults = () => {
         <div className="backtest-detail">
           {selectedTaskId && backtestResult ? (
             <>
+              {/* 配置信息 */}
+              <div className="panel">
+                <div className="panel-header">
+                  <h2>{t('config_info')}</h2>
+                </div>
+                <div className="panel-body">
+                  <div className="config-grid">
+                    <div className="config-item">
+                      <span className="label">{t('strategy_name')}:</span>
+                      <span className="value">{backtestResult.strategy_name}</span>
+                    </div>
+                    {backtestResult.backtest_config?.symbols && (
+                      <div className="config-item">
+                        <span className="label">{t('trading_symbols')}:</span>
+                        <span className="value">
+                          {Array.isArray(backtestResult.backtest_config.symbols) 
+                            ? backtestResult.backtest_config.symbols.join(', ') 
+                            : backtestResult.backtest_config.symbols}
+                        </span>
+                      </div>
+                    )}
+                    <div className="config-item">
+                      <span className="label">{t('time_range')}:</span>
+                      <span className="value">
+                        {backtestResult.backtest_config?.start_time} ~ {backtestResult.backtest_config?.end_time}
+                      </span>
+                    </div>
+                    <div className="config-item">
+                      <span className="label">{t('interval')}:</span>
+                      <span className="value">{backtestResult.backtest_config?.interval}</span>
+                    </div>
+                    <div className="config-item">
+                      <span className="label">{t('initial_cash')}:</span>
+                      <span className="value">{backtestResult.backtest_config?.initial_cash}</span>
+                    </div>
+                    <div className="config-item">
+                      <span className="label">{t('commission_rate')}:</span>
+                      <span className="value">{backtestResult.backtest_config?.commission}</span>
+                    </div>
+                    {backtestResult.strategy_config?.params && (
+                      <div className="config-item full-width">
+                        <span className="label">{t('strategy_params')}:</span>
+                        <pre className="value params-json">
+                          {JSON.stringify(backtestResult.strategy_config.params, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* 回测概览 */}
               <div className="panel">
                 <div className="panel-header">
-                  <h2>回测概览</h2>
+                  <h2>{t('backtest_overview')}</h2>
                 </div>
                 <div className="panel-body">
                   <div className="overview-grid">
@@ -519,7 +712,7 @@ const BacktestResults = () => {
                       <div key={index} className="metric-card">
                         <div className="metric-label">{metric.cn_name}</div>
                         <div className={`metric-value ${metric.name === 'Return [%]' && Number(metric.value) >= 0 ? 'positive' : ''} ${metric.name === 'Return [%]' && Number(metric.value) < 0 ? 'negative' : ''}`}>
-                          {typeof metric.value === 'number' ? `${metric.value}%` : metric.value}
+                          {typeof metric.value === 'number' ? `${metric.value.toFixed(2)}%` : metric.value}
                         </div>
                       </div>
                     ))}
@@ -530,7 +723,7 @@ const BacktestResults = () => {
               {/* 绩效分析 */}
               <div className="panel">
                 <div className="panel-header">
-                  <h2>绩效分析</h2>
+                  <h2>{t('performance_analysis')}</h2>
                 </div>
                 <div className="panel-body">
                   <div className="chart-container">
@@ -544,48 +737,19 @@ const BacktestResults = () => {
                 {/* 交易详情 */}
                 <div className="panel">
                   <div className="panel-header">
-                    <h2>交易详情</h2>
+                    <h2>{t('trade_details')}</h2>
                   </div>
                   <div className="panel-body">
                     <div className="table-container">
-                      <table className="data-table">
-                        <thead>
-                          <tr>
-                            <th>入场时间</th>
-                            <th>出场时间</th>
-                            <th>方向</th>
-                            <th>入场价格</th>
-                            <th>出场价格</th>
-                            <th>仓位大小</th>
-                            <th>收益</th>
-                            <th>收益率</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {trades.length === 0 ? (
-                            <tr>
-                              <td colSpan={8} className="empty">暂无交易记录</td>
-                            </tr>
-                          ) : (
-                            trades.map((trade, index) => (
-                              <tr key={index}>
-                                <td>{trade.EntryTime}</td>
-                                <td>{trade.ExitTime}</td>
-                                <td>{trade.Direction}</td>
-                                <td>{trade.EntryPrice}</td>
-                                <td>{trade.ExitPrice}</td>
-                                <td>{trade.Size}</td>
-                                <td className={trade.PnL >= 0 ? 'positive' : 'negative'}>
-                                  {trade.PnL >= 0 ? '+' : ''}{trade.PnL}
-                                </td>
-                                <td className={trade.ReturnPct >= 0 ? 'positive' : 'negative'}>
-                                  {trade.ReturnPct >= 0 ? '+' : ''}{trade.ReturnPct}%
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
+                      <Table
+                        columns={columns}
+                        dataSource={trades}
+                        rowKey={(_, index) => index?.toString() || ''}
+                        pagination={tableParams}
+                        onChange={handleTableChange}
+                        size="small"
+                        className="data-table"
+                      />
                     </div>
                   </div>
                 </div>
@@ -593,14 +757,14 @@ const BacktestResults = () => {
                 {/* 风险分析 */}
                 <div className="panel">
                   <div className="panel-header">
-                    <h2>风险分析</h2>
+                    <h2>{t('risk_analysis')}</h2>
                   </div>
                   <div className="panel-body">
                     <div className="risk-metrics">
                       {metrics.filter(metric => ['波动率', '索提诺比率', '卡尔马比率', '信息比率'].includes(metric.cn_name)).map((metric, index) => (
                         <div key={index} className="risk-item">
                           <div className="risk-label">{metric.cn_name}</div>
-                          <div className="risk-value">{metric.value}</div>
+                          <div className="risk-value">{typeof metric.value === 'number' ? metric.value.toFixed(2) : metric.value}</div>
                         </div>
                       ))}
                     </div>
@@ -614,9 +778,9 @@ const BacktestResults = () => {
           ) : (
             <div className="empty-detail">
               {loading ? (
-                <div className="loading">加载中...</div>
+                <div className="loading">{t('loading')}</div>
               ) : (
-                <div className="empty">请选择一个回测任务查看详情</div>
+                <div className="empty">{t('select_backtest_task')}</div>
               )}
             </div>
           )}

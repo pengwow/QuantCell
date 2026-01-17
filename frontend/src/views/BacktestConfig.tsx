@@ -3,6 +3,7 @@
  * 功能：配置策略回测参数，包括策略信息和回测信息
  */
 import React, { useState, useEffect } from 'react';
+import dayjs from 'dayjs';
 import {
   Card,
   Form,
@@ -19,8 +20,10 @@ import {
   Modal,
   Upload,
   Tabs,
+  Switch,
+  Tooltip,
 } from 'antd';
-import { BackwardOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { BackwardOutlined, PlusOutlined, UploadOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { backtestApi, configApi, strategyApi } from '../api';
 
 const { RangePicker } = DatePicker;
@@ -42,6 +45,7 @@ interface Strategy {
   file_path: string;
   description: string;
   version: string;
+  tags?: string[];
   params: StrategyParam[];
   created_at: string;
   updated_at: string;
@@ -56,6 +60,7 @@ interface BacktestConfigProps {
 const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, strategy }) => {
   const [form] = Form.useForm();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [defaultInterval, setDefaultInterval] = useState<string>('1d'); // 系统配置的默认时间间隔
   const [defaultCommission, setDefaultCommission] = useState<number>(0.001); // 系统配置的默认手续费
@@ -152,11 +157,33 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
   // 当传入的策略信息变化时，初始化表单
   useEffect(() => {
     if (strategy) {
+      setSelectedStrategy(strategy);
+      
+      // 构建默认参数对象
+      const defaultParams: Record<string, any> = {};
+      if (strategy.params) {
+        strategy.params.forEach(p => {
+          defaultParams[p.name] = p.default;
+        });
+      }
+
       // 设置表单值，包括策略名称和默认参数
       form.setFieldsValue({
         strategy: strategy.name,
-        strategyParams: JSON.stringify(strategy.params || {}, null, 2),
+        params: defaultParams,
       });
+
+      // 如果是demo策略，自动填充回测配置
+      if (strategy.tags && strategy.tags.includes('demo')) {
+        form.setFieldsValue({
+          symbols: ['BTC/USDT'],
+          timeRange: [dayjs('2024-01-01'), dayjs('2024-02-01')],
+          interval: '15m',
+          initialCash: 100000,
+          commission: 0.001
+        });
+        message.info('已自动填充演示策略的回测配置');
+      }
     }
   }, [strategy, form]);
 
@@ -224,6 +251,51 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
     return false; // 阻止自动上传
   };
 
+  // 处理策略变更
+  const handleStrategyChange = (value: string) => {
+    const strategy = strategies.find(s => s.name === value);
+    setSelectedStrategy(strategy || null);
+    
+    if (strategy && strategy.params) {
+      // 构建默认参数对象
+      const defaultParams: Record<string, any> = {};
+      strategy.params.forEach(param => {
+        defaultParams[param.name] = param.default;
+      });
+      form.setFieldValue('params', defaultParams);
+
+      // 如果是demo策略，自动填充回测配置
+      if (strategy.tags && strategy.tags.includes('demo')) {
+        form.setFieldsValue({
+          symbols: ['BTC/USDT'],
+          timeRange: [dayjs('2024-01-01'), dayjs('2024-02-01')],
+          interval: '15m',
+          initialCash: 100000,
+          commission: 0.001
+        });
+        message.info('已自动填充演示策略的回测配置');
+      }
+    } else {
+      form.setFieldValue('params', {});
+    }
+  };
+
+  // 渲染参数输入控件
+  const renderParamInput = (param: StrategyParam) => {
+    const type = param.type ? param.type.toLowerCase() : 'string';
+    
+    if (type === 'int' || type === 'integer') {
+      return <InputNumber style={{ width: '100%' }} precision={0} />;
+    }
+    if (type === 'float' || type === 'number') {
+      return <InputNumber style={{ width: '100%' }} step={0.01} />;
+    }
+    if (type === 'bool' || type === 'boolean') {
+      return <Switch />;
+    }
+    return <Input />;
+  };
+
   // 处理表单提交
   const handleSubmit = async (values: any) => {
     try {
@@ -238,16 +310,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
       // 格式化时间
       const [startTime, endTime] = values.timeRange;
       
-      // 解析策略参数JSON
-      let strategyParams = {};
-      if (values.strategyParams) {
-        try {
-          strategyParams = JSON.parse(values.strategyParams);
-        } catch (parseError) {
-          message.error('策略参数JSON格式错误');
-          return;
-        }
-      }
+      // 获取策略参数
+      const strategyParams = values.params || {};
       
       // 构建回测请求数据
       const backtestData = {
@@ -256,6 +320,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
           params: strategyParams,
         },
         backtest_config: {
+          symbols: values.symbols,
           start_time: startTime.format('YYYY-MM-DD'),
           end_time: endTime.format('YYYY-MM-DD'),
           interval: values.interval,
@@ -270,9 +335,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
       
       // 返回回测列表页面
       onRunBacktest();
-    } catch (error) {
+    } catch (error: any) {
       console.error('执行回测失败:', error);
-      message.error('执行回测失败');
+      message.error(error.message || '执行回测失败');
     } finally {
       setLoading(false);
     }
@@ -304,7 +369,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
               interval: '1d',
               commission: 0.001,
               initialCash: 1000000,
-              strategyParams: "{}",
+              symbols: ['BTC/USDT'],
+              timeRange: [dayjs().subtract(30, 'day'), dayjs()],
             }}
           >
             {/* 策略信息部分 */}
@@ -319,10 +385,24 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
                     <Select 
                       placeholder="请选择策略"
                       style={{ width: '100%' }}
+                      onChange={handleStrategyChange}
                     >
                       {strategies.map((strategy) => (
                         <Option key={strategy.name} value={strategy.name}>
                           {strategy.name}
+                          {strategy.tags && strategy.tags.includes('demo') && (
+                            <span style={{ 
+                              marginLeft: 8, 
+                              fontSize: 12, 
+                              color: '#1890ff', 
+                              background: '#e6f7ff', 
+                              padding: '2px 6px', 
+                              borderRadius: 4, 
+                              border: '1px solid #91d5ff' 
+                            }}>
+                              demo
+                            </span>
+                          )}
                         </Option>
                       ))}
                     </Select>
@@ -339,29 +419,40 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
                 </Col>
 
                 <Col span={24}>
-                  <Form.Item
-                    name="strategyParams"
-                    label="策略参数"
-                    rules={[
-                      {
-                        validator: (_, value) => {
-                          try {
-                            if (value) {
-                              JSON.parse(value);
-                            }
-                            return Promise.resolve();
-                          } catch (error) {
-                            return Promise.reject(new Error('策略参数必须是有效的JSON格式'));
-                          }
-                        },
-                      },
-                    ]}
-                  >
-                    <Input.TextArea
-                      placeholder="请输入策略参数（可选，格式为JSON字符串，不填则使用脚本默认参数）"
-                      rows={4}
-                    />
-                  </Form.Item>
+                  <div style={{ marginBottom: 8 }}>策略参数配置</div>
+                  {selectedStrategy?.params && selectedStrategy.params.length > 0 ? (
+                    <div style={{ background: '#f5f5f5', padding: '16px', borderRadius: '4px' }}>
+                      <Row gutter={24}>
+                        {selectedStrategy.params.map((param) => (
+                          <Col span={12} key={param.name}>
+                            <Form.Item
+                              name={['params', param.name]}
+                              label={
+                                <span>
+                                  {param.name}
+                                  {param.description && (
+                                    <Tooltip title={param.description}>
+                                      <InfoCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
+                                    </Tooltip>
+                                  )}
+                                </span>
+                              }
+                              initialValue={param.default}
+                              valuePropName={
+                                (param.type === 'bool' || param.type === 'boolean') ? 'checked' : 'value'
+                              }
+                            >
+                              {renderParamInput(param)}
+                            </Form.Item>
+                          </Col>
+                        ))}
+                      </Row>
+                    </div>
+                  ) : (
+                    <div style={{ color: '#999', textAlign: 'center', padding: '20px 0', border: '1px dashed #d9d9d9', borderRadius: '4px' }}>
+                      {selectedStrategy ? '该策略没有可配置参数' : '请先选择策略以配置参数'}
+                    </div>
+                  )}
                 </Col>
               </Row>
             </Card>
@@ -369,6 +460,24 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
             {/* 回测信息部分 */}
             <Card type="inner" title="回测信息" style={{ marginBottom: 24 }}>
               <Row gutter={16}>
+                <Col span={24}>
+                  <Form.Item
+                    name="symbols"
+                    label="交易标的"
+                    rules={[{ required: true, message: '请选择交易标的' }]}
+                  >
+                    <Select
+                      mode="tags"
+                      placeholder="请输入或选择交易标的 (如 BTC/USDT)"
+                      style={{ width: '100%' }}
+                      tokenSeparators={[',']}
+                    >
+                      <Option value="BTC/USDT">BTC/USDT</Option>
+                      <Option value="ETH/USDT">ETH/USDT</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+
                 <Col span={12}>
                   <Form.Item
                     name="timeRange"

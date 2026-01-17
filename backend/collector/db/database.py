@@ -6,8 +6,7 @@ import os
 from pathlib import Path
 
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # 数据库文件默认路径
 default_db_path = Path(__file__).parent.parent.parent / "data"

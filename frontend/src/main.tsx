@@ -8,7 +8,7 @@ import { loadConfig, updateConfig } from './utils/configLoader'
 import { pluginManager } from './plugins'
 
 // 导入i18n配置
-import './i18n/config'
+import i18n from './i18n/config'
 
 /**
  * 渲染应用
@@ -26,6 +26,12 @@ async function renderApp() {
     // 将配置挂载到window对象
     updateConfig(configData);
     
+    // 如果配置中有语言设置，则更新i18n语言
+    if (configData.language) {
+      await i18n.changeLanguage(configData.language);
+      console.log('Main: 已根据配置更新语言为:', configData.language);
+    }
+
     // 初始化插件系统
     await pluginManager.init();
     

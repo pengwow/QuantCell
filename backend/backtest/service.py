@@ -4,6 +4,7 @@
 import sys
 import os
 import json
+import uuid
 import concurrent.futures
 from pathlib import Path
 import pandas as pd
@@ -20,6 +21,7 @@ sys.path.append(str(project_root))
 # 导入现有模块
 from collector.services.data_service import DataService
 from strategy.service import StrategyService
+from i18n.utils import load_translations
 
 
 class BacktestService:
@@ -43,45 +45,51 @@ class BacktestService:
         from .data_manager import DataManager
         self.data_manager = DataManager(self.data_service)
         
-        # 指标翻译映射
-        self.translations = {
-            # 基础指标
-            'Start': {'cn': '起始时间', 'en': 'Start', 'desc': '回测开始时间'}, 
-            'End': {'cn': '结束时间', 'en': 'End', 'desc': '回测结束时间'}, 
-            'Duration': {'cn': '策略运行时间', 'en': 'Duration', 'desc': '反映策略回测的时间跨度'}, 
-            'Exposure Time [%]': {'cn': '持仓时间百分比', 'en': 'Exposure Time [%]', 'desc': '策略在回测期间平均持仓时间占比'}, 
-            'Equity Final [$]': {'cn': '最终权益', 'en': 'Equity Final [$]', 'desc': '策略最终资产价值'}, 
-            'Equity Peak [$]': {'cn': '权益峰值', 'en': 'Equity Peak [$]', 'desc': '策略历史最高资产值'}, 
-            'Commissions [$]': {'cn': '手续费', 'en': 'Commissions [$]', 'desc': '策略交易中的手续费成本'}, 
-            # 收益与风险指标
-            'Return [%]': {'cn': '总收益率', 'en': 'Return [%]', 'desc': '策略总收益率'}, 
-            'Return (Ann.) [%]': {'cn': '年化收益率', 'en': 'Return (Ann.) [%]', 'desc': '扣除时间后的年均收益'}, 
-            'Buy & Hold Return [%]': {'cn': '买入持有收益率', 'en': 'Buy & Hold Return [%]', 'desc': '不进行交易的基准收益率'}, 
-            'Volatility (Ann.) [%]': {'cn': '年化波动率', 'en': 'Volatility (Ann.) [%]', 'desc': '衡量收益的波动程度'}, 
-            'CAGR [%]': {'cn': '复合年化增长率', 'en': 'CAGR [%]', 'desc': '剔除波动后的平滑收益'}, 
-            'Sharpe Ratio': {'cn': '夏普比率', 'en': 'Sharpe Ratio', 'desc': '衡量单位风险下的超额收益'}, 
-            'Sortino Ratio': {'cn': '索提诺比率', 'en': 'Sortino Ratio', 'desc': '仅考虑下行风险后的收益比'}, 
-            'Calmar Ratio': {'cn': '卡尔马比率', 'en': 'Calmar Ratio', 'desc': '收益与最大回撤的比值'}, 
-            # 策略性能指标
-            'Alpha [%]': {'cn': '阿尔法系数', 'en': 'Alpha [%]', 'desc': '策略相对于基准的超额收益'}, 
-            'Beta': {'cn': '贝塔系数', 'en': 'Beta', 'desc': '衡量策略收益与市场收益的相关性'}, 
-            'Max. Drawdown [%]': {'cn': '最大回撤', 'en': 'Max. Drawdown [%]', 'desc': '策略从峰值到谷底的跌幅'}, 
-            'Avg. Drawdown [%]': {'cn': '平均回撤', 'en': 'Avg. Drawdown [%]', 'desc': '策略历史最大回撤的平均值'}, 
-            'Profit Factor': {'cn': '利润因子', 'en': 'Profit Factor', 'desc': '盈利交易总收益与亏损交易总损失的比值'}, 
-            'Win Rate [%]': {'cn': '胜率', 'en': 'Win Rate [%]', 'desc': '盈利交易占比'}, 
-            'Expectancy [%]': {'cn': '期望值', 'en': 'Expectancy [%]', 'desc': '单次交易的平均收益'}, 
-            # 交易行为指标
-            '# Trades': {'cn': '交易次数', 'en': '# Trades', 'desc': '策略交易的总次数'}, 
-            'Best Trade [%]': {'cn': '最佳交易', 'en': 'Best Trade [%]', 'desc': '单笔交易的最大盈利百分比'}, 
-            'Worst Trade [%]': {'cn': '最差交易', 'en': 'Worst Trade [%]', 'desc': '单笔交易的最大亏损百分比'}, 
-            'Avg. Trade [%]': {'cn': '平均交易收益率', 'en': 'Avg. Trade [%]', 'desc': '所有交易的平均盈利百分比'}, 
-            'Max. Trade Duration': {'cn': '最大持仓时间', 'en': 'Max. Trade Duration', 'desc': '单笔交易的最长持仓时间'}, 
-            'Avg. Trade Duration': {'cn': '平均持仓时间', 'en': 'Avg. Trade Duration', 'desc': '所有交易的平均持仓时间'}, 
-            'Max. Drawdown Duration': {'cn': '最大回撤时长', 'en': 'Max. Drawdown Duration', 'desc': '最大回撤持续的时间'}, 
-            'Avg. Drawdown Duration': {'cn': '平均回撤时长', 'en': 'Avg. Drawdown Duration', 'desc': '平均回撤持续的时间'}, 
-            'SQN': {'cn': '系统质量数', 'en': 'SQN', 'desc': '衡量交易系统质量的综合指标'}, 
-            'Kelly Criterion': {'cn': '凯利准则', 'en': 'Kelly Criterion', 'desc': '优化资金分配比例的指标'}
-        }
+        # 需要翻译的指标键列表
+        self.metric_keys = [
+            'Start', 'End', 'Duration', 'Exposure Time [%]', 'Equity Final [$]', 
+            'Equity Peak [$]', 'Commissions [$]', 'Return [%]', 'Return (Ann.) [%]', 
+            'Buy & Hold Return [%]', 'Volatility (Ann.) [%]', 'CAGR [%]', 'Sharpe Ratio', 
+            'Sortino Ratio', 'Calmar Ratio', 'Alpha [%]', 'Beta', 'Max. Drawdown [%]', 
+            'Avg. Drawdown [%]', 'Profit Factor', 'Win Rate [%]', 'Expectancy [%]', 
+            '# Trades', 'Best Trade [%]', 'Worst Trade [%]', 'Avg. Trade [%]', 
+            'Max. Trade Duration', 'Avg. Trade Duration', 'Max. Drawdown Duration', 
+            'Avg. Drawdown Duration', 'SQN', 'Kelly Criterion'
+        ]
+
+    def _sanitize_for_json(self, data):
+        """
+        递归清理数据，使其可以被JSON序列化
+        处理 NaT, NaN, Infinity, Timestamp 等
+        """
+        import numpy as np
+        if isinstance(data, dict):
+            return {k: self._sanitize_for_json(v) for k, v in data.items()}
+        elif isinstance(data, list):
+            return [self._sanitize_for_json(item) for item in data]
+        elif isinstance(data, (pd.Timestamp, datetime)):
+            if pd.isna(data):
+                return None
+            return data.strftime('%Y-%m-%d %H:%M:%S')
+        elif isinstance(data, pd.Timedelta):
+            if pd.isna(data):
+                return None
+            return str(data)
+        elif pd.isna(data):  # Checks for NaN, NaT, None
+            return None
+        elif isinstance(data, float):
+            if np.isinf(data):
+                return None
+            return data
+        # Handle numpy types if necessary
+        if isinstance(data, (np.integer, np.int64, np.int32)):
+            return int(data)
+        if isinstance(data, (np.floating, np.float64, np.float32)):
+            if np.isnan(data) or np.isinf(data):
+                return None
+            return float(data)
+            
+        return data
     
     def get_strategy_list(self):
         """
@@ -156,10 +164,21 @@ class BacktestService:
         :param backtest_config: 回测配置，包含单个货币对信息
         :return: 单个货币对的回测结果
         """
+        db = None
         try:
             from collector.db.database import SessionLocal, init_database_config
             from collector.db.models import BacktestTask, BacktestResult
             import json
+            
+            # 初始化数据库连接
+            init_database_config()
+            db = SessionLocal()
+            
+            # 创建带有数据库会话的DataService和DataManager
+            # 注意：在多线程环境中，必须为每个线程创建独立的数据库会话
+            local_data_service = DataService(db)
+            from .data_manager import DataManager
+            local_data_manager = DataManager(local_data_service)
             
             strategy_name = strategy_config.get("strategy_name")
             symbol = backtest_config.get("symbol", "BTCUSDT")
@@ -181,7 +200,7 @@ class BacktestService:
             logger.info(f"回测配置: {symbol}, {interval}, {start_time} to {end_time}")
             
             # 预加载多种时间周期的数据
-            self.data_manager.preload_data(
+            local_data_manager.preload_data(
                 symbol=symbol,
                 base_interval=interval,
                 start_time=start_time,
@@ -193,20 +212,24 @@ class BacktestService:
             logger.info(f"获取主周期 {interval} 的K线数据")
             
             # 使用数据服务获取K线数据
-            candles = self.data_service.get_kline_data(
-                exchange="binance",
+            result = local_data_service.get_kline_data(
                 symbol=symbol,
                 interval=interval,
                 start_time=start_time,
                 end_time=end_time
             )
             
-            if candles.empty:
+            kline_data = result.get("kline_data", [])
+            
+            if not kline_data:
                 logger.error(f"未获取到K线数据: {symbol}, {interval}, {start_time} to {end_time}")
                 return {
                     "status": "failed",
                     "message": f"未获取到货币对 {symbol} 的K线数据"
                 }
+                
+            # Convert to DataFrame
+            candles = pd.DataFrame(kline_data)
             
             # 转换数据格式为backtesting.py所需格式
             candles.rename(columns={
@@ -218,7 +241,10 @@ class BacktestService:
             }, inplace=True)
             
             # 设置时间索引
-            if 'datetime' in candles.columns:
+            if 'timestamp' in candles.columns:
+                candles['datetime'] = pd.to_datetime(candles['timestamp'], unit='ms')
+                candles.set_index('datetime', inplace=True)
+            elif 'datetime' in candles.columns:
                 candles.set_index('datetime', inplace=True)
             elif 'open_time' in candles.columns:
                 candles['open_time'] = pd.to_datetime(candles['open_time'])
@@ -228,9 +254,17 @@ class BacktestService:
             initial_cash = backtest_config.get("initial_cash", 10000)
             commission = backtest_config.get("commission", 0.001)
             
+            # Check if initial cash is sufficient for the asset price
+            # Find max close price to ensure we can cover at least one unit if needed, 
+            # though backtesting.py handles this, explicit check avoids warning.
+            max_price = candles['Close'].max()
+            if max_price > initial_cash:
+                logger.warning(f"Initial cash ({initial_cash}) is lower than max price ({max_price}). Increasing cash to avoid warnings.")
+                initial_cash = max_price * 1.1 # Add 10% buffer
+            
             # 设置全局数据管理器，供策略访问
             from .strategies.base import set_data_manager
-            set_data_manager(self.data_manager)
+            set_data_manager(local_data_manager)
             
             # 为数据添加交易对符号属性
             candles.symbol = symbol
@@ -248,9 +282,19 @@ class BacktestService:
             
             # 获取策略数据
             strategy_data = []
-            if hasattr(bt, '_strategy') and hasattr(bt._strategy, 'data'):
-                strategy_data = bt._strategy.data.df.to_dict('records')
-            
+            if '_strategy' in stats:
+                strategy_instance = stats['_strategy']
+                if hasattr(strategy_instance, 'data'):
+                    # Try to access underlying DataFrame
+                    # In some versions of backtesting.py, it might be .df or accessible via converting to dataframe
+                    try:
+                        if hasattr(strategy_instance.data, 'df'):
+                            strategy_data = strategy_instance.data.df.to_dict('records')
+                        elif isinstance(strategy_instance.data, pd.DataFrame):
+                            strategy_data = strategy_instance.data.to_dict('records')
+                    except Exception as e:
+                        logger.warning(f"Failed to extract strategy data: {e}")
+
             # 获取交易记录
             trades = []
             if '_trades' in stats:
@@ -270,50 +314,57 @@ class BacktestService:
             # 翻译回测结果
             translated_metrics = self.translate_backtest_results(stats)
             
-            # 生成回测ID
-            backtest_id = f"{strategy_name}_{symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            # 生成回测ID - 使用UUID替代原有格式，避免URL路径问题
+            backtest_id = str(uuid.uuid4())
             
-            # 初始化数据库配置
-            init_database_config()
-            db = SessionLocal()
+            # 创建回测任务记录
+            task = BacktestTask(
+                id=backtest_id,
+                strategy_name=strategy_name,
+                backtest_config=json.dumps(backtest_config),
+                status="completed",
+                started_at=datetime.now(),
+                completed_at=datetime.now()
+            )
+            db.add(task)
+            db.commit()
             
-            try:
-                # 创建回测任务记录
-                task = BacktestTask(
-                    id=backtest_id,
-                    strategy_name=strategy_name,
-                    backtest_config=json.dumps(backtest_config),
-                    status="completed",
-                    started_at=datetime.now(),
-                    completed_at=datetime.now()
-                )
-                db.add(task)
-                db.commit()
-                
-                # 创建回测结果记录
-                result_record = BacktestResult(
-                    id=backtest_id,
-                    task_id=backtest_id,
-                    strategy_name=strategy_name,
-                    metrics=json.dumps(translated_metrics),
-                    trades=json.dumps(trades),
-                    equity_curve=json.dumps(stats['_equity_curve'].to_dict('records')),
-                    strategy_data=json.dumps(strategy_data)
-                )
-                db.add(result_record)
-                db.commit()
-                
-                # 更新任务的结果ID
-                task.result_id = backtest_id
-                db.commit()
-                
-                logger.info(f"回测结果已保存到数据库，回测ID: {backtest_id}")
-            except Exception as db_e:
-                db.rollback()
-                logger.error(f"保存回测结果到数据库失败: {db_e}")
-                logger.exception(db_e)
-            finally:
-                db.close()
+            # 准备资金曲线数据，保留时间索引
+            equity_df = stats['_equity_curve'].copy()
+            equity_df.reset_index(inplace=True)
+            # 重命名索引列为datetime，以匹配前端期望
+            if 'index' in equity_df.columns:
+                equity_df.rename(columns={'index': 'datetime'}, inplace=True)
+            elif 'time' in equity_df.columns:
+                equity_df.rename(columns={'time': 'datetime'}, inplace=True)
+            # 如果索引有名称但不是index或time，它会自动成为列名，我们确保它是datetime
+            # backtesting.py通常使用datetime索引，所以reset_index后通常是index或原名
+            # 这里做一个通用处理：找到第一个列（原索引）并重命名为datetime
+            if 'datetime' not in equity_df.columns and len(equity_df.columns) > 0:
+                # 假设第一列是时间
+                equity_df.rename(columns={equity_df.columns[0]: 'datetime'}, inplace=True)
+            
+            equity_curve_data = equity_df.to_dict('records')
+
+            # 创建回测结果记录
+            # 使用_sanitize_for_json处理数据，避免JSON序列化错误
+            result_record = BacktestResult(
+                id=backtest_id,
+                task_id=backtest_id,
+                strategy_name=strategy_name,
+                metrics=json.dumps(self._sanitize_for_json(translated_metrics)),
+                trades=json.dumps(self._sanitize_for_json(trades)),
+                equity_curve=json.dumps(self._sanitize_for_json(equity_curve_data)),
+                strategy_data=json.dumps(self._sanitize_for_json(strategy_data))
+            )
+            db.add(result_record)
+            db.commit()
+            
+            # 更新任务的结果ID
+            task.result_id = backtest_id
+            db.commit()
+            
+            logger.info(f"回测结果已保存到数据库，回测ID: {backtest_id}")
             
             result = {
                 "task_id": backtest_id,
@@ -321,10 +372,10 @@ class BacktestService:
                 "message": "回测完成",
                 "strategy_name": strategy_name,
                 "backtest_config": backtest_config,
-                "metrics": translated_metrics,
-                "trades": trades,
-                "equity_curve": stats['_equity_curve'].to_dict('records'),
-                "strategy_data": strategy_data
+                "metrics": self._sanitize_for_json(translated_metrics),
+                "trades": self._sanitize_for_json(trades),
+                "equity_curve": self._sanitize_for_json(equity_curve_data),
+                "strategy_data": self._sanitize_for_json(strategy_data)
             }
             
             # 保存回测结果到文件（兼容旧版本）
@@ -333,12 +384,17 @@ class BacktestService:
             logger.info(f"回测完成，策略: {strategy_name}, 货币对: {symbol}, 回测ID: {backtest_id}")
             return result
         except Exception as e:
+            if db:
+                db.rollback()
             logger.error(f"回测失败: {e}")
             logger.exception(e)
             return {
                 "status": "failed",
                 "message": str(e)
             }
+        finally:
+            if db:
+                db.close()
     
     def merge_backtest_results(self, results):
         """
@@ -398,7 +454,7 @@ class BacktestService:
             overall_win_rate = sum(win_rates) / len(win_rates) if win_rates else 0
             
             # 生成合并后的回测ID
-            merged_backtest_id = f"{base_result['strategy_name']}_multi_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            merged_backtest_id = str(uuid.uuid4())
             
             # 构建合并后的回测结果
             merged_result = {
@@ -458,7 +514,8 @@ class BacktestService:
             logger.info(f"开始多货币对并行回测，共 {len(symbols)} 个货币对")
             
             # 限制线程数量，避免系统过载
-            max_workers = min(len(symbols), os.cpu_count() * 2)
+            cpu_count = os.cpu_count() or 1
+            max_workers = min(len(symbols), cpu_count * 2)
             logger.info(f"使用线程池执行回测，最大线程数: {max_workers}")
             
             # 使用线程池并行执行回测
@@ -516,13 +573,19 @@ class BacktestService:
         :param stats: 回测结果
         :return: 翻译后的回测结果
         """
+        # 加载翻译
+        cn_trans = load_translations('zh-CN')
+        en_trans = load_translations('en-US')
+        
         translated_metrics = []
         for key, value in stats.items():
             if key in ['_strategy', '_equity_curve', '_trade_list', '_trades']:
                 continue
             
-            # 翻译指标
-            translation = self.translations.get(key, {'cn': key, 'en': key, 'desc': ''})
+            # 获取翻译
+            cn_name = cn_trans.get(key, key)
+            en_name = en_trans.get(key, key)
+            desc = cn_trans.get(f"{key}.desc", "")
             
             # 处理特殊类型的值
             if isinstance(value, pd.Timestamp):
@@ -534,10 +597,10 @@ class BacktestService:
             
             translated_metrics.append({
                 'name': key,
-                'cn_name': translation['cn'],
-                'en_name': translation['en'],
+                'cn_name': cn_name,
+                'en_name': en_name,
                 'value': value,
-                'description': translation['desc']
+                'description': desc
             })
         
         return translated_metrics
@@ -767,6 +830,22 @@ class BacktestService:
                             "created_at": task.created_at.strftime("%Y%m%d_%H%M%S"),
                             "status": task.status
                         }
+
+                        # 如果任务已完成，尝试获取结果指标
+                        if task.status == "completed" and task.result_id:
+                            from collector.db.models import BacktestResult
+                            result = db.query(BacktestResult).filter_by(id=task.result_id).first()
+                            if result and result.metrics:
+                                try:
+                                    metrics = json.loads(result.metrics)
+                                    for metric in metrics:
+                                        if metric["name"] == "Return [%]":
+                                            backtest_info["total_return"] = round(float(metric["value"]), 2)
+                                        elif metric["name"] == "Max. Drawdown [%]":
+                                            backtest_info["max_drawdown"] = round(float(metric["value"]), 2)
+                                except Exception as e:
+                                    logger.warning(f"解析回测结果指标失败: {task.id}, 错误: {e}")
+
                         backtest_list.append(backtest_info)
                     except Exception as e:
                         logger.error(f"解析回测任务记录失败: {task.id}, 错误: {e}")
@@ -809,6 +888,15 @@ class BacktestService:
                         "created_at": file.stem.split("_")[-1] if "_" in file.stem else file.stem,
                         "status": result.get("status", "未知状态")
                     }
+
+                    # 提取指标
+                    if "metrics" in result:
+                        for metric in result["metrics"]:
+                            if metric.get("name") == "Return [%]":
+                                backtest_info["total_return"] = round(float(metric["value"]), 2) if isinstance(metric["value"], (int, float)) else metric["value"]
+                            elif metric.get("name") == "Max. Drawdown [%]":
+                                backtest_info["max_drawdown"] = round(float(metric["value"]), 2) if isinstance(metric["value"], (int, float)) else metric["value"]
+
                     backtest_list.append(backtest_info)
                 except Exception as e:
                     logger.error(f"解析回测结果文件失败: {file}, 错误: {e}")

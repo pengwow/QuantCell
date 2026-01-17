@@ -6,7 +6,7 @@
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 # 系统配置模型
@@ -45,12 +45,7 @@ class SystemConfig(SystemConfigBase):
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        """配置类
-        
-        from_attributes=True: 允许从SQLAlchemy模型实例创建Pydantic模型
-        """
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # 任务进度模型
@@ -110,12 +105,7 @@ class Task(TaskBase):
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        """配置类
-        
-        from_attributes=True: 允许从SQLAlchemy模型实例创建Pydantic模型
-        """
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TaskPaginatedResponse(BaseModel):
@@ -165,9 +155,4 @@ class Feature(FeatureBase):
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        """配置类
-        
-        from_attributes=True: 允许从SQLAlchemy模型实例创建Pydantic模型
-        """
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
