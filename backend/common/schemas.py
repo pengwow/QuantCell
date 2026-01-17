@@ -15,22 +15,22 @@ class ApiResponse(BaseModel):
     code: int = Field(
         ...,
         description="响应状态码，0表示成功，非0表示失败",
-        example=0,
+        json_schema_extra={"example": 0},
     )
     message: str = Field(
         ...,
         description="响应消息，描述操作结果",
-        example="操作成功",
+        json_schema_extra={"example": "操作成功"},
     )
     data: Optional[Any] = Field(
         None,
         description="响应数据，可选",
-        example={"key": "value"},
+        json_schema_extra={"example": {"key": "value"}},
     )
     timestamp: datetime = Field(
         default_factory=datetime.now,
         description="响应时间戳",
-        example="2023-01-01T00:00:00",
+        json_schema_extra={"example": "2023-01-01T00:00:00"},
     )
 
 
@@ -42,13 +42,13 @@ class PaginationRequest(BaseModel):
     page: int = Field(
         default=1,
         description="页码，从1开始",
-        example=1,
+        json_schema_extra={"example": 1},
         ge=1,
     )
     limit: int = Field(
         default=10,
         description="每页记录数",
-        example=10,
+        json_schema_extra={"example": 10},
         ge=1,
         le=100,
     )
@@ -62,20 +62,20 @@ class PaginationResponse(BaseModel):
     total: int = Field(
         ...,
         description="总记录数",
-        example=100,
+        json_schema_extra={"example": 100},
     )
     page: int = Field(
         ...,
         description="当前页码",
-        example=1,
+        json_schema_extra={"example": 1},
     )
     limit: int = Field(
         ...,
         description="每页记录数",
-        example=10,
+        json_schema_extra={"example": 10},
     )
     pages: int = Field(
         ...,
         description="总页数",
-        example=10,
+        json_schema_extra={"example": 10},
     )

@@ -54,6 +54,7 @@ class StrategyService:
                 "file_path": str(self.strategy_dir / f"{strategy_name}.py"),
                 "description": "",
                 "version": "1.0.0",
+                "tags": [],
                 "params": [],
                 "created_at": datetime.now(),
                 "updated_at": datetime.now(),
@@ -214,6 +215,7 @@ class StrategyService:
                             "file_path": str(self.strategy_dir / strategy.filename),
                             "description": strategy.description or "",
                             "version": strategy.version or "1.0.0",
+                            "tags": json.loads(strategy.tags) if strategy.tags else [],
                             "params": json.loads(strategy.parameters) if strategy.parameters else [],
                             "created_at": strategy.created_at,
                             "updated_at": strategy.updated_at,
@@ -330,36 +332,91 @@ class StrategyService:
             logger.exception(e)
             return None
     
+    def _find_strategy_class(self, module, strategy_name):
+        """
+        在模块中查找策略类
+        """
+        for name, cls in module.__dict__.items():
+            if isinstance(cls, type):
+                # 检查是否继承自Strategy或StrategyBase
+                # 注意：这里需要确保Strategy和StrategyBase在当前作用域可用
+                is_strategy = False
+                try:
+                    if (issubclass(cls, Strategy) and cls != Strategy):
+                        is_strategy = True
+                except TypeError:
+                    pass
+                
+                try:
+                    if (issubclass(cls, StrategyBase) and cls != StrategyBase):
+                        is_strategy = True
+                except TypeError:
+                    pass
+                    
+                if is_strategy:
+                    logger.info(f"成功加载策略类: {strategy_name}.{name}")
+                    return cls
+        return None
+
     def load_strategy(self, strategy_name) -> Optional[Type[Any]]:
         """
-        从文件中加载策略类
+        从文件或数据库中加载策略类
         
         :param strategy_name: 策略名称
         :return: 策略类，如果加载失败返回None
         """
         try:
             strategy_file = self.strategy_dir / f"{strategy_name}.py"
-            if not strategy_file.exists():
-                logger.error(f"策略文件不存在: {strategy_file}")
-                return None
             
-            # 动态导入策略模块
-            spec = importlib.util.spec_from_file_location(strategy_name, strategy_file)
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[strategy_name] = module
-                spec.loader.exec_module(module)
+            # 1. 尝试从文件加载
+            if strategy_file.exists():
+                try:
+                    # 动态导入策略模块
+                    spec = importlib.util.spec_from_file_location(strategy_name, strategy_file)
+                    if spec and spec.loader:
+                        module = importlib.util.module_from_spec(spec)
+                        sys.modules[strategy_name] = module
+                        spec.loader.exec_module(module)
+                        
+                        strategy_cls = self._find_strategy_class(module, strategy_name)
+                        if strategy_cls:
+                            return strategy_cls
+                except Exception as e:
+                    logger.warning(f"从文件加载策略失败，尝试从数据库加载: {e}")
+            
+            # 2. 如果文件不存在或加载失败，尝试从数据库加载
+            logger.info(f"尝试从数据库加载策略: {strategy_name}")
+            
+            try:
+                from collector.db.database import SessionLocal, init_database_config
+                from collector.db.models import Strategy as StrategyModel
                 
-                # 查找Strategy或StrategyBase子类
-                for name, cls in module.__dict__.items():
-                    if isinstance(cls, type):
-                        # 检查是否继承自Strategy或StrategyBase
-                        if (issubclass(cls, Strategy) and cls != Strategy) or \
-                           (issubclass(cls, StrategyBase) and cls != StrategyBase):
-                            logger.info(f"成功加载策略: {strategy_name}.{name}")
-                            return cls
+                init_database_config()
+                db = SessionLocal()
+                try:
+                    strategy = db.query(StrategyModel).filter_by(name=strategy_name).first()
+                    if strategy and strategy.content:
+                        logger.info(f"从数据库找到策略内容: {strategy_name}")
+                        
+                        # 动态创建模块
+                        module = type(sys)(strategy_name)
+                        module.__file__ = str(strategy_file) # 设置虚拟路径
+                        sys.modules[strategy_name] = module
+                        
+                        # 执行代码
+                        exec(strategy.content, module.__dict__)
+                        
+                        strategy_cls = self._find_strategy_class(module, strategy_name)
+                        if strategy_cls:
+                            return strategy_cls
+                    else:
+                        logger.error(f"数据库中未找到策略或策略内容为空: {strategy_name}")
+                finally:
+                    db.close()
+            except Exception as db_e:
+                logger.error(f"从数据库加载策略失败: {db_e}")
             
-            logger.error(f"在策略文件中未找到Strategy或StrategyBase子类: {strategy_file}")
+            logger.error(f"无法加载策略: {strategy_name}")
             return None
         except Exception as e:
             logger.error(f"加载策略失败: {e}")
@@ -608,7 +665,7 @@ class StrategyService:
             logger.exception(e)
             return False
     
-    def upload_strategy_file(self, strategy_name: str, file_content: str, version: Optional[str] = None, description: Optional[str] = None, id: Optional[int] = None) -> bool:
+    def upload_strategy_file(self, strategy_name: str, file_content: str, version: Optional[str] = None, description: Optional[str] = None, tags: Optional[List[str]] = None, id: Optional[int] = None) -> bool:
         """
         上传策略文件
         
@@ -616,6 +673,7 @@ class StrategyService:
         :param file_content: 文件内容
         :param version: 策略版本（可选），如果提供则使用，否则从文件内容中提取
         :param description: 策略描述（可选），如果提供则使用，否则从文件内容中提取
+        :param tags: 策略标签（可选）
         :param id: 策略ID（可选），如果提供则更新现有策略，否则根据策略名称判断
         :return: 是否上传成功
         """
@@ -653,6 +711,7 @@ class StrategyService:
                     "file_name": f"{strategy_name}.py",
                     "description": description or "",
                     "version": version or "1.0.0",
+                    "tags": tags or [],
                     "params": []
                 }
                 
@@ -662,6 +721,9 @@ class StrategyService:
                     if parsed_info:
                         strategy_info["description"] = description or parsed_info["description"]
                         strategy_info["params"] = parsed_info["params"]
+                        # 如果没有提供tags，保留默认空列表；如果提供了tags，使用提供的
+                        if not tags and "tags" in parsed_info:
+                             strategy_info["tags"] = parsed_info["tags"]
                         logger.info(f"策略解析成功，使用解析的信息")
                     else:
                         logger.info(f"策略解析失败，使用默认信息")
@@ -671,6 +733,7 @@ class StrategyService:
                 
                 # 准备参数JSON
                 params_json = json.dumps(strategy_info["params"]) if strategy_info["params"] else None
+                tags_json = json.dumps(strategy_info["tags"]) if strategy_info["tags"] else None
                 logger.info(f"准备保存的参数: {params_json}")
                 
                 if existing_strategy:
@@ -681,6 +744,7 @@ class StrategyService:
                     existing_strategy.content = file_content  # 保存策略内容到数据库
                     existing_strategy.description = strategy_info["description"]
                     existing_strategy.parameters = params_json
+                    existing_strategy.tags = tags_json
                     existing_strategy.version = strategy_info["version"]
                     existing_strategy.updated_at = datetime.now()
                     logger.info(f"更新策略信息到数据库: {strategy_name}")
@@ -693,6 +757,7 @@ class StrategyService:
                         content=file_content,  # 保存策略内容到数据库
                         description=strategy_info["description"],
                         parameters=params_json,
+                        tags=tags_json,
                         version=strategy_info["version"]
                     )
                     logger.info(f"新策略对象: {new_strategy}")

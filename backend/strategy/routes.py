@@ -153,6 +153,7 @@ def upload_strategy(request: StrategyUploadRequest):
             request.file_content,
             request.version,
             request.description,
+            request.tags,
             request.id
         )
 
@@ -184,7 +185,7 @@ def upload_strategy(request: StrategyUploadRequest):
 )
 def execute_strategy(
     request: StrategyExecutionRequest,
-    strategy_name: str = Path(..., description="策略名称", example="sma_cross"),
+    strategy_name: str = Path(..., description="策略名称", examples=["sma_cross"]),
 ):
     """
     执行指定策略
@@ -289,7 +290,7 @@ def parse_strategy(request: StrategyParseRequest):
         500: {"description": "删除策略失败"},
     },
 )
-def delete_strategy(strategy_name: str = Path(..., description="策略名称", example="sma_cross")):
+def delete_strategy(strategy_name: str = Path(..., description="策略名称", examples=["sma_cross"])):
     """
     删除策略，包括策略文件和数据库记录
 

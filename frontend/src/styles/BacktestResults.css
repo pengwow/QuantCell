@@ -49,12 +49,14 @@
 
 /* 回测任务列表 */
 .backtest-task-item {
-  padding: 16px;
+  padding: 16px 70px 16px 16px; /* 右侧预留空间给删除按钮 */
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   margin-bottom: 12px;
   cursor: pointer;
   transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
 }
 
 .backtest-task-item:hover {
@@ -65,6 +67,23 @@
 .backtest-task-item.active {
   border-color: #4a6cf7;
   background-color: #f0f4ff;
+}
+
+/* 隐藏删除按钮，鼠标悬停时显示 */
+.task-actions {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.backtest-task-item:hover .task-actions {
+  opacity: 1;
 }
 
 .task-header {
@@ -147,6 +166,47 @@
   color: #ef4444;
 }
 
+/* 配置网格 */
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.config-item {
+  display: flex;
+  flex-direction: column;
+  background-color: #f9fafb;
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.config-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.config-item .label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.config-item .value {
+  font-size: 14px;
+  color: #1f2937;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.params-json {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: monospace;
+  background-color: #f3f4f6;
+  padding: 8px;
+  border-radius: 4px;
+}
+
 /* 图表容器 */
 .chart-container {
   height: 300px;
@@ -201,11 +261,13 @@
   background-color: #f9fafb;
 }
 
-.positive {
+.positive,
+.data-table td.positive {
   color: #10b981;
 }
 
-.negative {
+.negative,
+.data-table td.negative {
   color: #ef4444;
 }
 
@@ -260,6 +322,12 @@
 .btn-sm {
   padding: 6px 12px;
   font-size: 12px;
+}
+
+.btn-xs {
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 4px;
 }
 
 /* 响应式设计 */

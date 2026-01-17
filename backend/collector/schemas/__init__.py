@@ -30,67 +30,67 @@ class DataDownloadRequest(BaseModel):
     exchange: str = Field(
         default="binance", 
         description="交易所名称，目前支持'binance'",
-        example="binance"
+        json_schema_extra={"example": "binance"}
     )
     save_dir: Optional[str] = Field(
         None, 
         description="数据保存目录，可选",
-        example="/data/crypto"
+        json_schema_extra={"example": "/data/crypto"}
     )
     start: Optional[str] = Field(
         None, 
         description="开始时间，格式为'YYYY-MM-DD'或'YYYY-MM-DD HH:MM:SS'",
-        example="2023-01-01"
+        json_schema_extra={"example": "2023-01-01"}
     )
     end: Optional[str] = Field(
         None, 
         description="结束时间，格式为'YYYY-MM-DD'或'YYYY-MM-DD HH:MM:SS'",
-        example="2023-12-31"
+        json_schema_extra={"example": "2023-12-31"}
     )
     interval: str = Field(
         default="1d", 
         description="时间间隔，如'1m', '5m', '15m', '30m', '1h', '4h', '1d'等",
-        example="1h"
+        json_schema_extra={"example": "1h"}
     )
     max_workers: int = Field(
         default=1, 
         description="最大工作线程数，默认1",
-        example=4
+        json_schema_extra={"example": 4}
     )
     max_collector_count: int = Field(
         default=2, 
         description="最大收集次数，默认2",
-        example=3
+        json_schema_extra={"example": 3}
     )
     delay: float = Field(
         default=0.0, 
         description="请求延迟时间（秒），默认0",
-        example=0.5
+        json_schema_extra={"example": 0.5}
     )
     candle_type: str = Field(
         default="spot", 
         description="蜡烛图类型，可选'spot'（现货）、'futures'（期货）或'option'（期权），默认'spot'",
-        example="spot"
+        json_schema_extra={"example": "spot"}
     )
     symbols: Optional[List[str]] = Field(
         None, 
         description="交易对列表，如['BTCUSDT', 'ETHUSDT']，如果为None则获取全量交易对",
-        example=["BTCUSDT", "ETHUSDT"]
+        json_schema_extra={"example": ["BTCUSDT", "ETHUSDT"]}
     )
     convert_to_qlib: bool = Field(
         default=False, 
         description="是否将数据转换为QLib格式，默认False",
-        example=False
+        json_schema_extra={"example": False}
     )
     qlib_dir: Optional[str] = Field(
         None, 
         description="QLib数据保存目录，如果为None则自动生成",
-        example="/data/qlib"
+        json_schema_extra={"example": "/data/qlib"}
     )
     data_write_to_db: Optional[bool] = Field(
-        default=True, 
+        default=None, 
         description="是否将数据写入数据库，如为None则从配置获取默认值",
-        example=True
+        json_schema_extra={"example": True}
     )
 
 

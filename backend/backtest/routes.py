@@ -138,6 +138,13 @@ def run_backtest(request: BacktestRunRequest):
         
         logger.info(f"回测执行完成，结果: {result}")
         
+        if result.get("status") == "failed":
+            return ApiResponse(
+                code=1,
+                message=result.get("message", "回测执行失败"),
+                data=result
+            )
+        
         return ApiResponse(
             code=0,
             message="回测执行成功",

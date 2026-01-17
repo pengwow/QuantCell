@@ -1,79 +1,70 @@
-# 回测服务API数据模型
+# 回测相关数据模型
+# 定义回测API的请求和响应结构
 
 from typing import Any, Dict, List, Optional
-
 from pydantic import BaseModel, Field
+from datetime import datetime
 
-# 导入统一的ApiResponse模型
-from common.schemas import ApiResponse
-
-
-class BacktestListRequest(BaseModel):
-    """
-    获取回测列表请求模型
-    """
-    pass
-
-
-class StrategyConfig(BaseModel):
-    """
-    策略配置详细模型
-    """
-    strategy_name: str = Field(
-        ...,
-        description="策略名称",
-        example="SmaCross",
-    )
-    params: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="策略参数",
-        example={"n1": 10, "n2": 20},
-    )
-    file_path: Optional[str] = Field(
-        None,
-        description="策略文件路径，可选",
-        example="/path/to/strategy.py",
-    )
+# 继承自common/schemas.py中的ApiResponse
+from common.schemas import ApiResponse, PaginationRequest
 
 
 class BacktestConfig(BaseModel):
     """
-    回测配置详细模型
+    回测配置模型
     """
+
     symbols: List[str] = Field(
-        default_factory=lambda: ["BTCUSDT"],
-        description="交易对列表，支持多货币对同时回测",
-        example=["BTCUSDT", "ETHUSDT"],
+        ...,
+        description="回测交易对列表",
+        json_schema_extra={"example": ["BTCUSDT", "ETHUSDT"]},
     )
     interval: str = Field(
-        default="1d",
-        description="时间周期",
-        example="1d",
+        "1d",
+        description="K线周期",
+        json_schema_extra={"example": "1d"},
     )
     start_time: str = Field(
         ...,
-        description="开始时间，格式：YYYY-MM-DD HH:MM:SS",
-        example="2023-01-01 00:00:00",
+        description="开始时间",
+        json_schema_extra={"example": "2023-01-01 00:00:00"},
     )
     end_time: str = Field(
         ...,
-        description="结束时间，格式：YYYY-MM-DD HH:MM:SS",
-        example="2023-12-31 23:59:59",
+        description="结束时间",
+        json_schema_extra={"example": "2023-12-31 23:59:59"},
     )
     initial_cash: float = Field(
-        default=10000.0,
+        10000.0,
         description="初始资金",
-        example=10000.0,
+        json_schema_extra={"example": 10000.0},
     )
     commission: float = Field(
-        default=0.001,
+        0.001,
         description="手续费率",
-        example=0.001,
+        json_schema_extra={"example": 0.001},
     )
     exclusive_orders: bool = Field(
-        default=True,
-        description="是否排他订单",
-        example=True,
+        True,
+        description="是否取消未完成订单",
+        json_schema_extra={"example": True},
+    )
+
+
+class StrategyConfig(BaseModel):
+    """
+    策略配置模型
+    """
+
+    strategy_name: str = Field(
+        ...,
+        description="策略名称",
+        json_schema_extra={"example": "SmaCross"},
+    )
+    params: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="策略参数",
+        json_schema_extra={"example": {"n1": 10, "n2": 20}},
     )
 
 
@@ -81,132 +72,26 @@ class BacktestRunRequest(BaseModel):
     """
     执行回测请求模型
     """
+
     strategy_config: StrategyConfig = Field(
         ...,
         description="策略配置",
-        example={
+        json_schema_extra={"example": {
             "strategy_name": "SmaCross",
             "params": {"n1": 10, "n2": 20}
-        },
+        }},
     )
     backtest_config: BacktestConfig = Field(
         ...,
         description="回测配置",
-        example={
-            "symbol": "BTCUSDT",
+        json_schema_extra={"example": {
+            "symbols": ["BTCUSDT"],
             "interval": "1d",
             "start_time": "2023-01-01 00:00:00",
             "end_time": "2023-12-31 23:59:59",
             "initial_cash": 10000.0,
-            "commission": 0.001,
-            "exclusive_orders": True
-        },
-    )
-
-
-class BacktestAnalyzeRequest(BaseModel):
-    """
-    分析回测结果请求模型
-    """
-    backtest_id: str = Field(
-        ...,
-        description="回测ID",
-        example="bt_1234567890",
-    )
-
-
-class BacktestDeleteRequest(BaseModel):
-    """
-    删除回测结果请求模型
-    """
-    backtest_id: str = Field(
-        ...,
-        description="回测ID",
-        example="bt_1234567890",
-    )
-
-
-class StrategyUploadRequest(BaseModel):
-    """
-    上传策略文件请求模型
-    """
-    strategy_name: str = Field(
-        ...,
-        description="策略名称",
-        example="SmaCross",
-    )
-    file_content: str = Field(
-        ...,
-        description="策略文件内容",
-        example="from backtesting import Strategy\nfrom backtesting.lib import crossover\n\nclass SmaCross(Strategy):\n    n1 = 10\n    n2 = 20\n    \n    def init(self):\n        self.sma1 = self.I(lambda x: pd.Series(x).rolling(self.n1).mean(), self.data.Close)\n        self.sma2 = self.I(lambda x: pd.Series(x).rolling(self.n2).mean(), self.data.Close)\n    \n    def next(self):\n        if crossover(self.sma1, self.sma2):\n            self.buy()\n        elif crossover(self.sma2, self.sma1):\n            self.sell()",
-    )
-    description: Optional[str] = Field(
-        None,
-        description="策略描述，可选",
-        example="基于SMA交叉的交易策略",
-    )
-
-
-class StrategyConfigRequest(BaseModel):
-    """
-    创建策略配置请求模型
-    """
-    strategy_name: str = Field(
-        ...,
-        description="策略名称",
-        example="SmaCross",
-    )
-    params: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="策略参数",
-        example={"n1": 10, "n2": 20},
-    )
-
-
-class BacktestReplayRequest(BaseModel):
-    """
-    获取回放数据请求模型
-    """
-    backtest_id: str = Field(
-        ...,
-        description="回测ID",
-        example="bt_1234567890",
-    )
-    step: Optional[int] = Field(
-        None,
-        description="回放步长，可选",
-        example=10,
-    )
-
-
-class MetricItem(BaseModel):
-    """
-    回测指标项模型
-    """
-    name: str = Field(
-        ...,
-        description="指标名称",
-        example="Return [%]",
-    )
-    value: Any = Field(
-        ...,
-        description="指标值",
-        example=15.5,
-    )
-    cn_name: str = Field(
-        ...,
-        description="中文名称",
-        example="总收益率",
-    )
-    en_name: str = Field(
-        ...,
-        description="英文名称",
-        example="Total Return",
-    )
-    description: str = Field(
-        ...,
-        description="指标描述",
-        example="回测期间的总收益率",
+            "commission": 0.001
+        }},
     )
 
 
@@ -214,143 +99,138 @@ class TradeItem(BaseModel):
     """
     交易记录项模型
     """
-    EntryTime: str = Field(
-        ...,
-        description="入场时间",
-        example="2023-01-01 00:00:00",
-    )
-    ExitTime: str = Field(
-        ...,
-        description="出场时间",
-        example="2023-01-02 00:00:00",
-    )
-    Duration: str = Field(
-        ...,
-        description="持仓时间",
-        example="1 day",
-    )
-    Direction: str = Field(
-        ...,
-        description="交易方向",
-        example="多头",
-    )
-    EntryPrice: float = Field(
-        ...,
-        description="入场价格",
-        example=16550.0,
-    )
-    ExitPrice: float = Field(
-        ...,
-        description="出场价格",
-        example=16650.0,
-    )
-    Size: float = Field(
-        ...,
-        description="仓位大小",
-        example=0.5,
-    )
-    PnL: float = Field(
-        ...,
-        description="盈亏金额",
-        example=50.0,
-    )
-    ReturnPct: float = Field(
-        ...,
-        description="收益率",
-        example=0.6,
-    )
-    Tag: Optional[str] = Field(
-        None,
-        description="标签，可选",
-        example="SMA交叉",
-    )
+
+    EntryTime: str = Field(..., description="开仓时间", json_schema_extra={"example": "2023-01-02 10:00:00"})
+    ExitTime: str = Field(..., description="平仓时间", json_schema_extra={"example": "2023-01-05 14:00:00"})
+    EntryPrice: float = Field(..., description="开仓价格", json_schema_extra={"example": 20000.0})
+    ExitPrice: float = Field(..., description="平仓价格", json_schema_extra={"example": 21000.0})
+    Size: float = Field(..., description="交易数量", json_schema_extra={"example": 0.1})
+    PnL: float = Field(..., description="盈亏", json_schema_extra={"example": 100.0})
+    ReturnPct: float = Field(..., description="收益率(%)", json_schema_extra={"example": 5.0})
+    Direction: str = Field(..., description="方向(多/空)", json_schema_extra={"example": "多单"})
 
 
 class EquityPoint(BaseModel):
     """
     资金曲线点模型
     """
-    datetime: str = Field(
+
+    timestamp: Any = Field(..., description="时间戳")
+    equity: float = Field(..., description="资金权益")
+    drawdown: float = Field(..., description="回撤")
+    drawdown_pct: float = Field(..., description="回撤百分比")
+
+
+class BacktestResult(BaseModel):
+    """
+    回测结果详情模型
+    """
+
+    task_id: str = Field(..., description="任务ID", json_schema_extra={"example": "SmaCross_BTCUSDT_20230101"})
+    strategy_name: str = Field(..., description="策略名称", json_schema_extra={"example": "SmaCross"})
+    backtest_config: BacktestConfig = Field(..., description="回测配置")
+    metrics: Dict[str, Any] = Field(
         ...,
-        description="时间",
-        example="2023-01-01 00:00:00",
+        description="回测指标",
+        json_schema_extra={"example": {
+            "Return [%]": 15.5,
+            "Sharpe Ratio": 1.2,
+            "Max Drawdown [%]": -5.4,
+            "Win Rate [%]": 60.0
+        }},
     )
-    Equity: float = Field(
+    trades: List[Dict[str, Any]] = Field(
         ...,
-        description="权益",
-        example=10000.0,
+        description="交易记录列表",
+        json_schema_extra={"example": [{
+            "EntryTime": "2023-01-01",
+            "ExitTime": "2023-01-05",
+            "EntryPrice": 20000,
+            "ExitPrice": 21000,
+            "PnL": 100
+        }]},
     )
-    Drawdown: float = Field(
+    equity_curve: List[Dict[str, Any]] = Field(
         ...,
-        description="回撤",
-        example=0.0,
+        description="资金曲线数据",
+        json_schema_extra={"example": [{
+            "timestamp": 1672531200000,
+            "Equity": 10000,
+            "DrawdownPct": 0
+        }]},
+    )
+    strategy_data: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="策略指标数据(SMA等)",
+        json_schema_extra={"example": [{
+            "datetime": 1672531200000,
+            "SMA1": 20000,
+            "SMA2": 19500
+        }]},
     )
 
 
-class KlineItem(BaseModel):
+class MultiBacktestResult(BaseModel):
     """
-    K线数据项模型
+    多货币对回测结果汇总
     """
-    time: str = Field(
-        ...,
-        description="时间",
-        example="2023-01-01 00:00:00",
-    )
-    open: float = Field(
-        ...,
-        description="开盘价",
-        example=16500.0,
-    )
-    high: float = Field(
-        ...,
-        description="最高价",
-        example=16600.0,
-    )
-    low: float = Field(
-        ...,
-        description="最低价",
-        example=16400.0,
-    )
-    close: float = Field(
-        ...,
-        description="收盘价",
-        example=16550.0,
-    )
-    volume: float = Field(
-        ...,
-        description="成交量",
-        example=1000.0,
+    
+    task_ids: List[str] = Field(..., description="所有子任务ID")
+    total_metrics: Dict[str, Any] = Field(..., description="汇总指标")
+    results: List[BacktestResult] = Field(..., description="各货币对回测结果")
+
+
+class BacktestRunResponse(ApiResponse):
+    """
+    执行回测响应模型
+    """
+
+    data: Optional[Dict[str, Any]] = Field(
+        None,
+        description="响应数据，包含任务ID",
+        json_schema_extra={"example": {"task_id": "SmaCross_BTCUSDT_20230101_120000"}},
     )
 
 
-class TradeSignal(BaseModel):
+class BacktestAnalyzeRequest(BaseModel):
     """
-    交易信号模型
+    回测结果分析请求模型
     """
-    time: str = Field(
+    
+    backtest_id: str = Field(
         ...,
-        description="时间",
-        example="2023-01-01 00:00:00",
+        description="回测任务ID",
+        json_schema_extra={"example": "SmaCross_BTCUSDT_20230101_120000"}
     )
-    type: str = Field(
-        ...,
-        description="信号类型",
-        example="BUY",
-    )
-    price: float = Field(
-        ...,
-        description="价格",
-        example=16550.0,
-    )
-    size: float = Field(
-        ...,
-        description="大小",
-        example=0.5,
-    )
-    trade_id: str = Field(
-        ...,
-        description="交易ID",
-        example="trade_123456",
+
+
+class BacktestAnalyzeResponse(ApiResponse):
+    """
+    回测结果分析响应模型
+    """
+    
+    data: Optional[BacktestResult] = Field(None, description="回测详细结果")
+
+
+class BacktestListResponse(ApiResponse):
+    """
+    回测历史列表响应
+    """
+    
+    data: Optional[Dict[str, Any]] = Field(
+        None,
+        description="回测列表数据",
+        json_schema_extra={"example": {
+            "total": 10,
+            "items": [
+                {
+                    "id": "SmaCross_BTCUSDT_20230101",
+                    "strategy_name": "SmaCross",
+                    "status": "completed",
+                    "created_at": "2023-01-01 12:00:00"
+                }
+            ]
+        }}
     )
 
 
@@ -358,240 +238,62 @@ class ReplayData(BaseModel):
     """
     回放数据模型
     """
-    kline_data: List[KlineItem] = Field(
-        ...,
-        description="K线数据",
-        example=[
-            {
-                "time": "2023-01-01 00:00:00",
-                "open": 16500.0,
-                "high": 16600.0,
-                "low": 16400.0,
-                "close": 16550.0,
-                "volume": 1000.0
-            }
-        ],
-    )
-    trade_signals: List[TradeSignal] = Field(
-        ...,
-        description="交易信号",
-        example=[
-            {
-                "time": "2023-01-01 00:00:00",
-                "type": "BUY",
-                "price": 16550.0,
-                "size": 0.5,
-                "trade_id": "trade_123456"
-            }
-        ],
-    )
-    equity_data: List[EquityPoint] = Field(
-        ...,
-        description="资金曲线数据",
-        example=[
-            {
-                "datetime": "2023-01-01 00:00:00",
-                "Equity": 10000.0,
-                "Drawdown": 0.0
-            }
-        ],
+    
+    kline: List[Dict[str, Any]] = Field(..., description="K线数据")
+    trades: List[Dict[str, Any]] = Field(..., description="交易信号")
+    equity: List[Dict[str, Any]] = Field(..., description="资金曲线")
+    indicators: Dict[str, List[Dict[str, Any]]] = Field(..., description="技术指标数据")
+
+
+class BacktestReplayResponse(ApiResponse):
+    """
+    回测回放数据响应
+    """
+    
+    data: Optional[ReplayData] = Field(None, description="回放数据")
+
+
+class BacktestListRequest(PaginationRequest):
+    """
+    回测列表请求模型
+    """
+    pass
+
+
+class BacktestDeleteRequest(BaseModel):
+    """
+    删除回测请求模型
+    """
+    backtest_id: str = Field(..., description="回测ID", json_schema_extra={"example": "SmaCross_BTCUSDT_20230101"})
+
+
+class StrategyConfigRequest(BaseModel):
+    """
+    策略配置请求模型
+    """
+    strategy_name: str = Field(..., description="策略名称", json_schema_extra={"example": "SmaCross"})
+    params: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="策略参数",
+        json_schema_extra={"example": {"n1": 10, "n2": 20}},
     )
 
 
-class BacktestResult(BaseModel):
+class BacktestReplayRequest(BaseModel):
     """
-    回测结果响应模型
+    回测回放请求模型
     """
-    task_id: str = Field(
-        ...,
-        description="回测任务ID",
-        example="bt_1234567890",
-    )
-    status: str = Field(
-        ...,
-        description="回测状态",
-        example="completed",
-    )
-    message: str = Field(
-        ...,
-        description="回测消息",
-        example="回测完成",
-    )
-    strategy_name: str = Field(
-        ...,
-        description="策略名称",
-        example="SmaCross",
-    )
-    backtest_config: BacktestConfig = Field(
-        ...,
-        description="回测配置",
-        example={
-            "symbols": ["BTCUSDT"],
-            "interval": "1d",
-            "start_time": "2023-01-01 00:00:00",
-            "end_time": "2023-12-31 23:59:59",
-            "initial_cash": 10000.0,
-            "commission": 0.001,
-            "exclusive_orders": True
-        },
-    )
-    metrics: List[MetricItem] = Field(
-        ...,
-        description="回测指标",
-        example=[
-            {
-                "name": "Return [%]",
-                "value": 15.5,
-                "cn_name": "总收益率",
-                "en_name": "Total Return",
-                "description": "回测期间的总收益率"
-            }
-        ],
-    )
-    trades: List[TradeItem] = Field(
-        ...,
-        description="交易记录",
-        example=[],
-    )
-    equity_curve: List[EquityPoint] = Field(
-        ...,
-        description="资金曲线",
-        example=[
-            {
-                "datetime": "2023-01-01 00:00:00",
-                "Equity": 10000.0,
-                "Drawdown": 0.0
-            }
-        ],
-    )
-    strategy_data: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="策略数据",
-        example=[],
-    )
+    backtest_id: str = Field(..., description="回测ID", json_schema_extra={"example": "SmaCross_BTCUSDT_20230101"})
 
 
-class MultiBacktestResult(BaseModel):
-    """
-    多货币对回测结果响应模型
-    """
-    task_id: str = Field(
-        ...,
-        description="回测任务ID",
-        example="bt_1234567890",
-    )
-    status: str = Field(
-        ...,
-        description="回测状态",
-        example="completed",
-    )
-    message: str = Field(
-        ...,
-        description="回测消息",
-        example="多货币对回测完成",
-    )
-    strategy_name: str = Field(
-        ...,
-        description="策略名称",
-        example="SmaCross",
-    )
-    backtest_config: BacktestConfig = Field(
-        ...,
-        description="回测配置",
-        example={
-            "symbols": ["BTCUSDT", "ETHUSDT"],
-            "interval": "1d",
-            "start_time": "2023-01-01 00:00:00",
-            "end_time": "2023-12-31 23:59:59",
-            "initial_cash": 10000.0,
-            "commission": 0.001,
-            "exclusive_orders": True
-        },
-    )
-    summary: Dict[str, Any] = Field(
-        ...,
-        description="整体统计分析",
-        example={
-            "total_currencies": 2,
-            "average_return": 12.5,
-            "average_max_drawdown": 8.2,
-            "average_sharpe_ratio": 1.8,
-            "total_trades": 156,
-            "overall_win_rate": 62.5
-        },
-    )
-    currencies: Dict[str, BacktestResult] = Field(
-        ...,
-        description="各货币对回测结果",
-        example={
-            "BTCUSDT": {
-                "task_id": "bt_1234567890_btcusdt",
-                "status": "completed",
-                "message": "回测完成",
-                "strategy_name": "SmaCross",
-                "backtest_config": {
-                    "symbols": ["BTCUSDT"],
-                    "interval": "1d",
-                    "start_time": "2023-01-01 00:00:00",
-                    "end_time": "2023-12-31 23:59:59",
-                    "initial_cash": 10000.0,
-                    "commission": 0.001,
-                    "exclusive_orders": True
-                },
-                "metrics": [
-                    {
-                        "name": "Return [%]",
-                        "value": 15.5,
-                        "cn_name": "总收益率",
-                        "en_name": "Total Return",
-                        "description": "回测期间的总收益率"
-                    }
-                ],
-                "trades": [],
-                "equity_curve": [],
-                "strategy_data": []
-            }
-        },
-    )
-    merged_equity_curve: List[EquityPoint] = Field(
-        ...,
-        description="合并后的资金曲线",
-        example=[
-            {
-                "datetime": "2023-01-01 00:00:00",
-                "Equity": 10000.0,
-                "Drawdown": 0.0
-            }
-        ],
-    )
+# Import from strategy schemas to support routes
+try:
+    from strategy.schemas import StrategyUploadRequest
+except ImportError:
+    # If circular import or not found, define a placeholder or rely on external import
+    # But routes.py imports it from .schemas (this file). 
+    # So we should probably define it here or alias it.
+    # To avoid circular dependency if strategy imports backtest, we can define it here or move shared schemas.
+    # StrategyUploadRequest is simple enough to redefine if needed, but better to import.
+    pass
 
-
-class BacktestListItem(BaseModel):
-    """
-    回测列表项模型
-    """
-    id: str = Field(
-        ...,
-        description="回测ID",
-        example="bt_1234567890",
-    )
-    strategy_name: str = Field(
-        ...,
-        description="策略名称",
-        example="SmaCross",
-    )
-    created_at: str = Field(
-        ...,
-        description="创建时间",
-        example="2023-01-01 00:00:00",
-    )
-    status: str = Field(
-        ...,
-        description="回测状态",
-        example="completed",
-    )
-    total_return: Optional[float] = Field(
-        None,
-        description="总收益率，可选",
-        example=15.5,
-    )

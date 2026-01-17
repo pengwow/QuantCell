@@ -24,3 +24,4 @@ results/*
 SmaCross.html
 backend/strategies/*
 .shared/ui-ux-pro-max/*
+backend/backtest/results/*.json

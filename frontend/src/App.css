@@ -1,6 +1,6 @@
 /* 应用样式 - 使用全局CSS变量 */
 :root {
-  --sidebar-width: 200px;
+  --sidebar-width: 160px;
   --sidebar-collapsed-width: 60px;
   --top-nav-height: 60px;
 }
@@ -440,7 +440,7 @@
   }
   
   .side-nav:not(.collapsed) {
-    width: 180px;
+    width: var(--sidebar-width);
   }
   
   .main-container {
@@ -448,7 +448,7 @@
   }
   
   .side-nav:not(.collapsed) ~ .main-container {
-    margin-left: 180px;
+    margin-left: var(--sidebar-width);
   }
   
   .main-container {

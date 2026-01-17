@@ -15,12 +15,12 @@ class FactorAddRequest(BaseModel):
     factor_name: str = Field(
         ...,
         description="因子名称",
-        example="my_factor"
+        json_schema_extra={"example": "my_factor"}
     )
     expression: str = Field(
         ...,
         description="因子表达式，用于计算因子值",
-        example="close - open"
+        json_schema_extra={"example": "close - open"}
     )
 
 
@@ -31,27 +31,27 @@ class FactorCalculateRequest(BaseModel):
     factor_name: str = Field(
         ...,
         description="因子名称",
-        example="my_factor"
+        json_schema_extra={"example": "my_factor"}
     )
     instruments: List[str] = Field(
         ...,
         description="标的列表，如股票代码、加密货币交易对等",
-        example=["BTCUSDT", "ETHUSDT"]
+        json_schema_extra={"example": ["BTCUSDT", "ETHUSDT"]}
     )
     start_time: str = Field(
         ...,
         description="开始时间，格式：YYYY-MM-DD",
-        example="2023-01-01"
+        json_schema_extra={"example": "2023-01-01"}
     )
     end_time: str = Field(
         ...,
         description="结束时间，格式：YYYY-MM-DD",
-        example="2023-12-31"
+        json_schema_extra={"example": "2023-12-31"}
     )
     freq: str = Field(
         default="day",
         description="频率，默认为日线",
-        example="day"
+        json_schema_extra={"example": "day"}
     )
 
 
@@ -62,27 +62,27 @@ class FactorCalculateMultiRequest(BaseModel):
     factor_names: List[str] = Field(
         ...,
         description="因子名称列表，用于批量计算多个因子",
-        example=["my_factor1", "my_factor2"]
+        json_schema_extra={"example": ["my_factor1", "my_factor2"]}
     )
     instruments: List[str] = Field(
         ...,
         description="标的列表，如股票代码、加密货币交易对等",
-        example=["BTCUSDT", "ETHUSDT"]
+        json_schema_extra={"example": ["BTCUSDT", "ETHUSDT"]}
     )
     start_time: str = Field(
         ...,
         description="开始时间，格式：YYYY-MM-DD",
-        example="2023-01-01"
+        json_schema_extra={"example": "2023-01-01"}
     )
     end_time: str = Field(
         ...,
         description="结束时间，格式：YYYY-MM-DD",
-        example="2023-12-31"
+        json_schema_extra={"example": "2023-12-31"}
     )
     freq: str = Field(
         default="day",
         description="频率，默认为日线",
-        example="day"
+        json_schema_extra={"example": "day"}
     )
 
 
@@ -93,7 +93,7 @@ class FactorValidateRequest(BaseModel):
     expression: str = Field(
         ...,
         description="因子表达式，用于验证其语法正确性",
-        example="close - open"
+        json_schema_extra={"example": "close - open"}
     )
 
 
@@ -104,10 +104,10 @@ class FactorCorrelationRequest(BaseModel):
     factor_data: Dict[str, Any] = Field(
         ...,
         description="因子数据，包含不同因子的计算结果",
-        example={
+        json_schema_extra={"example": {
             "factor1": {"BTCUSDT": [0.1, 0.2, 0.3], "ETHUSDT": [0.4, 0.5, 0.6]},
             "factor2": {"BTCUSDT": [0.7, 0.8, 0.9], "ETHUSDT": [1.0, 1.1, 1.2]}
-        }
+        }}
     )
 
 
@@ -118,9 +118,9 @@ class FactorStatsRequest(BaseModel):
     factor_data: Dict[str, Any] = Field(
         ...,
         description="因子数据，用于计算统计信息",
-        example={
+        json_schema_extra={"example": {
             "factor1": {"BTCUSDT": [0.1, 0.2, 0.3], "ETHUSDT": [0.4, 0.5, 0.6]}
-        }
+        }}
     )
 
 
@@ -131,22 +131,22 @@ class FactorICRequest(BaseModel):
     factor_data: Dict[str, Any] = Field(
         ...,
         description="因子数据，用于计算IC值",
-        example={
+        json_schema_extra={"example": {
             "factor1": {"BTCUSDT": [0.1, 0.2, 0.3], "ETHUSDT": [0.4, 0.5, 0.6]}
-        }
+        }}
     )
     return_data: Dict[str, Any] = Field(
         ...,
         description="收益率数据，用于计算IC值",
-        example={
+        json_schema_extra={"example": {
             "BTCUSDT": [0.01, 0.02, 0.03],
             "ETHUSDT": [0.04, 0.05, 0.06]
-        }
+        }}
     )
     method: str = Field(
         default="spearman",
         description="相关性计算方法，支持spearman和pearson",
-        example="spearman"
+        json_schema_extra={"example": "spearman"}
     )
 
 
@@ -157,22 +157,22 @@ class FactorIRRequest(BaseModel):
     factor_data: Dict[str, Any] = Field(
         ...,
         description="因子数据，用于计算IR值",
-        example={
+        json_schema_extra={"example": {
             "factor1": {"BTCUSDT": [0.1, 0.2, 0.3], "ETHUSDT": [0.4, 0.5, 0.6]}
-        }
+        }}
     )
     return_data: Dict[str, Any] = Field(
         ...,
         description="收益率数据，用于计算IR值",
-        example={
+        json_schema_extra={"example": {
             "BTCUSDT": [0.01, 0.02, 0.03],
             "ETHUSDT": [0.04, 0.05, 0.06]
-        }
+        }}
     )
     method: str = Field(
         default="spearman",
         description="相关性计算方法，支持spearman和pearson",
-        example="spearman"
+        json_schema_extra={"example": "spearman"}
     )
 
 
@@ -183,22 +183,22 @@ class FactorGroupAnalysisRequest(BaseModel):
     factor_data: Dict[str, Any] = Field(
         ...,
         description="因子数据，用于分组分析",
-        example={
+        json_schema_extra={"example": {
             "factor1": {"BTCUSDT": [0.1, 0.2, 0.3], "ETHUSDT": [0.4, 0.5, 0.6]}
-        }
+        }}
     )
     return_data: Dict[str, Any] = Field(
         ...,
         description="收益率数据，用于分组分析",
-        example={
+        json_schema_extra={"example": {
             "BTCUSDT": [0.01, 0.02, 0.03],
             "ETHUSDT": [0.04, 0.05, 0.06]
-        }
+        }}
     )
     n_groups: int = Field(
         default=5,
         description="分组数量，将标的按因子值分为多少组",
-        example=5
+        json_schema_extra={"example": 5}
     )
 
 
@@ -209,17 +209,17 @@ class FactorMonotonicityRequest(BaseModel):
     factor_data: Dict[str, Any] = Field(
         ...,
         description="因子数据，用于检验单调性",
-        example={
+        json_schema_extra={"example": {
             "factor1": {"BTCUSDT": [0.1, 0.2, 0.3], "ETHUSDT": [0.4, 0.5, 0.6]}
-        }
+        }}
     )
     return_data: Dict[str, Any] = Field(
         ...,
         description="收益率数据，用于检验单调性",
-        example={
+        json_schema_extra={"example": {
             "BTCUSDT": [0.01, 0.02, 0.03],
             "ETHUSDT": [0.04, 0.05, 0.06]
-        }
+        }}
     )
     n_groups: int = Field(default=5, description="分组数量")
 
@@ -231,9 +231,9 @@ class FactorStabilityRequest(BaseModel):
     factor_data: Dict[str, Any] = Field(
         ...,
         description="因子数据，用于检验稳定性",
-        example={
+        json_schema_extra={"example": {
             "factor1": {"BTCUSDT": [0.1, 0.2, 0.3], "ETHUSDT": [0.4, 0.5, 0.6]}
-        }
+        }}
     )
     window: int = Field(default=20, description="滚动窗口大小")
 
