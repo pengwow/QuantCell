@@ -22,6 +22,7 @@ sys.path.append(str(project_root))
 from collector.services.data_service import DataService
 from strategy.service import StrategyService
 from i18n.utils import load_translations
+from config_manager import get_config
 
 
 class BacktestService:
@@ -288,12 +289,35 @@ class BacktestService:
                     # Try to access underlying DataFrame
                     # In some versions of backtesting.py, it might be .df or accessible via converting to dataframe
                     try:
+                        df = None
                         if hasattr(strategy_instance.data, 'df'):
-                            strategy_data = strategy_instance.data.df.to_dict('records')
+                            df = strategy_instance.data.df
                         elif isinstance(strategy_instance.data, pd.DataFrame):
-                            strategy_data = strategy_instance.data.to_dict('records')
+                            df = strategy_instance.data
+                        
+                        if df is not None:
+                            # 重要：保留时间索引作为一个字段
+                            df_copy = df.copy()
+                            df_copy.reset_index(inplace=True)
+                            
+                            # 重命名索引列为datetime
+                            if 'index' in df_copy.columns:
+                                df_copy.rename(columns={'index': 'datetime'}, inplace=True)
+                            elif df_copy.index.name and df_copy.index.name not in df_copy.columns:
+                                # 如果索引有名称且不是datetime，重命名为datetime
+                                first_col = df_copy.columns[0]
+                                if first_col not in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                                    df_copy.rename(columns={first_col: 'datetime'}, inplace=True)
+                            
+                            # 如果还是没有datetime列，假设第一列是时间
+                            if 'datetime' not in df_copy.columns and len(df_copy.columns) > 0:
+                                first_col = df_copy.columns[0]
+                                df_copy.rename(columns={first_col: 'datetime'}, inplace=True)
+                            
+                            strategy_data = df_copy.to_dict('records')
                     except Exception as e:
                         logger.warning(f"Failed to extract strategy data: {e}")
+                        logger.exception(e)
 
             # 获取交易记录
             trades = []
@@ -573,9 +597,10 @@ class BacktestService:
         :param stats: 回测结果
         :return: 翻译后的回测结果
         """
+        # 获取当前语言设置
+        language = get_config("language", "zh-CN")
         # 加载翻译
-        cn_trans = load_translations('zh-CN')
-        en_trans = load_translations('en-US')
+        trans = load_translations(language)
         
         translated_metrics = []
         for key, value in stats.items():
@@ -583,24 +608,34 @@ class BacktestService:
                 continue
             
             # 获取翻译
-            cn_name = cn_trans.get(key, key)
-            en_name = en_trans.get(key, key)
-            desc = cn_trans.get(f"{key}.desc", "")
+            name = trans.get(key, key)
+            desc = trans.get(f"{key}.desc", name)
             
             # 处理特殊类型的值
+            metric_type = 'string'  # 默认类型
             if isinstance(value, pd.Timestamp):
                 value = value.strftime('%Y-%m-%d %H:%M:%S')
+                metric_type = 'datetime'
             elif isinstance(value, pd.Timedelta):
                 value = str(value)
+                metric_type = 'duration'
             elif isinstance(value, (pd.Series, pd.DataFrame)):
                 continue  # 跳过复杂数据结构
+            elif isinstance(value, (int, float)):
+                # 根据指标名称判断是否为百分比
+                if '[%]' in key:
+                    metric_type = 'percentage'
+                elif '[$]' in key:
+                    metric_type = 'currency'
+                else:
+                    metric_type = 'number'
             
             translated_metrics.append({
-                'name': key,
-                'cn_name': cn_name,
-                'en_name': en_name,
+                'name': name,
+                'key': key,  # 添加原始key用于前端识别
                 'value': value,
-                'description': desc
+                'description': desc,
+                'type': metric_type  # 添加类型字段
             })
         
         return translated_metrics
@@ -931,19 +966,62 @@ class BacktestService:
             replay_data = {
                 "kline_data": [],
                 "trade_signals": [],
-                "equity_data": []
+                "equity_data": [],
+                "metadata": {
+                    "symbol": result.get("backtest_config", {}).get("symbol", "BTCUSDT"),
+                    "interval": result.get("backtest_config", {}).get("interval", "15m"),
+                    "strategy_name": result.get("strategy_name", "未知策略")
+                }
             }
             
             # 从策略数据中提取K线数据
             if "strategy_data" in result:
                 for data in result["strategy_data"]:
+                    # 尝试多种时间字段名
+                    time_value = None
+                    
+                    # 检查常见的时间字段
+                    for time_field in ["datetime", "Open_time", "open_time", "timestamp", "time", "date"]:
+                        if time_field in data and data[time_field]:
+                            time_value = data[time_field]
+                            break
+                    
+                    # 如果没有找到时间字段，跳过该数据项
+                    if not time_value:
+                        logger.warning(f"策略数据中缺失时间字段: {list(data.keys())}")
+                        continue
+                    
+                    # 转换为毫秒级时间戳
+                    timestamp = None
+                    if isinstance(time_value, (int, float)):
+                        # 如果是数值类型，假设已经是时间戳
+                        # 判断是秒级还是毫秒级
+                        if time_value > 10000000000:  # 毫秒级时间戳（大于2001年）
+                            timestamp = int(time_value)
+                        else:  # 秒级时间戳
+                            timestamp = int(time_value * 1000)
+                    else:
+                        # 如果是字符串或datetime类型，转换为毫秒级时间戳
+                        from datetime import datetime
+                        try:
+                            if isinstance(time_value, str):
+                                dt = datetime.fromisoformat(time_value.replace(' ', 'T'))
+                            else:
+                                dt = time_value
+                            timestamp = int(dt.timestamp() * 1000)
+                        except Exception as e:
+                            logger.warning(f"无法转换时间字段: {time_value}, 错误: {e}")
+                            continue
+                    
+                    # 构建K线数据项（与collector的klines接口格式保持一致）
                     kline_item = {
-                        "time": data.get("datetime", data.get("Open_time", "")),
-                        "open": data.get("Open", 0),
-                        "high": data.get("High", 0),
-                        "low": data.get("Low", 0),
-                        "close": data.get("Close", 0),
-                        "volume": data.get("Volume", 0)
+                        "timestamp": timestamp,
+                        "open": float(data.get("Open", 0)),
+                        "close": float(data.get("Close", 0)),
+                        "high": float(data.get("High", 0)),
+                        "low": float(data.get("Low", 0)),
+                        "volume": float(data.get("Volume", 0)),
+                        "turnover": 0.0  # 回测数据中没有成交额信息，保持为0
                     }
                     replay_data["kline_data"].append(kline_item)
             

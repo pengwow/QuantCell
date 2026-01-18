@@ -326,7 +326,53 @@ def get_backtest_detail(backtest_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router_backtest.get("/{backtest_id}/replay", response_model=ApiResponse)
+@router_backtest.get(
+    "/{backtest_id}/replay", 
+    response_model=ApiResponse,
+    summary="获取回测回放数据",
+    description="获取回测回放数据，包含K线数据、交易信号和权益曲线数据",
+    responses={
+        200: {
+            "description": "获取回测回放数据成功",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": 0,
+                        "message": "获取回测回放数据成功",
+                        "data": {
+                            "kline_data": [
+                                {
+                                    "time": "2024-01-01 00:00:00",
+                                    "open": 100.0,
+                                    "high": 105.0,
+                                    "low": 95.0,
+                                    "close": 102.0,
+                                    "volume": 1000.0
+                                }
+                            ],
+                            "trade_signals": [
+                                {
+                                    "time": "2024-01-01 10:00:00",
+                                    "type": "buy",
+                                    "price": 100.0,
+                                    "size": 1.0,
+                                    "trade_id": "123"
+                                }
+                            ],
+                            "equity_data": [
+                                {
+                                    "time": "2024-01-01 00:00:00",
+                                    "equity": 10000.0
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        500: {"description": "获取回测回放数据失败"}
+    }
+)
 def get_replay_data(backtest_id: str):
     """
     获取回测回放数据
@@ -336,6 +382,39 @@ def get_replay_data(backtest_id: str):
         
     Returns:
         ApiResponse: API响应，包含回测回放数据
+        
+    Response Data Format:
+        {
+            "kline_data": [
+                {
+                    "timestamp": number,  # 时间戳，毫秒级，与/data/klines接口保持一致
+                    "open": number,       # 开盘价
+                    "close": number,      # 收盘价
+                    "high": number,       # 最高价
+                    "low": number,        # 最低价
+                    "volume": number,     # 成交量
+                    "turnover": number    # 成交额（回测为0）
+                },
+                # 更多K线数据...
+            ],
+            "trade_signals": [
+                {
+                    "time": string,  # 交易时间，格式：YYYY-MM-DD HH:MM:SS
+                    "type": string,  # 交易类型，"buy" 或 "sell"
+                    "price": number, # 交易价格
+                    "size": number,  # 交易大小
+                    "trade_id": string # 交易ID
+                },
+                # 更多交易信号...
+            ],
+            "equity_data": [
+                {
+                    "time": string,  # 时间，格式：YYYY-MM-DD HH:MM:SS
+                    "equity": number # 权益值
+                },
+                # 更多权益数据...
+            ]
+        }
     """
     try:
         logger.info(f"获取回测回放数据请求，回测ID: {backtest_id}")
@@ -348,7 +427,7 @@ def get_replay_data(backtest_id: str):
             return ApiResponse(
                 code=0,
                 message="获取回测回放数据成功",
-                data=result
+                data=result.get('data')
             )
         else:
             logger.error(f"获取回测回放数据失败，回测ID: {backtest_id}")

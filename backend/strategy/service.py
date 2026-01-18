@@ -209,14 +209,37 @@ class StrategyService:
                         # 构建策略列表
                         db_strategies_list = []
                         for strategy in db_strategies:
+                            # 安全解析tags
+                            tags = []
+                            if strategy.tags:
+                                try:
+                                    tags = json.loads(strategy.tags)
+                                except json.JSONDecodeError:
+                                    # 如果解析失败，可能是直接存储的字符串
+                                    # 检查是否是 'demo' 这种非JSON格式的字符串
+                                    logger.warning(f"解析策略标签失败: {strategy.tags}，尝试作为单个标签处理")
+                                    tags = [str(strategy.tags)]
+                                except Exception as e:
+                                    logger.error(f"解析策略标签异常: {strategy.name}, {e}")
+                                    tags = []
+
+                            # 安全解析params
+                            params = []
+                            if strategy.parameters:
+                                try:
+                                    params = json.loads(strategy.parameters)
+                                except Exception as e:
+                                    logger.error(f"解析策略参数异常: {strategy.name}, {e}")
+                                    params = []
+
                             db_strategies_list.append({
                             "name": strategy.name,
                             "file_name": strategy.filename,
                             "file_path": str(self.strategy_dir / strategy.filename),
                             "description": strategy.description or "",
                             "version": strategy.version or "1.0.0",
-                            "tags": json.loads(strategy.tags) if strategy.tags else [],
-                            "params": json.loads(strategy.parameters) if strategy.parameters else [],
+                            "tags": tags,
+                            "params": params,
                             "created_at": strategy.created_at,
                             "updated_at": strategy.updated_at,
                             "source": "db",
