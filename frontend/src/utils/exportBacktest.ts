@@ -194,16 +194,16 @@ export const generateBacktestReportHtml = (data: any) => {
             const container = document.getElementById('overview-grid');
             
             BACKTEST_DATA.metrics.forEach(metric => {
-                if (keyMetrics.includes(metric.cn_name)) {
+                if (keyMetrics.includes(metric.name)) {
                     const div = document.createElement('div');
                     div.className = 'metric-card';
-                    const isReturn = metric.name === 'Return [%]';
+                    const isReturn = metric.key === 'Return [%]';
                     const value = Number(metric.value);
                     const colorClass = isReturn ? (value >= 0 ? 'positive' : 'negative') : '';
-                    const displayValue = typeof metric.value === 'number' ? metric.value.toFixed(2) + (isReturn || metric.cn_name.includes('率') ? '%' : '') : metric.value;
+                    const displayValue = typeof metric.value === 'number' ? metric.value.toFixed(2) + (isReturn || metric.name.includes('率') ? '%' : '') : metric.value;
                     
                     div.innerHTML = \`
-                        <div class="metric-label">\${metric.cn_name}</div>
+                        <div class="metric-label">\${metric.name}</div>
                         <div class="metric-value \${colorClass}">\${displayValue}</div>
                     \`;
                     container.appendChild(div);
@@ -216,12 +216,12 @@ export const generateBacktestReportHtml = (data: any) => {
             const container = document.getElementById('risk-grid');
             
             BACKTEST_DATA.metrics.forEach(metric => {
-                if (riskMetrics.includes(metric.cn_name)) {
+                if (riskMetrics.includes(metric.name)) {
                     const div = document.createElement('div');
                     div.className = 'metric-card';
                     div.style.padding = '12px';
                     div.innerHTML = \`
-                        <div class="metric-label">\${metric.cn_name}</div>
+                        <div class="metric-label">\${metric.name}</div>
                         <div class="metric-value" style="font-size: 18px;">\${typeof metric.value === 'number' ? metric.value.toFixed(2) : metric.value}</div>
                     \`;
                     container.appendChild(div);
