@@ -2,277 +2,197 @@
  * 回测回放页面样式
  */
 .backtest-replay-container {
-  padding: 20px;
-  background-color: #f0f2f5;
-  min-height: 100vh;
-}
-
-.backtest-replay-container h1 {
-  margin-bottom: 20px;
-  color: #1f2937;
-  font-size: 24px;
-  font-weight: 600;
-}
-
-/* 图表容器 */
-.chart-container {
   width: 100%;
-  height: 600px;
-  background-color: #18191d;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.chart {
-  width: 100%;
-  height: 100%;
-}
-
-/* 回放控制面板 */
-.replay-controls {
-  background-color: #fff;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  margin-bottom: 20px;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  background-color: var(--bg-primary);
+  overflow: hidden;
 }
 
-/* 控制按钮 */
-.control-buttons {
-  display: flex;
-  gap: 10px;
-}
-
-.control-buttons .btn {
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: 500;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.3s;
-  border: none;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.btn-primary {
-  background-color: #4a6cf7;
-  color: #fff;
-}
-
-.btn-primary:hover {
-  background-color: #3a5bde;
-}
-
-.btn-primary.active {
-  background-color: #2a4adf;
-}
-
-.btn-secondary {
-  background-color: #f3f4f6;
-  color: #374151;
-}
-
-.btn-secondary:hover {
-  background-color: #e5e7eb;
-}
-
-/* 进度条 */
-.progress-control {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.progress-bar {
-  width: 100%;
-  height: 8px;
-  border-radius: 4px;
-  background-color: #e5e7eb;
-  outline: none;
-  -webkit-appearance: none;
-  appearance: none;
-  cursor: pointer;
-}
-
-.progress-bar::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background-color: #4a6cf7;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.progress-bar::-webkit-slider-thumb:hover {
-  background-color: #3a5bde;
-  transform: scale(1.2);
-}
-
-.progress-bar::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background-color: #4a6cf7;
-  cursor: pointer;
-  border: none;
-  transition: all 0.3s;
-}
-
-.progress-bar::-moz-range-thumb:hover {
-  background-color: #3a5bde;
-  transform: scale(1.2);
-}
-
-.progress-info {
-  display: flex;
-  justify-content: space-between;
-  font-size: 14px;
-  color: #6b7280;
-}
-
-.progress-text {
-  font-weight: 500;
-}
-
-.progress-percentage {
-  font-weight: 600;
-  color: #4a6cf7;
-}
-
-/* 速度控制 */
-.speed-control {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.speed-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #374151;
-  white-space: nowrap;
-}
-
-.speed-buttons {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.speed-buttons .btn {
-  padding: 6px 12px;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.3s;
-  border: none;
-}
-
-/* 回放信息 */
-.replay-info {
-  background-color: #fff;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  display: flex;
-  gap: 30px;
-  flex-wrap: wrap;
-}
-
-.info-item {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.info-item .label {
-  font-size: 13px;
-  color: #6b7280;
-  font-weight: 500;
-}
-
-.info-item .value {
-  font-size: 16px;
-  font-weight: 600;
-  color: #1f2937;
-}
-
-/* 加载和错误状态 */
-.loading-container,
-.error-container,
-.empty-container {
+/* 加载容器 */
+.loading-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 400px;
-  background-color: #fff;
+  height: 100%;
+  width: 100%;
+}
+
+/* 顶部标题栏 */
+.replay-header {
+  display: flex;
+  align-items: center;
+  padding: 16px 24px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  gap: 16px;
+}
+
+.replay-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 控制栏 */
+.replay-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.control-buttons {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 16px;
+}
+
+.speed-label {
+  font-size: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* 进度条 */
+.progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.progress-label {
+  font-size: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.progress-time {
+  font-size: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-width: 160px;
+  text-align: right;
+}
+
+/* 图表区域 */
+.replay-chart-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 24px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.replay-chart {
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg-secondary);
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin: 0;
+  padding: 0;
+  line-height: 0;
+  overflow: hidden;
 }
 
-.loading {
-  font-size: 16px;
-  color: #4a6cf7;
-  font-weight: 500;
+.replay-chart > div {
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 0 !important;
 }
 
-.error {
-  font-size: 16px;
-  color: #ef4444;
-  font-weight: 500;
-  margin-bottom: 20px;
-}
-
-.empty {
-  font-size: 16px;
-  color: #6b7280;
-  font-weight: 500;
+.replay-chart canvas {
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 0 !important;
 }
 
 /* 响应式设计 */
 @media (max-width: 768px) {
-  .backtest-replay-container {
-    padding: 10px;
+  .replay-header {
+    padding: 12px 16px;
   }
 
-  .chart-container {
-    height: 400px;
+  .replay-title {
+    font-size: 16px;
   }
 
   .replay-controls {
-    padding: 15px;
+    padding: 16px;
   }
 
   .control-buttons {
-    flex-direction: column;
+    flex-wrap: wrap;
   }
 
   .speed-control {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .progress-bar {
     flex-direction: column;
     align-items: stretch;
-    gap: 15px;
   }
 
-  .speed-buttons {
-    justify-content: center;
+  .progress-label,
+  .progress-time {
+    text-align: left;
+    min-width: auto;
   }
 
-  .replay-info {
-    flex-direction: column;
-    gap: 20px;
+  .replay-chart-container {
+    padding: 0 0 16px;
   }
+}
 
-  .info-item {
-    align-items: center;
-  }
+/* 按钮样式调整 */
+.replay-controls button {
+  font-weight: 500;
+}
+
+.replay-controls .ant-btn-lg {
+  height: 40px;
+  padding: 0 20px;
+  font-size: 14px;
+}
+
+/* Slider 样式调整 */
+.progress-bar .ant-slider {
+  margin: 0;
+}
+
+.progress-bar .ant-slider-rail {
+  background-color: var(--border-color);
+}
+
+.progress-bar .ant-slider-track {
+  background-color: var(--primary-color);
+}
+
+.progress-bar .ant-slider-handle {
+  border-color: var(--primary-color);
+}
+
+.progress-bar .ant-slider-handle:hover,
+.progress-bar .ant-slider-handle:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 5px rgba(74, 108, 247, 0.1);
 }

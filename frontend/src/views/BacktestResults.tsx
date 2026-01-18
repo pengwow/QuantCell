@@ -3,7 +3,7 @@
  * 功能：展示回测任务列表和详细的回测结果，包括概览、绩效分析、交易详情和风险分析
  */
 import { useState, useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Table } from 'antd';
 import type { TableProps } from 'antd';
 import * as echarts from 'echarts';
@@ -41,15 +41,18 @@ interface Trade {
   ID?: string;
 }
 
+import { Tooltip } from 'antd';
+import { InfoCircleOutlined } from '@ant-design/icons';
+
+// ... (existing imports)
 // 回测指标类型定义
 interface MetricItem {
   name: string;
+  key?: string; // 添加key字段，用于标识
   value: any;
-  cn_name: string;
-  en_name: string;
   description: string;
+  type?: string; // 新增类型字段，用于区分显示格式
 }
-
 // 回测结果类型定义
 interface BacktestResult {
   task_id: string;
@@ -64,6 +67,7 @@ interface BacktestResult {
   strategy_data: any[];
 }
 
+
 const BacktestResults = () => {
   // 回测任务数据
   const [backtestTasks, setBacktestTasks] = useState<BacktestTask[]>([]);
@@ -76,6 +80,9 @@ const BacktestResults = () => {
 
   // 国际化支持
   const { t } = useTranslation();
+  
+  // 路由导航
+  const navigate = useNavigate();
 
   // 交易数据
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -92,7 +99,8 @@ const BacktestResults = () => {
   const [metrics, setMetrics] = useState<MetricItem[]>([]);
 
   // 加载状态
-  const [loading, setLoading] = useState<boolean>(false);
+  const [listLoading, setListLoading] = useState<boolean>(false);
+  const [detailLoading, setDetailLoading] = useState<boolean>(false);
 
   // 是否显示回测配置页面
   const [showConfig, setShowConfig] = useState<boolean>(false);
@@ -111,7 +119,7 @@ const BacktestResults = () => {
    * 加载回测任务列表
    */
   const loadBacktestList = async () => {
-    setLoading(true);
+    setListLoading(true);
     try {
       const response = await backtestApi.getBacktestList();
       if (response.backtests && Array.isArray(response.backtests)) {
@@ -124,7 +132,7 @@ const BacktestResults = () => {
     } catch (error) {
       console.error('加载回测任务列表失败:', error);
     } finally {
-      setLoading(false);
+      setListLoading(false);
     }
   };
 
@@ -133,21 +141,22 @@ const BacktestResults = () => {
    * @param taskId 任务ID
    */
   const loadBacktestDetail = async (taskId: string) => {
-    setLoading(true);
+    setDetailLoading(true);
     try {
       const response = await backtestApi.getBacktestDetail(taskId);
       if (response && response.status === 'success') {
         setBacktestResult(response);
         setTrades(response.trades || []);
         setMetrics(response.metrics || []);
-        // 更新收益率曲线和风险分析图表
-        updateReturnChart(response.equity_curve);
-        updateRiskChart(response.metrics);
+        // 图表更新现在由useEffect处理，不再这里直接调用
       }
     } catch (error) {
       console.error('加载回测结果详情失败:', error);
     } finally {
-      setLoading(false);
+      // 添加一个小的延迟，避免闪烁太快
+      setTimeout(() => {
+        setDetailLoading(false);
+      }, 300);
     }
   };
 
@@ -166,19 +175,42 @@ const BacktestResults = () => {
   const updateReturnChart = (equityCurve: any[]) => {
     if (!returnChart.current || !equityCurve || equityCurve.length === 0) return;
     
-    // 准备图表数据
-    const dates = equityCurve.map(item => {
-      if (typeof item.datetime === 'string') {
-        return item.datetime;
-      } else if (typeof item.Open_time === 'string') {
-        return item.Open_time;
+    // 1. 数据预处理：过滤无效数据并统一格式
+    // 我们需要确保 X轴 (时间) 和 Y轴 (权益) 的数据点是一一对应的
+    const validData = equityCurve.map(item => {
+      let dateStr = '';
+      
+      // 尝试获取时间字段
+      if (item.datetime) {
+        dateStr = item.datetime;
+      } else if (item.Open_time) {
+        dateStr = item.Open_time;
+      } else if (item.timestamp) {
+        dateStr = item.timestamp;
+      } else if (item.time) {
+        dateStr = item.time;
       }
-      return '';
-    }).filter(date => date !== '');
-    
-    const equity = equityCurve.map(item => item.Equity || 0);
+
+      // 处理时间戳 (如果是数字)
+      if (typeof dateStr === 'number') {
+        dateStr = dayjs(dateStr).format('YYYY-MM-DD HH:mm:ss');
+      }
+
+      // 获取权益值
+      const equityVal = item.Equity;
+
+      return {
+        date: dateStr,
+        value: equityVal
+      };
+    }).filter(item => item.date && (typeof item.value === 'number')); // 过滤掉没有时间或权益值的数据
+
+    // 2. 分离轴数据
+    const dates = validData.map(item => item.date);
+    const equity = validData.map(item => item.value);
     
     const option = {
+      backgroundColor: '#ffffff',
       title: {
         text: '收益率曲线',
         left: 'center',
@@ -196,14 +228,22 @@ const BacktestResults = () => {
         data: dates
       },
       yAxis: {
-        type: 'value'
+        type: 'value',
+        scale: true // 自动缩放Y轴，避免从0开始导致波动看不清
       },
+      // 添加缩放功能，与导出报告保持一致
+      dataZoom: [
+        { type: 'inside' },
+        { type: 'slider' }
+      ],
       series: [{
         data: equity,
         type: 'line',
         smooth: true,
+        showSymbol: false, // 数据量大时不显示点
         lineStyle: {
-          color: '#4a6cf7'
+          color: '#4a6cf7',
+          width: 2
         },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -223,13 +263,14 @@ const BacktestResults = () => {
   const updateRiskChart = (metrics: MetricItem[]) => {
     if (!riskChartRef.current || !metrics || metrics.length === 0) return;
     
-    // 查找最大回撤指标
-    const maxDrawdownMetric = metrics.find(metric => metric.cn_name === '最大回撤');
+    // 查找最大回撤指标，使用原始key匹配
+    const maxDrawdownMetric = metrics.find(metric => metric.key === 'Max. Drawdown [%]');
     const maxDrawdown = maxDrawdownMetric ? maxDrawdownMetric.value : 0;
     
     const option = {
+      backgroundColor: '#ffffff',
       title: {
-        text: '最大回撤',
+        text: maxDrawdownMetric ? maxDrawdownMetric.name : '最大回撤',
         left: 'center',
         textStyle: {
           fontSize: 14,
@@ -242,7 +283,7 @@ const BacktestResults = () => {
       },
       xAxis: {
         type: 'category',
-        data: ['最大回撤']
+        data: [maxDrawdownMetric ? maxDrawdownMetric.name : '最大回撤']
       },
       yAxis: {
         type: 'value',
@@ -262,95 +303,6 @@ const BacktestResults = () => {
     riskChart.current?.setOption(option);
   };
 
-  /**
-   * 初始化收益率曲线图表
-   */
-  const initReturnChart = () => {
-    if (!returnChartRef.current) return;
-    
-    returnChart.current = echarts.init(returnChartRef.current);
-    
-    const option = {
-      title: {
-        text: '收益率曲线',
-        left: 'center',
-        textStyle: {
-          fontSize: 16,
-          fontWeight: 'normal'
-        }
-      },
-      tooltip: {
-        trigger: 'axis',
-        formatter: '{b}: {c}%'
-      },
-      xAxis: {
-        type: 'category',
-        data: []
-      },
-      yAxis: {
-        type: 'value'
-      },
-      series: [{
-        data: [],
-        type: 'line',
-        smooth: true,
-        lineStyle: {
-          color: '#4a6cf7'
-        },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(74, 108, 247, 0.3)' },
-            { offset: 1, color: 'rgba(74, 108, 247, 0.05)' }
-          ])
-        }
-      }]
-    };
-    
-    returnChart.current.setOption(option);
-  };
-
-  /**
-   * 初始化风险分析图表
-   */
-  const initRiskChart = () => {
-    if (!riskChartRef.current) return;
-    
-    riskChart.current = echarts.init(riskChartRef.current);
-    
-    const option = {
-      title: {
-        text: '最大回撤',
-        left: 'center',
-        textStyle: {
-          fontSize: 14,
-          fontWeight: 'normal'
-        }
-      },
-      tooltip: {
-        trigger: 'axis',
-        formatter: '{b}: {c}%'
-      },
-      xAxis: {
-        type: 'category',
-        data: ['最大回撤']
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: {
-          formatter: '{value}%'
-        }
-      },
-      series: [{
-        data: [0],
-        type: 'bar',
-        itemStyle: {
-          color: '#f87272'
-        }
-      }]
-    };
-    
-    riskChart.current.setOption(option);
-  };
 
   // 表格列定义
   const columns: TableProps<Trade>['columns'] = [
@@ -371,10 +323,10 @@ const BacktestResults = () => {
       dataIndex: 'Direction',
       key: 'Direction',
       filters: [
-        { text: 'LONG', value: 'LONG' },
-        { text: 'SHORT', value: 'SHORT' },
+        { text: '多单', value: '多单' },
+        { text: '空单', value: '空单' },
       ],
-      onFilter: (value, record) => record.Direction.indexOf(value as string) === 0,
+      onFilter: (value, record) => record.Direction === value,
     },
     {
       title: t('entry_price'),
@@ -433,10 +385,8 @@ const BacktestResults = () => {
     riskChart.current?.resize();
   };
 
-  // 组件挂载时初始化图表和加载数据
+  // 组件挂载时加载回测列表
   useEffect(() => {
-    initReturnChart();
-    initRiskChart();
     loadBacktestList();
     window.addEventListener('resize', handleResize);
 
@@ -447,6 +397,33 @@ const BacktestResults = () => {
       riskChart.current?.dispose();
     };
   }, []);
+
+  // 监听数据变化，初始化和更新图表
+  useEffect(() => {
+    // 只有当有数据且加载完成时才处理图表
+    if (backtestResult && !detailLoading) {
+      // 确保DOM已经渲染
+      setTimeout(() => {
+        // 初始化收益率曲线图表
+        if (returnChartRef.current) {
+          if (!returnChart.current) {
+            returnChart.current = echarts.init(returnChartRef.current);
+          }
+          // 只有在实例存在时才更新数据
+          updateReturnChart(backtestResult.equity_curve);
+        }
+
+        // 初始化风险分析图表
+        if (riskChartRef.current) {
+          if (!riskChart.current) {
+            riskChart.current = echarts.init(riskChartRef.current);
+          }
+          // 只有在实例存在时才更新数据
+          updateRiskChart(backtestResult.metrics);
+        }
+      }, 0);
+    }
+  }, [backtestResult, detailLoading]);
 
   // 监听路由状态，检查是否需要显示配置页面并传入策略信息
   useEffect(() => {
@@ -469,20 +446,36 @@ const BacktestResults = () => {
   }, [selectedTaskId]);
 
   /**
-   * 获取关键指标
-   * @returns 关键指标列表
+   * 根据指标类型渲染不同的显示格式
+   * @param metric 指标对象
+   * @returns 格式化后的指标值
    */
-  const getKeyMetrics = () => {
-    if (!metrics || metrics.length === 0) {
-      return [];
+  const renderMetricValue = (metric: MetricItem) => {
+    const { value, type, key } = metric;
+    
+    // 如果没有类型信息，使用默认行为
+    if (!type) {
+      return typeof value === 'number' ? `${value.toFixed(2)}%` : value;
     }
     
-    // 提取关键指标
-    const keyMetricNames = [
-      '总收益率', '年化收益率', '最大回撤', '夏普比率', '胜率', '交易次数'
-    ];
-    
-    return metrics.filter(metric => keyMetricNames.includes(metric.cn_name));
+    // 根据类型渲染不同格式
+    switch (type) {
+      case 'percentage':
+        return typeof value === 'number' ? `${value.toFixed(2)}%` : value;
+      case 'currency':
+        return typeof value === 'number' ? `$${value.toFixed(2)}` : value;
+      case 'number':
+        if (key === '# Trades') {
+          // 交易次数应该是整数
+          return typeof value === 'number' ? Math.round(value) : value;
+        }
+        return typeof value === 'number' ? value.toFixed(2) : value;
+      case 'datetime':
+      case 'duration':
+      case 'string':
+      default:
+        return value;
+    }
   };
 
   /**
@@ -520,6 +513,14 @@ const BacktestResults = () => {
   const handleRunBacktest = () => {
     setShowConfig(false);
     loadBacktestList();
+  };
+
+  /**
+   * 跳转到回放页面
+   * @param taskId 任务ID
+   */
+  const handleReplay = (taskId: string) => {
+    navigate(`/backtest/replay/${taskId}`);
   };
 
   /**
@@ -597,7 +598,7 @@ const BacktestResults = () => {
               </button>
             </div>
             <div className="panel-body">
-              {loading ? (
+              {listLoading ? (
                 <div className="loading">加载中...</div>
               ) : backtestTasks.length === 0 ? (
                 <div className="empty">{t('no_backtest_tasks')}</div>
@@ -613,12 +614,38 @@ const BacktestResults = () => {
                       <div className={`task-status ${task.status}`}>{task.status}</div>
                     </div>
                     <div className="task-meta">
-                      <div className="task-date">{task.created_at}</div>
+                      <div className="task-date">
+                        {(() => {
+                          // 尝试解析日期格式 YYYYMMDD_HHmmss
+                          if (task.created_at && task.created_at.includes('_')) {
+                            const parts = task.created_at.split('_');
+                            if (parts.length === 2) {
+                              const datePart = parts[0];
+                              const timePart = parts[1];
+                              if (datePart.length === 8 && timePart.length >= 6) {
+                                return `${datePart.substring(0, 4)}-${datePart.substring(4, 6)}-${datePart.substring(6, 8)} ${timePart.substring(0, 2)}:${timePart.substring(2, 4)}:${timePart.substring(4, 6)}`;
+                              }
+                            }
+                          }
+                          // 如果不是标准格式，直接显示
+                          return task.created_at;
+                        })()}
+                      </div>
                       <div className="task-return">
                         {task.total_return !== undefined ? `${task.total_return}%` : 'N/A'}
                       </div>
                     </div>
                     <div className="task-actions">
+                      <button 
+                        className="btn btn-success btn-xs"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleReplay(task.id);
+                        }}
+                        style={{ marginBottom: '4px' }}
+                      >
+                        {t('replay')}
+                      </button>
                       <button 
                         className="btn btn-primary btn-xs"
                         onClick={(e) => {
@@ -708,15 +735,24 @@ const BacktestResults = () => {
                 </div>
                 <div className="panel-body">
                   <div className="overview-grid">
-                    {getKeyMetrics().map((metric, index) => (
+                    {metrics.map((metric, index) => (
                       <div key={index} className="metric-card">
-                        <div className="metric-label">{metric.cn_name}</div>
-                        <div className={`metric-value ${metric.name === 'Return [%]' && Number(metric.value) >= 0 ? 'positive' : ''} ${metric.name === 'Return [%]' && Number(metric.value) < 0 ? 'negative' : ''}`}>
-                          {typeof metric.value === 'number' ? `${metric.value.toFixed(2)}%` : metric.value}
+                        <div className="metric-label">
+                          {metric.name}
+                          {metric.description && (
+                            <Tooltip title={metric.description}>
+                              <InfoCircleOutlined style={{ marginLeft: 4, color: '#999', fontSize: 12 }} />
+                            </Tooltip>
+                          )}
+                        </div>
+                        <div className={`metric-value ${metric.key === 'Return [%]' && Number(metric.value) >= 0 ? 'positive' : ''} ${metric.key === 'Return [%]' && Number(metric.value) < 0 ? 'negative' : ''}`}>
+                          {renderMetricValue(metric)}
                         </div>
                       </div>
                     ))}
                   </div>
+
+
                 </div>
               </div>
               
@@ -744,7 +780,7 @@ const BacktestResults = () => {
                       <Table
                         columns={columns}
                         dataSource={trades}
-                        rowKey={(_, index) => index?.toString() || ''}
+                        rowKey={(record) => record.ID || `${record.EntryTime}-${record.ExitTime}-${record.Direction}-${record.EntryPrice}`}
                         pagination={tableParams}
                         onChange={handleTableChange}
                         size="small"
@@ -760,16 +796,8 @@ const BacktestResults = () => {
                     <h2>{t('risk_analysis')}</h2>
                   </div>
                   <div className="panel-body">
-                    <div className="risk-metrics">
-                      {metrics.filter(metric => ['波动率', '索提诺比率', '卡尔马比率', '信息比率'].includes(metric.cn_name)).map((metric, index) => (
-                        <div key={index} className="risk-item">
-                          <div className="risk-label">{metric.cn_name}</div>
-                          <div className="risk-value">{typeof metric.value === 'number' ? metric.value.toFixed(2) : metric.value}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="chart-container small">
-                      <div ref={riskChartRef} className="chart"></div>
+                    <div className="chart-container" style={{ width: '100%', height: '300px' }}>
+                      <div ref={riskChartRef} className="chart" />
                     </div>
                   </div>
                 </div>
@@ -777,7 +805,7 @@ const BacktestResults = () => {
             </>
           ) : (
             <div className="empty-detail">
-              {loading ? (
+              {detailLoading ? (
                 <div className="loading">{t('loading')}</div>
               ) : (
                 <div className="empty">{t('select_backtest_task')}</div>
