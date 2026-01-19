@@ -22,6 +22,8 @@ class SystemConfig(Base):
     key = Column(String, primary_key=True, index=True)
     value = Column(String, nullable=False)
     description = Column(Text, nullable=True)
+    name = Column(String, nullable=True, index=True)  # 配置名称，用于区分系统配置页面的子菜单名称
+    plugin = Column(String, nullable=True, index=True)  # 插件名称，用于区分是插件配置还是基础配置
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
@@ -344,13 +346,15 @@ class SystemConfigBusiness:
             db.close()
     
     @staticmethod
-    def set(key: str, value: str, description: str = "") -> bool:
+    def set(key: str, value: str, description: str = "", plugin: str = None, name: str = None) -> bool:
         """设置配置项的值
         
         Args:
             key: 配置项键名
             value: 配置项值
             description: 配置项描述
+            plugin: 插件名称，用于区分是插件配置还是基础配置
+            name: 配置名称，用于区分系统配置页面的子菜单名称
             
         Returns:
             bool: 设置成功返回True，失败返回False
@@ -366,16 +370,22 @@ class SystemConfigBusiness:
                 config.value = value
                 if description:
                     config.description = description
+                if plugin is not None:
+                    config.plugin = plugin
+                if name is not None:
+                    config.name = name
             else:
                 # 创建新配置
                 config = SystemConfig(
                     key=key,
                     value=value,
-                    description=description
+                    description=description,
+                    plugin=plugin,
+                    name=name
                 )
                 db.add(config)
             db.commit()
-            logger.info(f"配置已更新: key={key}, value={value}")
+            logger.info(f"配置已更新: key={key}, value={value}, plugin={plugin}, name={name}")
             return True
         except Exception as e:
             db.rollback()
@@ -438,7 +448,7 @@ class SystemConfigBusiness:
             key: 配置项键名
             
         Returns:
-            Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、创建时间和更新时间
+            Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、插件、名称、创建时间和更新时间
         """
         from .database import SessionLocal, init_database_config
         init_database_config()
@@ -450,6 +460,8 @@ class SystemConfigBusiness:
                     "key": config.key,
                     "value": config.value,
                     "description": config.description,
+                    "plugin": config.plugin,
+                    "name": config.name,
                     "created_at": config.created_at,
                     "updated_at": config.updated_at
                 }
@@ -478,6 +490,8 @@ class SystemConfigBusiness:
                     "key": config.key,
                     "value": config.value,
                     "description": config.description,
+                    "plugin": config.plugin,
+                    "name": config.name,
                     "created_at": config.created_at,
                     "updated_at": config.updated_at
                 }

@@ -19,6 +19,15 @@ export interface RouteConfig {
   element: React.ReactNode;
 }
 
+// 系统配置项类型定义
+export interface SystemConfigItem {
+  key: string;
+  value: string;
+  description: string;
+  type: 'string' | 'number' | 'boolean' | 'select';
+  options?: string[]; // 当type为select时的选项
+}
+
 // 插件信息类型定义
 export interface PluginInfo {
   name: string;
@@ -42,6 +51,10 @@ export class PluginBase {
   protected menus: MenuGroup[];
   /** 插件注册的路由 */
   protected routes: RouteConfig[];
+  /** 插件注册的系统配置 */
+  protected systemConfigs: SystemConfigItem[];
+  /** 插件配置子菜单名称 */
+  protected configMenuName: string;
 
   constructor(name: string, version: string, description?: string, author?: string) {
     this.name = name;
@@ -51,6 +64,8 @@ export class PluginBase {
     this.isActive = false;
     this.menus = [];
     this.routes = [];
+    this.systemConfigs = [];
+    this.configMenuName = `${name} ${'settings'}`;
   }
 
   /**
@@ -120,5 +135,59 @@ export class PluginBase {
    */
   public getRoutes(): RouteConfig[] {
     return this.routes;
+  }
+
+  /**
+   * 添加系统配置项
+   * @param config 系统配置项
+   */
+  public addSystemConfig(config: SystemConfigItem): void {
+    this.systemConfigs.push(config);
+  }
+
+  /**
+   * 获取插件系统配置
+   * @returns 系统配置数组
+   */
+  public getSystemConfigs(): SystemConfigItem[] {
+    return this.systemConfigs;
+  }
+
+  /**
+   * 设置配置菜单名称
+   * @param name 菜单名称
+   */
+  public setConfigMenuName(name: string): void {
+    this.configMenuName = name;
+  }
+
+  /**
+   * 获取配置菜单名称
+   * @returns 菜单名称
+   */
+  public getConfigMenuName(): string {
+    return this.configMenuName;
+  }
+
+  /**
+   * 获取插件配置值
+   * @param key 配置键名
+   * @returns 配置值
+   */
+  public getConfig(key: string): any {
+    const config = this.systemConfigs.find(config => config.key === key);
+    return config ? config.value : undefined;
+  }
+
+  /**
+   * 设置插件配置值
+   * @param key 配置键名
+   * @param value 配置值
+   */
+  public setConfig(key: string, value: any): void {
+    const config = this.systemConfigs.find(config => config.key === key);
+    if (config) {
+      config.value = value;
+    }
   }
 }

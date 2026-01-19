@@ -342,6 +342,21 @@ export const configApi = {
    */
   updateConfig: (data: any) => {
     return apiRequest.post('/config/batch', data);
+  },
+
+  /**
+   * 更新插件配置
+   * @param pluginName 插件名称
+   * @param data 配置数据
+   * @returns 更新结果
+   */
+  updatePluginConfig: (pluginName: string, data: any) => {
+    // 为每个配置项添加 plugin 字段
+    const pluginConfigData = data.map((item: any) => ({
+      ...item,
+      plugin: pluginName
+    }));
+    return apiRequest.post('/config/batch', pluginConfigData);
   }
 };
 

@@ -274,6 +274,136 @@ def update_strategies_table(session: Session, db_type: str) -> None:
     logger.info("strategies表结构更新完成")
 
 
+def update_system_config_table(session: Session, db_type: str) -> None:
+    """更新system_config表结构，添加name和plugin字段
+    
+    Args:
+        session: SQLAlchemy会话对象
+        db_type: 数据库类型（sqlite或duckdb）
+    """
+    logger.info("开始更新system_config表结构...")
+    
+    # 检查表是否存在
+    table_exists = False
+    try:
+        if db_type == "sqlite":
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='system_config'")
+            ).fetchone()
+        elif db_type == "duckdb":
+            table_exists = session.execute(
+                text("SELECT table_name FROM information_schema.tables WHERE table_name='system_config'")
+            ).fetchone()
+        else:
+            # 默认使用sqlite语法
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='system_config'")
+            ).fetchone()
+    except Exception as e:
+        logger.error(f"检查表是否存在失败: {e}")
+        return
+    
+    if not table_exists:
+        logger.info("system_config表不存在，跳过更新")
+        return
+    
+    # 检查并添加plugin列
+    logger.info("检查plugin列是否存在...")
+    try:
+        column_exists = False
+        if db_type == "sqlite":
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('system_config') WHERE name='plugin'")
+            ).fetchone()
+        elif db_type == "duckdb":
+            column_exists = session.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name='system_config' AND column_name='plugin'")
+            ).fetchone()
+        
+        if not column_exists:
+            logger.info("添加plugin列...")
+            session.execute(
+                text("ALTER TABLE system_config ADD COLUMN plugin VARCHAR")
+            )
+            logger.info("plugin列添加成功")
+        else:
+            logger.info("plugin列已存在，跳过")
+    except Exception as e:
+        logger.error(f"添加plugin列失败: {e}")
+    
+    # 检查并添加name列
+    logger.info("检查name列是否存在...")
+    try:
+        column_exists = False
+        if db_type == "sqlite":
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('system_config') WHERE name='name'")
+            ).fetchone()
+        elif db_type == "duckdb":
+            column_exists = session.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name='system_config' AND column_name='name'")
+            ).fetchone()
+        
+        if not column_exists:
+            logger.info("添加name列...")
+            session.execute(
+                text("ALTER TABLE system_config ADD COLUMN name VARCHAR")
+            )
+            logger.info("name列添加成功")
+        else:
+            logger.info("name列已存在，跳过")
+    except Exception as e:
+        logger.error(f"添加name列失败: {e}")
+        # 如果是SQLite，尝试使用创建新表的方式添加列
+        if db_type == "sqlite":
+            try:
+                logger.info("尝试使用创建新表的方式添加name和plugin列...")
+                
+                # 0. 如果临时表已存在，先删除它
+                session.execute(text("DROP TABLE IF EXISTS system_config_new"))
+                
+                # 1. 创建临时表，包含所有现有列和新的name列
+                session.execute(
+                    text("""CREATE TABLE system_config_new (
+                        key VARCHAR PRIMARY KEY,
+                        value VARCHAR NOT NULL,
+                        description TEXT,
+                        plugin VARCHAR,
+                        name VARCHAR,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )""")
+                )
+                
+                # 2. 复制旧表数据到新表
+                # 注意：如果plugin列不存在，这里会出错，所以需要先检查
+                try:
+                    # 尝试使用包含plugin列的查询
+                    session.execute(
+                        text("""INSERT INTO system_config_new (key, value, description, plugin, created_at, updated_at) 
+                               SELECT key, value, description, plugin, created_at, updated_at FROM system_config""")
+                    )
+                except:
+                    # 如果plugin列不存在，使用不包含plugin列的查询
+                    logger.info("plugin列不存在，使用不包含plugin列的查询复制数据...")
+                    session.execute(
+                        text("""INSERT INTO system_config_new (key, value, description, created_at, updated_at) 
+                               SELECT key, value, description, created_at, updated_at FROM system_config""")
+                    )
+                
+                # 3. 删除旧表
+                session.execute(text("DROP TABLE system_config"))
+                
+                # 4. 将新表重命名为旧表名称
+                session.execute(text("ALTER TABLE system_config_new RENAME TO system_config"))
+                logger.info("使用创建新表的方式添加name和plugin列成功")
+            except Exception as sqlite_e:
+                logger.error(f"使用创建新表的方式添加name和plugin列失败: {sqlite_e}")
+                raise
+    
+    logger.info("system_config表结构更新完成")
+
+
 def run_migrations() -> None:
     """运行所有迁移脚本
     
@@ -298,6 +428,9 @@ def run_migrations() -> None:
             
             # 更新strategies表结构，添加content列
             update_strategies_table(session, db_type)
+            
+            # 更新system_config表结构，添加name列
+            update_system_config_table(session, db_type)
             
             # 提交所有更改
             session.commit()

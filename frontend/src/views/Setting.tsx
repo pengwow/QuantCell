@@ -7,6 +7,7 @@ import { configApi } from '../api';
 import type { AppConfig } from '../utils/configLoader';
 import { useTranslation } from 'react-i18next';
 import { applyTheme } from '../utils/themeManager';
+import { pluginManager } from '../plugins/PluginManager';
 
 // 扩展Window接口，添加APP_CONFIG属性
 declare global {
@@ -20,15 +21,17 @@ type ConfigItem = {
   key: string;
   value: any;
   description: string;
+  plugin?: string;
+  name?: string;
 }
 import {
   Layout, Menu, Form, Input, Select, Switch, Button,
-  Typography, Card, Space, InputNumber
+  Typography, Card, Space, InputNumber, Tooltip
 } from 'antd';
 import {
   UserOutlined, BellOutlined, ApiOutlined, SettingOutlined,
   InfoCircleOutlined, ReloadOutlined, SaveOutlined,
-  EyeInvisibleOutlined, EyeTwoTone
+  EyeInvisibleOutlined, EyeTwoTone, QuestionCircleOutlined
 } from '@ant-design/icons';
 import '../styles/Setting.css';
 
@@ -126,6 +129,12 @@ const Setting = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   // 菜单模式状态
   const [menuMode, setMenuMode] = useState<'horizontal' | 'inline'>(window.innerWidth < 768 ? 'horizontal' : 'inline');
+  // 插件配置
+  const [pluginConfigs, setPluginConfigs] = useState<Array<{
+    name: string;
+    configs: any[];
+    menuName: string;
+  }>>([]);
 
   // 监听窗口大小变化
   useEffect(() => {
@@ -229,12 +238,7 @@ const Setting = () => {
     }
   });
 
-  // 原始设置
-  const [originalSettings] = useState({
-    basic: { ...settings },
-    notifications: { ...notificationSettings },
-    api: { ...apiSettings }
-  });
+
 
 
 
@@ -246,6 +250,30 @@ const Setting = () => {
     // 手动触发配置更新
     updateLocalStateAndForm();
   }, []);
+
+  // 加载插件配置
+  useEffect(() => {
+    const loadPluginConfigs = () => {
+      console.log('Setting component: 加载插件配置');
+      const configs = pluginManager.getAllPluginConfigs();
+      console.log('Setting component: 插件配置:', configs);
+      setPluginConfigs(configs);
+    };
+
+    // 初始加载
+    loadPluginConfigs();
+
+    // 监听插件变化（如果有相关事件）
+    // 这里可以添加插件热重载的监听
+  }, []);
+
+  // 当插件配置加载完成后，更新插件配置值
+  useEffect(() => {
+    if (pluginConfigs.length > 0 && Object.keys(window.APP_CONFIG || {}).length > 0) {
+      console.log('Setting component: 插件配置加载完成，更新插件配置值');
+      updateLocalStateAndForm();
+    }
+  }, [pluginConfigs]);
 
   // 更新本地状态和表单数据
   const updateLocalStateAndForm = () => {
@@ -307,6 +335,22 @@ const Setting = () => {
         proxy_password: configs.proxy_password || prev.proxy_password
       }));
 
+      // 更新插件配置
+      console.log('Setting component: 开始更新插件配置');
+      pluginConfigs.forEach(pluginConfig => {
+        console.log('Setting component: 更新插件配置:', pluginConfig.name);
+        const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+        if (pluginInstance) {
+          pluginConfig.configs.forEach(configItem => {
+            const configValue = configs[configItem.key];
+            if (configValue !== undefined) {
+              console.log('Setting component: 更新插件配置项:', configItem.key, '值:', configValue);
+              pluginInstance.instance.setConfig(configItem.key, configValue);
+            }
+          });
+        }
+      });
+
       // 构建表单数据，使用APP_CONFIG数据或本地状态默认值
       const finalBasicConfig = {
         language: configs.language !== undefined ? configs.language : settings.language,
@@ -362,14 +406,28 @@ const Setting = () => {
 
 
   /**
-   * 保存设置
+   * 重新生成 API Key
    */
-  const saveSettings = async () => {
+  const regenerateApiKey = () => {
+    if (window.confirm('确定要重新生成 API Key 吗？当前的 API Key 将失效。')) {
+      // 模拟生成随机 API Key
+      const randomKey = 'sk_' + Math.random().toString(36).substring(2, 34);
+      setApiSettings(prev => ({
+        ...prev,
+        apiKey: randomKey
+      }));
+    }
+  };
+
+  /**
+   * 统一保存所有配置
+   */
+  const saveAllConfig = async () => {
     setIsSaving(true);
     setSaveError(null);
 
     try {
-      // 准备请求数据 - 将配置转换为扁平化键值对，每个配置项包含description字段
+      // 准备请求数据 - 收集所有配置项
       const requestData: ConfigItem[] = [];
 
       // 处理basic配置
@@ -433,78 +491,6 @@ const Setting = () => {
         value: JSON.stringify(apiSettings.permissions),
         description: 'api.permissions'
       });
-
-      console.log('保存设置:', requestData);
-
-      // 直接调用API保存配置
-      await configApi.updateConfig(requestData);
-      
-      // 保存设置成功后，重新加载配置数据
-      console.log('保存设置成功，重新加载配置');
-      const newConfigData = await configApi.getConfig();
-      
-      // 直接使用API返回的数据，不需要转换，保持与后端一致
-      console.log('更新window.APP_CONFIG:', newConfigData);
-      window.APP_CONFIG = newConfigData;
-      
-      // 更新本地状态和表单
-      updateLocalStateAndForm();
-      
-      // 应用新的主题设置
-      applyTheme(settings.theme);
-
-      // 显示成功消息
-      setShowSuccessMessage(true);
-      setTimeout(() => {
-        setShowSuccessMessage(false);
-      }, 3000);
-    } catch (error) {
-      // 处理错误
-      console.error('保存设置失败:', error);
-      setSaveError('保存设置失败，请稍后重试');
-      setTimeout(() => {
-        setSaveError(null);
-      }, 3000);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  /**
-   * 重置设置
-   */
-  const resetSettings = () => {
-    if (window.confirm('确定要重置当前设置吗？')) {
-      setSettings(originalSettings.basic);
-      setNotificationSettings(originalSettings.notifications);
-      setApiSettings(originalSettings.api);
-    }
-  };
-
-  /**
-   * 重新生成 API Key
-   */
-  const regenerateApiKey = () => {
-    if (window.confirm('确定要重新生成 API Key 吗？当前的 API Key 将失效。')) {
-      // 模拟生成随机 API Key
-      const randomKey = 'sk_' + Math.random().toString(36).substring(2, 34);
-      setApiSettings(prev => ({
-        ...prev,
-        apiKey: randomKey
-      }));
-    }
-  };
-
-  /**
-   * 保存系统配置
-   */
-  const saveSystemConfig = async () => {
-    setIsSaving(true);
-    setSaveError(null);
-
-    try {
-      // 准备请求数据 - 将系统配置转换为扁平化键值对，每个配置项包含description字段
-      const requestData: ConfigItem[] = [];
 
       // 处理system配置
       requestData.push({
@@ -573,13 +559,34 @@ const Setting = () => {
         description: 'system.proxy_password'
       });
 
-      console.log('保存系统配置:', requestData);
+      // 处理插件配置
+      console.log('处理插件配置:', pluginConfigs);
+      pluginConfigs.forEach(pluginConfig => {
+        console.log('处理插件:', pluginConfig.name);
+        pluginConfig.configs.forEach(configItem => {
+          // 获取插件配置值
+          const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+          if (pluginInstance) {
+            const configValue = pluginInstance.instance.getConfig(configItem.key);
+            console.log('插件配置项:', configItem.key, '值:', configValue);
+            requestData.push({
+              key: configItem.key,
+              value: configValue,
+              description: `${pluginConfig.name}.${configItem.key}`,
+              plugin: pluginConfig.name,
+              name: pluginConfig.menuName
+            });
+          }
+        });
+      });
+
+      console.log('保存所有配置:', requestData);
 
       // 直接调用API保存配置
       await configApi.updateConfig(requestData);
       
-      // 保存成功后，重新加载配置数据
-      console.log('保存系统配置成功，重新加载配置');
+      // 保存设置成功后，重新加载配置数据
+      console.log('保存设置成功，重新加载配置');
       const newConfigData = await configApi.getConfig();
       
       // 直接使用API返回的数据，不需要转换，保持与后端一致
@@ -588,6 +595,9 @@ const Setting = () => {
       
       // 更新本地状态和表单
       updateLocalStateAndForm();
+      
+      // 应用新的主题设置
+      applyTheme(settings.theme);
 
       // 显示成功消息
       setShowSuccessMessage(true);
@@ -596,8 +606,8 @@ const Setting = () => {
       }, 3000);
     } catch (error) {
       // 处理错误
-      console.error('保存系统配置失败:', error);
-      setSaveError('保存系统配置失败，请稍后重试');
+      console.error('保存设置失败:', error);
+      setSaveError('保存设置失败，请稍后重试');
       setTimeout(() => {
         setSaveError(null);
       }, 3000);
@@ -607,10 +617,56 @@ const Setting = () => {
   };
 
   /**
-   * 重置系统配置
+   * 统一重置所有配置
    */
-  const resetSystemConfig = () => {
-    if (window.confirm('确定要重置系统配置吗？')) {
+  const resetAllConfig = () => {
+    if (window.confirm('确定要重置所有配置吗？此操作将恢复所有设置为默认值。')) {
+      // 重置基本设置
+      setSettings({
+        username: 'admin',
+        displayName: '系统管理员',
+        email: 'admin@example.com',
+        theme: 'light',
+        language: 'zh-CN',
+        showTips: true
+      });
+
+      // 重置通知设置
+      setNotificationSettings({
+        enableEmail: true,
+        enableWebhook: false,
+        webhookUrl: '',
+        notifyOnAlert: true,
+        notifyOnTaskComplete: true,
+        notifyOnSystemUpdate: false
+      });
+
+      // 重置API设置
+      setApiSettings({
+        apiKey: 'sk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        permissions: [
+          {
+            id: 'read',
+            name: '读取权限',
+            description: '允许读取系统数据和配置',
+            enabled: true
+          },
+          {
+            id: 'write',
+            name: '写入权限',
+            description: '允许修改系统数据和配置',
+            enabled: false
+          },
+          {
+            id: 'execute',
+            name: '执行权限',
+            description: '允许执行系统操作和任务',
+            enabled: true
+          }
+        ]
+      });
+
+      // 重置系统配置
       setSystemConfig({
         qlib_data_dir: 'data/qlib_data',
         max_workers: '4',
@@ -626,6 +682,12 @@ const Setting = () => {
         proxy_username: '',
         proxy_password: ''
       });
+
+      // 显示成功消息
+      setShowSuccessMessage(true);
+      setTimeout(() => {
+        setShowSuccessMessage(false);
+      }, 3000);
     }
   };
 
@@ -652,13 +714,27 @@ const Setting = () => {
   const { Text } = Typography;
 
   // 菜单项配置
-  const menuConfig = [
-    { key: 'basic', label: t('basic_settings'), icon: <UserOutlined /> },
-    { key: 'system-config', label: t('system_config'), icon: <SettingOutlined /> },
-    { key: 'notifications', label: t('notification_settings'), icon: <BellOutlined /> },
-    { key: 'api', label: t('api_settings'), icon: <ApiOutlined /> },
-    { key: 'system', label: t('system_info'), icon: <InfoCircleOutlined /> }
-  ];
+  const [menuConfig, setMenuConfig] = useState<any[]>([]);
+
+  // 更新菜单配置，包括插件配置子菜单
+  useEffect(() => {
+    const baseMenuConfig = [
+      { key: 'basic', label: t('basic_settings'), icon: <UserOutlined /> },
+      { key: 'system-config', label: t('system_config'), icon: <SettingOutlined /> },
+      { key: 'notifications', label: t('notification_settings'), icon: <BellOutlined /> },
+      { key: 'api', label: t('api_settings'), icon: <ApiOutlined /> },
+      { key: 'system', label: t('system_info'), icon: <InfoCircleOutlined /> }
+    ];
+
+    // 添加插件配置子菜单
+    const pluginMenuItems = pluginConfigs.map(config => ({
+      key: `plugin-${config.name}`,
+      label: config.menuName,
+      icon: <SettingOutlined />
+    }));
+
+    setMenuConfig([...baseMenuConfig, ...pluginMenuItems]);
+  }, [pluginConfigs, t]);
 
   return (
     <Layout className="settings-container">
@@ -684,7 +760,10 @@ const Setting = () => {
         </Sider>
 
         {/* 主内容区域 */}
-        <Content className="settings-main" style={{ flex: 1, minWidth: 0 }}>
+        <Layout style={{ flex: 1, minWidth: 0 }}>
+
+          {/* 内容区域 */}
+          <Content className="settings-main" style={{ flex: 1, minWidth: 0, padding: '16px' }}>
           {/* 基本设置 */}
           <div style={{ display: currentTab === 'basic' ? 'block' : 'none' }}>
             <Card className="settings-panel" title={t('basic_settings')} variant="outlined">
@@ -747,27 +826,7 @@ const Setting = () => {
                   
                 </Form.Item> */}
 
-                {/* 底部操作按钮 */}
-                <div className="settings-footer">
-                  <Space>
-                    <Button
-                      type="default"
-                      onClick={resetSettings}
-                      disabled={isSaving}
-                      icon={<ReloadOutlined />}
-                    >
-                      {t('reset')}
-                    </Button>
-                    <Button
-                      type="primary"
-                      onClick={saveSettings}
-                      disabled={isSaving}
-                      icon={<SaveOutlined />}
-                    >
-                      {isSaving ? t('saving') : t('save_settings')}
-                    </Button>
-                  </Space>
-                </div>
+
               </Form>
             </Card>
           </div>
@@ -868,25 +927,7 @@ const Setting = () => {
                   
                 </Form.Item> */}
 
-                {/* 底部操作按钮 */}
-                <div className="settings-footer">
-                  <Space>
-                    <Button
-                      type="default"
-                      onClick={resetSettings}
-                      icon={<ReloadOutlined />}
-                    >
-                      重置
-                    </Button>
-                    <Button
-                      type="primary"
-                      onClick={saveSettings}
-                      icon={<SaveOutlined />}
-                    >
-                      保存设置
-                    </Button>
-                  </Space>
-                </div>
+
               </Form>
             </Card>
           </div>
@@ -951,25 +992,7 @@ const Setting = () => {
                   
                 </Form.Item> */}
 
-                {/* 底部操作按钮 */}
-                <div className="settings-footer">
-                  <Space>
-                    <Button
-                      type="default"
-                      onClick={resetSettings}
-                      icon={<ReloadOutlined />}
-                    >
-                      重置
-                    </Button>
-                    <Button
-                      type="primary"
-                      onClick={saveSettings}
-                      icon={<SaveOutlined />}
-                    >
-                      保存设置
-                    </Button>
-                  </Space>
-                </div>
+
               </Form>
             </Card>
           </div>
@@ -985,7 +1008,14 @@ const Setting = () => {
                 {/* 数据目录配置 */}
                 <Card size="small" style={{ marginBottom: 16 }}>
                     <Form.Item
-                      label="QLib数据目录"
+                      label={
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          QLib数据目录
+                          <Tooltip title="QLib数据的存储目录，用于存放下载的市场数据" placement="right">
+                            <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                          </Tooltip>
+                        </div>
+                      }
                       name="qlib_data_dir"
                       rules={[{ required: true, message: '请输入QLib数据目录' }]}
                     >
@@ -995,7 +1025,14 @@ const Setting = () => {
                       />
                     </Form.Item>
                     <Form.Item
-                      label="数据下载目录"
+                      label={
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          数据下载目录
+                          <Tooltip title="数据下载的临时存储目录，用于存放原始数据" placement="right">
+                            <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                          </Tooltip>
+                        </div>
+                      }
                       name="data_download_dir"
                       rules={[{ required: true, message: '请输入数据下载目录' }]}
                     >
@@ -1012,7 +1049,14 @@ const Setting = () => {
                 {/* 交易设置 */}
                 <Card size="small" style={{ marginBottom: 16 }}>
                     <Form.Item
-                      label="当前交易模式"
+                      label={
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          当前交易模式
+                          <Tooltip title="选择当前的交易市场模式，如加密货币、股票等" placement="right">
+                            <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                          </Tooltip>
+                        </div>
+                      }
                       name="current_market_type"
                       rules={[{ required: true, message: '请选择交易模式' }]}
                     >
@@ -1028,7 +1072,14 @@ const Setting = () => {
                     {systemConfig.current_market_type === 'crypto' && (
                       <>
                         <Form.Item
-                          label="加密货币蜡烛图类型"
+                          label={
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              加密货币蜡烛图类型
+                              <Tooltip title="选择加密货币的交易模式，如现货或合约" placement="right">
+                                <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                              </Tooltip>
+                            </div>
+                          }
                           name="crypto_trading_mode"
                           rules={[{ required: true, message: '请选择蜡烛图类型' }]}
                         >
@@ -1040,7 +1091,14 @@ const Setting = () => {
                           </Select>
                         </Form.Item>
                         <Form.Item
-                          label="默认交易所"
+                          label={
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              默认交易所
+                              <Tooltip title="选择默认的加密货币交易所" placement="right">
+                                <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                              </Tooltip>
+                            </div>
+                          }
                           name="default_exchange"
                           rules={[{ required: true, message: '请选择默认交易所' }]}
                         >
@@ -1071,7 +1129,14 @@ const Setting = () => {
                     )}
 
                     <Form.Item
-                      label="默认时间间隔"
+                      label={
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          默认时间间隔
+                          <Tooltip title="选择默认的K线时间间隔，如1分钟、1小时、1天等" placement="right">
+                            <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                          </Tooltip>
+                        </div>
+                      }
                       name="default_interval"
                       rules={[{ required: true, message: '请选择默认时间间隔' }]}
                     >
@@ -1089,7 +1154,14 @@ const Setting = () => {
                     </Form.Item>
                     
                     <Form.Item
-                      label="默认手续费"
+                      label={
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          默认手续费
+                          <Tooltip title="设置默认的交易手续费率" placement="right">
+                            <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                          </Tooltip>
+                        </div>
+                      }
                       name="default_commission"
                       rules={[{ required: true, message: '请输入默认手续费率' }]}
                     >
@@ -1103,7 +1175,14 @@ const Setting = () => {
                     </Form.Item>
                     
                     <Form.Item
-                      label="默认初始资金"
+                      label={
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          默认初始资金
+                          <Tooltip title="设置默认的回测初始资金" placement="right">
+                            <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                          </Tooltip>
+                        </div>
+                      }
                       name="default_initial_cash"
                       rules={[{ required: true, message: '请输入默认初始资金' }]}
                     >
@@ -1173,25 +1252,7 @@ const Setting = () => {
                   
                 </Form.Item> */}
 
-                {/* 底部操作按钮 */}
-                <div className="settings-footer">
-                  <Space>
-                    <Button
-                      type="default"
-                      onClick={resetSystemConfig}
-                      icon={<ReloadOutlined />}
-                    >
-                      重置
-                    </Button>
-                    <Button
-                      type="primary"
-                      onClick={saveSystemConfig}
-                      icon={<SaveOutlined />}
-                    >
-                      保存设置
-                    </Button>
-                  </Space>
-                </div>
+
               </Form>
             </Card>
           </div>
@@ -1274,7 +1335,168 @@ const Setting = () => {
               )}
             </Card>
           </div>
-        </Content>
+
+          {/* 插件配置 */}
+          {pluginConfigs.map(pluginConfig => (
+            <div key={pluginConfig.name} style={{ display: currentTab === `plugin-${pluginConfig.name}` ? 'block' : 'none' }}>
+              <Card className="settings-panel" title={pluginConfig.menuName} variant="outlined">
+                <Form layout="vertical">
+                  {pluginConfig.configs.map(configItem => (
+                    <Card key={configItem.key} size="small" style={{ marginBottom: 16 }}>
+                      {configItem.type === 'string' && (
+                        <Form.Item
+                          label={
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              {configItem.description}
+                              <Tooltip title={configItem.description} placement="right">
+                                <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                              </Tooltip>
+                            </div>
+                          }
+                          name={configItem.key}
+                          rules={[{ required: true, message: '请输入配置值' }]}
+                          initialValue={(() => {
+                            const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+                            return pluginInstance ? pluginInstance.instance.getConfig(configItem.key) : '';
+                          })()}
+                        >
+                          <Input
+                            placeholder={configItem.description}
+                            onChange={(e) => {
+                              const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+                              if (pluginInstance) {
+                                pluginInstance.instance.setConfig(configItem.key, e.target.value);
+                              }
+                            }}
+                          />
+                        </Form.Item>
+                      )}
+                      {configItem.type === 'number' && (
+                        <Form.Item
+                          label={
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              {configItem.description}
+                              <Tooltip title={configItem.description} placement="right">
+                                <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                              </Tooltip>
+                            </div>
+                          }
+                          name={configItem.key}
+                          rules={[{ required: true, message: '请输入配置值' }]}
+                          initialValue={(() => {
+                            const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+                            return pluginInstance ? pluginInstance.instance.getConfig(configItem.key) : 0;
+                          })()}
+                        >
+                          <InputNumber
+                            style={{ width: '100%' }}
+                            onChange={(value: number | null) => {
+                              const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+                              if (pluginInstance) {
+                                pluginInstance.instance.setConfig(configItem.key, value || 0);
+                              }
+                            }}
+                          />
+                        </Form.Item>
+                      )}
+                      {configItem.type === 'boolean' && (
+                        <Form.Item
+                          label={
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              {configItem.description}
+                              <Tooltip title={configItem.description} placement="right">
+                                <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                              </Tooltip>
+                            </div>
+                          }
+                          name={configItem.key}
+                          valuePropName="checked"
+                          initialValue={(() => {
+                            const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+                            const value = pluginInstance ? pluginInstance.instance.getConfig(configItem.key) : false;
+                            return value === 'true' || value === true;
+                          })()}
+                        >
+                          <Switch
+                            checkedChildren="启用"
+                            unCheckedChildren="禁用"
+                            onChange={(checked) => {
+                              const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+                              if (pluginInstance) {
+                                pluginInstance.instance.setConfig(configItem.key, checked);
+                              }
+                            }}
+                          />
+                        </Form.Item>
+                      )}
+                      {configItem.type === 'select' && configItem.options && (
+                        <Form.Item
+                          label={
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              {configItem.description}
+                              <Tooltip title={configItem.description} placement="right">
+                                <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                              </Tooltip>
+                            </div>
+                          }
+                          name={configItem.key}
+                          rules={[{ required: true, message: '请选择配置值' }]}
+                          initialValue={(() => {
+                            const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+                            return pluginInstance ? pluginInstance.instance.getConfig(configItem.key) : configItem.options[0];
+                          })()}
+                        >
+                          <Select
+                            options={configItem.options.map((option: string) => ({
+                              value: option,
+                              label: option
+                            }))}
+                            onChange={(value) => {
+                              const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+                              if (pluginInstance) {
+                                pluginInstance.instance.setConfig(configItem.key, value);
+                              }
+                            }}
+                          />
+                        </Form.Item>
+                      )}
+                    </Card>
+                  ))}
+                </Form>
+              </Card>
+            </div>
+          ))}
+          {/* 统一操作按钮区域 - 底部 */}
+          <div className="settings-actions" style={{ 
+            padding: '16px', 
+            borderTop: '1px solid #f0f0f0', 
+            backgroundColor: '#fff',
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            marginTop: '16px'
+          }}>
+            <Space size="middle">
+              <Button
+                type="default"
+                onClick={resetAllConfig}
+                disabled={isSaving}
+                icon={<ReloadOutlined />}
+              >
+                重置所有
+              </Button>
+              <Button
+                type="primary"
+                onClick={saveAllConfig}
+                disabled={isSaving}
+                icon={<SaveOutlined />}
+              >
+                {isSaving ? '保存中...' : '保存设置'}
+              </Button>
+            </Space>
+          </div>
+          </Content>
+        </Layout>
       </Layout>
 
       {/* 保存成功提示 */}
