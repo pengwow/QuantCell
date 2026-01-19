@@ -213,6 +213,36 @@ export class PluginManager {
   }
 
   /**
+   * 获取所有插件的系统配置
+   * @returns 插件配置信息数组
+   */
+  public getAllPluginConfigs(): Array<{
+    name: string;
+    configs: any[];
+    menuName: string;
+  }> {
+    const allConfigs: Array<{
+      name: string;
+      configs: any[];
+      menuName: string;
+    }> = [];
+    
+    for (const plugin of this.plugins.values()) {
+      const configs = plugin.instance.getSystemConfigs();
+      const menuName = plugin.instance.getConfigMenuName();
+      if (configs && configs.length > 0) {
+        allConfigs.push({
+          name: plugin.name,
+          configs,
+          menuName: menuName || `${plugin.name} 设置`
+        });
+      }
+    }
+    
+    return allConfigs;
+  }
+
+  /**
    * 刷新指定插件
    * @param pluginName 插件名称
    */

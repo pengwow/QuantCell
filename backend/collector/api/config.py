@@ -26,10 +26,14 @@ class ConfigUpdateRequest:
     Attributes:
         value: 配置值
         description: 配置描述，可选
+        plugin: 插件名称，可选，用于区分是插件配置还是基础配置
+        name: 配置名称，可选，用于区分系统配置页面的子菜单名称
     """
-    def __init__(self, value: str, description: Optional[str] = None):
+    def __init__(self, value: str, description: Optional[str] = None, plugin: Optional[str] = None, name: Optional[str] = None):
         self.value = value
         self.description = description
+        self.plugin = plugin
+        self.name = name
 
 
 @router.get("/", response_model=ApiResponse)
@@ -42,85 +46,20 @@ def get_all_configs():
     try:
         logger.info("开始获取所有系统配置")
         
-        # 获取所有配置
-        configs = SystemConfig.get_all()
+        # 获取所有配置的详细信息，包括插件配置
+        configs = SystemConfig.get_all_with_details()
         
-        # 结构化处理，将system字符串转换为对象
-        # if "system" in configs:
-        #     try:
-        #         import json
-        #         import re
-                
-        #         # 处理system字段
-        #         system_str = configs["system"]
-                
-        #         # 自定义解析器，处理非标准格式的配置字符串
-        #         def parse_system_config(config_str):
-        #             # 移除首尾的大括号
-        #             config_str = config_str.strip().strip('{}')
-                    
-        #             # 分割配置项
-        #             config_items = []
-        #             current_item = ''
-        #             inside_quotes = False
-        #             quote_char = ''
-                    
-        #             for char in config_str:
-        #                 if char in ['"', "'"] and (not current_item or current_item[-1] != '\\'):
-        #                     if inside_quotes and char == quote_char:
-        #                         inside_quotes = False
-        #                         quote_char = ''
-        #                     elif not inside_quotes:
-        #                         inside_quotes = True
-        #                         quote_char = char
-        #                 current_item += char
-        #                 if char == ',' and not inside_quotes:
-        #                     config_items.append(current_item.strip().rstrip(',').strip())
-        #                     current_item = ''
-                    
-        #             if current_item.strip():
-        #                 config_items.append(current_item.strip())
-                    
-        #             # 解析每个配置项
-        #             result = {}
-        #             for item in config_items:
-        #                 if ':' in item:
-        #                     # 分割键值对
-        #                     key_part, value_part = item.split(':', 1)
-        #                     key = key_part.strip().strip('"').strip("'")
-        #                     value = value_part.strip()
-                            
-        #                     # 处理值
-        #                     if value.startswith('"') and value.endswith('"'):
-        #                         value = value.strip('"')
-        #                     elif value.startswith("'") and value.endswith("'"):
-        #                         value = value.strip("'")
-        #                     elif value.isdigit():
-        #                         value = int(value)
-        #                     elif value.lower() in ['true', 'false']:
-        #                         value = value.lower() == 'true'
-        #                     # 否则保留为字符串
-                            
-        #                     result[key] = value
-                    
-        #             return result
-                
-                # 解析system配置
-                # system_dict = parse_system_config(system_str)
-                # configs["system"] = system_dict
-            #     logger.info("成功转换system配置为结构化对象")
-            # except Exception as e:
-            #     logger.warning(f"转换system配置失败: {e}")
-            #     logger.warning(f"原始system配置: {configs['system']}")
-            #     # 删除无效的system字段，使用默认值
-            #     del configs["system"]
-        # 
-        logger.info(f"成功获取所有系统配置，共 {len(configs)} 项")
+        # 构建简单的键值对映射，用于前端使用
+        simple_configs = {}
+        for key, config in configs.items():
+            simple_configs[key] = config["value"]
+        
+        logger.info(f"成功获取所有系统配置，共 {len(simple_configs)} 项")
         
         return ApiResponse(
             code=0,
             message="获取所有配置成功",
-            data=configs
+            data=simple_configs
         )
     except Exception as e:
         logger.error(f"获取所有配置失败: {e}")
@@ -168,8 +107,8 @@ def update_config(request: Request, config: Dict[str, Any]):
     
     Args:
         request: FastAPI请求对象，用于访问应用实例
-        config: 配置字典，包含key、value和可选的description
-        
+        config: 配置字典，包含key、value和可选的description、plugin
+    
     Returns:
         ApiResponse: 包含更新结果的响应
     """
@@ -181,11 +120,13 @@ def update_config(request: Request, config: Dict[str, Any]):
         key = config["key"]
         value = config["value"]
         description = config.get("description", "")
+        plugin = config.get("plugin", None)
+        name = config.get("name", None)
         
-        logger.info(f"开始更新配置: key={key}, value={value}")
+        logger.info(f"开始更新配置: key={key}, value={value}, plugin={plugin}, name={name}")
         
         # 更新配置
-        success = SystemConfig.set(key, value, description)
+        success = SystemConfig.set(key, value, description, plugin, name)
         
         if success:
             logger.info(f"成功更新配置: key={key}")
@@ -199,7 +140,9 @@ def update_config(request: Request, config: Dict[str, Any]):
                 data={
                     "key": key,
                     "value": value,
-                    "description": description
+                    "description": description,
+                    "plugin": plugin,
+                    "name": name
                 }
             )
         else:
@@ -254,29 +197,36 @@ def update_configs_batch(request: Request, configs: List[Dict[str, Any]]|Dict[st
     
     Args:
         request: FastAPI请求对象，用于访问应用实例
-        configs: 配置字典，键为配置名，值为配置值
-        
+        configs: 配置字典，键为配置名，值为配置值，或者配置列表
+    
     Returns:
         ApiResponse: 包含更新结果的响应
     """
     try:
         logger.info("开始批量更新系统配置")
-        logger.info(f"批量更新的配置数量: {len(configs)}")
         if isinstance(configs, dict):
             # 遍历配置，逐个更新
+            updated_count = 0
             for key, value in configs.items():
                 # 跳过非配置项（如__v_id等Vue内部属性）
                 if not key.startswith("__v"):
                     logger.info(f"更新配置: key={key}, value={value}")
                     SystemConfig.set(key, value)
+                    updated_count += 1
+            logger.info(f"批量更新的配置数量: {updated_count}")
         if isinstance(configs, list):
             # 遍历配置，逐个更新
+            updated_count = 0
             for config in configs:
                 key = config["key"]
                 value = config["value"]
                 description = config.get("description", "")
-                logger.info(f"更新配置: key={key}, value={value}")
-                SystemConfig.set(key, value, description)
+                plugin = config.get("plugin", None)
+                name = config.get("name", None)
+                logger.info(f"更新配置: key={key}, value={value}, plugin={plugin}, name={name}")
+                SystemConfig.set(key, value, description, plugin, name)
+                updated_count += 1
+            logger.info(f"批量更新的配置数量: {updated_count}")
         
         # 刷新应用上下文配置
         request.app.state.configs = load_system_configs()
@@ -285,7 +235,7 @@ def update_configs_batch(request: Request, configs: List[Dict[str, Any]]|Dict[st
         return ApiResponse(
             code=0,
             message="批量更新配置成功",
-            data={"updated_count": len(configs)}
+            data={"updated_count": len(configs) if isinstance(configs, list) else len(configs) - sum(1 for key in configs if key.startswith("__v"))}
         )
     except Exception as e:
         logger.error(f"批量更新配置失败: error={e}")

@@ -17,6 +17,8 @@ class SystemConfigBase(BaseModel):
     """
     value: str
     description: Optional[str] = None
+    plugin: Optional[str] = None  # 插件名称，用于区分是插件配置还是基础配置
+    name: Optional[str] = None  # 配置名称，用于区分系统配置页面的子菜单名称
 
 
 class SystemConfigCreate(SystemConfigBase):
