@@ -26,8 +26,6 @@ interface DataPoolFormProps {
   onAssetsChange: (assets: string[]) => void;
   symbolsLoading: boolean;
   onSearchSymbols: (direction: string, value: string) => void;
-  hasMore: boolean;
-  onLoadMore: () => void;
 }
 
 const DataPoolForm = (props: DataPoolFormProps) => {
@@ -41,22 +39,21 @@ const DataPoolForm = (props: DataPoolFormProps) => {
     selectedAssets,
     onAssetsChange,
     symbolsLoading,
-    onSearchSymbols,
-    hasMore,
-    onLoadMore
+    onSearchSymbols
   } = props;
   
   const [form] = Form.useForm();
 
-  // 监听initialData变化，动态更新表单值
+  // 监听initialData变化，只在组件首次渲染时设置表单值
   useEffect(() => {
+    // 只在组件首次渲染时设置表单初始值，避免后续渲染时重置
     if (initialData) {
       form.setFieldsValue({
         name: initialData.name,
         description: initialData.description
       });
     }
-  }, [initialData, form]);
+  }, []); // 空依赖数组，只执行一次
 
   const handleSubmit = (values: { name: string; description: string }) => {
     onSubmit({
@@ -135,22 +132,10 @@ const DataPoolForm = (props: DataPoolFormProps) => {
               }}
               render={item => item.title}
               titles={['可用资产', '已选择资产']}
-              listStyle={{ width: 300, height: 400 }}
+              listStyle={{ flex: 1, minWidth: 200, height: 400 }}
               operations={['添加', '移除']}
-              footer={({ direction }) => {
-                if (direction === 'left' && hasMore && !symbolsLoading) {
-                  return (
-                    <Button
-                      type="link"
-                      onClick={onLoadMore}
-                      disabled={symbolsLoading}
-                    >
-                      {symbolsLoading ? '加载中...' : '加载更多'}
-                    </Button>
-                  );
-                }
-                return null;
-              }}
+              className="data-pool-transfer"
+              pagination
             />
           </Spin>
         </Form.Item>

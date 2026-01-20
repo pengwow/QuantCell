@@ -489,7 +489,7 @@ class DataService:
             "task_info": task_info
         }
     
-    def fetch_symbols_from_exchange(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Dict[str, Any] = {}, type: Optional[str] = None) -> Dict[str, Any]:
+    def fetch_symbols_from_exchange(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Dict[str, Any] = {}, crypto_type: Optional[str] = None) -> Dict[str, Any]:
         """从第三方交易所API获取货币对列表
         
         Args:
@@ -498,19 +498,19 @@ class DataService:
             limit: 返回数量限制
             offset: 返回偏移量
             configs: 应用配置，包含代理信息等
-            type: 加密货币类型，如spot（现货）、future（合约）等
+            crypto_type: 加密货币类型，如spot（现货）、future（合约）等
             
         Returns:
             Dict[str, Any]: 包含货币对列表的数据
         """
-        logger.info(f"开始从交易所API获取加密货币对列表，交易所: {exchange}, 类型: {type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
+        logger.info(f"开始从交易所API获取加密货币对列表，交易所: {exchange}, 类型: {crypto_type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
         
         try:
             # 导入ccxt库
             import ccxt
-
+            logger.info(f"配置参数: {configs}")
             # 读取代理配置
-            proxy_enabled = configs.get("proxy_enabled") == "true"
+            proxy_enabled = configs.get("proxy_enabled") == "1"
             proxy_url = configs.get("proxy_url")
             proxy_username = configs.get("proxy_username")
             proxy_password = configs.get("proxy_password")
@@ -592,9 +592,11 @@ class DataService:
             try:
                 import json
 
-                from ..db.database import SessionLocal
+                from ..db.database import SessionLocal, init_database_config
                 from ..db.models import CryptoSymbol
                 
+                # 初始化数据库配置
+                init_database_config()
                 db = SessionLocal()
                 try:
                     # 先删除旧数据
@@ -646,7 +648,7 @@ class DataService:
                 "exchange": exchange
             }
     
-    def get_crypto_symbols(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Dict[str, Any] = {}, type: Optional[str] = None) -> Dict[str, Any]:
+    def get_crypto_symbols(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Dict[str, Any] = {}, crypto_type: Optional[str] = None) -> Dict[str, Any]:
         """获取加密货币对列表
         
         Args:
@@ -655,28 +657,30 @@ class DataService:
             limit: 返回数量限制
             offset: 返回偏移量
             configs: 应用配置，包含代理信息等
-            type: 加密货币类型，如spot（现货）、future（合约）等
+            crypto_type: 加密货币类型，如spot（现货）、future（合约）等
             
         Returns:
             Dict[str, Any]: 包含货币对列表的数据
         """
-        logger.info(f"开始获取加密货币对列表，交易所: {exchange}, 类型: {type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
+        logger.info(f"开始获取加密货币对列表，交易所: {exchange}, 类型: {crypto_type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
         
         # 只从数据库读取货币对数据，不直接调用第三方API
         try:
             import json
 
-            from ..db.database import SessionLocal
+            from ..db.database import SessionLocal, init_database_config
             from ..db.models import CryptoSymbol
             
+            # 初始化数据库配置
+            init_database_config()
             db = SessionLocal()
             try:
                 # 查询数据库中的货币对
                 query = db.query(CryptoSymbol).filter(CryptoSymbol.exchange == exchange)
                 
                 # 应用类型过滤条件
-                if type:
-                    query = query.filter(CryptoSymbol.type == type)
+                if crypto_type:
+                    query = query.filter(CryptoSymbol.type == crypto_type)
                 
                 # 应用过滤条件
                 if filter:
