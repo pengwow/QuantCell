@@ -1,442 +1,331 @@
-.chart-page-container {
-  padding: 20px;
-  background-color: var(--bg-primary);
-  min-height: 100vh;
-  position: relative;
-  overflow: hidden;
+/* 工具栏样式 */
+.chart-toolbar {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 5px;
+  box-shadow: var(--shadow-sm);
 }
 
-/* 科技感背景装饰 */
-.chart-page-container::before {
-  content: '';
+.toolbar-top {
+  display: flex;
+  align-items: center;
+  gap: 2px; /* 减少按钮间间隙 */
+  flex-wrap: wrap;
+  background-color: var(--bg-tertiary);
+  padding: 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.toolbar-toggle {
+  cursor: pointer;
+  padding: 5px;
+  background-color: transparent;
+  border: none;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  color: var(--text-secondary);
+  /* 调整div大小 */
+  width: 36px;
+  height: 36px;
+}
+
+.toolbar-toggle:hover {
+  background-color: rgba(100, 108, 255, 0.1);
+  color: var(--primary-color);
+}
+
+/* 图标容器样式 */
+.toggle-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* 图标样式 - 更大并添加旋转动画 */
+.toggle-icon svg {
+  width: 24px;
+  height: 24px;
+  transition: transform 0.5s ease;
+  transform: rotate(0deg);
+}
+
+/* 展开状态下图标向左旋转180度 */
+.toolbar-toggle.expanded .toggle-icon svg {
+  transform: rotate(-180deg);
+}
+
+/* 商品名样式 - 添加点击效果 */
+.symbol-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 16px;
+  font-weight: bold;
+  padding: 0 10px;
+  color: var(--text-primary);
+  border-right: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+/* 商品名悬停效果 */
+.symbol-name:hover {
+  background-color: rgba(100, 108, 255, 0.1);
+}
+
+.symbol-text {
+  color: var(--text-primary);
+}
+
+/* 时间周期按钮容器 - 相对定位 */
+.period-buttons-container {
+  position: relative;
+  display: inline-block;
+}
+
+.period-buttons {
+  display: flex;
+  // gap: 1px; /* 减少按钮间间隙 */
+  background-color: var(--bg-secondary);
+  /* 移除圆角 - 确保直角 */
+  overflow: hidden;
+  // border: 1px solid var(--border-color);
+}
+
+.period-btn {
+  padding: 4px 8px;
+  border: none;
+  background-color: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  color: var(--text-secondary);
+  /* 明确设置为直角 */
+  border-radius: 0;
+  /* 移除焦点轮廓 */
+  outline: none;
+}
+
+.period-btn:hover {
+  background-color: rgba(100, 108, 255, 0.1);
+  color: var(--primary-color);
+}
+
+.period-btn.active {
+  background-color: var(--primary-color);
+  color: white;
+  /* 明确设置选中状态为直角 */
+  border-radius: 0;
+}
+
+/* 移除所有按钮的焦点轮廓 */
+button {
+  outline: none;
+}
+
+/* 更多按钮特殊样式 */
+.period-btn.more-btn {
+  border-left: 1px solid var(--border-color);
+  color: var(--primary-color);
+  /* 明确设置为直角 */
+  border-radius: 0;
+}
+
+.period-btn.more-btn:hover {
+  background-color: rgba(100, 108, 255, 0.1);
+}
+
+/* 下拉菜单样式 - 绝对定位在更多按钮下方 */
+.more-periods-dropdown {
+  position: absolute;
+  top: 100%; /* 在更多按钮下方 */
+  right: 0; /* 右对齐 */
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  /* 移除圆角 - 确保直角 */
+  overflow: hidden;
+  z-index: 2000; /* 确保在最上方图层 */
+  /* 平滑显示/隐藏 */
+  opacity: 1;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* 下拉菜单中的按钮 */
+.more-periods-dropdown .period-btn {
+  width: 100%;
+  text-align: center;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* 下拉菜单中最后一个按钮移除底边框 */
+.more-periods-dropdown .period-btn:last-child {
+  border-bottom: none;
+}
+
+.function-buttons {
+  display: flex;
+  gap: 1px; /* 减少按钮间间隙 */
+  margin-left: auto;
+  background-color: var(--bg-secondary);
+  /* 移除圆角 - 确保直角 */
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.func-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 8px;
+  border: none;
+  background-color: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  color: var(--text-secondary);
+  /* 明确设置为直角 */
+  border-radius: 0;
+}
+
+.func-btn:hover {
+  background-color: rgba(100, 108, 255, 0.1);
+  color: var(--primary-color);
+}
+
+/* 垂直按钮样式 */
+.vertical-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-color);
+  /* 明确设置为直角 */
+  border-radius: 0;
+  background-color: var(--bg-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s;
+  color: var(--text-primary);
+}
+
+.vertical-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  background-color: rgba(100, 108, 255, 0.1);
+}
+
+.func-icon {
+  font-size: 14px;
+}
+
+/* 垂直悬浮工具栏样式 - 绝对定位，在伸缩按钮下方 */
+.vertical-toolbar {
+  position: absolute;
+  top: 35px; /* 在伸缩按钮下方 */
+  left: 0; /* 左侧对齐 */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000; /* 确保在顶部图层 */
+  background-color: var(--bg-secondary);
+  padding: 10px;
+  border-radius: 4px;
+  box-shadow: var(--shadow-sm);
+  opacity: 1;
+  transition: all 0.3s ease-in-out; /* 添加过渡动画 */
+}
+
+/* 垂直按钮样式 */
+.vertical-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--bg-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s;
+  color: var(--text-primary);
+}
+
+.vertical-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  background-color: rgba(100, 108, 255, 0.1);
+}
+
+/* 确保图表容器不受工具栏影响 */
+.chart-toolbar-container {
+  position: relative;
+  margin-bottom: 0 !important; /* 消除工具栏和图表之间的间隔 */
+  padding-bottom: 0 !important;
+}
+
+/* 确保k-line-chart div与内部canvas之间没有间隔 */
+.k-line-chart {
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 0 !important;
+  border: none !important; /* 移除边框，避免边框占用空间 */
+  border-radius: 0 !important;
+}
+
+/* 确保canvas元素与容器之间没有间隔 */
+.k-line-chart canvas {
+  display: block !important;
+  vertical-align: top !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 图表容器 */
+.chart-container {
+  position: relative;
+  width: 100%;
+  height: 600px; /* 确保完整显示横轴 */
+  padding: 0;
+  margin: 0;
+}
+
+/* 图表页面主容器 - 添加滚动条 */
+.chart-page-container {
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background-color: var(--bg-primary);
+}
+
+/* 图表加载状态 */
+.chart-loading {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: radial-gradient(circle at 30% 70%, rgba(100, 108, 255, 0.05) 0%, transparent 50%),
-              radial-gradient(circle at 70% 30%, rgba(139, 92, 246, 0.05) 0%, transparent 50%);
-  pointer-events: none;
-  z-index: 0;
-}
-
-h1 {
-  font-size: 24px;
-  margin-bottom: 20px;
-  background: var(--gradient-primary);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  position: relative;
-  z-index: 1;
-}
-
-/* 筛选区域样式 */
-.filter-section {
-  background-color: var(--bg-secondary);
-  padding: 20px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lg);
-  margin-bottom: 20px;
-  position: relative;
-  z-index: 1;
-  transition: all var(--transition-normal);
-}
-
-.filter-section:hover {
-  box-shadow: var(--shadow-lg), 0 0 30px rgba(100, 108, 255, 0.1);
-}
-
-.filter-row {
   display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  margin-bottom: 20px;
-}
-
-.filter-item {
-  flex: 1;
-  min-width: 150px;
-}
-
-.filter-item label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.filter-item input,
-.filter-item select {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 14px;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  transition: all var(--transition-fast);
-}
-
-.filter-item input:focus,
-.filter-item select:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.1);
-}
-
-.filter-actions {
-  display: flex;
-  gap: 10px;
-}
-
-/* 按钮样式 - 科技感设计 */
-.btn {
-  padding: 10px 16px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all var(--transition-fast);
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  position: relative;
-  overflow: hidden;
-  z-index: 1;
-}
-
-.btn::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(100, 108, 255, 0.1), transparent);
-  transition: left var(--transition-normal);
-  z-index: -1;
-}
-
-.btn:hover::before {
-  left: 100%;
-}
-
-.btn-primary {
-  background: var(--gradient-primary);
-  color: white;
-  border: none;
-}
-
-.btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 25px rgba(100, 108, 255, 0.3);
-}
-
-.btn-secondary {
-  background-color: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.btn-secondary:hover {
-  background-color: var(--bg-primary);
-  border-color: var(--primary-color);
-  transform: translateY(-1px);
-}
-
-/* 指标选择区域 */
-.indicator-section {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border-color);
-  position: relative;
-  z-index: 1;
-}
-
-.indicator-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.indicator-header h3 {
-  font-size: 16px;
-  color: var(--text-primary);
-  margin: 0;
-  font-weight: 600;
-}
-
-.indicator-info {
-  font-size: 14px;
-  color: var(--text-muted);
-}
-
-.indicator-list {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-/* 指标项样式 - Web3风格 */
-.indicator-item {
-  padding: 12px 16px;
-  background-color: var(--bg-secondary);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  min-width: 160px;
-  border: 1px solid var(--border-color);
-  position: relative;
-  overflow: hidden;
-  z-index: 1;
-}
-
-.indicator-item::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, rgba(100, 108, 255, 0.05) 0%, transparent 100%);
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-  z-index: -1;
-}
-
-.indicator-item:hover {
-  background-color: var(--bg-primary);
-  border-color: var(--primary-color);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.indicator-item:hover::before {
-  opacity: 1;
-}
-
-.indicator-item.active {
-  background: linear-gradient(135deg, rgba(100, 108, 255, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-  box-shadow: 0 0 20px rgba(100, 108, 255, 0.15);
-}
-
-.indicator-name {
-  font-weight: 600;
-  margin-bottom: 4px;
-  color: var(--text-primary);
-}
-
-.indicator-item.active .indicator-name {
-  background: var(--gradient-primary);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.indicator-desc {
-  font-size: 12px;
-  opacity: 0.7;
-  color: var(--text-secondary);
-}
-
-/* 图表区域 */
-.chart-section {
-  background-color: var(--bg-secondary);
-  padding: 20px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lg);
-  margin-bottom: 20px;
-  position: relative;
-  z-index: 1;
-  transition: all var(--transition-normal);
-}
-
-.chart-section:hover {
-  box-shadow: var(--shadow-lg), 0 0 30px rgba(100, 108, 255, 0.1);
-}
-
-.chart-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.chart-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.chart-stats {
-  font-size: 14px;
-  color: var(--text-muted);
-}
-
-/* 图表容器 - 科技感边框 */
-.chart-container {
-  width: 100%;
-  height: 600px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  overflow: hidden;
-  background-color: var(--bg-primary);
-  position: relative;
-  transition: all var(--transition-normal);
-}
-
-.chart-container:hover {
-  border-color: var(--primary-color);
-  box-shadow: inset 0 0 0 1px rgba(100, 108, 255, 0.2);
-}
-
-/* 指标配置区域 */
-.indicator-config-section {
-  background-color: var(--bg-secondary);
-  padding: 20px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lg);
-  position: relative;
-  z-index: 1;
-  transition: all var(--transition-normal);
-}
-
-.indicator-config-section:hover {
-  box-shadow: var(--shadow-lg), 0 0 30px rgba(100, 108, 255, 0.1);
-}
-
-.indicator-config-section h3 {
-  font-size: 16px;
-  color: var(--text-primary);
-  margin-bottom: 20px;
-  font-weight: 600;
-}
-
-.indicator-config-list {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-/* 配置项样式 - Web3风格 */
-.indicator-config-item {
-  flex: 1;
-  min-width: 250px;
-  padding: 18px;
-  background-color: var(--bg-primary);
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-  transition: all var(--transition-normal);
-  position: relative;
-  overflow: hidden;
-}
-
-.indicator-config-item::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 3px;
-  background: var(--gradient-primary);
-  transform: scaleX(0);
-  transition: transform var(--transition-normal);
-}
-
-.indicator-config-item:hover {
-  border-color: var(--primary-color);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
-}
-
-.indicator-config-item:hover::before {
-  transform: scaleX(1);
-}
-
-.config-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 18px;
-}
-
-.config-header span {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.btn-remove {
-  background: none;
-  border: none;
-  font-size: 18px;
-  color: var(--error-color);
-  cursor: pointer;
-  padding: 4px;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  transition: all var(--transition-fast);
-}
-
-.btn-remove:hover {
-  background-color: rgba(239, 68, 68, 0.1);
-  transform: scale(1.1);
-}
-
-.config-row {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  background-color: rgba(255, 255, 255, 0.8);
+  z-index: 100;
 }
 
-.config-row label {
-  font-size: 14px;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.config-row input {
-  width: 100px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  font-size: 14px;
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  transition: all var(--transition-fast);
-}
-
-.config-row input:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.1);
-}
-
-.config-row input[type="color"] {
-  width: 45px;
-  height: 35px;
-  padding: 2px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.config-row input[type="color"]:hover {
-  transform: scale(1.1);
-  border-color: var(--primary-color);
+/* 图表错误信息 */
+.chart-error {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  right: 20px;
+  z-index: 100;
 }
