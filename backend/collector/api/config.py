@@ -194,11 +194,11 @@ def delete_config(request: Request, key: str):
 @router.post("/batch", response_model=ApiResponse)
 def update_configs_batch(request: Request, configs: List[Dict[str, Any]]|Dict[str, Any]):
     """批量更新系统配置
-    
+
     Args:
         request: FastAPI请求对象，用于访问应用实例
         configs: 配置字典，键为配置名，值为配置值，或者配置列表
-    
+
     Returns:
         ApiResponse: 包含更新结果的响应
     """
@@ -239,4 +239,38 @@ def update_configs_batch(request: Request, configs: List[Dict[str, Any]]|Dict[st
         )
     except Exception as e:
         logger.error(f"批量更新配置失败: error={e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/plugin/{plugin_name}", response_model=ApiResponse)
+def get_plugin_config(plugin_name: str):
+    """获取指定插件的所有配置
+
+    Args:
+        plugin_name: 插件名称
+
+    Returns:
+        ApiResponse: 包含插件配置的响应
+    """
+    try:
+        logger.info(f"开始获取插件配置: {plugin_name}")
+        
+        # 获取所有配置的详细信息
+        all_configs = SystemConfig.get_all_with_details()
+        
+        # 过滤出与指定插件相关的配置
+        plugin_configs = {}
+        for key, config in all_configs.items():
+            if config.get("plugin") == plugin_name:
+                plugin_configs[key] = config["value"]
+        
+        logger.info(f"成功获取插件配置，共 {len(plugin_configs)} 项")
+        
+        return ApiResponse(
+            code=0,
+            message="获取插件配置成功",
+            data=plugin_configs
+        )
+    except Exception as e:
+        logger.error(f"获取插件配置失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

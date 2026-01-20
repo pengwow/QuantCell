@@ -26,7 +26,7 @@ type ConfigItem = {
 }
 import {
   Layout, Menu, Form, Input, Select, Switch, Button,
-  Typography, Card, Space, InputNumber, Tooltip
+  Typography, Card, Space, InputNumber, Tooltip, Spin
 } from 'antd';
 import {
   UserOutlined, BellOutlined, ApiOutlined, SettingOutlined,
@@ -135,6 +135,12 @@ const Setting = () => {
     configs: any[];
     menuName: string;
   }>>([]);
+  // 插件配置状态，用于管理插件配置值
+  const [pluginConfigValues, setPluginConfigValues] = useState<Record<string, Record<string, any>>>({});
+  // 插件加载状态，用于管理每个插件的加载状态
+  const [pluginLoadingStates, setPluginLoadingStates] = useState<Record<string, boolean>>({});
+  // 插件配置数据，存储每个插件的配置数据
+  const [pluginConfigData, setPluginConfigData] = useState<Record<string, Record<string, any>>>({});
 
   // 监听窗口大小变化
   useEffect(() => {
@@ -275,6 +281,105 @@ const Setting = () => {
     }
   }, [pluginConfigs]);
 
+  // 监听 APP_CONFIG 变化，当配置更新时重新加载插件配置值
+  useEffect(() => {
+    console.log('Setting component: 监听 APP_CONFIG 变化');
+    
+    // 初始检查
+    if (Object.keys(window.APP_CONFIG || {}).length > 0) {
+      console.log('Setting component: APP_CONFIG 已初始化，更新插件配置值');
+      updateLocalStateAndForm();
+    }
+    
+    // 定期检查 APP_CONFIG 变化
+    const checkInterval = setInterval(() => {
+      if (Object.keys(window.APP_CONFIG || {}).length > 0) {
+        console.log('Setting component: APP_CONFIG 已更新，重新加载插件配置值');
+        updateLocalStateAndForm();
+      }
+    }, 1000); // 每秒检查一次
+    
+    // 清理函数
+    return () => {
+      clearInterval(checkInterval);
+    };
+  }, []);
+
+  // 监听 currentTab 变化，当切换到插件配置页面时加载对应插件的配置
+  useEffect(() => {
+    console.log('Setting component: 监听 currentTab 变化:', currentTab);
+    
+    // 检查是否切换到插件配置页面
+    if (currentTab.startsWith('plugin-')) {
+      // 提取插件名称
+      const pluginName = currentTab.replace('plugin-', '');
+      console.log('Setting component: 切换到插件配置页面，插件名称:', pluginName);
+      
+      // 加载插件配置
+      const loadPluginConfig = async () => {
+        try {
+          console.log('Setting component: 开始加载插件配置:', pluginName);
+          // 更新加载状态
+          setPluginLoadingStates(prev => ({
+            ...prev,
+            [pluginName]: true
+          }));
+          
+          // 调用 API 获取插件配置
+          const configData = await configApi.getPluginConfig(pluginName);
+          console.log('Setting component: 插件配置加载成功:', configData);
+          
+          // 转换配置数据格式
+          const formattedConfig: Record<string, any> = {};
+          if (Array.isArray(configData)) {
+            // 如果返回的是数组形式，转换为键值对
+            configData.forEach(item => {
+              formattedConfig[item.key] = item.value;
+            });
+          } else if (configData && typeof configData === 'object') {
+            // 如果返回的是对象形式，直接使用
+            Object.keys(configData).forEach(key => {
+              formattedConfig[key] = configData[key];
+            });
+          } else {
+            // 处理无效数据
+            console.warn('Setting component: 插件配置数据格式无效:', configData);
+          }
+          
+          // 更新插件配置数据
+          setPluginConfigData(prev => ({
+            ...prev,
+            [pluginName]: formattedConfig
+          }));
+          
+          // 更新插件配置值状态
+          setPluginConfigValues(prev => ({
+            ...prev,
+            [pluginName]: formattedConfig
+          }));
+          
+          // 更新插件实例的配置
+          const pluginInstance = pluginManager.getPlugin(pluginName);
+          if (pluginInstance) {
+            Object.keys(formattedConfig).forEach(key => {
+              pluginInstance.instance.setConfig(key, formattedConfig[key]);
+            });
+          }
+        } catch (error) {
+          console.error('Setting component: 加载插件配置失败:', error);
+        } finally {
+          // 更新加载状态
+          setPluginLoadingStates(prev => ({
+            ...prev,
+            [pluginName]: false
+          }));
+        }
+      };
+      
+      loadPluginConfig();
+    }
+  }, [currentTab]);
+
   // 更新本地状态和表单数据
   const updateLocalStateAndForm = () => {
     console.log('Setting component: 开始更新本地状态和表单');
@@ -337,19 +442,26 @@ const Setting = () => {
 
       // 更新插件配置
       console.log('Setting component: 开始更新插件配置');
+      const newPluginConfigValues: Record<string, Record<string, any>> = {};
       pluginConfigs.forEach(pluginConfig => {
         console.log('Setting component: 更新插件配置:', pluginConfig.name);
         const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
         if (pluginInstance) {
+          const pluginValues: Record<string, any> = {};
           pluginConfig.configs.forEach(configItem => {
             const configValue = configs[configItem.key];
-            if (configValue !== undefined) {
+            if (configValue !== undefined && configValue !== null) {
               console.log('Setting component: 更新插件配置项:', configItem.key, '值:', configValue);
               pluginInstance.instance.setConfig(configItem.key, configValue);
+              pluginValues[configItem.key] = configValue;
             }
           });
+          newPluginConfigValues[pluginConfig.name] = pluginValues;
         }
       });
+      
+      // 更新插件配置值状态
+      setPluginConfigValues(newPluginConfigValues);
 
       // 构建表单数据，使用APP_CONFIG数据或本地状态默认值
       const finalBasicConfig = {
@@ -569,13 +681,16 @@ const Setting = () => {
           if (pluginInstance) {
             const configValue = pluginInstance.instance.getConfig(configItem.key);
             console.log('插件配置项:', configItem.key, '值:', configValue);
-            requestData.push({
-              key: configItem.key,
-              value: configValue,
-              description: `${pluginConfig.name}.${configItem.key}`,
-              plugin: pluginConfig.name,
-              name: pluginConfig.menuName
-            });
+            // 只保存非空值
+            if (configValue !== undefined && configValue !== null && configValue !== '') {
+              requestData.push({
+                key: configItem.key,
+                value: configValue,
+                description: `${pluginConfig.name}.${configItem.key}`,
+                plugin: pluginConfig.name,
+                name: pluginConfig.menuName
+              });
+            }
           }
         });
       });
@@ -1343,122 +1458,170 @@ const Setting = () => {
                 <Form layout="vertical">
                   {pluginConfig.configs.map(configItem => (
                     <Card key={configItem.key} size="small" style={{ marginBottom: 16 }}>
-                      {configItem.type === 'string' && (
-                        <Form.Item
-                          label={
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                              {configItem.description}
-                              <Tooltip title={configItem.description} placement="right">
-                                <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
-                              </Tooltip>
-                            </div>
-                          }
-                          name={configItem.key}
-                          rules={[{ required: true, message: '请输入配置值' }]}
-                          initialValue={(() => {
-                            const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
-                            return pluginInstance ? pluginInstance.instance.getConfig(configItem.key) : '';
-                          })()}
-                        >
-                          <Input
-                            placeholder={configItem.description}
-                            onChange={(e) => {
-                              const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
-                              if (pluginInstance) {
-                                pluginInstance.instance.setConfig(configItem.key, e.target.value);
+                      {/* 加载状态显示 */}
+                      {pluginLoadingStates[pluginConfig.name] ? (
+                        <div style={{ textAlign: 'center', padding: '40px' }}>
+                          <Spin size="large" />
+                          <div style={{ marginTop: '16px', color: '#666' }}>加载插件配置中...</div>
+                        </div>
+                      ) : (
+                        <>
+                          {configItem.type === 'string' && (
+                            <Form.Item
+                              label={
+                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                  {configItem.description}
+                                  <Tooltip title={configItem.description} placement="right">
+                                    <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                                  </Tooltip>
+                                </div>
                               }
-                            }}
-                          />
-                        </Form.Item>
-                      )}
-                      {configItem.type === 'number' && (
-                        <Form.Item
-                          label={
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                              {configItem.description}
-                              <Tooltip title={configItem.description} placement="right">
-                                <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
-                              </Tooltip>
-                            </div>
-                          }
-                          name={configItem.key}
-                          rules={[{ required: true, message: '请输入配置值' }]}
-                          initialValue={(() => {
-                            const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
-                            return pluginInstance ? pluginInstance.instance.getConfig(configItem.key) : 0;
-                          })()}
-                        >
-                          <InputNumber
-                            style={{ width: '100%' }}
-                            onChange={(value: number | null) => {
-                              const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
-                              if (pluginInstance) {
-                                pluginInstance.instance.setConfig(configItem.key, value || 0);
+                              name={configItem.key}
+                              rules={[{ required: true, message: '请输入配置值' }]}
+                            >
+                              <Input
+                                placeholder={configItem.description}
+                                value={pluginConfigData[pluginConfig.name]?.[configItem.key] || pluginConfigValues[pluginConfig.name]?.[configItem.key] || window.APP_CONFIG?.[configItem.key] || ''}
+                                onChange={(e) => {
+                                  const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+                                  if (pluginInstance) {
+                                    const value = e.target.value;
+                                    pluginInstance.instance.setConfig(configItem.key, value);
+                                    // 更新插件配置值状态
+                                    setPluginConfigValues(prev => ({
+                                      ...prev,
+                                      [pluginConfig.name]: {
+                                        ...prev[pluginConfig.name],
+                                        [configItem.key]: value
+                                      }
+                                    }));
+                                  }
+                                }}
+                              />
+                            </Form.Item>
+                          )}
+                          {configItem.type === 'number' && (
+                            <Form.Item
+                              label={
+                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                  {configItem.description}
+                                  <Tooltip title={configItem.description} placement="right">
+                                    <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                                  </Tooltip>
+                                </div>
                               }
-                            }}
-                          />
-                        </Form.Item>
-                      )}
-                      {configItem.type === 'boolean' && (
-                        <Form.Item
-                          label={
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                              {configItem.description}
-                              <Tooltip title={configItem.description} placement="right">
-                                <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
-                              </Tooltip>
-                            </div>
-                          }
-                          name={configItem.key}
-                          valuePropName="checked"
-                          initialValue={(() => {
-                            const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
-                            const value = pluginInstance ? pluginInstance.instance.getConfig(configItem.key) : false;
-                            return value === 'true' || value === true;
-                          })()}
-                        >
-                          <Switch
-                            checkedChildren="启用"
-                            unCheckedChildren="禁用"
-                            onChange={(checked) => {
-                              const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
-                              if (pluginInstance) {
-                                pluginInstance.instance.setConfig(configItem.key, checked);
+                              name={configItem.key}
+                              rules={[{ required: true, message: '请输入配置值' }]}
+                            >
+                              <InputNumber
+                                style={{ width: '100%' }}
+                                value={pluginConfigData[pluginConfig.name]?.[configItem.key] !== undefined ? 
+                                  Number(pluginConfigData[pluginConfig.name][configItem.key]) : 
+                                  (pluginConfigValues[pluginConfig.name]?.[configItem.key] !== undefined ? 
+                                    pluginConfigValues[pluginConfig.name][configItem.key] : 
+                                    (window.APP_CONFIG?.[configItem.key] !== undefined ? 
+                                      Number(window.APP_CONFIG[configItem.key]) : 0
+                                    )
+                                  )
+                                }
+                                onChange={(value: number | null) => {
+                                  const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+                                  if (pluginInstance) {
+                                    const finalValue = value || 0;
+                                    pluginInstance.instance.setConfig(configItem.key, finalValue);
+                                    // 更新插件配置值状态
+                                    setPluginConfigValues(prev => ({
+                                      ...prev,
+                                      [pluginConfig.name]: {
+                                        ...prev[pluginConfig.name],
+                                        [configItem.key]: finalValue
+                                      }
+                                    }));
+                                  }
+                                }}
+                              />
+                            </Form.Item>
+                          )}
+                          {configItem.type === 'boolean' && (
+                            <Form.Item
+                              label={
+                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                  {configItem.description}
+                                  <Tooltip title={configItem.description} placement="right">
+                                    <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                                  </Tooltip>
+                                </div>
                               }
-                            }}
-                          />
-                        </Form.Item>
-                      )}
-                      {configItem.type === 'select' && configItem.options && (
-                        <Form.Item
-                          label={
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                              {configItem.description}
-                              <Tooltip title={configItem.description} placement="right">
-                                <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
-                              </Tooltip>
-                            </div>
-                          }
-                          name={configItem.key}
-                          rules={[{ required: true, message: '请选择配置值' }]}
-                          initialValue={(() => {
-                            const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
-                            return pluginInstance ? pluginInstance.instance.getConfig(configItem.key) : configItem.options[0];
-                          })()}
-                        >
-                          <Select
-                            options={configItem.options.map((option: string) => ({
-                              value: option,
-                              label: option
-                            }))}
-                            onChange={(value) => {
-                              const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
-                              if (pluginInstance) {
-                                pluginInstance.instance.setConfig(configItem.key, value);
+                              name={configItem.key}
+                              valuePropName="checked"
+                            >
+                              <Switch
+                                checkedChildren="启用"
+                                unCheckedChildren="禁用"
+                                checked={pluginConfigData[pluginConfig.name]?.[configItem.key] !== undefined ? 
+                                  (pluginConfigData[pluginConfig.name][configItem.key] === 'true' || pluginConfigData[pluginConfig.name][configItem.key] === true) : 
+                                  (pluginConfigValues[pluginConfig.name]?.[configItem.key] !== undefined ? 
+                                    pluginConfigValues[pluginConfig.name][configItem.key] : 
+                                    (window.APP_CONFIG?.[configItem.key] !== undefined ? 
+                                      (window.APP_CONFIG[configItem.key] === 'true' || window.APP_CONFIG[configItem.key] === true) : 
+                                      false
+                                    )
+                                  )
+                                }
+                                onChange={(checked) => {
+                                  const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+                                  if (pluginInstance) {
+                                    pluginInstance.instance.setConfig(configItem.key, checked);
+                                    // 更新插件配置值状态
+                                    setPluginConfigValues(prev => ({
+                                      ...prev,
+                                      [pluginConfig.name]: {
+                                        ...prev[pluginConfig.name],
+                                        [configItem.key]: checked
+                                      }
+                                    }));
+                                  }
+                                }}
+                              />
+                            </Form.Item>
+                          )}
+                          {configItem.type === 'select' && configItem.options && (
+                            <Form.Item
+                              label={
+                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                  {configItem.description}
+                                  <Tooltip title={configItem.description} placement="right">
+                                    <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                                  </Tooltip>
+                                </div>
                               }
-                            }}
-                          />
-                        </Form.Item>
+                              name={configItem.key}
+                              rules={[{ required: true, message: '请选择配置值' }]}
+                            >
+                              <Select
+                                options={configItem.options.map((option: string) => ({
+                                  value: option,
+                                  label: option
+                                }))}
+                                value={pluginConfigData[pluginConfig.name]?.[configItem.key] || pluginConfigValues[pluginConfig.name]?.[configItem.key] || window.APP_CONFIG?.[configItem.key] || configItem.options[0]}
+                                onChange={(value) => {
+                                  const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
+                                  if (pluginInstance) {
+                                    pluginInstance.instance.setConfig(configItem.key, value);
+                                    // 更新插件配置值状态
+                                    setPluginConfigValues(prev => ({
+                                      ...prev,
+                                      [pluginConfig.name]: {
+                                        ...prev[pluginConfig.name],
+                                        [configItem.key]: value
+                                      }
+                                    }));
+                                  }
+                                }}
+                              />
+                            </Form.Item>
+                          )}
+                        </>
                       )}
                     </Card>
                   ))}

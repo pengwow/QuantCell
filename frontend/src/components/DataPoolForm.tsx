@@ -6,7 +6,7 @@
 import { useEffect } from 'react';
 import { Form, Input, Button, Space, Transfer, Spin } from 'antd';
 
-interface AssetPoolFormProps {
+interface DataPoolFormProps {
   initialData?: {
     id?: string;
     name: string;
@@ -19,7 +19,7 @@ interface AssetPoolFormProps {
     assets: string[];
   }) => void;
   onCancel: () => void;
-  assetPoolNames: string[];
+  dataPoolNames: string[];
   // 资产相关属性
   availableAssets: string[];
   selectedAssets: string[];
@@ -30,12 +30,12 @@ interface AssetPoolFormProps {
   onLoadMore: () => void;
 }
 
-const AssetPoolForm = (props: AssetPoolFormProps) => {
+const DataPoolForm = (props: DataPoolFormProps) => {
   const { 
     initialData = { name: '', description: '' }, 
     onSubmit, 
     onCancel,
-    assetPoolNames,
+    dataPoolNames,
     // 资产相关属性
     availableAssets,
     selectedAssets,
@@ -67,8 +67,7 @@ const AssetPoolForm = (props: AssetPoolFormProps) => {
   };
 
   return (
-    <div className="asset-pool-form-container">
-      {/* <h3>{initialData.id ? '编辑资产池' : '创建资产池'}</h3> */}
+    <div className="data-pool-form-container">
       <Form
         form={form}
         layout="vertical"
@@ -77,26 +76,26 @@ const AssetPoolForm = (props: AssetPoolFormProps) => {
           description: initialData.description
         }}
         onFinish={handleSubmit}
-        className="asset-pool-form"
+        className="data-pool-form"
       >
         <Form.Item
           name="name"
-          label="资产池名称"
+          label="数据池名称"
           rules={[
-            { required: true, message: '请输入资产池名称' },
-            { min: 2, message: '资产池名称长度不能少于2个字符' },
+            { required: true, message: '请输入数据池名称' },
+            { min: 2, message: '数据池名称长度不能少于2个字符' },
             {
               validator: (_, value) => {
                 // 检查名称是否已存在
-                const isDuplicate = assetPoolNames.some(
+                const isDuplicate = dataPoolNames.some(
                   name => name === value && name !== initialData?.name
                 );
-                return isDuplicate ? Promise.reject(new Error('资产池名称已存在')) : Promise.resolve();
+                return isDuplicate ? Promise.reject(new Error('数据池名称已存在')) : Promise.resolve();
               }
             }
           ]}
         >
-          <Input placeholder="请输入资产池名称" />
+          <Input placeholder="请输入数据池名称" />
         </Form.Item>
 
         <Form.Item
@@ -106,7 +105,7 @@ const AssetPoolForm = (props: AssetPoolFormProps) => {
             { required: true, message: '请输入数据池描述' }
           ]}
         >
-          <Input.TextArea rows={4} placeholder="请输入资产池描述" />
+          <Input.TextArea rows={4} placeholder="请输入数据池描述" />
         </Form.Item>
 
         <Form.Item
@@ -171,4 +170,4 @@ const AssetPoolForm = (props: AssetPoolFormProps) => {
   );
 };
 
-export default AssetPoolForm;
+export default DataPoolForm;

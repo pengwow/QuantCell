@@ -245,7 +245,7 @@ export interface DataManagementState {
  */
 export const useDataManagementStore = create<DataManagementState>((set) => ({
   // 初始状态
-  currentTab: 'asset-pools',
+  currentTab: 'data-pools',
   cryptoData: [
     {
       id: 'bitcoin',
