@@ -55,10 +55,8 @@ const DataPoolManager = () => {
   const [searchKeyword, setSearchKeyword] = useState('');
   // 分页状态
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(100);
+  const [pageSize] = useState(10000); // 设置为很大的值，一次读取全部数据
   const [, setTotalSymbols] = useState(0);
-  // 是否还有更多数据
-  const [hasMore, setHasMore] = useState(true);
   // 翻译函数
   const { t } = useTranslation(); 
 
@@ -122,7 +120,20 @@ const DataPoolManager = () => {
         ...data,
         type: systemConfig.current_market_type || 'crypto'
       };
-      await dataPoolApi.createDataPool(newPoolData);
+      
+      // 创建数据池并获取返回的池ID
+      const createdPool = await dataPoolApi.createDataPool(newPoolData);
+      // 处理后端返回的不同ID字段名，包括pool_id
+      const poolId = createdPool.id || createdPool._id || createdPool.pool_id;
+      
+      // 添加数据池资产
+      if (poolId) {
+        await dataPoolApi.addPoolAssets(poolId, {
+          assets: data.assets,
+          asset_type: systemConfig.current_market_type
+        });
+      }
+      
       setModalVisible(false);
       message.success('数据池创建成功');
       fetchDataPools(); // 重新获取数据池数据，确保资产数量正确
@@ -240,8 +251,8 @@ const DataPoolManager = () => {
       
       // 构建请求参数
       const params: any = {
-        // 当市场类型为加密货币时，使用具体的交易模式作为 type 参数
-        type: systemConfig.current_market_type === 'crypto' 
+        // 当市场类型为加密货币时，使用具体的交易模式作为 crypto_type 参数
+        crypto_type: systemConfig.current_market_type === 'crypto' 
           ? systemConfig.crypto_trading_mode 
           : systemConfig.current_market_type,
         exchange: systemConfig.exchange,
@@ -278,9 +289,8 @@ const DataPoolManager = () => {
         setPage(2); // 下一页从2开始
       }
       
-      // 更新总数和是否还有更多数据
+      // 更新总数
       setTotalSymbols(total);
-      setHasMore(availableSymbols.length + symbolsList.length < total);
     } catch (error) {
       console.error('获取加密货币符号失败:', error);
       message.error('获取加密货币符号失败');
@@ -385,7 +395,7 @@ const DataPoolManager = () => {
           rowKey="id"
           bordered
           pagination={false}
-          scroll={{ y: 55 * 5 }}
+          scroll={{ x: 'max-content' }}
           locale={{ emptyText: '暂无数据池，请点击"创建数据池"按钮添加' }}
           style={{ marginTop: 16 }}
         />
@@ -399,6 +409,7 @@ const DataPoolManager = () => {
         onCancel={handleModalCancel}
         width={1000}
       >
+
         <DataPoolForm
           initialData={currentPool || { name: '', description: '' }}
           onSubmit={currentPool ? handleEditPool : handleCreatePool}
@@ -420,9 +431,8 @@ const DataPoolManager = () => {
             }
             // 右侧搜索时不调用API，只在本地过滤
           }}
-          hasMore={hasMore}
-          onLoadMore={() => fetchCryptoSymbols(true)}
         />
+
       </Modal>
     </div>
   );

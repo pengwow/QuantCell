@@ -94,7 +94,7 @@ const DataQuality = ({ systemConfig }: DataQualityProps) => {
     try {
       setIsLoadingSymbols(true);
       const response = await dataApi.getCryptoSymbols({
-        type: systemConfig.crypto_trading_mode,
+        crypto_type: systemConfig.crypto_trading_mode,
         exchange: systemConfig.exchange,
         limit: 1000
       });

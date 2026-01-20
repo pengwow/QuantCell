@@ -1,0 +1,6 @@
+[
+  {
+    "type": "sqlite",
+    "path": "/Users/liupeng/workspace/qbot/backend/data/qbot_sqlite.db"
+  }
+]
