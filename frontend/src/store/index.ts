@@ -52,6 +52,8 @@ export interface StrategyState {
   closeDetailModal: () => void;
   editStrategy: (strategyId: string) => void;
   toggleStrategyStatus: (strategyId: string) => void;
+  pauseStrategy: (strategyId: string) => void;
+  resumeStrategy: (strategyId: string) => void;
   createNewStrategy: () => void;
   refreshData: () => void;
 }
@@ -81,10 +83,10 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       const strategies: Strategy[] = [
         {
           id: '1',
-          name: '高优先级告警处理',
-          description: '自动处理高优先级告警，执行预设的应急响应流程',
+          name: '趋势跟踪策略',
+          description: '基于移动平均线的趋势跟踪策略，在趋势形成时入场，趋势反转时出场',
           status: 'active',
-          statusText: '活跃',
+          statusText: '运行中',
           createdAt: '2024-01-15 10:30:00',
           updatedAt: '2024-01-20 14:20:00',
           createdBy: '系统管理员',
@@ -94,40 +96,187 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
             { timestamp: '2024-01-20 15:30:00', status: 'success' },
             { timestamp: '2024-01-20 14:15:00', status: 'success' },
             { timestamp: '2024-01-20 10:45:00', status: 'failed' }
-          ]
+          ],
+          // 量化交易相关字段
+          currentReturn: 8.5,
+          totalReturn: 15.2,
+          startTime: '2024-01-20 09:00:00',
+          lastTradeTime: '2024-01-20 15:25:00',
+          tradeRecords: [
+            {
+              id: '101',
+              timestamp: '2024-01-20 15:25:00',
+              symbol: 'BTC/USDT',
+              action: 'sell',
+              price: 42567.89,
+              quantity: 0.05,
+              amount: 2128.39,
+              status: 'filled'
+            },
+            {
+              id: '100',
+              timestamp: '2024-01-20 10:15:00',
+              symbol: 'BTC/USDT',
+              action: 'buy',
+              price: 41234.56,
+              quantity: 0.05,
+              amount: 2061.73,
+              status: 'filled'
+            },
+            {
+              id: '99',
+              timestamp: '2024-01-20 09:30:00',
+              symbol: 'ETH/USDT',
+              action: 'buy',
+              price: 2245.67,
+              quantity: 1.5,
+              amount: 3368.51,
+              status: 'filled'
+            }
+          ],
+          returnRateData: [
+            { timestamp: '2024-01-20 09:00:00', value: 0 },
+            { timestamp: '2024-01-20 09:30:00', value: 0.5 },
+            { timestamp: '2024-01-20 10:00:00', value: 1.2 },
+            { timestamp: '2024-01-20 10:30:00', value: 0.8 },
+            { timestamp: '2024-01-20 11:00:00', value: 1.5 },
+            { timestamp: '2024-01-20 11:30:00', value: 2.3 },
+            { timestamp: '2024-01-20 12:00:00', value: 1.8 },
+            { timestamp: '2024-01-20 12:30:00', value: 2.5 },
+            { timestamp: '2024-01-20 13:00:00', value: 3.2 },
+            { timestamp: '2024-01-20 13:30:00', value: 2.8 },
+            { timestamp: '2024-01-20 14:00:00', value: 3.5 },
+            { timestamp: '2024-01-20 14:30:00', value: 4.2 },
+            { timestamp: '2024-01-20 15:00:00', value: 3.8 },
+            { timestamp: '2024-01-20 15:25:00', value: 8.5 }
+          ],
+          performance: {
+            winRate: 68.5,
+            profitLossRatio: 1.8,
+            maxDrawdown: 12.3,
+            totalTrades: 45,
+            winningTrades: 31,
+            losingTrades: 14,
+            totalProfit: 12500,
+            totalLoss: 6950,
+            averageProfit: 403.23,
+            averageLoss: 496.43,
+            sharpeRatio: 1.25,
+            sortinoRatio: 1.42,
+            calmarRatio: 0.85
+          }
         },
         {
           id: '2',
-          name: '资源使用率监控',
-          description: '监控服务器CPU、内存、磁盘使用率，超过阈值时发出告警',
-          status: 'active',
-          statusText: '活跃',
+          name: '均值回归策略',
+          description: '基于价格偏离均值的程度进行交易，当价格偏离过大时入场，回归均值时出场',
+          status: 'paused',
+          statusText: '已暂停',
           createdAt: '2024-01-10 09:15:00',
           updatedAt: '2024-01-18 11:40:00',
-          createdBy: '运维工程师',
+          createdBy: '量化分析师',
           executionFrequency: '5分钟',
           ruleCount: 8,
           executionHistory: [
             { timestamp: '2024-01-20 15:00:00', status: 'success' },
             { timestamp: '2024-01-20 14:55:00', status: 'success' },
             { timestamp: '2024-01-20 14:50:00', status: 'success' }
-          ]
+          ],
+          // 量化交易相关字段
+          currentReturn: 5.2,
+          totalReturn: 9.8,
+          startTime: '2024-01-20 09:00:00',
+          lastTradeTime: '2024-01-20 14:45:00',
+          tradeRecords: [
+            {
+              id: '98',
+              timestamp: '2024-01-20 14:45:00',
+              symbol: 'ETH/USDT',
+              action: 'sell',
+              price: 2267.89,
+              quantity: 1.0,
+              amount: 2267.89,
+              status: 'filled'
+            },
+            {
+              id: '97',
+              timestamp: '2024-01-20 13:20:00',
+              symbol: 'ETH/USDT',
+              action: 'buy',
+              price: 2234.56,
+              quantity: 1.0,
+              amount: 2234.56,
+              status: 'filled'
+            }
+          ],
+          returnRateData: [
+            { timestamp: '2024-01-20 09:00:00', value: 0 },
+            { timestamp: '2024-01-20 09:30:00', value: 0.2 },
+            { timestamp: '2024-01-20 10:00:00', value: -0.5 },
+            { timestamp: '2024-01-20 10:30:00', value: 0.1 },
+            { timestamp: '2024-01-20 11:00:00', value: 0.8 },
+            { timestamp: '2024-01-20 11:30:00', value: 1.2 },
+            { timestamp: '2024-01-20 12:00:00', value: 0.9 },
+            { timestamp: '2024-01-20 12:30:00', value: 1.5 },
+            { timestamp: '2024-01-20 13:00:00', value: 1.2 },
+            { timestamp: '2024-01-20 13:30:00', value: 0.8 },
+            { timestamp: '2024-01-20 14:00:00', value: 1.0 },
+            { timestamp: '2024-01-20 14:30:00', value: 1.5 },
+            { timestamp: '2024-01-20 14:45:00', value: 5.2 }
+          ],
+          performance: {
+            winRate: 62.3,
+            profitLossRatio: 1.5,
+            maxDrawdown: 8.7,
+            totalTrades: 32,
+            winningTrades: 20,
+            losingTrades: 12,
+            totalProfit: 8750,
+            totalLoss: 5830,
+            averageProfit: 437.50,
+            averageLoss: 485.83,
+            sharpeRatio: 1.12,
+            sortinoRatio: 1.28,
+            calmarRatio: 0.92
+          }
         },
         {
           id: '3',
-          name: '异常登录检测',
-          description: '检测异常登录行为，包括非常规时间、非常规地点登录',
+          name: '突破策略',
+          description: '基于价格突破关键阻力位或支撑位进行交易，捕捉趋势的开始',
           status: 'inactive',
-          statusText: '停用',
+          statusText: '已停止',
           createdAt: '2024-01-05 16:20:00',
           updatedAt: '2024-01-12 13:10:00',
-          createdBy: '安全管理员',
+          createdBy: '交易员',
           executionFrequency: '实时',
           ruleCount: 15,
           executionHistory: [
             { timestamp: '2024-01-15 09:30:00', status: 'success' },
             { timestamp: '2024-01-14 18:20:00', status: 'success' }
-          ]
+          ],
+          // 量化交易相关字段
+          currentReturn: 0,
+          totalReturn: 22.5,
+          startTime: '',
+          lastTradeTime: '2024-01-15 16:30:00',
+          tradeRecords: [],
+          returnRateData: [],
+          performance: {
+            winRate: 71.2,
+            profitLossRatio: 2.1,
+            maxDrawdown: 15.6,
+            totalTrades: 28,
+            winningTrades: 20,
+            losingTrades: 8,
+            totalProfit: 15600,
+            totalLoss: 7430,
+            averageProfit: 780.00,
+            averageLoss: 928.75,
+            sharpeRatio: 1.35,
+            sortinoRatio: 1.58,
+            calmarRatio: 0.78
+          }
         }
       ];
       set({ strategies, isLoading: false });
@@ -191,8 +340,53 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
           const newStatus = strategy.status === 'active' ? 'inactive' : 'active';
           return {
             ...strategy,
-            status: newStatus as 'active' | 'inactive',
-            statusText: newStatus === 'active' ? '活跃' : '停用'
+            status: newStatus as 'active' | 'inactive' | 'paused',
+            statusText: newStatus === 'active' ? '运行中' : '已停止',
+            startTime: newStatus === 'active' ? new Date().toLocaleString() : '',
+            lastTradeTime: newStatus === 'active' ? new Date().toLocaleString() : strategy.lastTradeTime
+          };
+        }
+        return strategy;
+      });
+      const activeStrategies = strategies.filter(s => s.status === 'active').length;
+      return { strategies, activeStrategies };
+    });
+  },
+
+  /**
+   * 暂停策略
+   * @param strategyId 策略ID
+   */
+  pauseStrategy: (strategyId: string) => {
+    set(state => {
+      const strategies: Strategy[] = state.strategies.map(strategy => {
+        if (strategy.id === strategyId) {
+          return {
+            ...strategy,
+            status: 'paused' as const,
+            statusText: '已暂停'
+          };
+        }
+        return strategy;
+      });
+      const activeStrategies = strategies.filter(s => s.status === 'active').length;
+      return { strategies, activeStrategies };
+    });
+  },
+
+  /**
+   * 恢复策略
+   * @param strategyId 策略ID
+   */
+  resumeStrategy: (strategyId: string) => {
+    set(state => {
+      const strategies: Strategy[] = state.strategies.map(strategy => {
+        if (strategy.id === strategyId) {
+          return {
+            ...strategy,
+            status: 'active' as const,
+            statusText: '运行中',
+            startTime: strategy.startTime || new Date().toLocaleString()
           };
         }
         return strategy;
