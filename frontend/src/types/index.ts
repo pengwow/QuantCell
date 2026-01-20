@@ -140,9 +140,9 @@ export interface Task {
 }
 
 /**
- * 资产池类型定义
+ * 数据池类型定义
  */
-export interface AssetPool {
+export interface DataPool {
   id: string;
   name: string;
   description: string;

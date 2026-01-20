@@ -234,6 +234,10 @@
   "volatility": "波动率",
   "information_ratio": "信息比率",
   "select_backtest_task": "请选择一个回测任务查看详情",
+  "data_pool_management": "数据池管理",
+  "data_collection": "数据采集",
+  "data_quality": "数据质量",
+  "data_visualization": "数据可视化",
   "strategy_config": "策略配置",
   "backtest_config": "回测配置"
 }

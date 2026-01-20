@@ -1,15 +1,18 @@
 /**
- * 资产池管理组件
- * 功能：管理资产池的组件，包括列表展示、创建、编辑和删除功能
+ * 数据池管理组件
+ * 功能：管理数据池的组件，包括列表展示、创建、编辑和删除功能
  */
 import { useState, useEffect } from 'react';
 import { Table, Modal, Button, Space, message, Popconfirm, Spin, Tooltip } from 'antd';
 import { EditOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import type { TableColumnsType } from 'antd';
-import { assetPoolApi, configApi, dataApi } from '../api';
-import AssetPoolForm from './AssetPoolForm';
+import { dataPoolApi, configApi, dataApi } from '../api';
+import DataPoolForm from './DataPoolForm';
+import { useTranslation } from 'react-i18next';
 
-interface AssetPool {
+
+
+interface DataPool {
   id: string;
   name: string;
   description: string;
@@ -25,17 +28,17 @@ interface SystemConfig {
   [key: string]: any;
 }
 
-const AssetPoolManager = () => {
-  // 资产池列表数据
-  const [assetPools, setAssetPools] = useState<AssetPool[]>([]);
+const DataPoolManager = () => {
+  // 数据池列表数据
+  const [dataPools, setDataPools] = useState<DataPool[]>([]);
   // 加载状态
   const [loading, setLoading] = useState(false);
   // 模态框可见性
   const [modalVisible, setModalVisible] = useState(false);
-  // 当前编辑的资产池数据
-  const [currentPool, setCurrentPool] = useState<AssetPool | null>(null);
+  // 当前编辑的数据池数据
+  const [currentPool, setCurrentPool] = useState<DataPool | null>(null);
   // 模态框标题
-  const [modalTitle, setModalTitle] = useState('创建资产池');
+  const [modalTitle, setModalTitle] = useState('创建数据池');
   // 系统配置
   const [systemConfig, setSystemConfig] = useState<SystemConfig>({
     current_market_type: 'crypto',
@@ -56,6 +59,9 @@ const AssetPoolManager = () => {
   const [, setTotalSymbols] = useState(0);
   // 是否还有更多数据
   const [hasMore, setHasMore] = useState(true);
+  // 翻译函数
+  const { t } = useTranslation(); 
+
 
   // 加载系统配置
   const loadSystemConfig = async () => {
@@ -77,33 +83,33 @@ const AssetPoolManager = () => {
     }
   };
 
-  // 加载资产池数据
+  // 加载数据池数据
   useEffect(() => {
-    // 先加载系统配置，然后获取资产池数据
+    // 先加载系统配置，然后获取数据池数据
     const loadData = async () => {
       await loadSystemConfig();
-      fetchAssetPools();
+      fetchDataPools();
     };
     
     loadData();
   }, []);
 
-  const fetchAssetPools = async () => {
+  const fetchDataPools = async () => {
     try {
       setLoading(true);
-      const data = await assetPoolApi.getAssetPools(systemConfig.current_market_type);
-      setAssetPools(data || []);
+      const data = await dataPoolApi.getDataPools(systemConfig.current_market_type);
+      setDataPools(data || []);
     } catch (error) {
-      console.error('加载资产池数据失败:', error);
-      message.error('加载资产池数据失败');
+      console.error('加载数据池数据失败:', error);
+      message.error('加载数据池数据失败');
     } finally {
       setLoading(false);
     }
   };
 
   /**
-   * 处理创建资产池
-   * @param data 资产池数据
+   * 处理创建数据池
+   * @param data 数据池数据
    */
   const handleCreatePool = async (data: {
     name: string;
@@ -116,19 +122,19 @@ const AssetPoolManager = () => {
         ...data,
         type: systemConfig.current_market_type || 'crypto'
       };
-      await assetPoolApi.createAssetPool(newPoolData);
+      await dataPoolApi.createDataPool(newPoolData);
       setModalVisible(false);
-      message.success('资产池创建成功');
-      fetchAssetPools(); // 重新获取资产池数据，确保资产数量正确
+      message.success('数据池创建成功');
+      fetchDataPools(); // 重新获取数据池数据，确保资产数量正确
     } catch (error) {
-      console.error('创建资产池失败:', error);
-      message.error('创建资产池失败');
+      console.error('创建数据池失败:', error);
+      message.error('创建数据池失败');
     }
   };
 
   /**
-   * 处理编辑资产池
-   * @param data 资产池数据
+   * 处理编辑数据池
+   * @param data 数据池数据
    */
   const handleEditPool = async (data: {
     id?: string;
@@ -143,44 +149,44 @@ const AssetPoolManager = () => {
         ...data,
         type: systemConfig.current_market_type || 'crypto'
       };
-      await assetPoolApi.updateAssetPool(data.id, updateData);
+      await dataPoolApi.updateDataPool(data.id, updateData);
       
-      // 更新资产池资产
-      await assetPoolApi.addPoolAssets(data.id, {
+      // 更新数据池资产
+      await dataPoolApi.addPoolAssets(data.id, {
         assets: data.assets,
         asset_type: systemConfig.current_market_type
       });
       
       setModalVisible(false);
       setCurrentPool(null);
-      message.success('资产池更新成功');
-      fetchAssetPools(); // 重新获取资产池数据，确保资产数量正确
+      message.success('数据池更新成功');
+      fetchDataPools(); // 重新获取数据池数据，确保资产数量正确
     } catch (error) {
-      console.error('更新资产池失败:', error);
-      message.error('更新资产池失败');
+      console.error('更新数据池失败:', error);
+      message.error('更新数据池失败');
     }
   };
 
   /**
-   * 处理删除资产池
-   * @param id 资产池ID
+   * 处理删除数据池
+   * @param id 数据池ID
    */
   const handleDeletePool = async (id: string) => {
     try {
-      await assetPoolApi.deleteAssetPool(id, systemConfig.current_market_type);
-      setAssetPools(prev => prev.filter(pool => pool.id !== id));
-      message.success('资产池删除成功');
+      await dataPoolApi.deleteDataPool(id, systemConfig.current_market_type);
+      setDataPools(prev => prev.filter(pool => pool.id !== id));
+      message.success('数据池删除成功');
     } catch (error) {
-      console.error('删除资产池失败:', error);
-      message.error('删除资产池失败');
+      console.error('删除数据池失败:', error);
+      message.error('删除数据池失败');
     }
   };
 
   /**
-   * 打开创建资产池模态框
+   * 打开创建数据池模态框
    */
   const openCreateModal = async () => {
-    setModalTitle('创建资产池');
+    setModalTitle('创建数据池');
     setCurrentPool(null);
     setModalVisible(true);
     // 初始化资产数据
@@ -192,11 +198,11 @@ const AssetPoolManager = () => {
   };
 
   /**
-   * 打开编辑资产池模态框
-   * @param pool 资产池数据
+   * 打开编辑数据池模态框
+   * @param pool 数据池数据
    */
-  const openEditModal = async (pool: AssetPool) => {
-    setModalTitle('编辑资产池');
+  const openEditModal = async (pool: DataPool) => {
+    setModalTitle('编辑数据池');
     setCurrentPool(pool);
     setModalVisible(true);
     // 初始化分页和搜索状态
@@ -204,8 +210,8 @@ const AssetPoolManager = () => {
     setSearchKeyword('');
     
     try {
-      // 获取资产池已有资产
-      const poolAssetsResponse = await assetPoolApi.getPoolAssets(pool.id);
+      // 获取数据池已有资产
+      const poolAssetsResponse = await dataPoolApi.getPoolAssets(pool.id);
       const existingAssets = poolAssetsResponse.assets || [];
       
       // 直接设置selectedSymbols和availableSymbols，确保所有已选择资产显示在右侧
@@ -217,8 +223,8 @@ const AssetPoolManager = () => {
       // 然后将已选择的资产添加到可用符号列表中
       setAvailableSymbols(prev => [...new Set([...prev, ...existingAssets])]);
     } catch (error) {
-      console.error('获取资产池资产失败:', error);
-      message.error('获取资产池资产失败');
+      console.error('获取数据池资产失败:', error);
+      message.error('获取数据池资产失败');
     }
   };
 
@@ -289,15 +295,15 @@ const AssetPoolManager = () => {
 
 
   // 表格列配置
-  const columns: TableColumnsType<AssetPool> =[
+  const columns: TableColumnsType<DataPool> =[
     {
-      title: '资产池名称',
+      title: '数据池名称',
       dataIndex: 'name',
       key: 'name',
       width: 200,
     },
     {
-      title: '资产池描述',
+      title: '数据池描述',
       dataIndex: 'description',
       key: 'description',
       ellipsis: {
@@ -309,12 +315,6 @@ const AssetPoolManager = () => {
           {description}
         </Tooltip>
       ),
-      // ellipsis: {
-      //   rows: 2,
-      //   showTitle: true,
-      //   textWrap: 'word-break',
-      // },
-      // width: 300,
     },
     {
       title: '资产数量',
@@ -326,9 +326,8 @@ const AssetPoolManager = () => {
     {
       title: '操作',
       key: 'action',
-      // width: 100,
       align: 'center' as const,
-      render: (_: any, record: AssetPool) => (
+      render: (_: any, record: DataPool) => (
         <Space size="small">
           <Button
             size="small"
@@ -339,7 +338,7 @@ const AssetPoolManager = () => {
             编辑
           </Button>
           <Popconfirm
-            title="确定要删除这个资产池吗？"
+            title="确定要删除这个数据池吗？"
             onConfirm={() => handleDeletePool(record.id)}
             okText="确定"
             cancelText="取消"
@@ -366,28 +365,28 @@ const AssetPoolManager = () => {
   };
 
   return (
-    <div className="asset-pool-manager">
-      <div className="asset-pool-header">
-        <h2>资产池管理</h2>
+    <div className="data-pool-manager">
+      <div className="data-pool-header">
+        <h2>{t('data_pool_management')}</h2>
         <Button
           type="primary"
           icon={<PlusOutlined />}
           onClick={openCreateModal}
         >
-          创建资产池
+          创建数据池
         </Button>
       </div>
 
-      {/* 资产池列表 */}
+      {/* 数据池列表 */}
       <Spin spinning={loading} tip="加载中...">
         <Table
           columns={columns}
-          dataSource={assetPools}
+          dataSource={dataPools}
           rowKey="id"
           bordered
           pagination={false}
           scroll={{ y: 55 * 5 }}
-          locale={{ emptyText: '暂无资产池，请点击"创建资产池"按钮添加' }}
+          locale={{ emptyText: '暂无数据池，请点击"创建数据池"按钮添加' }}
           style={{ marginTop: 16 }}
         />
       </Spin>
@@ -400,12 +399,12 @@ const AssetPoolManager = () => {
         onCancel={handleModalCancel}
         width={1000}
       >
-        <AssetPoolForm
+        <DataPoolForm
           initialData={currentPool || { name: '', description: '' }}
           onSubmit={currentPool ? handleEditPool : handleCreatePool}
           onCancel={handleModalCancel}
-          // 资产池名称列表，用于前端校验
-          assetPoolNames={assetPools.map(pool => pool.name)}
+          // 数据池名称列表，用于前端校验
+          dataPoolNames={dataPools.map(pool => pool.name)}
           // 资产相关属性
           availableAssets={availableSymbols}
           selectedAssets={selectedSymbols}
@@ -429,4 +428,4 @@ const AssetPoolManager = () => {
   );
 };
 
-export default AssetPoolManager;
+export default DataPoolManager;

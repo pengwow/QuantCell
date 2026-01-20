@@ -6,6 +6,10 @@ import App from '../App';
 import StrategyAgent from '../views/StrategyAgent';
 import Setting from '../views/Setting';
 import DataManagement from '../views/DataManagement';
+import DataPoolPage from '../views/DataManagement/DataPoolPage';
+import DataCollectionPage from '../views/DataManagement/DataCollectionPage';
+import DataQualityPage from '../views/DataManagement/DataQualityPage';
+import DataVisualizationPage from '../views/DataManagement/DataVisualizationPage';
 import FactorAnalysis from '../views/FactorAnalysis';
 import ModelManagement from '../views/ModelManagement';
 import BacktestResults from '../views/BacktestResults';
@@ -68,6 +72,22 @@ export const createRouter = () => {
         {
           path: '/data-management',
           element: <DataManagement />
+        },
+        {
+          path: '/data-management/data-pools',
+          element: <DataPoolPage />
+        },
+        {
+          path: '/data-management/collection',
+          element: <DataCollectionPage />
+        },
+        {
+          path: '/data-management/quality',
+          element: <DataQualityPage />
+        },
+        {
+          path: '/data-management/visualization',
+          element: <DataVisualizationPage />
         },
         {
           path: '/factor-analysis',

@@ -339,6 +339,47 @@ def read_item(item_id: int, q: Union[str, None] = None):
     return {"item_id": item_id, "q": q}
 
 
+@app.get("/api/config/plugin/{plugin_name}")
+def get_plugin_config(plugin_name: str):
+    """获取指定插件的所有配置
+    
+    Args:
+        plugin_name: 插件名称
+    
+    Returns:
+        dict: 包含插件配置的响应
+    """
+    try:
+        logger.info(f"开始获取插件配置: {plugin_name}")
+        
+        # 导入系统配置业务逻辑
+        from collector.db import SystemConfigBusiness as SystemConfig
+        
+        # 获取所有配置的详细信息
+        all_configs = SystemConfig.get_all_with_details()
+        
+        # 过滤出与指定插件相关的配置
+        plugin_configs = {}
+        for key, config in all_configs.items():
+            if config.get("plugin") == plugin_name:
+                plugin_configs[key] = config["value"]
+        
+        logger.info(f"成功获取插件配置，共 {len(plugin_configs)} 项")
+        
+        return {
+            "code": 0,
+            "message": "获取插件配置成功",
+            "data": plugin_configs
+        }
+    except Exception as e:
+        logger.error(f"获取插件配置失败: {e}")
+        return {
+            "code": 500,
+            "message": f"获取插件配置失败: {str(e)}",
+            "data": {}
+        }
+
+
 if __name__ == "__main__":
     """当直接运行此文件时启动FastAPI应用服务器
     

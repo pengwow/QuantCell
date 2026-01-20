@@ -233,6 +233,10 @@
   "volatility": "Volatility",
   "information_ratio": "Information Ratio",
   "select_backtest_task": "Please select a backtest task to view details",
+  "data_pool_management": "Data Pool Management",
+  "data_collection": "Data Collection",
+  "data_quality": "Data Quality",
+  "data_visualization": "Data Visualization",
   "strategy_config": "Strategy Config",
   "backtest_config": "Backtest Config"
 }

@@ -6,7 +6,7 @@
 import { Card, Button } from 'antd';
 import { EditOutlined, DeleteOutlined } from '@ant-design/icons';
 
-interface AssetPoolCardProps {
+interface DataPoolCardProps {
   pool: {
     id: string;
     name: string;
@@ -18,7 +18,7 @@ interface AssetPoolCardProps {
   onDelete?: (id: string) => void;
 }
 
-const AssetPoolCard = (props: AssetPoolCardProps) => {
+const DataPoolCard = (props: DataPoolCardProps) => {
   const { pool, onEdit, onDelete } = props;
 
   const handleEdit = () => {
@@ -54,9 +54,9 @@ const AssetPoolCard = (props: AssetPoolCardProps) => {
         </Button>,
       ]}
     >
-      <div className="asset-pool-content">
-        <p className="asset-pool-description">{pool.description}</p>
-        <div className="asset-pool-stats">
+      <div className="data-pool-content">
+        <p className="data-pool-description">{pool.description}</p>
+        <div className="data-pool-stats">
           <span className="stat-item">资产数量: {pool.assetCount}</span>
           <span className="stat-item">创建时间: {new Date(pool.createdAt).toLocaleString()}</span>
         </div>
@@ -65,4 +65,4 @@ const AssetPoolCard = (props: AssetPoolCardProps) => {
   );
 };
 
-export default AssetPoolCard;
+export default DataPoolCard;

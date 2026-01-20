@@ -357,64 +357,73 @@ export const configApi = {
       plugin: pluginName
     }));
     return apiRequest.post('/config/batch', pluginConfigData);
+  },
+
+  /**
+   * 获取插件配置
+   * @param pluginName 插件名称
+   * @returns 插件配置数据
+   */
+  getPluginConfig: (pluginName: string) => {
+    return apiRequest.get(`/config/plugin/${pluginName}`);
   }
 };
 
 /**
- * 资产池相关 API
+ * 数据池相关 API
  */
-export const assetPoolApi = {
+export const dataPoolApi = {
   /**
-   * 获取资产池列表
-   * @param type 资产池类型
-   * @returns 资产池列表数据
+   * 获取数据池列表
+   * @param type 数据池类型
+   * @returns 数据池列表数据
    */
-  getAssetPools: (type: string) => {
+  getDataPools: (type: string) => {
     return apiRequest.get('/data-pools/', { params: { type } });
   },
 
   /**
-   * 创建资产池
-   * @param data 资产池数据
-   * @returns 创建的资产池数据
+   * 创建数据池
+   * @param data 数据池数据
+   * @returns 创建的数据池数据
    */
-  createAssetPool: (data: any) => {
+  createDataPool: (data: any) => {
     return apiRequest.post('/data-pools/', data);
   },
 
   /**
-   * 更新资产池
-   * @param id 资产池 ID
-   * @param data 资产池数据
-   * @returns 更新后的资产池数据
+   * 更新数据池
+   * @param id 数据池 ID
+   * @param data 数据池数据
+   * @returns 更新后的数据池数据
    */
-  updateAssetPool: (id: string, data: any) => {
+  updateDataPool: (id: string, data: any) => {
     return apiRequest.put(`/data-pools/${id}`, data);
   },
 
   /**
-   * 删除资产池
-   * @param id 资产池 ID
-   * @param type 资产池类型
+   * 删除数据池
+   * @param id 数据池 ID
+   * @param type 数据池类型
    * @returns 删除结果
    */
-  deleteAssetPool: (id: string, type: string) => {
+  deleteDataPool: (id: string, type: string) => {
     return apiRequest.delete(`/data-pools/${id}`, { params: { type } });
   },
 
   /**
-   * 获取资产池详情
-   * @param id 资产池 ID
-   * @param type 资产池类型
-   * @returns 资产池详情数据
+   * 获取数据池详情
+   * @param id 数据池 ID
+   * @param type 数据池类型
+   * @returns 数据池详情数据
    */
-  getAssetPoolDetail: (id: string, type: string) => {
+  getDataPoolDetail: (id: string, type: string) => {
     return apiRequest.get(`/data-pools/${id}`, { params: { type } });
   },
 
   /**
-   * 获取资产池包含的资产
-   * @param poolId 资产池 ID
+   * 获取数据池包含的资产
+   * @param poolId 数据池 ID
    * @returns 资产列表
    */
   getPoolAssets: (poolId: string) => {
@@ -422,8 +431,8 @@ export const assetPoolApi = {
   },
 
   /**
-   * 向资产池添加资产
-   * @param poolId 资产池 ID
+   * 向数据池添加资产
+   * @param poolId 数据池 ID
    * @param data 资产添加请求，包含assets列表和asset_type字段
    * @returns 添加结果
    */
