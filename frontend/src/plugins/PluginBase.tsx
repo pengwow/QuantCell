@@ -22,7 +22,7 @@ export interface RouteConfig {
 // 系统配置项类型定义
 export interface SystemConfigItem {
   key: string;
-  value: string;
+  value: string | number | boolean;
   description: string;
   type: 'string' | 'number' | 'boolean' | 'select';
   options?: string[]; // 当type为select时的选项
@@ -186,6 +186,7 @@ export class PluginBase {
    */
   public setConfig(key: string, value: any): void {
     const config = this.systemConfigs.find(config => config.key === key);
+    console.log("设置插件配置值", key, value, config)
     if (config) {
       config.value = value;
     }

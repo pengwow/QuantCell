@@ -7,13 +7,54 @@ export interface ExecutionHistory {
 }
 
 /**
+ * 交易记录类型定义
+ */
+export interface TradeRecord {
+  id: string;
+  timestamp: string;
+  symbol: string;
+  action: 'buy' | 'sell';
+  price: number;
+  quantity: number;
+  amount: number;
+  status: 'filled' | 'pending' | 'canceled';
+}
+
+/**
+ * 收益率数据点类型
+ */
+export interface ReturnRatePoint {
+  timestamp: string;
+  value: number;
+}
+
+/**
+ * 策略性能指标类型
+ */
+export interface StrategyPerformance {
+  winRate: number;
+  profitLossRatio: number;
+  maxDrawdown: number;
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  totalProfit: number;
+  totalLoss: number;
+  averageProfit: number;
+  averageLoss: number;
+  sharpeRatio: number;
+  sortinoRatio: number;
+  calmarRatio: number;
+}
+
+/**
  * 策略类型定义
  */
 export interface Strategy {
   id: string;
   name: string;
   description: string;
-  status: 'active' | 'inactive';
+  status: 'active' | 'inactive' | 'paused';
   statusText: string;
   createdAt: string;
   updatedAt: string;
@@ -21,6 +62,14 @@ export interface Strategy {
   executionFrequency: string;
   ruleCount: number;
   executionHistory: ExecutionHistory[];
+  // 量化交易相关字段
+  currentReturn: number;
+  totalReturn: number;
+  startTime: string;
+  lastTradeTime: string;
+  tradeRecords: TradeRecord[];
+  returnRateData: ReturnRatePoint[];
+  performance: StrategyPerformance;
 }
 
 /**

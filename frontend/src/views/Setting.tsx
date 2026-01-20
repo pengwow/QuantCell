@@ -139,8 +139,8 @@ const Setting = () => {
   const [pluginConfigValues, setPluginConfigValues] = useState<Record<string, Record<string, any>>>({});
   // 插件加载状态，用于管理每个插件的加载状态
   const [pluginLoadingStates, setPluginLoadingStates] = useState<Record<string, boolean>>({});
-  // 插件配置数据，存储每个插件的配置数据
-  const [pluginConfigData, setPluginConfigData] = useState<Record<string, Record<string, any>>>({});
+  // 插件错误信息，用于显示加载失败的错误信息
+  const [pluginErrorMessages, setPluginErrorMessages] = useState<Record<string, string>>({});
 
   // 监听窗口大小变化
   useEffect(() => {
@@ -273,52 +273,16 @@ const Setting = () => {
     // 这里可以添加插件热重载的监听
   }, []);
 
-  // 当插件配置加载完成后，更新插件配置值
+  // 当切换到插件页面时，加载对应插件配置
   useEffect(() => {
-    if (pluginConfigs.length > 0 && Object.keys(window.APP_CONFIG || {}).length > 0) {
-      console.log('Setting component: 插件配置加载完成，更新插件配置值');
-      updateLocalStateAndForm();
-    }
-  }, [pluginConfigs]);
-
-  // 监听 APP_CONFIG 变化，当配置更新时重新加载插件配置值
-  useEffect(() => {
-    console.log('Setting component: 监听 APP_CONFIG 变化');
-    
-    // 初始检查
-    if (Object.keys(window.APP_CONFIG || {}).length > 0) {
-      console.log('Setting component: APP_CONFIG 已初始化，更新插件配置值');
-      updateLocalStateAndForm();
-    }
-    
-    // 定期检查 APP_CONFIG 变化
-    const checkInterval = setInterval(() => {
-      if (Object.keys(window.APP_CONFIG || {}).length > 0) {
-        console.log('Setting component: APP_CONFIG 已更新，重新加载插件配置值');
-        updateLocalStateAndForm();
-      }
-    }, 1000); // 每秒检查一次
-    
-    // 清理函数
-    return () => {
-      clearInterval(checkInterval);
-    };
-  }, []);
-
-  // 监听 currentTab 变化，当切换到插件配置页面时加载对应插件的配置
-  useEffect(() => {
-    console.log('Setting component: 监听 currentTab 变化:', currentTab);
-    
-    // 检查是否切换到插件配置页面
+    console.log('Setting component: 检测到标签页切换，当前标签页:', currentTab);
     if (currentTab.startsWith('plugin-')) {
-      // 提取插件名称
       const pluginName = currentTab.replace('plugin-', '');
-      console.log('Setting component: 切换到插件配置页面，插件名称:', pluginName);
+      console.log('Setting component: 当前在插件页面，插件名称:', pluginName);
       
       // 加载插件配置
       const loadPluginConfig = async () => {
         try {
-          console.log('Setting component: 开始加载插件配置:', pluginName);
           // 更新加载状态
           setPluginLoadingStates(prev => ({
             ...prev,
@@ -326,6 +290,11 @@ const Setting = () => {
           }));
           
           // 调用 API 获取插件配置
+          console.log('Setting component: 开始加载插件配置:', {
+            pluginName,
+            currentTab,
+            pluginConfigValues: pluginConfigValues[pluginName]
+          });
           const configData = await configApi.getPluginConfig(pluginName);
           console.log('Setting component: 插件配置加载成功:', configData);
           
@@ -346,17 +315,21 @@ const Setting = () => {
             console.warn('Setting component: 插件配置数据格式无效:', configData);
           }
           
-          // 更新插件配置数据
-          setPluginConfigData(prev => ({
-            ...prev,
-            [pluginName]: formattedConfig
-          }));
+          console.log('Setting component: 格式化后的配置数据:', formattedConfig);
           
           // 更新插件配置值状态
-          setPluginConfigValues(prev => ({
-            ...prev,
-            [pluginName]: formattedConfig
-          }));
+          console.log('Setting component: 更新插件配置值状态:', {
+            pluginName,
+            formattedConfig
+          });
+          setPluginConfigValues(prev => {
+            const updatedValues = {
+              ...prev,
+              [pluginName]: formattedConfig
+            };
+            console.log('Setting component: 更新后的插件配置值状态:', updatedValues);
+            return updatedValues;
+          });
           
           // 更新插件实例的配置
           const pluginInstance = pluginManager.getPlugin(pluginName);
@@ -364,9 +337,31 @@ const Setting = () => {
             Object.keys(formattedConfig).forEach(key => {
               pluginInstance.instance.setConfig(key, formattedConfig[key]);
             });
+            console.log('Setting component: 插件实例配置更新完成');
           }
         } catch (error) {
           console.error('Setting component: 加载插件配置失败:', error);
+          // 加载失败时，使用插件默认配置
+          const pluginInstance = pluginManager.getPlugin(pluginName);
+          if (pluginInstance) {
+            const defaultConfig: Record<string, any> = {};
+            const configs = pluginInstance.instance.getSystemConfigs();
+            configs.forEach(configItem => {
+              defaultConfig[configItem.key] = configItem.value;
+            });
+            console.log('Setting component: 使用插件默认配置:', defaultConfig);
+            // 更新插件配置值状态
+            setPluginConfigValues(prev => ({
+              ...prev,
+              [pluginName]: defaultConfig
+            }));
+          }
+          // 保存错误信息
+          const errorMessage = error instanceof Error ? error.message : '加载插件配置失败';
+          setPluginErrorMessages(prev => ({
+            ...prev,
+            [pluginName]: errorMessage
+          }));
         } finally {
           // 更新加载状态
           setPluginLoadingStates(prev => ({
@@ -379,6 +374,41 @@ const Setting = () => {
       loadPluginConfig();
     }
   }, [currentTab]);
+
+  // 当插件配置加载完成后，更新插件配置值
+  useEffect(() => {
+    if (pluginConfigs.length > 0 && Object.keys(window.APP_CONFIG || {}).length > 0) {
+      console.log('Setting component: 插件配置加载完成，更新插件配置值');
+      updateLocalStateAndForm();
+    }
+  }, [pluginConfigs]);
+
+  // 监听 APP_CONFIG 变化，当配置更新时重新加载插件配置值
+  // useEffect(() => {
+  //   console.log('Setting component: 监听 APP_CONFIG 变化');
+    
+  //   // 初始检查
+  //   if (Object.keys(window.APP_CONFIG || {}).length > 0) {
+  //     console.log('Setting component: APP_CONFIG 已初始化，更新插件配置值');
+  //     updateLocalStateAndForm();
+  //   }
+    
+  //   // 定期检查 APP_CONFIG 变化
+  //   const checkInterval = setInterval(() => {
+  //     if (Object.keys(window.APP_CONFIG || {}).length > 0) {
+  //       console.log('Setting component: APP_CONFIG 已更新，重新加载插件配置值');
+  //       updateLocalStateAndForm();
+  //     }
+  //   }, 1000); // 每秒检查一次
+    
+  //   // 清理函数
+  //   return () => {
+  //     clearInterval(checkInterval);
+  //   };
+  // }, []);
+
+  // 监听 currentTab 变化，当切换到插件配置页面时加载对应插件的配置
+  // 注意：此钩子已被合并到上面的 useEffect 中，避免重复加载
 
   // 更新本地状态和表单数据
   const updateLocalStateAndForm = () => {
@@ -1466,6 +1496,30 @@ const Setting = () => {
                         </div>
                       ) : (
                         <>
+                          {/* 错误信息显示 */}
+                          {pluginErrorMessages[pluginConfig.name] && (
+                            <div style={{ 
+                              padding: '16px', 
+                              marginBottom: '16px', 
+                              backgroundColor: '#fff2f0', 
+                              border: '1px solid #ffccc7', 
+                              borderRadius: '4px',
+                              color: '#ff4d4f'
+                            }}>
+                              <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>加载错误</div>
+                              <div>{pluginErrorMessages[pluginConfig.name]}</div>
+                              <div style={{ marginTop: '8px', fontSize: '12px', color: '#999' }}>
+                                已使用插件默认配置
+                              </div>
+                            </div>
+                          )}
+                          {/* 调试日志 */}
+                          {console.log('Setting component: 渲染插件配置项:', {
+                            pluginName: pluginConfig.name,
+                            configKey: configItem.key,
+                            configValue: pluginConfigValues[pluginConfig.name]?.[configItem.key] || window.APP_CONFIG?.[configItem.key] || configItem.value,
+                            pluginConfigValues: pluginConfigValues[pluginConfig.name]
+                          })}
                           {configItem.type === 'string' && (
                             <Form.Item
                               label={
@@ -1476,25 +1530,41 @@ const Setting = () => {
                                   </Tooltip>
                                 </div>
                               }
-                              name={configItem.key}
-                              rules={[{ required: true, message: '请输入配置值' }]}
                             >
                               <Input
                                 placeholder={configItem.description}
-                                value={pluginConfigData[pluginConfig.name]?.[configItem.key] || pluginConfigValues[pluginConfig.name]?.[configItem.key] || window.APP_CONFIG?.[configItem.key] || ''}
+                                value={
+                                  pluginConfigValues[pluginConfig.name]?.[configItem.key] !== undefined ? 
+                                    pluginConfigValues[pluginConfig.name][configItem.key] : 
+                                    (window.APP_CONFIG?.[configItem.key] !== undefined ? 
+                                      window.APP_CONFIG[configItem.key] : 
+                                      configItem.value
+                                    )
+                                }
                                 onChange={(e) => {
                                   const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
                                   if (pluginInstance) {
                                     const value = e.target.value;
+                                    const pluginName = pluginConfig.name;
+                                    console.log('Setting component: 更新插件配置值:', {
+                                      pluginName,
+                                      configKey: configItem.key,
+                                      value
+                                    });
+                                    // 更新插件实例的配置
                                     pluginInstance.instance.setConfig(configItem.key, value);
                                     // 更新插件配置值状态
-                                    setPluginConfigValues(prev => ({
-                                      ...prev,
-                                      [pluginConfig.name]: {
-                                        ...prev[pluginConfig.name],
-                                        [configItem.key]: value
-                                      }
-                                    }));
+                                    setPluginConfigValues(prev => {
+                                      const updatedValues = {
+                                        ...prev,
+                                        [pluginName]: {
+                                          ...prev[pluginName],
+                                          [configItem.key]: value
+                                        }
+                                      };
+                                      console.log('Setting component: 更新后的插件配置值状态:', updatedValues);
+                                      return updatedValues;
+                                    });
                                   }
                                 }}
                               />
@@ -1510,33 +1580,41 @@ const Setting = () => {
                                   </Tooltip>
                                 </div>
                               }
-                              name={configItem.key}
-                              rules={[{ required: true, message: '请输入配置值' }]}
                             >
                               <InputNumber
                                 style={{ width: '100%' }}
-                                value={pluginConfigData[pluginConfig.name]?.[configItem.key] !== undefined ? 
-                                  Number(pluginConfigData[pluginConfig.name][configItem.key]) : 
-                                  (pluginConfigValues[pluginConfig.name]?.[configItem.key] !== undefined ? 
+                                value={
+                                  pluginConfigValues[pluginConfig.name]?.[configItem.key] !== undefined ? 
                                     pluginConfigValues[pluginConfig.name][configItem.key] : 
                                     (window.APP_CONFIG?.[configItem.key] !== undefined ? 
-                                      Number(window.APP_CONFIG[configItem.key]) : 0
+                                      Number(window.APP_CONFIG[configItem.key]) : 
+                                      Number(configItem.value)
                                     )
-                                  )
                                 }
                                 onChange={(value: number | null) => {
                                   const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
                                   if (pluginInstance) {
                                     const finalValue = value || 0;
+                                    const pluginName = pluginConfig.name;
+                                    console.log('Setting component: 更新插件配置值:', {
+                                      pluginName,
+                                      configKey: configItem.key,
+                                      value: finalValue
+                                    });
+                                    // 更新插件实例的配置
                                     pluginInstance.instance.setConfig(configItem.key, finalValue);
                                     // 更新插件配置值状态
-                                    setPluginConfigValues(prev => ({
-                                      ...prev,
-                                      [pluginConfig.name]: {
-                                        ...prev[pluginConfig.name],
-                                        [configItem.key]: finalValue
-                                      }
-                                    }));
+                                    setPluginConfigValues(prev => {
+                                      const updatedValues = {
+                                        ...prev,
+                                        [pluginName]: {
+                                          ...prev[pluginName],
+                                          [configItem.key]: finalValue
+                                        }
+                                      };
+                                      console.log('Setting component: 更新后的插件配置值状态:', updatedValues);
+                                      return updatedValues;
+                                    });
                                   }
                                 }}
                               />
@@ -1552,34 +1630,41 @@ const Setting = () => {
                                   </Tooltip>
                                 </div>
                               }
-                              name={configItem.key}
-                              valuePropName="checked"
                             >
                               <Switch
                                 checkedChildren="启用"
                                 unCheckedChildren="禁用"
-                                checked={pluginConfigData[pluginConfig.name]?.[configItem.key] !== undefined ? 
-                                  (pluginConfigData[pluginConfig.name][configItem.key] === 'true' || pluginConfigData[pluginConfig.name][configItem.key] === true) : 
-                                  (pluginConfigValues[pluginConfig.name]?.[configItem.key] !== undefined ? 
+                                checked={
+                                  pluginConfigValues[pluginConfig.name]?.[configItem.key] !== undefined ? 
                                     pluginConfigValues[pluginConfig.name][configItem.key] : 
                                     (window.APP_CONFIG?.[configItem.key] !== undefined ? 
                                       (window.APP_CONFIG[configItem.key] === 'true' || window.APP_CONFIG[configItem.key] === true) : 
-                                      false
+                                      (configItem.value === 'true' || configItem.value === true)
                                     )
-                                  )
                                 }
                                 onChange={(checked) => {
                                   const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
                                   if (pluginInstance) {
+                                    const pluginName = pluginConfig.name;
+                                    console.log('Setting component: 更新插件配置值:', {
+                                      pluginName,
+                                      configKey: configItem.key,
+                                      value: checked
+                                    });
+                                    // 更新插件实例的配置
                                     pluginInstance.instance.setConfig(configItem.key, checked);
                                     // 更新插件配置值状态
-                                    setPluginConfigValues(prev => ({
-                                      ...prev,
-                                      [pluginConfig.name]: {
-                                        ...prev[pluginConfig.name],
-                                        [configItem.key]: checked
-                                      }
-                                    }));
+                                    setPluginConfigValues(prev => {
+                                      const updatedValues = {
+                                        ...prev,
+                                        [pluginName]: {
+                                          ...prev[pluginName],
+                                          [configItem.key]: checked
+                                        }
+                                      };
+                                      console.log('Setting component: 更新后的插件配置值状态:', updatedValues);
+                                      return updatedValues;
+                                    });
                                   }
                                 }}
                               />
@@ -1595,27 +1680,40 @@ const Setting = () => {
                                   </Tooltip>
                                 </div>
                               }
-                              name={configItem.key}
-                              rules={[{ required: true, message: '请选择配置值' }]}
                             >
                               <Select
                                 options={configItem.options.map((option: string) => ({
                                   value: option,
                                   label: option
                                 }))}
-                                value={pluginConfigData[pluginConfig.name]?.[configItem.key] || pluginConfigValues[pluginConfig.name]?.[configItem.key] || window.APP_CONFIG?.[configItem.key] || configItem.options[0]}
+                                value={
+                                  pluginConfigValues[pluginConfig.name]?.[configItem.key] || 
+                                  window.APP_CONFIG?.[configItem.key] || 
+                                  configItem.value
+                                }
                                 onChange={(value) => {
                                   const pluginInstance = pluginManager.getPlugin(pluginConfig.name);
                                   if (pluginInstance) {
+                                    const pluginName = pluginConfig.name;
+                                    console.log('Setting component: 更新插件配置值:', {
+                                      pluginName,
+                                      configKey: configItem.key,
+                                      value
+                                    });
+                                    // 更新插件实例的配置
                                     pluginInstance.instance.setConfig(configItem.key, value);
                                     // 更新插件配置值状态
-                                    setPluginConfigValues(prev => ({
-                                      ...prev,
-                                      [pluginConfig.name]: {
-                                        ...prev[pluginConfig.name],
-                                        [configItem.key]: value
-                                      }
-                                    }));
+                                    setPluginConfigValues(prev => {
+                                      const updatedValues = {
+                                        ...prev,
+                                        [pluginName]: {
+                                          ...prev[pluginName],
+                                          [configItem.key]: value
+                                        }
+                                      };
+                                      console.log('Setting component: 更新后的插件配置值状态:', updatedValues);
+                                      return updatedValues;
+                                    });
                                   }
                                 }}
                               />
