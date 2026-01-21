@@ -22,6 +22,11 @@ export default defineConfig({
         manualChunks: (id) => {
           // 将大型依赖拆分为独立 chunk
           if (id.includes('node_modules')) {
+            // 特别处理 web3icons，将其拆分为独立 chunk
+            if (id.includes('@web3icons')) {
+              return 'web3icons';
+            }
+            // 其他依赖按包名拆分
             return id.toString().split('node_modules/')[1].split('/')[0];
           }
         }
