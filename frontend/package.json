@@ -11,7 +11,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "vitest": "vitest"
+    "vitest": "vitest",
+    "serve": "bun run server.ts"
   },
   "dependencies": {
     "@ant-design/icons": "6.x",
