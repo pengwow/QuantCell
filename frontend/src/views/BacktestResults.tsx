@@ -28,6 +28,7 @@ interface BacktestTask {
 
 // 交易记录类型定义
 interface Trade {
+  Symbol: string;
   EntryTime: string;
   ExitTime: string;
   Duration: string;
@@ -306,6 +307,13 @@ const BacktestResults = () => {
 
   // 表格列定义
   const columns: TableProps<Trade>['columns'] = [
+    {
+      title: t('symbol'),
+      dataIndex: 'Symbol',
+      key: 'Symbol',
+      filters: [],
+      onFilter: (value, record) => record.Symbol === value,
+    },
     {
       title: t('entry_time'),
       dataIndex: 'EntryTime',
@@ -768,37 +776,34 @@ const BacktestResults = () => {
                 </div>
               </div>
               
-              {/* 交易详情和风险分析 */}
-              <div className="grid-layout">
-                {/* 交易详情 */}
-                <div className="panel">
-                  <div className="panel-header">
-                    <h2>{t('trade_details')}</h2>
-                  </div>
-                  <div className="panel-body">
-                    <div className="table-container">
-                      <Table
-                        columns={columns}
-                        dataSource={trades}
-                        rowKey={(record) => record.ID || `${record.EntryTime}-${record.ExitTime}-${record.Direction}-${record.EntryPrice}`}
-                        pagination={tableParams}
-                        onChange={handleTableChange}
-                        size="small"
-                        className="data-table"
-                      />
-                    </div>
+              {/* 风险分析 */}
+              <div className="panel">
+                <div className="panel-header">
+                  <h2>{t('risk_analysis')}</h2>
+                </div>
+                <div className="panel-body">
+                  <div className="chart-container" style={{ width: '100%', height: '300px' }}>
+                    <div ref={riskChartRef} className="chart" />
                   </div>
                 </div>
-                
-                {/* 风险分析 */}
-                <div className="panel">
-                  <div className="panel-header">
-                    <h2>{t('risk_analysis')}</h2>
-                  </div>
-                  <div className="panel-body">
-                    <div className="chart-container" style={{ width: '100%', height: '300px' }}>
-                      <div ref={riskChartRef} className="chart" />
-                    </div>
+              </div>
+              
+              {/* 交易详情 */}
+              <div className="panel">
+                <div className="panel-header">
+                  <h2>{t('trade_details')}</h2>
+                </div>
+                <div className="panel-body">
+                  <div className="table-container">
+                    <Table
+                      columns={columns}
+                      dataSource={trades}
+                      rowKey={(record) => record.ID || `${record.EntryTime}-${record.ExitTime}-${record.Direction}-${record.EntryPrice}`}
+                      pagination={tableParams}
+                      onChange={handleTableChange}
+                      size="small"
+                      className="data-table"
+                    />
                   </div>
                 </div>
               </div>
