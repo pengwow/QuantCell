@@ -58,6 +58,11 @@ const moduleMap: Record<string, string> = {
   'zustand': '/node_modules/zustand/index.js'
 };
 
+// 特殊模块处理（需要异步加载的模块）
+const asyncModules = [
+  '@web3icons/react/dynamic'
+];
+
 // TypeScript transpile options
 const transpileOptions: ts.TranspileOptions = {
   compilerOptions: {
@@ -119,12 +124,26 @@ if (filePath.endsWith('.ts') || filePath.endsWith('.tsx') || filePath.endsWith('
             const transpiled = ts.transpileModule(content, transpileOptions);
             
             // Process transpiled code to replace bare module imports
-            let transpiledCode = transpiled.outputText;
-            // Replace bare module imports with relative paths
-            for (const [moduleName, modulePath] of Object.entries(moduleMap)) {
-              const regex = new RegExp(`from ['"]${moduleName}['"]`, 'g');
-              transpiledCode = transpiledCode.replace(regex, `from '${modulePath}'`);
-            }
+let transpiledCode = transpiled.outputText;
+// Replace bare module imports with relative paths
+for (const [moduleName, modulePath] of Object.entries(moduleMap)) {
+  const regex = new RegExp(`from ['"]${moduleName}['"]`, 'g');
+  transpiledCode = transpiledCode.replace(regex, `from '${modulePath}'`);
+}
+
+// 处理需要异步加载的模块
+for (const asyncModule of asyncModules) {
+  const regex = new RegExp(`from ['"]${asyncModule}['"]`, 'g');
+  // 保持原始导入语句，不进行映射，确保它们被异步加载
+  // 这里我们不替换，让浏览器保持原始的动态导入
+}
+
+// 处理需要异步加载的模块
+for (const asyncModule of asyncModules) {
+  const regex = new RegExp(`from ['"]${asyncModule}['"]`, 'g');
+  // 保持原始导入语句，不进行映射，确保它们被异步加载
+  // 这里我们不替换，让浏览器保持原始的动态导入
+}
             
             return new Response(transpiledCode, {
               headers: {
@@ -171,6 +190,13 @@ if (filePath.endsWith('.ts') || filePath.endsWith('.tsx') || filePath.endsWith('
             for (const [moduleName, modulePath] of Object.entries(moduleMap)) {
               const regex = new RegExp(`from ['"]${moduleName}['"]`, 'g');
               transpiledCode = transpiledCode.replace(regex, `from '${modulePath}'`);
+            }
+            
+            // 处理需要异步加载的模块
+            for (const asyncModule of asyncModules) {
+              const regex = new RegExp(`from ['"]${asyncModule}['"]`, 'g');
+              // 保持原始导入语句，不进行映射，确保它们被异步加载
+              // 这里我们不替换，让浏览器保持原始的动态导入
             }
             
             return new Response(transpiledCode, {
@@ -368,14 +394,67 @@ const server = Bun.serve({
     const url = new URL(req.url);
     const path = url.pathname;
     
+    // Handle API routes first
+    if (path.startsWith('/api/')) {
+      return await proxyApiRequest(req);
+    }
+    
     // Handle static files
     const staticResponse = await serveStaticFile(path);
     if (staticResponse) {
       return staticResponse;
     }
     
-    // Handle 404
-    return new Response('Not Found', { status: 404 });
+    // Route fallback: return index.html for all other routes
+    // This allows React Router to handle client-side routing
+    try {
+      // First check dist directory for built index.html
+      const distIndexHtmlPath = join(DIST_DIR, 'index.html');
+      if (await Bun.file(distIndexHtmlPath).exists()) {
+        const content = await Bun.file(distIndexHtmlPath).text();
+        return new Response(content, {
+          headers: {
+            'Content-Type': 'text/html',
+          },
+        });
+      }
+      
+      // Then check public directory
+      const publicIndexHtmlPath = join(PUBLIC_DIR, 'index.html');
+      if (await Bun.file(publicIndexHtmlPath).exists()) {
+        const content = await Bun.file(publicIndexHtmlPath).text();
+        return new Response(content, {
+          headers: {
+            'Content-Type': 'text/html',
+          },
+        });
+      } else {
+        // If index.html doesn't exist in public, create a basic one
+        const basicHtml = `
+          <!DOCTYPE html>
+          <html lang="en">
+            <head>
+              <meta charset="UTF-8">
+              <link rel="icon" type="image/svg+xml" href="/qbot.svg">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Quantitative Trading System</title>
+            </head>
+            <body>
+              <div id="root"></div>
+              <script type="module" src="/src/main.tsx"></script>
+            </body>
+          </html>
+        `;
+        return new Response(basicHtml, {
+          headers: {
+            'Content-Type': 'text/html',
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Error serving index.html for route fallback:', error);
+      return new Response('Internal Server Error', { status: 500 });
+    }
   },
   
   // Error handler
