@@ -132,8 +132,8 @@ const DataPoolForm = (props: DataPoolFormProps) => {
               }}
               render={item => item.title}
               titles={['可用资产', '已选择资产']}
-              listStyle={{ flex: 1, minWidth: 200, height: 400 }}
-              operations={['添加', '移除']}
+              styles={{ section: { flex: 1, minWidth: '120px', height: 300 } }}
+              actions={['添加', '移除']}
               className="data-pool-transfer"
               pagination
             />
