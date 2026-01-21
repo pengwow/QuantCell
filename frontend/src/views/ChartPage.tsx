@@ -305,6 +305,39 @@ export default function ChartPage () {
     fetchKlineData()
   }, [selectedPeriod, currentSymbol.code, marketType, cryptoType])
   
+  // 监听图表容器大小变化，调整图表宽度
+  useEffect(() => {
+    const chartElement = document.getElementById('language-k-line')
+    let resizeObserver: ResizeObserver | null = null
+    
+    const handleResize = () => {
+      if (chartRef.current) {
+        // 强制图表重新计算大小
+        chartRef.current.resize()
+      }
+    }
+    
+    // 使用ResizeObserver监听容器大小变化
+    if (chartElement && typeof ResizeObserver === 'function') {
+      resizeObserver = new ResizeObserver(handleResize)
+      resizeObserver.observe(chartElement)
+    }
+    
+    // 同时监听窗口大小变化作为备份
+    window.addEventListener('resize', handleResize)
+    
+    // 初始加载时也调整一次
+    handleResize()
+    
+    // 组件卸载时移除监听器
+    return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect()
+      }
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [])
+  
   // 当搜索关键词变化时重新获取商品列表
   useEffect(() => {
     if (isSearchModalVisible) {
