@@ -92,11 +92,11 @@
 
 .period-buttons {
   display: flex;
-  // gap: 1px; /* 减少按钮间间隙 */
+  /* gap: 1px; 减少按钮间间隙 */
   background-color: var(--bg-secondary);
   /* 移除圆角 - 确保直角 */
   overflow: hidden;
-  // border: 1px solid var(--border-color);
+  /* border: 1px solid var(--border-color); */
 }
 
 .period-btn {
