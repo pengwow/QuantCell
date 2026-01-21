@@ -19,7 +19,12 @@ export default defineConfig({
       output: {
         // 移除 preserveModules 配置，避免构建失败
         // 动态导入由 Vite 自动处理
-        manualChunks: undefined
+        manualChunks: (id) => {
+          // 将大型依赖拆分为独立 chunk
+          if (id.includes('node_modules')) {
+            return id.toString().split('node_modules/')[1].split('/')[0];
+          }
+        }
       }
     }
   },
