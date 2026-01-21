@@ -136,8 +136,8 @@ const AssetPoolForm = (props: AssetPoolFormProps) => {
               }}
               render={item => item.title}
               titles={['可用资产', '已选择资产']}
-              listStyle={{ width: 300, height: 400 }}
-              operations={['添加', '移除']}
+              styles={{ section: { width: 300, height: 400 } }}
+              actions={['添加', '移除']}
               footer={({ direction }) => {
                 if (direction === 'left' && hasMore && !symbolsLoading) {
                   return (

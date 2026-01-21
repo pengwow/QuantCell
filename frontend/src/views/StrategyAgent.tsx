@@ -2,10 +2,12 @@
  * 策略代理页面组件
  * 功能：策略代理功能的主页面
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { useStrategyStore } from '../store';
-import { Card, Button, Table, Row, Col, Typography, Space, Tag, Statistic } from 'antd';
-import ReactECharts from 'echarts-for-react';
+import { Card, Button, Table, Row, Col, Typography, Space, Tag, Statistic, Spin } from 'antd';
+
+// 动态导入 ReactECharts
+const ReactECharts = lazy(() => import('echarts-for-react'));
 import dayjs from 'dayjs';
 import { exportStrategyAgentToHtml } from '../utils/exportStrategyAgent';
 import '../styles/StrategyAgent.css';
@@ -152,7 +154,11 @@ const StrategyAgent = () => {
       ]
     };
 
-    return <ReactECharts option={option} style={{ height: 300, width: '100%' }} />;
+    return (
+      <Suspense fallback={<div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin size="large" /></div>}>
+        <ReactECharts option={option} style={{ height: 300, width: '100%' }} />
+      </Suspense>
+    );
   };
 
   // 交易记录表格列定义
@@ -226,7 +232,7 @@ const StrategyAgent = () => {
             {isLoading ? (
               <div className="loading-state">加载中...</div>
             ) : (
-              <Space direction="vertical" style={{ width: '100%' }}>
+              <Space orientation="vertical" style={{ width: '100%' }}>
                 {strategies.map(strategy => (
                   <Card
                     key={strategy.id}
@@ -234,7 +240,7 @@ const StrategyAgent = () => {
                     onClick={() => handleStrategySelect(strategy.id)}
                     hoverable
                   >
-                    <Space direction="vertical" style={{ width: '100%' }}>
+                    <Space orientation="vertical" style={{ width: '100%' }}>
                       <Space style={{ width: '100%', justifyContent: 'space-between' }}>
                         <Text strong>{strategy.name}</Text>
                         <Tag color={
@@ -302,7 +308,7 @@ const StrategyAgent = () => {
               <Card className="strategy-overview-card">
                 <Row gutter={[16, 16]}>
                   <Col xs={24} md={8}>
-                    <Space direction="vertical" style={{ width: '100%' }}>
+                    <Space orientation="vertical" style={{ width: '100%' }}>
                       <Title level={4}>{selectedStrategy.name}</Title>
                       <Paragraph>{selectedStrategy.description}</Paragraph>
                       <Space>
