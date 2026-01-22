@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 
 // 使用Vite环境变量检测是否为Tauri打包环境
 // VITE_IS_TAURI=1 或 VITE_IS_TAURI=true 表示Tauri环境
-const isTauri = import.meta.env.VITE_IS_TAURI === '1' || import.meta.env.VITE_IS_TAURI === 'true';
+const isTauri = import.meta.env.VITE_IS_TAURI == '1' || import.meta.env.VITE_IS_TAURI == 'true';
 
 // 定义更宽松的TokenIcon组件类型，兼容实际导入的组件类型
 // 使用any类型来避免类型不匹配问题，因为我们无法在编译时知道实际的类型
