@@ -52,6 +52,22 @@ import {
 } from '@ant-design/icons';
 import '../../styles/Setting.css';
 
+// 添加CSS动画定义
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes slideInRight {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+`;
+document.head.appendChild(style);
+
 const Setting = () => {
   // 当前选中的标签页
   const [currentTab, setCurrentTab] = useState<string>('basic');
@@ -62,7 +78,7 @@ const Setting = () => {
   // 保存错误信息
   const [saveError, setSaveError] = useState<string | null>(null);
   // 菜单模式状态
-  const [menuMode, setMenuMode] = useState<'horizontal' | 'inline'>(window.innerWidth < 768 ? 'horizontal' : 'inline');
+  const [menuMode, setMenuMode] = useState<'horizontal' | 'inline'>(window.innerWidth < 992 ? 'horizontal' : 'inline');
   // 插件配置
   const [pluginConfigs, setPluginConfigs] = useState<PluginConfig[]>([]);
   // 插件配置状态，用于管理插件配置值
@@ -72,11 +88,12 @@ const Setting = () => {
   // 插件错误信息，用于显示加载失败的错误信息
   const [pluginErrorMessages, setPluginErrorMessages] = useState<Record<string, string>>({});
 
-  // 监听窗口大小变化
+  // 监听窗口大小变化 - 与左侧主导航栏保持一致的切换比例
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
-      setMenuMode(width < 768 ? 'horizontal' : 'inline');
+      // 与左侧主导航栏保持一致的切换阈值
+      setMenuMode(width < 992 ? 'horizontal' : 'inline');
     };
 
     window.addEventListener('resize', handleResize);
@@ -783,28 +800,55 @@ const Setting = () => {
   };
 
   return (
-    <Layout className="settings-container">
-      <Layout>
-        {/* 侧边栏导航 */}
+    <Layout className="settings-container" style={{ minHeight: '100vh', width: '100%', display: 'flex', flexDirection: 'column', transition: 'all 0.3s ease' }}>
+      <Layout style={{ display: 'flex', flex: 1, minWidth: 0, transition: 'all 0.3s ease' }}>
+        {/* 侧边栏导航 - 自适应宽度 */}
         <Sider 
           width={menuMode === 'inline' ? 200 : 'auto'} 
           className="settings-sidebar"
-          style={menuMode === 'horizontal' ? { overflow: 'visible' } : {}}
+          style={{
+            flexShrink: 0,
+            transition: 'all 0.3s ease',
+            overflow: menuMode === 'horizontal' ? 'visible' : 'auto',
+            background: '#fff',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.09)',
+            display: 'flex',
+            flexDirection: 'column',
+            transform: 'translateZ(0)', // 启用硬件加速
+          }}
         >
           <Menu
             mode={menuMode}
             selectedKeys={[currentTab]}
             items={menuConfig}
             onSelect={({ key }) => setCurrentTab(key)}
-            style={menuMode === 'inline' ? { height: '100%', borderRight: 0 } : { width: '100%' }}
+            style={{
+              width: menuMode === 'inline' ? '100%' : 'auto',
+              borderRight: 0,
+              transition: 'all 0.3s ease',
+              flex: 1
+            }}
+            overflowedIndicator={menuMode === 'horizontal' ? <SettingOutlined /> : null}
           />
         </Sider>
 
-        {/* 主内容区域 */}
-        <Layout style={{ flex: 1, minWidth: 0 }}>
-          {/* 内容区域 */}
-          <Content className="settings-main" style={{ flex: 1, minWidth: 0, padding: '16px' }}>
-            {renderCurrentModule()}
+        {/* 主内容区域 - 完全铺满剩余空间 */}
+        <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: '#f0f2f5', transition: 'all 0.3s ease' }}>
+          {/* 内容区域 - 自适应铺满 */}
+          <Content 
+            className="settings-main" 
+            style={{ 
+              flex: 1, 
+              minWidth: 0, 
+              padding: '24px',
+              overflow: 'auto',
+              transition: 'all 0.3s ease'
+            }}
+          >
+            {/* 子页面内容 - 确保完全铺满 */}
+            <div style={{ width: '100%', height: '100%', background: '#fff', borderRadius: '8px', padding: '24px', boxShadow: '0 2px 8px rgba(0, 0, 0, 0.09)', transition: 'all 0.3s ease' }}>
+              {renderCurrentModule()}
+            </div>
 
             {/* 统一操作按钮区域 - 底部 */}
             <div className="settings-actions" style={{ 
@@ -814,7 +858,11 @@ const Setting = () => {
               display: 'flex',
               justifyContent: 'flex-end',
               alignItems: 'center',
-              marginTop: '16px'
+              marginTop: '16px',
+              borderRadius: '8px',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.09)',
+              transition: 'all 0.3s ease',
+              transform: 'translateZ(0)' // 启用硬件加速
             }}>
               <Space size="middle">
                 <Button
@@ -822,6 +870,7 @@ const Setting = () => {
                   onClick={resetAllConfig}
                   disabled={isSaving}
                   icon={<ReloadOutlined />}
+                  style={{ transition: 'all 0.3s ease' }}
                 >
                   重置所有
                 </Button>
@@ -830,6 +879,7 @@ const Setting = () => {
                   onClick={saveAllConfig}
                   disabled={isSaving}
                   icon={<SaveOutlined />}
+                  style={{ transition: 'all 0.3s ease' }}
                 >
                   {isSaving ? '保存中...' : '保存设置'}
                 </Button>
@@ -841,7 +891,20 @@ const Setting = () => {
 
       {/* 保存成功提示 */}
       {showSuccessMessage && (
-        <div className="success-message" style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000, background: '#52c41a', color: '#fff', padding: '12px 24px', borderRadius: '4px', boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)' }}>
+        <div className="success-message" style={{ 
+          position: 'fixed', 
+          top: '20px', 
+          right: '20px', 
+          zIndex: 1000, 
+          background: '#52c41a', 
+          color: '#fff', 
+          padding: '12px 24px', 
+          borderRadius: '4px', 
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+          transition: 'all 0.3s ease',
+          transform: 'translateZ(0)', // 启用硬件加速
+          animation: 'slideInRight 0.3s ease-out'
+        }}>
           设置已成功保存！
         </div>
       )}

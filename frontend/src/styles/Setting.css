@@ -41,6 +41,8 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   flex: 1;
   min-width: 0;
+  box-sizing: border-box;
+  overflow-x: auto;
 }
 
 /* Ant Design Menu 样式覆盖 */
@@ -62,6 +64,15 @@
   background: transparent;
   display: flex;
   flex: 1;
+  width: auto !important;
+}
+
+/* 覆盖 Ant Design 默认规则，确保内容区域宽度正常 */
+.ant-layout.ant-layout-has-sider > .ant-layout,
+.ant-layout.ant-layout-has-sider > .ant-layout-content {
+  width: auto !important;
+  flex: 1;
+  min-width: 0;
 }
 
 /* 确保在小屏幕下，Content组件能够铺满宽度 */
@@ -72,31 +83,38 @@
   }
   
   .ant-layout .ant-layout .ant-layout-content {
-    width: 100%;
+    max-width: 100%;
     flex: 1;
     min-width: 0;
+    overflow-x: auto;
   }
   
   .settings-main {
-    width: calc(100% - 24px);
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 16px;
+    box-sizing: border-box;
   }
 }
 
 @media (max-width: 576px) {
   .ant-layout .ant-layout {
     flex-direction: column;
-    flex: 1;
   }
   
   .ant-layout .ant-layout .ant-layout-content {
-    width: 100%;
+    max-width: 100%;
     flex: 1;
     min-width: 0;
+    overflow-x: auto;
   }
   
   .settings-main {
     width: 100%;
     margin: 0;
+    padding: 12px;
+    box-sizing: border-box;
   }
 }
 
@@ -438,31 +456,37 @@ input:checked + .slider:before {
   .settings-sidebar {
     width: 100%;
     margin-bottom: 12px;
+    overflow-x: auto;
   }
   
   /* 在小屏幕下，将菜单横向排列 */
   .settings-sidebar .ant-menu-inline,
   .settings-sidebar .ant-menu-horizontal {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     width: 100%;
     flex-direction: row;
     border-right: none;
     border-bottom: 1px solid #f0f0f0;
+    overflow-x: auto;
+    white-space: nowrap;
   }
   
   .settings-sidebar .ant-menu-item {
-    flex: 1;
-    min-width: 120px;
+    flex: 0 0 auto;
+    min-width: 100px;
     text-align: center;
     border-right: 1px solid #f0f0f0;
     border-bottom: none;
-    padding: 8px 16px !important;
+    padding: 8px 12px !important;
   }
   
   .settings-main {
     margin: 12px;
     padding: 16px;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
   }
   
   .settings-footer {
