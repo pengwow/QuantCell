@@ -1,24 +1,12 @@
 // src/components/TokenDisplay.tsx
 import React, { useState, useEffect } from "react";
 
-// 添加 Tauri 环境类型声明
-declare global {
-  interface Window {
-    __TAURI__?: any;
-  }
-}
+// 使用Vite环境变量检测是否为Tauri打包环境
+// VITE_IS_TAURI=1 或 VITE_IS_TAURI=true 表示Tauri环境
+const isTauri = import.meta.env.VITE_IS_TAURI === '1' || import.meta.env.VITE_IS_TAURI === 'true';
 
-// 环境检测
-let isTauri = false;
-try {
-  // 尝试检测 Tauri 环境
-  isTauri = typeof window !== "undefined" && window.__TAURI__ !== undefined;
-} catch (error) {
-  // 非浏览器环境（如服务端渲染）
-  isTauri = false;
-}
-
-// 使用动态导入，实现懒加载
+// 定义更宽松的TokenIcon组件类型，兼容实际导入的组件类型
+// 使用any类型来避免类型不匹配问题，因为我们无法在编译时知道实际的类型
 let TokenIcon: React.ComponentType<any> | null = null;
 
 interface Props {
@@ -31,11 +19,18 @@ export function TokenDisplay({ symbol, size = 32, style }: Props) {
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 动态导入 TokenIcon 组件
+  // 动态导入 TokenIcon 组件 - 仅在Tauri环境下尝试加载
   useEffect(() => {
+    // 非Tauri环境下，直接使用默认图标，不尝试加载web3icons
+    if (!isTauri) {
+      setIsLoading(false);
+      return;
+    }
+
     const loadTokenIcon = async () => {
       try {
         setIsLoading(true);
+        // 动态导入web3icons包
         const { TokenIcon: LoadedTokenIcon } = await import("@web3icons/react/dynamic");
         TokenIcon = LoadedTokenIcon;
         setIsLoading(false);
@@ -46,34 +41,39 @@ export function TokenDisplay({ symbol, size = 32, style }: Props) {
       }
     };
 
-    if (!TokenIcon && !hasError) {
-      if (isTauri) {
-        // Tauri 环境直接加载
-        loadTokenIcon();
-      } else {
-        // 浏览器环境延迟加载，使用 requestIdleCallback 或 setTimeout
-        if (typeof window !== "undefined" && window.requestIdleCallback) {
-          window.requestIdleCallback(loadTokenIcon);
-        } else {
-          // 降级方案
-          setTimeout(loadTokenIcon, 100);
-        }
-      }
+    // 只有在Tauri环境下且TokenIcon未加载且无错误时才尝试加载
+    if (isTauri && !TokenIcon && !hasError) {
+      loadTokenIcon();
     } else {
       setIsLoading(false);
     }
   }, [hasError]);
 
-  // 当TokenIcon加载失败或未加载时显示首字母占位符
-  if (hasError || !TokenIcon) {
+  // 生成默认图标颜色 - 根据symbol生成哈希值，映射到固定颜色
+  const getDefaultIconColor = (symbol: string): string => {
+    // 简单的哈希函数，将symbol转换为颜色
+    let hash = 0;
+    for (let i = 0; i < symbol.length; i++) {
+      hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    
+    // 生成HSL颜色，确保亮度和饱和度适中
+    const hue = hash % 360;
+    return `hsl(${hue}, 70%, 60%)`;
+  };
+
+  // 当TokenIcon加载失败、未加载或非Tauri环境时显示默认图标
+  if (hasError || !TokenIcon || !isTauri) {
     const initial = symbol.charAt(0).toUpperCase();
+    const bgColor = getDefaultIconColor(symbol);
+    
     return (
       <div 
         style={{
           width: `${size}px`,
           height: `${size}px`,
           borderRadius: "50%",
-          backgroundColor: "#ffc53d",
+          backgroundColor: bgColor,
           color: "white",
           fontSize: `${size * 0.6}px`,
           display: "flex",
@@ -88,8 +88,8 @@ export function TokenDisplay({ symbol, size = 32, style }: Props) {
     );
   }
 
-  // 加载中状态
-  if (isLoading) {
+  // 加载中状态 - 仅在Tauri环境下显示
+  if (isLoading && isTauri) {
     const initial = symbol.charAt(0).toUpperCase();
     return (
       <div 
@@ -112,6 +112,7 @@ export function TokenDisplay({ symbol, size = 32, style }: Props) {
     );
   }
 
+  // Tauri环境下正常使用TokenIcon组件
   return (
     <TokenIcon 
       symbol={symbol} 
