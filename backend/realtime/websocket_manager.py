@@ -16,20 +16,29 @@ class WebSocketManager:
         self.task = None
         self.reconnect_task = None
     
-    def register_client(self, client: AbstractExchangeClient) -> bool:
+    def register_client(self, client: AbstractExchangeClient, force: bool = False) -> bool:
         """
         注册交易所客户端
         
         Args:
             client: 交易所客户端实例
+            force: 是否强制替换已存在的客户端
         
         Returns:
             bool: 注册是否成功
         """
         exchange_name = client.exchange_name
+        logger.debug(f"register_client调用: exchange_name={exchange_name}, force={force}, 当前clients: {list(self.clients.keys())}")
         if exchange_name in self.clients:
-            logger.warning(f"交易所客户端已存在: {exchange_name}")
-            return False
+            logger.debug(f"客户端已存在，force={force}")
+            if force:
+                logger.warning(f"强制替换已存在的交易所客户端: {exchange_name}")
+                self.clients[exchange_name] = client
+                logger.info(f"成功强制注册交易所客户端: {exchange_name}")
+                return True
+            else:
+                logger.warning(f"交易所客户端已存在: {exchange_name}")
+                return False
         
         self.clients[exchange_name] = client
         logger.info(f"成功注册交易所客户端: {exchange_name}")

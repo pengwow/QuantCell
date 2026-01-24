@@ -347,18 +347,18 @@ const Setting = () => {
           ...prev,
           language: newLanguage,
           theme: configs.theme !== undefined ? configs.theme : prev.theme,
-          showTips: configs.showTips !== undefined ? (configs.showTips === 'true' || configs.showTips === true) : prev.showTips
+          showTips: configs.showTips !== undefined ? (configs.showTips === 'true' || configs.showTips === true || configs.showTips === '1') : prev.showTips
         };
       });
 
       setNotificationSettings(prev => ({
         ...prev,
-        enableEmail: configs.enableEmail !== undefined ? (configs.enableEmail === 'true' || configs.enableEmail === true) : prev.enableEmail,
-        enableWebhook: configs.enableWebhook !== undefined ? (configs.enableWebhook === 'true' || configs.enableWebhook === true) : prev.enableWebhook,
+        enableEmail: configs.enableEmail !== undefined ? (configs.enableEmail === 'true' || configs.enableEmail === true || configs.enableEmail === '1') : prev.enableEmail,
+        enableWebhook: configs.enableWebhook !== undefined ? (configs.enableWebhook === 'true' || configs.enableWebhook === true || configs.enableWebhook === '1') : prev.enableWebhook,
         webhookUrl: configs.webhookUrl || prev.webhookUrl,
-        notifyOnAlert: configs.notifyOnAlert !== undefined ? (configs.notifyOnAlert === 'true' || configs.notifyOnAlert === true) : prev.notifyOnAlert,
-        notifyOnTaskComplete: configs.notifyOnTaskComplete !== undefined ? (configs.notifyOnTaskComplete === 'true' || configs.notifyOnTaskComplete === true) : prev.notifyOnTaskComplete,
-        notifyOnSystemUpdate: configs.notifyOnSystemUpdate !== undefined ? (configs.notifyOnSystemUpdate === 'true' || configs.notifyOnSystemUpdate === true) : prev.notifyOnSystemUpdate
+        notifyOnAlert: configs.notifyOnAlert !== undefined ? (configs.notifyOnAlert === 'true' || configs.notifyOnAlert === true || configs.notifyOnAlert === '1') : prev.notifyOnAlert,
+        notifyOnTaskComplete: configs.notifyOnTaskComplete !== undefined ? (configs.notifyOnTaskComplete === 'true' || configs.notifyOnTaskComplete === true || configs.notifyOnTaskComplete === '1') : prev.notifyOnTaskComplete,
+        notifyOnSystemUpdate: configs.notifyOnSystemUpdate !== undefined ? (configs.notifyOnSystemUpdate === 'true' || configs.notifyOnSystemUpdate === true || configs.notifyOnSystemUpdate === '1') : prev.notifyOnSystemUpdate
       }));
 
       setApiSettings(prev => ({
@@ -378,11 +378,11 @@ const Setting = () => {
         default_interval: configs.default_interval || prev.default_interval,
         default_commission: configs.default_commission !== undefined ? Number(configs.default_commission) : prev.default_commission,
         default_initial_cash: configs.default_initial_cash !== undefined ? Number(configs.default_initial_cash) : prev.default_initial_cash,
-        proxy_enabled: configs.proxy_enabled !== undefined ? (configs.proxy_enabled === 'true' || configs.proxy_enabled === true) : prev.proxy_enabled,
+        proxy_enabled: configs.proxy_enabled !== undefined ? (configs.proxy_enabled === 'true' || configs.proxy_enabled === true || configs.proxy_enabled === '1') : prev.proxy_enabled,
         proxy_url: configs.proxy_url || prev.proxy_url,
         proxy_username: configs.proxy_username || prev.proxy_username,
         proxy_password: configs.proxy_password || prev.proxy_password,
-        realtime_enabled: configs.realtime_enabled !== undefined ? (configs.realtime_enabled === 'true' || configs.realtime_enabled === true) : prev.realtime_enabled,
+        realtime_enabled: configs.realtime_enabled !== undefined ? (configs.realtime_enabled === 'true' || configs.realtime_enabled === true || configs.realtime_enabled === '1') : prev.realtime_enabled,
         data_mode: configs.data_mode || prev.data_mode,
         frontend_update_interval: configs.frontend_update_interval !== undefined ? Number(configs.frontend_update_interval) : prev.frontend_update_interval,
         frontend_data_cache_size: configs.frontend_data_cache_size !== undefined ? Number(configs.frontend_data_cache_size) : prev.frontend_data_cache_size

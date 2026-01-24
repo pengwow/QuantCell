@@ -81,7 +81,7 @@ from config_manager import load_system_configs
 
 # 导入实时引擎
 from realtime.engine import RealtimeEngine
-from realtime.routes import realtime_router, setup_routes
+from realtime.routes import setup_routes
 
 # 全局实时引擎实例
 realtime_engine = None
@@ -319,9 +319,15 @@ async def lifespan(app: FastAPI):
         logger.info("正在初始化实时引擎")
         realtime_engine = RealtimeEngine()
         app.state.realtime_engine = realtime_engine
+        # 将实时引擎实例传递给路由模块
+        from realtime.routes import setup_routes
+        logger.info("准备调用setup_routes函数")
+        setup_routes(realtime_engine)
+        logger.info("setup_routes函数调用成功")
         logger.info("实时引擎初始化成功")
     except Exception as e:
         logger.error(f"实时引擎初始化失败: {e}")
+        logger.exception(e)
         realtime_engine = None
 
     yield
@@ -408,7 +414,7 @@ app.include_router(strategy_router)
 app.include_router(backtest_router)
 
 # 注册实时引擎API路由
-from realtime.routes import realtime_router, setup_routes
+from realtime.routes import realtime_router
 app.include_router(realtime_router)
 
 # 插件路由注册会在应用启动时通过lifespan函数完成

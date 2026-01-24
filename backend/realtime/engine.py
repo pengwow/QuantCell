@@ -164,12 +164,20 @@ class RealtimeEngine:
             success = await self._create_and_register_clients()
             if not success:
                 logger.error("创建或注册交易所客户端失败")
+                # 清理已注册的客户端和监控器
+                self.monitor.stop()
+                for exchange_name in list(self.ws_manager.get_all_clients()):
+                    self.ws_manager.unregister_client(exchange_name)
                 return False
             
             # 启动WebSocket管理器
             success = await self.ws_manager.start()
             if not success:
                 logger.error("启动WebSocket管理器失败")
+                # 清理已注册的客户端和监控器
+                self.monitor.stop()
+                for exchange_name in list(self.ws_manager.get_all_clients()):
+                    self.ws_manager.unregister_client(exchange_name)
                 return False
             
             # 设置运行标志
@@ -180,6 +188,7 @@ class RealtimeEngine:
         
         except Exception as e:
             logger.error(f"启动实时引擎失败: {e}")
+            logger.exception(e)
             await self.stop()
             return False
     
@@ -202,10 +211,18 @@ class RealtimeEngine:
             logger.error(f"创建交易所客户端失败: {default_exchange}")
             return False
         
-        # 注册客户端到WebSocket管理器
-        success = self.ws_manager.register_client(client)
+        # 注册客户端到WebSocket管理器（强制替换已存在的客户端）
+        success = self.ws_manager.register_client(client, force=True)
         if not success:
             logger.error(f"注册交易所客户端失败: {default_exchange}")
+            return False
+        
+        # 首先建立WebSocket连接
+        success = await client.connect()
+        if not success:
+            logger.error(f"建立WebSocket连接失败: {default_exchange}")
+            # 注册失败，清理客户端
+            self.ws_manager.unregister_client(default_exchange)
             return False
         
         # 构建订阅频道
@@ -214,7 +231,7 @@ class RealtimeEngine:
             for data_type in data_types:
                 if data_type == 'kline' and intervals:
                     for interval in intervals:
-                        channels.append(f"{symbol}@kline_{interval}")
+                        channels.append(f"{symbol}@{data_type}_{interval}")
                 else:
                     channels.append(f"{symbol}@{data_type}")
         
@@ -222,6 +239,8 @@ class RealtimeEngine:
         success = await client.subscribe(channels)
         if not success:
             logger.error(f"订阅频道失败: {default_exchange}")
+            # 订阅失败，清理客户端
+            self.ws_manager.unregister_client(default_exchange)
             return False
         
         return True

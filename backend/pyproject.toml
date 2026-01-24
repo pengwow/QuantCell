@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.13.2",
+    "aiohttp-socks>=0.11.0",
     "alembic>=1.17.2",
     "apscheduler>=3.11.1",
     "backtesting>=0.3.3",
@@ -26,6 +27,7 @@ dependencies = [
     "polib>=1.2.0",
     "pyqlib>=0.9.7",
     "pytest>=9.0.1",
+    "python-socks>=2.8.0",
     "sqlalchemy>=2.0.35",
     "statsmodels>=0.14.6",
     "ta-lib>=0.6.8",
