@@ -854,7 +854,8 @@ const Setting = () => {
             flexDirection: 'column',
             transform: 'translateZ(0)', // 启用硬件加速
             marginBottom: menuMode === 'horizontal' ? 12 : 0,
-            width: menuMode === 'horizontal' ? '100%' : 200
+            width: menuMode === 'horizontal' ? '100%' : 200,
+            maxWidth: menuMode === 'horizontal' ? 'none !important' : undefined
           }}
         >
           <Menu

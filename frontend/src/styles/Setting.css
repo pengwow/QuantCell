@@ -53,6 +53,21 @@
   background: #f0f2f5;
 }
 
+/* 彻底覆盖aside元素的max-width */
+.settings-container aside {
+  max-width: none !important;
+}
+
+.settings-container .settings-sidebar {
+  max-width: none !important;
+}
+
+/* 确保水平模式下子菜单能铺满 */
+.settings-container .ant-layout-horizontal .ant-menu {
+  max-width: none !important;
+  width: 100% !important;
+}
+
 .ant-layout-content {
   padding: 0;
 }
