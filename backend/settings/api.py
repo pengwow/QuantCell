@@ -4,7 +4,7 @@ import os
 import sys
 from typing import Any, Dict, Optional, List
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Path, Request
 from loguru import logger
 
 # 导入配置管理相关模块
@@ -75,14 +75,19 @@ def get_all_configs():
 
 
 @config_router.get("/{key}", response_model=ApiResponse)
-def get_config(key: str):
+def get_config(key: str = Path(..., description="配置项的键名，用于唯一标识一个配置项")):
     """获取指定键的系统配置
     
     Args:
-        key: 配置键名
+        key: 配置键名，用于唯一标识一个配置项
         
     Returns:
-        ApiResponse: 包含指定配置的响应
+        ApiResponse[SystemConfigItem]: 包含指定配置详细信息的响应
+        
+    Responses:
+        200: 成功获取配置
+        404: 配置不存在
+        500: 获取配置失败
     """
     try:
         logger.info(f"开始获取配置: {key}")
@@ -113,27 +118,29 @@ def get_config(key: str):
 
 
 @config_router.post("/", response_model=ApiResponse)
-def update_config(request: Request, config: Dict[str, Any]):
+def update_config(request: Request, config: ConfigUpdateRequest):
     """更新或创建系统配置
     
     Args:
         request: FastAPI请求对象，用于访问应用实例
-        config: 配置字典，包含key、value和可选的description、plugin、name、is_sensitive
+        config: 配置更新请求体，包含配置的详细信息
     
     Returns:
-        ApiResponse: 包含更新结果的响应
+        ApiResponse[SystemConfigItem]: 包含更新结果的响应
+        
+    Responses:
+        200: 成功更新配置
+        400: 请求数据格式错误
+        500: 更新配置失败
     """
     try:
-        # 验证请求数据
-        if "key" not in config or "value" not in config:
-            raise HTTPException(status_code=400, detail="请求数据必须包含key和value字段")
-        
-        key = config["key"]
-        value = config["value"]
-        description = config.get("description", "")
-        plugin = config.get("plugin", None)
-        name = config.get("name", None)
-        is_sensitive = config.get("is_sensitive", False)
+        # 从Pydantic模型中获取配置字段
+        key = config.key
+        value = config.value
+        description = config.description or ""
+        plugin = config.plugin
+        name = config.name
+        is_sensitive = config.is_sensitive
         
         logger.info(f"开始更新配置: key={key}, value={value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}")
         
@@ -172,15 +179,19 @@ def update_config(request: Request, config: Dict[str, Any]):
 
 
 @config_router.delete("/{key}", response_model=ApiResponse)
-def delete_config(request: Request, key: str):
+def delete_config(request: Request, key: str = Path(..., description="要删除的配置项键名")):
     """删除指定键的系统配置
     
     Args:
         request: FastAPI请求对象，用于访问应用实例
-        key: 配置键名
+        key: 要删除的配置项键名
         
     Returns:
         ApiResponse: 包含删除结果的响应
+        
+    Responses:
+        200: 成功删除配置
+        500: 删除配置失败
     """
     try:
         logger.info(f"开始删除配置: {key}")
@@ -208,42 +219,48 @@ def delete_config(request: Request, key: str):
 
 
 @config_router.post("/batch", response_model=ApiResponse)
-def update_configs_batch(request: Request, configs: List[Dict[str, Any]]|Dict[str, Any]):
+def update_configs_batch(request: Request, configs: ConfigBatchUpdateRequest):
     """批量更新系统配置
 
     Args:
         request: FastAPI请求对象，用于访问应用实例
-        configs: 配置字典，键为配置名，值为配置值，或者配置列表
+        configs: 批量更新请求体，可以是键值对字典或配置项对象列表
 
     Returns:
         ApiResponse: 包含更新结果的响应
+        
+    Responses:
+        200: 成功批量更新配置
+        400: 请求数据格式错误
+        500: 批量更新配置失败
     """
     try:
         logger.info("开始批量更新系统配置")
-        if isinstance(configs, dict):
-            # 遍历配置，逐个更新
-            updated_count = 0
-            for key, value in configs.items():
+        updated_count = 0
+        batch_configs = configs.configs
+        
+        if isinstance(batch_configs, dict):
+            # 遍历键值对字典配置，逐个更新
+            for key, value in batch_configs.items():
                 # 跳过非配置项（如__v_id等Vue内部属性）
                 if not key.startswith("__v"):
                     logger.info(f"更新配置: key={key}, value={value}")
                     SystemConfig.set(key, value)
                     updated_count += 1
-            logger.info(f"批量更新的配置数量: {updated_count}")
-        if isinstance(configs, list):
-            # 遍历配置，逐个更新
-            updated_count = 0
-            for config in configs:
-                key = config["key"]
-                value = config["value"]
-                description = config.get("description", "")
-                plugin = config.get("plugin", None)
-                name = config.get("name", None)
-                is_sensitive = config.get("is_sensitive", False)
+        elif isinstance(batch_configs, list):
+            # 遍历配置项对象列表，逐个更新
+            for config_item in batch_configs:
+                key = config_item.key
+                value = config_item.value
+                description = config_item.description or ""
+                plugin = config_item.plugin
+                name = config_item.name
+                is_sensitive = config_item.is_sensitive
                 logger.info(f"更新配置: key={key}, value={value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}")
                 SystemConfig.set(key, value, description, plugin, name, is_sensitive)
                 updated_count += 1
-            logger.info(f"批量更新的配置数量: {updated_count}")
+        
+        logger.info(f"批量更新的配置数量: {updated_count}")
         
         # 刷新应用上下文配置
         request.app.state.configs = load_system_configs()
@@ -252,7 +269,7 @@ def update_configs_batch(request: Request, configs: List[Dict[str, Any]]|Dict[st
         return ApiResponse(
             code=0,
             message="批量更新配置成功",
-            data={"updated_count": len(configs) if isinstance(configs, list) else len(configs) - sum(1 for key in configs if key.startswith("__v"))}
+            data={"updated_count": updated_count}
         )
     except Exception as e:
         logger.error(f"批量更新配置失败: error={e}")
@@ -260,14 +277,18 @@ def update_configs_batch(request: Request, configs: List[Dict[str, Any]]|Dict[st
 
 
 @config_router.get("/plugin/{plugin_name}", response_model=ApiResponse)
-def get_plugin_config(plugin_name: str):
+def get_plugin_config(plugin_name: str = Path(..., description="插件的名称，用于过滤插件相关的配置项")):
     """获取指定插件的所有配置
 
     Args:
-        plugin_name: 插件名称
+        plugin_name: 插件的名称，用于过滤插件相关的配置项
 
     Returns:
-        ApiResponse: 包含插件配置的响应
+        ApiResponse[Dict[str, str]]: 包含指定插件配置的响应，值为敏感配置时返回"******"
+        
+    Responses:
+        200: 成功获取插件配置
+        500: 获取插件配置失败
     """
     try:
         logger.info(f"开始获取插件配置: {plugin_name}")
@@ -302,7 +323,11 @@ def get_system_info():
     """获取系统信息
     
     Returns:
-        ApiResponse: 包含系统信息的响应
+        ApiResponse[SystemInfo]: 包含系统信息的响应，包括版本信息、运行状态和资源使用情况
+        
+    Responses:
+        200: 成功获取系统信息
+        500: 获取系统信息失败
     """
     try:
         system_service = SystemService()
