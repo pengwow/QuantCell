@@ -6,10 +6,8 @@ from fastapi import APIRouter, HTTPException, Query
 from loguru import logger
 
 # 导入配置管理API路由
-from .api.config import router as config_router
 from .api.data import router as data_router
 from .api.data_pool import router as data_pool_router
-from .api.system import router as system_router
 from .api.scheduled_tasks import router as scheduled_tasks_router
 from .db.models import Task
 from .schemas import ApiResponse, DataConvertRequest, DataDownloadRequest
@@ -19,14 +17,8 @@ from .scripts.get_data import GetData
 # 创建API路由实例
 router = APIRouter()
 
-# 注册配置管理API路由
-router.include_router(config_router)
-
 # 注册数据加载API路由
 router.include_router(data_router)
-
-# 注册系统信息API路由
-router.include_router(system_router)
 
 # 注册资产池管理API路由
 router.include_router(data_pool_router)

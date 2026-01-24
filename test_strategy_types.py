@@ -13,14 +13,14 @@ sys.path.insert(0, project_root)
 sys.path.insert(0, backend_path)
 
 # 导入策略相关类
-from strategy.core import StrategyRunner
-from strategy.common_strategies import (
+from backtest.strategies.core import StrategyRunner
+from backtest.strategies.common_strategies import (
     RSIStrategy,
     MACDStrategy,
     BollingerBandsStrategy,
     MultiFactorStrategy
 )
-from strategy.result_analysis import ResultAnalyzer
+from backtest.strategies.result_analysis import ResultAnalyzer
 
 
 def generate_test_data(duration_days=30, freq='1h', asset='BTCUSDT'):
@@ -197,7 +197,7 @@ def main():
             strategy_info['name']
         )
         
-        if bt_result is not None and vbt_result is not None:
+        if bt_result and vbt_result:
             all_results.append({
                 'name': strategy_info['name'],
                 'bt_result': bt_result,

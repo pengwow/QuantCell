@@ -24,6 +24,7 @@ class SystemConfig(Base):
     description = Column(Text, nullable=True)
     name = Column(String, nullable=True, index=True)  # 配置名称，用于区分系统配置页面的子菜单名称
     plugin = Column(String, nullable=True, index=True)  # 插件名称，用于区分是插件配置还是基础配置
+    is_sensitive = Column(Boolean, default=False)  # 是否敏感配置，敏感配置API不返回真实值
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
@@ -346,7 +347,7 @@ class SystemConfigBusiness:
             db.close()
     
     @staticmethod
-    def set(key: str, value: str, description: str = "", plugin: str = None, name: str = None) -> bool:
+    def set(key: str, value: str, description: str = "", plugin: str = None, name: str = None, is_sensitive: bool = False) -> bool:
         """设置配置项的值
         
         Args:
@@ -355,6 +356,7 @@ class SystemConfigBusiness:
             description: 配置项描述
             plugin: 插件名称，用于区分是插件配置还是基础配置
             name: 配置名称，用于区分系统配置页面的子菜单名称
+            is_sensitive: 是否为敏感配置，敏感配置API不返回真实值
             
         Returns:
             bool: 设置成功返回True，失败返回False
@@ -374,6 +376,7 @@ class SystemConfigBusiness:
                     config.plugin = plugin
                 if name is not None:
                     config.name = name
+                config.is_sensitive = is_sensitive
             else:
                 # 创建新配置
                 config = SystemConfig(
@@ -381,11 +384,12 @@ class SystemConfigBusiness:
                     value=value,
                     description=description,
                     plugin=plugin,
-                    name=name
+                    name=name,
+                    is_sensitive=is_sensitive
                 )
                 db.add(config)
             db.commit()
-            logger.info(f"配置已更新: key={key}, value={value}, plugin={plugin}, name={name}")
+            logger.info(f"配置已更新: key={key}, value={value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}")
             return True
         except Exception as e:
             db.rollback()
@@ -448,7 +452,7 @@ class SystemConfigBusiness:
             key: 配置项键名
             
         Returns:
-            Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、插件、名称、创建时间和更新时间
+            Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、插件、名称、是否敏感、创建时间和更新时间
         """
         from .database import SessionLocal, init_database_config
         init_database_config()
@@ -462,6 +466,7 @@ class SystemConfigBusiness:
                     "description": config.description,
                     "plugin": config.plugin,
                     "name": config.name,
+                    "is_sensitive": config.is_sensitive,
                     "created_at": config.created_at,
                     "updated_at": config.updated_at
                 }
@@ -492,6 +497,7 @@ class SystemConfigBusiness:
                     "description": config.description,
                     "plugin": config.plugin,
                     "name": config.name,
+                    "is_sensitive": config.is_sensitive,
                     "created_at": config.created_at,
                     "updated_at": config.updated_at
                 }

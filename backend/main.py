@@ -13,6 +13,7 @@ from backtest.routes import router as backtest_router
 from collector.routes import router as collector_router
 from factor.routes import router as factor_router
 from model.routes import router as model_router
+from settings.api import router as settings_router
 from strategy.routes import router_strategy as strategy_router
 
 # 导入插件系统
@@ -365,6 +366,9 @@ app.add_middleware(
 
 # 注册数据处理API路由
 app.include_router(collector_router)
+
+# 注册系统设置API路由
+app.include_router(settings_router)
 
 # 注册因子计算API路由
 app.include_router(factor_router)

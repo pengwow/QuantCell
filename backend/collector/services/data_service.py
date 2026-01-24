@@ -11,7 +11,7 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from ..data_loader import data_loader
-from ..db import SystemConfigBusiness as SystemConfig
+from settings.models import SystemConfigBusiness as SystemConfig
 from ..db import crud
 from ..schemas.data import (CalendarInfoResponse, DataInfoResponse,
                             DataResponse, DownloadCryptoRequest,

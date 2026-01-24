@@ -1,47 +1,51 @@
-# 配置管理API路由
+# 系统设置API路由
 
 import os
-# 导入系统配置加载函数
 import sys
 from typing import Any, Dict, Optional, List
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
-from ..db import SystemConfigBusiness as SystemConfig
-from ..schemas import ApiResponse
+# 导入配置管理相关模块
+from settings.models import SystemConfigBusiness as SystemConfig
+from settings.services import SystemService
+
+# 导入详细的Schema模型
+from settings.schemas import (
+    ApiResponse,
+    ConfigBatchUpdateRequest,
+    ConfigUpdateRequest,
+    SystemConfigItem,
+    SystemConfigSimple,
+    SystemInfo
+)
 
 # 添加项目根目录到Python路径
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 from config_manager import load_system_configs
 
 # 创建API路由实例
-router = APIRouter(prefix="/api/config", tags=["config-management"])
+router = APIRouter()
+
+# 创建配置管理API路由子路由
+config_router = APIRouter(prefix="/api/config", tags=["config-management"])
+
+# 创建系统信息API路由子路由
+system_router = APIRouter(prefix="/api/system", tags=["system-info"])
 
 
-class ConfigUpdateRequest:
-    """配置更新请求模型
-    
-    Attributes:
-        value: 配置值
-        description: 配置描述，可选
-        plugin: 插件名称，可选，用于区分是插件配置还是基础配置
-        name: 配置名称，可选，用于区分系统配置页面的子菜单名称
-    """
-    def __init__(self, value: str, description: Optional[str] = None, plugin: Optional[str] = None, name: Optional[str] = None):
-        self.value = value
-        self.description = description
-        self.plugin = plugin
-        self.name = name
-
-
-@router.get("/", response_model=ApiResponse)
+@config_router.get("/", response_model=ApiResponse)
 def get_all_configs():
     """获取所有系统配置
     
     Returns:
-        ApiResponse: 包含所有配置的响应
+        ApiResponse[Dict[str, str]]: 包含所有配置的响应，值为敏感配置时返回"******"
+        
+    Responses:
+        200: 成功获取所有配置
+        500: 获取配置失败
     """
     try:
         logger.info("开始获取所有系统配置")
@@ -70,7 +74,7 @@ def get_all_configs():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{key}", response_model=ApiResponse)
+@config_router.get("/{key}", response_model=ApiResponse)
 def get_config(key: str):
     """获取指定键的系统配置
     
@@ -108,7 +112,7 @@ def get_config(key: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/", response_model=ApiResponse)
+@config_router.post("/", response_model=ApiResponse)
 def update_config(request: Request, config: Dict[str, Any]):
     """更新或创建系统配置
     
@@ -167,7 +171,7 @@ def update_config(request: Request, config: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/{key}", response_model=ApiResponse)
+@config_router.delete("/{key}", response_model=ApiResponse)
 def delete_config(request: Request, key: str):
     """删除指定键的系统配置
     
@@ -202,7 +206,8 @@ def delete_config(request: Request, key: str):
         logger.error(f"删除配置失败: key={key}, error={e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/batch", response_model=ApiResponse)
+
+@config_router.post("/batch", response_model=ApiResponse)
 def update_configs_batch(request: Request, configs: List[Dict[str, Any]]|Dict[str, Any]):
     """批量更新系统配置
 
@@ -253,7 +258,8 @@ def update_configs_batch(request: Request, configs: List[Dict[str, Any]]|Dict[st
         logger.error(f"批量更新配置失败: error={e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/plugin/{plugin_name}", response_model=ApiResponse)
+
+@config_router.get("/plugin/{plugin_name}", response_model=ApiResponse)
 def get_plugin_config(plugin_name: str):
     """获取指定插件的所有配置
 
@@ -289,3 +295,39 @@ def get_plugin_config(plugin_name: str):
     except Exception as e:
         logger.error(f"获取插件配置失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@system_router.get("/info", response_model=ApiResponse)
+def get_system_info():
+    """获取系统信息
+    
+    Returns:
+        ApiResponse: 包含系统信息的响应
+    """
+    try:
+        system_service = SystemService()
+        result = system_service.get_system_info()
+        
+        if result["success"]:
+            return ApiResponse(
+                code=0,
+                message=result["message"],
+                data=result["system_info"]
+            )
+        else:
+            return ApiResponse(
+                code=1,
+                message=result["message"],
+                data=result["error"]
+            )
+    except Exception as e:
+        logger.error(f"获取系统信息失败: {e}")
+        return ApiResponse(
+            code=1,
+            message="获取系统信息失败",
+            data=str(e)
+        )
+
+# 注册子路由
+router.include_router(config_router)
+router.include_router(system_router)
