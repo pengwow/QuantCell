@@ -354,15 +354,39 @@ def update_system_config_table(session: Session, db_type: str) -> None:
             logger.info("name列已存在，跳过")
     except Exception as e:
         logger.error(f"添加name列失败: {e}")
+    
+    # 检查并添加is_sensitive列
+    logger.info("检查is_sensitive列是否存在...")
+    try:
+        column_exists = False
+        if db_type == "sqlite":
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('system_config') WHERE name='is_sensitive'")
+            ).fetchone()
+        elif db_type == "duckdb":
+            column_exists = session.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name='system_config' AND column_name='is_sensitive'")
+            ).fetchone()
+        
+        if not column_exists:
+            logger.info("添加is_sensitive列...")
+            session.execute(
+                text("ALTER TABLE system_config ADD COLUMN is_sensitive BOOLEAN DEFAULT FALSE")
+            )
+            logger.info("is_sensitive列添加成功")
+        else:
+            logger.info("is_sensitive列已存在，跳过")
+    except Exception as e:
+        logger.error(f"添加is_sensitive列失败: {e}")
         # 如果是SQLite，尝试使用创建新表的方式添加列
         if db_type == "sqlite":
             try:
-                logger.info("尝试使用创建新表的方式添加name和plugin列...")
+                logger.info("尝试使用创建新表的方式添加is_sensitive列...")
                 
                 # 0. 如果临时表已存在，先删除它
                 session.execute(text("DROP TABLE IF EXISTS system_config_new"))
                 
-                # 1. 创建临时表，包含所有现有列和新的name列
+                # 1. 创建临时表，包含所有现有列和新的is_sensitive列
                 session.execute(
                     text("""CREATE TABLE system_config_new (
                         key VARCHAR PRIMARY KEY,
@@ -370,35 +394,43 @@ def update_system_config_table(session: Session, db_type: str) -> None:
                         description TEXT,
                         plugin VARCHAR,
                         name VARCHAR,
+                        is_sensitive BOOLEAN DEFAULT FALSE,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )""")
                 )
                 
                 # 2. 复制旧表数据到新表
-                # 注意：如果plugin列不存在，这里会出错，所以需要先检查
+                # 注意：需要根据实际表结构调整查询
                 try:
-                    # 尝试使用包含plugin列的查询
+                    # 尝试使用包含plugin和name列的查询
                     session.execute(
-                        text("""INSERT INTO system_config_new (key, value, description, plugin, created_at, updated_at) 
-                               SELECT key, value, description, plugin, created_at, updated_at FROM system_config""")
+                        text("""INSERT INTO system_config_new (key, value, description, plugin, name, created_at, updated_at) 
+                               SELECT key, value, description, plugin, name, created_at, updated_at FROM system_config""")
                     )
                 except:
-                    # 如果plugin列不存在，使用不包含plugin列的查询
-                    logger.info("plugin列不存在，使用不包含plugin列的查询复制数据...")
-                    session.execute(
-                        text("""INSERT INTO system_config_new (key, value, description, created_at, updated_at) 
-                               SELECT key, value, description, created_at, updated_at FROM system_config""")
-                    )
+                    try:
+                        # 尝试使用包含plugin列的查询
+                        session.execute(
+                            text("""INSERT INTO system_config_new (key, value, description, plugin, created_at, updated_at) 
+                                   SELECT key, value, description, plugin, created_at, updated_at FROM system_config""")
+                        )
+                    except:
+                        # 如果plugin列不存在，使用不包含plugin列的查询
+                        logger.info("plugin列不存在，使用不包含plugin列的查询复制数据...")
+                        session.execute(
+                            text("""INSERT INTO system_config_new (key, value, description, created_at, updated_at) 
+                                   SELECT key, value, description, created_at, updated_at FROM system_config""")
+                        )
                 
                 # 3. 删除旧表
                 session.execute(text("DROP TABLE system_config"))
                 
                 # 4. 将新表重命名为旧表名称
                 session.execute(text("ALTER TABLE system_config_new RENAME TO system_config"))
-                logger.info("使用创建新表的方式添加name和plugin列成功")
+                logger.info("使用创建新表的方式添加is_sensitive列成功")
             except Exception as sqlite_e:
-                logger.error(f"使用创建新表的方式添加name和plugin列失败: {sqlite_e}")
+                logger.error(f"使用创建新表的方式添加is_sensitive列失败: {sqlite_e}")
                 raise
     
     logger.info("system_config表结构更新完成")
