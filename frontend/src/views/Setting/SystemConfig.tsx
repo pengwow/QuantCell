@@ -223,6 +223,7 @@ const SystemConfig: React.FC<SystemConfigProps> = ({
             >
               <div style={{ display: 'flex', alignItems: 'center' }}>
                 <Switch
+                  checked={systemConfig.proxy_enabled}
                   checkedChildren="启用"
                   unCheckedChildren="禁用"
                   onChange={(checked) => setSystemConfig(prev => ({ ...prev, proxy_enabled: checked }))}

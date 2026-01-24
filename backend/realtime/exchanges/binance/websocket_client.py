@@ -38,11 +38,31 @@ class BinanceWebSocketClient:
         try:
             logger.info(f"正在连接到币安WebSocket: {self.stream_url}")
             
+            # 构建连接参数
+            connect_kwargs = {
+                'ping_interval': 30,
+                'ping_timeout': 10
+            }
+            
+            # 添加代理配置
+            proxy_enabled = self.config.get('proxy_enabled', False)
+            if proxy_enabled:
+                proxy_url = self.config.get('proxy_url', '')
+                if proxy_url:
+                    logger.info(f"使用代理: {proxy_url}")
+                    connect_kwargs['proxy'] = proxy_url
+                    
+                    # 添加代理认证（如果有）
+                    proxy_username = self.config.get('proxy_username', '')
+                    proxy_password = self.config.get('proxy_password', '')
+                    if proxy_username and proxy_password:
+                        connect_kwargs['proxy_auth'] = (proxy_username, proxy_password)
+            
             # 建立WebSocket连接
+            logger.debug(f"WebSocket连接参数: {connect_kwargs}")
             self.websocket = await websockets.connect(
                 self.stream_url,
-                ping_interval=30,
-                ping_timeout=10
+                **connect_kwargs
             )
             
             self.connected = True
@@ -51,6 +71,7 @@ class BinanceWebSocketClient:
             return True
         except Exception as e:
             logger.error(f"连接币安WebSocket失败: {e}")
+            logger.exception(e)
             self.connected = False
             return False
     

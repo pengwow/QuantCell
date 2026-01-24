@@ -7,7 +7,11 @@ from loguru import logger
 realtime_router = APIRouter(prefix="/api/realtime", tags=["realtime-engine"])
 
 # 全局实例引用
+from loguru import logger
+
 realtime_engine = None
+
+logger.info(f"初始化routes模块，realtime_engine初始值: {realtime_engine}")
 
 
 def setup_routes(engine):
@@ -18,7 +22,9 @@ def setup_routes(engine):
         engine: 实时引擎实例
     """
     global realtime_engine
+    logger.info(f"setup_routes被调用，传入的engine: {engine}")
     realtime_engine = engine
+    logger.info(f"setup_routes执行后，realtime_engine: {realtime_engine}")
 
 
 @realtime_router.get("/status", response_model=Dict[str, Any])
@@ -54,7 +60,9 @@ async def start_realtime_engine():
         Dict[str, Any]: 启动结果
     """
     try:
+        logger.info(f"start_realtime_engine被调用，当前realtime_engine: {realtime_engine}")
         if not realtime_engine:
+            logger.error("start_realtime_engine: realtime_engine为None")
             return {
                 "code": 1,
                 "message": "实时引擎未初始化",
