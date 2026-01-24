@@ -12,14 +12,12 @@ const DataQualityPage = () => {
   };
 
   return (
-    <div className="data-management-main">
-      <div className="data-panel">
-        <h2>数据质量</h2>
-        <div className="data-section">
-          <DataQuality systemConfig={systemConfig} />
-        </div>
+    <>
+      <h2>数据质量</h2>
+      <div className="data-section">
+        <DataQuality systemConfig={systemConfig} />
       </div>
-    </div>
+    </>
   );
 };
 

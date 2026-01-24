@@ -5,13 +5,7 @@ import DataPoolManager from '../../components/DataPoolManager';
 
 const DataPoolPage = () => {
   return (
-    <div className="data-management-main">
-      <div className="data-panel">
-        <div className="data-section">
-          <DataPoolManager />
-        </div>
-      </div>
-    </div>
+    <DataPoolManager />
   );
 };
 

@@ -27,14 +27,16 @@ async def test_ccxtpro_websocket():
         'options': {
             'defaultType': 'spot',
         },
+        'proxy': 'socks5://127.0.0.1:7897'
     })
     
-    # 配置socks5代理
-    proxy_url = 'socks5://127.0.0.1:7897'
-    exchange.proxy = proxy_url
     
-    logger.info(f"使用代理: {proxy_url}")
+    # 暂时不使用代理，直接连接
+    logger.info("不使用代理，直接连接")
     logger.info(f"交易所: {exchange.id}")
+    if not exchange.has['watchOHLCVForSymbols']:
+        logger.error(f"交易所 {exchange.id} 不支持 watchOHLCVForSymbols 方法")
+        return
     
     # 检查交易所是否支持watchOHLCVForSymbols方法
     if not hasattr(exchange, 'watch_ohlcv_for_symbols'):

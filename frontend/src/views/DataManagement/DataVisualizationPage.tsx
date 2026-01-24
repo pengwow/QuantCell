@@ -199,85 +199,83 @@ const DataVisualizationPage = () => {
   };
 
   return (
-    <div className="data-management-main">
-      <div className="data-panel">
-        <h2>数据可视化</h2>
-        
-        {/* K线图表配置 */}
-        <div className="data-section">
-          <div className="import-form">
-            <Space.Compact style={{ width: '100%' }}>
-              <div style={{ flex: 1, marginRight: 16 }}>
-                <div style={{ marginBottom: 8 }}>交易对</div>
-                <Select
-                  value={klineConfig.symbol}
-                  onChange={(value) => setKlineConfig(prev => ({ ...prev, symbol: value }))}
-                >
-                  <Select.Option value="BTCUSDT">BTCUSDT</Select.Option>
-                  <Select.Option value="ETHUSDT">ETHUSDT</Select.Option>
-                  <Select.Option value="BNBUSDT">BNBUSDT</Select.Option>
-                </Select>
-              </div>
-              <div style={{ flex: 1, marginRight: 16 }}>
-                <div style={{ marginBottom: 8 }}>时间周期</div>
-                <Select
-                  value={klineConfig.interval}
-                  onChange={(value) => setKlineConfig(prev => ({ ...prev, interval: value }))}
-                >
-                  <Select.Option value="1m">1分钟</Select.Option>
-                  <Select.Option value="5m">5分钟</Select.Option>
-                  <Select.Option value="15m">15分钟</Select.Option>
-                  <Select.Option value="30m">30分钟</Select.Option>
-                  <Select.Option value="1h">1小时</Select.Option>
-                </Select>
-              </div>
-              <div style={{ flex: 1, marginRight: 16 }}>
-                <div style={{ marginBottom: 8 }}>数据数量</div>
-                <InputNumber
-                  value={klineConfig.limit}
-                  min={100}
-                  max={2000}
-                  step={100}
-                  onChange={(value: number | null) => setKlineConfig(prev => ({ ...prev, limit: value || 500 }))}
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ marginBottom: 8 }}>操作</div>
-                <Button 
-                  type="primary"
-                  onClick={fetchKlineData}
-                  disabled={isLoadingKline}
-                  icon={<ReloadOutlined />}
-                  block
-                >
-                  {isLoadingKline ? '加载中...' : '获取数据'}
-                </Button>
-              </div>
-            </Space.Compact>
-          </div>
-        </div>
-        
-        {/* K线图表 */}
-        <div className="data-section">
-          <h3>K线图表</h3>
-          {klineError && (
-            <div className="error-message">
-              {klineError}
+    <>
+      <h2>数据可视化</h2>
+      
+      {/* K线图表配置 */}
+      <div className="data-section">
+        <div className="import-form">
+          <Space.Compact style={{ width: '100%' }}>
+            <div style={{ flex: 1, marginRight: 16 }}>
+              <div style={{ marginBottom: 8 }}>交易对</div>
+              <Select
+                value={klineConfig.symbol}
+                onChange={(value) => setKlineConfig(prev => ({ ...prev, symbol: value }))}
+              >
+                <Select.Option value="BTCUSDT">BTCUSDT</Select.Option>
+                <Select.Option value="ETHUSDT">ETHUSDT</Select.Option>
+                <Select.Option value="BNBUSDT">BNBUSDT</Select.Option>
+              </Select>
             </div>
-          )}
-          <div className="kline-chart-container">
-            {isLoadingKline ? (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '600px' }}>
-                <Spin tip="加载中..." size="large" />
-              </div>
-            ) : (
-              <div className="kline-chart" ref={chartContainerRef} style={{ height: '600px', width: '100%' }}>
-              </div>
-            )}
-          </div>
+            <div style={{ flex: 1, marginRight: 16 }}>
+              <div style={{ marginBottom: 8 }}>时间周期</div>
+              <Select
+                value={klineConfig.interval}
+                onChange={(value) => setKlineConfig(prev => ({ ...prev, interval: value }))}
+              >
+                <Select.Option value="1m">1分钟</Select.Option>
+                <Select.Option value="5m">5分钟</Select.Option>
+                <Select.Option value="15m">15分钟</Select.Option>
+                <Select.Option value="30m">30分钟</Select.Option>
+                <Select.Option value="1h">1小时</Select.Option>
+              </Select>
+            </div>
+            <div style={{ flex: 1, marginRight: 16 }}>
+              <div style={{ marginBottom: 8 }}>数据数量</div>
+              <InputNumber
+                value={klineConfig.limit}
+                min={100}
+                max={2000}
+                step={100}
+                onChange={(value: number | null) => setKlineConfig(prev => ({ ...prev, limit: value || 500 }))}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ marginBottom: 8 }}>操作</div>
+              <Button 
+                type="primary"
+                onClick={fetchKlineData}
+                disabled={isLoadingKline}
+                icon={<ReloadOutlined />}
+                block
+              >
+                {isLoadingKline ? '加载中...' : '获取数据'}
+              </Button>
+            </div>
+          </Space.Compact>
         </div>
       </div>
-    </div>
+      
+      {/* K线图表 */}
+      <div className="data-section">
+        <h3>K线图表</h3>
+        {klineError && (
+          <div className="error-message">
+            {klineError}
+          </div>
+        )}
+        <div className="kline-chart-container">
+          {isLoadingKline ? (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '600px' }}>
+              <Spin tip="加载中..." size="large" />
+            </div>
+          ) : (
+            <div className="kline-chart" ref={chartContainerRef} style={{ height: '600px', width: '100%' }}>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 };
 

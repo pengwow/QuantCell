@@ -592,7 +592,7 @@ const BacktestResults = () => {
 
   // 否则渲染回测列表和详情
   return (
-    <div className="backtest-results-container">
+    <>
       <h1>{t('strategy_backtest')}</h1>
       
       <div className="backtest-layout">
@@ -819,7 +819,7 @@ const BacktestResults = () => {
           )}
         </div>
       </div>
-    </div>
+    </>
   );
 };
 

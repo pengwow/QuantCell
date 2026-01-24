@@ -215,7 +215,7 @@ const StrategyAgent = () => {
   ];
 
   return (
-    <div className="strategy-agent-container">
+    <>
       <header className="page-header">
         <Title level={2} className="header-title">策略代理</Title>
         <div className="header-actions">
@@ -392,7 +392,7 @@ const StrategyAgent = () => {
           )}
         </Col>
       </Row>
-    </div>
+    </>
   );
 };
 

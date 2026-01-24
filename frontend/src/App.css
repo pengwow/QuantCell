@@ -384,7 +384,7 @@
 /* 主内容区域 - 支持水平和垂直布局 */
 .main-container {
   flex: 1;
-  padding: 24px;
+  padding: 10px;
   min-height: 100vh;
   background-color: var(--bg-primary);
   transition: all var(--transition-normal);
@@ -422,6 +422,26 @@
   margin-left: var(--sidebar-collapsed-width);
 }
 
+/* 统一内容包装样式 - 参考数据管理页面设计 */
+.content-wrapper {
+  background-color: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lg);
+  padding: 10px;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+  transition: all var(--transition-normal);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.content-wrapper:hover {
+  box-shadow: var(--shadow-lg), 0 0 30px rgba(100, 108, 255, 0.1);
+}
+
 /* 页面过渡动画 */
 .fade-enter-active,
 .fade-leave-active {
@@ -457,5 +477,11 @@
   
   .nav-item {
     padding: 12px 8px;
+  }
+  
+  /* 响应式调整内容包装样式 */
+  .content-wrapper {
+    padding: 15px;
+    border-radius: 8px;
   }
 }
