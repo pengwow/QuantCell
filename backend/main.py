@@ -79,6 +79,14 @@ def init_qlib():
 # 导入系统配置加载函数
 from config_manager import load_system_configs
 
+# 导入实时引擎
+from realtime.engine import RealtimeEngine
+from realtime.routes import realtime_router, setup_routes
+
+# 全局实时引擎实例
+realtime_engine = None
+
+
 
 def check_and_sync_crypto_symbols():
     """检查并同步加密货币对数据
@@ -248,6 +256,8 @@ async def lifespan(app: FastAPI):
     Yields:
         None: 无返回值
     """
+    global realtime_engine
+    
     # 启动时异步初始化数据库
     await asyncio.to_thread(init_database)
 
@@ -303,9 +313,24 @@ async def lifespan(app: FastAPI):
     # 将插件管理器保存到应用状态，供后续使用
     app.state.plugin_manager = plugin_manager
     app.state.plugin_api = plugin_api
+    
+    # 初始化实时引擎
+    try:
+        logger.info("正在初始化实时引擎")
+        realtime_engine = RealtimeEngine()
+        app.state.realtime_engine = realtime_engine
+        logger.info("实时引擎初始化成功")
+    except Exception as e:
+        logger.error(f"实时引擎初始化失败: {e}")
+        realtime_engine = None
 
     yield
 
+    # 停止实时引擎
+    if realtime_engine:
+        logger.info("正在停止实时引擎")
+        await realtime_engine.stop()
+    
     # 异步关闭传统调度器，确保清理完成后再退出
     await asyncio.to_thread(traditional_scheduler.shutdown)
     # 异步关闭新的定时任务管理器
@@ -381,6 +406,10 @@ app.include_router(strategy_router)
 
 # 注册回测服务API路由
 app.include_router(backtest_router)
+
+# 注册实时引擎API路由
+from realtime.routes import realtime_router, setup_routes
+app.include_router(realtime_router)
 
 # 插件路由注册会在应用启动时通过lifespan函数完成
 # 这里不需要提前注册，插件会在应用启动时动态加载和注册

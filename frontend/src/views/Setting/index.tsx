@@ -8,6 +8,7 @@ import type { AppConfig } from '../../utils/configLoader';
 import { useTranslation } from 'react-i18next';
 import { applyTheme } from '../../utils/themeManager';
 import { pluginManager } from '../../plugins/PluginManager';
+import { useResponsive } from '../../hooks/useResponsive';
 
 // 导入类型定义
 import type { 
@@ -77,8 +78,10 @@ const Setting = () => {
   const [isSaving, setIsSaving] = useState(false);
   // 保存错误信息
   const [saveError, setSaveError] = useState<string | null>(null);
-  // 菜单模式状态
-  const [menuMode, setMenuMode] = useState<'horizontal' | 'inline'>(window.innerWidth < 992 ? 'horizontal' : 'inline');
+  // 使用响应式钩子
+  const { isMobile, isTablet } = useResponsive();
+  // 菜单模式状态 - 与主菜单保持一致的切换逻辑
+  const [menuMode, setMenuMode] = useState<'horizontal' | 'inline'>(isMobile || isTablet ? 'horizontal' : 'inline');
   // 插件配置
   const [pluginConfigs, setPluginConfigs] = useState<PluginConfig[]>([]);
   // 插件配置状态，用于管理插件配置值
@@ -88,17 +91,11 @@ const Setting = () => {
   // 插件错误信息，用于显示加载失败的错误信息
   const [pluginErrorMessages, setPluginErrorMessages] = useState<Record<string, string>>({});
 
-  // 监听窗口大小变化 - 与左侧主导航栏保持一致的切换比例
+  // 监听响应式状态变化，更新菜单模式
   useEffect(() => {
-    const handleResize = () => {
-      const width = window.innerWidth;
-      // 与左侧主导航栏保持一致的切换阈值
-      setMenuMode(width < 992 ? 'horizontal' : 'inline');
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    // 与主菜单保持一致的切换逻辑
+    setMenuMode(isMobile || isTablet ? 'horizontal' : 'inline');
+  }, [isMobile, isTablet]);
 
   // 国际化支持
   const { t, i18n } = useTranslation();
@@ -164,7 +161,12 @@ const Setting = () => {
     proxy_enabled: true,
     proxy_url: 'http://127.0.0.1:7897',
     proxy_username: '',
-    proxy_password: ''
+    proxy_password: '',
+    // 实时数据配置
+    realtime_enabled: false,
+    data_mode: 'cache',
+    frontend_update_interval: 1000,
+    frontend_data_cache_size: 1000
   });
 
   // 系统信息
@@ -379,7 +381,11 @@ const Setting = () => {
         proxy_enabled: configs.proxy_enabled !== undefined ? (configs.proxy_enabled === 'true' || configs.proxy_enabled === true) : prev.proxy_enabled,
         proxy_url: configs.proxy_url || prev.proxy_url,
         proxy_username: configs.proxy_username || prev.proxy_username,
-        proxy_password: configs.proxy_password || prev.proxy_password
+        proxy_password: configs.proxy_password || prev.proxy_password,
+        realtime_enabled: configs.realtime_enabled !== undefined ? (configs.realtime_enabled === 'true' || configs.realtime_enabled === true) : prev.realtime_enabled,
+        data_mode: configs.data_mode || prev.data_mode,
+        frontend_update_interval: configs.frontend_update_interval !== undefined ? Number(configs.frontend_update_interval) : prev.frontend_update_interval,
+        frontend_data_cache_size: configs.frontend_data_cache_size !== undefined ? Number(configs.frontend_data_cache_size) : prev.frontend_data_cache_size
       }));
 
       // 更新插件配置
@@ -564,6 +570,27 @@ const Setting = () => {
         value: systemConfig.proxy_password,
         description: 'system.proxy_password'
       });
+      // 实时数据配置
+      requestData.push({
+        key: 'realtime_enabled',
+        value: systemConfig.realtime_enabled,
+        description: 'system.realtime_enabled'
+      });
+      requestData.push({
+        key: 'data_mode',
+        value: systemConfig.data_mode,
+        description: 'system.data_mode'
+      });
+      requestData.push({
+        key: 'frontend_update_interval',
+        value: systemConfig.frontend_update_interval,
+        description: 'system.frontend_update_interval'
+      });
+      requestData.push({
+        key: 'frontend_data_cache_size',
+        value: systemConfig.frontend_data_cache_size,
+        description: 'system.frontend_data_cache_size'
+      });
 
       // 处理插件配置
       console.log('处理插件配置:', pluginConfigs);
@@ -689,7 +716,11 @@ const Setting = () => {
         proxy_enabled: true,
         proxy_url: 'http://127.0.0.1:7897',
         proxy_username: '',
-        proxy_password: ''
+        proxy_password: '',
+        realtime_enabled: false,
+        data_mode: 'cache',
+        frontend_update_interval: 1000,
+        frontend_data_cache_size: 1000
       });
 
       // 显示成功消息
@@ -801,8 +832,15 @@ const Setting = () => {
 
   return (
     <Layout className="settings-container" style={{ minHeight: '100vh', width: '100%', display: 'flex', flexDirection: 'column', transition: 'all 0.3s ease' }}>
-      <Layout style={{ display: 'flex', flex: 1, minWidth: 0, transition: 'all 0.3s ease' }}>
-        {/* 侧边栏导航 - 自适应宽度 */}
+      {/* 根据菜单模式选择不同的布局方向 */}
+      <Layout style={{ 
+        display: 'flex', 
+        flexDirection: menuMode === 'horizontal' ? 'column' : 'row', 
+        flex: 1, 
+        minWidth: 0, 
+        transition: 'all 0.3s ease' 
+      }}>
+        {/* 侧边栏导航 - 自适应宽度和位置 */}
         <Sider 
           width={menuMode === 'inline' ? 200 : 'auto'} 
           className="settings-sidebar"
@@ -815,6 +853,8 @@ const Setting = () => {
             display: 'flex',
             flexDirection: 'column',
             transform: 'translateZ(0)', // 启用硬件加速
+            marginBottom: menuMode === 'horizontal' ? 12 : 0,
+            width: menuMode === 'horizontal' ? '100%' : 200
           }}
         >
           <Menu
@@ -825,6 +865,7 @@ const Setting = () => {
             style={{
               width: menuMode === 'inline' ? '100%' : 'auto',
               borderRight: 0,
+              borderBottom: menuMode === 'horizontal' ? '1px solid #f0f0f0' : 0,
               transition: 'all 0.3s ease',
               flex: 1
             }}
@@ -833,7 +874,15 @@ const Setting = () => {
         </Sider>
 
         {/* 主内容区域 - 完全铺满剩余空间 */}
-        <Layout style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: '#f0f2f5', transition: 'all 0.3s ease' }}>
+        <Layout style={{ 
+          flex: 1, 
+          minWidth: 0, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          background: '#f0f2f5', 
+          transition: 'all 0.3s ease',
+          marginLeft: menuMode === 'horizontal' ? 0 : 0
+        }}>
           {/* 内容区域 - 自适应铺满 */}
           <Content 
             className="settings-main" 

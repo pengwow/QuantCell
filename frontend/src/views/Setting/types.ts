@@ -51,6 +51,11 @@ export interface SystemConfig {
   proxy_url: string;
   proxy_username: string;
   proxy_password: string;
+  // 实时模式配置
+  realtime_enabled: boolean;
+  data_mode: 'realtime' | 'cache';
+  frontend_update_interval: number;
+  frontend_data_cache_size: number;
 }
 
 // 版本信息类型定义
