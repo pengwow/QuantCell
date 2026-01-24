@@ -389,6 +389,8 @@ app.add_middleware(
         "http://localhost:5174",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -515,7 +517,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "main:app",  # 指定应用路径
-        host="127.0.0.1",  # 主机地址
+        host="localhost",  # 主机地址
         port=8000,  # 端口号
         reload=False,  # 禁用热重载，避免DuckDB锁冲突
     )

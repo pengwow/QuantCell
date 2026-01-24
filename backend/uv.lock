@@ -347,7 +347,6 @@ requires-dist = [
     { name = "backtesting", specifier = ">=0.3.3" },
     { name = "catboost", specifier = ">=1.2.8" },
     { name = "ccxt", specifier = ">=4.5.24" },
-    { name = "ccxtpro", specifier = ">=1.0.1" },
     { name = "certifi", specifier = ">=2025.11.12" },
     { name = "duckdb", specifier = ">=1.4.2" },
     { name = "duckdb-engine", specifier = ">=0.17.0" },
