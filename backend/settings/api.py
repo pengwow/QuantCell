@@ -2,9 +2,9 @@
 
 import os
 import sys
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, List, Optional, Union
 
-from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi import APIRouter, Body, HTTPException, Path, Request
 from loguru import logger
 
 # 导入配置管理相关模块
@@ -219,12 +219,15 @@ def delete_config(request: Request, key: str = Path(..., description="要删除�
 
 
 @config_router.post("/batch", response_model=ApiResponse)
-def update_configs_batch(request: Request, configs: ConfigBatchUpdateRequest):
+def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[Dict[str, Any]], ConfigBatchUpdateRequest] = Body(...)):
     """批量更新系统配置
 
     Args:
         request: FastAPI请求对象，用于访问应用实例
-        configs: 批量更新请求体，可以是键值对字典或配置项对象列表
+        configs: 批量更新请求体，可以是以下三种格式之一：
+            1. 键值对字典
+            2. 配置项对象列表
+            3. 包含configs字段的ConfigBatchUpdateRequest对象
 
     Returns:
         ApiResponse: 包含更新结果的响应
@@ -233,11 +236,41 @@ def update_configs_batch(request: Request, configs: ConfigBatchUpdateRequest):
         200: 成功批量更新配置
         400: 请求数据格式错误
         500: 批量更新配置失败
+        
+    Request Examples:
+        1. 字典格式:
+           {
+               "config1": "value1",
+               "config2": "value2"
+           }
+        2. 列表格式:
+           [
+               {
+                   "key": "config1",
+                   "value": "value1",
+                   "description": "配置项1",
+                   "plugin": None,
+                   "name": "基础配置",
+                   "is_sensitive": false
+               }
+           ]
+        3. ConfigBatchUpdateRequest格式:
+           {
+               "configs": {
+                   "config1": "value1",
+                   "config2": "value2"
+               }
+           }
     """
     try:
         logger.info("开始批量更新系统配置")
         updated_count = 0
-        batch_configs = configs.configs
+        batch_configs = configs
+        
+        # 处理不同格式的请求体
+        if isinstance(batch_configs, ConfigBatchUpdateRequest):
+            # 如果是ConfigBatchUpdateRequest类型，提取其中的configs字段
+            batch_configs = batch_configs.configs
         
         if isinstance(batch_configs, dict):
             # 遍历键值对字典配置，逐个更新
@@ -250,12 +283,12 @@ def update_configs_batch(request: Request, configs: ConfigBatchUpdateRequest):
         elif isinstance(batch_configs, list):
             # 遍历配置项对象列表，逐个更新
             for config_item in batch_configs:
-                key = config_item.key
-                value = config_item.value
-                description = config_item.description or ""
-                plugin = config_item.plugin
-                name = config_item.name
-                is_sensitive = config_item.is_sensitive
+                key = config_item["key"]
+                value = config_item["value"]
+                description = config_item.get("description", "")
+                plugin = config_item.get("plugin", None)
+                name = config_item.get("name", None)
+                is_sensitive = config_item.get("is_sensitive", False)
                 logger.info(f"更新配置: key={key}, value={value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}")
                 SystemConfig.set(key, value, description, plugin, name, is_sensitive)
                 updated_count += 1
