@@ -431,7 +431,7 @@ export interface DataManagementState {
   // 操作方法
   refreshCryptoData: () => void;
   refreshStockData: () => void;
-  getTasks: () => Promise<void>;
+  getTasks: (showLoading?: boolean) => Promise<void>;
 }
 
 /**
@@ -560,9 +560,12 @@ export const useDataManagementStore = create<DataManagementState>((set) => ({
 
   /**
    * 获取任务列表
+   * @param showLoading 是否显示加载状态
    */
-  getTasks: async () => {
-    set({ isLoading: true });
+  getTasks: async (showLoading = true) => {
+    if (showLoading) {
+      set({ isLoading: true });
+    }
     try {
       // 调用API获取任务列表，只获取download_crypto类型的任务
       const params = {

@@ -1,60 +1,51 @@
-#!/usr/bin/env python3
-"""
-测试get_data.py脚本的功能
-"""
+import ccxt.pro
+from asyncio import run
 
-import sys
-import os
-
-# 添加项目根目录到Python路径
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from collector.scripts.get_data import GetData
+print('CCXT Pro version', ccxt.pro.__version__)
 
 
-def test_get_data_class():
-    """测试GetData类的基本功能"""
-    print("测试GetData类的基本功能...")
-    
-    try:
-        # 实例化GetData类
-        get_data = GetData()
-        print("✓ GetData类实例化成功")
-        
-        # 检查crypto方法是否存在
-        if hasattr(get_data, 'crypto'):
-            print("✓ crypto方法存在")
-        else:
-            print("✗ crypto方法不存在")
-            return False
-        
-        # 检查crypto_binance方法是否存在
-        if hasattr(get_data, 'crypto_binance'):
-            print("✓ crypto_binance方法存在")
-        else:
-            print("✗ crypto_binance方法不存在")
-            return False
-        
-        # 检查crypto_okx方法是否存在
-        if hasattr(get_data, 'crypto_okx'):
-            print("✓ crypto_okx方法存在")
-        else:
-            print("✗ crypto_okx方法不存在")
-            return False
-        
-        # 检查_write_to_database方法是否存在
-        if hasattr(get_data, '_write_to_database'):
-            print("✓ _write_to_database方法存在")
-        else:
-            print("✗ _write_to_database方法不存在")
-            return False
-        
-        print("所有测试通过！")
-        return True
-    except Exception as e:
-        print(f"✗ 测试失败: {e}")
-        return False
+def table(values):
+    first = values[0]
+    keys = list(first.keys()) if isinstance(first, dict) else range(0, len(first))
+    widths = [max([len(str(v[k])) for v in values]) for k in keys]
+    string = ' | '.join(['{:<' + str(w) + '}' for w in widths])
+    return "\n".join([string.format(*[str(v[k]) for k in keys]) for v in values])
 
 
-if __name__ == "__main__":
-    test_get_data_class()
+async def main():
+    exchange = ccxt.pro.binance({
+        # 'options': {
+        #     'OHLCVLimit': 1000, # how many candles to store in memory by default
+        # },
+    })
+    # exchange.socks_proxy = 'socks5://127.0.0.1:7897'
+    exchange.proxies = {
+        'http': 'http://192.168.3.28:7893',
+        'https': 'https://192.168.3.28:7893',
+        'wss': 'wss://192.168.3.28:7893',
+        'ws': 'ws://192.168.3.28:7893',
+    }
+
+    symbol = 'ETH/USDT'  # or BNB/USDT, etc...
+    timeframe = '1m'  # 5m, 1h, 1d
+    limit = 10  # how many candles to return max
+    method = 'watchOHLCV'
+    if (method in exchange.has) and exchange.has[method]:
+        max_iterations = 100000  # how many times to repeat the loop before exiting
+        for i in range(0, max_iterations):
+            try:
+                ohlcvs = await exchange.watch_ohlcv(symbol, timeframe, None, limit)
+                now = exchange.milliseconds()
+                print('\n===============================================================================')
+                print('Loop iteration:', i, 'current time:', exchange.iso8601(now), symbol, timeframe)
+                print('-------------------------------------------------------------------------------')
+                print(table([[exchange.iso8601(o[0])] + o[1:] for o in ohlcvs]))
+            except Exception as e:
+                print(type(e).__name__, str(e))
+                break
+        await exchange.close()
+    else:
+        print(exchange.id, method, 'is not supported or not implemented yet')
+
+
+run(main())
