@@ -208,16 +208,15 @@ const DataCollectionPage = () => {
   };
 
   return (
-    <div className="data-management-main">
-      <div className="data-panel">
-        <h2>数据采集</h2>
-        <div className="data-section">
-          <h3>数据获取</h3>
-          <Form
-            form={collectionForm}
-            layout="vertical"
-            className="import-form"
-          >
+    <>
+      <h2>数据采集</h2>
+      <div className="data-section">
+        <h3>数据获取</h3>
+        <Form
+          form={collectionForm}
+          layout="vertical"
+          className="import-form"
+        >
             {/* 第一行：品种和周期 */}
             <Space.Compact style={{ width: '100%' }}>
               <Form.Item
@@ -293,10 +292,10 @@ const DataCollectionPage = () => {
                       for (const selectedValue of selectedValues) {
                         if (selectedValue.startsWith('pool_')) {
                           // 处理数据池，获取数据池中的所有货币对
-                      const poolOption = symbolOptions.find(option => option.value === selectedValue);
-                      if (poolOption && poolOption.symbols) {
-                        poolOption.symbols.forEach(symbol => mergedSymbols.add(symbol));
-                      }
+                          const poolOption = symbolOptions.find(option => option.value === selectedValue);
+                          if (poolOption && poolOption.symbols) {
+                            poolOption.symbols.forEach(symbol => mergedSymbols.add(symbol));
+                          }
                         } else {
                           // 直接货币对，直接添加
                           mergedSymbols.add(selectedValue);
@@ -522,8 +521,7 @@ const DataCollectionPage = () => {
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </>
   );
 };
 

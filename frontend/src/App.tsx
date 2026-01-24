@@ -211,7 +211,9 @@ const App = () => {
 
       {/* 主内容区域 */}
       <main className="main-container">
-        <Outlet />
+        <div className="content-wrapper">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

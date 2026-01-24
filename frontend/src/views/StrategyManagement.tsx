@@ -97,7 +97,7 @@ const StrategyManagement: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '24px', minHeight: '100vh' }}>
+    <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 500 }}>
           {t('strategy_management')}
@@ -207,7 +207,7 @@ const StrategyManagement: React.FC = () => {
           )}
         </div>
       </Spin>
-    </div>
+    </>
   );
 };
 
