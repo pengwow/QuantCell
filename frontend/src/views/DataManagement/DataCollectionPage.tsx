@@ -41,6 +41,8 @@ const DataCollectionPage = () => {
   const [taskProgress, setTaskProgress] = useState<number>(0);
   // 任务状态轮询定时器引用
   const taskIntervalRef = useRef<number | null>(null);
+  // 最近任务列表轮询定时器引用
+  const tasksPollingRef = useRef<number | null>(null);
 
   // 系统配置
   const [systemConfig] = useState({
@@ -118,11 +120,27 @@ const DataCollectionPage = () => {
     }
   };
 
-  // 组件挂载时获取一次任务列表，不再定时刷新
+  // 组件挂载时获取一次任务列表，并设置定时刷新
   useEffect(() => {
-    // 初始获取任务列表
-    getTasks();
+    // 初始获取任务列表，显示加载状态
+    getTasks(true);
     fetchSymbolOptions();
+    
+    // 设置最近任务列表轮询，每30秒更新一次，不显示加载状态
+    const intervalId = window.setInterval(() => {
+      getTasks(false);
+    }, 30000);
+    
+    // 保存定时器ID，用于清理
+    tasksPollingRef.current = intervalId;
+    
+    // 清理函数
+    return () => {
+      if (intervalId) {
+        window.clearInterval(intervalId);
+        tasksPollingRef.current = null;
+      }
+    };
   }, [getTasks]);
 
   // 专门用于轮询当前任务状态的useEffect钩子
@@ -187,8 +205,8 @@ const DataCollectionPage = () => {
       }
       setTaskProgress(progressValue);
       
-      // 每次查询任务状态后都刷新任务列表，确保列表始终显示最新状态
-      getTasks();
+      // 每次查询任务状态后都刷新任务列表，确保列表始终显示最新状态，但不显示加载状态
+      getTasks(false);
       
       // 如果任务完成、失败、取消或进度达到100%，停止定时查询
       if (newStatus === 'completed' || newStatus === 'failed' || newStatus === 'canceled' || progressValue >= 100) {
@@ -502,8 +520,8 @@ const DataCollectionPage = () => {
                               task.status === 'failed' ? 'exception' : 
                               task.status === 'running' ? 'active' : 'normal'
                             }
+                            format={percent => `${percent}%`}
                           />
-                          <Text>{task.progress?.percentage || 0}%</Text>
                         </div>
                         
                         {/* 任务类型 */}
