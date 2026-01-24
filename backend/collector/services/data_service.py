@@ -524,20 +524,34 @@ class DataService:
             
             # 如果启用代理，设置代理参数
             if proxy_enabled and proxy_url:
+                from urllib.parse import urlparse
+                parsed_url = urlparse(proxy_url)
+                
                 # 处理代理认证
                 if proxy_username and proxy_password:
                     # 构建带认证的代理URL
-                    from urllib.parse import urlparse
-                    parsed_url = urlparse(proxy_url)
                     proxy_with_auth = f"{parsed_url.scheme}://{proxy_username}:{proxy_password}@{parsed_url.netloc}{parsed_url.path}"
-                    exchange_instance.proxy = proxy_with_auth
+                    if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
+                        # SOCKS代理使用proxy属性
+                        exchange_instance.proxy = proxy_with_auth
+                    else:
+                        # HTTP/HTTPS代理使用proxies字典
+                        exchange_instance.proxies = {
+                            'https': proxy_with_auth,
+                            'http': proxy_with_auth
+                        }
                     logger.info(f"使用带认证的代理: {proxy_with_auth}")
                 else:
                     # 使用不带认证的代理
-                    exchange_instance.proxies = {
-                        'https': proxy_url,
-                        'http': proxy_url
-                    }
+                    if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
+                        # SOCKS代理使用proxy属性
+                        exchange_instance.proxy = proxy_url
+                    else:
+                        # HTTP/HTTPS代理使用proxies字典
+                        exchange_instance.proxies = {
+                            'https': proxy_url,
+                            'http': proxy_url
+                        }
                     logger.info(f"使用不带认证的代理: {proxy_url}")
             else:
                 logger.info("未启用代理")

@@ -147,10 +147,18 @@ class BaseKlineFetcher(KlineDataFetcher):
             proxy_password = proxy_config.get("password")
             
             if proxy_url:
-                exchange.proxies = {
-                    "http": proxy_url,
-                    "https": proxy_url
-                }
+                from urllib.parse import urlparse
+                parsed_url = urlparse(proxy_url)
+                
+                if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
+                    # SOCKS代理使用proxy属性
+                    exchange.proxy = proxy_url
+                else:
+                    # HTTP/HTTPS代理使用proxies字典
+                    exchange.proxies = {
+                        "http": proxy_url,
+                        "https": proxy_url
+                    }
                 
                 # 如果有用户名和密码，添加到代理配置中
                 if proxy_username and proxy_password:
