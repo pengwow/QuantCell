@@ -77,11 +77,18 @@ def sync_crypto_symbols(
         # 配置代理
         if proxy_enabled and proxy_url:
             logger.info(f"启用代理: {proxy_url}")
-            # ccxt库的代理配置应该使用proxies属性（字典格式）
-            exchange_instance.proxies = {
-                'http': proxy_url,
-                'https': proxy_url
-            }
+            from urllib.parse import urlparse
+            parsed_url = urlparse(proxy_url)
+            
+            if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
+                # SOCKS代理使用proxy属性
+                exchange_instance.proxy = proxy_url
+            else:
+                # HTTP/HTTPS代理使用proxies字典
+                exchange_instance.proxies = {
+                    'http': proxy_url,
+                    'https': proxy_url
+                }
             if proxy_username and proxy_password:
                 exchange_instance.proxy_auth = (proxy_username, proxy_password)
         else:
@@ -89,10 +96,18 @@ def sync_crypto_symbols(
             env_proxy = os.environ.get('HTTP_PROXY') or os.environ.get('HTTPS_PROXY')
             if env_proxy:
                 logger.info(f"使用环境变量中的代理: {env_proxy}")
-                exchange_instance.proxies = {
-                    'http': env_proxy,
-                    'https': env_proxy
-                }
+                from urllib.parse import urlparse
+                parsed_url = urlparse(env_proxy)
+                
+                if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
+                    # SOCKS代理使用proxy属性
+                    exchange_instance.proxy = env_proxy
+                else:
+                    # HTTP/HTTPS代理使用proxies字典
+                    exchange_instance.proxies = {
+                        'http': env_proxy,
+                        'https': env_proxy
+                    }
         
         # 获取市场数据
         markets = exchange_instance.load_markets()
