@@ -62,7 +62,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
-  const [defaultInterval, setDefaultInterval] = useState<string>('1d'); // 系统配置的默认时间间隔
+  const [defaultInterval, setDefaultInterval] = useState<string>('15m'); // 系统配置的默认时间间隔
   const [defaultCommission, setDefaultCommission] = useState<number>(0.001); // 系统配置的默认手续费
   const [defaultInitialCash, setDefaultInitialCash] = useState<number>(1000000); // 系统配置的默认初始资金
   
@@ -116,7 +116,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
     } catch (error) {
       console.error('加载系统配置失败:', error);
       // 使用默认值，不影响组件正常使用
-      setDefaultInterval('1d');
+      setDefaultInterval('15m');
       setDefaultCommission(0.001);
       setDefaultInitialCash(1000000);
     }
@@ -366,7 +366,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
             layout="vertical"
             onFinish={handleSubmit}
             initialValues={{
-              interval: '1d',
+              interval: '15m',
               commission: 0.001,
               initialCash: 1000000,
               symbols: ['BTC/USDT'],

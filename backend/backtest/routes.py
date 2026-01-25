@@ -2,8 +2,11 @@
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
+
+# 导入JWT认证装饰器
+from utils.auth import jwt_auth_required_sync
 
 from .schemas import (ApiResponse, BacktestAnalyzeRequest,
                       BacktestDeleteRequest, BacktestListRequest,
@@ -185,7 +188,8 @@ def analyze_backtest(request: BacktestAnalyzeRequest):
 
 
 @router_backtest.delete("/delete/{backtest_id}", response_model=ApiResponse)
-def delete_backtest(backtest_id: str):
+@jwt_auth_required_sync
+def delete_backtest(request: Request, backtest_id: str):
     """
     删除回测结果
     

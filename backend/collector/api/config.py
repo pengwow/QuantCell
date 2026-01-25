@@ -8,6 +8,9 @@ from typing import Any, Dict, Optional, List
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
+# 导入JWT认证装饰器
+from utils.auth import jwt_auth_required_sync
+
 from ..db import SystemConfigBusiness as SystemConfig
 from ..schemas import ApiResponse
 
@@ -168,6 +171,7 @@ def update_config(request: Request, config: Dict[str, Any]):
 
 
 @router.delete("/{key}", response_model=ApiResponse)
+@jwt_auth_required_sync
 def delete_config(request: Request, key: str):
     """删除指定键的系统配置
     

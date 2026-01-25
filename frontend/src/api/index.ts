@@ -1,4 +1,5 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios';
+import { getAccessToken, updateAccessToken } from '../utils/tokenManager';
 
 /**
  * API 响应类型
@@ -38,7 +39,11 @@ export const api: AxiosInstance = axios.create({
  */
 api.interceptors.request.use(
   (config) => {
-    // 可以在这里添加认证信息
+    // 添加认证令牌
+    const token = getAccessToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => {
@@ -53,6 +58,13 @@ api.interceptors.request.use(
  */
 api.interceptors.response.use(
   (response: AxiosResponse<ApiResponse>) => {
+    // 检查是否有刷新的令牌
+    const refreshedToken = response.headers['x-refreshed-token'];
+    if (refreshedToken) {
+      // 更新访问令牌
+      updateAccessToken(refreshedToken);
+    }
+    
     const { code, message, data } = response.data;
     if (code === 0) {
       return data;

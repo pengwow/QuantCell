@@ -8,6 +8,9 @@ from loguru import logger
 from ..db import DataPoolBusiness as DataPool
 from ..schemas import ApiResponse
 
+# 导入JWT认证装饰器
+from utils.auth import jwt_auth_required_sync
+
 # 创建API路由实例
 router = APIRouter(prefix="/api/data-pools", tags=["data-pool-management"])
 
@@ -156,7 +159,8 @@ def update_pool(pool_id: int, pool: Dict[str, Any]):
 
 
 @router.delete("/{pool_id}", response_model=ApiResponse)
-def delete_pool(pool_id: int):
+@jwt_auth_required_sync
+def delete_pool(request: Request, pool_id: int):
     """删除资产池
     
     Args:
@@ -327,7 +331,8 @@ def get_collection_symbols(type: Optional[str] = None, exchange: Optional[str] =
 
 
 @router.delete("/{pool_id}/assets", response_model=ApiResponse)
-def remove_pool_assets(pool_id: int, assets: Dict[str, Any]):
+@jwt_auth_required_sync
+def remove_pool_assets(request: Request, pool_id: int, assets: Dict[str, Any]):
     """从资产池移除资产
     
     Args:

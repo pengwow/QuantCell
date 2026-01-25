@@ -186,6 +186,7 @@ def start_scheduler(
     """
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
 
     from scripts.sync_crypto_symbols import sync_crypto_symbols
     from scripts.update_features import main as update_features_main
@@ -240,6 +241,17 @@ def start_scheduler(
     #     name='Initialize cryptocurrency symbols',
     #     replace_existing=True
     # )
+
+    # 添加每30分钟执行一次的增量K线数据同步任务
+    from collector.services.data_service import DataService
+    
+    scheduler.add_job(
+        func=lambda: DataService.sync_incremental_kline_data(),
+        trigger=IntervalTrigger(minutes=30),
+        id="sync_incremental_kline_data",
+        name="Sync incremental K-line data every 30 minutes",
+        replace_existing=True,
+    )
 
     # 启动调度器
     scheduler.start()
@@ -416,6 +428,10 @@ app.include_router(backtest_router)
 # 注册实时引擎API路由
 from realtime.routes import realtime_router
 app.include_router(realtime_router)
+
+# 注册JWT测试路由
+from utils.test_jwt import router as test_jwt_router
+app.include_router(test_jwt_router)
 
 # 插件路由注册会在应用启动时通过lifespan函数完成
 # 这里不需要提前注册，插件会在应用启动时动态加载和注册
