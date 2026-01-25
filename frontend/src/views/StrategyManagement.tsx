@@ -5,6 +5,7 @@ import { EditOutlined, DeleteOutlined, PlayCircleOutlined, PlusOutlined } from '
 import { strategyApi } from '../api';
 import type { Strategy } from '../types';
 import { useTranslation } from 'react-i18next';
+import { useResponsive } from '../hooks/useResponsive';
 
 const { confirm } = Modal;
 
@@ -17,6 +18,7 @@ const StrategyManagement: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { isMobile, isTablet } = useResponsive();
 
   // 加载策略列表
   const loadStrategies = async () => {
@@ -112,101 +114,111 @@ const StrategyManagement: React.FC = () => {
       </div>
 
       <Spin spinning={loading} tip={t('loading')}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '24px' }}>
-          {strategies.length > 0 ? (
-            strategies.map((strategy) => (
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: isMobile 
+              ? '1fr' 
+              : isTablet 
+              ? 'repeat(auto-fill, minmax(280px, 1fr))' 
+              : 'repeat(auto-fill, minmax(350px, 1fr))',
+            gap: isMobile || isTablet ? '16px' : '24px'
+          }}>
+            {strategies.length > 0 ? (
+              strategies.map((strategy) => (
+                <Card 
+                  key={strategy.name} 
+                  title={
+                    <Space wrap>
+                      <span>{strategy.name}</span>
+                      <Tag color="blue">v{(strategy as any).version || '1.0.0'}</Tag>
+                    </Space>
+                  }
+                  extra={
+                    <Space>
+                      <Tooltip title={t('edit_strategy')}>
+                        <Button 
+                          type="text" 
+                          icon={<EditOutlined />} 
+                          onClick={() => handleEditStrategy(strategy)}
+                        />
+                      </Tooltip>
+                      <Tooltip title={t('delete_strategy')}>
+                        <Button 
+                          type="text" 
+                          danger
+                          icon={<DeleteOutlined />} 
+                          onClick={() => handleDeleteStrategy(strategy)}
+                        />
+                      </Tooltip>
+                      <Tooltip title={t('backtest_strategy')}>
+                        <Button 
+                          type="text" 
+                          icon={<PlayCircleOutlined />} 
+                          onClick={() => handleBacktestStrategy(strategy)}
+                        />
+                      </Tooltip>
+                    </Space>
+                  }
+                  hoverable
+                  variant="borderless"
+                  style={{ 
+                    height: '100%', 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+                    borderRadius: '8px',
+                    // 确保卡片在小屏幕上有合适的内边距
+                    padding: '16px'
+                  }}
+                >
+                  <div style={{ marginBottom: '16px', flex: 1 }}>
+                    <div style={{ marginBottom: '8px', fontWeight: 500 }}>{t('strategy_description')}</div>
+                    <Tooltip title={strategy.description} placement="topLeft">
+                      <div style={{ 
+                        overflow: 'hidden', 
+                        textOverflow: 'ellipsis', 
+                        display: '-webkit-box', 
+                        WebkitLineClamp: 3, 
+                        WebkitBoxOrient: 'vertical' 
+                      }}>
+                        {strategy.description || t('no_description')}
+                      </div>
+                    </Tooltip>
+                  </div>
+                
+                  <div style={{ marginTop: 'auto' }}>
+                    <Space orientation="vertical" size="small" style={{ width: '100%' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666' }}>
+                        <span>{t('created_at')}:</span>
+                        <span>{formatDate((strategy as any).created_at)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666' }}>
+                        <span>{t('updated_at')}:</span>
+                        <span>{formatDate((strategy as any).updated_at)}</span>
+                      </div>
+                    </Space>
+                  </div>
+                </Card>
+              ))
+            ) : (
               <Card 
-                key={strategy.name} 
-                title={
-                  <Space>
-                    <span>{strategy.name}</span>
-                    <Tag color="blue">v{(strategy as any).version || '1.0.0'}</Tag>
-                  </Space>
-                }
-                extra={
-                  <Space>
-                    <Tooltip title={t('edit_strategy')}>
-                      <Button 
-                        type="text" 
-                        icon={<EditOutlined />} 
-                        onClick={() => handleEditStrategy(strategy)}
-                      />
-                    </Tooltip>
-                    <Tooltip title={t('delete_strategy')}>
-                      <Button 
-                        type="text" 
-                        danger
-                        icon={<DeleteOutlined />} 
-                        onClick={() => handleDeleteStrategy(strategy)}
-                      />
-                    </Tooltip>
-                    <Tooltip title={t('backtest_strategy')}>
-                      <Button 
-                        type="text" 
-                        icon={<PlayCircleOutlined />} 
-                        onClick={() => handleBacktestStrategy(strategy)}
-                      />
-                    </Tooltip>
-                  </Space>
-                }
-                hoverable
                 variant="borderless"
                 style={{ 
-                  height: '100%', 
-                  display: 'flex', 
-                  flexDirection: 'column',
+                  gridColumn: '1 / -1', 
+                  textAlign: 'center', 
+                  padding: '60px 0',
                   boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
                   borderRadius: '8px'
                 }}
               >
-                <div style={{ marginBottom: '16px', flex: 1 }}>
-                  <div style={{ marginBottom: '8px', fontWeight: 500 }}>{t('strategy_description')}</div>
-                  <Tooltip title={strategy.description} placement="topLeft">
-                    <div style={{ 
-                      overflow: 'hidden', 
-                      textOverflow: 'ellipsis', 
-                      display: '-webkit-box', 
-                      WebkitLineClamp: 3, 
-                      WebkitBoxOrient: 'vertical' 
-                    }}>
-                      {strategy.description || t('no_description')}
-                    </div>
-                  </Tooltip>
-                </div>
-                
-                <div style={{ marginTop: 'auto' }}>
-                  <Space orientation="vertical" size="small" style={{ width: '100%' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666' }}>
-                      <span>{t('created_at')}:</span>
-                      <span>{formatDate((strategy as any).created_at)}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#666' }}>
-                      <span>{t('updated_at')}:</span>
-                      <span>{formatDate((strategy as any).updated_at)}</span>
-                    </div>
-                  </Space>
-                </div>
+                <div style={{ marginBottom: '16px' }}>{t('no_strategies')}</div>
+                <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateStrategy}>
+                  {t('create_first_strategy')}
+                </Button>
               </Card>
-            ))
-          ) : (
-            <Card 
-              variant="borderless"
-              style={{ 
-                gridColumn: '1 / -1', 
-                textAlign: 'center', 
-                padding: '60px 0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-                borderRadius: '8px'
-              }}
-            >
-              <div style={{ marginBottom: '16px' }}>{t('no_strategies')}</div>
-              <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateStrategy}>
-                {t('create_first_strategy')}
-              </Button>
-            </Card>
-          )}
-        </div>
-      </Spin>
+            )}
+          </div>
+        </Spin>
     </>
   );
 };

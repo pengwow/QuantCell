@@ -121,10 +121,10 @@ export const createRouter = () => {
           path: '/backtest/replay/:backtestId',
           element: <BacktestReplay />
         },
-        // 默认重定向到策略代理页面
+        // 默认重定向到图表页面
         {
           index: true,
-          element: <Navigate to="/agent/StrategyAgent" replace />
+          element: <Navigate to="/chart" replace />
         }
       ]
     }
