@@ -34,7 +34,9 @@ async def check_kline_quality(
     symbol: str = Query(..., description="货币对，如BTCUSDT"),
     interval: str = Query(..., description="时间周期，如1m, 5m, 1h, 1d"),
     start: Optional[str] = Query(None, description="开始时间，格式为YYYY-MM-DD HH:MM:SS或YYYY-MM-DD"),
-    end: Optional[str] = Query(None, description="结束时间，格式为YYYY-MM-DD HH:MM:SS或YYYY-MM-DD")
+    end: Optional[str] = Query(None, description="结束时间，格式为YYYY-MM-DD HH:MM:SS或YYYY-MM-DD"),
+    market_type: str = Query("crypto", description="市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币）"),
+    crypto_type: str = Query("spot", description="加密货币类型，当market_type为crypto时有效，可选值：spot（现货）、future（合约）")
 ):
     """
     K线数据质量检查API
@@ -72,13 +74,275 @@ async def check_kline_quality(
     
     # 执行健康检查
     checker = KlineHealthChecker()
-    result = checker.check_all(symbol, interval, start_dt, end_dt)
+    result = checker.check_all(symbol, interval, start_dt, end_dt, market_type, crypto_type)
     
     return ApiResponse(
         code=0,
         message="获取K线数据质量报告成功",
         data=result
     )
+
+@quality_router.get("/kline/duplicates", response_model=ApiResponse)
+async def get_kline_duplicates(
+    symbol: str = Query(..., description="货币对，如BTCUSDT"),
+    interval: str = Query(..., description="时间周期，如1m, 5m, 1h, 1d"),
+    start: Optional[str] = Query(None, description="开始时间，格式为YYYY-MM-DD HH:MM:SS或YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="结束时间，格式为YYYY-MM-DD HH:MM:SS或YYYY-MM-DD"),
+    market_type: str = Query("crypto", description="市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币）"),
+    crypto_type: str = Query("spot", description="加密货币类型，当market_type为crypto时有效，可选值：spot（现货）、future（合约）")
+):
+    """
+    获取K线重复记录详情API
+    
+    用于获取K线数据中的重复记录详细信息，支持按时间范围查询
+    """
+    # 动态导入健康检查模块，避免路径问题
+    import sys
+    import os
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+    
+    from scripts.check_kline_health import KlineHealthChecker
+    
+    # 解析时间参数
+    start_dt = None
+    end_dt = None
+    
+    if start:
+        try:
+            start_dt = datetime.fromisoformat(start)
+        except ValueError:
+            try:
+                start_dt = datetime.strptime(start, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"无效的开始时间格式: {start}")
+    
+    if end:
+        try:
+            end_dt = datetime.fromisoformat(end)
+        except ValueError:
+            try:
+                end_dt = datetime.strptime(end, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"无效的结束时间格式: {end}")
+    
+    # 获取数据并检查唯一性
+    checker = KlineHealthChecker()
+    df = checker.get_kline_data(symbol, interval, start_dt, end_dt, market_type, crypto_type)
+    uniqueness_result = checker.check_uniqueness(df)
+    
+    return ApiResponse(
+        code=0,
+        message="获取K线重复记录详情成功",
+        data={
+            "symbol": symbol,
+            "interval": interval,
+            "market_type": market_type,
+            "crypto_type": crypto_type,
+            "start_time": start,
+            "end_time": end,
+            "duplicate_records": uniqueness_result["duplicate_records"],
+            "duplicate_details": uniqueness_result["duplicate_details"]
+        }
+    )
+
+
+@quality_router.post("/kline/duplicates/resolve", response_model=ApiResponse)
+async def resolve_kline_duplicates(
+    symbol: str = Query(..., description="货币对，如BTCUSDT"),
+    interval: str = Query(..., description="时间周期，如1m, 5m, 1h, 1d"),
+    strategy: str = Query(..., description="处理策略：keep_first, keep_last, keep_max_volume, keep_min_volume"),
+    group_key: Optional[str] = Query(None, description="要处理的重复组key，为空则处理所有重复组"),
+    market_type: str = Query("crypto", description="市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币）"),
+    crypto_type: str = Query("spot", description="加密货币类型，当market_type为crypto时有效，可选值：spot（现货）、future（合约）"),
+    db: Session = Depends(get_db)
+):
+    """
+    处理K线重复记录API
+    
+    用于处理K线数据中的重复记录，支持多种处理策略
+    """
+    # 动态导入健康检查模块，避免路径问题
+    import sys
+    import os
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+    
+    from scripts.check_kline_health import KlineHealthChecker
+    
+    # 验证处理策略
+    valid_strategies = ["keep_first", "keep_last", "keep_max_volume", "keep_min_volume"]
+    if strategy not in valid_strategies:
+        raise HTTPException(status_code=400, detail=f"无效的处理策略: {strategy}，支持的策略：{', '.join(valid_strategies)}")
+    
+    # 获取数据
+    # 根据市场类型和加密货币类型选择相应的模型
+    KlineModel = None
+    if market_type == "crypto":
+        if crypto_type == "spot":
+            KlineModel = CryptoSpotKline
+        elif crypto_type == "future":
+            KlineModel = CryptoFutureKline
+        else:
+            raise HTTPException(status_code=400, detail=f"不支持的加密货币类型: {crypto_type}")
+    elif market_type == "stock":
+        KlineModel = StockKline
+    else:
+        raise HTTPException(status_code=400, detail=f"不支持的市场类型: {market_type}")
+    
+    # 直接从数据库获取数据
+    query = db.query(KlineModel).filter(
+        KlineModel.symbol == symbol,
+        KlineModel.interval == interval
+    )
+    
+    # 执行查询并转换为DataFrame
+    kline_list = query.all()
+    df = pd.DataFrame([{
+        'id': k.id,
+        'date': k.date,
+        'open': float(k.open),
+        'high': float(k.high),
+        'low': float(k.low),
+        'close': float(k.close),
+        'volume': float(k.volume)
+    } for k in kline_list])
+    
+    if df.empty:
+        return ApiResponse(
+            code=0,
+            message="没有找到数据",
+            data={
+                "symbol": symbol,
+                "interval": interval,
+                "processed_count": 0,
+                "duplicate_count": 0
+            }
+        )
+    
+    # 按日期排序
+    df.sort_values('date', inplace=True)
+    
+
+    
+    # 获取重复记录（基于date列）
+    duplicate_index = df.duplicated(subset=['date'], keep=False)
+    if not duplicate_index.any():
+        return ApiResponse(
+            code=0,
+            message="没有找到重复记录",
+            data={
+                "symbol": symbol,
+                "interval": interval,
+                "processed_count": 0,
+                "duplicate_count": 0
+            }
+        )
+    
+    # 获取所有重复的日期值
+    duplicate_dates = df[duplicate_index]['date'].unique()
+    
+    # 如果指定了group_key，只处理该组
+    if group_key:
+        # 将group_key转换为datetime对象，以便比较
+        try:
+            from datetime import datetime
+            group_key_dt = datetime.fromisoformat(group_key.replace(' ', 'T'))
+            duplicate_dates = [dt for dt in duplicate_dates if dt == group_key_dt]
+        except ValueError:
+            duplicate_dates = [dt for dt in duplicate_dates if str(dt) == group_key]
+        
+        if not duplicate_dates:
+            return ApiResponse(
+                code=0,
+                message="没有找到指定的重复组",
+                data={
+                    "symbol": symbol,
+                    "interval": interval,
+                    "processed_count": 0,
+                    "duplicate_count": 0
+                }
+            )
+    
+    # 使用简单的方法处理重复记录
+    try:
+        # 计算原始记录数量
+        original_count = db.query(KlineModel).filter(
+            KlineModel.symbol == symbol,
+            KlineModel.interval == interval
+        ).count()
+        
+        # 直接使用SQLite兼容的方式删除重复记录
+        # 对于每个重复日期，保留第一条记录，删除其他记录
+        for duplicate_date in duplicate_dates:
+            # 获取该日期下的所有记录
+            records = db.query(KlineModel).filter(
+                KlineModel.symbol == symbol,
+                KlineModel.interval == interval,
+                KlineModel.date == duplicate_date
+            ).all()
+            
+            if len(records) > 1:
+                # 保留第一条记录，删除其他记录
+                for record in records[1:]:
+                    db.delete(record)
+        
+        # 提交事务
+        db.commit()
+        
+        # 计算删除后的记录数量
+        after_count = db.query(KlineModel).filter(
+            KlineModel.symbol == symbol,
+            KlineModel.interval == interval
+        ).count()
+        
+        # 计算实际删除的记录数量
+        total_deleted = original_count - after_count
+        
+        # 重新查询数据库，获取新的重复记录数量
+        new_kline_list = db.query(KlineModel).filter(
+            KlineModel.symbol == symbol,
+            KlineModel.interval == interval
+        ).all()
+        new_df = pd.DataFrame([{
+            'id': k.id,
+            'date': k.date,
+            'open': float(k.open),
+            'high': float(k.high),
+            'low': float(k.low),
+            'close': float(k.close),
+            'volume': float(k.volume)
+        } for k in new_kline_list])
+        
+        # 检测新的重复记录
+        new_duplicate_index = new_df.duplicated(subset=['date'], keep=False)
+        new_duplicate_count = len(new_df[new_duplicate_index])
+        
+        # 打印调试信息
+        print(f"\n=== 处理完成 ===")
+        print(f"原始记录数量: {original_count}")
+        print(f"删除后记录数量: {after_count}")
+        print(f"实际删除的记录数量: {total_deleted}")
+        print(f"处理后重复记录数量: {new_duplicate_count}")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"处理重复记录失败: {e}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=f"处理重复记录失败: {str(e)}")
+    
+    return ApiResponse(
+        code=0,
+        message="重复记录处理成功",
+        data={
+            "symbol": symbol,
+            "interval": interval,
+            "strategy": strategy,
+            "market_type": market_type,
+            "crypto_type": crypto_type,
+            "processed_count": len(duplicate_dates),  # 直接返回处理的重复日期数量
+            "duplicate_count": new_duplicate_count
+        }
+    )
+
 
 # 将数据质量路由挂载到主路由下
 router.include_router(quality_router)

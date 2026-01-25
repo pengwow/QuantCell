@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from backend.collector.db.database import SessionLocal
 # 数据库连接和模型
-from backend.collector.db.models import Kline
+from backend.collector.db.models import CryptoSpotKline, CryptoFutureKline, StockKline
 
 
 class KlineHealthChecker:
@@ -53,7 +53,7 @@ class KlineHealthChecker:
         if hasattr(self, 'db'):
             self.db.close()
     
-    def get_kline_data(self, symbol: str, interval: str, start: Optional[datetime] = None, end: Optional[datetime] = None) -> pd.DataFrame:
+    def get_kline_data(self, symbol: str, interval: str, start: Optional[datetime] = None, end: Optional[datetime] = None, market_type: str = "crypto", crypto_type: str = "spot") -> pd.DataFrame:
         """
         从数据库获取kline数据
         
@@ -62,42 +62,60 @@ class KlineHealthChecker:
             interval: 时间周期，如1m, 5m, 1h, 1d
             start: 开始时间
             end: 结束时间
+            market_type: 市场类型，如crypto（加密货币）、stock（股票）、futures（期货）
+            crypto_type: 加密货币类型，如spot（现货）、future（合约）
             
         Returns:
             pandas DataFrame: kline数据
         """
-        query = self.db.query(Kline)
+        # 根据市场类型和加密货币类型选择相应的模型
+        KlineModel = None
+        
+        if market_type == "crypto":
+            if crypto_type == "spot":
+                KlineModel = CryptoSpotKline
+            elif crypto_type == "future":
+                KlineModel = CryptoFutureKline
+            else:
+                logger.warning(f"不支持的加密货币类型: {crypto_type}")
+                return pd.DataFrame()
+        elif market_type == "stock":
+            KlineModel = StockKline
+        else:
+            logger.warning(f"不支持的市场类型: {market_type}")
+            return pd.DataFrame()
+        
+        query = self.db.query(KlineModel)
         
         # 添加过滤条件
         query = query.filter(
             and_(
-                Kline.symbol == symbol,
-                Kline.interval == interval
+                KlineModel.symbol == symbol,
+                KlineModel.interval == interval
             )
         )
         
         if start:
-            query = query.filter(Kline.date >= start)
+            query = query.filter(KlineModel.date >= start)
         
         if end:
-            query = query.filter(Kline.date <= end)
+            query = query.filter(KlineModel.date <= end)
         
         # 执行查询并转换为DataFrame
         kline_list = query.all()
         df = pd.DataFrame([{
+            'id': k.id,
             'date': k.date,
-            'open': k.open,
-            'high': k.high,
-            'low': k.low,
-            'close': k.close,
-            'volume': k.volume
+            'open': float(k.open),
+            'high': float(k.high),
+            'low': float(k.low),
+            'close': float(k.close),
+            'volume': float(k.volume)
         } for k in kline_list])
         
         if not df.empty:
-            # 设置日期为索引
-            df.set_index('date', inplace=True)
             # 按日期排序
-            df.sort_index(inplace=True)
+            df.sort_values('date', inplace=True)
         
         return df
     
@@ -130,6 +148,8 @@ class KlineHealthChecker:
             missing_values = df.isnull().sum()
             missing_values = missing_values[missing_values > 0].to_dict()
             if missing_values:
+                # 将numpy.int64转换为Python int
+                missing_values = {k: int(v) for k, v in missing_values.items()}
                 result["status"] = "fail"
                 result["missing_values"] = missing_values
         
@@ -177,19 +197,21 @@ class KlineHealthChecker:
         delta = interval_mapping[interval]
         
         # 生成完整的时间序列
-        expected_index = pd.date_range(start=df.index.min(), end=df.index.max(), freq=delta)
-        result["expected_records"] = len(expected_index)
-        result["actual_records"] = len(df)
+        expected_index = pd.date_range(start=df['date'].min(), end=df['date'].max(), freq=delta)
+        # 将numpy.int64转换为Python int
+        result["expected_records"] = int(len(expected_index))
+        result["actual_records"] = int(len(df))
         
-        # 计算覆盖率
+        # 计算覆盖率，转换为Python float
         if len(expected_index) > 0:
-            result["coverage_ratio"] = len(df) / len(expected_index)
+            result["coverage_ratio"] = float(len(df) / len(expected_index))
         
         # 找出缺失的时间点
-        missing_periods = expected_index.difference(df.index)
+        missing_periods = expected_index.difference(df['date'])
         if len(missing_periods) > 0:
             result["status"] = "fail"
-            result["missing_records"] = len(missing_periods)
+            # 将numpy.int64转换为Python int
+            result["missing_records"] = int(len(missing_periods))
             result["missing_periods"] = [str(period) for period in missing_periods]
             
             # 分析缺失时间段
@@ -255,8 +277,8 @@ class KlineHealthChecker:
             return result
         
         # 数据的实际起止时间
-        data_start = df.index.min()
-        data_end = df.index.max()
+        data_start = df['date'].min()
+        data_end = df['date'].max()
         result["data_start_date"] = str(data_start)
         result["data_end_date"] = str(data_end)
         
@@ -297,6 +319,10 @@ class KlineHealthChecker:
             "negative_prices": [],
             "negative_volumes": [],
             "invalid_high_low": [],
+            "invalid_price_logic": [],
+            "abnormal_price_changes": [],
+            "abnormal_volumes": [],
+            "price_gaps": [],
             "total_invalid_records": 0
         }
         
@@ -326,7 +352,138 @@ class KlineHealthChecker:
             result["invalid_high_low"] = [str(idx) for idx in invalid_high_low.index]
             invalid_records += len(invalid_high_low)
         
-        result["total_invalid_records"] = invalid_records
+        # 检查价格逻辑：high >= max(open, close) 且 low <= min(open, close)
+        invalid_price_logic = df[
+            (df['high'] < df[['open', 'close']].max(axis=1)) | 
+            (df['low'] > df[['open', 'close']].min(axis=1))
+        ]
+        if not invalid_price_logic.empty:
+            result["status"] = "fail"
+            result["invalid_price_logic"] = [str(idx) for idx in invalid_price_logic.index]
+            invalid_records += len(invalid_price_logic)
+        
+        # 计算涨跌幅
+        df['price_change_pct'] = (df['close'] - df['close'].shift(1)) / df['close'].shift(1) * 100
+        
+        # 检查单日涨跌幅超过±20%
+        abnormal_price_changes = df[abs(df['price_change_pct']) > 20]
+        if not abnormal_price_changes.empty:
+            result["status"] = "fail"
+            result["abnormal_price_changes"] = [
+                {
+                    "timestamp": str(idx),
+                    "change_pct": round(row['price_change_pct'], 2)
+                }
+                for idx, row in abnormal_price_changes.iterrows()
+            ]
+            invalid_records += len(abnormal_price_changes)
+        
+        # 检查成交量异常（超过过去1年平均成交量的10倍，此处简化为过去30天）
+        df['volume_ma30'] = df['volume'].rolling(window=30).mean()
+        abnormal_volumes = df[df['volume'] > df['volume_ma30'] * 10]
+        if not abnormal_volumes.empty:
+            result["status"] = "fail"
+            result["abnormal_volumes"] = [
+                {
+                    "timestamp": str(idx),
+                    "volume": row['volume'],
+                    "avg_30d_volume": round(row['volume_ma30'], 2)
+                }
+                for idx, row in abnormal_volumes.iterrows()
+                if not pd.isna(row['volume_ma30'])  # 排除ma30计算结果为NaN的情况
+            ]
+            invalid_records += len(result["abnormal_volumes"])
+        
+        # 检查非除权除息日的价格跳空异常（此处简化为跳空超过5%）
+        df['open_gap_pct'] = (df['open'] - df['close'].shift(1)) / df['close'].shift(1) * 100
+        price_gaps = df[abs(df['open_gap_pct']) > 5]
+        if not price_gaps.empty:
+            result["status"] = "fail"
+            result["price_gaps"] = [
+                {
+                    "timestamp": str(idx),
+                    "gap_pct": round(row['open_gap_pct'], 2)
+                }
+                for idx, row in price_gaps.iterrows()
+            ]
+            invalid_records += len(price_gaps)
+        
+        # 将numpy.int64转换为Python int
+        result["total_invalid_records"] = int(invalid_records)
+        
+        return result
+    
+    def check_consistency(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        检查数据一致性
+        
+        Args:
+            df: kline数据DataFrame
+            
+        Returns:
+            Dict[str, Any]: 一致性检查结果
+        """
+        result = {
+            "status": "pass",
+            "time_format_issues": [],
+            "duplicate_codes": [],
+            "code_name_mismatches": [],
+            "inconsistent_adj_factors": []
+        }
+        
+        if df.empty:
+            return result
+        
+        # 检查时间格式一致性
+        try:
+            # 检查date列的时间格式一致性
+            if 'date' in df.columns:
+                # 尝试转换为datetime64[ns]，检查是否有转换错误
+                pd.to_datetime(df['date'])
+                # 检查时区是否一致
+                if hasattr(df['date'].iloc[0], 'tzinfo'):
+                    tzinfo = df['date'].iloc[0].tzinfo
+                    # 检查是否所有记录的时区都一致
+                    has_consistent_tz = all(hasattr(dt, 'tzinfo') and dt.tzinfo == tzinfo for dt in df['date'])
+                    if not has_consistent_tz:
+                        result["status"] = "fail"
+                        result["time_format_issues"].append("时区不一致")
+        except Exception as e:
+            result["status"] = "fail"
+            result["time_format_issues"].append(f"时间格式错误: {str(e)}")
+        
+        # 检查标的代码一致性（如果数据包含代码字段）
+        if 'code' in df.columns:
+            duplicate_codes = df['code'].duplicated()
+            if duplicate_codes.any():
+                # 将numpy.int64转换为Python int
+                duplicate_count = int(duplicate_codes.sum())
+                result["status"] = "fail"
+                result["duplicate_codes"].append(f"存在重复代码: {duplicate_count} 条记录")
+        
+        # 检查复权因子一致性（如果数据包含复权因子字段）
+        if 'adj_factor' in df.columns:
+            # 检查复权因子是否单调变化（前复权因子应递减，后复权因子应递增）
+            adj_factor_diff = df['adj_factor'].diff()
+            
+            # 检查是否有非单调变化
+            if len(adj_factor_diff.dropna()) > 0:
+                # 计算递增和递减的数量，转换为Python int
+                increasing = int((adj_factor_diff > 0).sum())
+                decreasing = int((adj_factor_diff < 0).sum())
+                
+                # 如果大部分是递增的，检查是否有递减的情况
+                if increasing > decreasing * 2 and decreasing > 0:
+                    result["status"] = "fail"
+                    result["inconsistent_adj_factors"].append(f"复权因子存在非递增情况: {decreasing} 条记录")
+                # 如果大部分是递减的，检查是否有递增的情况
+                elif decreasing > increasing * 2 and increasing > 0:
+                    result["status"] = "fail"
+                    result["inconsistent_adj_factors"].append(f"复权因子存在非递减情况: {increasing} 条记录")
+                # 如果混合情况较多，说明复权方式可能不一致
+                elif increasing > 0 and decreasing > 0:
+                    result["status"] = "fail"
+                    result["inconsistent_adj_factors"].append(f"复权因子变化不一致: 递增 {increasing} 条，递减 {decreasing} 条")
         
         return result
     
@@ -338,12 +495,14 @@ class KlineHealthChecker:
             df: kline数据DataFrame
             
         Returns:
-            Dict[str, Any]: 唯一性检查结果
+            Dict[str, Any]: 唯一性检查结果，包含重复记录的详细信息
         """
         result = {
             "status": "pass",
             "duplicate_records": 0,
-            "duplicate_periods": []
+            "duplicate_periods": [],
+            "duplicate_code_timestamp": [],
+            "duplicate_details": []  # 新增：重复记录的详细信息
         }
         
         if df.empty:
@@ -353,12 +512,131 @@ class KlineHealthChecker:
         duplicate_index = df.index.duplicated()
         if duplicate_index.any():
             result["status"] = "fail"
-            result["duplicate_records"] = duplicate_index.sum()
-            result["duplicate_periods"] = [str(idx) for idx in df.index[duplicate_index]]
+            # 将numpy.int64转换为Python int
+            duplicate_count = int(duplicate_index.sum())
+            result["duplicate_records"] = duplicate_count
+            duplicate_periods = [str(idx) for idx in df.index[duplicate_index]]
+            result["duplicate_periods"] = duplicate_periods
+            
+            # 获取所有重复的索引值
+            duplicate_indices = df.index[duplicate_index].unique()
+            
+            # 为每个重复的索引获取详细信息
+            for idx in duplicate_indices:
+                # 获取该索引下的所有记录
+                duplicate_rows = df.loc[[idx]]
+                
+                # 转换为可序列化的格式
+            duplicate_records = []
+            for i, row in duplicate_rows.iterrows():
+                record = {
+                    "id": row['id'],  # 使用数据库记录的真实ID
+                    "timestamp": str(i),
+                    "open": float(row['open']),
+                    "high": float(row['high']),
+                    "low": float(row['low']),
+                    "close": float(row['close']),
+                    "volume": float(row['volume']),
+                    "row_number": len(duplicate_records) + 1
+                }
+                duplicate_records.append(record)
+                
+                # 添加到重复详情
+                result["duplicate_details"].append({
+                    "group_type": "index_duplicate",
+                    "key": str(idx),
+                    "records": duplicate_records,
+                    "count": len(duplicate_records)
+                })
+        
+        # 检查"标的代码+时间戳"唯一性（如果数据包含code字段）
+        if 'code' in df.columns:
+            # 找出所有重复的(code, index)组合
+            duplicate_code_timestamp = df.duplicated(subset=['code', df.index])
+            if duplicate_code_timestamp.any():
+                result["status"] = "fail"
+                # 将numpy.int64转换为Python int
+                code_dup_count = int(duplicate_code_timestamp.sum())
+                result["duplicate_records"] += code_dup_count
+                result["duplicate_code_timestamp"].append(f"存在 {code_dup_count} 条重复的(代码+时间戳)记录")
+                
+                # 对于code+index重复，我们已经在上面的index_duplicate中处理了，这里不再重复
         
         return result
     
-    def check_all(self, symbol: str, interval: str, start: Optional[datetime] = None, end: Optional[datetime] = None) -> Dict[str, Any]:
+    def check_logic(self, df: pd.DataFrame, interval: str) -> Dict[str, Any]:
+        """
+        检查数据逻辑性
+        
+        Args:
+            df: kline数据DataFrame
+            interval: 时间周期，如1m, 5m, 1h, 1d
+            
+        Returns:
+            Dict[str, Any]: 逻辑性检查结果
+        """
+        result = {
+            "status": "pass",
+            "trading_time_issues": [],
+            "suspension_issues": [],
+            "price_limit_issues": []
+        }
+        
+        if df.empty:
+            return result
+        
+        # 检查交易时间匹配（仅对日内K线）
+        if interval in ['1m', '5m', '15m', '30m', '1h', '4h']:
+            # 检查date列是否存在
+            if 'date' in df.columns:
+                # 提取时间部分（不包含日期）
+                df['time_part'] = df['date'].dt.time
+                
+                # 定义常规交易时段（示例：假设为9:30-11:30和13:00-15:00）
+                morning_start = pd.Timestamp('09:30:00').time()
+                morning_end = pd.Timestamp('11:30:00').time()
+                afternoon_start = pd.Timestamp('13:00:00').time()
+                afternoon_end = pd.Timestamp('15:00:00').time()
+                
+                # 检查是否在交易时段外
+                outside_trading = df[~((df['time_part'] >= morning_start) & (df['time_part'] <= morning_end)) & \
+                                     ~((df['time_part'] >= afternoon_start) & (df['time_part'] <= afternoon_end))]
+                
+                if not outside_trading.empty:
+                    result["status"] = "fail"
+                    result["trading_time_issues"].append(f"发现 {int(len(outside_trading))} 条记录在交易时段外")
+        
+        # 检查停牌数据处理
+        # 假设成交量为0且价格不变表示停牌
+        df['price_change'] = df['close'] - df['close'].shift(1)
+        potential_suspension = df[(df['volume'] == 0) & (df['price_change'] == 0)]
+        
+        if not potential_suspension.empty:
+            # 检查停牌期间的价格字段是否完整
+            suspension_missing_prices = potential_suspension[(potential_suspension['open'].isnull()) | \
+                                                           (potential_suspension['high'].isnull()) | \
+                                                           (potential_suspension['low'].isnull()) | \
+                                                           (potential_suspension['close'].isnull())]
+            
+            if not suspension_missing_prices.empty:
+                result["status"] = "fail"
+                result["suspension_issues"].append(f"停牌期间价格字段缺失: {int(len(suspension_missing_prices))} 条记录")
+        
+        # 检查涨跌停规则
+        # 计算涨跌幅
+        df['price_change_pct'] = (df['close'] - df['close'].shift(1)) / df['close'].shift(1) * 100
+        
+        # 假设A股涨跌停限制为±10%
+        # 注意：实际情况可能更复杂，如ST股票±5%，新股上市首日无限制等
+        price_limit_issues = df[(df['price_change_pct'] > 10.1) | (df['price_change_pct'] < -10.1)]
+        
+        if not price_limit_issues.empty:
+            result["status"] = "fail"
+            result["price_limit_issues"].append(f"发现 {int(len(price_limit_issues))} 条记录超出涨跌停限制")
+        
+        return result
+    
+    def check_all(self, symbol: str, interval: str, start: Optional[datetime] = None, end: Optional[datetime] = None, market_type: str = "crypto", crypto_type: str = "spot") -> Dict[str, Any]:
         """
         执行所有健康检查
         
@@ -367,6 +645,8 @@ class KlineHealthChecker:
             interval: 时间周期，如1m, 5m, 1h, 1d
             start: 开始时间
             end: 结束时间
+            market_type: 市场类型，如crypto（加密货币）、stock（股票）、futures（期货）
+            crypto_type: 加密货币类型，如spot（现货）、future（合约）
             
         Returns:
             Dict[str, Any]: 所有检查结果
@@ -374,17 +654,19 @@ class KlineHealthChecker:
         logger.info(f"开始检查 {symbol} {interval} 的K线数据健康状况")
         
         # 获取数据
-        df = self.get_kline_data(symbol, interval, start, end)
+        df = self.get_kline_data(symbol, interval, start, end, market_type, crypto_type)
         
         # 执行各项检查
         integrity_result = self.check_integrity(df)
         continuity_result = self.check_continuity(df, interval)
         validity_result = self.check_validity(df)
+        consistency_result = self.check_consistency(df)
+        logic_result = self.check_logic(df, interval)
         uniqueness_result = self.check_uniqueness(df)
         coverage_result = self.check_coverage(df, interval, symbol)
         
         # 汇总结果
-        all_checks = [integrity_result, continuity_result, validity_result, uniqueness_result, coverage_result]
+        all_checks = [integrity_result, continuity_result, validity_result, consistency_result, logic_result, uniqueness_result, coverage_result]
         overall_status = "pass" if all(check["status"] == "pass" for check in all_checks) else "fail"
         
         result = {
@@ -397,6 +679,8 @@ class KlineHealthChecker:
                 "integrity": integrity_result,
                 "continuity": continuity_result,
                 "validity": validity_result,
+                "consistency": consistency_result,
+                "logic": logic_result,
                 "uniqueness": uniqueness_result,
                 "coverage": coverage_result
             },
@@ -411,7 +695,7 @@ class KlineHealthChecker:
 import fire
 
 
-def cli_check(symbol: str, interval: str, start: Optional[str] = None, end: Optional[str] = None):
+def cli_check(symbol: str, interval: str, start: Optional[str] = None, end: Optional[str] = None, market_type: str = "crypto", crypto_type: str = "spot"):
     """
     命令行调用的健康检查函数
     
@@ -420,6 +704,8 @@ def cli_check(symbol: str, interval: str, start: Optional[str] = None, end: Opti
         interval: 时间周期，如1m, 5m, 1h, 1d
         start: 开始时间，格式为YYYY-MM-DD HH:MM:SS或YYYY-MM-DD
         end: 结束时间，格式为YYYY-MM-DD HH:MM:SS或YYYY-MM-DD
+        market_type: 市场类型，如crypto（加密货币）、stock（股票）、futures（期货）
+        crypto_type: 加密货币类型，如spot（现货）、future（合约）
         
     Returns:
         Dict[str, Any]: 健康检查结果
@@ -449,7 +735,7 @@ def cli_check(symbol: str, interval: str, start: Optional[str] = None, end: Opti
                 return
     
     checker = KlineHealthChecker()
-    return checker.check_all(symbol, interval, start_dt, end_dt)
+    return checker.check_all(symbol, interval, start_dt, end_dt, market_type, crypto_type)
 
 
 # FastAPI路由支持

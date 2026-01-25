@@ -331,7 +331,25 @@ export const dataApi = {
    * @returns K线数据质量报告
    */
   checkKlineQuality: (params: any) => {
-    return apiRequest.get('/data/quality/kline', { params });
+    return apiRequest.get('/data/quality/kline', params);
+  },
+
+  /**
+   * 获取K线重复记录详情
+   * @param params 查询参数，包括symbol、interval、start、end等
+   * @returns K线重复记录详情
+   */
+  getKlineDuplicates: (params: any) => {
+    return apiRequest.get('/data/quality/kline/duplicates', params);
+  },
+
+  /**
+   * 处理K线重复记录
+   * @param params 查询参数，包括symbol、interval、strategy、group_key等
+   * @returns 重复记录处理结果
+   */
+  resolveKlineDuplicates: (params: any) => {
+    return apiRequest.post('/data/quality/kline/duplicates/resolve', undefined, { params });
   },
 };
 
