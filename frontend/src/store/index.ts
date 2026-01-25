@@ -87,25 +87,25 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
           description: '基于移动平均线的趋势跟踪策略，在趋势形成时入场，趋势反转时出场',
           status: 'active',
           statusText: '运行中',
-          createdAt: '2024-01-15 10:30:00',
-          updatedAt: '2024-01-20 14:20:00',
+          createdAt: '2026-01-15 10:30:00',
+          updatedAt: '2026-01-20 14:20:00',
           createdBy: '系统管理员',
           executionFrequency: '实时',
           ruleCount: 12,
           executionHistory: [
-            { timestamp: '2024-01-20 15:30:00', status: 'success' },
-            { timestamp: '2024-01-20 14:15:00', status: 'success' },
-            { timestamp: '2024-01-20 10:45:00', status: 'failed' }
+            { timestamp: '2026-01-20 15:30:00', status: 'success' },
+            { timestamp: '2026-01-20 14:15:00', status: 'success' },
+            { timestamp: '2026-01-20 10:45:00', status: 'failed' }
           ],
           // 量化交易相关字段
           currentReturn: 8.5,
           totalReturn: 15.2,
-          startTime: '2024-01-20 09:00:00',
-          lastTradeTime: '2024-01-20 15:25:00',
+          startTime: '2026-01-20 09:00:00',
+          lastTradeTime: '2026-01-20 15:25:00',
           tradeRecords: [
             {
               id: '101',
-              timestamp: '2024-01-20 15:25:00',
+              timestamp: '2026-01-20 15:25:00',
               symbol: 'BTC/USDT',
               action: 'sell',
               price: 42567.89,
@@ -115,7 +115,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
             },
             {
               id: '100',
-              timestamp: '2024-01-20 10:15:00',
+              timestamp: '2026-01-20 10:15:00',
               symbol: 'BTC/USDT',
               action: 'buy',
               price: 41234.56,
@@ -125,7 +125,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
             },
             {
               id: '99',
-              timestamp: '2024-01-20 09:30:00',
+              timestamp: '2026-01-20 09:30:00', 
               symbol: 'ETH/USDT',
               action: 'buy',
               price: 2245.67,
@@ -135,20 +135,20 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
             }
           ],
           returnRateData: [
-            { timestamp: '2024-01-20 09:00:00', value: 0 },
-            { timestamp: '2024-01-20 09:30:00', value: 0.5 },
-            { timestamp: '2024-01-20 10:00:00', value: 1.2 },
-            { timestamp: '2024-01-20 10:30:00', value: 0.8 },
-            { timestamp: '2024-01-20 11:00:00', value: 1.5 },
-            { timestamp: '2024-01-20 11:30:00', value: 2.3 },
-            { timestamp: '2024-01-20 12:00:00', value: 1.8 },
-            { timestamp: '2024-01-20 12:30:00', value: 2.5 },
-            { timestamp: '2024-01-20 13:00:00', value: 3.2 },
-            { timestamp: '2024-01-20 13:30:00', value: 2.8 },
-            { timestamp: '2024-01-20 14:00:00', value: 3.5 },
-            { timestamp: '2024-01-20 14:30:00', value: 4.2 },
-            { timestamp: '2024-01-20 15:00:00', value: 3.8 },
-            { timestamp: '2024-01-20 15:25:00', value: 8.5 }
+            { timestamp: '2026-01-20 09:00:00', value: 0 },
+            { timestamp: '2026-01-20 09:30:00', value: 0.5 },   
+            { timestamp: '2026-01-20 10:00:00', value: 1.2 },
+            { timestamp: '2026-01-20 10:30:00', value: 0.8 },
+            { timestamp: '2026-01-20 11:00:00', value: 1.5 },
+            { timestamp: '2026-01-20 11:30:00', value: 2.3 },
+            { timestamp: '2026-01-20 12:00:00', value: 1.8 },
+            { timestamp: '2026-01-20 12:30:00', value: 2.5 },
+            { timestamp: '2026-01-20 13:00:00', value: 3.2 },
+            { timestamp: '2026-01-20 13:30:00', value: 2.8 },
+            { timestamp: '2026-01-20 14:00:00', value: 3.5 },
+            { timestamp: '2026-01-20 14:30:00', value: 4.2 },
+            { timestamp: '2026-01-20 15:00:00', value: 3.8 },
+            { timestamp: '2026-01-20 15:25:00', value: 8.5 }
           ],
           performance: {
             winRate: 68.5,
@@ -172,25 +172,25 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
           description: '基于价格偏离均值的程度进行交易，当价格偏离过大时入场，回归均值时出场',
           status: 'paused',
           statusText: '已暂停',
-          createdAt: '2024-01-10 09:15:00',
-          updatedAt: '2024-01-18 11:40:00',
+          createdAt: '2026-01-10 09:15:00',
+          updatedAt: '2026-01-18 11:40:00',
           createdBy: '量化分析师',
           executionFrequency: '5分钟',
           ruleCount: 8,
           executionHistory: [
-            { timestamp: '2024-01-20 15:00:00', status: 'success' },
-            { timestamp: '2024-01-20 14:55:00', status: 'success' },
-            { timestamp: '2024-01-20 14:50:00', status: 'success' }
+            { timestamp: '2026-01-20 15:00:00', status: 'success' },
+            { timestamp: '2026-01-20 14:55:00', status: 'success' },
+            { timestamp: '2026-01-20 14:50:00', status: 'success' }
           ],
           // 量化交易相关字段
           currentReturn: 5.2,
           totalReturn: 9.8,
-          startTime: '2024-01-20 09:00:00',
-          lastTradeTime: '2024-01-20 14:45:00',
+          startTime: '2026-01-20 09:00:00',
+          lastTradeTime: '2026-01-20 14:45:00',
           tradeRecords: [
             {
               id: '98',
-              timestamp: '2024-01-20 14:45:00',
+              timestamp: '2026-01-20 14:45:00',
               symbol: 'ETH/USDT',
               action: 'sell',
               price: 2267.89,
@@ -200,7 +200,7 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
             },
             {
               id: '97',
-              timestamp: '2024-01-20 13:20:00',
+              timestamp: '2026-01-20 13:20:00',
               symbol: 'ETH/USDT',
               action: 'buy',
               price: 2234.56,
@@ -210,19 +210,19 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
             }
           ],
           returnRateData: [
-            { timestamp: '2024-01-20 09:00:00', value: 0 },
-            { timestamp: '2024-01-20 09:30:00', value: 0.2 },
-            { timestamp: '2024-01-20 10:00:00', value: -0.5 },
-            { timestamp: '2024-01-20 10:30:00', value: 0.1 },
-            { timestamp: '2024-01-20 11:00:00', value: 0.8 },
-            { timestamp: '2024-01-20 11:30:00', value: 1.2 },
-            { timestamp: '2024-01-20 12:00:00', value: 0.9 },
-            { timestamp: '2024-01-20 12:30:00', value: 1.5 },
-            { timestamp: '2024-01-20 13:00:00', value: 1.2 },
-            { timestamp: '2024-01-20 13:30:00', value: 0.8 },
-            { timestamp: '2024-01-20 14:00:00', value: 1.0 },
-            { timestamp: '2024-01-20 14:30:00', value: 1.5 },
-            { timestamp: '2024-01-20 14:45:00', value: 5.2 }
+            { timestamp: '2026-01-20 09:00:00', value: 0 },
+            { timestamp: '2026-01-20 09:30:00', value: 0.2 },
+            { timestamp: '2026-01-20 10:00:00', value: -0.5 },
+            { timestamp: '2026-01-20 10:30:00', value: 0.1 },
+            { timestamp: '2026-01-20 11:00:00', value: 0.8 },
+            { timestamp: '2026-01-20 11:30:00', value: 1.2 },
+            { timestamp: '2026-01-20 12:00:00', value: 0.9 }, 
+            { timestamp: '2026-01-20 12:30:00', value: 1.5 },
+            { timestamp: '2026-01-20 13:00:00', value: 1.2 },
+            { timestamp: '2026-01-20 13:30:00', value: 0.8 },
+            { timestamp: '2026-01-20 14:00:00', value: 1.0 },
+            { timestamp: '2026-01-20 14:30:00', value: 1.5 },
+            { timestamp: '2026-01-20 14:45:00', value: 5.2 }  
           ],
           performance: {
             winRate: 62.3,
@@ -246,20 +246,20 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
           description: '基于价格突破关键阻力位或支撑位进行交易，捕捉趋势的开始',
           status: 'inactive',
           statusText: '已停止',
-          createdAt: '2024-01-05 16:20:00',
-          updatedAt: '2024-01-12 13:10:00',
+          createdAt: '2026-01-05 16:20:00',
+          updatedAt: '2026-01-12 13:10:00',
           createdBy: '交易员',
           executionFrequency: '实时',
           ruleCount: 15,
           executionHistory: [
-            { timestamp: '2024-01-15 09:30:00', status: 'success' },
-            { timestamp: '2024-01-14 18:20:00', status: 'success' }
+            { timestamp: '2026-01-15 09:30:00', status: 'success' },
+            { timestamp: '2026-01-14 18:20:00', status: 'success' }
           ],
           // 量化交易相关字段
           currentReturn: 0,
           totalReturn: 22.5,
           startTime: '',
-          lastTradeTime: '2024-01-15 16:30:00',
+          lastTradeTime: '2026-01-15 16:30:00',
           tradeRecords: [],
           returnRateData: [],
           performance: {

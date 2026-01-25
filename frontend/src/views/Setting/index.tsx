@@ -174,7 +174,7 @@ const Setting = () => {
     version: {
       system_version: '1.0.0',
       python_version: '3.10.0',
-      build_date: '2024-01-01'
+      build_date: '1970-01-01'
     },
     running_status: {
       uptime: '24h 30m',

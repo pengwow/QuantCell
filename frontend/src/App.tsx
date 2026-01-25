@@ -145,7 +145,7 @@ const App = () => {
           <div className="brand-icon">
             <img src="/qbot.svg" alt="QBot Logo" className="brand-image" />
           </div>
-          <div className="brand-text">QBot</div>
+          <div className="brand-text">pengwow</div>
         </div>
 
         {/* 侧边栏菜单 */}

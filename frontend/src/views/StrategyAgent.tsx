@@ -384,6 +384,8 @@ const StrategyAgent = () => {
                   dataSource={selectedStrategy.tradeRecords} 
                   rowKey="id"
                   pagination={{ pageSize: 5 }}
+                  // 添加水平滚动，解决小屏幕设备中表格宽度超出问题
+                  scroll={{ x: 'max-content' }}
                 />
               </Card>
             </>

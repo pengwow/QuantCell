@@ -303,8 +303,38 @@ button {
 .chart-page-container {
   height: 100vh;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto; /* 允许水平滚动，避免内容被隐藏 */
   background-color: var(--bg-primary);
+}
+
+/* 确保图表容器在小屏幕上能正确显示 */
+@media (max-width: 768px) {
+  .chart-container {
+    height: 500px; /* 适当减小高度，适应小屏幕 */
+  }
+  
+  /* 调整工具栏按钮大小，适应小屏幕 */
+  .period-btn {
+    padding: 3px 6px;
+    font-size: 12px;
+  }
+  
+  /* 调整商品名称显示，适应小屏幕 */
+  .symbol-name {
+    font-size: 14px;
+    padding: 0 8px;
+  }
+  
+  .symbol-text {
+    font-size: 14px;
+  }
+}
+
+/* 确保canvas元素在小屏幕上正确缩放 */
+.k-line-chart canvas {
+  max-width: 100%;
+  height: auto;
+  box-sizing: border-box;
 }
 
 /* 图表加载状态 */

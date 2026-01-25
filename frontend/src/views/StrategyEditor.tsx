@@ -27,6 +27,7 @@ import {
 
 import MonacoEditor from '@monaco-editor/react';
 import { useTranslation } from 'react-i18next';
+import { useResponsive } from '../hooks/useResponsive';
 import { strategyApi } from '../api';
 
 interface Strategy {
@@ -76,6 +77,7 @@ const StrategyEditor: React.FC = () => {
   const navigate = useNavigate();
   const params = useParams<{ strategyName?: string }>();
   const { t } = useTranslation();
+  const { isMobile, isTablet } = useResponsive();
 
   // 开始编辑策略名称
   const handleStartEditName = () => {
@@ -381,8 +383,15 @@ const StrategyEditor: React.FC = () => {
   return (
     <div style={{ padding: '20px' }}>
       {/* 页面头部 */}
-      <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
+      <div style={{ 
+        marginBottom: '20px', 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '16px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexGrow: 1, minWidth: 0 }}>
           <Button
             type="default"
             icon={<BackwardOutlined />}
@@ -392,7 +401,7 @@ const StrategyEditor: React.FC = () => {
             {t('back')}
           </Button>
           {isEditingName ? (
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative', flexGrow: 1, minWidth: 0 }}>
               <Input
                 type="text"
                 value={tempName}
@@ -405,14 +414,25 @@ const StrategyEditor: React.FC = () => {
                   fontWeight: 500, 
                   border: '1px solid #1890ff', 
                   borderRadius: '4px',
-                  width: '300px',
+                  width: '100%',
+                  maxWidth: '300px',
                   margin: 0
                 }}
               />
             </div>
           ) : (
             <h2 
-              style={{ margin: 0, fontSize: '20px', fontWeight: 500, cursor: 'pointer' }}
+              style={{ 
+                margin: 0, 
+                fontSize: '20px', 
+                fontWeight: 500, 
+                cursor: 'pointer',
+                // 处理标题超长问题
+                maxWidth: isMobile ? '100%' : 'calc(100% - 100px)', // 减去返回按钮的宽度
+                overflow: 'hidden',
+                textOverflow: isMobile ? 'unset' : 'ellipsis',
+                whiteSpace: isMobile ? 'normal' : 'nowrap'
+              }}
               onClick={handleStartEditName}
             >
               {selectedStrategy ? selectedStrategy.name : t('strategy_editor')}
@@ -421,7 +441,14 @@ const StrategyEditor: React.FC = () => {
         </div>
         
         {/* 操作按钮组 */}
-        <Space>
+        <Space 
+          wrap 
+          style={{
+            // 在窄设备上确保按钮组占据整行宽度
+            width: isMobile || isTablet ? '100%' : 'auto',
+            justifyContent: isMobile || isTablet ? 'flex-start' : 'flex-end'
+          }}
+        >
           <Button
             type="default"
             icon={<ReloadOutlined />}

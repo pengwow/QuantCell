@@ -522,12 +522,15 @@ export default function ChartPage () {
           style={{ 
             width: '100%', 
             height: '100%',
-            minWidth: '600px',
+            // 移除固定最小宽度限制，允许图表在小屏幕上自适应
+            minWidth: 'auto',
+            maxWidth: '100%',
             backgroundColor: '#ffffff',
             margin: '0', /* 消除可能的外边距 */
             padding: '0', /* 消除可能的内边距 */
             border: 'none', /* 移除边框，避免边框占用空间 */
             borderRadius: '0', /* 移除圆角 */
+            boxSizing: 'border-box', /* 确保宽度计算包含内边距和边框 */
           }} 
         />
       </div>
