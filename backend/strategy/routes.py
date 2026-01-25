@@ -3,8 +3,11 @@
 
 from typing import Any, Dict, List, Optional
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, HTTPException, Path, Request
 from loguru import logger
+
+# 导入JWT认证装饰器
+from utils.auth import jwt_auth_required_sync
 
 from .service import StrategyService
 from .schemas import (
@@ -290,7 +293,8 @@ def parse_strategy(request: StrategyParseRequest):
         500: {"description": "删除策略失败"},
     },
 )
-def delete_strategy(strategy_name: str = Path(..., description="策略名称", examples=["sma_cross"])):
+@jwt_auth_required_sync
+def delete_strategy(request: Request, strategy_name: str = Path(..., description="策略名称", examples=["sma_cross"])):
     """
     删除策略，包括策略文件和数据库记录
 

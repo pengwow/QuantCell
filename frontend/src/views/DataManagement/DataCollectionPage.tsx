@@ -371,11 +371,11 @@ const DataCollectionPage = () => {
             <Card className="current-task-section" title="当前任务" style={{ marginBottom: 24 }}>
               <div className="task-info" style={{ marginBottom: 16 }}>
                 <Space.Compact style={{ width: '100%' }}>
-                  <div className="task-id" style={{ flex: 1 }}>
+                  <div className="task-id" style={{ flex: 2 }}>
                     <Text strong>任务ID:</Text>
                     <Text style={{ marginLeft: 8 }}>{currentTaskId}</Text>
                   </div>
-                  <div className="task-status" style={{ flex: 1 }}>
+                  <div className="task-status" style={{ flex: 1, textAlign: 'right' }}>
                     <Text strong>状态:</Text>
                     <Text 
                       style={{ 
@@ -390,18 +390,6 @@ const DataCollectionPage = () => {
                        taskStatus === 'completed' ? '已完成' : 
                        taskStatus === 'failed' ? '失败' : 
                        taskStatus === 'pending' ? '等待中' : taskStatus}
-                    </Text>
-                  </div>
-                  <div className="polling-status" style={{ flex: 1, textAlign: 'right' }}>
-                    <Text strong>轮询状态:</Text>
-                    <Text 
-                      style={{ 
-                        marginLeft: 8, 
-                        color: taskIntervalRef.current ? '#52c41a' : '#ff4d4f',
-                        fontWeight: 500
-                      }}
-                    >
-                      {taskIntervalRef.current ? '运行中' : '已停止'}
                     </Text>
                   </div>
                 </Space.Compact>
