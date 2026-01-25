@@ -367,7 +367,11 @@ const StrategyAgent = () => {
                       title="总收益" 
                       value={selectedStrategy.performance.totalProfit - selectedStrategy.performance.totalLoss} 
                       suffix="$"
-                      valueStyle={{ color: (selectedStrategy.performance.totalProfit - selectedStrategy.performance.totalLoss) >= 0 ? '#52c41a' : '#ff4d4f' }}
+                      styles={{ 
+                        content: { 
+                          color: (selectedStrategy.performance.totalProfit - selectedStrategy.performance.totalLoss) >= 0 ? '#52c41a' : '#ff4d4f' 
+                        } 
+                      }}
                     />
                   </Col>
                 </Row>
