@@ -13,7 +13,6 @@ const DataQualityPage = () => {
 
   return (
     <>
-      <h2>数据质量</h2>
       <div className="data-section">
         <DataQuality systemConfig={systemConfig} />
       </div>

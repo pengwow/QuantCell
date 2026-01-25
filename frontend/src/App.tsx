@@ -5,7 +5,7 @@ import { useResponsive } from './hooks/useResponsive';
 import {
   BarChartOutlined, CodeOutlined, FundProjectionScreenOutlined,
   RobotOutlined, SettingOutlined, ProductOutlined,
-  DownloadOutlined, InboxOutlined
+  DownloadOutlined, InboxOutlined, InfoCircleOutlined
 } from '@ant-design/icons';
 
 import { useConfigStore } from './store';
@@ -109,11 +109,11 @@ const App = () => {
             name: t('data_collection'),
             icon: <DownloadOutlined />
           },
-          // {
-          //   path: '/data-management/quality',
-          //   name: t('data_quality'),
-          //   icon: <InfoCircleOutlined />
-          // },
+          {
+            path: '/data-management/quality',
+            name: t('data_quality'),
+            icon: <InfoCircleOutlined />
+          },
           // {
           //   path: '/data-management/visualization',
           //   name: t('data_visualization'),
