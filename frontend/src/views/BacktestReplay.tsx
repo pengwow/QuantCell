@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Slider, Select, Spin, Alert, message } from 'antd';
+import { Button, Slider, Select, Spin, Alert, message, Table } from 'antd';
 import {
   CaretRightOutlined,
   PauseOutlined,
@@ -12,7 +12,9 @@ import {
   StopOutlined,
   LeftOutlined
 } from '@ant-design/icons';
-import { init, dispose, registerLocale } from 'klinecharts';
+import { init, dispose, registerLocale, registerOverlay } from 'klinecharts';
+// 导入自定义遮盖物组件
+import jsonAnnotation from '../extension/jsonAnnotation';
 import { backtestApi } from '../api';
 import { useTranslation } from 'react-i18next';
 import '../styles/BacktestReplay.css';
@@ -85,6 +87,17 @@ const SPEED_OPTIONS = [
   { label: '5x', value: 5 },
   { label: '10x', value: 10 },
   { label: '20x', value: 20 }
+];
+
+// 交易详情表格列配置
+const TRADE_TABLE_COLUMNS = [
+  { title: '交易ID', dataIndex: 'trade_id', key: 'trade_id', width: 120 },
+  { title: '入场时间', dataIndex: 'EntryTime', key: 'EntryTime' },
+  { title: '方向', dataIndex: 'Direction', key: 'Direction', width: 80 },
+  { title: '入场价格', dataIndex: 'EntryPrice', key: 'EntryPrice', width: 120 },
+  { title: '出场时间', dataIndex: 'ExitTime', key: 'ExitTime' },
+  { title: '出场价格', dataIndex: 'ExitPrice', key: 'ExitPrice', width: 120 },
+  { title: '盈亏', dataIndex: 'PnL', key: 'PnL', width: 100 }
 ];
 
 /**
@@ -178,14 +191,15 @@ const BacktestReplay = () => {
       // 映射后端返回的字段名到前端期望的字段名
       const mappedData = {
         klines: data.kline_data || [],
-        trades: (data.trade_signals || []).map((trade: any) => ({
+        trades: (data.trade_signals || []).map((trade: any, index: number) => ({
           EntryTime: trade.time || '',
           ExitTime: '', // 后端未返回
           Direction: trade.type === 'buy' ? '多单' : '空单',
           EntryPrice: trade.price || 0,
           ExitPrice: 0, // 后端未返回
           PnL: 0, // 后端未返回
-          trade_id: trade.trade_id || ''
+          // 确保trade_id唯一，当后端未返回时使用索引作为fallback
+          trade_id: trade.trade_id || `trade-${index}`
         })),
         equity_curve: data.equity_data || [],
         strategy_name: data.metadata?.strategy_name || '',
@@ -218,6 +232,13 @@ const BacktestReplay = () => {
     console.log('可用的K线数据:', replayData.klines.length);
     console.log('图表容器:', chartRef.current);
 
+    // 确保容器有正确的尺寸
+    if (chartRef.current) {
+      chartRef.current.style.width = '100%';
+      chartRef.current.style.height = '100%';
+      chartRef.current.style.minHeight = '600px';
+    }
+
     // 如果已有实例，先销毁
     if (chartInstance.current) {
       console.log('销毁现有图表实例...');
@@ -231,6 +252,12 @@ const BacktestReplay = () => {
       // 获取系统配置的语言
       const language = window.APP_CONFIG?.language || 'zh-CN';
       console.log('使用语言:', language);
+      
+      // 注册自定义遮盖物组件
+      if (typeof registerOverlay === 'function') {
+        // 注册jsonAnnotation自定义遮盖物组件
+        registerOverlay(jsonAnnotation);
+      }
       
       const chart = init(chartRef.current, { 
         locale: language
@@ -285,6 +312,9 @@ const BacktestReplay = () => {
             }
           });
         }
+
+        // 初始调整图表大小
+        chart.resize();
       }
     } catch (error) {
       console.error('初始化图表失败:', error);
@@ -304,9 +334,14 @@ const BacktestReplay = () => {
     try {
       const chart = chartInstance.current;
       
-      // 获取当前索引之前的所有K线数据
-      const currentKlines = replayData.klines.slice(0, index + 1);
-      console.log('更新的K线数据数量:', currentKlines.length);
+      // 限制可见K线数量，只显示最近100条，确保图表能完整显示
+      const visibleKlineCount = 100;
+      const startIndex = Math.max(0, index - visibleKlineCount + 1);
+      const endIndex = index + 1;
+      
+      // 获取当前可见范围内的K线数据
+      const currentKlines = replayData.klines.slice(startIndex, endIndex);
+      console.log('更新的K线数据数量:', currentKlines.length, '从索引', startIndex, '到', endIndex - 1);
       
       // 重新设置数据加载器并触发数据更新
       console.log('更新数据加载器...');
@@ -319,10 +354,14 @@ const BacktestReplay = () => {
       // 强制触发图表重新渲染
       chart.resize();
 
-      // 添加交易标记
+      // 添加交易标记，传入可见范围信息
       const currentKline = replayData.klines[index];
       if (currentKline) {
-        addTradeMarkers(chart, currentKline);
+        // 计算可见时间范围
+        const visibleStartTime = replayData.klines[startIndex]?.timestamp || 0;
+        const visibleEndTime = replayData.klines[endIndex - 1]?.timestamp || 0;
+        
+        addTradeMarkers(chart, currentKline, visibleStartTime, visibleEndTime);
       }
     } catch (error) {
       console.error('更新图表数据失败:', error);
@@ -331,52 +370,124 @@ const BacktestReplay = () => {
 
   /**
    * 添加交易标记
+   * @param chart 图表实例
+   * @param formattedKline 当前格式化的K线数据
+   * @param visibleStartTime 可见范围起始时间
+   * @param visibleEndTime 可见范围结束时间
    */
-  const addTradeMarkers = (chart: any, formattedKline: any) => {
+  const addTradeMarkers = (chart: any, formattedKline: any, visibleStartTime: number, visibleEndTime: number) => {
     if (!replayData) return;
     
     const currentTime = formattedKline.timestamp;
     if (!currentTime || !replayData.trades) return;
 
-    // 查找当前时刻的交易
-    const currentTrades = replayData.trades.filter(trade => {
-      const entryTime = new Date(trade.EntryTime).getTime();
-      return entryTime <= currentTime;
-    });
-
-    // 清除之前的标记
+    // 清除之前的交易标记
     if (typeof chart.removeOverlay === 'function') {
-      chart.removeOverlay();
+      // 只清除交易相关的标记，保留其他可能的overlay
+      const tradeOverlays = chart.getOverlays({ name: 'jsonAnnotation' }) || [];
+      tradeOverlays.forEach((overlay: any) => {
+        chart.removeOverlay({ id: overlay.id });
+      });
     }
 
-    // 添加买入/卖出标记
-    currentTrades.forEach(trade => {
+    // 过滤出可见范围内的交易
+    const visibleTrades = replayData.trades.filter(trade => {
+      const entryTime = new Date(trade.EntryTime).getTime();
+      // 只处理入场时间在可见范围内的交易标记
+      return entryTime >= visibleStartTime && entryTime <= visibleEndTime;
+    });
+
+    // 添加交易标记（包括入场和出场）
+    visibleTrades.forEach(trade => {
       const entryTime = new Date(trade.EntryTime).getTime();
       const exitTime = trade.ExitTime ? new Date(trade.ExitTime).getTime() : null;
       
-      if (entryTime <= currentTime && (!exitTime || exitTime > currentTime)) {
-        // 当前持仓，显示入场标记
-        if (typeof chart.createOverlay === 'function') {
-          try {
+      if (typeof chart.createOverlay === 'function') {
+        try {
+          // 创建入场标记 - 检查时间是否在可见范围内
+          if (entryTime >= visibleStartTime && entryTime <= visibleEndTime) {
             chart.createOverlay({
-              name: 'simpleAnnotation',
+              name: 'jsonAnnotation',
+              // 使用JSON字符串格式的extendData，支持多行文本和颜色
+              extendData: JSON.stringify({
+                lines: [
+                  `${trade.Direction}`,
+                  // `入场`,
+                  `ID: ${trade.trade_id}`,
+                  // `价格: ${trade.EntryPrice}`
+                ],
+                colors: [
+                  trade.Direction === '多单' ? '#26a69a' : '#ef5350',
+                  '#000000ff',
+                  // '#000000ff'
+                ],
+                fontSize: 12,
+                align: 'left',
+              }),
               points: [
                 {
                   timestamp: entryTime,
                   value: trade.EntryPrice
                 }
               ],
+            });
+          }
+          
+          // 如果有出场时间且在当前时间之前，创建出场标记 - 检查时间是否在可见范围内
+          if (exitTime && exitTime <= currentTime && exitTime >= visibleStartTime && exitTime <= visibleEndTime) {
+            chart.createOverlay({
+              name: 'jsonAnnotation',
+              // 使用JSON字符串格式的extendData，支持多行文本和颜色
+              extendData: JSON.stringify({
+                lines: [
+                  `${trade.Direction}`,
+                  // `出场`,
+                  `ID: ${trade.trade_id}`,
+                  // `价格: ${trade.ExitPrice}`,
+                  `盈亏: ${trade.PnL.toFixed(2)}`
+                ],
+                colors: [
+                  trade.PnL >= 0 ? '#4a6cf7' : '#ff9800',
+                  '#ffffff',
+                  '#ffffff',
+                  '#ffffff',
+                  trade.PnL >= 0 ? '#4a6cf7' : '#ff9800'
+                ],
+                fontSize: 12,
+                align: 'left',
+              }),
+              points: [
+                {
+                  timestamp: exitTime,
+                  value: trade.ExitPrice
+                }
+              ]
+            });
+            
+            // 添加连接入场和出场的线
+            chart.createOverlay({
+              name: 'line',
+              points: [
+                {
+                  timestamp: entryTime,
+                  value: trade.EntryPrice
+                },
+                {
+                  timestamp: exitTime,
+                  value: trade.ExitPrice
+                }
+              ],
               styles: {
-                symbol: {
-                  type: trade.Direction === '多单' ? 'triangle' : 'invertedTriangle',
-                  size: 10,
-                  color: trade.Direction === '多单' ? '#26a69a' : '#ef5350'
+                line: {
+                  color: trade.PnL >= 0 ? '#26a69a' : '#ef5350',
+                  width: 2,
+                  type: 'dashed'
                 }
               }
             });
-          } catch (err) {
-            console.warn('创建交易标记失败:', err);
           }
+        } catch (err) {
+          console.warn('创建交易标记失败:', err);
         }
       }
     });
@@ -612,6 +723,44 @@ const BacktestReplay = () => {
       <div className="replay-chart-container">
         <div ref={chartRef} className="replay-chart" />
       </div>
+
+      {/* 交易详情表格 */}
+      {replayData && (
+        <div className="replay-trade-table-container">
+          <h3>交易详情</h3>
+          <Table
+            columns={TRADE_TABLE_COLUMNS}
+            dataSource={replayData.trades?.filter(trade => {
+              // 获取当前K线的时间戳
+              const currentKline = replayData.klines?.[currentIndex];
+              if (!currentKline) return false;
+              
+              const currentTime = currentKline.timestamp || currentKline.time;
+              const entryTime = new Date(trade.EntryTime).getTime();
+              
+              // 只显示当前时间之前的交易
+              return entryTime <= currentTime;
+            }) || []}
+            rowKey="trade_id"
+            // 添加分页功能
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: true,
+              showTotal: (total) => `共 ${total} 条交易`,
+              pageSizeOptions: ['5', '10', '20', '50'],
+              defaultPageSize: 10,
+              size: 'small'
+            }}
+            // 添加滚动支持
+            scroll={{
+              x: 800, // 横向滚动条
+              y: 300  // 纵向滚动条
+            }}
+            bordered
+            size="middle"
+          />
+        </div>
+      )}
     </div>
   );
 };

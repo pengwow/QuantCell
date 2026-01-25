@@ -3,11 +3,11 @@
  */
 .backtest-replay-container {
   width: 100%;
-  height: 100vh;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-primary);
-  overflow: hidden;
+  overflow: auto;
 }
 
 /* 加载容器 */
@@ -28,6 +28,7 @@
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   gap: 16px;
+  flex-shrink: 0;
 }
 
 .replay-title {
@@ -45,6 +46,7 @@
   padding: 20px 24px;
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .control-buttons {
@@ -91,20 +93,22 @@
 
 /* 图表区域 */
 .replay-chart-container {
-  flex: 1;
+  margin: 20px 24px;
   display: flex;
   flex-direction: column;
-  padding: 0 0 24px;
+  min-height: 600px;
+  max-height: calc(100vh - 300px);
+  background-color: var(--bg-secondary);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
-  min-height: 0;
+  border: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .replay-chart {
   width: 100%;
   height: 100%;
-  background-color: var(--bg-secondary);
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   margin: 0;
   padding: 0;
   line-height: 0;
@@ -115,6 +119,7 @@
   margin: 0 !important;
   padding: 0 !important;
   line-height: 0 !important;
+  height: 100% !important;
 }
 
 .replay-chart canvas {
@@ -122,6 +127,8 @@
   margin: 0 !important;
   padding: 0 !important;
   line-height: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 /* 响应式设计 */
@@ -159,7 +166,21 @@
   }
 
   .replay-chart-container {
-    padding: 0 0 16px;
+    margin: 16px;
+    padding: 0;
+    min-height: 400px;
+    max-height: 500px;
+  }
+
+  .replay-trade-table-container {
+    margin: 0 16px 16px;
+    max-height: 200px;
+  }
+
+  .backtest-replay-container {
+    height: auto;
+    min-height: 100vh;
+    overflow: auto;
   }
 }
 
@@ -195,4 +216,180 @@
 .progress-bar .ant-slider-handle:focus {
   border-color: var(--primary-color);
   box-shadow: 0 0 0 5px rgba(74, 108, 247, 0.1);
+}
+
+/* 交易详情表格容器 */
+.replay-trade-table-container {
+  margin: 0 24px 24px;
+  padding: 20px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--border-radius-lg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-height: 300px;
+  max-height: 600px;
+}
+
+.replay-trade-table-container h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+/* 表格样式覆盖 */
+.replay-trade-table-container .ant-table-wrapper {
+  flex-grow: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.replay-trade-table-container .ant-table {
+  background-color: var(--bg-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+  flex-grow: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.replay-trade-table-container .ant-table-container {
+  overflow: hidden;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.replay-trade-table-container .ant-table-body {
+  overflow-x: auto;
+  overflow-y: auto;
+  flex-grow: 1;
+}
+
+/* 分页样式 */
+.replay-trade-table-container .ant-pagination {
+  margin: 12px 0 0 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.replay-trade-table-container .ant-pagination-total-text {
+  margin-right: 16px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* 优化表格滚动条样式 */
+.replay-trade-table-container ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.replay-trade-table-container ::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
+.replay-trade-table-container ::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+.replay-trade-table-container ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+.replay-trade-table-container .ant-table-thead > tr > th {
+  background-color: var(--bg-tertiary) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  color: var(--text-primary) !important;
+  font-weight: 600 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 12px 8px !important;
+  min-width: auto !important;
+}
+
+.replay-trade-table-container .ant-table-tbody > tr > td {
+  background-color: var(--bg-secondary) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  color: var(--text-primary) !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 12px 8px !important;
+  min-width: auto !important;
+}
+
+.replay-trade-table-container .ant-table-tbody > tr:hover > td {
+  background-color: var(--bg-tertiary) !important;
+}
+
+.replay-trade-table-container .ant-table-tbody > tr:nth-child(even) > td {
+  background-color: var(--bg-secondary) !important;
+}
+
+.replay-trade-table-container .ant-table-tbody > tr:nth-child(odd) > td {
+  background-color: var(--bg-tertiary) !important;
+}
+
+/* 表格列宽优化 */
+.replay-trade-table-container .ant-table-thead > tr > th,
+.replay-trade-table-container .ant-table-tbody > tr > td {
+  flex: 1;
+  min-width: 80px;
+  max-width: 180px;
+}
+
+/* 调整特定列的宽度 */
+.replay-trade-table-container .ant-table-thead > tr > th:nth-child(2),
+.replay-trade-table-container .ant-table-thead > tr > th:nth-child(5),
+.replay-trade-table-container .ant-table-tbody > tr > td:nth-child(2),
+.replay-trade-table-container .ant-table-tbody > tr > td:nth-child(5) {
+  max-width: 160px;
+  flex: 1.2;
+}
+
+.replay-trade-table-container .ant-table-thead > tr > th:nth-child(3),
+.replay-trade-table-container .ant-table-thead > tr > th:nth-child(4),
+.replay-trade-table-container .ant-table-thead > tr > th:nth-child(6),
+.replay-trade-table-container .ant-table-thead > tr > th:nth-child(7),
+.replay-trade-table-container .ant-table-tbody > tr > td:nth-child(3),
+.replay-trade-table-container .ant-table-tbody > tr > td:nth-child(4),
+.replay-trade-table-container .ant-table-tbody > tr > td:nth-child(6),
+.replay-trade-table-container .ant-table-tbody > tr > td:nth-child(7) {
+  max-width: 120px;
+  flex: 0.8;
+}
+
+/* 响应式设计 - 表格适配 */
+@media (max-width: 768px) {
+  .replay-trade-table-container {
+    margin: 0 16px 16px;
+    padding: 16px;
+    max-height: 250px;
+  }
+  
+  .replay-trade-table-container h3 {
+    font-size: 16px;
+  }
+  
+  .replay-trade-table-container .ant-table-thead > tr > th,
+  .replay-trade-table-container .ant-table-tbody > tr > td {
+    padding: 8px 4px !important;
+    font-size: 12px;
+  }
+}
+
+/* 确保图表和表格之间有适当间距 */
+.replay-chart-container {
+  margin-bottom: 12px;
 }
