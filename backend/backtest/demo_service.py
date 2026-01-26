@@ -131,7 +131,7 @@ class MACD_Demo_Strategy(Strategy):
                     }),
                     status="completed",
                     result_id=result_id,
-                    completed_at=datetime.now()
+                    completed_at=datetime.now(timezone.utc)
                 )
                 db.add(task)
                 

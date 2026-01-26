@@ -2,9 +2,12 @@ import asyncio
 from contextlib import asynccontextmanager
 from math import log
 from typing import Union
+import datetime
+import pytz
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # 配置日志
 from loguru import logger
@@ -391,7 +394,36 @@ def extract_lang(accept_language: str) -> str:
     return lang if lang in supported_langs else "zh-CN"
 
 
-app = FastAPI(lifespan=lifespan)
+# 配置FastAPI的JSON序列化
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import Response
+import json
+
+# 自定义JSON编码器，处理datetime对象
+def custom_json_encoder(obj):
+    if isinstance(obj, datetime.datetime):
+        # 如果datetime对象没有时区信息，添加UTC时区
+        if obj.tzinfo is None:
+            obj = obj.replace(tzinfo=pytz.utc)
+        # 转换为UTC+8时间并格式化为字符串
+        return obj.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+# 自定义Response类，使用自定义JSON编码器
+class CustomJSONResponse(Response):
+    media_type = "application/json"
+    
+    def render(self, content):
+        # 使用jsonable_encoder处理Pydantic模型，然后使用自定义编码器处理datetime
+        encoded_content = jsonable_encoder(content)
+        return json.dumps(encoded_content, default=custom_json_encoder).encode("utf-8")
+
+app = FastAPI(
+    lifespan=lifespan,
+    json_encoders={
+        datetime.datetime: lambda v: v.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+    }
+)
 
 # 添加CORS中间件配置
 app.add_middleware(
@@ -406,6 +438,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 配置应用时区
+app.state.timezone = pytz.timezone('Asia/Shanghai')
+app.state.utc_zone = pytz.utc
 
 # 注册数据处理API路由
 app.include_router(collector_router)

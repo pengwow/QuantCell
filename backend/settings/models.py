@@ -142,11 +142,22 @@ class SystemConfigBusiness:
         Returns:
             Dict[str, Dict[str, Any]]: 所有配置项的详细信息，键为配置项键名
         """
+        import pytz
         init_database_config()
         db: Session = SessionLocal()
         try:
             configs = db.query(SystemConfig).all()
             result = {}
+            
+            def format_datetime(dt):
+                if dt is None:
+                    return None
+                # 如果datetime对象没有时区信息，添加UTC时区
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=pytz.utc)
+                # 转换为UTC+8时间并格式化为字符串
+                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+            
             for config in configs:
                 result[config.key] = {
                     "key": config.key,
@@ -155,8 +166,8 @@ class SystemConfigBusiness:
                     "plugin": config.plugin,
                     "name": config.name,
                     "is_sensitive": config.is_sensitive,
-                    "created_at": config.created_at,
-                    "updated_at": config.updated_at
+                    "created_at": format_datetime(config.created_at),
+                    "updated_at": format_datetime(config.updated_at)
                 }
             return result
         except Exception as e:
@@ -175,11 +186,21 @@ class SystemConfigBusiness:
         Returns:
             Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、插件、名称、是否敏感、创建时间和更新时间
         """
+        import pytz
         init_database_config()
         db: Session = SessionLocal()
         try:
             config = db.query(SystemConfig).filter_by(key=key).first()
             if config:
+                def format_datetime(dt):
+                    if dt is None:
+                        return None
+                    # 如果datetime对象没有时区信息，添加UTC时区
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=pytz.utc)
+                    # 转换为UTC+8时间并格式化为字符串
+                    return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+                
                 return {
                     "key": config.key,
                     "value": config.value,
@@ -187,8 +208,8 @@ class SystemConfigBusiness:
                     "plugin": config.plugin,
                     "name": config.name,
                     "is_sensitive": config.is_sensitive,
-                    "created_at": config.created_at,
-                    "updated_at": config.updated_at
+                    "created_at": format_datetime(config.created_at),
+                    "updated_at": format_datetime(config.updated_at)
                 }
             return None
         except Exception as e:

@@ -1,6 +1,6 @@
 # 回测服务API路由
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
@@ -331,6 +331,89 @@ def get_backtest_detail(backtest_id: str):
 
 
 @router_backtest.get(
+    "/{backtest_id}/symbols", 
+    response_model=ApiResponse,
+    summary="获取回测货币对列表",
+    description="获取回测包含的所有货币对信息，用于多货币对切换展示",
+    responses={
+        200: {
+            "description": "获取回测货币对列表成功",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": 0,
+                        "message": "获取回测货币对列表成功",
+                        "data": {
+                            "symbols": [
+                                {
+                                    "symbol": "BTCUSDT",
+                                    "status": "success",
+                                    "message": "回测成功"
+                                },
+                                {
+                                    "symbol": "ETHUSDT",
+                                    "status": "success",
+                                    "message": "回测成功"
+                                }
+                            ],
+                            "total": 2
+                        }
+                    }
+                }
+            }
+        },
+        500: {"description": "获取回测货币对列表失败"}
+    }
+)
+def get_backtest_symbols(backtest_id: str):
+    """
+    获取回测包含的所有货币对信息
+    
+    Args:
+        backtest_id: 回测ID
+        
+    Returns:
+        ApiResponse: API响应，包含回测货币对列表
+        
+    Response Data Format:
+        {
+            "symbols": [
+                {
+                    "symbol": string,  # 货币对符号
+                    "status": string,  # 回测状态，"success" 或 "failed"
+                    "message": string  # 回测状态信息
+                },
+                # 更多货币对...
+            ],
+            "total": number  # 货币对总数
+        }
+    """
+    try:
+        logger.info(f"获取回测货币对列表请求，回测ID: {backtest_id}")
+        
+        # 获取回测货币对列表
+        result = backtest_service.get_backtest_symbols(backtest_id)
+        
+        if result and result.get("status") == "success":
+            logger.info(f"成功获取回测货币对列表，回测ID: {backtest_id}")
+            return ApiResponse(
+                code=0,
+                message="获取回测货币对列表成功",
+                data=result.get('data')
+            )
+        else:
+            logger.error(f"获取回测货币对列表失败，回测ID: {backtest_id}")
+            return ApiResponse(
+                code=1,
+                message="获取回测货币对列表失败",
+                data={}
+            )
+    except Exception as e:
+        logger.error(f"获取回测货币对列表失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router_backtest.get(
     "/{backtest_id}/replay", 
     response_model=ApiResponse,
     summary="获取回测回放数据",
@@ -377,12 +460,13 @@ def get_backtest_detail(backtest_id: str):
         500: {"description": "获取回测回放数据失败"}
     }
 )
-def get_replay_data(backtest_id: str):
+def get_replay_data(backtest_id: str, symbol: Optional[str] = None):
     """
     获取回测回放数据
     
     Args:
         backtest_id: 回测ID
+        symbol: 可选，指定货币对，用于多货币对回测结果
         
     Returns:
         ApiResponse: API响应，包含回测回放数据
@@ -421,10 +505,10 @@ def get_replay_data(backtest_id: str):
         }
     """
     try:
-        logger.info(f"获取回测回放数据请求，回测ID: {backtest_id}")
+        logger.info(f"获取回测回放数据请求，回测ID: {backtest_id}, 货币对: {symbol}")
         
         # 获取回测回放数据
-        result = backtest_service.get_replay_data(backtest_id)
+        result = backtest_service.get_replay_data(backtest_id, symbol)
         
         if result and result.get("status") == "success":
             logger.info(f"成功获取回测回放数据，回测ID: {backtest_id}")

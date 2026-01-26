@@ -625,10 +625,20 @@ export const backtestApi = {
   /**
    * 获取回测回放数据
    * @param backtestId 回测ID
+   * @param symbol 可选，指定货币对，用于多货币对回测结果
    * @returns 回放数据
    */
-  getReplayData: (backtestId: string) => {
-    return apiRequest.get(`/backtest/${backtestId}/replay`);
+  getReplayData: (backtestId: string, symbol?: string) => {
+    return apiRequest.get(`/backtest/${backtestId}/replay`, { symbol });
+  },
+  
+  /**
+   * 获取回测包含的所有货币对信息
+   * @param backtestId 回测ID
+   * @returns 货币对列表及相关元数据
+   */
+  getBacktestSymbols: (backtestId: string) => {
+    return apiRequest.get(`/backtest/${backtestId}/symbols`);
   },
 };
 
