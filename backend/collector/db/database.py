@@ -5,9 +5,12 @@
 import os
 from pathlib import Path
 from loguru import logger
+import datetime
+import pytz
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.sql import func
 
 # 数据库文件默认路径
 default_db_path = Path(__file__).parent.parent.parent / "data"
@@ -91,7 +94,6 @@ def init_database_config():
         # 默认使用SQLite
         db_url = f"sqlite:///{db_file}"
     
-    # 创建SQLAlchemy引擎
     # 根据数据库类型动态设置connect_args
     connect_args = {}
     if db_type == "sqlite":
@@ -106,7 +108,8 @@ def init_database_config():
                 "enable_object_cache": "true",
             }
         }
-    
+
+    # 创建SQLAlchemy引擎，添加时区支持
     engine = create_engine(
         db_url,
         connect_args=connect_args
@@ -122,6 +125,18 @@ def init_database_config():
     if db_type == "duckdb":
         from sqlalchemy import event
         event.listen(engine, "before_cursor_execute", fix_duckdb_serial_type, retval=True)
+
+# 添加辅助函数获取带时区的当前时间
+def get_current_time():
+    """获取当前时间，带UTC+8时区
+    
+    Returns:
+        datetime: 当前时间，带UTC+8时区
+    """
+    return datetime.datetime.now(pytz.timezone('Asia/Shanghai'))
+
+# 注意：SessionLocal.configure(bind=engine)和Base.metadata.bind的设置
+# 已移动到init_database_config函数内部，确保在engine初始化后执行
 
 
 

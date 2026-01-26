@@ -284,6 +284,7 @@ class BacktestReplayRequest(BaseModel):
     回测回放请求模型
     """
     backtest_id: str = Field(..., description="回测ID", json_schema_extra={"example": "SmaCross_BTCUSDT_20230101"})
+    symbol: Optional[str] = Field(None, description="货币对，用于多货币对回测结果筛选", json_schema_extra={"example": "BTCUSDT"})
 
 
 # Import from strategy schemas to support routes

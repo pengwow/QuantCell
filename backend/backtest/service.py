@@ -263,14 +263,22 @@ class BacktestService:
                 logger.warning(f"Initial cash ({initial_cash}) is lower than max price ({max_price}). Increasing cash to avoid warnings.")
                 initial_cash = max_price * 1.1 # Add 10% buffer
             
-            # 设置全局数据管理器，供策略访问
-            from .strategies.base import set_data_manager
-            set_data_manager(local_data_manager)
-            
             # 为数据添加交易对符号属性
             candles.symbol = symbol
             
-            bt = Backtest(
+            # 自定义回测运行器，用于在策略实例化后设置数据管理器
+            class CustomBacktest(Backtest):
+                def run(self, **kwargs):
+                    # 执行父类的run方法
+                    result = super().run(**kwargs)
+                    # 获取策略实例并设置数据管理器
+                    if hasattr(result, '_strategy'):
+                        strategy_instance = result['_strategy']
+                        if hasattr(strategy_instance, 'set_data_manager'):
+                            strategy_instance.set_data_manager(local_data_manager)
+                    return result
+            
+            bt = CustomBacktest(
                 candles, 
                 strategy_class, 
                 cash=initial_cash,
@@ -342,13 +350,14 @@ class BacktestService:
             backtest_id = str(uuid.uuid4())
             
             # 创建回测任务记录
+            from datetime import datetime, timezone
             task = BacktestTask(
                 id=backtest_id,
                 strategy_name=strategy_name,
                 backtest_config=json.dumps(backtest_config),
                 status="completed",
-                started_at=datetime.now(),
-                completed_at=datetime.now()
+                started_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc)
             )
             db.add(task)
             db.commit()
@@ -376,6 +385,7 @@ class BacktestService:
                 id=backtest_id,
                 task_id=backtest_id,
                 strategy_name=strategy_name,
+                symbol=symbol,
                 metrics=json.dumps(self._sanitize_for_json(translated_metrics)),
                 trades=json.dumps(self._sanitize_for_json(trades)),
                 equity_curve=json.dumps(self._sanitize_for_json(equity_curve_data)),
@@ -451,31 +461,69 @@ class BacktestService:
             returns = []
             max_drawdowns = []
             sharpe_ratios = []
+            sortino_ratios = []
+            calmar_ratios = []
             win_rates = []
+            profit_factors = []
+            total_equity = 0
+            total_initial_cash = 0
             
+            # 收集所有成功回测的结果
+            successful_results = {}
             for symbol, result in results.items():
                 if result["status"] == "success":
                     successful_currencies.append(symbol)
+                    successful_results[symbol] = result
                     
                     # 统计交易次数
-                    total_trades += len(result["trades"])
+                    trade_count = len(result["trades"])
+                    total_trades += trade_count
+                    logger.info(f"货币对 {symbol} 交易次数: {trade_count}")
                     
                     # 提取关键指标
                     for metric in result["metrics"]:
                         if metric["name"] == "Return [%]":
                             returns.append(metric["value"])
+                            logger.debug(f"货币对 {symbol} 收益率: {metric['value']}%")
                         elif metric["name"] == "Max. Drawdown [%]":
                             max_drawdowns.append(metric["value"])
+                            logger.debug(f"货币对 {symbol} 最大回撤: {metric['value']}%")
                         elif metric["name"] == "Sharpe Ratio":
                             sharpe_ratios.append(metric["value"])
+                            logger.debug(f"货币对 {symbol} 夏普比率: {metric['value']}")
+                        elif metric["name"] == "Sortino Ratio":
+                            sortino_ratios.append(metric["value"])
+                            logger.debug(f"货币对 {symbol} 索提诺比率: {metric['value']}")
+                        elif metric["name"] == "Calmar Ratio":
+                            calmar_ratios.append(metric["value"])
+                            logger.debug(f"货币对 {symbol} 卡尔玛比率: {metric['value']}")
                         elif metric["name"] == "Win Rate [%]":
                             win_rates.append(metric["value"])
+                            logger.debug(f"货币对 {symbol} 胜率: {metric['value']}%")
+                        elif metric["name"] == "Profit Factor":
+                            profit_factors.append(metric["value"])
+                            logger.debug(f"货币对 {symbol} 盈利因子: {metric['value']}")
+                        elif metric["name"] == "Equity Final [$]":
+                            total_equity += metric["value"]
+                            logger.debug(f"货币对 {symbol} 最终权益: ${metric['value']}")
+                    
+                    # 统计初始资金
+                    initial_cash = result["backtest_config"].get("initial_cash", 10000)
+                    total_initial_cash += initial_cash
+            
+            logger.info(f"成功回测的货币对数量: {len(successful_currencies)}/{len(results)}")
             
             # 计算平均值
-            average_return = sum(returns) / len(returns) if returns else 0
-            average_max_drawdown = sum(max_drawdowns) / len(max_drawdowns) if max_drawdowns else 0
-            average_sharpe_ratio = sum(sharpe_ratios) / len(sharpe_ratios) if sharpe_ratios else 0
-            overall_win_rate = sum(win_rates) / len(win_rates) if win_rates else 0
+            avg_return = sum(returns) / len(returns) if returns else 0
+            avg_max_drawdown = sum(max_drawdowns) / len(max_drawdowns) if max_drawdowns else 0
+            avg_sharpe = sum(sharpe_ratios) / len(sharpe_ratios) if sharpe_ratios else 0
+            avg_sortino = sum(sortino_ratios) / len(sortino_ratios) if sortino_ratios else 0
+            avg_calmar = sum(calmar_ratios) / len(calmar_ratios) if calmar_ratios else 0
+            avg_win_rate = sum(win_rates) / len(win_rates) if win_rates else 0
+            avg_profit_factor = sum(profit_factors) / len(profit_factors) if profit_factors else 0
+            
+            # 计算总收益率
+            total_return = ((total_equity - total_initial_cash) / total_initial_cash) * 100 if total_initial_cash > 0 else 0
             
             # 生成合并后的回测ID
             merged_backtest_id = str(uuid.uuid4())
@@ -490,17 +538,28 @@ class BacktestService:
                 "summary": {
                     "total_currencies": len(results),
                     "successful_currencies": len(successful_currencies),
-                    "average_return": round(average_return, 2),
-                    "average_max_drawdown": round(average_max_drawdown, 2),
-                    "average_sharpe_ratio": round(average_sharpe_ratio, 2),
+                    "failed_currencies": len(results) - len(successful_currencies),
                     "total_trades": total_trades,
-                    "overall_win_rate": round(overall_win_rate, 2)
+                    "average_trades_per_currency": round(total_trades / len(successful_currencies), 2) if successful_currencies else 0,
+                    "total_initial_cash": round(total_initial_cash, 2),
+                    "total_equity": round(total_equity, 2),
+                    "total_return": round(total_return, 2),
+                    "average_return": round(avg_return, 2),
+                    "average_max_drawdown": round(avg_max_drawdown, 2),
+                    "average_sharpe_ratio": round(avg_sharpe, 2),
+                    "average_sortino_ratio": round(avg_sortino, 2),
+                    "average_calmar_ratio": round(avg_calmar, 2),
+                    "average_win_rate": round(avg_win_rate, 2),
+                    "average_profit_factor": round(avg_profit_factor, 2)
                 },
                 "currencies": results,
-                "merged_equity_curve": []  # 合并后的资金曲线，后续可以实现
+                "merged_equity_curve": [],  # 合并后的资金曲线，后续可以实现
+                "successful_currencies": successful_currencies,
+                "failed_currencies": [symbol for symbol, result in results.items() if result["status"] != "success"]
             }
             
             logger.info(f"回测结果合并完成，共 {len(successful_currencies)} 个货币对回测成功")
+            logger.info(f"合并后总收益率: {round(total_return, 2)}%，总交易次数: {total_trades}")
             return merged_result
         except Exception as e:
             logger.error(f"合并回测结果失败: {e}")
@@ -522,28 +581,44 @@ class BacktestService:
         try:
             # 从配置中获取货币对列表
             symbols = backtest_config.get("symbols", ["BTCUSDT"])
+            strategy_name = strategy_config.get("strategy_name", "Unknown")
             
-            logger.info(f"开始回测，策略名称: {strategy_config.get('strategy_name')}, 货币对: {symbols}")
+            logger.info(f"=== 开始回测任务 ===")
+            logger.info(f"策略名称: {strategy_name}")
+            logger.info(f"回测货币对: {symbols}")
+            logger.info(f"回测周期: {backtest_config.get('interval', '1d')}")
+            logger.info(f"回测时间范围: {backtest_config.get('start_time')} 至 {backtest_config.get('end_time')}")
+            logger.info(f"初始资金: {backtest_config.get('initial_cash', 10000)}")
+            logger.info(f"手续费率: {backtest_config.get('commission', 0.001)}")
             
             # 如果只有一个货币对，直接执行回测
             if len(symbols) == 1:
+                logger.info(f"单货币对回测模式，开始执行 {symbols[0]} 回测")
                 # 复制配置，使用单个货币对
                 single_config = backtest_config.copy()
                 single_config["symbol"] = symbols[0]
                 del single_config["symbols"]
                 
-                return self.run_single_backtest(strategy_config, single_config)
+                result = self.run_single_backtest(strategy_config, single_config)
+                logger.info(f"=== 回测任务完成 === 货币对: {symbols[0]}, 状态: {result.get('status')}")
+                return result
             
             # 多个货币对，使用并行回测
-            logger.info(f"开始多货币对并行回测，共 {len(symbols)} 个货币对")
+            logger.info(f"=== 多货币对并行回测模式 ===")
+            logger.info(f"货币对数量: {len(symbols)}")
+            logger.info(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             
             # 限制线程数量，避免系统过载
             cpu_count = os.cpu_count() or 1
             max_workers = min(len(symbols), cpu_count * 2)
             logger.info(f"使用线程池执行回测，最大线程数: {max_workers}")
+            logger.info(f"CPU核心数: {cpu_count}")
             
             # 使用线程池并行执行回测
             results = {}
+            completed_count = 0
+            failed_count = 0
+            
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # 提交所有回测任务
                 future_to_symbol = {}
@@ -553,6 +628,7 @@ class BacktestService:
                     single_config["symbol"] = symbol
                     del single_config["symbols"]
                     
+                    logger.info(f"提交回测任务: {symbol}")
                     future = executor.submit(
                         self.run_single_backtest,
                         strategy_config,
@@ -561,29 +637,53 @@ class BacktestService:
                     future_to_symbol[future] = symbol
                 
                 # 收集回测结果
+                total_futures = len(future_to_symbol)
                 for future in concurrent.futures.as_completed(future_to_symbol):
                     symbol = future_to_symbol[future]
                     try:
                         result = future.result(timeout=3600)  # 1小时超时
                         results[symbol] = result
+                        completed_count += 1
+                        logger.info(f"回测完成 [{completed_count}/{total_futures}]: {symbol}, 状态: {result.get('status')}")
+                        if result.get('status') == 'success':
+                            # 记录关键指标
+                            for metric in result.get('metrics', []):
+                                if metric['name'] == 'Return [%]':
+                                    logger.info(f"货币对 {symbol} 收益率: {metric['value']}%")
+                                    break
                     except concurrent.futures.TimeoutError:
-                        logger.error(f"货币对 {symbol} 回测超时")
+                        logger.error(f"回测超时 [{completed_count + failed_count + 1}/{total_futures}]: {symbol}")
                         results[symbol] = {
                             "status": "failed",
                             "message": "回测超时"
                         }
+                        failed_count += 1
                     except Exception as e:
-                        logger.error(f"货币对 {symbol} 回测失败: {e}")
+                        logger.error(f"回测失败 [{completed_count + failed_count + 1}/{total_futures}]: {symbol}, 错误: {e}")
+                        logger.exception(e)
                         results[symbol] = {
                             "status": "failed",
                             "message": str(e)
                         }
+                        failed_count += 1
+            
+            logger.info(f"=== 所有回测任务执行完毕 ===")
+            logger.info(f"总货币对数量: {len(symbols)}")
+            logger.info(f"成功数量: {completed_count - failed_count}")
+            logger.info(f"失败数量: {failed_count}")
+            logger.info(f"完成率: {(completed_count / len(symbols)) * 100:.2f}%")
             
             # 合并回测结果
+            logger.info("=== 开始合并回测结果 ===")
             merged_result = self.merge_backtest_results(results)
+            logger.info("=== 回测任务全部完成 ===")
+            
+            # 保存合并后的回测结果到文件系统
+            self.save_backtest_result(merged_result['task_id'], merged_result)
+            
             return merged_result
         except Exception as e:
-            logger.error(f"回测失败: {e}")
+            logger.error(f"回测任务执行失败: {e}")
             logger.exception(e)
             return {
                 "status": "failed",
@@ -946,11 +1046,12 @@ class BacktestService:
             logger.exception(e)
             return []
     
-    def get_replay_data(self, backtest_id):
+    def get_replay_data(self, backtest_id, symbol=None):
         """
         获取回放数据
         
         :param backtest_id: 回测ID
+        :param symbol: 可选，指定货币对，用于多货币对回测结果
         :return: 回放数据
         """
         try:
@@ -962,21 +1063,33 @@ class BacktestService:
                     "message": f"回测结果不存在: {backtest_id}"
                 }
             
+            # 处理多货币对回测结果
+            target_result = result
+            if symbol and "currencies" in result:
+                # 多货币对回测结果，根据symbol选择对应的结果
+                if symbol in result["currencies"]:
+                    target_result = result["currencies"][symbol]
+                else:
+                    return {
+                        "status": "failed",
+                        "message": f"货币对 {symbol} 不存在于回测结果中"
+                    }
+            
             # 准备回放数据
             replay_data = {
                 "kline_data": [],
                 "trade_signals": [],
                 "equity_data": [],
                 "metadata": {
-                    "symbol": result.get("backtest_config", {}).get("symbol", "BTCUSDT"),
-                    "interval": result.get("backtest_config", {}).get("interval", "15m"),
-                    "strategy_name": result.get("strategy_name", "未知策略")
+                    "symbol": target_result.get("backtest_config", {}).get("symbol", "BTCUSDT"),
+                    "interval": target_result.get("backtest_config", {}).get("interval", "15m"),
+                    "strategy_name": target_result.get("strategy_name", "未知策略")
                 }
             }
             
             # 从策略数据中提取K线数据
-            if "strategy_data" in result:
-                for data in result["strategy_data"]:
+            if "strategy_data" in target_result:
+                for data in target_result["strategy_data"]:
                     # 尝试多种时间字段名
                     time_value = None
                     
@@ -1026,8 +1139,8 @@ class BacktestService:
                     replay_data["kline_data"].append(kline_item)
             
             # 从交易记录中提取交易信号
-            if "trades" in result:
-                for trade in result["trades"]:
+            if "trades" in target_result:
+                for trade in target_result["trades"]:
                     signal_item = {
                         "time": trade.get("EntryTime", ""),
                         "type": "buy" if trade.get("Direction") == "多单" else "sell",
@@ -1038,8 +1151,8 @@ class BacktestService:
                     replay_data["trade_signals"].append(signal_item)
             
             # 从资金曲线中提取权益数据
-            if "equity_curve" in result:
-                for equity in result["equity_curve"]:
+            if "equity_curve" in target_result:
+                for equity in target_result["equity_curve"]:
                     equity_item = {
                         "time": equity.get("datetime", ""),
                         "equity": equity.get("Equity", 0)
@@ -1054,6 +1167,111 @@ class BacktestService:
             }
         except Exception as e:
             logger.error(f"获取回放数据失败: {e}")
+            logger.exception(e)
+            return {
+                "status": "failed",
+                "message": str(e)
+            }
+    
+    def get_backtest_symbols(self, backtest_id):
+        """
+        获取回测包含的所有货币对信息
+        
+        :param backtest_id: 回测ID
+        :return: 货币对列表及相关元数据
+        """
+        try:
+            logger.info(f"开始获取回测货币对列表，回测ID: {backtest_id}")
+            
+            # 首先尝试从文件系统加载回测结果（优先获取合并后的多货币对结果）
+            result = self.load_backtest_result(backtest_id)
+            
+            # 如果文件系统中没有找到，再尝试从数据库加载
+            if not result:
+                logger.warning(f"回测结果在文件系统中不存在，尝试从数据库加载，回测ID: {backtest_id}")
+                from collector.db.database import SessionLocal, init_database_config
+                from collector.db.models import BacktestResult
+                import json
+                
+                # 初始化数据库配置
+                init_database_config()
+                db = SessionLocal()
+                
+                try:
+                    # 从数据库中获取回测结果
+                    result_record = db.query(BacktestResult).filter_by(id=backtest_id).first()
+                    
+                    if not result_record:
+                        return {
+                            "status": "failed",
+                            "message": f"回测结果不存在: {backtest_id}"
+                        }
+                    else:
+                        # 从数据库中获取回测结果
+                        result = {
+                            "task_id": result_record.id,
+                            "status": "success",
+                            "message": "回测完成",
+                            "strategy_name": result_record.strategy_name,
+                            "backtest_config": {},  # 从回测任务中获取
+                            "metrics": json.loads(result_record.metrics),
+                            "trades": json.loads(result_record.trades),
+                            "equity_curve": json.loads(result_record.equity_curve),
+                            "strategy_data": json.loads(result_record.strategy_data)
+                        }
+                        
+                        # 获取回测配置
+                        from collector.db.models import BacktestTask
+                        task = db.query(BacktestTask).filter_by(id=result_record.task_id).first()
+                        if task:
+                            result["backtest_config"] = json.loads(task.backtest_config)
+                except Exception as db_e:
+                    logger.error(f"从数据库获取回测结果失败: {db_e}")
+                    logger.exception(db_e)
+                    return {
+                        "status": "failed",
+                        "message": f"从数据库获取回测结果失败: {str(db_e)}"
+                    }
+                finally:
+                    db.close()
+            
+            if not result:
+                return {
+                    "status": "failed",
+                    "message": f"回测结果不存在: {backtest_id}"
+                }
+            
+            symbols = []
+            
+            # 处理多货币对回测结果
+            if "currencies" in result:
+                # 多货币对回测结果，返回所有货币对
+                for symbol, currency_result in result["currencies"].items():
+                    symbols.append({
+                        "symbol": symbol,
+                        "status": currency_result.get("status", "success"),
+                        "message": currency_result.get("message", "回测成功")
+                    })
+            else:
+                # 单货币对回测结果，返回单一货币对
+                symbol = result.get("backtest_config", {}).get("symbol", "BTCUSDT")
+                symbols.append({
+                    "symbol": symbol,
+                    "status": result.get("status", "success"),
+                    "message": result.get("message", "回测成功")
+                })
+            
+            logger.info(f"获取回测货币对列表成功，回测ID: {backtest_id}, 货币对数量: {len(symbols)}")
+            return {
+                "status": "success",
+                "message": "获取回测货币对列表成功",
+                "data": {
+                    "symbols": symbols,
+                    "total": len(symbols)
+                }
+            }
+        except Exception as e:
+            logger.error(f"获取回测货币对列表失败: {e}")
             logger.exception(e)
             return {
                 "status": "failed",

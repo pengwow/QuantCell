@@ -319,7 +319,7 @@ class ScheduledTaskManager:
         ScheduledTaskBusiness.update(
             task_id=task_id,
             status="running",
-            last_run_time=datetime.now()
+            last_run_time=datetime.now(timezone.utc)
         )
         
         try:
@@ -404,7 +404,7 @@ class ScheduledTaskManager:
             # 更新上次采集日期
             ScheduledTaskBusiness.update(
                 task_id=task_info["id"],
-                last_collected_date=datetime.now()
+                last_collected_date=datetime.now(timezone.utc)
             )
             
             logger.info(f"加密货币数据下载完成: symbols={symbols}, exchange={exchange}")

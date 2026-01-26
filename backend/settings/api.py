@@ -14,9 +14,11 @@ from utils.auth import jwt_auth_required_sync
 from settings.models import SystemConfigBusiness as SystemConfig
 from settings.services import SystemService
 
+# 导入统一的ApiResponse模型
+from common.schemas import ApiResponse
+
 # 导入详细的Schema模型
 from settings.schemas import (
-    ApiResponse,
     ConfigBatchUpdateRequest,
     ConfigUpdateRequest,
     SystemConfigItem,

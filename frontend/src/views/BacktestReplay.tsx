@@ -68,6 +68,13 @@ registerLocale('en-US', {
 
 const { Option } = Select;
 
+// 货币对信息类型
+interface SymbolInfo {
+  symbol: string;
+  status: string;
+  message: string;
+}
+
 // 回放数据类型
 interface ReplayData {
   klines: any[];
@@ -77,6 +84,12 @@ interface ReplayData {
   backtest_config: any;
   symbol: string;
   interval: string;
+}
+
+// 回测货币对列表数据类型
+interface BacktestSymbols {
+  symbols: SymbolInfo[];
+  total: number;
 }
 
 // 播放速度选项
@@ -165,6 +178,11 @@ const BacktestReplay = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 货币对相关状态
+  const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
+  const [loadingSymbols, setLoadingSymbols] = useState<boolean>(false);
+
   // 播放控制状态
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
@@ -176,16 +194,43 @@ const BacktestReplay = () => {
   const playTimerRef = useRef<number | null>(null);
 
   /**
+   * 加载货币对列表
+   */
+  const loadSymbols = async () => {
+    if (!backtestId) return;
+    
+    setLoadingSymbols(true);
+    setError(null);
+    
+    try {
+      const data: BacktestSymbols = await backtestApi.getBacktestSymbols(backtestId);
+      console.log('后端返回的货币对数据:', data);
+      
+      setSymbols(data.symbols || []);
+      
+      // 默认选择第一个货币对
+      if (data.symbols && data.symbols.length > 0) {
+        setSelectedSymbol(data.symbols[0].symbol);
+      }
+    } catch (err) {
+      console.error('加载货币对列表失败:', err);
+      message.error('加载货币对列表失败');
+    } finally {
+      setLoadingSymbols(false);
+    }
+  };
+
+  /**
    * 加载回放数据
    */
-  const loadReplayData = async () => {
+  const loadReplayData = async (symbol?: string) => {
     if (!backtestId) return;
     
     setLoading(true);
     setError(null);
     
     try {
-      const data = await backtestApi.getReplayData(backtestId);
+      const data = await backtestApi.getReplayData(backtestId, symbol);
       console.log('后端返回的原始数据:', data);
       
       // 映射后端返回的字段名到前端期望的字段名
@@ -220,6 +265,17 @@ const BacktestReplay = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  /**
+   * 处理货币对切换
+   */
+  const handleSymbolChange = (value: string) => {
+    setSelectedSymbol(value);
+    // 重置播放状态
+    handleStop();
+    // 加载新货币对的回放数据
+    loadReplayData(value);
   };
 
   /**
@@ -573,9 +629,9 @@ const BacktestReplay = () => {
     navigate('/backtest');
   };
 
-  // 组件挂载时加载数据
+  // 组件挂载时加载货币对列表
   useEffect(() => {
-    loadReplayData();
+    loadSymbols();
 
     return () => {
       // 清理定时器
@@ -588,6 +644,13 @@ const BacktestReplay = () => {
       }
     };
   }, [backtestId]);
+
+  // 货币对列表加载完成后，加载第一个货币对的回放数据
+  useEffect(() => {
+    if (selectedSymbol) {
+      loadReplayData(selectedSymbol);
+    }
+  }, [selectedSymbol]);
 
   // 数据加载完成后初始化图表
   useEffect(() => {
@@ -655,6 +718,22 @@ const BacktestReplay = () => {
       {/* 控制栏 */}
       <div className="replay-controls">
         <div className="control-buttons">
+          <div className="symbol-selector">
+            <span className="symbol-label">{t('symbol')}:</span>
+            <Select
+              value={selectedSymbol}
+              onChange={handleSymbolChange}
+              style={{ width: 150 }}
+              disabled={loadingSymbols || symbols.length === 0}
+              loading={loadingSymbols}
+            >
+              {symbols.map(symbol => (
+                <Option key={symbol.symbol} value={symbol.symbol}>
+                  {symbol.symbol}
+                </Option>
+              ))}
+            </Select>
+          </div>
           <Button
             type="primary"
             icon={isPlaying ? <PauseOutlined /> : <CaretRightOutlined />}

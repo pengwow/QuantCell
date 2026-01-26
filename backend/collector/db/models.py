@@ -281,6 +281,7 @@ class BacktestResult(Base):
     id = Column(String, primary_key=True, index=True)  # 结果唯一标识
     task_id = Column(String, nullable=False, index=True)  # 关联的回测任务ID
     strategy_name = Column(String, nullable=False, index=True)  # 策略名称
+    symbol = Column(String, nullable=False, index=True)  # 货币对标识
     metrics = Column(Text, nullable=False)  # JSON格式，包含翻译后的指标
     trades = Column(Text, nullable=False)  # JSON格式，交易记录
     equity_curve = Column(Text, nullable=False)  # JSON格式，资金曲线
@@ -455,21 +456,41 @@ class SystemConfigBusiness:
             Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、插件、名称、是否敏感、创建时间和更新时间
         """
         from .database import SessionLocal, init_database_config
+        import pytz
         init_database_config()
         db: Session = SessionLocal()
         try:
             config = db.query(SystemConfig).filter_by(key=key).first()
             if config:
-                return {
+                print(f"DEBUG: 原始created_at: {config.created_at}, type: {type(config.created_at)}")
+                print(f"DEBUG: 原始updated_at: {config.updated_at}, type: {type(config.updated_at)}")
+                
+                def format_datetime(dt):
+                    if dt is None:
+                        return None
+                    # 如果datetime对象没有时区信息，添加UTC时区
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=pytz.utc)
+                        print(f"DEBUG: 添加时区后: {dt}")
+                    # 转换为UTC+8时间并格式化为字符串
+                    local_time = dt.astimezone(pytz.timezone('Asia/Shanghai'))
+                    print(f"DEBUG: 转换为本地时间: {local_time}")
+                    formatted = local_time.strftime('%Y-%m-%d %H:%M:%S')
+                    print(f"DEBUG: 格式化后: {formatted}")
+                    return formatted
+                
+                result = {
                     "key": config.key,
                     "value": config.value,
                     "description": config.description,
                     "plugin": config.plugin,
                     "name": config.name,
                     "is_sensitive": config.is_sensitive,
-                    "created_at": config.created_at,
-                    "updated_at": config.updated_at
+                    "created_at": format_datetime(config.created_at),
+                    "updated_at": format_datetime(config.updated_at)
                 }
+                print(f"DEBUG: 返回结果: {result}")
+                return result
             return None
         except Exception as e:
             logger.error(f"获取配置详情失败: key={key}, error={e}")
@@ -485,11 +506,22 @@ class SystemConfigBusiness:
             Dict[str, Dict[str, Any]]: 所有配置项的详细信息，键为配置项键名
         """
         from .database import SessionLocal, init_database_config
+        import pytz
         init_database_config()
         db: Session = SessionLocal()
         try:
             configs = db.query(SystemConfig).all()
             result = {}
+            
+            def format_datetime(dt):
+                if dt is None:
+                    return None
+                # 如果datetime对象没有时区信息，添加UTC时区
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=pytz.utc)
+                # 转换为UTC+8时间并格式化为字符串
+                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+            
             for config in configs:
                 result[config.key] = {
                     "key": config.key,
@@ -498,8 +530,8 @@ class SystemConfigBusiness:
                     "plugin": config.plugin,
                     "name": config.name,
                     "is_sensitive": config.is_sensitive,
-                    "created_at": config.created_at,
-                    "updated_at": config.updated_at
+                    "created_at": format_datetime(config.created_at),
+                    "updated_at": format_datetime(config.updated_at)
                 }
             return result
         except Exception as e:
@@ -694,11 +726,22 @@ class TaskBusiness:
         from .database import SessionLocal, init_database_config
         init_database_config()
         import json
+        import pytz
         db: Session = SessionLocal()
         try:
             task = db.query(Task).filter_by(task_id=task_id).first()
             if not task:
                 return None
+            
+            def format_datetime(dt):
+                """格式化datetime对象，转换为上海时区"""
+                if dt is None:
+                    return None
+                # 如果datetime对象没有时区信息，添加UTC时区
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=pytz.utc)
+                # 转换为UTC+8时间并格式化为字符串
+                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
             
             # 解析结果
             task_info = {
@@ -713,11 +756,11 @@ class TaskBusiness:
                     "percentage": task.percentage
                 },
                 "params": json.loads(task.params),
-                "start_time": task.start_time,
-                "end_time": task.end_time,
+                "start_time": format_datetime(task.start_time),
+                "end_time": format_datetime(task.end_time),
                 "error_message": task.error_message,
-                "created_at": task.created_at,
-                "updated_at": task.updated_at
+                "created_at": format_datetime(task.created_at),
+                "updated_at": format_datetime(task.updated_at)
             }
             
             return task_info
@@ -738,9 +781,20 @@ class TaskBusiness:
         from .database import SessionLocal, init_database_config
         init_database_config()
         import json
+        import pytz
         db: Session = SessionLocal()
         try:
             tasks = db.query(Task).order_by(Task.created_at.desc()).all()
+            
+            def format_datetime(dt):
+                """格式化datetime对象，转换为上海时区"""
+                if dt is None:
+                    return None
+                # 如果datetime对象没有时区信息，添加UTC时区
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=pytz.utc)
+                # 转换为UTC+8时间并格式化为字符串
+                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
             
             result = {}
             for task in tasks:
@@ -756,11 +810,11 @@ class TaskBusiness:
                         "percentage": task.percentage
                     },
                     "params": json.loads(task.params),
-                    "start_time": task.start_time,
-                    "end_time": task.end_time,
+                    "start_time": format_datetime(task.start_time),
+                    "end_time": format_datetime(task.end_time),
                     "error_message": task.error_message,
-                    "created_at": task.created_at,
-                    "updated_at": task.updated_at
+                    "created_at": format_datetime(task.created_at),
+                    "updated_at": format_datetime(task.updated_at)
                 }
             
             return result
@@ -842,6 +896,16 @@ class TaskBusiness:
             paginated_tasks = query.offset(offset).limit(page_size).all()
             
             # 处理结果
+            def format_datetime(dt):
+                """格式化datetime对象，转换为上海时区"""
+                if dt is None:
+                    return None
+                # 如果datetime对象没有时区信息，添加UTC时区
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=pytz.utc)
+                # 转换为UTC+8时间并格式化为字符串
+                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+            
             tasks = []
             for task in paginated_tasks:
                 tasks.append({
@@ -856,11 +920,11 @@ class TaskBusiness:
                         "percentage": task.percentage
                     },
                     "params": json.loads(task.params),
-                    "start_time": task.start_time,
-                    "end_time": task.end_time,
+                    "start_time": format_datetime(task.start_time),
+                    "end_time": format_datetime(task.end_time),
                     "error_message": task.error_message,
-                    "created_at": task.created_at,
-                    "updated_at": task.updated_at
+                    "created_at": format_datetime(task.created_at),
+                    "updated_at": format_datetime(task.updated_at)
                 })
             
             # 计算总页数
@@ -1251,11 +1315,22 @@ class DataPoolBusiness:
         """
         from .database import SessionLocal, init_database_config
         init_database_config()
+        import pytz
         db: Session = SessionLocal()
         try:
             query = db.query(DataPool)
             if type:
                 query = query.filter_by(type=type)
+            
+            def format_datetime(dt):
+                """格式化datetime对象，转换为上海时区"""
+                if dt is None:
+                    return None
+                # 如果datetime对象没有时区信息，添加UTC时区
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=pytz.utc)
+                # 转换为UTC+8时间并格式化为字符串
+                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
             
             pools = query.all()
             result = []
@@ -1273,8 +1348,8 @@ class DataPoolBusiness:
                     "is_public": pool.is_public,
                     "is_default": pool.is_default,
                     "asset_count": asset_count,
-                    "created_at": pool.created_at,
-                    "updated_at": pool.updated_at
+                    "created_at": format_datetime(pool.created_at),
+                    "updated_at": format_datetime(pool.updated_at)
                 })
             return result
         except Exception as e:
@@ -1302,6 +1377,17 @@ class DataPoolBusiness:
             if not pool:
                 return None
             
+            import pytz
+            def format_datetime(dt):
+                """格式化datetime对象，转换为上海时区"""
+                if dt is None:
+                    return None
+                # 如果datetime对象没有时区信息，添加UTC时区
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=pytz.utc)
+                # 转换为UTC+8时间并格式化为字符串
+                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+            
             # 获取资产池包含的资产数量，使用func.count()直接计算行数，避免使用id字段
             asset_count = db.query(func.count()).select_from(DataPoolAsset).filter_by(pool_id=pool.id).scalar() or 0
             
@@ -1315,8 +1401,8 @@ class DataPoolBusiness:
                 "is_public": pool.is_public,
                 "is_default": pool.is_default,
                 "asset_count": asset_count,
-                "created_at": pool.created_at,
-                "updated_at": pool.updated_at
+                "created_at": format_datetime(pool.created_at),
+                "updated_at": format_datetime(pool.updated_at)
             }
         except Exception as e:
             logger.error(f"获取资产池失败: pool_id={pool_id}, error={e}")
@@ -1467,6 +1553,17 @@ class ScheduledTaskBusiness:
             if not task:
                 return None
             
+            import pytz
+            def format_datetime(dt):
+                """格式化datetime对象，转换为上海时区"""
+                if dt is None:
+                    return None
+                # 如果datetime对象没有时区信息，添加UTC时区
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=pytz.utc)
+                # 转换为UTC+8时间并格式化为字符串
+                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+            
             return {
                 "id": task.id,
                 "name": task.name,
@@ -1475,8 +1572,8 @@ class ScheduledTaskBusiness:
                 "status": task.status,
                 "cron_expression": task.cron_expression,
                 "interval": task.interval,
-                "start_time": task.start_time,
-                "end_time": task.end_time,
+                "start_time": format_datetime(task.start_time),
+                "end_time": format_datetime(task.end_time),
                 "frequency_type": task.frequency_type,
                 "symbols": json.loads(task.symbols) if task.symbols else [],
                 "exchange": task.exchange,
@@ -1484,20 +1581,20 @@ class ScheduledTaskBusiness:
                 "save_dir": task.save_dir,
                 "max_workers": task.max_workers,
                 "incremental_enabled": task.incremental_enabled,
-                "last_collected_date": task.last_collected_date,
+                "last_collected_date": format_datetime(task.last_collected_date),
                 "notification_enabled": task.notification_enabled,
                 "notification_type": task.notification_type,
                 "notification_email": task.notification_email,
                 "notification_webhook": task.notification_webhook,
-                "last_run_time": task.last_run_time,
-                "next_run_time": task.next_run_time,
+                "last_run_time": format_datetime(task.last_run_time),
+                "next_run_time": format_datetime(task.next_run_time),
                 "last_result": task.last_result,
                 "error_message": task.error_message,
                 "run_count": task.run_count,
                 "success_count": task.success_count,
                 "fail_count": task.fail_count,
-                "created_at": task.created_at,
-                "updated_at": task.updated_at,
+                "created_at": format_datetime(task.created_at),
+                "updated_at": format_datetime(task.updated_at),
                 "created_by": task.created_by
             }
         except Exception as e:
@@ -1548,6 +1645,17 @@ class ScheduledTaskBusiness:
             tasks = query.all()
             result = {}
             
+            import pytz
+            def format_datetime(dt):
+                """格式化datetime对象，转换为上海时区"""
+                if dt is None:
+                    return None
+                # 如果datetime对象没有时区信息，添加UTC时区
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=pytz.utc)
+                # 转换为UTC+8时间并格式化为字符串
+                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+            
             for task in tasks:
                 result[task.id] = {
                     "id": task.id,
@@ -1557,8 +1665,8 @@ class ScheduledTaskBusiness:
                     "status": task.status,
                     "cron_expression": task.cron_expression,
                     "interval": task.interval,
-                    "start_time": task.start_time,
-                    "end_time": task.end_time,
+                    "start_time": format_datetime(task.start_time),
+                    "end_time": format_datetime(task.end_time),
                     "frequency_type": task.frequency_type,
                     "symbols": json.loads(task.symbols) if task.symbols else [],
                     "exchange": task.exchange,
@@ -1566,20 +1674,20 @@ class ScheduledTaskBusiness:
                     "save_dir": task.save_dir,
                     "max_workers": task.max_workers,
                     "incremental_enabled": task.incremental_enabled,
-                    "last_collected_date": task.last_collected_date,
+                    "last_collected_date": format_datetime(task.last_collected_date),
                     "notification_enabled": task.notification_enabled,
                     "notification_type": task.notification_type,
                     "notification_email": task.notification_email,
                     "notification_webhook": task.notification_webhook,
-                    "last_run_time": task.last_run_time,
-                    "next_run_time": task.next_run_time,
+                    "last_run_time": format_datetime(task.last_run_time),
+                    "next_run_time": format_datetime(task.next_run_time),
                     "last_result": task.last_result,
                     "error_message": task.error_message,
                     "run_count": task.run_count,
                     "success_count": task.success_count,
                     "fail_count": task.fail_count,
-                    "created_at": task.created_at,
-                    "updated_at": task.updated_at,
+                    "created_at": format_datetime(task.created_at),
+                    "updated_at": format_datetime(task.updated_at),
                     "created_by": task.created_by
                 }
             

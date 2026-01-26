@@ -6,21 +6,6 @@ from backtesting.lib import crossover
 import pandas as pd
 from loguru import logger
 
-# 全局数据管理器实例
-_data_manager = None
-
-
-def set_data_manager(data_manager):
-    """
-    设置全局数据管理器实例
-    
-    Args:
-        data_manager: 数据管理器实例
-    """
-    global _data_manager
-    _data_manager = data_manager
-    logger.info("全局数据管理器已设置")
-
 
 class BaseStrategy(Strategy):
     """
@@ -39,6 +24,7 @@ class BaseStrategy(Strategy):
         """
         super().__init__(broker, data, params)
         self.symbol = None
+        self.data_manager = None
         
         # 从数据中提取交易对符号
         if hasattr(data, 'symbol'):
@@ -47,6 +33,16 @@ class BaseStrategy(Strategy):
             self.symbol = data.name
         
         logger.info(f"基础策略初始化成功，交易对: {self.symbol}")
+    
+    def set_data_manager(self, data_manager):
+        """
+        设置数据管理器实例
+        
+        Args:
+            data_manager: 数据管理器实例
+        """
+        self.data_manager = data_manager
+        logger.info(f"数据管理器已设置到策略实例，交易对: {self.symbol}")
     
     def get_data(self, interval):
         """
@@ -58,10 +54,8 @@ class BaseStrategy(Strategy):
         Returns:
             pd.DataFrame: 指定周期的K线数据，与主周期数据格式一致
         """
-        global _data_manager
-        
-        if not _data_manager:
-            logger.error("数据管理器未初始化")
+        if not self.data_manager:
+            logger.error(f"数据管理器未初始化，交易对: {self.symbol}")
             return pd.DataFrame()
         
         if not self.symbol:
@@ -70,7 +64,7 @@ class BaseStrategy(Strategy):
         
         try:
             # 从数据管理器获取指定周期的数据
-            data = _data_manager.get_data(self.symbol, interval)
+            data = self.data_manager.get_data(self.symbol, interval)
             logger.debug(f"成功获取 {self.symbol} 的 {interval} 周期数据，共 {len(data)} 条")
             return data
         except Exception as e:
@@ -85,8 +79,6 @@ class BaseStrategy(Strategy):
         Returns:
             List[str]: 支持的时间周期列表
         """
-        global _data_manager
-        
-        if _data_manager:
-            return _data_manager.get_supported_intervals()
+        if self.data_manager:
+            return self.data_manager.get_supported_intervals()
         return []
