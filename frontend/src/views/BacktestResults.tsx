@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Table } from 'antd';
+import { Table, Pagination } from 'antd';
 import type { TableProps } from 'antd';
 import * as echarts from 'echarts';
 import { backtestApi } from '../api';
@@ -55,21 +55,24 @@ interface MetricItem {
   type?: string; // 新增类型字段，用于区分显示格式
 }
 // 回测结果类型定义
-interface BacktestResult {
-  task_id: string;
-  status: string;
-  message: string;
-  strategy_name: string;
-  strategy_config?: any; // Add strategy_config
-  backtest_config: any;
-  metrics: MetricItem[];
-  trades: Trade[];
-  equity_curve: any[];
-  strategy_data: any[];
-}
+  interface BacktestResult {
+    task_id: string;
+    status: string;
+    message: string;
+    strategy_name: string;
+    strategy_config?: any; // Add strategy_config
+    backtest_config: any;
+    metrics: MetricItem[];
+    trades: Trade[];
+    equity_curve: any[];
+    merged_equity_curve?: any[];
+    strategy_data: any[];
+    currencies?: any;
+    summary?: any;
+  }
 
 
-const BacktestResults = () => {
+  const BacktestResults = () => {
   // 回测任务数据
   const [backtestTasks, setBacktestTasks] = useState<BacktestTask[]>([]);
 
@@ -78,6 +81,9 @@ const BacktestResults = () => {
 
   // 回测结果详情
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
+
+  // 选中的货币对
+  const [selectedCurrency, setSelectedCurrency] = useState<string>('merged');
 
   // 国际化支持
   const { t } = useTranslation();
@@ -95,6 +101,18 @@ const BacktestResults = () => {
     showSizeChanger: true,
     pageSizeOptions: ['10', '20', '50', '100'],
   });
+
+  // 回测任务列表分页状态
+  const [taskPagination, setTaskPagination] = useState({
+    current: 1,
+    pageSize: 10,
+    total: 0,
+    showSizeChanger: true,
+    pageSizeOptions: ['10', '20', '50', '100'],
+  });
+
+  // 分页阈值，超过该数量自动启用分页
+  const PAGINATION_THRESHOLD = 10;
 
   // 回测指标
   const [metrics, setMetrics] = useState<MetricItem[]>([]);
@@ -115,6 +133,41 @@ const BacktestResults = () => {
   const riskChartRef = useRef<HTMLDivElement>(null);
   const returnChart = useRef<echarts.ECharts | null>(null);
   const riskChart = useRef<echarts.ECharts | null>(null);
+
+  /**
+   * 处理货币对切换
+   * @param currency 货币对标识，'merged' 表示合并数据
+   */
+  const handleCurrencyChange = (currency: string) => {
+    setSelectedCurrency(currency);
+    
+    if (!backtestResult || !backtestResult.currencies) return;
+    
+    if (currency === 'merged') {
+      // 显示合并数据
+      setTrades(backtestResult.trades || []);
+      setMetrics(backtestResult.metrics || []);
+      if (backtestResult.merged_equity_curve) {
+        // 更新资金曲线
+        if (returnChart.current) {
+          updateReturnChart(backtestResult.merged_equity_curve!);
+        }
+      }
+    } else {
+      // 显示单个货币对数据
+      const currencyResult = backtestResult.currencies[currency];
+      if (currencyResult && currencyResult.status === 'success') {
+        setTrades(currencyResult.trades || []);
+        setMetrics(currencyResult.metrics || []);
+        if (currencyResult.equity_curve) {
+          // 更新资金曲线
+          if (returnChart.current) {
+            updateReturnChart(currencyResult.equity_curve);
+          }
+        }
+      }
+    }
+  };
 
   /**
    * 加载回测任务列表
@@ -146,9 +199,56 @@ const BacktestResults = () => {
     try {
       const response = await backtestApi.getBacktestDetail(taskId);
       if (response && response.status === 'success') {
-        setBacktestResult(response);
-        setTrades(response.trades || []);
-        setMetrics(response.metrics || []);
+        // 处理多货币对回测结果
+        let processedResult = { ...response };
+        
+        // 检测是否为多货币对回测
+        const isMultiCurrency = !!response.currencies;
+        
+        if (isMultiCurrency) {
+          // 多货币对回测结果处理
+          console.log('处理多货币对回测结果');
+          
+          // 优先使用合并后的资金曲线
+          if (response.merged_equity_curve && response.merged_equity_curve.length > 0) {
+            processedResult.equity_curve = response.merged_equity_curve;
+          }
+          
+          // 处理指标数据
+          if (!processedResult.metrics && response.summary) {
+            // 从 summary 中构建指标数据
+            processedResult.metrics = [
+              { name: '总收益率', key: 'Return [%]', value: response.summary.total_return, description: '回测期间的总收益率' },
+              { name: '最大回撤', key: 'Max. Drawdown [%]', value: response.summary.average_max_drawdown, description: '回测期间的最大回撤' },
+              { name: '夏普比率', key: 'Sharpe Ratio', value: response.summary.average_sharpe_ratio, description: '风险调整后的收益率' },
+              { name: '总交易次数', key: '# Trades', value: response.summary.total_trades, description: '回测期间的总交易次数' },
+              { name: '平均胜率', key: 'Win Rate [%]', value: response.summary.average_win_rate, description: '平均胜率' },
+              { name: '平均盈利因子', key: 'Profit Factor', value: response.summary.average_profit_factor, description: '平均盈利因子' }
+            ];
+          }
+          
+          // 处理交易数据 - 合并所有货币对的交易记录
+          if (response.currencies) {
+            const allTrades: Trade[] = [];
+            Object.values(response.currencies).forEach((currencyResult: any) => {
+              if (currencyResult.status === 'success' && currencyResult.trades) {
+                currencyResult.trades.forEach((trade: any) => {
+                  // 添加货币对标识
+                  const tradeWithSymbol = {
+                    ...trade,
+                    Symbol: trade.Symbol || currencyResult.symbol || 'Unknown'
+                  };
+                  allTrades.push(tradeWithSymbol);
+                });
+              }
+            });
+            processedResult.trades = allTrades;
+          }
+        }
+        
+        setBacktestResult(processedResult);
+        setTrades(processedResult.trades || []);
+        setMetrics(processedResult.metrics || []);
         // 图表更新现在由useEffect处理，不再这里直接调用
       }
     } catch (error) {
@@ -381,10 +481,22 @@ const BacktestResults = () => {
   ];
 
   // 处理表格变更
-  const handleTableChange: TableProps<Trade>['onChange'] = (pagination) => {
+  const handleTableChange: TableProps<Trade>['onChange'] = (pagination, filters) => {
     setTableParams({
       ...pagination,
     });
+    
+    // 如果有货币对过滤，更新过滤后的交易数据
+    const symbolFilter = filters.Symbol;
+    if (symbolFilter && symbolFilter.length > 0) {
+      const filteredTrades = trades.filter(trade => trade.Symbol === symbolFilter[0]);
+      setTrades(filteredTrades);
+    } else {
+      // 重置为所有交易数据
+      if (backtestResult) {
+        setTrades(backtestResult.trades || []);
+      }
+    }
   };
 
   // 监听窗口大小变化，调整图表大小
@@ -393,18 +505,105 @@ const BacktestResults = () => {
     riskChart.current?.resize();
   };
 
-  // 组件挂载时加载回测列表
+  // 计算当前页显示的回测任务
+  const currentTasks = () => {
+    const { current, pageSize } = taskPagination;
+    const startIndex = (current - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return backtestTasks.slice(startIndex, endIndex);
+  };
+
+  // 保存分页状态到localStorage
+  const savePaginationState = () => {
+    localStorage.setItem('backtestTaskPagination', JSON.stringify(taskPagination));
+  };
+
+  // 从localStorage加载分页状态
+  const loadPaginationState = () => {
+    const savedState = localStorage.getItem('backtestTaskPagination');
+    if (savedState) {
+      try {
+        const parsedState = JSON.parse(savedState);
+        setTaskPagination(parsedState);
+      } catch (error) {
+        console.error('Failed to parse pagination state:', error);
+      }
+    }
+  };
+
+  // 处理页码变化
+  const handlePageChange = (page: number) => {
+    const newPagination = {
+      ...taskPagination,
+      current: page,
+    };
+    setTaskPagination(newPagination);
+    savePaginationState();
+  };
+
+  // 处理每页条数变化
+  const handlePageSizeChange = (_: number, size: number) => {
+    const newPagination = {
+      ...taskPagination,
+      current: 1, // 切换每页条数时，重置到第一页
+      pageSize: size,
+    };
+    setTaskPagination(newPagination);
+    savePaginationState();
+  };
+
+  // 处理键盘导航
+  const handleKeyDown = (e: KeyboardEvent) => {
+    const { current, pageSize, total } = taskPagination;
+    const totalPages = Math.ceil(total / pageSize);
+    
+    switch (e.key) {
+      case 'ArrowLeft':
+        if (current > 1) {
+          handlePageChange(current - 1);
+        }
+        break;
+      case 'ArrowRight':
+        if (current < totalPages) {
+          handlePageChange(current + 1);
+        }
+        break;
+      case 'Home':
+        handlePageChange(1);
+        break;
+      case 'End':
+        handlePageChange(totalPages);
+        break;
+      default:
+        break;
+    }
+  };
+
+  // 组件挂载时加载回测列表和分页状态
   useEffect(() => {
     loadBacktestList();
+    loadPaginationState();
     window.addEventListener('resize', handleResize);
+    window.addEventListener('keydown', handleKeyDown);
 
     // 组件卸载时清理
     return () => {
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('keydown', handleKeyDown);
       returnChart.current?.dispose();
       riskChart.current?.dispose();
     };
   }, []);
+
+  // 当回测任务列表变化时，更新分页总数
+  useEffect(() => {
+    setTaskPagination(prev => ({
+      ...prev,
+      total: backtestTasks.length,
+      // 如果当前页码超过总页数，重置为第一页
+      current: prev.current > Math.ceil(backtestTasks.length / prev.pageSize) ? 1 : prev.current,
+    }));
+  }, [backtestTasks.length, taskPagination.pageSize]);
 
   // 监听数据变化，初始化和更新图表
   useEffect(() => {
@@ -611,71 +810,91 @@ const BacktestResults = () => {
               ) : backtestTasks.length === 0 ? (
                 <div className="empty">{t('no_backtest_tasks')}</div>
               ) : (
-                backtestTasks.map(task => (
-                  <div 
-                    key={task.id}
-                    className={`backtest-task-item ${selectedTaskId === task.id ? 'active' : ''}`}
-                    onClick={() => selectTask(task.id)}
-                  >
-                    <div className="task-header">
-                      <div className="task-name">{task.strategy_name}</div>
-                      <div className={`task-status ${task.status}`}>{task.status}</div>
-                    </div>
-                    <div className="task-meta">
-                      <div className="task-date">
-                        {(() => {
-                          // 尝试解析日期格式 YYYYMMDD_HHmmss
-                          if (task.created_at && task.created_at.includes('_')) {
-                            const parts = task.created_at.split('_');
-                            if (parts.length === 2) {
-                              const datePart = parts[0];
-                              const timePart = parts[1];
-                              if (datePart.length === 8 && timePart.length >= 6) {
-                                return `${datePart.substring(0, 4)}-${datePart.substring(4, 6)}-${datePart.substring(6, 8)} ${timePart.substring(0, 2)}:${timePart.substring(2, 4)}:${timePart.substring(4, 6)}`;
+                <>
+                  {/* 回测任务列表 */}
+                  {currentTasks().map(task => (
+                    <div 
+                      key={task.id}
+                      className={`backtest-task-item ${selectedTaskId === task.id ? 'active' : ''}`}
+                      onClick={() => selectTask(task.id)}
+                    >
+                      <div className="task-header">
+                        <div className="task-name">{task.strategy_name}</div>
+                        <div className={`task-status ${task.status}`}>{task.status}</div>
+                      </div>
+                      <div className="task-meta">
+                        <div className="task-date">
+                          {(() => {
+                            // 尝试解析日期格式 YYYYMMDD_HHmmss
+                            if (task.created_at && task.created_at.includes('_')) {
+                              const parts = task.created_at.split('_');
+                              if (parts.length === 2) {
+                                const datePart = parts[0];
+                                const timePart = parts[1];
+                                if (datePart.length === 8 && timePart.length >= 6) {
+                                  return `${datePart.substring(0, 4)}-${datePart.substring(4, 6)}-${datePart.substring(6, 8)} ${timePart.substring(0, 2)}:${timePart.substring(2, 4)}:${timePart.substring(4, 6)}`;
+                                }
                               }
                             }
-                          }
-                          // 如果不是标准格式，直接显示
-                          return task.created_at;
-                        })()}
+                            // 如果不是标准格式，直接显示
+                            return task.created_at;
+                          })()}
+                        </div>
+                        <div className="task-return">
+                          {task.total_return !== undefined ? `${task.total_return}%` : 'N/A'}
+                        </div>
                       </div>
-                      <div className="task-return">
-                        {task.total_return !== undefined ? `${task.total_return}%` : 'N/A'}
+                      <div className="task-actions">
+                        <button 
+                          className="btn btn-success btn-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleReplay(task.id);
+                          }}
+                          style={{ marginBottom: '4px' }}
+                        >
+                          {t('replay')}
+                        </button>
+                        <button 
+                          className="btn btn-primary btn-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleExportReport(task.id);
+                          }}
+                          style={{ marginBottom: '4px' }}
+                        >
+                          {t('export')}
+                        </button>
+                        <button 
+                          className="btn btn-danger btn-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteBacktest(task.id);
+                          }}
+                        >
+                          删除
+                        </button>
                       </div>
                     </div>
-                    <div className="task-actions">
-                      <button 
-                        className="btn btn-success btn-xs"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleReplay(task.id);
-                        }}
-                        style={{ marginBottom: '4px' }}
-                      >
-                        {t('replay')}
-                      </button>
-                      <button 
-                        className="btn btn-primary btn-xs"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleExportReport(task.id);
-                        }}
-                        style={{ marginBottom: '4px' }}
-                      >
-                        {t('export')}
-                      </button>
-                      <button 
-                        className="btn btn-danger btn-xs"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteBacktest(task.id);
-                        }}
-                      >
-                        删除
-                      </button>
+                  ))}
+                  
+                  {/* 分页控件 - 当任务数量超过阈值时显示 */}
+                  {backtestTasks.length > PAGINATION_THRESHOLD && (
+                    <div className="backtest-pagination">
+                      <Pagination
+                        {...taskPagination}
+                        onChange={handlePageChange}
+                        onShowSizeChange={handlePageSizeChange}
+                        showSizeChanger={true}
+                        pageSizeOptions={['10', '20', '50', '100']}
+                        showTotal={(total) => `${t('total')}: ${total}`}
+                        showQuickJumper={true} // 显示快速跳转
+                        showLessItems={true} // 始终显示更少页码，Pagination组件会自动适配
+                        className="task-pagination"
+                      />
                     </div>
-                  </div>
-                ))
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -689,6 +908,23 @@ const BacktestResults = () => {
               <div className="panel">
                 <div className="panel-header">
                   <h2>{t('config_info')}</h2>
+                  {backtestResult.currencies && (
+                    <div className="currency-selector">
+                      <span>选择货币对：</span>
+                      <select 
+                        value={selectedCurrency} 
+                        onChange={(e) => handleCurrencyChange(e.target.value)}
+                        className="currency-select"
+                      >
+                        <option value="merged">合并数据</option>
+                        {Object.keys(backtestResult.currencies).map(symbol => (
+                          <option key={symbol} value={symbol}>
+                            {symbol} ({backtestResult.currencies[symbol].status === 'success' ? '成功' : '失败'})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
                 <div className="panel-body">
                   <div className="config-grid">
@@ -740,6 +976,12 @@ const BacktestResults = () => {
               <div className="panel">
                 <div className="panel-header">
                   <h2>{t('backtest_overview')}</h2>
+                  {backtestResult.currencies && (
+                    <div className="multi-currency-indicator">
+                      <span className="badge">多货币对回测</span>
+                      <span className="currency-count">{Object.keys(backtestResult.currencies).length} 个货币对</span>
+                    </div>
+                  )}
                 </div>
                 <div className="panel-body">
                   <div className="overview-grid">

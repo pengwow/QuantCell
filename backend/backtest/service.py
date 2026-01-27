@@ -157,18 +157,17 @@ class BacktestService:
             logger.exception(e)
             return False
     
-    def run_single_backtest(self, strategy_config, backtest_config):
+    def run_single_backtest(self, strategy_config, backtest_config, task_id):
         """
         执行单个货币对的回测
         
         :param strategy_config: 策略配置
         :param backtest_config: 回测配置，包含单个货币对信息
-        :return: 单个货币对的回测结果
+        :param task_id: 回测任务ID，所有货币对共享同一个task_id
+        :return: 单个货币对的回测结果数据，不直接保存到数据库
         """
-        db = None
         try:
             from collector.db.database import SessionLocal, init_database_config
-            from collector.db.models import BacktestTask, BacktestResult
             import json
             
             # 初始化数据库连接
@@ -183,12 +182,14 @@ class BacktestService:
             
             strategy_name = strategy_config.get("strategy_name")
             symbol = backtest_config.get("symbol", "BTCUSDT")
-            logger.info(f"开始回测，策略名称: {strategy_name}, 货币对: {symbol}")
+            logger.info(f"开始回测，策略名称: {strategy_name}, 货币对: {symbol}, task_id: {task_id}")
             
             # 加载策略类
             strategy_class = self.load_strategy_from_file(strategy_name)
             if not strategy_class:
                 return {
+                    "symbol": symbol,
+                    "task_id": task_id,
                     "status": "failed",
                     "message": f"策略加载失败: {strategy_name}"
                 }
@@ -225,6 +226,8 @@ class BacktestService:
             if not kline_data:
                 logger.error(f"未获取到K线数据: {symbol}, {interval}, {start_time} to {end_time}")
                 return {
+                    "symbol": symbol,
+                    "task_id": task_id,
                     "status": "failed",
                     "message": f"未获取到货币对 {symbol} 的K线数据"
                 }
@@ -349,19 +352,6 @@ class BacktestService:
             # 生成回测ID - 使用UUID替代原有格式，避免URL路径问题
             backtest_id = str(uuid.uuid4())
             
-            # 创建回测任务记录
-            from datetime import datetime, timezone
-            task = BacktestTask(
-                id=backtest_id,
-                strategy_name=strategy_name,
-                backtest_config=json.dumps(backtest_config),
-                status="completed",
-                started_at=datetime.now(timezone.utc),
-                completed_at=datetime.now(timezone.utc)
-            )
-            db.add(task)
-            db.commit()
-            
             # 准备资金曲线数据，保留时间索引
             equity_df = stats['_equity_curve'].copy()
             equity_df.reset_index(inplace=True)
@@ -378,30 +368,12 @@ class BacktestService:
                 equity_df.rename(columns={equity_df.columns[0]: 'datetime'}, inplace=True)
             
             equity_curve_data = equity_df.to_dict('records')
-
-            # 创建回测结果记录
-            # 使用_sanitize_for_json处理数据，避免JSON序列化错误
-            result_record = BacktestResult(
-                id=backtest_id,
-                task_id=backtest_id,
-                strategy_name=strategy_name,
-                symbol=symbol,
-                metrics=json.dumps(self._sanitize_for_json(translated_metrics)),
-                trades=json.dumps(self._sanitize_for_json(trades)),
-                equity_curve=json.dumps(self._sanitize_for_json(equity_curve_data)),
-                strategy_data=json.dumps(self._sanitize_for_json(strategy_data))
-            )
-            db.add(result_record)
-            db.commit()
             
-            # 更新任务的结果ID
-            task.result_id = backtest_id
-            db.commit()
-            
-            logger.info(f"回测结果已保存到数据库，回测ID: {backtest_id}")
-            
-            result = {
-                "task_id": backtest_id,
+            # 构建回测结果数据，不直接保存到数据库
+            result_data = {
+                "id": backtest_id,
+                "symbol": symbol,
+                "task_id": task_id,
                 "status": "success",
                 "message": "回测完成",
                 "strategy_name": strategy_name,
@@ -412,23 +384,18 @@ class BacktestService:
                 "strategy_data": self._sanitize_for_json(strategy_data)
             }
             
-            # 保存回测结果到文件（兼容旧版本）
-            self.save_backtest_result(backtest_id, result)
-            
-            logger.info(f"回测完成，策略: {strategy_name}, 货币对: {symbol}, 回测ID: {backtest_id}")
-            return result
+            logger.info(f"回测完成，策略: {strategy_name}, 货币对: {symbol}, 回测ID: {backtest_id}, task_id: {task_id}")
+            return result_data
         except Exception as e:
-            if db:
-                db.rollback()
             logger.error(f"回测失败: {e}")
             logger.exception(e)
+            symbol = backtest_config.get("symbol", "BTCUSDT")
             return {
+                "symbol": symbol,
+                "task_id": task_id,
                 "status": "failed",
                 "message": str(e)
             }
-        finally:
-            if db:
-                db.close()
     
     def merge_backtest_results(self, results):
         """
@@ -508,8 +475,9 @@ class BacktestService:
                             logger.debug(f"货币对 {symbol} 最终权益: ${metric['value']}")
                     
                     # 统计初始资金
-                    initial_cash = result["backtest_config"].get("initial_cash", 10000)
+                    initial_cash = result.get("backtest_config", {}).get("initial_cash", 10000)
                     total_initial_cash += initial_cash
+                    logger.debug(f"货币对 {symbol} 初始资金: ${initial_cash}")
             
             logger.info(f"成功回测的货币对数量: {len(successful_currencies)}/{len(results)}")
             
@@ -528,13 +496,56 @@ class BacktestService:
             # 生成合并后的回测ID
             merged_backtest_id = str(uuid.uuid4())
             
+            # 合并资金曲线
+            def merge_equity_curves(currency_results):
+                """
+                合并多个货币对的资金曲线
+                
+                :param currency_results: 成功货币对的回测结果字典
+                :return: 合并后的资金曲线
+                """
+                try:
+                    # 收集所有时间戳和对应权益值
+                    time_equity_map = {}
+                    
+                    for symbol, result in currency_results.items():
+                        if result.get("status") == "success" and "equity_curve" in result:
+                            equity_curve = result["equity_curve"]
+                            for equity_data in equity_curve:
+                                # 提取时间戳
+                                timestamp = equity_data.get("datetime") or equity_data.get("time") or equity_data.get("timestamp")
+                                if timestamp:
+                                    # 提取权益值
+                                    equity = equity_data.get("Equity") or equity_data.get("equity") or 0
+                                    if timestamp not in time_equity_map:
+                                        time_equity_map[timestamp] = 0
+                                    time_equity_map[timestamp] += equity
+                    
+                    # 按时间戳排序并构建合并后的资金曲线
+                    merged_curve = []
+                    for timestamp in sorted(time_equity_map.keys()):
+                        merged_curve.append({
+                            "datetime": timestamp,
+                            "Equity": time_equity_map[timestamp]
+                        })
+                    
+                    logger.info(f"资金曲线合并完成，共 {len(merged_curve)} 个时间点")
+                    return merged_curve
+                except Exception as e:
+                    logger.error(f"合并资金曲线失败: {e}")
+                    logger.exception(e)
+                    return []
+            
+            # 执行资金曲线合并
+            merged_equity_curve = merge_equity_curves(successful_results)
+            
             # 构建合并后的回测结果
             merged_result = {
                 "task_id": merged_backtest_id,
                 "status": "success",
                 "message": "多货币对回测完成",
-                "strategy_name": base_result["strategy_name"],
-                "backtest_config": base_result["backtest_config"],
+                "strategy_name": base_result.get("strategy_name", "Unknown"),
+                "backtest_config": base_result.get("backtest_config", {}),
                 "summary": {
                     "total_currencies": len(results),
                     "successful_currencies": len(successful_currencies),
@@ -553,7 +564,7 @@ class BacktestService:
                     "average_profit_factor": round(avg_profit_factor, 2)
                 },
                 "currencies": results,
-                "merged_equity_curve": [],  # 合并后的资金曲线，后续可以实现
+                "merged_equity_curve": merged_equity_curve,  # 合并后的资金曲线
                 "successful_currencies": successful_currencies,
                 "failed_currencies": [symbol for symbol, result in results.items() if result["status"] != "success"]
             }
@@ -578,7 +589,16 @@ class BacktestService:
         :param backtest_config: 回测配置，包含symbols列表
         :return: 回测结果，单个货币对返回BacktestResult，多个货币对返回MultiBacktestResult
         """
+        db = None
         try:
+            from collector.db.database import SessionLocal, init_database_config
+            from collector.db.models import BacktestTask, BacktestResult
+            import json
+            
+            # 初始化数据库连接
+            init_database_config()
+            db = SessionLocal()
+            
             # 从配置中获取货币对列表
             symbols = backtest_config.get("symbols", ["BTCUSDT"])
             strategy_name = strategy_config.get("strategy_name", "Unknown")
@@ -591,22 +611,20 @@ class BacktestService:
             logger.info(f"初始资金: {backtest_config.get('initial_cash', 10000)}")
             logger.info(f"手续费率: {backtest_config.get('commission', 0.001)}")
             
-            # 如果只有一个货币对，直接执行回测
-            if len(symbols) == 1:
-                logger.info(f"单货币对回测模式，开始执行 {symbols[0]} 回测")
-                # 复制配置，使用单个货币对
-                single_config = backtest_config.copy()
-                single_config["symbol"] = symbols[0]
-                del single_config["symbols"]
-                
-                result = self.run_single_backtest(strategy_config, single_config)
-                logger.info(f"=== 回测任务完成 === 货币对: {symbols[0]}, 状态: {result.get('status')}")
-                return result
+            # 生成唯一的task_id
+            task_id = str(uuid.uuid4())
             
-            # 多个货币对，使用并行回测
-            logger.info(f"=== 多货币对并行回测模式 ===")
-            logger.info(f"货币对数量: {len(symbols)}")
-            logger.info(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            # 创建回测任务记录
+            from datetime import datetime, timezone
+            task = BacktestTask(
+                id=task_id,
+                strategy_name=strategy_name,
+                backtest_config=json.dumps(backtest_config),
+                status="in_progress",
+                started_at=datetime.now(timezone.utc)
+            )
+            db.add(task)
+            db.commit()
             
             # 限制线程数量，避免系统过载
             cpu_count = os.cpu_count() or 1
@@ -628,11 +646,12 @@ class BacktestService:
                     single_config["symbol"] = symbol
                     del single_config["symbols"]
                     
-                    logger.info(f"提交回测任务: {symbol}")
+                    logger.info(f"提交回测任务: {symbol}, task_id: {task_id}")
                     future = executor.submit(
                         self.run_single_backtest,
                         strategy_config,
-                        single_config
+                        single_config,
+                        task_id  # 传递task_id
                     )
                     future_to_symbol[future] = symbol
                 
@@ -654,6 +673,8 @@ class BacktestService:
                     except concurrent.futures.TimeoutError:
                         logger.error(f"回测超时 [{completed_count + failed_count + 1}/{total_futures}]: {symbol}")
                         results[symbol] = {
+                            "symbol": symbol,
+                            "task_id": task_id,
                             "status": "failed",
                             "message": "回测超时"
                         }
@@ -662,6 +683,8 @@ class BacktestService:
                         logger.error(f"回测失败 [{completed_count + failed_count + 1}/{total_futures}]: {symbol}, 错误: {e}")
                         logger.exception(e)
                         results[symbol] = {
+                            "symbol": symbol,
+                            "task_id": task_id,
                             "status": "failed",
                             "message": str(e)
                         }
@@ -673,22 +696,70 @@ class BacktestService:
             logger.info(f"失败数量: {failed_count}")
             logger.info(f"完成率: {(completed_count / len(symbols)) * 100:.2f}%")
             
+            # 保存每个货币对的回测结果到数据库
+            successful_results = []
+            failed_results = []
+            for symbol, result in results.items():
+                if result.get('status') == 'success':
+                    successful_results.append(symbol)
+                    # 创建回测结果记录
+                    backtest_result = BacktestResult(
+                        id=result['id'],
+                        task_id=task_id,
+                        strategy_name=strategy_name,
+                        symbol=symbol,
+                        metrics=json.dumps(result['metrics']),
+                        trades=json.dumps(result['trades']),
+                        equity_curve=json.dumps(result['equity_curve']),
+                        strategy_data=json.dumps(result['strategy_data'])
+                    )
+                    db.add(backtest_result)
+                    # 保存回测结果到文件
+                    self.save_backtest_result(result['id'], result)
+                else:
+                    failed_results.append(symbol)
+            
+            # 更新回测任务状态
+            task.status = "completed"
+            task.completed_at = datetime.now(timezone.utc)
+            # 设置结果ID为第一个成功的回测结果ID（兼容旧版本）
+            if successful_results:
+                first_success_result = results[successful_results[0]]
+                task.result_id = first_success_result['id']
+            db.commit()
+            
             # 合并回测结果
             logger.info("=== 开始合并回测结果 ===")
             merged_result = self.merge_backtest_results(results)
+            merged_result['task_id'] = task_id
             logger.info("=== 回测任务全部完成 ===")
             
             # 保存合并后的回测结果到文件系统
-            self.save_backtest_result(merged_result['task_id'], merged_result)
+            self.save_backtest_result(task_id, merged_result)
             
-            return merged_result
+            # 构建响应结果
+            response = {
+                "task_id": task_id,
+                "status": "completed",
+                "message": f"回测完成，共 {len(symbols)} 个货币对，{len(successful_results)} 个成功，{len(failed_results)} 个失败",
+                "successful_currencies": successful_results,
+                "failed_currencies": failed_results,
+                "results": merged_result
+            }
+            
+            return response
         except Exception as e:
+            if db:
+                db.rollback()
             logger.error(f"回测任务执行失败: {e}")
             logger.exception(e)
             return {
                 "status": "failed",
                 "message": str(e)
             }
+        finally:
+            if db:
+                db.close()
     
     def translate_backtest_results(self, stats):
         """
@@ -754,6 +825,20 @@ class BacktestService:
             
             logger.info(f"开始分析回测结果，回测ID: {backtest_id}")
             
+            # 首先尝试从文件系统加载回测结果（优先获取合并后的多货币对结果）
+            result = self.load_backtest_result(backtest_id)
+            
+            if result:
+                logger.info(f"从文件系统加载回测结果成功，回测ID: {backtest_id}")
+                return {
+                    "status": "success",
+                    "message": "回测结果分析完成",
+                    **result
+                }
+            
+            # 如果文件系统中没有找到，再尝试从数据库加载
+            logger.warning(f"回测结果在文件系统中不存在，尝试从数据库加载，回测ID: {backtest_id}")
+            
             # 初始化数据库配置
             init_database_config()
             db = SessionLocal()
@@ -763,18 +848,9 @@ class BacktestService:
                 result_record = db.query(BacktestResult).filter_by(id=backtest_id).first()
                 
                 if not result_record:
-                    # 如果数据库中没有找到，回退到从文件系统加载
-                    logger.warning(f"回测结果在数据库中不存在，尝试从文件系统加载，回测ID: {backtest_id}")
-                    result = self.load_backtest_result(backtest_id)
-                    if not result:
-                        return {
-                            "status": "failed",
-                            "message": f"回测结果不存在: {backtest_id}"
-                        }
                     return {
-                        "status": "success",
-                        "message": "回测结果分析完成",
-                        **result
+                        "status": "failed",
+                        "message": f"回测结果不存在: {backtest_id}"
                     }
                 
                 # 构建回测结果
@@ -805,17 +881,9 @@ class BacktestService:
             except Exception as db_e:
                 logger.error(f"从数据库获取回测结果失败: {db_e}")
                 logger.exception(db_e)
-                # 如果数据库查询失败，回退到从文件系统加载
-                result = self.load_backtest_result(backtest_id)
-                if not result:
-                    return {
-                        "status": "failed",
-                        "message": f"回测结果不存在: {backtest_id}"
-                    }
                 return {
-                    "status": "success",
-                    "message": "回测结果分析完成",
-                    **result
+                    "status": "failed",
+                    "message": f"从数据库获取回测结果失败: {str(db_e)}"
                 }
             finally:
                 db.close()

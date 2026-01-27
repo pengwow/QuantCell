@@ -331,6 +331,74 @@
   border-radius: 4px;
 }
 
+/* 分页控件样式 */
+.backtest-pagination {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+  border-top: 1px solid #e5e7eb;
+}
+
+.task-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 多货币对标识 */
+.multi-currency-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.multi-currency-indicator .badge {
+  background-color: #4a6cf7;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.multi-currency-indicator .currency-count {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* 货币对选择器 */
+.currency-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.currency-selector span {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.currency-select {
+  padding: 6px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background-color: white;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.currency-select:hover {
+  border-color: #4a6cf7;
+}
+
+.currency-select:focus {
+  outline: none;
+  border-color: #4a6cf7;
+  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.1);
+}
+
 /* 响应式设计 */
 @media (max-width: 1200px) {
   .backtest-layout {
@@ -343,5 +411,39 @@
   
   .grid-layout {
     grid-template-columns: 1fr;
+  }
+  
+  .panel-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  
+  .currency-selector {
+    width: 100%;
+  }
+  
+  .currency-select {
+    flex: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .backtest-pagination {
+    padding: 12px 0;
+  }
+  
+  .task-pagination {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .backtest-pagination {
+    padding: 8px 0;
+  }
+  
+  .task-pagination .ant-pagination-options {
+    display: none;
   }
 }

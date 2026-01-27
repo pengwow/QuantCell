@@ -28,10 +28,10 @@ class ApiResponse(BaseModel):
         description="响应数据，可选",
         examples=[{"key": "value"}],
     )
-    timestamp: str = Field(
-        default_factory=lambda: datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S'),
+    timestamp: datetime = Field(
+        default_factory=datetime.now,
         description="响应时间戳",
-        examples=["2023-01-01 08:00:00"],
+        examples=[datetime.now()],
     )
 
 

@@ -86,6 +86,25 @@ interface ReplayData {
   interval: string;
 }
 
+// 合并结果摘要类型
+interface MergeSummary {
+  total_currencies: number;
+  successful_currencies: number;
+  failed_currencies: number;
+  total_trades: number;
+  average_trades_per_currency: number;
+  total_initial_cash: number;
+  total_equity: number;
+  total_return: number;
+  average_return: number;
+  average_max_drawdown: number;
+  average_sharpe_ratio: number;
+  average_sortino_ratio: number;
+  average_calmar_ratio: number;
+  average_win_rate: number;
+  average_profit_factor: number;
+}
+
 // 回测货币对列表数据类型
 interface BacktestSymbols {
   symbols: SymbolInfo[];
@@ -182,6 +201,10 @@ const BacktestReplay = () => {
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('');
   const [loadingSymbols, setLoadingSymbols] = useState<boolean>(false);
+  
+  // 合并结果相关状态
+  const [mergeSummary, setMergeSummary] = useState<MergeSummary | null>(null);
+  const [showMergeSummary, setShowMergeSummary] = useState<boolean>(true);
 
   // 播放控制状态
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -264,6 +287,28 @@ const BacktestReplay = () => {
       message.error('加载回放数据失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * 加载合并结果摘要
+   */
+  const loadMergeSummary = async () => {
+    if (!backtestId) return;
+    
+    try {
+      // 直接加载回测结果文件，获取合并摘要
+      const response = await fetch(`/backtest/${backtestId}/results`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('后端返回的合并结果:', data);
+        
+        if (data.status === 'success' && data.summary) {
+          setMergeSummary(data.summary);
+        }
+      }
+    } catch (err) {
+      console.error('加载合并结果失败:', err);
     }
   };
 
@@ -629,9 +674,10 @@ const BacktestReplay = () => {
     navigate('/backtest');
   };
 
-  // 组件挂载时加载货币对列表
+  // 组件挂载时加载货币对列表和合并结果
   useEffect(() => {
     loadSymbols();
+    loadMergeSummary();
 
     return () => {
       // 清理定时器
@@ -797,6 +843,79 @@ const BacktestReplay = () => {
           </span>
         </div>
       </div>
+
+      {/* 合并结果显示区域 */}
+      {mergeSummary && (
+        <div className="merge-summary-container">
+          <div className="merge-summary-header">
+            <h3>合并结果摘要</h3>
+            <Button 
+              type="text" 
+              onClick={() => setShowMergeSummary(!showMergeSummary)}
+            >
+              {showMergeSummary ? '收起' : '展开'}
+            </Button>
+          </div>
+          {showMergeSummary && (
+            <div className="merge-summary-content">
+              <div className="summary-grid">
+                <div className="summary-item">
+                  <span className="summary-label">总货币对数量</span>
+                  <span className="summary-value">{mergeSummary.total_currencies}</span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">成功货币对</span>
+                  <span className="summary-value success">{mergeSummary.successful_currencies}</span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">失败货币对</span>
+                  <span className="summary-value danger">{mergeSummary.failed_currencies}</span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">总交易次数</span>
+                  <span className="summary-value">{mergeSummary.total_trades}</span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">平均每货币对交易次数</span>
+                  <span className="summary-value">{mergeSummary.average_trades_per_currency}</span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">总收益率</span>
+                  <span className={`summary-value ${mergeSummary.total_return >= 0 ? 'success' : 'danger'}`}>
+                    {mergeSummary.total_return}%
+                  </span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">平均收益率</span>
+                  <span className={`summary-value ${mergeSummary.average_return >= 0 ? 'success' : 'danger'}`}>
+                    {mergeSummary.average_return}%
+                  </span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">平均最大回撤</span>
+                  <span className="summary-value">{mergeSummary.average_max_drawdown}%</span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">平均夏普比率</span>
+                  <span className="summary-value">{mergeSummary.average_sharpe_ratio}</span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">平均索提诺比率</span>
+                  <span className="summary-value">{mergeSummary.average_sortino_ratio}</span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">平均卡尔玛比率</span>
+                  <span className="summary-value">{mergeSummary.average_calmar_ratio}</span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">平均胜率</span>
+                  <span className="summary-value">{mergeSummary.average_win_rate}%</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 图表区域 */}
       <div className="replay-chart-container">
