@@ -59,7 +59,7 @@ class History(object):
         return interval_map.get(interval, 1)
 
     @staticmethod
-    def format_candle(candle: list) -> dict:
+    def format_candle(candle: list, data_source: str = 'unknown') -> dict:
         return dict(
             open_time=candle[0],
             open=candle[1],
@@ -72,7 +72,8 @@ class History(object):
             count=candle[8],
             taker_buy_volume=candle[9],
             taker_buy_quote_volume=candle[10],
-            ignore=candle[11]
+            ignore=candle[11],
+            data_source=data_source
         )
 
     def load_and_clean_data(self, symbol: str, timeframe: str, start_time=None, end_time=None) -> pd.DataFrame:
@@ -168,7 +169,7 @@ class History(object):
 
         # 遍历获取到的K线数据
         for candle_data in ohlcv:
-            formatted_data = self.format_candle(candle_data)
+            formatted_data = self.format_candle(candle_data, data_source='ccxt_binance')
             open_time = formatted_data['open_time']
 
             # 检查记录是否已存在
@@ -185,6 +186,7 @@ class History(object):
                     'volume': formatted_data['volume'],
                     'close_time': formatted_data['close_time'],
                     'quote_volume': formatted_data['quote_volume'],
+                    'data_source': formatted_data['data_source'],
                 })
             else:
                 # 准备创建新记录
@@ -247,7 +249,7 @@ class History(object):
         :param ohlcv: K 线数据列表
         """
         for candle in ohlcv:
-            candle_data = self.format_candle(candle)
+            candle_data = self.format_candle(candle, data_source='ccxt_binance')
             # 根据 symbol、open_time 和 interval 查询是否已存在记录
             from zbot.exchange.binance.models import Candle
             existing_candle = Candle.select().where(
@@ -279,6 +281,8 @@ class History(object):
                 bulk_data = []
                 for _, row in res.iterrows():
                     candle_data = row.to_dict()
+                    # 设置数据来源为binance_csv
+                    candle_data['data_source'] = 'binance_csv'
                     # 根据 symbol、open_time 和 timeframe 查询是否已存在记录
                     existing_candle = Candle.select().where(
                         (Candle.symbol == symbol) &

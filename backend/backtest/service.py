@@ -23,6 +23,7 @@ from collector.services.data_service import DataService
 from strategy.service import StrategyService
 from i18n.utils import load_translations
 from config_manager import get_config
+from backend.utils.timezone import format_datetime
 
 
 class BacktestService:
@@ -448,35 +449,77 @@ class BacktestService:
                     logger.info(f"货币对 {symbol} 交易次数: {trade_count}")
                     
                     # 提取关键指标
-                    for metric in result["metrics"]:
-                        if metric["name"] == "Return [%]":
-                            returns.append(metric["value"])
-                            logger.debug(f"货币对 {symbol} 收益率: {metric['value']}%")
-                        elif metric["name"] == "Max. Drawdown [%]":
-                            max_drawdowns.append(metric["value"])
-                            logger.debug(f"货币对 {symbol} 最大回撤: {metric['value']}%")
-                        elif metric["name"] == "Sharpe Ratio":
-                            sharpe_ratios.append(metric["value"])
-                            logger.debug(f"货币对 {symbol} 夏普比率: {metric['value']}")
-                        elif metric["name"] == "Sortino Ratio":
-                            sortino_ratios.append(metric["value"])
-                            logger.debug(f"货币对 {symbol} 索提诺比率: {metric['value']}")
-                        elif metric["name"] == "Calmar Ratio":
-                            calmar_ratios.append(metric["value"])
-                            logger.debug(f"货币对 {symbol} 卡尔玛比率: {metric['value']}")
-                        elif metric["name"] == "Win Rate [%]":
-                            win_rates.append(metric["value"])
-                            logger.debug(f"货币对 {symbol} 胜率: {metric['value']}%")
-                        elif metric["name"] == "Profit Factor":
-                            profit_factors.append(metric["value"])
-                            logger.debug(f"货币对 {symbol} 盈利因子: {metric['value']}")
-                        elif metric["name"] == "Equity Final [$]":
-                            total_equity += metric["value"]
-                            logger.debug(f"货币对 {symbol} 最终权益: ${metric['value']}")
-                    
-                    # 统计初始资金
+                    # 首先获取初始资金
                     initial_cash = result.get("backtest_config", {}).get("initial_cash", 10000)
                     total_initial_cash += initial_cash
+                    logger.info(f"货币对 {symbol} 初始资金: ${initial_cash}")
+                    
+                    logger.info(f"开始提取货币对 {symbol} 的指标")
+                    
+                    # 标记是否找到最终权益指标
+                    found_equity_final = False
+                    
+                    for metric in result["metrics"]:
+                        # 同时检查指标的key和name字段，确保在不同语言设置下都能找到正确的指标
+                        metric_key = metric.get("key", metric.get("name", ""))
+                        metric_name = metric.get("name", "")
+                        metric_value = metric.get("value")
+                        
+                        logger.debug(f"检查指标: key={metric_key}, name={metric_name}, value={metric_value}, type={type(metric_value)}")
+                        
+                        if metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率":
+                            if isinstance(metric_value, (int, float)):
+                                returns.append(metric_value)
+                                logger.debug(f"货币对 {symbol} 收益率: {metric_value}%")
+                        elif metric_key == "Max. Drawdown [%]" or metric_name == "Max. Drawdown [%]" or metric_name == "最大回撤":
+                            if isinstance(metric_value, (int, float)):
+                                max_drawdowns.append(metric_value)
+                                logger.debug(f"货币对 {symbol} 最大回撤: {metric_value}%")
+                        elif metric_key == "Sharpe Ratio" or metric_name == "Sharpe Ratio" or metric_name == "夏普比率":
+                            if isinstance(metric_value, (int, float)):
+                                sharpe_ratios.append(metric_value)
+                                logger.debug(f"货币对 {symbol} 夏普比率: {metric_value}")
+                        elif metric_key == "Sortino Ratio" or metric_name == "Sortino Ratio" or metric_name == "索提诺比率":
+                            if isinstance(metric_value, (int, float)):
+                                sortino_ratios.append(metric_value)
+                                logger.debug(f"货币对 {symbol} 索提诺比率: {metric_value}")
+                        elif metric_key == "Calmar Ratio" or metric_name == "Calmar Ratio" or metric_name == "卡尔玛比率":
+                            if isinstance(metric_value, (int, float)):
+                                calmar_ratios.append(metric_value)
+                                logger.debug(f"货币对 {symbol} 卡尔玛比率: {metric_value}")
+                        elif metric_key == "Win Rate [%]" or metric_name == "Win Rate [%]" or metric_name == "胜率":
+                            if isinstance(metric_value, (int, float)):
+                                win_rates.append(metric_value)
+                                logger.debug(f"货币对 {symbol} 胜率: {metric_value}%")
+                        elif metric_key == "Profit Factor" or metric_name == "Profit Factor" or metric_name == "盈利因子":
+                            if isinstance(metric_value, (int, float)):
+                                profit_factors.append(metric_value)
+                                logger.debug(f"货币对 {symbol} 盈利因子: {metric_value}")
+                        elif metric_key == "Equity Final [$]" or metric_name == "最终权益":
+                            if isinstance(metric_value, (int, float)):
+                                total_equity += metric_value
+                                found_equity_final = True
+                                logger.info(f"货币对 {symbol} 最终权益: ${metric_value}")
+                            else:
+                                logger.warning(f"货币对 {symbol} 最终权益值不是数字: {metric_value}, 类型: {type(metric_value)}")
+                    
+                    # 如果没有找到最终权益指标，尝试使用收益率和初始资金计算
+                    if not found_equity_final:
+                        logger.warning(f"货币对 {symbol} 未找到最终权益指标，尝试使用收益率计算")
+                        # 查找总收益率指标
+                        for metric in result["metrics"]:
+                            metric_key = metric.get("key", metric.get("name", ""))
+                            metric_name = metric.get("name", "")
+                            metric_value = metric.get("value")
+                            
+                            if (metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率") and isinstance(metric_value, (int, float)):
+                                # 使用收益率和初始资金计算最终权益
+                                calculated_equity = initial_cash * (1 + metric_value / 100)
+                                total_equity += calculated_equity
+                                logger.info(f"货币对 {symbol} 使用收益率计算最终权益: ${calculated_equity}")
+                                break
+                    
+                    logger.info(f"货币对 {symbol} 处理完成，累计总权益: ${total_equity}")
                     logger.debug(f"货币对 {symbol} 初始资金: ${initial_cash}")
             
             logger.info(f"成功回测的货币对数量: {len(successful_currencies)}/{len(results)}")
@@ -1030,24 +1073,99 @@ class BacktestService:
                         backtest_info = {
                             "id": task.id,
                             "strategy_name": task.strategy_name,
-                            "created_at": task.created_at.strftime("%Y%m%d_%H%M%S"),
+                            "created_at": format_datetime(task.created_at),
                             "status": task.status
                         }
 
-                        # 如果任务已完成，尝试获取结果指标
-                        if task.status == "completed" and task.result_id:
-                            from collector.db.models import BacktestResult
-                            result = db.query(BacktestResult).filter_by(id=task.result_id).first()
-                            if result and result.metrics:
-                                try:
-                                    metrics = json.loads(result.metrics)
-                                    for metric in metrics:
-                                        if metric["name"] == "Return [%]":
+                        # 首先尝试从文件系统加载合并后的回测结果
+                        logger.info(f"尝试从文件系统加载回测结果，任务ID: {task.id}")
+                        file_result = self.load_backtest_result(task.id)
+                        if file_result:
+                            logger.info(f"文件系统加载成功，任务ID: {task.id}")
+                            # 从合并结果中提取指标
+                            if "summary" in file_result:
+                                logger.info(f"回测结果包含summary字段，任务ID: {task.id}")
+                                # 多货币对回测结果
+                                if "total_return" in file_result["summary"]:
+                                    logger.info(f"summary中包含total_return: {file_result['summary']['total_return']}, 任务ID: {task.id}")
+                                    # 只有当total_return不是-100.0时才使用它
+                                    if float(file_result["summary"]["total_return"]) != -100.0:
+                                        backtest_info["total_return"] = round(float(file_result["summary"]["total_return"]), 2)
+                                if "average_max_drawdown" in file_result["summary"]:
+                                    logger.info(f"summary中包含average_max_drawdown: {file_result['summary']['average_max_drawdown']}, 任务ID: {task.id}")
+                                    backtest_info["max_drawdown"] = round(float(file_result["summary"]["average_max_drawdown"]), 2)
+                            
+                            # 检查是否需要从metrics或currencies部分提取指标
+                            if not backtest_info.get("total_return") or not backtest_info.get("max_drawdown"):
+                                if "metrics" in file_result:
+                                    logger.info(f"回测结果包含metrics字段，任务ID: {task.id}")
+                                    # 单个货币对回测结果
+                                    for metric in file_result["metrics"]:
+                                        # 同时检查指标的key和name字段，确保在不同语言设置下都能找到正确的指标
+                                        metric_key = metric.get("key", metric.get("name", ""))
+                                        metric_name = metric.get("name", "")
+                                        
+                                        if not backtest_info.get("total_return") and (metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率"):
+                                            logger.info(f"找到Return [%]指标: {metric['value']}, 任务ID: {task.id}")
                                             backtest_info["total_return"] = round(float(metric["value"]), 2)
-                                        elif metric["name"] == "Max. Drawdown [%]":
+                                        elif not backtest_info.get("max_drawdown") and (metric_key == "Max. Drawdown [%]" or metric_name == "Max. Drawdown [%]" or metric_name == "最大回撤"):
+                                            logger.info(f"找到Max. Drawdown [%]指标: {metric['value']}, 任务ID: {task.id}")
                                             backtest_info["max_drawdown"] = round(float(metric["value"]), 2)
-                                except Exception as e:
-                                    logger.warning(f"解析回测结果指标失败: {task.id}, 错误: {e}")
+                                        
+                                        # 如果已经找到total_return和max_drawdown，就跳出循环
+                                        if backtest_info.get("total_return") and backtest_info.get("max_drawdown"):
+                                            break
+                                elif "currencies" in file_result:
+                                    logger.info(f"回测结果包含currencies字段，任务ID: {task.id}")
+                                    # 从currencies部分的回测结果中提取指标
+                                    for symbol, currency_result in file_result["currencies"].items():
+                                        if currency_result.get("status") == "success" and "metrics" in currency_result:
+                                            logger.info(f"尝试从货币对 {symbol} 的回测结果中提取指标，任务ID: {task.id}")
+                                            for metric in currency_result["metrics"]:
+                                                # 同时检查指标的key和name字段，确保在不同语言设置下都能找到正确的指标
+                                                metric_key = metric.get("key", metric.get("name", ""))
+                                                metric_name = metric.get("name", "")
+                                                
+                                                if not backtest_info.get("total_return") and (metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率"):
+                                                    logger.info(f"找到Return [%]指标: {metric['value']}, 任务ID: {task.id}")
+                                                    backtest_info["total_return"] = round(float(metric["value"]), 2)
+                                                elif not backtest_info.get("max_drawdown") and (metric_key == "Max. Drawdown [%]" or metric_name == "Max. Drawdown [%]" or metric_name == "最大回撤"):
+                                                    logger.info(f"找到Max. Drawdown [%]指标: {metric['value']}, 任务ID: {task.id}")
+                                                    backtest_info["max_drawdown"] = round(float(metric["value"]), 2)
+                                                
+                                                # 如果已经找到total_return和max_drawdown，就跳出循环
+                                                if backtest_info.get("total_return") and backtest_info.get("max_drawdown"):
+                                                    break
+                                            
+                                            # 如果已经找到total_return和max_drawdown，就跳出循环
+                                            if backtest_info.get("total_return") and backtest_info.get("max_drawdown"):
+                                                break
+                        else:
+                            logger.warning(f"文件系统加载失败，任务ID: {task.id}")
+                            # 如果文件系统加载失败，尝试从数据库获取
+                            if task.status == "completed" and task.result_id:
+                                logger.info(f"尝试从数据库获取回测结果，任务ID: {task.id}, result_id: {task.result_id}")
+                                from collector.db.models import BacktestResult
+                                result = db.query(BacktestResult).filter_by(id=task.result_id).first()
+                                if result and result.metrics:
+                                    logger.info(f"数据库加载成功，任务ID: {task.id}")
+                                    try:
+                                        metrics = json.loads(result.metrics)
+                                        for metric in metrics:
+                                            # 同时检查指标的key和name字段，确保在不同语言设置下都能找到正确的指标
+                                            metric_key = metric.get("key", metric.get("name", ""))
+                                            metric_name = metric.get("name", "")
+                                            
+                                            if metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率":
+                                                logger.info(f"找到Return [%]指标: {metric['value']}, 任务ID: {task.id}")
+                                                backtest_info["total_return"] = round(float(metric["value"]), 2)
+                                            elif metric_key == "Max. Drawdown [%]" or metric_name == "Max. Drawdown [%]" or metric_name == "最大回撤":
+                                                logger.info(f"找到Max. Drawdown [%]指标: {metric['value']}, 任务ID: {task.id}")
+                                                backtest_info["max_drawdown"] = round(float(metric["value"]), 2)
+                                    except Exception as e:
+                                        logger.warning(f"解析回测结果指标失败: {task.id}, 错误: {e}")
+                                else:
+                                    logger.warning(f"数据库中未找到回测结果，任务ID: {task.id}")
 
                         backtest_list.append(backtest_info)
                     except Exception as e:
@@ -1092,13 +1210,44 @@ class BacktestService:
                         "status": result.get("status", "未知状态")
                     }
 
-                    # 提取指标
-                    if "metrics" in result:
-                        for metric in result["metrics"]:
-                            if metric.get("name") == "Return [%]":
-                                backtest_info["total_return"] = round(float(metric["value"]), 2) if isinstance(metric["value"], (int, float)) else metric["value"]
-                            elif metric.get("name") == "Max. Drawdown [%]":
-                                backtest_info["max_drawdown"] = round(float(metric["value"]), 2) if isinstance(metric["value"], (int, float)) else metric["value"]
+                    # 优先处理多货币对回测结果
+                    if "summary" in result:
+                        # 多货币对回测结果
+                        if "total_return" in result["summary"]:
+                            # 只有当total_return不是-100.0时才使用它
+                            if float(result["summary"]["total_return"]) != -100.0:
+                                backtest_info["total_return"] = round(float(result["summary"]["total_return"]), 2)
+                        if "average_max_drawdown" in result["summary"]:
+                            backtest_info["max_drawdown"] = round(float(result["summary"]["average_max_drawdown"]), 2)
+                    
+                    # 检查是否需要从metrics或currencies部分提取指标
+                    if not backtest_info.get("total_return") or not backtest_info.get("max_drawdown"):
+                        if "metrics" in result:
+                            for metric in result["metrics"]:
+                                if not backtest_info.get("total_return") and (metric.get("key") == "Return [%]" or metric.get("name") == "Return [%]" or metric.get("name") == "总收益率"):
+                                    backtest_info["total_return"] = round(float(metric["value"]), 2) if isinstance(metric["value"], (int, float)) else metric["value"]
+                                elif not backtest_info.get("max_drawdown") and (metric.get("key") == "Max. Drawdown [%]" or metric.get("name") == "Max. Drawdown [%]" or metric.get("name") == "最大回撤"):
+                                    backtest_info["max_drawdown"] = round(float(metric["value"]), 2) if isinstance(metric["value"], (int, float)) else metric["value"]
+                                
+                                # 如果已经找到total_return和max_drawdown，就跳出循环
+                                if backtest_info.get("total_return") and backtest_info.get("max_drawdown"):
+                                    break
+                        if "currencies" in result:
+                            for symbol, currency_result in result["currencies"].items():
+                                if currency_result.get("status") == "success" and "metrics" in currency_result:
+                                    for metric in currency_result["metrics"]:
+                                        if not backtest_info.get("total_return") and (metric.get("key") == "Return [%]" or metric.get("name") == "Return [%]" or metric.get("name") == "总收益率"):
+                                            backtest_info["total_return"] = round(float(metric["value"]), 2) if isinstance(metric["value"], (int, float)) else metric["value"]
+                                        elif not backtest_info.get("max_drawdown") and (metric.get("key") == "Max. Drawdown [%]" or metric.get("name") == "Max. Drawdown [%]" or metric.get("name") == "最大回撤"):
+                                            backtest_info["max_drawdown"] = round(float(metric["value"]), 2) if isinstance(metric["value"], (int, float)) else metric["value"]
+                                        
+                                        # 如果已经找到total_return和max_drawdown，就跳出循环
+                                        if backtest_info.get("total_return") and backtest_info.get("max_drawdown"):
+                                            break
+                                    
+                                    # 如果已经找到total_return和max_drawdown，就跳出循环
+                                    if backtest_info.get("total_return") and backtest_info.get("max_drawdown"):
+                                        break
 
                     backtest_list.append(backtest_info)
                 except Exception as e:

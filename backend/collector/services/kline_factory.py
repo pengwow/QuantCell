@@ -98,7 +98,8 @@ class BaseKlineFetcher(KlineDataFetcher):
                     low=str(kline.get("low")),
                     close=str(kline.get("close")),
                     volume=str(kline.get("volume")),
-                    unique_kline=unique_kline
+                    unique_kline=unique_kline,
+                    data_source='ccxt_binance'
                 )
                 
                 kline_instances.append(kline_instance)

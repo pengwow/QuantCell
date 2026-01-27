@@ -16,11 +16,13 @@ class Candle(CandleBase):
     taker_buy_quote_volume = peewee.FloatField(default=0)
     # 忽略
     ignore = peewee.BooleanField(default=False)
+    # 数据来源
+    data_source = peewee.CharField(max_length=50, default='unknown', index=True)
 
     class Meta:
         table_name = "binance_candle"
         database = database.db
-        indexes = ((("symbol", "timeframe", "open_time"), True),)
+        indexes = (("symbol", "timeframe", "open_time"), True),)
 
 
 database.open_connection()

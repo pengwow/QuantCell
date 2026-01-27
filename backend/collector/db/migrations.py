@@ -436,6 +436,106 @@ def update_system_config_table(session: Session, db_type: str) -> None:
     logger.info("system_config表结构更新完成")
 
 
+def update_kline_tables(session: Session, db_type: str) -> None:
+    """更新K线表结构，添加data_source字段
+    
+    Args:
+        session: SQLAlchemy会话对象
+        db_type: 数据库类型（sqlite或duckdb）
+    """
+    logger.info("开始更新K线表结构...")
+    
+    # 更新crypto_future_klines表
+    logger.info("更新crypto_future_klines表...")
+    try:
+        # 检查表是否存在
+        table_exists = False
+        if db_type == "sqlite":
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='crypto_future_klines'")
+            ).fetchone()
+        elif db_type == "duckdb":
+            table_exists = session.execute(
+                text("SELECT table_name FROM information_schema.tables WHERE table_name='crypto_future_klines'")
+            ).fetchone()
+        
+        if table_exists:
+            # 检查data_source列是否存在
+            column_exists = False
+            if db_type == "sqlite":
+                column_exists = session.execute(
+                    text("SELECT name FROM pragma_table_info('crypto_future_klines') WHERE name='data_source'")
+                ).fetchone()
+            elif db_type == "duckdb":
+                column_exists = session.execute(
+                    text("SELECT column_name FROM information_schema.columns WHERE table_name='crypto_future_klines' AND column_name='data_source'")
+                ).fetchone()
+            
+            if not column_exists:
+                logger.info("为crypto_future_klines表添加data_source列...")
+                # 添加data_source列
+                session.execute(
+                    text("ALTER TABLE crypto_future_klines ADD COLUMN data_source VARCHAR(50) NOT NULL DEFAULT 'unknown'")
+                )
+                # 创建索引
+                session.execute(
+                    text("CREATE INDEX IF NOT EXISTS ix_crypto_future_klines_data_source ON crypto_future_klines(data_source)")
+                )
+                logger.info("crypto_future_klines表data_source列添加成功")
+            else:
+                logger.info("crypto_future_klines表data_source列已存在，跳过")
+        else:
+            logger.info("crypto_future_klines表不存在，跳过")
+    except Exception as e:
+        logger.error(f"更新crypto_future_klines表失败: {e}")
+    
+    # 更新stock_klines表
+    logger.info("更新stock_klines表...")
+    try:
+        # 检查表是否存在
+        table_exists = False
+        if db_type == "sqlite":
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_klines'")
+            ).fetchone()
+        elif db_type == "duckdb":
+            table_exists = session.execute(
+                text("SELECT table_name FROM information_schema.tables WHERE table_name='stock_klines'")
+            ).fetchone()
+        
+        if table_exists:
+            # 检查data_source列是否存在
+            column_exists = False
+            if db_type == "sqlite":
+                column_exists = session.execute(
+                    text("SELECT name FROM pragma_table_info('stock_klines') WHERE name='data_source'")
+                ).fetchone()
+            elif db_type == "duckdb":
+                column_exists = session.execute(
+                    text("SELECT column_name FROM information_schema.columns WHERE table_name='stock_klines' AND column_name='data_source'")
+                ).fetchone()
+            
+            if not column_exists:
+                logger.info("为stock_klines表添加data_source列...")
+                # 添加data_source列
+                session.execute(
+                    text("ALTER TABLE stock_klines ADD COLUMN data_source VARCHAR(50) NOT NULL DEFAULT 'unknown'")
+                )
+                # 创建索引
+                session.execute(
+                    text("CREATE INDEX IF NOT EXISTS ix_stock_klines_data_source ON stock_klines(data_source)")
+                )
+                logger.info("stock_klines表data_source列添加成功")
+            else:
+                logger.info("stock_klines表data_source列已存在，跳过")
+        else:
+            logger.info("stock_klines表不存在，跳过")
+    except Exception as e:
+        logger.error(f"更新stock_klines表失败: {e}")
+    
+    logger.info("K线表结构更新完成")
+
+
 def run_migrations() -> None:
     """运行所有迁移脚本
     
@@ -445,7 +545,7 @@ def run_migrations() -> None:
     
     try:
         # 延迟导入，避免循环导入问题
-        from collector.db.database import init_database_config, engine, db_type
+        from backend.collector.db.database import init_database_config, engine, db_type
         
         # 初始化数据库配置
         init_database_config()
@@ -463,6 +563,9 @@ def run_migrations() -> None:
             
             # 更新system_config表结构，添加name列
             update_system_config_table(session, db_type)
+            
+            # 更新K线表结构，添加data_source列
+            update_kline_tables(session, db_type)
             
             # 提交所有更改
             session.commit()

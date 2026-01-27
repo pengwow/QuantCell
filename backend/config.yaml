@@ -9,6 +9,9 @@ app:
   port: 8000
   debug: true
   secret_key: "your-secret-key"
+  # 时区配置，默认值为Asia/Shanghai
+  # 支持通过环境变量APP_TIMEZONE覆盖
+  timezone: "Asia/Shanghai"
 
 # 日志配置
 logging:

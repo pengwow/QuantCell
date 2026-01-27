@@ -5,7 +5,8 @@ import { useResponsive } from './hooks/useResponsive';
 import {
   BarChartOutlined, CodeOutlined, FundProjectionScreenOutlined,
   RobotOutlined, SettingOutlined, ProductOutlined,
-  DownloadOutlined, InboxOutlined, InfoCircleOutlined
+  DownloadOutlined, InboxOutlined, InfoCircleOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined
 } from '@ant-design/icons';
 
 import { useConfigStore } from './store';
@@ -22,6 +23,7 @@ import './App.css';
 const App = () => {
   const { isMobile, isTablet } = useResponsive();
   const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isManualMode, setIsManualMode] = useState(false);
   const [menus, setMenus] = useState<MenuGroup[]>([]);
   const location = useLocation();
   const { t } = useTranslation();
@@ -39,6 +41,19 @@ const App = () => {
   const handleMenuClick = (): void => {
     if (isMobile) {
       setIsCollapsed(true);
+    }
+  };
+
+  // 处理侧边栏展开/收起控制
+  const handleToggleSidebar = (): void => {
+    if (isCollapsed) {
+      // 展开菜单
+      setIsCollapsed(false);
+      setIsManualMode(false); // 恢复自动收缩功能
+    } else {
+      // 收起菜单
+      setIsCollapsed(true);
+      setIsManualMode(true); // 进入手动模式，禁用自动收缩
     }
   };
 
@@ -137,9 +152,15 @@ const App = () => {
       {/* 侧边栏导航 */}
       <aside
         className={`side-nav ${isCollapsed ? 'collapsed' : ''} ${isVerticalLayout ? 'top-nav' : ''}`}
-        onMouseEnter={() => !isVerticalLayout && setIsCollapsed(false)}
-        onMouseLeave={() => !isVerticalLayout && setIsCollapsed(true)}
+        onMouseEnter={() => !isVerticalLayout && !isManualMode && setIsCollapsed(false)}
+        onMouseLeave={() => !isVerticalLayout && !isManualMode && setIsCollapsed(true)}
       >
+        {/* 侧边栏控制按钮 */}
+        {/* {!isVerticalLayout && (
+          <div className="sidebar-toggle-btn" onClick={handleToggleSidebar}>
+            {isCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+          </div>
+        )} */}
         {/* 侧边栏顶部品牌 */}
         <div className="nav-brand">
           <div className="brand-icon">

@@ -8,11 +8,46 @@ from sqlalchemy.orm import Session
 
 from .database import Base
 
+# 导入时区工具类
+from backend.utils.timezone import to_utc_time, to_local_time, format_datetime
+
 # SQLAlchemy模型定义
 
 from datetime import datetime
 
-class SystemConfig(Base):
+
+class TimezoneAwareBase(Base):
+    """时区感知基础模型类
+    
+    所有需要时区处理的模型都应该继承自此类
+    """
+    __abstract__ = True
+    
+    def __setattr__(self, name, value):
+        """设置属性时自动处理时间字段的时区"""
+        # 处理DateTime类型的字段
+        if hasattr(self.__class__, name):
+            column = getattr(self.__class__, name)
+            if isinstance(column, Column) and isinstance(column.type, DateTime):
+                # 如果值是datetime对象且有本地时区，转换为UTC
+                if hasattr(value, 'tzinfo') and value.tzinfo is not None:
+                    value = to_utc_time(value)
+        
+        super().__setattr__(name, value)
+    
+    def to_dict(self):
+        """转换为字典，自动处理时间字段的时区"""
+        result = {}
+        for column in self.__table__.columns:
+            value = getattr(self, column.name)
+            if isinstance(value, datetime):
+                # 转换为本地时区并格式化
+                result[column.name] = format_datetime(value)
+            else:
+                result[column.name] = value
+        return result
+
+class SystemConfig(TimezoneAwareBase):
     """系统配置SQLAlchemy模型
     
     对应system_config表的SQLAlchemy模型定义
@@ -29,7 +64,7 @@ class SystemConfig(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
-class Task(Base):
+class Task(TimezoneAwareBase):
     """任务SQLAlchemy模型
     
     对应tasks表的SQLAlchemy模型定义
@@ -52,7 +87,7 @@ class Task(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now(), index=True)
 
 
-class Feature(Base):
+class Feature(TimezoneAwareBase):
     """特征信息SQLAlchemy模型
     
     对应features表的SQLAlchemy模型定义，用于存储特征信息
@@ -67,7 +102,7 @@ class Feature(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
-class DataPool(Base):
+class DataPool(TimezoneAwareBase):
     """资产池SQLAlchemy模型
     
     对应data_pools表的SQLAlchemy模型定义
@@ -91,7 +126,7 @@ class DataPool(Base):
     )
 
 
-class DataPoolAsset(Base):
+class DataPoolAsset(TimezoneAwareBase):
     """资产池资产关联SQLAlchemy模型
     
     对应data_pool_assets表的SQLAlchemy模型定义
@@ -106,7 +141,7 @@ class DataPoolAsset(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
-class CryptoSymbol(Base):
+class CryptoSymbol(TimezoneAwareBase):
     """加密货币对SQLAlchemy模型
     
     对应crypto_symbols表的SQLAlchemy模型定义，用于存储加密货币对信息
@@ -133,7 +168,7 @@ class CryptoSymbol(Base):
     )
 
 
-class CryptoSpotKline(Base):
+class CryptoSpotKline(TimezoneAwareBase):
     """加密货币现货K线数据SQLAlchemy模型
     
     对应crypto_spot_klines表的SQLAlchemy模型定义，用于存储加密货币现货K线数据
@@ -150,11 +185,12 @@ class CryptoSpotKline(Base):
     close = Column(String, nullable=False)  # 使用字符串避免精度问题
     volume = Column(String, nullable=False)  # 使用字符串避免精度问题
     unique_kline = Column(String, nullable=False, unique=True, index=True)  # 唯一标识符
+    data_source = Column(String(50), nullable=False, default='unknown', index=True)  # 数据来源
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
-class CryptoFutureKline(Base):
+class CryptoFutureKline(TimezoneAwareBase):
     """加密货币合约K线数据SQLAlchemy模型
     
     对应crypto_future_klines表的SQLAlchemy模型定义，用于存储加密货币合约K线数据
@@ -171,11 +207,12 @@ class CryptoFutureKline(Base):
     close = Column(String, nullable=False)  # 使用字符串避免精度问题
     volume = Column(String, nullable=False)  # 使用字符串避免精度问题
     unique_kline = Column(String, nullable=False, unique=True, index=True)  # 唯一标识符
+    data_source = Column(String(50), nullable=False, default='unknown', index=True)  # 数据来源
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
-class StockKline(Base):
+class StockKline(TimezoneAwareBase):
     """股票K线数据SQLAlchemy模型
     
     对应stock_klines表的SQLAlchemy模型定义，用于存储股票K线数据
@@ -192,11 +229,12 @@ class StockKline(Base):
     close = Column(String, nullable=False)  # 使用字符串避免精度问题
     volume = Column(String, nullable=False)  # 使用字符串避免精度问题
     unique_kline = Column(String, nullable=False, unique=True, index=True)  # 唯一标识符
+    data_source = Column(String(50), nullable=False, default='unknown', index=True)  # 数据来源
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
-class ScheduledTask(Base):
+class ScheduledTask(TimezoneAwareBase):
     """定时任务SQLAlchemy模型
     
     对应scheduled_tasks表的SQLAlchemy模型定义，用于存储定时任务配置
@@ -254,7 +292,7 @@ class ScheduledTask(Base):
     )
 
 
-class BacktestTask(Base):
+class BacktestTask(TimezoneAwareBase):
     """回测任务SQLAlchemy模型
     
     对应backtest_tasks表的SQLAlchemy模型定义，用于存储回测任务信息
@@ -271,7 +309,7 @@ class BacktestTask(Base):
     result_id = Column(String, nullable=True)  # 关联的回测结果ID
 
 
-class BacktestResult(Base):
+class BacktestResult(TimezoneAwareBase):
     """回测结果SQLAlchemy模型
     
     对应backtest_results表的SQLAlchemy模型定义，用于存储回测结果信息
@@ -294,7 +332,7 @@ class BacktestResult(Base):
     )
 
 
-class Strategy(Base):
+class Strategy(TimezoneAwareBase):
     """策略SQLAlchemy模型
     
     对应strategies表的SQLAlchemy模型定义，用于存储策略信息
@@ -456,29 +494,11 @@ class SystemConfigBusiness:
             Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、插件、名称、是否敏感、创建时间和更新时间
         """
         from .database import SessionLocal, init_database_config
-        import pytz
         init_database_config()
         db: Session = SessionLocal()
         try:
             config = db.query(SystemConfig).filter_by(key=key).first()
             if config:
-                print(f"DEBUG: 原始created_at: {config.created_at}, type: {type(config.created_at)}")
-                print(f"DEBUG: 原始updated_at: {config.updated_at}, type: {type(config.updated_at)}")
-                
-                def format_datetime(dt):
-                    if dt is None:
-                        return None
-                    # 如果datetime对象没有时区信息，添加UTC时区
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=pytz.utc)
-                        print(f"DEBUG: 添加时区后: {dt}")
-                    # 转换为UTC+8时间并格式化为字符串
-                    local_time = dt.astimezone(pytz.timezone('Asia/Shanghai'))
-                    print(f"DEBUG: 转换为本地时间: {local_time}")
-                    formatted = local_time.strftime('%Y-%m-%d %H:%M:%S')
-                    print(f"DEBUG: 格式化后: {formatted}")
-                    return formatted
-                
                 result = {
                     "key": config.key,
                     "value": config.value,
@@ -489,7 +509,6 @@ class SystemConfigBusiness:
                     "created_at": format_datetime(config.created_at),
                     "updated_at": format_datetime(config.updated_at)
                 }
-                print(f"DEBUG: 返回结果: {result}")
                 return result
             return None
         except Exception as e:
@@ -506,21 +525,11 @@ class SystemConfigBusiness:
             Dict[str, Dict[str, Any]]: 所有配置项的详细信息，键为配置项键名
         """
         from .database import SessionLocal, init_database_config
-        import pytz
         init_database_config()
         db: Session = SessionLocal()
         try:
             configs = db.query(SystemConfig).all()
             result = {}
-            
-            def format_datetime(dt):
-                if dt is None:
-                    return None
-                # 如果datetime对象没有时区信息，添加UTC时区
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=pytz.utc)
-                # 转换为UTC+8时间并格式化为字符串
-                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
             
             for config in configs:
                 result[config.key] = {
@@ -726,22 +735,11 @@ class TaskBusiness:
         from .database import SessionLocal, init_database_config
         init_database_config()
         import json
-        import pytz
         db: Session = SessionLocal()
         try:
             task = db.query(Task).filter_by(task_id=task_id).first()
             if not task:
                 return None
-            
-            def format_datetime(dt):
-                """格式化datetime对象，转换为上海时区"""
-                if dt is None:
-                    return None
-                # 如果datetime对象没有时区信息，添加UTC时区
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=pytz.utc)
-                # 转换为UTC+8时间并格式化为字符串
-                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
             
             # 解析结果
             task_info = {
@@ -781,20 +779,9 @@ class TaskBusiness:
         from .database import SessionLocal, init_database_config
         init_database_config()
         import json
-        import pytz
         db: Session = SessionLocal()
         try:
             tasks = db.query(Task).order_by(Task.created_at.desc()).all()
-            
-            def format_datetime(dt):
-                """格式化datetime对象，转换为上海时区"""
-                if dt is None:
-                    return None
-                # 如果datetime对象没有时区信息，添加UTC时区
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=pytz.utc)
-                # 转换为UTC+8时间并格式化为字符串
-                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
             
             result = {}
             for task in tasks:
@@ -896,16 +883,6 @@ class TaskBusiness:
             paginated_tasks = query.offset(offset).limit(page_size).all()
             
             # 处理结果
-            def format_datetime(dt):
-                """格式化datetime对象，转换为上海时区"""
-                if dt is None:
-                    return None
-                # 如果datetime对象没有时区信息，添加UTC时区
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=pytz.utc)
-                # 转换为UTC+8时间并格式化为字符串
-                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
-            
             tasks = []
             for task in paginated_tasks:
                 tasks.append({

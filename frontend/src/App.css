@@ -140,7 +140,6 @@
   border-bottom: 1px solid var(--border-color);
   position: relative;
   transition: all var(--transition-normal);
-  background: linear-gradient(135deg, rgba(100, 108, 255, 0.1) 0%, transparent 100%);
 }
 
 .brand-icon {
@@ -153,7 +152,11 @@
   align-items: center;
   justify-content: center;
   margin-left: 4px;
-  filter: drop-shadow(0 0 8px rgba(100, 108, 255, 0.3));
+}
+
+.brand-image {
+  background: none;
+  cursor: default;
 }
 
 .brand-icon svg {
@@ -318,6 +321,53 @@
 .side-nav.collapsed .brand-icon {
   margin-left: 0;
   transition: all var(--transition-normal);
+}
+
+/* 侧边栏控制按钮样式 */
+.sidebar-toggle-btn {
+  position: absolute;
+  right: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 40px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-secondary);
+  opacity: 0;
+  visibility: hidden;
+  transition: all var(--transition-normal);
+  z-index: 101;
+  box-shadow: var(--shadow-md);
+}
+
+/* 鼠标悬停在侧边栏时显示控制按钮 */
+.side-nav:hover .sidebar-toggle-btn {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* 控制按钮悬停效果 */
+.sidebar-toggle-btn:hover {
+  background-color: var(--primary-color);
+  color: white;
+  box-shadow: var(--shadow-lg), 0 0 15px rgba(100, 108, 255, 0.3);
+}
+
+/* 侧边栏收起时调整控制按钮位置 */
+.side-nav.collapsed .sidebar-toggle-btn {
+  right: -10px;
+}
+
+/* 垂直布局时隐藏控制按钮 */
+.vertical-layout .side-nav.top-nav .sidebar-toggle-btn {
+  display: none;
 }
 
 /* 鼠标悬停效果 */
