@@ -824,21 +824,7 @@ interface MetricItem {
                       </div>
                       <div className="task-meta">
                         <div className="task-date">
-                          {(() => {
-                            // 尝试解析日期格式 YYYYMMDD_HHmmss
-                            if (task.created_at && task.created_at.includes('_')) {
-                              const parts = task.created_at.split('_');
-                              if (parts.length === 2) {
-                                const datePart = parts[0];
-                                const timePart = parts[1];
-                                if (datePart.length === 8 && timePart.length >= 6) {
-                                  return `${datePart.substring(0, 4)}-${datePart.substring(4, 6)}-${datePart.substring(6, 8)} ${timePart.substring(0, 2)}:${timePart.substring(2, 4)}:${timePart.substring(4, 6)}`;
-                                }
-                              }
-                            }
-                            // 如果不是标准格式，直接显示
-                            return task.created_at;
-                          })()}
+                          {task.created_at}
                         </div>
                         <div className="task-return">
                           {task.total_return !== undefined ? `${task.total_return}%` : 'N/A'}

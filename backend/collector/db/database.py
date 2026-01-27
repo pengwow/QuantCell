@@ -128,12 +128,13 @@ def init_database_config():
 
 # 添加辅助函数获取带时区的当前时间
 def get_current_time():
-    """获取当前时间，带UTC+8时区
+    """获取当前时间，带配置的时区
     
     Returns:
-        datetime: 当前时间，带UTC+8时区
+        datetime: 当前时间，带配置的时区
     """
-    return datetime.datetime.now(pytz.timezone('Asia/Shanghai'))
+    from backend.utils.timezone import get_timezone
+    return datetime.datetime.now(get_timezone())
 
 # 注意：SessionLocal.configure(bind=engine)和Base.metadata.bind的设置
 # 已移动到init_database_config函数内部，确保在engine初始化后执行

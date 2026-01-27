@@ -47,17 +47,31 @@ class StrategyService:
             # 解析Python代码
             tree = ast.parse(file_content)
             
+            # 获取文件修改时间
+            file_path = self.strategy_dir / f"{strategy_name}.py"
+            created_at = datetime.now()
+            updated_at = datetime.now()
+            
+            if file_path.exists():
+                try:
+                    # 使用文件的修改时间
+                    mtime = file_path.stat().st_mtime
+                    created_at = datetime.fromtimestamp(mtime)
+                    updated_at = datetime.fromtimestamp(mtime)
+                except Exception as e:
+                    logger.warning(f"获取文件时间失败: {e}")
+            
             # 初始化策略信息
             strategy_info = {
                 "name": strategy_name,
                 "file_name": f"{strategy_name}.py",
-                "file_path": str(self.strategy_dir / f"{strategy_name}.py"),
+                "file_path": str(file_path),
                 "description": "",
                 "version": "1.0.0",
                 "tags": [],
                 "params": [],
-                "created_at": datetime.now(),
-                "updated_at": datetime.now(),
+                "created_at": created_at,
+                "updated_at": updated_at,
                 "code": file_content
             }
             
@@ -256,10 +270,10 @@ class StrategyService:
                     logger.error(f"从数据库获取策略列表失败: {e}")
                     logger.exception(e)
             
-            # 去重，优先保留文件策略
+            # 去重，优先保留数据库策略，因为数据库策略包含真实的创建时间
             strategy_dict = {}
             for strategy in strategies:
-                if strategy["name"] not in strategy_dict or strategy["source"] == "files":
+                if strategy["name"] not in strategy_dict or strategy["source"] == "db":
                     strategy_dict[strategy["name"]] = strategy
             
             final_strategies = list(strategy_dict.values())
