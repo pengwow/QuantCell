@@ -109,7 +109,8 @@ const Setting = () => {
     email: 'admin@example.com',
     theme: 'light',
     language: 'zh-CN',
-    showTips: true
+    showTips: true,
+    timezone: 'Asia/Shanghai' // 默认时区为上海
   });
 
   // 通知设置
@@ -347,7 +348,8 @@ const Setting = () => {
           ...prev,
           language: newLanguage,
           theme: configs.theme !== undefined ? configs.theme : prev.theme,
-          showTips: configs.showTips !== undefined ? (configs.showTips === 'true' || configs.showTips === true || configs.showTips === '1') : prev.showTips
+          showTips: configs.showTips !== undefined ? (configs.showTips === 'true' || configs.showTips === true || configs.showTips === '1') : prev.showTips,
+          timezone: configs.timezone !== undefined ? configs.timezone : prev.timezone
         };
       });
 
@@ -457,6 +459,11 @@ const Setting = () => {
         key: 'showTips',
         value: settings.showTips,
         description: 'basic.showTips'
+      });
+      requestData.push({
+        key: 'timezone',
+        value: settings.timezone,
+        description: 'basic.timezone'
       });
 
       // 处理notifications配置
@@ -664,7 +671,8 @@ const Setting = () => {
         email: 'admin@example.com',
         theme: 'light',
         language: 'zh-CN',
-        showTips: true
+        showTips: true,
+        timezone: 'Asia/Shanghai'
       });
 
       // 重置通知设置

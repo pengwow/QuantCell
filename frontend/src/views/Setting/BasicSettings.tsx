@@ -67,6 +67,32 @@ const BasicSettings: React.FC<BasicSettingsProps> = ({
                 ]}
               />
             </Form.Item>
+            
+            <Form.Item
+              label={t('timezone')}
+              name="timezone"
+              rules={[{ required: true, message: t('please_select') }]}
+            >
+              <Select
+                onChange={(value) => {
+                  setSettings(prev => ({ ...prev, timezone: value }));
+                }}
+                options={[
+                  { value: 'Asia/Shanghai', label: '上海 (UTC+8)' },
+                  { value: 'UTC', label: 'UTC (UTC+0)' },
+                  { value: 'Europe/London', label: '伦敦 (UTC+0)' },
+                  { value: 'America/New_York', label: '纽约 (UTC-5)' },
+                  { value: 'America/Los_Angeles', label: '洛杉矶 (UTC-8)' },
+                  { value: 'Asia/Tokyo', label: '东京 (UTC+9)' },
+                  { value: 'Asia/Hong_Kong', label: '香港 (UTC+8)' },
+                  { value: 'Asia/Singapore', label: '新加坡 (UTC+8)' },
+                  { value: 'Australia/Sydney', label: '悉尼 (UTC+10)' },
+                  { value: 'Europe/Paris', label: '巴黎 (UTC+1)' },
+                  { value: 'Europe/Berlin', label: '柏林 (UTC+1)' },
+                  { value: 'America/Chicago', label: '芝加哥 (UTC-6)' }
+                ]}
+              />
+            </Form.Item>
           </Card>
         </Form>
       </Card>

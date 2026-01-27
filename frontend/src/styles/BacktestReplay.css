@@ -392,3 +392,104 @@
 .replay-chart-container {
   margin-bottom: 12px;
 }
+
+/* 合并结果摘要 */
+.merge-summary-container {
+  margin: 0 24px 24px;
+  padding: 20px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--border-radius-lg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+}
+
+.merge-summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.merge-summary-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.summary-item {
+  background-color: var(--bg-tertiary);
+  padding: 12px;
+  border-radius: var(--border-radius-md);
+  border-left: 4px solid var(--primary-color);
+}
+
+.summary-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.summary-value {
+  display: block;
+  font-size: 18px;
+  font-weight: bold;
+  color: var(--text-primary);
+}
+
+.summary-value.success {
+  color: var(--success-color);
+}
+
+.summary-value.danger {
+  color: var(--error-color);
+}
+
+.summary-value.warning {
+  color: var(--warning-color);
+}
+
+/* 货币对选择器 */
+.symbol-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.symbol-label {
+  font-size: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* 响应式设计 - 合并结果 */
+@media (max-width: 768px) {
+  .merge-summary-container {
+    margin: 0 16px 16px;
+    padding: 16px;
+  }
+  
+  .merge-summary-header h3 {
+    font-size: 16px;
+  }
+  
+  .summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  
+  .summary-item {
+    padding: 10px;
+  }
+  
+  .summary-value {
+    font-size: 16px;
+  }
+}

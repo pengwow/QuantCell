@@ -10,6 +10,7 @@ export interface UserSettings {
   theme: 'light' | 'dark' | 'auto';
   language: 'zh-CN' | 'en-US';
   showTips: boolean;
+  timezone: string; // 时区配置
 }
 
 // 通知设置类型定义

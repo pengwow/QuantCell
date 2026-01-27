@@ -271,7 +271,7 @@ async def lifespan(app: FastAPI):
     Yields:
         None: 无返回值
     """
-    global realtime_engine
+    global realtime_engine, global_timezone
     
     # 启动时异步初始化数据库
     await asyncio.to_thread(init_database)
@@ -282,6 +282,12 @@ async def lifespan(app: FastAPI):
     # 异步加载系统配置到应用上下文
     app.state.configs = await asyncio.to_thread(load_system_configs)
     logger.info(f"系统配置: {app.state.configs}")
+    
+    # 设置全局时区
+    timezone_config = app.state.configs.get('timezone', 'Asia/Shanghai')
+    global_timezone = pytz.timezone(timezone_config)
+    logger.info(f"当前应用时区: {timezone_config}")
+    
     # 异步检查并同步加密货币对数据
     await asyncio.to_thread(check_and_sync_crypto_symbols)
 
@@ -399,14 +405,17 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 import json
 
+# 全局时区变量，将在应用启动时初始化
+global_timezone = pytz.timezone('Asia/Shanghai')
+
 # 自定义JSON编码器，处理datetime对象
 def custom_json_encoder(obj):
     if isinstance(obj, datetime.datetime):
         # 如果datetime对象没有时区信息，添加UTC时区
         if obj.tzinfo is None:
             obj = obj.replace(tzinfo=pytz.utc)
-        # 转换为UTC+8时间并格式化为字符串
-        return obj.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+        # 转换为配置的时区并格式化为字符串
+        return obj.astimezone(global_timezone).strftime('%Y-%m-%d %H:%M:%S')
     raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
 # 自定义Response类，使用自定义JSON编码器
@@ -419,11 +428,17 @@ class CustomJSONResponse(Response):
         return json.dumps(encoded_content, default=custom_json_encoder).encode("utf-8")
 
 app = FastAPI(
-    lifespan=lifespan,
-    json_encoders={
-        datetime.datetime: lambda v: v.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
-    }
+    lifespan=lifespan
 )
+
+# 自定义JSON编码器，使用配置的全局时区
+@app.on_event("startup")
+def setup_json_encoder():
+    """设置JSON编码器，使用配置的全局时区"""
+    logger.info(f"设置JSON编码器，使用时区: {global_timezone.zone}")
+    app.json_encoders = {
+        datetime.datetime: lambda v: v.astimezone(global_timezone).strftime('%Y-%m-%d %H:%M:%S')
+    }
 
 # 添加CORS中间件配置
 app.add_middleware(
@@ -439,9 +454,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 配置应用时区
+# 初始化应用时区为默认值
 app.state.timezone = pytz.timezone('Asia/Shanghai')
 app.state.utc_zone = pytz.utc
+
+# 时区中间件，确保每次请求都使用最新的时区配置
+@app.middleware("http")
+async def timezone_middleware(request, call_next):
+    # 从配置中获取最新的时区设置
+    current_timezone = request.app.state.configs.get('timezone', 'Asia/Shanghai') if hasattr(request.app.state, 'configs') else 'Asia/Shanghai'
+    
+    # 更新全局时区
+    global global_timezone
+    new_timezone = pytz.timezone(current_timezone)
+    if new_timezone != global_timezone:
+        global_timezone = new_timezone
+        request.app.state.timezone = new_timezone
+        logger.info(f"时区配置已更新: {current_timezone}")
+    
+    # 继续处理请求
+    response = await call_next(request)
+    return response
 
 # 注册数据处理API路由
 app.include_router(collector_router)
@@ -518,6 +551,51 @@ def read_item(item_id: int, q: Union[str, None] = None):
         dict: 返回包含项目ID和查询参数的字典
     """
     return {"item_id": item_id, "q": q}
+
+
+@app.get("/test/timezone")
+def test_timezone():
+    """测试时区转换功能
+
+    Returns:
+        dict: 返回包含不同时间格式的字典，用于测试时区转换
+    """
+    import datetime
+    from datetime import datetime as dt
+    
+    # 创建当前时间
+    now = dt.now()
+    now_utc = dt.now(pytz.utc)
+    
+    # 返回不同格式的时间
+    return {
+        "now": now,  # 本地时间，无时区信息
+        "now_utc": now_utc,  # UTC时间，有时区信息
+        "timestamp": now.timestamp(),  # 时间戳
+        "timezone": global_timezone.zone,  # 当前应用时区
+        "formatted": now.strftime("%Y-%m-%d %H:%M:%S")  # 格式化时间
+    }
+
+
+@app.get("/test/datetime")
+def test_datetime():
+    """测试FastAPI的JSON编码器是否正确工作
+
+    Returns:
+        dict: 返回包含datetime对象的字典，用于测试时区转换
+    """
+    import datetime
+    from datetime import datetime as dt
+    
+    # 创建当前时间
+    now = dt.now(pytz.utc)  # UTC时间，有时区信息
+    
+    # 返回包含datetime对象的字典
+    return {
+        "current_time": now,  # UTC时间，有时区信息
+        "timezone": global_timezone.zone,  # 当前应用时区
+        "utc_offset": global_timezone.utcoffset(now).total_seconds() / 3600  # 当前时区的UTC偏移量
+    }
 
 
 @app.get("/api/config/plugin/{plugin_name}")
