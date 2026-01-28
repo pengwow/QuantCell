@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 from loguru import logger
 
-from collector.crypto.binance.collector import BinanceCollector
+from exchange.binance.collector import BinanceCollector
 from collector.db.models import SystemConfigBusiness as SystemConfig
 
 

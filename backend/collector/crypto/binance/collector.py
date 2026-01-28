@@ -1,12 +1,18 @@
 # 币安数据收集器
+import sys
+from pathlib import Path
 import pandas as pd
 import requests
 from loguru import logger
 
-from ...base import BaseCollector
-from ...base.utils import deco_retry
-from ..base import CryptoBaseCollector
-from .downloader import BinanceDownloader
+# 添加项目根目录到Python路径
+project_root = Path(__file__).parent.parent.parent
+sys.path.append(str(project_root))
+
+from backend.collector.base import BaseCollector
+from backend.collector.base.utils import deco_retry
+from backend.exchange.crypto.base import CryptoBaseCollector
+from backend.exchange.binance.downloader import BinanceDownloader
 
 
 class BinanceCollector(CryptoBaseCollector):
@@ -60,7 +66,6 @@ class BinanceCollector(CryptoBaseCollector):
             mode=mode,  # 传递模式参数
         )
         
-        self.downloader = BinanceDownloader(candle_type=candle_type)
         self.candle_names = [
             'open_time', 'open', 'high', 'low', 'close', 'volume',
             'close_time', 'quote_volume', 'count', 'taker_buy_volume',

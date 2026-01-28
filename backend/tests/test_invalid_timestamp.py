@@ -9,8 +9,8 @@ sys.path.append('/Users/liupeng/workspace/qbot')
 
 import pandas as pd
 
-from backend.collector.crypto.binance.collector import BinanceCollector
-from backend.collector.crypto.binance.downloader import BinanceDownloader
+from backend.exchange.binance.collector import BinanceCollector
+from backend.exchange.binance.downloader import BinanceDownloader
 
 
 def test_invalid_timestamp():
