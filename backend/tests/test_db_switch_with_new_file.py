@@ -4,8 +4,8 @@
 import os
 import sys
 from pathlib import Path
-
-import yaml
+import tomli
+import tomli_w
 
 # 添加项目根目录到Python路径
 sys.path.append('/Users/liupeng/workspace/qbot')
@@ -20,17 +20,17 @@ from backend.config import config_manager
 def create_temp_config():
     """创建临时配置文件，使用新的测试数据库文件"""
     # 读取原始配置
-    original_config_path = Path(__file__).parent / "config.yaml"
-    with open(original_config_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
+    original_config_path = Path(__file__).parent / "config.toml"
+    with open(original_config_path, "rb") as f:
+        config = tomli.load(f) or {}
     
     # 修改数据库文件路径
     config["database"]["file"] = "data/test_system.db"
     
     # 保存临时配置
-    temp_config_path = Path(__file__).parent / "config_temp.yaml"
-    with open(temp_config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config, f)
+    temp_config_path = Path(__file__).parent / "config_temp.toml"
+    with open(temp_config_path, "wb") as f:
+        tomli_w.dump(config, f)
     
     return temp_config_path
 

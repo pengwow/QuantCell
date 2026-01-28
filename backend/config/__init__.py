@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import yaml
+import tomli
 from loguru import logger
 
 
@@ -18,11 +18,11 @@ class ConfigManager:
         """初始化配置管理器
         
         Args:
-            config_path: 配置文件路径，默认使用backend/config.yaml
+            config_path: 配置文件路径，默认使用backend/config.toml
         """
         # 默认配置文件路径
         if config_path is None:
-            config_path = Path(__file__).parent.parent / "config.yaml"
+            config_path = Path(__file__).parent.parent / "config.toml"
         else:
             config_path = Path(config_path)
         
@@ -37,8 +37,8 @@ class ConfigManager:
         """
         try:
             if self.config_path.exists():
-                with open(self.config_path, "r", encoding="utf-8") as f:
-                    config = yaml.safe_load(f)
+                with open(self.config_path, "rb") as f:
+                    config = tomli.load(f)
                 logger.info(f"成功加载配置文件: {self.config_path}")
                 return config or {}
             else:
