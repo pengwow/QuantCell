@@ -7,7 +7,7 @@ import sys
 # 添加项目根目录到Python路径
 sys.path.append('/Users/liupeng/workspace/qbot')
 
-from backend.collector.crypto.binance.downloader import BinanceDownloader
+from backend.exchange.binance.downloader import BinanceDownloader
 
 
 def test_download_data_format():

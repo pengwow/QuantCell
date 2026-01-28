@@ -1,12 +1,18 @@
 # OKX数据收集器
+import sys
+from pathlib import Path
 import pandas as pd
 import requests
 from loguru import logger
 
-from ...base import BaseCollector
-from ...base.utils import deco_retry
-from ..base import CryptoBaseCollector
-from .downloader import OKXDownloader
+# 添加项目根目录到Python路径
+project_root = Path(__file__).parent.parent.parent
+sys.path.append(str(project_root))
+
+from backend.collector.base import BaseCollector
+from backend.collector.base.utils import deco_retry
+from backend.exchange.crypto.base import CryptoBaseCollector
+from backend.exchange.okx.downloader import OKXDownloader
 
 
 class OKXCollector(CryptoBaseCollector):
