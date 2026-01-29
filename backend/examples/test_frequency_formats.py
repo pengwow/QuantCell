@@ -8,7 +8,7 @@ from pathlib import Path
 
 # 添加项目根目录到Python路径
 current_dir = Path(__file__).parent
-project_root = current_dir.parent.parent  # backend/examples -> backend -> qbot
+project_root = current_dir.parent.parent  # backend/examples -> backend -> quantcell
 sys.path.append(str(project_root))
 
 print("测试改进后的文件存储补丁支持的频率格式")
@@ -73,7 +73,7 @@ try:
     from qlib.data import D
 
     # 初始化qlib
-    data_dir = '/Users/liupeng/workspace/qbot/backend/data/source'
+    data_dir = '/Users/liupeng/workspace/quantcell/backend/data/source'
     qlib.init(provider_uri=data_dir)
     
     # 测试使用15m频率
@@ -107,7 +107,7 @@ try:
     storage = FileCalendarStorage.__new__(FileCalendarStorage)
     storage.freq = "30min"
     storage.future = False
-    storage._provider_uri = '/Users/liupeng/workspace/qbot/backend/data/source'
+    storage._provider_uri = '/Users/liupeng/workspace/quantcell/backend/data/source'
     storage.storage_name = "calendar"
     
     # 获取uri

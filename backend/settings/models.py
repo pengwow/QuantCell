@@ -60,9 +60,18 @@ class SystemConfigBusiness:
         try:
             # 检查配置是否已存在
             config = db.query(SystemConfig).filter_by(key=key).first()
+            
+            # 确保value是字符串类型，因为数据库字段是String类型
+            if isinstance(value, bool):
+                # 布尔值转换为字符串
+                str_value = '1' if value else '0'
+            else:
+                # 其他类型转换为字符串
+                str_value = str(value)
+            
             if config:
                 # 更新现有配置
-                config.value = value
+                config.value = str_value
                 if description:
                     config.description = description
                 if plugin is not None:
@@ -74,7 +83,7 @@ class SystemConfigBusiness:
                 # 创建新配置
                 config = SystemConfig(
                     key=key,
-                    value=value,
+                    value=str_value,
                     description=description,
                     plugin=plugin,
                     name=name,

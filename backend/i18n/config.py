@@ -8,7 +8,7 @@ SUPPORTED_LOCALES = ["zh-CN", "en-US"]
 # 设置gettext相关环境变量
 def setup_gettext():
     # 获取统一的国际化目录路径
-    unified_i18n_dir = Path("/Users/liupeng/workspace/qbot/i18n")
+    unified_i18n_dir = Path("/Users/liupeng/workspace/quantcell/i18n")
     
     # 设置环境变量 - fastapi_i18n使用gettext，需要正确的目录结构
     # gettext期望的目录结构是：locale_dir/locale/LC_MESSAGES/messages.mo

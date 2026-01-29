@@ -8,7 +8,7 @@ from pathlib import Path
 
 # 模拟Jupyter Notebook的工作目录和路径设置
 current_dir = Path(__file__).parent
-project_root = current_dir.parent.parent  # backend/examples -> backend -> qbot
+project_root = current_dir.parent.parent  # backend/examples -> backend -> quantcell
 
 sys.path.append(str(project_root))
 print(f"已将项目根目录添加到sys.path: {project_root}")
@@ -26,7 +26,7 @@ except Exception as e:
 print("\n2. 初始化qlib")
 try:
     import qlib
-    data_dir = '/Users/liupeng/workspace/qbot/backend/data/source'
+    data_dir = '/Users/liupeng/workspace/quantcell/backend/data/source'
     qlib.init(provider_uri=data_dir)
     print("✓ qlib初始化成功")
 except Exception as e:

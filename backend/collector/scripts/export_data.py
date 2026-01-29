@@ -187,8 +187,8 @@ class ExportData:
                     max_workers=max_workers,
                     candle_type=candle_type,
                     symbols=symbol,
-                    convert_to_qlib=False,
-                    qlib_dir=None,
+                    # convert_to_qlib=False,  # 移除convert_to_qlib参数，该功能已移除
+                    # qlib_dir=None,  # 移除qlib_dir参数，该功能已移除
                     exists_skip=False,
                     mode="full"
                 )

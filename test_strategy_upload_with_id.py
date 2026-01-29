@@ -5,7 +5,7 @@ import requests
 import json
 
 # 读取策略文件内容
-with open('/Users/liupeng/workspace/qbot/test_strategy.py', 'r') as f:
+with open('/Users/liupeng/workspace/quantcell/test_strategy.py', 'r') as f:
     file_content = f.read()
 
 # 测试1: 不带id参数，创建新策略
@@ -29,7 +29,7 @@ try:
     # 查询数据库，获取创建的策略ID
     if response.status_code == 200:
         import sqlite3
-        conn = sqlite3.connect('/Users/liupeng/workspace/qbot/backend/data/qbot_sqlite.db')
+        conn = sqlite3.connect('/Users/liupeng/workspace/quantcell/backend/data/quantcell_sqlite.db')
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM strategies WHERE name = 'test_strategy_with_id'")
         strategy = cursor.fetchone()
@@ -63,7 +63,7 @@ try:
             
             # 验证数据库中的策略是否已更新
             if response.status_code == 200:
-                conn = sqlite3.connect('/Users/liupeng/workspace/qbot/backend/data/qbot_sqlite.db')
+                conn = sqlite3.connect('/Users/liupeng/workspace/quantcell/backend/data/quantcell_sqlite.db')
                 cursor = conn.cursor()
                 cursor.execute("SELECT description FROM strategies WHERE id = ?", (strategy_id,))
                 updated_strategy = cursor.fetchone()

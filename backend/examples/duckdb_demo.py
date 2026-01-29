@@ -1,7 +1,7 @@
 import duckdb
 import pandas as pd
 
-db_path = '/Users/liupeng/workspace/qbot/backend/data/qbot.db'
+db_path = '/Users/liupeng/workspace/quantcell/backend/data/quantcell.db'
 conn = duckdb.connect(str(db_path))
 df = conn.execute("SELECT * FROM klines LIMIT 10;").df()
 print(df.head())

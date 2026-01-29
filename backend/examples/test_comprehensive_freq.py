@@ -9,7 +9,7 @@ from pathlib import Path
 
 # 添加项目根目录到sys.path
 current_dir = Path(os.getcwd())
-project_root = current_dir.parent.parent  # backend/examples -> backend -> qbot
+project_root = current_dir.parent.parent  # backend/examples -> backend -> quantcell
 sys.path.append(str(project_root))
 
 # 在导入qlib之前应用补丁

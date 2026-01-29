@@ -11,7 +11,7 @@ from pathlib import Path
 import sqlite3
 
 # 数据库文件路径
-db_file = Path(__file__).parent / "backend" / "data" / "qbot_sqlite.db"
+db_file = Path(__file__).parent / "backend" / "data" / "quantcell_sqlite.db"
 
 print(f"数据库文件路径: {db_file}")
 print(f"数据库文件是否存在: {db_file.exists()}")

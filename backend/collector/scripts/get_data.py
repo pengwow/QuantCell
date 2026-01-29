@@ -45,7 +45,7 @@ class GetData:
                 csv_dir=str(data_dir),
                 qlib_dir=str(qlib_dir),
                 freq=interval,
-                timestamp_field_name="timestamp",
+                date_field_name="timestamp",
                 file_suffix=".csv",
                 symbol_field_name="symbol",
                 include_fields="timestamp,open,high,low,close,volume",
@@ -221,8 +221,8 @@ class GetData:
         limit_nums=None,
         candle_type='spot',
         symbols=None,
-        convert_to_qlib=False,
-        qlib_dir=None,
+        # convert_to_qlib=False,
+        # qlib_dir=None,
         progress_callback=None,
         exists_skip=False,
         mode='inc',  # 添加模式参数，支持inc（增量）和full（全量），默认inc
@@ -242,8 +242,8 @@ class GetData:
         :param limit_nums: 限制收集的标的数量，用于调试，默认None
         :param candle_type: 蜡烛图类型，可选'spot'（现货）、'futures'（期货）或'option'（期权），默认'spot'
         :param symbols: 交易对列表，如'BTCUSDT,ETHUSDT'，如果为None则获取全量交易对
-        :param convert_to_qlib: 是否将数据转换为QLib格式，默认False
-        :param qlib_dir: QLib数据保存目录，如果为None则自动生成
+        # :param convert_to_qlib: 是否将数据转换为QLib格式，默认False
+        # :param qlib_dir: QLib数据保存目录，如果为None则自动生成
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
         :param exists_skip: 是否跳过已存在的文件，默认False
         :param mode: 下载模式，可选'inc'（增量）和full（全量），默认'inc'
@@ -343,11 +343,11 @@ class GetData:
             self._write_to_database(save_dir, interval, symbols, candle_type)
         
         # 处理QLib转换
-        if convert_to_qlib:
-            if qlib_dir is None:
-                # 自动生成QLib数据目录
-                qlib_dir = self.default_save_dir.parent.parent / "qlib_data"
-            self._convert_to_qlib(save_dir, qlib_dir, interval)
+        # if convert_to_qlib:
+        #     if qlib_dir is None:
+        #         # 自动生成QLib数据目录
+        #         qlib_dir = self.default_save_dir.parent.parent / "qlib_data"
+        #     self._convert_to_qlib(save_dir, qlib_dir, interval)
         
         logger.info("数据下载完成！")
     
@@ -364,8 +364,8 @@ class GetData:
         limit_nums=None,
         candle_type='spot',
         symbols=None,
-        convert_to_qlib=False,
-        qlib_dir=None,
+        # convert_to_qlib=False,
+        # qlib_dir=None,
         progress_callback=None,
         exists_skip=False,
         mode='inc',  # 添加模式参数，支持inc（增量）和full（全量），默认inc
@@ -385,8 +385,8 @@ class GetData:
         :param limit_nums: 限制收集的标的数量，用于调试，默认None
         :param candle_type: 蜡烛图类型，可选'spot'（现货）、'futures'（期货）或'option'（期权），默认'spot'
         :param symbols: 交易对列表，如'BTC-USDT,ETH-USDT'，如果为None则获取全量交易对
-        :param convert_to_qlib: 是否将数据转换为QLib格式，默认False
-        :param qlib_dir: QLib数据保存目录，如果为None则自动生成
+        # :param convert_to_qlib: 是否将数据转换为QLib格式，默认False
+        # :param qlib_dir: QLib数据保存目录，如果为None则自动生成
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
         :param exists_skip: 是否跳过已存在的文件，默认False
         :param mode: 下载模式，可选'inc'（增量）或'full'（全量），默认'inc'
@@ -484,11 +484,11 @@ class GetData:
             self._write_to_database(save_dir, interval, symbols, candle_type)
         
         # 处理QLib转换
-        if convert_to_qlib:
-            if qlib_dir is None:
-                # 自动生成QLib数据目录
-                qlib_dir = self.default_save_dir.parent.parent / "qlib_data"
-            self._convert_to_qlib(save_dir, qlib_dir, interval)
+        # if convert_to_qlib:
+        #     if qlib_dir is None:
+        #         # 自动生成QLib数据目录
+        #         qlib_dir = self.default_save_dir.parent.parent / "qlib_data"
+        #     self._convert_to_qlib(save_dir, qlib_dir, interval)
         
         logger.info("数据下载完成！")
     
@@ -506,8 +506,8 @@ class GetData:
         limit_nums=None,
         candle_type='spot',
         symbols=None,
-        convert_to_qlib=False,
-        qlib_dir=None,
+        # convert_to_qlib=False,
+        # qlib_dir=None,
         progress_callback=None,
         exists_skip=False,
         mode='inc',  # 添加模式参数，支持inc（增量）和full（全量），默认inc
@@ -528,8 +528,8 @@ class GetData:
         :param limit_nums: 限制收集的标的数量，用于调试，默认None
         :param candle_type: 蜡烛图类型，可选'spot'（现货）、'futures'（期货）或'option'（期权），默认'spot'
         :param symbols: 交易对列表，如'BTCUSDT,ETHUSDT'（Binance）或'BTC-USDT,ETH-USDT'（OKX），如果为None则获取全量交易对
-        :param convert_to_qlib: 是否将数据转换为QLib格式，默认False
-        :param qlib_dir: QLib数据保存目录，如果为None则自动生成
+        # :param convert_to_qlib: 是否将数据转换为QLib格式，默认False
+        # :param qlib_dir: QLib数据保存目录，如果为None则自动生成
         :param progress_callback: 进度回调函数，格式为 callback(current, completed, total, failed)
         :param exists_skip: 是否跳过已存在的文件，默认False
         :param mode: 下载模式，可选'inc'（增量）或'full'（全量），默认'inc'
@@ -548,8 +548,8 @@ class GetData:
                 limit_nums=limit_nums,
                 candle_type=candle_type,
                 symbols=symbols,
-                convert_to_qlib=convert_to_qlib,
-                qlib_dir=qlib_dir,
+                # convert_to_qlib=convert_to_qlib,
+                # qlib_dir=qlib_dir,
                 progress_callback=progress_callback,
                 exists_skip=exists_skip,
                 mode=mode,  # 传递模式参数
@@ -568,8 +568,8 @@ class GetData:
                 limit_nums=limit_nums,
                 candle_type=candle_type,
                 symbols=symbols,
-                convert_to_qlib=convert_to_qlib,
-                qlib_dir=qlib_dir,
+                # convert_to_qlib=convert_to_qlib,
+                # qlib_dir=qlib_dir,
                 progress_callback=progress_callback,
                 exists_skip=exists_skip,
                 mode=mode,  # 传递模式参数

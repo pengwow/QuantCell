@@ -80,7 +80,7 @@ def init_database_config():
     db_type = os.environ.get("DB_TYPE", "sqlite")  # 默认使用sqlite
     
     # 根据数据库类型使用不同的默认文件名
-    default_db_filename = f"qbot_{db_type}.db" if db_type in ["sqlite", "duckdb"] else "qbot.db"
+    default_db_filename = f"quantcell_{db_type}.db" if db_type in ["sqlite", "duckdb"] else "quantcell.db"
     db_file = os.environ.get("DB_FILE", str(default_db_path / default_db_filename))
     
     # 构建数据库URL

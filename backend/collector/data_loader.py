@@ -8,8 +8,8 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 
 # 添加项目根目录到Python路径
-backend_root = Path(__file__).parent.parent  # /Users/liupeng/workspace/qbot/backend
-project_root = backend_root.parent  # /Users/liupeng/workspace/qbot
+backend_root = Path(__file__).parent.parent  # /Users/liupeng/workspace/quantcell/backend
+project_root = backend_root.parent  # /Users/liupeng/workspace/quantcell
 sys.path.append(str(project_root))
 
 # 添加qlib目录到Python路径

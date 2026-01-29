@@ -8,10 +8,10 @@ import pandas as pd
 
 if __name__ == '__main__':
     current_dir = Path(os.getcwd())
-    project_root = current_dir.parent.parent  # backend/examples -> backend -> qbot
+    project_root = current_dir.parent.parent  # backend/examples -> backend -> quantcell
     
     # 方法2：手动构建路径
-    project_root = Path("/Users/liupeng/workspace/qbot")
+    project_root = Path("/Users/liupeng/workspace/quantcell")
     
     sys.path.append(str(project_root))
     print(f"已将项目根目录添加到sys.path: {project_root}")
@@ -28,7 +28,7 @@ if __name__ == '__main__':
     data_dir =os.path.join(project_root, 'backend/data/qlib_data')
     print(data_dir)
     # qlib.init()
-    data_dir = '/Users/liupeng/workspace/qbot/backend/data/source'
+    data_dir = '/Users/liupeng/workspace/quantcell/backend/data/source'
     qlib.init(provider_uri=data_dir)
     
     

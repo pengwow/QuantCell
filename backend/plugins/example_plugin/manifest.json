@@ -1,8 +1,8 @@
 {
   "name": "example_plugin",
   "version": "1.0.0",
-  "description": "Example backend plugin for QBot",
-  "author": "QBot Team",
+  "description": "Example backend plugin for QuantCell",
+  "author": "QuantCell Team",
   "main": "plugin.py",
   "routes": "routes.py",
   "dependencies": []

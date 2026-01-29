@@ -7,7 +7,7 @@ export class DemoPlugin extends PluginBase {
       'demo-plugin', 
       '1.0.0', 
       '前端插件demo', 
-      'QBot Team'
+      'QuantCell Team'
     );
   }
 

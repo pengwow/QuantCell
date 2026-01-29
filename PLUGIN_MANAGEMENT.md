@@ -1,14 +1,14 @@
-# QBot 插件管理指南
+# QuantCell 插件管理指南
 
 ## 1. 概述
 
-本指南介绍 QBot 插件系统的打包、安装和服务管理机制，帮助开发者和管理员快速上手插件管理。
+本指南介绍 QuantCell 插件系统的打包、安装和服务管理机制，帮助开发者和管理员快速上手插件管理。
 
 ## 2. 插件打包
 
 ### 2.1 打包脚本
 
-**文件路径**：`/Users/liupeng/workspace/qbot/plugin_packer.py`
+**文件路径**：`/Users/liupeng/workspace/quantcell/plugin_packer.py`
 
 **功能**：将指定插件目录打包成标准化的 tar.gz 文件
 
@@ -53,7 +53,7 @@ python plugin_packer.py frontend/src/plugins/demo-plugin
 
 ### 3.1 安装脚本
 
-**文件路径**：`/Users/liupeng/workspace/qbot/plugin_installer.py`
+**文件路径**：`/Users/liupeng/workspace/quantcell/plugin_installer.py`
 
 **功能**：解压 tar.gz 文件并安装到对应插件目录
 
@@ -91,7 +91,7 @@ python plugin_installer.py demo-plugin-1.0.0-frontend.tar.gz
 
 ### 4.1 服务管理脚本
 
-**文件路径**：`/Users/liupeng/workspace/qbot/service_manager.py`
+**文件路径**：`/Users/liupeng/workspace/quantcell/service_manager.py`
 
 **功能**：管理前后端服务的启动、停止和重启
 
@@ -230,4 +230,4 @@ python service_manager.py restart frontend
 
 ## 11. 联系方式
 
-如有问题或建议，请联系 QBot 开发团队。
+如有问题或建议，请联系 QuantCell 开发团队。

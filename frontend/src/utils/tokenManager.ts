@@ -13,7 +13,7 @@ export interface JWTToken {
 /**
  * 令牌存储键名
  */
-const TOKEN_STORAGE_KEY = 'qbot_jwt_token';
+const TOKEN_STORAGE_KEY = 'quantcell_jwt_token';
 
 /**
  * 存储JWT令牌

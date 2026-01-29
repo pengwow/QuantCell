@@ -9,6 +9,13 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from loguru import logger
 
+# 导入SessionLocal以正确创建session
+try:
+    from backend.collector.db.database import SessionLocal
+except ImportError:
+    # 如果导入失败，使用默认的Session类
+    SessionLocal = Session
+
 
 
 def update_data_pools_table(session: Session, db_type: str) -> None:
@@ -56,6 +63,11 @@ def update_data_pools_table(session: Session, db_type: str) -> None:
             column_exists = session.execute(
                 text("SELECT column_name FROM information_schema.columns WHERE table_name='data_pools' AND column_name='is_public'")
             ).fetchone()
+        else:
+            # 默认使用SQLite语法，处理db_type为None的情况
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('data_pools') WHERE name='is_public'")
+            ).fetchone()
         
         if not column_exists:
             logger.info("添加is_public列...")
@@ -79,6 +91,11 @@ def update_data_pools_table(session: Session, db_type: str) -> None:
         elif db_type == "duckdb":
             column_exists = session.execute(
                 text("SELECT column_name FROM information_schema.columns WHERE table_name='data_pools' AND column_name='is_default'")
+            ).fetchone()
+        else:
+            # 默认使用SQLite语法，处理db_type为None的情况
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('data_pools') WHERE name='is_default'")
             ).fetchone()
         
         if not column_exists:
@@ -221,6 +238,11 @@ def update_strategies_table(session: Session, db_type: str) -> None:
             column_exists = session.execute(
                 text("SELECT column_name FROM information_schema.columns WHERE table_name='strategies' AND column_name='content'")
             ).fetchone()
+        else:
+            # 默认使用SQLite语法，处理db_type为None的情况
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('strategies') WHERE name='content'")
+            ).fetchone()
         
         if not column_exists:
             logger.info("添加content列...")
@@ -319,6 +341,11 @@ def update_system_config_table(session: Session, db_type: str) -> None:
             column_exists = session.execute(
                 text("SELECT column_name FROM information_schema.columns WHERE table_name='system_config' AND column_name='plugin'")
             ).fetchone()
+        else:
+            # 默认使用SQLite语法，处理db_type为None的情况
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('system_config') WHERE name='plugin'")
+            ).fetchone()
         
         if not column_exists:
             logger.info("添加plugin列...")
@@ -343,6 +370,11 @@ def update_system_config_table(session: Session, db_type: str) -> None:
             column_exists = session.execute(
                 text("SELECT column_name FROM information_schema.columns WHERE table_name='system_config' AND column_name='name'")
             ).fetchone()
+        else:
+            # 默认使用SQLite语法，处理db_type为None的情况
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('system_config') WHERE name='name'")
+            ).fetchone()
         
         if not column_exists:
             logger.info("添加name列...")
@@ -366,6 +398,11 @@ def update_system_config_table(session: Session, db_type: str) -> None:
         elif db_type == "duckdb":
             column_exists = session.execute(
                 text("SELECT column_name FROM information_schema.columns WHERE table_name='system_config' AND column_name='is_sensitive'")
+            ).fetchone()
+        else:
+            # 默认使用SQLite语法，处理db_type为None的情况
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('system_config') WHERE name='is_sensitive'")
             ).fetchone()
         
         if not column_exists:
@@ -545,13 +582,20 @@ def run_migrations() -> None:
     
     try:
         # 延迟导入，避免循环导入问题
-        from backend.collector.db.database import init_database_config, engine, db_type
+        import backend.collector.db.database
         
         # 初始化数据库配置
-        init_database_config()
+        backend.collector.db.database.init_database_config()
+        
+        # 获取更新后的数据库配置
+        db_type = backend.collector.db.database.db_type
+        engine = backend.collector.db.database.engine
+        
+        logger.info(f"数据库类型: {db_type}")
+        logger.info(f"数据库URL: {backend.collector.db.database.db_url}")
         
         # 使用Session执行迁移
-        with Session(engine) as session:
+        with SessionLocal() as session:
             # 更新data_pools表结构
             update_data_pools_table(session, db_type)
             

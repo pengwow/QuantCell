@@ -32,4 +32,4 @@ def detect_database_type(file_path):
     return "❌ 未知数据库类型"
 
 # 使用示例
-print(detect_database_type("/Users/liupeng/workspace/qbot/backend/data/qbot.db"))
+print(detect_database_type("/Users/liupeng/workspace/quantcell/backend/data/quantcell.db"))

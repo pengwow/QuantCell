@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
 
 # 数据库连接URL（使用DuckDB）
-db_url = "duckdb:////Users/liupeng/workspace/qbot/backend/data/qbot.db"
+db_url = "duckdb:////Users/liupeng/workspace/quantcell/backend/data/quantcell.db"
 
 # 创建引擎
 engine = create_engine(db_url)

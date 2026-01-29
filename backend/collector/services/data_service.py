@@ -1020,13 +1020,13 @@ class DataService:
                 save_dir = Path(save_dir) / "crypto"
                 logger.info(f"拼接后的保存目录: {save_dir}")
             
-            # 从数据库中读取qlib_data_dir配置
-            qlib_dir = SystemConfig.get("qlib_data_dir")
-            if not qlib_dir:
-                qlib_dir = "data/crypto_data"
-                logger.warning(f"未找到qlib_data_dir配置，使用默认值: {qlib_dir}")
-            else:
-                logger.info(f"从数据库中读取到qlib_data_dir: {qlib_dir}")
+            # # 从数据库中读取qlib_data_dir配置
+            # qlib_dir = SystemConfig.get("qlib_data_dir")
+            # if not qlib_dir:
+            #     qlib_dir = "data/crypto_data"
+            #     logger.warning(f"未找到qlib_data_dir配置，使用默认值: {qlib_dir}")
+            # else:
+            #     logger.info(f"从数据库中读取到qlib_data_dir: {qlib_dir}")
             
             # 遍历所有时间周期
             for interval in request.interval:
@@ -1042,8 +1042,8 @@ class DataService:
                     max_workers=request.max_workers,
                     candle_type=request.candle_type,
                     symbols=",".join(request.symbols),
-                    convert_to_qlib=True,
-                    qlib_dir=qlib_dir,  # 传递从数据库读取的qlib_data_dir作为转换地址
+                    # convert_to_qlib=True,  # 移除convert_to_qlib参数，该功能已移除
+                    # qlib_dir=qlib_dir,  # 传递从数据库读取的qlib_data_dir作为转换地址
                     progress_callback=progress_callback,
                     mode=request.mode
                 )
@@ -1100,24 +1100,24 @@ class DataService:
                             if row[['timestamp', 'open', 'high', 'low', 'close', 'volume']].isna().any(axis=None):
                                 continue
                             
-                            # 转换timestamp列为datetime对象
+                            # 保持timestamp的原始格式
                             timestamp = row['timestamp']
-                            if isinstance(timestamp, str):
-                                timestamp = pd.to_datetime(timestamp)
                             
-                            # 直接生成unique_kline值
-                            unique_kline = f"{symbol}_{interval}_{timestamp.isoformat()}"
+                            # 直接使用原始timestamp生成unique_kline值
+                            unique_kline = f"{symbol}_{interval}_{timestamp}"
                             
                             kline_list.append({
                                 'symbol': symbol,
                                 'interval': interval,
-                                'timestamp': timestamp,
+                                'timestamp': timestamp,  # 保持原始格式
                                 'open': row['open'],
                                 'high': row['high'],
                                 'low': row['low'],
                                 'close': row['close'],
                                 'volume': row['volume'],
-                                'unique_kline': unique_kline
+                                'unique_kline': unique_kline,
+                                'data_source': request.exchange,  # 添加data_source字段
+                                'created_at': datetime.now()  # 添加created_at字段
                             })
                         
                         if not kline_list:
@@ -1135,28 +1135,41 @@ class DataService:
                             from backend.collector.db.database import db_type
                             
                             if db_type == "sqlite":
-                                # SQLite使用on_conflict_do_update
-                                from sqlalchemy.dialects.sqlite import \
-                                    insert as sqlite_insert
+                                # SQLite使用更简单的冲突处理方式
+                                from sqlalchemy.dialects.sqlite import insert as sqlite_insert
                                 
-                                # 分批插入数据，避免SQLite变量数量超限
-                                batch_size = 100
-                                total_rows = len(kline_list)
-                                for i in range(0, total_rows, batch_size):
-                                    batch = kline_list[i:i+batch_size]
-                                    stmt = sqlite_insert(kline_model).values(batch)
-                                    stmt = stmt.on_conflict_do_update(
-                                        index_elements=['unique_kline'],
-                                        set_={
-                                            'open': stmt.excluded.open,
-                                            'high': stmt.excluded.high,
-                                            'low': stmt.excluded.low,
-                                            'close': stmt.excluded.close,
-                                            'volume': stmt.excluded.volume,
+                                # 先检查哪些记录已存在
+                                existing_unique_klines = db.query(kline_model.unique_kline).filter(
+                                    kline_model.unique_kline.in_([k['unique_kline'] for k in kline_list])
+                                ).all()
+                                existing_set = {uk[0] for uk in existing_unique_klines}
+                                
+                                # 分离新记录和需要更新的记录
+                                new_records = [k for k in kline_list if k['unique_kline'] not in existing_set]
+                                update_records = [k for k in kline_list if k['unique_kline'] in existing_set]
+                                
+                                # 批量插入新记录
+                                if new_records:
+                                    batch_size = 100
+                                    total_rows = len(new_records)
+                                    for i in range(0, total_rows, batch_size):
+                                        batch = new_records[i:i+batch_size]
+                                        stmt = sqlite_insert(kline_model).values(batch)
+                                        db.execute(stmt)
+                                
+                                # 批量更新已存在的记录
+                                if update_records:
+                                    for record in update_records:
+                                        db.query(kline_model).filter(
+                                            kline_model.unique_kline == record['unique_kline']
+                                        ).update({
+                                            'open': record['open'],
+                                            'high': record['high'],
+                                            'low': record['low'],
+                                            'close': record['close'],
+                                            'volume': record['volume'],
                                             'updated_at': func.now()
-                                        }
-                                    )
-                                    db.execute(stmt)
+                                        })
                             elif db_type == "duckdb":
                                 # DuckDB使用PostgreSQL兼容的ON CONFLICT语法
                                 from sqlalchemy.dialects.postgresql import \

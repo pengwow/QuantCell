@@ -11,7 +11,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 # 添加项目根目录到Python路径
-sys.path.append('/Users/liupeng/workspace/qbot')
+sys.path.append('/Users/liupeng/workspace/quantcell')
 
 from backend.scripts.check_kline_health import KlineHealthChecker
 

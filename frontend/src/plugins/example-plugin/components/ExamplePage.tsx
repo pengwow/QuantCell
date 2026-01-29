@@ -14,7 +14,7 @@ export const ExamplePage: React.FC = () => {
           <div>
             <Title level={3}>插件功能演示</Title>
             <Paragraph>
-              这是一个示例插件页面，展示了QBot插件系统的基本功能。
+              这是一个示例插件页面，展示了QuantCell插件系统的基本功能。
               插件系统允许开发者扩展系统功能，添加新的页面和菜单。
             </Paragraph>
           </div>
@@ -42,7 +42,7 @@ export const ExamplePage: React.FC = () => {
             <br />
             <Text>版本：1.0.0</Text>
             <br />
-            <Text>作者：QBot Team</Text>
+            <Text>作者：QuantCell Team</Text>
           </div>
         </Space>
       </Card>

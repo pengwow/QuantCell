@@ -1,4 +1,4 @@
-# QBot
+# QuantCell
 
 ## 快速开始
 
@@ -19,4 +19,4 @@ bun run dev
 ```
 
 ## 插件开发指南
-详细的插件开发文档请参考：[QBot 插件开发指南](docs/plugin.md)
+详细的插件开发文档请参考：[QuantCell 插件开发指南](docs/plugin.md)

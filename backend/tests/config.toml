@@ -1,7 +1,7 @@
 # 数据库配置
 [database]
 type = "duckdb"  # 数据库类型：duckdb 或 sqlite
-file = "data/qbot.db"  # 数据库文件路径
+file = "data/quantcell.db"  # 数据库文件路径
 
 # 应用配置
 [app]

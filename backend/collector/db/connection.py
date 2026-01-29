@@ -50,7 +50,7 @@ class DBConnection:
             db_type = os.environ.get("DB_TYPE", "sqlite")  # 默认使用sqlite
             
             # 根据数据库类型使用不同的默认文件名
-            default_db_filename = f"qbot_{db_type}.db" if db_type in ["sqlite", "duckdb"] else "qbot.db"
+            default_db_filename = f"quantcell_{db_type}.db" if db_type in ["sqlite", "duckdb"] else "quantcell.db"
             default_db_file = str(default_db_dir / default_db_filename)
             db_file = os.environ.get("DB_FILE", default_db_file)
             
@@ -61,7 +61,7 @@ class DBConnection:
                 if config_db_type:
                     db_type = config_db_type
                     # 如果从配置读取了数据库类型，重新生成默认文件名
-                    default_db_filename = f"qbot_{db_type}.db" if db_type in ["sqlite", "duckdb"] else "qbot.db"
+                    default_db_filename = f"quantcell_{db_type}.db" if db_type in ["sqlite", "duckdb"] else "quantcell.db"
                     default_db_file = str(default_db_dir / default_db_filename)
                     # 只有当db_file仍为默认值时，才更新它
                     if db_file == os.environ.get("DB_FILE", default_db_file):

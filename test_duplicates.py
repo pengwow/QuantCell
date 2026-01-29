@@ -10,7 +10,7 @@ import pandas as pd
 from datetime import datetime
 
 # 添加项目根目录到Python路径
-sys.path.append('/Users/liupeng/workspace/qbot')
+sys.path.append('/Users/liupeng/workspace/quantcell')
 
 from backend.collector.db.database import init_database_config, SessionLocal
 from backend.collector.db.models import CryptoSpotKline

@@ -1,10 +1,10 @@
-# QBot 插件开发指南
+# QuantCell 插件开发指南
 
 ## 1. 简介
 
-QBot 插件系统允许开发者在现有框架中扩展新的菜单、页面和接口，支持前后端都可用的插件。
+QuantCell 插件系统允许开发者在现有框架中扩展新的菜单、页面和接口，支持前后端都可用的插件。
 
-本指南将详细介绍 QBot 插件的开发流程、环境配置、项目结构和核心功能实现，帮助开发者快速上手插件开发。
+本指南将详细介绍 QuantCell 插件的开发流程、环境配置、项目结构和核心功能实现，帮助开发者快速上手插件开发。
 
 ## 2. 开发环境配置
 
@@ -18,7 +18,7 @@ QBot 插件系统允许开发者在现有框架中扩展新的菜单、页面和
 
 1. 安装依赖
    ```bash
-   cd qbot/frontend
+   cd quantcell/frontend
    bun install
    ```
 
@@ -42,7 +42,7 @@ QBot 插件系统允许开发者在现有框架中扩展新的菜单、页面和
 
 1. 安装依赖
    ```bash
-   cd qbot/backend
+   cd quantcell/backend
    uv install
    ```
 
@@ -56,7 +56,7 @@ QBot 插件系统允许开发者在现有框架中扩展新的菜单、页面和
 ### 3.1 项目根目录结构
 
 ```
-qbot/
+quantcell/
 ├── backend/                # 后端代码
 │   ├── plugins/            # 后端插件目录
 │   ├── main.py            # 后端入口文件
@@ -242,7 +242,7 @@ export const MyPage: React.FC = () => {
       <Card title="我的插件页面">
         <Title level={3}>欢迎使用我的插件</Title>
         <Paragraph>
-          这是一个使用 QBot 插件系统开发的前端插件页面。
+          这是一个使用 QuantCell 插件系统开发的前端插件页面。
         </Paragraph>
       </Card>
     </div>
@@ -330,11 +330,11 @@ import pandas as pd
 **处理插件特有依赖**：
 ```bash
 # 方法 1：将依赖添加到项目的 pyproject.toml
-cd qbot/backend
+cd quantcell/backend
 uv add <dependency>
 
 # 方法 2：在插件目录中创建虚拟环境
-cd qbot/backend/plugins/my_plugin
+cd quantcell/backend/plugins/my_plugin
 python -m venv venv
 source venv/bin/activate
 pip install <dependency>
@@ -348,7 +348,7 @@ pip install <dependency>
 
 **添加新依赖**：
 ```bash
-cd qbot/frontend
+cd quantcell/frontend
 bun add <dependency>
 ```
 
@@ -556,7 +556,7 @@ const match = path.match(/\./([\w-]+)/index\.tsx$/);
 **手动测试**：
 ```bash
 # 启动后端服务
-cd qbot/backend
+cd quantcell/backend
 uvicorn main:app --reload
 
 # 使用 curl 测试
@@ -566,7 +566,7 @@ curl http://localhost:8000/api/plugins/example/
 **自动测试**：
 ```bash
 # 运行测试
-cd qbot/backend
+cd quantcell/backend
 pytest tests/
 ```
 
@@ -575,7 +575,7 @@ pytest tests/
 **开发模式测试**：
 ```bash
 # 启动前端开发服务器
-cd qbot/frontend
+cd quantcell/frontend
 bun run dev
 
 # 在浏览器中访问
@@ -585,7 +585,7 @@ bun run dev
 **构建测试**：
 ```bash
 # 构建前端项目
-cd qbot/frontend
+cd quantcell/frontend
 bun run build
 ```
 
@@ -645,7 +645,7 @@ export class MyPlugin extends PluginBase {
 
 ### 12.1 提交插件
 
-1. 确保插件符合 QBot 插件规范
+1. 确保插件符合 QuantCell 插件规范
 2. 提供完整的文档和示例
 3. 提交到插件仓库
 
@@ -663,8 +663,8 @@ export class MyPlugin extends PluginBase {
 
 ## 13. 联系方式
 
-- 项目地址：https://github.com/qbot-project/qbot
-- 文档地址：https://qbot-project.github.io/docs
+- 项目地址：https://github.com/quantcell-project/quantcell
+- 文档地址：https://quantcell-project.github.io/docs
 
 ---
 
