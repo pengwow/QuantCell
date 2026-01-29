@@ -52,6 +52,7 @@ class BinanceCollector(CryptoBaseCollector):
         # 先设置必要的属性，再调用父类的__init__方法
         self.candle_type = candle_type
         self.symbols = symbols
+        self.downloader = BinanceDownloader(self.candle_type)
         
         super().__init__(
             save_dir=save_dir,
@@ -203,53 +204,53 @@ class BinanceCollector(CryptoBaseCollector):
             logger.info(f"第一个时间戳: {first_open_time}，长度: {timestamp_length}")
             
             # 根据时间戳长度直接计算正确的单位和转换值
-            df['date'] = pd.Series(dtype='datetime64[ns]')
+            df['timestamp'] = pd.Series(dtype='datetime64[ns]')
             valid_count = 0
             
             # 方法1：根据长度直接转换
             try:
                 if timestamp_length == 13:  # 毫秒
-                    df['date'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
+                    df['timestamp'] = pd.to_datetime(df['open_time'], unit='ms', errors='coerce')
                 elif timestamp_length == 16:  # 微秒
                     # 先将微秒转换为秒，再转换为datetime
-                    df['date'] = pd.to_datetime(df['open_time'] / 1000000, unit='s', errors='coerce')
+                    df['timestamp'] = pd.to_datetime(df['open_time'] / 1000000, unit='s', errors='coerce')
                 elif timestamp_length == 19:  # 纳秒
-                    df['date'] = pd.to_datetime(df['open_time'], unit='ns', errors='coerce')
+                    df['timestamp'] = pd.to_datetime(df['open_time'], unit='ns', errors='coerce')
                 else:  # 其他长度，尝试多种单位
                     logger.warning(f"时间戳长度 {timestamp_length} 不常见，尝试多种转换方法...")
                     
                     # 尝试直接转换（适用于已格式化的字符串）
-                    df['date'] = pd.to_datetime(df['open_time'], errors='coerce')
-                    valid_count = df['date'].notna().sum()
+                    df['timestamp'] = pd.to_datetime(df['open_time'], errors='coerce')
+                    valid_count = df['timestamp'].notna().sum()
                     
                     if valid_count == 0:
                         # 尝试除以不同的系数转换为秒
                         for divisor in [1000, 1000000, 1000000000]:
-                            df['date'] = pd.to_datetime(df['open_time'] / divisor, unit='s', errors='coerce')
-                            valid_count = df['date'].notna().sum()
+                            df['timestamp'] = pd.to_datetime(df['open_time'] / divisor, unit='s', errors='coerce')
+                            valid_count = df['timestamp'].notna().sum()
                             if valid_count > 0:
                                 logger.info(f"通过除以 {divisor} 转换成功，有效日期数量: {valid_count}")
                                 break
                 
-                valid_count = df['date'].notna().sum()
+                valid_count = df['timestamp'].notna().sum()
                 logger.info(f"时间戳转换结果: 有效日期 {valid_count} 个，无效日期 {len(df) - valid_count} 个")
             except Exception as e:
                 logger.error(f"时间戳转换异常: {e}")
-                df['date'] = pd.to_datetime(df['open_time'], errors='coerce')
-                valid_count = df['date'].notna().sum()
+                df['timestamp'] = pd.to_datetime(df['open_time'], errors='coerce')
+                valid_count = df['timestamp'].notna().sum()
             
             # 记录转换结果
-            valid_dates = df['date'].notna().sum()
-            invalid_dates = df['date'].isna().sum()
+            valid_dates = df['timestamp'].notna().sum()
+            invalid_dates = df['timestamp'].isna().sum()
             logger.info(f"时间戳转换结果: 有效日期 {valid_dates} 个，无效日期 {invalid_dates} 个")
             
             # 4. 记录无效时间戳的具体值
             if invalid_dates > 0:
-                invalid_times = df[df['date'].isna()]['open_time'].tolist()
+                invalid_times = df[df['timestamp'].isna()]['open_time'].tolist()
                 logger.warning(f"无效时间戳值: {invalid_times}")
             
             # 5. 过滤掉无效时间戳的行
-            filtered_df = df.dropna(subset=['date'])
+            filtered_df = df.dropna(subset=['timestamp'])
             
             # 6. 记录过滤掉的无效行数量
             if len(filtered_df) < len(df):
@@ -257,15 +258,15 @@ class BinanceCollector(CryptoBaseCollector):
             
             # 7. 只保留需要的列
             # 使用loc[:, []]语法确保返回DataFrame类型
-            filtered_df = filtered_df.loc[:, ['date', 'open', 'high', 'low', 'close', 'volume']]
-            filtered_df.columns = ['date', 'open', 'high', 'low', 'close', 'volume']
+            filtered_df = filtered_df.loc[:, ['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+            filtered_df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
             
             # 8. 过滤时间范围
             # 将带时区的Timestamp转换为不带时区的datetime64[ns]类型，确保类型匹配
             start_dt_naive = start_datetime.tz_localize(None)
             end_dt_naive = end_datetime.tz_localize(None)
-            filtered_df = filtered_df[(filtered_df['date'] >= start_dt_naive) & (filtered_df['date'] <= end_dt_naive)]
-            
+            filtered_df = filtered_df[(filtered_df['timestamp'] >= start_dt_naive) & (filtered_df['timestamp'] <= end_dt_naive)]
+
             logger.info(f"成功下载 {symbol} {interval} 数据，共 {len(filtered_df)} 条")
             return filtered_df
         except Exception as e:
@@ -319,10 +320,10 @@ class BinanceCollector(CryptoBaseCollector):
                 csv_dir=csv_dir,
                 qlib_dir=qlib_dir,
                 freq=qlib_freq,
-                date_field_name="date",
+                date_field_name="timestamp",
                 file_suffix=".csv",
                 symbol_field_name="symbol",
-                include_fields="date,open,high,low,close,volume",
+                include_fields="timestamp,open,high,low,close,volume",
                 max_workers=self.max_workers
             )
             

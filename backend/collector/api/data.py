@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
 from fastapi import (APIRouter, BackgroundTasks, Depends, HTTPException, Query,
                      Request)
 from loguru import logger
@@ -17,6 +18,7 @@ from ..schemas.data import (CalendarInfoResponse, DataInfoResponse,
                             TaskProgressResponse, TaskResponse,
                             TaskStatusResponse)
 from ..services import DataService
+from ..db.models import CryptoSpotKline, CryptoFutureKline, StockKline
 
 # 创建API路由实例
 router = APIRouter(prefix="/api/data", tags=["data-management"])
@@ -198,7 +200,7 @@ async def resolve_kline_duplicates(
     kline_list = query.all()
     df = pd.DataFrame([{
         'id': k.id,
-        'date': k.date,
+        'timestamp': k.timestamp,
         'open': float(k.open),
         'high': float(k.high),
         'low': float(k.low),
@@ -218,13 +220,12 @@ async def resolve_kline_duplicates(
             }
         )
     
-    # 按日期排序
-    df.sort_values('date', inplace=True)
+    # 按时间戳排序
+    df.sort_values('timestamp', inplace=True)
     
-
     
-    # 获取重复记录（基于date列）
-    duplicate_index = df.duplicated(subset=['date'], keep=False)
+    # 获取重复记录（基于timestamp列）
+    duplicate_index = df.duplicated(subset=['timestamp'], keep=False)
     if not duplicate_index.any():
         return ApiResponse(
             code=0,
@@ -237,8 +238,8 @@ async def resolve_kline_duplicates(
             }
         )
     
-    # 获取所有重复的日期值
-    duplicate_dates = df[duplicate_index]['date'].unique()
+    # 获取所有重复的时间戳值
+    duplicate_timestamps = df[duplicate_index]['timestamp'].unique()
     
     # 如果指定了group_key，只处理该组
     if group_key:
@@ -246,11 +247,11 @@ async def resolve_kline_duplicates(
         try:
             from datetime import datetime
             group_key_dt = datetime.fromisoformat(group_key.replace(' ', 'T'))
-            duplicate_dates = [dt for dt in duplicate_dates if dt == group_key_dt]
+            duplicate_timestamps = [dt for dt in duplicate_timestamps if dt == group_key_dt]
         except ValueError:
-            duplicate_dates = [dt for dt in duplicate_dates if str(dt) == group_key]
+            duplicate_timestamps = [dt for dt in duplicate_timestamps if str(dt) == group_key]
         
-        if not duplicate_dates:
+        if not duplicate_timestamps:
             return ApiResponse(
                 code=0,
                 message="没有找到指定的重复组",
@@ -271,13 +272,13 @@ async def resolve_kline_duplicates(
         ).count()
         
         # 直接使用SQLite兼容的方式删除重复记录
-        # 对于每个重复日期，保留第一条记录，删除其他记录
-        for duplicate_date in duplicate_dates:
-            # 获取该日期下的所有记录
+        # 对于每个重复时间戳，保留第一条记录，删除其他记录
+        for duplicate_timestamp in duplicate_timestamps:
+            # 获取该时间戳下的所有记录
             records = db.query(KlineModel).filter(
                 KlineModel.symbol == symbol,
                 KlineModel.interval == interval,
-                KlineModel.date == duplicate_date
+                KlineModel.timestamp == duplicate_timestamp
             ).all()
             
             if len(records) > 1:
@@ -304,7 +305,7 @@ async def resolve_kline_duplicates(
         ).all()
         new_df = pd.DataFrame([{
             'id': k.id,
-            'date': k.date,
+            'timestamp': k.timestamp,
             'open': float(k.open),
             'high': float(k.high),
             'low': float(k.low),
@@ -313,7 +314,7 @@ async def resolve_kline_duplicates(
         } for k in new_kline_list])
         
         # 检测新的重复记录
-        new_duplicate_index = new_df.duplicated(subset=['date'], keep=False)
+        new_duplicate_index = new_df.duplicated(subset=['timestamp'], keep=False)
         new_duplicate_count = len(new_df[new_duplicate_index])
         
         # 打印调试信息
@@ -338,7 +339,7 @@ async def resolve_kline_duplicates(
             "strategy": strategy,
             "market_type": market_type,
             "crypto_type": crypto_type,
-            "processed_count": len(duplicate_dates),  # 直接返回处理的重复日期数量
+            "processed_count": len(duplicate_timestamps),  # 直接返回处理的重复日期数量
             "duplicate_count": new_duplicate_count
         }
     )

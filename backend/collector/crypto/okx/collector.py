@@ -157,12 +157,12 @@ class OKXCollector(CryptoBaseCollector):
                 return df
             
             # 数据处理
-            df['date'] = df['open_time']
-            df = df[['date', 'open', 'high', 'low', 'close', 'volume']]
-            df.columns = ['date', 'open', 'high', 'low', 'close', 'volume']
+            df['timestamp'] = df['open_time']
+            df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+            df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
             
             # 过滤时间范围
-            df = df[(df['date'] >= start_datetime) & (df['date'] <= end_datetime)]
+            df = df[(df['timestamp'] >= start_datetime) & (df['timestamp'] <= end_datetime)]
             
             logger.info(f"成功下载 {symbol} {interval} 数据，共 {len(df)} 条")
             return df
@@ -216,10 +216,10 @@ class OKXCollector(CryptoBaseCollector):
                 csv_dir=csv_dir,
                 qlib_dir=qlib_dir,
                 freq=qlib_freq,
-                date_field_name="date",
+                timestamp_field_name="timestamp",
                 file_suffix=".csv",
                 symbol_field_name="symbol",
-                include_fields="date,open,high,low,close,volume",
+                include_fields="timestamp,open,high,low,close,volume",
                 max_workers=self.max_workers
             )
             

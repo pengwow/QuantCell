@@ -178,14 +178,14 @@ class CryptoSpotKline(TimezoneAwareBase):
     id = Column(Integer, Identity(always=True), primary_key=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
-    date = Column(DateTime(timezone=True), nullable=False, index=True)
-    open = Column(String, nullable=False)  # 使用字符串避免精度问题
-    high = Column(String, nullable=False)  # 使用字符串避免精度问题
-    low = Column(String, nullable=False)  # 使用字符串避免精度问题
-    close = Column(String, nullable=False)  # 使用字符串避免精度问题
-    volume = Column(String, nullable=False)  # 使用字符串避免精度问题
-    unique_kline = Column(String, nullable=False, unique=True, index=True)  # 唯一标识符
-    data_source = Column(String(50), nullable=False, default='unknown', index=True)  # 数据来源
+    timestamp = Column(String, nullable=False, index=True)
+    open = Column(String, nullable=False)
+    high = Column(String, nullable=False)
+    low = Column(String, nullable=False)
+    close = Column(String, nullable=False)
+    volume = Column(String, nullable=False)
+    unique_kline = Column(String, nullable=False, unique=True, index=True)
+    data_source = Column(String(50), nullable=False, default='unknown', index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
@@ -200,14 +200,14 @@ class CryptoFutureKline(TimezoneAwareBase):
     id = Column(Integer, Identity(always=True), primary_key=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
-    date = Column(DateTime(timezone=True), nullable=False, index=True)
-    open = Column(String, nullable=False)  # 使用字符串避免精度问题
-    high = Column(String, nullable=False)  # 使用字符串避免精度问题
-    low = Column(String, nullable=False)  # 使用字符串避免精度问题
-    close = Column(String, nullable=False)  # 使用字符串避免精度问题
-    volume = Column(String, nullable=False)  # 使用字符串避免精度问题
-    unique_kline = Column(String, nullable=False, unique=True, index=True)  # 唯一标识符
-    data_source = Column(String(50), nullable=False, default='unknown', index=True)  # 数据来源
+    timestamp = Column(String, nullable=False, index=True)
+    open = Column(String, nullable=False)
+    high = Column(String, nullable=False)
+    low = Column(String, nullable=False)
+    close = Column(String, nullable=False)
+    volume = Column(String, nullable=False)
+    unique_kline = Column(String, nullable=False, unique=True, index=True)
+    data_source = Column(String(50), nullable=False, default='unknown', index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
@@ -222,14 +222,14 @@ class StockKline(TimezoneAwareBase):
     id = Column(Integer, Identity(always=True), primary_key=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
-    date = Column(DateTime(timezone=True), nullable=False, index=True)
-    open = Column(String, nullable=False)  # 使用字符串避免精度问题
-    high = Column(String, nullable=False)  # 使用字符串避免精度问题
-    low = Column(String, nullable=False)  # 使用字符串避免精度问题
-    close = Column(String, nullable=False)  # 使用字符串避免精度问题
-    volume = Column(String, nullable=False)  # 使用字符串避免精度问题
-    unique_kline = Column(String, nullable=False, unique=True, index=True)  # 唯一标识符
-    data_source = Column(String(50), nullable=False, default='unknown', index=True)  # 数据来源
+    timestamp = Column(String, nullable=False, index=True)
+    open = Column(String, nullable=False)
+    high = Column(String, nullable=False)
+    low = Column(String, nullable=False)
+    close = Column(String, nullable=False)
+    volume = Column(String, nullable=False)
+    unique_kline = Column(String, nullable=False, unique=True, index=True)
+    data_source = Column(String(50), nullable=False, default='unknown', index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 

@@ -131,10 +131,10 @@ class BaseCollector(abc.ABC):
         :return: pandas 频率字符串
         """
         interval_map = {
-            '1m': 'T',
-            '5m': '5T',
-            '15m': '15T',
-            '30m': '30T',
+            '1m': 'min',
+            '5m': '5min',
+            '15m': '15min',
+            '30m': '30min',
             '1h': 'H',
             '4h': '4H',
             '1d': 'D'
@@ -150,18 +150,18 @@ class BaseCollector(abc.ABC):
         freq = self._get_interval_freq()
         return pd.date_range(start=self.start_datetime, end=self.end_datetime, freq=freq)
     
-    def _calculate_missing_ranges(self, existing_dates):
+    def _calculate_missing_ranges(self, existing_timestamps):
         """
         计算缺失的日期范围
         
-        :param existing_dates: 现有日期的 DatetimeIndex
+        :param existing_timestamps: 现有时间戳的 Series
         :return: 缺失的日期范围列表，每个元素是 (start, end) 元组
         """
         # 生成完整的日期范围
         complete_range = self._generate_complete_date_range()
         
         # 找出缺失的日期
-        missing_dates = complete_range.difference(existing_dates)
+        missing_dates = complete_range.difference(existing_timestamps)
         
         if missing_dates.empty:
             return []
@@ -214,19 +214,19 @@ class BaseCollector(abc.ABC):
         instrument_path = self.save_dir.joinpath(f"{normalized_symbol}.csv")
         
         # 处理现有数据
-        existing_dates = pd.DatetimeIndex([])
+        existing_timestamps = pd.Series([], dtype='int64')
         if self.mode == 'inc' and instrument_path.exists():
             try:
                 _old_df = pd.read_csv(instrument_path)
                 if not _old_df.empty:
-                    _old_df['date'] = pd.to_datetime(_old_df['date'], format='mixed')
-                    existing_dates = pd.DatetimeIndex(_old_df['date'])
-                    logger.info(f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_dates)} 条记录")
+                    _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
+                    existing_timestamps = pd.to_numeric(_old_df['timestamp'], errors='coerce')
+                    logger.info(f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_timestamps)} 条记录")
             except Exception as e:
                 logger.error(f"[增量模式] 读取 {symbol} 历史数据失败: {e}")
         
         # 计算缺失的日期范围
-        missing_ranges = self._calculate_missing_ranges(existing_dates)
+        missing_ranges = self._calculate_missing_ranges(existing_timestamps)
         
         if not missing_ranges:
             logger.info(f"[增量模式] {symbol} 在指定时间范围内数据完整，无需下载")
@@ -279,30 +279,33 @@ class BaseCollector(abc.ABC):
         instrument_path = self.save_dir.joinpath(f"{symbol}.csv")
         df["symbol"] = symbol
         
-        # 处理日期列，确保格式统一为Timestamp类型
-        df['date'] = pd.to_datetime(df['date'], format='mixed')
+        # 处理时间戳列，确保格式统一为字符串类型
+        df['timestamp'] = df['timestamp']
         
-        # 去重，基于date列，保留最新数据
-        df = df.drop_duplicates(subset=['date'], keep='last')
+        # 去重，基于timestamp列，保留最新数据
+        df = df.drop_duplicates(subset=['timestamp'], keep='last')
         
-        # 按date排序
-        df = df.sort_values('date')
+        # 按timestamp排序
+        df = df.sort_values('timestamp')
         
         # 处理增量模式
         if self.mode != 'full' and instrument_path.exists():
             _old_df = pd.read_csv(instrument_path)
-            # 处理旧数据的日期列，确保为Timestamp类型
-            _old_df['date'] = pd.to_datetime(_old_df['date'], format='mixed')
+            # 兼容历史数据：如果CSV文件中是date列，则重命名为timestamp列
+            if 'date' in _old_df.columns and 'timestamp' not in _old_df.columns:
+                _old_df = _old_df.rename(columns={'date': 'timestamp'})
+            # 处理旧数据的时间戳列，确保为字符串类型
+            _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
             # 合并新旧数据
             df = pd.concat([_old_df, df], sort=False)
-            # 去重，基于date列，保留最新数据
-            df = df.drop_duplicates(subset=['date'], keep='last')
-            # 按date排序
-            df = df.sort_values('date')
+            # 去重，基于timestamp列，保留最新数据
+            df = df.drop_duplicates(subset=['timestamp'], keep='last')
+            # 按timestamp排序
+            df = df.sort_values('timestamp')
         
-        # 只在最终保存到文件之前，将日期列转换为ISO格式的字符串
+        # 只在最终保存到文件之前，将时间戳列转换为字符串格式
         df_for_save = df.copy()
-        df_for_save['date'] = df_for_save['date'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        df_for_save['timestamp'] = df_for_save['timestamp'].astype(str)
         
         # 保存数据
         df_for_save.to_csv(instrument_path, index=False)
@@ -413,7 +416,7 @@ class BaseCollector(abc.ABC):
             for _symbol, _df_list in self.mini_symbol_map.items():
                 _df = pd.concat(_df_list, sort=False)
                 if not _df.empty:
-                    self.save_instrument(_symbol, _df.drop_duplicates(["date"]).sort_values(["date"]))
+                    self.save_instrument(_symbol, _df.drop_duplicates(["timestamp"]).sort_values(["timestamp"]))
             
             logger.warning(f"[缓存处理] 数据长度小于 {self.check_data_length} 的标的列表: {list(self.mini_symbol_map.keys())}")
         

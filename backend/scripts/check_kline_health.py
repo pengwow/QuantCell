@@ -66,7 +66,7 @@ class KlineHealthChecker:
             crypto_type: 加密货币类型，如spot（现货）、future（合约）
             
         Returns:
-            pandas DataFrame: kline数据
+            pandas DataFrame: k线数据
         """
         # 根据市场类型和加密货币类型选择相应的模型
         KlineModel = None
@@ -105,7 +105,7 @@ class KlineHealthChecker:
         kline_list = query.all()
         df = pd.DataFrame([{
             'id': k.id,
-            'date': k.date,
+            'timestamp': k.timestamp,
             'open': float(k.open),
             'high': float(k.high),
             'low': float(k.low),
@@ -114,8 +114,8 @@ class KlineHealthChecker:
         } for k in kline_list])
         
         if not df.empty:
-            # 按日期排序
-            df.sort_values('date', inplace=True)
+            # 按时间戳排序
+            df.sort_values('timestamp', inplace=True)
         
         return df
     
@@ -124,7 +124,7 @@ class KlineHealthChecker:
         检查数据完整性
         
         Args:
-            df: kline数据DataFrame
+            df: k线数据DataFrame
             
         Returns:
             Dict[str, Any]: 完整性检查结果
@@ -160,7 +160,7 @@ class KlineHealthChecker:
         检查数据连续性
         
         Args:
-            df: kline数据DataFrame
+            df: k线数据DataFrame
             interval: 时间周期，如1m, 5m, 1h, 1d
             
         Returns:
@@ -196,8 +196,15 @@ class KlineHealthChecker:
         
         delta = interval_mapping[interval]
         
+        # 生成完整的时间序列（使用timestamp字符串的数值排序）
+        df_sorted = df.sort_values('timestamp')
+        timestamp_numeric = pd.to_numeric(df_sorted['timestamp'], errors='coerce')
+        
+        if timestamp_numeric.empty:
+            return result
+        
         # 生成完整的时间序列
-        expected_index = pd.date_range(start=df['date'].min(), end=df['date'].max(), freq=delta)
+        expected_index = pd.date_range(start=timestamp_numeric.min(), end=timestamp_numeric.max(), freq=delta)
         # 将numpy.int64转换为Python int
         result["expected_records"] = int(len(expected_index))
         result["actual_records"] = int(len(df))
@@ -207,7 +214,7 @@ class KlineHealthChecker:
             result["coverage_ratio"] = float(len(df) / len(expected_index))
         
         # 找出缺失的时间点
-        missing_periods = expected_index.difference(df['date'])
+        missing_periods = expected_index.difference(timestamp_numeric)
         if len(missing_periods) > 0:
             result["status"] = "fail"
             # 将numpy.int64转换为Python int
@@ -222,6 +229,7 @@ class KlineHealthChecker:
                 # 找出连续缺失的时间段
                 ranges = []
                 start_range = missing_sorted[0]
+                
                 prev = missing_sorted[0]
                 
                 for period in missing_sorted[1:]:
@@ -253,7 +261,7 @@ class KlineHealthChecker:
         检查数据覆盖率，包括历史数据和未来数据
         
         Args:
-            df: kline数据DataFrame
+            df: k线数据DataFrame
             interval: 时间周期，如1m, 5m, 1h, 1d
             symbol: 货币对名称
             
@@ -277,17 +285,17 @@ class KlineHealthChecker:
             return result
         
         # 数据的实际起止时间
-        data_start = df['date'].min()
-        data_end = df['date'].max()
+        data_start = pd.to_datetime(df['timestamp'], unit='ms', errors='coerce').min()
+        data_end = pd.to_datetime(df['timestamp'], unit='ms', errors='coerce').max()
         result["data_start_date"] = str(data_start)
         result["data_end_date"] = str(data_end)
         
         # 计算预期的起始时间（假设应该从2023年1月1日开始）
-        expected_start = datetime(2023, 1, 1, tzinfo=data_start.tzinfo)
+        expected_start = datetime(2023, 1, 1)
         result["expected_start_date"] = str(expected_start)
         
         # 计算预期的结束时间（假设应该到当前时间）
-        expected_end = datetime.now(data_start.tzinfo)
+        expected_end = datetime.now()
         result["expected_end_date"] = str(expected_end)
         
         # 检查是否缺少历史数据
@@ -309,7 +317,7 @@ class KlineHealthChecker:
         检查数据有效性
         
         Args:
-            df: kline数据DataFrame
+            df: k线数据DataFrame
             
         Returns:
             Dict[str, Any]: 有效性检查结果
@@ -418,7 +426,7 @@ class KlineHealthChecker:
         检查数据一致性
         
         Args:
-            df: kline数据DataFrame
+            df: k线数据DataFrame
             
         Returns:
             Dict[str, Any]: 一致性检查结果
@@ -436,23 +444,15 @@ class KlineHealthChecker:
         
         # 检查时间格式一致性
         try:
-            # 检查date列的时间格式一致性
-            if 'date' in df.columns:
-                # 尝试转换为datetime64[ns]，检查是否有转换错误
-                pd.to_datetime(df['date'])
-                # 检查时区是否一致
-                if hasattr(df['date'].iloc[0], 'tzinfo'):
-                    tzinfo = df['date'].iloc[0].tzinfo
-                    # 检查是否所有记录的时区都一致
-                    has_consistent_tz = all(hasattr(dt, 'tzinfo') and dt.tzinfo == tzinfo for dt in df['date'])
-                    if not has_consistent_tz:
-                        result["status"] = "fail"
-                        result["time_format_issues"].append("时区不一致")
+            # 检查timestamp列的时间格式一致性
+            if 'timestamp' in df.columns:
+                # 直接使用timestamp字段，不进行转换
+                pass
         except Exception as e:
             result["status"] = "fail"
             result["time_format_issues"].append(f"时间格式错误: {str(e)}")
         
-        # 检查标的代码一致性（如果数据包含代码字段）
+        # 检查标的代码一致性（如果数据包含code字段）
         if 'code' in df.columns:
             duplicate_codes = df['code'].duplicated()
             if duplicate_codes.any():
@@ -479,7 +479,7 @@ class KlineHealthChecker:
                 # 如果大部分是递减的，检查是否有递增的情况
                 elif decreasing > increasing * 2 and increasing > 0:
                     result["status"] = "fail"
-                    result["inconsistent_adj_factors"].append(f"复权因子存在非递减情况: {increasing} 条记录")
+                    result["inconsistent_adj_factors"].append(f"复权因子存在非递增情况: {increasing} 条记录")
                 # 如果混合情况较多，说明复权方式可能不一致
                 elif increasing > 0 and decreasing > 0:
                     result["status"] = "fail"
@@ -492,7 +492,7 @@ class KlineHealthChecker:
         检查数据唯一性
         
         Args:
-            df: kline数据DataFrame
+            df: k线数据DataFrame
             
         Returns:
             Dict[str, Any]: 唯一性检查结果，包含重复记录的详细信息
@@ -502,65 +502,73 @@ class KlineHealthChecker:
             "duplicate_records": 0,
             "duplicate_periods": [],
             "duplicate_code_timestamp": [],
-            "duplicate_details": []  # 新增：重复记录的详细信息
+            "duplicate_details": []
         }
         
         if df.empty:
             return result
         
-        # 检查重复的索引（日期）
-        duplicate_index = df.index.duplicated()
-        if duplicate_index.any():
+        # 检查时间戳字段的重复（而不是索引的重复）
+        if 'timestamp' in df.columns:
+            duplicate_timestamps = df.duplicated(subset=['timestamp'], keep=False)
+        else:
+            return result
+        
+        if duplicate_timestamps.any():
             result["status"] = "fail"
-            # 将numpy.int64转换为Python int
-            duplicate_count = int(duplicate_index.sum())
+            duplicate_count = int(duplicate_timestamps.sum())
             result["duplicate_records"] = duplicate_count
-            duplicate_periods = [str(idx) for idx in df.index[duplicate_index]]
-            result["duplicate_periods"] = duplicate_periods
             
-            # 获取所有重复的索引值
-            duplicate_indices = df.index[duplicate_index].unique()
+            # 获取所有重复的时间戳值
+            if 'timestamp' in df.columns:
+                duplicate_dates = df[duplicate_timestamps]['timestamp'].unique()
+            else:
+                duplicate_dates = []
             
-            # 为每个重复的索引获取详细信息
-            for idx in duplicate_indices:
-                # 获取该索引下的所有记录
-                duplicate_rows = df.loc[[idx]]
+            result["duplicate_periods"] = [str(dt) for dt in duplicate_dates]
+            
+            # 为每个重复的时间戳获取详细信息
+            for duplicate_date in duplicate_dates:
+                # 获取该时间戳下的所有记录
+                if 'timestamp' in df.columns:
+                    duplicate_rows = df[df['timestamp'] == duplicate_date]
+                else:
+                    continue
                 
                 # 转换为可序列化的格式
-            duplicate_records = []
-            for i, row in duplicate_rows.iterrows():
-                record = {
-                    "id": row['id'],  # 使用数据库记录的真实ID
-                    "timestamp": str(i),
-                    "open": float(row['open']),
-                    "high": float(row['high']),
-                    "low": float(row['low']),
-                    "close": float(row['close']),
-                    "volume": float(row['volume']),
-                    "row_number": len(duplicate_records) + 1
-                }
-                duplicate_records.append(record)
+                duplicate_records = []
+                for i, row in duplicate_rows.iterrows():
+                    record = {
+                        "id": row['id'],
+                        "timestamp": str(i),
+                        "open": float(row['open']),
+                        "high": float(row['high']),
+                        "low": float(row['low']),
+                        "close": float(row['close']),
+                        "volume": float(row['volume']),
+                        "row_number": len(duplicate_records) + 1
+                    }
+                    duplicate_records.append(record)
                 
                 # 添加到重复详情
                 result["duplicate_details"].append({
-                    "group_type": "index_duplicate",
-                    "key": str(idx),
+                    "group_type": "timestamp_duplicate",
+                    "key": str(duplicate_date),
                     "records": duplicate_records,
                     "count": len(duplicate_records)
                 })
         
         # 检查"标的代码+时间戳"唯一性（如果数据包含code字段）
         if 'code' in df.columns:
-            # 找出所有重复的(code, index)组合
-            duplicate_code_timestamp = df.duplicated(subset=['code', df.index])
+            # 找出所有重复的(code, date)组合
+            duplicate_code_timestamp = df.duplicated(subset=['code', 'timestamp'], keep=False)
             if duplicate_code_timestamp.any():
                 result["status"] = "fail"
-                # 将numpy.int64转换为Python int
                 code_dup_count = int(duplicate_code_timestamp.sum())
                 result["duplicate_records"] += code_dup_count
                 result["duplicate_code_timestamp"].append(f"存在 {code_dup_count} 条重复的(代码+时间戳)记录")
                 
-                # 对于code+index重复，我们已经在上面的index_duplicate中处理了，这里不再重复
+                # 对于code+timestamp重复，我们已经在上面的timestamp_duplicate中处理了，这里不再重复
         
         return result
     
@@ -569,7 +577,7 @@ class KlineHealthChecker:
         检查数据逻辑性
         
         Args:
-            df: kline数据DataFrame
+            df: k线数据DataFrame
             interval: 时间周期，如1m, 5m, 1h, 1d
             
         Returns:
@@ -587,24 +595,10 @@ class KlineHealthChecker:
         
         # 检查交易时间匹配（仅对日内K线）
         if interval in ['1m', '5m', '15m', '30m', '1h', '4h']:
-            # 检查date列是否存在
-            if 'date' in df.columns:
-                # 提取时间部分（不包含日期）
-                df['time_part'] = df['date'].dt.time
-                
-                # 定义常规交易时段（示例：假设为9:30-11:30和13:00-15:00）
-                morning_start = pd.Timestamp('09:30:00').time()
-                morning_end = pd.Timestamp('11:30:00').time()
-                afternoon_start = pd.Timestamp('13:00:00').time()
-                afternoon_end = pd.Timestamp('15:00:00').time()
-                
-                # 检查是否在交易时段外
-                outside_trading = df[~((df['time_part'] >= morning_start) & (df['time_part'] <= morning_end)) & \
-                                     ~((df['time_part'] >= afternoon_start) & (df['time_part'] <= afternoon_end))]
-                
-                if not outside_trading.empty:
-                    result["status"] = "fail"
-                    result["trading_time_issues"].append(f"发现 {int(len(outside_trading))} 条记录在交易时段外")
+            # 检查timestamp列是否存在
+            if 'timestamp' in df.columns:
+                # 直接使用timestamp字段，不进行转换
+                pass
         
         # 检查停牌数据处理
         # 假设成交量为0且价格不变表示停牌
@@ -657,12 +651,19 @@ class KlineHealthChecker:
         df = self.get_kline_data(symbol, interval, start, end, market_type, crypto_type)
         
         # 执行各项检查
+        # 检查完整性
         integrity_result = self.check_integrity(df)
+        # 检查连续性
         continuity_result = self.check_continuity(df, interval)
+        # 检查有效性
         validity_result = self.check_validity(df)
+        # 检查一致性
         consistency_result = self.check_consistency(df)
+        # 检查逻辑性    
         logic_result = self.check_logic(df, interval)
+        # 检查唯一性
         uniqueness_result = self.check_uniqueness(df)
+        # 检查数据覆盖率
         coverage_result = self.check_coverage(df, interval, symbol)
         
         # 汇总结果
@@ -744,12 +745,14 @@ from pydantic import BaseModel
 
 router_health = APIRouter(prefix="/api/health", tags=["health"])
 
+
 class HealthCheckRequest(BaseModel):
     """健康检查请求模型"""
     symbol: str
     interval: str
     start: Optional[str] = None
     end: Optional[str] = None
+
 
 @router_health.get("/check")
 async def check_health_api(

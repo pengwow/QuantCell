@@ -70,20 +70,20 @@ class ExportData:
             query = session.query(model).filter(
                 model.symbol == symbol,
                 model.interval == interval,
-                model.date >= start,
-                model.date <= end
+                model.timestamp >= start,
+                model.timestamp <= end
             )
             
             # 执行查询并转换为DataFrame
             df = pd.read_sql(query.statement, session.bind)
             
             if not df.empty:
-                # 转换日期格式
-                df['date'] = pd.to_datetime(df['date'])
+                # 转换时间戳格式
+                df['timestamp'] = df['timestamp']
                 # 排序
-                df = df.sort_values('date')
+                df = df.sort_values('timestamp')
                 # 选择需要的列
-                df = df[['date', 'open', 'high', 'low', 'close', 'volume', 'symbol']]
+                df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume', 'symbol']]
             
             return df
         except Exception as e:
