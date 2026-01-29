@@ -35,7 +35,7 @@ def extract_package(package_path, extract_dir):
 
 def install_frontend_plugin(plugin_dir):
     """安装前端插件"""
-    target_dir = "/Users/liupeng/workspace/qbot/frontend/src/plugins"
+    target_dir = "/Users/liupeng/workspace/quantcell/frontend/src/plugins"
     plugin_name = os.path.basename(plugin_dir)
     target_path = os.path.join(target_dir, plugin_name)
     
@@ -54,7 +54,7 @@ def install_frontend_plugin(plugin_dir):
 
 def install_backend_plugin(plugin_dir):
     """安装后端插件"""
-    target_dir = "/Users/liupeng/workspace/qbot/backend/plugins"
+    target_dir = "/Users/liupeng/workspace/quantcell/backend/plugins"
     plugin_name = os.path.basename(plugin_dir)
     target_path = os.path.join(target_dir, plugin_name)
     
@@ -80,7 +80,7 @@ def install_plugin(package_path):
     plugin_type = detect_package_type(package_path)
     
     # 创建临时目录
-    temp_dir = "/tmp/qbot_plugin_temp"
+    temp_dir = "/tmp/quantcell_plugin_temp"
     if os.path.exists(temp_dir):
         shutil.rmtree(temp_dir)
     os.makedirs(temp_dir)

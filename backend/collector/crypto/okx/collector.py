@@ -216,7 +216,7 @@ class OKXCollector(CryptoBaseCollector):
                 csv_dir=csv_dir,
                 qlib_dir=qlib_dir,
                 freq=qlib_freq,
-                timestamp_field_name="timestamp",
+                date_field_name="timestamp",
                 file_suffix=".csv",
                 symbol_field_name="symbol",
                 include_fields="timestamp,open,high,low,close,volume",

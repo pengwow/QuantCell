@@ -5,7 +5,7 @@ import os
 import sys
 
 # 添加项目根目录到Python路径
-sys.path.append('/Users/liupeng/workspace/qbot')
+sys.path.append('/Users/liupeng/workspace/quantcell')
 
 from backend.collector.db.connection import get_db_connection, init_db
 from backend.collector.db.models import SystemConfig, Task

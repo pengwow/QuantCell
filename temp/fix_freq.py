@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 # 修改Freq类的__str__方法
-freq_module_path = Path("~/workspace/qbot/.venv/lib/python3.12/site-packages/qlib/utils/time.py").expanduser()
+freq_module_path = Path("~/workspace/quantcell/.venv/lib/python3.12/site-packages/qlib/utils/time.py").expanduser()
 
 # 读取原始代码
 with open(freq_module_path, 'r') as f:

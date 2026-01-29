@@ -76,10 +76,10 @@ export class PluginManager {
           }
         }
       } else {
-        // 生产环境：从window.__QBOT_PLUGINS__获取（在index.html中注入）
+        // 生产环境：从window.__QUANTCELL_PLUGINS__获取（在index.html中注入）
         const global = window as any;
-        if (global.__QBOT_PLUGINS__) {
-          pluginDirs.push(...global.__QBOT_PLUGINS__);
+        if (global.__QUANTCELL_PLUGINS__) {
+          pluginDirs.push(...global.__QUANTCELL_PLUGINS__);
         }
       }
     } catch (error) {

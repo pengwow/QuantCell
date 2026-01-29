@@ -5,7 +5,7 @@ import requests
 import json
 
 # 读取策略文件内容
-with open('/Users/liupeng/workspace/qbot/test_strategy.py', 'r') as f:
+with open('/Users/liupeng/workspace/quantcell/test_strategy.py', 'r') as f:
     file_content = f.read()
 
 # 步骤1: 创建测试策略
@@ -53,7 +53,7 @@ try:
     # 步骤5: 验证策略文件是否已删除
     print("\n=== 步骤5: 验证策略文件是否已删除 ===")
     import os
-    strategy_file_path = '/Users/liupeng/workspace/qbot/backend/strategies/test_delete_strategy.py'
+    strategy_file_path = '/Users/liupeng/workspace/quantcell/backend/strategies/test_delete_strategy.py'
     if os.path.exists(strategy_file_path):
         print(f"❌ 策略文件未被删除: {strategy_file_path}")
     else:

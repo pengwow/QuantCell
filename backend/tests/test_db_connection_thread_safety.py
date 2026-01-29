@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 # 添加项目根目录到Python路径
-sys.path.append('/Users/liupeng/workspace/qbot')
+sys.path.append('/Users/liupeng/workspace/quantcell')
 
 # 直接导入DBConnection类，测试其线程安全性
 from backend.collector.db.connection import DBConnection

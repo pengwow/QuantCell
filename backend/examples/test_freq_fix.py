@@ -8,7 +8,7 @@ from pathlib import Path
 
 # 添加项目根目录到Python路径
 current_dir = Path(__file__).parent
-project_root = current_dir.parent.parent  # backend/examples -> backend -> qbot
+project_root = current_dir.parent.parent  # backend/examples -> backend -> quantcell
 sys.path.append(str(project_root))
 
 print("测试freq='1d'修复是否有效")
@@ -95,7 +95,7 @@ try:
     from qlib.config import C
 
     # 初始化qlib
-    data_dir = '/Users/liupeng/workspace/qbot/backend/data/source'
+    data_dir = '/Users/liupeng/workspace/quantcell/backend/data/source'
     qlib.init(provider_uri=data_dir)
     print("✓ qlib初始化成功")
     

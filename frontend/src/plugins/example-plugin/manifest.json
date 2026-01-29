@@ -2,7 +2,7 @@
   "name": "example-plugin",
   "version": "1.0.0",
   "description": "示例前端插件",
-  "author": "QBot Team",
+  "author": "QuantCell Team",
   "main": "index.tsx",
   "dependencies": []
 }

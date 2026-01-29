@@ -1,32 +1,67 @@
-# 数据库配置
 [database]
-type = "duckdb"  # 数据库类型：duckdb 或 sqlite
-file = "data/qbot.db"  # 数据库文件路径
+type = "sqlite"
+file = "data/quantcell_sqlite.db"
 
-# 应用配置
 [app]
 host = "0.0.0.0"
 port = 8000
 debug = true
 secret_key = "your-secret-key"
-# 时区配置，默认值为Asia/Shanghai
-# 支持通过环境变量APP_TIMEZONE覆盖
 timezone = "Asia/Shanghai"
 
-# 日志配置
 [logging]
 level = "INFO"
 format = "%(levelname)s - %(name)s - %(message)s"
 
-# 量化配置
 [quant]
 qlib_data_dir = "data/crypto_data"
 backtest_initial_capital = 100000
 backtest_commission = 0.001
 
-# 交易所配置
 [exchanges.binance]
 api_key = ""
 secret_key = ""
 proxy_url = ""
 enable_rate_limit = true
+
+[basic_settings]
+language = "zh-CN"
+theme = "light"
+showTips = false
+timezone = "Asia/Shanghai"
+
+[notification_settings]
+enableEmail = false
+enableWebhook = false
+webhookUrl = ""
+notifyOnAlert = false
+notifyOnTaskComplete = false
+notifyOnSystemUpdate = false
+
+[api_settings]
+apiKey = "sk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+apiPermissions = "[{\"id\":\"read\",\"name\":\"读取权限\",\"description\":\"允许读取系统数据和配置\",\"enabled\":true},{\"id\":\"write\",\"name\":\"写入权限\",\"description\":\"允许修改系统数据和配置\",\"enabled\":false},{\"id\":\"execute\",\"name\":\"执行权限\",\"description\":\"允许执行系统操作和任务\",\"enabled\":true}]"
+
+[system_config]
+qlib_data_dir = "data/crypto_data"
+max_workers = "4"
+data_download_dir = "data/source"
+current_market_type = "crypto"
+crypto_trading_mode = "spot"
+default_exchange = "binance"
+default_interval = "1d"
+default_commission = 0.001
+default_initial_cash = 1000000
+proxy_enabled = true
+proxy_url = "http://127.0.0.1:7897"
+proxy_username = ""
+proxy_password = ""
+realtime_enabled = false
+data_mode = "realtime"
+frontend_update_interval = 1000
+frontend_data_cache_size = 1000
+
+["测试插件设置"]
+test_plugin_enabled = "true"
+test_plugin_mode = "normal"
+test_plugin_timeout = "30"

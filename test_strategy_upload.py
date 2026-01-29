@@ -5,7 +5,7 @@ import requests
 import json
 
 # 读取策略文件内容
-with open('/Users/liupeng/workspace/qbot/test_strategy.py', 'r') as f:
+with open('/Users/liupeng/workspace/quantcell/test_strategy.py', 'r') as f:
     file_content = f.read()
 
 # 构建请求数据
@@ -32,7 +32,7 @@ try:
         import sqlite3
         
         # 连接数据库
-        conn = sqlite3.connect('/Users/liupeng/workspace/qbot/backend/data/qbot_sqlite.db')
+        conn = sqlite3.connect('/Users/liupeng/workspace/quantcell/backend/data/quantcell_sqlite.db')
         cursor = conn.cursor()
         
         # 查询策略信息

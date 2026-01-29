@@ -9,7 +9,11 @@ from sqlalchemy.orm import Session
 from .database import Base
 
 # 导入时区工具类
-from backend.utils.timezone import to_utc_time, to_local_time, format_datetime
+try:
+    from backend.utils.timezone import to_utc_time, to_local_time, format_datetime
+except ImportError:
+    # 使用相对导入作为备选
+    from ...utils.timezone import to_utc_time, to_local_time, format_datetime
 
 # SQLAlchemy模型定义
 
@@ -94,7 +98,7 @@ class Feature(TimezoneAwareBase):
     """
     __tablename__ = "features"
     
-    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     feature_name = Column(String, nullable=False, index=True)
     freq = Column(String, nullable=False, index=True)
@@ -109,7 +113,7 @@ class DataPool(TimezoneAwareBase):
     """
     __tablename__ = "data_pools"
     
-    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     name = Column(String, nullable=False, index=True)
     type = Column(String, nullable=True, index=True)
     description = Column(Text, nullable=True)
@@ -133,7 +137,7 @@ class DataPoolAsset(TimezoneAwareBase):
     """
     __tablename__ = "data_pool_assets"
     
-    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     pool_id = Column(Integer, nullable=False, index=True)
     asset_id = Column(String, nullable=False, index=True)
     asset_type = Column(String, nullable=False, index=True)
@@ -148,8 +152,8 @@ class CryptoSymbol(TimezoneAwareBase):
     """
     __tablename__ = "crypto_symbols"
     
-    # 使用Identity约束实现自增主键，兼容SQLite和DuckDB
-    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
+    # 使用autoincrement=True实现自增主键，兼容SQLite和DuckDB
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     base = Column(String, nullable=False, index=True)
     quote = Column(String, nullable=False, index=True)
@@ -175,7 +179,7 @@ class CryptoSpotKline(TimezoneAwareBase):
     """
     __tablename__ = "crypto_spot_klines"
     
-    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
     timestamp = Column(String, nullable=False, index=True)
@@ -197,7 +201,7 @@ class CryptoFutureKline(TimezoneAwareBase):
     """
     __tablename__ = "crypto_future_klines"
     
-    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
     timestamp = Column(String, nullable=False, index=True)
@@ -219,7 +223,7 @@ class StockKline(TimezoneAwareBase):
     """
     __tablename__ = "stock_klines"
     
-    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
     timestamp = Column(String, nullable=False, index=True)
@@ -241,7 +245,7 @@ class ScheduledTask(TimezoneAwareBase):
     """
     __tablename__ = "scheduled_tasks"
     
-    id = Column(Integer, Identity(always=True), primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     name = Column(String, nullable=False, index=True)
     description = Column(Text, nullable=True)
     task_type = Column(String, nullable=False, default="download_crypto")
@@ -339,7 +343,7 @@ class Strategy(TimezoneAwareBase):
     """
     __tablename__ = "strategies"
     
-    id = Column(Integer, Identity(always=True), primary_key=True, index=True)  # 主键ID
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)  # 主键ID
     name = Column(String, unique=True, index=True)  # 策略名称，唯一
     filename = Column(String, nullable=False)  # 策略文件名
     content = Column(Text, nullable=True)  # 策略内容，存储策略的实际代码

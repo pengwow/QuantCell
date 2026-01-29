@@ -4,7 +4,7 @@ from pathlib import Path
 
 # 获取当前文件的绝对路径
 current_file = Path(__file__).resolve()
-# 获取项目根目录 (backend/qlib_integration/custom_freq.py -> backend -> qbot)
+# 获取项目根目录 (backend/qlib_integration/custom_freq.py -> backend -> quantcell)
 project_root = current_file.parent.parent.parent
 
 # 将项目根目录添加到sys.path

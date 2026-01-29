@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-QBot 插件构建脚本
+QuantCell 插件构建脚本
 用于构建独立的插件模块
 """
 
@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 # 项目根目录
-PROJECT_ROOT = Path("/Users/liupeng/workspace/qbot")
+PROJECT_ROOT = Path("/Users/liupeng/workspace/quantcell")
 FRONTEND_ROOT = PROJECT_ROOT / "frontend"
 PLUGIN_DIR = FRONTEND_ROOT / "src" / "plugins"
 DIST_DIR = FRONTEND_ROOT / "dist"
@@ -92,7 +92,7 @@ def inject_plugin_list_to_index():
     plugin_list_str = json.dumps(plugin_list)
     
     # 注入插件列表
-    injection = f"\n    <script>window.__QBOT_PLUGINS__ = {plugin_list_str};</script>\n    </head>"
+    injection = f"\n    <script>window.__QUANTCELL_PLUGINS__ = {plugin_list_str};</script>\n    </head>"
     modified_content = content.replace("</head>", injection)
     
     # 写入修改后的 index.html
@@ -104,7 +104,7 @@ def inject_plugin_list_to_index():
 
 def main():
     """主函数"""
-    print("QBot 插件构建脚本")
+    print("QuantCell 插件构建脚本")
     print("=" * 50)
     
     # 检查前端目录

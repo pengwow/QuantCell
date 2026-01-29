@@ -17,7 +17,7 @@ strategy:
 
 # 数据配置
 data:
-  path: /Users/liupeng/workspace/qbot/backend/data/source/crypto/15m/BTCUSDT.csv
+  path: /Users/liupeng/workspace/quantcell/backend/data/source/crypto/15m/BTCUSDT.csv
   format: csv
 
 # 回测配置

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """数据健康检查脚本
 
-参考 /Users/liupeng/workspace/qbot/qlib/scripts/check_data_health.py 脚本，拆分成两个部分：
+参考 /Users/liupeng/workspace/quantcell/qlib/scripts/check_data_health.py 脚本，拆分成两个部分：
 1. 检查下载后的数据源文件（CSV文件）
 2. 检查转成bin后的文件（QLib数据目录）
 

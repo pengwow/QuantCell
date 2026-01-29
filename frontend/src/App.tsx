@@ -164,7 +164,7 @@ const App = () => {
         {/* 侧边栏顶部品牌 */}
         <div className="nav-brand">
           <div className="brand-icon">
-            <img src="/qbot.svg" alt="QBot Logo" className="brand-image" />
+            <img src="/quantcell.svg" alt="QuantCell Logo" className="brand-image" />
           </div>
           <div className="brand-text">pengwow</div>
         </div>

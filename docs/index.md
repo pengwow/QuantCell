@@ -70,7 +70,7 @@
 
 如果您有任何问题或建议，请随时联系我们：
 
-- 项目地址：https://github.com/your-repo/qbot
+- 项目地址：https://github.com/your-repo/quantcell
 - 邮箱：your-email@example.com
 
 ## 10. 贡献指南

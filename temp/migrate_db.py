@@ -33,4 +33,4 @@ def migrate_db(sqlite_path, duckdb_path):
         con.close()
 
 # 使用示例
-migrate_db("/Users/liupeng/workspace/qbot/backend/data/qbot_sqlite.db", "/Users/liupeng/workspace/qbot/backend/data/qbot.db")
+migrate_db("/Users/liupeng/workspace/quantcell/backend/data/quantcell_sqlite.db", "/Users/liupeng/workspace/quantcell/backend/data/quantcell.db")

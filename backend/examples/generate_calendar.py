@@ -17,7 +17,7 @@ dates = df['date'].dt.date.unique()
 dates = sorted(dates)
 
 # 写入日历文件
-calendar_path = Path("/Users/liupeng/workspace/qbot/backend/data/source/calendars/1d.txt")
+calendar_path = Path("/Users/liupeng/workspace/quantcell/backend/data/source/calendars/1d.txt")
 with open(calendar_path, 'w') as f:
     for date in dates:
         f.write(f"{date.strftime('%Y-%m-%d')}\n")

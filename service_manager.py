@@ -58,7 +58,7 @@ def stop_process(pid):
 
 def start_backend():
     """启动后端服务"""
-    os.chdir("/Users/liupeng/workspace/qbot/backend")
+    os.chdir("/Users/liupeng/workspace/quantcell/backend")
     subprocess.Popen(["uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"])
     print("后端服务启动中...")
     time.sleep(3)
@@ -66,7 +66,7 @@ def start_backend():
 
 def start_frontend():
     """启动前端服务"""
-    os.chdir("/Users/liupeng/workspace/qbot/frontend")
+    os.chdir("/Users/liupeng/workspace/quantcell/frontend")
     subprocess.Popen(["bun", "run", "dev"])
     print("前端服务启动中...")
     time.sleep(3)

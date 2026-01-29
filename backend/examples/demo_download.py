@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 # 方法2：手动构建路径
-project_root = Path("/Users/liupeng/workspace/qbot")
+project_root = Path("/Users/liupeng/workspace/quantcell")
 
 sys.path.append(str(project_root))
 from backend.collector.scripts.get_data import GetData
@@ -13,7 +13,7 @@ GetData().crypto_binance(
     interval="1d",
     symbols="BTCUSDT,ETHUSDT",
     convert_to_qlib=True,
-    save_dir="/Users/liupeng/workspace/qbot/backend/data/source",
-    qlib_dir="/Users/liupeng/workspace/qbot/backend/data/qlib_data",
+    save_dir="/Users/liupeng/workspace/quantcell/backend/data/source",
+    qlib_dir="/Users/liupeng/workspace/quantcell/backend/data/qlib_data",
     exists_skip=True,
 )

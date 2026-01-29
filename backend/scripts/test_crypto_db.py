@@ -13,9 +13,9 @@ from datetime import datetime
 
 # 添加项目根目录到Python路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
-backend_dir = os.path.dirname(current_dir)
-if backend_dir not in sys.path:
-    sys.path.insert(0, backend_dir)
+project_root = os.path.dirname(current_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # 配置日志
 logging.basicConfig(
@@ -58,28 +58,32 @@ def test_crypto_db():
             from sqlalchemy import text
 
             # 先删除旧表
-            conn.execute(text("DROP TABLE IF EXISTS crypto_symbols CASCADE"))
+            conn.execute(text("DROP TABLE IF EXISTS crypto_symbols"))
             logger.info("旧表删除成功")
             
             # 创建序列用于id自增
-            conn.execute(text("DROP SEQUENCE IF EXISTS crypto_symbols_id_seq CASCADE"))
-            conn.execute(text("CREATE SEQUENCE crypto_symbols_id_seq START 1"))
-            logger.info("序列创建成功")
+            try:
+                conn.execute(text("DROP SEQUENCE IF EXISTS crypto_symbols_id_seq"))
+                conn.execute(text("CREATE SEQUENCE crypto_symbols_id_seq START 1"))
+                logger.info("序列创建成功")
+            except Exception as e:
+                logger.warning(f"序列操作失败 (可能是SQLite不支持序列): {e}")
             
-            # 创建新表，使用序列的nextval作为id的默认值
+            # 创建新表，使用SQLite兼容的AUTOINCREMENT
             conn.execute(text("""
             CREATE TABLE crypto_symbols (
-                id INTEGER PRIMARY KEY DEFAULT nextval('crypto_symbols_id_seq'),
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol VARCHAR NOT NULL,
                 base VARCHAR NOT NULL,
                 quote VARCHAR NOT NULL,
                 exchange VARCHAR NOT NULL,
                 active BOOLEAN DEFAULT TRUE,
+                is_deleted BOOLEAN DEFAULT FALSE,
                 precision TEXT,
                 limits TEXT,
                 type VARCHAR,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 CONSTRAINT unique_symbol_exchange UNIQUE (symbol, exchange)
             )
             """))
@@ -166,8 +170,8 @@ def test_crypto_db():
                 logger.info(f"  活跃状态: {symbol.active}, 类型: {symbol.type}")
             
             # 测试分页查询
-            result = db.execute(text("SELECT * FROM crypto_symbols WHERE exchange = :exchange OFFSET :offset LIMIT :limit"), 
-                              {'exchange': 'binance', 'offset': 1, 'limit': 1})
+            result = db.execute(text("SELECT * FROM crypto_symbols WHERE exchange = :exchange LIMIT :limit OFFSET :offset"), 
+                              {'exchange': 'binance', 'limit': 1, 'offset': 1})
             paginated_symbols = result.fetchall()
             logger.info(f"分页查询结果: {[s.symbol for s in paginated_symbols]}")
             

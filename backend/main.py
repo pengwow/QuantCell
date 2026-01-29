@@ -262,7 +262,7 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(init_database)
 
     # 异步初始化QLib数据加载器
-    await asyncio.to_thread(init_qlib)
+    # await asyncio.to_thread(init_qlib)
 
     # 异步加载系统配置到应用上下文
     app.state.configs = await asyncio.to_thread(load_system_configs)

@@ -7,7 +7,7 @@ export class ExamplePlugin extends PluginBase {
       'example-plugin', 
       '1.0.0', 
       '示例前端插件', 
-      'QBot Team'
+      'QuantCell Team'
     );
   }
 

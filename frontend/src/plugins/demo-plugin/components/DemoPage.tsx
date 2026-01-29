@@ -13,7 +13,7 @@ export const DemoPage: React.FC = () => {
         <Space orientation="vertical" size="large" style={{ width: '100%' }}>
           <Alert
             message="欢迎使用Demo插件"
-            description="这是一个前端插件demo，展示了QBot插件系统的基本功能。"
+            description="这是一个前端插件demo，展示了QuantCell插件系统的基本功能。"
             type="success"
             showIcon
           />
@@ -48,7 +48,7 @@ export const DemoPage: React.FC = () => {
               </div>
               <div>
                 <Text strong>作者：</Text>
-                <Text>QBot Team</Text>
+                <Text>QuantCell Team</Text>
               </div>
             </Space>
           </div>

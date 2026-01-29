@@ -40,7 +40,7 @@ def test_duckdb_config_consistency():
             str(temp_db_path),
             read_only=False,
             config={
-                "custom_user_agent": "qbot/1.0",
+                "custom_user_agent": "quantcell/1.0",
                 "enable_external_access": "true",
                 "enable_object_cache": "true"
             }
@@ -75,7 +75,7 @@ def test_duckdb_config_consistency():
             connect_args={
                 "read_only": False,
                 "config": {
-                    "custom_user_agent": "qbot/1.0",
+                    "custom_user_agent": "quantcell/1.0",
                     "enable_external_access": "true",
                     "enable_object_cache": "true"
                 }
@@ -111,7 +111,7 @@ def test_duckdb_config_consistency():
             str(temp_db_path),
             read_only=False,
             config={
-                "custom_user_agent": "qbot/1.0",
+                "custom_user_agent": "quantcell/1.0",
                 "enable_external_access": "true",
                 "enable_object_cache": "true"
             }
@@ -125,7 +125,7 @@ def test_duckdb_config_consistency():
             connect_args={
                 "read_only": False,
                 "config": {
-                    "custom_user_agent": "qbot/1.0",
+                    "custom_user_agent": "quantcell/1.0",
                     "enable_external_access": "true",
                     "enable_object_cache": "true"
                 }

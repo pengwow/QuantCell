@@ -448,155 +448,184 @@ const Setting = () => {
       requestData.push({
         key: 'language',
         value: settings.language,
-        description: 'basic.language'
+        description: 'basic.language',
+        name: 'basic_settings'
       });
       requestData.push({
         key: 'theme',
         value: settings.theme,
-        description: 'basic.theme'
+        description: 'basic.theme',
+        name: 'basic_settings'
       });
       requestData.push({
         key: 'showTips',
         value: settings.showTips,
-        description: 'basic.showTips'
+        description: 'basic.showTips',
+        name: 'basic_settings'
       });
       requestData.push({
         key: 'timezone',
         value: settings.timezone,
-        description: 'basic.timezone'
+        description: 'basic.timezone',
+        name: 'basic_settings'
       });
 
       // 处理notifications配置
       requestData.push({
         key: 'enableEmail',
         value: notificationSettings.enableEmail,
-        description: 'notifications.enableEmail'
+        description: 'notifications.enableEmail',
+        name: 'notification_settings'
       });
       requestData.push({
         key: 'enableWebhook',
         value: notificationSettings.enableWebhook,
-        description: 'notifications.enableWebhook'
+        description: 'notifications.enableWebhook',
+        name: 'notification_settings'
       });
       requestData.push({
         key: 'webhookUrl',
         value: notificationSettings.webhookUrl,
-        description: 'notifications.webhookUrl'
+        description: 'notifications.webhookUrl',
+        name: 'notification_settings'
       });
       requestData.push({
         key: 'notifyOnAlert',
         value: notificationSettings.notifyOnAlert,
-        description: 'notifications.notifyOnAlert'
+        description: 'notifications.notifyOnAlert',
+        name: 'notification_settings'
       });
       requestData.push({
         key: 'notifyOnTaskComplete',
         value: notificationSettings.notifyOnTaskComplete,
-        description: 'notifications.notifyOnTaskComplete'
+        description: 'notifications.notifyOnTaskComplete',
+        name: 'notification_settings'
       });
       requestData.push({
         key: 'notifyOnSystemUpdate',
         value: notificationSettings.notifyOnSystemUpdate,
-        description: 'notifications.notifyOnSystemUpdate'
+        description: 'notifications.notifyOnSystemUpdate',
+        name: 'notification_settings'
       });
 
       // 处理api配置
       requestData.push({
         key: 'apiKey',
         value: apiSettings.apiKey,
-        description: 'api.apiKey'
+        description: 'api.apiKey',
+        name: 'api_settings'
       });
       // 处理API权限，将数组转换为字符串存储
       requestData.push({
         key: 'apiPermissions',
         value: JSON.stringify(apiSettings.permissions),
-        description: 'api.permissions'
+        description: 'api.permissions',
+        name: 'api_settings'
       });
 
       // 处理system配置
       requestData.push({
         key: 'qlib_data_dir',
         value: systemConfig.qlib_data_dir,
-        description: 'system.qlib_data_dir'
+        description: 'system.qlib_data_dir',
+        name: 'system_config'
       });
       requestData.push({
         key: 'max_workers',
         value: systemConfig.max_workers,
-        description: 'system.max_workers'
+        description: 'system.max_workers',
+        name: 'system_config'
       });
       requestData.push({
         key: 'data_download_dir',
         value: systemConfig.data_download_dir,
-        description: 'system.data_download_dir'
+        description: 'system.data_download_dir',
+        name: 'system_config'
       });
       requestData.push({
         key: 'current_market_type',
         value: systemConfig.current_market_type,
-        description: 'system.current_market_type'
+        description: 'system.current_market_type',
+        name: 'system_config'
       });
       requestData.push({
         key: 'crypto_trading_mode',
         value: systemConfig.crypto_trading_mode,
-        description: 'system.crypto_trading_mode'
+        description: 'system.crypto_trading_mode',
+        name: 'system_config'
       });
       requestData.push({
         key: 'default_exchange',
         value: systemConfig.default_exchange,
-        description: 'system.default_exchange'
+        description: 'system.default_exchange',
+        name: 'system_config'
       });
       requestData.push({
         key: 'default_interval',
         value: systemConfig.default_interval,
-        description: 'system.default_interval'
+        description: 'system.default_interval',
+        name: 'system_config'
       });
       requestData.push({
         key: 'default_commission',
         value: systemConfig.default_commission,
-        description: 'system.default_commission'
+        description: 'system.default_commission',
+        name: 'system_config'
       });
       requestData.push({
         key: 'default_initial_cash',
         value: systemConfig.default_initial_cash,
-        description: 'system.default_initial_cash'
+        description: 'system.default_initial_cash',
+        name: 'system_config'
       });
       requestData.push({
         key: 'proxy_enabled',
         value: systemConfig.proxy_enabled,
-        description: 'system.proxy_enabled'
+        description: 'system.proxy_enabled',
+        name: 'system_config'
       });
       requestData.push({
         key: 'proxy_url',
         value: systemConfig.proxy_url,
-        description: 'system.proxy_url'
+        description: 'system.proxy_url',
+        name: 'system_config'
       });
       requestData.push({
         key: 'proxy_username',
         value: systemConfig.proxy_username,
-        description: 'system.proxy_username'
+        description: 'system.proxy_username',
+        name: 'system_config'
       });
       requestData.push({
         key: 'proxy_password',
         value: systemConfig.proxy_password,
-        description: 'system.proxy_password'
+        description: 'system.proxy_password',
+        name: 'system_config'
       });
       // 实时数据配置
       requestData.push({
         key: 'realtime_enabled',
         value: systemConfig.realtime_enabled,
-        description: 'system.realtime_enabled'
+        description: 'system.realtime_enabled',
+        name: 'system_config'
       });
       requestData.push({
         key: 'data_mode',
         value: systemConfig.data_mode,
-        description: 'system.data_mode'
+        description: 'system.data_mode',
+        name: 'system_config'
       });
       requestData.push({
         key: 'frontend_update_interval',
         value: systemConfig.frontend_update_interval,
-        description: 'system.frontend_update_interval'
+        description: 'system.frontend_update_interval',
+        name: 'system_config'
       });
       requestData.push({
         key: 'frontend_data_cache_size',
         value: systemConfig.frontend_data_cache_size,
-        description: 'system.frontend_data_cache_size'
+        description: 'system.frontend_data_cache_size',
+        name: 'system_config'
       });
 
       // 处理插件配置
