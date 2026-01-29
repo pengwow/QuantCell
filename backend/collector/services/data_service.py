@@ -1097,21 +1097,21 @@ class DataService:
                         kline_list = []
                         for _, row in df.iterrows():
                             # 跳过无效行 - 使用pandas Series的isna()方法检查相关字段
-                            if row[['date', 'open', 'high', 'low', 'close', 'volume']].isna().any(axis=None):
+                            if row[['timestamp', 'open', 'high', 'low', 'close', 'volume']].isna().any(axis=None):
                                 continue
                             
-                            # 转换date列为datetime对象
-                            date = row['date']
-                            if isinstance(date, str):
-                                date = pd.to_datetime(date)
+                            # 转换timestamp列为datetime对象
+                            timestamp = row['timestamp']
+                            if isinstance(timestamp, str):
+                                timestamp = pd.to_datetime(timestamp)
                             
                             # 直接生成unique_kline值
-                            unique_kline = f"{symbol}_{interval}_{date.isoformat()}"
+                            unique_kline = f"{symbol}_{interval}_{timestamp.isoformat()}"
                             
                             kline_list.append({
                                 'symbol': symbol,
                                 'interval': interval,
-                                'date': date,
+                                'timestamp': timestamp,
                                 'open': row['open'],
                                 'high': row['high'],
                                 'low': row['low'],

@@ -117,11 +117,9 @@ class BinanceDownloader:
                             # 根据是否有表头设置header参数
                             header = 0 if has_header else None
                             
-                            # 读取CSV文件
-                            # 修复参数不匹配问题：将usecols转换为具体的索引列表
+                            # 读取CSV文件，直接使用列名而不是数字索引
                             df = pd.read_csv(
                                 csv_content,
-                                usecols=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
                                 names=self.candle_names,
                                 header=header
                             )

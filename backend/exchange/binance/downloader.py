@@ -121,7 +121,7 @@ class BinanceDownloader:
                             # 修复参数不匹配问题：将usecols转换为具体的索引列表
                             df = pd.read_csv(
                                 csv_content,
-                                usecols=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+                                # usecols=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
                                 names=self.candle_names,
                                 header=header
                             )

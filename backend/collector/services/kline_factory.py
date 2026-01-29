@@ -81,18 +81,17 @@ class BaseKlineFetcher(KlineDataFetcher):
             # 创建模型实例列表
             kline_instances = []
             for kline in kline_data:
-                # 转换timestamp为datetime对象
-                timestamp = kline.get("timestamp")
-                date = datetime.fromtimestamp(timestamp / 1000)  # 转换为秒级时间戳
+                # 转换timestamp为字符串，保持毫秒级
+                timestamp_str = str(kline.get("timestamp"))
                 
                 # 生成unique_kline字段
-                unique_kline = f"{symbol}_{interval}_{timestamp}"
+                unique_kline = f"{symbol}_{interval}_{timestamp_str}"
                 
                 # 创建模型实例
                 kline_instance = self.kline_model(
                     symbol=symbol,
                     interval=interval,
-                    date=date,
+                    timestamp=timestamp_str,
                     open=str(kline.get("open")),
                     high=str(kline.get("high")),
                     low=str(kline.get("low")),
@@ -221,19 +220,19 @@ class BaseKlineFetcher(KlineDataFetcher):
         if start_time:
             try:
                 start_dt = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
-                query = query.filter(self.kline_model.date >= start_dt)
+                query = query.filter(self.kline_model.timestamp >= start_dt)
             except ValueError:
                 logger.warning(f"无效的开始时间格式: {start_time}，忽略该过滤条件")
         
         if end_time:
             try:
                 end_dt = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
-                query = query.filter(self.kline_model.date <= end_dt)
+                query = query.filter(self.kline_model.timestamp <= end_dt)
             except ValueError:
                 logger.warning(f"无效的结束时间格式: {end_time}，忽略该过滤条件")
         
         # 按时间降序排序并限制数量
-        query = query.order_by(self.kline_model.date.desc()).limit(limit)
+        query = query.order_by(self.kline_model.timestamp.desc()).limit(limit)
         
         # 执行查询
         klines = query.all()
@@ -241,8 +240,8 @@ class BaseKlineFetcher(KlineDataFetcher):
         # 转换为指定格式
         kline_data = []
         for kline in klines:
-            # 转换时间为毫秒级时间戳
-            timestamp = int(kline.date.timestamp() * 1000)
+            # 转换时间戳为整数
+            timestamp = int(kline.timestamp)
             
             kline_data.append({
                 "timestamp": timestamp,

@@ -315,13 +315,13 @@ def get_collection_symbols(type: Optional[str] = None, exchange: Optional[str] =
         finally:
             db.close()
         
-        logger.info(f"成功获取数据采集页面的品种选项数据: asset_pools_count={len(pool_data)}, direct_symbols_count={len(direct_symbols)}")
+        logger.info(f"成功获取数据采集页面的品种选项数据: data_pools_count={len(pool_data)}, direct_symbols_count={len(direct_symbols)}")
         
         return ApiResponse(
             code=0,
             message="获取品种选项数据成功",
             data={
-                "asset_pools": pool_data,
+                "data_pools": pool_data,
                 "direct_symbols": direct_symbols
             }
         )
