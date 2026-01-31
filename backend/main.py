@@ -19,6 +19,9 @@ from strategy.routes import router_strategy as strategy_router
 # 导入插件系统
 from plugins import init_plugin_system, global_plugin_manager
 
+# 导入WebSocket路由
+from backend.websocket.routes import router as websocket_router
+
 # 导入国际化配置
 from pathlib import Path
 import json
@@ -330,12 +333,44 @@ async def lifespan(app: FastAPI):
         logger.exception(e)
         realtime_engine = None
 
+    # 启动WebSocket连接管理器
+    try:
+        from backend.websocket.manager import manager
+        await manager.start()
+        app.state.websocket_manager = manager
+        logger.info("WebSocket连接管理器启动成功")
+        
+        # 启动系统状态推送服务
+        from collector.services.system_service import SystemService
+        system_service = SystemService()
+        await system_service.start_system_status_push()
+        app.state.system_service = system_service
+        logger.info("系统状态推送服务启动成功")
+    except Exception as e:
+        logger.error(f"WebSocket连接管理器或系统信息推送服务启动失败: {e}")
+
     yield
 
     # 停止实时引擎
     if realtime_engine:
         logger.info("正在停止实时引擎")
         await realtime_engine.stop()
+    
+    # 停止系统状态推送服务
+    try:
+        if hasattr(app.state, 'system_service'):
+            await app.state.system_service.stop_system_status_push()
+            logger.info("系统状态推送服务已停止")
+    except Exception as e:
+        logger.error(f"停止系统状态推送服务失败: {e}")
+    
+    # 停止WebSocket连接管理器
+    try:
+        from backend.websocket.manager import manager
+        await manager.stop()
+        logger.info("WebSocket连接管理器已停止")
+    except Exception as e:
+        logger.error(f"停止WebSocket连接管理器失败: {e}")
     
     # 异步关闭传统调度器，确保清理完成后再退出
     await asyncio.to_thread(traditional_scheduler.shutdown)
@@ -416,6 +451,9 @@ app.include_router(backtest_router)
 # 注册实时引擎API路由
 from realtime.routes import realtime_router
 app.include_router(realtime_router)
+
+# 注册WebSocket路由
+app.include_router(websocket_router)
 
 # 插件路由注册会在应用启动时通过lifespan函数完成
 # 这里不需要提前注册，插件会在应用启动时动态加载和注册

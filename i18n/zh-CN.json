@@ -239,5 +239,15 @@
   "data_quality": "数据质量",
   "data_visualization": "数据可视化",
   "strategy_config": "策略配置",
-  "backtest_config": "回测配置"
+  "backtest_config": "回测配置",
+  "connection": "连接状态",
+  "connected": "已连接",
+  "disconnected": "未连接",
+  "memory_usage": "内存使用率",
+  "memory_usage_percent": "内存使用率百分比",
+  "disk_space": "磁盘空间",
+  "disk_space_percent": "磁盘空间百分比",
+  "cpu_usage": "CPU使用率",
+  "cpu_usage_percent": "CPU使用率百分比",
+  "system_status": "系统状态"
 }

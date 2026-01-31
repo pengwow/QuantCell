@@ -173,6 +173,173 @@
   transition: all var(--transition-normal);
 }
 
+/* 系统指标提示框样式 */
+.system-tooltip {
+  position: fixed;
+  top: 40px;
+  left: 70px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  color: #ffffff;
+  font-size: 11px;
+  min-width: 160px;
+  max-width: 200px;
+  z-index: 99999;
+  opacity: 0;
+  visibility: hidden;
+  animation: tooltipFadeIn 0.3s ease forwards;
+  word-wrap: break-word;
+  pointer-events: none;
+  /* 提示框头部 */
+  .system-tooltip-header {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    text-align: left;
+    color: #ffffff;
+    padding-bottom: 4px;
+    border-bottom: none;
+    background: transparent;
+  }
+
+  /* 提示框内容 */
+  .system-tooltip-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: transparent;
+  }
+  .system-metric-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 0;
+    background: transparent;
+  }
+  /* 指标标签 */
+  .system-metric-label {
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(0, 0, 0, 0.5);
+    font-size: 10px;
+    background: transparent;
+  }
+
+  /* 指标值 */
+  .system-metric-value {
+    color: #ffffff;
+    font-weight: 500;
+    font-size: 10px;
+    background: transparent;
+  }
+}
+
+/* 提示框淡入动画 */
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px) translateX(0);
+  }
+  to {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0) translateX(0);
+  }
+}
+
+/* 状态指示器容器 */
+.status-indicator-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+}
+
+/* 状态指示器 */
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: transparent;
+}
+
+/* 连接状态指示器 */
+.status-indicator.connected {
+  background-color: #4CAF50;
+  box-shadow: 0 0 4px rgba(76, 175, 80, 0.6);
+}
+
+.status-indicator.disconnected {
+  background-color: #F44336;
+  box-shadow: 0 0 4px rgba(244, 67, 54, 0.6);
+}
+
+/* 系统资源使用状态指示器 */
+.status-indicator.normal {
+  background-color: #4CAF50;
+  box-shadow: 0 0 4px rgba(76, 175, 80, 0.6);
+}
+
+.status-indicator.warning {
+  background-color: #FFC107;
+  box-shadow: 0 0 4px rgba(255, 193, 7, 0.6);
+}
+
+.status-indicator.critical {
+  background-color: #F44336;
+  box-shadow: 0 0 4px rgba(244, 67, 54, 0.6);
+}
+
+/* 系统资源使用值颜色编码 */
+.system-metric-value.normal {
+  color: #4CAF50;
+}
+
+.system-metric-value.warning {
+  color: #FFC107;
+}
+
+.system-metric-value.critical {
+  color: #F44336;
+}
+
+/* 系统提示框中的指标项 - 确保覆盖其他样式 */
+.system-tooltip .system-metric-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  background: transparent;
+  margin: 0;
+  box-shadow: none;
+  min-width: auto;
+  text-align: left;
+}
+
+/* 系统提示框中的指标标签 */
+.system-tooltip .system-metric-label {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  background: transparent;
+}
+
+/* 系统提示框中的指标值 */
+.system-tooltip .system-metric-value {
+  color: #ffffff;
+  font-weight: 500;
+  font-size: 11px;
+  background: transparent;
+}
+
+/* 确保brand-icon有相对定位，使tooltip能正确定位 */
+.brand-icon {
+  position: relative;
+}
+
 .brand-text {
   font-size: 18px;
   font-weight: 600;

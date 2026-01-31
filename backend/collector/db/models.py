@@ -647,10 +647,10 @@ class TaskBusiness:
         try:
             task = db.query(Task).filter_by(task_id=task_id).first()
             if task:
-                # 计算进度百分比
+                # 计算进度百分比，确保不超过100%
                 percentage = 0
                 if total > 0:
-                    percentage = int((completed + failed) / total * 100)
+                    percentage = min(100, int((completed + failed) / total * 100))
                 
                 task.total = total
                 task.completed = completed

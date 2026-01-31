@@ -67,8 +67,8 @@ class OKXDownloader:
                 columns=['open_time', 'open', 'high', 'low', 'close', 'volume', 'volume_currency', 'unknown']
             )
             
-            # 转换数据类型
-            df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
+            # 转换数据类型，保留原始时间戳
+            df['open_time'] = pd.to_numeric(df['open_time'])
             df['open'] = pd.to_numeric(df['open'])
             df['high'] = pd.to_numeric(df['high'])
             df['low'] = pd.to_numeric(df['low'])

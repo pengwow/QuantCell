@@ -162,7 +162,10 @@ class OKXCollector(CryptoBaseCollector):
             df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
             
             # 过滤时间范围
-            df = df[(df['timestamp'] >= start_datetime) & (df['timestamp'] <= end_datetime)]
+            # 将开始和结束时间转换为毫秒时间戳进行比较
+            start_timestamp = int(start_datetime.timestamp() * 1000)
+            end_timestamp = int(end_datetime.timestamp() * 1000)
+            df = df[(df['timestamp'] >= start_timestamp) & (df['timestamp'] <= end_timestamp)]
             
             logger.info(f"成功下载 {symbol} {interval} 数据，共 {len(df)} 条")
             return df
