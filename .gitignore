@@ -26,3 +26,5 @@ backend/strategies/*
 .shared/ui-ux-pro-max/*
 backend/backtest/results/*.json
 frontend2/
+*/.DS_Store
+.DS_Store
