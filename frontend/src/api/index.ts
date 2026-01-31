@@ -351,6 +351,15 @@ export const dataApi = {
   resolveKlineDuplicates: (params: any) => {
     return apiRequest.post('/data/quality/kline/duplicates/resolve', undefined, { params });
   },
+
+  /**
+   * 获取数据质量检查的下拉选项数据
+   * @param params 查询参数，包括symbol、market_type、crypto_type等
+   * @returns 包含货币对和时间周期列表的数据
+   */
+  getQualityOptions: (params: any) => {
+    return apiRequest.get('/data/quality/options', params);
+  },
 };
 
 /**

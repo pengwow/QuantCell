@@ -346,7 +346,7 @@ export class WebSocketService {
 
         // 处理系统状态更新
         if (message.type === 'system_status') {
-            console.log('收到系统状态更新:', message.data);
+            // console.log('收到系统状态更新:', message.data);
             this.notifyListeners('system:status', message.data);
             this.notifyListeners('system_status', message.data);
             return;
