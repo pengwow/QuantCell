@@ -31,6 +31,104 @@ from ..schemas import ApiResponse
 # 创建数据质量API子路由
 quality_router = APIRouter(prefix="/quality", tags=["data-quality"])
 
+@quality_router.get("/options", response_model=ApiResponse)
+async def get_quality_options(
+    symbol: Optional[str] = Query(None, description="货币对，如BTCUSDT，为空时返回所有可用货币对"),
+    market_type: str = Query("crypto", description="市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币）"),
+    crypto_type: str = Query("spot", description="加密货币类型，当market_type为crypto时有效，可选值：spot（现货）、future（合约）"),
+    db: Session = Depends(get_db)
+):
+    """
+    获取数据质量检查的下拉选项API
+    
+    用于获取数据质量检查页面的货币对和时间周期下拉选项数据
+    当symbol为空时，返回所有可用货币对及其对应的时间周期列表
+    当symbol不为空时，返回该货币对的可用时间周期列表
+    
+    返回示例：
+    {
+      "code": 0,
+      "message": "获取下拉选项数据成功",
+      "data": {
+        "BTCUSDT": ["1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+        "ETHUSDT": ["1m", "5m", "1h", "1d"],
+        "BNBUSDT": ["1h", "1d"]
+      }
+    }
+    """
+    try:
+        # 根据市场类型和加密货币类型选择相应的模型
+        KlineModel = None
+        if market_type == "crypto":
+            if crypto_type == "spot":
+                KlineModel = CryptoSpotKline
+            elif crypto_type == "future":
+                KlineModel = CryptoFutureKline
+            else:
+                raise HTTPException(status_code=400, detail=f"不支持的加密货币类型: {crypto_type}")
+        elif market_type == "stock":
+            KlineModel = StockKline
+        else:
+            raise HTTPException(status_code=400, detail=f"不支持的市场类型: {market_type}")
+        
+        # 准备响应数据
+        response_data = {}
+        
+        # 定义时间周期的优先级，用于排序
+        interval_priority = {
+            "1m": 1,
+            "5m": 2,
+            "15m": 3,
+            "30m": 4,
+            "1h": 5,
+            "4h": 6,
+            "1d": 7,
+            "1w": 8,
+            "1M": 9
+        }
+        
+        # 如果symbol为空，返回所有可用货币对及其对应的时间周期列表
+        if not symbol:
+            # 查询所有唯一的货币对
+            symbols = db.query(KlineModel.symbol).distinct().all()
+            symbols = [s[0] for s in symbols]
+            
+            # 对货币对进行排序
+            symbols.sort()
+            
+            # 为每个货币对查询对应的时间周期
+            for s in symbols:
+                intervals = db.query(KlineModel.interval).filter(
+                    KlineModel.symbol == s
+                ).distinct().all()
+                intervals = [i[0] for i in intervals]
+                
+                # 按优先级排序
+                intervals.sort(key=lambda x: interval_priority.get(x, 999))
+                
+                response_data[s] = intervals
+        else:
+            # 查询该货币对的所有唯一时间周期
+            intervals = db.query(KlineModel.interval).filter(
+                KlineModel.symbol == symbol
+            ).distinct().all()
+            intervals = [i[0] for i in intervals]
+            
+            # 按优先级排序
+            intervals.sort(key=lambda x: interval_priority.get(x, 999))
+            
+            response_data[symbol] = intervals
+        
+        return ApiResponse(
+            code=0,
+            message="获取下拉选项数据成功",
+            data=response_data
+        )
+    except Exception as e:
+        logger.error(f"获取下拉选项数据失败: {e}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @quality_router.get("/kline", response_model=ApiResponse)
 async def check_kline_quality(
     symbol: str = Query(..., description="货币对，如BTCUSDT"),

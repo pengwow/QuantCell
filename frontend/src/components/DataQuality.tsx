@@ -121,10 +121,12 @@ const DataQuality = ({ systemConfig }: DataQualityProps) => {
   // 数据质量报告状态
   const [qualityReport, setQualityReport] = useState<KlineQualityReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [symbol, setSymbol] = useState('BTCUSDT');
-  const [interval, setInterval] = useState('1d');
+  const [symbol, setSymbol] = useState('');
+  const [interval, setInterval] = useState('');
   const [symbolOptions, setSymbolOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const [intervalOptions, setIntervalOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [isLoadingSymbols, setIsLoadingSymbols] = useState(false);
+  const [isLoadingIntervals, setIsLoadingIntervals] = useState(false);
   // 重复记录相关状态
   const [duplicateDetails, setDuplicateDetails] = useState<DuplicateGroup[]>([]);
   const [isLoadingDuplicates, setIsLoadingDuplicates] = useState(false);
@@ -138,36 +140,90 @@ const DataQuality = ({ systemConfig }: DataQualityProps) => {
   // 筛选相关状态
   const [minDuplicateCount, setMinDuplicateCount] = useState<number>(0);
 
-  // 区间选项
-  const intervalOptions = [
-    { value: '1m', label: '1分钟' },
-    { value: '5m', label: '5分钟' },
-    { value: '15m', label: '15分钟' },
-    { value: '30m', label: '30分钟' },
-    { value: '1h', label: '1小时' },
-    { value: '4h', label: '4小时' },
-    { value: '1d', label: '1天' },
-  ];
+  // 存储所有货币对及其时间周期的映射
+  const [symbolIntervalMap, setSymbolIntervalMap] = useState<Record<string, string[]>>({});
 
   // 获取货币对列表
   const fetchSymbols = async () => {
     try {
+      console.log('开始获取货币对列表...');
       setIsLoadingSymbols(true);
-      const response = await dataApi.getCryptoSymbols({
-        crypto_type: systemConfig.crypto_trading_mode,
-        exchange: systemConfig.exchange,
-        limit: 1000
+      const symbolMap = await dataApi.getQualityOptions({
+        market_type: 'crypto',
+        crypto_type: systemConfig.crypto_trading_mode
       });
       
-      if (response.code === 0) {
-        const symbols = response.data.symbols || [];
-        setSymbolOptions(symbols.map((s: string) => ({ value: s, label: s })));
+      console.log('获取货币对列表响应:', symbolMap);
+      
+      const data = symbolMap || {};
+      console.log('货币对映射:', data);
+      setSymbolIntervalMap(data);
+      
+      // 提取货币对列表
+      const symbols = Object.keys(data);
+      console.log('货币对列表:', symbols);
+      setSymbolOptions(symbols.map((s: string) => ({ value: s, label: s })));
+      
+      // 如果有货币对，默认选择第一个
+      if (symbols.length > 0 && !symbol) {
+        setSymbol(symbols[0]);
+        // 获取第一个货币对的时间周期列表
+        const intervals = data[symbols[0]] || [];
+        console.log('时间周期列表:', intervals);
+        setIntervalOptions(intervals.map((i: string) => ({ value: i, label: i })));
+        // 如果有时间周期，默认选择第一个
+        if (intervals.length > 0) {
+          setInterval(intervals[0]);
+        } else {
+          setInterval('');
+        }
       }
     } catch (error) {
       message.error('获取货币对列表失败');
       console.error('获取货币对列表失败:', error);
     } finally {
       setIsLoadingSymbols(false);
+      console.log('获取货币对列表完成');
+    }
+  };
+
+  // 获取时间周期列表
+  const fetchIntervals = async (selectedSymbol: string) => {
+    try {
+      setIsLoadingIntervals(true);
+      
+      // 首先检查本地是否已经有该货币对的时间周期列表
+      if (symbolIntervalMap[selectedSymbol]) {
+        const intervals = symbolIntervalMap[selectedSymbol];
+        setIntervalOptions(intervals.map((i: string) => ({ value: i, label: i })));
+        // 如果有时间周期，默认选择第一个
+        if (intervals.length > 0) {
+          setInterval(intervals[0]);
+        } else {
+          setInterval('');
+        }
+      } else {
+        // 如果本地没有，则从服务器获取
+        const data = await dataApi.getQualityOptions({
+          symbol: selectedSymbol,
+          market_type: 'crypto',
+          crypto_type: systemConfig.crypto_trading_mode
+        });
+        
+        const intervals = data[selectedSymbol] || [];
+        setIntervalOptions(intervals.map((i: string) => ({ value: i, label: i })));
+        // 如果有时间周期，默认选择第一个
+        if (intervals.length > 0) {
+          setInterval(intervals[0]);
+        } else {
+          setInterval('');
+        }
+      }
+    } catch (error) {
+      message.error('获取时间周期列表失败');
+      console.error('获取时间周期列表失败:', error);
+    } finally {
+      setIsLoadingIntervals(false);
     }
   };
 
@@ -175,7 +231,7 @@ const DataQuality = ({ systemConfig }: DataQualityProps) => {
   const fetchQualityReport = async () => {
     try {
       setIsLoading(true);
-      // 响应拦截器已经处理了code === 0的情况，直接返回data
+      // 响应拦截器已经处理了code !== 0的情况，直接返回data
       const data = await dataApi.checkKlineQuality({
         symbol,
         interval
@@ -210,6 +266,7 @@ const DataQuality = ({ systemConfig }: DataQualityProps) => {
       setDuplicateDetails(data.duplicate_details);
       setShowDuplicateDetails(true);
     } catch (error) {
+      // 响应拦截器会将code !== 0的情况处理为ApiError
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       message.error(`获取重复记录详情失败: ${errorMessage}`);
       console.error('获取重复记录详情失败:', error);
@@ -245,8 +302,9 @@ const DataQuality = ({ systemConfig }: DataQualityProps) => {
 
   // 组件挂载时获取货币对列表
   useEffect(() => {
+    console.log('组件挂载，调用fetchSymbols...');
     fetchSymbols();
-  }, [systemConfig.crypto_trading_mode, systemConfig.exchange]);
+  }, []);
 
   // 计算总体质量评分
   const calculateQualityScore = () => {
@@ -950,7 +1008,10 @@ const DataQuality = ({ systemConfig }: DataQualityProps) => {
         <Space size="large" wrap>
           <Select
             value={symbol}
-            onChange={setSymbol}
+            onChange={(value) => {
+              setSymbol(value);
+              fetchIntervals(value);
+            }}
             placeholder="选择货币对"
             loading={isLoadingSymbols}
             style={{ width: 200 }}
@@ -960,6 +1021,7 @@ const DataQuality = ({ systemConfig }: DataQualityProps) => {
             value={interval}
             onChange={setInterval}
             placeholder="选择时间周期"
+            loading={isLoadingIntervals}
             style={{ width: 120 }}
             options={intervalOptions}
           />
@@ -968,6 +1030,7 @@ const DataQuality = ({ systemConfig }: DataQualityProps) => {
             onClick={fetchQualityReport}
             loading={isLoading}
             icon={<ReloadOutlined />}
+            disabled={!symbol || !interval}
           >
             检查数据质量
           </Button>
