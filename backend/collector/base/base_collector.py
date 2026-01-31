@@ -153,35 +153,88 @@ class BaseCollector(abc.ABC):
     def _calculate_missing_ranges(self, existing_timestamps):
         """
         计算缺失的日期范围
-        
+
         :param existing_timestamps: 现有时间戳的 Series
         :return: 缺失的日期范围列表，每个元素是 (start, end) 元组
         """
         # 生成完整的日期范围
         complete_range = self._generate_complete_date_range()
         
-        # 找出缺失的日期
-        missing_dates = complete_range.difference(existing_timestamps)
+        if existing_timestamps.empty:
+            # 没有现有数据，返回整个范围
+            if not complete_range.empty:
+                logger.info(f"没有现有数据，返回完整范围: {complete_range[0]} 至 {complete_range[-1]}")
+                return [(complete_range[0], complete_range[-1])]
+            else:
+                return []
         
-        if missing_dates.empty:
-            return []
-        
-        # 将缺失的日期分组为连续范围
-        missing_dates = missing_dates.sort_values()
-        ranges = []
-        start = missing_dates[0]
-        
-        for i in range(1, len(missing_dates)):
-            # 检查当前日期是否与前一个日期连续
-            if (missing_dates[i] - missing_dates[i-1]).total_seconds() > self._get_interval_seconds():
-                # 不连续，结束当前范围，开始新范围
-                ranges.append((start, missing_dates[i-1]))
-                start = missing_dates[i]
-        
-        # 添加最后一个范围
-        ranges.append((start, missing_dates[-1]))
-        
-        return ranges
+        try:
+            # 确保现有时间戳是数值类型
+            existing_timestamps = pd.to_numeric(existing_timestamps, errors='coerce').dropna()
+            
+            if existing_timestamps.empty:
+                # 没有有效时间戳，返回整个范围
+                if not complete_range.empty:
+                    logger.info(f"没有有效时间戳，返回完整范围: {complete_range[0]} 至 {complete_range[-1]}")
+                    return [(complete_range[0], complete_range[-1])]
+                else:
+                    return []
+            
+            # 将现有时间戳转换为 datetime64 类型用于比较
+            existing_datetimes = pd.to_datetime(existing_timestamps, unit='ms', errors='coerce')
+            existing_datetimes = existing_datetimes.dropna()
+            
+            if existing_datetimes.empty:
+                # 无法转换为 datetime，返回整个范围
+                if not complete_range.empty:
+                    logger.info(f"无法转换时间戳，返回完整范围: {complete_range[0]} 至 {complete_range[-1]}")
+                    return [(complete_range[0], complete_range[-1])]
+                else:
+                    return []
+            
+            # 找出缺失的日期
+            missing_dates = complete_range.difference(existing_datetimes)
+            
+            if missing_dates.empty:
+                logger.info("没有缺失的日期")
+                return []
+            
+            # 记录现有数据的时间范围
+            existing_min = existing_datetimes.min()
+            existing_max = existing_datetimes.max()
+            logger.info(f"现有数据时间范围: {existing_min} 至 {existing_max}")
+            logger.info(f"完整日期范围: {complete_range[0]} 至 {complete_range[-1]}")
+            logger.info(f"缺失日期数量: {len(missing_dates)}")
+            
+            # 将缺失的日期分组为连续范围
+            missing_dates = missing_dates.sort_values()
+            ranges = []
+            start = missing_dates[0]
+            
+            for i in range(1, len(missing_dates)):
+                # 检查当前日期是否与前一个日期连续
+                if (missing_dates[i] - missing_dates[i-1]).total_seconds() > self._get_interval_seconds():
+                    # 不连续，结束当前范围，开始新范围
+                    ranges.append((start, missing_dates[i-1]))
+                    start = missing_dates[i]
+            
+            # 添加最后一个范围
+            ranges.append((start, missing_dates[-1]))
+            
+            logger.info(f"计算得到 {len(ranges)} 个缺失数据范围")
+            for i, (range_start, range_end) in enumerate(ranges):
+                logger.info(f"缺失范围 {i+1}: {range_start} 至 {range_end}")
+            
+            return ranges
+        except Exception as e:
+            logger.error(f"计算缺失范围失败: {e}")
+            logger.exception(e)
+            # 出错时返回整个范围
+            if not complete_range.empty:
+                logger.info(f"计算失败，返回完整范围: {complete_range[0]} 至 {complete_range[-1]}")
+                return [(complete_range[0], complete_range[-1])]
+            else:
+                return []
     
     def _get_interval_seconds(self):
         """
@@ -219,11 +272,17 @@ class BaseCollector(abc.ABC):
             try:
                 _old_df = pd.read_csv(instrument_path)
                 if not _old_df.empty:
+                    # 兼容历史数据：如果CSV文件中是date列，则重命名为timestamp列
+                    if 'date' in _old_df.columns and 'timestamp' not in _old_df.columns:
+                        _old_df = _old_df.rename(columns={'date': 'timestamp'})
+                    # 处理时间戳列，确保为数值类型
                     _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
-                    existing_timestamps = pd.to_numeric(_old_df['timestamp'], errors='coerce')
-                    logger.info(f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_timestamps)} 条记录")
+                    # 过滤掉无效的时间戳
+                    existing_timestamps = _old_df['timestamp'].dropna()
+                    logger.info(f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_timestamps)} 条有效记录")
             except Exception as e:
                 logger.error(f"[增量模式] 读取 {symbol} 历史数据失败: {e}")
+                logger.exception(e)
         
         # 计算缺失的日期范围
         missing_ranges = self._calculate_missing_ranges(existing_timestamps)
@@ -241,10 +300,20 @@ class BaseCollector(abc.ABC):
                 # 下载当前范围的数据
                 df = self.get_data(symbol, self.interval, range_start, range_end, progress_callback)
                 
+                # 详细日志记录
+                if df is None:
+                    logger.warning(f"[增量模式] {symbol} 数据范围 {range_start} 至 {range_end} get_data返回None")
+                else:
+                    logger.info(f"[增量模式] {symbol} get_data返回类型: {type(df)}, 形状: {df.shape if hasattr(df, 'shape') else 'N/A'}")
+                    if hasattr(df, 'columns'):
+                        logger.info(f"[增量模式] {symbol} 数据列: {list(df.columns)}")
+                    if hasattr(df, 'head'):
+                        logger.info(f"[增量模式] {symbol} 前5行数据: {df.head().to_dict('records')}")
+                
                 if df is not None and not df.empty:
                     # 将当前范围的数据添加到总数据中
                     all_df = pd.concat([all_df, df]) if not all_df.empty else df
-                    logger.info(f"[增量模式] 成功下载 {symbol} 数据范围: {range_start} 至 {range_end}")
+                    logger.info(f"[增量模式] 成功下载 {symbol} 数据范围: {range_start} 至 {range_end}, 数据量: {len(df)}条")
                 else:
                     logger.warning(f"[增量模式] {symbol} 数据范围 {range_start} 至 {range_end} 下载结果为空")
             except Exception as e:

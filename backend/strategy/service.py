@@ -783,7 +783,7 @@ class StrategyService:
                     existing_strategy.parameters = params_json
                     existing_strategy.tags = tags_json
                     existing_strategy.version = strategy_info["version"]
-                    existing_strategy.updated_at = datetime.now()
+                    # 不需要手动设置updated_at，模型已配置onupdate=func.now()
                     logger.info(f"更新策略信息到数据库: {strategy_name}")
                 else:
                     # 创建新策略

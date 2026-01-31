@@ -4,9 +4,11 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional
-
+import time
+import asyncio
 from loguru import logger
-
+from backend.websocket.manager import manager
+from db.models import Task
 
 class TaskStatus(str, Enum):
     """任务状态枚举
@@ -165,10 +167,10 @@ class TaskManager:
             logger.error(f"任务不存在: {task_id}")
             return False
         
-        # 计算进度百分比
+        # 计算进度百分比，确保不超过100%
         percentage = 0
         if total > 0:
-            percentage = int((completed + failed) / total * 100)
+            percentage = min(100, int((completed + failed) / total * 100))
         
         # 更新内存中的进度信息
         self._tasks[task_id]["progress"] = {
@@ -186,6 +188,38 @@ class TaskManager:
             TaskBusiness.update_progress(task_id, current, completed, total, failed, status)
         except Exception as e:
             logger.error(f"更新数据库任务进度失败: task_id={task_id}, error={e}")
+        
+        # 通过WebSocket推送进度更新
+        try:
+
+            
+            # 推送进度更新
+            message = {
+                "type": "task_progress",
+                "id": f"progress_{task_id}_{int(time.time() * 1000)}",
+                "timestamp": int(time.time() * 1000),
+                "data": {
+                    "task_id": task_id,
+                    "progress": self._tasks[task_id]["progress"]
+                }
+            }
+            
+            # 在任何线程中执行异步操作
+            try:
+                # 尝试获取当前事件循环
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 在运行的事件循环中执行
+                    loop.create_task(manager.queue_message(message, topic="task:progress"))
+                else:
+                    # 事件循环存在但未运行，运行直到完成
+                    loop.run_until_complete(manager.queue_message(message, topic="task:progress"))
+            except RuntimeError:
+                # 没有当前事件循环，使用run_coroutine_threadsafe
+                # 创建新的事件循环并运行
+                asyncio.run(manager.queue_message(message, topic="task:progress"))
+        except Exception as e:
+            logger.debug(f"WebSocket推送失败: {e}")
         
         logger.debug(f"更新任务进度: {task_id}, 当前: {current}, 进度: {percentage}%, 状态: {status}")
         return True
@@ -213,6 +247,38 @@ class TaskManager:
             TaskBusiness.complete(task_id)
         except Exception as e:
             logger.error(f"更新数据库任务状态失败: task_id={task_id}, error={e}")
+        
+        # 通过WebSocket推送状态更新
+        try:
+            
+            # 推送状态更新
+            message = {
+                "type": "task_status",
+                "id": f"status_{task_id}_{int(time.time() * 1000)}",
+                "timestamp": int(time.time() * 1000),
+                "data": {
+                    "task_id": task_id,
+                    "status": TaskStatus.COMPLETED,
+                    "end_time": self._tasks[task_id]["end_time"]
+                }
+            }
+            
+            # 在任何线程中执行异步操作
+            try:
+                # 尝试获取当前事件循环
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 在运行的事件循环中执行
+                    loop.create_task(manager.queue_message(message, topic="task:status"))
+                else:
+                    # 事件循环存在但未运行，运行直到完成
+                    loop.run_until_complete(manager.queue_message(message, topic="task:status"))
+            except RuntimeError:
+                # 没有当前事件循环，使用run_coroutine_threadsafe
+                # 创建新的事件循环并运行
+                asyncio.run(manager.queue_message(message, topic="task:status"))
+        except Exception as e:
+            logger.debug(f"WebSocket推送失败: {e}")
         
         logger.info(f"任务完成: {task_id}")
         return True
@@ -242,6 +308,39 @@ class TaskManager:
             TaskBusiness.fail(task_id, error_message)
         except Exception as e:
             logger.error(f"更新数据库任务状态失败: task_id={task_id}, error={e}")
+        
+        # 通过WebSocket推送状态更新
+        try:
+            
+            # 推送状态更新
+            message = {
+                "type": "task_status",
+                "id": f"status_{task_id}_{int(time.time() * 1000)}",
+                "timestamp": int(time.time() * 1000),
+                "data": {
+                    "task_id": task_id,
+                    "status": TaskStatus.FAILED,
+                    "end_time": self._tasks[task_id]["end_time"],
+                    "error_message": error_message
+                }
+            }
+            
+            # 在任何线程中执行异步操作
+            try:
+                # 尝试获取当前事件循环
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 在运行的事件循环中执行
+                    loop.create_task(manager.queue_message(message, topic="task:status"))
+                else:
+                    # 事件循环存在但未运行，运行直到完成
+                    loop.run_until_complete(manager.queue_message(message, topic="task:status"))
+            except RuntimeError:
+                # 没有当前事件循环，使用run_coroutine_threadsafe
+                # 创建新的事件循环并运行
+                asyncio.run(manager.queue_message(message, topic="task:status"))
+        except Exception as e:
+            logger.debug(f"WebSocket推送失败: {e}")
         
         logger.error(f"任务失败: {task_id}, 错误信息: {error_message}")
         return True
@@ -319,7 +418,7 @@ class TaskManager:
         
         # 从数据库中删除
         try:
-            from ..db.models import Task
+            
             Task.delete(task_id)
         except Exception as e:
             logger.error(f"从数据库删除任务失败: task_id={task_id}, error={e}")

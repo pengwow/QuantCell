@@ -238,5 +238,15 @@
   "data_quality": "Data Quality",
   "data_visualization": "Data Visualization",
   "strategy_config": "Strategy Config",
-  "backtest_config": "Backtest Config"
+  "backtest_config": "Backtest Config",
+  "connection": "Connection Status",
+  "connected": "Connected",
+  "disconnected": "Disconnected",
+  "memory_usage": "Memory Usage",
+  "memory_usage_percent": "Memory Usage Percent",
+  "disk_space": "Disk Space",
+  "disk_space_percent": "Disk Space Percent",
+  "cpu_usage": "CPU Usage",
+  "cpu_usage_percent": "CPU Usage Percent",
+  "system_status": "System Status"
 }

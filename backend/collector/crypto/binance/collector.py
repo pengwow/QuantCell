@@ -250,24 +250,62 @@ class BinanceCollector(CryptoBaseCollector):
                 logger.warning(f"无效时间戳值: {invalid_times}")
             
             # 5. 过滤掉无效时间戳的行
-            filtered_df = df.dropna(subset=['timestamp'])
+            filtered_df = df.dropna(subset=['open_time'])
             
             # 6. 记录过滤掉的无效行数量
             if len(filtered_df) < len(df):
                 logger.warning(f"过滤掉了 {len(df) - len(filtered_df)} 行无效时间戳数据")
             
-            # 7. 只保留需要的列
+            # 7. 只保留需要的列，使用原始open_time作为timestamp
             # 使用loc[:, []]语法确保返回DataFrame类型
-            filtered_df = filtered_df.loc[:, ['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+            filtered_df = filtered_df.loc[:, ['open_time', 'open', 'high', 'low', 'close', 'volume']]
             filtered_df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
             
-            # 8. 过滤时间范围
-            # 将带时区的Timestamp转换为不带时区的datetime64[ns]类型，确保类型匹配
-            start_dt_naive = start_datetime.tz_localize(None)
-            end_dt_naive = end_datetime.tz_localize(None)
-            filtered_df = filtered_df[(filtered_df['timestamp'] >= start_dt_naive) & (filtered_df['timestamp'] <= end_dt_naive)]
+            # 8. 检测时间戳单位并调整
+            if not filtered_df.empty:
+                first_timestamp = filtered_df['timestamp'].iloc[0]
+                timestamp_length = len(str(int(first_timestamp)))
+                logger.info(f"检测到时间戳长度: {timestamp_length}")
+                
+                # 调整时间戳单位为毫秒
+                if timestamp_length == 16:  # 微秒
+                    filtered_df['timestamp'] = filtered_df['timestamp'] // 1000
+                    logger.info("时间戳已从微秒调整为毫秒")
+                elif timestamp_length == 19:  # 纳秒
+                    filtered_df['timestamp'] = filtered_df['timestamp'] // 1000000
+                    logger.info("时间戳已从纳秒调整为毫秒")
+                elif timestamp_length == 10:  # 秒
+                    filtered_df['timestamp'] = filtered_df['timestamp'] * 1000
+                    logger.info("时间戳已从秒调整为毫秒")
+            
+            # 9. 过滤时间范围
+            # 将开始和结束时间转换为毫秒时间戳进行比较
+            start_timestamp = int(start_datetime.timestamp() * 1000)
+            end_timestamp = int(end_datetime.timestamp() * 1000)
+            logger.info(f"时间范围过滤: {start_timestamp} 至 {end_timestamp}")
+            logger.info(f"过滤前数据量: {len(filtered_df)}")
+            
+            filtered_df = filtered_df[(filtered_df['timestamp'] >= start_timestamp) & (filtered_df['timestamp'] <= end_timestamp)]
+            logger.info(f"过滤后数据量: {len(filtered_df)}")
 
             logger.info(f"成功下载 {symbol} {interval} 数据，共 {len(filtered_df)} 条")
+            
+            # 确保返回的DataFrame至少包含必要的列
+            if not filtered_df.empty:
+                required_columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+                if all(col in filtered_df.columns for col in required_columns):
+                    logger.info(f"数据包含所有必要列: {required_columns}")
+                else:
+                    missing_cols = [col for col in required_columns if col not in filtered_df.columns]
+                    logger.warning(f"数据缺少必要列: {missing_cols}")
+                    # 尝试重新下载
+                    logger.info("尝试重新下载数据...")
+                    df = self.downloader.download(symbol, interval, start_date, end_date, progress_callback)
+                    if not df.empty:
+                        filtered_df = df.loc[:, ['open_time', 'open', 'high', 'low', 'close', 'volume']]
+                        filtered_df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+                        logger.info(f"重新下载后的数据量: {len(filtered_df)}")
+            
             return filtered_df
         except Exception as e:
             logger.error(f"下载 {symbol} {interval} 数据失败: {e}")

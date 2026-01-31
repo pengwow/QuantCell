@@ -1058,8 +1058,18 @@ class DataService:
                     logger.info(f"当前项目根目录: {project_root}")
 
                     # 构建数据目录路径
-                    data_dir = Path(save_dir) / interval if save_dir else Path(get_data.default_save_dir) / interval
-                    data_dir = project_root / data_dir
+                    if save_dir:
+                        data_dir = Path(save_dir) / interval
+                        # 检查是否为绝对路径
+                        if not data_dir.is_absolute():
+                            data_dir = project_root / data_dir
+                    else:
+                        # 使用默认保存目录，确保是相对路径
+                        default_dir = Path(get_data.default_save_dir)
+                        if default_dir.is_absolute():
+                            data_dir = default_dir / interval
+                        else:
+                            data_dir = project_root / default_dir / interval
                     logger.info(f"数据目录: {data_dir}")
                     # 导入数据库相关模块
                     from sqlalchemy import func, insert
@@ -1116,8 +1126,7 @@ class DataService:
                                 'close': row['close'],
                                 'volume': row['volume'],
                                 'unique_kline': unique_kline,
-                                'data_source': request.exchange,  # 添加data_source字段
-                                'created_at': datetime.now()  # 添加created_at字段
+                                'data_source': request.exchange  # 添加data_source字段
                             })
                         
                         if not kline_list:

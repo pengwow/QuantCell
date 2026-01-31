@@ -2,18 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { useResponsive } from './hooks/useResponsive';
 
-import {
-  BarChartOutlined, CodeOutlined, FundProjectionScreenOutlined,
-  RobotOutlined, SettingOutlined, ProductOutlined,
-  DownloadOutlined, InboxOutlined, InfoCircleOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined
-} from '@ant-design/icons';
-
+import { BarChartOutlined, CodeOutlined, FundProjectionScreenOutlined, RobotOutlined, SettingOutlined, ProductOutlined, DownloadOutlined, InboxOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useConfigStore } from './store';
 import { pluginManager } from './plugins';
 import type { MenuGroup } from './plugins/PluginBase';
 import { useTranslation } from 'react-i18next';
 import { initTheme } from './utils/themeManager';
+import { wsService } from './services/websocketService';
 import './App.css';
 
 /**
@@ -23,8 +18,17 @@ import './App.css';
 const App = () => {
   const { isMobile, isTablet } = useResponsive();
   const [isCollapsed, setIsCollapsed] = useState(true);
-  const [isManualMode, setIsManualMode] = useState(false);
   const [menus, setMenus] = useState<MenuGroup[]>([]);
+  const [isTooltipVisible, setIsTooltipVisible] = useState(false);
+  const [systemMetrics, setSystemMetrics] = useState({
+    connectionStatus: 'disconnected',
+    cpuUsage: '0%',
+    cpuUsagePercent: '0%',
+    memoryUsage: '0GB / 0GB',
+    memoryUsagePercent: '0%',
+    diskSpace: '0GB / 0GB',
+    diskSpacePercent: '0%'
+  });
   const location = useLocation();
   const { t } = useTranslation();
 
@@ -36,6 +40,54 @@ const App = () => {
     loadConfigs();
     loadMenus();
     initTheme();
+    
+    // 订阅系统状态主题
+    wsService.subscribe('system:status');
+    
+    // 处理系统状态消息
+    const handleSystemStatus = (data: any) => {
+      if (data) {
+        setSystemMetrics(prev => ({
+          ...prev,
+          cpuUsage: `${data.cpu_usage}%`,
+          cpuUsagePercent: `${data.cpu_usage_percent}%`,
+          memoryUsage: data.memory_usage,
+          memoryUsagePercent: `${data.memory_usage_percent}%`,
+          diskSpace: data.disk_space,
+          diskSpacePercent: `${data.disk_space_percent}%`
+        }));
+      }
+    };
+    
+    // 处理WebSocket连接状态变化
+    const handleConnectionChange = (connected: boolean) => {
+      console.log('WebSocket连接状态:', connected);
+      // 更新系统指标中的连接状态
+      setSystemMetrics(prev => ({
+        ...prev,
+        connectionStatus: connected ? 'connected' : 'disconnected'
+      }));
+    };
+    
+    // 注册监听器
+    wsService.on('system_status', handleSystemStatus);
+    wsService.onConnectionChange(handleConnectionChange);
+    
+    // 连接WebSocket服务
+    wsService.connect();
+    
+    // 初始化连接状态
+    const initialConnected = wsService.getConnected();
+    setSystemMetrics(prev => ({
+      ...prev,
+      connectionStatus: initialConnected ? 'connected' : 'disconnected'
+    }));
+    
+    // 清理函数
+    return () => {
+      wsService.off('system_status', handleSystemStatus);
+      wsService.offConnectionChange(handleConnectionChange);
+    };
   }, [loadConfigs]);
 
   const handleMenuClick = (): void => {
@@ -44,20 +96,21 @@ const App = () => {
     }
   };
 
-  // 处理侧边栏展开/收起控制
-  const handleToggleSidebar = (): void => {
-    if (isCollapsed) {
-      // 展开菜单
-      setIsCollapsed(false);
-      setIsManualMode(false); // 恢复自动收缩功能
-    } else {
-      // 收起菜单
-      setIsCollapsed(true);
-      setIsManualMode(true); // 进入手动模式，禁用自动收缩
-    }
-  };
+
 
   const isVerticalLayout = isMobile || isTablet;
+
+  // 获取资源使用状态类名
+  const getUsageStatusClass = (usage: string): string => {
+    const value = parseInt(usage);
+    if (value >= 85) {
+      return 'critical';
+    } else if (value >= 70) {
+      return 'warning';
+    } else {
+      return 'normal';
+    }
+  };
 
   // 加载菜单，包括核心菜单和插件菜单
   const loadMenus = (): void => {
@@ -148,12 +201,73 @@ const App = () => {
   };
 
   return (
-    <div className={`app-container ${isVerticalLayout ? 'vertical-layout' : 'horizontal-layout'}`}>
+    <>
+      {/* 系统指标提示框 - 直接放在根元素下，避免侧边栏限制 */}
+      { isTooltipVisible && (
+        <div className="system-tooltip">
+          <div className="system-tooltip-header">{t('system_status')}</div>
+          <div className="system-tooltip-content">
+            {/* 连接状态指示器 */}
+            <div className="system-metric-item">
+              <span className="system-metric-label">{t('connection')}:</span>
+              <div className="status-indicator-container">
+                <span 
+                  className={`status-indicator ${systemMetrics.connectionStatus}`}
+                ></span>
+                <span className="system-metric-value">
+                  {t(systemMetrics.connectionStatus)}
+                </span>
+              </div>
+            </div>
+            
+            {/* CPU使用率指示器 */}
+            <div className="system-metric-item">
+              <span className="system-metric-label">{t('cpu_usage')}:</span>
+              <div className="status-indicator-container">
+                <span 
+                  className={`status-indicator ${getUsageStatusClass(systemMetrics.cpuUsage)}`}
+                ></span>
+                <span className={`system-metric-value ${getUsageStatusClass(systemMetrics.cpuUsage)}`}>
+                  {systemMetrics.cpuUsagePercent}  
+                </span>
+              </div>
+            </div>
+            
+            {/* 内存使用率指示器 */}
+            <div className="system-metric-item">
+              <span className="system-metric-label">{t('memory_usage')}:</span>
+              <div className="status-indicator-container">
+                <span 
+                  className={`status-indicator ${getUsageStatusClass(systemMetrics.memoryUsagePercent)}`}
+                ></span>
+                <span className={`system-metric-value ${getUsageStatusClass(systemMetrics.memoryUsagePercent)}`}>
+                  {systemMetrics.memoryUsagePercent}  
+                </span>
+              </div>
+            </div>
+            
+            {/* 磁盘空间使用率指示器 */}
+            <div className="system-metric-item">
+              <span className="system-metric-label">{t('disk_space')}:</span>
+              <div className="status-indicator-container">
+                <span 
+                  className={`status-indicator ${getUsageStatusClass(systemMetrics.diskSpacePercent)}`}
+                ></span>
+                <span className={`system-metric-value ${getUsageStatusClass(systemMetrics.diskSpacePercent)}`}>
+                  {systemMetrics.diskSpacePercent}  
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      <div className={`app-container ${isVerticalLayout ? 'vertical-layout' : 'horizontal-layout'}`}>
       {/* 侧边栏导航 */}
       <aside
         className={`side-nav ${isCollapsed ? 'collapsed' : ''} ${isVerticalLayout ? 'top-nav' : ''}`}
-        onMouseEnter={() => !isVerticalLayout && !isManualMode && setIsCollapsed(false)}
-        onMouseLeave={() => !isVerticalLayout && !isManualMode && setIsCollapsed(true)}
+        onMouseEnter={() => !isVerticalLayout && setIsCollapsed(false)}
+        onMouseLeave={() => !isVerticalLayout && setIsCollapsed(true)}
       >
         {/* 侧边栏控制按钮 */}
         {/* {!isVerticalLayout && (
@@ -163,7 +277,11 @@ const App = () => {
         )} */}
         {/* 侧边栏顶部品牌 */}
         <div className="nav-brand">
-          <div className="brand-icon">
+          <div 
+            className="brand-icon"
+            onMouseEnter={() => setIsTooltipVisible(true)}
+            onMouseLeave={() => setIsTooltipVisible(false)}
+          >
             <img src="/quantcell.svg" alt="QuantCell Logo" className="brand-image" />
           </div>
           <div className="brand-text">pengwow</div>
@@ -237,6 +355,7 @@ const App = () => {
         </div>
       </main>
     </div>
+    </>
   );
 };
 
