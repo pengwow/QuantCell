@@ -36,7 +36,7 @@ def migrate_crypto_symbols():
         
         # 构建数据库路径
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        db_path = Path(current_dir) / "data" / "qbot_sqlite.db"
+        db_path = Path(current_dir) / "data" / "quantcell_sqlite.db"
         db_url = f"sqlite:///{db_path}"
         
         logger.info(f"使用数据库: {db_url}")
