@@ -10,7 +10,7 @@ import certifi
 import pandas as pd
 from loguru import logger
 
-from ...base.utils import async_deco_retry, get_date_range
+from collector.base.utils import async_deco_retry, get_date_range
 
 
 class BinanceDownloader:

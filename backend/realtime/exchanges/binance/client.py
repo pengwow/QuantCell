@@ -2,7 +2,7 @@
 from typing import Dict, List, Any, Optional
 from loguru import logger
 
-from ...abstract_client import BaseExchangeClient
+from realtime.abstract_client import BaseExchangeClient
 from .websocket_client import BinanceWebSocketClient
 from .data_parser import BinanceDataParser
 

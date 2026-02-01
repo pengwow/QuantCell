@@ -8,11 +8,12 @@ from loguru import logger
 # 导入JWT认证装饰器
 from utils.auth import jwt_auth_required_sync
 
-from .schemas import (ApiResponse, BacktestAnalyzeRequest,
+from backtest.schemas import (ApiResponse, BacktestAnalyzeRequest,
                       BacktestDeleteRequest, BacktestListRequest,
                       BacktestRunRequest, StrategyConfigRequest,
-                      StrategyUploadRequest, BacktestReplayRequest)
-from .service import BacktestService
+                      BacktestReplayRequest)
+from strategy.schemas import StrategyUploadRequest
+from backtest.service import BacktestService
 
 # 创建API路由实例
 router = APIRouter()

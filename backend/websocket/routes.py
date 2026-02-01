@@ -7,8 +7,8 @@ from typing import Optional, Set
 from fastapi import WebSocket, WebSocketDisconnect, APIRouter, Query
 from loguru import logger
 
-from backend.websocket.manager import manager
-from backend.collector.utils.task_manager import task_manager
+from websocket.manager import manager
+from collector.utils.task_manager import task_manager
 
 
 router = APIRouter()

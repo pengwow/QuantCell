@@ -95,7 +95,7 @@ def calculate_trades(price: np.ndarray,
 @njit(cache=True, fastmath=True)
 def signals_to_orders(entries: np.ndarray,
                    exits: np.ndarray,
-                   size: float):
+                   size: float) -> tuple:
     """
     Numba JIT 编译的信号转换函数
     

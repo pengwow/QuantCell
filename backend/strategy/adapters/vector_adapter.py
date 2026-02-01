@@ -59,8 +59,8 @@ class VectorBacktestAdapter:
             # 运行向量回测
             result = self.engine.run_backtest(
                 price=price,
-                entries=signals['entries'].values,
-                exits=signals['exits'].values,
+                entries=signals['entries'].values.reshape(-1, 1),
+                exits=signals['exits'].values.reshape(-1, 1),
                 init_cash=init_cash,
                 fees=fees,
                 slippage=slippage
