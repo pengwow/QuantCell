@@ -10,7 +10,7 @@ import psutil
 from loguru import logger
 
 # 导入WebSocket连接管理器
-from backend.websocket.manager import manager
+from websocket.manager import manager
 
 
 class SystemService:

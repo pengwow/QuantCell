@@ -9,10 +9,10 @@ from loguru import logger
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from backend.collector.base import BaseCollector
-from backend.collector.base.utils import deco_retry
-from backend.exchange.crypto.base import CryptoBaseCollector
-from backend.exchange.okx.downloader import OKXDownloader
+from collector.base import BaseCollector
+from collector.base.utils import deco_retry
+from exchange.crypto.base import CryptoBaseCollector
+from exchange.okx.downloader import OKXDownloader
 
 
 class OKXCollector(CryptoBaseCollector):
@@ -200,7 +200,7 @@ class OKXCollector(CryptoBaseCollector):
         :return: 转换结果
         """
         try:
-            from backend.collector.scripts.convert_to_qlib import \
+            from collector.scripts.convert_to_qlib import \
                 convert_crypto_to_qlib
             
             logger.info(f"开始将CSV数据转换为QLib格式...")

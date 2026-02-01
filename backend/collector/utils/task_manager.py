@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 import time
 import asyncio
 from loguru import logger
-from backend.websocket.manager import manager
+from websocket.manager import manager
 from db.models import Task
 
 class TaskStatus(str, Enum):

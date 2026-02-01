@@ -15,12 +15,41 @@ from factor.routes import router as factor_router
 from model.routes import router as model_router
 from settings.api import router as settings_router
 from strategy.routes import router_strategy as strategy_router
+from collector.services.system_service import SystemService
+from collector.db import init_db
+from collector.utils.task_manager import task_manager
+from collector.utils.scheduled_task_manager import scheduled_task_manager
+from collector.data_loader import data_loader
+from collector.db import SystemConfigBusiness as SystemConfig
+from collector.db.database import SessionLocal, init_database_config
+from collector.db.models import CryptoSymbol
+from collector.services.data_service import DataService
+from datetime import datetime, timedelta
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+from scripts.sync_crypto_symbols import sync_crypto_symbols
+from scripts.update_features import main as update_features_main
+from collector.utils.scheduled_task_manager import scheduled_task_manager
+from backtest.demo_service import DemoService
+from websocket.manager import manager
+
+# 导入系统配置加载函数
+from config_manager import load_system_configs
+
+# 导入实时引擎
+from realtime.engine import RealtimeEngine
+from realtime.routes import setup_routes
+
+# 全局实时引擎实例
+realtime_engine = None
+
 
 # 导入插件系统
 from plugins import init_plugin_system, global_plugin_manager
 
 # 导入WebSocket路由
-from backend.websocket.routes import router as websocket_router
+from websocket.routes import router as websocket_router
 
 # 导入国际化配置
 from pathlib import Path
@@ -34,17 +63,14 @@ def init_database():
     Returns:
         None: 无返回值
     """
-    from collector.db import init_db
 
     init_db()
 
     # 初始化任务管理器，确保数据库表已创建
-    from collector.utils.task_manager import task_manager
 
     task_manager.init()
 
     # 初始化定时任务管理器，确保数据库表已创建
-    from collector.utils.scheduled_task_manager import scheduled_task_manager
 
     logger.info("初始化定时任务管理器")
 
@@ -55,8 +81,6 @@ def init_qlib():
     Returns:
         None: 无返回值
     """
-    from collector.data_loader import data_loader
-    from collector.db import SystemConfigBusiness as SystemConfig
 
     logger.info("开始初始化QLib数据加载器")
 
@@ -79,18 +103,6 @@ def init_qlib():
         logger.exception(e)
 
 
-# 导入系统配置加载函数
-from config_manager import load_system_configs
-
-# 导入实时引擎
-from realtime.engine import RealtimeEngine
-from realtime.routes import setup_routes
-
-# 全局实时引擎实例
-realtime_engine = None
-
-
-
 def check_and_sync_crypto_symbols():
     """检查并同步加密货币对数据
 
@@ -100,10 +112,6 @@ def check_and_sync_crypto_symbols():
     logger.info("开始检查加密货币对同步状态")
 
     try:
-        from collector.db.database import SessionLocal, init_database_config
-        from collector.db.models import CryptoSymbol
-        from collector.services.data_service import DataService
-        from datetime import datetime, timedelta
 
         # 初始化数据库配置
         init_database_config()
@@ -171,10 +179,10 @@ def check_and_sync_crypto_symbols():
 
 
 def start_scheduler(
-    proxy_enabled: bool = False,
-    proxy_url: str = None,
-    proxy_username: str = None,
-    proxy_password: str = None,
+    proxy_enabled: str = "0",
+    proxy_url: str = "",
+    proxy_username: str = "",
+    proxy_password: str = "",
 ):
     """启动定时任务调度器
 
@@ -187,11 +195,8 @@ def start_scheduler(
     Returns:
         BackgroundScheduler: 后台调度器实例
     """
-    from apscheduler.schedulers.background import BackgroundScheduler
-    from apscheduler.triggers.cron import CronTrigger
-
-    from scripts.sync_crypto_symbols import sync_crypto_symbols
-    from scripts.update_features import main as update_features_main
+    # 转换proxy_enabled为布尔值
+    proxy_enabled_bool = str(proxy_enabled).strip().lower() in ["1", "true", "yes"]
 
     # 创建后台调度器
     scheduler = BackgroundScheduler()
@@ -218,7 +223,7 @@ def start_scheduler(
     # 添加定时任务：每周日凌晨2点执行一次，同步加密货币对
     scheduler.add_job(
         func=lambda: sync_crypto_symbols(
-            proxy_enabled=proxy_enabled,
+            proxy_enabled=proxy_enabled_bool,
             proxy_url=proxy_url,
             proxy_username=proxy_username,
             proxy_password=proxy_password,
@@ -260,7 +265,7 @@ async def lifespan(app: FastAPI):
         None: 无返回值
     """
     global realtime_engine
-    
+
     # 启动时异步初始化数据库
     await asyncio.to_thread(init_database)
 
@@ -274,10 +279,10 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(check_and_sync_crypto_symbols)
 
     # 从配置中提取代理信息
-    proxy_enabled = app.state.configs.get("proxy_enabled", False)
-    proxy_url = app.state.configs.get("proxy_url", None)
-    proxy_username = app.state.configs.get("proxy_username", None)
-    proxy_password = app.state.configs.get("proxy_password", None)
+    proxy_enabled = app.state.configs.get("proxy_enabled", "0")
+    proxy_url = app.state.configs.get("proxy_url", "")
+    proxy_username = app.state.configs.get("proxy_username", "")
+    proxy_password = app.state.configs.get("proxy_password", "")
 
     logger.info(f"代理配置: enabled={proxy_enabled}, url={proxy_url}")
 
@@ -291,13 +296,11 @@ async def lifespan(app: FastAPI):
     )
 
     # 异步启动新的定时任务管理器
-    from collector.utils.scheduled_task_manager import scheduled_task_manager
 
     await asyncio.to_thread(scheduled_task_manager.start)
 
     # 异步初始化演示数据
     try:
-        from backtest.demo_service import DemoService
 
         demo_service = DemoService()
         await asyncio.to_thread(demo_service.ensure_demo_data)
@@ -316,14 +319,14 @@ async def lifespan(app: FastAPI):
     # 将插件管理器保存到应用状态，供后续使用
     app.state.plugin_manager = plugin_manager
     app.state.plugin_api = plugin_api
-    
+
     # 初始化实时引擎
     try:
         logger.info("正在初始化实时引擎")
         realtime_engine = RealtimeEngine()
         app.state.realtime_engine = realtime_engine
         # 将实时引擎实例传递给路由模块
-        from realtime.routes import setup_routes
+
         logger.info("准备调用setup_routes函数")
         setup_routes(realtime_engine)
         logger.info("setup_routes函数调用成功")
@@ -335,13 +338,13 @@ async def lifespan(app: FastAPI):
 
     # 启动WebSocket连接管理器
     try:
-        from backend.websocket.manager import manager
+
         await manager.start()
         app.state.websocket_manager = manager
         logger.info("WebSocket连接管理器启动成功")
-        
+
         # 启动系统状态推送服务
-        from collector.services.system_service import SystemService
+
         system_service = SystemService()
         await system_service.start_system_status_push()
         app.state.system_service = system_service
@@ -355,23 +358,23 @@ async def lifespan(app: FastAPI):
     if realtime_engine:
         logger.info("正在停止实时引擎")
         await realtime_engine.stop()
-    
+
     # 停止系统状态推送服务
     try:
-        if hasattr(app.state, 'system_service'):
+        if hasattr(app.state, "system_service"):
             await app.state.system_service.stop_system_status_push()
             logger.info("系统状态推送服务已停止")
     except Exception as e:
         logger.error(f"停止系统状态推送服务失败: {e}")
-    
+
     # 停止WebSocket连接管理器
     try:
-        from backend.websocket.manager import manager
+
         await manager.stop()
         logger.info("WebSocket连接管理器已停止")
     except Exception as e:
         logger.error(f"停止WebSocket连接管理器失败: {e}")
-    
+
     # 异步关闭传统调度器，确保清理完成后再退出
     await asyncio.to_thread(traditional_scheduler.shutdown)
     # 异步关闭新的定时任务管理器
@@ -450,6 +453,7 @@ app.include_router(backtest_router)
 
 # 注册实时引擎API路由
 from realtime.routes import realtime_router
+
 app.include_router(realtime_router)
 
 # 注册WebSocket路由

@@ -9,8 +9,8 @@ from loguru import logger
 # 导入JWT认证装饰器
 from utils.auth import jwt_auth_required_sync
 
-from .service import StrategyService
-from .schemas import (
+from strategy.service import StrategyService
+from strategy.schemas import (
     StrategyListResponse,
     StrategyUploadRequest,
     StrategyUploadResponse,

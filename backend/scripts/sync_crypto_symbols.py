@@ -10,10 +10,16 @@
 import logging
 import os
 import sys
+import traceback
 from datetime import datetime
 from typing import Any, Dict, Optional
-
+from urllib.parse import urlparse
 import fire
+import json
+import time
+import ccxt
+from collector.db.database import SessionLocal, init_database_config, engine
+from collector.db.models import CryptoSymbol
 
 # 添加项目根目录到Python路径
 # 获取当前脚本所在目录的父目录（即backend目录）
@@ -62,9 +68,6 @@ def sync_crypto_symbols(
     
     try:
         logger.info(f"开始同步加密货币对，交易所: {exchange}")
-        
-        # 动态导入CCXT库
-        import ccxt
 
         # 1. 先从交易所获取数据，避免数据库锁导致无法获取市场数据
         logger.info(f"从{exchange}获取市场数据...")
@@ -77,7 +80,7 @@ def sync_crypto_symbols(
         # 配置代理
         if proxy_enabled and proxy_url:
             logger.info(f"启用代理: {proxy_url}")
-            from urllib.parse import urlparse
+            
             parsed_url = urlparse(proxy_url)
             
             if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
@@ -96,7 +99,7 @@ def sync_crypto_symbols(
             env_proxy = os.environ.get('HTTP_PROXY') or os.environ.get('HTTPS_PROXY')
             if env_proxy:
                 logger.info(f"使用环境变量中的代理: {env_proxy}")
-                from urllib.parse import urlparse
+                
                 parsed_url = urlparse(env_proxy)
                 
                 if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
@@ -133,12 +136,6 @@ def sync_crypto_symbols(
         # 2. 处理数据库操作
         logger.info(f"开始保存{exchange}货币对到数据库...")
         
-        # 动态导入数据库相关模块
-        import json
-        import time
-
-        from collector.db.database import SessionLocal, init_database_config, engine
-        from collector.db.models import CryptoSymbol
 
         # 初始化数据库配置
         init_database_config()
@@ -245,7 +242,7 @@ def sync_crypto_symbols(
         
     except Exception as e:
         logger.error(f"同步加密货币对失败: {e}")
-        import traceback
+        
         traceback.print_exc()
         return {
             'success': False,
@@ -253,7 +250,7 @@ def sync_crypto_symbols(
             'exchange': exchange,
             'timestamp': datetime.now().isoformat()
         }
-
+    
 
 def main():
     """

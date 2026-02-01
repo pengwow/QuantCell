@@ -10,7 +10,7 @@ from .database import Base
 
 # 导入时区工具类
 try:
-    from backend.utils.timezone import to_utc_time, to_local_time, format_datetime
+    from utils.timezone import to_utc_time, to_local_time, format_datetime
 except ImportError:
     # 使用相对导入作为备选
     from ...utils.timezone import to_utc_time, to_local_time, format_datetime
