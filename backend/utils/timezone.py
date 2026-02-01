@@ -20,7 +20,7 @@ def _get_config_manager():
     return _config_manager
 
 
-def get_timezone() -> pytz.timezone:
+def get_timezone() -> pytz.timezone:  # pyright: ignore[reportGeneralTypeIssues]
     """获取配置的时区
     
     Returns:
@@ -82,7 +82,7 @@ def to_utc_time(dt: Union[datetime.datetime, None]) -> Union[datetime.datetime, 
     Returns:
         datetime.datetime: UTC时间对象
     """
-    if dt is None:
+    if not dt:
         return None
     
     try:
@@ -92,7 +92,7 @@ def to_utc_time(dt: Union[datetime.datetime, None]) -> Union[datetime.datetime, 
             dt = local_tz.localize(dt)
         
         # 转换为UTC时区
-        return dt.astimezone(pytz.utc)
+        return dt.astimezone(pytz.utc)  # pyright: ignore[reportOptionalMemberAccess]
     except Exception as e:
         logger.error(f"时区转换失败: {e}")
         return dt
@@ -114,7 +114,7 @@ def format_datetime(dt: Union[datetime.datetime, None], format_str: str = "%Y-%m
     try:
         # 转换为本地时区
         local_dt = to_local_time(dt)
-        return local_dt.strftime(format_str)
+        return local_dt.strftime(format_str)  # pyright: ignore[reportOptionalMemberAccess]
     except Exception as e:
         logger.error(f"时间格式化失败: {e}")
         return str(dt)

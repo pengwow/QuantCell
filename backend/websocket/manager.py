@@ -38,7 +38,7 @@ class ConnectionManager:
         self.rate_limit: int = 100  # 每秒最大消息数
         self.rate_limit_window: int = 1  # 速率限制窗口（秒）
         # 客户端消息计数器: {client_id: [timestamp, count]}
-        self.message_counters: Dict[str, List[float, int]] = {}
+        self.message_counters: Dict[str, List[float]] = {}
         # 批处理缓存: {client_id: List[Dict]}
         self.batch_cache: Dict[str, List[Dict[str, Any]]] = {}
     

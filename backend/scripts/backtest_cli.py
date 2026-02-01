@@ -4,7 +4,7 @@ QUANTCELL 回测命令行工具
 支持通过命令行方式调用回测引擎进行回测
 """
 
-from logging import root
+from loguru import logger
 import sys
 import os
 import argparse
@@ -15,49 +15,63 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 import pandas as pd
 import numpy as np
-from loguru import logger
 
-# # 添加当前目录到路径
-# root_path = Path(__file__).resolve().parent.parent.parent
-# if str(root_path) not in sys.path:
-#     sys.path.insert(0, str(root_path))
+# 添加后端目录到路径
+backend_path = Path(__file__).resolve().parent.parent
+if str(backend_path) not in sys.path:
+    sys.path.insert(0, str(backend_path))
+logger.info(f"添加后端目录到路径: {backend_path}")
+# 添加策略目录到路径
+strategies_dir = os.path.join(backend_path, 'strategies')
+logger.info(f"添加策略目录到路径: {strategies_dir}")
+if strategies_dir not in sys.path:
+    sys.path.insert(0, strategies_dir)
 
+backtest_results_dir = os.path.join(backend_path, 'backtest', 'results')
+logger.info(f"添加回测结果目录到路径: {backtest_results_dir}")
+# if backtest_results_dir not in sys.path:
+#     sys.path.insert(0, backtest_results_dir)
 
-# # 添加策略目录到路径
-# strategies_dir = os.path.join(os.path.dirname(root_path), 'strategies')
-# if strategies_dir not in sys.path:
-#     sys.path.insert(0, strategies_dir)
-
-from strategy.core import VectorEngine, UnifiedStrategyBase
+from strategy.core import VectorEngine, StrategyBase
 from strategy.adapters import VectorBacktestAdapter
 
 
-def load_strategy(strategy_path: str, strategy_params: Dict[str, Any]):
+def load_strategy(strategy_name: str, strategy_params: Dict[str, Any]):
     """
     动态加载策略
     
     参数：
-    - strategy_path: 策略文件路径（不带.py后缀）
+    - strategy_name: 策略文件名（不带.py后缀）
     - strategy_params: 策略参数
     
     返回：
     - 策略实例
     """
     try:
-        # 导入策略模块
-        module = importlib.import_module(strategy_path)
+        # 清除模块缓存，确保加载最新代码
+        if strategy_name in sys.modules:
+            del sys.modules[strategy_name]
         
-        # 获取策略类名（假设与文件名相同）
-        # 查找所有类，找到继承自 UnifiedStrategyBase 的类
+        # 检查策略文件是否存在
+        strategy_file = os.path.join(strategies_dir, f"{strategy_name}.py")
+        logger.info(f"尝试加载策略文件: {strategy_file}")
+        if not os.path.exists(strategy_file):
+            raise FileNotFoundError(f"策略文件 {strategy_name}.py 不存在")
+        
+        # 导入策略模块
+        module = importlib.import_module(strategy_name)
+        
+        # 获取策略类名（查找所有继承自 StrategyBase 的类，但排除 StrategyBase 本身）
         strategy_class = None
         for name in dir(module):
             obj = getattr(module, name)
-            if isinstance(obj, type) and issubclass(obj, UnifiedStrategyBase):
+            if isinstance(obj, type) and issubclass(obj, StrategyBase) and obj != StrategyBase:
                 strategy_class = obj
+                logger.info(f"找到策略类: {name}")
                 break
         
         if strategy_class is None:
-            raise AttributeError(f"在模块 {strategy_path} 中找不到策略类")
+            raise AttributeError(f"在模块 {strategy_name} 中找不到策略类")
         
         # 创建策略实例
         strategy = strategy_class(strategy_params)
@@ -66,7 +80,7 @@ def load_strategy(strategy_path: str, strategy_params: Dict[str, Any]):
         return strategy
         
     except Exception as e:
-        print(f"加载策略失败: {strategy_path}")
+        print(f"加载策略失败: {strategy_name}")
         print(f"错误信息: {str(e)}")
         sys.exit(1)
 
@@ -106,7 +120,7 @@ def generate_test_data(n_steps: int = 1000,
     return df
 
 
-def run_backtest(strategy_path: str,
+def run_backtest(strategy_name: str,
               strategy_params: Dict[str, Any],
               data_path: Optional[str] = None,
               init_cash: float = 100000.0,
@@ -136,8 +150,10 @@ def run_backtest(strategy_path: str,
     print()
     
     # 加载策略
-    strategy = load_strategy(strategy_path, strategy_params)
+    strategy = load_strategy(strategy_name, strategy_params)
     
+    output_file = output_file or os.path.join(backtest_results_dir, f"{strategy_name}_results.json")
+
     # 准备数据
     if data_path:
         print(f"从文件加载数据: {data_path}")
@@ -216,6 +232,33 @@ def output_results(results: Dict[str, Any],
                 print(f"    {key}: {value}")
         
         print()
+        
+        # 显示策略订单和指标
+        if 'orders' in result and result['orders']:
+            print(f"  策略订单数量: {len(result['orders'])}")
+            for i, order in enumerate(result['orders'][:10], 1):
+                print(f"    订单 {i}: {order.get('order_id', 'N/A')} - {order.get('direction', 'N/A')} @ {order.get('price', 0):.2f}")
+            if len(result['orders']) > 10:
+                print(f"    ... 还有 {len(result['orders']) - 10} 个订单")
+        
+        if 'indicators' in result and result['indicators']:
+            print(f"  策略指标数量: {len(result['indicators'])}")
+            for key, value in list(result['indicators'].items())[:10]:
+                if isinstance(value, float):
+                    print(f"    {key}: {value:.4f}")
+                else:
+                    print(f"    {key}: {value}")
+            if len(result['indicators']) > 10:
+                print(f"    ... 还有 {len(result['indicators']) - 10} 个指标")
+        
+        if 'strategy_trades' in result and result['strategy_trades']:
+            print(f"  策略交易数量: {len(result['strategy_trades'])}")
+            for i, trade in enumerate(result['strategy_trades'][:10], 1):
+                print(f"    交易 {i}: {trade.get('direction', 'N/A')} @ {trade.get('price', 0):.2f}")
+            if len(result['strategy_trades']) > 10:
+                print(f"    ... 还有 {len(result['strategy_trades']) - 10} 个交易")
+        
+        print()
     
     # 保存到文件
     if output_file:
@@ -244,6 +287,43 @@ def save_results(results: Dict[str, Any],
             # 转换为可序列化的格式
             serializable_results = {}
             for symbol, result in results.items():
+                # 序列化订单数据
+                orders_serializable = []
+                if 'orders' in result and result['orders']:
+                    for order in result['orders']:
+                        orders_serializable.append({
+                            'order_id': order.get('order_id', ''),
+                            'direction': order.get('direction', ''),
+                            'price': float(order.get('price', 0)) if order.get('price') is not None else None,
+                            'volume': float(order.get('volume', 0)) if order.get('volume') is not None else None,
+                            'status': order.get('status', ''),
+                            'timestamp': order.get('timestamp', '').isoformat() if order.get('timestamp') else ''
+                        })
+                
+                # 序列化指标数据
+                indicators_serializable = {}
+                if 'indicators' in result and result['indicators']:
+                    for key, value in result['indicators'].items():
+                        if isinstance(value, (np.floating, float)):
+                            indicators_serializable[key] = float(value)
+                        elif isinstance(value, (np.integer, int)):
+                            indicators_serializable[key] = int(value)
+                        elif isinstance(value, datetime):
+                            indicators_serializable[key] = value.isoformat()
+                        else:
+                            indicators_serializable[key] = str(value)
+                
+                # 序列化策略交易数据
+                strategy_trades_serializable = []
+                if 'strategy_trades' in result and result['strategy_trades']:
+                    for trade in result['strategy_trades']:
+                        strategy_trades_serializable.append({
+                            'direction': trade.get('direction', ''),
+                            'price': float(trade.get('price', 0)) if trade.get('price') is not None else None,
+                            'volume': float(trade.get('volume', 0)) if trade.get('volume') is not None else None,
+                            'timestamp': trade.get('timestamp', '').isoformat() if trade.get('timestamp') else ''
+                        })
+                
                 serializable_results[symbol] = {
                     'symbol': symbol,
                     'cash': float(result['cash'][0]),
@@ -252,7 +332,10 @@ def save_results(results: Dict[str, Any],
                     'metrics': {
                         k: float(v) if isinstance(v, (np.floating, float)) else int(v) if isinstance(v, (np.integer, int)) else str(v)
                         for k, v in result['metrics'].items()
-                    }
+                    },
+                    'orders': orders_serializable,
+                    'indicators': indicators_serializable,
+                    'strategy_trades': strategy_trades_serializable
                 }
             
             with open(output_file, 'w', encoding='utf-8') as f:
@@ -385,7 +468,7 @@ def main():
     # 运行回测
     try:
         results = run_backtest(
-            strategy_path=args.strategy,
+            strategy_name=args.strategy,
             strategy_params=strategy_params,
             data_path=args.data,
             init_cash=args.init_cash,

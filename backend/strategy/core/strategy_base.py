@@ -13,7 +13,7 @@ from loguru import logger
 getcontext().prec = 28
 
 
-class UnifiedStrategyBase(ABC):
+class StrategyBase(ABC):
     """
     统一策略基类
     支持回测和实盘两种模式
