@@ -53,9 +53,9 @@ python setup.py build_ext --inplace
 ### 2. 使用新架构编写策略
 
 ```python
-from backend.strategy import UnifiedStrategyBase
+from backend.strategy import StrategyBase
 
-class MyStrategy(UnifiedStrategyBase):
+class MyStrategy(StrategyBase):
     def on_init(self):
         self.write_log("策略初始化")
     
@@ -132,7 +132,7 @@ print(f"最优分数: {best_result['score']}")
 
 ## 核心模块说明
 
-### UnifiedStrategyBase（统一策略基类）
+### StrategyBase（统一策略基类）
 
 提供统一的策略接口，支持回测和实盘两种模式。
 
@@ -211,7 +211,7 @@ funding_rate = max(min(funding_rate, 0.75%), -0.75%)
 
 ### VectorBacktestAdapter（向量回测适配器）
 
-将 UnifiedStrategyBase 适配到 VectorEngine。
+将 StrategyBase 适配到 VectorEngine。
 
 **主要方法**：
 - `run_backtest(data, init_cash, fees, slippage)`: 运行向量回测
@@ -264,7 +264,7 @@ python setup.py build_ext --inplace --define=CYTHON_TRACE=0
 
 ## 下一步
 
-1. **实现实盘适配器**：将 UnifiedStrategyBase 适配到事件引擎
+1. **实现实盘适配器**：将 StrategyBase 适配到事件引擎
 2. **实现网关模块**：支持多种交易所（Binance, OKX, Bybit 等）
 3. **编写更多示例策略**：展示新架构的各种用法
 4. **编写单元测试**：确保代码质量和稳定性

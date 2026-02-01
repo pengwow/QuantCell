@@ -149,7 +149,7 @@ class TaskManager:
         logger.info(f"开始任务: {task_id}")
         return True
     
-    def update_progress(self, task_id: str, current: str, completed: int, total: int, failed: int = 0, status: str = None) -> bool:
+    def update_progress(self, task_id: str, current: str, completed: int, total: int, failed: int = 0, status: str = "") -> bool:
         """更新任务进度
         
         Args:

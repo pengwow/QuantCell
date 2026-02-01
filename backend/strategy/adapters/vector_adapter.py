@@ -5,17 +5,17 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional
 from loguru import logger
-from core.vector_engine import VectorEngine
-from core.strategy_base import UnifiedStrategyBase
+from strategy.core.vector_engine import VectorEngine
+from strategy.core.strategy_base import StrategyBase
 
 
 class VectorBacktestAdapter:
     """
     向量回测适配器
-    将 UnifiedStrategyBase 适配到 VectorEngine
+    将 StrategyBase 适配到 VectorEngine
     """
     
-    def __init__(self, strategy: UnifiedStrategyBase):
+    def __init__(self, strategy: StrategyBase):
         """
         初始化适配器
         
@@ -69,6 +69,11 @@ class VectorBacktestAdapter:
             # 添加交易对信息
             result['symbol'] = symbol
             result['data'] = df
+            
+            # 添加策略的订单和指标数据
+            result['orders'] = list(self.strategy.orders.values())
+            result['indicators'] = self.strategy.indicators
+            result['strategy_trades'] = self.strategy.trades
             
             results[symbol] = result
             

@@ -14,7 +14,7 @@ import pandas as pd
 from loguru import logger
 
 # 导入策略引擎模块
-from core import UnifiedStrategyBase, VectorEngine, EventEngine, EventType
+from core import StrategyBase, VectorEngine, EventEngine, EventType
 from core.numba_functions import (
     simulate_orders,
     signals_to_orders,

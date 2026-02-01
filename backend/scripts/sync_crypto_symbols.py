@@ -23,11 +23,11 @@ from collector.db.models import CryptoSymbol
 
 # 添加项目根目录到Python路径
 # 获取当前脚本所在目录的父目录（即backend目录）
-current_dir = os.path.dirname(os.path.abspath(__file__))
-backend_dir = os.path.dirname(current_dir)
-# 将backend目录添加到Python路径
-if backend_dir not in sys.path:
-    sys.path.insert(0, backend_dir)
+# current_dir = os.path.dirname(os.path.abspath(__file__))
+# backend_dir = os.path.dirname(current_dir)
+# # 将backend目录添加到Python路径
+# if backend_dir not in sys.path:
+#     sys.path.insert(0, backend_dir)
 
 # 配置日志
 logging.basicConfig(

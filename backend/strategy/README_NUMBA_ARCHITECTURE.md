@@ -55,9 +55,9 @@ pip install numpy pandas numba loguru
 ### 2. 使用新架构编写策略
 
 ```python
-from backend.strategy import UnifiedStrategyBase
+from backend.strategy import StrategyBase
 
-class MyStrategy(UnifiedStrategyBase):
+class MyStrategy(StrategyBase):
     def on_init(self):
         self.write_log("策略初始化")
     
@@ -141,7 +141,7 @@ python benchmark_performance.py
 
 ## 核心模块说明
 
-### UnifiedStrategyBase（统一策略基类）
+### StrategyBase（统一策略基类）
 
 提供统一的策略接口，支持回测和实盘两种模式。
 
@@ -238,7 +238,7 @@ funding_rate = max(min(funding_rate, 0.75%), -0.75%)
 
 ### VectorBacktestAdapter（向量回测适配器）
 
-将 UnifiedStrategyBase 适配到 VectorEngine。
+将 StrategyBase 适配到 VectorEngine。
 
 **主要方法**：
 - `run_backtest(data, init_cash, fees, slippage)`: 运行向量回测
@@ -350,7 +350,7 @@ python benchmark_performance.py
 3. **集成到现有系统**：更新 service.py 和 routes.py
 
 ### 中期（2-4 周）
-1. **实现实盘适配器**：将 UnifiedStrategyBase 适配到事件引擎
+1. **实现实盘适配器**：将 StrategyBase 适配到事件引擎
 2. **实现网关模块**：支持多种交易所（Binance, OKX, Bybit 等）
 3. **性能优化**：进一步优化 Numba 代码
 

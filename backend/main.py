@@ -179,7 +179,7 @@ def check_and_sync_crypto_symbols():
 
 
 def start_scheduler(
-    proxy_enabled: str = "0",
+    proxy_enabled: bool = False,
     proxy_url: str = "",
     proxy_username: str = "",
     proxy_password: str = "",
@@ -195,9 +195,6 @@ def start_scheduler(
     Returns:
         BackgroundScheduler: 后台调度器实例
     """
-    # 转换proxy_enabled为布尔值
-    proxy_enabled_bool = str(proxy_enabled).strip().lower() in ["1", "true", "yes"]
-
     # 创建后台调度器
     scheduler = BackgroundScheduler()
 
@@ -223,7 +220,7 @@ def start_scheduler(
     # 添加定时任务：每周日凌晨2点执行一次，同步加密货币对
     scheduler.add_job(
         func=lambda: sync_crypto_symbols(
-            proxy_enabled=proxy_enabled_bool,
+            proxy_enabled=proxy_enabled,
             proxy_url=proxy_url,
             proxy_username=proxy_username,
             proxy_password=proxy_password,
@@ -283,16 +280,18 @@ async def lifespan(app: FastAPI):
     proxy_url = app.state.configs.get("proxy_url", "")
     proxy_username = app.state.configs.get("proxy_username", "")
     proxy_password = app.state.configs.get("proxy_password", "")
-
     logger.info(f"代理配置: enabled={proxy_enabled}, url={proxy_url}")
-
+    
+    # 转换proxy_enabled为布尔值
+    proxy_enabled_bool = str(proxy_enabled).strip().lower() in ["1", "true", "yes"]
+    
     # 异步启动传统定时任务，传递代理配置
     traditional_scheduler = await asyncio.to_thread(
         start_scheduler,
-        proxy_enabled=proxy_enabled,
-        proxy_url=proxy_url,
-        proxy_username=proxy_username,
-        proxy_password=proxy_password,
+        proxy_enabled=proxy_enabled_bool,
+        proxy_url=proxy_url if proxy_url is not None else "",
+        proxy_username=proxy_username if proxy_username is not None else "",
+        proxy_password=proxy_password if proxy_password is not None else "",
     )
 
     # 异步启动新的定时任务管理器

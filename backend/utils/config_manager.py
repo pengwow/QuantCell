@@ -21,7 +21,7 @@ class ConfigManager:
     支持与系统配置表的数据结构兼容
     """
     
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: str = ""):
         """初始化配置管理器
         
         Args:
