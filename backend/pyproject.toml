@@ -25,6 +25,7 @@ dependencies = [
     "joblib>=1.5.2",
     "loguru>=0.7.3",
     "mypy>=1.18.2",
+    "numba>=0.63.1",
     "pandas>=2.3.3",
     "passlib>=1.7.4",
     "plotly>=6.5.0",

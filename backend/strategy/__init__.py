@@ -20,7 +20,13 @@ from .execution_engine import (
     ExecutionEngineFactory
 )
 
+# 新架构模块
+from .core import UnifiedStrategyBase, EventEngine, EventType, VectorEngine
+from .trading_modules import PerpetualContract, CryptoUtils
+from .adapters import VectorBacktestAdapter
+
 __all__ = [
+    # 现有模块
     "StrategyService",
     "router_strategy",
     "StrategyBase",
@@ -34,5 +40,13 @@ __all__ = [
     "ExecutionEngine",
     "BacktestExecutionEngine",
     "LiveExecutionEngine",
-    "ExecutionEngineFactory"
+    "ExecutionEngineFactory",
+    # 新架构模块
+    "UnifiedStrategyBase",
+    "EventEngine",
+    "EventType",
+    "VectorEngine",
+    "PerpetualContract",
+    "CryptoUtils",
+    "VectorBacktestAdapter"
 ]
