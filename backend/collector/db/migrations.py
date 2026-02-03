@@ -11,7 +11,7 @@ from loguru import logger
 
 # 导入SessionLocal以正确创建session
 try:
-    from backend.collector.db.database import SessionLocal
+    from collector.db.database import SessionLocal
 except ImportError:
     # 如果导入失败，使用默认的Session类
     SessionLocal = Session
@@ -582,10 +582,10 @@ def run_migrations() -> None:
     
     try:
         # 延迟导入，避免循环导入问题
-        import backend.collector.db.database
+        import collector.db.database
         
         # 初始化数据库配置
-        backend.collector.db.database.init_database_config()
+        collector.db.database.init_database_config()
         
         # 获取更新后的数据库配置
         db_type = backend.collector.db.database.db_type

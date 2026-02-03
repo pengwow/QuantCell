@@ -56,7 +56,7 @@ class DBConnection:
             
             # 如果环境变量未设置，尝试从配置读取
             try:
-                from backend.config_manager import get_config
+                from config_manager import get_config
                 config_db_type = get_config("database.type")
                 if config_db_type:
                     db_type = config_db_type
@@ -234,7 +234,7 @@ def init_db():
         # 插入默认配置（保留原有逻辑）
         logger.info("插入默认配置...")
         # 先从配置文件读取相关配置
-        from backend.config import get_config
+        from config import get_config
 
         # 配置映射：配置文件key -> (system_config_key, 默认值, 描述)
         config_mapping = {

@@ -19,7 +19,7 @@ from collector.services.system_service import SystemService
 from collector.db import init_db
 from collector.utils.task_manager import task_manager
 from collector.utils.scheduled_task_manager import scheduled_task_manager
-from collector.data_loader import data_loader
+# from collector.data_loader import data_loader
 from collector.db import SystemConfigBusiness as SystemConfig
 from collector.db.database import SessionLocal, init_database_config
 from collector.db.models import CryptoSymbol
@@ -92,15 +92,15 @@ def init_qlib():
         logger.warning(f"未找到qlib_data_dir配置，使用默认值: {qlib_dir}")
 
     # 尝试初始化QLib
-    try:
-        success = data_loader.init_qlib(qlib_dir)
-        if success:
-            logger.info(f"QLib初始化成功，数据目录: {qlib_dir}")
-        else:
-            logger.warning(f"QLib初始化失败，数据目录: {qlib_dir}，将在需要时重新尝试")
-    except Exception as e:
-        logger.error(f"QLib初始化异常: {e}")
-        logger.exception(e)
+    # try:
+    #     success = data_loader.init_qlib(qlib_dir)
+    #     if success:
+    #         logger.info(f"QLib初始化成功，数据目录: {qlib_dir}")
+    #     else:
+    #         logger.warning(f"QLib初始化失败，数据目录: {qlib_dir}，将在需要时重新尝试")
+    # except Exception as e:
+    #     logger.error(f"QLib初始化异常: {e}")
+    #     logger.exception(e)
 
 
 def check_and_sync_crypto_symbols():

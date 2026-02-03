@@ -4,7 +4,7 @@
 # from pathlib import Path
 # project_root = Path(__file__).parent.parent.parent  # /Users/liupeng/workspace/quantcell
 # sys.path.append(str(project_root))
-# from backend.qlib_integration.custom_freq import CustomFreq
+# from qlib_integration.custom_freq import CustomFreq
 
 # from qlib_integration.custom_freq import CustomFreq #.qlib_integration.custom_freq import CustomFreq  #qlib_integration.custom_freq import CustomFreq
 # import qlib

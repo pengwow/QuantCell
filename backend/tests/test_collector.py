@@ -9,7 +9,7 @@ import pandas as pd
 # 添加项目根目录到Python路径
 sys.path.append('/Users/liupeng/workspace/quantcell')
 
-from backend.collector.base.base_collector import BaseCollector
+from collector.base.base_collector import BaseCollector
 
 
 class TestBaseCollector(unittest.TestCase):

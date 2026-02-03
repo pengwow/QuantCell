@@ -16,7 +16,7 @@ print(f"已将项目根目录添加到sys.path: {project_root}")
 # 导入文件存储补丁，修复freq="1d"导致的日历文件路径错误
 print("\n1. 导入文件存储补丁")
 try:
-    from backend.qlib_integration import file_storage_patch
+    from qlib_integration import file_storage_patch
     print("✓ 已应用文件存储补丁")
 except Exception as e:
     print(f"✗ 导入文件存储补丁失败: {e}")

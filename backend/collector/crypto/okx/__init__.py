@@ -6,7 +6,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from backend.exchange.okx.downloader import OKXDownloader
+from exchange.okx.downloader import OKXDownloader
 
 __all__ = [
     "OKXCollector",

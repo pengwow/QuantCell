@@ -1,5 +1,4 @@
 # Numba JIT 编译的性能函数
-# 替代 Cython 实现，简化环境依赖
 
 import numpy as np
 from numba import njit, prange
@@ -227,12 +226,118 @@ def calculate_funding_payment(position_size: float,
                          funding_rate: float) -> float:
     """
     Numba JIT 编译的资金费支付计算函数
-    
+
     参数：
     - position_size: 持仓大小
     - funding_rate: 资金费率
-    
+
     返回：
     - float: 资金费支付金额
     """
     return position_size * funding_rate
+
+
+@njit(cache=True, fastmath=True)
+def check_stop_loss(current_price: float,
+                   entry_price: float,
+                   direction: int,
+                   stop_loss: float) -> bool:
+    """
+    Numba JIT 编译的止损检查函数
+
+    参数：
+    - current_price: 当前价格
+    - entry_price: 入场价格
+    - direction: 方向 (1=long, 0=short)
+    - stop_loss: 止损比例
+
+    返回：
+    - bool: 是否触发止损
+    """
+    if stop_loss <= 0.0:
+        return False
+
+    if direction == 1:  # long
+        pnl = current_price - entry_price
+        if pnl < 0.0 and abs(pnl) >= entry_price * stop_loss:
+            return True
+    else:  # short
+        pnl = entry_price - current_price
+        if pnl < 0.0 and abs(pnl) >= entry_price * stop_loss:
+            return True
+
+    return False
+
+
+@njit(cache=True, fastmath=True)
+def check_take_profit(current_price: float,
+                     entry_price: float,
+                     direction: int,
+                     take_profit: float) -> bool:
+    """
+    Numba JIT 编译的止盈检查函数
+
+    参数：
+    - current_price: 当前价格
+    - entry_price: 入场价格
+    - direction: 方向 (1=long, 0=short)
+    - take_profit: 止盈比例
+
+    返回：
+    - bool: 是否触发止盈
+    """
+    if take_profit <= 0.0:
+        return False
+
+    if direction == 1:  # long
+        pnl = current_price - entry_price
+        if pnl > 0.0 and pnl >= entry_price * take_profit:
+            return True
+    else:  # short
+        pnl = entry_price - current_price
+        if pnl > 0.0 and pnl >= entry_price * take_profit:
+            return True
+
+    return False
+
+
+@njit(cache=True, fastmath=True)
+def adjust_position(current_price: float,
+                   entry_price: float,
+                   direction: int,
+                   position_size: float,
+                   max_position_size: float,
+                   position_adjustment_enabled: bool) -> float:
+    """
+    Numba JIT 编译的仓位调整函数
+
+    参数：
+    - current_price: 当前价格
+    - entry_price: 入场价格
+    - direction: 方向 (1=long, 0=short)
+    - position_size: 当前仓位大小
+    - max_position_size: 最大仓位大小
+    - position_adjustment_enabled: 是否启用仓位调整
+
+    返回：
+    - float: 调整后的仓位大小
+    """
+    if not position_adjustment_enabled:
+        return position_size
+
+    if max_position_size <= 0.0:
+        return position_size
+
+    pnl = 0.0
+    if direction == 1:  # long
+        pnl = current_price - entry_price
+    else:  # short
+        pnl = entry_price - current_price
+
+    if pnl > 0.0:
+        new_size = position_size * 1.5
+        if new_size > max_position_size:
+            new_size = max_position_size
+        return new_size
+
+    return position_size

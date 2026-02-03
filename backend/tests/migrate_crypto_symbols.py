@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-数据库迁移脚本：为crypto_symbols表添加is_deleted字段
+加密货币对表迁移脚本
+用于添加is_deleted字段到crypto_symbols表
 """
 
 import logging
 import os
 import sys
-from pathlib import Path
+from datetime import datetime
+
+# 添加项目根目录到Python路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+backend_dir = os.path.dirname(current_dir)
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
 
 # 配置日志
 logging.basicConfig(
@@ -20,63 +27,102 @@ logging.basicConfig(
 
 logger = logging.getLogger('migrate_crypto_symbols')
 
-
-def migrate_crypto_symbols():
+def migrate_add_is_deleted_column():
     """
-    为crypto_symbols表添加is_deleted字段
+    迁移：添加is_deleted字段到crypto_symbols表
     
     Returns:
         bool: 迁移是否成功
     """
     try:
-        logger.info("开始迁移crypto_symbols表...")
+        logger.info("开始执行crypto_symbols表迁移...")
         
-        # 直接创建数据库引擎，避免导入路径问题
-        from sqlalchemy import create_engine, text
+        # 动态导入数据库相关模块
+        from collector.db.database import init_database_config
+        from sqlalchemy import text
         
-        # 构建数据库路径
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        db_path = Path(current_dir) / "data" / "quantcell_sqlite.db"
-        db_url = f"sqlite:///{db_path}"
+        # 初始化数据库配置
+        init_database_config()
         
-        logger.info(f"使用数据库: {db_url}")
+        # 重新导入engine，因为它在init_database_config()中被初始化
+        from collector.db.database import engine
         
-        # 创建引擎
-        engine = create_engine(db_url, connect_args={"check_same_thread": False})
+        logger.info("连接到数据库，准备执行迁移...")
         
-        # 检查并添加is_deleted字段
         with engine.begin() as conn:
+            # 检查crypto_symbols表是否存在
+            logger.info("检查crypto_symbols表是否存在...")
+            table_check = conn.execute(text("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_name = 'crypto_symbols'
+            """))
+            
+            if not table_check.fetchone():
+                logger.warning("crypto_symbols表不存在，迁移跳过")
+                return True
+            
             # 检查is_deleted字段是否存在
-            try:
-                result = conn.execute(text("PRAGMA table_info(crypto_symbols)"))
-                columns = [row[1] for row in result]
-                
-                if 'is_deleted' not in columns:
-                    # 添加is_deleted字段
-                    conn.execute(text("ALTER TABLE crypto_symbols ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE"))
-                    logger.info("成功添加is_deleted字段")
-                else:
-                    logger.info("is_deleted字段已存在，跳过添加")
-            except Exception as e:
-                logger.error(f"检查字段时出错: {e}")
-                # 如果是SQLite，表结构检查可能有不同的方法
-                try:
-                    # 尝试直接添加字段
-                    conn.execute(text("ALTER TABLE crypto_symbols ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE"))
-                    logger.info("成功添加is_deleted字段")
-                except Exception as add_error:
-                    logger.warning(f"添加字段失败 (可能已存在): {add_error}")
+            logger.info("检查is_deleted字段是否存在...")
+            column_check = conn.execute(text("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'crypto_symbols' AND column_name = 'is_deleted'
+            """))
+            
+            if not column_check.fetchone():
+                # 添加is_deleted字段
+                logger.info("is_deleted字段不存在，开始添加...")
+                conn.execute(text("""
+                ALTER TABLE crypto_symbols 
+                ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE
+                """))
+                logger.info("已成功添加is_deleted字段到crypto_symbols表")
+            else:
+                logger.info("is_deleted字段已存在，迁移跳过")
+            
+            # 添加索引
+            logger.info("检查is_deleted字段索引是否存在...")
+            index_check = conn.execute(text("""
+            SELECT indexname 
+            FROM pg_indexes 
+            WHERE tablename = 'crypto_symbols' AND indexname LIKE '%is_deleted%'
+            """))
+            
+            if not index_check.fetchone():
+                logger.info("is_deleted字段索引不存在，开始添加...")
+                conn.execute(text("""
+                CREATE INDEX idx_crypto_symbols_is_deleted 
+                ON crypto_symbols(is_deleted)
+                """))
+                logger.info("已成功添加is_deleted字段索引")
+            else:
+                logger.info("is_deleted字段索引已存在")
         
-        logger.info("crypto_symbols表迁移完成")
+        logger.info("crypto_symbols表迁移执行成功！")
         return True
         
     except Exception as e:
-        logger.error(f"迁移失败: {e}")
+        logger.error(f"执行迁移失败: {e}")
         import traceback
         traceback.print_exc()
         return False
 
+def main():
+    """
+    主函数
+    """
+    logger.info("=== 开始执行数据库迁移 ===")
+    
+    # 执行迁移
+    success = migrate_add_is_deleted_column()
+    
+    if success:
+        logger.info("=== 迁移执行成功 ===")
+        sys.exit(0)
+    else:
+        logger.error("=== 迁移执行失败 ===")
+        sys.exit(1)
 
 if __name__ == '__main__':
-    success = migrate_crypto_symbols()
-    sys.exit(0 if success else 1)
+    main()

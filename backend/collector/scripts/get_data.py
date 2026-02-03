@@ -12,9 +12,9 @@ from pathlib import Path
 import fire
 from loguru import logger
 
-from backend.collector.crypto.binance.collector import BinanceCollector
-from backend.collector.crypto.okx.collector import OKXCollector
-from backend.collector.db.models import SystemConfigBusiness as SystemConfig
+from collector.crypto.binance.collector import BinanceCollector
+from collector.crypto.okx.collector import OKXCollector
+from collector.db.models import SystemConfigBusiness as SystemConfig
 
 
 class GetData:
@@ -37,7 +37,7 @@ class GetData:
             logger.info(f"开始将数据转换为QLib格式，数据目录: {data_dir}, QLib目录: {qlib_dir}, 时间间隔: {interval}")
             
             # 导入转换函数
-            from backend.collector.scripts.convert_to_qlib import \
+            from collector.scripts.convert_to_qlib import \
                 convert_crypto_to_qlib
 
             # 调用转换函数
@@ -83,9 +83,9 @@ class GetData:
             from sqlalchemy import func, insert
             from sqlalchemy.orm import Session
 
-            from backend.collector.db.database import (
+            from collector.db.database import (
                 SessionLocal, init_database_config)
-            from backend.collector.db.models import CryptoSpotKline, CryptoFutureKline
+            from collector.db.models import CryptoSpotKline, CryptoFutureKline
 
             # 初始化数据库配置
             init_database_config()
@@ -150,7 +150,7 @@ class GetData:
                 db = SessionLocal()
                 try:
                     # 实现跨数据库兼容的UPSERT逻辑
-                    from backend.collector.db.database import db_type
+                    from collector.db.database import db_type
                     
                     if db_type == "sqlite":
                         # SQLite使用on_conflict_do_update

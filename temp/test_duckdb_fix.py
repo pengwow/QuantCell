@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # 测试DuckDB连接
 print("=== 测试DuckDB连接 ===")
 try:
-    from backend.collector.db.database import init_database_config, SessionLocal
+    from collector.db.database import init_database_config, SessionLocal
     init_database_config()
     print("✅ 数据库配置初始化成功")
     
@@ -31,7 +31,7 @@ except Exception as e:
 # 测试TaskBusiness方法
 print("\n=== 测试TaskBusiness方法 ===")
 try:
-    from backend.collector.db.models import TaskBusiness
+    from collector.db.models import TaskBusiness
     import uuid
     
     # 测试创建任务

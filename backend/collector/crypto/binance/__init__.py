@@ -6,7 +6,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
-from backend.exchange.binance.downloader import BinanceDownloader
+from exchange.binance.downloader import BinanceDownloader
 
 __all__ = [
     "BinanceCollector",

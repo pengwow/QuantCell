@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 import logging
 from loguru import logger
+import traceback
+from sqlalchemy import inspect
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -136,7 +138,7 @@ def init_database():
         
         # 验证表是否创建成功
         logger.info("验证表结构...")
-        from sqlalchemy import inspect
+        
         from collector.db.database import engine
         
         inspector = inspect(engine)
@@ -163,7 +165,7 @@ def init_database():
         logger.info("开始写入配置到系统配置表...")
         try:
             # 导入配置管理器
-            import sys
+            
             sys.path.insert(0, str(Path(__file__).parent.parent))
             from utils.config_manager import config_manager
             from collector.db.models import SystemConfigBusiness
@@ -225,7 +227,6 @@ def init_database():
             logger.info("配置写入系统配置表完成")
         except Exception as e:
             logger.error(f"写入配置到系统配置表失败: {str(e)}")
-            import traceback
             logger.error(traceback.format_exc())
         
         logger.info("数据库初始化完成！")
@@ -233,7 +234,6 @@ def init_database():
         
     except Exception as e:
         logger.error(f"数据库初始化失败: {str(e)}")
-        import traceback
         logger.error(traceback.format_exc())
         return False
 

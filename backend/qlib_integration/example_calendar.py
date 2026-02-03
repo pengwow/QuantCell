@@ -23,7 +23,7 @@ import qlib
 # 导入自定义日历提供者，自动触发monkey patching
 # 导入自定义Freq类，确保支持更多频率格式
 # 注意：这个导入需要在使用qlib的任何功能之前执行，并且要在custom_calendar_provider之前导入
-from backend.qlib_integration import custom_calendar_provider, custom_freq
+from qlib_integration import custom_calendar_provider, custom_freq
 
 qlib.init(
     provider_uri='~/.qlib/crypto_data/qlib_data',
@@ -69,8 +69,8 @@ for freq_obj in freq_objects:
 print("\n使用说明:")
 print("=" * 50)
 print("1. 导入自定义日历提供者，自动触发monkey patching:")
-print("   from backend.qlib_integration import custom_calendar_provider")
-print("   from backend.qlib_integration import custom_freq")
+print("   from qlib_integration import custom_calendar_provider")
+print("   from qlib_integration import custom_freq")
 print("   # 注意：这个导入需要在使用qlib的任何功能之前执行")
 
 print("\n2. 初始化qlib:")

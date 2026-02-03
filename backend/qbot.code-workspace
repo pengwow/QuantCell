@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../../vectorbt"
+		},
+		{
+			"path": "../../freqtrade-develop/freqtrade"
 		}
 	],
 	"settings": {

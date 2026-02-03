@@ -9,7 +9,7 @@ sys.path.append('/Users/liupeng/workspace/qbot')
 
 import pandas as pd
 
-from backend.exchange.binance.collector import BinanceCollector
+from exchange.binance.collector import BinanceCollector
 
 
 def test_microsecond_timestamp():

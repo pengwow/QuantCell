@@ -9,7 +9,7 @@ import pytz
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from backend.utils.timezone import get_timezone, to_local_time, to_utc_time, format_datetime, reload_timezone
+from utils.timezone import get_timezone, to_local_time, to_utc_time, format_datetime, reload_timezone
 
 
 def test_timezone_config():
@@ -112,8 +112,8 @@ def test_timezone_awareness():
     print("\n=== 测试时区感知模型 ===")
     
     # 导入模型
-    from backend.collector.db.models import SystemConfig
-    from backend.collector.db.database import SessionLocal, init_database_config
+    from collector.db.models import SystemConfig
+    from collector.db.database import SessionLocal, init_database_config
     
     init_database_config()
     db = SessionLocal()
@@ -141,7 +141,7 @@ def test_timezone_awareness():
         assert isinstance(config_dict["updated_at"], str), "updated_at应该是字符串"
         
         # 测试时区转换
-        from backend.utils.timezone import format_datetime as utils_format
+        from utils.timezone import format_datetime as utils_format
         formatted_created = utils_format(config.created_at)
         print(f"工具类格式化创建时间: {formatted_created}")
         assert formatted_created == config_dict["created_at"], "格式化结果应该一致"

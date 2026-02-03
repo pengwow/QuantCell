@@ -11,9 +11,9 @@ from pathlib import Path
 sys.path.append('/Users/liupeng/workspace/quantcell')
 
 # 直接修改数据库连接代码，使用新的测试数据库文件
-from backend.collector.db.connection import (DBConnection, get_db_connection,
+from collector.db.connection import (DBConnection, get_db_connection,
                                              init_db)
-from backend.collector.db.models import SystemConfig, Task
+from collector.db.models import SystemConfig, Task
 
 # 测试线程数量
 TEST_THREADS = 5

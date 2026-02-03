@@ -17,22 +17,22 @@ qlib_dir = project_root / "qlib"
 sys.path.append(str(qlib_dir))
 
 # 导入自定义日历提供者，触发monkey patching
-try:
-    from backend.qlib_integration import custom_calendar_provider
-    logger.info("成功导入custom_calendar_provider模块")
-except Exception as e:
-    logger.error(f"导入custom_calendar_provider模块失败: {e}")
-    raise
+# try:
+#     from qlib_integration import custom_calendar_provider
+#     logger.info("成功导入custom_calendar_provider模块")
+# except Exception as e:
+#     logger.error(f"导入custom_calendar_provider模块失败: {e}")
+#     raise
 
 # 导入QLib相关模块
-try:
-    from qlib.config import C
-    from qlib.data import D
-    from qlib.data.dataset.handler import DataHandlerLP
-    logger.info("成功导入QLib模块")
-except Exception as e:
-    logger.error(f"导入QLib模块失败: {e}")
-    raise
+# try:
+#     from qlib.config import C
+#     from qlib.data import D
+#     from qlib.data.dataset.handler import DataHandlerLP
+#     logger.info("成功导入QLib模块")
+# except Exception as e:
+#     logger.error(f"导入QLib模块失败: {e}")
+#     raise
 
 
 class QLibDataLoader:

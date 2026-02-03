@@ -40,14 +40,14 @@ def apply_patches():
     
     # 先确保custom_freq被导入，这样Freq类的修复才能生效
     try:
-        from backend.qlib_integration import custom_freq
+        from qlib_integration import custom_freq
         print("[INFO] 成功导入custom_freq")
     except ImportError as e:
         print(f"[ERROR] 导入custom_freq失败: {e}")
         # 尝试相对导入
         try:
             sys.path.append(str(Path(__file__).parent.parent))
-            from backend.qlib_integration import custom_freq
+            from qlib_integration import custom_freq
             print("[INFO] 使用相对导入成功导入custom_freq")
         except ImportError as e2:
             print(f"[ERROR] 相对导入custom_freq也失败: {e2}")

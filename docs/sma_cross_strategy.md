@@ -128,8 +128,8 @@ StrategyCore ← SmaCrossCore
 ```python
 # 1. 导入必要的模块
 import pandas as pd
-from backend.backtest.strategies.sma_cross_core import SmaCrossCore
-from backend.backtest.strategies.core import StrategyRunner
+from backtest.strategies.sma_cross_core import SmaCrossCore
+from backtest.strategies.core import StrategyRunner
 
 # 2. 准备测试数据
 data = pd.read_csv('ohlc_data.csv', index_col='datetime', parse_dates=True)

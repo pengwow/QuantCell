@@ -18,18 +18,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 print("=== 测试UPSERT修复效果 ===")
 try:
     # 重置数据库连接实例和配置
-    from backend.collector.db import connection
+    from collector.db import connection
     connection.db_instance = None
     
     # 重置数据库引擎
-    from backend.collector.db import database
+    from collector.db import database
     database.db_type = None
     database.db_url = None
     database.engine = None
     
     # 导入必要的模块
-    from backend.collector.db.models import Kline
-    from backend.collector.db.database import init_database_config, SessionLocal, Base, engine
+    from collector.db.models import Kline
+    from collector.db.database import init_database_config, SessionLocal, Base, engine
     from sqlalchemy import insert, func
     import uuid
     
@@ -61,7 +61,7 @@ try:
     # 测试UPSERT操作
     with SessionLocal() as db:
         try:
-            from backend.collector.db.database import db_type
+            from collector.db.database import db_type
             
             # 1. 第一次插入数据
             print(f"\n1. 测试第一次插入数据 (数据库类型: {db_type})")

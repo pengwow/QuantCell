@@ -45,7 +45,7 @@ WebSocket服务默认配置如下：
 #### 基本使用
 
 ```python
-from backend.websocket.manager import manager
+from websocket.manager import manager
 import asyncio
 
 # 推送任务进度更新
@@ -382,7 +382,7 @@ extendedWsService.connect();
 ### 9.1 后端推送消息示例
 
 ```python
-from backend.websocket.manager import manager
+from websocket.manager import manager
 import asyncio
 import time
 

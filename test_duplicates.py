@@ -12,8 +12,8 @@ from datetime import datetime
 # 添加项目根目录到Python路径
 sys.path.append('/Users/liupeng/workspace/quantcell')
 
-from backend.collector.db.database import init_database_config, SessionLocal
-from backend.collector.db.models import CryptoSpotKline
+from collector.db.database import init_database_config, SessionLocal
+from collector.db.models import CryptoSpotKline
 
 # 初始化数据库配置
 init_database_config()

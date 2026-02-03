@@ -14,7 +14,7 @@ sys.path.append(str(project_root))
 sys.path.append(str(project_root / "backend"))
 
 # 只测试service.py的核心逻辑，避免导入routes等模块
-from backend.backtest.service import BacktestService
+from backtest.service import BacktestService
 
 
 def test_multi_currency_backtest():

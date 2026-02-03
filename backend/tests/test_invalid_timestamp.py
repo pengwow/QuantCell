@@ -9,8 +9,8 @@ sys.path.append('/Users/liupeng/workspace/quantcell')
 
 import pandas as pd
 
-from backend.exchange.binance.collector import BinanceCollector
-from backend.exchange.binance.downloader import BinanceDownloader
+from exchange.binance.collector import BinanceCollector
+from exchange.binance.downloader import BinanceDownloader
 
 
 def test_invalid_timestamp():
