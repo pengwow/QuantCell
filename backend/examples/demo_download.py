@@ -5,7 +5,7 @@ from pathlib import Path
 project_root = Path("/Users/liupeng/workspace/quantcell")
 
 sys.path.append(str(project_root))
-from backend.collector.scripts.get_data import GetData
+from collector.scripts.get_data import GetData
 
 GetData().crypto_binance(
     start="2025-10-01",

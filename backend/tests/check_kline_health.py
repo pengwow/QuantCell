@@ -20,9 +20,9 @@ sys.path.append('/Users/liupeng/workspace/quantcell')
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
-from backend.collector.db.database import SessionLocal
+from collector.db.database import SessionLocal
 # 数据库连接和模型
-from backend.collector.db.models import CryptoSpotKline, CryptoFutureKline, StockKline
+from collector.db.models import CryptoSpotKline, CryptoFutureKline, StockKline
 
 
 class KlineHealthChecker:
@@ -34,7 +34,7 @@ class KlineHealthChecker:
     def __init__(self):
         """初始化健康检查器"""
         # 确保数据库配置已初始化
-        from backend.collector.db.database import init_database_config
+        from collector.db.database import init_database_config
         init_database_config()
         # 初始化数据库会话
         self.db: Session = SessionLocal()

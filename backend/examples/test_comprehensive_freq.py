@@ -13,7 +13,7 @@ project_root = current_dir.parent.parent  # backend/examples -> backend -> quant
 sys.path.append(str(project_root))
 
 # 在导入qlib之前应用补丁
-from backend.qlib_integration import file_storage_patch
+from qlib_integration import file_storage_patch
 
 print("✓ 已应用文件存储补丁")
 
@@ -130,7 +130,7 @@ def test_freq_str_parsing():
     
     from qlib.utils.time import Freq
 
-    from backend.qlib_integration.custom_freq import CustomFreq
+    from qlib_integration.custom_freq import CustomFreq
 
     # 测试原始Freq和自定义Freq的解析
     for freq_str in test_freqs:
@@ -144,7 +144,7 @@ def test_freq_str_parsing():
             print(f"  ✓ repr(Freq): {repr(freq_obj)}")
             
             # 测试原始Freq
-            from backend.qlib_integration.custom_freq import OriginalFreq
+            from qlib_integration.custom_freq import OriginalFreq
             original_freq_obj = OriginalFreq.parse(freq_str)
             print(f"  ✓ 原始Freq.parse(): {original_freq_obj}")
         except Exception as e:

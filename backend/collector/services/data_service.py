@@ -10,7 +10,7 @@ import pandas as pd
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from ..data_loader import data_loader
+# from ..data_loader import data_loader
 from settings.models import SystemConfigBusiness as SystemConfig
 from ..db import crud
 from ..schemas.data import (CalendarInfoResponse, DataInfoResponse,
@@ -1075,9 +1075,9 @@ class DataService:
                     from sqlalchemy import func, insert
                     from sqlalchemy.orm import Session
 
-                    from backend.collector.db.database import (
+                    from collector.db.database import (
                         SessionLocal, init_database_config)
-                    from backend.collector.db.models import CryptoSpotKline, CryptoFutureKline
+                    from collector.db.models import CryptoSpotKline, CryptoFutureKline
 
                     # 初始化数据库配置
                     init_database_config()
@@ -1110,16 +1110,20 @@ class DataService:
                             if row[['timestamp', 'open', 'high', 'low', 'close', 'volume']].isna().any(axis=None):
                                 continue
                             
-                            # 保持timestamp的原始格式
-                            timestamp = row['timestamp']
+                            # 将timestamp转换为整数，去除小数点
+                            try:
+                                timestamp = int(float(row['timestamp']))
+                            except (ValueError, TypeError):
+                                logger.warning(f"无效的timestamp值: {row['timestamp']}，跳过该行")
+                                continue
                             
-                            # 直接使用原始timestamp生成unique_kline值
+                            # 使用整数timestamp生成unique_kline值
                             unique_kline = f"{symbol}_{interval}_{timestamp}"
                             
                             kline_list.append({
                                 'symbol': symbol,
                                 'interval': interval,
-                                'timestamp': timestamp,  # 保持原始格式
+                                'timestamp': str(timestamp),  # 转换为字符串存储
                                 'open': row['open'],
                                 'high': row['high'],
                                 'low': row['low'],
@@ -1141,61 +1145,86 @@ class DataService:
                         db = SessionLocal()
                         try:
                             # 实现跨数据库兼容的UPSERT逻辑
-                            from backend.collector.db.database import db_type
+                            from collector.db.database import db_type
                             
                             if db_type == "sqlite":
                                 # SQLite使用更简单的冲突处理方式
                                 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
                                 
-                                # 先检查哪些记录已存在
-                                existing_unique_klines = db.query(kline_model.unique_kline).filter(
-                                    kline_model.unique_kline.in_([k['unique_kline'] for k in kline_list])
-                                ).all()
-                                existing_set = {uk[0] for uk in existing_unique_klines}
+                                # 使用较小的批次查询已存在的记录，避免SQL变量限制
+                                existing_set = set()
+                                check_batch_size = 500  # SQLite默认限制999，使用500安全
+                                total_records = len(kline_list)
+                                
+                                for i in range(0, total_records, check_batch_size):
+                                    check_batch = kline_list[i:i+check_batch_size]
+                                    check_unique_klines = [k['unique_kline'] for k in check_batch]
+                                    
+                                    existing_batch = db.query(kline_model.unique_kline).filter(
+                                        kline_model.unique_kline.in_(check_unique_klines)
+                                    ).all()
+                                    existing_set.update({uk[0] for uk in existing_batch})
                                 
                                 # 分离新记录和需要更新的记录
                                 new_records = [k for k in kline_list if k['unique_kline'] not in existing_set]
                                 update_records = [k for k in kline_list if k['unique_kline'] in existing_set]
                                 
+                                logger.info(f"{symbol}: 新记录 {len(new_records)} 条，需更新记录 {len(update_records)} 条")
+                                
                                 # 批量插入新记录
                                 if new_records:
-                                    batch_size = 100
+                                    insert_batch_size = 100
                                     total_rows = len(new_records)
-                                    for i in range(0, total_rows, batch_size):
-                                        batch = new_records[i:i+batch_size]
+                                    for i in range(0, total_rows, insert_batch_size):
+                                        batch = new_records[i:i+insert_batch_size]
                                         stmt = sqlite_insert(kline_model).values(batch)
                                         db.execute(stmt)
+                                        if i % 500 == 0:
+                                            logger.info(f"{symbol}: 已插入 {i}/{total_rows} 条新记录")
                                 
                                 # 批量更新已存在的记录
                                 if update_records:
-                                    for record in update_records:
-                                        db.query(kline_model).filter(
-                                            kline_model.unique_kline == record['unique_kline']
-                                        ).update({
-                                            'open': record['open'],
-                                            'high': record['high'],
-                                            'low': record['low'],
-                                            'close': record['close'],
-                                            'volume': record['volume'],
-                                            'updated_at': func.now()
-                                        })
+                                    update_batch_size = 100
+                                    total_updates = len(update_records)
+                                    for i in range(0, total_updates, update_batch_size):
+                                        batch = update_records[i:i+update_batch_size]
+                                        for record in batch:
+                                            db.query(kline_model).filter(
+                                                kline_model.unique_kline == record['unique_kline']
+                                            ).update({
+                                                'open': record['open'],
+                                                'high': record['high'],
+                                                'low': record['low'],
+                                                'close': record['close'],
+                                                'volume': record['volume'],
+                                                'updated_at': func.now()
+                                            })
+                                        if i % 500 == 0:
+                                            logger.info(f"{symbol}: 已更新 {i}/{total_updates} 条记录")
                             elif db_type == "duckdb":
                                 # DuckDB使用PostgreSQL兼容的ON CONFLICT语法
                                 from sqlalchemy.dialects.postgresql import \
                                     insert as pg_insert
-                                stmt = pg_insert(kline_model).values(kline_list)
-                                stmt = stmt.on_conflict_do_update(
-                                    index_elements=['unique_kline'],
-                                    set_={
-                                        'open': stmt.excluded.open,
-                                        'high': stmt.excluded.high,
-                                        'low': stmt.excluded.low,
-                                        'close': stmt.excluded.close,
-                                        'volume': stmt.excluded.volume,
-                                        'updated_at': func.now()
-                                    }
-                                )
-                                db.execute(stmt)
+                                # 分批处理，避免SQL变量限制
+                                batch_size = 500
+                                total_records = len(kline_list)
+                                for i in range(0, total_records, batch_size):
+                                    batch = kline_list[i:i+batch_size]
+                                    stmt = pg_insert(kline_model).values(batch)
+                                    stmt = stmt.on_conflict_do_update(
+                                        index_elements=['unique_kline'],
+                                        set_={
+                                            'open': stmt.excluded.open,
+                                            'high': stmt.excluded.high,
+                                            'low': stmt.excluded.low,
+                                            'close': stmt.excluded.close,
+                                            'volume': stmt.excluded.volume,
+                                            'updated_at': func.now()
+                                        }
+                                    )
+                                    db.execute(stmt)
+                                    if i % 1000 == 0:
+                                        logger.info(f"{symbol}: 已处理 {i}/{total_records} 条记录")
                             else:
                                 # 其他数据库类型，使用BULK INSERT + 错误处理
                                 raise ValueError(f"不支持的数据库类型: {db_type}")

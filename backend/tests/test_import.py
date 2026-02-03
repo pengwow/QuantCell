@@ -16,7 +16,7 @@ print(f"Python路径: {sys.path}")
 print(f"当前目录: {current_dir}")
 
 try:
-    from backend.utils.timezone import to_utc_time, to_local_time, format_datetime
+    from utils.timezone import to_utc_time, to_local_time, format_datetime
     print("成功导入 backend.utils.timezone")
 except Exception as e:
     print(f"导入失败: {e}")

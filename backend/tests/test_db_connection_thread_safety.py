@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.append('/Users/liupeng/workspace/quantcell')
 
 # 直接导入DBConnection类，测试其线程安全性
-from backend.collector.db.connection import DBConnection
+from collector.db.connection import DBConnection
 
 # 测试线程数量
 TEST_THREADS = 5
@@ -43,7 +43,7 @@ class ConnectionTestThread(threading.Thread):
             db_conn = DBConnection()
             
             # 直接修改默认数据库路径，避免配置文件影响
-            from backend.collector.db import connection
+            from collector.db import connection
             connection.default_db_path = self.db_path
             
             for i in range(TEST_OPERATIONS):

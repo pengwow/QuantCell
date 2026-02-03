@@ -17,7 +17,7 @@ print("=" * 60)
 # 测试1：导入文件存储补丁
 print("\n1. 导入文件存储补丁")
 try:
-    from backend.qlib_integration import file_storage_patch
+    from qlib_integration import file_storage_patch
     print("✓ 已应用文件存储补丁")
 except Exception as e:
     print(f"✗ 导入文件存储补丁失败: {e}")

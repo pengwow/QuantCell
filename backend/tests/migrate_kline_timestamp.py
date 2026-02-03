@@ -21,8 +21,8 @@ from sqlalchemy.orm import sessionmaker, Session
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from backend.collector.db.database import init_database_config, SessionLocal
-from backend.collector.db.models import CryptoSpotKline, CryptoFutureKline, StockKline
+from collector.db.database import init_database_config, SessionLocal
+from collector.db.models import CryptoSpotKline, CryptoFutureKline, StockKline
 
 
 class DatabaseMigrator:

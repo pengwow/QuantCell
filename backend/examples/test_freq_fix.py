@@ -17,7 +17,7 @@ print("=" * 50)
 # 1. 导入自定义Freq和日历提供器，确保在使用qlib的任何功能之前执行
 print("1. 导入自定义Freq和日历提供器")
 try:
-    from backend.qlib_integration import (CustomCalendarProvider,
+    from qlib_integration import (CustomCalendarProvider,
                                           custom_calendar_provider,
                                           custom_freq)
     print("✓ 成功导入自定义模块")
@@ -56,7 +56,7 @@ except Exception as e:
 # 3. 测试CustomFileCalendarStorage的_freq_file方法
 print("\n3. 测试CustomFileCalendarStorage的_freq_file方法")
 try:
-    from backend.qlib_integration.custom_calendar_provider import \
+    from qlib_integration.custom_calendar_provider import \
         CustomFileCalendarStorage
 
     # 测试不同频率的_freq_file返回值
@@ -88,7 +88,7 @@ except Exception as e:
 print("\n4. 初始化qlib并测试features方法")
 try:
     # 在导入qlib.data之前应用文件存储补丁
-    from backend.qlib_integration import file_storage_patch
+    from qlib_integration import file_storage_patch
     print("✓ 已应用文件存储补丁")
     
     import qlib

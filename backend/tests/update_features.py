@@ -89,8 +89,8 @@ def update_features_to_db(features: Dict[str, List[Dict[str, str]]]):
         # 导入数据库相关模块
         from sqlalchemy.orm import Session
 
-        from backend.collector.db import crud, models, schemas
-        from backend.collector.db.database import (SessionLocal, engine,
+        from collector.db import crud, models, schemas
+        from collector.db.database import (SessionLocal, engine,
                                                    init_database_config)
 
         # 初始化数据库配置
@@ -145,7 +145,7 @@ def main():
     
     try:
         # 从系统配置中获取qlib_data_dir
-        from backend.collector.db import SystemConfigBusiness as SystemConfig
+        from collector.db import SystemConfigBusiness as SystemConfig
         qlib_dir = SystemConfig.get("qlib_data_dir")
         
         if not qlib_dir:

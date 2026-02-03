@@ -15,9 +15,9 @@ import qlib
 from qlib.config import C
 
 # 导入自定义Freq类，确保支持更多频率格式
-from backend.qlib_integration import custom_freq
+from qlib_integration import custom_freq
 # 导入自定义日历提供者
-from backend.qlib_integration.custom_calendar_provider import \
+from qlib_integration.custom_calendar_provider import \
     CustomCalendarProvider
 
 # 设置qlib配置

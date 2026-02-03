@@ -10,7 +10,7 @@ backend_root = Path(__file__).parent.parent.parent.parent
 project_root = backend_root.parent 
 
 sys.path.append(str(project_root))
-from backend.exchange.binance.websocket_connector import BinanceWebSocketConnector
+from exchange.binance.websocket_connector import BinanceWebSocketConnector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

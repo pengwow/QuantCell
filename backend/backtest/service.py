@@ -23,7 +23,7 @@ from collector.services.data_service import DataService
 from strategy.service import StrategyService
 from i18n.utils import load_translations
 from config_manager import get_config
-from backend.utils.timezone import format_datetime
+from utils.timezone import format_datetime
 
 
 class BacktestService:

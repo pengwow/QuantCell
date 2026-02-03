@@ -20,7 +20,7 @@ class ExchangeFactory:
         # 尝试从配置文件读取配置
         if config is None:
             try:
-                from backend.config_manager import load_system_configs
+                from config_manager import load_system_configs
                 configs = load_system_configs()
                 config = configs.get('exchange', {}).get(exchange_name, {})
             except ImportError:

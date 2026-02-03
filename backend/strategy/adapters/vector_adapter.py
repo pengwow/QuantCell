@@ -53,14 +53,14 @@ class VectorBacktestAdapter:
             # 运行策略获取信号
             signals = self._generate_signals(df)
             
-            # 准备价格数组
-            price = df['Close'].values.reshape(-1, 1)
-            
+            # 准备价格数组，确保数据类型为 float64
+            price = df['Close'].values.astype(np.float64).reshape(-1, 1)
+
             # 运行向量回测
             result = self.engine.run_backtest(
                 price=price,
-                entries=signals['entries'].values.reshape(-1, 1),
-                exits=signals['exits'].values.reshape(-1, 1),
+                entries=signals['entries'].values.astype(np.bool_).reshape(-1, 1),
+                exits=signals['exits'].values.astype(np.bool_).reshape(-1, 1),
                 init_cash=init_cash,
                 fees=fees,
                 slippage=slippage
@@ -74,6 +74,18 @@ class VectorBacktestAdapter:
             result['orders'] = list(self.strategy.orders.values())
             result['indicators'] = self.strategy.indicators
             result['strategy_trades'] = self.strategy.trades
+            
+            # 新增：添加风险控制信息
+            result['risk_control'] = {
+                'stop_loss': self.strategy.stop_loss,
+                'take_profit': self.strategy.take_profit,
+                'max_position_size': self.strategy.max_position_size,
+                'max_open_positions': self.strategy.max_open_positions,
+                'cooldown_period': self.strategy.cooldown_period,
+                'max_drawdown': self.strategy.max_drawdown,
+                'leverage_enabled': self.strategy.leverage_enabled,
+                'default_leverage': self.strategy.default_leverage
+            }
             
             results[symbol] = result
             
@@ -100,11 +112,11 @@ class VectorBacktestAdapter:
         for idx, row in df.iterrows():
             bar = {
                 'datetime': idx,
-                'open': row['Open'],
-                'high': row['High'],
-                'low': row['Low'],
-                'close': row['Close'],
-                'volume': row['Volume']
+                'open': float(row['Open']),
+                'high': float(row['High']),
+                'low': float(row['Low']),
+                'close': float(row['Close']),
+                'volume': float(row['Volume'])
             }
             
             # 调用策略的 on_bar 方法

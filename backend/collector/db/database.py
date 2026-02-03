@@ -133,7 +133,7 @@ def get_current_time():
     Returns:
         datetime: 当前时间，带配置的时区
     """
-    from backend.utils.timezone import get_timezone
+    from utils.timezone import get_timezone
     return datetime.datetime.now(get_timezone())
 
 # 注意：SessionLocal.configure(bind=engine)和Base.metadata.bind的设置

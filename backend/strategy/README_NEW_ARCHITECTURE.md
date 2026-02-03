@@ -53,7 +53,7 @@ python setup.py build_ext --inplace
 ### 2. 使用新架构编写策略
 
 ```python
-from backend.strategy import StrategyBase
+from strategy import StrategyBase
 
 class MyStrategy(StrategyBase):
     def on_init(self):
@@ -80,7 +80,7 @@ class MyStrategy(StrategyBase):
 
 ```python
 import pandas as pd
-from backend.strategy import GridTradingStrategy, VectorBacktestAdapter
+from strategy import GridTradingStrategy, VectorBacktestAdapter
 
 # 加载数据
 data = pd.read_csv('btcusdt_1h.csv')

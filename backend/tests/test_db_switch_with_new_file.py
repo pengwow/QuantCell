@@ -10,10 +10,10 @@ import tomli_w
 # 添加项目根目录到Python路径
 sys.path.append('/Users/liupeng/workspace/quantcell')
 
-from backend.collector.db.connection import (db_instance, get_db_connection,
+from collector.db.connection import (db_instance, get_db_connection,
                                              init_db)
-from backend.collector.db.models import SystemConfig, Task
-from backend.config import config_manager
+from collector.db.models import SystemConfig, Task
+from config import config_manager
 
 
 # 创建临时配置文件
@@ -174,7 +174,7 @@ def main():
     
     try:
         # 创建新的配置管理器实例，使用临时配置文件
-        from backend.config import ConfigManager
+        from config import ConfigManager
         global config_manager
         config_manager = ConfigManager(config_path=str(temp_config_path))
         

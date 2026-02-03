@@ -15,7 +15,7 @@ def _get_config_manager():
     """获取配置管理器实例"""
     global _config_manager
     if _config_manager is None:
-        from backend.config import config_manager
+        from config import config_manager
         _config_manager = config_manager
     return _config_manager
 

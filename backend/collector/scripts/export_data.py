@@ -13,9 +13,9 @@ from loguru import logger
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-from backend.collector.db.database import SessionLocal, init_database_config
-from backend.collector.db.models import CryptoSpotKline, CryptoFutureKline
-from backend.collector.scripts.get_data import GetData
+from collector.db.database import SessionLocal, init_database_config
+from collector.db.models import CryptoSpotKline, CryptoFutureKline
+from collector.scripts.get_data import GetData
 
 
 class ExportData:

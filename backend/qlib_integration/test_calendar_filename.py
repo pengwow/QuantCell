@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from qlib.utils.time import Freq
 
 # 导入自定义存储类
-from backend.qlib_integration.custom_calendar_provider import \
+from qlib_integration.custom_calendar_provider import \
     CustomFileCalendarStorage
 
 
@@ -123,7 +123,7 @@ def test_calendar_filename():
 
 if __name__ == "__main__":
     # 先导入自定义频率
-    from backend.qlib_integration import custom_freq
+    from qlib_integration import custom_freq
 
     # 运行测试
     test_calendar_filename()

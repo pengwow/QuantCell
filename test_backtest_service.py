@@ -14,7 +14,7 @@ sys.path.append(str(project_root))
 sys.path.append(str(project_root / "backend"))
 
 # 避免导入routes模块，直接导入service
-from backend.backtest.service import BacktestService
+from backtest.service import BacktestService
 
 
 def test_multi_currency_backtest():

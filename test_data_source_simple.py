@@ -9,9 +9,9 @@ import os
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from backend.collector.db.database import init_database_config, SessionLocal, engine
-from backend.collector.db.models import CryptoSpotKline, CryptoFutureKline, StockKline
-from backend.collector.db.migrations import run_migrations
+from collector.db.database import init_database_config, SessionLocal, engine
+from collector.db.models import CryptoSpotKline, CryptoFutureKline, StockKline
+from collector.db.migrations import run_migrations
 
 
 def test_database_migration():
@@ -57,7 +57,7 @@ def test_table_creation():
     init_database_config()
     
     # 创建所有表
-    from backend.collector.db.models import Base
+    from collector.db.models import Base
     Base.metadata.create_all(bind=engine)
     print("所有表创建成功!")
     

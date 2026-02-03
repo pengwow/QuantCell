@@ -22,6 +22,11 @@ class VectorEngine:
         self.orders = None
         self.trades = None
         
+        # 新增：风险控制
+        self.stop_losses = None
+        self.take_profits = None
+        self.position_adjustments = None
+        
         # 尝试导入 Numba 编译函数
         try:
             from .numba_functions import (
@@ -29,7 +34,11 @@ class VectorEngine:
                 signals_to_orders,
                 calculate_metrics,
                 calculate_funding_rate,
-                calculate_funding_payment
+                calculate_funding_payment,
+                # 新增：风险控制函数
+                check_stop_loss,
+                check_take_profit,
+                adjust_position,
             )
             
             self.simulate_orders = simulate_orders
@@ -37,6 +46,9 @@ class VectorEngine:
             self.calculate_metrics = calculate_metrics
             self.calculate_funding_rate = calculate_funding_rate
             self.calculate_funding_payment = calculate_funding_payment
+            self.check_stop_loss = check_stop_loss
+            self.check_take_profit = check_take_profit
+            self.adjust_position = adjust_position
             
             logger.info("使用 Numba JIT 编译模块（高性能模式）")
         except ImportError as e:
@@ -46,6 +58,9 @@ class VectorEngine:
             self.calculate_metrics = self._calculate_metrics_python
             self.calculate_funding_rate = self._calculate_funding_rate_python
             self.calculate_funding_payment = self._calculate_funding_payment_python
+            self.check_stop_loss = self._check_stop_loss_python
+            self.check_take_profit = self._check_take_profit_python
+            self.adjust_position = self._adjust_position_python
             
             logger.warning(f"Numba 未安装，使用 Python 实现（性能较低）：{e}")
     
@@ -290,3 +305,73 @@ class VectorEngine:
         Python 版本的资金费支付计算（备用）
         """
         return position_size * funding_rate
+    
+    def _check_stop_loss_python(self, current_price: float, 
+                               entry_price: float, 
+                               direction: int,
+                               stop_loss: float) -> bool:
+        """
+        Python 版本的止损检查（备用）
+        """
+        if stop_loss <= 0:
+            return False
+        
+        if direction == 1:
+            pnl = (current_price - entry_price)
+            if pnl < 0 and abs(pnl) >= entry_price * stop_loss:
+                return True
+        else:
+            pnl = (entry_price - current_price)
+            if pnl < 0 and abs(pnl) >= entry_price * stop_loss:
+                return True
+        
+        return False
+    
+    def _check_take_profit_python(self, current_price: float, 
+                                 entry_price: float, 
+                                 direction: int,
+                                 take_profit: float) -> bool:
+        """
+        Python 版本的止盈检查（备用）
+        """
+        if take_profit <= 0:
+            return False
+        
+        if direction == 1:
+            pnl = (current_price - entry_price)
+            if pnl > 0 and pnl >= entry_price * take_profit:
+                return True
+        else:
+            pnl = (entry_price - current_price)
+            if pnl > 0 and pnl >= entry_price * take_profit:
+                return True
+        
+        return False
+    
+    def _adjust_position_python(self, current_price: float, 
+                             entry_price: float,
+                             direction: int,
+                             position_size: float,
+                             max_position_size: float,
+                             position_adjustment_enabled: bool) -> float:
+        """
+        Python 版本的仓位调整（备用）
+        """
+        if not position_adjustment_enabled:
+            return position_size
+        
+        if max_position_size <= 0:
+            return position_size
+        
+        if direction == 1:
+            pnl = (current_price - entry_price)
+            if pnl > 0:
+                new_size = min(position_size * 1.5, max_position_size)
+                return new_size
+        else:
+            pnl = (entry_price - current_price)
+            if pnl > 0:
+                new_size = min(position_size * 1.5, max_position_size)
+                return new_size
+        
+        return position_size

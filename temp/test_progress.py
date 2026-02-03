@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from loguru import logger
-from backend.collector.crypto.binance.collector import BinanceCollector
+from collector.crypto.binance.collector import BinanceCollector
 
 # 配置日志
 logger.remove()
