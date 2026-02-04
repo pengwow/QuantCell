@@ -51,7 +51,7 @@ class VectorBacktestAdapter:
             self.strategy.on_init()
             
             # 运行策略获取信号
-            signals = self._generate_signals(df)
+            signals = self._generate_signals(df, symbol)
             
             # 准备价格数组，确保数据类型为 float64
             price = df['Close'].values.astype(np.float64).reshape(-1, 1)
@@ -75,6 +75,14 @@ class VectorBacktestAdapter:
             result['indicators'] = self.strategy.indicators
             result['strategy_trades'] = self.strategy.trades
             
+            # 新增：添加指标元数据（如果策略实现了get_indicators_info方法）
+            if hasattr(self.strategy, 'get_indicators_info'):
+                result['indicators_info'] = self.strategy.get_indicators_info()
+            
+            # 新增：添加当前指标值（如果策略实现了get_indicator_values方法）
+            if hasattr(self.strategy, 'get_indicator_values'):
+                result['indicator_values'] = self.strategy.get_indicator_values()
+            
             # 新增：添加风险控制信息
             result['risk_control'] = {
                 'stop_loss': self.strategy.stop_loss,
@@ -87,6 +95,32 @@ class VectorBacktestAdapter:
                 'default_leverage': self.strategy.default_leverage
             }
             
+            # 新增：生成资金曲线数据（包含实际盈亏和浮动盈亏）
+            equity_curve = self._generate_equity_curve(result, df)
+            result['equity_curve'] = equity_curve
+            
+            # 新增：格式化交易记录
+            trades = self._format_trades(result, df)
+            result['trades'] = trades
+            
+            # 新增：添加盈亏统计（如果策略支持）
+            pnl_stats = {}
+            if hasattr(self.strategy, 'realized_pnl'):
+                pnl_stats['realized_pnl'] = self.strategy.realized_pnl
+            if hasattr(self.strategy, 'unrealized_pnl'):
+                pnl_stats['unrealized_pnl'] = self.strategy.unrealized_pnl
+            if hasattr(self.strategy, 'total_trades'):
+                pnl_stats['total_trades'] = self.strategy.total_trades
+            if hasattr(self.strategy, 'winning_trades'):
+                pnl_stats['winning_trades'] = self.strategy.winning_trades
+                if self.strategy.total_trades > 0:
+                    pnl_stats['win_rate'] = self.strategy.winning_trades / self.strategy.total_trades
+            
+            if pnl_stats:
+                result['pnl_stats'] = pnl_stats
+                logger.info(f"【盈亏统计】实际盈亏: {pnl_stats.get('realized_pnl', 0):.2f}, "
+                           f"浮动盈亏: {pnl_stats.get('unrealized_pnl', 0):.2f}")
+            
             results[symbol] = result
             
             logger.info(f"回测完成: {symbol}, 总盈亏: {result['metrics']['total_pnl']:.2f}, 夏普比率: {result['metrics']['sharpe_ratio']:.4f}")
@@ -94,12 +128,13 @@ class VectorBacktestAdapter:
         self.results = results
         return results
     
-    def _generate_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _generate_signals(self, df: pd.DataFrame, symbol: str) -> Dict[str, pd.Series]:
         """
         生成交易信号
         
         参数：
         - df: K线数据
+        - symbol: 交易对符号
         
         返回：
         - dict: 包含 entries 和 exits 的信号
@@ -109,6 +144,7 @@ class VectorBacktestAdapter:
         exits = pd.Series(False, index=df.index)
         
         # 遍历每根 K线
+        last_bar = None
         for idx, row in df.iterrows():
             bar = {
                 'datetime': idx,
@@ -116,8 +152,10 @@ class VectorBacktestAdapter:
                 'high': float(row['High']),
                 'low': float(row['Low']),
                 'close': float(row['Close']),
-                'volume': float(row['Volume'])
+                'volume': float(row['Volume']),
+                'symbol': symbol
             }
+            last_bar = bar
             
             # 调用策略的 on_bar 方法
             self.strategy.on_bar(bar)
@@ -129,6 +167,11 @@ class VectorBacktestAdapter:
                     entries[idx] = True
                 elif order['direction'] in ['sell', 'short']:
                     exits[idx] = True
+        
+        # 回测结束，调用 on_stop 进行强制平仓
+        if last_bar is not None:
+            logger.info(f"【回测结束】调用策略 on_stop 进行强制平仓: {symbol}")
+            self.strategy.on_stop(last_bar)
         
         return {
             'entries': entries,
@@ -187,6 +230,131 @@ class VectorBacktestAdapter:
         logger.info(f"参数优化完成，最优参数: {best_result['params']}, 最优分数: {best_result['score']:.4f}")
         return best_result
     
+    def _generate_equity_curve(self, result: Dict[str, Any], df: pd.DataFrame) -> list:
+        """
+        生成资金曲线数据
+        
+        参数：
+        - result: 回测结果
+        - df: K线数据
+        
+        返回：
+        - list: 资金曲线数据点列表
+        """
+        positions = result['positions']
+        cash = result['cash']
+        price = df['Close'].values
+        
+        equity_curve = []
+        max_equity = init_cash = float(cash[0]) if len(cash) > 0 else 100000.0
+        
+        # 确保 positions 是 numpy 数组
+        if not isinstance(positions, np.ndarray):
+            positions = np.array(positions)
+        
+        for i in range(len(positions)):
+            # 计算当前权益
+            equity_value = float(cash[i]) if i < len(cash) else float(cash[-1])
+            
+            # 计算持仓价值
+            if i < len(price):
+                pos = float(positions[i, 0]) if positions.ndim > 1 else float(positions[i])
+                position_value = pos * float(price[i])
+            else:
+                position_value = 0.0
+            
+            total_equity = equity_value + position_value
+            
+            # 更新最大权益
+            if total_equity > max_equity:
+                max_equity = total_equity
+            
+            # 计算回撤
+            drawdown = max_equity - total_equity
+            drawdown_pct = (drawdown / max_equity) * 100 if max_equity > 0 else 0
+            
+            # 获取时间戳
+            timestamp = df.index[i]
+            if isinstance(timestamp, pd.Timestamp):
+                timestamp_ms = int(timestamp.timestamp() * 1000)
+            else:
+                timestamp_ms = int(timestamp)
+            
+            equity_curve.append({
+                'timestamp': timestamp_ms,
+                'datetime': timestamp.isoformat() if isinstance(timestamp, pd.Timestamp) else str(timestamp),
+                'equity': round(float(total_equity), 2),
+                'cash': round(float(equity_value), 2),
+                'position_value': round(float(position_value), 2),
+                'drawdown': round(float(drawdown), 2),
+                'drawdown_pct': round(float(drawdown_pct), 4)
+            })
+        
+        return equity_curve
+    
+    def _format_trades(self, result: Dict[str, Any], df: pd.DataFrame) -> list:
+        """
+        格式化交易记录
+        
+        参数：
+        - result: 回测结果
+        - df: K线数据
+        
+        返回：
+        - list: 格式化后的交易记录列表
+        """
+        trades = []
+        
+        # 从引擎获取交易记录
+        engine_trades = result.get('trades', [])
+        
+        if isinstance(engine_trades, np.ndarray) and len(engine_trades) > 0:
+            # 处理numpy数组格式的交易记录
+            for i, trade in enumerate(engine_trades):
+                if isinstance(trade, dict):
+                    trades.append({
+                        'trade_id': i,
+                        'entry_time': trade.get('entry_time', ''),
+                        'exit_time': trade.get('exit_time', ''),
+                        'entry_price': float(trade.get('entry_price', 0)),
+                        'exit_price': float(trade.get('exit_price', 0)),
+                        'size': float(trade.get('size', 0)),
+                        'pnl': float(trade.get('pnl', 0)),
+                        'return_pct': float(trade.get('return_pct', 0)),
+                        'direction': trade.get('direction', 'long'),
+                        'fees': float(trade.get('fees', 0))
+                    })
+        
+        # 如果没有引擎交易记录，从订单生成交易记录
+        if not trades and 'orders' in result:
+            orders = result['orders']
+            for i in range(0, len(orders) - 1, 2):
+                if i + 1 < len(orders):
+                    entry_order = orders[i]
+                    exit_order = orders[i + 1]
+                    
+                    entry_price = float(entry_order.get('price', 0))
+                    exit_price = float(exit_order.get('price', 0))
+                    size = float(entry_order.get('size', 0.1))
+                    
+                    pnl = (exit_price - entry_price) * size
+                    return_pct = ((exit_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
+                    
+                    trades.append({
+                        'trade_id': i // 2,
+                        'entry_time': entry_order.get('timestamp', ''),
+                        'exit_time': exit_order.get('timestamp', ''),
+                        'entry_price': entry_price,
+                        'exit_price': exit_price,
+                        'size': size,
+                        'pnl': round(pnl, 2),
+                        'return_pct': round(return_pct, 4),
+                        'direction': entry_order.get('direction', 'buy'),
+                        'fees': 0.0
+                    })
+        
+        return trades
+    
     def get_equity_curve(self, symbol: str) -> pd.Series:
         """
         获取权益曲线
@@ -201,17 +369,16 @@ class VectorBacktestAdapter:
             return pd.Series()
         
         result = self.results[symbol]
-        positions = result['positions']
-        cash = result['cash'][0]
-        price = result['data']['Close'].values
+        equity_curve = result.get('equity_curve', [])
         
-        # 计算权益曲线
-        equity = []
-        for i in range(len(positions)):
-            equity_value = cash + positions[i, 0] * price[i]
-            equity.append(equity_value)
+        if not equity_curve:
+            return pd.Series()
         
-        return pd.Series(equity, index=result['data'].index)
+        # 从equity_curve提取权益值
+        equity_values = [point['equity'] for point in equity_curve]
+        index = pd.to_datetime([point['datetime'] for point in equity_curve])
+        
+        return pd.Series(equity_values, index=index)
     
     def get_trades(self, symbol: str) -> pd.DataFrame:
         """

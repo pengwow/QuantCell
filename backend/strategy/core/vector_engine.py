@@ -213,12 +213,21 @@ class VectorEngine:
                                init_cash: float) -> tuple:
         """
         Python 版本的订单模拟（备用）
+        
+        修复问题：
+        1. 现金应该是单一值，不是每个资产都有独立现金
+        2. 持仓需要正确传递
+        3. 卖出时应该释放资金
         """
         n_steps, n_assets = price.shape
         
-        # 初始化状态
-        cash = np.full(n_assets, init_cash, dtype=np.float64)
-        positions = np.zeros((n_steps, n_assets), dtype=np.float64)
+        # 初始化状态 - 单一现金池
+        cash = init_cash
+        current_position = 0.0  # 当前持仓量
+        
+        # 记录每个时间步的现金和持仓
+        cash_history = np.zeros(n_steps, dtype=np.float64)
+        positions_history = np.zeros((n_steps, n_assets), dtype=np.float64)
         
         # 遍历每个时间步
         for i in range(n_steps):
@@ -226,24 +235,47 @@ class VectorEngine:
                 # 获取当前价格
                 current_price = price[i, j]
                 
-                # 检查是否有订单
-                if size[i, j] != 0:
-                    if direction[i, j] == 1:  # long
+                # 检查是否有订单（size > 0 表示买入，size < 0 表示卖出）
+                if size[i, j] > 0:  # 买入信号
+                    # 避免重复买入：如果已经有持仓，不再买入
+                    if current_position <= 0:
                         exec_price = current_price * (1 + slippage)
-                        req_cash = size[i, j] * exec_price * (1 + fees)
+                        trade_value = size[i, j] * exec_price
+                        trade_fees = trade_value * fees
+                        total_cost = trade_value + trade_fees
                         
-                        if cash[j] >= req_cash:
-                            cash[j] -= req_cash
-                            positions[i, j] += size[i, j]
-                    else:  # short
+                        # 检查是否有足够资金
+                        if cash >= total_cost:
+                            cash -= total_cost
+                            current_position += size[i, j]
+                            logger.debug(f"买入: 价格={exec_price:.2f}, 数量={size[i, j]}, 成本={total_cost:.2f}, 剩余现金={cash:.2f}")
+                        else:
+                            logger.warning(f"资金不足，无法买入: 需要={total_cost:.2f}, 可用={cash:.2f}")
+                
+                elif size[i, j] < 0:  # 卖出信号
+                    # 避免重复卖出：如果没有持仓，不再卖出
+                    if current_position > 0:
                         exec_price = current_price * (1 - slippage)
-                        req_cash = size[i, j] * exec_price * (1 + fees)
+                        sell_size = min(abs(size[i, j]), current_position)  # 卖出数量不能超过持仓
                         
-                        if positions[i, j] >= size[i, j]:
-                            cash[j] += req_cash
-                            positions[i, j] -= size[i, j]
+                        if sell_size > 0:
+                            trade_value = sell_size * exec_price
+                            trade_fees = trade_value * fees
+                            net_proceeds = trade_value - trade_fees
+                            
+                            cash += net_proceeds
+                            current_position -= sell_size
+                            logger.debug(f"卖出: 价格={exec_price:.2f}, 数量={sell_size}, 收入={net_proceeds:.2f}, 剩余现金={cash:.2f}")
+                        else:
+                            logger.warning(f"持仓不足，无法卖出: 需要={sell_size}, 可用={current_position}")
+                
+                # 记录当前持仓
+                positions_history[i, j] = current_position
+            
+            # 记录当前现金
+            cash_history[i] = cash
         
-        return cash, positions
+        return cash_history, positions_history
     
     def _calculate_metrics_python(self, trades: np.ndarray,
                                cash: np.ndarray) -> Dict[str, Any]:
@@ -275,13 +307,16 @@ class VectorEngine:
         else:
             sharpe_ratio = 0.0
         
+        # 计算最终权益 - cash 是历史数组，取最后一个值
+        final_equity = float(cash[-1]) if len(cash) > 0 else 0.0
+        
         return {
             'total_pnl': float(total_pnl),
             'total_fees': float(total_fees),
             'win_rate': float(win_rate),
             'sharpe_ratio': float(sharpe_ratio),
             'trade_count': len(trades),
-            'final_equity': float(cash.sum())
+            'final_equity': final_equity
         }
     
     def _calculate_funding_rate_python(self, index_price: float,

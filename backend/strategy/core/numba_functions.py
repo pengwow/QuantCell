@@ -15,6 +15,11 @@ def simulate_orders(price: np.ndarray,
     """
     Numba JIT 编译的订单模拟函数
     
+    修复问题：
+    1. 现金应该是单一值，不是每个资产都有独立现金
+    2. 持仓需要正确传递
+    3. 卖出时应该释放资金
+    
     参数：
     - price: 价格数组 (时间 × 资产)
     - size: 订单大小数组
@@ -24,14 +29,18 @@ def simulate_orders(price: np.ndarray,
     - init_cash: 初始资金
     
     返回：
-    - tuple: (cash, positions)
+    - tuple: (cash_history, positions_history)
     """
     n_steps = price.shape[0]
     n_assets = price.shape[1]
     
-    # 初始化状态数组
-    cash = np.full(n_assets, init_cash, dtype=np.float64)
-    positions = np.zeros((n_steps, n_assets), dtype=np.float64)
+    # 初始化状态 - 单一现金池
+    cash = init_cash
+    current_position = 0.0
+    
+    # 记录每个时间步的现金和持仓
+    cash_history = np.zeros(n_steps, dtype=np.float64)
+    positions_history = np.zeros((n_steps, n_assets), dtype=np.float64)
     
     # 遍历每个时间步
     for i in range(n_steps):
@@ -39,27 +48,42 @@ def simulate_orders(price: np.ndarray,
             # 获取当前价格
             current_price = price[i, j]
             
-            # 检查是否有订单
-            if size[i, j] != 0:
-                # 计算滑点后的价格
-                if direction[i, j] == 1:  # long
+            # 检查是否有订单（size > 0 表示买入，size < 0 表示卖出）
+            if size[i, j] > 0:  # 买入信号
+                # 避免重复买入：如果已经有持仓，不再买入
+                if current_position <= 0:
                     exec_price = current_price * (1.0 + slippage)
-                    req_cash = size[i, j] * exec_price * (1.0 + fees)
+                    trade_value = size[i, j] * exec_price
+                    trade_fees = trade_value * fees
+                    total_cost = trade_value + trade_fees
                     
-                    if cash[j] >= req_cash:
+                    # 检查是否有足够资金
+                    if cash >= total_cost:
                         # 执行买入
-                        cash[j] -= req_cash
-                        positions[i, j] += size[i, j]
-                else:  # short
+                        cash -= total_cost
+                        current_position += size[i, j]
+            elif size[i, j] < 0:  # 卖出信号
+                # 避免重复卖出：如果没有持仓，不再卖出
+                if current_position > 0:
                     exec_price = current_price * (1.0 - slippage)
-                    req_cash = size[i, j] * exec_price * (1.0 + fees)
+                    sell_size = min(abs(size[i, j]), current_position)  # 卖出数量不能超过持仓
                     
-                    if positions[i, j] >= size[i, j]:
+                    if sell_size > 0:
+                        trade_value = sell_size * exec_price
+                        trade_fees = trade_value * fees
+                        net_proceeds = trade_value - trade_fees
+                        
                         # 执行卖出
-                        cash[j] += req_cash
-                        positions[i, j] -= size[i, j]
+                        cash += net_proceeds
+                        current_position -= sell_size
+            
+            # 记录当前持仓
+            positions_history[i, j] = current_position
+        
+        # 记录当前现金
+        cash_history[i] = cash
     
-    return cash, positions
+    return cash_history, positions_history
 
 
 @njit(cache=True, fastmath=True)
@@ -136,11 +160,13 @@ def calculate_metrics(trades_pnl: np.ndarray,
     """
     Numba JIT 编译的指标计算函数
     
+    修复：cash 现在是现金历史数组，取最后一个值作为最终现金
+    
     参数：
     - trades_pnl: 交易盈亏数组
     - trades_fees: 交易手续费数组
     - trades_value: 交易价值数组
-    - cash: 最终现金数组
+    - cash: 现金历史数组（每个时间步的现金余额）
     
     返回：
     - np.ndarray: 包含各种绩效指标的数组
@@ -188,11 +214,10 @@ def calculate_metrics(trades_pnl: np.ndarray,
         if std_return > 0:
             sharpe_ratio = mean_return / std_return * np.sqrt(252.0)
     
-    # 计算最终权益
+    # 计算最终权益 - cash 是历史数组，取最后一个值
     final_equity = 0.0
     if len(cash) > 0:
-        for i in range(len(cash)):
-            final_equity += cash[i]
+        final_equity = cash[-1]  # 取最后一个时间步的现金
     
     return np.array([total_pnl, total_fees, win_rate, sharpe_ratio, n_trades, final_equity], dtype=np.float64)
 
