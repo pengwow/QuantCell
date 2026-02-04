@@ -106,6 +106,17 @@ class StrategyBase(ABC):
         """
         pass
     
+    def on_stop(self, bar: Dict[str, Any]):
+        """
+        回测结束回调
+        
+        在回测结束时调用，用于执行强制平仓等清理操作
+        
+        参数：
+        - bar: 最后一根K线数据
+        """
+        pass
+    
     def on_order(self, order: Dict[str, Any]):
         """
         订单状态更新回调
