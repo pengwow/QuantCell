@@ -31,3 +31,4 @@ frontend2/
 **/__pycache__/
 backend/quantcell/backtest/results/*.json
 quantcell.egg-info/*
+backend/.trash/
