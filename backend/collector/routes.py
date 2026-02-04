@@ -11,7 +11,7 @@ from .api.data_pool import router as data_pool_router
 from .api.scheduled_tasks import router as scheduled_tasks_router
 from .db.models import Task
 from .schemas import ApiResponse, DataConvertRequest, DataDownloadRequest
-from .scripts.convert_to_qlib import convert_crypto_to_qlib
+# from .scripts.convert_to_qlib import convert_crypto_to_qlib
 from .scripts.get_data import GetData
 
 # 创建API路由实例

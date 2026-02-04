@@ -28,8 +28,8 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from scripts.sync_crypto_symbols import sync_crypto_symbols
-from scripts.update_features import main as update_features_main
+from collector.services.crypto_symbol_service import sync_crypto_symbols
+# from scripts.update_features import main as update_features_main
 from collector.utils.scheduled_task_manager import scheduled_task_manager
 from backtest.demo_service import DemoService
 from websocket.manager import manager
@@ -198,24 +198,24 @@ def start_scheduler(
     # 创建后台调度器
     scheduler = BackgroundScheduler()
 
-    # 添加定时任务：每天凌晨1点执行一次
-    scheduler.add_job(
-        func=update_features_main,
-        trigger=CronTrigger(hour=1, minute=0),
-        id="update_features",
-        name="Update features information",
-        replace_existing=True,
-    )
+    # # 添加定时任务：每天凌晨1点执行一次
+    # scheduler.add_job(
+    #     func=update_features_main,
+    #     trigger=CronTrigger(hour=1, minute=0),
+    #     id="update_features",
+    #     name="Update features information",
+    #     replace_existing=True,
+    # )
 
     # 添加立即执行一次的任务，用于初始化特征信息
-    scheduler.add_job(
-        func=update_features_main,
-        trigger="date",
-        run_date=None,  # 立即执行
-        id="update_features_init",
-        name="Initialize features information",
-        replace_existing=True,
-    )
+    # scheduler.add_job(
+    #     func=update_features_main,
+    #     trigger="date",
+    #     run_date=None,  # 立即执行
+    #     id="update_features_init",
+    #     name="Initialize features information",
+    #     replace_existing=True,
+    # )
 
     # 添加定时任务：每周日凌晨2点执行一次，同步加密货币对
     scheduler.add_job(

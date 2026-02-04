@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from loguru import logger
 from collector.db.database import SessionLocal, init_database_config
 from collector.db.models import BacktestResult, BacktestTask

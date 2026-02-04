@@ -588,11 +588,10 @@ def run_migrations() -> None:
         collector.db.database.init_database_config()
         
         # 获取更新后的数据库配置
-        db_type = backend.collector.db.database.db_type
-        engine = backend.collector.db.database.engine
+        from collector.db.database import SessionLocal, db_type, engine
         
         logger.info(f"数据库类型: {db_type}")
-        logger.info(f"数据库URL: {backend.collector.db.database.db_url}")
+        logger.info(f"数据库URL: {engine.url}")
         
         # 使用Session执行迁移
         with SessionLocal() as session:
