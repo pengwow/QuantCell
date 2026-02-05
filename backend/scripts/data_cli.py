@@ -430,10 +430,10 @@ app.add_typer(import_app, name="import", help="从文件导入数据到数据库
 
 @app.command()
 def download(
-    symbols: Annotated[List[str], typer.Option("--symbols", "-s", help="交易对列表，可多次指定")] = None,
-    interval: Annotated[List[str], typer.Option("--interval", "-i", help="时间周期列表，可多次指定(如: 1m, 5m, 15m, 30m, 1h, 4h, 1d)")] = None,
-    start: Annotated[str, typer.Option("--start", help="开始时间(格式: YYYYMMDD，如20240101)")] = None,
-    end: Annotated[str, typer.Option("--end", help="结束时间(格式: YYYYMMDD，如20241231)")] = None,
+    symbols: Annotated[List[str], typer.Option("--symbols", "-s", help="交易对列表，可多次指定")] = [],
+    interval: Annotated[List[str], typer.Option("--interval", "-i", help="时间周期列表，可多次指定(如: 1m, 5m, 15m, 30m, 1h, 4h, 1d)")] = [],
+    start: Annotated[str, typer.Option("--start", help="开始时间(格式: YYYYMMDD，如20240101)")] = "",
+    end: Annotated[str, typer.Option("--end", help="结束时间(格式: YYYYMMDD，如20241231)")] = "",
     exchange: Annotated[str, typer.Option("--exchange", "-e", help="交易所")] = "binance",
     candle_type: Annotated[str, typer.Option("--candle-type", help="蜡烛图类型(spot/future)")] = "spot",
     max_workers: Annotated[int, typer.Option("--max-workers", "-w", help="最大工作线程数")] = 1,
