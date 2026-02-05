@@ -485,14 +485,40 @@ def save_results(results: Dict[str, Any],
                 # 序列化订单数据
                 orders_serializable = []
                 if 'orders' in result and result['orders']:
-                    for order in result['orders']:
+                    # 使用enumerate生成自增ID
+                    for idx, order in enumerate(result['orders']):
+                        # 获取时间戳
+                        timestamp = order.get('timestamp')
+                        if isinstance(timestamp, datetime):
+                            timestamp_ms = int(timestamp.timestamp() * 1000)
+                            formatted_time = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                        elif isinstance(timestamp, str):
+                            try:
+                                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                                timestamp_ms = int(dt.timestamp() * 1000)
+                                formatted_time = dt.strftime('%Y-%m-%d %H:%M:%S')
+                            except:
+                                timestamp_ms = 0
+                                formatted_time = timestamp
+                        else:
+                            timestamp_ms = int(timestamp) if timestamp else 0
+                            formatted_time = str(timestamp)
+
+                        # 获取volume/size，确保不为null（策略可能使用size或volume字段）
+                        volume = order.get('volume') or order.get('size')
+                        if volume is None:
+                            volume = 0.0
+                        else:
+                            volume = float(volume)
+
                         orders_serializable.append({
-                            'order_id': order.get('order_id', ''),
+                            'order_id': str(idx + 1),  # 字符串格式的自增ID
                             'direction': order.get('direction', ''),
-                            'price': float(order.get('price', 0)) if order.get('price') is not None else None,
-                            'volume': float(order.get('volume', 0)) if order.get('volume') is not None else None,
-                            'status': order.get('status', ''),
-                            'timestamp': order.get('timestamp', '').isoformat() if order.get('timestamp') else ''
+                            'price': float(order.get('price', 0)) if order.get('price') is not None else 0.0,
+                            'volume': volume,
+                            'status': order.get('status', 'filled'),  # 默认状态为filled
+                            'timestamp': timestamp_ms,  # Unix时间戳（毫秒）
+                            'formatted_time': formatted_time  # 格式化时间字符串
                         })
 
                 # 序列化指标数据
@@ -520,12 +546,38 @@ def save_results(results: Dict[str, Any],
                 # 序列化策略交易数据
                 strategy_trades_serializable = []
                 if 'strategy_trades' in result and result['strategy_trades']:
-                    for trade in result['strategy_trades']:
+                    for idx, trade in enumerate(result['strategy_trades']):
+                        # 获取时间戳
+                        timestamp = trade.get('timestamp')
+                        if isinstance(timestamp, datetime):
+                            timestamp_ms = int(timestamp.timestamp() * 1000)
+                            formatted_time = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                        elif isinstance(timestamp, str):
+                            try:
+                                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                                timestamp_ms = int(dt.timestamp() * 1000)
+                                formatted_time = dt.strftime('%Y-%m-%d %H:%M:%S')
+                            except:
+                                timestamp_ms = 0
+                                formatted_time = timestamp
+                        else:
+                            timestamp_ms = int(timestamp) if timestamp else 0
+                            formatted_time = str(timestamp)
+
+                        # 获取volume/size，确保不为null（策略可能使用size或volume字段）
+                        volume = trade.get('volume') or trade.get('size')
+                        if volume is None:
+                            volume = 0.0
+                        else:
+                            volume = float(volume)
+
                         strategy_trades_serializable.append({
+                            'trade_id': str(idx + 1),  # 字符串格式的自增ID
                             'direction': trade.get('direction', ''),
-                            'price': float(trade.get('price', 0)) if trade.get('price') is not None else None,
-                            'volume': float(trade.get('volume', 0)) if trade.get('volume') is not None else None,
-                            'timestamp': trade.get('timestamp', '').isoformat() if trade.get('timestamp') else ''
+                            'price': float(trade.get('price', 0)) if trade.get('price') is not None else 0.0,
+                            'volume': volume,
+                            'timestamp': timestamp_ms,  # Unix时间戳（毫秒）
+                            'formatted_time': formatted_time  # 格式化时间字符串
                         })
 
                 # 构建结果字典
@@ -947,20 +999,46 @@ def plot(
         
         # 如果没有equity_curve，尝试从orders构建
         if not equity_curve and 'orders' in result:
-            # 简化的资金曲线：从初始资金开始，根据交易计算权益变化
+            # 从初始资金开始，根据交易计算权益变化
             init_cash = 100000.0
             cash = init_cash
+            position = 0  # 持仓数量
+            entry_price = 0  # 入场价格
             equity_curve = []
-            
+            max_equity = init_cash  # 用于计算回撤
+
             for i, order in enumerate(result['orders']):
                 price = float(order.get('price', 0))
                 direction = order.get('direction', '')
-                
+                # 获取交易数量，优先使用volume，其次size，默认0.1
+                size = float(order.get('volume') or order.get('size') or 0.1)
+
                 if direction in ['buy', 'long']:
-                    cash -= price * 0.1  # 假设每次交易使用10%资金
+                    # 买入：减少现金，增加持仓
+                    cost = price * size
+                    cash -= cost
+                    position = size
+                    entry_price = price
                 elif direction in ['sell', 'short']:
-                    cash += price * 0.1
-                
+                    # 卖出：增加现金，清空持仓，计算盈亏
+                    revenue = price * position
+                    pnl = (price - entry_price) * position if entry_price > 0 else 0
+                    cash += revenue
+                    position = 0
+                    entry_price = 0
+
+                # 计算当前权益 = 现金 + 持仓市值
+                position_value = position * price if position > 0 else 0
+                current_equity = cash + position_value
+
+                # 更新最大权益
+                if current_equity > max_equity:
+                    max_equity = current_equity
+
+                # 计算回撤
+                drawdown = max_equity - current_equity
+                drawdown_pct = (drawdown / max_equity * 100) if max_equity > 0 else 0
+
                 timestamp = order.get('timestamp', '')
                 if isinstance(timestamp, str):
                     try:
@@ -970,15 +1048,15 @@ def plot(
                         ts_ms = i
                 else:
                     ts_ms = int(timestamp) if timestamp else i
-                
+
                 equity_curve.append({
                     'timestamp': ts_ms,
                     'datetime': timestamp if isinstance(timestamp, str) else str(timestamp),
-                    'equity': cash,
+                    'equity': current_equity,
                     'cash': cash,
-                    'position_value': 0,
-                    'drawdown': 0,
-                    'drawdown_pct': 0
+                    'position_value': position_value,
+                    'drawdown': drawdown,
+                    'drawdown_pct': drawdown_pct
                 })
         
         # 获取盈亏统计数据
@@ -1046,170 +1124,71 @@ def _setup_chinese_font():
 
 
 def _plot_equity_curve(symbol: str, equity_curve: list, trades: list, metrics: dict, output: Optional[str], show: bool, pnl_stats: dict = None):
-    """绘制资金曲线图"""
+    """绘制资金曲线图 - 标准折线图，仅显示总资金权益曲线和初始资金参考线"""
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
-    
+
     # 设置中文字体
     _setup_chinese_font()
-    
+
     if not equity_curve:
         print(f"  警告: {symbol} 没有资金曲线数据")
         return
-    
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 12), gridspec_kw={'height_ratios': [3, 1, 1]})
-    
-    # 标题包含盈亏统计
-    title = f'{symbol} 回测结果 - 资金曲线'
-    if pnl_stats:
-        realized = pnl_stats.get('realized_pnl', 0)
-        unrealized = pnl_stats.get('unrealized_pnl', 0)
-        title += f'\n实际盈亏: {realized:.2f} | 浮动盈亏: {unrealized:.2f} | 总盈亏: {realized + unrealized:.2f}'
-    fig.suptitle(title, fontsize=14, fontweight='bold')
-    
+
+    # 创建单个子图（标准折线图）
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+
     # 准备数据
     timestamps = []
     equities = []
-    drawdowns = []
-    
+
     for point in equity_curve:
         if isinstance(point, dict):
             timestamps.append(point.get('timestamp', 0))
             equities.append(point.get('equity', 0))
-            drawdowns.append(point.get('drawdown_pct', 0))
-    
-    # 转换时间戳
-    dates = [datetime.fromtimestamp(ts / 1000) if ts > 1e10 else datetime.fromtimestamp(ts) 
+
+    if not timestamps or not equities:
+        print(f"  警告: {symbol} 资金曲线数据格式不正确")
+        return
+
+    # 转换时间戳为日期
+    dates = [datetime.fromtimestamp(ts / 1000) if ts > 1e10 else datetime.fromtimestamp(ts)
              for ts in timestamps]
-    
-    # 绘制资金曲线
-    ax1.plot(dates, equities, label='总资金权益', color='#2196F3', linewidth=2)
-    ax1.fill_between(dates, equities, alpha=0.3, color='#2196F3')
-    
-    # 如果有实际盈亏数据，绘制实际盈亏曲线
-    if pnl_stats and trades:
-        # 计算实际盈亏曲线（已实现盈亏累积）
-        realized_curve = []
-        cumulative_realized = 0
-        trade_idx = 0
-        
-        for i, date in enumerate(dates):
-            # 检查这个时间点之前是否有交易平仓
-            while trade_idx < len(trades):
-                trade = trades[trade_idx]
-                exit_time = trade.get('exit_time') or trade.get('ExitTime')
-                if exit_time:
-                    try:
-                        if isinstance(exit_time, str):
-                            exit_dt = datetime.fromisoformat(exit_time.replace('Z', '+00:00'))
-                        else:
-                            exit_dt = datetime.fromtimestamp(exit_time / 1000) if exit_time > 1e10 else datetime.fromtimestamp(exit_time)
-                        
-                        if exit_dt <= date:
-                            # 这笔交易在这个时间点之前已平仓
-                            pnl = trade.get('pnl') or trade.get('PnL') or trade.get('profit') or 0
-                            cumulative_realized += float(pnl)
-                            trade_idx += 1
-                        else:
-                            break
-                    except:
-                        trade_idx += 1
-                else:
-                    trade_idx += 1
-            
-            realized_curve.append(cumulative_realized)
-        
-        # 绘制实际盈亏曲线
-        if realized_curve:
-            ax1.plot(dates, realized_curve, label='实际盈亏（已平仓）', color='green', linewidth=2, linestyle='--')
-    
-    # 添加初始资金线
+
+    # 绘制总资金权益曲线（标准折线图）
+    ax.plot(dates, equities, label='总资金权益', color='#2196F3', linewidth=1.5, linestyle='-')
+
+    # 添加初始资金参考线
     initial_cash = equities[0] if equities else 100000
-    ax1.axhline(y=initial_cash, color='gray', linestyle='--', alpha=0.5, label='初始资金')
-    
-    # 标记交易点
-    if trades:
-        entry_dates = []
-        entry_prices = []
-        exit_dates = []
-        exit_prices = []
-        
-        for trade in trades:
-            if isinstance(trade, dict):
-                # 尝试解析入场时间
-                entry_time = trade.get('EntryTime') or trade.get('entry_time') or trade.get('timestamp')
-                if entry_time:
-                    try:
-                        if isinstance(entry_time, str):
-                            entry_dt = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
-                        else:
-                            entry_dt = datetime.fromtimestamp(entry_time / 1000) if entry_time > 1e10 else datetime.fromtimestamp(entry_time)
-                        entry_dates.append(entry_dt)
-                        # 找到对应时间点的资金
-                        idx = min(range(len(dates)), key=lambda i: abs((dates[i] - entry_dt).total_seconds()))
-                        entry_prices.append(equities[idx] if idx < len(equities) else equities[-1])
-                    except:
-                        pass
-        
-        if entry_dates:
-            ax1.scatter(entry_dates, entry_prices, color='green', marker='^', s=100, label='买入', zorder=5)
-    
-    # 添加初始资金线
-    initial_cash = equities[0] if equities else 100000
-    ax1.axhline(y=initial_cash, color='gray', linestyle='--', alpha=0.5, label='初始资金')
-    
-    ax1.set_ylabel('资金权益', fontsize=12)
-    ax1.legend(loc='upper left')
-    ax1.grid(True, alpha=0.3)
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-    ax1.xaxis.set_major_locator(mdates.AutoDateLocator())
-    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
-    
-    # 绘制回撤曲线
-    ax2.fill_between(dates, drawdowns, 0, color='red', alpha=0.3, label='回撤')
-    ax2.plot(dates, drawdowns, color='red', linewidth=1)
-    ax2.set_ylabel('回撤 (%)', fontsize=12)
-    ax2.legend(loc='lower left')
-    ax2.grid(True, alpha=0.3)
-    ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-    plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45)
-    
-    # 第三个子图：实际盈亏 vs 浮动盈亏对比
+    ax.axhline(y=initial_cash, color='gray', linestyle='--', alpha=0.7, linewidth=1, label='初始资金')
+
+    # 设置标题
+    title = f'{symbol} 资金权益曲线'
     if pnl_stats:
-        realized_pnl = pnl_stats.get('realized_pnl', 0)
-        unrealized_pnl = pnl_stats.get('unrealized_pnl', 0)
-        total_trades = pnl_stats.get('total_trades', 0)
-        winning_trades = pnl_stats.get('winning_trades', 0)
-        win_rate = pnl_stats.get('win_rate', 0)
-        
-        # 绘制盈亏对比条形图
-        categories = ['实际盈亏\n(已平仓)', '浮动盈亏\n(未平仓)', '总盈亏']
-        values = [realized_pnl, unrealized_pnl, realized_pnl + unrealized_pnl]
-        colors = ['green' if v > 0 else 'red' if v < 0 else 'gray' for v in values]
-        
-        bars = ax3.bar(categories, values, color=colors, alpha=0.7)
-        ax3.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
-        ax3.set_ylabel('盈亏', fontsize=12)
-        ax3.set_xlabel('时间', fontsize=12)
-        ax3.grid(True, alpha=0.3, axis='y')
-        
-        # 在条形上添加数值标签
-        for bar, value in zip(bars, values):
-            height = bar.get_height()
-            ax3.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{value:.2f}',
-                    ha='center', va='bottom' if height >= 0 else 'top', fontsize=10)
-        
-        # 添加统计信息文本
-        stats_text = f'总交易次数: {total_trades} | 盈利次数: {winning_trades} | 胜率: {win_rate:.2%}'
-        ax3.text(0.5, 0.95, stats_text, transform=ax3.transAxes,
-                ha='center', va='top', fontsize=10,
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    else:
-        ax3.text(0.5, 0.5, '无盈亏统计数据', ha='center', va='center', transform=ax3.transAxes)
-    
+        realized = pnl_stats.get('realized_pnl', 0)
+        unrealized = pnl_stats.get('unrealized_pnl', 0)
+        total_pnl = realized + unrealized
+        title += f'\n实际盈亏: {realized:.2f} | 浮动盈亏: {unrealized:.2f} | 总盈亏: {total_pnl:.2f}'
+    ax.set_title(title, fontsize=12, fontweight='bold')
+
+    # 设置坐标轴标签
+    ax.set_xlabel('时间', fontsize=10)
+    ax.set_ylabel('资金权益', fontsize=10)
+
+    # 添加图例
+    ax.legend(loc='best', fontsize=9)
+
+    # 添加网格（轻微）
+    ax.grid(True, alpha=0.3, linestyle=':')
+
+    # 设置x轴日期格式
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+
+    # 调整布局
     plt.tight_layout()
-    
+
     # 保存图片
     if output:
         output_path = output if output.endswith('.png') else f"{output}.png"
@@ -1219,7 +1198,7 @@ def _plot_equity_curve(symbol: str, equity_curve: list, trades: list, metrics: d
         output_path = f"{symbol}_equity_curve.png"
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"  ✓ 资金曲线图已保存: {output_path}")
-    
+
     if show:
         plt.show()
     else:
