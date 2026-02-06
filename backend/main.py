@@ -298,14 +298,14 @@ async def lifespan(app: FastAPI):
 
     await asyncio.to_thread(scheduled_task_manager.start)
 
-    # 异步初始化演示数据
-    try:
+    # # 异步初始化演示数据
+    # try:
 
-        demo_service = DemoService()
-        await asyncio.to_thread(demo_service.ensure_demo_data)
-        logger.info("演示数据初始化完成")
-    except Exception as e:
-        logger.error(f"演示数据初始化失败: {e}")
+    #     demo_service = DemoService()
+    #     await asyncio.to_thread(demo_service.ensure_demo_data)
+    #     logger.info("演示数据初始化完成")
+    # except Exception as e:
+    #     logger.error(f"演示数据初始化失败: {e}")
 
     # 初始化插件系统
     plugin_manager, plugin_api = await asyncio.to_thread(init_plugin_system)
