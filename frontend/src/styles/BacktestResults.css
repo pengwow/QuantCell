@@ -320,6 +320,15 @@
   background-color: #3b5bdb;
 }
 
+.btn-warning {
+  background-color: #f59e0b;
+  color: white;
+}
+
+.btn-warning:hover {
+  background-color: #d97706;
+}
+
 .btn-sm {
   padding: 6px 12px;
   font-size: 12px;

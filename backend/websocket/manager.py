@@ -119,11 +119,17 @@ class ConnectionManager:
                 del self.client_info[client_id]
             
             # 从所有订阅中移除
-            for topic, clients in self.subscriptions.items():
+            # 使用 list() 创建副本，避免在遍历时修改字典
+            topics_to_remove = []
+            for topic, clients in list(self.subscriptions.items()):
                 if client_id in clients:
                     clients.remove(client_id)
                     if not clients:
-                        del self.subscriptions[topic]
+                        topics_to_remove.append(topic)
+            
+            # 删除空的主题订阅
+            for topic in topics_to_remove:
+                del self.subscriptions[topic]
             
             logger.info(f"客户端 {client_id} 已断开连接")
     

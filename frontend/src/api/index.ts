@@ -418,7 +418,7 @@ export const dataPoolApi = {
    * @returns 数据池列表数据
    */
   getDataPools: (type: string) => {
-    return apiRequest.get('/data-pools/', { params: { type } });
+    return apiRequest.get('/data-pools/', { type });
   },
 
   /**
@@ -580,10 +580,20 @@ export const backtestApi = {
   /**
    * 执行回测
    * @param data 回测数据，包括策略配置和回测配置
+   * @param signal AbortSignal 用于取消请求
    * @returns 回测结果数据
    */
-  runBacktest: (data: any) => {
-    return apiRequest.post('/backtest/run', data);
+  runBacktest: (data: any, signal?: AbortSignal) => {
+    return apiRequest.post('/backtest/run', data, { timeout: 0, signal }); // 无超时限制
+  },
+
+  /**
+   * 终止回测
+   * @param taskId 回测任务ID
+   * @returns 终止结果
+   */
+  stopBacktest: (taskId: string) => {
+    return apiRequest.post('/backtest/stop', { task_id: taskId });
   },
 
   /**
@@ -648,6 +658,84 @@ export const backtestApi = {
    */
   getBacktestSymbols: (backtestId: string) => {
     return apiRequest.get(`/backtest/${backtestId}/symbols`);
+  },
+};
+
+/**
+ * 技术指标相关 API
+ */
+export const indicatorApi = {
+  /**
+   * 获取指标列表
+   * @returns 指标列表数据
+   */
+  getIndicators: () => {
+    return apiRequest.get('/indicators');
+  },
+
+  /**
+   * 获取单个指标详情
+   * @param id 指标ID
+   * @returns 指标详情数据
+   */
+  getIndicator: (id: number) => {
+    return apiRequest.get(`/indicators/${id}`);
+  },
+
+  /**
+   * 创建指标
+   * @param data 指标数据
+   * @returns 创建的指标数据
+   */
+  createIndicator: (data: any) => {
+    return apiRequest.post('/indicators', data);
+  },
+
+  /**
+   * 更新指标
+   * @param id 指标ID
+   * @param data 指标数据
+   * @returns 更新后的指标数据
+   */
+  updateIndicator: (id: number, data: any) => {
+    return apiRequest.put(`/indicators/${id}`, data);
+  },
+
+  /**
+   * 删除指标
+   * @param id 指标ID
+   * @returns 删除结果
+   */
+  deleteIndicator: (id: number) => {
+    return apiRequest.delete(`/indicators/${id}`);
+  },
+
+  /**
+   * 验证指标代码
+   * @param code Python代码
+   * @returns 验证结果
+   */
+  verifyCode: (code: string) => {
+    return apiRequest.post('/indicators/verify', { code });
+  },
+
+  /**
+   * AI生成指标代码
+   * @param prompt AI提示词
+   * @param existingCode 现有代码（可选）
+   * @returns SSE流式响应
+   */
+  aiGenerate: (prompt: string, existingCode?: string) => {
+    return apiRequest.post('/indicators/ai-generate', { prompt, existing_code: existingCode });
+  },
+
+  /**
+   * 获取指标参数
+   * @param id 指标ID
+   * @returns 指标参数列表
+   */
+  getIndicatorParams: (id: number) => {
+    return apiRequest.get(`/indicators/${id}/params`);
   },
 };
 

@@ -183,7 +183,61 @@ class BacktestService:
             
             strategy_name = strategy_config.get("strategy_name")
             symbol = backtest_config.get("symbol", "BTCUSDT")
+            interval = backtest_config.get("interval", "1d")
+            start_time = backtest_config.get("start_time")
+            end_time = backtest_config.get("end_time")
+            
             logger.info(f"开始回测，策略名称: {strategy_name}, 货币对: {symbol}, task_id: {task_id}")
+            
+            # ========== 数据完整性检查 ==========
+            logger.info(f"[{symbol}] 开始数据完整性检查...")
+            from .data_integrity import DataIntegrityChecker
+            from .data_downloader import BacktestDataDownloader
+            
+            integrity_checker = DataIntegrityChecker()
+            data_downloader = BacktestDataDownloader()
+            
+            # 检查数据完整性
+            integrity_result = integrity_checker.check_data_completeness(
+                symbol=symbol,
+                interval=interval,
+                start_time=start_time,
+                end_time=end_time,
+                market_type='crypto',
+                crypto_type='spot'
+            )
+            
+            if not integrity_result.is_complete:
+                logger.warning(
+                    f"[{symbol}] 数据不完整，覆盖率: {integrity_result.coverage_percent:.2f}%, "
+                    f"缺失: {integrity_result.missing_count} 条"
+                )
+                
+                # 尝试下载缺失数据
+                logger.info(f"[{symbol}] 开始下载缺失数据...")
+                download_success, new_result = data_downloader.ensure_data_complete(
+                    symbol=symbol,
+                    interval=interval,
+                    start_time=start_time,
+                    end_time=end_time,
+                    max_wait_time=300  # 最多等待5分钟
+                )
+                
+                if not download_success:
+                    logger.error(f"[{symbol}] 数据下载失败，回测无法继续")
+                    return {
+                        "symbol": symbol,
+                        "task_id": task_id,
+                        "status": "failed",
+                        "message": f"数据不完整且下载失败，覆盖率: {new_result.coverage_percent:.2f}%",
+                        "data_integrity": new_result.to_dict()
+                    }
+                
+                logger.info(f"[{symbol}] 数据下载完成，重新检查完整性...")
+                integrity_result = new_result
+            
+            logger.info(f"[{symbol}] 数据完整性检查通过，覆盖率: {integrity_result.coverage_percent:.2f}%")
+            # ========== 数据完整性检查结束 ==========
             
             # 加载策略类
             strategy_class = self.load_strategy_from_file(strategy_name)
@@ -799,6 +853,64 @@ class BacktestService:
             return {
                 "status": "failed",
                 "message": str(e)
+            }
+        finally:
+            if db:
+                db.close()
+    
+    def stop_backtest(self, task_id: str):
+        """
+        终止回测任务
+        
+        :param task_id: 回测任务ID
+        :return: 终止结果
+        """
+        try:
+            from collector.db.database import SessionLocal, init_database_config
+            from collector.db.models import BacktestTask
+            import json
+            from datetime import datetime, timezone
+            
+            # 初始化数据库连接
+            init_database_config()
+            db = SessionLocal()
+            
+            # 查询任务
+            task = db.query(BacktestTask).filter(BacktestTask.id == task_id).first()
+            
+            if not task:
+                return {
+                    "status": "error",
+                    "message": f"回测任务不存在: {task_id}"
+                }
+            
+            if task.status != "in_progress":
+                return {
+                    "status": "error",
+                    "message": f"回测任务当前状态为 {task.status}，无法终止"
+                }
+            
+            # 更新任务状态为已终止
+            task.status = "stopped"
+            task.finished_at = datetime.now(timezone.utc)
+            db.commit()
+            
+            logger.info(f"回测任务已终止: {task_id}")
+            
+            return {
+                "status": "success",
+                "message": "回测已终止",
+                "task_id": task_id
+            }
+            
+        except Exception as e:
+            if db:
+                db.rollback()
+            logger.error(f"终止回测失败: {e}")
+            logger.exception(e)
+            return {
+                "status": "error",
+                "message": f"终止回测失败: {str(e)}"
             }
         finally:
             if db:

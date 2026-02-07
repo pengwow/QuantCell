@@ -269,12 +269,6 @@ const App = () => {
         onMouseEnter={() => !isVerticalLayout && setIsCollapsed(false)}
         onMouseLeave={() => !isVerticalLayout && setIsCollapsed(true)}
       >
-        {/* 侧边栏控制按钮 */}
-        {/* {!isVerticalLayout && (
-          <div className="sidebar-toggle-btn" onClick={handleToggleSidebar}>
-            {isCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-          </div>
-        )} */}
         {/* 侧边栏顶部品牌 */}
         <div className="nav-brand">
           <div 
@@ -354,6 +348,13 @@ const App = () => {
           <Outlet />
         </div>
       </main>
+
+      {/* 侧边栏控制按钮 - 位于菜单栏外部 */}
+      {/* {!isVerticalLayout && (
+        <div className="sidebar-toggle-btn" onClick={handleToggleSidebar}>
+          {isCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+        </div>
+      )} */}
     </div>
     </>
   );

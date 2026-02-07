@@ -1,11 +1,13 @@
 import { useEffect, useState, useRef } from 'react'
-import { init, dispose, registerLocale, registerOverlay } from 'klinecharts'
+import { init, dispose, registerLocale, registerOverlay, registerIndicator } from 'klinecharts'
 // 导入自定义绘图工具扩展
 import overlays from '../extension/index'
 import { TokenDisplay } from '../components/TokenDisplay'
 import DrawingBar from '../components/DrawingBar'
+import IndicatorToolbar from '../components/IndicatorToolbar'
 import { type AppConfig } from '../utils/configLoader'
 import { dataApi } from '../api'
+import { type Indicator, type ActiveIndicator } from '../hooks/useIndicators'
 import '../styles/ChartPage.css'
 
 // 扩展Window接口，添加APP_CONFIG属性
@@ -81,6 +83,9 @@ export default function ChartPage () {
   const [productsLoading, setProductsLoading] = useState(false)
   // 商品列表错误信息
   const [productsError, setProductsError] = useState<string | null>(null)
+  
+  // 指标相关状态
+  const [activeIndicators, setActiveIndicators] = useState<ActiveIndicator[]>([])
   
   // 图表实例引用
   const chartRef = useRef<any>(null)
@@ -217,8 +222,47 @@ export default function ChartPage () {
       
       // 初始加载数据
       fetchKlineData()
+
+      // 自动选中VOL指标（如果尚未选中）
+      setTimeout(() => {
+        if (!chartRef.current) return
+
+        try {
+          // 检查图表中是否已存在VOL指标
+          const existingIndicators = chartRef.current.getIndicators() || []
+          const hasVolIndicator = existingIndicators.some((ind: any) => ind.name === 'VOL')
+
+          if (hasVolIndicator) return
+
+          // 在图表中创建VOL指标
+          chartRef.current.createIndicator('VOL', true)
+
+          // 同步更新活跃指标列表
+          setActiveIndicators(prev => {
+            // 再次检查状态层是否已存在
+            if (prev.find(ind => String(ind.id) === 'vol')) return prev
+
+            const volIndicator: ActiveIndicator = {
+              id: 'vol' as unknown as number,
+              name: 'VOL',
+              description: '成交量指标',
+              code: '',
+              user_id: 0,
+              is_buy: 0,
+              end_time: 1,
+              publish_to_community: 0,
+              pricing_type: 'free',
+              price: 0,
+              is_encrypted: 0,
+            }
+            return [...prev, volIndicator]
+          })
+        } catch (err) {
+          console.error('创建VOL指标失败:', err)
+        }
+      }, 500)
     }
-    
+
     // 组件卸载时销毁图表
     return () => {
       dispose('language-k-line')
@@ -345,10 +389,142 @@ export default function ChartPage () {
     }
   }, [searchKeyword, isSearchModalVisible])
 
+  // 内置指标名称映射（将自定义ID映射到KLineCharts内置指标）
+  const builtInIndicatorMap: Record<string, string> = {
+    'vol': 'VOL',
+    'sma': 'MA',
+    'ema': 'EMA',
+    'rsi': 'RSI',
+    'macd': 'MACD',
+    'bb': 'BOLL',
+    'atr': 'ATR',
+    'cci': 'CCI',
+    'wr': 'WR'
+  }
 
+  // 注册自定义指标到KLineCharts
+  const registerCustomIndicator = (indicator: Indicator, data: any) => {
+    const indicatorName = `custom_${indicator.id}`
+
+    // 注册自定义指标
+    registerIndicator({
+      name: indicatorName,
+      shortName: indicator.name,
+      calc: (kLineDataList: any[]) => {
+        // 将K线数据与指标计算结果合并
+        return kLineDataList.map((kLine) => {
+          // 找到对应时间戳的指标数据
+          const indicatorData = data?.find((d: any) => d.timestamp === kLine.timestamp)
+          return {
+            ...kLine,
+            // 添加指标值到K线数据
+            [indicatorName]: indicatorData?.value || null
+          }
+        })
+      },
+      figures: [
+        {
+          key: indicatorName,
+          type: 'line'
+        }
+      ]
+    })
+
+    return indicatorName
+  }
+
+  // 处理指标切换
+  const handleToggleIndicator = async (indicator: Indicator, params?: Record<string, any>) => {
+    // 检查是否是内置指标（通过特殊标记或ID类型判断）
+    const builtInId = params?._builtInId
+    const indicatorId = builtInId ? String(builtInId) : String(indicator.id)
+
+    setActiveIndicators(prev => {
+      const exists = prev.find(ind => ind.id === indicator.id)
+      if (exists) {
+        // 停止指标 - 从图表中移除
+        if (chartRef.current) {
+          // 获取所有指标实例
+          const indicators = chartRef.current.getIndicators()
+          indicators.forEach((ind: any) => {
+            // 根据指标名称或paneId判断是否为目标指标
+            if (ind.name === indicatorId || ind.name === builtInIndicatorMap[indicatorId] || ind.name === `custom_${indicator.id}`) {
+              chartRef.current?.removeIndicator({ paneId: ind.paneId, indicatorName: ind.name })
+            }
+          })
+        }
+        return prev.filter(ind => ind.id !== indicator.id)
+      }
+      return prev
+    })
+
+    // 如果是启动指标，添加到图表
+    if (!activeIndicators.find(ind => ind.id === indicator.id)) {
+      // 启动指标
+      const activeIndicator: ActiveIndicator = {
+        ...indicator,
+        userParams: params
+      }
+
+      // 添加到活跃指标列表
+      setActiveIndicators(prev => [...prev, activeIndicator])
+
+      // 添加到图表
+      if (chartRef.current) {
+        // 检查是否是内置指标
+        const builtInName = builtInIndicatorMap[indicatorId]
+
+        if (builtInName) {
+          // 内置指标：直接使用KLineCharts的createIndicator
+          try {
+            // 创建指标，根据类型决定是否叠加在主图上
+            const isOverlay = ['MA', 'EMA', 'BOLL', 'SAR', 'BBI', 'SMA'].includes(builtInName)
+
+            if (isOverlay) {
+              // 叠加在蜡烛图上
+              chartRef.current.createIndicator(builtInName, false, { id: 'candle_pane' })
+            } else {
+              // 创建独立pane显示
+              chartRef.current.createIndicator(builtInName, true)
+            }
+          } catch (err) {
+            console.error('创建内置指标失败:', err)
+          }
+        } else {
+          // 自定义指标：调用API获取计算结果，然后注册并显示
+          try {
+            // 调用后端API获取指标计算结果
+            const response = await fetch(`/api/indicators/${indicator.id}/execute`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                symbol: currentSymbol.code,
+                period: selectedPeriod,
+                params: params || {}
+              })
+            })
+
+            const result = await response.json()
+
+            if (result.success && result.data) {
+              // 注册自定义指标
+              const customIndicatorName = registerCustomIndicator(indicator, result.data)
+
+              // 创建自定义指标
+              chartRef.current.createIndicator(customIndicatorName, true)
+            } else {
+              console.error('获取指标数据失败:', result.message)
+            }
+          } catch (err) {
+            console.error('执行自定义指标失败:', err)
+          }
+        }
+      }
+    }
+  }
 
   return (
-    <div className="chart-page-container">      
+    <div className="chart-page-container">
       {/* 工具栏容器 */}
       <div className="chart-toolbar-container">
         {/* 顶部工具栏 */}
@@ -419,29 +595,13 @@ export default function ChartPage () {
             )}
           </div>
           
-          {/* 其他功能按钮 */}
-          {/* <div className="function-buttons">
-            <button className="func-btn" onClick={() => handleToolButtonClick('指标')}>
-              <span className="func-icon">📊</span>
-              <span className="func-text">指标</span>
-            </button>
-            <button className="func-btn" onClick={() => handleToolButtonClick('时区')}>
-              <span className="func-icon">🌍</span>
-              <span className="func-text">时区</span>
-            </button>
-            <button className="func-btn" onClick={() => handleToolButtonClick('设置')}>
-              <span className="func-icon">⚙️</span>
-              <span className="func-text">设置</span>
-            </button>
-            <button className="func-btn" onClick={() => handleToolButtonClick('截屏')}>
-              <span className="func-icon">📷</span>
-              <span className="func-text">截屏</span>
-            </button>
-            <button className="func-btn" onClick={() => handleToolButtonClick('全屏')}>
-              <span className="func-icon">⛶</span>
-              <span className="func-text">全屏</span>
-            </button>
-          </div> */}
+          {/* 指标工具栏 */}
+          <div className="indicator-toolbar-wrapper">
+            <IndicatorToolbar
+              activeIndicators={activeIndicators}
+              onToggleIndicator={handleToggleIndicator}
+            />
+          </div>
         </div>
         
         {/* 绘图工具栏 */}
@@ -496,7 +656,7 @@ export default function ChartPage () {
           </div>
         )}
       </div>
-      
+
       {/* 图表容器 - 使用固定宽高确保图表正确渲染 */}
       <div className="chart-container">
         {/* 加载状态 */}
@@ -508,19 +668,19 @@ export default function ChartPage () {
             </div>
           </div>
         )}
-        
+
         {/* 错误信息 */}
         {error && (
           <div className="chart-error">
             <Alert message="错误" description={error} type="error" showIcon />
           </div>
         )}
-        
-        <div 
-          id="language-k-line" 
-          className="k-line-chart" 
-          style={{ 
-            width: '100%', 
+
+        <div
+          id="language-k-line"
+          className="k-line-chart"
+          style={{
+            width: '100%',
             height: '100%',
             // 移除固定最小宽度限制，允许图表在小屏幕上自适应
             minWidth: 'auto',
@@ -531,10 +691,10 @@ export default function ChartPage () {
             border: 'none', /* 移除边框，避免边框占用空间 */
             borderRadius: '0', /* 移除圆角 */
             boxSizing: 'border-box', /* 确保宽度计算包含内边距和边框 */
-          }} 
+          }}
         />
       </div>
-      
+
       {/* 商品搜索弹窗 - 使用Ant Design组件 */}
       <Modal
         title="商品搜索"

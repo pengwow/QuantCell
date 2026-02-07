@@ -58,6 +58,9 @@ app = typer.Typer(
   # 指定多个货币对
   python backtest_cli.py --strategy grid_trading_v2 --symbols BTC/USDT,ETH/USDT
 
+  # 使用自选组合（从数据池获取货币对）
+  python backtest_cli.py --strategy grid_trading_v2 --pool 我的自选组合
+
   # 指定多个时间周期
   python backtest_cli.py --strategy grid_trading_v2 --timeframes 15m,30m,1h
 
@@ -71,6 +74,13 @@ app = typer.Typer(
     --timeframes 15m,30m,1h \\
     --trading-mode futures \\
     --output results.json
+
+  # 使用自选组合进行回测并保存到数据库
+  python backtest_cli.py --strategy grid_trading_v2 \\
+    --pool 我的自选组合 \\
+    --timeframes 1h \\
+    --trading-mode futures \\
+    --save-to-db
     """
 )
 
@@ -198,6 +208,52 @@ def validate_trading_mode(mode: Optional[str]) -> bool:
         return True  # 允许为空，使用默认值
     valid_modes = ['spot', 'futures', 'perpetual']
     return mode in valid_modes
+
+
+def get_symbols_from_data_pool(pool_name: str) -> List[str]:
+    """
+    从数据池获取自选组合的货币对列表
+
+    参数：
+    - pool_name: 自选组合名称
+
+    返回：
+    - List[str]: 货币对列表
+
+    异常：
+    - ValueError: 如果自选组合不存在或获取失败
+    """
+    try:
+        from collector.db.database import SessionLocal, init_database_config
+        from collector.db.models import DataPool, DataPoolAsset
+
+        # 初始化数据库
+        init_database_config()
+        db = SessionLocal()
+
+        try:
+            # 查询自选组合（数据池）
+            pool = db.query(DataPool).filter_by(name=pool_name).first()
+            if not pool:
+                raise ValueError(f"自选组合不存在: {pool_name}")
+
+            # 获取该组合下的所有资产
+            assets = db.query(DataPoolAsset).filter_by(pool_id=pool.id).all()
+            symbols = [asset.asset_id for asset in assets]
+
+            if not symbols:
+                logger.warning(f"自选组合 '{pool_name}' 中没有货币对")
+                return []
+
+            logger.info(f"从自选组合 '{pool_name}' 获取到 {len(symbols)} 个货币对: {symbols}")
+            return symbols
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.error(f"从自选组合获取货币对失败: {pool_name}, 错误: {e}")
+        raise ValueError(f"从自选组合获取货币对失败: {e}")
 
 
 def load_klines_from_db(symbols: List[str],
@@ -662,6 +718,7 @@ def run(
     output: Annotated[Optional[str], typer.Option("--output", "-o", help="输出文件路径，如果不指定则自动生成文件名")] = None,
     time_range: Annotated[Optional[str], typer.Option("--time-range", help="回测时间范围（格式：YYYYMMDD-YYYYMMDD），例如：20240101-20241231")] = None,
     symbols: Annotated[Optional[str], typer.Option("--symbols", help="货币对列表（多个货币对使用英文逗号分隔），例如：BTCUSDT,ETHUSDT,BNBUSDT")] = None,
+    pool: Annotated[Optional[str], typer.Option("--pool", help="自选组合名称，从数据池中获取该组合下的所有货币对进行回测")] = None,
     timeframes: Annotated[Optional[str], typer.Option("--timeframes", help="时间周期列表（多个周期使用英文逗号分隔），支持：15m,30m,1h,4h,1d，例如：15m,30m,1h")] = None,
     trading_mode: Annotated[Optional[str], typer.Option("--trading-mode", help="交易模式（spot=现货，futures=合约，perpetual=永续合约），默认从系统配置读取")] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="显示详细日志")] = False,
@@ -696,6 +753,11 @@ def run(
         print("支持的模式：spot（现货）、futures（合约）、perpetual（永续合约）")
         raise typer.Exit(1)
 
+    # 检查是否同时指定了 symbols 和 pool 参数
+    if symbols and pool:
+        print("错误：不能同时指定 --symbols 和 --pool 参数，请只使用其中一个")
+        raise typer.Exit(1)
+
     # 解析策略参数
     try:
         strategy_params = json.loads(params)
@@ -720,7 +782,23 @@ def run(
     timeframes = timeframes or ','.join(default_timeframes) if isinstance(default_timeframes, list) else default_timeframes
 
     # 解析货币对列表
-    if symbols:
+    symbols_list = []
+    if pool:
+        # 从自选组合获取货币对
+        print(f"从自选组合 '{pool}' 获取货币对...")
+        try:
+            symbols_list = get_symbols_from_data_pool(pool)
+            if not symbols_list:
+                print(f"错误：自选组合 '{pool}' 中没有货币对")
+                raise typer.Exit(1)
+            print(f"成功获取 {len(symbols_list)} 个货币对: {', '.join(symbols_list)}")
+        except ValueError as e:
+            print(f"错误：{e}")
+            raise typer.Exit(1)
+        except Exception as e:
+            print(f"错误：从自选组合获取货币对失败: {e}")
+            raise typer.Exit(1)
+    elif symbols:
         symbols_list = [s.strip() for s in symbols.split(',')]
     else:
         symbols_list = ['BTCUSDT']

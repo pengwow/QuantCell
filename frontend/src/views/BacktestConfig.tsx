@@ -23,8 +23,9 @@ import {
   Switch,
   Tooltip,
 } from 'antd';
-import { BackwardOutlined, PlusOutlined, UploadOutlined, InfoCircleOutlined } from '@ant-design/icons';
-import { backtestApi, configApi, strategyApi } from '../api';
+import { BackwardOutlined, PlusOutlined, UploadOutlined, InfoCircleOutlined, EyeOutlined } from '@ant-design/icons';
+import { backtestApi, configApi, strategyApi, dataApi } from '../api';
+import BacktestProgressModal, { type StepStatusState, type ProgressData } from '../components/BacktestProgressModal';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -71,6 +72,109 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
   const [createForm] = Form.useForm();
   const [activeTab, setActiveTab] = useState<string>('new'); // 'new' 或 'upload'
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+
+  // 回测进度弹窗状态
+  const [progressVisible, setProgressVisible] = useState<boolean>(false);
+  const [currentStep, setCurrentStep] = useState<number>(0);
+  const [stepStatus, setStepStatus] = useState<StepStatusState>({
+    dataPrep: 'wait',
+    execution: 'wait',
+    analysis: 'wait',
+  });
+  const [progressData, setProgressData] = useState<ProgressData>({
+    overall: 0,
+  });
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [currentTaskId, setCurrentTaskId] = useState<string>('');
+  const [isBacktestRunning, setIsBacktestRunning] = useState<boolean>(false);
+  const abortControllerRef = React.useRef<AbortController | null>(null);
+
+  // 交易标的选项（参考数据采集页面的实现）
+  const [symbolOptions, setSymbolOptions] = useState<Array<{ value: string; label: string; type: string; symbols?: string[] }>>([]);
+  // 品种选项加载状态
+  const [symbolOptionsLoading, setSymbolOptionsLoading] = useState(false);
+
+  // 获取品种选项数据（参考数据采集页面的实现）
+  const fetchSymbolOptions = async () => {
+    try {
+      setSymbolOptionsLoading(true);
+
+      // 调用API获取品种选项数据
+      const response = await dataApi.getCollectionSymbols({
+        type: 'spot',
+        exchange: 'binance'
+      });
+
+      // 处理数据池数据
+      const dataPoolOptions = [];
+      const directSymbolOptions = [];
+
+      if (response) {
+        // 处理数据池数据
+        if (Array.isArray(response.data_pools)) {
+          console.log('数据池数据:', response.data_pools);
+          dataPoolOptions.push(...response.data_pools.map((pool: any) => ({
+            value: `pool_${pool.id}`, // 使用pool_前缀标识数据池
+            label: `⭐ ${pool.name}`, // 显示名称
+            type: 'data_pool',
+            symbols: pool.symbols
+          })));
+        }
+
+        // 处理直接货币对数据
+        if (Array.isArray(response.direct_symbols)) {
+          directSymbolOptions.push(...response.direct_symbols.map((symbol: string) => ({
+            value: symbol, // 直接使用货币对作为值
+            label: symbol,
+            type: 'direct_symbol'
+          })));
+        }
+      }
+
+      // 合并数据，数据池排在顶部
+      const mergedOptions = [...dataPoolOptions, ...directSymbolOptions];
+      setSymbolOptions(mergedOptions);
+    } catch (error) {
+      console.error('获取品种选项失败:', error);
+      // 使用默认选项
+      setSymbolOptions(getDefaultSymbolOptions());
+    } finally {
+      setSymbolOptionsLoading(false);
+    }
+  };
+
+  // 获取数据池的货币对（用于回测提交时）
+  const loadPoolSymbols = async (poolId: number) => {
+    try {
+      const response = await dataApi.getCollectionSymbols({
+        type: 'spot',
+        exchange: 'binance'
+      });
+      if (response && response.data_pools) {
+        const pool = response.data_pools.find((p: any) => p.id === poolId);
+        if (pool && pool.symbols) {
+          return pool.symbols;
+        }
+      }
+    } catch (error) {
+      console.error('加载数据池货币对失败:', error);
+    }
+    return [];
+  };
+
+  // 获取默认交易标的选项（平铺结构，与数据采集页面一致）
+  const getDefaultSymbolOptions = () => [
+    { value: 'BTC/USDT', label: 'BTC/USDT', type: 'direct_symbol' },
+    { value: 'ETH/USDT', label: 'ETH/USDT', type: 'direct_symbol' },
+    { value: 'BNB/USDT', label: 'BNB/USDT', type: 'direct_symbol' },
+    { value: 'SOL/USDT', label: 'SOL/USDT', type: 'direct_symbol' },
+    { value: 'ADA/USDT', label: 'ADA/USDT', type: 'direct_symbol' },
+    { value: 'DOT/USDT', label: 'DOT/USDT', type: 'direct_symbol' },
+    { value: 'MATIC/USDT', label: 'MATIC/USDT', type: 'direct_symbol' },
+    { value: 'LINK/USDT', label: 'LINK/USDT', type: 'direct_symbol' },
+    { value: 'UNI/USDT', label: 'UNI/USDT', type: 'direct_symbol' },
+    { value: 'LTC/USDT', label: 'LTC/USDT', type: 'direct_symbol' },
+  ];
 
   // 加载系统配置
   const loadSystemConfig = async () => {
@@ -148,10 +252,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
     }
   };
 
-  // 组件挂载时加载策略列表和系统配置
+  // 组件挂载时加载策略列表、系统配置和品种选项
   useEffect(() => {
     loadStrategies();
     loadSystemConfig();
+    fetchSymbolOptions();
   }, []);
 
   // 当传入的策略信息变化时，初始化表单
@@ -296,23 +401,155 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
     return <Input />;
   };
 
+  // 模拟回测进度（实际项目中应该通过WebSocket或轮询获取真实进度）
+  const simulateBacktestProgress = async (symbols: string[]) => {
+    // 阶段1：数据准备
+    setCurrentStep(0);
+    setStepStatus({ dataPrep: 'process', execution: 'wait', analysis: 'wait' });
+    setProgressData({ overall: 5, dataPrep: { percent: 0 } });
+
+    // 模拟数据完整性检查进度
+    for (let i = 0; i <= 100; i += 20) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      setProgressData(prev => ({
+        ...prev,
+        overall: 5 + i * 0.15,
+        dataPrep: { percent: i },
+      }));
+    }
+
+    // 模拟发现数据缺失，开始下载
+    setProgressData(prev => ({
+      ...prev,
+      dataPrep: { percent: 100, downloading: true, downloadProgress: 0 },
+    }));
+
+    // 模拟下载进度
+    for (let i = 0; i <= 100; i += 10) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+      setProgressData(prev => ({
+        ...prev,
+        overall: 20 + i * 0.15,
+        dataPrep: { percent: 100, downloading: true, downloadProgress: i },
+      }));
+    }
+
+    // 数据准备完成
+    setStepStatus({ dataPrep: 'finish', execution: 'wait', analysis: 'wait' });
+
+    // 阶段2：执行回测
+    await new Promise(resolve => setTimeout(resolve, 500));
+    setCurrentStep(1);
+    setStepStatus({ dataPrep: 'finish', execution: 'process', analysis: 'wait' });
+
+    // 模拟每个交易对的回测进度
+    for (let i = 0; i < symbols.length; i++) {
+      const symbol = symbols[i];
+      for (let progress = 0; progress <= 100; progress += 25) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        setProgressData({
+          overall: 35 + ((i * 100 + progress) / symbols.length) * 0.4,
+          execution: {
+            percent: progress,
+            current: i + 1,
+            total: symbols.length,
+            currentSymbol: symbol,
+          },
+        });
+      }
+    }
+
+    // 执行完成
+    setStepStatus({ dataPrep: 'finish', execution: 'finish', analysis: 'wait' });
+
+    // 阶段3：结果统计
+    await new Promise(resolve => setTimeout(resolve, 500));
+    setCurrentStep(2);
+    setStepStatus({ dataPrep: 'finish', execution: 'finish', analysis: 'process' });
+
+    // 模拟统计进度
+    for (let i = 0; i <= 100; i += 25) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      setProgressData(prev => ({
+        ...prev,
+        overall: 75 + i * 0.25,
+      }));
+    }
+
+    // 全部完成
+    setStepStatus({ dataPrep: 'finish', execution: 'finish', analysis: 'finish' });
+    setProgressData({ overall: 100 });
+  };
+
   // 处理表单提交
   const handleSubmit = async (values: any) => {
     try {
       setLoading(true);
-      
+      setErrorMessage('');
+
       // 验证timeRange
       if (!values.timeRange || values.timeRange.length !== 2) {
         message.error('请选择有效的回测时间范围');
         return;
       }
-      
+
+      // 处理交易标的：检查是否选择了数据池
+      let symbols: string[] = [];
+      const selectedValues: string[] = values.symbols || [];
+      const poolIds: number[] = [];
+
+      // 分离数据池和普通货币对
+      for (const value of selectedValues) {
+        if (value.startsWith('pool_')) {
+          // 提取数据池ID
+          const poolId = parseInt(value.replace('pool_', ''));
+          poolIds.push(poolId);
+        } else {
+          // 普通货币对
+          symbols.push(value);
+        }
+      }
+
+      // 如果有选择数据池，获取数据池中的所有货币对
+      if (poolIds.length > 0) {
+        message.loading('正在加载数据池中的货币对...', 0);
+        for (const poolId of poolIds) {
+          const poolAssets = await loadPoolSymbols(poolId);
+          symbols = [...symbols, ...poolAssets];
+        }
+        message.destroy();
+
+        // 去重
+        symbols = [...new Set(symbols)];
+
+        if (symbols.length === 0) {
+          message.error('所选数据池中没有货币对，请选择其他数据池或货币对');
+          setLoading(false);
+          return;
+        }
+
+        message.success(`已加载 ${symbols.length} 个交易标的`);
+      }
+
+      // 验证是否有交易标的
+      if (symbols.length === 0) {
+        message.error('请至少选择一个交易标的或数据池');
+        setLoading(false);
+        return;
+      }
+
+      // 显示进度弹窗
+      setProgressVisible(true);
+      setCurrentStep(0);
+      setStepStatus({ dataPrep: 'wait', execution: 'wait', analysis: 'wait' });
+      setProgressData({ overall: 0 });
+
       // 格式化时间
       const [startTime, endTime] = values.timeRange;
-      
+
       // 获取策略参数
       const strategyParams = values.params || {};
-      
+
       // 构建回测请求数据
       const backtestData = {
         strategy_config: {
@@ -320,27 +557,115 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
           params: strategyParams,
         },
         backtest_config: {
-          symbols: values.symbols,
-          start_time: startTime.format('YYYY-MM-DD'),
-          end_time: endTime.format('YYYY-MM-DD'),
+          symbols: symbols,
+          start_time: startTime.format('YYYY-MM-DD HH:mm:ss'),
+          end_time: endTime.format('YYYY-MM-DD HH:mm:ss'),
           interval: values.interval,
           commission: values.commission,
           initial_cash: values.initialCash,
         },
       };
 
-      // 调用回测API
-      await backtestApi.runBacktest(backtestData);
-      message.success('回测已开始执行');
-      
-      // 返回回测列表页面
-      onRunBacktest();
+      // 设置回测运行状态
+      setIsBacktestRunning(true);
+
+      // 生成任务ID
+      const taskId = `bt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      setCurrentTaskId(taskId);
+
+      // 创建 AbortController 用于取消请求
+      abortControllerRef.current = new AbortController();
+
+      // 启动模拟进度（实际项目中应该通过WebSocket或轮询获取真实进度）
+      const progressPromise = simulateBacktestProgress(symbols);
+
+      try {
+        // 调用回测API，传入 signal 用于取消
+        const backtestPromise = backtestApi.runBacktest(backtestData, abortControllerRef.current.signal);
+
+        // 等待两者完成
+        const result = await Promise.all([progressPromise, backtestPromise]);
+
+        message.success('回测已成功完成！');
+
+        // 延迟关闭弹窗并返回列表
+        setTimeout(() => {
+          setProgressVisible(false);
+          setIsBacktestRunning(false);
+          setCurrentTaskId('');
+          abortControllerRef.current = null;
+          onRunBacktest();
+        }, 1500);
+      } catch (error: any) {
+        // 检查是否是用户取消的请求
+        if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+          console.log('回测已被用户终止');
+          setErrorMessage('回测已终止');
+          setStepStatus(prev => ({
+            ...prev,
+            execution: 'error',
+            analysis: 'error',
+          }));
+          message.info('回测已终止');
+        } else {
+          console.error('执行回测失败:', error);
+          setErrorMessage(error.message || '执行回测失败');
+
+          // 设置错误状态
+          setStepStatus(prev => {
+            const newStatus = { ...prev };
+            if (currentStep === 0) newStatus.dataPrep = 'error';
+            else if (currentStep === 1) newStatus.execution = 'error';
+            else newStatus.analysis = 'error';
+            return newStatus;
+          });
+
+          message.error(error.message || '执行回测失败');
+        }
+        setIsBacktestRunning(false);
+        setCurrentTaskId('');
+        abortControllerRef.current = null;
+      }
     } catch (error: any) {
       console.error('执行回测失败:', error);
+      setErrorMessage(error.message || '执行回测失败');
+      setIsBacktestRunning(false);
+      setCurrentTaskId('');
+      abortControllerRef.current = null;
       message.error(error.message || '执行回测失败');
     } finally {
       setLoading(false);
     }
+  };
+
+  // 终止回测
+  const handleStopBacktest = async () => {
+    try {
+      // 使用 AbortController 取消请求
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        message.info('正在终止回测...');
+      } else {
+        // 如果没有 AbortController，直接重置状态
+        setIsBacktestRunning(false);
+        setCurrentTaskId('');
+        setErrorMessage('回测已终止');
+        setStepStatus(prev => ({
+          ...prev,
+          execution: 'error',
+          analysis: 'error',
+        }));
+        message.info('回测已终止');
+      }
+    } catch (error: any) {
+      console.error('终止回测失败:', error);
+      message.error(error.message || '终止回测失败');
+    }
+  };
+
+  // 查看回测进度
+  const handleViewProgress = () => {
+    setProgressVisible(true);
   };
 
   return (
@@ -369,7 +694,6 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
               interval: '15m',
               commission: 0.001,
               initialCash: 1000000,
-              symbols: ['BTC/USDT'],
               timeRange: [dayjs().subtract(30, 'day'), dayjs()],
             }}
           >
@@ -467,14 +791,21 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
                     rules={[{ required: true, message: '请选择交易标的' }]}
                   >
                     <Select
-                      mode="tags"
-                      placeholder="请输入或选择交易标的 (如 BTC/USDT)"
+                      mode="multiple"
+                      placeholder="请选择或搜索品种"
                       style={{ width: '100%' }}
-                      tokenSeparators={[',']}
-                    >
-                      <Option value="BTC/USDT">BTC/USDT</Option>
-                      <Option value="ETH/USDT">ETH/USDT</Option>
-                    </Select>
+                      options={symbolOptions}
+                      loading={symbolOptionsLoading}
+                      showSearch
+                      allowClear
+                      maxTagCount={3}
+                      maxTagPlaceholder={(omittedValues) => `+${omittedValues.length} 更多`}
+                      filterOption={(input, option) => {
+                        if (!input) return true;
+                        const label = option?.label || '';
+                        return label.toLowerCase().includes(input.toLowerCase());
+                      }}
+                    />
                   </Form.Item>
                 </Col>
 
@@ -549,6 +880,17 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
                 <Button type="primary" htmlType="submit" loading={loading}>
                   运行回测
                 </Button>
+                {isBacktestRunning && !progressVisible && (
+                  <Tooltip title="查看进行中的回测进度">
+                    <Button
+                      type="default"
+                      icon={<EyeOutlined />}
+                      onClick={handleViewProgress}
+                    >
+                      查看回测进度
+                    </Button>
+                  </Tooltip>
+                )}
                 <Button onClick={onBack}>
                   取消
                 </Button>
@@ -675,6 +1017,24 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
           </TabPane>
         </Tabs>
       </Modal>
+
+      {/* 回测进度弹窗 */}
+      <BacktestProgressModal
+        visible={progressVisible}
+        onCancel={() => {
+          setProgressVisible(false);
+          // 如果回测已完成或出错，返回首页并刷新
+          if (!isBacktestRunning) {
+            onRunBacktest();
+          }
+        }}
+        currentStep={currentStep}
+        stepStatus={stepStatus}
+        progressData={progressData}
+        errorMessage={errorMessage}
+        onStop={handleStopBacktest}
+        isRunning={isBacktestRunning}
+      />
     </div>
   );
 };
