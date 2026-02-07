@@ -490,15 +490,15 @@
   transition: all var(--transition-normal);
 }
 
-/* 侧边栏控制按钮样式 */
+/* 侧边栏控制按钮样式 - 固定在菜单栏右侧外部 */
 .sidebar-toggle-btn {
-  position: absolute;
-  right: -10px;
+  position: fixed;
+  left: calc(var(--sidebar-width) - 6px);
   top: 50%;
   transform: translateY(-50%);
   width: 20px;
-  height: 40px;
-  background-color: var(--bg-secondary);
+  height: 44px;
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
   border: 1px solid var(--border-color);
   border-left: none;
   border-radius: 0 8px 8px 0;
@@ -507,29 +507,43 @@
   justify-content: center;
   cursor: pointer;
   color: var(--text-secondary);
-  opacity: 0;
-  visibility: hidden;
-  transition: all var(--transition-normal);
-  z-index: 101;
-  box-shadow: var(--shadow-md);
-}
-
-/* 鼠标悬停在侧边栏时显示控制按钮 */
-.side-nav:hover .sidebar-toggle-btn {
   opacity: 1;
   visibility: visible;
+  transition: left var(--transition-normal), background var(--transition-normal), box-shadow var(--transition-normal), transform var(--transition-normal);
+  z-index: 101;
+  box-shadow: var(--shadow-md), 3px 0 10px rgba(0, 0, 0, 0.15);
+}
+
+/* 侧边栏收起时调整按钮位置 */
+.side-nav.collapsed ~ .main-container .sidebar-toggle-btn,
+.app-container:has(.side-nav.collapsed) .sidebar-toggle-btn {
+  left: calc(var(--sidebar-collapsed-width) - 6px);
+}
+
+/* 控制按钮内图标样式 */
+.sidebar-toggle-btn .anticon {
+  font-size: 11px;
+  transition: transform var(--transition-normal);
+  margin-left: 2px;
+}
+
+/* 侧边栏收起时图标旋转效果 */
+.app-container:has(.side-nav.collapsed) .sidebar-toggle-btn .anticon {
+  transform: rotate(180deg);
 }
 
 /* 控制按钮悬停效果 */
 .sidebar-toggle-btn:hover {
-  background-color: var(--primary-color);
+  background: linear-gradient(135deg, var(--primary-color) 0%, #7c3aed 100%);
   color: white;
-  box-shadow: var(--shadow-lg), 0 0 15px rgba(100, 108, 255, 0.3);
+  box-shadow: var(--shadow-lg), 0 0 20px rgba(100, 108, 255, 0.4);
+  transform: translateY(-50%) scale(1.08);
 }
 
-/* 侧边栏收起时调整控制按钮位置 */
-.side-nav.collapsed .sidebar-toggle-btn {
-  right: -10px;
+/* 控制按钮点击效果 */
+.sidebar-toggle-btn:active {
+  transform: translateY(-50%) scale(0.96);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 垂直布局时隐藏控制按钮 */

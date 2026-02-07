@@ -143,12 +143,8 @@ async def check_kline_quality(
     
     用于检查数据库中K线数据的质量，包括完整性、连续性、有效性和唯一性
     """
-    # 动态导入健康检查模块，避免路径问题
-    import sys
-    import os
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-    
-    from scripts.check_kline_health import KlineHealthChecker
+    # 导入健康检查服务
+    from backend.collector.services.kline_health_service import KlineHealthChecker
     
     # 解析时间参数
     start_dt = None
@@ -196,12 +192,8 @@ async def get_kline_duplicates(
     
     用于获取K线数据中的重复记录详细信息，支持按时间范围查询
     """
-    # 动态导入健康检查模块，避免路径问题
-    import sys
-    import os
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-    
-    from scripts.check_kline_health import KlineHealthChecker
+    # 导入健康检查服务
+    from backend.collector.services.kline_health_service import KlineHealthChecker
     
     # 解析时间参数
     start_dt = None
@@ -261,12 +253,8 @@ async def resolve_kline_duplicates(
     
     用于处理K线数据中的重复记录，支持多种处理策略
     """
-    # 动态导入健康检查模块，避免路径问题
-    import sys
-    import os
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-    
-    from scripts.check_kline_health import KlineHealthChecker
+    # 导入健康检查服务
+    from backend.collector.services.kline_health_service import KlineHealthChecker
     
     # 验证处理策略
     valid_strategies = ["keep_first", "keep_last", "keep_max_volume", "keep_min_volume"]

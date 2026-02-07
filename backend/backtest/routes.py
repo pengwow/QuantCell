@@ -11,7 +11,9 @@ from utils.auth import jwt_auth_required_sync
 from backtest.schemas import (ApiResponse, BacktestAnalyzeRequest,
                       BacktestDeleteRequest, BacktestListRequest,
                       BacktestRunRequest, StrategyConfigRequest,
-                      BacktestReplayRequest)
+                      BacktestReplayRequest, DataIntegrityCheckRequest,
+                      DataIntegrityCheckResponse, DataDownloadResponse,
+                      BacktestStopRequest)
 from strategy.schemas import StrategyUploadRequest
 from backtest.service import BacktestService
 
@@ -156,6 +158,52 @@ def run_backtest(request: BacktestRunRequest):
         )
     except Exception as e:
         logger.error(f"回测执行失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router_backtest.post(
+    "/stop",
+    response_model=ApiResponse,
+    summary="终止回测",
+    description="终止正在进行的回测任务",
+    responses={
+        200: {"description": "回测终止成功"},
+        404: {"description": "回测任务不存在"},
+        500: {"description": "终止回测失败"}
+    }
+)
+def stop_backtest(request: BacktestStopRequest):
+    """
+    终止回测
+    
+    Args:
+        request: 终止回测请求参数，包含任务ID
+        
+    Returns:
+        ApiResponse: API响应，包含终止结果
+    """
+    try:
+        logger.info(f"终止回测请求，任务ID: {request.task_id}")
+        
+        # 调用服务层终止回测
+        result = backtest_service.stop_backtest(request.task_id)
+        
+        logger.info(f"回测终止完成，结果: {result}")
+        
+        if result.get("status") == "success":
+            return ApiResponse(
+                code=0,
+                message="回测已终止",
+                data=result
+            )
+        else:
+            return ApiResponse(
+                code=1,
+                message=result.get("message", "终止回测失败"),
+                data=result
+            )
+    except Exception as e:
+        logger.error(f"终止回测失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -527,6 +575,141 @@ def get_replay_data(backtest_id: str, symbol: Optional[str] = None):
             )
     except Exception as e:
         logger.error(f"获取回测回放数据失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router_backtest.post(
+    "/check-data",
+    response_model=DataIntegrityCheckResponse,
+    summary="检查回测数据完整性",
+    description="检查指定交易对在指定时间范围内的数据完整性",
+    responses={
+        200: {"description": "数据完整性检查完成"},
+        500: {"description": "检查失败"}
+    }
+)
+def check_data_integrity(request: DataIntegrityCheckRequest):
+    """
+    检查回测数据完整性
+    
+    Args:
+        request: 数据完整性检查请求参数
+        
+    Returns:
+        DataIntegrityCheckResponse: 检查结果
+    """
+    try:
+        logger.info(f"数据完整性检查请求: {request.symbol} {request.interval}")
+        
+        from backtest.data_integrity import DataIntegrityChecker
+        from datetime import datetime
+        
+        # 解析时间
+        start_time = datetime.strptime(request.start_time, "%Y-%m-%d %H:%M:%S")
+        end_time = datetime.strptime(request.end_time, "%Y-%m-%d %H:%M:%S")
+        
+        # 执行检查
+        checker = DataIntegrityChecker()
+        result = checker.check_data_completeness(
+            symbol=request.symbol,
+            interval=request.interval,
+            start_time=start_time,
+            end_time=end_time,
+            market_type=request.market_type,
+            crypto_type=request.crypto_type
+        )
+        
+        # 转换结果为响应格式
+        response_data = {
+            "is_complete": result.is_complete,
+            "total_expected": result.total_expected,
+            "total_actual": result.total_actual,
+            "missing_count": result.missing_count,
+            "missing_ranges": [
+                {"start": start.isoformat(), "end": end.isoformat()}
+                for start, end in result.missing_ranges
+            ],
+            "quality_issues": result.quality_issues,
+            "coverage_percent": round(result.coverage_percent, 2)
+        }
+        
+        logger.info(f"数据完整性检查完成: {request.symbol}, 覆盖率: {result.coverage_percent:.2f}%")
+        
+        return DataIntegrityCheckResponse(
+            code=0,
+            message="数据完整性检查完成",
+            data=response_data
+        )
+    except Exception as e:
+        logger.error(f"数据完整性检查失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router_backtest.post(
+    "/download-data",
+    response_model=DataDownloadResponse,
+    summary="下载缺失的回测数据",
+    description="下载指定交易对在指定时间范围内的缺失数据",
+    responses={
+        200: {"description": "数据下载任务已启动"},
+        500: {"description": "下载失败"}
+    }
+)
+def download_missing_data(request: DataIntegrityCheckRequest):
+    """
+    下载缺失的回测数据
+    
+    Args:
+        request: 数据下载请求参数
+        
+    Returns:
+        DataDownloadResponse: 下载进度信息
+    """
+    try:
+        logger.info(f"数据下载请求: {request.symbol} {request.interval}")
+        
+        from backtest.data_downloader import BacktestDataDownloader
+        from datetime import datetime
+        
+        # 解析时间
+        start_time = datetime.strptime(request.start_time, "%Y-%m-%d %H:%M:%S")
+        end_time = datetime.strptime(request.end_time, "%Y-%m-%d %H:%M:%S")
+        
+        # 创建下载器
+        downloader = BacktestDataDownloader()
+        
+        # 执行下载（同步方式，会等待下载完成）
+        success, result = downloader.ensure_data_complete(
+            symbol=request.symbol,
+            interval=request.interval,
+            start_time=start_time,
+            end_time=end_time,
+            market_type=request.market_type,
+            crypto_type=request.crypto_type,
+            max_wait_time=300  # 最多等待5分钟
+        )
+        
+        response_data = {
+            "task_id": "sync_download",
+            "symbol": request.symbol,
+            "interval": request.interval,
+            "status": "completed" if success else "failed",
+            "progress": 100.0 if success else 0.0,
+            "message": "数据下载完成" if success else "数据下载失败",
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+            "error": None if success else "下载失败或超时"
+        }
+        
+        logger.info(f"数据下载完成: {request.symbol}, 成功: {success}")
+        
+        return DataDownloadResponse(
+            code=0 if success else 1,
+            message="数据下载完成" if success else "数据下载失败",
+            data=response_data
+        )
+    except Exception as e:
+        logger.error(f"数据下载失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

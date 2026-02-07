@@ -731,6 +731,19 @@ interface MetricItem {
   };
 
   /**
+   * 查看回测进度
+   * @param taskId 任务ID
+   */
+  const handleViewProgress = (taskId: string) => {
+    // 显示提示信息，告知用户该功能需要后端支持WebSocket或轮询机制
+    // 目前仅显示任务ID和状态
+    const task = backtestTasks.find(t => t.id === taskId);
+    if (task) {
+      alert(`回测任务: ${task.strategy_name}\n任务ID: ${taskId}\n状态: ${task.status}\n\n注意：实时进度查看功能需要后端支持WebSocket或轮询机制。`);
+    }
+  };
+
+  /**
    * 导出回测报告
    */
   const handleExportReport = async (taskId?: string) => {
@@ -831,7 +844,20 @@ interface MetricItem {
                         </div>
                       </div>
                       <div className="task-actions">
-                        <button 
+                        {task.status === 'in_progress' && (
+                          <button
+                            className="btn btn-warning btn-xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleViewProgress(task.id);
+                            }}
+                            style={{ marginBottom: '4px' }}
+                            title="查看回测进度"
+                          >
+                            查看进度
+                          </button>
+                        )}
+                        <button
                           className="btn btn-success btn-xs"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -841,7 +867,7 @@ interface MetricItem {
                         >
                           {t('replay')}
                         </button>
-                        <button 
+                        <button
                           className="btn btn-primary btn-xs"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -851,7 +877,7 @@ interface MetricItem {
                         >
                           {t('export')}
                         </button>
-                        <button 
+                        <button
                           className="btn btn-danger btn-xs"
                           onClick={(e) => {
                             e.stopPropagation();

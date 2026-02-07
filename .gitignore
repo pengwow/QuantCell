@@ -32,3 +32,4 @@ frontend2/
 backend/quantcell/backtest/results/*.json
 quantcell.egg-info/*
 backend/.trash/
+.trash/*

@@ -267,6 +267,13 @@ class BacktestDeleteRequest(BaseModel):
     backtest_id: str = Field(..., description="回测ID", json_schema_extra={"example": "SmaCross_BTCUSDT_20230101"})
 
 
+class BacktestStopRequest(BaseModel):
+    """
+    终止回测请求模型
+    """
+    task_id: str = Field(..., description="回测任务ID", json_schema_extra={"example": "bt_1234567890"})
+
+
 class StrategyConfigRequest(BaseModel):
     """
     策略配置请求模型
@@ -285,6 +292,78 @@ class BacktestReplayRequest(BaseModel):
     """
     backtest_id: str = Field(..., description="回测ID", json_schema_extra={"example": "SmaCross_BTCUSDT_20230101"})
     symbol: Optional[str] = Field(None, description="货币对，用于多货币对回测结果筛选", json_schema_extra={"example": "BTCUSDT"})
+
+
+class DataIntegrityCheckRequest(BaseModel):
+    """
+    数据完整性检查请求模型
+    """
+    symbol: str = Field(..., description="交易对符号", json_schema_extra={"example": "BTCUSDT"})
+    interval: str = Field(..., description="时间周期", json_schema_extra={"example": "1d"})
+    start_time: str = Field(..., description="开始时间", json_schema_extra={"example": "2023-01-01 00:00:00"})
+    end_time: str = Field(..., description="结束时间", json_schema_extra={"example": "2023-12-31 23:59:59"})
+    market_type: str = Field("crypto", description="市场类型", json_schema_extra={"example": "crypto"})
+    crypto_type: str = Field("spot", description="加密货币类型", json_schema_extra={"example": "spot"})
+
+
+class MissingRange(BaseModel):
+    """
+    缺失时间段模型
+    """
+    start: str = Field(..., description="开始时间")
+    end: str = Field(..., description="结束时间")
+
+
+class QualityIssue(BaseModel):
+    """
+    数据质量问题模型
+    """
+    type: str = Field(..., description="问题类型")
+    column: Optional[str] = Field(None, description="相关列名")
+    count: Optional[int] = Field(None, description="问题数量")
+    message: str = Field(..., description="问题描述")
+
+
+class DataIntegrityResult(BaseModel):
+    """
+    数据完整性检查结果模型
+    """
+    is_complete: bool = Field(..., description="是否完整")
+    total_expected: int = Field(..., description="期望数据条数")
+    total_actual: int = Field(..., description="实际数据条数")
+    missing_count: int = Field(..., description="缺失条数")
+    missing_ranges: List[MissingRange] = Field(default_factory=list, description="缺失时间段列表")
+    quality_issues: List[QualityIssue] = Field(default_factory=list, description="数据质量问题列表")
+    coverage_percent: float = Field(..., description="覆盖率百分比")
+
+
+class DataIntegrityCheckResponse(ApiResponse):
+    """
+    数据完整性检查响应模型
+    """
+    data: Optional[DataIntegrityResult] = Field(None, description="检查结果")
+
+
+class DataDownloadProgress(BaseModel):
+    """
+    数据下载进度模型
+    """
+    task_id: str = Field(..., description="任务ID")
+    symbol: str = Field(..., description="交易对符号")
+    interval: str = Field(..., description="时间周期")
+    status: str = Field(..., description="状态: pending, downloading, completed, failed")
+    progress: float = Field(..., description="进度百分比")
+    message: str = Field(..., description="状态消息")
+    created_at: str = Field(..., description="创建时间")
+    updated_at: str = Field(..., description="更新时间")
+    error: Optional[str] = Field(None, description="错误信息")
+
+
+class DataDownloadResponse(ApiResponse):
+    """
+    数据下载响应模型
+    """
+    data: Optional[DataDownloadProgress] = Field(None, description="下载进度信息")
 
 
 # Import from strategy schemas to support routes

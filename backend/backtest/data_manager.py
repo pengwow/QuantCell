@@ -25,7 +25,7 @@ class DataManager:
         
         logger.info("数据管理器初始化成功")
     
-    def preload_data(self, symbol, base_interval, start_time, end_time, preload_intervals=None):
+    def preload_data(self, symbol, base_interval, start_time, end_time, preload_intervals=None, ensure_integrity=True):
         """
         预加载多种时间周期的数据
         
@@ -35,6 +35,7 @@ class DataManager:
             start_time: 开始时间
             end_time: 结束时间
             preload_intervals: 需要预加载的周期列表，默认为None，加载所有支持的周期
+            ensure_integrity: 是否确保数据完整性，默认为True
         """
         if preload_intervals is None:
             preload_intervals = self.supported_intervals
@@ -44,6 +45,52 @@ class DataManager:
             preload_intervals.append(base_interval)
         
         logger.info(f"开始预加载数据，交易对: {symbol}, 主周期: {base_interval}, 预加载周期: {preload_intervals}")
+        
+        # 如果需要确保数据完整性，先检查并下载缺失数据
+        if ensure_integrity:
+            logger.info(f"[{symbol}] 预加载前检查数据完整性...")
+            from .data_integrity import DataIntegrityChecker
+            from .data_downloader import BacktestDataDownloader
+            
+            integrity_checker = DataIntegrityChecker()
+            data_downloader = BacktestDataDownloader()
+            
+            for interval in preload_intervals:
+                try:
+                    # 检查数据完整性
+                    integrity_result = integrity_checker.check_data_completeness(
+                        symbol=symbol,
+                        interval=interval,
+                        start_time=start_time,
+                        end_time=end_time,
+                        market_type='crypto',
+                        crypto_type='spot'
+                    )
+                    
+                    if not integrity_result.is_complete:
+                        logger.warning(
+                            f"[{symbol}] {interval} 数据不完整，覆盖率: {integrity_result.coverage_percent:.2f}%, "
+                            f"缺失: {integrity_result.missing_count} 条"
+                        )
+                        
+                        # 下载缺失数据
+                        download_success, new_result = data_downloader.ensure_data_complete(
+                            symbol=symbol,
+                            interval=interval,
+                            start_time=start_time,
+                            end_time=end_time,
+                            max_wait_time=300
+                        )
+                        
+                        if download_success:
+                            logger.info(f"[{symbol}] {interval} 数据下载完成")
+                        else:
+                            logger.warning(f"[{symbol}] {interval} 数据下载失败，将使用现有数据")
+                    else:
+                        logger.info(f"[{symbol}] {interval} 数据完整性检查通过")
+                        
+                except Exception as e:
+                    logger.error(f"[{symbol}] {interval} 数据完整性检查失败: {e}")
         
         # 初始化交易对的数据缓存
         if symbol not in self.data_cache:
