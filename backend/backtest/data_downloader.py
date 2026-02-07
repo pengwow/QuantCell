@@ -64,10 +64,22 @@ class DownloadProgress:
 class BacktestDataDownloader:
     """回测数据下载协调器"""
     
-    def __init__(self):
+    def __init__(self, standalone_mode: bool = True):
+        """
+        初始化下载协调器
+        
+        参数：
+            standalone_mode: 是否使用独立模式（不依赖FastAPI服务）
+        """
         self.data_service = DataService()
         self.integrity_checker = DataIntegrityChecker()
         self.progress_callbacks: List[Callable[[DownloadProgress], None]] = []
+        
+        # 独立模式
+        self.standalone_mode = standalone_mode
+        if standalone_mode:
+            from .standalone_downloader import StandaloneDataDownloader
+            self.standalone_downloader = StandaloneDataDownloader()
         
     def register_progress_callback(self, callback: Callable[[DownloadProgress], None]):
         """注册进度回调函数"""
@@ -179,27 +191,145 @@ class BacktestDataDownloader:
         Returns:
             bool: 是否下载成功
         """
+        # 合并所有缺失时间段
+        earliest_start = min(r[0] for r in missing_ranges)
+        latest_end = max(r[1] for r in missing_ranges)
+        
+        # 添加缓冲时间
+        earliest_start = earliest_start - timedelta(days=1)
+        latest_end = latest_end + timedelta(days=1)
+        
+        if self.standalone_mode:
+            # 使用独立下载器
+            return self._download_with_standalone(
+                symbol=symbol,
+                interval=interval,
+                earliest_start=earliest_start,
+                latest_end=latest_end,
+                crypto_type=crypto_type
+            )
+        else:
+            # 使用任务管理器方式（需要FastAPI服务）
+            return self._download_with_task_manager(
+                symbol=symbol,
+                interval=interval,
+                earliest_start=earliest_start,
+                latest_end=latest_end,
+                crypto_type=crypto_type,
+                max_wait_time=max_wait_time
+            )
+    
+    def _download_with_standalone(
+        self,
+        symbol: str,
+        interval: str,
+        earliest_start: datetime,
+        latest_end: datetime,
+        crypto_type: str
+    ) -> bool:
+        """
+        使用独立下载器下载数据
+        
+        Args:
+            symbol: 交易对符号
+            interval: 时间周期
+            earliest_start: 最早开始时间
+            latest_end: 最晚结束时间
+            crypto_type: 加密货币类型
+            
+        Returns:
+            bool: 是否下载成功
+        """
         try:
-            # 合并所有缺失时间段，取最早的开始时间和最晚的结束时间
-            earliest_start = min(r[0] for r in missing_ranges)
-            latest_end = max(r[1] for r in missing_ranges)
+            logger.info(f"使用独立下载器下载: {symbol} {interval}")
             
-            # 添加缓冲时间
-            earliest_start = earliest_start - timedelta(days=1)
-            latest_end = latest_end + timedelta(days=1)
+            # 创建进度追踪
+            progress = DownloadProgress(
+                task_id=f"standalone_{symbol}_{interval}",
+                symbol=symbol,
+                interval=interval
+            )
+            progress.update(status="downloading", message="开始下载数据")
+            self._notify_progress(progress)
             
-            logger.info(f"创建下载任务: {symbol} {interval}, 范围: {earliest_start} ~ {latest_end}")
+            # 定义进度回调
+            def standalone_progress_callback(standalone_progress):
+                progress.update(
+                    status=standalone_progress.status,
+                    progress=standalone_progress.progress,
+                    message=standalone_progress.message
+                )
+                self._notify_progress(progress)
+            
+            # 使用独立下载器下载
+            success = self.standalone_downloader.download_sync(
+                symbol=symbol,
+                interval=interval,
+                start_time=earliest_start,
+                end_time=latest_end,
+                crypto_type=crypto_type,
+                progress_callback=standalone_progress_callback
+            )
+            
+            if success:
+                progress.update(
+                    status="completed",
+                    progress=100.0,
+                    message="下载完成"
+                )
+                self._notify_progress(progress)
+                logger.info(f"独立下载完成: {symbol} {interval}")
+            else:
+                progress.update(
+                    status="failed",
+                    message="下载失败"
+                )
+                self._notify_progress(progress)
+                logger.error(f"独立下载失败: {symbol} {interval}")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"独立下载异常: {e}")
+            return False
+    
+    def _download_with_task_manager(
+        self,
+        symbol: str,
+        interval: str,
+        earliest_start: datetime,
+        latest_end: datetime,
+        crypto_type: str,
+        max_wait_time: int
+    ) -> bool:
+        """
+        使用任务管理器下载数据（需要FastAPI服务）
+        
+        Args:
+            symbol: 交易对符号
+            interval: 时间周期
+            earliest_start: 最早开始时间
+            latest_end: 最晚结束时间
+            crypto_type: 加密货币类型
+            max_wait_time: 最大等待时间
+            
+        Returns:
+            bool: 是否下载成功
+        """
+        try:
+            # 标准化symbol格式（去除/）
+            normalized_symbol = symbol.replace('/', '')
+            
+            logger.info(f"创建下载任务: {normalized_symbol} {interval}, 范围: {earliest_start} ~ {latest_end}")
             
             # 创建下载请求
             download_request = DownloadCryptoRequest(
-                exchange='binance',  # 默认使用binance
-                symbols=[symbol],
-                intervals=[interval],
-                start_time=earliest_start,
-                end_time=latest_end,
-                market_type=market_type,
-                crypto_type=crypto_type,
-                save_to_db=True
+                exchange='binance',
+                symbols=[normalized_symbol],
+                interval=[interval],
+                start=earliest_start.isoformat() if earliest_start else None,
+                end=latest_end.isoformat() if latest_end else None,
+                candle_type=crypto_type if crypto_type in ['spot', 'futures'] else 'spot'
             )
             
             # 创建下载任务
@@ -221,7 +351,7 @@ class BacktestDataDownloader:
             )
             
         except Exception as e:
-            logger.error(f"下载缺失数据失败: {e}")
+            logger.error(f"任务管理器下载失败: {e}")
             return False
     
     def _wait_for_download(

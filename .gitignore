@@ -33,3 +33,7 @@ backend/quantcell/backtest/results/*.json
 quantcell.egg-info/*
 backend/.trash/
 .trash/*
+.DS_Store
+backend/.DS_Stores
+backend/backtest/results/*
+.DS_Store

@@ -62,12 +62,24 @@ class DataIntegrityChecker:
     }
     
     def __init__(self):
-        self.db = SessionLocal()
+        self._db = None
+    
+    @property
+    def db(self):
+        """懒加载数据库会话"""
+        if self._db is None:
+            from collector.db.database import init_database_config, SessionLocal
+            import collector.db.database as db_module
+            init_database_config()
+            # 通过模块访问引擎，确保获取最新值
+            if db_module.engine is not None:
+                self._db = SessionLocal(bind=db_module.engine)
+        return self._db
     
     def __del__(self):
         """析构时关闭数据库连接"""
-        if hasattr(self, 'db'):
-            self.db.close()
+        if self._db is not None:
+            self._db.close()
     
     def check_data_completeness(
         self,
@@ -156,29 +168,42 @@ class DataIntegrityChecker:
     ) -> pd.DataFrame:
         """获取现有数据"""
         try:
+            # 确保数据库会话已初始化
+            if self.db is None:
+                logger.error("数据库会话未初始化")
+                return pd.DataFrame()
+            
+            # 标准化symbol格式（去除/）
+            normalized_symbol = symbol.replace('/', '')
+            
+            # 转换时间戳为毫秒字符串（与数据库格式一致）
+            start_timestamp = int(start_time.timestamp() * 1000)
+            end_timestamp = int(end_time.timestamp() * 1000)
+            
             if market_type == 'crypto':
                 if crypto_type == 'spot':
                     model = CryptoSpotKline
                 else:
                     model = CryptoFutureKline
                 
+                # 使用字符串比较（因为数据库中timestamp是String类型）
                 query = self.db.query(model).filter(
-                    model.symbol == symbol,
+                    model.symbol == normalized_symbol,
                     model.interval == interval,
-                    model.timestamp >= start_time,
-                    model.timestamp <= end_time
+                    model.timestamp >= str(start_timestamp),
+                    model.timestamp <= str(end_timestamp)
                 ).order_by(model.timestamp.asc())
                 
                 records = query.all()
                 
                 if records:
                     data = {
-                        'timestamp': [r.timestamp for r in records],
-                        'open': [r.open for r in records],
-                        'high': [r.high for r in records],
-                        'low': [r.low for r in records],
-                        'close': [r.close for r in records],
-                        'volume': [r.volume for r in records],
+                        'timestamp': [int(r.timestamp) for r in records],
+                        'open': [float(r.open) for r in records],
+                        'high': [float(r.high) for r in records],
+                        'low': [float(r.low) for r in records],
+                        'close': [float(r.close) for r in records],
+                        'volume': [float(r.volume) for r in records],
                     }
                     return pd.DataFrame(data)
                 
@@ -186,6 +211,8 @@ class DataIntegrityChecker:
             
         except Exception as e:
             logger.error(f"获取现有数据失败: {e}")
+            import traceback
+            logger.debug(f"错误详情: {traceback.format_exc()}")
             return pd.DataFrame()
     
     def _calculate_expected_count(
