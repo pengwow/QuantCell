@@ -37,3 +37,6 @@ backend/.trash/
 backend/.DS_Stores
 backend/backtest/results/*
 .DS_Store
+backend/plugins/*
+frontend/src/plugins/*
+temp/.*

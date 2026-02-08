@@ -308,10 +308,19 @@ class ResultSerializer:
     def _make_serializable(self, results: Dict[str, Any]) -> Dict[str, Any]:
         """将结果转换为可序列化的格式"""
         serializable = {}
-        
+
         for key, result in results.items():
-            serializable[key] = self._serialize_single_result(result)
-        
+            # 处理特殊键（以下划线开头的元数据）
+            if key.startswith('_'):
+                # 对于元数据列表（如 _incomplete_data_info, _download_failures）
+                if isinstance(result, list):
+                    serializable[key] = [self._serialize_value(item) for item in result]
+                else:
+                    serializable[key] = self._serialize_value(result)
+            else:
+                # 正常的回测结果字典
+                serializable[key] = self._serialize_single_result(result)
+
         return serializable
     
     def _serialize_single_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -529,6 +538,7 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
     # 分离正常结果和失败信息
     normal_results = {k: v for k, v in results.items() if not k.startswith('_')}
     download_failures = results.get('_download_failures', [])
+    incomplete_data_info = results.get('_incomplete_data_info', [])
 
     # 检查是否是投资组合回测结果
     is_portfolio = 'portfolio' in normal_results
@@ -628,6 +638,22 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
             for failure in other_failures:
                 print(f"  - {failure['symbol']} {failure['timeframe']}: {failure['reason']}")
 
+    # 打印数据不完整警告信息
+    if incomplete_data_info:
+        print("\n" + "=" * 70)
+        print("数据缺失警告")
+        print("=" * 70)
+        print(f"\n⚠️ 以下 {len(incomplete_data_info)} 个货币对数据不完整，但已继续回测:")
+        for info in incomplete_data_info:
+            symbol = info['symbol']
+            timeframe = info['timeframe']
+            coverage_percent = info.get('coverage_percent', 0)
+            missing_percent = info.get('missing_percent', 0)
+            print(f"  - {symbol} {timeframe}: 覆盖率 {coverage_percent:.1f}%，缺失 {missing_percent:.1f}%")
+            if info.get('warnings'):
+                for warning in info['warnings']:
+                    print(f"    • {warning}")
+
     # 打印统计摘要
     print("\n" + "=" * 70)
     print("统计摘要")
@@ -639,6 +665,8 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
         print(f"  最终总权益: {portfolio_metrics.get('final_equity', 0):.2f}")
     else:
         print(f"  成功回测: {len(normal_results)} 个货币对")
+    if incomplete_data_info:
+        print(f"  数据不完整: {len(incomplete_data_info)} 个 (已忽略缺失继续回测)")
     if download_failures:
         print(f"  加载失败: {len(download_failures)} 个货币对")
         print(f"    - 无可用数据: {len([f for f in download_failures if f.get('failure_type') == 'no_data_available'])} 个")
