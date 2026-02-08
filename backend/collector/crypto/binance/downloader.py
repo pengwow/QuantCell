@@ -1,6 +1,7 @@
 # 币安数据下载器
 import asyncio
 import ssl
+import urllib.parse
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -15,11 +16,11 @@ from collector.base.utils import async_deco_retry, get_date_range
 
 class BinanceDownloader:
     """币安数据下载器，用于从Binance API和Binance Data Archive下载K线数据"""
-    
+
     def __init__(self, candle_type='spot'):
         """
         初始化币安数据下载器
-        
+
         :param candle_type: 蜡烛图类型，可选'spot'（现货）、'futures'（期货）或'option'（期权）
         """
         self.candle_type = candle_type
@@ -28,6 +29,31 @@ class BinanceDownloader:
             'close_time', 'quote_volume', 'count', 'taker_buy_volume',
             'taker_buy_quote_volume', 'ignore'
         ]
+
+        # 加载代理配置
+        self._load_proxy_config()
+
+    def _load_proxy_config(self):
+        """加载代理配置"""
+        try:
+            from utils.config_manager import config_manager
+
+            system_config = config_manager.get_config_by_group('system_config')
+            self.proxy_enabled = system_config.get('proxy_enabled', False)
+            self.proxy_url = system_config.get('proxy_url', '')
+            self.proxy_username = system_config.get('proxy_username', '')
+            self.proxy_password = system_config.get('proxy_password', '')
+
+            if self.proxy_enabled and self.proxy_url:
+                logger.info(f"币安下载器代理已启用: {self.proxy_url}")
+            else:
+                logger.info("币安下载器代理未启用")
+        except Exception as e:
+            logger.warning(f"加载代理配置失败: {e}")
+            self.proxy_enabled = False
+            self.proxy_url = ''
+            self.proxy_username = ''
+            self.proxy_password = ''
     
     @staticmethod
     def get_url_by_candle_type(candle_type):
@@ -83,55 +109,95 @@ class BinanceDownloader:
     async def get_daily_klines(self, symbol, timeframe, date):
         """
         异步获取指定日期的K线数据
-        
+
         :param symbol: 交易对，如'BTCUSDT'
         :param timeframe: 时间间隔，如'1m'、'1h'、'1d'等
         :param date: 日期，格式为'YYYY-MM-DD'
         :return: K线数据DataFrame
         """
         url = self.get_zip_url(symbol, timeframe, date)
-        connector = aiohttp.TCPConnector(
-            ssl=ssl.create_default_context(cafile=certifi.where())
-        )
-        
-        async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.get(url) as resp:
-                if resp.status == 200:
-                    content = await resp.read()
-                    logger.debug(f"成功下载 {url}")
-                    
-                    with zipfile.ZipFile(BytesIO(content)) as zipf:
-                        filename = zipf.namelist()[0]
-                        with zipf.open(filename) as csvf:
-                            # 读取整个CSV文件内容到BytesIO
-                            csv_content = BytesIO(csvf.read())
-                            csv_content.seek(0)
-                            
-                            # 检查CSV文件是否有表头
-                            first_line = csv_content.readline().decode('utf-8')
-                            csv_content.seek(0)
-                            
-                            # 判断第一行是否为数字开头（无表头）
-                            has_header = not first_line.strip()[0].isdigit()
-                            
-                            # 根据是否有表头设置header参数
-                            header = 0 if has_header else None
-                            
-                            # 读取CSV文件，直接使用列名而不是数字索引
-                            df = pd.read_csv(
-                                csv_content,
-                                names=self.candle_names,
-                                header=header
-                            )
-                            
-                            # 确保列名与预期一致
-                            df.columns = self.candle_names
-                            
-                            logger.info(f"成功处理 {symbol} {timeframe} 数据 ({date}): 共 {len(df)} 条记录, 文件: {filename}, 表头: {'有' if has_header else '无'}")
-                            return df
-                else:
-                    logger.warning(f"下载失败 {url}，状态码: {resp.status}")
-                    return None
+
+        # 配置 SSL
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+        # 设置超时：连接超时30秒，读取超时60秒
+        timeout = aiohttp.ClientTimeout(total=90, connect=30, sock_read=60)
+
+        # 根据代理配置创建 connector 和 session
+        if self.proxy_enabled and self.proxy_url:
+            # 使用代理
+            logger.debug(f"使用代理下载: {url}")
+
+            # 设置代理认证（如果需要）
+            proxy_auth = None
+            if self.proxy_username and self.proxy_password:
+                proxy_auth = aiohttp.BasicAuth(
+                    self.proxy_username,
+                    self.proxy_password
+                )
+
+            # 创建 connector
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+
+            async with aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout
+            ) as session:
+                async with session.get(
+                    url,
+                    proxy=self.proxy_url,
+                    proxy_auth=proxy_auth
+                ) as resp:
+                    return await self._process_response(resp, symbol, timeframe, date, url)
+        else:
+            # 不使用代理
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+
+            async with aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout
+            ) as session:
+                async with session.get(url) as resp:
+                    return await self._process_response(resp, symbol, timeframe, date, url)
+
+    async def _process_response(self, resp, symbol, timeframe, date, url):
+        """处理 HTTP 响应"""
+        if resp.status == 200:
+            content = await resp.read()
+            logger.debug(f"成功下载 {url}")
+
+            with zipfile.ZipFile(BytesIO(content)) as zipf:
+                filename = zipf.namelist()[0]
+                with zipf.open(filename) as csvf:
+                    # 读取整个CSV文件内容到BytesIO
+                    csv_content = BytesIO(csvf.read())
+                    csv_content.seek(0)
+
+                    # 检查CSV文件是否有表头
+                    first_line = csv_content.readline().decode('utf-8')
+                    csv_content.seek(0)
+
+                    # 判断第一行是否为数字开头（无表头）
+                    has_header = not first_line.strip()[0].isdigit()
+
+                    # 根据是否有表头设置header参数
+                    header = 0 if has_header else None
+
+                    # 读取CSV文件，直接使用列名而不是数字索引
+                    df = pd.read_csv(
+                        csv_content,
+                        names=self.candle_names,
+                        header=header
+                    )
+
+                    # 确保列名与预期一致
+                    df.columns = self.candle_names
+
+                    logger.info(f"成功处理 {symbol} {timeframe} 数据 ({date}): 共 {len(df)} 条记录, 文件: {filename}, 表头: {'有' if has_header else '无'}")
+                    return df
+        else:
+            logger.warning(f"下载失败 {url}，状态码: {resp.status}")
+            return None
     
     async def download_daily_klines(self, symbol, timeframe, start_date, end_date, progress_callback=None):
         """

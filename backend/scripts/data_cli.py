@@ -39,6 +39,7 @@ try:
     from collector.db.database import init_database_config, SessionLocal
     from collector.db.models import CryptoSpotKline, CryptoFutureKline, CryptoSymbol
     from settings.models import SystemConfigBusiness as SystemConfig
+    from backtest.cli_core import get_symbols_from_data_pool
 except ImportError as e:
     logger.error(f"导入模块失败: {e}")
     logger.error("请确保在正确的目录下运行此脚本")
@@ -431,6 +432,7 @@ app.add_typer(import_app, name="import", help="从文件导入数据到数据库
 @app.command()
 def download(
     symbols: Annotated[List[str], typer.Option("--symbols", "-s", help="交易对列表，可多次指定")] = [],
+    pool: Annotated[Optional[str], typer.Option("--pool", help="自选组合名称")] = None,
     interval: Annotated[List[str], typer.Option("--interval", "-i", help="时间周期列表，可多次指定(如: 1m, 5m, 15m, 30m, 1h, 4h, 1d)")] = [],
     start: Annotated[str, typer.Option("--start", help="开始时间(格式: YYYYMMDD，如20240101)")] = "",
     end: Annotated[str, typer.Option("--end", help="结束时间(格式: YYYYMMDD，如20241231)")] = "",
@@ -444,16 +446,41 @@ def download(
 ):
     """
     下载K线数据
-    
+
     支持多交易对、多时间周期批量下载，数据将保存到指定目录并可选写入数据库
+
+    示例:
+      # 使用交易对列表
+      python data_cli.py download -s BTCUSDT -s ETHUSDT -i 15m --start 20240101 --end 20241231
+
+      # 使用自选组合
+      python data_cli.py download --pool 我的自选组合 -i 15m --start 20240101 --end 20241231
     """
     if verbose:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
-    
+
+    # 检查是否同时指定了 symbols 和 pool
+    if symbols and pool:
+        typer.echo("错误: 不能同时指定 --symbols 和 --pool 参数", err=True)
+        raise typer.Exit(1)
+
+    # 处理 pool 参数，从自选组合获取交易对
+    if pool:
+        logger.info(f"从自选组合 '{pool}' 获取货币对...")
+        try:
+            symbols = get_symbols_from_data_pool(pool)
+            if not symbols:
+                typer.echo(f"错误: 自选组合 '{pool}' 中没有货币对", err=True)
+                raise typer.Exit(1)
+            logger.info(f"成功获取 {len(symbols)} 个货币对: {', '.join(symbols)}")
+        except ValueError as e:
+            typer.echo(f"错误: {e}", err=True)
+            raise typer.Exit(1)
+
     # 验证必需参数
     if not symbols:
-        typer.echo("错误: 请指定至少一个交易对，使用 -s 或 --symbols 参数", err=True)
+        typer.echo("错误: 请指定至少一个交易对，使用 -s/--symbols 或 --pool 参数", err=True)
         raise typer.Exit(1)
     
     if not interval:
