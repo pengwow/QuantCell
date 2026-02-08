@@ -344,8 +344,8 @@ class ConcurrentEventEngine:
     def put(
         self,
         event_type: str,
-        symbol: str,
         data: Any,
+        symbol: str = "DEFAULT",
         priority: EventPriority = EventPriority.NORMAL,
         block: bool = False,
         timeout: Optional[float] = None
@@ -355,8 +355,8 @@ class ConcurrentEventEngine:
         
         Args:
             event_type: 事件类型
-            symbol: 交易对符号
             data: 事件数据
+            symbol: 交易对符号，默认为 "DEFAULT"
             priority: 事件优先级
             block: 是否阻塞等待
             timeout: 阻塞超时时间

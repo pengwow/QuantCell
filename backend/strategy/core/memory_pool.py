@@ -10,7 +10,7 @@
 
 import threading
 import logging
-from typing import Dict, List, Callable, Any, Optional, TypeVar, Generic, Set
+from typing import Dict, List, Callable, Any, Optional, TypeVar, Generic, Set, Union
 from dataclasses import dataclass, field
 from collections import deque
 import weakref
@@ -25,7 +25,8 @@ T = TypeVar('T')
 
 class PooledObject:
     """池化对象基类"""
-    
+    __slots__ = ['_in_use', '_pool']
+
     def __init__(self):
         self._in_use = False
         self._pool: Optional['ObjectPool'] = None
@@ -105,7 +106,7 @@ class ObjectPool(Generic[T]):
     def acquire(self) -> T:
         """
         获取对象
-        
+
         Returns:
             T: 池化对象
         """
@@ -115,7 +116,7 @@ class ObjectPool(Generic[T]):
                 if isinstance(obj, PooledObject):
                     obj._in_use = True
                 return obj
-            
+
             # 池为空，创建新对象（如果允许自动扩容）
             if self.auto_grow and self._size < self.max_size:
                 obj = self.factory()
@@ -124,9 +125,13 @@ class ObjectPool(Generic[T]):
                     obj._in_use = True
                 self._size += 1
                 return obj
-            
-            # 池已满，等待可用对象
-            raise RuntimeError("对象池已满，无法获取对象")
+
+            # 池已满，创建临时对象（不放入池中）
+            obj = self.factory()
+            if isinstance(obj, PooledObject):
+                obj._pool = self
+                obj._in_use = True
+            return obj
     
     def release(self, obj: T) -> None:
         """
@@ -215,6 +220,37 @@ class TickEvent(PooledObject):
     def __repr__(self) -> str:
         return f"TickEvent({self.symbol}, {self.price}, {self.volume})"
 
+    def __eq__(self, other: object) -> bool:
+        """比较两个TickEvent是否相等"""
+        if not isinstance(other, TickEvent):
+            return False
+        return (self.symbol == other.symbol and
+                self.price == other.price and
+                self.volume == other.volume and
+                self.timestamp == other.timestamp and
+                self.side == other.side)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            "symbol": self.symbol,
+            "price": self.price,
+            "volume": self.volume,
+            "timestamp": self.timestamp,
+            "side": self.side
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'TickEvent':
+        """从字典创建"""
+        return cls(
+            symbol=data["symbol"],
+            price=data["price"],
+            volume=data["volume"],
+            timestamp=data["timestamp"],
+            side=data.get("side", "")
+        )
+
 
 class BarEvent(PooledObject):
     """
@@ -280,6 +316,41 @@ class BarEvent(PooledObject):
         self.timestamp = timestamp
         self.interval = interval
         return self
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            "symbol": self.symbol,
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+            "volume": self.volume,
+            "timestamp": self.timestamp,
+            "interval": self.interval
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'BarEvent':
+        """从字典创建"""
+        return cls(
+            symbol=data["symbol"],
+            open_price=data["open"],
+            high_price=data["high"],
+            low_price=data["low"],
+            close_price=data["close"],
+            volume=data["volume"],
+            timestamp=data["timestamp"],
+            interval=data.get("interval", "")
+        )
+
+    def typical_price(self) -> float:
+        """典型价格 (High + Low + Close) / 3"""
+        return (self.high + self.low + self.close) / 3
+
+    def price_range(self) -> float:
+        """价格范围 High - Low"""
+        return self.high - self.low
 
 
 class EventObjectPools:
@@ -398,16 +469,24 @@ class SharedMemoryMarketData:
             logger.debug(f"注册符号: {symbol} -> ID {symbol_id}")
             return symbol_id
     
-    def write_tick(self, symbol: str, price: float, volume: float, timestamp: int) -> None:
+    def write_tick(self, tick: Union[TickEvent, str], price: float = None, volume: float = None, timestamp: float = None) -> None:
         """
         写入Tick数据
         
         Args:
-            symbol: 符号名称
-            price: 价格
-            volume: 成交量
-            timestamp: 时间戳
+            tick: TickEvent 对象或符号名称
+            price: 价格（当 tick 为符号名称时）
+            volume: 成交量（当 tick 为符号名称时）
+            timestamp: 时间戳（当 tick 为符号名称时）
         """
+        if isinstance(tick, TickEvent):
+            symbol = tick.symbol
+            price = tick.price
+            volume = tick.volume
+            timestamp = int(tick.timestamp)
+        else:
+            symbol = tick
+        
         symbol_id = self._get_symbol_id(symbol)
         if symbol_id is None:
             symbol_id = self.register_symbol(symbol)
@@ -418,6 +497,69 @@ class SharedMemoryMarketData:
             self.volume_buffer[symbol_id, idx] = volume
             self.timestamp_buffer[symbol_id, idx] = timestamp
             self.write_indices[symbol_id] += 1
+    
+    def read_tick(self, symbol: str) -> Optional[TickEvent]:
+        """
+        读取最新Tick数据
+        
+        Args:
+            symbol: 符号名称
+            
+        Returns:
+            TickEvent or None: Tick事件
+        """
+        data = self.read_latest(symbol)
+        if data is None:
+            return None
+        
+        return TickEvent(
+            symbol=data["symbol"],
+            price=data["price"],
+            volume=data["volume"],
+            timestamp=data["timestamp"]
+        )
+    
+    def write_bar(self, bar: BarEvent) -> None:
+        """
+        写入Bar数据
+        
+        Args:
+            bar: BarEvent 对象
+        """
+        symbol_id = self._get_symbol_id(bar.symbol)
+        if symbol_id is None:
+            symbol_id = self.register_symbol(bar.symbol)
+        
+        with self._locks[symbol_id]:
+            idx = self.write_indices[symbol_id] % self.buffer_size
+            self.price_buffer[symbol_id, idx] = bar.close  # 使用收盘价
+            self.volume_buffer[symbol_id, idx] = bar.volume
+            self.timestamp_buffer[symbol_id, idx] = int(bar.timestamp)
+            self.write_indices[symbol_id] += 1
+    
+    def read_bar(self, symbol: str) -> Optional[BarEvent]:
+        """
+        读取最新Bar数据
+        
+        Args:
+            symbol: 符号名称
+            
+        Returns:
+            BarEvent or None: Bar事件
+        """
+        data = self.read_latest(symbol)
+        if data is None:
+            return None
+        
+        return BarEvent(
+            symbol=data["symbol"],
+            open_price=data["price"],
+            high_price=data["price"],
+            low_price=data["price"],
+            close_price=data["price"],
+            volume=data["volume"],
+            timestamp=data["timestamp"]
+        )
     
     def read_latest(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
@@ -503,7 +645,43 @@ class SharedMemoryMarketData:
         """获取符号ID"""
         with self._symbol_lock:
             return self._symbol_to_id.get(symbol)
-    
+
+    def get_all_symbols(self) -> List[str]:
+        """获取所有已注册的交易对"""
+        with self._symbol_lock:
+            return list(self._symbol_to_id.keys())
+
+    def clear_symbol(self, symbol: str) -> None:
+        """清除特定交易对的数据"""
+        symbol_id = self._get_symbol_id(symbol)
+        if symbol_id is None:
+            return
+
+        with self._locks[symbol_id]:
+            # 重置写入索引
+            self.write_indices[symbol_id] = 0
+            self.read_indices[symbol_id] = 0
+            # 清空缓冲区
+            self.price_buffer[symbol_id, :] = 0
+            self.volume_buffer[symbol_id, :] = 0
+            self.timestamp_buffer[symbol_id, :] = 0
+
+    def clear_all(self) -> None:
+        """清除所有数据"""
+        with self._symbol_lock:
+            # 清除所有已注册符号的数据
+            for symbol_id in range(self._next_symbol_id):
+                with self._locks[symbol_id]:
+                    self.write_indices[symbol_id] = 0
+                    self.read_indices[symbol_id] = 0
+                    self.price_buffer[symbol_id, :] = 0
+                    self.volume_buffer[symbol_id, :] = 0
+                    self.timestamp_buffer[symbol_id, :] = 0
+            # 清除符号注册信息
+            self._symbol_to_id.clear()
+            self._id_to_symbol.clear()
+            self._next_symbol_id = 0
+
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         with self._symbol_lock:
@@ -616,6 +794,27 @@ class PreallocatedBuffers:
             # 放回池中
             if len(self._buffers[allocated_size]) < self._buffers[allocated_size].maxlen:
                 self._buffers[allocated_size].append(buffer)
+
+    @property
+    def buffer_sizes(self) -> List[int]:
+        """获取所有缓冲区大小"""
+        return list(self._buffers.keys())
+
+    def get_stats(self) -> Dict[str, Any]:
+        """获取缓冲区统计信息"""
+        with self._lock:
+            buffer_pools = {
+                size: {
+                    "available": len(queue),
+                    "max": queue.maxlen
+                }
+                for size, queue in self._buffers.items()
+            }
+            return {
+                "buffer_pools": buffer_pools,
+                "total_available": sum(len(queue) for queue in self._buffers.values()),
+                "total_max": sum(queue.maxlen for queue in self._buffers.values())
+            }
 
 
 # 全局对象池实例

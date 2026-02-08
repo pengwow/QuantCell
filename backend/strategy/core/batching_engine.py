@@ -50,20 +50,27 @@ class BatchStrategy:
         self.max_batch_size = max_batch_size
         self.max_wait_time_ms = max_wait_time_ms
         self._created_at = time.time()
-        self._event_count = 0
 
-    def should_flush(self, event_count: int) -> bool:
+    def should_flush(self, batch: 'EventBatch') -> bool:
         """
         检查是否应该刷新批次
 
         Args:
-            event_count: 当前事件数量
+            batch: 事件批次对象
 
         Returns:
             bool: 是否应该刷新
         """
-        # 检查批次大小
-        if event_count >= self.max_batch_size:
+        # 空批次不刷新
+        if batch.size() == 0:
+            return False
+
+        # 检查批次是否已满（达到EventBatch的max_size）
+        if batch.is_full():
+            return True
+
+        # 检查批次大小（达到策略的max_batch_size）
+        if batch.size() >= self.max_batch_size:
             return True
 
         # 检查等待时间
@@ -132,25 +139,80 @@ class EventBatch:
         return iter(self.events)
 
 
+class BatchMetrics:
+    """批处理指标（兼容测试期望的API）"""
+
+    def __init__(self):
+        self.total_events = 0
+        self.total_batches = 0
+        self.error_count = 0
+        self.total_processing_time = 0.0
+        self._cumulative_batch_size = 0  # 用于计算平均批次大小
+        self._lock = threading.Lock()
+
+    def record_event(self, count: int = 1):
+        """记录事件"""
+        with self._lock:
+            self.total_events += count
+
+    def record_batch(self, size: int, processing_time: float):
+        """记录批次处理"""
+        with self._lock:
+            self.total_batches += 1
+            self.total_events += size
+            self._cumulative_batch_size += size
+            self.total_processing_time += processing_time
+
+    def record_error(self):
+        """记录错误"""
+        with self._lock:
+            self.error_count += 1
+
+    def reset(self):
+        """重置指标"""
+        with self._lock:
+            self.total_events = 0
+            self.total_batches = 0
+            self.error_count = 0
+            self.total_processing_time = 0.0
+            self._cumulative_batch_size = 0
+
+    def get_stats(self) -> Dict[str, Any]:
+        """获取统计信息"""
+        with self._lock:
+            avg_batch_size = self._cumulative_batch_size / max(self.total_batches, 1)
+            return {
+                "total_events": self.total_events,
+                "total_batches": self.total_batches,
+                "error_count": self.error_count,
+                "avg_batch_size": avg_batch_size,
+                "avg_processing_time": self.total_processing_time / max(self.total_batches, 1)
+            }
+
+
 class BatchingMetrics:
     """批处理引擎性能指标"""
 
     def __init__(self):
-        self.batches_created = 0
-        self.batches_processed = 0
-        self.events_batched = 0
-        self.events_processed = 0
+        self.events_received = 0  # 接收的总事件数
+        self.events_processed = 0  # 处理完成的事件数
+        self.batches_created = 0  # 创建的批次数
+        self.batches_processed = 0  # 处理完成的批次数
         self.avg_batch_size = 0.0
         self.avg_batch_age_ms = 0.0
         self.processing_times: List[float] = []
         self._lock = threading.Lock()
 
+    def record_event_received(self):
+        """记录事件接收"""
+        with self._lock:
+            self.events_received += 1
+
     def record_batch_created(self, size: int):
         """记录批次创建"""
         with self._lock:
             self.batches_created += 1
-            self.events_batched += size
-    
+
     def record_batch_processed(self, size: int, age_ms: float, processing_time: float):
         """记录批次处理完成"""
         with self._lock:
@@ -161,21 +223,23 @@ class BatchingMetrics:
             self.processing_times.append(processing_time)
             if len(self.processing_times) > 1000:
                 self.processing_times = self.processing_times[-1000:]
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         with self._lock:
             avg_processing_time = sum(self.processing_times) / len(self.processing_times) if self.processing_times else 0
 
             return {
+                "total_events": self.events_received,  # 兼容测试期望的字段名
+                "total_batches": self.batches_created,  # 兼容测试期望的字段名
+                "events_received": self.events_received,
+                "events_processed": self.events_processed,
                 "batches_created": self.batches_created,
                 "batches_processed": self.batches_processed,
-                "events_batched": self.events_batched,
-                "events_processed": self.events_processed,
                 "avg_batch_size": self.avg_batch_size,
                 "avg_batch_age_ms": self.avg_batch_age_ms,
                 "avg_processing_time_ms": avg_processing_time * 1000,
-                "batch_efficiency": self.events_processed / max(self.events_batched, 1)
+                "batch_efficiency": self.events_processed / max(self.events_received, 1)
             }
 
 
@@ -284,8 +348,8 @@ class BatchingEngine:
         self.buffers: Dict[str, SymbolBatchBuffer] = {}
         self._buffers_lock = threading.RLock()
         
-        # 批处理器
-        self.batch_handlers: Dict[str, Callable] = {}
+        # 批处理器 - 支持每个事件类型多个处理器
+        self.batch_handlers: Dict[str, List[Callable]] = {}
         self._handlers_lock = threading.RLock()
         
         # 工作线程
@@ -304,38 +368,43 @@ class BatchingEngine:
     def register(self, event_type: str, handler: Callable) -> None:
         """注册批处理器"""
         with self._handlers_lock:
-            self.batch_handlers[event_type] = handler
+            if event_type not in self.batch_handlers:
+                self.batch_handlers[event_type] = []
+            self.batch_handlers[event_type].append(handler)
             logger.debug(f"注册批处理器: {event_type}")
     
-    def put(self, event_type: str, symbol: str, data: Any) -> bool:
+    def put(self, event_type: str, data: Any, symbol: str = "DEFAULT") -> bool:
         """
         添加事件到批处理引擎
-        
+
         Args:
             event_type: 事件类型
-            symbol: 交易对符号
             data: 事件数据
-            
+            symbol: 交易对符号，默认为 "DEFAULT"
+
         Returns:
             bool: 是否成功添加
         """
+        # 记录事件接收
+        self.metrics.record_event_received()
+
         # 获取或创建缓冲区
         buffer = self._get_or_create_buffer(symbol)
-        
+
         # 创建事件
         event = BatchEvent(
             event_type=event_type,
             symbol=symbol,
             data=data
         )
-        
+
         # 添加到缓冲区
         batch = buffer.add(event)
-        
+
         # 如果批次已满，提交处理
         if batch is not None:
             self._submit_batch(batch)
-        
+
         return True
     
     def _get_or_create_buffer(self, symbol: str) -> SymbolBatchBuffer:
@@ -369,17 +438,18 @@ class BatchingEngine:
             # 处理每种事件类型
             for event_type, events in events_by_type.items():
                 with self._handlers_lock:
-                    handler = self.batch_handlers.get(event_type)
-                
-                if handler is None:
+                    handlers = self.batch_handlers.get(event_type, [])
+
+                if not handlers:
                     logger.warning(f"未找到批处理器: {event_type}")
                     continue
-                
-                # 调用批处理器
-                if self.enable_vectorization:
-                    self._process_vectorized(handler, events)
-                else:
-                    self._process_sequential(handler, events)
+
+                # 调用所有批处理器
+                for handler in handlers:
+                    if self.enable_vectorization:
+                        self._process_vectorized(handler, events)
+                    else:
+                        self._process_sequential(handler, events)
             
             # 记录处理时间
             processing_time = time.time() - start_time
@@ -393,12 +463,22 @@ class BatchingEngine:
             logger.error(f"处理批次时出错: {e}")
     
     def _process_sequential(self, handler: Callable, events: List[BatchEvent]) -> None:
-        """顺序处理事件"""
-        for event in events:
-            try:
-                handler(event.data)
-            except Exception as e:
-                logger.error(f"处理事件时出错: {e}")
+        """顺序处理事件 - 传递完整的事件列表给处理器"""
+        try:
+            # 构建批次数据，包含完整的事件信息
+            batch_data = [
+                {
+                    "event_type": event.event_type,
+                    "symbol": event.symbol,
+                    "data": event.data,
+                    "timestamp": event.timestamp
+                }
+                for event in events
+            ]
+            # 调用处理器，传递整个批次
+            handler(batch_data)
+        except Exception as e:
+            logger.error(f"处理批次时出错: {e}")
     
     def _process_vectorized(self, handler: Callable, events: List[BatchEvent]) -> None:
         """向量化处理事件"""
@@ -548,9 +628,13 @@ class BatchingEngine:
             bool: 是否成功注销
         """
         with self._handlers_lock:
-            if event_type in self.batch_handlers and self.batch_handlers[event_type] == handler:
-                del self.batch_handlers[event_type]
-                return True
+            if event_type in self.batch_handlers:
+                handlers = self.batch_handlers[event_type]
+                if handler in handlers:
+                    handlers.remove(handler)
+                    if not handlers:
+                        del self.batch_handlers[event_type]
+                    return True
             return False
 
     def clear_handlers(self, event_type: str) -> None:
@@ -564,12 +648,12 @@ class BatchingEngine:
             if event_type in self.batch_handlers:
                 del self.batch_handlers[event_type]
 
-    def get_all_handlers(self) -> Dict[str, Callable]:
+    def get_all_handlers(self) -> Dict[str, List[Callable]]:
         """
         获取所有已注册的处理器
 
         Returns:
-            Dict[str, Callable]: 事件类型到处理器的映射
+            Dict[str, List[Callable]]: 事件类型到处理器列表的映射
         """
         with self._handlers_lock:
             return self.batch_handlers.copy()
@@ -591,24 +675,36 @@ class VectorizedBatchProcessor:
     def __init__(self):
         self._cache: Dict[str, np.ndarray] = {}
     
-    def process_prices(self, prices: List[float]) -> Dict[str, float]:
+    def process_prices(self, batch: List[Dict]) -> Dict[str, float]:
         """
         向量化处理价格数据
-        
+
         Args:
-            prices: 价格列表
-            
+            batch: 批次数据列表，每个元素包含 price 键
+
         Returns:
             Dict: 统计指标
         """
+        if not batch:
+            return {"count": 0}
+
+        # 提取价格数据
+        prices = []
+        for item in batch:
+            if isinstance(item, dict) and "price" in item:
+                prices.append(item["price"])
+            elif isinstance(item, (int, float)):
+                prices.append(item)
+
         if not prices:
-            return {}
-        
+            return {"count": 0}
+
         # 转换为NumPy数组
         price_array = np.array(prices, dtype=np.float32)
-        
+
         # 计算统计指标
         return {
+            "count": len(prices),
             "mean": float(np.mean(price_array)),
             "std": float(np.std(price_array)),
             "min": float(np.min(price_array)),
@@ -652,9 +748,13 @@ class VectorizedBatchProcessor:
         if not prices:
             return np.array([])
         price_array = np.array(prices, dtype=np.float64)
-        sma = np.convolve(price_array, np.ones(period)/period, mode='same')
-        sma[:period-1] = np.nan
-        return sma
+        # 使用 cumsum 计算移动平均，避免边界效应
+        cumsum = np.cumsum(np.insert(price_array, 0, 0))
+        sma = (cumsum[period:] - cumsum[:-period]) / period
+        # 填充前 period-1 个值为 NaN
+        result = np.full(len(prices), np.nan)
+        result[period-1:] = sma
+        return result
 
     def calculate_returns(self, prices: List[float]) -> np.ndarray:
         """
@@ -729,5 +829,4 @@ def create_batching_engine(
     )
 
 
-# 兼容性别名
-BatchMetrics = BatchingMetrics
+# 兼容性别名 - BatchMetrics 类已在上面定义
