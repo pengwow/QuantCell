@@ -75,6 +75,7 @@ def run(
     detail: Annotated[bool, typer.Option("--detail", help="显示详细交易输出（买入/卖出/持仓更新等）")] = False,
     save_to_db: Annotated[bool, typer.Option("--save-to-db/--no-save-to-db", help="是否保存到数据库")] = False,
     auto_download: Annotated[bool, typer.Option("--auto-download/--no-auto-download", help="是否自动下载缺失数据")] = True,
+    ignore_missing: Annotated[bool, typer.Option("--ignore-missing", help="忽略数据缺失，允许不完整数据继续回测")] = False,
     no_progress: Annotated[bool, typer.Option("--no-progress", help="不显示进度条")] = False
 ):
     """
@@ -198,25 +199,41 @@ def run(
                 time_range=time_range,
                 trading_mode=trading_mode or 'spot',
                 auto_download=auto_download,
+                ignore_missing=ignore_missing,
                 show_progress=not no_progress
             )
             
             # 报告下载结果摘要
             failed_results = [r for r in download_results if not r.success]
-            no_data_failures = [r for r in failed_results 
+            no_data_failures = [r for r in failed_results
                               if r.failure_type == DownloadFailureType.NO_DATA_AVAILABLE]
-            
+
+            # 收集数据不完整的警告信息
+            incomplete_results = [r for r in download_results if r.success and r.is_incomplete]
+
             if no_data_failures:
                 print(f"\n⚠️ 以下 {len(no_data_failures)} 个货币对数据源无可用数据，已跳过:")
                 for result in no_data_failures:
                     print(f"  - {result.symbol} {result.timeframe}")
-            
+
+            # 显示数据不完整警告
+            if incomplete_results:
+                print(f"\n⚠️ 以下 {len(incomplete_results)} 个货币对数据不完整:")
+                for result in incomplete_results:
+                    missing_pct = 100.0 - result.coverage_percent
+                    print(f"  - {result.symbol} {result.timeframe}: 覆盖率 {result.coverage_percent:.1f}%，缺失 {missing_pct:.1f}%")
+                    if result.warnings:
+                        for warning in result.warnings:
+                            print(f"    • {warning}")
+                if ignore_missing:
+                    print(f"  已根据 --ignore-missing 参数继续回测")
+
             if not data_dict:
                 print("\n✗ 没有成功加载任何数据，回测无法继续")
                 raise typer.Exit(1)
-            
+
             print(f"\n✓ 成功加载 {len(data_dict)} 个货币对的数据")
-            
+
             # 保存失败信息用于后续报告
             download_failures = [
                 {
@@ -226,6 +243,19 @@ def run(
                     'reason': r.failure_reason
                 }
                 for r in failed_results
+            ]
+
+            # 保存数据不完整信息用于后续报告
+            incomplete_data_info = [
+                {
+                    'symbol': r.symbol,
+                    'timeframe': r.timeframe,
+                    'is_incomplete': r.is_incomplete,
+                    'coverage_percent': r.coverage_percent,
+                    'missing_percent': 100.0 - r.coverage_percent,
+                    'warnings': r.warnings
+                }
+                for r in incomplete_results
             ]
                 
         except DataPreparationError as e:
@@ -260,7 +290,11 @@ def run(
         # 如果有下载失败信息，添加到结果中
         if download_failures:
             results['_download_failures'] = download_failures
-        
+
+        # 如果有数据不完整信息，添加到结果中
+        if incomplete_data_info:
+            results['_incomplete_data_info'] = incomplete_data_info
+
     except BacktestExecutionError as e:
         print(f"错误：{e}")
         raise typer.Exit(1)

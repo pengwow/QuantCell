@@ -22,8 +22,6 @@ class DataManager:
         self.data_service = data_service
         self.data_cache = {}  # 数据缓存，格式：{symbol: {interval: data}}
         self.supported_intervals = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']
-        
-        logger.info("数据管理器初始化成功")
     
     def preload_data(self, symbol, base_interval, start_time, end_time, preload_intervals=None, ensure_integrity=True):
         """

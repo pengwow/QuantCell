@@ -15,7 +15,7 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -56,6 +56,9 @@ class DataDownloadResult:
     failure_type: Optional[DownloadFailureType] = None
     failure_reason: Optional[str] = None
     data: Optional[pd.DataFrame] = None
+    warnings: List[str] = field(default_factory=list)  # 警告信息列表
+    is_incomplete: bool = False  # 数据是否不完整
+    coverage_percent: float = 100.0  # 数据覆盖率
 
 
 class DataPreparationError(Exception):
@@ -103,23 +106,25 @@ class CLICore:
         time_range: Optional[str],
         trading_mode: str,
         auto_download: bool = True,
+        ignore_missing: bool = False,
         show_progress: bool = True
     ) -> Tuple[Dict[str, pd.DataFrame], List[DataDownloadResult]]:
         """
         准备回测数据，自动检查完整性并下载缺失数据
-        
+
         参数：
             symbols: 货币对列表
             timeframes: 时间周期列表
             time_range: 时间范围字符串（YYYYMMDD-YYYYMMDD）
             trading_mode: 交易模式（spot/futures/perpetual）
             auto_download: 是否自动下载缺失数据
+            ignore_missing: 是否忽略数据缺失，允许不完整数据继续回测
             show_progress: 是否显示进度
-            
+
         返回：
-            Tuple[Dict[str, pd.DataFrame], List[DataDownloadResult]]: 
+            Tuple[Dict[str, pd.DataFrame], List[DataDownloadResult]]:
                 (成功加载的数据字典, 所有下载结果列表)
-            
+
         异常：
             DataPreparationError: 数据准备失败
         """
@@ -160,6 +165,7 @@ class CLICore:
 
                     try:
                         # 检查数据完整性
+                        integrity_result = None
                         if start_date and end_date:
                             integrity_result = checker.check_data_completeness(
                                 symbol=symbol,
@@ -170,29 +176,39 @@ class CLICore:
                                 crypto_type=trading_mode
                             )
 
-                            # 如果数据不完整且允许自动下载
-                            if not integrity_result.is_complete and auto_download:
-                                # 计算缺失百分比 (100% - 覆盖率)
+                            # 如果数据不完整
+                            if not integrity_result.is_complete:
                                 missing_percentage = 100.0 - integrity_result.coverage_percent if hasattr(integrity_result, 'coverage_percent') else 0
 
-                                if show_progress and progress_bar:
-                                    progress_bar.set_message(f"⬇️  下载 {key} 缺失数据 ({missing_percentage:.1f}%)...")
-                                else:
-                                    logger.info(f"  发现数据缺失 {missing_percentage:.1f}%，开始下载...")
-
-                                download_success, _ = self.downloader.ensure_data_complete(
-                                    symbol=symbol,
-                                    interval=timeframe,
-                                    start_time=start_date,
-                                    end_time=end_date,
-                                    market_type='crypto',
-                                    crypto_type=trading_mode
-                                )
-
-                                if not download_success:
+                                # 如果允许忽略缺失数据，记录警告并继续
+                                if ignore_missing:
                                     if show_progress and progress_bar:
-                                        progress_bar.set_message(f"⚠️  {key} 数据下载失败")
-                                    logger.warning(f"  警告: {key} 数据下载失败或仍不完整")
+                                        progress_bar.set_message(f"⚠️  {key} 数据不完整 ({missing_percentage:.1f}%)，已忽略")
+                                    logger.warning(f"  ⚠️ {key} 数据不完整 ({missing_percentage:.1f}%)，根据 --ignore-missing 参数继续")
+                                # 如果允许自动下载，尝试下载缺失数据
+                                elif auto_download:
+                                    if show_progress and progress_bar:
+                                        progress_bar.set_message(f"⬇️  下载 {key} 缺失数据 ({missing_percentage:.1f}%)...")
+                                    else:
+                                        logger.info(f"  发现数据缺失 {missing_percentage:.1f}%，开始下载...")
+
+                                    download_success, _ = self.downloader.ensure_data_complete(
+                                        symbol=symbol,
+                                        interval=timeframe,
+                                        start_time=start_date,
+                                        end_time=end_date,
+                                        market_type='crypto',
+                                        crypto_type=trading_mode
+                                    )
+
+                                    if not download_success:
+                                        if show_progress and progress_bar:
+                                            progress_bar.set_message(f"⚠️  {key} 数据下载失败")
+                                        logger.warning(f"  警告: {key} 数据下载失败或仍不完整")
+                                else:
+                                    if show_progress and progress_bar:
+                                        progress_bar.set_message(f"⚠️  {key} 数据不完整 ({missing_percentage:.1f}%)")
+                                    logger.warning(f"  ⚠️ {key} 数据不完整 ({missing_percentage:.1f}%)")
                             else:
                                 if show_progress and progress_bar:
                                     progress_bar.set_message(f"✅ {key} 数据完整")
@@ -211,14 +227,36 @@ class CLICore:
 
                         if df is not None and not df.empty:
                             data_dict[key] = df
+
+                            # 收集数据完整性信息
+                            result_warnings = []
+                            result_is_incomplete = False
+                            result_coverage_percent = 100.0
+
+                            # 只有当数据确实缺失（覆盖率<100%）时才标记为不完整
+                            if integrity_result and integrity_result.coverage_percent < 100.0:
+                                result_is_incomplete = True
+                                result_coverage_percent = integrity_result.coverage_percent
+                                missing_pct = 100.0 - integrity_result.coverage_percent
+                                result_warnings.append(
+                                    f"数据不完整，覆盖率 {integrity_result.coverage_percent:.1f}%，缺失 {missing_pct:.1f}%"
+                                )
+
                             download_results.append(DataDownloadResult(
                                 symbol=symbol,
                                 timeframe=timeframe,
                                 success=True,
-                                data=df
+                                data=df,
+                                warnings=result_warnings,
+                                is_incomplete=result_is_incomplete,
+                                coverage_percent=result_coverage_percent
                             ))
+
                             if show_progress and progress_bar:
-                                progress_bar.set_message(f"✓ {key}: {len(df)} 条数据")
+                                status_msg = f"✓ {key}: {len(df)} 条数据"
+                                if result_is_incomplete:
+                                    status_msg = f"✓ {key}: {len(df)} 条数据 (不完整 {result_coverage_percent:.1f}%)"
+                                progress_bar.set_message(status_msg)
                             logger.info(f"  ✓ 成功加载 {key}: {len(df)} 条数据")
                         else:
                             # 数据为空，判断失败类型

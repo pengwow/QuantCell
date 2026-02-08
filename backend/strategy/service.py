@@ -33,7 +33,7 @@ class StrategyService:
         # 策略执行状态
         self.strategy_executions: Dict[str, Dict[str, Any]] = {}
         
-        logger.info(f"策略服务初始化成功，策略目录: {self.strategy_dir}")
+        # logger.debug(f"策略服务初始化成功，策略目录: {self.strategy_dir}")
     
     def _parse_strategy_content(self, file_content, strategy_name):
         """

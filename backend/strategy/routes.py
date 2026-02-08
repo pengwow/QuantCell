@@ -33,8 +33,15 @@ router_strategy = APIRouter(
     },
 )
 
-# 创建策略服务实例
-strategy_service = StrategyService()
+# 策略服务实例（延迟初始化）
+_strategy_service = None
+
+def get_strategy_service() -> StrategyService:
+    """获取策略服务实例（延迟初始化）"""
+    global _strategy_service
+    if _strategy_service is None:
+        _strategy_service = StrategyService()
+    return _strategy_service
 
 
 @router_strategy.get(
@@ -67,7 +74,7 @@ def get_strategy_list(source: Optional[str] = None):
         logger.info(f"获取策略列表请求，来源: {source}")
 
         # 获取策略列表
-        strategies = strategy_service.get_strategy_list(source)
+        strategies = get_strategy_service().get_strategy_list(source)
 
         logger.info(f"成功获取策略列表，共 {len(strategies)} 个策略")
 
@@ -104,7 +111,7 @@ def get_strategy_detail(request: StrategyDetailRequest):
         logger.info(f"获取策略详情请求，策略名称: {request.strategy_name}")
 
         # 获取策略详情
-        strategy_info = strategy_service.get_strategy_detail(
+        strategy_info = get_strategy_service().get_strategy_detail(
             request.strategy_name,
             request.file_content
         )
@@ -151,7 +158,7 @@ def upload_strategy(request: StrategyUploadRequest):
         logger.info(f"上传策略文件请求，策略名称: {request.strategy_name}")
 
         # 上传策略文件，传递所有参数，包括id
-        success = strategy_service.upload_strategy_file(
+        success = get_strategy_service().upload_strategy_file(
             request.strategy_name,
             request.file_content,
             request.version,
@@ -206,7 +213,7 @@ def execute_strategy(
         )
 
         # 验证策略是否存在
-        strategy_cls = strategy_service.load_strategy(strategy_name)
+        strategy_cls = get_strategy_service().load_strategy(strategy_name)
         if not strategy_cls:
             logger.error(f"策略不存在: {strategy_name}")
             raise HTTPException(status_code=404, detail="策略不存在")
@@ -263,7 +270,7 @@ def parse_strategy(request: StrategyParseRequest):
         logger.info(f"解析策略脚本请求，策略名称: {request.strategy_name}")
 
         # 解析策略脚本
-        strategy_info = strategy_service.get_strategy_detail(
+        strategy_info = get_strategy_service().get_strategy_detail(
             request.strategy_name, request.file_content
         )
 
@@ -308,7 +315,7 @@ def delete_strategy(request: Request, strategy_name: str = Path(..., description
         logger.info(f"删除策略请求，策略名称: {strategy_name}")
 
         # 调用策略服务删除策略
-        success = strategy_service.delete_strategy(strategy_name)
+        success = get_strategy_service().delete_strategy(strategy_name)
 
         if success:
             logger.info(f"删除策略成功，策略名称: {strategy_name}")

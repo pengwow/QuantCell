@@ -575,7 +575,7 @@ def download(
             def progress_callback(current, completed, total, failed, status=None):
                 if total > 0:
                     progress_pct = int((completed / total) * 100)
-                    progress.update(progress_pct - progress.n)
+                    progress.update(progress_pct - progress.n)  # pyright: ignore[reportAttributeAccessIssue]
                     if status:
                         progress.label = f"下载进度 - {status}"
             
@@ -956,7 +956,7 @@ def list_local_data(
                                 KlineModel.data_source == source
                             ).first()
                             
-                            if stats and stats.count > 0:
+                            if stats and stats.count > 0:  # pyright: ignore[reportOperatorIssue]
                                 # 格式化时间戳
                                 min_time = stats.min_time
                                 max_time = stats.max_time
