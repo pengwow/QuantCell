@@ -14,6 +14,7 @@ import importlib
 import json
 import os
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -144,18 +145,19 @@ class CLICore:
         progress_bar = None
         if show_progress:
             progress_bar = ConsoleProgressBar(total=total_tasks, desc="数据准备")
-        
+            progress_bar.start_animation()  # 启动后台动画线程
+
         try:
             for symbol in symbols:
                 for timeframe in timeframes:
                     current_task += 1
                     key = f"{symbol}_{timeframe}"
-                    
+
                     if show_progress and progress_bar:
-                        progress_bar.update(0, f"检查 {key}")
+                        progress_bar.set_message(f"🔍 检查 {key} 数据完整性...")
                     else:
                         logger.info(f"[{current_task}/{total_tasks}] 准备数据: {key}")
-                    
+
                     try:
                         # 检查数据完整性
                         if start_date and end_date:
@@ -167,14 +169,17 @@ class CLICore:
                                 market_type='crypto',
                                 crypto_type=trading_mode
                             )
-                            
+
                             # 如果数据不完整且允许自动下载
                             if not integrity_result.is_complete and auto_download:
+                                # 计算缺失百分比 (100% - 覆盖率)
+                                missing_percentage = 100.0 - integrity_result.coverage_percent if hasattr(integrity_result, 'coverage_percent') else 0
+
                                 if show_progress and progress_bar:
-                                    progress_bar.update(0, f"下载 {key} 缺失数据...")
+                                    progress_bar.set_message(f"⬇️  下载 {key} 缺失数据 ({missing_percentage:.1f}%)...")
                                 else:
-                                    logger.info(f"  发现数据缺失，开始下载...")
-                                
+                                    logger.info(f"  发现数据缺失 {missing_percentage:.1f}%，开始下载...")
+
                                 download_success, _ = self.downloader.ensure_data_complete(
                                     symbol=symbol,
                                     interval=timeframe,
@@ -183,11 +188,19 @@ class CLICore:
                                     market_type='crypto',
                                     crypto_type=trading_mode
                                 )
-                                
+
                                 if not download_success:
+                                    if show_progress and progress_bar:
+                                        progress_bar.set_message(f"⚠️  {key} 数据下载失败")
                                     logger.warning(f"  警告: {key} 数据下载失败或仍不完整")
-                        
+                            else:
+                                if show_progress and progress_bar:
+                                    progress_bar.set_message(f"✅ {key} 数据完整")
+
                         # 从数据库加载数据
+                        if show_progress and progress_bar:
+                            progress_bar.set_message(f"📊 加载 {key} 数据...")
+
                         df = self._load_klines_from_db(
                             symbol=symbol,
                             timeframe=timeframe,
@@ -195,7 +208,7 @@ class CLICore:
                             end_date=end_date,
                             trading_mode=trading_mode
                         )
-                        
+
                         if df is not None and not df.empty:
                             data_dict[key] = df
                             download_results.append(DataDownloadResult(
@@ -204,18 +217,24 @@ class CLICore:
                                 success=True,
                                 data=df
                             ))
+                            if show_progress and progress_bar:
+                                progress_bar.set_message(f"✓ {key}: {len(df)} 条数据")
                             logger.info(f"  ✓ 成功加载 {key}: {len(df)} 条数据")
                         else:
                             # 数据为空，判断失败类型
                             failure_type = self._determine_failure_type(symbol, trading_mode)
                             failure_reason = f"无法获取 {symbol} {timeframe} 的数据"
-                            
+
                             if failure_type == DownloadFailureType.NO_DATA_AVAILABLE:
                                 failure_reason = f"数据源无可用数据: {symbol}"
+                                if show_progress and progress_bar:
+                                    progress_bar.set_message(f"⚠️  {key} 无可用数据")
                                 logger.warning(f"  ⚠️ {failure_reason}")
                             else:
+                                if show_progress and progress_bar:
+                                    progress_bar.set_message(f"✗ {key} 未找到数据")
                                 logger.warning(f"  ✗ 未找到 {key} 的数据")
-                            
+
                             download_results.append(DataDownloadResult(
                                 symbol=symbol,
                                 timeframe=timeframe,
@@ -223,12 +242,15 @@ class CLICore:
                                 failure_type=failure_type,
                                 failure_reason=failure_reason
                             ))
-                        
+
                     except Exception as e:
                         # 处理异常
                         failure_type = DownloadFailureType.UNKNOWN
                         failure_reason = str(e)
-                        
+
+                        if show_progress and progress_bar:
+                            progress_bar.set_message(f"✗ {key} 处理错误")
+
                         download_results.append(DataDownloadResult(
                             symbol=symbol,
                             timeframe=timeframe,
@@ -237,11 +259,12 @@ class CLICore:
                             failure_reason=failure_reason
                         ))
                         logger.error(f"  ✗ 处理 {key} 时发生错误: {e}")
-                    
+
                     if show_progress and progress_bar:
                         progress_bar.update(1)
-            
+
             if show_progress and progress_bar:
+                progress_bar.stop_animation()  # 停止动画线程
                 progress_bar.finish("数据准备完成")
             
             return data_dict, download_results

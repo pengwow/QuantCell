@@ -53,12 +53,12 @@ class ProgressInfo:
 
 
 class ConsoleProgressBar:
-    """控制台进度条"""
-    
+    """增强型控制台进度条 - 支持动态更新和动画效果"""
+
     def __init__(self, total: int, desc: str = "进度", bar_length: int = 40):
         """
         初始化进度条
-        
+
         参数：
             total: 总任务数
             desc: 进度条描述
@@ -69,25 +69,40 @@ class ConsoleProgressBar:
         self.bar_length = bar_length
         self.current = 0
         self.start_time = time.time()
-        
+        self.last_update_time = self.start_time
+        self.animation_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+        self.animation_idx = 0
+        self.current_message = ""
+        self._stop_animation = False
+        self._animation_thread = None
+
     def update(self, n: int = 1, message: Optional[str] = None):
         """
-        更新进度
-        
+        更新进度 - 增强版，支持动画效果和详细状态显示
+
         参数：
             n: 增加的进度
-            message: 附加消息
+            message: 附加消息，格式建议："正在处理 EUR/USD 2023-10-05 数据"
         """
         self.current += n
+        if message:
+            self.current_message = message
+
+        # 计算进度（精确到小数点后两位）
         percentage = (self.current / self.total) * 100 if self.total > 0 else 0
         filled = int(self.bar_length * self.current / self.total) if self.total > 0 else 0
+
+        # 动画效果
+        self.animation_idx = (self.animation_idx + 1) % len(self.animation_chars)
+        spinner = self.animation_chars[self.animation_idx]
+
+        # 构建进度条
         bar = '█' * filled + '░' * (self.bar_length - filled)
-        
-        # 计算已用时间
+
+        # 计算时间信息
         elapsed = time.time() - self.start_time
         elapsed_str = self._format_time(elapsed)
-        
-        # 计算预估剩余时间
+
         if self.current > 0 and self.total > 0:
             rate = self.current / elapsed if elapsed > 0 else 0
             remaining = (self.total - self.current) / rate if rate > 0 else 0
@@ -95,15 +110,52 @@ class ConsoleProgressBar:
             time_info = f"[{elapsed_str}<{remaining_str}]"
         else:
             time_info = f"[{elapsed_str}<--:--]"
-        
-        msg = f" - {message}" if message else ""
-        
-        # 使用 \r 回到行首，不换行
-        sys.stdout.write(
-            f"\r{self.desc}: [{bar}] {percentage:.1f}% "
-            f"({self.current}/{self.total}) {time_info}{msg}"
-        )
+
+        # 状态信息：转圈动画 + 状态文字
+        if self.current_message:
+            status = f"{spinner} {self.current_message}"
+        else:
+            status = spinner
+
+        # 输出格式：描述 + 进度条 + 百分比(两位小数) + 数量 + 时间 + 状态
+        output = f"\r{self.desc}: [{bar}] {percentage:.2f}% " \
+                 f"({self.current}/{self.total}) {time_info} {status}"
+
+        # 清屏并重新输出，避免残留字符
+        sys.stdout.write('\r' + ' ' * 120 + '\r')  # 清空当前行
+        sys.stdout.write(output)
         sys.stdout.flush()
+
+    def set_message(self, message: str):
+        """
+        设置当前状态消息（不更新进度，只刷新显示）
+
+        参数：
+            message: 状态消息
+        """
+        self.current_message = message
+        self.update(0)  # 刷新显示
+
+    def start_animation(self):
+        """启动后台动画线程，确保即使在没有进度更新时也能显示动画"""
+        import threading
+
+        def animate():
+            while not self._stop_animation:
+                # 如果超过0.5秒没有更新，自动刷新动画
+                if time.time() - self.last_update_time > 0.5:
+                    self.update(0)
+                time.sleep(0.1)
+
+        self._stop_animation = False
+        self._animation_thread = threading.Thread(target=animate, daemon=True)
+        self._animation_thread.start()
+
+    def stop_animation(self):
+        """停止后台动画线程"""
+        self._stop_animation = True
+        if self._animation_thread:
+            self._animation_thread.join(timeout=1)
         
     def finish(self, message: str = "完成"):
         """
