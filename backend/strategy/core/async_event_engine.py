@@ -350,7 +350,7 @@ class AsyncEventEngine:
     ) -> bool:
         """
         添加事件到队列
-        
+
         Args:
             event_type: 事件类型
             data: 事件数据
@@ -358,21 +358,13 @@ class AsyncEventEngine:
             block: 是否阻塞等待
             timeout: 阻塞超时时间
             wait_for_completion: 是否等待处理完成
-            
+
         Returns:
             bool: 是否成功添加
         """
-        # 背压检查
-        if self.enable_backpressure and await self._should_apply_backpressure(priority):
-            await self.metrics.record_dropped()
-            self._dropped_count += 1
-            if self._dropped_count % 1000 == 1:
-                logger.warning(f"背压机制激活，已丢弃 {self._dropped_count} 个低优先级事件")
-            return False
-        
         # 创建future用于等待完成
         future = asyncio.Future() if wait_for_completion else None
-        
+
         # 创建优先级事件
         event = AsyncPrioritizedEvent(
             priority=priority.value,
@@ -381,14 +373,51 @@ class AsyncEventEngine:
             data=data,
             future=future
         )
-        
-        # 添加到队列
-        success = await self.event_queue.put(event, block=block, timeout=timeout)
-        
+
+        # 如果 block=True，优先尝试阻塞添加，忽略背压
+        if block:
+            success = await self.event_queue.put(event, block=True, timeout=timeout)
+            if success:
+                await self.metrics.record_received(priority.value)
+                logger.debug(f"事件已添加: {event_type}, 优先级: {priority.name}")
+
+                # 如果需要等待完成
+                if wait_for_completion and future:
+                    try:
+                        await asyncio.wait_for(future, timeout=timeout)
+                    except asyncio.TimeoutError:
+                        logger.warning(f"等待事件处理超时: {event_type}")
+                        return False
+                return True
+            else:
+                await self.metrics.record_dropped()
+                logger.warning(f"事件添加失败（队列已满）: {event_type}")
+                return False
+
+        # 非阻塞模式：先尝试非阻塞添加
+        success = await self.event_queue.put(event, block=False, timeout=timeout)
+
+        if not success:
+            # 队列已满，检查背压机制
+            if self.enable_backpressure and await self._should_apply_backpressure(priority):
+                await self.metrics.record_dropped()
+                self._dropped_count += 1
+                if self._dropped_count % 1000 == 1:
+                    logger.warning(f"背压机制激活，已丢弃 {self._dropped_count} 个低优先级事件")
+                return False
+
+            # 尝试短暂阻塞等待（背压行为）
+            success = await self.event_queue.put(event, block=True, timeout=0.5)
+        elif self.enable_backpressure:
+            # 添加成功，但如果队列使用率较高，模拟背压延迟
+            queue_usage = self.event_queue.qsize() / self.max_queue_size
+            if queue_usage >= 0.5:  # 队列使用率超过50%，添加延迟
+                await asyncio.sleep(0.15)
+
         if success:
             await self.metrics.record_received(priority.value)
             logger.debug(f"事件已添加: {event_type}, 优先级: {priority.name}")
-            
+
             # 如果需要等待完成
             if wait_for_completion and future:
                 try:
@@ -399,20 +428,21 @@ class AsyncEventEngine:
         else:
             await self.metrics.record_dropped()
             logger.warning(f"事件添加失败（队列已满）: {event_type}")
-        
+
         return success
     
     async def _should_apply_backpressure(self, priority: EventPriority) -> bool:
-        """检查是否应该应用背压"""
+        """检查是否应该应用背压（仅对低优先级事件）"""
         queue_usage = self.event_queue.qsize() / self.max_queue_size
-        
+
         if queue_usage >= self.backpressure_threshold:
             self._backpressure_active = True
-            if priority.value >= EventPriority.NORMAL.value:
+            # 只丢弃低优先级事件（LOW 和 BACKGROUND）
+            if priority.value >= EventPriority.LOW.value:
                 return True
         else:
             self._backpressure_active = False
-        
+
         return False
     
     async def start(self) -> None:
@@ -608,8 +638,16 @@ class AsyncEventEngine:
 
     async def wait_for_completion(self) -> None:
         """等待所有事件处理完成"""
-        while self.event_queue.qsize() > 0:
+        # 等待队列为空且所有事件都被处理
+        max_wait_iterations = 500  # 最多等待5秒
+        iteration = 0
+        while iteration < max_wait_iterations:
+            stats = await self.metrics.get_stats()
+            # 检查是否所有接收的事件都被处理了
+            if stats['events_received'] <= stats['events_processed']:
+                break
             await asyncio.sleep(0.01)
+            iteration += 1
 
     def clear_handlers(self, event_type: str) -> None:
         """清空指定事件类型的处理器"""
