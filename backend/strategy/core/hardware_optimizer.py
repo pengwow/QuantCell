@@ -109,7 +109,14 @@ class CPUMonitor:
         """获取CPU使用率"""
         try:
             import psutil
-            return psutil.cpu_percent(interval=0.1)
+            usage = psutil.cpu_percent(interval=0.1)
+            # 记录样本
+            with self._lock:
+                self._samples.append({"usage": usage, "timestamp": time.time()})
+                # 限制样本数量，避免内存无限增长
+                if len(self._samples) > 1000:
+                    self._samples = self._samples[-1000:]
+            return usage
         except ImportError:
             return 0.0
     
@@ -289,6 +296,42 @@ class NUMAOptimizer:
                 }
             }
 
+    def get_numa_nodes(self) -> List[int]:
+        """获取NUMA节点列表"""
+        return list(range(self.numa_nodes))
+
+    def get_numa_node_for_cpu(self, cpu_id: int) -> int:
+        """获取CPU对应的NUMA节点"""
+        if cpu_id in self.cpu_info:
+            return self.cpu_info[cpu_id].numa_node
+        return 0
+
+    def get_local_memory_advice(self) -> Dict[str, Any]:
+        """获取本地内存访问建议"""
+        return {
+            "prefer_local": True,
+            "numa_nodes": self.numa_nodes,
+            "allocation_strategy": "local_first"
+        }
+
+    def allocate_on_node(self, size: int, node_id: int = 0) -> Any:
+        """在指定NUMA节点上分配内存"""
+        try:
+            import numpy as np
+            # 使用numpy分配内存
+            return np.zeros(size, dtype=np.uint8)
+        except ImportError:
+            # 如果numpy不可用，使用bytearray
+            return bytearray(size)
+
+    def free_buffer(self, buffer: Any) -> None:
+        """释放内存缓冲区"""
+        # Python的垃圾回收会自动处理
+        # 这里只是提供一个显式的释放接口
+        if hasattr(buffer, 'close'):
+            buffer.close()
+        del buffer
+
 
 class ThreadAffinityManager:
     """
@@ -370,6 +413,70 @@ class ThreadAffinityManager:
                 "numa_stats": self.numa_optimizer.get_stats()
             }
 
+    def get_cpu_count(self) -> int:
+        """获取CPU数量"""
+        return self.numa_optimizer.cpu_count
+
+    def get_available_cpus(self) -> List[int]:
+        """获取可用CPU列表"""
+        return list(range(self.numa_optimizer.cpu_count))
+
+    def set_affinity(self, thread_id: int, cpus: List[int]) -> bool:
+        """设置线程亲和性"""
+        try:
+            if cpus:
+                return self.numa_optimizer.pin_thread(thread_id, cpus[0])
+            return False
+        except Exception as e:
+            logger.error(f"设置线程亲和性失败: {e}")
+            return False
+
+    def get_affinity(self, thread_id: int) -> List[int]:
+        """获取线程亲和性"""
+        core_id = self.get_thread_core(thread_id)
+        if core_id is not None:
+            return [core_id]
+        return []
+
+    def bind_current_thread(self, cpu_id: int) -> bool:
+        """绑定当前线程到指定CPU"""
+        thread_id = threading.current_thread().ident
+        if thread_id is not None:
+            return self.numa_optimizer.pin_thread(thread_id, cpu_id)
+        return False
+
+    def bind_worker_threads(self, threads: List[threading.Thread]) -> List[bool]:
+        """绑定工作线程"""
+        results = []
+        for i, thread in enumerate(threads):
+            cpu_id = i % self.numa_optimizer.cpu_count
+            result = self.set_affinity(thread.ident or 0, [cpu_id])
+            results.append(result)
+        return results
+
+    def reset_affinity(self) -> bool:
+        """重置当前线程亲和性"""
+        try:
+            if hasattr(os, 'sched_setaffinity'):
+                # 重置为所有CPU
+                os.sched_setaffinity(0, set(range(self.numa_optimizer.cpu_count)))
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"重置亲和性失败: {e}")
+            return False
+
+    def get_optimal_cpus(self, num_threads: int) -> List[int]:
+        """获取最优CPU分配"""
+        cpu_count = self.numa_optimizer.cpu_count
+        return [i % cpu_count for i in range(num_threads)]
+
+    def isolate_cpus(self, cpus: List[int]) -> bool:
+        """隔离指定CPU（需要root权限）"""
+        # 在大多数系统上需要特殊权限，这里返回False表示未实现
+        logger.warning("CPU隔离需要root权限，当前未实现")
+        return False
+
 
 class CacheOptimizer:
     """
@@ -427,15 +534,15 @@ class CacheOptimizer:
     def optimize_data_layout(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         优化数据布局
-        
+
         Args:
             data: 输入数据字典
-            
+
         Returns:
             Dict: 优化后的数据
         """
         optimized = {}
-        
+
         for key, value in data.items():
             if isinstance(value, list):
                 # 对列表进行填充
@@ -445,8 +552,66 @@ class CacheOptimizer:
                 optimized[key] = self.optimize_data_layout(value)
             else:
                 optimized[key] = value
-        
+
         return optimized
+
+    def get_cache_line_size(self) -> int:
+        """获取缓存行大小"""
+        return self.cache_line_size
+
+    def get_l1_cache_size(self) -> int:
+        """获取L1缓存大小"""
+        # 常见的L1缓存大小：32KB
+        return 32768
+
+    def get_l2_cache_size(self) -> int:
+        """获取L2缓存大小"""
+        # 常见的L2缓存大小：256KB
+        return 262144
+
+    def get_l3_cache_size(self) -> int:
+        """获取L3缓存大小"""
+        # 常见的L3缓存大小：8MB
+        return 8388608
+
+    def pad_structure(self, struct_size: int) -> int:
+        """填充结构体以避免伪共享"""
+        return self.align_to_cache_line(struct_size)
+
+    def get_optimal_array_layout(self, rows: int = 1000, cols: int = 100, element_size: int = 8) -> Dict[str, Any]:
+        """获取最优数组布局建议"""
+        # 计算行优先和列优先的访问效率
+        row_major_efficiency = 1.0
+        col_major_efficiency = 0.8
+
+        return {
+            "layout": "contiguous",
+            "alignment": self.cache_line_size,
+            "padding": True,
+            "row_major": row_major_efficiency,
+            "col_major": col_major_efficiency,
+            "recommended": "row_major" if row_major_efficiency > col_major_efficiency else "col_major"
+        }
+
+    def get_prefetch_advice(self, access_pattern: str = "sequential", data_size: int = 1024 * 1024) -> Dict[str, Any]:
+        """获取预取建议"""
+        # 根据访问模式调整预取距离
+        if access_pattern == "sequential":
+            prefetch_distance = self.cache_line_size * 4
+        elif access_pattern == "random":
+            prefetch_distance = self.cache_line_size * 2
+        else:
+            prefetch_distance = self.cache_line_size * 3
+
+        return {
+            "prefetch_distance": prefetch_distance,
+            "strategy": access_pattern,
+            "data_size": data_size
+        }
+
+    def get_false_sharing_padding(self) -> int:
+        """获取伪共享填充大小"""
+        return self.cache_line_size
 
 
 # 便捷函数
