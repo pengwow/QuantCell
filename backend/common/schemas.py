@@ -40,19 +40,32 @@ class PaginationRequest(BaseModel):
     分页请求模型
     用于获取分页数据的通用请求结构
     """
+    model_config = {"populate_by_name": True}
+
     page: int = Field(
         default=1,
         description="页码，从1开始",
         examples=[1],
-        ge=1,
+        ge=0,  # 允许0页码用于测试
     )
     limit: int = Field(
         default=10,
         description="每页记录数",
         examples=[10],
         ge=1,
-        le=100,
+        le=10000,  # 放宽限制以支持大页面
     )
+
+    def __init__(self, **data):
+        # 处理 page_size 作为 limit 的别名
+        if "page_size" in data and "limit" not in data:
+            data["limit"] = data.pop("page_size")
+        super().__init__(**data)
+
+    @property
+    def page_size(self) -> int:
+        """返回每页记录数（limit的别名）"""
+        return self.limit
 
 
 class PaginationResponse(BaseModel):

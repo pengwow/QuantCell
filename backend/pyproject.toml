@@ -35,6 +35,7 @@ dependencies = [
     "pyqlib>=0.9.7",
     "pysocks>=1.7.1",
     "pytest>=9.0.1",
+    "pytest-mock>=3.12.0",
     "python-multipart>=0.0.20",
     "python-socks>=2.8.0",
     "pytz>=2025.2",
@@ -53,6 +54,7 @@ dependencies = [
     "vectorbt>=0.28.2",
     "xgboost>=3.1.2",
     "yfinance>=1.1.0",
+    "ruff>=0.12.12",
 ]
 
 [tool.pytest.ini_options]
@@ -62,8 +64,43 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --strict-markers"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "asyncio: marks tests as async",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "api: marks tests as API tests",
+    "auth: marks tests as authentication tests",
+    "schema: marks tests as schema validation tests",
+    "error: marks tests as error handling tests",
 ]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["backend"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/venv/*",
+    "*/.venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+skip_covered = false
+fail_under = 90
+
+[tool.coverage.html]
+directory = "htmlcov"

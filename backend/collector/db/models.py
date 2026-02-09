@@ -9,11 +9,37 @@ from sqlalchemy.orm import Session
 from .database import Base
 
 # 导入时区工具类
+# 注意：使用函数内部导入以避免循环导入问题
+# 在模块级别尝试导入，失败时延迟到函数内部导入
 try:
     from utils.timezone import to_utc_time, to_local_time, format_datetime
 except ImportError:
-    # 使用相对导入作为备选
-    from ...utils.timezone import to_utc_time, to_local_time, format_datetime
+    # 导入失败时定义占位函数，实际导入延迟到函数内部
+    _timezone_imported = False
+    
+    def _lazy_import_timezone():
+        """延迟导入时区工具函数"""
+        from utils.timezone import to_utc_time as _to_utc
+        from utils.timezone import to_local_time as _to_local
+        from utils.timezone import format_datetime as _format_dt
+        return _to_utc, _to_local, _format_dt
+    
+    def to_utc_time(dt):
+        """将本地时区时间转换为UTC时间（延迟导入版本）"""
+        _to_utc, _, _ = _lazy_import_timezone()
+        return _to_utc(dt)
+    
+    def to_local_time(dt):
+        """将UTC时间转换为本地时区时间（延迟导入版本）"""
+        _, _to_local, _ = _lazy_import_timezone()
+        return _to_local(dt)
+    
+    def format_datetime(dt, format_str="%Y-%m-%d %H:%M:%S"):
+        """格式化datetime对象为字符串（延迟导入版本）"""
+        _, _, _format_dt = _lazy_import_timezone()
+        return _format_dt(dt, format_str)
+else:
+    _timezone_imported = True
 
 # SQLAlchemy模型定义
 

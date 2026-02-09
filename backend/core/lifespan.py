@@ -20,6 +20,7 @@ from plugins import init_plugin_system
 from realtime.engine import RealtimeEngine
 from realtime.routes import setup_routes
 from websocket.manager import manager
+from utils.secret_key_manager import initialize_secret_key
 
 from services.symbol_sync import symbol_sync_manager
 from core.scheduler import start_scheduler
@@ -40,6 +41,12 @@ async def lifespan(app: FastAPI):
         None: 无返回值
     """
     global realtime_engine
+
+    # 首先初始化JWT安全密钥（在其他组件之前）
+    logger.info("正在初始化JWT安全密钥...")
+    jwt_secret_key = await asyncio.to_thread(initialize_secret_key)
+    app.state.jwt_secret_key = jwt_secret_key
+    logger.info("JWT安全密钥初始化完成")
 
     # 启动时异步初始化数据库
     await asyncio.to_thread(init_database)

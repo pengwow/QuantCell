@@ -16,6 +16,8 @@ from backtest.schemas import (ApiResponse, BacktestAnalyzeRequest,
                       BacktestStopRequest)
 from strategy.schemas import StrategyUploadRequest
 from backtest.service import BacktestService
+from backtest.data_integrity import DataIntegrityChecker
+from backtest.data_downloader import BacktestDataDownloader
 
 # 创建API路由实例
 router = APIRouter()
@@ -34,7 +36,7 @@ router_backtest = APIRouter(
 )
 
 @router_backtest.get(
-    "/list", 
+    "/list",
     response_model=ApiResponse,
     summary="获取回测列表",
     description="获取所有回测任务的列表，支持分页查询",
@@ -43,7 +45,7 @@ router_backtest = APIRouter(
         500: {"description": "获取回测列表失败"}
     }
 )
-def get_backtest_list(request: BacktestListRequest = None):
+def get_backtest_list(request: Optional[BacktestListRequest] = None):
     """
     获取所有回测结果列表
     
@@ -234,6 +236,27 @@ def analyze_backtest(request: BacktestAnalyzeRequest):
     except Exception as e:
         logger.error(f"回测结果分析失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router_backtest.delete("/delete", response_model=ApiResponse)
+@jwt_auth_required_sync
+def delete_backtest_no_id(request: Request):
+    """
+    删除回测结果（无ID时返回重定向）
+    
+    Returns:
+        ApiResponse: 重定向响应
+    """
+    # 返回307临时重定向，提示需要提供backtest_id
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=307,
+        content={
+            "code": -1,
+            "message": "请提供回测ID",
+            "data": {"redirect": "/api/backtest/list"}
+        }
+    )
 
 
 @router_backtest.delete("/delete/{backtest_id}", response_model=ApiResponse)
@@ -601,7 +624,7 @@ def check_data_integrity(request: DataIntegrityCheckRequest):
     try:
         logger.info(f"数据完整性检查请求: {request.symbol} {request.interval}")
         
-        from backtest.data_integrity import DataIntegrityChecker
+        # 使用模块级别的导入，以便测试时可以被mock
         from datetime import datetime
         
         # 解析时间
@@ -668,7 +691,7 @@ def download_missing_data(request: DataIntegrityCheckRequest):
     try:
         logger.info(f"数据下载请求: {request.symbol} {request.interval}")
         
-        from backtest.data_downloader import BacktestDataDownloader
+        # 使用模块级别的导入，以便测试时可以被mock
         from datetime import datetime
         
         # 解析时间
