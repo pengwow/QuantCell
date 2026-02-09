@@ -8,7 +8,7 @@ import sys
 import os
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 
 import typer
@@ -16,6 +16,14 @@ from typing_extensions import Annotated
 from loguru import logger
 from sqlalchemy import func
 import pandas as pd
+
+# 尝试导入 dateutil，如果不存在则使用 timedelta 替代
+try:
+    from dateutil.relativedelta import relativedelta
+    HAS_RELATIVEDELTA = True
+except ImportError:
+    HAS_RELATIVEDELTA = False
+    logger.warning("python-dateutil 未安装，使用 timedelta 替代月份计算")
 
 # 添加后端目录到路径
 backend_path = Path(__file__).resolve().parent.parent
@@ -59,6 +67,62 @@ def init_db():
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
         raise
+
+
+def _get_all_available_symbols() -> List[str]:
+    """
+    获取所有可用货币对
+
+    从数据库中查询所有已注册的货币对符号
+
+    Returns:
+        List[str]: 货币对列表
+    """
+    try:
+        db = SessionLocal()
+        # 从 CryptoSymbol 表中获取所有符号
+        symbols = db.query(CryptoSymbol.symbol).distinct().all()
+        symbol_list = [s[0] for s in symbols if s[0]]
+        logger.debug(f"从数据库获取到 {len(symbol_list)} 个货币对")
+        return symbol_list
+    except Exception as e:
+        logger.error(f"获取货币对列表失败: {e}")
+        return []
+    finally:
+        db.close()
+
+
+def _get_default_date_range(end_date: Optional[datetime] = None) -> tuple[str, str]:
+    """
+    获取默认日期范围
+
+    当用户未指定时间范围时，提供默认的开始和结束时间：
+    - 结束时间：如果未指定，使用当前时间
+    - 开始时间：结束时间往前推1个月
+
+    Args:
+        end_date: 指定的结束日期，如果为None则使用当前时间
+
+    Returns:
+        tuple: (start_date_str, end_date_str) 格式为 YYYYMMDD
+    """
+    # 确定结束时间
+    if end_date is None:
+        end_date = datetime.now()
+
+    # 计算开始时间（1个月前）
+    if HAS_RELATIVEDELTA:
+        start_date = end_date - relativedelta(months=1)
+    else:
+        # 使用 timedelta 近似计算（30天）
+        start_date = end_date - timedelta(days=30)
+
+    # 格式化为 YYYYMMDD
+    start_str = start_date.strftime("%Y%m%d")
+    end_str = end_date.strftime("%Y%m%d")
+
+    logger.debug(f"默认日期范围: {start_str} 至 {end_str}")
+    return start_str, end_str
 
 
 # ========== 导出子命令 ==========
@@ -431,11 +495,11 @@ app.add_typer(import_app, name="import", help="从文件导入数据到数据库
 
 @app.command()
 def download(
-    symbols: Annotated[List[str], typer.Option("--symbols", "-s", help="交易对列表，可多次指定")] = [],
+    symbols: Annotated[Optional[List[str]], typer.Option("--symbols", "-s", help="交易对列表，可多次指定，不指定则下载全部")] = None,
     pool: Annotated[Optional[str], typer.Option("--pool", help="自选组合名称")] = None,
-    interval: Annotated[List[str], typer.Option("--interval", "-i", help="时间周期列表，可多次指定(如: 1m, 5m, 15m, 30m, 1h, 4h, 1d)")] = [],
-    start: Annotated[str, typer.Option("--start", help="开始时间(格式: YYYYMMDD，如20240101)")] = "",
-    end: Annotated[str, typer.Option("--end", help="结束时间(格式: YYYYMMDD，如20241231)")] = "",
+    interval: Annotated[Optional[List[str]], typer.Option("--interval", "-i", help="时间周期列表，默认1h(如: 1m, 5m, 15m, 30m, 1h, 4h, 1d)")] = None,
+    start: Annotated[Optional[str], typer.Option("--start", help="开始时间(YYYYMMDD)，默认1个月前")] = None,
+    end: Annotated[Optional[str], typer.Option("--end", help="结束时间(YYYYMMDD)，默认今天")] = None,
     exchange: Annotated[str, typer.Option("--exchange", "-e", help="交易所")] = "binance",
     candle_type: Annotated[str, typer.Option("--candle-type", help="蜡烛图类型(spot/future)")] = "spot",
     max_workers: Annotated[int, typer.Option("--max-workers", "-w", help="最大工作线程数")] = 1,
@@ -447,11 +511,24 @@ def download(
     """
     下载K线数据
 
-    支持多交易对、多时间周期批量下载，数据将保存到指定目录并可选写入数据库
+    支持多交易对、多时间周期批量下载，数据将保存到指定目录并可选写入数据库。
+    
+    参数默认值逻辑：
+    - 当--symbols和--pool均缺失时：自动获取全部可用货币对
+    - 当--interval缺失时：默认下载1小时(1h)数据
+    - 当--start和--end均缺失时：默认下载最近1个月数据
+    - 当仅--start缺失时：从--end往前推1个月作为开始时间
+    - 当仅--end缺失时：使用当前时间作为结束时间
 
     示例:
-      # 使用交易对列表
-      python data_cli.py download -s BTCUSDT -s ETHUSDT -i 15m --start 20240101 --end 20241231
+      # 下载所有货币对的1小时数据（最近1个月）
+      python data_cli.py download
+      
+      # 下载指定货币对的1小时数据（最近1个月）
+      python data_cli.py download -s BTCUSDT -s ETHUSDT
+      
+      # 下载指定时间范围的数据
+      python data_cli.py download -s BTCUSDT -i 15m --start 20240101 --end 20241231
 
       # 使用自选组合
       python data_cli.py download --pool 我的自选组合 -i 15m --start 20240101 --end 20241231
@@ -478,20 +555,48 @@ def download(
             typer.echo(f"错误: {e}", err=True)
             raise typer.Exit(1)
 
-    # 验证必需参数
+    # ========== 参数默认值处理 ==========
+    
+    # 1. 处理 symbols 参数（当 symbols 和 pool 都缺失时，获取全部货币对）
     if not symbols:
-        typer.echo("错误: 请指定至少一个交易对，使用 -s/--symbols 或 --pool 参数", err=True)
-        raise typer.Exit(1)
+        logger.info("未指定交易对，正在获取全部可用货币对...")
+        try:
+            init_db()
+            symbols = _get_all_available_symbols()
+            if not symbols:
+                typer.echo("错误: 数据库中没有可用货币对，请先添加货币对", err=True)
+                raise typer.Exit(1)
+            logger.info(f"成功获取 {len(symbols)} 个货币对")
+        except Exception as e:
+            typer.echo(f"错误: 获取货币对列表失败: {e}", err=True)
+            raise typer.Exit(1)
     
+    # 2. 处理 interval 参数（默认1h）
     if not interval:
-        typer.echo("错误: 请指定至少一个时间周期，使用 -i 或 --interval 参数", err=True)
-        raise typer.Exit(1)
+        interval = ["1h"]
+        logger.info(f"未指定时间周期，使用默认值: {interval[0]}")
     
-    if not start or not end:
-        typer.echo("错误: 请指定开始时间和结束时间，使用 --start 和 --end 参数", err=True)
-        raise typer.Exit(1)
+    # 3. 处理 start 和 end 参数
+    if not start and not end:
+        # 都缺失：结束时间=今天，开始时间=1个月前
+        start, end = _get_default_date_range()
+        logger.info(f"未指定时间范围，使用默认值: {start} 至 {end}")
+    elif not start and end:
+        # 仅start缺失：开始时间=结束时间往前推1个月
+        try:
+            end_date = datetime.strptime(end, "%Y%m%d")
+            start, _ = _get_default_date_range(end_date)
+            logger.info(f"未指定开始时间，使用默认值: {start}")
+        except ValueError:
+            typer.echo(f"错误: 结束时间格式不正确: {end}，请使用 YYYYMMDD 格式", err=True)
+            raise typer.Exit(1)
+    elif start and not end:
+        # 仅end缺失：结束时间=今天
+        end = datetime.now().strftime("%Y%m%d")
+        logger.info(f"未指定结束时间，使用默认值: {end}")
     
-    # 验证时间格式
+    # 验证时间格式并转换
+    assert start is not None and end is not None, "start 和 end 不应该为 None"
     try:
         start_dt = datetime.strptime(start, "%Y%m%d")
         end_dt = datetime.strptime(end, "%Y%m%d")
