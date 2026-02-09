@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <!-- 蓝色渐变 - Q字母边框 -->
+    <linearGradient id="qBorderGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0ea5e9;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#0284c7;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0369a1;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- 绿色渐变 - 方块元素 -->
+    <linearGradient id="greenBlockGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#22c55e;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#16a34a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#15803d;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- 阴影效果 -->
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+    
+    <!-- 绿色方块发光效果 -->
+    <filter id="greenGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="0.5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Q字母轮廓组 -->
+  <g id="qLetterOutline" filter="url(#dropShadow)">
+    <!-- Q的圆形主体部分 - 使用路径绘制，右下角留空 -->
+    <path d="M 16 2 
+             C 8.268 2, 2 8.268, 2 16 
+             C 2 23.732, 8.268 30, 16 30 
+             L 18 30 
+             L 18 26 
+             L 16 26 
+             C 10.477 26, 6 21.523, 6 16 
+             C 6 10.477, 10.477 6, 16 6 
+             C 21.523 6, 26 10.477, 26 16 
+             L 26 18 
+             L 30 18 
+             L 30 16 
+             C 30 8.268, 23.732 2, 16 2 Z" 
+          fill="url(#qBorderGradient)"/>
+    
+    <!-- Q的尾巴部分 - 右下角延伸 -->
+    <path d="M 22 22 
+             L 28 28 
+             L 25 28 
+             L 22 25 Z" 
+          fill="url(#qBorderGradient)"/>
+  </g>
+  
+  <!-- 绿色方块组 -->
+  <g id="greenBlocks">
+    <!-- 右下角大方块 - Q的点 -->
+    <rect id="largeGreenBlock" 
+          x="19" y="19" 
+          width="10" height="10" 
+          rx="2" ry="2"
+          fill="url(#greenBlockGradient)"
+          filter="url(#greenGlow)"
+          stroke="rgba(255,255,255,0.3)"
+          stroke-width="0.5"/>
+    
+    <!-- 中间小方块 -->
+    <rect id="smallGreenBlock" 
+          x="13" y="13" 
+          width="6" height="6" 
+          rx="1.5" ry="1.5"
+          fill="url(#greenBlockGradient)"
+          filter="url(#greenGlow)"
+          stroke="rgba(255,255,255,0.3)"
+          stroke-width="0.5"/>
+  </g>
+  
+  <!-- 装饰性高光 -->
+  <g id="highlights" opacity="0.4">
+    <!-- 大方块高光 -->
+    <rect x="20.5" y="20.5" width="3" height="3" rx="1" fill="white"/>
+    <!-- 小方块高光 -->
+    <rect x="14" y="14" width="2" height="2" rx="0.5" fill="white"/>
+  </g>
+</svg>
