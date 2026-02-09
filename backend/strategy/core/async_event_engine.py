@@ -161,7 +161,8 @@ class AsyncBoundedPriorityQueue:
     async def get(self, block: bool = True, timeout: Optional[float] = None) -> Any:
         """从队列获取事件，返回 (priority, data) 元组"""
         async with self._not_empty:
-            if self._size == 0:
+            # 等待队列中有数据
+            if self._size == 0 or not self._queue:
                 if not block:
                     return None
                 try:
@@ -171,6 +172,10 @@ class AsyncBoundedPriorityQueue:
                     )
                 except asyncio.TimeoutError:
                     return None
+
+            # 再次检查队列是否为空（防止竞态条件）
+            if not self._queue:
+                return None
 
             event = heapq.heappop(self._queue)
             self._size -= 1
@@ -181,7 +186,8 @@ class AsyncBoundedPriorityQueue:
     async def get_event(self, block: bool = True, timeout: Optional[float] = None) -> Optional[AsyncPrioritizedEvent]:
         """从队列获取事件（返回 AsyncPrioritizedEvent 对象）"""
         async with self._not_empty:
-            if self._size == 0:
+            # 等待队列中有数据
+            if self._size == 0 or not self._queue:
                 if not block:
                     return None
                 try:
@@ -191,6 +197,10 @@ class AsyncBoundedPriorityQueue:
                     )
                 except asyncio.TimeoutError:
                     return None
+
+            # 再次检查队列是否为空（防止竞态条件）
+            if not self._queue:
+                return None
 
             event = heapq.heappop(self._queue)
             self._size -= 1
