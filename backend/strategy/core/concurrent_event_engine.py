@@ -31,14 +31,19 @@ class EventPriority(IntEnum):
     BACKGROUND = 4
 
 
-@dataclass
+@dataclass(order=True)
 class SymbolEvent:
     """符号事件包装器"""
     event_type: str
     symbol: str
     data: Any
-    priority: int = 2
+    priority: int = 0
     timestamp: float = field(default_factory=time.time)
+
+    def __post_init__(self):
+        """初始化后处理，确保优先级为整数"""
+        if not isinstance(self.priority, int):
+            self.priority = int(self.priority)
 
 
 class ShardRouter:
@@ -54,24 +59,28 @@ class ShardRouter:
     def get_shard(self, symbol: str) -> int:
         """
         获取交易对应的分片ID
-        
+
         Args:
             symbol: 交易对符号
-            
+
         Returns:
             int: 分片ID
         """
+        # 处理 None 输入
+        if symbol is None:
+            symbol = ""
+
         with self._lock:
             if symbol in self._symbol_to_shard:
                 return self._symbol_to_shard[symbol]
-            
+
             # 计算哈希
             hash_value = int(hashlib.md5(symbol.encode()).hexdigest(), 16)
             shard_id = hash_value % self.num_shards
-            
+
             # 缓存结果
             self._symbol_to_shard[symbol] = shard_id
-            
+
             return shard_id
     
     def get_all_shards(self) -> List[int]:
@@ -106,26 +115,30 @@ class SymbolShard:
         self._worker_thread: Optional[threading.Thread] = None
         self._running = False
         self._stop_event = threading.Event()
-        
+
+        # 事件处理器（用于独立使用）
+        self._handlers: Dict[str, List[Callable]] = {}
+        self._handlers_lock = threading.RLock()
+
         # 统计
         self.events_processed = 0
         self.events_dropped = 0
-    
+
     def add_symbol(self, symbol: str) -> None:
         """添加交易对到分片"""
         with self._lock:
             self.symbols.add(symbol)
-    
+
     def remove_symbol(self, symbol: str) -> None:
         """从分片移除交易对"""
         with self._lock:
             self.symbols.discard(symbol)
-    
+
     def has_symbol(self, symbol: str) -> bool:
         """检查分片是否包含交易对"""
         with self._lock:
             return symbol in self.symbols
-    
+
     def put(self, event: SymbolEvent, block: bool = False, timeout: Optional[float] = None) -> bool:
         """添加事件到分片队列"""
         try:
@@ -144,13 +157,30 @@ class SymbolShard:
         """
         return self.queue.qsize()
 
-    def start(self, handler_callback: Callable) -> None:
+    @property
+    def running(self) -> bool:
+        """获取分片运行状态"""
+        return self._running
+
+    def register(self, event_type: str, handler: Callable) -> None:
+        """注册事件处理器"""
+        with self._handlers_lock:
+            if event_type not in self._handlers:
+                self._handlers[event_type] = []
+            self._handlers[event_type].append(handler)
+
+    def start(self, handler_callback: Optional[Callable] = None) -> None:
         """启动分片工作线程"""
         if self._running:
             return
-        
+
         self._running = True
         self._stop_event.clear()
+
+        # 如果没有提供处理器，使用内部处理器
+        if handler_callback is None:
+            handler_callback = self._process_event
+
         self._worker_thread = threading.Thread(
             target=self._worker_loop,
             args=(handler_callback,),
@@ -159,6 +189,17 @@ class SymbolShard:
         )
         self._worker_thread.start()
         logger.debug(f"分片 {self.shard_id} 已启动")
+
+    def _process_event(self, event: SymbolEvent) -> None:
+        """处理单个事件（内部处理器）"""
+        with self._handlers_lock:
+            handlers = self._handlers.get(event.event_type, [])
+
+        for handler in handlers:
+            try:
+                handler(event)
+            except Exception as e:
+                logger.error(f"事件处理器执行失败: {event.event_type}, 错误: {e}")
     
     def stop(self, timeout: float = 2.0) -> None:
         """停止分片工作线程"""

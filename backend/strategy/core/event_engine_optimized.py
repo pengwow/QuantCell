@@ -242,10 +242,13 @@ class OptimizedEventEngine:
         
         # 有界优先级队列
         self.event_queue = BoundedPriorityQueue(maxsize=max_queue_size)
-        
+
         # 事件处理器
         self.handlers: Dict[str, List[Callable]] = {}
         self._handlers_lock = threading.RLock()
+
+        # 原始处理器到包装处理器的映射（用于正确注销）
+        self._handler_wrappers: Dict[str, Dict[Callable, Callable]] = {}
         
         # 工作线程
         self._workers: List[threading.Thread] = []
@@ -290,12 +293,12 @@ class OptimizedEventEngine:
         logger.warning(f"事件引擎降级级别变化: {old_level.name} -> {new_level.name}")
         # 可以在这里触发告警通知
     
-    def register(self, event_type: str, handler: Callable, 
+    def register(self, event_type: str, handler: Callable,
                  failure_threshold: Optional[int] = None,
                  recovery_timeout: Optional[float] = None) -> None:
         """
         注册事件处理器
-        
+
         Args:
             event_type: 事件类型
             handler: 处理函数
@@ -305,30 +308,49 @@ class OptimizedEventEngine:
         with self._handlers_lock:
             if event_type not in self.handlers:
                 self.handlers[event_type] = []
-            
+                self._handler_wrappers[event_type] = {}
+
+            # 保存原始处理器引用
+            original_handler = handler
+
             # 如果启用异常隔离，包装处理器
             if self._exception_isolation:
                 handler = self._exception_isolation.wrap_handler(
                     event_type, handler, failure_threshold, recovery_timeout
                 )
-            
+
+            # 保存原始处理器到包装处理器的映射
+            self._handler_wrappers[event_type][original_handler] = handler
+
             self.handlers[event_type].append(handler)
             logger.debug(f"注册事件处理器: {event_type}, 当前处理器数量: {len(self.handlers[event_type])}")
-    
+
     def unregister(self, event_type: str, handler: Callable) -> bool:
         """
         注销事件处理器
-        
+
         Args:
             event_type: 事件类型
-            handler: 处理函数
-            
+            handler: 处理函数（原始处理器）
+
         Returns:
             bool: 是否成功注销
         """
         with self._handlers_lock:
-            if event_type in self.handlers and handler in self.handlers[event_type]:
-                self.handlers[event_type].remove(handler)
+            if event_type not in self.handlers:
+                return False
+
+            # 查找包装后的处理器
+            wrapped_handler = self._handler_wrappers.get(event_type, {}).get(handler)
+            if wrapped_handler is None:
+                # 如果没有找到包装器，尝试直接使用原始处理器
+                wrapped_handler = handler
+
+            if wrapped_handler in self.handlers[event_type]:
+                self.handlers[event_type].remove(wrapped_handler)
+                # 清理映射
+                if handler in self._handler_wrappers.get(event_type, {}):
+                    del self._handler_wrappers[event_type][handler]
                 return True
             return False
     
@@ -715,7 +737,8 @@ def create_optimized_engine(
     max_queue_size: int = 100000,
     num_workers: int = 4,
     enable_backpressure: bool = True,
-    backpressure_threshold: float = 0.8
+    backpressure_threshold: float = 0.8,
+    enable_graceful_degradation: bool = True
 ) -> OptimizedEventEngine:
     """
     创建优化的事件引擎
@@ -725,6 +748,7 @@ def create_optimized_engine(
         num_workers: 工作线程数量
         enable_backpressure: 是否启用背压
         backpressure_threshold: 背压阈值
+        enable_graceful_degradation: 是否启用优雅降级
 
     Returns:
         OptimizedEventEngine: 优化的事件引擎实例
@@ -733,5 +757,6 @@ def create_optimized_engine(
         max_queue_size=max_queue_size,
         num_workers=num_workers,
         enable_backpressure=enable_backpressure,
-        backpressure_threshold=backpressure_threshold
+        backpressure_threshold=backpressure_threshold,
+        enable_graceful_degradation=enable_graceful_degradation
     )

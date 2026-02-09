@@ -140,12 +140,16 @@ class TestConcurrentEventEngine:
                 symbol = f"SYM{i % 10}USDT"
                 concurrent_engine.put("TEST", f"data{i}", symbol=symbol)
 
-            time.sleep(2)
+            # 等待所有事件处理完成（最多等待3秒）
+            timeout = 3.0
+            while processed_count < 100 and (time.time() - start_time) < timeout:
+                time.sleep(0.01)
+
             elapsed = time.time() - start_time
 
             assert processed_count == 100
-            # 并发处理应该比串行快
-            assert elapsed < 1.5  # 串行需要1秒，并发应该更快
+            # 并发处理应该比串行快（串行需要1秒，4个分片应该小于0.5秒，给一些余量）
+            assert elapsed < 1.5  # 并发应该更快
         finally:
             concurrent_engine.stop()
 
