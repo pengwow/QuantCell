@@ -18,6 +18,7 @@ class BacktestConfig(BaseModel):
         ...,
         description="回测交易对列表",
         json_schema_extra={"example": ["BTCUSDT", "ETHUSDT"]},
+        min_length=1,
     )
     interval: str = Field(
         "1d",

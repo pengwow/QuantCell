@@ -18,12 +18,6 @@ qlib_data_dir = "data/crypto_data"
 backtest_initial_capital = 100000
 backtest_commission = 0.001
 
-[exchanges.binance]
-api_key = ""
-secret_key = ""
-proxy_url = ""
-enable_rate_limit = true
-
 [basic_settings]
 language = "zh-CN"
 theme = "light"
@@ -65,3 +59,9 @@ frontend_data_cache_size = 1000
 test_plugin_enabled = "true"
 test_plugin_mode = "normal"
 test_plugin_timeout = "30"
+
+[exchanges.binance]
+api_key = ""
+secret_key = ""
+proxy_url = ""
+enable_rate_limit = true

@@ -65,12 +65,12 @@ def get_strategy_list(source: Optional[str] = None):
     Returns:
         StrategyListResponse: 策略列表响应，包含所有可用策略的详细信息，每个策略包含source字段区分来源
     """
+    # 验证source参数（在try外部验证，避免被捕获为500错误）
+    if source is not None and source not in ["files", "db"]:
+        logger.error(f"获取策略列表请求，无效的来源参数: {source}")
+        raise HTTPException(status_code=400, detail="无效的source参数，只允许files、db或空值")
+    
     try:
-        # 验证source参数
-        if source is not None and source not in ["files", "db"]:
-            logger.error(f"获取策略列表请求，无效的来源参数: {source}")
-            raise HTTPException(status_code=400, detail="无效的source参数，只允许files、db或空值")
-        
         logger.info(f"获取策略列表请求，来源: {source}")
 
         # 获取策略列表
@@ -81,6 +81,9 @@ def get_strategy_list(source: Optional[str] = None):
         return StrategyListResponse(
             code=0, message="获取策略列表成功", data={"strategies": strategies}
         )
+    except HTTPException:
+        # 重新抛出HTTPException，避免被包装为500错误
+        raise
     except Exception as e:
         logger.error(f"获取策略列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -176,7 +179,7 @@ def upload_strategy(request: StrategyUploadRequest):
             )
         else:
             logger.error(f"策略文件上传失败，策略名称: {request.strategy_name}")
-            return StrategyUploadResponse(code=1, message="策略文件上传失败")
+            return StrategyUploadResponse(code=1, message="策略文件上传失败", data={})
     except Exception as e:
         logger.error(f"上传策略文件失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -266,6 +269,11 @@ def parse_strategy(request: StrategyParseRequest):
     Returns:
         StrategyParseResponse: 策略脚本解析响应，包含策略描述和参数信息
     """
+    # 验证文件内容是否为空
+    if request.file_content is None or request.file_content.strip() == "":
+        logger.error(f"解析策略脚本失败: 文件内容为空")
+        raise HTTPException(status_code=400, detail="文件内容不能为空")
+    
     try:
         logger.info(f"解析策略脚本请求，策略名称: {request.strategy_name}")
 
@@ -276,7 +284,7 @@ def parse_strategy(request: StrategyParseRequest):
 
         if not strategy_info:
             logger.error(f"解析策略脚本失败: {request.strategy_name}")
-            raise HTTPException(status_code=500, detail="解析策略脚本失败")
+            raise HTTPException(status_code=400, detail="解析策略脚本失败，无法识别策略类")
 
         logger.info(f"策略脚本解析成功: {request.strategy_name}")
 
