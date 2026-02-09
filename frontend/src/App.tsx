@@ -276,7 +276,7 @@ const App = () => {
             onMouseEnter={() => setIsTooltipVisible(true)}
             onMouseLeave={() => setIsTooltipVisible(false)}
           >
-            <img src="/quantcell.svg" alt="QuantCell Logo" className="brand-image" />
+            <img src="/logo.svg" alt="QuantCell Logo" className="brand-image" />
           </div>
           <div className="brand-text">pengwow</div>
         </div>
