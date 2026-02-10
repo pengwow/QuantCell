@@ -456,38 +456,91 @@ class NativeVectorAdapter(StrategyAdapter):
     """
     自研向量化回测适配器
     使用自研 VectorEngine 替代第三方库
+    
+    支持可配置的价格类型（开盘价/收盘价）
     """
 
-    def __init__(self, strategy_core: StrategyCore):
+    # 支持的价格类型
+    PRICE_TYPES = ['close', 'open']
+
+    def __init__(self, strategy_core: StrategyCore, price_type: str = 'close'):
         """
         初始化适配器
 
         Args:
             strategy_core: 策略核心实例
+            price_type: 价格类型，可选 'close'（收盘价，默认）或 'open'（开盘价）
         """
         super().__init__(strategy_core)
         from .vector_engine import VectorEngine
         self.engine = VectorEngine()
         self.results = None
+        self.price_type = self._validate_price_type(price_type)
+
+    def _validate_price_type(self, price_type: str) -> str:
+        """
+        验证价格类型是否有效
+        
+        Args:
+            price_type: 价格类型字符串
+            
+        Returns:
+            str: 验证后的价格类型
+            
+        Raises:
+            ValueError: 如果价格类型无效
+        """
+        price_type = price_type.lower()
+        if price_type not in self.PRICE_TYPES:
+            raise ValueError(
+                f"无效的价格类型: '{price_type}'。"
+                f"支持的价格类型: {', '.join(self.PRICE_TYPES)}"
+            )
+        return price_type
 
     def run_backtest(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
         """
         运行自研向量化回测
 
         Args:
-            data: K线数据
+            data: K线数据，必须包含 'Open' 和 'Close' 列
             **kwargs: 额外的回测参数，如init_cash, fees等
+                - price_type: 可选，覆盖初始化时的价格类型 ('close' 或 'open')
 
         Returns:
-            Dict[str, Any]: 回测结果（兼容 backtesting.py 格式）
+            Dict[str, Any]: 回测结果
         """
+        # 检查是否覆盖价格类型
+        price_type = kwargs.get('price_type', self.price_type)
+        price_type = self._validate_price_type(price_type)
+        
         # 运行策略获取信号
         result = self.strategy_core.run(data)
         signals = result['signals']
         indicators = result['indicators']
 
-        # 提取价格数据
-        price = data['Close'].values.astype(np.float64).reshape(-1, 1)
+        # 获取策略使用的价格列（用于指标计算）
+        strategy_price_col = getattr(self.strategy_core, 'params', {}).get('price_col', 'Close')
+        
+        # 提取价格数据 - 根据配置选择开盘价或收盘价
+        if price_type == 'open':
+            if 'Open' not in data.columns:
+                raise ValueError("数据缺少 'Open' 列，无法使用开盘价")
+            price = data['Open'].values.astype(np.float64).reshape(-1, 1)
+            price_column = 'Open'
+        else:
+            # 优先使用策略配置的价格列，其次使用 Close
+            if strategy_price_col in data.columns:
+                price = data[strategy_price_col].values.astype(np.float64).reshape(-1, 1)
+                price_column = strategy_price_col
+            elif 'Close' in data.columns:
+                price = data['Close'].values.astype(np.float64).reshape(-1, 1)
+                price_column = 'Close'
+            else:
+                raise ValueError("数据缺少可用的价格列")
+        
+        # 记录使用的列名，用于后续计算
+        self._price_column = price_column
 
         # 准备信号
         has_long_short = 'long_entries' in signals and 'short_entries' in signals
@@ -526,6 +579,7 @@ class NativeVectorAdapter(StrategyAdapter):
         init_cash = kwargs.get('cash', kwargs.get('init_cash', 10000.0))
         fees = kwargs.get('commission', kwargs.get('fees', 0.001))
         slippage = kwargs.get('slippage', 0.0001)
+        position_size = kwargs.get('position_size', 1.0)
 
         engine_result = self.engine.run_backtest(
             price=price,
@@ -533,23 +587,24 @@ class NativeVectorAdapter(StrategyAdapter):
             exits=exits,
             init_cash=init_cash,
             fees=fees,
-            slippage=slippage
+            slippage=slippage,
+            position_size=position_size
         )
 
-        # 转换为兼容 backtesting.py 的结果格式
-        backtest_result = self._convert_to_backtesting_format(
+        # 转换结果格式
+        backtest_result = self._convert_result_format(
             engine_result, data, indicators, signals
         )
 
         self.results = backtest_result
         return backtest_result
 
-    def _convert_to_backtesting_format(self, engine_result: Dict[str, Any],
-                                       data: pd.DataFrame,
-                                       indicators: Dict[str, Any],
-                                       signals: Dict[str, pd.Series]) -> Dict[str, Any]:
+    def _convert_result_format(self, engine_result: Dict[str, Any],
+                               data: pd.DataFrame,
+                               indicators: Dict[str, Any],
+                               signals: Dict[str, pd.Series]) -> Dict[str, Any]:
         """
-        将引擎结果转换为 backtesting.py 兼容格式
+        将引擎结果转换为标准格式
 
         Args:
             engine_result: 引擎原始结果
@@ -558,7 +613,7 @@ class NativeVectorAdapter(StrategyAdapter):
             signals: 信号字典
 
         Returns:
-            Dict[str, Any]: 兼容格式的回测结果
+            Dict[str, Any]: 标准格式的回测结果
         """
         metrics = engine_result['metrics']
         cash = engine_result['cash']
@@ -751,14 +806,19 @@ class NativeVectorAdapter(StrategyAdapter):
         formatted_trades = []
         for i, trade in enumerate(trades):
             if isinstance(trade, dict):
+                # 使用修复后的字段名
+                entry_price = trade.get('entry_price', trade.get('price', 0))
+                exit_price = trade.get('exit_price', trade.get('price', 0))
+                step = trade.get('step', 0)
+                
                 formatted_trades.append({
-                    'Entry Time': data.index[trade.get('step', 0)] if 'step' in trade else None,
-                    'Exit Time': data.index[trade.get('step', 0)] if 'step' in trade else None,
-                    'Entry Price': trade.get('price', 0),
-                    'Exit Price': trade.get('price', 0),
+                    'Entry Time': data.index[step] if 'step' in trade and step < len(data) else None,
+                    'Exit Time': data.index[step] if 'step' in trade and step < len(data) else None,
+                    'Entry Price': entry_price,
+                    'Exit Price': exit_price,
                     'Size': trade.get('size', 0),
                     'P/L': trade.get('pnl', 0),
-                    'Return %': trade.get('return_pct', 0),
+                    'Return %': ((exit_price - entry_price) / entry_price * 100) if entry_price > 0 else 0,
                     'Direction': trade.get('direction', 'long')
                 })
 
@@ -768,41 +828,42 @@ class NativeVectorAdapter(StrategyAdapter):
 class StrategyRunner:
     """
     策略运行器，统一管理不同回测引擎的策略运行
+    
+    支持可配置的价格类型（开盘价/收盘价），默认使用收盘价
     """
 
-    def __init__(self, strategy_core: StrategyCore, engine: str = "native"):
+    def __init__(self, strategy_core: StrategyCore, engine: str = "native", price_type: str = "close"):
         """
         初始化策略运行器
 
         Args:
             strategy_core: 策略核心实例
-            engine: 回测引擎名称，可选值：native（自研）, backtesting.py, vectorbt
+            engine: 回测引擎名称，目前仅支持：native（自研）
+            price_type: 价格类型，可选 'close'（收盘价，默认）或 'open'（开盘价）
         """
         self.strategy_core = strategy_core
         self.engine = engine
+        self.price_type = price_type
         self.adapter = self._get_adapter()
 
-    def _get_adapter(self, engine: Optional[str] = None) -> StrategyAdapter:
+    def _get_adapter(self, engine: Optional[str] = None, price_type: Optional[str] = None) -> StrategyAdapter:
         """
         获取对应的适配器
 
         Args:
             engine: 回测引擎名称，可选
+            price_type: 价格类型，可选 'close' 或 'open'
 
         Returns:
             StrategyAdapter: 适配器实例
         """
         engine = engine or self.engine
+        price_type = price_type or self.price_type
+        
         if engine == "native":
-            return NativeVectorAdapter(self.strategy_core)
-        elif engine == "backtesting.py":
-            # 如果仍需要支持，使用自研适配器作为后备
-            return NativeVectorAdapter(self.strategy_core)
-        elif engine == "vectorbt":
-            # 如果仍需要支持，使用自研适配器作为后备
-            return NativeVectorAdapter(self.strategy_core)
+            return NativeVectorAdapter(self.strategy_core, price_type=price_type)
         else:
-            raise ValueError(f"Unknown engine: {engine}")
+            raise ValueError(f"Unknown engine: {engine}. Supported engines: native")
 
     def run(self, data: pd.DataFrame, **kwargs) -> Any:
         """

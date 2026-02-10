@@ -495,7 +495,7 @@ class NativeVectorAdapter(StrategyAdapter):
             **kwargs: 额外的回测参数，如init_cash, fees等
 
         Returns:
-            Dict[str, Any]: 回测结果（兼容 backtesting.py 格式）
+            Dict[str, Any]: 回测结果
         """
         # 运行策略获取信号
         result = self.strategy_core.run(data)
@@ -552,20 +552,20 @@ class NativeVectorAdapter(StrategyAdapter):
             slippage=slippage
         )
 
-        # 转换为兼容 backtesting.py 的结果格式
-        backtest_result = self._convert_to_backtesting_format(
+        # 转换结果格式
+        backtest_result = self._convert_result_format(
             engine_result, data, indicators, signals
         )
 
         self.results = backtest_result
         return backtest_result
 
-    def _convert_to_backtesting_format(self, engine_result: Dict[str, Any],
-                                       data: pd.DataFrame,
-                                       indicators: Dict[str, Any],
-                                       signals: Dict[str, pd.Series]) -> Dict[str, Any]:
+    def _convert_result_format(self, engine_result: Dict[str, Any],
+                               data: pd.DataFrame,
+                               indicators: Dict[str, Any],
+                               signals: Dict[str, pd.Series]) -> Dict[str, Any]:
         """
-        将引擎结果转换为 backtesting.py 兼容格式
+        将引擎结果转换为标准格式
 
         Args:
             engine_result: 引擎原始结果
@@ -574,7 +574,7 @@ class NativeVectorAdapter(StrategyAdapter):
             signals: 信号字典
 
         Returns:
-            Dict[str, Any]: 兼容格式的回测结果
+            Dict[str, Any]: 标准格式的回测结果
         """
         metrics = engine_result['metrics']
         cash = engine_result['cash']
@@ -792,7 +792,7 @@ class StrategyRunner:
 
         Args:
             strategy_core: 策略核心实例
-            engine: 回测引擎名称，可选值：native（自研）, backtesting.py, vectorbt
+            engine: 回测引擎名称，目前仅支持：native（自研）
         """
         self.strategy_core = strategy_core
         self.engine = engine
@@ -811,14 +811,8 @@ class StrategyRunner:
         engine = engine or self.engine
         if engine == "native":
             return NativeVectorAdapter(self.strategy_core)
-        elif engine == "backtesting.py":
-            # 如果仍需要支持，使用自研适配器作为后备
-            return NativeVectorAdapter(self.strategy_core)
-        elif engine == "vectorbt":
-            # 如果仍需要支持，使用自研适配器作为后备
-            return NativeVectorAdapter(self.strategy_core)
         else:
-            raise ValueError(f"Unknown engine: {engine}")
+            raise ValueError(f"Unknown engine: {engine}. Supported engines: native")
 
     def run(self, data: pd.DataFrame, **kwargs) -> Any:
         """

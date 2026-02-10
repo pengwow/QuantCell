@@ -41,7 +41,7 @@ class BacktestResult:
         """
         results = self.raw_results
 
-        # 提取关键指标（兼容 backtesting.py 格式）
+        # 提取关键指标
         standardized = {
             'start_date': results.get('Start'),
             'end_date': results.get('End'),
