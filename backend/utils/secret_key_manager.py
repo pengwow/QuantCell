@@ -60,7 +60,9 @@ def _get_nested_value(data: dict, path: list) -> Optional[str]:
             current = current[key]
         else:
             return None
-    return current
+    if isinstance(current, str):
+        return current
+    return None
 
 
 def _set_nested_value(data: dict, path: list, value: str) -> None:

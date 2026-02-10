@@ -8,18 +8,23 @@ backend_dir = os.path.dirname(os.path.dirname(current_dir))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
+# 添加项目根目录到路径（用于导入 strategies 模块）
+project_dir = os.path.dirname(backend_dir)
+if project_dir not in sys.path:
+    sys.path.insert(0, project_dir)
+
 import numpy as np
 import pandas as pd
 from loguru import logger
 
 # 尝试导入策略和适配器，如果不存在则创建简单版本用于测试
 try:
-    from strategy.strategies.grid_trading_v2 import GridTradingStrategy
+    from backend.strategies.grid_trading import GridTradingStrategy
     from strategy.adapters.vector_adapter import VectorBacktestAdapter
     HAS_FULL_STRATEGY = True
-except ImportError:
+except ImportError as e:
     HAS_FULL_STRATEGY = False
-    logger.warning("GridTradingStrategy 或 VectorBacktestAdapter 未找到，使用简化测试")
+    logger.warning(f"GridTradingStrategy 或 VectorBacktestAdapter 未找到，使用简化测试: {e}")
 
     # 创建简化版策略用于测试
     from strategy.core import StrategyBase
@@ -86,7 +91,7 @@ except ImportError:
 # 创建模拟数据
 np.random.seed(42)
 n_steps = 1000
-dates = pd.date_range('2024-01-01', periods=n_steps, freq='H')
+dates = pd.date_range('2024-01-01', periods=n_steps, freq='h')
 
 # 生成随机价格数据（模拟 BTC/USDT）
 base_price = 50000.0

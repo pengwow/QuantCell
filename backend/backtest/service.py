@@ -288,7 +288,7 @@ class BacktestService:
             # Convert to DataFrame
             candles = pd.DataFrame(kline_data)
             
-            # 转换数据格式为backtesting.py所需格式
+            # 转换数据格式
             candles.rename(columns={
                 'open': 'Open',
                 'close': 'Close',
@@ -312,8 +312,6 @@ class BacktestService:
             commission = backtest_config.get("commission", 0.001)
             
             # Check if initial cash is sufficient for the asset price
-            # Find max close price to ensure we can cover at least one unit if needed, 
-            # though backtesting.py handles this, explicit check avoids warning.
             max_price = candles['Close'].max()
             if max_price > initial_cash:
                 logger.warning(f"Initial cash ({initial_cash}) is lower than max price ({max_price}). Increasing cash to avoid warnings.")
@@ -351,19 +349,18 @@ class BacktestService:
                 strategy_instance = stats['_strategy']
                 if hasattr(strategy_instance, 'data'):
                     # Try to access underlying DataFrame
-                    # In some versions of backtesting.py, it might be .df or accessible via converting to dataframe
                     try:
                         df = None
                         if hasattr(strategy_instance.data, 'df'):
                             df = strategy_instance.data.df
                         elif isinstance(strategy_instance.data, pd.DataFrame):
                             df = strategy_instance.data
-                        
+
                         if df is not None:
                             # 重要：保留时间索引作为一个字段
                             df_copy = df.copy()
                             df_copy.reset_index(inplace=True)
-                            
+
                             # 重命名索引列为datetime
                             if 'index' in df_copy.columns:
                                 df_copy.rename(columns={'index': 'datetime'}, inplace=True)
@@ -372,12 +369,12 @@ class BacktestService:
                                 first_col = df_copy.columns[0]
                                 if first_col not in ['Open', 'High', 'Low', 'Close', 'Volume']:
                                     df_copy.rename(columns={first_col: 'datetime'}, inplace=True)
-                            
+
                             # 如果还是没有datetime列，假设第一列是时间
                             if 'datetime' not in df_copy.columns and len(df_copy.columns) > 0:
                                 first_col = df_copy.columns[0]
                                 df_copy.rename(columns={first_col: 'datetime'}, inplace=True)
-                            
+
                             strategy_data = df_copy.to_dict('records')
                     except Exception as e:
                         logger.warning(f"Failed to extract strategy data: {e}")
@@ -414,7 +411,6 @@ class BacktestService:
             elif 'time' in equity_df.columns:
                 equity_df.rename(columns={'time': 'datetime'}, inplace=True)
             # 如果索引有名称但不是index或time，它会自动成为列名，我们确保它是datetime
-            # backtesting.py通常使用datetime索引，所以reset_index后通常是index或原名
             # 这里做一个通用处理：找到第一个列（原索引）并重命名为datetime
             if 'datetime' not in equity_df.columns and len(equity_df.columns) > 0:
                 # 假设第一列是时间

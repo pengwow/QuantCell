@@ -64,15 +64,16 @@ class VectorEngine:
             
             logger.warning(f"Numba 未安装，使用 Python 实现（性能较低）：{e}")
     
-    def run_backtest(self, price: np.ndarray, 
+    def run_backtest(self, price: np.ndarray,
                    entries: np.ndarray,
                    exits: np.ndarray,
                    init_cash: float = 100000.0,
                    fees: float = 0.001,
-                   slippage: float = 0.0001) -> Dict[str, Any]:
+                   slippage: float = 0.0001,
+                   position_size: float = 1.0) -> Dict[str, Any]:
         """
         运行向量回测
-        
+
         参数：
         - price: 价格数组 (时间 × 资产)
         - entries: 入场信号数组
@@ -80,7 +81,8 @@ class VectorEngine:
         - init_cash: 初始资金
         - fees: 手续费率
         - slippage: 滑点
-        
+        - position_size: 仓位大小（默认1.0）
+
         返回：
         - dict: 回测结果
         """
@@ -88,7 +90,7 @@ class VectorEngine:
         size_arr, direction_arr = self.signals_to_orders(
             entries=entries,
             exits=exits,
-            size=1.0
+            size=position_size
         )
         
         # 运行订单模拟
@@ -142,7 +144,10 @@ class VectorEngine:
                          positions: np.ndarray,
                          fees: float) -> np.ndarray:
         """
-        计算交易记录
+        计算交易记录 - 修复版
+        
+        正确统计完整交易（买入+卖出算一笔完整交易）
+        并计算真实的盈亏（买入价 vs 卖出价）
         
         参数：
         - price: 价格数组
@@ -157,25 +162,61 @@ class VectorEngine:
         
         trades_list = []
         
+        # 追踪每个资产的入场信息 - 使用资产索引作为key
+        entry_records = {}  # asset -> [(entry_price, entry_size), ...]
+        
         for i in range(1, n_steps):
             for j in range(n_assets):
-                if positions[i, j] != positions[i-1, j]:
-                    # 持仓变化，生成交易记录
-                    trade_size = positions[i, j] - positions[i-1, j]
+                prev_pos = positions[i-1, j]
+                curr_pos = positions[i, j]
+                
+                if curr_pos != prev_pos:
+                    # 持仓发生变化
+                    trade_size = curr_pos - prev_pos  # 正数=买入，负数=卖出
                     trade_price = price[i, j]
-                    trade_value = abs(trade_size) * trade_price
-                    trade_fees = trade_value * fees
                     
-                    trades_list.append({
-                        'step': i,
-                        'asset': j,
-                        'direction': 'long' if trade_size > 0 else 'short',
-                        'size': abs(trade_size),
-                        'price': trade_price,
-                        'value': trade_value,
-                        'fees': trade_fees,
-                        'pnl': -trade_fees if trade_size > 0 else trade_fees
-                    })
+                    if trade_size > 0:
+                        # 买入 - 记录入场价格和数量
+                        if j not in entry_records:
+                            entry_records[j] = []
+                        entry_records[j].append((trade_price, trade_size))
+                        
+                    elif trade_size < 0:
+                        # 卖出 - 计算盈亏
+                        sell_size = abs(trade_size)
+                        
+                        if j in entry_records and entry_records[j]:
+                            # 获取最早的入场记录（FIFO）
+                            entry_price, entry_size = entry_records[j].pop(0)
+                            
+                            # 计算实际卖出数量
+                            actual_sell_size = min(sell_size, entry_size)
+                            
+                            # 计算交易价值和费用
+                            trade_value = actual_sell_size * trade_price
+                            trade_fees = trade_value * fees
+                            entry_fees = actual_sell_size * entry_price * fees
+                            total_fees = trade_fees + entry_fees
+                            
+                            # 计算真实盈亏: (卖出价 - 买入价) * 数量 - 总费用
+                            pnl = (trade_price - entry_price) * actual_sell_size - total_fees
+                            
+                            trades_list.append({
+                                'step': i,
+                                'asset': j,
+                                'direction': 'long',
+                                'size': actual_sell_size,
+                                'entry_price': entry_price,
+                                'exit_price': trade_price,
+                                'value': trade_value,
+                                'fees': total_fees,
+                                'pnl': pnl
+                            })
+                            
+                            # 如果还有剩余持仓，保留记录
+                            if entry_size > actual_sell_size:
+                                remaining = entry_size - actual_sell_size
+                                entry_records[j].insert(0, (entry_price, remaining))
         
         return np.array(trades_list, dtype=object)
     
@@ -277,28 +318,35 @@ class VectorEngine:
         
         return cash_history, positions_history
     
-    def _calculate_metrics_python(self, trades: np.ndarray,
-                               cash: np.ndarray) -> Dict[str, Any]:
+    def _calculate_metrics_python(self, trades_pnl: np.ndarray,
+                               trades_fees: np.ndarray,
+                               trades_value: np.ndarray,
+                               cash: np.ndarray) -> np.ndarray:
         """
         Python 版本的指标计算（备用）
+        返回数组格式：[total_pnl, total_fees, win_rate, sharpe_ratio, trade_count, final_equity]
         """
-        if len(trades) == 0:
-            return {}
-        
-        total_pnl = np.sum(trades['pnl'])
-        total_fees = np.sum(trades['fees'])
-        win_trades = np.sum(trades['pnl'] > 0)
-        win_rate = win_trades / len(trades)
-        
+        n_trades = len(trades_pnl)
+
+        if n_trades == 0:
+            # 返回零值数组
+            final_equity = float(cash[-1]) if len(cash) > 0 else 0.0
+            return np.array([0.0, 0.0, 0.0, 0.0, 0, final_equity], dtype=np.float64)
+
+        total_pnl = np.sum(trades_pnl)
+        total_fees = np.sum(trades_fees)
+        win_trades = np.sum(trades_pnl > 0)
+        win_rate = win_trades / n_trades
+
         # 计算夏普比率（简化版本）
-        if len(trades) > 1:
+        if n_trades > 1:
             # 计算每笔交易的收益率
-            returns = trades['pnl'] / trades['value']
-            
+            returns = trades_pnl / trades_value
+
             # 计算平均收益率和标准差
             mean_return = np.mean(returns)
             std_return = np.std(returns)
-            
+
             # 计算夏普比率
             if std_return > 0:
                 sharpe_ratio = mean_return / std_return * np.sqrt(252)
@@ -306,18 +354,19 @@ class VectorEngine:
                 sharpe_ratio = 0.0
         else:
             sharpe_ratio = 0.0
-        
+
         # 计算最终权益 - cash 是历史数组，取最后一个值
         final_equity = float(cash[-1]) if len(cash) > 0 else 0.0
-        
-        return {
-            'total_pnl': float(total_pnl),
-            'total_fees': float(total_fees),
-            'win_rate': float(win_rate),
-            'sharpe_ratio': float(sharpe_ratio),
-            'trade_count': len(trades),
-            'final_equity': final_equity
-        }
+
+        # 返回数组格式，与 Numba 版本保持一致
+        return np.array([
+            float(total_pnl),
+            float(total_fees),
+            float(win_rate),
+            float(sharpe_ratio),
+            float(n_trades),
+            float(final_equity)
+        ], dtype=np.float64)
     
     def _calculate_funding_rate_python(self, index_price: float,
                                     mark_price: float) -> float:

@@ -10,6 +10,11 @@ backend_dir = os.path.dirname(os.path.dirname(current_dir))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
+# 添加项目根目录到路径（用于导入 backend.strategies 模块）
+project_dir = os.path.dirname(backend_dir)
+if project_dir not in sys.path:
+    sys.path.insert(0, project_dir)
+
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -33,7 +38,7 @@ if strategies_dir not in sys.path:
 
 # 尝试导入网格策略，如果不存在则跳过
 try:
-    from grid_trading_v2 import GridTradingStrategy
+    from backend.strategies.grid_trading import GridTradingStrategy
     HAS_GRID_STRATEGY = True
 except ImportError:
     HAS_GRID_STRATEGY = False
@@ -274,7 +279,7 @@ def test_vector_adapter():
     print("生成测试数据...")
     np.random.seed(42)
     n_steps = 500
-    dates = pd.date_range('2024-01-01', periods=n_steps, freq='H')
+    dates = pd.date_range('2024-01-01', periods=n_steps, freq='h')
     
     # 生成价格数据（模拟 BTC/USDT）
     base_price = 50000.0
@@ -388,14 +393,14 @@ def test_event_engine():
     print()
     
     # 定义事件处理器
-    def on_tick_handler(event):
-        print(f"  [Tick] 价格: {event.data['price']:.2f}")
-    
-    def on_bar_handler(event):
-        print(f"  [Bar] 收盘价: {event.data['close']:.2f}")
-    
-    def on_order_handler(event):
-        print(f"  [Order] 状态: {event.data['status']}")
+    def on_tick_handler(data):
+        print(f"  [Tick] 价格: {data['price']:.2f}")
+
+    def on_bar_handler(data):
+        print(f"  [Bar] 收盘价: {data['close']:.2f}")
+
+    def on_order_handler(data):
+        print(f"  [Order] 状态: {data['status']}")
     
     # 注册事件处理器
     print("注册事件处理器...")
@@ -436,7 +441,7 @@ def run_all_tests():
     print("\n")
     print("╔" + "═" * 68 + "╗")
     print("║" + " " * 68 + "║")
-    print("║" + "  QUANTCELL 统一策略引擎 - 完整测试套件".center(66) + "║")
+    print("║" + "  QUANTCELL 统一策略引擎 - 完整测试套件".center(56) + "║")
     print("║" + " " * 68 + "║")
     print("╚" + "═" * 68 + "╝")
     print("\n")
@@ -452,7 +457,7 @@ def run_all_tests():
     print("\n")
     print("╔" + "═" * 68 + "╗")
     print("║" + " " * 68 + "║")
-    print("║" + "  所有测试完成！".center(66) + "║")
+    print("║" + " 所有测试完成！".center(61) + "║")
     print("║" + " " * 68 + "║")
     print("╚" + "═" * 68 + "╝")
     print("\n")

@@ -56,6 +56,9 @@ class VectorBacktestAdapter:
             # 准备价格数组，确保数据类型为 float64
             price = df['Close'].values.astype(np.float64).reshape(-1, 1)
 
+            # 获取策略的仓位大小
+            strategy_position_size = getattr(self.strategy, 'position_size', 1.0)
+
             # 运行向量回测
             result = self.engine.run_backtest(
                 price=price,
@@ -63,7 +66,8 @@ class VectorBacktestAdapter:
                 exits=signals['exits'].values.astype(np.bool_).reshape(-1, 1),
                 init_cash=init_cash,
                 fees=fees,
-                slippage=slippage
+                slippage=slippage,
+                position_size=strategy_position_size
             )
             
             # 添加交易对信息
@@ -159,7 +163,7 @@ class VectorBacktestAdapter:
             
             # 调用策略的 on_bar 方法
             self.strategy.on_bar(bar)
-            
+
             # 检查是否有订单
             if hasattr(self.strategy, 'last_order'):
                 order = self.strategy.last_order
@@ -167,6 +171,8 @@ class VectorBacktestAdapter:
                     entries[idx] = True
                 elif order['direction'] in ['sell', 'short']:
                     exits[idx] = True
+                # 清除 last_order 防止重复检测
+                delattr(self.strategy, 'last_order')
         
         # 回测结束，调用 on_stop 进行强制平仓
         if last_bar is not None:
@@ -295,36 +301,96 @@ class VectorBacktestAdapter:
     def _format_trades(self, result: Dict[str, Any], df: pd.DataFrame) -> list:
         """
         格式化交易记录
-        
+
         参数：
         - result: 回测结果
         - df: K线数据
-        
+
         返回：
         - list: 格式化后的交易记录列表
         """
         trades = []
-        
+
         # 从引擎获取交易记录
         engine_trades = result.get('trades', [])
-        
+
         if isinstance(engine_trades, np.ndarray) and len(engine_trades) > 0:
-            # 处理numpy数组格式的交易记录
+            # 处理引擎返回的交易记录
+            # 引擎返回的格式: [{'step': i, 'direction': 'long'/'short', 'size': ..., 'price': ..., 'value': ..., 'fees': ..., 'pnl': ...}]
+            # 需要配对入场和出场记录
+
+            entries = []  # 入场记录
+            exits = []    # 出场记录
+
             for i, trade in enumerate(engine_trades):
                 if isinstance(trade, dict):
-                    trades.append({
-                        'trade_id': i,
-                        'entry_time': trade.get('entry_time', ''),
-                        'exit_time': trade.get('exit_time', ''),
-                        'entry_price': float(trade.get('entry_price', 0)),
-                        'exit_price': float(trade.get('exit_price', 0)),
-                        'size': float(trade.get('size', 0)),
-                        'pnl': float(trade.get('pnl', 0)),
-                        'return_pct': float(trade.get('return_pct', 0)),
-                        'direction': trade.get('direction', 'long'),
-                        'fees': float(trade.get('fees', 0))
+                    direction = trade.get('direction', 'long')
+                    size = float(trade.get('size', 0))
+                    price = float(trade.get('price', 0))
+                    fees = float(trade.get('fees', 0))
+                    step = int(trade.get('step', i))
+
+                    # 获取时间戳
+                    timestamp = ''
+                    if step < len(df.index):
+                        ts = df.index[step]
+                        if hasattr(ts, 'isoformat'):
+                            timestamp = ts.isoformat()
+                        else:
+                            timestamp = str(ts)
+
+                    # size > 0 表示入场，size < 0 表示出场
+                    if size > 0:
+                        entries.append({
+                            'step': step,
+                            'time': timestamp,
+                            'price': price,
+                            'size': size,
+                            'fees': fees,
+                            'direction': direction
+                        })
+                    else:
+                        exits.append({
+                            'step': step,
+                            'time': timestamp,
+                            'price': price,
+                            'size': abs(size),
+                            'fees': fees,
+                            'direction': direction
+                        })
+
+            # 配对交易（简单配对：按顺序配对入场和出场）
+            trade_id = 0
+            min_len = min(len(entries), len(exits))
+            for i in range(min_len):
+                entry = entries[i]
+                exit = exits[i]
+
+                total_fees = entry['fees'] + exit['fees']
+                direction = entry['direction']
+
+                if direction == 'long':
+                    realized_pnl = (exit['price'] - entry['price']) * entry['size'] - total_fees
+                    return_pct = ((exit['price'] - entry['price']) / entry['price']) * 100 if entry['price'] > 0 else 0
+                else:  # short
+                    realized_pnl = (entry['price'] - exit['price']) * entry['size'] - total_fees
+                    return_pct = ((entry['price'] - exit['price']) / entry['price']) * 100 if entry['price'] > 0 else 0
+
+                trades.append({
+                        'trade_id': trade_id,
+                        'entry_time': entry['time'],
+                        'exit_time': exit['time'],
+                        'entry_price': entry['price'],
+                        'exit_price': exit['price'],
+                        'price': entry['price'],  # 兼容性：保持 price 字段
+                        'size': entry['size'],
+                        'pnl': round(realized_pnl, 2),
+                        'return_pct': round(return_pct, 4),
+                        'direction': direction,
+                        'fees': round(total_fees, 2)
                     })
-        
+                trade_id += 1
+
         # 如果没有引擎交易记录，从订单生成交易记录
         if not trades and 'orders' in result:
             orders = result['orders']
@@ -332,27 +398,28 @@ class VectorBacktestAdapter:
                 if i + 1 < len(orders):
                     entry_order = orders[i]
                     exit_order = orders[i + 1]
-                    
+
                     entry_price = float(entry_order.get('price', 0))
                     exit_price = float(exit_order.get('price', 0))
                     size = float(entry_order.get('size', 0.1))
-                    
+
                     pnl = (exit_price - entry_price) * size
                     return_pct = ((exit_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
-                    
+
                     trades.append({
                         'trade_id': i // 2,
                         'entry_time': entry_order.get('timestamp', ''),
                         'exit_time': exit_order.get('timestamp', ''),
                         'entry_price': entry_price,
                         'exit_price': exit_price,
+                        'price': entry_price,  # 兼容性：保持 price 字段
                         'size': size,
                         'pnl': round(pnl, 2),
                         'return_pct': round(return_pct, 4),
                         'direction': entry_order.get('direction', 'buy'),
                         'fees': 0.0
                     })
-        
+
         return trades
     
     def get_equity_curve(self, symbol: str) -> pd.Series:
@@ -398,8 +465,12 @@ class VectorBacktestAdapter:
         
         if len(trades) == 0:
             return pd.DataFrame()
-        
-        return pd.DataFrame(trades.tolist())
+
+        # trades 可能是列表或 numpy 数组
+        if isinstance(trades, np.ndarray):
+            return pd.DataFrame(trades.tolist())
+        else:
+            return pd.DataFrame(trades)
     
     def get_summary(self) -> Dict[str, Any]:
         """

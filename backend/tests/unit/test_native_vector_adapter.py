@@ -86,7 +86,7 @@ class TestNativeVectorAdapter:
         assert '_trades' in result
     
     def test_backtest_result_format(self, adapter, sample_data):
-        """测试回测结果格式与 backtesting.py 兼容"""
+        """测试回测结果格式"""
         result = adapter.run_backtest(sample_data, cash=10000)
         
         # 验证必需的键
@@ -229,15 +229,6 @@ class TestStrategyRunner:
         """测试切换引擎"""
         runner = StrategyRunner(strategy, engine='native')
         assert runner.engine == 'native'
-        
-        # 切换到 backtesting.py（应该使用 native 作为后备）
-        runner.switch_engine('backtesting.py')
-        assert runner.engine == 'backtesting.py'
-        assert isinstance(runner.adapter, NativeVectorAdapter)
-        
-        # 切换到 vectorbt（应该使用 native 作为后备）
-        runner.switch_engine('vectorbt')
-        assert runner.engine == 'vectorbt'
         assert isinstance(runner.adapter, NativeVectorAdapter)
     
     def test_enable_cache(self, strategy):
@@ -285,15 +276,13 @@ class TestStrategyRunner:
         """测试在多个引擎上运行"""
         runner = StrategyRunner(strategy)
         results = runner.run_on_multiple_engines(
-            sample_data, 
-            engines=['native', 'backtesting.py', 'vectorbt'],
+            sample_data,
+            engines=['native'],
             cash=10000
         )
-        
+
         assert isinstance(results, dict)
         assert 'native' in results
-        assert 'backtesting.py' in results
-        assert 'vectorbt' in results
 
 
 class TestResultCompatibility:
