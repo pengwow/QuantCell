@@ -15,35 +15,68 @@ class DemoService:
     DEMO_STRATEGY_NAME = "MACD_Demo_Strategy"
     DEMO_TAG = "demo"
     
-    DEMO_STRATEGY_CONTENT = """
-from backtesting import Strategy
-from backtesting.lib import crossover
+    DEMO_STRATEGY_CONTENT = '''
+# MACD演示策略 - 使用自研策略框架
+import pandas as pd
 import talib
+from strategy.core import StrategyCore
 
-class MACD_Demo_Strategy(Strategy):
-    '''
+class MACD_Demo_Strategy(StrategyCore):
+    """
     MACD演示策略
-    
+
     这是一个用于演示系统的MACD策略，仅用于展示功能。
-    '''
-    
-    # 定义参数
-    fast_period = 12
-    slow_period = 26
-    signal_period = 9
-    
-    def init(self):
-        # 计算MACD
-        close = self.data.Close
-        self.macd, self.signal, self.hist = self.I(talib.MACD, close, self.fast_period, self.slow_period, self.signal_period)
-    
-    def next(self):
-        # 简单的金叉死叉逻辑
-        if crossover(self.macd, self.signal):
-            self.buy()
-        elif crossover(self.signal, self.macd):
-            self.sell()
-"""
+    """
+
+    def __init__(self, params: dict = None):
+        """初始化策略"""
+        default_params = {
+            "fast_period": 12,
+            "slow_period": 26,
+            "signal_period": 9,
+        }
+        if params:
+            default_params.update(params)
+        super().__init__(default_params)
+
+    def calculate_indicators(self, data: pd.DataFrame) -> dict:
+        """计算MACD指标"""
+        close = data["Close"].values
+        macd, signal, hist = talib.MACD(
+            close,
+            fastperiod=self.params["fast_period"],
+            slowperiod=self.params["slow_period"],
+            signalperiod=self.params["signal_period"]
+        )
+        return {
+            "macd": pd.Series(macd, index=data.index),
+            "signal": pd.Series(signal, index=data.index),
+            "hist": pd.Series(hist, index=data.index)
+        }
+
+    def generate_signals(self, indicators: dict) -> dict:
+        """生成交易信号"""
+        macd = indicators["macd"]
+        signal = indicators["signal"]
+
+        # 金叉买入
+        entries = (macd > signal) & (macd.shift(1) <= signal.shift(1))
+        # 死叉卖出
+        exits = (macd < signal) & (macd.shift(1) >= signal.shift(1))
+
+        return {"entries": entries, "exits": exits}
+
+    def generate_long_signals(self, indicators: dict) -> tuple:
+        """生成多头信号"""
+        macd = indicators["macd"]
+        signal = indicators["signal"]
+
+        long_entries = (macd > signal) & (macd.shift(1) <= signal.shift(1))
+        long_exits = (macd < signal) & (macd.shift(1) >= signal.shift(1))
+
+        return long_entries, long_exits
+'''
+
 
     def __init__(self):
         self.strategy_service = StrategyService()

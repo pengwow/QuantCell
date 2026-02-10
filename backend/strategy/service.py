@@ -9,12 +9,14 @@ import inspect
 import uuid
 from pathlib import Path
 from loguru import logger
-from backtesting import Strategy
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Type
 
 # 导入策略基类
 from .strategy_base import StrategyBase
+
+# 策略基类别名，用于兼容性检查
+Strategy = StrategyBase
 
 class StrategyService:
     """

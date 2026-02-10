@@ -11,8 +11,6 @@ import pandas as pd
 from datetime import datetime
 
 from loguru import logger
-from backtesting import Backtest, Strategy
-from backtesting.lib import crossover
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent.parent

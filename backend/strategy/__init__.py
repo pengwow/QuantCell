@@ -20,10 +20,28 @@ from .execution_engine import (
     ExecutionEngineFactory
 )
 
-# 新架构模块
-from .core import StrategyBase, EventEngine, EventType, VectorEngine
-from .trading_modules import PerpetualContract, CryptoUtils
+# 新架构模块 - 核心引擎
+from .core import StrategyBase as StrategyCoreBase, EventEngine, EventType, VectorEngine
+from .core import (
+    OptimizedEventEngine,
+    AsyncEventEngine,
+    ConcurrentEventEngine,
+    BatchingEngine
+)
+
+# 新架构模块 - 适配器
 from .adapters import VectorBacktestAdapter
+
+# 新架构模块 - 交易组件
+from .trading_modules import PerpetualContract, CryptoUtils
+
+# 核心策略类（与回测引擎无关）- 从 core.strategy_core 导入
+from .core.strategy_core import (
+    StrategyCore,
+    NativeVectorAdapter,
+    StrategyRunner,
+    StrategyAdapter
+)
 
 __all__ = [
     # 现有模块
@@ -41,12 +59,23 @@ __all__ = [
     "BacktestExecutionEngine",
     "LiveExecutionEngine",
     "ExecutionEngineFactory",
-    # 新架构模块
-    "StrategyBase",
+    # 新架构模块 - 核心引擎
+    "StrategyCoreBase",
     "EventEngine",
     "EventType",
     "VectorEngine",
+    "OptimizedEventEngine",
+    "AsyncEventEngine",
+    "ConcurrentEventEngine",
+    "BatchingEngine",
+    # 新架构模块 - 适配器
+    "VectorBacktestAdapter",
+    # 新架构模块 - 交易组件
     "PerpetualContract",
     "CryptoUtils",
-    "VectorBacktestAdapter"
+    # 核心策略类（与回测引擎无关）
+    "StrategyCore",
+    "NativeVectorAdapter",
+    "StrategyRunner",
+    "StrategyAdapter"
 ]

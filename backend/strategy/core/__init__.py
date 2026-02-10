@@ -86,41 +86,49 @@ from .resilience import (
     create_resilience_manager
 )
 
+# 策略核心类（从 strategy/core.py 迁移）
+from .strategy_core import (
+    StrategyCore,
+    StrategyAdapter,
+    NativeVectorAdapter,
+    StrategyRunner
+)
+
 __all__ = [
     # 基础组件
     "StrategyBase",
     "EventEngine",
     "EventType",
     "VectorEngine",
-    
+
     # Numba函数
     "simulate_orders",
     "signals_to_orders",
     "calculate_metrics",
     "calculate_funding_rate",
     "calculate_funding_payment",
-    
+
     # 优化的事件引擎
     "OptimizedEventEngine",
     "EventPriority",
     "BoundedPriorityQueue",
     "EventMetrics",
     "create_optimized_engine",
-    
+
     # 异步事件引擎
     "AsyncEventEngine",
     "AsyncPrioritizedEvent",
     "AsyncBoundedPriorityQueue",
     "AsyncEventMetrics",
     "create_async_engine",
-    
+
     # 并发事件引擎
     "ConcurrentEventEngine",
     "SymbolShard",
     "SymbolEvent",
     "ConcurrentEventMetrics",
     "create_concurrent_engine",
-    
+
     # 批处理引擎
     "BatchingEngine",
     "BatchEvent",
@@ -128,7 +136,7 @@ __all__ = [
     "BatchStrategy",
     "VectorizedBatchProcessor",
     "create_batching_engine",
-    
+
     # 内存池
     "ObjectPool",
     "PooledObject",
@@ -140,7 +148,7 @@ __all__ = [
     "get_event_pools",
     "create_tick_event",
     "create_bar_event",
-    
+
     # 硬件优化器
     "NUMAOptimizer",
     "ThreadAffinityManager",
@@ -160,5 +168,11 @@ __all__ = [
     "EventPriority",
     "DegradationLevel",
     "CircuitBreakerState",
-    "create_resilience_manager"
+    "create_resilience_manager",
+
+    # 策略核心类
+    "StrategyCore",
+    "StrategyAdapter",
+    "NativeVectorAdapter",
+    "StrategyRunner"
 ]
