@@ -33,14 +33,14 @@ backend/strategy/example/
 ### 1. 安装依赖
 
 ```bash
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv pip install -e .
 ```
 
 ### 2. 运行演示
 
 ```bash
-cd /Users/liupeng/workspace/quant/QuantCell/backend/strategy/example
+cd backend/strategy/example
 python demo.py
 ```
 
@@ -100,7 +100,7 @@ python demo.py
 
 ```bash
 # 运行所有测试
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 python -m pytest strategy/example/tests/ -v
 
 # 运行特定测试

@@ -555,7 +555,7 @@ python data_cli.py delete-local-data -s BTCUSDT -i 1m -y
 **解决方案：**
 ```bash
 # 确保在 backend 目录或其子目录下运行
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 python scripts/data_cli.py --help
 ```
 
