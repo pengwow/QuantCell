@@ -39,6 +39,7 @@ dependencies = [
     "python-socks>=2.8.0",
     "pytz>=2025.2",
     "pyzmq>=27.1.0",
+    "setproctitle>=1.3.7",
     "sqlalchemy>=2.0.35",
     "statsmodels>=0.14.6",
     "ta-lib>=0.6.8",

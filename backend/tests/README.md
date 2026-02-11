@@ -24,7 +24,7 @@
 
 ```bash
 # 进入后端目录
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 
 # 检查Python版本
 python3 --version
@@ -40,7 +40,7 @@ uv run pytest --version
 
 ```bash
 # 首次运行，安装所有依赖
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv sync
 
 # 或者只安装测试相关依赖
@@ -51,7 +51,7 @@ uv add --dev pytest pytest-asyncio pytest-cov pytest-timeout
 
 ## 2. 测试文件结构
 
-所有单元测试位于：`/Users/liupeng/workspace/quant/QuantCell/backend/tests/unit/`
+所有单元测试位于：`backend/tests/unit/`
 
 ```
 tests/
@@ -76,36 +76,36 @@ tests/
 
 #### 运行所有测试
 ```bash
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/ -v
 ```
 
 #### 运行单个测试文件
 ```bash
 # 弹性机制测试
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/test_resilience.py -v
 
 # 事件引擎测试
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/test_event_engine_optimized.py -v
 ```
 
 #### 运行特定测试类
 ```bash
 # 优雅降级测试类
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/test_resilience.py::TestGracefulDegradation -v
 
 # 熔断器测试类
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/test_resilience.py::TestCircuitBreaker -v
 ```
 
 #### 运行特定测试方法
 ```bash
 # 单个测试方法
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/test_resilience.py::TestGracefulDegradation::test_initial_state -v
 ```
 
@@ -114,26 +114,26 @@ uv run pytest tests/unit/test_resilience.py::TestGracefulDegradation::test_initi
 #### 按关键字过滤
 ```bash
 # 运行包含 "degradation" 关键字的测试
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/ -v -k "degradation"
 
 # 运行包含 "circuit" 或 "breaker" 的测试
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/ -v -k "circuit or breaker"
 
 # 排除包含 "slow" 的测试
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/ -v -k "not slow"
 ```
 
 #### 按标记过滤
 ```bash
 # 只运行慢速测试（性能基准测试）
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/ -m slow -v
 
 # 排除慢速测试（快速验证）
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/ -m "not slow" -v
 ```
 
@@ -141,7 +141,7 @@ uv run pytest tests/unit/ -m "not slow" -v
 
 ```bash
 # 生成覆盖率报告（终端+HTML）
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/ --cov=strategy.core --cov-report=html --cov-report=term
 
 # 查看HTML报告
@@ -172,7 +172,7 @@ open htmlcov/index.html
 ```
 ============================= test session starts =============================
 platform darwin -- Python 3.12.0, pytest-9.0.1, pluggy-1.0.0
-rootdir: /Users/liupeng/workspace/quant/QuantCell/backend
+rootdir: backend
 collected 350 items
 
 tests/unit/test_resilience.py::TestGracefulDegradation::test_initial_state PASSED [ 14%]
@@ -223,7 +223,7 @@ E       AssertionError: assert <CircuitBreakerState.CLOSED: 0> == CircuitBreaker
 ### 示例1：快速验证所有测试
 
 ```bash
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/ -v --tb=short
 ```
 
@@ -231,7 +231,7 @@ uv run pytest tests/unit/ -v --tb=short
 ```
 ============================= test session starts =============================
 platform darwin -- Python 3.12.0, pytest-9.0.1, pluggy-1.0.0
-rootdir: /Users/liupeng/workspace/quant/QuantCell/backend
+rootdir: backend
 collected 350 items
 
 tests/unit/test_event_engine_optimized.py::TestOptimizedEventEngine::test_basic_event_processing PASSED [  0%]
@@ -247,7 +247,7 @@ tests/unit/test_resilience.py::TestCircuitBreaker::test_open_after_failures PASS
 ### 示例2：只运行弹性机制相关测试
 
 ```bash
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/test_resilience.py -v -k "degradation or circuit"
 ```
 
@@ -255,7 +255,7 @@ uv run pytest tests/unit/test_resilience.py -v -k "degradation or circuit"
 ```
 ============================= test session starts =============================
 platform darwin -- Python 3.12.0, pytest-9.0.1, pluggy-1.0.0
-rootdir: /Users/liupeng/workspace/quant/QuantCell/backend
+rootdir: backend
 collected 50 items / 35 deselected / 15 selected
 
 tests/unit/test_resilience.py::TestGracefulDegradation::test_initial_state PASSED [  7%]
@@ -275,7 +275,7 @@ tests/unit/test_resilience.py::TestCircuitBreaker::test_reopen_after_failure_in_
 ### 示例3：运行性能基准测试
 
 ```bash
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/ -m slow -v --durations=10
 ```
 
@@ -283,7 +283,7 @@ uv run pytest tests/unit/ -m slow -v --durations=10
 ```
 ============================= test session starts =============================
 platform darwin -- Python 3.12.0, pytest-9.0.1, pluggy-1.0.0
-rootdir: /Users/liupeng/workspace/quant/QuantCell/backend
+rootdir: backend
 collected 350 items / 320 deselected / 30 selected
 
 tests/unit/test_resilience.py::TestResiliencePerformanceBenchmarks::test_graceful_degradation_performance PASSED [  3%]
@@ -313,7 +313,7 @@ P99延迟: 45.67 ms
 
 ```bash
 # 生成覆盖率报告
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 uv run pytest tests/unit/ --cov=strategy.core --cov-report=html --cov-report=term
 
 # 查看HTML报告
@@ -353,10 +353,10 @@ TOTAL                                              1646    131    92%
 **解决：**
 ```bash
 # 确保在backend目录下运行
-cd /Users/liupeng/workspace/quant/QuantCell/backend
+cd backend
 
 # 设置PYTHONPATH
-export PYTHONPATH=/Users/liupeng/workspace/quant/QuantCell/backend:$PYTHONPATH
+export PYTHONPATH=backend:$PYTHONPATH
 
 # 再次运行测试
 uv run pytest tests/unit/
@@ -409,25 +409,25 @@ uv run pytest tests/unit/test_resilience.py -v
 
 ```bash
 # 1. 运行所有测试（快速验证）
-cd /Users/liupeng/workspace/quant/QuantCell/backend && uv run pytest tests/unit/ -v
+cd backend && uv run pytest tests/unit/ -v
 
 # 2. 运行弹性机制测试
-cd /Users/liupeng/workspace/quant/QuantCell/backend && uv run pytest tests/unit/test_resilience.py -v
+cd backend && uv run pytest tests/unit/test_resilience.py -v
 
 # 3. 运行特定测试方法
-cd /Users/liupeng/workspace/quant/QuantCell/backend && uv run pytest tests/unit/test_resilience.py::TestGracefulDegradation::test_initial_state -v
+cd backend && uv run pytest tests/unit/test_resilience.py::TestGracefulDegradation::test_initial_state -v
 
 # 4. 运行性能测试
-cd /Users/liupeng/workspace/quant/QuantCell/backend && uv run pytest tests/unit/ -m slow -v
+cd backend && uv run pytest tests/unit/ -m slow -v
 
 # 5. 生成覆盖率报告
-cd /Users/liupeng/workspace/quant/QuantCell/backend && uv run pytest tests/unit/ --cov=strategy.core --cov-report=html
+cd backend && uv run pytest tests/unit/ --cov=strategy.core --cov-report=html
 
 # 6. 快速失败模式（遇到错误立即停止）
-cd /Users/liupeng/workspace/quant/QuantCell/backend && uv run pytest tests/unit/ -x -v
+cd backend && uv run pytest tests/unit/ -x -v
 
 # 7. 查看测试列表（不执行）
-cd /Users/liupeng/workspace/quant/QuantCell/backend && uv run pytest tests/unit/ --collect-only
+cd backend && uv run pytest tests/unit/ --collect-only
 ```
 
 ---
