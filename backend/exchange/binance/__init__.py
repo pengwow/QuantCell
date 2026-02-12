@@ -1,14 +1,22 @@
 """
-Binance交易所连接模块
+Binance交易所模块
 
-基于python-binance库实现的Binance交易所连接功能，包括：
-- REST API客户端
-- WebSocket实时数据
-- 模拟盘交易
+提供Binance交易所的完整实现。
+
+主要组件:
+    - BinanceClient: REST API客户端
+    - BinanceWebSocketManager: WebSocket管理器
+    - PaperTradingAccount: 模拟交易账户
+    - BinanceDownloader: 数据下载器
+    - BinanceExchange: 交易所连接器
+
+作者: QuantCell Team
+版本: 1.0.0
+日期: 2026-02-12
 """
 
 from .client import BinanceClient
-from .websocket_manager import BinanceWebSocketManager
+from .websocket import BinanceWebSocketManager
 from .paper_trading import PaperTradingAccount
 from .exceptions import (
     BinanceConnectionError,
@@ -28,5 +36,3 @@ __all__ = [
     "BinanceOrderError",
     "BinanceConfig",
 ]
-
-__version__ = "1.0.0"

@@ -8,7 +8,7 @@ import time
 import asyncio
 from loguru import logger
 from websocket.manager import manager
-from db.models import Task
+from collector.db.models import Task
 
 class TaskStatus(str, Enum):
     """任务状态枚举

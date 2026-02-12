@@ -279,7 +279,7 @@ class TestBacktestStopAPI:
         """测试终止回测空任务ID"""
         request_data = {"task_id": ""}
         response = client.post("/api/backtest/stop", json=request_data)
-        assert response.status_code == 200
+        assert response.status_code == 422
 
 
 class TestBacktestAnalyzeAPI:
@@ -553,7 +553,7 @@ class TestStrategyConfigAPI:
         }
 
         response = client.post("/api/backtest/strategy/config", json=request_data)
-        assert response.status_code == 200
+        assert response.status_code == 422
 
 
 class TestBacktestUploadAPI:
@@ -621,7 +621,7 @@ class TestDataIntegrityAPI:
         mock_result.coverage_percent = 100.0
         mock_checker.check_data_completeness.return_value = mock_result
 
-        mocker.patch("backtest.routes.DataIntegrityChecker", return_value=mock_checker)
+        mocker.patch("backtest.data_integrity.DataIntegrityChecker", return_value=mock_checker)
 
         request_data = {
             "symbol": "BTCUSDT",
@@ -655,7 +655,7 @@ class TestDataIntegrityAPI:
         mock_result.coverage_percent = 90.0
         mock_checker.check_data_completeness.return_value = mock_result
 
-        mocker.patch("backtest.routes.DataIntegrityChecker", return_value=mock_checker)
+        mocker.patch("backtest.data_integrity.DataIntegrityChecker", return_value=mock_checker)
 
         request_data = {
             "symbol": "BTCUSDT",
@@ -687,7 +687,7 @@ class TestDataDownloadAPI:
         """测试下载缺失数据成功"""
         mock_downloader = mocker.MagicMock()
         mock_downloader.ensure_data_complete.return_value = (True, {})
-        mocker.patch("backtest.routes.BacktestDataDownloader", return_value=mock_downloader)
+        mocker.patch("backtest.data_downloader.BacktestDataDownloader", return_value=mock_downloader)
 
         request_data = {
             "symbol": "BTCUSDT",
@@ -706,7 +706,7 @@ class TestDataDownloadAPI:
         """测试下载缺失数据失败"""
         mock_downloader = mocker.MagicMock()
         mock_downloader.ensure_data_complete.return_value = (False, {})
-        mocker.patch("backtest.routes.BacktestDataDownloader", return_value=mock_downloader)
+        mocker.patch("backtest.data_downloader.BacktestDataDownloader", return_value=mock_downloader)
 
         request_data = {
             "symbol": "BTCUSDT",

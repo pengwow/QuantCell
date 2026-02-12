@@ -1,4 +1,19 @@
-# 通用工具函数
+"""
+采集器工具函数模块
+
+提供数据采集相关的通用工具函数和装饰器。
+
+主要功能:
+    - 重试装饰器（同步/异步）
+    - 日期时间转换工具
+    - 时间间隔转换工具
+    - 进度条工具类
+
+作者: QuantCell Team
+版本: 1.0.0
+日期: 2026-02-12
+"""
+
 import asyncio
 import time
 from datetime import datetime, timedelta
@@ -11,7 +26,7 @@ from loguru import logger
 def deco_retry(max_retry: int = 3, delay: float = 1.0):
     """
     重试装饰器，用于处理网络请求等可能失败的操作
-    
+
     :param max_retry: 最大重试次数
     :param delay: 重试间隔时间（秒）
     :return: 装饰后的函数
@@ -35,7 +50,7 @@ def deco_retry(max_retry: int = 3, delay: float = 1.0):
 def get_date_range(start_date, end_date):
     """
     获取日期范围列表
-    
+
     :param start_date: 开始日期，格式为'YYYY-MM-DD'
     :param end_date: 结束日期，格式为'YYYY-MM-DD'
     :return: 日期字符串列表
@@ -49,7 +64,7 @@ def get_date_range(start_date, end_date):
 def async_deco_retry(max_retry: int = 3, delay: float = 1.0):
     """
     异步重试装饰器
-    
+
     :param max_retry: 最大重试次数
     :param delay: 重试间隔时间（秒）
     :return: 装饰后的异步函数
@@ -73,17 +88,17 @@ def async_deco_retry(max_retry: int = 3, delay: float = 1.0):
 def str_to_timestamp(date_str, unit='ms'):
     """
     将日期字符串转换为时间戳
-    
+
     :param date_str: 日期字符串，格式为'YYYY-MM-DD'或'YYYY-MM-DD HH:MM:SS'
     :param unit: 时间戳单位，可选'ms'（毫秒）或'us'（微秒）
     :return: 时间戳
     """
     if not date_str:
         return None
-    
+
     formats = ['%Y-%m-%d', '%Y-%m-%d %H:%M:%S']
     timestamp = None
-    
+
     for fmt in formats:
         try:
             dt = datetime.strptime(date_str, fmt)
@@ -91,10 +106,10 @@ def str_to_timestamp(date_str, unit='ms'):
             break
         except ValueError:
             continue
-    
+
     if timestamp is None:
         raise ValueError(f"无法解析日期字符串: {date_str}")
-    
+
     if unit == 'ms':
         return int(timestamp * 1000)
     elif unit == 'us':
@@ -106,7 +121,7 @@ def str_to_timestamp(date_str, unit='ms'):
 def get_interval_minutes(interval):
     """
     获取时间间隔对应的分钟数
-    
+
     :param interval: 时间间隔，如'1m', '1h'等
     :return: 时间间隔对应的分钟数
     """
@@ -133,7 +148,7 @@ def get_interval_minutes(interval):
 def get_interval_ms(interval):
     """
     将时间间隔字符串转换为毫秒数
-    
+
     :param interval: 时间间隔，如'1m', '1h'等
     :return: 时间间隔对应的毫秒数
     """
@@ -154,33 +169,33 @@ def get_interval_ms(interval):
         '1w': 7 * 24 * 60 * 60 * 1000,
         '1M': 30 * 24 * 60 * 60 * 1000
     }
-    return interval_map.get(interval, 60 * 1000)  # 默认1分钟
+    return interval_map.get(interval, 60 * 1000)
 
 
 class ProgressBar:
     """进度条工具类"""
-    
+
     def __init__(self, total, desc="Progress"):
         """
         初始化进度条
-        
+
         :param total: 总任务数
         :param desc: 进度条描述
         """
         self.total = total
         self.desc = desc
         self.current = 0
-    
+
     def update(self, step=1):
         """
         更新进度条
-        
+
         :param step: 进度步长
         """
         self.current += step
         progress = (self.current / self.total) * 100
         logger.info(f"{self.desc}: {self.current}/{self.total} ({progress:.2f}%)")
-    
+
     def finish(self):
         """完成进度条"""
         logger.info(f"{self.desc}: 完成 ({self.total}/{self.total})")

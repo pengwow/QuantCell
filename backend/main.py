@@ -19,13 +19,13 @@ from core import lifespan
 # 导入API路由
 from api import system_router
 
-# 导入现有路由（保持向后兼容）
-from backtest.routes import router as backtest_router
+# 导入业务模块路由（标准化模块化架构）
+from backtest import router as backtest_router
 from collector.routes import router as collector_router
-from factor.routes import router as factor_router
+from factor import router as factor_router
 from model.routes import router as model_router
-from settings.api import router as settings_router
-from strategy.routes import router_strategy as strategy_router
+from settings.routes import router as settings_router
+from strategy import router as strategy_router
 from websocket.routes import router as websocket_router
 from realtime.routes import realtime_router
 
