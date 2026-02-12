@@ -1,0 +1,70 @@
+# Binance交易所配置示例
+
+binance:
+  # API配置（测试网）
+  api_key: "YOUR_TESTNET_API_KEY"
+  api_secret: "YOUR_TESTNET_API_SECRET"
+  
+  # 网络配置
+  testnet: true  # 使用测试网
+  tld: "com"     # 顶级域名: com, us等
+  
+  # 交易模式: spot, futures, margin
+  trading_mode: "spot"
+  
+  # WebSocket配置
+  websocket:
+    enabled: true
+    auto_reconnect: true
+    reconnect_interval: 5  # 秒
+    ping_interval: 30      # 秒
+  
+  # 请求配置
+  request:
+    timeout: 30        # 秒
+    max_retries: 3
+    retry_delay: 1.0   # 秒
+  
+  # 代理配置（如果需要）
+  # proxy_url: "http://127.0.0.1:7890"
+  
+  # 日志配置
+  verbose: false
+
+# 模拟盘交易配置
+paper_trading:
+  enabled: true
+  initial_balance:
+    USDT: 10000.0
+    BTC: 0.5
+    ETH: 5.0
+  
+  # 手续费率
+  maker_fee: 0.001   # 0.1%
+  taker_fee: 0.001   # 0.1%
+
+# 监控的交易对
+symbols:
+  - BTCUSDT
+  - ETHUSDT
+  - BNBUSDT
+
+# 数据订阅配置
+subscriptions:
+  kline:
+    - symbol: BTCUSDT
+      interval: "1m"
+    - symbol: ETHUSDT
+      interval: "1m"
+  
+  depth:
+    - symbol: BTCUSDT
+      level: 20
+  
+  trade:
+    - symbol: BTCUSDT
+    - symbol: ETHUSDT
+  
+  ticker:
+    - symbol: BTCUSDT
+    - symbol: ETHUSDT
