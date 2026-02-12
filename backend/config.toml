@@ -1,67 +1,69 @@
-[database]
-type = "sqlite"
-file = "data/quantcell_sqlite.db"
+name = "default_simulation"
+description = "默认模拟测试配置"
+duration_hours = 8.0
 
-[app]
-host = "0.0.0.0"
+[data]
+source_type = "file"
+symbols = [
+    "BTCUSDT",
+    "ETHUSDT",
+]
+intervals = [
+    "1m",
+    "5m",
+]
+
+[push]
+speed = 1.0
+realtime = false
+batch_size = 1
+batch_interval_ms = 1000
+
+[quantcell]
+host = "localhost"
 port = 8000
-debug = true
-secret_key = "your-secret-key"
-timezone = "Asia/Shanghai"
+ws_path = "/ws"
+use_ssl = false
+reconnect_attempts = 5
+reconnect_delay_ms = 5000
+
+[[workers]]
+strategy_path = "strategies/test_strategy.py"
+strategy_class = "TestStrategy"
+symbols = [
+    "BTCUSDT",
+]
+data_types = [
+    "kline",
+]
+
+[workers.strategy_params]
+
+[monitor]
+enabled = true
+console_output = true
+web_interface = false
+web_port = 8080
+update_interval_ms = 1000
+metrics_history_size = 1000
+
+[exception_simulation]
+enabled = false
+network_delay_ms = 0
+network_delay_probability = 0.0
+disconnect_interval_ms = 0
+disconnect_duration_ms = 0
+data_corruption_probability = 0.0
+strategy_error_probability = 0.0
 
 [logging]
 level = "INFO"
-format = "%(levelname)s - %(name)s - %(message)s"
+max_size_mb = 100
+backup_count = 5
+format = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {name} | {message}"
+json_format = false
 
-[quant]
-qlib_data_dir = "data/crypto_data"
-backtest_initial_capital = 100000
-backtest_commission = 0.001
+[extra]
 
-[basic_settings]
-language = "zh-CN"
-theme = "light"
-showTips = false
-timezone = "Asia/Shanghai"
-
-[notification_settings]
-enableEmail = false
-enableWebhook = false
-webhookUrl = ""
-notifyOnAlert = false
-notifyOnTaskComplete = false
-notifyOnSystemUpdate = false
-
-[api_settings]
-apiKey = "sk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-apiPermissions = "[{\"id\":\"read\",\"name\":\"读取权限\",\"description\":\"允许读取系统数据和配置\",\"enabled\":true},{\"id\":\"write\",\"name\":\"写入权限\",\"description\":\"允许修改系统数据和配置\",\"enabled\":false},{\"id\":\"execute\",\"name\":\"执行权限\",\"description\":\"允许执行系统操作和任务\",\"enabled\":true}]"
-
-[system_config]
-qlib_data_dir = "data/crypto_data"
-max_workers = "4"
-data_download_dir = "data/source"
-current_market_type = "crypto"
-crypto_trading_mode = "spot"
-default_exchange = "binance"
-default_interval = "1d"
-default_commission = 0.001
-default_initial_cash = 1000000
-proxy_enabled = true
-proxy_url = "http://127.0.0.1:7897"
-proxy_username = ""
-proxy_password = ""
-realtime_enabled = false
-data_mode = "realtime"
-frontend_update_interval = 1000
-frontend_data_cache_size = 1000
-
-["测试插件设置"]
-test_plugin_enabled = "true"
-test_plugin_mode = "normal"
-test_plugin_timeout = "30"
-
-[exchanges.binance]
-api_key = ""
-secret_key = ""
-proxy_url = ""
-enable_rate_limit = true
+[app]
+secret_key = "plFtDYbSJiM9VVyFCrWZiNAZls520yFQ-Ur8ttbNd80"

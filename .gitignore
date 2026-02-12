@@ -40,3 +40,6 @@ backend/backtest/results/*
 backend/plugins/*
 frontend/src/plugins/*
 temp/.*
+backend/performance_reports/*.json
+backend/performance_reports/*.md
+backend/performance_reports/*.csv

@@ -1,0 +1,126 @@
+{
+  "report_name": "default_simulation",
+  "generated_at": "2026-02-12T12:58:06.769818",
+  "start_time": "2026-02-12T12:57:51.748592",
+  "end_time": "2026-02-12T12:58:06.766698",
+  "config": {
+    "name": "default_simulation",
+    "description": "默认模拟测试配置",
+    "duration_hours": 8.0,
+    "standalone": true,
+    "data": {
+      "source_type": "file",
+      "file_path": "/Users/liupeng/workspace/quant/QuantCell/backend/data/ETHUSDT.csv",
+      "db_connection": null,
+      "symbols": [
+        "BTCUSDT",
+        "ETHUSDT"
+      ],
+      "intervals": [
+        "1m",
+        "5m"
+      ],
+      "start_time": null,
+      "end_time": null
+    },
+    "push": {
+      "speed": 1.0,
+      "realtime": false,
+      "batch_size": 1,
+      "batch_interval_ms": 1000
+    },
+    "quantcell": {
+      "host": "localhost",
+      "port": 8000,
+      "ws_path": "/ws",
+      "api_key": null,
+      "api_secret": null,
+      "use_ssl": false,
+      "reconnect_attempts": 5,
+      "reconnect_delay_ms": 5000
+    },
+    "workers": [
+      {
+        "strategy_path": "strategies/test_strategy.py",
+        "strategy_class": "TestStrategy",
+        "strategy_params": {},
+        "symbols": [
+          "BTCUSDT"
+        ],
+        "data_types": [
+          "kline"
+        ]
+      }
+    ],
+    "monitor": {
+      "enabled": true,
+      "console_output": true,
+      "web_interface": false,
+      "web_port": 8080,
+      "update_interval_ms": 1000,
+      "metrics_history_size": 1000
+    },
+    "exception_simulation": {
+      "enabled": false,
+      "network_delay_ms": 0,
+      "network_delay_probability": 0.0,
+      "disconnect_interval_ms": 0,
+      "disconnect_duration_ms": 0,
+      "data_corruption_probability": 0.0,
+      "strategy_error_probability": 0.0
+    },
+    "logging": {
+      "level": "INFO",
+      "file_path": null,
+      "max_size_mb": 100,
+      "backup_count": 5,
+      "format": "{time:YYYY-MM-DD HH:mm:ss} | {level} | {name} | {message}",
+      "json_format": false
+    },
+    "extra": {}
+  },
+  "metrics": {
+    "start_time": "2026-02-12T12:57:51.748592",
+    "end_time": "2026-02-12T12:58:06.766698",
+    "total_duration_ms": 0.0,
+    "data_push_duration_ms": 0.0,
+    "total_data_points": 140544,
+    "data_points_pushed": 0,
+    "push_rate": 0.0,
+    "total_signals": 0,
+    "total_orders": 0,
+    "filled_orders": 0,
+    "canceled_orders": 0,
+    "total_trades": 0,
+    "total_pnl": 0.0,
+    "realized_pnl": 0.0,
+    "unrealized_pnl": 0.0,
+    "max_drawdown": 0.0,
+    "sharpe_ratio": 0.0,
+    "avg_latency_ms": 0.0,
+    "max_latency_ms": 0.0,
+    "min_latency_ms": 0.0,
+    "exceptions_count": 0,
+    "network_errors": 0,
+    "data_errors": 0
+  },
+  "signals_count": 0,
+  "orders_count": 0,
+  "exceptions_count": 0,
+  "extra_data": {
+    "worker_stats": {
+      "total_workers": 1,
+      "running_workers": 0,
+      "error_workers": 0,
+      "total_messages_processed": 15,
+      "total_orders_placed": 0,
+      "total_errors": 0
+    },
+    "exception_summary": {
+      "enabled": false,
+      "total_exceptions": 0,
+      "active_exceptions": 0,
+      "by_type": {}
+    }
+  }
+}

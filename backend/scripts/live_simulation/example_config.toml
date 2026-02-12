@@ -1,0 +1,68 @@
+# QuantCell 实盘交易模拟测试系统配置示例
+
+name = "btc_simulation_2024"
+description = "BTC/USDT 1分钟K线模拟测试"
+duration_hours = 8.0
+standalone = true  # 独立模式（不连接QuantCell服务）
+
+[data]
+source_type = "file"
+file_path = "./data"
+symbols = ["BTCUSDT", "ETHUSDT"]
+intervals = ["1m", "5m"]
+start_time = "2024-01-01T00:00:00"
+end_time = "2024-01-31T23:59:59"
+
+[push]
+speed = 10.0  # 10倍速播放
+realtime = false
+batch_size = 1
+batch_interval_ms = 1000
+
+[quantcell]
+host = "localhost"
+port = 8000
+ws_path = "/ws"
+api_key = null
+api_secret = null
+use_ssl = false
+reconnect_attempts = 5
+reconnect_delay_ms = 5000
+
+[[workers]]
+strategy_path = "scripts/live_simulation/strategies/test_strategy.py"
+strategy_class = "TestStrategy"
+symbols = ["BTCUSDT"]
+data_types = ["kline"]
+
+[workers.strategy_params]
+fast_period = 5
+slow_period = 10
+
+[monitor]
+enabled = true
+console_output = true
+web_interface = false
+web_port = 8080
+update_interval_ms = 1000
+metrics_history_size = 1000
+
+[exception_simulation]
+enabled = false
+network_delay_ms = 100
+network_delay_probability = 0.1
+disconnect_interval_ms = 300000  # 5分钟
+disconnect_duration_ms = 5000
+data_corruption_probability = 0.01
+strategy_error_probability = 0.001
+
+[logging]
+level = "INFO"
+file_path = "./logs/simulation.log"
+max_size_mb = 100
+backup_count = 5
+format = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {name} | {message}"
+json_format = false
+
+[extra]
+# 额外配置项
