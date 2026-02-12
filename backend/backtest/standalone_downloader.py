@@ -16,8 +16,8 @@ from typing import Callable, List, Optional, Tuple
 import pandas as pd
 from loguru import logger
 
-from collector.crypto.binance.downloader import BinanceDownloader
-from collector.base.utils import get_date_range
+from exchange.binance.downloader import BinanceDownloader
+from utils.time_parser import get_date_range
 
 
 class StandaloneDownloadProgress:

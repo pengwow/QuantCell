@@ -27,7 +27,7 @@ class BaseSchema(BaseModel):
 
     class Config:
         json_encoders = {}
-        orm_mode = True
+        from_attributes = True
 
 
 class StrategyParamInfo(BaseSchema):

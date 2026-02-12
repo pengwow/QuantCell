@@ -39,7 +39,7 @@ class BaseSchema(BaseModel):
     class Config:
         """Pydantic配置"""
         json_encoders = {}
-        orm_mode = True
+        from_attributes = True
 
 
 class FactorAddRequest(BaseSchema):

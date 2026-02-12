@@ -16,9 +16,6 @@ from loguru import logger
 # 导入核心模块
 from core import lifespan
 
-# 导入API路由
-from api import system_router
-
 # 导入业务模块路由（标准化模块化架构）
 from backtest import router as backtest_router
 from collector.routes import router as collector_router
@@ -52,10 +49,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册系统管理API路由（新增重构后的路由）
-app.include_router(system_router)
-
-# 注册原有业务路由（保持向后兼容）
+# 注册业务路由（保持向后兼容）
 app.include_router(collector_router)
 app.include_router(settings_router)
 app.include_router(factor_router)

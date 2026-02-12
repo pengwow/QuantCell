@@ -6,8 +6,8 @@ import pandas as pd
 import requests
 from loguru import logger
 
-from common.collectors import BaseCollector
-from common.collectors.utils import deco_retry
+from exchange.base import BaseCollector
+from utils.decorators import deco_retry
 
 
 class OKXDownloader(BaseCollector):

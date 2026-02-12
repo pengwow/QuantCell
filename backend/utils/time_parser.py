@@ -170,19 +170,93 @@ def align_to_interval(dt: datetime, interval: str) -> datetime:
         return dt.replace(hour=new_hour, minute=new_minute, second=0, microsecond=0)
 
 
-def get_time_range_for_download(start_time: datetime, end_time: datetime, 
+def get_time_range_for_download(start_time: datetime, end_time: datetime,
                                 buffer_days: int = 1) -> Tuple[datetime, datetime]:
     """
     获取下载时间范围（添加缓冲时间）
-    
+
     参数：
         start_time: 开始时间
         end_time: 结束时间
         buffer_days: 缓冲天数
-        
+
     返回：
         Tuple[datetime, datetime]: (缓冲后的开始时间, 缓冲后的结束时间)
     """
     buffered_start = start_time - timedelta(days=buffer_days)
     buffered_end = end_time + timedelta(days=buffer_days)
     return buffered_start, buffered_end
+
+
+def get_date_range(start_date, end_date):
+    """
+    获取日期范围列表
+
+    :param start_date: 开始日期，格式为'YYYY-MM-DD'
+    :param end_date: 结束日期，格式为'YYYY-MM-DD'
+    :return: 日期字符串列表
+    """
+    start = datetime.strptime(start_date, '%Y-%m-%d')
+    end = datetime.strptime(end_date, '%Y-%m-%d')
+    delta = end - start
+    return [(start + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(delta.days + 1)]
+
+
+def get_interval_ms(interval):
+    """
+    将时间间隔字符串转换为毫秒数
+
+    :param interval: 时间间隔，如'1m', '1h'等
+    :return: 时间间隔对应的毫秒数
+    """
+    interval_map = {
+        '1m': 60 * 1000,
+        '3m': 3 * 60 * 1000,
+        '5m': 5 * 60 * 1000,
+        '15m': 15 * 60 * 1000,
+        '30m': 30 * 60 * 1000,
+        '1h': 60 * 60 * 1000,
+        '2h': 2 * 60 * 60 * 1000,
+        '4h': 4 * 60 * 60 * 1000,
+        '6h': 6 * 60 * 60 * 1000,
+        '8h': 8 * 60 * 60 * 1000,
+        '12h': 12 * 60 * 60 * 1000,
+        '1d': 24 * 60 * 60 * 1000,
+        '3d': 3 * 24 * 60 * 60 * 1000,
+        '1w': 7 * 24 * 60 * 60 * 1000,
+        '1M': 30 * 24 * 60 * 60 * 1000
+    }
+    return interval_map.get(interval, 60 * 1000)
+
+
+def str_to_timestamp(date_str, unit='ms'):
+    """
+    将日期字符串转换为时间戳
+
+    :param date_str: 日期字符串，格式为'YYYY-MM-DD'或'YYYY-MM-DD HH:MM:SS'
+    :param unit: 时间戳单位，可选'ms'（毫秒）或'us'（微秒）
+    :return: 时间戳
+    """
+    if not date_str:
+        return None
+
+    formats = ['%Y-%m-%d', '%Y-%m-%d %H:%M:%S']
+    timestamp = None
+
+    for fmt in formats:
+        try:
+            dt = datetime.strptime(date_str, fmt)
+            timestamp = dt.timestamp()
+            break
+        except ValueError:
+            continue
+
+    if timestamp is None:
+        raise ValueError(f"无法解析日期字符串: {date_str}")
+
+    if unit == 'ms':
+        return int(timestamp * 1000)
+    elif unit == 'us':
+        return int(timestamp * 1000000)
+    else:
+        raise ValueError(f"不支持的时间戳单位: {unit}")
