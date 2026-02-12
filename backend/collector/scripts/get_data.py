@@ -12,8 +12,7 @@ from pathlib import Path
 import fire
 from loguru import logger
 
-from collector.crypto.binance.collector import BinanceCollector
-from collector.crypto.okx.collector import OKXCollector
+from exchange import BinanceCollector, OKXCollector
 from collector.db.models import SystemConfigBusiness as SystemConfig
 
 

@@ -1,4 +1,26 @@
-# 系统设置API路由
+"""
+系统设置模块API路由
+
+提供系统配置管理和系统信息查询的RESTful API端点。
+
+路由前缀:
+    - /api/config: 配置管理
+    - /api/system: 系统信息
+
+标签: config-management, system-info
+
+包含端点:
+    - GET /api/config/: 获取所有配置
+    - GET /api/config/{key}: 获取指定配置
+    - PUT /api/config/{key}: 更新配置
+    - POST /api/config/batch: 批量更新配置
+    - GET /api/system/info: 获取系统信息
+    - GET /api/system/health: 健康检查
+
+作者: QuantCell Team
+版本: 1.0.0
+日期: 2026-02-12
+"""
 
 import os
 import sys

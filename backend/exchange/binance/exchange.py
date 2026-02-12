@@ -5,12 +5,7 @@ from pathlib import Path
 import ccxt
 from typing import Optional, List, Dict, Any
 
-# 设置系统路径
-backend_root = Path(__file__).parent.parent.parent
-project_root = backend_root.parent 
-sys.path.append(str(project_root))
-
-from .. import Exchange
+from exchange import Exchange
 
 
 class BinanceExchange(Exchange):

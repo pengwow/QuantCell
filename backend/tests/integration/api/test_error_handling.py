@@ -114,7 +114,7 @@ class TestExceptionHandling:
     def test_database_exception_handling(self, client: TestClient, mocker):
         """测试数据库异常处理"""
         mocker.patch(
-            "settings.api.SystemConfig.get_all_with_details",
+            "settings.routes.SystemConfig.get_all_with_details",
             side_effect=Exception("Database connection lost")
         )
         response = client.get("/api/config/")
@@ -276,7 +276,7 @@ class TestBusinessErrorHandling:
     def test_config_not_found_error(self, client: TestClient, mocker):
         """测试配置不存在错误"""
         mocker.patch(
-            "settings.api.SystemConfig.get_with_details",
+            "settings.routes.SystemConfig.get_with_details",
             return_value=None
         )
         response = client.get("/api/config/nonexistent_key")

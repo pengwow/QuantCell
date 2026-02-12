@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import urllib.parse
 import json
 import ccxt
-from .. import Exchange
+from exchange import Exchange
 from typing import Dict, List, Optional, Any
 
 
