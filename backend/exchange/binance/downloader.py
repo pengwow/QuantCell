@@ -12,8 +12,9 @@ import pandas as pd
 import requests
 from loguru import logger
 
-from common.collectors import BaseCollector
-from common.collectors.utils import async_deco_retry, deco_retry, get_date_range
+from exchange.base import BaseCollector
+from utils.decorators import async_deco_retry, deco_retry
+from utils.time_parser import get_date_range
 
 
 class BinanceDownloader(BaseCollector):

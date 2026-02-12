@@ -382,10 +382,10 @@ def get_plugin_config(plugin_name: str = Path(..., description="插件的名称�
 @system_router.get("/info", response_model=ApiResponse)
 def get_system_info():
     """获取系统信息
-    
+
     Returns:
         ApiResponse[SystemInfo]: 包含系统信息的响应，包括版本信息、运行状态和资源使用情况
-        
+
     Responses:
         200: 成功获取系统信息
         500: 获取系统信息失败
@@ -393,7 +393,7 @@ def get_system_info():
     try:
         system_service = SystemService()
         result = system_service.get_system_info()
-        
+
         if result["success"]:
             return ApiResponse(
                 code=0,
@@ -413,6 +413,77 @@ def get_system_info():
             message="获取系统信息失败",
             data=str(e)
         )
+
+
+@system_router.get("/sync-status", response_model=ApiResponse)
+async def get_sync_status():
+    """获取货币对同步状态
+
+    Returns:
+        ApiResponse: 同步状态信息
+    """
+    from services.symbol_sync import symbol_sync_manager
+
+    return {
+        "code": 0,
+        "message": "获取同步状态成功",
+        "data": {
+            "status": symbol_sync_manager.status.value,
+            "is_syncing": symbol_sync_manager.is_syncing,
+            "consecutive_failures": symbol_sync_manager.consecutive_failures,
+            "last_sync_time": symbol_sync_manager.last_sync_time.isoformat() if symbol_sync_manager.last_sync_time else None,
+            "has_symbols_data": symbol_sync_manager.check_symbols_exist()
+        }
+    }
+
+
+@system_router.post("/sync-symbols", response_model=ApiResponse)
+async def trigger_sync_symbols(exchange: str = "binance"):
+    """手动触发货币对同步
+
+    Args:
+        exchange: 交易所名称，默认为binance
+
+    Returns:
+        ApiResponse: 同步结果
+    """
+    from services.symbol_sync import symbol_sync_manager
+
+    result = await symbol_sync_manager.async_perform_sync(exchange=exchange)
+
+    if result.get("success"):
+        return {
+            "code": 0,
+            "message": "同步任务已启动",
+            "data": result
+        }
+    else:
+        return {
+            "code": 500,
+            "message": result.get("message", "同步失败"),
+            "data": result
+        }
+
+
+@system_router.get("/health", response_model=ApiResponse)
+async def health_check():
+    """系统健康检查
+
+    Returns:
+        ApiResponse: 健康状态
+    """
+    from services.symbol_sync import symbol_sync_manager
+
+    return {
+        "code": 0,
+        "message": "系统运行正常",
+        "data": {
+            "status": "healthy",
+            "sync_status": symbol_sync_manager.status.value,
+            "has_symbols_data": symbol_sync_manager.check_symbols_exist()
+        }
+    }
+
 
 # 注册子路由
 router.include_router(config_router)
