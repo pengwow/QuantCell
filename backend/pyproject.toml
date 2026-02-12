@@ -55,6 +55,7 @@ dependencies = [
     "yfinance>=1.1.0",
     "ruff>=0.12.12",
     "backtrader>=1.9.78.123",
+    "python-binance>=1.0.34",
 ]
 
 [tool.pytest.ini_options]
