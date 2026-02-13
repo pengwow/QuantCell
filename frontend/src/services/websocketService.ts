@@ -92,11 +92,15 @@ export class WebSocketService {
       this.socket.onmessage = (event) => {
         try {
           const rawData = event.data;
-          console.log('[WebSocket] 收到原始消息:', rawData.substring(0, 200));
-          
           const message: WebSocketMessage = JSON.parse(rawData);
-          console.log('[WebSocket] 解析后消息:', message.type, message);
-          
+
+          // 只记录非kline消息或kline消息摘要
+          if (message.type === 'kline') {
+            console.log(`[WebSocket] 收到K线消息: ${message.data?.symbol}@${message.data?.interval}, close=${message.data?.close}`);
+          } else {
+            console.log('[WebSocket] 收到消息:', message.type);
+          }
+
           this.handleMessage(message);
         } catch (error) {
           console.error('解析WebSocket消息失败:', error);
@@ -375,19 +379,19 @@ export class WebSocketService {
    */
   private notifyListeners(event: string, data: any): void {
     const listeners = this.messageListeners.get(event);
-    console.log(`[WebSocket] notifyListeners: event=${event}, listeners=${listeners?.size || 0}`);
-    
-    if (listeners) {
-      listeners.forEach((listener, index) => {
+
+    if (listeners && listeners.size > 0) {
+      // 减少日志输出，只在有监听器时记录事件类型
+      if (event !== 'kline') {
+        console.log(`[WebSocket] 分发消息: event=${event}, listeners=${listeners.size}`);
+      }
+      listeners.forEach((listener) => {
         try {
-          console.log(`[WebSocket] 调用监听器 ${index} for event=${event}`);
           listener(data);
         } catch (error) {
           console.error(`监听器处理错误 (${event}):`, error);
         }
       });
-    } else {
-      console.warn(`[WebSocket] 没有监听器注册 for event=${event}`);
     }
   }
 
@@ -427,7 +431,7 @@ export class WebSocketService {
 const defaultConfig: WebSocketConfig = {
   // 直接连接到后端WebSocket服务
   url: `ws://localhost:8000/ws`,
-  topics: ['task:progress', 'task:status', 'system:info', 'system:status'],
+  topics: ['task:progress', 'task:status', 'system:info', 'system:status', 'kline'],
 };
 
 export const wsService = new WebSocketService(defaultConfig);

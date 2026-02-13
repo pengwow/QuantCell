@@ -338,13 +338,13 @@ class BinanceWebSocketClient(AbstractExchangeClient):
                                 
                                 # 添加频道信息
                                 data['channel'] = channel
-                                
+
                                 # 调用回调
                                 for callback in self._callbacks:
                                     try:
                                         callback(data)
                                     except Exception as e:
-                                        logger.error(f"Callback error: {e}")
+                                        logger.error(f"[KlinePush] 回调函数执行失败: {e}")
                                 
                         except asyncio.TimeoutError:
                             # 超时是正常的，继续下一个

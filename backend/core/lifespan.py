@@ -140,16 +140,22 @@ async def lifespan(app: FastAPI):
                         "timestamp": int(time.time() * 1000),
                         "data": data  # 保持原始数据结构
                     }
+
                     # 广播到所有订阅了kline主题的客户端
                     asyncio.create_task(
                         manager.broadcast(kline_message, topic="kline")
                     )
             except Exception as e:
-                logger.error(f"WebSocket K线数据推送失败: {e}")
+                logger.error(f"[KlinePush] WebSocket K线数据推送失败: {e}")
 
         # 注册消费者
         realtime_engine.register_consumer("kline", websocket_kline_consumer)
         logger.info("已注册WebSocket K线数据推送消费者")
+
+        # 注册K线持久化消费者（新增）
+        from realtime.kline_persistence import kline_persistence_consumer
+        realtime_engine.register_consumer("kline", kline_persistence_consumer.process_kline)
+        logger.info("已注册K线持久化消费者")
 
         logger.info("实时引擎初始化成功")
     except Exception as e:

@@ -54,40 +54,41 @@ class DataDistributor:
     def distribute(self, data: Dict[str, Any]) -> bool:
         """
         分发数据给对应的消费者
-        
+
         Args:
             data: 待分发的数据
-        
+
         Returns:
             bool: 分发是否成功
         """
         try:
-            # 获取数据类型
             data_type = data.get('data_type', '')
+
             if not data_type:
-                logger.warning("数据缺少类型字段")
+                logger.warning("[KlinePush] 数据缺少类型字段")
                 return False
-            
+
             # 分发给所有注册的消费者
             if data_type in self.consumers:
                 for consumer in self.consumers[data_type]:
                     try:
                         consumer(data)
                     except Exception as e:
-                        logger.error(f"消费者执行失败: {e}")
-            
+                        logger.error(f"[KlinePush] 消费者执行失败: {e}")
+
             # 分发给所有数据类型的消费者
             if '*' in self.consumers:
                 for consumer in self.consumers['*']:
                     try:
                         consumer(data)
                     except Exception as e:
-                        logger.error(f"通用消费者执行失败: {e}")
-            
+                        logger.error(f"[KlinePush] 通用消费者执行失败: {e}")
+
             return True
-        
+
         except Exception as e:
-            logger.error(f"数据分发失败: {e}")
+            logger.error(f"[KlinePush] 数据分发失败: {e}")
+            logger.exception(e)
             return False
     
     def broadcast(self, data: Dict[str, Any]) -> bool:

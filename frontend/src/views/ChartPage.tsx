@@ -452,32 +452,24 @@ export default function ChartPage () {
       // 获取当前所有数据
       const currentData = klineDataRef.current || []
 
-      console.log('='.repeat(80))
-      console.log(`[${new Date().toISOString()}] [Realtime] 开始处理K线数据队列`)
-      console.log('-'.repeat(80))
-      console.log(`  队列长度: ${queue.length}`)
-      console.log(`  当前数据量: ${currentData.length}`)
-      console.log('-'.repeat(80))
-
       // 处理队列中的数据
-      queue.forEach((data, index) => {
+      queue.forEach((data) => {
         // 处理多种可能的数据格式
         let kline = data.k
-        
+
         if (!kline && data.data) {
           kline = data.data.k || data.data
         }
-        
+
         if (!kline && data.data && data.data.data) {
           kline = data.data.data.k || data.data.data
         }
-        
+
         if (!kline) {
-          console.warn(`[Realtime] [${index}] 无效的数据格式:`, data)
           return
         }
 
-        // 解析K线数据（参考 test_websocket_kline_manual.py 的格式）
+        // 解析K线数据
         const bar = {
           timestamp: kline.t,
           open: parseFloat(kline.o),
@@ -487,39 +479,14 @@ export default function ChartPage () {
           volume: parseFloat(kline.v),
         }
 
-        // 详细输出K线数据（类似后端脚本格式）
-        const isFinal = kline.x ? '✓' : '○'
-        const openTimeStr = new Date(kline.t).toLocaleString()
-        const closeTimeStr = new Date(kline.T).toLocaleString()
-
-        console.log('='.repeat(80))
-        console.log(`[${index}] [${kline.s}@kline_${kline.i}] ${isFinal} Kline Data:`)
-        console.log('-'.repeat(80))
-        console.log(`  Symbol:        ${kline.s}`)
-        console.log(`  Interval:      ${kline.i}`)
-        console.log(`  Is Final:      ${kline.x}`)
-        console.log(`  Open Time:     ${openTimeStr} (${kline.t})`)
-        console.log(`  Close Time:    ${closeTimeStr} (${kline.T})`)
-        console.log(`  Open:          ${bar.open.toFixed(8)}`)
-        console.log(`  High:          ${bar.high.toFixed(8)}`)
-        console.log(`  Low:           ${bar.low.toFixed(8)}`)
-        console.log(`  Close:         ${bar.close.toFixed(8)}`)
-        console.log(`  Volume:        ${bar.volume.toFixed(8)}`)
-        console.log(`  Quote Volume:  ${parseFloat(kline.q || 0).toFixed(8)}`)
-        console.log(`  Trades:        ${kline.n || 0}`)
-        console.log(`  Receive Time:  ${new Date().toISOString()}`)
-        console.log('='.repeat(80))
-
         // 检查是否已存在相同时间戳的数据
         const existingIndex = currentData.findIndex(
           (item: any) => item.timestamp === bar.timestamp
         )
 
         if (existingIndex >= 0) {
-          console.log(`[${index}] 更新现有K线数据 (索引: ${existingIndex})`)
           currentData[existingIndex] = bar
         } else {
-          console.log(`[${index}] 添加新K线数据`)
           currentData.push(bar)
         }
 
@@ -531,38 +498,30 @@ export default function ChartPage () {
       if (currentData.length > REALTIME_UPDATE_CONFIG.maxVisibleBars) {
         const startIndex = currentData.length - REALTIME_UPDATE_CONFIG.maxVisibleBars
         klineDataRef.current = currentData.slice(startIndex)
-        console.log(`[Realtime] 数据量限制: 保留最近 ${REALTIME_UPDATE_CONFIG.maxVisibleBars} 条`)
       } else {
         klineDataRef.current = currentData
       }
-
-      console.log('-'.repeat(80))
-      console.log(`[Realtime] 当前总数据量: ${klineDataRef.current.length}`)
-      console.log('-'.repeat(80))
 
       // 使用 requestAnimationFrame 优化渲染
       requestAnimationFrame(() => {
         if (!chartRef.current) return
 
-        console.log('[Realtime] 更新图表渲染...')
-
-        // 更新图表数据
-        if (latestBarRef.current) {
-          chartRef.current.updateData(latestBarRef.current)
-          console.log('[Realtime] ✓ 图表数据已更新')
-        }
+        // 使用 setDataLoader 重新加载数据（klinecharts 推荐方式）
+        chartRef.current.setDataLoader({
+          getBars: ({ callback }: { callback: (data: any[]) => void }) => {
+            callback(klineDataRef.current)
+          }
+        })
 
         // 触发图表重绘
         chartRef.current.resize()
-        console.log('[Realtime] ✓ 图表已重绘')
       })
 
       // 清空队列
       realtimeDataQueueRef.current = []
 
-      console.log('='.repeat(80))
-      console.log(`[${new Date().toISOString()}] [Realtime] 批量更新完成，共处理 ${queue.length} 条数据`)
-      console.log('='.repeat(80))
+      // 简化日志输出
+      console.log(`[Realtime] 批量更新完成: 处理${queue.length}条, 总计${klineDataRef.current.length}条`)
     } catch (err) {
       console.error('[Realtime] 批量处理数据失败:', err)
     }
@@ -578,7 +537,7 @@ export default function ChartPage () {
     const now = Date.now()
     const timeSinceLastUpdate = now - lastUpdateTimeRef.current
 
-    // 解析K线数据用于日志
+    // 解析K线数据
     let kline = data.k
     if (!kline && data.data) {
       kline = data.data.k || data.data
@@ -588,17 +547,8 @@ export default function ChartPage () {
     }
 
     if (kline) {
-      console.log('-'.repeat(80))
-      console.log(`[${new Date().toISOString()}] [Realtime] 接收到WebSocket消息`)
-      console.log(`  Channel:       ${kline.s}@kline_${kline.i}`)
-      console.log(`  Symbol:        ${kline.s}`)
-      console.log(`  Interval:      ${kline.i}`)
-      console.log(`  Is Final:      ${kline.x}`)
-      console.log(`  Queue Size:    ${realtimeDataQueueRef.current.length + 1}`)
-      console.log(`  Time Since Last: ${timeSinceLastUpdate}ms`)
-      console.log('-'.repeat(80))
-    } else {
-      console.log('[Realtime] 接收到非K线数据:', data)
+      // 简化日志输出，只记录关键信息
+      console.log(`[Realtime] 收到K线: ${kline.s}@${kline.i}, close=${kline.c}, queue=${realtimeDataQueueRef.current.length + 1}`)
     }
 
     // 将数据加入队列
@@ -606,7 +556,6 @@ export default function ChartPage () {
 
     // 检查是否需要立即更新（超过节流间隔）
     if (timeSinceLastUpdate >= REALTIME_UPDATE_CONFIG.throttleInterval) {
-      console.log(`[Realtime] 超过节流间隔 (${REALTIME_UPDATE_CONFIG.throttleInterval}ms)，立即处理`)
       // 清除定时器
       if (batchUpdateTimerRef.current) {
         clearTimeout(batchUpdateTimerRef.current)
@@ -619,7 +568,6 @@ export default function ChartPage () {
     } else {
       // 设置批量更新定时器
       if (!batchUpdateTimerRef.current) {
-        console.log(`[Realtime] 设置批量更新定时器 (${REALTIME_UPDATE_CONFIG.batchInterval}ms)`)
         batchUpdateTimerRef.current = setTimeout(() => {
           lastUpdateTimeRef.current = Date.now()
           processBatchUpdate()

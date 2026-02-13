@@ -28,6 +28,16 @@ interface RealtimeToggleButtonProps {
   onStatusChange?: (isRealtime: boolean) => void;
 }
 
+// localStorage key for realtime state
+const REALTIME_STATE_KEY = 'realtime_button_state';
+
+interface RealtimeState {
+  isRealtime: boolean;
+  symbol: string;
+  period: string;
+  timestamp: number;
+}
+
 export function RealtimeToggleButton({
   symbol,
   period,
@@ -35,15 +45,55 @@ export function RealtimeToggleButton({
   onRealtimeData,
   onStatusChange,
 }: RealtimeToggleButtonProps) {
+  // 从 localStorage 恢复状态
+  const getInitialState = (): boolean => {
+    try {
+      const savedState = localStorage.getItem(REALTIME_STATE_KEY);
+      if (savedState) {
+        const state: RealtimeState = JSON.parse(savedState);
+        // 检查状态是否在5分钟内（避免过期状态）
+        const isRecent = Date.now() - state.timestamp < 5 * 60 * 1000;
+        // 检查是否是相同的交易对和周期
+        const isSameSymbol = state.symbol === symbol;
+        const isSamePeriod = state.period === period;
+
+        if (isRecent && isSameSymbol && isSamePeriod && state.isRealtime) {
+          console.log('[RealtimeToggleButton] 从localStorage恢复实时状态');
+          return true;
+        }
+      }
+    } catch (e) {
+      console.error('[RealtimeToggleButton] 恢复状态失败:', e);
+    }
+    return defaultRealtimeEnabled;
+  };
+
   // 实时数据状态
-  const [isRealtime, setIsRealtime] = useState(defaultRealtimeEnabled);
+  const [isRealtime, setIsRealtime] = useState(getInitialState);
   // 加载状态
   const [loading, setLoading] = useState(false);
   // 是否已订阅
   const [isSubscribed, setIsSubscribed] = useState(false);
+  // 是否已经恢复过连接
+  const [hasRestored, setHasRestored] = useState(false);
 
   // 构建K线频道名称
   const klineChannel = `${symbol}@kline_${period}`;
+
+  // 保存状态到 localStorage
+  const saveState = (realtime: boolean) => {
+    try {
+      const state: RealtimeState = {
+        isRealtime: realtime,
+        symbol,
+        period,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem(REALTIME_STATE_KEY, JSON.stringify(state));
+    } catch (e) {
+      console.error('[RealtimeToggleButton] 保存状态失败:', e);
+    }
+  };
 
   /**
    * 处理WebSocket消息
@@ -61,10 +111,22 @@ export function RealtimeToggleButton({
   /**
    * 启动实时数据更新
    */
-  const startRealtime = async () => {
+  const startRealtime = async (silent: boolean = false) => {
     setLoading(true);
     try {
       console.log('[RealtimeToggleButton] 启动实时数据...');
+
+      // 0. 确保WebSocket连接并订阅kline主题
+      console.log('[RealtimeToggleButton] 确保WebSocket连接...');
+      if (!wsService.getConnected()) {
+        console.log('[RealtimeToggleButton] WebSocket未连接，正在连接...');
+        wsService.connect();
+        // 等待连接建立
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      // 订阅kline主题
+      console.log('[RealtimeToggleButton] 订阅kline主题...');
+      wsService.subscribe('kline');
 
       // 1. 先检查实时引擎状态
       console.log('[RealtimeToggleButton] 检查引擎状态...');
@@ -78,7 +140,7 @@ export function RealtimeToggleButton({
         console.log('[RealtimeToggleButton] 启动结果:', startResult);
 
         if (!startResult.success) {
-          message.error('启动实时引擎失败');
+          if (!silent) message.error('启动实时引擎失败');
           return;
         }
       } else {
@@ -92,7 +154,7 @@ export function RealtimeToggleButton({
         console.log('[RealtimeToggleButton] 连接结果:', connectResult);
 
         if (!connectResult.success) {
-          message.error('连接交易所失败');
+          if (!silent) message.error('连接交易所失败');
           return;
         }
       } else {
@@ -105,19 +167,26 @@ export function RealtimeToggleButton({
       console.log('[RealtimeToggleButton] 订阅结果:', subscribeResult);
 
       if (!subscribeResult.success) {
-        message.error(`订阅K线数据失败`);
+        if (!silent) message.error(`订阅K线数据失败`);
         return;
       }
 
-      // 5. 订阅WebSocket消息
+      // 5. 订阅WebSocket消息（先注册监听器）
       console.log('[RealtimeToggleButton] 订阅WebSocket消息...');
+      // 只订阅 'kline' 主题，避免重复处理
       wsService.on('kline', handleWebSocketMessage);
-      wsService.on('kline:update', handleWebSocketMessage);
+      // 检查是否已注册监听器
+      console.log('[RealtimeToggleButton] WebSocket监听器已注册');
 
       // 6. 更新状态
       setIsRealtime(true);
       setIsSubscribed(true);
-      message.success('实时数据更新已开启');
+      saveState(true); // 保存状态到 localStorage
+
+      // 只在非静默模式下显示提示
+      if (!silent) {
+        message.success('实时数据更新已开启');
+      }
 
       // 7. 通知父组件
       if (onStatusChange) {
@@ -125,7 +194,9 @@ export function RealtimeToggleButton({
       }
     } catch (error: any) {
       console.error('[RealtimeToggleButton] 启动实时数据失败:', error);
-      message.error(`启动实时数据失败: ${error.message || '请检查网络连接'}`);
+      if (!silent) {
+        message.error(`启动实时数据失败: ${error.message || '请检查网络连接'}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -158,6 +229,7 @@ export function RealtimeToggleButton({
       // 4. 更新状态
       setIsRealtime(false);
       setIsSubscribed(false);
+      saveState(false); // 保存状态到 localStorage
       message.success('实时数据更新已暂停');
 
       // 5. 通知父组件
@@ -194,13 +266,17 @@ export function RealtimeToggleButton({
   };
 
   /**
-   * 组件挂载时检查系统配置
+   * 组件挂载时恢复连接状态
    */
   useEffect(() => {
-    // 如果系统配置默认开启实时数据，则自动启动
-    if (defaultRealtimeEnabled && !isRealtime) {
-      console.log('[RealtimeToggleButton] 系统配置默认开启实时数据，自动启动...');
-      startRealtime();
+    // 如果需要恢复实时连接（从localStorage恢复的状态）
+    if (isRealtime && !hasRestored) {
+      console.log('[RealtimeToggleButton] 检测到需要恢复实时连接...');
+      setHasRestored(true);
+      // 延迟恢复，等待组件完全挂载
+      setTimeout(() => {
+        startRealtime(true); // 传入 true 表示静默模式，不显示提示
+      }, 500);
     }
 
     // 组件卸载时清理
