@@ -156,6 +156,7 @@ const Setting = () => {
     current_market_type: 'crypto',
     crypto_trading_mode: 'spot',
     default_exchange: 'binance',
+    quote: 'USDT', // 默认计价货币
     default_interval: '1d',
     default_commission: 0.001,
     default_initial_cash: 1000000,
@@ -377,6 +378,7 @@ const Setting = () => {
         current_market_type: configs.current_market_type || prev.current_market_type,
         crypto_trading_mode: configs.crypto_trading_mode || prev.crypto_trading_mode,
         default_exchange: configs.default_exchange || prev.default_exchange,
+        quote: configs.quote || prev.quote,
         default_interval: configs.default_interval || prev.default_interval,
         default_commission: configs.default_commission !== undefined ? Number(configs.default_commission) : prev.default_commission,
         default_initial_cash: configs.default_initial_cash !== undefined ? Number(configs.default_initial_cash) : prev.default_initial_cash,
@@ -558,6 +560,12 @@ const Setting = () => {
         key: 'default_exchange',
         value: systemConfig.default_exchange,
         description: 'system.default_exchange',
+        name: 'system_config'
+      });
+      requestData.push({
+        key: 'quote',
+        value: systemConfig.quote,
+        description: 'system.quote',
         name: 'system_config'
       });
       requestData.push({
@@ -747,6 +755,7 @@ const Setting = () => {
         current_market_type: 'crypto',
         crypto_trading_mode: 'spot',
         default_exchange: 'binance',
+        quote: 'USDT',
         default_interval: '1d',
         default_commission: 0.001,
         default_initial_cash: 1000000,

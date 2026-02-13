@@ -334,7 +334,7 @@ export default function ChartPage () {
         crypto_type: cryptoType,
         exchange: 'binance', // 默认使用binance交易商，可根据系统配置调整
         filter: searchKeyword || undefined,
-        limit: 100
+        limit: 10000
       })
       
       const productsList = response.products || [];

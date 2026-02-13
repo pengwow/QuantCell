@@ -55,7 +55,7 @@ class BaseProductListFetcher(ProductListFetcher):
     ) -> Dict[str, Any]:
         """从数据库获取商品列表的通用方法"""
         logger.info(f"从数据库获取商品列表: table={table_name}, exchange={exchange}, filter={filter}, limit={limit}, offset={offset}")
-        
+
         # 导入需要的模型
         if table_name == "crypto_symbol":
             from ..db.models import CryptoSymbol as ProductModel
@@ -66,24 +66,24 @@ class BaseProductListFetcher(ProductListFetcher):
                 "message": "查询商品列表成功",
                 "products": []
             }
-        
+
         # 构建查询
         query = db.query(ProductModel)
-        
+
         # 应用交易商过滤
         if exchange:
             query = query.filter(ProductModel.exchange == exchange)
-        
-        # 应用通用过滤
+
+        # 应用通用过滤（支持 symbol 和 quote 字段）
         if filter:
             query = query.filter(ProductModel.symbol.contains(filter))
-        
+
         # 计算总数量
         total = query.count()
-        
+
         # 应用分页
         products = query.offset(offset).limit(limit).all()
-        
+
         # 转换为指定格式
         product_list = []
         for product in products:
@@ -93,8 +93,9 @@ class BaseProductListFetcher(ProductListFetcher):
                 "exchange": product.exchange,
                 "icon": self._get_product_icon(product),
                 "base": product.base,
+                "quote": product.quote if hasattr(product, 'quote') else None,
             })
-        
+
         return {
             "success": True,
             "message": "查询商品列表成功",
@@ -183,7 +184,7 @@ class FuturesProductListFetcher(BaseProductListFetcher):
 
 class CryptoSpotProductListFetcher(BaseProductListFetcher):
     """加密货币现货商品列表获取器"""
-    
+
     def fetch_products(
         self,
         db: Optional[Session] = None,
@@ -192,26 +193,68 @@ class CryptoSpotProductListFetcher(BaseProductListFetcher):
         limit: int = 100,
         offset: int = 0
     ) -> Dict[str, Any]:
-        """获取加密货币现货商品列表"""
+        """获取加密货币现货商品列表
+
+        从系统配置中获取计价货币，并使用数据库 quote 字段进行过滤。
+        同时支持通过 filter 参数进行 symbol 过滤。
+        """
         logger.info(f"获取加密货币现货商品列表: exchange={exchange}, filter={filter}, limit={limit}, offset={offset}")
-        
+
         if not db:
             return {
                 "success": False,
                 "message": "数据库会话未初始化",
                 "products": []
             }
-        
-        # 实现加密货币现货的商品列表获取逻辑
-        return self._fetch_from_database(
-            db=db,
-            table_name="crypto_symbol",
-            exchange=exchange,
-            filter=filter,
-            limit=limit,
-            offset=offset
-        )
-    
+
+        # 从系统配置获取计价货币
+        from config_manager import get_config
+        from ..db.models import CryptoSymbol
+        quote_currency = get_config('quote', 'USDT')
+        logger.info(f"系统配置计价货币: quote={quote_currency}")
+
+        # 构建查询
+        query = db.query(CryptoSymbol)
+
+        query = query.filter(CryptoSymbol.type == 'spot')
+
+        # 应用交易商过滤
+        if exchange:
+            query = query.filter(CryptoSymbol.exchange == exchange)
+
+        # 应用计价货币过滤（使用数据库 quote 字段）
+        if quote_currency:
+            query = query.filter(CryptoSymbol.quote == quote_currency)
+
+        # 应用 symbol 过滤
+        if filter:
+            query = query.filter(CryptoSymbol.symbol.contains(filter))
+
+        # 计算总数量
+        total = query.count()
+
+        # 应用分页
+        products = query.offset(offset).limit(limit).all()
+
+        # 转换为指定格式
+        product_list = []
+        for product in products:
+            product_list.append({
+                "symbol": product.symbol,
+                "name": product.symbol,
+                "exchange": product.exchange,
+                "icon": self._get_product_icon(product),
+                "base": product.base,
+                "quote": product.quote,
+            })
+
+        return {
+            "success": True,
+            "message": "查询商品列表成功",
+            "products": product_list,
+            "total": total
+        }
+
     def _get_product_icon(self, product: Any) -> str:
         """获取加密货币现货商品图标"""
         return "C"  # 加密货币现货图标

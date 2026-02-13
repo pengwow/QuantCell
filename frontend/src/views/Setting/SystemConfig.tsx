@@ -128,6 +128,29 @@ const SystemConfig: React.FC<SystemConfigProps> = ({
                     <Select.Option value="okx" disabled>OKX</Select.Option>
                   </Select>
                 </Form.Item>
+
+                <Form.Item
+                  label={
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      计价货币
+                      <Tooltip title="选择默认的计价货币，用于交易对报价" placement="right">
+                        <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                      </Tooltip>
+                    </div>
+                  }
+                  name="quote"
+                  rules={[{ required: true, message: '请选择计价货币' }]}
+                >
+                  <Select
+                    onChange={(value) => setSystemConfig(prev => ({ ...prev, quote: value }))}
+                  >
+                    <Select.Option value="USDT">USDT</Select.Option>
+                    <Select.Option value="USDC">USDC</Select.Option>
+                    <Select.Option value="BTC">BTC</Select.Option>
+                    <Select.Option value="ETH">ETH</Select.Option>
+                    <Select.Option value="BNB">BNB</Select.Option>
+                  </Select>
+                </Form.Item>
               </>
             )}
 
@@ -281,72 +304,6 @@ const SystemConfig: React.FC<SystemConfigProps> = ({
                 <Text style={{ marginLeft: 8 }}>是否启用实时引擎</Text>
               </div>
             </Form.Item>
-            
-            {systemConfig.realtime_enabled && (
-              <>
-                <Form.Item
-                  label={
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      数据模式
-                      <Tooltip title="选择数据模式：实时模式直接从WebSocket获取数据，缓存模式从数据库缓存获取数据" placement="right">
-                        <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
-                      </Tooltip>
-                    </div>
-                  }
-                  name="data_mode"
-                  rules={[{ required: true, message: '请选择数据模式' }]}
-                >
-                  <Select
-                    onChange={(value) => setSystemConfig(prev => ({ ...prev, data_mode: value as 'realtime' | 'cache' }))}
-                  >
-                    <Select.Option value="realtime">实时模式</Select.Option>
-                    <Select.Option value="cache">缓存模式</Select.Option>
-                  </Select>
-                </Form.Item>
-                
-                <Form.Item
-                  label={
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      前端更新间隔(毫秒)
-                      <Tooltip title="前端图表数据更新的时间间隔，单位为毫秒" placement="right">
-                        <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
-                      </Tooltip>
-                    </div>
-                  }
-                  name="frontend_update_interval"
-                  rules={[{ required: true, message: '请输入前端更新间隔' }]}
-                >
-                  <InputNumber
-                    onChange={(value: number | null) => setSystemConfig(prev => ({ ...prev, frontend_update_interval: value || 1000 }))}
-                    min={100}
-                    max={5000}
-                    step={100}
-                    style={{ width: '100%' }}
-                  />
-                </Form.Item>
-                
-                <Form.Item
-                  label={
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      前端数据缓存大小
-                      <Tooltip title="前端图表缓存的数据点数量" placement="right">
-                        <QuestionCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
-                      </Tooltip>
-                    </div>
-                  }
-                  name="frontend_data_cache_size"
-                  rules={[{ required: true, message: '请输入前端数据缓存大小' }]}
-                >
-                  <InputNumber
-                    onChange={(value: number | null) => setSystemConfig(prev => ({ ...prev, frontend_data_cache_size: value || 1000 }))}
-                    min={100}
-                    max={10000}
-                    step={100}
-                    style={{ width: '100%' }}
-                  />
-                </Form.Item>
-              </>
-            )}
           </Card>
         </Form>
       </Card>

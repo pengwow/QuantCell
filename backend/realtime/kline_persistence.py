@@ -99,7 +99,6 @@ class KlinePersistenceConsumer:
                 existing.low = str(low_price)
                 existing.close = str(close_price)
                 existing.volume = str(volume)
-                existing.turnover = str(quote_volume)
                 logger.debug(f"[KlinePersistence] 更新K线数据: {symbol}@{interval}, timestamp={timestamp}")
             else:
                 # 创建新记录
@@ -112,7 +111,6 @@ class KlinePersistenceConsumer:
                     low=str(low_price),
                     close=str(close_price),
                     volume=str(volume),
-                    turnover=str(quote_volume),
                     unique_kline=f"{base_symbol}_{interval}_{timestamp}",
                     data_source='binance_websocket'
                 )

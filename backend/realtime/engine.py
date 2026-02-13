@@ -414,8 +414,9 @@ class RealtimeEngine:
         Returns:
             List[str]: 可用交易对
         """
-        # 这里需要根据实际情况实现，可能需要从交易所获取或从配置中读取
-        return self.config.get_config('symbols')
+        # 从配置中获取所有交易对
+        symbols = self.config.get_config('symbols', [])
+        return symbols
 
     def register_consumer(self, data_type: str, consumer: callable) -> bool:
         """
