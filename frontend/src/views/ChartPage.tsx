@@ -1,14 +1,28 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { init, dispose, registerLocale, registerOverlay, registerIndicator } from 'klinecharts'
 // 导入自定义绘图工具扩展
 import overlays from '../extension/index'
 import { TokenDisplay } from '../components/TokenDisplay'
 import DrawingBar from '../components/DrawingBar'
 import IndicatorToolbar from '../components/IndicatorToolbar'
+import { RealtimeToggleButton } from '../components/RealtimeToggleButton'
 import { type AppConfig } from '../utils/configLoader'
 import { dataApi } from '../api'
+import realtimeApi from '../api/realtimeApi'
 import { type Indicator, type ActiveIndicator } from '../hooks/useIndicators'
 import '../styles/ChartPage.css'
+
+// 实时数据更新配置
+const REALTIME_UPDATE_CONFIG = {
+  // 节流间隔(ms)，限制更新频率
+  throttleInterval: 100,
+  // 最大可见K线数量
+  maxVisibleBars: 200,
+  // 批量更新阈值
+  batchThreshold: 5,
+  // 批量更新间隔(ms)
+  batchInterval: 200,
+}
 
 // 扩展Window接口，添加APP_CONFIG属性
 declare global {
@@ -87,8 +101,25 @@ export default function ChartPage () {
   // 指标相关状态
   const [activeIndicators, setActiveIndicators] = useState<ActiveIndicator[]>([])
   
+  // 系统配置状态 - 实时数据开关
+  const [systemConfig, setSystemConfig] = useState({
+    realtime_enabled: false,
+    data_mode: 'cache' as 'realtime' | 'cache',
+  })
+  
+  // 实时数据状态
+  const [isRealtimeActive, setIsRealtimeActive] = useState(false)
+
   // 图表实例引用
   const chartRef = useRef<any>(null)
+
+  // 实时数据更新相关引用
+  const realtimeDataQueueRef = useRef<any[]>([])
+  const lastUpdateTimeRef = useRef<number>(0)
+  const batchUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isProcessingRef = useRef<boolean>(false)
+  const latestBarRef = useRef<any>(null)
+  const klineDataRef = useRef<any[]>([])
   
   // 本地存储相关常量和函数
   const STORAGE_KEY = 'chart_user_preferences';
@@ -118,13 +149,32 @@ export default function ChartPage () {
       const currentLanguage = window.APP_CONFIG?.language || 'zh-CN';
       setLanguage(currentLanguage);
     };
-    
+
     // 初始调用
     updateLanguage();
-    
+
     // 可以考虑添加一个事件监听机制，当APP_CONFIG变化时自动更新
     // 这里简单实现，组件挂载时检查一次
   }, []);
+
+  // 组件挂载时获取系统配置
+  useEffect(() => {
+    const fetchSystemConfig = async () => {
+      try {
+        const config = await realtimeApi.getRealtimeConfig()
+        if (config) {
+          setSystemConfig({
+            realtime_enabled: config.realtime_enabled,
+            data_mode: config.data_mode,
+          })
+        }
+      } catch (err) {
+        console.error('获取系统配置失败:', err)
+      }
+    }
+
+    fetchSystemConfig()
+  }, [])
   
   // 组件挂载时读取本地存储的偏好设置
   useEffect(() => {
@@ -144,7 +194,7 @@ export default function ChartPage () {
   const fetchKlineData = async () => {
     setLoading(true)
     setError(null)
-    
+
     try {
       // 调用API获取K线数据
       const data = await dataApi.getKlines({
@@ -154,8 +204,10 @@ export default function ChartPage () {
         crypto_type: cryptoType,
         limit: 5000
       })
-      
+
       setKlineData(data)
+      // 同步到 ref，供实时更新使用
+      klineDataRef.current = data
     } catch (err) {
       console.error('获取K线数据失败:', err)
       setError('获取K线数据失败，请稍后重试')
@@ -389,6 +441,210 @@ export default function ChartPage () {
     }
   }, [searchKeyword, isSearchModalVisible])
 
+  // 批量处理实时数据更新
+  const processBatchUpdate = useCallback(() => {
+    if (!chartRef.current || realtimeDataQueueRef.current.length === 0) return
+
+    const chart = chartRef.current
+    const queue = realtimeDataQueueRef.current
+
+    try {
+      // 获取当前所有数据
+      const currentData = klineDataRef.current || []
+
+      console.log('='.repeat(80))
+      console.log(`[${new Date().toISOString()}] [Realtime] 开始处理K线数据队列`)
+      console.log('-'.repeat(80))
+      console.log(`  队列长度: ${queue.length}`)
+      console.log(`  当前数据量: ${currentData.length}`)
+      console.log('-'.repeat(80))
+
+      // 处理队列中的数据
+      queue.forEach((data, index) => {
+        // 处理多种可能的数据格式
+        let kline = data.k
+        
+        if (!kline && data.data) {
+          kline = data.data.k || data.data
+        }
+        
+        if (!kline && data.data && data.data.data) {
+          kline = data.data.data.k || data.data.data
+        }
+        
+        if (!kline) {
+          console.warn(`[Realtime] [${index}] 无效的数据格式:`, data)
+          return
+        }
+
+        // 解析K线数据（参考 test_websocket_kline_manual.py 的格式）
+        const bar = {
+          timestamp: kline.t,
+          open: parseFloat(kline.o),
+          high: parseFloat(kline.h),
+          low: parseFloat(kline.l),
+          close: parseFloat(kline.c),
+          volume: parseFloat(kline.v),
+        }
+
+        // 详细输出K线数据（类似后端脚本格式）
+        const isFinal = kline.x ? '✓' : '○'
+        const openTimeStr = new Date(kline.t).toLocaleString()
+        const closeTimeStr = new Date(kline.T).toLocaleString()
+
+        console.log('='.repeat(80))
+        console.log(`[${index}] [${kline.s}@kline_${kline.i}] ${isFinal} Kline Data:`)
+        console.log('-'.repeat(80))
+        console.log(`  Symbol:        ${kline.s}`)
+        console.log(`  Interval:      ${kline.i}`)
+        console.log(`  Is Final:      ${kline.x}`)
+        console.log(`  Open Time:     ${openTimeStr} (${kline.t})`)
+        console.log(`  Close Time:    ${closeTimeStr} (${kline.T})`)
+        console.log(`  Open:          ${bar.open.toFixed(8)}`)
+        console.log(`  High:          ${bar.high.toFixed(8)}`)
+        console.log(`  Low:           ${bar.low.toFixed(8)}`)
+        console.log(`  Close:         ${bar.close.toFixed(8)}`)
+        console.log(`  Volume:        ${bar.volume.toFixed(8)}`)
+        console.log(`  Quote Volume:  ${parseFloat(kline.q || 0).toFixed(8)}`)
+        console.log(`  Trades:        ${kline.n || 0}`)
+        console.log(`  Receive Time:  ${new Date().toISOString()}`)
+        console.log('='.repeat(80))
+
+        // 检查是否已存在相同时间戳的数据
+        const existingIndex = currentData.findIndex(
+          (item: any) => item.timestamp === bar.timestamp
+        )
+
+        if (existingIndex >= 0) {
+          console.log(`[${index}] 更新现有K线数据 (索引: ${existingIndex})`)
+          currentData[existingIndex] = bar
+        } else {
+          console.log(`[${index}] 添加新K线数据`)
+          currentData.push(bar)
+        }
+
+        // 保存最新数据
+        latestBarRef.current = bar
+      })
+
+      // 限制数据量，只保留最近 maxVisibleBars 条
+      if (currentData.length > REALTIME_UPDATE_CONFIG.maxVisibleBars) {
+        const startIndex = currentData.length - REALTIME_UPDATE_CONFIG.maxVisibleBars
+        klineDataRef.current = currentData.slice(startIndex)
+        console.log(`[Realtime] 数据量限制: 保留最近 ${REALTIME_UPDATE_CONFIG.maxVisibleBars} 条`)
+      } else {
+        klineDataRef.current = currentData
+      }
+
+      console.log('-'.repeat(80))
+      console.log(`[Realtime] 当前总数据量: ${klineDataRef.current.length}`)
+      console.log('-'.repeat(80))
+
+      // 使用 requestAnimationFrame 优化渲染
+      requestAnimationFrame(() => {
+        if (!chartRef.current) return
+
+        console.log('[Realtime] 更新图表渲染...')
+
+        // 更新图表数据
+        if (latestBarRef.current) {
+          chartRef.current.updateData(latestBarRef.current)
+          console.log('[Realtime] ✓ 图表数据已更新')
+        }
+
+        // 触发图表重绘
+        chartRef.current.resize()
+        console.log('[Realtime] ✓ 图表已重绘')
+      })
+
+      // 清空队列
+      realtimeDataQueueRef.current = []
+
+      console.log('='.repeat(80))
+      console.log(`[${new Date().toISOString()}] [Realtime] 批量更新完成，共处理 ${queue.length} 条数据`)
+      console.log('='.repeat(80))
+    } catch (err) {
+      console.error('[Realtime] 批量处理数据失败:', err)
+    }
+  }, [])
+
+  // 处理实时数据更新（带节流）
+  const handleRealtimeData = useCallback((data: any) => {
+    if (!data) {
+      console.warn('[Realtime] 接收到空数据')
+      return
+    }
+
+    const now = Date.now()
+    const timeSinceLastUpdate = now - lastUpdateTimeRef.current
+
+    // 解析K线数据用于日志
+    let kline = data.k
+    if (!kline && data.data) {
+      kline = data.data.k || data.data
+    }
+    if (!kline && data.data && data.data.data) {
+      kline = data.data.data.k || data.data.data
+    }
+
+    if (kline) {
+      console.log('-'.repeat(80))
+      console.log(`[${new Date().toISOString()}] [Realtime] 接收到WebSocket消息`)
+      console.log(`  Channel:       ${kline.s}@kline_${kline.i}`)
+      console.log(`  Symbol:        ${kline.s}`)
+      console.log(`  Interval:      ${kline.i}`)
+      console.log(`  Is Final:      ${kline.x}`)
+      console.log(`  Queue Size:    ${realtimeDataQueueRef.current.length + 1}`)
+      console.log(`  Time Since Last: ${timeSinceLastUpdate}ms`)
+      console.log('-'.repeat(80))
+    } else {
+      console.log('[Realtime] 接收到非K线数据:', data)
+    }
+
+    // 将数据加入队列
+    realtimeDataQueueRef.current.push(data)
+
+    // 检查是否需要立即更新（超过节流间隔）
+    if (timeSinceLastUpdate >= REALTIME_UPDATE_CONFIG.throttleInterval) {
+      console.log(`[Realtime] 超过节流间隔 (${REALTIME_UPDATE_CONFIG.throttleInterval}ms)，立即处理`)
+      // 清除定时器
+      if (batchUpdateTimerRef.current) {
+        clearTimeout(batchUpdateTimerRef.current)
+        batchUpdateTimerRef.current = null
+      }
+
+      // 立即处理
+      lastUpdateTimeRef.current = now
+      processBatchUpdate()
+    } else {
+      // 设置批量更新定时器
+      if (!batchUpdateTimerRef.current) {
+        console.log(`[Realtime] 设置批量更新定时器 (${REALTIME_UPDATE_CONFIG.batchInterval}ms)`)
+        batchUpdateTimerRef.current = setTimeout(() => {
+          lastUpdateTimeRef.current = Date.now()
+          processBatchUpdate()
+          batchUpdateTimerRef.current = null
+        }, REALTIME_UPDATE_CONFIG.batchInterval)
+      }
+    }
+
+    // 如果队列超过阈值，立即处理
+    if (realtimeDataQueueRef.current.length >= REALTIME_UPDATE_CONFIG.batchThreshold) {
+      console.log(`[Realtime] 队列超过阈值 (${REALTIME_UPDATE_CONFIG.batchThreshold})，立即处理`)
+      if (batchUpdateTimerRef.current) {
+        clearTimeout(batchUpdateTimerRef.current)
+        batchUpdateTimerRef.current = null
+      }
+      lastUpdateTimeRef.current = now
+      processBatchUpdate()
+    }
+  }, [processBatchUpdate])
+
+  // 处理实时状态变化
+  const handleRealtimeStatusChange = (isActive: boolean) => {
+    setIsRealtimeActive(isActive)
+  }
+
   // 内置指标名称映射（将自定义ID映射到KLineCharts内置指标）
   const builtInIndicatorMap: Record<string, string> = {
     'vol': 'VOL',
@@ -564,7 +820,7 @@ export default function ChartPage () {
               </button>
             ))}
             {/* 更多按钮 */}
-            <button 
+            <button
               className="period-btn more-btn"
               onClick={() => setIsPeriodsExpanded(!isPeriodsExpanded)}
             >
@@ -600,6 +856,17 @@ export default function ChartPage () {
             <IndicatorToolbar
               activeIndicators={activeIndicators}
               onToggleIndicator={handleToggleIndicator}
+            />
+          </div>
+
+          {/* 实时数据控制按钮 */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+            <RealtimeToggleButton
+              symbol={currentSymbol.code.replace('/', '')}
+              period={selectedPeriod.toLowerCase()}
+              defaultRealtimeEnabled={systemConfig.realtime_enabled}
+              onRealtimeData={handleRealtimeData}
+              onStatusChange={handleRealtimeStatusChange}
             />
           </div>
         </div>

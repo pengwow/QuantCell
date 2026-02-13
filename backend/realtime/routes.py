@@ -33,29 +33,40 @@ async def get_realtime_status():
     获取实时引擎状态
     
     Returns:
-        Dict[str, Any]: 实时引擎状态
+        Dict[str, Any]: 实时引擎状态（标准API格式）
     """
     try:
         if not realtime_engine:
             return {
-                "status": "stopped",
-                "connected": False,
-                "message": "实时引擎未初始化"
+                "code": 0,
+                "message": "实时引擎未初始化",
+                "data": {
+                    "status": "stopped",
+                    "connected": False
+                }
             }
         
         status = realtime_engine.get_status()
-        return status
+        return {
+            "code": 0,
+            "message": "获取状态成功",
+            "data": status
+        }
     
     except Exception as e:
         logger.error(f"获取实时引擎状态失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "code": 1,
+            "message": f"获取状态失败: {str(e)}",
+            "data": None
+        }
 
 
 @realtime_router.post("/start", response_model=Dict[str, Any])
 async def start_realtime_engine():
     """
     启动实时引擎
-    
+
     Returns:
         Dict[str, Any]: 启动结果
     """
@@ -66,14 +77,18 @@ async def start_realtime_engine():
             return {
                 "code": 1,
                 "message": "实时引擎未初始化",
-                "success": False
+                "data": {
+                    "success": False
+                }
             }
-        
+
         success = await realtime_engine.start()
         return {
             "code": 0 if success else 1,
             "message": "实时引擎启动成功" if success else "实时引擎启动失败",
-            "success": success
+            "data": {
+                "success": success
+            }
         }
     
     except Exception as e:
@@ -85,7 +100,7 @@ async def start_realtime_engine():
 async def stop_realtime_engine():
     """
     停止实时引擎
-    
+
     Returns:
         Dict[str, Any]: 停止结果
     """
@@ -94,18 +109,86 @@ async def stop_realtime_engine():
             return {
                 "code": 1,
                 "message": "实时引擎未初始化",
-                "success": False
+                "data": {
+                    "success": False
+                }
             }
-        
+
         success = await realtime_engine.stop()
         return {
             "code": 0 if success else 1,
             "message": "实时引擎停止成功" if success else "实时引擎停止失败",
-            "success": success
+            "data": {
+                "success": success
+            }
         }
-    
+
     except Exception as e:
         logger.error(f"停止实时引擎失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@realtime_router.post("/connect", response_model=Dict[str, Any])
+async def connect_exchange():
+    """
+    连接交易所
+
+    Returns:
+        Dict[str, Any]: 连接结果
+    """
+    try:
+        if not realtime_engine:
+            return {
+                "code": 1,
+                "message": "实时引擎未初始化",
+                "data": {
+                    "success": False
+                }
+            }
+
+        success = await realtime_engine.connect_exchange()
+        return {
+            "code": 0 if success else 1,
+            "message": "交易所连接成功" if success else "交易所连接失败",
+            "data": {
+                "success": success
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"连接交易所失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@realtime_router.post("/disconnect", response_model=Dict[str, Any])
+async def disconnect_exchange():
+    """
+    断开交易所连接
+
+    Returns:
+        Dict[str, Any]: 断开结果
+    """
+    try:
+        if not realtime_engine:
+            return {
+                "code": 1,
+                "message": "实时引擎未初始化",
+                "data": {
+                    "success": False
+                }
+            }
+
+        success = await realtime_engine.disconnect_exchange()
+        return {
+            "code": 0 if success else 1,
+            "message": "交易所断开成功" if success else "交易所断开失败",
+            "data": {
+                "success": success
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"断开交易所失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -113,7 +196,7 @@ async def stop_realtime_engine():
 async def restart_realtime_engine():
     """
     重启实时引擎
-    
+
     Returns:
         Dict[str, Any]: 重启结果
     """
@@ -122,16 +205,20 @@ async def restart_realtime_engine():
             return {
                 "code": 1,
                 "message": "实时引擎未初始化",
-                "success": False
+                "data": {
+                    "success": False
+                }
             }
-        
+
         success = await realtime_engine.restart()
         return {
             "code": 0 if success else 1,
             "message": "实时引擎重启成功" if success else "实时引擎重启失败",
-            "success": success
+            "data": {
+                "success": success
+            }
         }
-    
+
     except Exception as e:
         logger.error(f"重启实时引擎失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -169,10 +256,10 @@ async def get_realtime_config():
 async def update_realtime_config(request: Request, config: Dict[str, Any]):
     """
     更新实时引擎配置
-    
+
     Args:
         config: 配置字典
-    
+
     Returns:
         Dict[str, Any]: 更新结果
     """
@@ -181,16 +268,20 @@ async def update_realtime_config(request: Request, config: Dict[str, Any]):
             return {
                 "code": 1,
                 "message": "实时引擎未初始化",
-                "success": False
+                "data": {
+                    "success": False
+                }
             }
-        
+
         success = realtime_engine.update_config(config)
         return {
             "code": 0 if success else 1,
             "message": "配置更新成功" if success else "配置更新失败",
-            "success": success
+            "data": {
+                "success": success
+            }
         }
-    
+
     except Exception as e:
         logger.error(f"更新实时引擎配置失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -200,10 +291,10 @@ async def update_realtime_config(request: Request, config: Dict[str, Any]):
 async def subscribe_channels(channels: List[str]):
     """
     订阅频道
-    
+
     Args:
         channels: 频道列表
-    
+
     Returns:
         Dict[str, Any]: 订阅结果
     """
@@ -212,16 +303,20 @@ async def subscribe_channels(channels: List[str]):
             return {
                 "code": 1,
                 "message": "实时引擎未初始化",
-                "success": False
+                "data": {
+                    "success": False
+                }
             }
-        
+
         success = await realtime_engine.subscribe(channels)
         return {
             "code": 0 if success else 1,
             "message": "订阅成功" if success else "订阅失败",
-            "success": success
+            "data": {
+                "success": success
+            }
         }
-    
+
     except Exception as e:
         logger.error(f"订阅频道失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -231,10 +326,10 @@ async def subscribe_channels(channels: List[str]):
 async def unsubscribe_channels(channels: List[str]):
     """
     取消订阅频道
-    
+
     Args:
         channels: 频道列表
-    
+
     Returns:
         Dict[str, Any]: 取消订阅结果
     """
@@ -243,16 +338,20 @@ async def unsubscribe_channels(channels: List[str]):
             return {
                 "code": 1,
                 "message": "实时引擎未初始化",
-                "success": False
+                "data": {
+                    "success": False
+                }
             }
-        
+
         success = await realtime_engine.unsubscribe(channels)
         return {
             "code": 0 if success else 1,
             "message": "取消订阅成功" if success else "取消订阅失败",
-            "success": success
+            "data": {
+                "success": success
+            }
         }
-    
+
     except Exception as e:
         logger.error(f"取消订阅频道失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -43,6 +43,9 @@ class BinanceClient:
     - 日志记录
     """
     
+    # 交易所名称，用于WebSocket管理器识别
+    exchange_name: str = "binance"
+    
     def __init__(self, config: Optional[BinanceConfig] = None):
         """
         初始化Binance客户端
@@ -57,28 +60,35 @@ class BinanceClient:
         
         logger.info(f"BinanceClient initialized (testnet={self.config.testnet})")
     
-    def connect(self) -> bool:
+    async def connect(self) -> bool:
         """
-        建立与Binance的连接
+        建立与Binance的连接（异步方法）
         
         Returns:
             bool: 连接是否成功
         """
         try:
-            # 创建同步客户端
-            self._client = Client(
+            # 创建同步客户端（在异步方法中运行同步代码）
+            # 构建requests_params，只有当有代理时才添加proxies
+            requests_params = {
+                "timeout": self.config.request_timeout,
+            }
+            if self.config.proxy_url:
+                requests_params["proxies"] = {"https": self.config.proxy_url}
+            
+            # 使用asyncio.to_thread运行同步的Client创建
+            import asyncio
+            self._client = await asyncio.to_thread(
+                Client,
                 api_key=self.config.api_key,
                 api_secret=self.config.api_secret,
                 testnet=self.config.testnet,
                 tld=self.config.tld,
-                requests_params={
-                    "timeout": self.config.request_timeout,
-                    "proxies": {"https": self.config.proxy_url} if self.config.proxy_url else None,
-                },
+                requests_params=requests_params,
             )
             
-            # 测试连接
-            self._client.ping()
+            # 测试连接（同步调用）
+            await asyncio.to_thread(self._client.ping)
             self._connected = True
             
             logger.info("Binance client connected successfully")

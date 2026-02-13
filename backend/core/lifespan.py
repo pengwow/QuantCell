@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -126,6 +127,30 @@ async def lifespan(app: FastAPI):
         logger.info("准备调用setup_routes函数")
         setup_routes(realtime_engine)
         logger.info("setup_routes函数调用成功")
+
+        # 注册WebSocket数据推送消费者
+        def websocket_kline_consumer(data: dict):
+            """将K线数据推送到WebSocket"""
+            try:
+                if data.get('data_type') == 'kline':
+                    # 构建K线消息 - 保持原始数据格式
+                    kline_message = {
+                        "type": "kline",
+                        "id": f"kline_{int(time.time() * 1000)}",
+                        "timestamp": int(time.time() * 1000),
+                        "data": data  # 保持原始数据结构
+                    }
+                    # 广播到所有订阅了kline主题的客户端
+                    asyncio.create_task(
+                        manager.broadcast(kline_message, topic="kline")
+                    )
+            except Exception as e:
+                logger.error(f"WebSocket K线数据推送失败: {e}")
+
+        # 注册消费者
+        realtime_engine.register_consumer("kline", websocket_kline_consumer)
+        logger.info("已注册WebSocket K线数据推送消费者")
+
         logger.info("实时引擎初始化成功")
     except Exception as e:
         logger.error(f"实时引擎初始化失败: {e}")

@@ -17,10 +17,10 @@ class ExchangeClientFactory:
         注册支持的交易所客户端
         """
         try:
-            # 注册币安客户端
-            from .exchanges.binance.client import BinanceClient
-            self.client_registry['binance'] = BinanceClient
-            logger.info("成功注册币安客户端")
+            # 注册币安WebSocket客户端（用于实时数据）
+            from exchange.binance.websocket_client import BinanceWebSocketClient
+            self.client_registry['binance'] = BinanceWebSocketClient
+            logger.info("成功注册币安WebSocket客户端")
         
         except ImportError as e:
             logger.error(f"注册交易所客户端失败: {e}")
@@ -31,7 +31,7 @@ class ExchangeClientFactory:
         
         Args:
             exchange_name: 交易所名称
-            config: 客户端配置
+            config: 客户端配置（字典格式）
         
         Returns:
             Optional[AbstractExchangeClient]: 交易所客户端实例，None表示创建失败
@@ -43,7 +43,20 @@ class ExchangeClientFactory:
             
             # 创建客户端实例
             client_class = self.client_registry[exchange_name]
-            client = client_class(config)
+            
+            # 根据交易所类型创建对应的配置对象
+            if exchange_name == 'binance':
+                from exchange.binance import BinanceConfig
+                # 将字典转换为BinanceConfig对象
+                binance_config = BinanceConfig(
+                    api_key=config.get('api_key', ''),
+                    api_secret=config.get('api_secret', ''),
+                    testnet=config.get('testnet', True),
+                )
+                client = client_class(binance_config)
+            else:
+                # 其他交易所直接使用字典
+                client = client_class(config)
             
             logger.info(f"成功创建交易所客户端: {exchange_name}")
             return client

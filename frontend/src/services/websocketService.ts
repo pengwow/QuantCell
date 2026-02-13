@@ -91,7 +91,12 @@ export class WebSocketService {
 
       this.socket.onmessage = (event) => {
         try {
-          const message: WebSocketMessage = JSON.parse(event.data);
+          const rawData = event.data;
+          console.log('[WebSocket] 收到原始消息:', rawData.substring(0, 200));
+          
+          const message: WebSocketMessage = JSON.parse(rawData);
+          console.log('[WebSocket] 解析后消息:', message.type, message);
+          
           this.handleMessage(message);
         } catch (error) {
           console.error('解析WebSocket消息失败:', error);
@@ -352,8 +357,16 @@ export class WebSocketService {
             return;
         }
 
+        // 处理K线数据更新
+        if (message.type === 'kline') {
+            console.log('[WebSocket] 收到K线数据:', message.data);
+            this.notifyListeners('kline', message.data);
+            this.notifyListeners('kline:update', message.data);
+            return;
+        }
+
         // 处理其他消息类型
-        console.log('收到其他消息:', message.type);
+        console.log('收到其他消息:', message.type, message.data);
         this.notifyListeners(message.type, message.data);
     }
 
@@ -361,14 +374,20 @@ export class WebSocketService {
    * 通知监听器
    */
   private notifyListeners(event: string, data: any): void {
-    if (this.messageListeners.has(event)) {
-      this.messageListeners.get(event)!.forEach(listener => {
+    const listeners = this.messageListeners.get(event);
+    console.log(`[WebSocket] notifyListeners: event=${event}, listeners=${listeners?.size || 0}`);
+    
+    if (listeners) {
+      listeners.forEach((listener, index) => {
         try {
+          console.log(`[WebSocket] 调用监听器 ${index} for event=${event}`);
           listener(data);
         } catch (error) {
           console.error(`监听器处理错误 (${event}):`, error);
         }
       });
+    } else {
+      console.warn(`[WebSocket] 没有监听器注册 for event=${event}`);
     }
   }
 
