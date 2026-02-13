@@ -18,6 +18,7 @@ class RealtimeConfig:
             
             # 交易所配置
             'default_exchange': 'binance',
+            'quote': 'USDT',  # 计价货币
             
             # 币安配置
             'binance_websocket_url': 'wss://stream.binance.com:9443/stream',

@@ -1046,7 +1046,7 @@ def get_products(
     crypto_type: Optional[str] = Query("spot", description="加密货币类型，当market_type为crypto时有效，可选值：spot（现货）、future（合约）"),
     exchange: Optional[str] = Query(None, description="交易商名称"),
     filter: Optional[str] = Query(None, description="过滤条件"),
-    limit: Optional[int] = Query(100, ge=1, le=1000, description="返回数量限制，默认100条"),
+    limit: Optional[int] = Query(100, ge=1, le=10000, description="返回数量限制，默认100条"),
     offset: Optional[int] = Query(0, ge=0, description="返回偏移量，默认0"),
     db: Session = Depends(get_db)
 ):

@@ -59,59 +59,77 @@ class BaseKlineFetcher(KlineDataFetcher):
         interval: str,
         kline_data: List[Dict[str, Any]]
     ) -> bool:
-        """将K线数据保存到数据库
-        
+        """将K线数据保存到数据库，存在则更新
+
         Args:
             db: 数据库会话
             symbol: 交易商标识，如BTCUSDT
             interval: 时间周期，如1m, 5m, 1h, 1d
             kline_data: K线数据列表，每条数据包含timestamp, open, close, high, low, volume, turnover字段
-            
+
         Returns:
             bool: 保存成功返回True，失败返回False
         """
         try:
             # 记录保存K线数据的尝试
             logger.info(f"尝试保存{len(kline_data)}条K线数据到数据库: symbol={symbol}, interval={interval}, model={self.kline_model.__tablename__ if self.kline_model else 'None'}")
-            
+
             if not self.kline_model:
                 logger.error(f"保存K线数据到数据库失败: 未设置kline_model")
                 return False
-            
-            # 创建模型实例列表
-            kline_instances = []
+
+            inserted_count = 0
+            updated_count = 0
+
             for kline in kline_data:
                 # 转换timestamp为字符串，保持毫秒级
                 timestamp_str = str(kline.get("timestamp"))
-                
+
                 # 生成unique_kline字段
                 unique_kline = f"{symbol}_{interval}_{timestamp_str}"
-                
-                # 创建模型实例
-                kline_instance = self.kline_model(
-                    symbol=symbol,
-                    interval=interval,
-                    timestamp=timestamp_str,
-                    open=str(kline.get("open")),
-                    high=str(kline.get("high")),
-                    low=str(kline.get("low")),
-                    close=str(kline.get("close")),
-                    volume=str(kline.get("volume")),
-                    unique_kline=unique_kline,
-                    data_source='ccxt_binance'
-                )
-                
-                kline_instances.append(kline_instance)
-            
-            # 批量添加到数据库
-            db.bulk_save_objects(kline_instances)
+
+                # 检查是否已存在
+                existing = db.query(self.kline_model).filter(
+                    self.kline_model.unique_kline == unique_kline
+                ).first()
+
+                if existing:
+                    # 更新现有记录
+                    existing.open = str(kline.get("open"))
+                    existing.high = str(kline.get("high"))
+                    existing.low = str(kline.get("low"))
+                    existing.close = str(kline.get("close"))
+                    existing.volume = str(kline.get("volume"))
+                    existing.data_source = 'ccxt_binance'
+                    updated_count += 1
+                else:
+                    # 创建新记录
+                    kline_instance = self.kline_model(
+                        symbol=symbol,
+                        interval=interval,
+                        timestamp=timestamp_str,
+                        open=str(kline.get("open")),
+                        high=str(kline.get("high")),
+                        low=str(kline.get("low")),
+                        close=str(kline.get("close")),
+                        volume=str(kline.get("volume")),
+                        unique_kline=unique_kline,
+                        data_source='ccxt_binance'
+                    )
+                    db.add(kline_instance)
+                    inserted_count += 1
+
+            # 提交事务
             db.commit()
-            
-            logger.info(f"成功保存{len(kline_instances)}条K线数据到数据库: symbol={symbol}, interval={interval}, table={self.kline_model.__tablename__}")
+
+            logger.info(f"成功保存{len(kline_data)}条K线数据到数据库: symbol={symbol}, interval={interval}, 插入={inserted_count}, 更新={updated_count}")
             return True
         except Exception as e:
             logger.error(f"保存K线数据到数据库失败: symbol={symbol}, interval={interval}, error={e}")
             logger.exception(e)
+            # 回滚事务
+            db.rollback()
+            return False
             # 回滚事务
             db.rollback()
             return False

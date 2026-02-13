@@ -45,6 +45,7 @@ export interface SystemConfig {
   current_market_type: string;
   crypto_trading_mode: string;
   default_exchange: string;
+  quote: string; // 计价货币
   default_interval: string;
   default_commission: number;
   default_initial_cash: number;

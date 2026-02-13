@@ -664,7 +664,7 @@ class DataService:
     
     def get_crypto_symbols(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Dict[str, Any] = {}, crypto_type: Optional[str] = None) -> Dict[str, Any]:
         """获取加密货币对列表
-        
+
         Args:
             exchange: 交易所名称，如binance、okx等
             filter: 过滤条件，如'USDT'表示只返回USDT交易对
@@ -672,40 +672,49 @@ class DataService:
             offset: 返回偏移量
             configs: 应用配置，包含代理信息等
             crypto_type: 加密货币类型，如spot（现货）、future（合约）等
-            
+
         Returns:
             Dict[str, Any]: 包含货币对列表的数据
         """
         logger.info(f"开始获取加密货币对列表，交易所: {exchange}, 类型: {crypto_type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
-        
+
         # 只从数据库读取货币对数据，不直接调用第三方API
         try:
             import json
 
             from ..db.database import SessionLocal, init_database_config
             from ..db.models import CryptoSymbol
-            
+            from config_manager import get_config
+
+            # 从系统配置获取计价货币
+            quote_currency = get_config('quote', 'USDT')
+            logger.info(f"系统配置计价货币: quote={quote_currency}")
+
             # 初始化数据库配置
             init_database_config()
             db = SessionLocal()
             try:
                 # 查询数据库中的货币对
                 query = db.query(CryptoSymbol).filter(CryptoSymbol.exchange == exchange)
-                
+
                 # 应用类型过滤条件
                 if crypto_type:
                     query = query.filter(CryptoSymbol.type == crypto_type)
-                
-                # 应用过滤条件
+
+                # 应用计价货币过滤（使用数据库 quote 字段）
+                if quote_currency:
+                    query = query.filter(CryptoSymbol.quote == quote_currency)
+
+                # 应用 symbol 过滤条件
                 if filter:
                     query = query.filter(CryptoSymbol.symbol.contains(filter))
-                
+
                 # 获取总数量
                 total = query.count()
-                
+
                 # 应用分页
                 paginated_symbols = query.offset(offset).limit(limit).all()
-                
+
                 logger.info(f"从数据库获取到{total}个{exchange}货币对，返回{len(paginated_symbols)}个货币对")
                 
                 # 转换为API响应格式
