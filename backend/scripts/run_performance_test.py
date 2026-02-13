@@ -31,8 +31,8 @@ def main():
                         help='SMA慢速周期 (默认: 30)')
     parser.add_argument('--no-warmup', action='store_true',
                         help='跳过预热阶段')
-    parser.add_argument('--output-dir', type=str, default='performance_reports',
-                        help='报告输出目录 (默认: performance_reports)')
+    parser.add_argument('--output-dir', type=str, default='reports/performance',
+                        help='报告输出目录 (默认: reports/performance)')
     
     args = parser.parse_args()
     

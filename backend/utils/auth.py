@@ -217,8 +217,11 @@ def jwt_auth_required(func: Callable) -> Callable:
                 from fastapi.responses import JSONResponse
                 if isinstance(response, dict):
                     response = JSONResponse(content=response)
+                elif hasattr(response, 'model_dump'):
+                    # 处理Pydantic模型（如ApiResponse）
+                    response = JSONResponse(content=response.model_dump())
                 else:
-                    response = JSONResponse(content={"result": response})
+                    response = JSONResponse(content={"result": str(response)})
             
             # 添加新令牌到响应头
             response.headers["X-Refreshed-Token"] = new_token
@@ -336,12 +339,16 @@ def jwt_auth_required_sync(func: Callable) -> Callable:
                 from fastapi.responses import JSONResponse
                 if isinstance(response, dict):
                     response = JSONResponse(content=response)
+                elif hasattr(response, 'model_dump'):
+                    # 处理Pydantic模型（如ApiResponse）
+                    # 使用mode='json'来处理datetime等不可序列化的类型
+                    response = JSONResponse(content=response.model_dump(mode='json'))
                 else:
-                    response = JSONResponse(content={"result": response})
-            
+                    response = JSONResponse(content={"result": str(response)})
+
             # 添加新令牌到响应头
             response.headers["X-Refreshed-Token"] = new_token
-        
+
         return response
     
     return wrapper

@@ -15,7 +15,7 @@ import numpy as np
 class ReportGenerator:
     """性能测试报告生成器"""
 
-    def __init__(self, runner, output_dir: str = "performance_reports"):
+    def __init__(self, runner, output_dir: str = "reports/performance"):
         self.runner = runner
         self.output_dir = output_dir
 

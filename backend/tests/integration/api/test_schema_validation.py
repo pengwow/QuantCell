@@ -39,13 +39,14 @@ class TestStrategySchemas:
         assert "file_content" in str(exc_info.value)
 
     def test_strategy_upload_request_empty_name(self):
-        """测试空策略名称"""
+        """测试空策略名称应该抛出验证错误"""
         from strategy.schemas import StrategyUploadRequest
 
-        request = StrategyUploadRequest(
-            strategy_name="", file_content="class TestStrategy:\n    pass"
-        )
-        assert request.strategy_name == ""
+        with pytest.raises(ValidationError) as exc_info:
+            StrategyUploadRequest(
+                strategy_name="", file_content="class TestStrategy:\n    pass"
+            )
+        assert "strategy_name" in str(exc_info.value)
 
     def test_strategy_upload_request_unicode(self):
         """测试Unicode策略名称"""
@@ -134,16 +135,17 @@ class TestBacktestSchemas:
         assert config.interval == "invalid"
 
     def test_backtest_config_negative_cash(self):
-        """测试负初始资金"""
+        """测试负初始资金应该抛出验证错误"""
         from backtest.schemas import BacktestConfig
 
-        config = BacktestConfig(
-            symbols=["BTCUSDT"],
-            start_time="2023-01-01 00:00:00",
-            end_time="2023-12-31 23:59:59",
-            initial_cash=-1000.0,
-        )
-        assert config.initial_cash == -1000.0
+        with pytest.raises(ValidationError) as exc_info:
+            BacktestConfig(
+                symbols=["BTCUSDT"],
+                start_time="2023-01-01 00:00:00",
+                end_time="2023-12-31 23:59:59",
+                initial_cash=-1000.0,
+            )
+        assert "initial_cash" in str(exc_info.value)
 
     def test_backtest_config_high_commission(self):
         """测试高手续费率"""
