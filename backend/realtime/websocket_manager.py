@@ -41,8 +41,38 @@ class WebSocketManager:
                 return False
         
         self.clients[exchange_name] = client
+        
+        # 【KlinePush】注册消息处理器作为客户端的回调
+        self._register_handlers_as_callbacks(client)
+        
         logger.info(f"成功注册交易所客户端: {exchange_name}")
         return True
+    
+    def _register_handlers_as_callbacks(self, client: AbstractExchangeClient) -> None:
+        """
+        将消息处理器注册为客户端的回调函数
+        
+        Args:
+            client: 交易所客户端实例
+        """
+        try:
+            # 检查客户端是否支持add_message_callback方法
+            if hasattr(client, 'add_message_callback'):
+                # 创建一个统一的回调函数，将消息分发给所有处理器
+                def message_callback(message: Dict[str, Any]) -> None:
+                    logger.debug(f"[KlinePush] WebSocketManager收到消息回调，分发给{len(self.message_handlers)}个处理器")
+                    for handler in self.message_handlers:
+                        try:
+                            handler(message)
+                        except Exception as e:
+                            logger.error(f"[KlinePush] 消息处理器执行失败: {e}")
+                
+                client.add_message_callback(message_callback)
+                logger.info(f"[KlinePush] 成功将消息处理器注册为{client.exchange_name}的回调")
+            else:
+                logger.warning(f"[KlinePush] 客户端{client.exchange_name}不支持add_message_callback，将使用轮询模式")
+        except Exception as e:
+            logger.error(f"[KlinePush] 注册消息回调失败: {e}")
     
     def unregister_client(self, exchange_name: str) -> bool:
         """

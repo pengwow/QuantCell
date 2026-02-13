@@ -51,8 +51,20 @@ class RealtimeEngine:
             import time
             start_time = time.time()
 
+            # 【KlinePush】自动识别并添加必要字段
+            # 从币安消息中识别交易所和数据类型
+            if 'e' in message:
+                # 币安消息格式
+                message['exchange'] = 'binance'
+                message['data_type'] = message['e']
+            elif 'exchange' not in message or 'data_type' not in message:
+                logger.warning(f"[KlinePush] 消息缺少exchange/data_type字段，无法处理: {message}")
+                return
+
+            data_type = message.get('data_type', 'unknown')
+
             # 记录总消息数
-            self.monitor.record_message(message.get('data_type', 'unknown'), False)
+            self.monitor.record_message(data_type, False)
 
             # 处理消息
             processed_message = self.data_processor.process_message(message)
@@ -71,10 +83,12 @@ class RealtimeEngine:
                 self.data_distributor.distribute(processed_message)
             else:
                 # 记录处理失败的消息
+                logger.warning(f"[KlinePush] 消息处理失败，processed_message 为 None")
                 self.monitor.record_message(message.get('data_type', 'unknown'), False)
 
         except Exception as e:
-            logger.error(f"处理消息失败: {e}")
+            logger.error(f"[KlinePush] 处理消息失败: {e}")
+            logger.exception(e)
             # 记录处理失败的消息
             self.monitor.record_message(message.get('data_type', 'unknown'), False)
 
@@ -250,6 +264,7 @@ class RealtimeEngine:
 
         except Exception as e:
             logger.error(f"断开交易所连接失败: {e}")
+            logger.exception(e)
             return False
 
     async def _create_clients(self) -> bool:

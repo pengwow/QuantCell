@@ -113,32 +113,47 @@ class DataProcessor:
         # 调用通用处理方法
         processed = self._process_generic(message)
         
-        # 确保K线数据完整性
-        if 'open_time' not in processed or 'close_time' not in processed:
-            logger.warning(f"K线数据缺少时间字段: {processed}")
+        # 从币安K线数据中提取字段
+        k = processed.get('k', {})
+        if not k:
+            logger.warning(f"K线数据缺少k字段: {processed}")
             return None
         
-        # 标准化K线数据字段名
-        kline_standard = {
+        # 提取并标准化K线数据字段
+        # 币安字段: t=open_time, T=close_time, o=open, h=high, l=low, c=close, v=volume
+        #           q=quote_volume, n=trades, i=interval, x=is_final
+        #           V=taker_buy_base_volume, Q=taker_buy_quote_volume
+        kline_data = {
             'exchange': processed['exchange'],
-            'symbol': processed['symbol'],
+            'symbol': k.get('s', processed.get('s', '')),
             'data_type': 'kline',
-            'timestamp': processed['open_time'],
-            'open': processed['open'],
-            'high': processed['high'],
-            'low': processed['low'],
-            'close': processed['close'],
-            'volume': processed['volume'],
-            'quote_volume': processed['quote_volume'],
-            'trades': processed['trades'],
-            'taker_buy_base_volume': processed['taker_buy_base_volume'],
-            'taker_buy_quote_volume': processed['taker_buy_quote_volume'],
-            'interval': processed['interval'],
-            'is_final': processed['is_final'],
-            'processed_timestamp': processed['processed_timestamp']
+            'open_time': k.get('t'),
+            'close_time': k.get('T'),
+            'timestamp': k.get('t'),
+            'open': k.get('o'),
+            'high': k.get('h'),
+            'low': k.get('l'),
+            'close': k.get('c'),
+            'volume': k.get('v'),
+            'quote_volume': k.get('q'),
+            'trades': k.get('n'),
+            'taker_buy_base_volume': k.get('V'),
+            'taker_buy_quote_volume': k.get('Q'),
+            'interval': k.get('i'),
+            'is_final': k.get('x', False),
+            'processed_timestamp': processed['processed_timestamp'],
+            # 保留原始k数据
+            'k': k
         }
         
-        return kline_standard
+        # 验证必要字段
+        if not kline_data['open_time'] or not kline_data['close_time']:
+            logger.warning(f"K线数据缺少时间字段: open_time={kline_data['open_time']}, close_time={kline_data['close_time']}")
+            return None
+        
+        logger.debug(f"[KlinePush] 币安K线数据处理完成: symbol={kline_data['symbol']}, interval={kline_data['interval']}, close={kline_data['close']}")
+        
+        return kline_data
     
     def _process_binance_depth(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """

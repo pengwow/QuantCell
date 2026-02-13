@@ -313,11 +313,60 @@ class FuturesKlineFetcher(BaseKlineFetcher):
 
 class CryptoSpotKlineFetcher(BaseKlineFetcher):
     """加密货币现货K线数据获取器"""
-    
+
     def __init__(self):
         super().__init__()
         self.kline_model = CryptoSpotKline
-    
+
+    def _is_data_expired(self, latest_timestamp: int, interval: str) -> tuple[bool, str]:
+        """
+        检查数据是否过期
+
+        Args:
+            latest_timestamp: 最新数据的时间戳（毫秒）
+            interval: K线周期
+
+        Returns:
+            tuple[bool, str]: (是否过期, 原因)
+        """
+        from datetime import datetime
+
+        now = int(datetime.utcnow().timestamp() * 1000)
+
+        # 计算K线周期对应的毫秒数
+        interval_ms = self._get_interval_ms(interval)
+
+        # 判断标准1：超过1根K线周期
+        if now - latest_timestamp > interval_ms:
+            return True, f"数据超过1根K线周期，最新数据时间: {latest_timestamp}, 当前时间: {now}, 差值: {now - latest_timestamp}ms"
+
+        # 判断标准2：超过1天
+        one_day_ms = 24 * 60 * 60 * 1000
+        if now - latest_timestamp > one_day_ms:
+            return True, f"数据超过1天，最新数据时间: {latest_timestamp}, 当前时间: {now}"
+
+        return False, "数据新鲜"
+
+    def _get_interval_ms(self, interval: str) -> int:
+        """获取K线周期对应的毫秒数"""
+        interval_map = {
+            '1m': 60 * 1000,
+            '3m': 3 * 60 * 1000,
+            '5m': 5 * 60 * 1000,
+            '15m': 15 * 60 * 1000,
+            '30m': 30 * 60 * 1000,
+            '1h': 60 * 60 * 1000,
+            '2h': 2 * 60 * 60 * 1000,
+            '4h': 4 * 60 * 60 * 1000,
+            '6h': 6 * 60 * 60 * 1000,
+            '8h': 8 * 60 * 60 * 1000,
+            '12h': 12 * 60 * 60 * 1000,
+            '1d': 24 * 60 * 60 * 1000,
+            '3d': 3 * 24 * 60 * 60 * 1000,
+            '1w': 7 * 24 * 60 * 60 * 1000,
+        }
+        return interval_map.get(interval.lower(), 60 * 1000)  # 默认1分钟
+
     def fetch_kline_data(
         self,
         db: Session,
@@ -334,11 +383,25 @@ class CryptoSpotKlineFetcher(BaseKlineFetcher):
         interval = interval.lower()
         # 首先从数据库获取K线数据
         result = self._fetch_from_database(db, formatted_symbol, interval, start_time, end_time, limit)
-        
-        # 检查数据库返回的K线数据是否为空
-        if not result['kline_data']:
-            logger.warning(f"数据库中未找到K线数据，尝试从ccxt获取: symbol={symbol}, interval={interval}")
-            
+
+        # 检查数据时效性
+        data_expired = False
+        if result['kline_data']:
+            latest_timestamp = result['kline_data'][-1]['timestamp']  # 最后一条是最新的
+            is_expired, reason = self._is_data_expired(latest_timestamp, interval)
+            if is_expired:
+                logger.warning(f"[KlineData] 数据已过期: {reason}")
+                data_expired = True
+            else:
+                logger.info(f"[KlineData] 数据新鲜，最新时间戳: {latest_timestamp}")
+
+        # 如果数据库数据为空或已过期，从ccxt获取
+        if not result['kline_data'] or data_expired:
+            if not result['kline_data']:
+                logger.warning(f"数据库中未找到K线数据，尝试从ccxt获取: symbol={symbol}, interval={interval}")
+            else:
+                logger.warning(f"数据库数据已过期，尝试从ccxt获取最新数据: symbol={symbol}, interval={interval}")
+
             # 获取系统配置中的代理信息
             from config_manager import load_system_configs
             configs = load_system_configs()
@@ -348,19 +411,22 @@ class CryptoSpotKlineFetcher(BaseKlineFetcher):
                 "username": configs.get("proxy_username", None),
                 "password": configs.get("proxy_password", None)
             }
-            
+
             # 从ccxt获取K线数据
             ccxt_data = self._fetch_from_ccxt(symbol, interval, limit, proxy_config)
-            
+
             if ccxt_data:
                 result['kline_data'] = ccxt_data
                 result['message'] = "从ccxt获取K线数据成功"
-                
+
                 # 将从ccxt获取的K线数据保存到数据库
                 self._save_to_database(db, formatted_symbol, interval, ccxt_data)
             else:
-                result['message'] = "数据库和ccxt均未找到K线数据"
-        
+                if not result['kline_data']:
+                    result['message'] = "数据库和ccxt均未找到K线数据"
+                else:
+                    result['message'] = "数据库数据已过期，从ccxt获取数据失败，返回旧数据"
+
         return result
 
 

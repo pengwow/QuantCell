@@ -216,7 +216,7 @@ class ConnectionManager:
     
     async def broadcast(self, message: Dict[str, Any], topic: Optional[str] = None):
         """广播消息
-        
+
         Args:
             message: 消息内容
             topic: 主题名称，为None时广播给所有客户端
@@ -224,11 +224,13 @@ class ConnectionManager:
         if topic:
             # 只广播给订阅了该主题的客户端
             if topic in self.subscriptions:
-                for client_id in self.subscriptions[topic]:
+                client_ids = list(self.subscriptions[topic])
+                for client_id in client_ids:
                     await self.send_personal_message(message, client_id)
         else:
             # 广播给所有客户端
-            for client_id in list(self.active_connections.keys()):
+            client_ids = list(self.active_connections.keys())
+            for client_id in client_ids:
                 await self.send_personal_message(message, client_id)
     
     async def process_messages(self):
