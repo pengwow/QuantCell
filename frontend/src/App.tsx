@@ -135,8 +135,8 @@ const App = () => {
             icon: <CodeOutlined />
           },
           {
-            path: '/agent/StrategyAgent',
-            name: t('strategy_agent'),
+            path: '/agent',
+            name: t('agent'),
             icon: <RobotOutlined />
           },
           {
