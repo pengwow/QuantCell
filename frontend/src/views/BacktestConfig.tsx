@@ -85,7 +85,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
     overall: 0,
   });
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [currentTaskId, setCurrentTaskId] = useState<string>('');
+  const [, setCurrentTaskId] = useState<string>('');
   const [isBacktestRunning, setIsBacktestRunning] = useState<boolean>(false);
   const abortControllerRef = React.useRef<AbortController | null>(null);
 
@@ -584,7 +584,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onBack, onRunBacktest, 
         const backtestPromise = backtestApi.runBacktest(backtestData, abortControllerRef.current.signal);
 
         // 等待两者完成
-        const result = await Promise.all([progressPromise, backtestPromise]);
+        await Promise.all([progressPromise, backtestPromise]);
 
         message.success('回测已成功完成！');
 

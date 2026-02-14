@@ -108,7 +108,7 @@ export default function ChartPage () {
   })
   
   // 实时数据状态
-  const [isRealtimeActive, setIsRealtimeActive] = useState(false)
+  const [, setIsRealtimeActive] = useState(false)
 
   // 图表实例引用
   const chartRef = useRef<any>(null)
@@ -117,7 +117,6 @@ export default function ChartPage () {
   const realtimeDataQueueRef = useRef<any[]>([])
   const lastUpdateTimeRef = useRef<number>(0)
   const batchUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isProcessingRef = useRef<boolean>(false)
   const latestBarRef = useRef<any>(null)
   const klineDataRef = useRef<any[]>([])
   
@@ -489,7 +488,6 @@ export default function ChartPage () {
   const processBatchUpdate = useCallback(() => {
     if (!chartRef.current || realtimeDataQueueRef.current.length === 0) return
 
-    const chart = chartRef.current
     const queue = realtimeDataQueueRef.current
 
     try {

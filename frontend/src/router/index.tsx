@@ -3,7 +3,7 @@ import type { RouteObject } from 'react-router-dom';
 
 // 导入页面组件
 import App from '../App';
-import StrategyAgent from '../views/StrategyAgent';
+import Agent from '../views/Agent';
 import Setting from '../views/Setting';
 import DataManagement from '../views/DataManagement';
 import DataPoolPage from '../views/DataManagement/DataPoolPage';
@@ -50,8 +50,8 @@ export const createRouter = () => {
       element: <App />,
       children: [
         {
-          path: '/agent/StrategyAgent',
-          element: <StrategyAgent />
+          path: '/agent',
+          element: <Agent />
         },
         {
           path: '/strategy-management',
