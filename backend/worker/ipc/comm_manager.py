@@ -13,6 +13,14 @@ from loguru import logger
 
 from .protocol import Message, MessageType, serialize_message, deserialize_message
 
+# 超时配置常量
+ZMQ_BIND_TIMEOUT = 5.0  # ZeroMQ bind 操作超时时间（秒）
+ZMQ_SEND_TIMEOUT = 3.0  # ZeroMQ 发送操作超时时间（秒）
+ZMQ_RECV_TIMEOUT = 1.0  # ZeroMQ 接收操作超时时间（秒）
+MAX_BIND_RETRIES = 3  # 最大 bind 重试次数
+PORT_RANGE_START = 5555  # 端口范围起始
+PORT_RANGE_END = 5600  # 端口范围结束
+
 
 class CommManager:
     """
@@ -60,20 +68,12 @@ class CommManager:
         try:
             self._context = zmq.asyncio.Context()
 
-            # 创建数据发布端点
-            self._data_publisher = self._context.socket(zmq.PUB)
-            self._data_publisher.bind(f"tcp://{self.host}:{self.data_port}")
-            logger.info(f"数据发布服务绑定到 tcp://{self.host}:{self.data_port}")
-
-            # 创建控制服务端点
-            self._control_server = self._context.socket(zmq.ROUTER)
-            self._control_server.bind(f"tcp://{self.host}:{self.control_port}")
-            logger.info(f"控制服务绑定到 tcp://{self.host}:{self.control_port}")
-
-            # 创建状态收集端点
-            self._status_collector = self._context.socket(zmq.PULL)
-            self._status_collector.bind(f"tcp://{self.host}:{self.status_port}")
-            logger.info(f"状态收集服务绑定到 tcp://{self.host}:{self.status_port}")
+            # 尝试绑定端口，支持自动端口选择
+            bind_success = await self._bind_with_retry()
+            if not bind_success:
+                logger.error("通信服务启动失败：无法绑定端口")
+                await self.stop()
+                return False
 
             self._running = True
 
@@ -89,6 +89,95 @@ class CommManager:
             await self.stop()
             return False
 
+    async def _bind_with_retry(self) -> bool:
+        """
+        尝试绑定端口，支持重试和自动端口选择
+
+        Returns:
+            是否绑定成功
+        """
+        for attempt in range(MAX_BIND_RETRIES):
+            try:
+                # 创建数据发布端点
+                self._data_publisher = self._context.socket(zmq.PUB)
+                self._data_publisher.setsockopt(zmq.LINGER, 0)  # 设置关闭时不阻塞
+                
+                # 使用 asyncio.wait_for 添加超时
+                await asyncio.wait_for(
+                    self._async_bind(self._data_publisher, self.data_port),
+                    timeout=ZMQ_BIND_TIMEOUT
+                )
+                logger.info(f"数据发布服务绑定到 tcp://{self.host}:{self.data_port}")
+
+                # 创建控制服务端点
+                self._control_server = self._context.socket(zmq.ROUTER)
+                self._control_server.setsockopt(zmq.LINGER, 0)
+                await asyncio.wait_for(
+                    self._async_bind(self._control_server, self.control_port),
+                    timeout=ZMQ_BIND_TIMEOUT
+                )
+                logger.info(f"控制服务绑定到 tcp://{self.host}:{self.control_port}")
+
+                # 创建状态收集端点
+                self._status_collector = self._context.socket(zmq.PULL)
+                self._status_collector.setsockopt(zmq.LINGER, 0)
+                await asyncio.wait_for(
+                    self._async_bind(self._status_collector, self.status_port),
+                    timeout=ZMQ_BIND_TIMEOUT
+                )
+                logger.info(f"状态收集服务绑定到 tcp://{self.host}:{self.status_port}")
+
+                return True
+
+            except asyncio.TimeoutError:
+                logger.warning(f"端口绑定超时 (尝试 {attempt + 1}/{MAX_BIND_RETRIES})")
+                await self._cleanup_sockets()
+                
+                # 尝试使用随机端口
+                if attempt < MAX_BIND_RETRIES - 1:
+                    import random
+                    self.data_port = random.randint(PORT_RANGE_START, PORT_RANGE_END)
+                    self.control_port = random.randint(PORT_RANGE_START, PORT_RANGE_END)
+                    self.status_port = random.randint(PORT_RANGE_START, PORT_RANGE_END)
+                    logger.info(f"尝试使用新端口: data={self.data_port}, control={self.control_port}, status={self.status_port}")
+                    await asyncio.sleep(0.1)
+                    
+            except Exception as e:
+                logger.error(f"绑定端口失败: {e}")
+                await self._cleanup_sockets()
+                if attempt < MAX_BIND_RETRIES - 1:
+                    await asyncio.sleep(0.1)
+
+        return False
+
+    async def _async_bind(self, socket: zmq.asyncio.Socket, port: int):
+        """
+        异步执行 bind 操作
+        
+        Args:
+            socket: ZeroMQ socket
+            port: 端口号
+        """
+        # 在线程池中执行阻塞的 bind 操作
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None, 
+            socket.bind, 
+            f"tcp://{self.host}:{port}"
+        )
+
+    async def _cleanup_sockets(self):
+        """清理已创建的 socket"""
+        for socket in [self._data_publisher, self._control_server, self._status_collector]:
+            if socket:
+                try:
+                    socket.close()
+                except:
+                    pass
+        self._data_publisher = None
+        self._control_server = None
+        self._status_collector = None
+
     async def stop(self) -> bool:
         """
         停止通信服务
@@ -98,27 +187,24 @@ class CommManager:
         """
         self._running = False
 
-        # 取消后台任务
+        # 取消后台任务，设置超时
         for task in self._tasks:
             task.cancel()
             try:
-                await task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(task, timeout=1.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
         self._tasks.clear()
 
         # 关闭通信端点
-        for endpoint in [self._data_publisher, self._control_server, self._status_collector]:
-            if endpoint:
-                endpoint.close()
-
-        self._data_publisher = None
-        self._control_server = None
-        self._status_collector = None
+        await self._cleanup_sockets()
 
         # 终止上下文
         if self._context:
-            self._context.term()
+            try:
+                self._context.term()
+            except:
+                pass
             self._context = None
 
         logger.info("通信管理器已停止")
@@ -138,8 +224,13 @@ class CommManager:
         try:
             if self._data_publisher and self._running:
                 data = serialize_message(message)
-                await self._data_publisher.send_multipart([topic.encode(), data])
+                await asyncio.wait_for(
+                    self._data_publisher.send_multipart([topic.encode(), data]),
+                    timeout=ZMQ_SEND_TIMEOUT
+                )
                 return True
+        except asyncio.TimeoutError:
+            logger.warning(f"发布数据超时: {topic}")
         except Exception as e:
             logger.error(f"发布数据失败: {e}")
         return False
@@ -158,10 +249,15 @@ class CommManager:
         try:
             if self._control_server and self._running:
                 data = serialize_message(message)
-                await self._control_server.send_multipart(
-                    [worker_id.encode(), b"", data]
+                await asyncio.wait_for(
+                    self._control_server.send_multipart(
+                        [worker_id.encode(), b"", data]
+                    ),
+                    timeout=ZMQ_SEND_TIMEOUT
                 )
                 return True
+        except asyncio.TimeoutError:
+            logger.warning(f"发送控制命令超时: worker_id={worker_id}")
         except Exception as e:
             logger.error(f"发送控制命令失败: {e}")
         return False
@@ -179,8 +275,13 @@ class CommManager:
         try:
             if self._data_publisher and self._running:
                 data = serialize_message(message)
-                await self._data_publisher.send_multipart([b"control.all", data])
+                await asyncio.wait_for(
+                    self._data_publisher.send_multipart([b"control.all", data]),
+                    timeout=ZMQ_SEND_TIMEOUT
+                )
                 return True
+        except asyncio.TimeoutError:
+            logger.warning("广播控制命令超时")
         except Exception as e:
             logger.error(f"广播控制命令失败: {e}")
         return False
@@ -218,15 +319,20 @@ class CommManager:
         while self._running:
             try:
                 if self._status_collector:
-                    data = await self._status_collector.recv()
-                    message = deserialize_message(data)
+                    # 使用超时接收，避免永久阻塞
+                    if await self._status_collector.poll(timeout=int(ZMQ_RECV_TIMEOUT * 1000)):
+                        data = await self._status_collector.recv()
+                        message = deserialize_message(data)
 
-                    # 调用所有状态处理器
-                    for handler in self._status_handlers:
-                        try:
-                            handler(message)
-                        except Exception as e:
-                            logger.error(f"状态处理器错误: {e}")
+                        # 调用所有状态处理器
+                        for handler in self._status_handlers:
+                            try:
+                                handler(message)
+                            except Exception as e:
+                                logger.error(f"状态处理器错误: {e}")
+                    else:
+                        # 超时，继续循环检查运行状态
+                        await asyncio.sleep(0.01)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -238,18 +344,23 @@ class CommManager:
         while self._running:
             try:
                 if self._control_server:
-                    parts = await self._control_server.recv_multipart()
-                    if len(parts) >= 3:
-                        worker_id = parts[0].decode()
-                        data = parts[2]
-                        message = deserialize_message(data)
+                    # 使用超时接收
+                    if await self._control_server.poll(timeout=int(ZMQ_RECV_TIMEOUT * 1000)):
+                        parts = await self._control_server.recv_multipart()
+                        if len(parts) >= 3:
+                            worker_id = parts[0].decode()
+                            data = parts[2]
+                            message = deserialize_message(data)
 
-                        # 调用所有控制处理器
-                        for handler in self._control_handlers:
-                            try:
-                                handler(worker_id, message)
-                            except Exception as e:
-                                logger.error(f"控制处理器错误: {e}")
+                            # 调用所有控制处理器
+                            for handler in self._control_handlers:
+                                try:
+                                    handler(worker_id, message)
+                                except Exception as e:
+                                    logger.error(f"控制处理器错误: {e}")
+                    else:
+                        # 超时，继续循环
+                        await asyncio.sleep(0.01)
             except asyncio.CancelledError:
                 break
             except Exception as e:

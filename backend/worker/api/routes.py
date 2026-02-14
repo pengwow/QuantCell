@@ -222,6 +222,9 @@ async def start_worker(
             message="Worker启动中",
             data={"task_id": task_id, "status": "starting"}
         )
+    except HTTPException:
+        # 重新抛出 HTTPException 以保持原始状态码
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
