@@ -25,6 +25,7 @@ from settings.routes import router as settings_router
 from strategy import router as strategy_router
 from websocket.routes import router as websocket_router
 from realtime.routes import realtime_router
+from worker import router as worker_router
 
 
 # 创建FastAPI应用实例
@@ -58,6 +59,7 @@ app.include_router(strategy_router)
 app.include_router(backtest_router)
 app.include_router(realtime_router)
 app.include_router(websocket_router)
+app.include_router(worker_router)
 
 # 插件路由注册会在应用启动时通过lifespan函数完成
 # 这里不需要提前注册，插件会在应用启动时动态加载和注册

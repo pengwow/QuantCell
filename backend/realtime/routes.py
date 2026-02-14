@@ -96,6 +96,70 @@ async def start_realtime_engine():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@realtime_router.post("/connect", response_model=Dict[str, Any])
+async def connect_exchange():
+    """
+    连接交易所
+
+    Returns:
+        Dict[str, Any]: 连接结果
+    """
+    try:
+        if not realtime_engine:
+            return {
+                "code": 1,
+                "message": "实时引擎未初始化",
+                "data": {
+                    "success": False
+                }
+            }
+
+        success = await realtime_engine.connect_exchange()
+        return {
+            "code": 0 if success else 1,
+            "message": "交易所连接成功" if success else "交易所连接失败",
+            "data": {
+                "success": success
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"连接交易所失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@realtime_router.post("/disconnect", response_model=Dict[str, Any])
+async def disconnect_exchange():
+    """
+    断开交易所连接
+
+    Returns:
+        Dict[str, Any]: 断开结果
+    """
+    try:
+        if not realtime_engine:
+            return {
+                "code": 1,
+                "message": "实时引擎未初始化",
+                "data": {
+                    "success": False
+                }
+            }
+
+        success = await realtime_engine.disconnect_exchange()
+        return {
+            "code": 0 if success else 1,
+            "message": "交易所断开成功" if success else "交易所断开失败",
+            "data": {
+                "success": success
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"断开交易所失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @realtime_router.post("/stop", response_model=Dict[str, Any])
 async def stop_realtime_engine():
     """

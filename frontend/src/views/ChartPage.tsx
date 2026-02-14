@@ -157,7 +157,7 @@ export default function ChartPage () {
     // 这里简单实现，组件挂载时检查一次
   }, []);
 
-  // 组件挂载时获取系统配置
+  // 组件挂载时获取系统配置并自动连接实时引擎
   useEffect(() => {
     const fetchSystemConfig = async () => {
       try {
@@ -167,6 +167,15 @@ export default function ChartPage () {
             realtime_enabled: config.realtime_enabled,
             data_mode: config.data_mode,
           })
+          
+          // 如果系统配置启用了实时引擎，自动启动
+          if (config.realtime_enabled) {
+            console.log('[ChartPage] 系统配置启用了实时引擎，自动连接...')
+            // 延迟启动，等待组件完全挂载
+            setTimeout(() => {
+              handleAutoConnect()
+            }, 1000)
+          }
         }
       } catch (err) {
         console.error('获取系统配置失败:', err)
@@ -175,6 +184,41 @@ export default function ChartPage () {
 
     fetchSystemConfig()
   }, [])
+  
+  // 自动连接实时引擎
+  const handleAutoConnect = async () => {
+    try {
+      console.log('[ChartPage] 自动连接实时引擎...')
+      
+      // 1. 检查实时引擎状态
+      const status = await realtimeApi.getRealtimeStatus()
+      console.log('[ChartPage] 引擎状态:', status)
+      
+      // 2. 如果引擎未运行，启动引擎
+      if (status.status !== 'running') {
+        console.log('[ChartPage] 引擎未运行，启动引擎...')
+        const startResult = await realtimeApi.startRealtimeEngine()
+        if (!startResult.success) {
+          console.error('[ChartPage] 启动引擎失败')
+          return
+        }
+      }
+      
+      // 3. 连接交易所
+      if (!status.connected) {
+        console.log('[ChartPage] 连接交易所...')
+        const connectResult = await realtimeApi.connectExchange()
+        if (!connectResult.success) {
+          console.error('[ChartPage] 连接交易所失败')
+          return
+        }
+      }
+      
+      console.log('[ChartPage] 实时引擎自动连接成功')
+    } catch (error) {
+      console.error('[ChartPage] 自动连接实时引擎失败:', error)
+    }
+  }
   
   // 组件挂载时读取本地存储的偏好设置
   useEffect(() => {

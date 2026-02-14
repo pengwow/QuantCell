@@ -1,118 +1,102 @@
 """
-ZeroMQ 消息协议定义
+Worker IPC协议定义
 
-定义 Worker 进程间通信的消息格式和类型
+定义Worker进程间通信的消息协议，包括消息类型、消息格式和序列化/反序列化
 """
 
-from enum import Enum
-from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
 import json
 import time
+import uuid
+from enum import Enum
+from typing import Dict, Any, Optional
+from dataclasses import dataclass, field, asdict
 
 
 class MessageType(Enum):
     """消息类型枚举"""
-
     # 数据消息
-    MARKET_DATA = "market_data"  # 市场数据（K线、Tick等）
-    TICK_DATA = "tick_data"  # Tick 数据
-    BAR_DATA = "bar_data"  # K线数据
-    DEPTH_DATA = "depth_data"  # 深度数据
+    MARKET_DATA = "market_data"
+    TICK_DATA = "tick_data"
+    BAR_DATA = "bar_data"
+    ORDER_BOOK = "order_book"
+    TRADE_DATA = "trade_data"
 
     # 控制消息
-    START = "start"  # 启动策略
-    STOP = "stop"  # 停止策略
-    PAUSE = "pause"  # 暂停策略
-    RESUME = "resume"  # 恢复策略
-    RELOAD_CONFIG = "reload_config"  # 重载配置
-    UPDATE_PARAMS = "update_params"  # 更新参数
+    START = "start"
+    STOP = "stop"
+    PAUSE = "pause"
+    RESUME = "resume"
+    RESTART = "restart"
+    RELOAD_CONFIG = "reload_config"
+    UPDATE_PARAMS = "update_params"
 
     # 状态消息
-    HEARTBEAT = "heartbeat"  # 心跳
-    STATUS_UPDATE = "status_update"  # 状态更新
-    ERROR = "error"  # 错误报告
-    WARNING = "warning"  # 警告
+    HEARTBEAT = "heartbeat"
+    STATUS_UPDATE = "status_update"
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
 
-    # 订单消息
-    ORDER_REQUEST = "order_request"  # 订单请求
-    ORDER_RESPONSE = "order_response"  # 订单响应
-    ORDER_UPDATE = "order_update"  # 订单状态更新
+    # 交易消息
+    ORDER_REQUEST = "order_request"
+    ORDER_RESPONSE = "order_response"
+    POSITION_UPDATE = "position_update"
+    BALANCE_UPDATE = "balance_update"
 
-    # 持仓消息
-    POSITION_UPDATE = "position_update"  # 持仓更新
-    POSITION_SYNC = "position_sync"  # 持仓同步请求
-
-    # 账户消息
-    ACCOUNT_UPDATE = "account_update"  # 账户更新
-    BALANCE_UPDATE = "balance_update"  # 余额更新
+    # 系统消息
+    METRICS = "metrics"
+    LOG = "log"
+    CONTROL = "control"
 
 
 @dataclass
 class Message:
     """
-    消息结构
+    消息基类
 
-    用于 Worker 进程间通信的标准消息格式
+    Attributes:
+        msg_type: 消息类型
+        worker_id: Worker ID
+        payload: 消息负载数据
+        timestamp: 时间戳
+        msg_id: 消息唯一ID
     """
-
     msg_type: MessageType
-    payload: Dict[str, Any] = field(default_factory=dict)
     worker_id: Optional[str] = None
+    payload: Dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
-    msg_id: Optional[str] = None
+    msg_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_json(self) -> str:
-        """
-        将消息序列化为 JSON 字符串
-
-        Returns:
-            JSON 字符串
-        """
-        return json.dumps({
+        """将消息序列化为JSON字符串"""
+        data = {
             "msg_type": self.msg_type.value,
-            "payload": self.payload,
             "worker_id": self.worker_id,
+            "payload": self.payload,
             "timestamp": self.timestamp,
             "msg_id": self.msg_id,
-        }, ensure_ascii=False)
+        }
+        return json.dumps(data, ensure_ascii=False)
 
     @classmethod
-    def from_json(cls, data: str) -> "Message":
-        """
-        从 JSON 字符串反序列化消息
-
-        Args:
-            data: JSON 字符串
-
-        Returns:
-            Message 实例
-        """
-        obj = json.loads(data)
+    def from_json(cls, json_str: str) -> "Message":
+        """从JSON字符串反序列化消息"""
+        data = json.loads(json_str)
         return cls(
-            msg_type=MessageType(obj["msg_type"]),
-            payload=obj.get("payload", {}),
-            worker_id=obj.get("worker_id"),
-            timestamp=obj.get("timestamp", time.time()),
-            msg_id=obj.get("msg_id"),
+            msg_type=MessageType(data["msg_type"]),
+            worker_id=data.get("worker_id"),
+            payload=data.get("payload", {}),
+            timestamp=data.get("timestamp", time.time()),
+            msg_id=data.get("msg_id", str(uuid.uuid4())),
         )
 
     @classmethod
     def create_heartbeat(cls, worker_id: str, status: str = "running") -> "Message":
-        """
-        创建心跳消息
-
-        Args:
-            worker_id: Worker ID
-            status: 当前状态
-
-        Returns:
-            心跳消息
-        """
+        """创建心跳消息"""
         return cls(
             msg_type=MessageType.HEARTBEAT,
             worker_id=worker_id,
-            payload={"status": status},
+            payload={"status": status, "timestamp": time.time()},
         )
 
     @classmethod
@@ -121,20 +105,9 @@ class Message:
         symbol: str,
         data_type: str,
         data: Dict[str, Any],
-        source: Optional[str] = None,
+        source: str = "exchange",
     ) -> "Message":
-        """
-        创建市场数据消息
-
-        Args:
-            symbol: 交易对
-            data_type: 数据类型 (kline, tick, depth)
-            data: 数据内容
-            source: 数据来源
-
-        Returns:
-            市场数据消息
-        """
+        """创建市场数据消息"""
         return cls(
             msg_type=MessageType.MARKET_DATA,
             payload={
@@ -142,29 +115,20 @@ class Message:
                 "data_type": data_type,
                 "data": data,
                 "source": source,
+                "timestamp": time.time(),
             },
         )
 
     @classmethod
     def create_control(
         cls,
-        msg_type: MessageType,
+        command: MessageType,
         worker_id: str,
         params: Optional[Dict[str, Any]] = None,
     ) -> "Message":
-        """
-        创建控制消息
-
-        Args:
-            msg_type: 控制消息类型 (START, STOP, PAUSE, RESUME)
-            worker_id: Worker ID
-            params: 控制参数
-
-        Returns:
-            控制消息
-        """
+        """创建控制命令消息"""
         return cls(
-            msg_type=msg_type,
+            msg_type=command,
             worker_id=worker_id,
             payload=params or {},
         )
@@ -177,18 +141,7 @@ class Message:
         error_message: str,
         details: Optional[Dict[str, Any]] = None,
     ) -> "Message":
-        """
-        创建错误消息
-
-        Args:
-            worker_id: Worker ID
-            error_type: 错误类型
-            error_message: 错误信息
-            details: 详细错误信息
-
-        Returns:
-            错误消息
-        """
+        """创建错误消息"""
         return cls(
             msg_type=MessageType.ERROR,
             worker_id=worker_id,
@@ -196,6 +149,41 @@ class Message:
                 "error_type": error_type,
                 "error_message": error_message,
                 "details": details or {},
+                "timestamp": time.time(),
+            },
+        )
+
+    @classmethod
+    def create_status_update(
+        cls,
+        worker_id: str,
+        state: str,
+        info: Optional[Dict[str, Any]] = None,
+    ) -> "Message":
+        """创建状态更新消息"""
+        return cls(
+            msg_type=MessageType.STATUS_UPDATE,
+            worker_id=worker_id,
+            payload={
+                "state": state,
+                "info": info or {},
+                "timestamp": time.time(),
+            },
+        )
+
+    @classmethod
+    def create_metrics(
+        cls,
+        worker_id: str,
+        metrics: Dict[str, Any],
+    ) -> "Message":
+        """创建指标消息"""
+        return cls(
+            msg_type=MessageType.METRICS,
+            worker_id=worker_id,
+            payload={
+                "metrics": metrics,
+                "timestamp": time.time(),
             },
         )
 
@@ -210,21 +198,7 @@ class Message:
         price: Optional[float] = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> "Message":
-        """
-        创建订单请求消息
-
-        Args:
-            worker_id: Worker ID
-            symbol: 交易对
-            side: 买卖方向 (buy/sell)
-            order_type: 订单类型 (market/limit)
-            amount: 数量
-            price: 价格（限价单需要）
-            params: 其他参数
-
-        Returns:
-            订单请求消息
-        """
+        """创建订单请求消息"""
         return cls(
             msg_type=MessageType.ORDER_REQUEST,
             worker_id=worker_id,
@@ -238,59 +212,57 @@ class Message:
             },
         )
 
+    @classmethod
+    def create_log(
+        cls,
+        worker_id: str,
+        level: str,
+        message: str,
+        source: str = "worker",
+    ) -> "Message":
+        """创建日志消息"""
+        return cls(
+            msg_type=MessageType.LOG,
+            worker_id=worker_id,
+            payload={
+                "level": level,
+                "message": message,
+                "source": source,
+                "timestamp": time.time(),
+            },
+        )
 
-# 消息主题定义
+
 class MessageTopic:
-    """消息主题常量"""
+    """消息主题工具类"""
 
     @staticmethod
-    def market_data(symbol: str, data_type: str = "kline") -> str:
-        """
-        生成市场数据主题
-
-        Args:
-            symbol: 交易对
-            data_type: 数据类型
-
-        Returns:
-            主题字符串
-        """
+    def market_data(symbol: str, data_type: str) -> str:
+        """生成市场数据主题"""
         return f"market.{symbol}.{data_type}"
 
     @staticmethod
     def control(worker_id: str) -> str:
-        """
-        生成控制命令主题
-
-        Args:
-            worker_id: Worker ID
-
-        Returns:
-            主题字符串
-        """
+        """生成控制命令主题"""
         return f"control.{worker_id}"
 
     @staticmethod
     def status(worker_id: str) -> str:
-        """
-        生成状态上报主题
-
-        Args:
-            worker_id: Worker ID
-
-        Returns:
-            主题字符串
-        """
+        """生成状态上报主题"""
         return f"status.{worker_id}"
 
+    @staticmethod
+    def broadcast() -> str:
+        """生成广播主题"""
+        return "broadcast.all"
 
-# 序列化/反序列化辅助函数
+
 def serialize_message(message: Message) -> bytes:
     """
-    将消息序列化为字节
+    序列化消息为字节
 
     Args:
-        message: 消息实例
+        message: 消息对象
 
     Returns:
         字节数据
@@ -306,6 +278,6 @@ def deserialize_message(data: bytes) -> Message:
         data: 字节数据
 
     Returns:
-        消息实例
+        消息对象
     """
     return Message.from_json(data.decode("utf-8"))
