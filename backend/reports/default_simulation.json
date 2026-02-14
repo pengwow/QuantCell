@@ -1,8 +1,8 @@
 {
   "report_name": "default_simulation",
-  "generated_at": "2026-02-12T12:58:06.769818",
-  "start_time": "2026-02-12T12:57:51.748592",
-  "end_time": "2026-02-12T12:58:06.766698",
+  "generated_at": "2026-02-14T10:18:44.949944",
+  "start_time": "2026-02-14T10:18:32.930748",
+  "end_time": "2026-02-14T10:18:44.947696",
   "config": {
     "name": "default_simulation",
     "description": "默认模拟测试配置",
@@ -80,8 +80,8 @@
     "extra": {}
   },
   "metrics": {
-    "start_time": "2026-02-12T12:57:51.748592",
-    "end_time": "2026-02-12T12:58:06.766698",
+    "start_time": "2026-02-14T10:18:32.930748",
+    "end_time": "2026-02-14T10:18:44.947696",
     "total_duration_ms": 0.0,
     "data_push_duration_ms": 0.0,
     "total_data_points": 140544,
@@ -112,7 +112,7 @@
       "total_workers": 1,
       "running_workers": 0,
       "error_workers": 0,
-      "total_messages_processed": 15,
+      "total_messages_processed": 12,
       "total_orders_placed": 0,
       "total_errors": 0
     },

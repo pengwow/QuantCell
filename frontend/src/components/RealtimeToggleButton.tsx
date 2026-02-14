@@ -76,6 +76,8 @@ export function RealtimeToggleButton({
   const [isSubscribed, setIsSubscribed] = useState(false);
   // 是否已经恢复过连接
   const [hasRestored, setHasRestored] = useState(false);
+  // 操作锁，防止快速点击
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // 构建K线频道名称
   const klineChannel = `${symbol}@kline_${period}`;
@@ -248,10 +250,24 @@ export function RealtimeToggleButton({
    * 切换实时数据状态
    */
   const toggleRealtime = async () => {
-    if (isRealtime) {
-      await stopRealtime();
-    } else {
-      await startRealtime();
+    // 防止快速点击，如果正在处理中则忽略
+    if (isProcessing || loading) {
+      console.log('[RealtimeToggleButton] 操作过于频繁，请稍后再试');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      if (isRealtime) {
+        await stopRealtime();
+      } else {
+        await startRealtime();
+      }
+    } finally {
+      // 延迟释放锁，防止快速连续点击
+      setTimeout(() => {
+        setIsProcessing(false);
+      }, 2000);
     }
   };
 
@@ -323,6 +339,7 @@ export function RealtimeToggleButton({
         icon={loading ? <LoadingOutlined /> : (isRealtime ? <PauseCircleOutlined /> : <PlayCircleOutlined />)}
         onClick={toggleRealtime}
         loading={loading}
+        disabled={isProcessing}
         style={{
           display: 'flex',
           alignItems: 'center',
