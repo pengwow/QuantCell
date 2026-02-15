@@ -9,13 +9,14 @@
     - 策略列表获取
     - 策略详情获取
     - 策略文件上传
+    - 支持 trading engine 和 Legacy 两种策略类型
 
 服务类:
     - StrategyService: 策略服务主类
 
 作者: QuantCell Team
-版本: 1.0.0
-日期: 2026-02-12
+版本: 1.1.0
+日期: 2026-02-15
 """
 
 import sys
@@ -27,13 +28,30 @@ import uuid
 from pathlib import Path
 from loguru import logger
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, Union
+from enum import Enum
 
 # 导入策略基类
 from .strategy_base import StrategyBase
 
+# 尝试导入 trading engine 的 Strategy 类
+try:
+    from nautilus_trader.trading.strategy import Strategy as DefaultStrategy
+    default_AVAILABLE = True
+except ImportError:
+    DefaultStrategy = None
+    default_AVAILABLE = False
+    logger.warning("trading engine 未安装，trading engine 策略支持不可用")
+
 # 策略基类别名，用于兼容性检查
 Strategy = StrategyBase
+
+
+class StrategyType(Enum):
+    """策略类型枚举"""
+    advanced = "default"      # trading engine 策略
+    LEGACY = "legacy"          # Legacy 策略 (StrategyBase)
+    UNKNOWN = "unknown"        # 未知类型
 
 class StrategyService:
     """
@@ -388,6 +406,75 @@ class StrategyService:
             logger.exception(e)
             return None
     
+    def detect_strategy_type(self, file_content: str) -> StrategyType:
+        """
+        检测策略类型
+
+        通过分析策略文件内容，判断策略是 trading engine 风格还是 Legacy 风格。
+
+        参数:
+            file_content: 策略文件内容
+
+        返回:
+            StrategyType: 策略类型 (advanced, LEGACY, 或 UNKNOWN)
+        """
+        try:
+            tree = ast.parse(file_content)
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    for base in node.bases:
+                        base_name = None
+
+                        # 直接继承，如 class MyStrategy(Strategy)
+                        if isinstance(base, ast.Name):
+                            base_name = base.id
+                        # 属性继承，如 class MyStrategy(trading_engine.trading.strategy.Strategy)
+                        elif isinstance(base, ast.Attribute):
+                            base_name = base.attr
+
+                        if base_name:
+                            # 检查是否为 trading engine 策略
+                            if base_name == 'Strategy' or 'advanced' in file_content.lower():
+                                # 进一步确认是否从 nautilus_trader 导入
+                                for stmt in ast.walk(tree):
+                                    if isinstance(stmt, ast.ImportFrom):
+                                        if stmt.module and 'nautilus_trader' in stmt.module:
+                                            for alias in stmt.names:
+                                                if alias.name == 'Strategy':
+                                                    logger.info(f"检测到 trading engine 策略: {node.name}")
+                                                    return StrategyType.DEFAULT
+
+                            # 检查是否为 Legacy 策略
+                            if base_name in ('StrategyBase', 'Strategy'):
+                                # 检查是否从 strategy_base 或 strategy 模块导入
+                                for stmt in ast.walk(tree):
+                                    if isinstance(stmt, ast.ImportFrom):
+                                        if stmt.module and 'strategy_base' in stmt.module:
+                                            logger.info(f"检测到 Legacy 策略: {node.name}")
+                                            return StrategyType.LEGACY
+                                        # 检查相对导入
+                                        if stmt.module is None or '.' in str(stmt.module):
+                                            for alias in stmt.names:
+                                                if alias.name in ('StrategyBase', 'Strategy'):
+                                                    logger.info(f"检测到 Legacy 策略: {node.name}")
+                                                    return StrategyType.LEGACY
+
+            # 如果通过 AST 无法确定，尝试通过文本内容判断
+            if 'nautilus_trader' in file_content.lower():
+                logger.info("通过文本内容检测到 trading engine 策略")
+                return StrategyType.DEFAULT
+            elif 'StrategyBase' in file_content:
+                logger.info("通过文本内容检测到 Legacy 策略")
+                return StrategyType.LEGACY
+
+            logger.warning(f"无法识别策略类型")
+            return StrategyType.UNKNOWN
+
+        except Exception as e:
+            logger.error(f"检测策略类型失败: {e}")
+            return StrategyType.UNKNOWN
+
     def _find_strategy_class(self, module, strategy_name):
         """
         在模块中查找策略类
@@ -402,80 +489,222 @@ class StrategyService:
                         is_strategy = True
                 except TypeError:
                     pass
-                
+
                 try:
                     if (issubclass(cls, StrategyBase) and cls != StrategyBase):
                         is_strategy = True
                 except TypeError:
                     pass
-                    
+
+                # 检查是否为 trading engine 策略
+                if default_AVAILABLE:
+                    try:
+                        if (issubclass(cls, DefaultStrategy) and cls != DefaultStrategy):
+                            is_strategy = True
+                    except TypeError:
+                        pass
+
                 if is_strategy:
                     logger.info(f"成功加载策略类: {strategy_name}.{name}")
                     return cls
         return None
 
+    def _detect_loaded_strategy_type(self, strategy_cls: Type) -> StrategyType:
+        """
+        检测已加载的策略类类型
+
+        参数:
+            strategy_cls: 已加载的策略类
+
+        返回:
+            StrategyType: 策略类型
+        """
+        if default_AVAILABLE and issubclass(strategy_cls, DefaultStrategy):
+            return StrategyType.DEFAULT
+        elif issubclass(strategy_cls, StrategyBase):
+            return StrategyType.LEGACY
+        else:
+            return StrategyType.UNKNOWN
+
+    def load_advanced_strategy(self, strategy_name: str, file_path: Optional[Path] = None,
+                               file_content: Optional[str] = None) -> Optional[Type[Any]]:
+        """
+        加载 trading engine 格式的策略
+
+        参数:
+            strategy_name: 策略名称
+            file_path: 策略文件路径（可选）
+            file_content: 策略文件内容（可选）
+
+        返回:
+            Optional[Type[Any]]: 策略类，如果加载失败返回 None
+        """
+        if not default_AVAILABLE:
+            logger.error("trading engine 未安装，无法加载 trading engine 策略")
+            return None
+
+        try:
+            from backtest.adapters.strategy_adapter import load_advanced_strategy as adapter_load
+
+            if file_path and file_path.exists():
+                logger.info(f"从文件加载 trading engine 策略: {strategy_name}")
+                strategy_cls = adapter_load(file_path, strategy_name)
+            elif file_content:
+                logger.info(f"从内容加载 trading engine 策略: {strategy_name}")
+                # 创建临时模块
+                module = type(sys)(strategy_name)
+                module.__file__ = str(file_path or self.strategy_dir / f"{strategy_name}.py")
+                sys.modules[strategy_name] = module
+                exec(file_content, module.__dict__)
+
+                # 查找策略类
+                strategy_cls = None
+                for name, cls in module.__dict__.items():
+                    if isinstance(cls, type) and issubclass(cls, DefaultStrategy) and cls != DefaultStrategy:
+                        strategy_cls = cls
+                        break
+
+                if strategy_cls is None:
+                    logger.error(f"在模块中找不到 trading engine 策略类: {strategy_name}")
+                    return None
+            else:
+                logger.error(f"加载 trading engine 策略失败: 未提供文件路径或内容")
+                return None
+
+            logger.info(f"成功加载 trading engine 策略: {strategy_name}")
+            return strategy_cls
+
+        except Exception as e:
+            logger.error(f"加载 trading engine 策略失败: {strategy_name}, 错误: {e}")
+            logger.exception(e)
+            return None
+
+    def load_legacy_strategy(self, strategy_name: str, file_path: Optional[Path] = None,
+                             file_content: Optional[str] = None) -> Optional[Type[Any]]:
+        """
+        加载 Legacy 格式的策略 (StrategyBase)
+
+        参数:
+            strategy_name: 策略名称
+            file_path: 策略文件路径（可选）
+            file_content: 策略文件内容（可选）
+
+        返回:
+            Optional[Type[Any]]: 策略类，如果加载失败返回 None
+        """
+        try:
+            if file_path and file_path.exists():
+                logger.info(f"从文件加载 Legacy 策略: {strategy_name}")
+                spec = importlib.util.spec_from_file_location(strategy_name, file_path)
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[strategy_name] = module
+                    spec.loader.exec_module(module)
+
+                    strategy_cls = self._find_strategy_class(module, strategy_name)
+                    if strategy_cls:
+                        return strategy_cls
+
+            elif file_content:
+                logger.info(f"从内容加载 Legacy 策略: {strategy_name}")
+                # 创建临时模块
+                module = type(sys)(strategy_name)
+                module.__file__ = str(file_path or self.strategy_dir / f"{strategy_name}.py")
+                sys.modules[strategy_name] = module
+                exec(file_content, module.__dict__)
+
+                strategy_cls = self._find_strategy_class(module, strategy_name)
+                if strategy_cls:
+                    return strategy_cls
+
+            logger.error(f"加载 Legacy 策略失败: 未提供有效的文件路径或内容")
+            return None
+
+        except Exception as e:
+            logger.error(f"加载 Legacy 策略失败: {strategy_name}, 错误: {e}")
+            logger.exception(e)
+            return None
+
     def load_strategy(self, strategy_name) -> Optional[Type[Any]]:
         """
         从文件或数据库中加载策略类
-        
-        :param strategy_name: 策略名称
-        :return: 策略类，如果加载失败返回None
+
+        自动检测策略类型（trading engine 或 Legacy），并路由到相应的加载器。
+        返回统一的策略接口。
+
+        参数:
+            strategy_name: 策略名称
+
+        返回:
+            Optional[Type[Any]]: 策略类，如果加载失败返回 None
         """
         try:
             strategy_file = self.strategy_dir / f"{strategy_name}.py"
-            
-            # 1. 尝试从文件加载
+            file_content = None
+
+            # 1. 尝试从文件获取内容
             if strategy_file.exists():
                 try:
-                    # 动态导入策略模块
-                    spec = importlib.util.spec_from_file_location(strategy_name, strategy_file)
-                    if spec and spec.loader:
-                        module = importlib.util.module_from_spec(spec)
-                        sys.modules[strategy_name] = module
-                        spec.loader.exec_module(module)
-                        
-                        strategy_cls = self._find_strategy_class(module, strategy_name)
-                        if strategy_cls:
-                            return strategy_cls
+                    with open(strategy_file, 'r', encoding='utf-8') as f:
+                        file_content = f.read()
+                    logger.info(f"从文件读取策略内容: {strategy_name}")
                 except Exception as e:
-                    logger.warning(f"从文件加载策略失败，尝试从数据库加载: {e}")
-            
-            # 2. 如果文件不存在或加载失败，尝试从数据库加载
-            logger.info(f"尝试从数据库加载策略: {strategy_name}")
-            
-            try:
-                from collector.db.database import SessionLocal, init_database_config
-                from collector.db.models import Strategy as StrategyModel
-                
-                init_database_config()
-                db = SessionLocal()
+                    logger.warning(f"从文件读取策略内容失败: {e}")
+
+            # 2. 如果文件不存在，尝试从数据库获取内容
+            if not file_content:
+                logger.info(f"尝试从数据库获取策略内容: {strategy_name}")
                 try:
-                    strategy = db.query(StrategyModel).filter_by(name=strategy_name).first()
-                    if strategy and strategy.content:
-                        logger.info(f"从数据库找到策略内容: {strategy_name}")
-                        
-                        # 动态创建模块
-                        module = type(sys)(strategy_name)
-                        module.__file__ = str(strategy_file) # 设置虚拟路径
-                        sys.modules[strategy_name] = module
-                        
-                        # 执行代码
-                        exec(strategy.content, module.__dict__)
-                        
-                        strategy_cls = self._find_strategy_class(module, strategy_name)
-                        if strategy_cls:
-                            return strategy_cls
-                    else:
-                        logger.error(f"数据库中未找到策略或策略内容为空: {strategy_name}")
-                finally:
-                    db.close()
-            except Exception as db_e:
-                logger.error(f"从数据库加载策略失败: {db_e}")
-            
-            logger.error(f"无法加载策略: {strategy_name}")
-            return None
+                    from collector.db.database import SessionLocal, init_database_config
+                    from collector.db.models import Strategy as StrategyModel
+
+                    init_database_config()
+                    db = SessionLocal()
+                    try:
+                        strategy = db.query(StrategyModel).filter_by(name=strategy_name).first()
+                        if strategy and strategy.content:
+                            file_content = strategy.content
+                            logger.info(f"从数据库获取策略内容成功: {strategy_name}")
+                        else:
+                            logger.error(f"数据库中未找到策略或策略内容为空: {strategy_name}")
+                            return None
+                    finally:
+                        db.close()
+                except Exception as db_e:
+                    logger.error(f"从数据库获取策略内容失败: {db_e}")
+                    return None
+
+            # 3. 检测策略类型
+            strategy_type = self.detect_strategy_type(file_content)
+            logger.info(f"策略类型检测结果: {strategy_name} -> {strategy_type.value}")
+
+            # 4. 根据策略类型路由到相应的加载器
+            if strategy_type == StrategyType.DEFAULT:
+                if not default_AVAILABLE:
+                    logger.error(f"无法加载 trading engine 策略 {strategy_name}: trading engine 未安装")
+                    return None
+                return self.load_advanced_strategy(
+                    strategy_name,
+                    file_path=strategy_file if strategy_file.exists() else None,
+                    file_content=file_content
+                )
+            elif strategy_type == StrategyType.LEGACY:
+                return self.load_legacy_strategy(
+                    strategy_name,
+                    file_path=strategy_file if strategy_file.exists() else None,
+                    file_content=file_content
+                )
+            else:
+                # 未知类型，尝试 Legacy 加载器作为默认
+                logger.warning(f"策略类型未知，尝试使用 Legacy 加载器: {strategy_name}")
+                return self.load_legacy_strategy(
+                    strategy_name,
+                    file_path=strategy_file if strategy_file.exists() else None,
+                    file_content=file_content
+                )
+
         except Exception as e:
-            logger.error(f"加载策略失败: {e}")
+            logger.error(f"加载策略失败: {strategy_name}, 错误: {e}")
             logger.exception(e)
             return None
     
