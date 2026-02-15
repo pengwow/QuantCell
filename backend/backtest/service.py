@@ -9,6 +9,7 @@
     - 回测结果分析
     - 回测结果管理
     - 回放数据生成
+    - 引擎选择和工厂方法
 
 服务类:
     - BacktestService: 回测服务主类
@@ -26,6 +27,7 @@ import concurrent.futures
 from pathlib import Path
 import pandas as pd
 from datetime import datetime
+from typing import Any, Dict, Optional
 
 from loguru import logger
 
@@ -40,6 +42,10 @@ from i18n.utils import load_translations
 from config_manager import get_config
 from utils.timezone import format_datetime
 
+# 导入回测引擎
+from backtest.engines import Engine, LegacyEngine, BacktestEngineBase
+from backtest.config import EngineType
+
 
 class BacktestService:
     """
@@ -50,29 +56,86 @@ class BacktestService:
         """初始化回测服务"""
         # 策略服务实例 - 使用独立的策略模块
         self.strategy_service = StrategyService()
-        
+
         # 回测结果保存路径
         self.backtest_result_dir = Path(project_root) / "backend" / "backtest" / "results"
         self.backtest_result_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 数据服务实例
         self.data_service = DataService()
-        
+
         # 数据管理器实例，用于管理多时间周期数据
         from .data_manager import DataManager
         self.data_manager = DataManager(self.data_service)
-        
+
         # 需要翻译的指标键列表
         self.metric_keys = [
-            'Start', 'End', 'Duration', 'Exposure Time [%]', 'Equity Final [$]', 
-            'Equity Peak [$]', 'Commissions [$]', 'Return [%]', 'Return (Ann.) [%]', 
-            'Buy & Hold Return [%]', 'Volatility (Ann.) [%]', 'CAGR [%]', 'Sharpe Ratio', 
-            'Sortino Ratio', 'Calmar Ratio', 'Alpha [%]', 'Beta', 'Max. Drawdown [%]', 
-            'Avg. Drawdown [%]', 'Profit Factor', 'Win Rate [%]', 'Expectancy [%]', 
-            '# Trades', 'Best Trade [%]', 'Worst Trade [%]', 'Avg. Trade [%]', 
-            'Max. Trade Duration', 'Avg. Trade Duration', 'Max. Drawdown Duration', 
+            'Start', 'End', 'Duration', 'Exposure Time [%]', 'Equity Final [$]',
+            'Equity Peak [$]', 'Commissions [$]', 'Return [%]', 'Return (Ann.) [%]',
+            'Buy & Hold Return [%]', 'Volatility (Ann.) [%]', 'CAGR [%]', 'Sharpe Ratio',
+            'Sortino Ratio', 'Calmar Ratio', 'Alpha [%]', 'Beta', 'Max. Drawdown [%]',
+            'Avg. Drawdown [%]', 'Profit Factor', 'Win Rate [%]', 'Expectancy [%]',
+            '# Trades', 'Best Trade [%]', 'Worst Trade [%]', 'Avg. Trade [%]',
+            'Max. Trade Duration', 'Avg. Trade Duration', 'Max. Drawdown Duration',
             'Avg. Drawdown Duration', 'SQN', 'Kelly Criterion'
         ]
+
+        # 当前使用的回测引擎实例
+        self._engine: Optional[BacktestEngineBase] = None
+
+    def create_engine(self, config: Optional[Dict[str, Any]] = None) -> Optional[BacktestEngineBase]:
+        """
+        引擎工厂方法，根据配置创建对应的回测引擎
+
+        从配置中读取 engine_type 参数，创建对应的回测引擎实例。
+        默认使用 default 引擎，支持回退到传统引擎。
+
+        Args:
+            config: 引擎配置字典，包含 engine_type 等参数
+                   如果为 None，则使用默认配置
+
+        Returns:
+            Optional[BacktestEngineBase]: 回测引擎实例
+
+        Example:
+            >>> service = BacktestService()
+            >>> engine = service.create_engine({"engine_type": "default"})
+            >>> if engine:
+            ...     engine.initialize()
+            ...     results = engine.run_backtest()
+        """
+        # 获取配置，使用传入的配置或默认空配置
+        engine_config = config or {}
+
+        # 从配置中读取引擎类型，默认为 default
+        engine_type_str = engine_config.get("engine_type", "default")
+
+        logger.info(f"创建回测引擎，引擎类型: {engine_type_str}")
+
+        # 根据引擎类型创建对应的引擎实例
+        if engine_type_str == EngineType.DEFAULT.value:
+            logger.info("使用高级回测引擎")
+            self._engine = Engine(engine_config)
+        elif engine_type_str == EngineType.LEGACY.value:
+            logger.info("使用传统回测引擎 (Legacy)")
+            # 延迟导入 LegacyEngine 以避免循环依赖
+            from backtest.engines.legacy_engine import LegacyEngine
+            self._engine = LegacyEngine(engine_config)
+        else:
+            # 未知的引擎类型，使用默认的默认引擎
+            logger.warning(f"未知的引擎类型: {engine_type_str}，使用默认的默认引擎")
+            self._engine = Engine(engine_config)
+
+        return self._engine
+
+    def get_engine(self) -> Optional[BacktestEngineBase]:
+        """
+        获取当前使用的回测引擎实例
+
+        Returns:
+            Optional[BacktestEngineBase]: 当前引擎实例，如果未创建则返回 None
+        """
+        return self._engine
 
     def _sanitize_for_json(self, data):
         """
@@ -692,9 +755,13 @@ class BacktestService:
     def run_backtest(self, strategy_config, backtest_config):
         """
         执行回测，支持多货币对并行回测
-        
+
+        根据 backtest_config 中的 engine_type 参数选择回测引擎：
+        - "default": 使用 trading engine 引擎（默认）
+        - "legacy": 使用传统 backtesting.py 引擎
+
         :param strategy_config: 策略配置
-        :param backtest_config: 回测配置，包含symbols列表
+        :param backtest_config: 回测配置，包含symbols列表和可选的engine_type
         :return: 回测结果，单个货币对返回BacktestResult，多个货币对返回MultiBacktestResult
         """
         db = None
@@ -702,15 +769,18 @@ class BacktestService:
             from collector.db.database import SessionLocal, init_database_config
             from collector.db.models import BacktestTask, BacktestResult
             import json
-            
+
             # 初始化数据库连接
             init_database_config()
             db = SessionLocal()
-            
+
             # 从配置中获取货币对列表
             symbols = backtest_config.get("symbols", ["BTCUSDT"])
             strategy_name = strategy_config.get("strategy_name", "Unknown")
-            
+
+            # 获取引擎类型，默认为 default
+            engine_type = backtest_config.get("engine_type", "default")
+
             logger.info(f"=== 开始回测任务 ===")
             logger.info(f"策略名称: {strategy_name}")
             logger.info(f"回测货币对: {symbols}")
@@ -718,6 +788,20 @@ class BacktestService:
             logger.info(f"回测时间范围: {backtest_config.get('start_time')} 至 {backtest_config.get('end_time')}")
             logger.info(f"初始资金: {backtest_config.get('initial_cash', 10000)}")
             logger.info(f"手续费率: {backtest_config.get('commission', 0.001)}")
+            logger.info(f"回测引擎: {engine_type}")
+
+            # 创建引擎配置
+            engine_config = {
+                "engine_type": engine_type,
+                "initial_capital": backtest_config.get("initial_cash", 10000),
+                "start_date": backtest_config.get("start_time"),
+                "end_date": backtest_config.get("end_time"),
+                "symbols": symbols,
+                "strategy_config": strategy_config,
+            }
+
+            # 创建回测引擎
+            self.create_engine(engine_config)
             
             # 生成唯一的task_id
             task_id = str(uuid.uuid4())

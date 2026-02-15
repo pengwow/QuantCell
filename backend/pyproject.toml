@@ -57,6 +57,7 @@ dependencies = [
     "ruff>=0.12.12",
     "backtrader>=1.9.78.123",
     "python-binance>=1.0.34",
+    "nautilus_trader>=1.222.0",
 ]
 
 [tool.pytest.ini_options]
@@ -78,6 +79,7 @@ markers = [
     "schema: marks tests as schema validation tests",
     "error: marks tests as error handling tests",
     "timeout: marks tests with timeout",
+    "benchmark: marks tests as performance benchmarks",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

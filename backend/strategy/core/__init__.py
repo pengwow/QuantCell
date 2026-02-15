@@ -1,5 +1,5 @@
 # 核心引擎模块
-from .strategy_base import StrategyBase
+from .strategy import Strategy, StrategyConfig, StrategyBase
 from .event_engine import EventEngine, EventType
 from .vector_engine import VectorEngine
 from .numba_functions import (
@@ -96,6 +96,8 @@ from .strategy_core import (
 
 __all__ = [
     # 基础组件
+    "Strategy",
+    "StrategyConfig",
     "StrategyBase",
     "EventEngine",
     "EventType",
