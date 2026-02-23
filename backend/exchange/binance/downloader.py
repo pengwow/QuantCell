@@ -56,6 +56,10 @@ class BinanceDownloader(BaseCollector):
         :param symbols: 交易对列表，如['BTCUSDT', 'ETHUSDT']，如果为None则获取全量交易对
         :param mode: 下载模式，可选'inc'（增量）或'full'（全量），默认'inc'
         """
+        # 先设置 candle_type 和 symbols，因为父类初始化会调用 get_instrument_list()
+        self.candle_type = candle_type
+        self.symbols = symbols
+        
         super().__init__(
             save_dir=save_dir,
             start=start,
@@ -69,8 +73,6 @@ class BinanceDownloader(BaseCollector):
             mode=mode,
         )
 
-        self.candle_type = candle_type
-        self.symbols = symbols
         self.candle_names = [
             'open_time', 'open', 'high', 'low', 'close', 'volume',
             'close_time', 'quote_volume', 'count', 'taker_buy_volume',
