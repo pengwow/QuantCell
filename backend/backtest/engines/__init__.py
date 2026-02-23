@@ -9,6 +9,7 @@
     - EngineType: 引擎类型枚举
     - Engine: 默认回测引擎
     - LegacyEngine: 传统回测引擎适配器
+    - NautilusBacktestEngine: NautilusTrader 回测引擎
 
 作者: QuantCell Team
 版本: 1.0.0
@@ -21,10 +22,12 @@ __author__ = "QuantCell Team"
 from .base import BacktestEngineBase, EngineType
 from .engine import Engine
 from .legacy_engine import LegacyEngine
+from .nautilus_engine import NautilusBacktestEngine
 
 __all__ = [
     "BacktestEngineBase",
     "EngineType",
     "Engine",
     "LegacyEngine",
+    "NautilusBacktestEngine",
 ]

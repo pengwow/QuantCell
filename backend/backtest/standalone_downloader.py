@@ -52,8 +52,13 @@ class StandaloneDataDownloader:
     
     def __init__(self):
         """初始化独立下载器"""
-        self.spot_downloader = BinanceDownloader(candle_type='spot')
-        self.futures_downloader = BinanceDownloader(candle_type='futures')
+        # 使用临时目录作为保存路径（数据实际直接保存到数据库）
+        from pathlib import Path
+        temp_dir = Path(__file__).parent.parent / "data" / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.spot_downloader = BinanceDownloader(save_dir=temp_dir, candle_type='spot')
+        self.futures_downloader = BinanceDownloader(save_dir=temp_dir, candle_type='futures')
         
     async def download_data(
         self,

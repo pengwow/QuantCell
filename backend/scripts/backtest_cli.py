@@ -14,8 +14,10 @@ backend_path = Path(__file__).resolve().parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-# 从新模块导入并运行
-from backtest.cli import app
+# 延迟导入，避免在--help时触发不必要的模块加载
+def main():
+    from backtest.cli import app
+    app()
 
 if __name__ == '__main__':
-    app()
+    main()
