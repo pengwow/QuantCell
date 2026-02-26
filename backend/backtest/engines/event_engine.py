@@ -540,6 +540,19 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 first_venue = list(self._venues.values())[0]
                 account_df = self._engine.trader.generate_account_report(first_venue)
 
+            # 调试输出：打印原始数据
+            logger.debug(f"订单数据列: {orders_df.columns.tolist() if orders_df is not None else 'None'}")
+            logger.debug(f"持仓数据列: {positions_df.columns.tolist() if positions_df is not None else 'None'}")
+            logger.debug(f"账户数据列: {account_df.columns.tolist() if account_df is not None else 'None'}")
+
+            # 调试输出：打印前3行数据样本
+            if orders_df is not None and not orders_df.empty:
+                logger.debug(f"订单数据前3行:\n{orders_df.head(3).to_string()}")
+            if positions_df is not None and not positions_df.empty:
+                logger.debug(f"持仓数据前3行:\n{positions_df.head(3).to_string()}")
+            if account_df is not None and not account_df.empty:
+                logger.debug(f"账户数据前3行:\n{account_df.head(3).to_string()}")
+
             # 转换为标准格式
             results = {
                 "trades": self._convert_orders_to_trades(orders_df),
@@ -554,6 +567,32 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         except Exception as e:
             logger.error(f"处理回测结果失败: {e}")
+            # 输出详细的错误上下文
+            import traceback
+            logger.error(f"错误堆栈:\n{traceback.format_exc()}")
+
+            # 尝试输出原始数据以便调试
+            try:
+                if self._engine:
+                    orders_df = self._engine.trader.generate_order_fills_report()
+                    if orders_df is not None and not orders_df.empty:
+                        logger.error(f"订单数据样本:\n{orders_df.head(3).to_string()}")
+                        logger.error(f"订单数据类型:\n{orders_df.dtypes.to_string()}")
+
+                    positions_df = self._engine.trader.generate_positions_report()
+                    if positions_df is not None and not positions_df.empty:
+                        logger.error(f"持仓数据样本:\n{positions_df.head(3).to_string()}")
+                        logger.error(f"持仓数据类型:\n{positions_df.dtypes.to_string()}")
+
+                    if self._venues:
+                        first_venue = list(self._venues.values())[0]
+                        account_df = self._engine.trader.generate_account_report(first_venue)
+                        if account_df is not None and not account_df.empty:
+                            logger.error(f"账户数据样本:\n{account_df.head(3).to_string()}")
+                            logger.error(f"账户数据类型:\n{account_df.dtypes.to_string()}")
+            except Exception as debug_e:
+                logger.error(f"输出调试信息时出错: {debug_e}")
+
             return {}
 
     def _convert_orders_to_trades(self, orders_df: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
@@ -569,15 +608,107 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         if orders_df is None or orders_df.empty:
             return []
 
+        # 打印列名用于调试
+        logger.info(f"订单数据列名: {orders_df.columns.tolist()}")
+        logger.info(f"订单数据前3行:\n{orders_df.head(3).to_string()}")
+
         trades = []
-        for _, row in orders_df.iterrows():
+        for idx, row in orders_df.iterrows():
+            # 安全地转换数值
+            def safe_float(value):
+                if isinstance(value, str):
+                    value = value.replace(",", "").strip()
+                    try:
+                        return float(value)
+                    except ValueError:
+                        return 0.0
+                try:
+                    return float(value)
+                except (ValueError, TypeError):
+                    return 0.0
+
+            # 尝试多种可能的时间戳列名
+            ts = None
+            for ts_col in ["timestamp", "ts_init", "ts_event", "created_time", "order_time"]:
+                if ts_col in row.index and row.get(ts_col):
+                    ts = row.get(ts_col)
+                    break
+            if ts is None:
+                ts = ""
+
+            # 解析时间戳 (NautilusTrader 使用纳秒时间戳)
+            formatted_time = ""
+            timestamp_val = 0
+            from datetime import datetime, timezone
+
+            if isinstance(ts, (int, float)) and ts > 0:
+                # 处理纳秒/毫秒时间戳
+                # NautilusTrader 使用纳秒时间戳 (19位)
+                if ts > 1e18:  # 纳秒时间戳
+                    ts_sec = int(ts / 1e9)
+                elif ts > 1e12:  # 毫秒时间戳
+                    ts_sec = int(ts / 1000)
+                else:  # 秒时间戳
+                    ts_sec = int(ts)
+                dt = datetime.fromtimestamp(ts_sec, tz=timezone.utc)
+                formatted_time = dt.strftime('%Y-%m-%d %H:%M:%S')
+                timestamp_val = ts_sec
+            elif isinstance(ts, str) and ts:
+                try:
+                    dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    formatted_time = dt.strftime('%Y-%m-%d %H:%M:%S')
+                    timestamp_val = int(dt.timestamp())
+                except:
+                    formatted_time = ts
+            elif ts and not isinstance(ts, (int, float)) and hasattr(ts, 'strftime') and hasattr(ts, 'timestamp'):
+                # pandas Timestamp or datetime object
+                formatted_time = ts.strftime('%Y-%m-%d %H:%M:%S')
+                timestamp_val = int(ts.timestamp())
+
+            # 尝试多种可能的价格列名
+            price = 0.0
+            for price_col in ["avg_price", "price", "fill_price", "last_price", "avg_px"]:
+                if price_col in row.index:
+                    val = row.get(price_col)
+                    if val and safe_float(val) > 0:
+                        price = safe_float(val)
+                        break
+
+            # 尝试多种可能的数量列名
+            quantity = 0.0
+            for qty_col in ["quantity", "filled_qty", "last_qty", "qty"]:
+                if qty_col in row.index:
+                    val = row.get(qty_col)
+                    if val and safe_float(val) > 0:
+                        quantity = safe_float(val)
+                        break
+
+            # 确定方向
+            side = ""
+            for side_col in ["side", "order_side"]:
+                if side_col in row.index and row.get(side_col):
+                    side = str(row.get(side_col)).upper()
+                    break
+            direction = "买入" if side == "BUY" else "卖出" if side == "SELL" else side
+
+            # 尝试多种可能的状态列名
+            status = "filled"
+            for status_col in ["status", "order_status", "state"]:
+                if status_col in row.index and row.get(status_col):
+                    status = str(row.get(status_col))
+                    break
+
             trade = {
-                "order_id": str(row.get("order_id", "")),
-                "instrument_id": str(row.get("instrument_id", "")),
-                "side": str(row.get("side", "")),
-                "quantity": float(row.get("quantity", 0)),
-                "price": float(row.get("price", 0)),
-                "timestamp": str(row.get("timestamp", "")),
+                "order_id": str(row.get("order_id", row.get("client_order_id", idx))),
+                "instrument_id": str(row.get("instrument_id", row.get("symbol", ""))),
+                "side": side,
+                "direction": direction,
+                "quantity": quantity,
+                "price": price,
+                "volume": quantity * price,
+                "timestamp": timestamp_val,
+                "formatted_time": formatted_time,
+                "status": status,
             }
             trades.append(trade)
 
@@ -596,23 +727,41 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         if positions_df is None or positions_df.empty:
             return []
 
+        # 安全地转换数值的辅助函数
+        def safe_float(value, field_name=""):
+            if isinstance(value, str):
+                # 只移除千位分隔符，不移除货币后缀
+                # 货币后缀（如 USD, USDT, BTC, ETH）不应该被替换
+                value = value.replace(",", "").strip()
+                try:
+                    return float(value)
+                except ValueError:
+                    logger.warning(f"无法转换 {field_name} 数值: {value}")
+                    return 0.0
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return 0.0
+
         positions = []
-        for _, row in positions_df.iterrows():
-            # 处理 PnL 字符串格式
-            pnl_raw = row.get("realized_pnl", "0")
-            if isinstance(pnl_raw, str):
-                pnl = float(pnl_raw.replace(" USD", "").replace(",", ""))
-            else:
-                pnl = float(pnl_raw)
+        for idx, row in positions_df.iterrows():
+            # 尝试多种可能的position_id列名
+            pos_id = ""
+            for id_col in ["position_id", "id", "pos_id"]:
+                if id_col in row.index and row.get(id_col):
+                    pos_id = str(row.get(id_col))
+                    break
+            if not pos_id:
+                pos_id = f"POS_{idx}"
 
             position = {
-                "position_id": str(row.get("position_id", "")),
-                "instrument_id": str(row.get("instrument_id", "")),
-                "side": str(row.get("side", "")),
-                "quantity": float(row.get("quantity", 0)),
-                "avg_px_open": float(row.get("avg_px_open", 0)),
-                "avg_px_close": float(row.get("avg_px_close", 0)),
-                "realized_pnl": pnl,
+                "position_id": pos_id,
+                "instrument_id": str(row.get("instrument_id", row.get("symbol", ""))),
+                "side": str(row.get("side", row.get("position_side", ""))),
+                "quantity": safe_float(row.get("quantity", row.get("pos_qty", 0)), "quantity"),
+                "avg_px_open": safe_float(row.get("avg_px_open", row.get("avg_price", 0)), "avg_px_open"),
+                "avg_px_close": safe_float(row.get("avg_px_close", row.get("close_price", 0)), "avg_px_close"),
+                "realized_pnl": str(row.get("realized_pnl", "0")),  # 保留字符串格式
             }
             positions.append(position)
 
@@ -631,13 +780,30 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         if account_df is None or account_df.empty:
             return {}
 
+        # 安全地转换数值的辅助函数
+        def safe_float(value, field_name=""):
+            if isinstance(value, str):
+                # 只移除千位分隔符，不移除货币后缀
+                value = value.replace(",", "").strip()
+                try:
+                    return float(value)
+                except ValueError:
+                    logger.warning(f"无法转换 {field_name} 数值: {value}")
+                    return 0.0
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return 0.0
+
         # 获取最后一行作为最终账户状态
         last_row = account_df.iloc[-1]
 
+        # NautilusTrader 使用 total/free/locked 列名
+        # total = free + locked (locked 是保证金占用)
         return {
-            "balance": float(last_row.get("balance", 0)),
-            "margin": float(last_row.get("margin", 0)),
-            "equity": float(last_row.get("equity", 0)),
+            "balance": safe_float(last_row.get("free", last_row.get("balance", 0))),
+            "margin": safe_float(last_row.get("locked", last_row.get("margin", 0))),
+            "equity": safe_float(last_row.get("total", last_row.get("equity", 0))),
             "timestamp": str(last_row.get("timestamp", "")),
         }
 
@@ -671,7 +837,18 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         for _, row in positions_df.iterrows():
             pnl_raw = row.get("realized_pnl", "0")
             if isinstance(pnl_raw, str):
-                pnl = float(pnl_raw.replace(" USD", "").replace(",", ""))
+                # 提取数值部分（移除货币后缀如 USDT, BTC 等）
+                # 格式如: "-96.43511300 USDT" -> "-96.43511300"
+                import re
+                match = re.match(r'^([+-]?\d+\.?\d*)', pnl_raw.strip())
+                if match:
+                    try:
+                        pnl = float(match.group(1))
+                    except ValueError:
+                        logger.warning(f"无法转换 realized_pnl 数值: {pnl_raw}")
+                        pnl = 0.0
+                else:
+                    pnl = 0.0
             else:
                 pnl = float(pnl_raw)
             pnls.append(pnl)
@@ -731,11 +908,45 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         equity_curve = []
         for _, row in account_df.iterrows():
+            # 安全地转换数值，处理可能的字符串格式
+            def safe_float(value, field_name=""):
+                if isinstance(value, str):
+                    # 只移除千位分隔符，不移除货币后缀
+                    value = value.replace(",", "").strip()
+                    try:
+                        return float(value)
+                    except ValueError:
+                        logger.warning(f"无法转换 {field_name} 数值: {value}")
+                        return 0.0
+                try:
+                    return float(value)
+                except (ValueError, TypeError):
+                    return 0.0
+
+            # NautilusTrader 使用 total/free/locked 列名
+            # total = free + locked (locked 是保证金占用)
+
+            # 处理时间戳
+            ts = row.get("timestamp", None)
+            ts_str = ""
+            if isinstance(ts, (int, float)) and ts > 0:
+                from datetime import datetime, timezone
+                if ts > 1e18:  # 纳秒时间戳
+                    ts_sec = int(ts / 1e9)
+                elif ts > 1e12:  # 毫秒时间戳
+                    ts_sec = int(ts / 1000)
+                else:  # 秒时间戳
+                    ts_sec = int(ts)
+                dt = datetime.fromtimestamp(ts_sec, tz=timezone.utc)
+                ts_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+            elif isinstance(ts, str):
+                ts_str = ts
+
             point = {
-                "timestamp": str(row.get("timestamp", "")),
-                "equity": float(row.get("equity", 0)),
-                "balance": float(row.get("balance", 0)),
-                "margin": float(row.get("margin", 0)),
+                "timestamp": ts_str,
+                "equity": safe_float(row.get("total", row.get("equity", 0))),
+                "balance": safe_float(row.get("free", row.get("balance", 0))),
+                "margin": safe_float(row.get("locked", row.get("margin", 0))),
             }
             equity_curve.append(point)
 
