@@ -19,6 +19,11 @@ from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 from loguru import logger
 
+try:
+    from backend.utils import safe_float
+except ImportError:
+    from utils import safe_float
+
 from .base import BacktestEngineBase, EngineType
 
 
@@ -536,9 +541,12 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
             # 获取账户报告（使用第一个添加的交易所）
             account_df = None
+            account_obj = None
             if self._venues:
                 first_venue = list(self._venues.values())[0]
                 account_df = self._engine.trader.generate_account_report(first_venue)
+                # 获取 Account 对象以提取更多信息
+                account_obj = self._engine.trader._cache.account_for_venue(first_venue)
 
             # 调试输出：打印原始数据
             logger.debug(f"订单数据列: {orders_df.columns.tolist() if orders_df is not None else 'None'}")
@@ -554,10 +562,27 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 logger.debug(f"账户数据前3行:\n{account_df.head(3).to_string()}")
 
             # 转换为标准格式
+            trades = self._convert_orders_to_trades(orders_df)
+            positions = self._convert_positions(positions_df)
+
+            # 建立 Trade-Position 关联映射
+            # 1. 创建 position_id -> position 的映射
+            position_map = {pos["position_id"]: pos for pos in positions}
+
+            # 2. 遍历 trades，建立双向关联
+            for trade in trades:
+                position_id = trade.get("position_id")
+                if position_id and position_id in position_map:
+                    position = position_map[position_id]
+                    # 确保 trade_id 在 position 的 trade_ids 列表中
+                    trade_id = trade.get("trade_id")
+                    if trade_id and trade_id not in position.get("trade_ids", []):
+                        position.setdefault("trade_ids", []).append(trade_id)
+
             results = {
-                "trades": self._convert_orders_to_trades(orders_df),
-                "positions": self._convert_positions(positions_df),
-                "account": self._convert_account(account_df),
+                "trades": trades,
+                "positions": positions,
+                "account": self._convert_account(account_df, account_obj),
                 "metrics": self._calculate_metrics(positions_df, account_df),
                 "equity_curve": self._build_equity_curve(account_df),
             }
@@ -614,19 +639,6 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         trades = []
         for idx, row in orders_df.iterrows():
-            # 安全地转换数值
-            def safe_float(value):
-                if isinstance(value, str):
-                    value = value.replace(",", "").strip()
-                    try:
-                        return float(value)
-                    except ValueError:
-                        return 0.0
-                try:
-                    return float(value)
-                except (ValueError, TypeError):
-                    return 0.0
-
             # 尝试多种可能的时间戳列名
             ts = None
             for ts_col in ["timestamp", "ts_init", "ts_event", "created_time", "order_time"]:
@@ -698,14 +710,30 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                     status = str(row.get(status_col))
                     break
 
+            # 提取 NautilusTrader 原生 ID
+            # trade_id: 成交唯一标识
+            trade_id = str(row.get("trade_id", row.get("id", idx)))
+            # client_order_id: 客户端订单ID
+            client_order_id = str(row.get("client_order_id", row.get("order_id", "")))
+            # venue_order_id: 交易所订单ID
+            venue_order_id = str(row.get("venue_order_id", ""))
+            # position_id: 关联的持仓ID
+            position_id = str(row.get("position_id", ""))
+            # commission: 手续费
+            commission = str(row.get("commission", row.get("commissions", "0")))
+
             trade = {
-                "order_id": str(row.get("order_id", row.get("client_order_id", idx))),
+                "trade_id": trade_id,
+                "client_order_id": client_order_id,
+                "venue_order_id": venue_order_id,
+                "position_id": position_id,
                 "instrument_id": str(row.get("instrument_id", row.get("symbol", ""))),
                 "side": side,
                 "direction": direction,
                 "quantity": quantity,
                 "price": price,
                 "volume": quantity * price,
+                "commission": commission,
                 "timestamp": timestamp_val,
                 "formatted_time": formatted_time,
                 "status": status,
@@ -727,22 +755,6 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         if positions_df is None or positions_df.empty:
             return []
 
-        # 安全地转换数值的辅助函数
-        def safe_float(value, field_name=""):
-            if isinstance(value, str):
-                # 只移除千位分隔符，不移除货币后缀
-                # 货币后缀（如 USD, USDT, BTC, ETH）不应该被替换
-                value = value.replace(",", "").strip()
-                try:
-                    return float(value)
-                except ValueError:
-                    logger.warning(f"无法转换 {field_name} 数值: {value}")
-                    return 0.0
-            try:
-                return float(value)
-            except (ValueError, TypeError):
-                return 0.0
-
         positions = []
         for idx, row in positions_df.iterrows():
             # 尝试多种可能的position_id列名
@@ -754,25 +766,61 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             if not pos_id:
                 pos_id = f"POS_{idx}"
 
+            # 提取 NautilusTrader 原生 ID 和属性
+            # opening_order_id: 开仓订单ID
+            opening_order_id = str(row.get("opening_order_id", ""))
+            # closing_order_id: 平仓订单ID
+            closing_order_id = str(row.get("closing_order_id", ""))
+            # trade_ids: 关联的所有 trade IDs（逗号分隔的字符串或列表）
+            trade_ids_raw = row.get("trade_ids", row.get("fills", ""))
+            if isinstance(trade_ids_raw, str) and trade_ids_raw:
+                trade_ids = [tid.strip() for tid in trade_ids_raw.split(",") if tid.strip()]
+            elif isinstance(trade_ids_raw, list):
+                trade_ids = [str(tid) for tid in trade_ids_raw]
+            else:
+                trade_ids = []
+
+            # 提取时间戳（纳秒）
+            ts_opened = row.get("ts_opened", 0)
+            ts_closed = row.get("ts_closed", 0)
+            duration_ns = row.get("duration_ns", 0)
+
+            # 提取交易量信息
+            # quantity: 当前持仓量（平仓后为0）
+            current_qty = safe_float(row.get("quantity", row.get("pos_qty", 0)), "quantity")
+            # peak_qty: 最大持仓量（实际交易量）
+            peak_qty = safe_float(row.get("peak_qty", row.get("max_quantity", current_qty)), "peak_qty")
+            # signed_qty: 有符号数量
+            signed_qty = safe_float(row.get("signed_qty", row.get("signed_quantity", current_qty)), "signed_qty")
+
             position = {
                 "position_id": pos_id,
                 "instrument_id": str(row.get("instrument_id", row.get("symbol", ""))),
                 "side": str(row.get("side", row.get("position_side", ""))),
-                "quantity": safe_float(row.get("quantity", row.get("pos_qty", 0)), "quantity"),
+                "quantity": current_qty,  # 当前持仓量（平仓后为0）
+                "trade_quantity": peak_qty,  # 实际交易量（使用 peak_qty）
+                "signed_quantity": signed_qty,  # 有符号数量
                 "avg_px_open": safe_float(row.get("avg_px_open", row.get("avg_price", 0)), "avg_px_open"),
                 "avg_px_close": safe_float(row.get("avg_px_close", row.get("close_price", 0)), "avg_px_close"),
                 "realized_pnl": str(row.get("realized_pnl", "0")),  # 保留字符串格式
+                "opening_order_id": opening_order_id,
+                "closing_order_id": closing_order_id,
+                "trade_ids": trade_ids,
+                "ts_opened": ts_opened,
+                "ts_closed": ts_closed,
+                "duration_ns": duration_ns,
             }
             positions.append(position)
 
         return positions
 
-    def _convert_account(self, account_df: Optional[pd.DataFrame]) -> Dict[str, Any]:
+    def _convert_account(self, account_df: Optional[pd.DataFrame], account_obj=None) -> Dict[str, Any]:
         """
-        将账户数据转换为标准格式
+        将账户数据转换为标准格式，包含丰富的账户信息
 
         Args:
             account_df: 账户 DataFrame
+            account_obj: NautilusTrader Account 对象（可选）
 
         Returns:
             Dict[str, Any]: 账户信息字典
@@ -780,32 +828,78 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         if account_df is None or account_df.empty:
             return {}
 
-        # 安全地转换数值的辅助函数
-        def safe_float(value, field_name=""):
-            if isinstance(value, str):
-                # 只移除千位分隔符，不移除货币后缀
-                value = value.replace(",", "").strip()
-                try:
-                    return float(value)
-                except ValueError:
-                    logger.warning(f"无法转换 {field_name} 数值: {value}")
-                    return 0.0
-            try:
-                return float(value)
-            except (ValueError, TypeError):
-                return 0.0
+        # 从 DataFrame 计算统计数据
+        # total 列包含权益曲线数据
+        total_series = account_df.get("total", account_df.get("equity", pd.Series()))
+        free_series = account_df.get("free", account_df.get("balance", pd.Series()))
+        locked_series = account_df.get("locked", account_df.get("margin", pd.Series(dtype=float)))
+
+        # 计算统计数据
+        initial_balance = safe_float(total_series.iloc[0]) if len(total_series) > 0 else 0.0
+        final_balance = safe_float(total_series.iloc[-1]) if len(total_series) > 0 else 0.0
+        max_balance = safe_float(total_series.max()) if len(total_series) > 0 else 0.0
+        min_balance = safe_float(total_series.min()) if len(total_series) > 0 else 0.0
 
         # 获取最后一行作为最终账户状态
         last_row = account_df.iloc[-1]
 
-        # NautilusTrader 使用 total/free/locked 列名
-        # total = free + locked (locked 是保证金占用)
-        return {
-            "balance": safe_float(last_row.get("free", last_row.get("balance", 0))),
-            "margin": safe_float(last_row.get("locked", last_row.get("margin", 0))),
-            "equity": safe_float(last_row.get("total", last_row.get("equity", 0))),
-            "timestamp": str(last_row.get("timestamp", "")),
+        # 构建基础账户信息
+        account_info = {
+            # 基础信息
+            "balance": safe_float(free_series.iloc[-1] if len(free_series) > 0 else 0),
+            "margin": safe_float(locked_series.iloc[-1] if len(locked_series) > 0 else 0),
+            "equity": safe_float(final_balance),
+
+            # 统计数据
+            "initial_balance": initial_balance,
+            "final_balance": final_balance,
+            "max_balance": max_balance,
+            "min_balance": min_balance,
+            "peak_equity": max_balance,
+            "trough_equity": min_balance,
         }
+
+        # 如果提供了 Account 对象，提取更多信息
+        if account_obj is not None:
+            try:
+                # 基础属性
+                account_info["id"] = str(account_obj.id) if hasattr(account_obj, 'id') else ""
+                account_info["type"] = str(account_obj.type) if hasattr(account_obj, 'type') else ""
+                account_info["base_currency"] = str(account_obj.base_currency) if hasattr(account_obj, 'base_currency') and account_obj.base_currency else ""
+
+                # 事件计数
+                if hasattr(account_obj, 'event_count'):
+                    account_info["event_count"] = account_obj.event_count
+
+                # 起始余额
+                if hasattr(account_obj, 'starting_balances'):
+                    try:
+                        starting_balances = account_obj.starting_balances()
+                        if starting_balances:
+                            # 获取基础货币的起始余额
+                            base_currency = account_obj.base_currency
+                            if base_currency and base_currency in starting_balances:
+                                account_info["starting_balance"] = float(starting_balances[base_currency])
+                            else:
+                                # 使用第一个可用货币
+                                first_currency = list(starting_balances.keys())[0]
+                                account_info["starting_balance"] = float(starting_balances[first_currency])
+                    except Exception as e:
+                        logger.debug(f"获取起始余额失败: {e}")
+
+                # 手续费
+                if hasattr(account_obj, 'commissions'):
+                    try:
+                        commissions = account_obj.commissions()
+                        total_commission = sum(float(money) for money in commissions.values()) if commissions else 0.0
+                        account_info["total_commissions"] = total_commission
+                    except Exception as e:
+                        logger.debug(f"获取手续费失败: {e}")
+
+            except Exception as e:
+                logger.warning(f"提取 Account 对象信息失败: {e}")
+
+        return account_info
 
     def _calculate_metrics(
         self,
@@ -850,7 +944,10 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 else:
                     pnl = 0.0
             else:
-                pnl = float(pnl_raw)
+                try:
+                    pnl = float(pnl_raw) if pnl_raw is not None else 0.0
+                except (ValueError, TypeError):
+                    pnl = 0.0
             pnls.append(pnl)
 
         pnls = [p for p in pnls if p != 0]
@@ -881,10 +978,47 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         initial_capital = self._config.get("initial_capital", 100000.0)
         total_return = (total_pnl / initial_capital) * 100 if initial_capital > 0 else 0.0
 
+        # 计算夏普比率 (使用权益曲线数据)
+        sharpe_ratio = 0.0
+        max_drawdown = 0.0
+        if account_df is not None and not account_df.empty:
+            # 构建权益曲线
+            equity_curve = self._build_equity_curve(account_df)
+            if equity_curve:
+                equities = [point.get("equity", 0) for point in equity_curve]
+                
+                # 计算收益率序列
+                if len(equities) > 1:
+                    returns = []
+                    for i in range(1, len(equities)):
+                        if equities[i-1] > 0:
+                            ret = (equities[i] - equities[i-1]) / equities[i-1]
+                            returns.append(ret)
+                    
+                    # 计算夏普比率
+                    if len(returns) > 1:
+                        import numpy as np
+                        avg_return = np.mean(returns)
+                        std_return = np.std(returns, ddof=1)
+                        # 假设无风险利率为0，年化因子假设每小时数据，每年252个交易日，每天24小时
+                        periods_per_year = 252 * 24
+                        if std_return > 0:
+                            sharpe_ratio = (avg_return / std_return) * np.sqrt(periods_per_year)
+                    
+                    # 计算最大回撤
+                    peak = equities[0]
+                    for equity in equities:
+                        if equity > peak:
+                            peak = equity
+                        drawdown = (peak - equity) / peak if peak > 0 else 0
+                        if drawdown > max_drawdown:
+                            max_drawdown = drawdown
+                    max_drawdown = max_drawdown * 100  # 转换为百分比
+
         return {
             "total_return": round(total_return, 2),
-            "sharpe_ratio": 0.0,
-            "max_drawdown": 0.0,
+            "sharpe_ratio": round(sharpe_ratio, 2),
+            "max_drawdown": round(max_drawdown, 2),
             "win_rate": round(win_rate, 2),
             "profit_factor": round(profit_factor, 2),
             "total_trades": len(pnls),
@@ -908,42 +1042,58 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         equity_curve = []
         for _, row in account_df.iterrows():
-            # 安全地转换数值，处理可能的字符串格式
-            def safe_float(value, field_name=""):
-                if isinstance(value, str):
-                    # 只移除千位分隔符，不移除货币后缀
-                    value = value.replace(",", "").strip()
-                    try:
-                        return float(value)
-                    except ValueError:
-                        logger.warning(f"无法转换 {field_name} 数值: {value}")
-                        return 0.0
-                try:
-                    return float(value)
-                except (ValueError, TypeError):
-                    return 0.0
-
             # NautilusTrader 使用 total/free/locked 列名
             # total = free + locked (locked 是保证金占用)
 
-            # 处理时间戳
-            ts = row.get("timestamp", None)
-            ts_str = ""
+            # 处理时间戳 - 从DataFrame索引或timestamp列获取
+            ts = None
+            # 首先尝试从timestamp列获取
+            if "timestamp" in account_df.columns:
+                ts = row.get("timestamp")
+            # 如果为空，使用DataFrame索引
+            if ts is None or (isinstance(ts, float) and pd.isna(ts)):
+                ts = row.name  # DataFrame索引
+
+            # 处理时间戳 - 统一转换为秒级Unix时间戳和格式化字符串
+            ts_numeric = 0  # 数值型Unix时间戳（秒）
+            ts_str = ""     # 格式化时间字符串
+            
             if isinstance(ts, (int, float)) and ts > 0:
                 from datetime import datetime, timezone
-                if ts > 1e18:  # 纳秒时间戳
-                    ts_sec = int(ts / 1e9)
-                elif ts > 1e12:  # 毫秒时间戳
-                    ts_sec = int(ts / 1000)
-                else:  # 秒时间戳
-                    ts_sec = int(ts)
-                dt = datetime.fromtimestamp(ts_sec, tz=timezone.utc)
+                # 根据时间戳位数判断精度并统一转换为秒
+                if ts > 1e18:  # 纳秒时间戳 (19位+)
+                    ts_numeric = int(ts / 1e9)
+                elif ts > 1e15:  # 微秒时间戳 (16-18位)
+                    ts_numeric = int(ts / 1e6)
+                elif ts > 1e12:  # 毫秒时间戳 (13-15位)
+                    ts_numeric = int(ts / 1e3)
+                else:  # 秒时间戳 (10-12位)
+                    ts_numeric = int(ts)
+                
+                dt = datetime.fromtimestamp(ts_numeric, tz=timezone.utc)
                 ts_str = dt.strftime('%Y-%m-%d %H:%M:%S')
             elif isinstance(ts, str):
+                # 字符串时间戳，尝试解析
                 ts_str = ts
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    ts_numeric = int(dt.timestamp())
+                except:
+                    # 如果解析失败，保持原样
+                    ts_numeric = 0
+            elif hasattr(ts, 'timestamp') and callable(getattr(ts, 'timestamp', None)):
+                # pandas Timestamp or datetime object
+                try:
+                    ts_numeric = int(ts.timestamp())
+                    ts_str = ts.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    ts_str = str(ts)
+                    ts_numeric = 0
 
             point = {
-                "timestamp": ts_str,
+                "timestamp": ts_numeric,  # Unix时间戳（秒，数值型）
+                "formatted_time": ts_str,  # 格式化时间字符串
                 "equity": safe_float(row.get("total", row.get("equity", 0))),
                 "balance": safe_float(row.get("free", row.get("balance", 0))),
                 "margin": safe_float(row.get("locked", row.get("margin", 0))),

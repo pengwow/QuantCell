@@ -81,13 +81,9 @@ def plot_results(results: Dict[str, Any], output: Optional[str], show: bool, plo
         trades = result.get('trades', [])
         equity_curve = result.get('equity_curve', [])
         
-        # 如果没有trades但有orders，使用orders
-        if not trades and 'orders' in result:
-            trades = _orders_to_trades(result['orders'])
-        
-        # 如果没有equity_curve，尝试构建
-        if not equity_curve and 'orders' in result:
-            equity_curve = _build_equity_curve(result['orders'])
+        # 如果没有equity_curve，尝试从trades构建
+        if not equity_curve and trades:
+            equity_curve = _build_equity_curve_from_trades(trades)
         
         # 为每个交易对生成唯一的输出文件名
         if output and len(symbols) > 1:
@@ -110,31 +106,8 @@ def plot_results(results: Dict[str, Any], output: Optional[str], show: bool, plo
             _plot_metrics_summary(symbol, metrics, symbol_output, show)
 
 
-def _orders_to_trades(orders: List[Dict]) -> List[Dict]:
-    """将订单列表转换为交易列表"""
-    trades = []
-    for i in range(0, len(orders) - 1, 2):
-        if i + 1 < len(orders):
-            entry = orders[i]
-            exit = orders[i + 1]
-            entry_price = float(entry.get('price', 0))
-            exit_price = float(exit.get('price', 0))
-            size = float(entry.get('size', 0.1))
-            pnl = (exit_price - entry_price) * size
-            
-            trades.append({
-                'trade_id': i // 2,
-                'entry_price': entry_price,
-                'exit_price': exit_price,
-                'size': size,
-                'pnl': pnl,
-                'direction': entry.get('direction', 'buy')
-            })
-    return trades
-
-
-def _build_equity_curve(orders: List[Dict]) -> List[Dict]:
-    """从订单构建资金曲线"""
+def _build_equity_curve_from_trades(trades: List[Dict]) -> List[Dict]:
+    """从交易记录构建资金曲线"""
     init_cash = 100000.0
     cash = init_cash
     position = 0
@@ -142,17 +115,17 @@ def _build_equity_curve(orders: List[Dict]) -> List[Dict]:
     equity_curve = []
     max_equity = init_cash
     
-    for i, order in enumerate(orders):
-        price = float(order.get('price', 0))
-        direction = order.get('direction', '')
-        size = float(order.get('volume') or order.get('size') or 0.1)
+    for i, trade in enumerate(trades):
+        price = float(trade.get('price', 0))
+        side = trade.get('side', '').upper()
+        quantity = float(trade.get('quantity', 0.1))
         
-        if direction in ['buy', 'long']:
-            cost = price * size
+        if side == 'BUY':
+            cost = price * quantity
             cash -= cost
-            position = size
+            position = quantity
             entry_price = price
-        elif direction in ['sell', 'short']:
+        elif side == 'SELL':
             revenue = price * position
             cash += revenue
             position = 0
@@ -167,7 +140,7 @@ def _build_equity_curve(orders: List[Dict]) -> List[Dict]:
         drawdown = max_equity - current_equity
         
         equity_curve.append({
-            'timestamp': i,
+            'timestamp': trade.get('timestamp', i),
             'equity': current_equity,
             'cash': cash,
             'drawdown': drawdown

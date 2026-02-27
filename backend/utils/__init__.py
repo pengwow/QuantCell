@@ -8,6 +8,12 @@
 from .decorators import async_deco_retry, deco_retry
 from .i18n import get_translation_dict, extract_lang
 from .jwt_utils import create_jwt_token, verify_jwt_token
+from .number_utils import (
+    safe_float,
+    safe_int,
+    safe_decimal,
+    parse_percentage,
+)
 from .time_parser import (
     align_to_interval,
     calculate_expected_klines,
@@ -34,6 +40,11 @@ __all__ = [
     # jwt_utils
     "create_jwt_token",
     "verify_jwt_token",
+    # number_utils
+    "safe_float",
+    "safe_int",
+    "safe_decimal",
+    "parse_percentage",
     # time_parser
     "align_to_interval",
     "calculate_expected_klines",

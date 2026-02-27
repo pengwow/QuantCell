@@ -380,8 +380,8 @@ class Strategy(TimezoneAwareBase):
     created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())  # 更新时间
     
-    # 关联的Workers
-    workers = relationship("Worker", back_populates="strategy")
+    # 关联的Workers - 在模块末尾动态添加以避免循环导入
+    # workers = relationship("Worker", back_populates="strategy")
 
 
 # 业务逻辑类

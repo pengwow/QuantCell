@@ -914,11 +914,12 @@ def _format_event_results(results: dict, symbol: str, timeframe: str, strategy_n
             'trades': results.get('trades', []),
             'positions': results.get('positions', []),
             'equity_curve': results.get('equity_curve', []),
-            'account': results.get('account', {}),
-            'orders': results.get('orders', []),
         }
     }
-    
+
+    # 添加全局账户信息（跨所有交易对）
+    formatted['account'] = results.get('account', {})
+
     # 添加投资组合汇总（单品种时与品种结果相同）
     formatted['portfolio'] = {
         'metrics': results.get('metrics', {}),
@@ -927,10 +928,12 @@ def _format_event_results(results: dict, symbol: str, timeframe: str, strategy_n
     }
     
     # 添加元数据
+    now = datetime.now()
     formatted['_meta'] = {
         'engine': 'event',
         'strategy': strategy_name,
-        'timestamp': datetime.now().isoformat(),
+        'timestamp': int(now.timestamp()),  # Unix时间戳（秒，数值型）
+        'formatted_time': now.strftime('%Y-%m-%d %H:%M:%S'),  # 格式化时间字符串
     }
     
     return formatted
