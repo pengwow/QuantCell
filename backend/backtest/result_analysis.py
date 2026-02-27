@@ -329,12 +329,15 @@ class ResultSerializer:
 
         # 复制基本字段
         for k, v in result.items():
-            if k in ['cash', 'positions']:
+            if k == 'cash':
                 # NumPy数组转列表
                 if isinstance(v, np.ndarray):
                     serialized[k] = v.tolist()
                 else:
                     serialized[k] = v
+            elif k == 'positions':
+                # 持仓列表（包含字典，可能有Timestamp）
+                serialized[k] = self._serialize_positions(v)
             elif k == 'equity_curve':
                 # 权益曲线列表（包含字典，可能有Timestamp）
                 serialized[k] = self._serialize_equity_curve(v)
@@ -389,8 +392,15 @@ class ResultSerializer:
             if not isinstance(order, dict):
                 continue
 
+            # 支持新的 trade_id 字段（NautilusTrader 原生 ID）
+            # 如果不存在 trade_id，则使用 order_id 或自增索引
+            trade_id = order.get('trade_id') or order.get('order_id') or str(idx + 1)
+
             serialized_order = {
-                'order_id': str(idx + 1),
+                'trade_id': str(trade_id),
+                'client_order_id': order.get('client_order_id', ''),
+                'venue_order_id': order.get('venue_order_id', ''),
+                'position_id': order.get('position_id', ''),
                 'direction': order.get('direction', ''),
                 'price': float(order.get('price', 0)) if order.get('price') is not None else 0.0,
                 'volume': float(order.get('volume') or order.get('size') or 0),
@@ -399,9 +409,9 @@ class ResultSerializer:
                 'formatted_time': self._format_timestamp(order.get('timestamp'))
             }
 
-            # 保留其他字段（如symbol, pnl, fees等）
+            # 保留其他字段（如symbol, pnl, fees, commission等）
             for key, value in order.items():
-                if key not in serialized_order:
+                if key not in serialized_order and key != 'order_id':  # 排除旧的 order_id
                     if hasattr(value, 'isoformat'):  # Timestamp类型
                         serialized_order[key] = value.isoformat()
                     elif isinstance(value, datetime):
@@ -410,13 +420,58 @@ class ResultSerializer:
                         serialized_order[key] = float(value)
                     elif isinstance(value, (np.integer, int)):
                         serialized_order[key] = int(value)
+                    elif isinstance(value, list):
+                        # 处理列表（如 trade_ids）
+                        serialized_order[key] = [
+                            v.isoformat() if hasattr(v, 'isoformat') else
+                            float(v) if isinstance(v, (np.floating, float)) else
+                            int(v) if isinstance(v, (np.integer, int)) else
+                            str(v) if v is not None else None
+                            for v in value
+                        ]
                     else:
                         serialized_order[key] = value
 
             serialized.append(serialized_order)
 
         return serialized
-    
+
+    def _serialize_positions(self, positions: List[Dict]) -> List[Dict]:
+        """序列化持仓列表"""
+        if not positions:
+            return []
+
+        serialized = []
+        for position in positions:
+            if not isinstance(position, dict):
+                continue
+
+            serialized_position = {}
+            for key, value in position.items():
+                if hasattr(value, 'isoformat'):  # Timestamp类型
+                    serialized_position[key] = value.isoformat()
+                elif isinstance(value, datetime):
+                    serialized_position[key] = value.isoformat()
+                elif isinstance(value, (np.floating, float)):
+                    serialized_position[key] = float(value)
+                elif isinstance(value, (np.integer, int)):
+                    serialized_position[key] = int(value)
+                elif isinstance(value, list):
+                    # 处理列表（如 trade_ids）
+                    serialized_position[key] = [
+                        v.isoformat() if hasattr(v, 'isoformat') else
+                        float(v) if isinstance(v, (np.floating, float)) else
+                        int(v) if isinstance(v, (np.integer, int)) else
+                        str(v) if v is not None else None
+                        for v in value
+                    ]
+                else:
+                    serialized_position[key] = value
+
+            serialized.append(serialized_position)
+
+        return serialized
+
     def _serialize_indicators(self, indicators: Dict) -> Dict:
         """序列化指标"""
         if not indicators:
@@ -442,24 +497,54 @@ class ResultSerializer:
         
         return serialized
     
+    def _detect_timestamp_unit(self, timestamp: int) -> tuple[float, str]:
+        """
+        智能识别时间戳精度单位，返回(秒值, 原始单位)
+        
+        Returns:
+            tuple: (转换为秒的值, 原始单位描述)
+        """
+        ts = int(timestamp)
+        
+        # 根据位数判断精度
+        if ts > 1e18:  # 19位+: 纳秒
+            return ts / 1e9, "nanoseconds"
+        elif ts > 1e15:  # 16-18位: 微秒
+            return ts / 1e6, "microseconds"
+        elif ts > 1e12:  # 13-15位: 毫秒
+            return ts / 1e3, "milliseconds"
+        elif ts > 1e9:   # 10-12位: 秒
+            return float(ts), "seconds"
+        else:
+            # 小于10位，可能是秒或无效值，按秒处理
+            return float(ts), "seconds"
+    
     def _serialize_timestamp(self, timestamp: Any) -> int:
-        """序列化时间戳"""
+        """
+        序列化时间戳，保持原始精度不变
+        直接返回原始值，不进行单位转换
+        """
         if timestamp is None:
             return 0
         
         if isinstance(timestamp, datetime):
-            return int(timestamp.timestamp() * 1000)
+            # datetime 转换为秒级时间戳
+            return int(timestamp.timestamp())
         elif isinstance(timestamp, str):
             try:
                 dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                return int(dt.timestamp() * 1000)
+                return int(dt.timestamp())
             except:
                 return 0
         else:
+            # 保持原始时间戳值不变
             return int(timestamp) if timestamp else 0
     
     def _format_timestamp(self, timestamp: Any) -> str:
-        """格式化时间戳"""
+        """
+        格式化时间戳，智能识别精度并正确转换
+        支持秒、毫秒、微秒、纳秒级别的时间戳
+        """
         if timestamp is None:
             return ""
         
@@ -469,7 +554,11 @@ class ResultSerializer:
             return timestamp
         else:
             try:
-                dt = datetime.fromtimestamp(int(timestamp) / 1000)
+                ts = int(timestamp)
+                # 智能识别时间戳精度并转换为秒
+                ts_sec, unit = self._detect_timestamp_unit(ts)
+                
+                dt = datetime.fromtimestamp(ts_sec)
                 return dt.strftime('%Y-%m-%d %H:%M:%S')
             except:
                 return str(timestamp)
