@@ -18,7 +18,7 @@ from __future__ import annotations
 import datetime as dt
 from abc import abstractmethod
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -30,12 +30,14 @@ class EventDrivenStrategyConfig:
     所有事件驱动策略都需要继承此配置类
     提供基础的配置参数，子类可以扩展更多特定参数
 
+    统一使用列表形式支持单品种和多品种回测，通过列表长度自动判断模式。
+
     Parameters
     ----------
-    instrument_id : Any
-        策略交易的品种ID
-    bar_type : Any
-        策略订阅的K线类型
+    instrument_ids : list[Any]
+        策略交易的品种ID列表，单品种时传 [instrument_id]
+    bar_types : list[Any]
+        策略订阅的K线类型列表，单品种时传 [bar_type]
     trade_size : Decimal
         每笔交易的数量
     log_level : str, default "INFO"
@@ -43,27 +45,97 @@ class EventDrivenStrategyConfig:
 
     Attributes
     ----------
+    instrument_ids : list[Any]
+        交易品种唯一标识符列表
+    bar_types : list[Any]
+        K线数据类型列表
     instrument_id : Any
-        交易品种唯一标识符
+        第一个交易品种ID（便捷访问，等同于 instrument_ids[0]）
     bar_type : Any
-        K线数据类型（时间周期、价格类型等）
+        第一个K线类型（便捷访问，等同于 bar_types[0]）
     trade_size : Decimal
         标准交易数量
     log_level : str
         日志输出级别
+
+    Examples
+    --------
+    >>> # 单品种模式
+    >>> config = EventDrivenStrategyConfig(
+    ...     instrument_ids=[btc_instrument_id],
+    ...     bar_types=[btc_bar_type],
+    ... )
+    >>> # 多品种模式
+    >>> config = EventDrivenStrategyConfig(
+    ...     instrument_ids=[btc_id, eth_id],
+    ...     bar_types=[btc_bar_type, eth_bar_type],
+    ... )
     """
 
     def __init__(
         self,
-        instrument_id: Any,
-        bar_type: Any,
+        instrument_ids: list[Any],
+        bar_types: list[Any],
         trade_size: Decimal = Decimal("1.0"),
         log_level: str = "INFO",
     ):
-        self.instrument_id = instrument_id
-        self.bar_type = bar_type
+        # 验证输入
+        if not instrument_ids or not bar_types:
+            raise ValueError("instrument_ids 和 bar_types 不能为空列表")
+        if len(instrument_ids) != len(bar_types):
+            raise ValueError(f"instrument_ids ({len(instrument_ids)}) 和 bar_types ({len(bar_types)}) 长度必须相同")
+
+        # 统一使用列表存储
+        self.instrument_ids = list(instrument_ids)
+        self.bar_types = list(bar_types)
+
+        # 便捷访问：第一个品种（向后兼容）
+        self.instrument_id = instrument_ids[0]
+        self.bar_type = bar_types[0]
+
         self.trade_size = trade_size
         self.log_level = log_level
+
+    @property
+    def is_multi_symbol(self) -> bool:
+        """是否为多品种模式"""
+        return len(self.instrument_ids) > 1
+
+    def get_instrument_index(self, instrument_id: Any) -> int:
+        """
+        获取品种在列表中的索引
+
+        Parameters
+        ----------
+        instrument_id : Any
+            品种ID
+
+        Returns
+        -------
+        int
+            品种索引，未找到返回 -1
+        """
+        for i, inst_id in enumerate(self.instrument_ids):
+            if inst_id == instrument_id:
+                return i
+        return -1
+
+    def get_bar_type_for(self, instrument_id: Any) -> Any:
+        """
+        获取指定品种对应的K线类型
+
+        Parameters
+        ----------
+        instrument_id : Any
+            品种ID
+
+        Returns
+        -------
+        Any
+            K线类型，未找到返回 None
+        """
+        idx = self.get_instrument_index(instrument_id)
+        return self.bar_types[idx] if idx >= 0 else None
 
 
 class EventDrivenStrategy:
@@ -166,7 +238,7 @@ class EventDrivenStrategy:
         执行以下操作:
         1. 记录策略启动时间
         2. 从缓存加载交易品种信息
-        3. 订阅指定的K线数据
+        3. 订阅指定的K线数据（支持多品种）
         4. 输出启动日志
 
         子类可以重写此方法，但需要调用 super().on_start()
@@ -181,7 +253,7 @@ class EventDrivenStrategy:
         # 获取底层策略实例
         impl = self._get_strategy_impl()
 
-        # 从缓存加载交易品种信息
+        # 从缓存加载交易品种信息（第一个品种作为主品种）
         self.instrument = impl.cache.instrument(self.config.instrument_id)
         if self.instrument is None:
             logger.error(f"无法找到交易品种: {self.config.instrument_id}")
@@ -190,9 +262,11 @@ class EventDrivenStrategy:
 
         logger.info(f"成功加载交易品种: {self.instrument.id}")
 
-        # 订阅K线数据
-        impl.subscribe_bars(self.config.bar_type)
-        logger.info(f"已订阅K线数据: {self.config.bar_type}")
+        # 订阅所有品种的K线数据（支持多品种）
+        for i, bar_type in enumerate(self.config.bar_types):
+            instrument_id = self.config.instrument_ids[i]
+            impl.subscribe_bars(bar_type)
+            logger.info(f"已订阅K线数据: {instrument_id} -> {bar_type}")
 
     def on_bar(self, bar: Any) -> None:
         """
@@ -274,6 +348,7 @@ class EventDrivenStrategy:
         price: Decimal | None = None,
         order_type: str = "MARKET",
         time_in_force: str = "GTC",
+        instrument_id: Any | None = None,
     ) -> None:
         """
         买入下单封装
@@ -285,40 +360,46 @@ class EventDrivenStrategy:
             price: 订单价格，默认为 None（市价单不需要）
             order_type: 订单类型，默认为 "MARKET"（市价单）
             time_in_force: 订单有效时间，默认为 "GTC"（一直有效）
+            instrument_id: 品种ID，默认为 None（使用配置中的 instrument_id）
 
         Raises
         ------
         RuntimeError
             如果交易品种未加载
         """
-        if not self.instrument:
-            logger.error("交易品种未加载，无法下单")
-            return
+        # 获取目标品种ID
+        target_id = instrument_id if instrument_id else self.config.instrument_id
 
         # 获取底层策略实例
         impl = self._get_strategy_impl()
+
+        # 从缓存获取品种信息
+        instrument = impl.cache.instrument(target_id)
+        if instrument is None:
+            logger.error(f"无法找到交易品种: {target_id}")
+            return
 
         # 使用默认数量
         qty = quantity if quantity else self.config.trade_size
 
         # 创建数量对象
-        order_qty = self.instrument.make_qty(qty)
+        order_qty = instrument.make_qty(qty)
 
         # 创建订单
         if order_type == "MARKET":
             from nautilus_trader.model.enums import OrderSide
 
             order = impl.order_factory.market(
-                instrument_id=self.config.instrument_id,
+                instrument_id=target_id,
                 order_side=OrderSide.BUY,
                 quantity=order_qty,
             )
         else:
             from nautilus_trader.model.enums import OrderSide, TimeInForce
 
-            order_price = self.instrument.make_price(price) if price else None
+            order_price = instrument.make_price(price) if price else None
             order = impl.order_factory.limit(
-                instrument_id=self.config.instrument_id,
+                instrument_id=target_id,
                 order_side=OrderSide.BUY,
                 quantity=order_qty,
                 price=order_price,
@@ -327,7 +408,7 @@ class EventDrivenStrategy:
 
         # 提交订单
         impl.submit_order(order)
-        logger.info(f"买入下单: {self.config.instrument_id}, 数量: {qty}, 类型: {order_type}")
+        logger.info(f"买入下单: {target_id}, 数量: {qty}, 类型: {order_type}")
 
     def sell(
         self,
@@ -335,6 +416,7 @@ class EventDrivenStrategy:
         price: Decimal | None = None,
         order_type: str = "MARKET",
         time_in_force: str = "GTC",
+        instrument_id: Any | None = None,
     ) -> None:
         """
         卖出下单封装
@@ -346,40 +428,46 @@ class EventDrivenStrategy:
             price: 订单价格，默认为 None（市价单不需要）
             order_type: 订单类型，默认为 "MARKET"（市价单）
             time_in_force: 订单有效时间，默认为 "GTC"（一直有效）
+            instrument_id: 品种ID，默认为 None（使用配置中的 instrument_id）
 
         Raises
         ------
         RuntimeError
             如果交易品种未加载
         """
-        if not self.instrument:
-            logger.error("交易品种未加载，无法下单")
-            return
+        # 获取目标品种ID
+        target_id = instrument_id if instrument_id else self.config.instrument_id
 
         # 获取底层策略实例
         impl = self._get_strategy_impl()
+
+        # 从缓存获取品种信息
+        instrument = impl.cache.instrument(target_id)
+        if instrument is None:
+            logger.error(f"无法找到交易品种: {target_id}")
+            return
 
         # 使用默认数量
         qty = quantity if quantity else self.config.trade_size
 
         # 创建数量对象
-        order_qty = self.instrument.make_qty(qty)
+        order_qty = instrument.make_qty(qty)
 
         # 创建订单
         if order_type == "MARKET":
             from nautilus_trader.model.enums import OrderSide
 
             order = impl.order_factory.market(
-                instrument_id=self.config.instrument_id,
+                instrument_id=target_id,
                 order_side=OrderSide.SELL,
                 quantity=order_qty,
             )
         else:
             from nautilus_trader.model.enums import OrderSide, TimeInForce
 
-            order_price = self.instrument.make_price(price) if price else None
+            order_price = instrument.make_price(price) if price else None
             order = impl.order_factory.limit(
-                instrument_id=self.config.instrument_id,
+                instrument_id=target_id,
                 order_side=OrderSide.SELL,
                 quantity=order_qty,
                 price=order_price,
@@ -388,25 +476,25 @@ class EventDrivenStrategy:
 
         # 提交订单
         impl.submit_order(order)
-        logger.info(f"卖出下单: {self.config.instrument_id}, 数量: {qty}, 类型: {order_type}")
+        logger.info(f"卖出下单: {target_id}, 数量: {qty}, 类型: {order_type}")
 
-    def close_position(self, position: Any | None = None) -> None:
+    def close_position(self, position: Any | None = None, instrument_id: Any | None = None) -> None:
         """
         平仓封装
 
-        平掉指定的持仓或当前品种的所有持仓
+        平掉指定的持仓或指定品种的所有持仓
 
         Args:
             position: 要平仓的持仓对象，默认为 None（平掉所有持仓）
+            instrument_id: 品种ID，默认为 None（使用配置中的 instrument_id）
 
         Raises
         ------
         RuntimeError
             如果交易品种未加载
         """
-        if not self.instrument:
-            logger.error("交易品种未加载，无法平仓")
-            return
+        # 获取目标品种ID
+        target_id = instrument_id if instrument_id else self.config.instrument_id
 
         # 获取底层策略实例
         impl = self._get_strategy_impl()
@@ -416,9 +504,9 @@ class EventDrivenStrategy:
             impl.close_position_by_id(position.id)
             logger.info(f"平掉持仓: {position.id}")
         else:
-            # 平掉所有持仓
-            impl.close_all_positions(self.config.instrument_id)
-            logger.info(f"平掉 {self.config.instrument_id} 的所有持仓")
+            # 平掉指定品种的所有持仓
+            impl.close_all_positions(target_id)
+            logger.info(f"平掉 {target_id} 的所有持仓")
 
     def get_position(self, instrument_id: Any | None = None) -> Any | None:
         """

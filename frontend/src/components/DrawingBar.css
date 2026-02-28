@@ -1,178 +1,73 @@
 .drawing-bar {
   display: flex;
   align-items: center;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  padding: 4px;
-  box-shadow: var(--shadow-sm);
-}
-
-/* 垂直工具栏中的绘图栏样式 */
-.vertical-toolbar .drawing-bar {
-  flex-direction: column;
-  align-items: stretch;
+  padding: 4px 8px;
+  background-color: var(--ant-color-bg-elevated);
+  border-bottom: 1px solid var(--ant-color-border);
   gap: 4px;
-  padding: 4px;
-  box-shadow: none;
-  border: none;
-  background-color: transparent;
-}
-
-.vertical-toolbar .drawing-bar-item {
-  margin: 0;
-  border-radius: 2px;
-}
-
-.vertical-toolbar .drawing-bar-icon-container {
-  width: 48px;
-  height: 32px;
-  position: relative;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-  padding: 0 2px;
-}
-
-.vertical-toolbar .drawing-bar-icon-container:hover {
-  background-color: var(--bg-tertiary);
-}
-
-.vertical-toolbar .drawing-bar-icon {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-}
-
-.vertical-toolbar .drawing-bar-split {
-  width: 100%;
-  height: 1px;
-  margin: 4px 0;
-}
-
-/* Updated Arrow Style for Vertical Toolbar - Side by Side */
-.vertical-toolbar .drawing-bar-arrow {
-  position: static;
-  width: 14px;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 2px;
-  background-color: transparent;
-  z-index: 10;
-  margin-left: 2px;
-}
-
-.vertical-toolbar .drawing-bar-arrow:hover {
-  background-color: rgba(0, 0, 0, 0.05);
-  color: var(--primary-color);
 }
 
 .drawing-bar-item {
   position: relative;
   display: flex;
   align-items: center;
-  margin: 0 2px;
-  cursor: pointer;
-  border-radius: 4px;
-  padding: 0;
-  transition: background-color 0.2s ease;
 }
 
-/* The container holding both icon and arrow */
 .drawing-bar-icon-container {
   display: flex;
-  position: relative;
   align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
+  padding: 4px 6px;
+  cursor: pointer;
   border-radius: 4px;
-  transition: background-color 0.2s ease;
+  transition: background-color 0.2s;
 }
 
 .drawing-bar-icon-container:hover {
-  background-color: var(--bg-tertiary);
+  background-color: var(--ant-color-bg-text-hover);
 }
 
 .drawing-bar-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
-  color: var(--text-primary);
+  width: 20px;
+  height: 20px;
 }
 
-.drawing-bar-icon.selected {
-  background-color: var(--primary-color);
-  color: #ffffff;
-}
-
-/* Make SVG pointer events none so click passes to container */
-.tool-icon-svg {
-  pointer-events: none;
+.drawing-bar-icon .tool-icon-svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
 }
 
 .drawing-bar-arrow {
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  transition: transform 0.2s ease;
-  cursor: pointer;
-}
-
-.drawing-bar-arrow:hover {
-  color: var(--text-primary);
+  margin-left: 2px;
+  color: var(--ant-color-text-secondary);
 }
 
 .drawing-bar-arrow svg {
-  transition: transform 0.2s ease;
+  transition: transform 0.2s;
 }
 
 .drawing-bar-arrow svg.rotate {
-  transform: rotate(180deg);
-}
-
-.drawing-bar-split {
-  width: 1px;
-  height: 24px;
-  background-color: var(--border-color);
-  margin: 0 4px;
+  transform: rotate(90deg);
 }
 
 .drawing-bar-list {
   position: absolute;
-  top: 0;
-  left: 100%;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  padding: 4px 0;
-  margin: 0 0 0 2px;
-  list-style: none;
-  box-shadow: var(--shadow-md);
+  top: 100%;
+  left: 0;
   z-index: 1000;
-  min-width: 200px;
-  max-height: 300px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-/* 垂直工具栏中的子菜单样式 */
-.vertical-toolbar .drawing-bar-list {
-  left: 100%;
-  top: 0;
-  flex-direction: column;
+  min-width: 160px;
+  padding: 4px 0;
+  margin-top: 4px;
+  background-color: var(--ant-color-bg-elevated);
+  border: 1px solid var(--ant-color-border);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  list-style: none;
 }
 
 .drawing-bar-list li {
@@ -180,58 +75,26 @@
   align-items: center;
   padding: 8px 12px;
   cursor: pointer;
-  transition: background-color 0.2s ease;
-  color: var(--text-primary);
-  width: 100%;
-  box-sizing: border-box;
+  transition: background-color 0.2s;
 }
 
 .drawing-bar-list li:hover {
-  background-color: var(--bg-tertiary);
+  background-color: var(--ant-color-bg-text-hover);
 }
 
 .drawing-bar-item-text {
   margin-left: 8px;
-  font-size: 14px;
-  font-family: Arial, sans-serif;
+  font-size: 13px;
+  color: var(--ant-color-text);
 }
 
-/* 滚动条样式 */
-.drawing-bar-list::-webkit-scrollbar {
-  width: 6px;
+.drawing-bar-split {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background-color: var(--ant-color-border);
 }
 
-.drawing-bar-list::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
-  border-radius: 3px;
-}
-
-.drawing-bar-list::-webkit-scrollbar-thumb {
-  background: var(--bg-tertiary);
-  border-radius: 3px;
-}
-
-.drawing-bar-list::-webkit-scrollbar-thumb:hover {
-  background: var(--primary-color);
-}
-
-/* 响应式调整 */
-@media (max-width: 768px) {
-  .drawing-bar {
-    flex-wrap: wrap;
-    padding: 2px;
-  }
-  
-  .drawing-bar-item {
-    margin: 1px;
-  }
-  
-  .drawing-bar-icon-container {
-    width: 28px;
-    height: 28px;
-  }
-  
-  .drawing-bar-list {
-    min-width: 180px;
-  }
+.drawing-bar-icon.selected {
+  color: var(--ant-color-primary);
 }

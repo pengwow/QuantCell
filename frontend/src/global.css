@@ -1,0 +1,134 @@
+/* Tailwind CSS v4 */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+@import "antd/dist/reset.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+@source inline("gap-{0,{1..96}}");
+@source inline("grid-cols-{0,{1..12}}");
+
+@theme {
+  --color-background: var(--tw-color-background);
+  --color-foreground: var(--tw-color-foreground);
+  --color-primary: var(--tw-color-primary);
+  --color-info: var(--tw-color-info);
+  --color-success: var(--tw-color-success);
+  --color-warning: var(--tw-color-warning);
+  --color-error: var(--tw-color-error);
+  --color-border: var(--tw-color-border);
+  --color-border-secondary: var(--tw-color-border-secondary);
+}
+
+@layer base {
+  :root {
+    /* 亮色模式配色 */
+    --tw-color-background: #ffffff;
+    --tw-color-foreground: #141414;
+    --tw-color-primary: #ea580c;
+    --tw-color-info: #0969da;
+    --tw-color-success: #1a7f37;
+    --tw-color-warning: #eac54f;
+    --tw-color-error: #d1242f;
+    --tw-color-border: #d1d5db;
+    --tw-color-border-secondary: #e5e7eb;
+    
+    /* 侧边栏变量 */
+    --sider-width: 256px;
+    --sider-collapsed-width: 81px;
+    --header-height: 64px;
+  }
+
+  .dark {
+    /* 暗色模式配色 */
+    --tw-color-background: #17191c;
+    --tw-color-foreground: #fafaf9;
+    --tw-color-primary: #f97316;
+    --tw-color-info: #478be6;
+    --tw-color-success: #57ab5a;
+    --tw-color-warning: #daaa3f;
+    --tw-color-error: #e5534b;
+    --tw-color-border: #374151;
+    --tw-color-border-secondary: #4b5563;
+  }
+}
+
+@layer base {
+  /* Reset */
+  ol,
+  ul,
+  dl {
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 1.25em;
+  }
+
+  /* Fix icon position */
+  .ant-btn > .ant-btn-icon,
+  svg.tabler-icon,
+  svg.icon {
+    line-height: 1;
+  }
+
+  /* Fix drawer title overflow */
+  .ant-drawer .ant-drawer-title {
+    overflow: hidden;
+  }
+}
+
+@layer components {
+  .container {
+    @apply mx-auto max-w-7xl;
+  }
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--tw-color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--tw-color-primary);
+}
+
+/* 系统状态指示器样式 */
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-indicator.connected {
+  background-color: #4CAF50;
+  box-shadow: 0 0 4px rgba(76, 175, 80, 0.6);
+}
+
+.status-indicator.disconnected {
+  background-color: #F44336;
+  box-shadow: 0 0 4px rgba(244, 67, 54, 0.6);
+}
+
+.status-indicator.normal {
+  background-color: #4CAF50;
+  box-shadow: 0 0 4px rgba(76, 175, 80, 0.6);
+}
+
+.status-indicator.warning {
+  background-color: #FFC107;
+  box-shadow: 0 0 4px rgba(255, 193, 7, 0.6);
+}
+
+.status-indicator.critical {
+  background-color: #F44336;
+  box-shadow: 0 0 4px rgba(244, 67, 54, 0.6);
+}

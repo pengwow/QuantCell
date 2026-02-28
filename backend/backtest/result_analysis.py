@@ -20,6 +20,53 @@ import pandas as pd
 from loguru import logger
 
 
+class NautilusJSONEncoder(json.JSONEncoder):
+    """自定义JSON编码器，处理NautilusTrader和pandas特殊类型"""
+
+    def default(self, obj):
+        # 处理 pandas NA/NaT
+        if obj is pd.NA or obj is pd.NaT:
+            return None
+
+        # 处理 numpy 类型
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (np.floating, float)):
+            if np.isnan(obj) or np.isinf(obj):
+                return None
+            return float(obj)
+        if isinstance(obj, (np.integer, int)):
+            return int(obj)
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+
+        # 处理 datetime
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+
+        # 处理 Pandas Timestamp
+        if isinstance(obj, pd.Timestamp):
+            return obj.strftime('%Y-%m-%d %H:%M:%S')
+
+        # 处理 Pandas Timedelta
+        if isinstance(obj, pd.Timedelta):
+            return str(obj)
+
+        # 处理 bytes
+        if isinstance(obj, bytes):
+            return obj.decode('utf-8', errors='ignore')
+
+        # 默认处理
+        try:
+            return super().default(obj)
+        except TypeError:
+            # 如果无法序列化，转为字符串
+            try:
+                return str(obj)
+            except Exception:
+                return None
+
+
 class ResultAnalyzer:
     """回测结果分析器"""
     
@@ -224,9 +271,9 @@ class ResultSerializer:
             # 确保目录存在
             os.makedirs(os.path.dirname(file_path), exist_ok=True) if os.path.dirname(file_path) else None
             
-            # 写入文件
+            # 写入文件，使用自定义编码器
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(serializable_results, f, indent=2, ensure_ascii=False)
+                json.dump(serializable_results, f, indent=2, ensure_ascii=False, cls=NautilusJSONEncoder)
             
             logger.info(f"结果已保存到: {file_path}")
             return True
@@ -564,23 +611,67 @@ class ResultSerializer:
                 return str(timestamp)
     
     def _serialize_value(self, value: Any) -> Any:
-        """序列化值"""
+        """序列化值，处理各种特殊类型"""
+        # 使用 pandas 的 isna 检查（可以检测 pd.NA, pd.NaT, np.nan, None 等）
+        try:
+            if pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            # pd.isna 对自定义类型可能抛出异常，继续其他检查
+            pass
+
+        # 处理 numpy 数组
         if isinstance(value, np.ndarray):
-            return value.tolist()
+            return [self._serialize_value(v) for v in value.tolist()]
+
+        # 处理 numpy 浮点数（包括 nan 和 inf）
         elif isinstance(value, (np.floating, float)):
+            if np.isnan(value) or np.isinf(value):
+                return None
             return float(value)
+
+        # 处理 numpy 整数
         elif isinstance(value, (np.integer, int)):
             return int(value)
+
+        # 处理 datetime
         elif isinstance(value, datetime):
             return value.isoformat()
-        elif hasattr(value, 'isoformat'):  # 处理 Pandas Timestamp 等类型
-            return value.isoformat()
+
+        # 处理 Pandas Timestamp
+        elif isinstance(value, pd.Timestamp):
+            return value.strftime('%Y-%m-%d %H:%M:%S')
+
+        # 处理 Pandas Timedelta
+        elif isinstance(value, pd.Timedelta):
+            return str(value)
+
+        # 处理字典
         elif isinstance(value, dict):
             return {k: self._serialize_value(v) for k, v in value.items()}
-        elif isinstance(value, list):
+
+        # 处理列表和元组
+        elif isinstance(value, (list, tuple)):
             return [self._serialize_value(v) for v in value]
+
+        # 处理 pandas Series
+        elif isinstance(value, pd.Series):
+            return [self._serialize_value(v) for v in value.tolist()]
+
+        # 处理 pandas DataFrame
+        elif isinstance(value, pd.DataFrame):
+            return self._serialize_value(value.to_dict(orient='records'))
+
+        # 处理字符串
+        elif isinstance(value, str):
+            return value
+
+        # 其他类型转为字符串
         else:
-            return str(value) if value is not None else None
+            try:
+                return str(value)
+            except Exception:
+                return None
 
 
 def save_results(results: Dict[str, Any], output_file: str, output_format: str = 'json') -> bool:
@@ -661,11 +752,23 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
         print("-" * 70)
 
     # 打印成功回测的结果
-    for key, result in normal_results.items():
-        if key == 'portfolio':
+    # 对于投资组合回测，交易对数据在 'symbols' 键内部
+    if is_portfolio and 'symbols' in normal_results:
+        symbol_results = normal_results['symbols']
+    else:
+        symbol_results = normal_results
+
+    for key, result in symbol_results.items():
+        # 跳过非交易对的键（如 portfolio, account, _meta 等）
+        if key in ('portfolio', 'account', '_meta'):
             continue
 
-        print(f"\n交易对: {key}")
+        # 检查结果是否包含交易对数据的基本字段
+        if not isinstance(result, dict) or 'symbol' not in result:
+            continue
+
+        symbol_name = result.get('symbol', key)
+        print(f"\n交易对: {symbol_name}")
 
         # 投资组合回测显示不同的信息
         if is_portfolio:

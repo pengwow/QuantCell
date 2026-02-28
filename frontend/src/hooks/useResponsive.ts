@@ -24,7 +24,7 @@ export const useResponsive = () => {
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
-      
+
       if (width < breakpoints.xs) {
         setScreenSize('xs');
       } else if (width < breakpoints.sm) {

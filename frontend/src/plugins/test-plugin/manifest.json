@@ -1,8 +1,0 @@
-{
-  "name": "test-plugin",
-  "version": "1.0.0",
-  "description": "测试插件，用于演示插件配置功能",
-  "author": "测试团队",
-  "main": "index.tsx",
-  "dependencies": {}
-}

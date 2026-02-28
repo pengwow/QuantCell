@@ -1,3 +1,7 @@
+/**
+ * 回测报告导出工具函数
+ * 功能：将回测结果导出为HTML报告
+ */
 
 export const generateBacktestReportHtml = (data: any) => {
   return `

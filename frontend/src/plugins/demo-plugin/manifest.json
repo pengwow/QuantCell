@@ -1,8 +1,0 @@
-{
-  "name": "demo-plugin",
-  "version": "1.0.0",
-  "description": "前端插件demo",
-  "author": "QuantCell Team",
-  "main": "index.tsx",
-  "dependencies": []
-}

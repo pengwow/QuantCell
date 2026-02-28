@@ -467,8 +467,9 @@ def _run_event_backtest(
 ) -> None:
     """
     使用事件驱动引擎运行回测
-    
+
     使用事件驱动的专业回测框架，支持更复杂的策略和更精确的执行模拟
+    支持多品种回测
     """
     # 延迟导入
     from backtest.cli_core import (
@@ -477,7 +478,7 @@ def _run_event_backtest(
     )
     from backtest.result_analysis import output_results
     from utils.validation import parse_symbols, parse_timeframes
-    
+
     # 延迟导入事件驱动引擎相关模块，避免在不需要时加载
     try:
         from decimal import Decimal
@@ -493,19 +494,19 @@ def _run_event_backtest(
         print(f"错误：无法导入事件驱动引擎模块: {e}")
         print("请确保已安装必要的依赖")
         raise typer.Exit(1)
-    
+
     # 创建CLI核心（用于数据准备）
     cli_core = CLICore(verbose=verbose, detail=detail)
-    
+
     # 从系统配置读取默认值
     system_config = get_system_config()
     default_trading_mode = system_config['default_trading_mode']
     default_timeframes = system_config['default_timeframes']
-    
+
     # 使用命令行参数或默认值
     trading_mode = trading_mode or default_trading_mode
     timeframes = timeframes or ','.join(default_timeframes) if isinstance(default_timeframes, list) else default_timeframes
-    
+
     # 解析货币对列表
     symbols_list = []
     if pool:
@@ -523,34 +524,20 @@ def _run_event_backtest(
         symbols_list = parse_symbols(symbols)
     else:
         symbols_list = ['BTCUSDT']
-    
-    # 限制事件驱动引擎只处理第一个货币对（单品种回测）
-    # 多品种支持需要更复杂的配置
-    if len(symbols_list) > 1:
-        print(f"注意：事件驱动引擎当前只支持单品种回测，将使用第一个货币对: {symbols_list[0]}")
-        symbols_list = [symbols_list[0]]
-    
+
     # 解析时间周期列表
     timeframes_list = parse_timeframes(timeframes)
-    
-    # 限制只使用第一个时间周期
-    if len(timeframes_list) > 1:
-        print(f"注意：事件驱动引擎当前只支持单时间周期回测，将使用: {timeframes_list[0]}")
-        timeframes_list = [timeframes_list[0]]
-    
-    symbol = symbols_list[0]
-    timeframe = timeframes_list[0]
-    
+
     # 生成输出文件名
     if output is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = str(cli_core.results_dir / f"{strategy_name}_{timestamp}_event_results.{output_format}")
     else:
         output_file = output
-    
+
     # 准备数据
     if data_path:
-        # 从文件加载数据
+        # 从文件加载数据（单品种模式）
         print(f"从文件加载数据: {data_path}")
         try:
             df = pd.read_csv(data_path, index_col=0, parse_dates=True)
@@ -559,6 +546,7 @@ def _run_event_backtest(
                 if col not in df.columns:
                     print(f"数据文件缺少必要列: {col}")
                     raise typer.Exit(1)
+            data_dict = {f"{symbols_list[0]}_{timeframes_list[0]}": df}
         except Exception as e:
             print(f"加载数据文件失败: {e}")
             raise typer.Exit(1)
@@ -575,26 +563,19 @@ def _run_event_backtest(
                 ignore_missing=ignore_missing,
                 show_progress=not no_progress
             )
-            
+
             if not data_dict:
                 print("\n✗ 没有成功加载任何数据，回测无法继续")
                 raise typer.Exit(1)
-            
-            # 获取数据
-            key = f"{symbol}_{timeframe}"
-            if key not in data_dict:
-                print(f"错误：无法获取 {key} 的数据")
-                raise typer.Exit(1)
-            
-            df = data_dict[key]
-            print(f"\n✓ 成功加载 {key} 的数据，共 {len(df)} 条")
-            
+
+            print(f"\n✓ 成功加载 {len(data_dict)} 个品种的数据")
+
         except DataPreparationError as e:
             print(f"错误：{e}")
             raise typer.Exit(1)
-    
-    print(f"\n货币对: {symbol}")
-    print(f"时间周期: {timeframe}")
+
+    print(f"\n货币对: {', '.join(symbols_list)}")
+    print(f"时间周期: {', '.join(timeframes_list)}")
     print(f"交易模式: {trading_mode}")
     print(f"初始资金: {init_cash} {base_currency}")
     print(f"手续费率: {fees}")
@@ -602,11 +583,11 @@ def _run_event_backtest(
     if time_range:
         print(f"时间范围: {time_range}")
     print()
-    
+
     # 初始化事件驱动引擎
     try:
         print("初始化事件驱动回测引擎...")
-        
+
         # 解析时间范围
         if time_range:
             from utils.validation import parse_time_range
@@ -614,10 +595,19 @@ def _run_event_backtest(
             start_date = start_dt.strftime('%Y-%m-%d') if start_dt else '2023-01-01'
             end_date = end_dt.strftime('%Y-%m-%d') if end_dt else '2023-12-31'
         else:
-            # 默认使用数据的时间范围
-            start_date = df.index[0].strftime('%Y-%m-%d') if len(df) > 0 else '2023-01-01'
-            end_date = df.index[-1].strftime('%Y-%m-%d') if len(df) > 0 else '2023-12-31'
-        
+            # 默认使用第一个数据的时间范围
+            first_key = list(data_dict.keys())[0]
+            first_df = data_dict[first_key]
+            if len(first_df) > 0:
+                first_idx = first_df.index[0]
+                last_idx = first_df.index[-1]
+                # 处理可能是Timestamp或datetime的情况
+                start_date = str(first_idx)[:10] if first_idx is not None else '2023-01-01'
+                end_date = str(last_idx)[:10] if last_idx is not None else '2023-12-31'
+            else:
+                start_date = '2023-01-01'
+                end_date = '2023-12-31'
+
         # 创建引擎配置
         engine_config = {
             "trader_id": f"BACKTEST-{strategy_name.upper()}",
@@ -626,104 +616,140 @@ def _run_event_backtest(
             "start_date": start_date,
             "end_date": end_date,
         }
-        
+
         # 创建引擎实例
         engine = EventDrivenBacktestEngine(engine_config)
         engine.initialize()
-        
-        # 创建交易品种（先创建以获取正确的venue）
-        print(f"创建交易品种: {symbol}")
+
+        # 为每个品种创建交易品种并加载数据
+        instruments = {}
+        bar_types = {}
+        all_bars = []
+
+        # 使用第一个品种的venue作为交易所
+        first_symbol = symbols_list[0]
+        first_timeframe = timeframes_list[0]
+        first_key = f"{first_symbol}_{first_timeframe}"
+
+        # 创建第一个品种以获取venue
+        print(f"创建交易品种: {first_symbol}")
         try:
-            # 使用测试工具创建交易品种
-            if symbol == 'BTCUSDT' or symbol == 'BTC/USDT':
-                instrument = TestInstrumentProvider.btcusdt_binance()
-            elif symbol == 'ETHUSDT' or symbol == 'ETH/USDT':
-                instrument = TestInstrumentProvider.ethusdt_binance()
+            if first_symbol == 'BTCUSDT' or first_symbol == 'BTC/USDT':
+                first_instrument = TestInstrumentProvider.btcusdt_binance()
+            elif first_symbol == 'ETHUSDT' or first_symbol == 'ETH/USDT':
+                first_instrument = TestInstrumentProvider.ethusdt_binance()
             else:
-                # 对于其他品种，使用默认的BTC/USDT
-                instrument = TestInstrumentProvider.btcusdt_binance()
-            
-            # 获取品种的venue名称
-            instrument_venue = str(instrument.id.venue)
+                first_instrument = TestInstrumentProvider.btcusdt_binance()
+            instrument_venue = str(first_instrument.id.venue)
             print(f"交易品种所属交易所: {instrument_venue}")
         except Exception as e:
             print(f"创建交易品种失败: {e}")
-            print("使用默认的BTC/USDT交易品种")
-            instrument = TestInstrumentProvider.btcusdt_binance()
+            first_instrument = TestInstrumentProvider.btcusdt_binance()
             instrument_venue = "BINANCE"
-        
+
         # 添加交易所（使用品种对应的venue）
         print(f"添加交易所: {instrument_venue}")
         from decimal import Decimal
         engine.add_venue(
             venue_name=instrument_venue,
             oms_type=OmsType.NETTING,
-            account_type=AccountType.MARGIN,  # 必须使用MARGIN账户类型支持加密货币
+            account_type=AccountType.MARGIN,
             starting_capital=init_cash,
             base_currency=base_currency,
             default_leverage=Decimal(str(leverage)),
         )
-        
-        engine.add_instrument(instrument)
-        
-        # 转换数据格式并加载
-        print("转换并加载数据...")
 
-        # 标准化DataFrame列名
-        df = df.copy()
-        df.columns = [col.lower() for col in df.columns]
+        # 为每个品种创建instrument并加载数据
+        for symbol in symbols_list:
+            # 使用第一个时间周期（多时间周期支持需要更复杂的策略配置）
+            timeframe = timeframes_list[0]
+            key = f"{symbol}_{timeframe}"
 
-        # 确保索引是带时区的datetime类型（NautilusTrader要求）
-        if not isinstance(df.index, pd.DatetimeIndex):
-            if 'timestamp' in df.columns:
-                df = df.set_index('timestamp')
-            # 转换为datetime并添加UTC时区
-            df.index = pd.to_datetime(df.index, utc=True)
+            if key not in data_dict:
+                print(f"警告：跳过 {key}，数据未加载")
+                continue
 
-        # 确保所有价格列都是float64类型
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            if col in df.columns:
-                df[col] = df[col].astype('float64')
+            df = data_dict[key]
 
-        # 创建BarType
-        bar_type_str = f"{instrument.id}-{_convert_timeframe_to_event(timeframe)}-LAST-EXTERNAL"
-        bar_type = BarType.from_str(bar_type_str)
+            # 创建交易品种
+            print(f"创建交易品种: {symbol}")
+            try:
+                if symbol == 'BTCUSDT' or symbol == 'BTC/USDT':
+                    instrument = TestInstrumentProvider.btcusdt_binance()
+                elif symbol == 'ETHUSDT' or symbol == 'ETH/USDT':
+                    instrument = TestInstrumentProvider.ethusdt_binance()
+                else:
+                    # 对于其他品种，使用默认的BTC/USDT作为模板
+                    instrument = TestInstrumentProvider.btcusdt_binance()
+            except Exception as e:
+                print(f"创建交易品种失败: {e}，使用默认品种")
+                instrument = TestInstrumentProvider.btcusdt_binance()
 
-        # 使用BarDataWrangler转换数据
-        wrangler = BarDataWrangler(bar_type, instrument)
-        bars = wrangler.process(df)
+            engine.add_instrument(instrument)
+            instruments[symbol] = instrument
 
-        # 添加数据到引擎
-        engine._engine.add_data(bars)
-        # 同时添加到引擎的数据列表（用于 run_backtest 检查）
-        engine._data.extend(bars)
-        print(f"✓ 成功加载 {len(bars)} 条K线数据")
-        
-        # 加载策略
+            # 转换数据格式并加载
+            print(f"转换并加载 {symbol} 数据...")
+
+            # 标准化DataFrame列名
+            df = df.copy()
+            df.columns = [col.lower() for col in df.columns]
+
+            # 确保索引是带时区的datetime类型
+            if not isinstance(df.index, pd.DatetimeIndex):
+                if 'timestamp' in df.columns:
+                    df = df.set_index('timestamp')
+                df.index = pd.to_datetime(df.index, utc=True)
+
+            # 确保所有价格列都是float64类型
+            for col in ['open', 'high', 'low', 'close', 'volume']:
+                if col in df.columns:
+                    df[col] = df[col].astype('float64')
+
+            # 创建BarType
+            bar_type_str = f"{instrument.id}-{_convert_timeframe_to_event(timeframe)}-LAST-EXTERNAL"
+            bar_type = BarType.from_str(bar_type_str)
+            bar_types[symbol] = bar_type
+
+            # 使用BarDataWrangler转换数据
+            wrangler = BarDataWrangler(bar_type, instrument)
+            bars = wrangler.process(df)
+
+            # 添加数据到引擎（通过引擎的公共方法）
+            if hasattr(engine, 'engine') and engine.engine is not None:
+                engine.engine.add_data(bars)
+            engine._data.extend(bars)
+            all_bars.extend(bars)
+            print(f"✓ 成功加载 {symbol} 的 {len(bars)} 条K线数据")
+
+        print(f"\n共加载 {len(instruments)} 个品种，{len(all_bars)} 条K线数据")
+
+        # 加载策略（传入所有品种的bar_types和instruments）
         print(f"加载事件驱动策略: {strategy_name}")
-        strategy = _load_event_strategy(strategy_name, strategy_params, bar_type, instrument.id)
-        
+        strategy = _load_event_strategy_multi(
+            strategy_name, strategy_params, bar_types, instruments
+        )
+
         if strategy is None:
             print(f"错误：无法加载策略 {strategy_name}")
             print("请确保策略继承自EventDrivenStrategy或使用兼容的策略基类")
             raise typer.Exit(1)
-        
+
         engine.add_strategy(strategy)
-        
+
         # 执行回测
         print("\n开始执行回测...")
         results = engine.run_backtest()
-        
-        # 清理引擎资源
-        engine.cleanup()
-        
+
         # 处理结果
         print("\n处理回测结果...")
-        formatted_results = _format_event_results(results, symbol, timeframe, strategy_name)
-        
+        formatted_results = _format_event_results_multi(
+            results, symbols_list, timeframes_list[0], strategy_name, instruments
+        )
+
         # 输出结果
         output_results(formatted_results, output_format, output_file)
-        
+
         # 保存到数据库
         if save_to_db:
             print("\n正在保存结果到数据库...")
@@ -743,21 +769,29 @@ def _run_event_backtest(
                 print("✓ 结果已成功保存到数据库")
             else:
                 print("✗ 保存到数据库失败")
-        
-        # 打印回测摘要
+
+        # 打印回测摘要（在清理资源之前，避免日志打断输出）
         print("\n" + "=" * 70)
         print("事件驱动回测成功完成！")
         print("=" * 70)
-        
-        metrics = results.get('metrics', {})
-        print(f"\n回测结果摘要:")
-        print(f"  总收益率: {metrics.get('total_return', 0):.2f}%")
-        print(f"  总交易次数: {metrics.get('total_trades', 0)}")
-        print(f"  胜率: {metrics.get('win_rate', 0):.2f}%")
-        print(f"  盈亏比: {metrics.get('profit_factor', 0):.2f}")
-        print(f"  总盈亏: {metrics.get('total_pnl', 0):.2f}")
+
+        # 打印组合级别摘要
+        portfolio = formatted_results.get('portfolio', {})
+        portfolio_metrics = portfolio.get('metrics', {})
+        print(f"\n投资组合回测结果摘要:")
+        print(f"  品种数量: {len(symbols_list)}")
+        print(f"  总收益率: {portfolio_metrics.get('total_return', 0):.2f}%")
+        print(f"  总交易次数: {portfolio_metrics.get('total_trades', 0)}")
+        print(f"  胜率: {portfolio_metrics.get('win_rate', 0):.2f}%")
+        print(f"  盈亏比: {portfolio_metrics.get('profit_factor', 0):.2f}")
+        print(f"  夏普比率: {portfolio_metrics.get('sharpe_ratio', 0):.4f}")
+        print(f"  最大回撤: {portfolio_metrics.get('max_drawdown', 0):.2f}%")
+        print(f"  总盈亏: {portfolio_metrics.get('total_pnl', 0):.2f}")
         print("=" * 70)
-        
+
+        # 清理引擎资源（放在最后，避免日志打断结论输出）
+        engine.cleanup()
+
     except Exception as e:
         print(f"错误：事件驱动回测执行失败: {e}")
         import traceback
@@ -838,20 +872,21 @@ def _load_event_strategy(strategy_name: str, strategy_params: dict, bar_type, in
         
         # 创建策略实例
         if config_class:
-            # 使用配置类创建策略
-            # 添加必需的参数
+            # 使用配置类创建策略 - 新参数结构：统一使用列表
             config_params = strategy_params.copy()
-            config_params['instrument_id'] = instrument_id
-            config_params['bar_type'] = bar_type
+            config_params['instrument_ids'] = [instrument_id]
+            config_params['bar_types'] = [bar_type]
             config = config_class(**config_params)
             strategy = strategy_class(config)
         else:
             # 直接使用参数创建策略
+            strategy_params['instrument_ids'] = [instrument_id]
+            strategy_params['bar_types'] = [bar_type]
             strategy = strategy_class(**strategy_params)
-        
+
         print(f"成功加载事件驱动策略: {strategy_class.__name__}")
         return strategy
-        
+
     except Exception as e:
         print(f"加载事件驱动策略失败: {e}")
         import traceback
@@ -893,19 +928,19 @@ def _convert_timeframe_to_event(timeframe: str) -> str:
 
 def _format_event_results(results: dict, symbol: str, timeframe: str, strategy_name: str) -> dict:
     """
-    格式化事件驱动回测结果为QuantCell标准格式
-    
+    格式化事件驱动回测结果为QuantCell标准格式（单品种版本，保持向后兼容）
+
     参数：
         results: 事件驱动回测结果
         symbol: 货币对
         timeframe: 时间周期
         strategy_name: 策略名称
-        
+
     返回：
         dict: 格式化的回测结果
     """
     key = f"{symbol}_{timeframe}"
-    
+
     formatted = {
         key: {
             'symbol': symbol,
@@ -926,7 +961,7 @@ def _format_event_results(results: dict, symbol: str, timeframe: str, strategy_n
         'trades': results.get('trades', []),
         'equity_curve': results.get('equity_curve', []),
     }
-    
+
     # 添加元数据
     now = datetime.now()
     formatted['_meta'] = {
@@ -935,8 +970,399 @@ def _format_event_results(results: dict, symbol: str, timeframe: str, strategy_n
         'timestamp': int(now.timestamp()),  # Unix时间戳（秒，数值型）
         'formatted_time': now.strftime('%Y-%m-%d %H:%M:%S'),  # 格式化时间字符串
     }
-    
+
     return formatted
+
+
+def _load_event_strategy_multi(
+    strategy_name: str,
+    strategy_params: dict,
+    bar_types: dict,
+    instruments: dict
+):
+    """
+    加载支持多品种的事件驱动策略
+
+    参数：
+        strategy_name: 策略名称（文件名，不含.py后缀）
+        strategy_params: 策略参数字典
+        bar_types: 品种到BarType的映射字典
+        instruments: 品种到instrument的映射字典
+
+    返回：
+        Strategy实例或None（如果加载失败）
+    """
+    try:
+        import importlib
+        from pathlib import Path
+
+        # 添加策略目录到路径
+        backend_path = Path(__file__).resolve().parent.parent
+        strategies_dir = backend_path / 'strategies'
+        if str(strategies_dir) not in sys.path:
+            sys.path.insert(0, str(strategies_dir))
+
+        # 清除模块缓存
+        if strategy_name in sys.modules:
+            del sys.modules[strategy_name]
+
+        # 检查策略文件
+        strategy_file = strategies_dir / f"{strategy_name}.py"
+        if not strategy_file.exists():
+            print(f"策略文件不存在: {strategy_file}")
+            return None
+
+        # 导入策略模块
+        module = importlib.import_module(strategy_name)
+
+        # 查找策略类和配置类
+        strategy_class = None
+        config_class = None
+
+        # 尝试查找事件驱动策略
+        try:
+            from backtest.strategies.event_strategy import EventDrivenStrategy, EventDrivenStrategyConfig
+        except ImportError:
+            try:
+                from backend.backtest.strategies.event_strategy import EventDrivenStrategy, EventDrivenStrategyConfig
+            except ImportError:
+                from nautilus_trader.trading.strategy import Strategy
+                EventDrivenStrategy = Strategy
+                EventDrivenStrategyConfig = None
+
+        for name in dir(module):
+            obj = getattr(module, name)
+            if isinstance(obj, type):
+                # 查找策略类（继承自EventDrivenStrategy或Strategy）
+                if issubclass(obj, EventDrivenStrategy) and obj != EventDrivenStrategy:
+                    strategy_class = obj
+                    print(f"找到策略类: {name}")
+                # 查找配置类
+                elif EventDrivenStrategyConfig and issubclass(obj, EventDrivenStrategyConfig) and obj != EventDrivenStrategyConfig:
+                    config_class = obj
+                    print(f"找到配置类: {name}")
+
+        if strategy_class is None:
+            print(f"在模块 {strategy_name} 中找不到事件驱动策略类")
+            return None
+
+        # 准备品种ID列表和K线类型列表（统一使用列表形式）
+        instrument_ids_list = [inst.id for inst in instruments.values()]
+        bar_types_list = list(bar_types.values())
+
+        # 创建策略实例
+        if config_class:
+            # 使用配置类创建策略 - 新参数结构：统一使用列表
+            config_params = strategy_params.copy()
+            config_params['instrument_ids'] = instrument_ids_list
+            config_params['bar_types'] = bar_types_list
+            config = config_class(**config_params)
+            strategy = strategy_class(config)
+        else:
+            # 直接使用参数创建策略
+            strategy_params['instrument_ids'] = instrument_ids_list
+            strategy_params['bar_types'] = bar_types_list
+            strategy = strategy_class(**strategy_params)
+
+        print(f"成功加载事件驱动策略: {strategy_class.__name__}（支持 {len(instruments)} 个品种）")
+        return strategy
+
+    except Exception as e:
+        print(f"加载事件驱动策略失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def _format_event_results_multi(
+    results: dict,
+    symbols_list: list,
+    timeframe: str,
+    strategy_name: str,
+    instruments: dict
+) -> dict:
+    """
+    格式化多品种事件驱动回测结果为QuantCell标准格式
+
+    参数：
+        results: 事件驱动回测结果
+        symbols_list: 货币对列表
+        timeframe: 时间周期
+        strategy_name: 策略名称
+        instruments: 品种到instrument的映射字典
+
+    返回：
+        dict: 格式化的回测结果，包含symbols和portfolio键
+    """
+    from datetime import datetime
+    import numpy as np
+
+    formatted = {
+        'symbols': {},
+        'portfolio': {},
+        'account': results.get('account', {}),
+        '_meta': {
+            'engine': 'event',
+            'strategy': strategy_name,
+            'timestamp': int(datetime.now().timestamp()),
+            'formatted_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'symbol_count': len(symbols_list),
+            'symbols': symbols_list,
+            'timeframe': timeframe,
+        }
+    }
+
+    # 获取所有交易和持仓
+    all_trades = results.get('trades', [])
+    all_positions = results.get('positions', [])
+    equity_curve = results.get('equity_curve', [])
+
+    # 按品种分组交易和持仓
+    symbol_trades = {symbol: [] for symbol in symbols_list}
+    symbol_positions = {symbol: [] for symbol in symbols_list}
+
+    # 将交易分配到各品种
+    for trade in all_trades:
+        instrument_id = trade.get('instrument_id', '')
+        # 从instrument_id中提取品种代码
+        for symbol in symbols_list:
+            if symbol.replace('/', '') in instrument_id or symbol in instrument_id:
+                symbol_trades[symbol].append(trade)
+                break
+
+    # 将持仓分配到各品种
+    for position in all_positions:
+        instrument_id = position.get('instrument_id', '')
+        for symbol in symbols_list:
+            if symbol.replace('/', '') in instrument_id or symbol in instrument_id:
+                symbol_positions[symbol].append(position)
+                break
+
+    # 为每个品种创建结果
+    for symbol in symbols_list:
+        key = f"{symbol}_{timeframe}"
+        trades = symbol_trades.get(symbol, [])
+        positions = symbol_positions.get(symbol, [])
+
+        # 计算该品种的指标
+        symbol_metrics = _calculate_symbol_metrics(trades, positions, results.get('account', {}))
+
+        formatted['symbols'][key] = {
+            'symbol': symbol,
+            'timeframe': timeframe,
+            'metrics': symbol_metrics,
+            'trades': trades,
+            'positions': positions,
+            # 注意：equity_curve 只在 portfolio 级别保留，避免数据冗余
+        }
+
+    # 计算组合级别指标
+    portfolio_metrics = _calculate_portfolio_metrics(
+        all_trades, all_positions, equity_curve, symbols_list, results.get('account', {})
+    )
+
+    formatted['portfolio'] = {
+        'metrics': portfolio_metrics,
+        'trades': all_trades,
+        'positions': all_positions,
+        'equity_curve': equity_curve,
+        'correlations': portfolio_metrics.get('correlations', {}),
+    }
+
+    return formatted
+
+
+def _calculate_symbol_metrics(trades: list, positions: list, account: dict) -> dict:
+    """
+    计算单个品种的绩效指标
+
+    参数：
+        trades: 该品种的交易列表
+        positions: 该品种的持仓列表
+        account: 账户信息
+
+    返回：
+        dict: 品种绩效指标
+    """
+    if not trades:
+        return {
+            'total_return': 0.0,
+            'sharpe_ratio': 0.0,
+            'max_drawdown': 0.0,
+            'win_rate': 0.0,
+            'profit_factor': 0.0,
+            'total_trades': 0,
+            'total_pnl': 0.0,
+        }
+
+    import re
+
+    # 从持仓数据中提取盈亏（更准确）
+    pnls = []
+    for position in positions:
+        pnl_str = position.get('realized_pnl', '0')
+        if isinstance(pnl_str, str):
+            # 提取数值部分，如 "-78.00573100 USDT" -> -78.00573100
+            match = re.match(r'^([+-]?\d+\.?\d*)', pnl_str.strip())
+            if match:
+                try:
+                    pnl = float(match.group(1))
+                    pnls.append(pnl)
+                except ValueError:
+                    pass
+        elif isinstance(pnl_str, (int, float)):
+            pnls.append(float(pnl_str))
+
+    # 如果没有从持仓提取到盈亏，尝试从交易数据计算（备用方案）
+    if not pnls and trades:
+        # 这里可以实现基于交易价格计算盈亏的逻辑
+        # 目前先返回0，因为持仓数据更可靠
+        pass
+
+    winning_trades = [p for p in pnls if p > 0]
+    losing_trades = [p for p in pnls if p < 0]
+
+    total_pnl = sum(pnls)
+    win_rate = len(winning_trades) / len(pnls) * 100 if pnls else 0
+
+    profit_factor = 0.0
+    if losing_trades:
+        gross_profit = sum(winning_trades) if winning_trades else 0
+        gross_loss = abs(sum(losing_trades))
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0.0
+
+    # 计算总收益率
+    initial_balance = account.get('initial_balance', 100000.0)
+    total_return = (total_pnl / initial_balance) * 100 if initial_balance > 0 else 0.0
+
+    return {
+        'total_return': round(total_return, 2),
+        'win_rate': round(win_rate, 2),
+        'profit_factor': round(profit_factor, 2),
+        'total_trades': len(trades),
+        'winning_trades': len(winning_trades),
+        'losing_trades': len(losing_trades),
+        'total_pnl': round(total_pnl, 2),
+        'sharpe_ratio': 0.0,  # 需要权益曲线数据计算
+        'max_drawdown': 0.0,  # 需要权益曲线数据计算
+    }
+
+
+def _calculate_portfolio_metrics(
+    all_trades: list,
+    all_positions: list,
+    equity_curve: list,
+    symbols_list: list,
+    account: dict
+) -> dict:
+    """
+    计算组合级别的绩效指标
+
+    参数：
+        all_trades: 所有交易
+        all_positions: 所有持仓
+        equity_curve: 权益曲线
+        symbols_list: 品种列表
+        account: 账户信息
+
+    返回：
+        dict: 组合绩效指标
+    """
+    import numpy as np
+
+    # 基础统计
+    total_trades = len(all_trades)
+
+    # 从权益曲线计算收益率和回撤
+    total_return = 0.0
+    sharpe_ratio = 0.0
+    max_drawdown = 0.0
+
+    if equity_curve and len(equity_curve) > 1:
+        equities = [point.get('equity', 0) for point in equity_curve]
+
+        if len(equities) > 1 and equities[0] > 0:
+            # 计算总收益率
+            total_return = ((equities[-1] - equities[0]) / equities[0]) * 100
+
+            # 计算收益率序列
+            returns = []
+            for i in range(1, len(equities)):
+                if equities[i-1] > 0:
+                    ret = (equities[i] - equities[i-1]) / equities[i-1]
+                    returns.append(ret)
+
+            # 计算夏普比率
+            if len(returns) > 1:
+                avg_return = np.mean(returns)
+                std_return = np.std(returns, ddof=1)
+                # 假设无风险利率为0，年化因子假设每小时数据，每年252个交易日，每天24小时
+                periods_per_year = 252 * 24
+                if std_return > 0:
+                    sharpe_ratio = (avg_return / std_return) * np.sqrt(periods_per_year)
+
+            # 计算最大回撤
+            peak = equities[0]
+            for equity in equities:
+                if equity > peak:
+                    peak = equity
+                drawdown = (peak - equity) / peak if peak > 0 else 0
+                if drawdown > max_drawdown:
+                    max_drawdown = drawdown
+            max_drawdown = max_drawdown * 100  # 转换为百分比
+
+    # 计算总盈亏
+    total_pnl = account.get('final_balance', 0) - account.get('initial_balance', account.get('balance', 0))
+
+    # 计算胜率
+    # 从持仓数据计算盈亏
+    pnls = []
+    for position in all_positions:
+        pnl_str = position.get('realized_pnl', '0')
+        if isinstance(pnl_str, str):
+            import re
+            match = re.match(r'^([+-]?\d+\.?\d*)', pnl_str.strip())
+            if match:
+                try:
+                    pnl = float(match.group(1))
+                    if pnl != 0:
+                        pnls.append(pnl)
+                except ValueError:
+                    pass
+        elif isinstance(pnl_str, (int, float)):
+            pnls.append(float(pnl_str))
+
+    winning_trades = len([p for p in pnls if p > 0])
+    win_rate = (winning_trades / len(pnls) * 100) if pnls else 0.0
+
+    # 计算盈亏比
+    profit_factor = 0.0
+    if pnls:
+        gross_profit = sum([p for p in pnls if p > 0])
+        gross_loss = abs(sum([p for p in pnls if p < 0]))
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0.0
+
+    # 计算品种间相关性（简化版本）
+    correlations = {}
+    if len(symbols_list) > 1:
+        # 这里可以添加更复杂的相关性计算
+        # 目前返回空字典，表示相关性数据需要更详细的实现
+        correlations = {symbol: {} for symbol in symbols_list}
+
+    return {
+        'total_return': round(total_return, 2),
+        'sharpe_ratio': round(sharpe_ratio, 2),
+        'max_drawdown': round(max_drawdown, 2),
+        'win_rate': round(win_rate, 2),
+        'profit_factor': round(profit_factor, 2),
+        'total_trades': total_trades,
+        'winning_trades': winning_trades,
+        'losing_trades': len(pnls) - winning_trades if pnls else 0,
+        'total_pnl': round(total_pnl, 2),
+        'initial_equity': account.get('initial_balance', account.get('balance', 0)),
+        'final_equity': account.get('final_balance', account.get('equity', 0)),
+        'correlations': correlations,
+    }
 
 
 @app.command()
