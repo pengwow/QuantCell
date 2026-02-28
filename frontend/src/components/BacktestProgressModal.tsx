@@ -1,8 +1,8 @@
 /**
  * 回测进度弹窗组件
  * 功能：展示回测的各个阶段进度，包括数据准备、执行回测、结果统计
+ * 适用场景：策略回测、数据下载、批量处理等需要展示多阶段进度的场景
  */
-import React from 'react';
 import {
   Modal,
   Steps,
@@ -67,7 +67,7 @@ interface BacktestProgressModalProps {
   isRunning?: boolean;
 }
 
-const BacktestProgressModal: React.FC<BacktestProgressModalProps> = ({
+const BacktestProgressModal = ({
   visible,
   onCancel,
   currentStep,
@@ -76,7 +76,7 @@ const BacktestProgressModal: React.FC<BacktestProgressModalProps> = ({
   errorMessage,
   onStop,
   isRunning = false,
-}) => {
+}: BacktestProgressModalProps) => {
   // 获取步骤图标
   const getStepIcon = (status: StepStatus, defaultIcon: React.ReactNode) => {
     switch (status) {

@@ -44,3 +44,6 @@ backend/performance_reports/*.json
 backend/performance_reports/*.md
 backend/performance_reports/*.csv
 QuantCell.code-workspace
+ui/node_modules/
+frontend_old/
+frontend/node_modules/*

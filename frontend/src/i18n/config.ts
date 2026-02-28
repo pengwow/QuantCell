@@ -2,46 +2,80 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
 
-// 导入语言文件 - 使用统一的国际化目录
-import zhCN from '@i18n/zh-CN.json';
-import enUS from '@i18n/en-US.json';
+// 中文翻译
+const zhCN = {
+  chart: '图表分析',
+  strategy_management: '策略管理',
+  agent: '智能体',
+  strategy_backtest: '策略回测',
+  data_management: '数据管理',
+  data_pool_management: '数据池管理',
+  data_collection: '数据采集',
+  data_quality: '数据质量',
+  setting: '设置',
+  system_status: '系统状态',
+  connection: '连接状态',
+  connected: '已连接',
+  disconnected: '未连接',
+  cpu_usage: 'CPU使用率',
+  memory_usage: '内存使用',
+  disk_space: '磁盘空间',
+  welcome: '欢迎使用 QuantCell',
+  page_not_found: '页面未找到',
+  user: '用户',
+  logout: '退出登录',
+  help: '帮助',
+  theme: {
+    light: '浅色模式',
+    dark: '深色模式',
+    system: '跟随系统',
+  },
+};
 
-// 定义支持的语言
-const supportedLngs = ['zh-CN', 'en-US'];
+// 英文翻译
+const enUS = {
+  chart: 'Chart Analysis',
+  strategy_management: 'Strategy Management',
+  agent: 'Agent',
+  strategy_backtest: 'Strategy Backtest',
+  data_management: 'Data Management',
+  data_pool_management: 'Data Pool Management',
+  data_collection: 'Data Collection',
+  data_quality: 'Data Quality',
+  setting: 'Settings',
+  system_status: 'System Status',
+  connection: 'Connection',
+  connected: 'Connected',
+  disconnected: 'Disconnected',
+  cpu_usage: 'CPU Usage',
+  memory_usage: 'Memory Usage',
+  disk_space: 'Disk Space',
+  welcome: 'Welcome to QuantCell',
+  page_not_found: 'Page Not Found',
+  user: 'User',
+  logout: 'Logout',
+  help: 'Help',
+  theme: {
+    light: 'Light Mode',
+    dark: 'Dark Mode',
+    system: 'System',
+  },
+};
 
-// 初始化i18n
 i18n
-  // 添加语言检测器
   .use(LanguageDetector)
-  // 添加React i18next插件
   .use(initReactI18next)
-  // 配置i18n
   .init({
-    // 资源文件
     resources: {
-      'zh-CN': {
-        translation: zhCN
-      },
-      'en-US': {
-        translation: enUS
-      }
+      'zh-CN': { translation: zhCN },
+      'en-US': { translation: enUS },
+      'en': { translation: enUS },
+      'zh': { translation: zhCN },
     },
-    // 支持的语言
-    supportedLngs,
-    // 默认语言
     fallbackLng: 'zh-CN',
-    // 调试模式
     debug: false,
-    // 插值配置
     interpolation: {
-      escapeValue: false, // React已经处理了XSS
-    },
-    // 语言检测器配置
-    detection: {
-      // 顺序：先使用浏览器默认检测器
-      order: ['navigator'],
-      // 缓存配置
-      caches: []
+      escapeValue: false,
     },
   });
 

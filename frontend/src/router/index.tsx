@@ -1,165 +1,152 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import type { RouteObject } from 'react-router-dom';
 
+// 导入布局
+import ConsoleLayout from '@/layouts/ConsoleLayout';
+
 // 导入页面组件
-import App from '../App';
-import Agent from '../views/Agent';
-import Setting from '../views/Setting';
-import DataManagement from '../views/DataManagement';
-import DataPoolPage from '../views/DataManagement/DataPoolPage';
-import DataCollectionPage from '../views/DataManagement/DataCollectionPage';
-import DataQualityPage from '../views/DataManagement/DataQualityPage';
-import DataVisualizationPage from '../views/DataManagement/DataVisualizationPage';
-import FactorAnalysis from '../views/FactorAnalysis';
-import ModelManagement from '../views/ModelManagement';
-import BacktestResults from '../views/BacktestResults';
-import BacktestReplay from '../views/BacktestReplay';
-import ChartPage from '../views/ChartPage';
-import ScheduledTasks from '../views/ScheduledTasks';
-import ScheduledTaskForm from '../views/ScheduledTasks/ScheduledTaskForm';
-import StrategyEditor from '../views/StrategyEditor';
-import StrategyManagement from '../views/StrategyManagement';
+import ChartPage from '@/pages/chart/ChartPage';
+import Agent from '@/pages/agent/Agent';
+import StrategyManagement from '@/pages/strategy/StrategyManagement';
+import StrategyEditor from '@/pages/strategy/StrategyEditor';
+import FactorAnalysis from '@/pages/factor/FactorAnalysis';
+import ModelManagement from '@/pages/model/ModelManagement';
+import DataPoolPage from '@/pages/data/DataPoolPage';
+import DataCollectionPage from '@/pages/data/DataCollectionPage';
+import DataQualityPage from '@/pages/data/DataQualityPage';
+import Setting from '@/pages/setting/Setting';
 
-// 导入插件管理器
-import { pluginManager } from '../plugins';
+// 导入回测模块
+import BacktestLayout from '@/pages/backtest/BacktestLayout';
+import BacktestList from '@/pages/backtest/BacktestList';
+import BacktestDetail from '@/pages/backtest/BacktestDetail';
+import BacktestConfig from '@/pages/backtest/BacktestConfig';
+import BacktestReplay from '@/pages/backtest/BacktestReplay';
 
-// 插件页面样式包裹组件
-const PluginPageWrapper = ({ children }: { children: React.ReactNode }) => {
-  return (
-    <div style={{ 
-      background: 'white', 
-      borderRadius: '8px', 
-      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)', 
-      padding: '20px', 
-      minWidth: 0 
-    }}>
-      {children}
-    </div>
-  );
-};
+// 导入设置子页面
+import BasicSettingsPage from '@/pages/setting/BasicSettingsPage';
+import SystemConfigPage from '@/pages/setting/SystemConfigPage';
+import NotificationsPage from '@/pages/setting/NotificationsPage';
+import ApiSettingsPage from '@/pages/setting/ApiSettingsPage';
+import SystemInfoPage from '@/pages/setting/SystemInfoPage';
 
-/**
- * 创建路由配置
- * @returns 路由实例
- */
-export const createRouter = () => {
-  // 基础路由配置
-  const baseRoutes: RouteObject[] = [
-    {
-      path: '/',
-      element: <App />,
-      children: [
-        {
-          path: '/agent',
-          element: <Agent />
-        },
-        {
-          path: '/strategy-management',
-          element: <StrategyManagement />
-        },
-        {
-          path: '/strategy-editor',
-          element: <StrategyEditor />
-        },
-        {
-          path: '/strategy-editor/:strategyName?',
-          element: <StrategyEditor />
-        },
-        {
-          path: '/setting',
-          element: <Setting />
-        },
-        {
-          path: '/data-management',
-          element: <DataManagement />
-        },
-        {
-          path: '/data-management/data-pools',
-          element: <DataPoolPage />
-        },
-        {
-          path: '/data-management/collection',
-          element: <DataCollectionPage />
-        },
-        {
-          path: '/data-management/quality',
-          element: <DataQualityPage />
-        },
-        {
-          path: '/data-management/visualization',
-          element: <DataVisualizationPage />
-        },
-        {
-          path: '/factor-analysis',
-          element: <FactorAnalysis />
-        },
-        {
-          path: '/model-management',
-          element: <ModelManagement />
-        },
-        {
-          path: '/backtest',
-          element: <BacktestResults />
-        },
-        {
-          path: '/chart',
-          element: <ChartPage />
-        },
-        {
-          path: '/scheduled-tasks',
-          element: <ScheduledTasks />
-        },
-        {
-          path: '/scheduled-tasks/create',
-          element: <ScheduledTaskForm />
-        },
-        {
-          path: '/scheduled-tasks/edit/:id',
-          element: <ScheduledTaskForm />
-        },
-        {
-          path: '/backtest/replay/:backtestId',
-          element: <BacktestReplay />
-        },
-        // 默认重定向到图表页面
-        {
-          index: true,
-          element: <Navigate to="/chart" replace />
-        }
-      ]
-    }
-  ];
+// 基础路由配置
+const baseRoutes: RouteObject[] = [
+  {
+    path: '/',
+    element: <ConsoleLayout />,
+    children: [
+      {
+        path: '/chart',
+        element: <ChartPage />,
+      },
+      {
+        path: '/agent',
+        element: <Agent />,
+      },
+      {
+        path: '/strategy-management',
+        element: <StrategyManagement />,
+      },
+      {
+        path: '/strategy-editor',
+        element: <StrategyEditor />,
+      },
+      {
+        path: '/strategy-editor/:strategyName',
+        element: <StrategyEditor />,
+      },
+      // 回测模块路由
+      {
+        path: '/backtest',
+        element: <BacktestLayout />,
+        children: [
+          {
+            index: true,
+            element: <BacktestList />,
+          },
+          {
+            path: 'detail/:backtestId',
+            element: <BacktestDetail />,
+          },
+          {
+            path: 'config',
+            element: <BacktestConfig />,
+          },
+          {
+            path: 'replay/:backtestId',
+            element: <BacktestReplay />,
+          },
+        ],
+      },
+      {
+        path: '/factor-analysis',
+        element: <FactorAnalysis />,
+      },
+      {
+        path: '/model-management',
+        element: <ModelManagement />,
+      },
+      {
+        path: '/data-management',
+        element: <Navigate to="/data-management/data-pools" replace />,
+      },
+      {
+        path: '/data-management/data-pools',
+        element: <DataPoolPage />,
+      },
+      {
+        path: '/data-management/collection',
+        element: <DataCollectionPage />,
+      },
+      {
+        path: '/data-management/quality',
+        element: <DataQualityPage />,
+      },
+      // 设置页面及其子路由
+      {
+        path: '/setting',
+        element: <Setting />,
+        children: [
+          {
+            index: true,
+            element: <Navigate to="/setting/basic" replace />,
+          },
+          {
+            path: 'basic',
+            element: <BasicSettingsPage />,
+          },
+          {
+            path: 'system',
+            element: <SystemConfigPage />,
+          },
+          {
+            path: 'notifications',
+            element: <NotificationsPage />,
+          },
+          {
+            path: 'api',
+            element: <ApiSettingsPage />,
+          },
+          {
+            path: 'info',
+            element: <SystemInfoPage />,
+          },
+        ],
+      },
+      // 默认重定向到图表页面
+      {
+        index: true,
+        element: <Navigate to="/chart" replace />,
+      },
+    ],
+  },
+];
 
-  // 获取插件路由
-  const pluginRoutes = pluginManager.getAllRoutes();
-  
-  // 将插件路由添加到基础路由的children中
-  if (pluginRoutes.length > 0 && baseRoutes[0].children) {
-    for (const route of pluginRoutes) {
-      baseRoutes[0].children.push({
-        path: route.path,
-        element: <PluginPageWrapper>{route.element}</PluginPageWrapper>
-      });
-    }
-  }
+// 创建路由
+export const router = createBrowserRouter(baseRoutes);
 
-  return createBrowserRouter(baseRoutes);
-};
-
-// 创建初始路由
-export let router = createRouter();
-
-/**
- * 更新路由配置，用于插件加载后重新创建路由
- */
-export const updateRouter = () => {
-  router = createRouter();
-};
-
-/**
- * 设置页面标题
- * @param title 页面标题
- */
+// 设置页面标题
 export const setPageTitle = (title?: string): void => {
-  document.title = title || 'React App';
+  document.title = title ? `${title} - QuantCell` : 'QuantCell - 量化交易平台';
 };

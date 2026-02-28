@@ -1,0 +1,148 @@
+.chart-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--ant-color-bg-container);
+}
+
+.chart-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background-color: var(--ant-color-bg-elevated);
+  border-bottom: 1px solid var(--ant-color-border);
+}
+
+.toolbar-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.toolbar-right {
+  display: flex;
+  gap: 8px;
+}
+
+.chart-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.chart-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.kline-chart {
+  width: 100%;
+  height: 100%;
+}
+
+.indicator-sidebar {
+  width: 280px;
+  border-left: 1px solid var(--ant-color-border);
+  background-color: var(--ant-color-bg-container);
+  overflow-y: auto;
+}
+
+.indicator-panel {
+  padding: 8px;
+}
+
+.indicator-section {
+  margin-bottom: 12px;
+}
+
+.indicator-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.built-in-indicators {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.indicator-btn {
+  min-width: 60px;
+}
+
+.indicator-list-item {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.indicator-list-item:hover {
+  background-color: var(--ant-color-bg-text-hover);
+}
+
+.indicator-list-item.active {
+  background-color: var(--ant-color-primary-bg);
+}
+
+.indicator-item-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.indicator-item-desc {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+
+.param-config-form {
+  padding: 16px 0;
+}
+
+.param-form-item {
+  margin-bottom: 16px;
+}
+
+.param-form-item label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.search-results {
+  margin-top: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.search-result-item {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.search-result-item:hover {
+  background-color: var(--ant-color-bg-text-hover);
+}
+
+.symbol-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.symbol-code {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.symbol-name {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+
+.symbol-exchange {
+  font-size: 11px;
+  color: var(--ant-color-text-tertiary);
+}
