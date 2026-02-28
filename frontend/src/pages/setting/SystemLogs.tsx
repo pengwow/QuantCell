@@ -1,7 +1,6 @@
 /**
  * 系统日志组件
  * 功能：显示系统日志，支持刷新和加载更多
- * 参考 certimate 的 SettingsDiagnosticsLogs
  */
 import { useState, useEffect, useCallback } from 'react';
 import { Button, Card, Spin, Empty, Tag, Collapse } from 'antd';

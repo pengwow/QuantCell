@@ -26,7 +26,7 @@ const Show = ({ children, ...props }: ShowProps) => {
         return child.props.children;
       } else if (child.type === Default) {
         if (fallback) {
-          console.warn("[CertimateUI] multiple Default components found in Show. Only the first will be used.");
+          console.warn("multiple Default components found in Show. Only the first will be used.");
           continue;
         }
         fallback = child.props.children;

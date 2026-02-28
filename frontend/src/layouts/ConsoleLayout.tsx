@@ -37,11 +37,11 @@ const ConsoleLayout = () => {
   };
 
   const handleDocumentClick = () => {
-    window.open("https://github.com/QuantCell", "_blank");
+    window.open("https://github.com/pengwow/QuantCell", "_blank");
   };
 
   const handleGitHubClick = () => {
-    window.open("https://github.com/QuantCell", "_blank");
+    window.open("https://github.com/pengwow/QuantCell", "_blank");
   };
 
   return (
