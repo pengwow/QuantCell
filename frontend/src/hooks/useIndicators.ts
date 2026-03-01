@@ -20,7 +20,7 @@ export interface IndicatorParams {
 }
 
 export interface ActiveIndicator {
-  id: string;
+  id: string | number;
   name: string;
   params?: IndicatorParams;
   isCustom?: boolean;
@@ -44,6 +44,36 @@ export const builtInIndicators = [
   { id: 'ad', name: 'AD (累积/派发线)', shortName: 'AD', type: 'line', defaultParams: {} },
   { id: 'kdj', name: 'KDJ (随机指标)', shortName: 'KDJ', type: 'line', defaultParams: { k: 9, d: 3, j: 3 } }
 ];
+
+// 默认指标代码模板
+export const defaultIndicatorCode = `# 指标代码示例
+import pandas as pd
+import numpy as np
+
+my_indicator_name = "双均线交叉"
+my_indicator_description = "基于5日和20日均线交叉产生买卖信号"
+
+# 计算均线
+sma_short = df["close"].rolling(5).mean()
+sma_long = df["close"].rolling(20).mean()
+
+# 生成信号
+buy = (sma_short > sma_long) & (sma_short.shift(1) <= sma_long.shift(1))
+sell = (sma_short < sma_long) & (sma_short.shift(1) >= sma_long.shift(1))
+
+# 输出格式
+output = {
+    "name": my_indicator_name,
+    "plots": [
+        {"name": "SMA5", "data": sma_short.tolist(), "color": "#1890ff", "overlay": True},
+        {"name": "SMA20", "data": sma_long.tolist(), "color": "#ff7a45", "overlay": True}
+    ],
+    "signals": [
+        {"type": "buy", "text": "B", "data": buy.tolist(), "color": "#00E676"},
+        {"type": "sell", "text": "S", "data": sell.tolist(), "color": "#FF5252"}
+    ]
+}
+`;
 
 export const useIndicators = () => {
   const [indicators, setIndicators] = useState<Indicator[]>([]);
