@@ -88,7 +88,7 @@ const ConsoleLayout = () => {
             />
           </div>
         </div>
-        <div className="absolute top-1/2 right-0 translate-x-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover/sider:opacity-100">
+        <div className="absolute top-1/2 right-0 z-[10000] translate-x-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover/sider:opacity-100">
           <Button
             className="bg-background shadow-sm"
             icon={
@@ -125,7 +125,7 @@ const ConsoleLayout = () => {
               <div className="h-full w-full backdrop-blur-[1px]"></div>
             </div>
           </div>
-          <div className="flex size-full items-center justify-between overflow-hidden px-4">
+          <div className="relative z-10 flex size-full items-center justify-between overflow-hidden px-4">
             <div className="flex items-center gap-4">
               <SiderMenuDrawer trigger={<Button icon={<IconMenu2 size="1.25em" stroke="1.25" />} />} />
             </div>

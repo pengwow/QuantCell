@@ -169,9 +169,9 @@ const DrawingBar: React.FC<DrawingBarProps> = ({
             <span className="drawing-bar-icon">
               {getCurrentToolIcon(item.key)}
             </span>
-            <div className="drawing-bar-arrow">
+            <span className="drawing-bar-arrow">
               <DownOutlined className={item.key === popoverKey ? 'rotate' : ''} />
-            </div>
+            </span>
           </div>
           {item.key === popoverKey && (
             <ul className="drawing-bar-list">
@@ -216,9 +216,9 @@ const DrawingBar: React.FC<DrawingBarProps> = ({
           <span className="drawing-bar-icon">
             <ArrowsAltOutlined />
           </span>
-          <div className="drawing-bar-arrow">
+          <span className="drawing-bar-arrow">
             <DownOutlined className={popoverKey === 'mode' ? 'rotate' : ''} />
-          </div>
+          </span>
         </div>
         {popoverKey === 'mode' && (
           <ul className="drawing-bar-list">

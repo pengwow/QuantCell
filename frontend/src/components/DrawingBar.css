@@ -1,25 +1,36 @@
+/* 竖状绘图工具栏样式 */
 .drawing-bar {
   display: flex;
-  align-items: center;
-  padding: 4px 8px;
-  background-color: var(--ant-color-bg-elevated);
-  border-bottom: 1px solid var(--ant-color-border);
-  gap: 4px;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 4px 0;
+  background-color: transparent;
+  gap: 2px;
+  width: 100%;
 }
 
 .drawing-bar-item {
   position: relative;
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 36px;
+  flex-shrink: 0;
 }
 
+/* 图标容器 - 横向排列，图标在左，箭头在右 */
 .drawing-bar-icon-container {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  padding: 4px 6px;
+  justify-content: space-between;
+  width: 40px;
+  height: 32px;
   cursor: pointer;
   border-radius: 4px;
   transition: background-color 0.2s;
+  padding: 2px 4px;
 }
 
 .drawing-bar-icon-container:hover {
@@ -30,44 +41,56 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
+  font-size: 14px;
 }
 
 .drawing-bar-icon .tool-icon-svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   fill: currentColor;
 }
 
+/* 箭头在右侧 */
 .drawing-bar-arrow {
   display: flex;
   align-items: center;
-  margin-left: 2px;
+  justify-content: center;
   color: var(--ant-color-text-secondary);
+  font-size: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 .drawing-bar-arrow svg {
   transition: transform 0.2s;
+  width: 8px;
+  height: 8px;
+  transform: rotate(-90deg);
 }
 
+/* 展开时箭头旋转 */
 .drawing-bar-arrow svg.rotate {
-  transform: rotate(90deg);
+  transform: rotate(0deg);
 }
 
+/* 下拉列表 - 在右侧显示 */
 .drawing-bar-list {
   position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 1000;
-  min-width: 160px;
+  top: 0;
+  left: calc(100% + 4px);
+  z-index: 9999;
+  min-width: 140px;
   padding: 4px 0;
-  margin-top: 4px;
   background-color: var(--ant-color-bg-elevated);
   border: 1px solid var(--ant-color-border);
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   list-style: none;
+  white-space: nowrap;
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 .drawing-bar-list li {
@@ -88,13 +111,122 @@
   color: var(--ant-color-text);
 }
 
+/* 分隔线 - 竖状 */
 .drawing-bar-split {
-  width: 1px;
-  height: 20px;
-  margin: 0 4px;
+  width: 24px;
+  height: 1px;
+  margin: 4px auto;
   background-color: var(--ant-color-border);
 }
 
 .drawing-bar-icon.selected {
   color: var(--ant-color-primary);
+}
+
+/* 横向布局兼容（旧样式） */
+.drawing-bar-horizontal {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 4px 8px;
+  background-color: var(--ant-color-bg-elevated);
+  border-bottom: 1px solid var(--ant-color-border);
+  gap: 4px;
+}
+
+.drawing-bar-horizontal .drawing-bar-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: auto;
+  height: auto;
+}
+
+.drawing-bar-horizontal .drawing-bar-icon-container {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 4px 6px;
+  width: auto;
+  height: auto;
+}
+
+.drawing-bar-horizontal .drawing-bar-arrow {
+  margin-left: 2px;
+  margin-top: 0;
+}
+
+.drawing-bar-horizontal .drawing-bar-arrow svg {
+  transform: rotate(0deg);
+}
+
+.drawing-bar-horizontal .drawing-bar-arrow svg.rotate {
+  transform: rotate(180deg);
+}
+
+.drawing-bar-horizontal .drawing-bar-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  transform: none;
+  margin-top: 4px;
+  margin-left: 0;
+}
+
+.drawing-bar-horizontal .drawing-bar-split {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+}
+
+/* 小屏幕响应式 */
+@media (max-width: 768px) {
+  .drawing-bar {
+    gap: 1px;
+    padding: 2px 0;
+  }
+
+  .drawing-bar-item {
+    height: 32px;
+  }
+
+  .drawing-bar-icon-container {
+    width: 32px;
+    height: 28px;
+    padding: 1px 2px;
+  }
+
+  .drawing-bar-icon {
+    width: 16px;
+    height: 16px;
+    font-size: 12px;
+  }
+
+  .drawing-bar-arrow {
+    width: 8px;
+    height: 8px;
+  }
+
+  .drawing-bar-arrow svg {
+    width: 6px;
+    height: 6px;
+  }
+
+  .drawing-bar-list {
+    min-width: 120px;
+    left: calc(100% + 2px);
+  }
+
+  .drawing-bar-list li {
+    padding: 6px 10px;
+  }
+
+  .drawing-bar-item-text {
+    font-size: 12px;
+  }
+
+  .drawing-bar-split {
+    width: 20px;
+    margin: 2px auto;
+  }
 }

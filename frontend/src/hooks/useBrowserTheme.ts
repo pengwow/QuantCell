@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useTheme } from "ahooks";
 
 const LOCAL_STORAGE_KEY = "quantcell-ui-theme";
@@ -12,7 +13,23 @@ export type UseBrowserThemeReturns = ReturnType<typeof useTheme>;
  * @returns {UseBrowserThemeReturns}
  */
 const useBrowserTheme = (): UseBrowserThemeReturns => {
-  return useTheme({ localStorageKey: LOCAL_STORAGE_KEY });
+  const themeState = useTheme({ localStorageKey: LOCAL_STORAGE_KEY });
+
+  // 同步主题到 html 元素的 class
+  useEffect(() => {
+    const html = document.documentElement;
+    const { theme } = themeState;
+    
+    // theme 是实际计算后的主题（light 或 dark）
+    
+    if (theme === 'dark') {
+      html.classList.add('dark');
+    } else {
+      html.classList.remove('dark');
+    }
+  }, [themeState.theme, themeState.themeMode]);
+
+  return themeState;
 };
 
 export default useBrowserTheme;

@@ -1,34 +1,207 @@
+/* 全屏容器 */
+.chart-page-fullscreen {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  padding-left: 16px; /* 为侧边栏收缩按钮留出空间 */
+}
+
 .chart-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
   background-color: var(--ant-color-bg-container);
+  overflow: hidden;
 }
 
+/* 工具栏样式 */
 .chart-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 16px;
+  padding: 8px 0px;
   background-color: var(--ant-color-bg-elevated);
   border-bottom: 1px solid var(--ant-color-border);
+  position: relative;
+  height: 48px;
 }
 
 .toolbar-left {
   display: flex;
   gap: 8px;
   align-items: center;
+  padding-left: 0;
 }
 
 .toolbar-right {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
+/* 伸缩按钮 */
+.toolbar-toggle {
+  cursor: pointer;
+  padding: 5px;
+  background-color: transparent;
+  border: none;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  color: var(--ant-color-text-secondary);
+  width: 36px;
+  height: 36px;
+}
+
+.toolbar-toggle:hover {
+  background-color: rgba(100, 108, 255, 0.1);
+  color: var(--ant-color-primary);
+}
+
+.toolbar-toggle.expanded {
+  background-color: rgba(100, 108, 255, 0.1);
+  color: var(--ant-color-primary);
+}
+
+/* 图标样式 - 添加旋转动画 */
+.toolbar-toggle svg {
+  width: 20px;
+  height: 20px;
+  transition: transform 0.5s ease;
+  transform: rotate(0deg);
+}
+
+/* 展开状态下图标向左旋转180度 */
+.toolbar-toggle.expanded svg {
+  transform: rotate(-180deg);
+}
+
+/* 品种选择按钮样式 */
+.symbol-select-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  height: 32px;
+  border: 1px solid var(--ant-color-border);
+  background-color: var(--ant-color-bg-container);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.symbol-select-btn:hover {
+  background-color: rgba(100, 108, 255, 0.1);
+  border-color: var(--ant-color-primary);
+}
+
+.symbol-select-btn .symbol-code {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ant-color-text);
+}
+
+/* 周期按钮容器 */
+.period-buttons-container {
+  display: flex;
+  gap: 1px;
+  align-items: center;
+  background-color: var(--ant-color-bg-elevated);
+  border: 1px solid var(--ant-color-border);
+  border-radius: 4px;
+  overflow: hidden;
+  height: 32px;
+}
+
+.period-buttons-container .ant-btn {
+  height: 30px;
+  line-height: 30px;
+  padding: 0 12px;
+}
+
+/* 指标工具栏按钮样式 */
+.indicator-toolbar .ant-btn {
+  height: 32px;
+  line-height: 32px;
+  padding: 0 12px;
+}
+
+.indicator-toolbar .indicator-main-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 更多周期下拉 */
+.more-periods-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  background-color: var(--ant-color-bg-elevated);
+  border: 1px solid var(--ant-color-border);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+}
+
+/* 主图表区域 - 包含左侧工具栏 */
+.chart-main-with-toolbar {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 左侧竖状绘图工具栏 */
+.drawing-toolbar-vertical {
+  width: 48px;
+  min-width: 48px;
+  background-color: var(--ant-color-bg-elevated);
+  border-right: 1px solid var(--ant-color-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  overflow: visible;
+  z-index: 1000;
+  position: relative;
+}
+
+/* 图表区域 */
+.chart-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Spin 容器填满 */
+.chart-spin {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-spin .ant-spin-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 旧样式兼容 */
 .chart-main {
   display: flex;
   flex: 1;
   overflow: hidden;
+  position: relative;
 }
 
 .chart-container {
@@ -39,9 +212,75 @@
 
 .kline-chart {
   width: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
+/* 品种搜索弹窗样式 */
+.symbol-search-results {
+  max-height: calc(80vh - 200px);
+  overflow-y: auto;
+}
+
+.search-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
+.search-empty {
+  text-align: center;
+  padding: 40px;
+  color: var(--ant-color-text-secondary);
+}
+
+.search-result-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.search-result-item:hover {
+  background-color: var(--ant-color-bg-text-hover);
+  transform: translateX(4px);
+}
+
+.search-result-icon {
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.search-result-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-result-code {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ant-color-text);
+}
+
+.search-result-name {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+  margin-top: 2px;
+}
+
+.search-result-exchange {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+  padding: 2px 8px;
+  background-color: var(--ant-color-bg-text-hover);
+  border-radius: 4px;
+}
+
+/* 指标侧边栏 */
 .indicator-sidebar {
   width: 280px;
   border-left: 1px solid var(--ant-color-border);
@@ -117,12 +356,12 @@
   overflow-y: auto;
 }
 
-.search-result-item {
+.search-result-item-legacy {
   cursor: pointer;
   transition: background-color 0.2s;
 }
 
-.search-result-item:hover {
+.search-result-item-legacy:hover {
   background-color: var(--ant-color-bg-text-hover);
 }
 
@@ -132,17 +371,363 @@
   gap: 4px;
 }
 
-.symbol-code {
+.symbol-code-legacy {
   font-weight: 500;
   font-size: 14px;
 }
 
-.symbol-name {
+.symbol-name-legacy {
   font-size: 12px;
   color: var(--ant-color-text-secondary);
 }
 
-.symbol-exchange {
+.symbol-exchange-legacy {
   font-size: 11px;
   color: var(--ant-color-text-tertiary);
+}
+
+/* 图表加载和错误状态 */
+.chart-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(255, 255, 255, 0.8);
+  z-index: 10;
+}
+
+.chart-error {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  max-width: 400px;
+}
+
+/* ========== 指标选择弹窗样式 ========== */
+
+/* 弹窗标题 */
+.indicator-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.indicator-modal-title .anticon {
+  color: var(--ant-color-primary);
+  font-size: 20px;
+}
+
+/* 弹窗内容 */
+.indicator-selector-content {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* 指标区域卡片 */
+.indicator-section-card {
+  margin-bottom: 0;
+  background: transparent;
+}
+
+.indicator-section-card .ant-card-head {
+  background: transparent;
+  border-bottom: none;
+  padding: 12px 0;
+  min-height: 44px;
+}
+
+.indicator-section-card .ant-card-body {
+  padding: 0;
+}
+
+/* 区域标题 */
+.indicator-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ant-color-text);
+}
+
+.indicator-section-header .section-icon {
+  color: var(--ant-color-primary);
+  font-size: 16px;
+}
+
+/* 内置指标网格 */
+.built-in-indicators-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 10px;
+  padding: 8px 0;
+}
+
+/* 指标网格按钮 */
+.indicator-grid-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  padding: 8px 4px;
+  font-size: 12px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.indicator-grid-btn .anticon {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+.indicator-grid-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.indicator-grid-btn.active {
+  background: var(--ant-color-primary);
+  border-color: var(--ant-color-primary);
+  color: white;
+}
+
+.indicator-grid-btn.active .anticon {
+  color: white;
+}
+
+/* 分隔线 */
+.indicator-divider {
+  margin: 16px 0;
+  border-color: var(--ant-color-border);
+}
+
+/* 自定义指标列表 */
+.custom-indicators-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* 自定义指标项 */
+.custom-indicator-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--ant-color-bg-elevated);
+  border: 1px solid var(--ant-color-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.custom-indicator-item:hover {
+  background: rgba(100, 108, 255, 0.05);
+  border-color: var(--ant-color-primary);
+  transform: translateX(4px);
+}
+
+.custom-indicator-item.active {
+  background: rgba(100, 108, 255, 0.1);
+  border-left: 3px solid var(--ant-color-primary);
+}
+
+/* 指标信息 */
+.custom-indicator-info {
+  flex: 1;
+  min-width: 0;
+  margin-right: 12px;
+}
+
+.custom-indicator-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--ant-color-text);
+  margin-bottom: 4px;
+}
+
+.custom-indicator-desc {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 运行中标签 */
+.running-tag {
+  font-size: 10px;
+  padding: 0 6px;
+  height: 18px;
+  line-height: 18px;
+}
+
+/* 指标操作按钮 */
+.custom-indicator-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.custom-indicator-item:hover .custom-indicator-actions {
+  opacity: 1;
+}
+
+/* 空状态 */
+.indicator-empty {
+  padding: 24px 0;
+}
+
+/* 主指标按钮 */
+.indicator-main-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.indicator-main-btn .active-count {
+  font-size: 11px;
+  margin-left: 2px;
+}
+
+/* 工具栏样式 */
+.indicator-toolbar-wrapper {
+  display: flex;
+  align-items: center;
+  margin-right: auto;
+  padding: 0 10px;
+}
+
+.indicator-toolbar {
+  display: flex;
+  align-items: center;
+}
+
+/* 弹窗动画 */
+.indicator-selector-modal .ant-modal-content {
+  animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 滚动条样式 */
+.indicator-selector-content::-webkit-scrollbar,
+.custom-indicators-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.indicator-selector-content::-webkit-scrollbar-track,
+.custom-indicators-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.indicator-selector-content::-webkit-scrollbar-thumb,
+.custom-indicators-list::-webkit-scrollbar-thumb {
+  background: var(--ant-color-border);
+  border-radius: 2px;
+}
+
+.indicator-selector-content::-webkit-scrollbar-thumb:hover,
+.custom-indicators-list::-webkit-scrollbar-thumb:hover {
+  background: var(--ant-color-text-secondary);
+}
+
+/* 响应式布局 */
+@media (max-width: 768px) {
+  .chart-toolbar {
+    flex-wrap: wrap;
+    gap: 4px;
+    height: auto;
+    min-height: 48px;
+    padding: 4px 8px;
+  }
+
+  .toolbar-left {
+    flex-wrap: wrap;
+    gap: 4px;
+    width: 100%;
+  }
+
+  .toolbar-right {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  /* 品种按钮 - 小屏幕下缩小 */
+  .symbol-select-btn {
+    height: 28px;
+    padding: 2px 8px;
+    font-size: 12px;
+  }
+
+  .symbol-select-btn .symbol-code {
+    font-size: 12px;
+  }
+
+  /* 周期按钮容器 - 小屏幕下允许滚动 */
+  .period-buttons-container {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    height: 28px;
+    gap: 0;
+  }
+
+  .period-buttons-container .ant-btn {
+    height: 26px;
+    line-height: 26px;
+    padding: 0 8px;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+
+  /* 指标按钮 - 小屏幕下缩小 */
+  .indicator-toolbar .ant-btn {
+    height: 28px;
+    line-height: 28px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  /* 更多周期下拉 */
+  .more-periods-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: auto;
+    margin-top: 4px;
+    z-index: 1001;
+  }
+
+  /* 左侧绘图工具栏 - 小屏幕下调整 */
+  .drawing-toolbar-vertical {
+    width: 40px;
+    min-width: 40px;
+  }
+
 }
