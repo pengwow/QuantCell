@@ -3,8 +3,8 @@
  * 功能：显示系统日志，支持刷新和加载更多
  */
 import { useState, useEffect, useCallback } from 'react';
-import { Button, Card, Spin, Empty, Tag, Collapse } from 'antd';
-import { ReloadOutlined, DownOutlined } from '@ant-design/icons';
+import { Tag, Collapse, Divider } from 'antd';
+import { DownOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
 import { systemApi } from '../../api';
@@ -98,7 +98,7 @@ const SystemLogs = () => {
 
   /**
    * 刷新日志
-   */
+  */
   const handleRefresh = () => {
     loadLogs(1, false);
   };
@@ -118,110 +118,122 @@ const SystemLogs = () => {
   }, [loadLogs]);
 
   return (
-    <Card
-      className="settings-panel"
-      title={
-        <div className="flex items-center justify-between">
-          <span>{t('system_logs') || '系统日志'}</span>
-          <Button
-            type="text"
-            icon={<ReloadOutlined />}
-            onClick={handleRefresh}
-            loading={loading}
-          >
-            {t('refresh') || '刷新'}
-          </Button>
-        </div>
-      }
-      variant="outlined"
-    >
-      <Spin spinning={loading} tip={t('loading') || '加载中...'}>
-        {logs.length === 0 ? (
-          <Empty description={t('no_logs') || '暂无日志'} />
-        ) : (
-          <>
-            {/* 日志显示区域 - 黑色终端风格 */}
-            <div
-              className="rounded-lg p-4 font-mono text-sm overflow-auto"
-              style={{
-                backgroundColor: '#1e1e1e',
-                color: '#d4d4d4',
-                maxHeight: '400px',
-                minHeight: '200px',
-              }}
-            >
-              {logs.map((log, index) => (
-                <div key={log.id || index} className="mb-2">
-                  <div className="flex items-start gap-2">
-                    {/* 时间戳 */}
-                    <span className="text-gray-500 shrink-0">
-                      [{dayjs(log.timestamp).format('YYYY-MM-DD HH:mm:ss')}]
-                    </span>
-                    
-                    {/* 日志级别 */}
-                    <Tag
-                      color={getLevelColor(log.level)}
-                      className="shrink-0 m-0"
-                      style={{ fontSize: '10px', padding: '0 4px', lineHeight: '16px' }}
-                    >
-                      {getLevelLabel(log.level)}
-                    </Tag>
-                    
-                    {/* 消息内容 */}
-                    <span className="break-all">{log.message}</span>
-                  </div>
+    <div>
+      {/* 标题 */}
+      <h3 className="text-lg font-medium mb-4">{t('system_logs') || '系统日志'}</h3>
 
-                  {/* 详细数据（可展开） */}
-                  {log.data && (
-                    <Collapse
-                      ghost
-                      className="mt-1 ml-0"
-                      expandIcon={({ isActive }) => (
-                        <DownOutlined rotate={isActive ? 180 : 0} style={{ fontSize: '10px', color: '#888' }} />
-                      )}
-                    >
-                      <Panel
-                        header={<span className="text-xs text-gray-500">{t('details') || '详情'}</span>}
-                        key="1"
-                      >
-                        <pre
-                          className="text-xs overflow-auto p-2 rounded"
-                          style={{
-                            backgroundColor: '#2d2d2d',
-                            color: '#d4d4d4',
-                            maxHeight: '200px',
-                          }}
+      {/* 终端风格日志容器 - 纯黑色背景 */}
+      <div className="rounded-md bg-black text-stone-200 overflow-hidden">
+        <div className="relative">
+          {loading && (
+            <div className="absolute top-4 right-8 text-xs text-stone-400">
+              {t('loading') || '加载中...'}
+            </div>
+          )}
+
+          <div className="px-4 py-2">
+            {logs.length === 0 ? (
+              <>
+                <div className="text-xs text-stone-400">
+                  {t('no_logs') || '> 暂无日志'}
+                </div>
+                {/* 空状态时也显示操作链接 */}
+                <div className="flex w-full items-center mt-4">
+                  <a
+                    onClick={handleRefresh}
+                    className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
+                  >
+                    {t('refresh_logs') || '刷新日志'}
+                  </a>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* 日志列表 */}
+                <div className="flex w-full flex-col overflow-hidden">
+                  {logs.map((log, index) => (
+                    <div key={log.id || index} className="text-xs leading-relaxed mb-1">
+                      <div className="flex items-start gap-2">
+                        {/* 时间戳 */}
+                        <span className="font-mono whitespace-nowrap text-stone-400 shrink-0">
+                          [{dayjs(log.timestamp).format('YYYY-MM-DD HH:mm:ss')}]
+                        </span>
+
+                        {/* 日志级别 */}
+                        <Tag
+                          color={getLevelColor(log.level)}
+                          className="shrink-0 m-0"
+                          style={{ fontSize: '10px', padding: '0 4px', lineHeight: '16px' }}
                         >
-                          {JSON.stringify(log.data, null, 2)}
-                        </pre>
-                      </Panel>
-                    </Collapse>
+                          {getLevelLabel(log.level)}
+                        </Tag>
+
+                        {/* 消息内容 */}
+                        <span className="break-all">{log.message}</span>
+                      </div>
+
+                      {/* 详细数据（可展开） */}
+                      {log.data && (
+                        <Collapse
+                          ghost
+                          className="mt-1 ml-0"
+                          expandIcon={({ isActive }) => (
+                            <DownOutlined rotate={isActive ? 180 : 0} style={{ fontSize: '10px', color: '#888' }} />
+                          )}
+                        >
+                          <Panel
+                            header={<span className="text-xs text-stone-500">{t('details') || '详情'}</span>}
+                            key="1"
+                          >
+                            <pre
+                              className="text-xs overflow-auto p-2 rounded bg-stone-800 text-stone-300"
+                              style={{ maxHeight: '200px' }}
+                            >
+                              {JSON.stringify(log.data, null, 2)}
+                            </pre>
+                          </Panel>
+                        </Collapse>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* 底部操作链接 - 始终显示刷新日志，有条件显示加载更多 */}
+                <div className="flex w-full items-center mt-4">
+                  <a
+                    onClick={handleRefresh}
+                    className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
+                  >
+                    {t('refresh_logs') || '刷新日志'}
+                  </a>
+                  {/* 始终显示加载更多链接，如果 hasMore 为 false 则显示为禁用状态 */}
+                  <Divider type="vertical" className="bg-stone-600 mx-2" />
+                  {hasMore ? (
+                    <a
+                      onClick={handleLoadMore}
+                      className={`text-xs cursor-pointer ${loadingMore ? 'text-stone-500' : 'text-blue-400 hover:text-blue-300'}`}
+                    >
+                      {loadingMore ? (t('loading') || '加载中...') : (t('load_more') || '加载更多')}
+                    </a>
+                  ) : (
+                    <span className="text-xs text-stone-600">
+                      {t('no_more_logs') || '没有更多了'}
+                    </span>
                   )}
                 </div>
-              ))}
-            </div>
-
-            {/* 加载更多按钮 */}
-            {hasMore && (
-              <div className="flex justify-center mt-4">
-                <Button
-                  onClick={handleLoadMore}
-                  loading={loadingMore}
-                  disabled={!hasMore}
-                >
-                  {t('load_more') || '加载更多'}
-                </Button>
-              </div>
+              </>
             )}
+          </div>
+        </div>
+      </div>
 
-            {/* 日志统计 */}
-            <div className="text-center text-xs text-gray-400 mt-2">
-              {t('total_logs', { count: total }) || `共 ${total} 条日志`}
-            </div>
-          </>
-        )}
-      </Spin>
-    </Card>
+      {/* 日志统计 */}
+      {logs.length > 0 && (
+        <div className="text-center text-xs text-gray-400 mt-2">
+          {t('total_logs', { count: total }) || `共 ${total} 条日志`}
+        </div>
+      )}
+    </div>
   );
 };
 

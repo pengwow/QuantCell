@@ -23,6 +23,7 @@ const defaultUserSettings: UserSettings = {
   language: 'zh-CN',
   showTips: true,
   timezone: 'Asia/Shanghai',
+  defaultPerPage: 15,
 };
 
 // 默认通知设置

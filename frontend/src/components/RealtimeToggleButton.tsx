@@ -333,7 +333,12 @@ export function RealtimeToggleButton({
   }, [symbol, period]);
 
   return (
-    <Tooltip title={getTooltipText()} placement="bottom">
+    <Tooltip
+      title={getTooltipText()}
+      placement="left"
+      getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+      mouseEnterDelay={0.5}
+    >
       <Button
         type={isRealtime ? 'primary' : 'default'}
         icon={loading ? <LoadingOutlined /> : (isRealtime ? <PauseCircleOutlined /> : <PlayCircleOutlined />)}

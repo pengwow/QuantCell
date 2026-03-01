@@ -1,11 +1,11 @@
 /**
  * 系统信息模块
- * 功能：显示系统版本、运行状态、资源使用、系统状态和系统日志等信息
+ * 功能：显示系统日志、系统信息（版本+状态）等信息
  */
-import { Card, Descriptions, Progress, Tag, Badge } from 'antd';
+import { Card, Descriptions, Tag } from 'antd';
 import { useSettings } from './SettingsContext';
 import SystemLogs from './SystemLogs';
-import type { SystemInfo as SystemInfoType, SystemMetrics } from './types';
+import type { SystemInfo as SystemInfoType } from './types';
 
 interface SystemInfoProps {
   systemInfo: SystemInfoType;
@@ -31,34 +31,6 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
     }
   };
 
-  // 获取连接状态颜色
-  const getConnectionStatusColor = (status: SystemMetrics['connectionStatus']) => {
-    switch (status) {
-      case 'connected':
-        return 'success';
-      case 'disconnected':
-        return 'default';
-      case 'error':
-        return 'error';
-      default:
-        return 'default';
-    }
-  };
-
-  // 获取连接状态文本
-  const getConnectionStatusText = (status: SystemMetrics['connectionStatus']) => {
-    switch (status) {
-      case 'connected':
-        return '已连接';
-      case 'disconnected':
-        return '未连接';
-      case 'error':
-        return '连接错误';
-      default:
-        return '未知';
-    }
-  };
-
   // 获取使用率状态
   const getUsageStatus = (percent: number): 'normal' | 'warning' | 'critical' => {
     if (percent >= 85) return 'critical';
@@ -67,11 +39,16 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
   };
 
   return (
-    <div className="block space-y-4">
-      <Card className="settings-panel" title="系统信息" variant="outlined">
-        {/* 版本信息 */}
-        <Card size="small" className="mb-4">
-          <Descriptions title="版本信息" bordered column={1}>
+    <div className="space-y-6">
+      {/* 系统日志 - 放在最上方 */}
+      <SystemLogs />
+
+      {/* 系统信息 - 合并版本信息和系统状态 */}
+      <div>
+        <h3 className="text-lg font-medium mb-4">系统信息</h3>
+        <Card size="small">
+          <Descriptions bordered column={1}>
+            {/* 版本信息 */}
             <Descriptions.Item label="系统版本">
               {systemInfo.version.system_version}
             </Descriptions.Item>
@@ -81,54 +58,18 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
             <Descriptions.Item label="构建日期">
               {systemInfo.version.build_date}
             </Descriptions.Item>
-          </Descriptions>
-        </Card>
 
-        {/* 运行状态 */}
-        <Card size="small" className="mb-4">
-          <Descriptions title="运行状态" bordered column={1}>
+            {/* 运行状态信息 */}
             <Descriptions.Item label="运行时间">
               {systemInfo.running_status.uptime}
             </Descriptions.Item>
-            <Descriptions.Item label="状态">
+            <Descriptions.Item label="运行状态">
               <Tag color={getStatusColor(systemInfo.running_status.status)}>
                 {systemInfo.running_status.status}
               </Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="最后检查时间">
-              {systemInfo.running_status.last_check}
-            </Descriptions.Item>
-          </Descriptions>
-        </Card>
 
-        {/* 资源使用 */}
-        <Card size="small" className="mb-4">
-          <Descriptions title="资源使用" bordered column={1}>
-            <Descriptions.Item label="CPU使用率">
-              <Progress
-                percent={systemInfo.resource_usage.cpu_usage}
-                size="small"
-                status={systemInfo.resource_usage.cpu_usage > 80 ? 'exception' : 'normal'}
-              />
-            </Descriptions.Item>
-            <Descriptions.Item label="内存使用">
-              {systemInfo.resource_usage.memory_usage}
-            </Descriptions.Item>
-            <Descriptions.Item label="磁盘空间">
-              {systemInfo.resource_usage.disk_space}
-            </Descriptions.Item>
-          </Descriptions>
-        </Card>
-
-        {/* 系统状态 - 从左侧菜单栏迁移过来 */}
-        <Card size="small">
-          <Descriptions title="系统状态" bordered column={1}>
-            <Descriptions.Item label="连接状态">
-              <Badge
-                status={getConnectionStatusColor(systemMetrics.connectionStatus)}
-                text={getConnectionStatusText(systemMetrics.connectionStatus)}
-              />
-            </Descriptions.Item>
+            {/* 资源状态 */}
             <Descriptions.Item label="CPU使用率">
               <div className="flex items-center gap-2">
                 <span
@@ -184,10 +125,7 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
             </Descriptions.Item>
           </Descriptions>
         </Card>
-      </Card>
-
-      {/* 系统日志 */}
-      <SystemLogs />
+      </div>
     </div>
   );
 };

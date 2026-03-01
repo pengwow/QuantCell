@@ -713,7 +713,7 @@ const ChartPage = () => {
             </Button>
 
             {/* 周期选择 */}
-            <div className="period-buttons-container">
+            <div className="period-buttons-container" style={{ position: 'relative' }}>
               {PERIODS.map(period => (
                 <Button
                   key={period.value}
@@ -730,26 +730,26 @@ const ChartPage = () => {
               >
                 {isPeriodsExpanded ? '收起' : '更多'}
               </Button>
-            </div>
 
-            {/* 更多周期下拉 */}
-            {isPeriodsExpanded && (
-              <div className="more-periods-dropdown">
-                {MORE_PERIODS.map(period => (
-                  <Button
-                    key={period.value}
-                    type={currentPeriod === period.value ? 'primary' : 'default'}
-                    size="small"
-                    onClick={() => {
-                      setCurrentPeriod(period.value);
-                      setIsPeriodsExpanded(false);
-                    }}
-                  >
-                    {period.label}
-                  </Button>
-                ))}
-              </div>
-            )}
+              {/* 更多周期下拉 - 放在容器内部以便正确定位 */}
+              {isPeriodsExpanded && (
+                <div className="more-periods-dropdown">
+                  {MORE_PERIODS.map(period => (
+                    <Button
+                      key={period.value}
+                      type={currentPeriod === period.value ? 'primary' : 'default'}
+                      size="small"
+                      onClick={() => {
+                        setCurrentPeriod(period.value);
+                        setIsPeriodsExpanded(false);
+                      }}
+                    >
+                      {period.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* 指标按钮 - 放在周期选择后面 */}
             <IndicatorToolbar

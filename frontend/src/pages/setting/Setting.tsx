@@ -6,11 +6,11 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  IconUser,
-  IconSettings,
+  IconPalette,
   IconBell,
-  IconApi,
   IconInfoCircle,
+  IconRobot,
+  IconBuildingBank,
 } from "@tabler/icons-react";
 import { Menu } from "antd";
 import { SettingsProvider } from "./SettingsContext";
@@ -24,24 +24,24 @@ const SettingLayout = () => {
 
   // 菜单配置
   const menus = [
-    ["basic", t("basic_settings") || "基本设置", <IconUser size="1em" />],
-    ["system", t("system_config") || "系统配置", <IconSettings size="1em" />],
+    ["appearance", t("appearance") || "外观", <IconPalette size="1em" />],
+    ["exchange", t("exchange_settings") || "交易所", <IconBuildingBank size="1em" />],
     ["notifications", t("notification_settings") || "通知设置", <IconBell size="1em" />],
-    ["api", t("api_settings") || "API 设置", <IconApi size="1em" />],
+    ["model", t("model_settings") || "模型", <IconRobot size="1em" />],
     ["info", t("system_info") || "系统信息", <IconInfoCircle size="1em" />],
   ] satisfies [string, string, React.ReactElement][];
 
   // 当前选中的菜单项
   const [menuKey, setMenuKey] = useState<string>(() => {
     const pathParts = location.pathname.split("/");
-    return pathParts[2] || "basic";
+    return pathParts[2] || "appearance";
   });
 
   // 监听路由变化，更新选中菜单
   useEffect(() => {
     const subpath = location.pathname.split("/")[2];
     if (!subpath) {
-      navigate("/setting/basic");
+      navigate("/setting/appearance");
       return;
     }
     setMenuKey(subpath);

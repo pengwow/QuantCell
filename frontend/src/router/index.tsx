@@ -24,10 +24,10 @@ import BacktestConfig from '@/pages/backtest/BacktestConfig';
 import BacktestReplay from '@/pages/backtest/BacktestReplay';
 
 // 导入设置子页面
-import BasicSettingsPage from '@/pages/setting/BasicSettingsPage';
-import SystemConfigPage from '@/pages/setting/SystemConfigPage';
+import AppearanceSettingsPage from '@/pages/setting/AppearanceSettingsPage';
+import ExchangeSettingsPage from '@/pages/setting/ExchangeSettingsPage';
 import NotificationsPage from '@/pages/setting/NotificationsPage';
-import ApiSettingsPage from '@/pages/setting/ApiSettingsPage';
+import ModelSettingsPage from '@/pages/setting/ModelSettingsPage';
 import SystemInfoPage from '@/pages/setting/SystemInfoPage';
 
 // 基础路由配置
@@ -110,23 +110,23 @@ const baseRoutes: RouteObject[] = [
         children: [
           {
             index: true,
-            element: <Navigate to="/setting/basic" replace />,
+            element: <Navigate to="/setting/appearance" replace />,
           },
           {
-            path: 'basic',
-            element: <BasicSettingsPage />,
+            path: 'appearance',
+            element: <AppearanceSettingsPage />,
           },
           {
-            path: 'system',
-            element: <SystemConfigPage />,
+            path: 'exchange',
+            element: <ExchangeSettingsPage />,
           },
           {
             path: 'notifications',
             element: <NotificationsPage />,
           },
           {
-            path: 'api',
-            element: <ApiSettingsPage />,
+            path: 'model',
+            element: <ModelSettingsPage />,
           },
           {
             path: 'info',
