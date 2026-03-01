@@ -20,18 +20,18 @@
 .chart-toolbar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 8px 0px;
   background-color: var(--ant-color-bg-elevated);
   border-bottom: 1px solid var(--ant-color-border);
   position: relative;
-  height: 48px;
+  min-height: 48px;
 }
 
 .toolbar-left {
   display: flex;
   gap: 8px;
-  align-items: center;
+  align-items: flex-start;
   padding-left: 0;
 }
 
@@ -39,6 +39,7 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  padding-right: 10px;
 }
 
 /* 伸缩按钮 */
@@ -112,7 +113,7 @@
   background-color: var(--ant-color-bg-elevated);
   border: 1px solid var(--ant-color-border);
   border-radius: 4px;
-  overflow: hidden;
+  overflow: visible;
   height: 32px;
 }
 
@@ -138,17 +139,23 @@
 /* 更多周期下拉 */
 .more-periods-dropdown {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 4px);
   left: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 4px;
+  gap: 4px;
+  padding: 8px;
   background-color: var(--ant-color-bg-elevated);
   border: 1px solid var(--ant-color-border);
   border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   z-index: 1000;
+  min-width: 60px;
+}
+
+.more-periods-dropdown .ant-btn {
+  width: 100%;
+  text-align: center;
 }
 
 /* 主图表区域 - 包含左侧工具栏 */

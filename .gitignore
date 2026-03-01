@@ -47,3 +47,4 @@ QuantCell.code-workspace
 ui/node_modules/
 frontend_old/
 frontend/node_modules/*
+frontend/dist/*

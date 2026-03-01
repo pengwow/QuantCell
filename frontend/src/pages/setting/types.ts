@@ -11,6 +11,7 @@ export interface UserSettings {
   language: 'zh-CN' | 'en-US';
   showTips: boolean;
   timezone: string; // 时区配置
+  defaultPerPage?: number; // 默认分页大小
 }
 
 // 通知设置类型定义

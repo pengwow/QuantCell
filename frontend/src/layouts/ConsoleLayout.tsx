@@ -25,7 +25,7 @@ const ConsoleLayout = () => {
   const { token: themeToken } = theme.useToken();
   const { themeMode, setThemeMode } = useBrowserTheme();
 
-  const [siderCollapsed, setSiderCollapsed] = useState(false);
+  const [siderCollapsed, setSiderCollapsed] = useState(true);
 
   const handleSetThemeMode = (mode: ThemeMode) => {
     setThemeMode(mode);
