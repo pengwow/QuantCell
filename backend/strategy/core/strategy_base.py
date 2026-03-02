@@ -1,4 +1,4 @@
-# 统一策略基类
+# 策略基类
 # 支持回测和实盘两种模式
 
 from abc import ABC, abstractmethod
@@ -15,7 +15,7 @@ getcontext().prec = 28
 
 class StrategyBase(ABC):
     """
-    统一策略基类
+    策略基类
     支持回测和实盘两种模式
     """
     

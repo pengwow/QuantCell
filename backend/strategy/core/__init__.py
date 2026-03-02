@@ -1,5 +1,25 @@
+# 策略接口
+from .data_types import (
+    Bar,
+    InstrumentId,
+    Order,
+    Position,
+    AccountBalance,
+    OrderSide,
+    OrderType,
+    TimeInForce,
+    PositionSide,
+    QuoteTick,
+    TradeTick,
+)
+from .strategy import (
+    StrategyBase,
+    StrategyConfig,
+    Strategy,
+)
+
 # 核心引擎模块
-from .strategy import Strategy, StrategyConfig, StrategyBase
+from .strategy import Strategy as LegacyStrategy, StrategyConfig as LegacyStrategyConfig, StrategyBase as LegacyStrategyBase
 from .event_engine import EventEngine, EventType
 from .vector_engine import VectorEngine
 from .numba_functions import (
@@ -95,10 +115,26 @@ from .strategy_core import (
 )
 
 __all__ = [
-    # 基础组件
-    "Strategy",
-    "StrategyConfig",
+    # 策略接口
+    "Bar",
+    "InstrumentId",
+    "Order",
+    "Position",
+    "AccountBalance",
+    "OrderSide",
+    "OrderType",
+    "TimeInForce",
+    "PositionSide",
+    "QuoteTick",
+    "TradeTick",
     "StrategyBase",
+    "StrategyConfig",
+    "Strategy",
+
+    # 基础组件
+    "LegacyStrategy",
+    "LegacyStrategyConfig",
+    "LegacyStrategyBase",
     "EventEngine",
     "EventType",
     "VectorEngine",

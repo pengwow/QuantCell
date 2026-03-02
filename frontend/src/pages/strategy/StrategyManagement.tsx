@@ -106,7 +106,7 @@ const StrategyManagement = () => {
 
   return (
     <PageContainer title={t('strategy_management')}>
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex justify-end items-center mb-4">
         <Button
           type="primary"
           icon={<PlusOutlined />}

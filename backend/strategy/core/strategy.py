@@ -1,339 +1,622 @@
-# 策略基类
-# 基于 NautilusTrader 框架的策略实现
+# -*- coding: utf-8 -*-
+"""
+策略接口定义
 
-from typing import Dict, Any, Optional, List
-from datetime import datetime, timedelta
-from decimal import Decimal, getcontext, ROUND_DOWN, ROUND_UP, ROUND_HALF_UP
-import warnings
+提供与交易框架无关的策略基类和配置类。
+策略脚本应该继承这些基类，实现具体的交易逻辑。
+
+作者: QuantCell Team
+版本: 1.0.0
+日期: 2026-03-02
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime
+from decimal import Decimal
+from typing import Any, Dict, List, Optional, Callable
 
 from loguru import logger
 
-# NautilusTrader 导入
-from nautilus_trader.trading.strategy import Strategy as NTStrategy
-from nautilus_trader.config import StrategyConfig as NTStrategyConfig
-from nautilus_trader.model.data import Bar as NTBar
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.enums import OrderSide, TimeInForce
-from nautilus_trader.model.orders import MarketOrder, LimitOrder
+from .data_types import (
+    Bar,
+    InstrumentId,
+    OrderSide,
+    OrderType,
+    TimeInForce,
+    Position,
+    PositionSide,
+)
 
 
-getcontext().prec = 28
-
-
-class StrategyConfig(NTStrategyConfig, frozen=True):
+@dataclass
+class StrategyConfig:
     """
-    策略配置类
-    
-    继承 NautilusTrader StrategyConfig，添加扩展配置项
+    策略配置基类
+
+    所有策略配置都需要继承此类。
+    提供基础的配置参数，支持单品种和多品种模式。
+
+    Parameters
+    ----------
+    instrument_ids : List[InstrumentId]
+        策略交易的品种ID列表
+    bar_types : List[str]
+        策略订阅的K线类型列表，例如 ["1-HOUR", "1-MINUTE"]
+    trade_size : Decimal
+        每笔交易的数量，默认 1.0
+    log_level : str
+        日志级别，默认 "INFO"
+
+    Attributes
+    ----------
+    instrument_id : InstrumentId
+        第一个交易品种（便捷访问）
+    bar_type : str
+        第一个K线类型（便捷访问）
+    is_multi_symbol : bool
+        是否为多品种模式
+
+    Examples
+    --------
+    >>> # 单品种模式
+    >>> config = StrategyConfig(
+    ...     instrument_ids=[InstrumentId("BTCUSDT", "BINANCE")],
+    ...     bar_types=["1-HOUR"],
+    ... )
+    >>> # 多品种模式
+    >>> config = StrategyConfig(
+    ...     instrument_ids=[
+    ...         InstrumentId("BTCUSDT", "BINANCE"),
+    ...         InstrumentId("ETHUSDT", "BINANCE"),
+    ...     ],
+    ...     bar_types=["1-HOUR", "1-HOUR"],
+    ... )
     """
-    # 风险控制配置
-    stop_loss: float = 0.05
-    take_profit: float = 0.1
-    max_position_size: float = 1.0
-    
-    # 持仓管理配置
-    max_open_positions: int = 5
-    
-    # 订单超时配置（秒）
-    entry_timeout: int = 300
-    exit_timeout: int = 300
-    
-    # 保护机制配置
-    cooldown_period: int = 3600
-    max_drawdown: float = 0.1
-    
-    # 加密货币配置
-    contract_type: str = "spot"  # spot, perpetual
-    price_precision: int = 8
-    size_precision: int = 3
-    
-    # 杠杆配置
-    leverage_enabled: bool = False
-    default_leverage: float = 1.0
-    max_leverage: float = 10.0
+
+    instrument_ids: List[InstrumentId]
+    bar_types: List[str]
+    trade_size: Decimal = field(default_factory=lambda: Decimal("1.0"))
+    log_level: str = "INFO"
+
+    def __post_init__(self):
+        """验证配置"""
+        if not self.instrument_ids or not self.bar_types:
+            raise ValueError("instrument_ids 和 bar_types 不能为空列表")
+        if len(self.instrument_ids) != len(self.bar_types):
+            raise ValueError(
+                f"instrument_ids ({len(self.instrument_ids)}) 和 "
+                f"bar_types ({len(self.bar_types)}) 长度必须相同"
+            )
+
+    @property
+    def instrument_id(self) -> InstrumentId:
+        """获取第一个品种ID（便捷访问）"""
+        return self.instrument_ids[0]
+
+    @property
+    def bar_type(self) -> str:
+        """获取第一个K线类型（便捷访问）"""
+        return self.bar_types[0]
+
+    @property
+    def is_multi_symbol(self) -> bool:
+        """是否为多品种模式"""
+        return len(self.instrument_ids) > 1
+
+    def get_bar_type_for(self, instrument_id: InstrumentId) -> Optional[str]:
+        """
+        获取指定品种对应的K线类型
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            品种标识
+
+        Returns
+        -------
+        Optional[str]
+            K线类型，未找到返回 None
+        """
+        for i, inst_id in enumerate(self.instrument_ids):
+            if inst_id == instrument_id:
+                return self.bar_types[i]
+        return None
+
+    def get_instrument_index(self, instrument_id: InstrumentId) -> int:
+        """
+        获取品种在列表中的索引
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            品种标识
+
+        Returns
+        -------
+        int
+            品种索引，未找到返回 -1
+        """
+        for i, inst_id in enumerate(self.instrument_ids):
+            if inst_id == instrument_id:
+                return i
+        return -1
 
 
-class Strategy(NTStrategy):
+class StrategyBase(ABC):
     """
-    策略基类
-    
-    基于 NautilusTrader Strategy 实现，提供策略开发的基础功能。
-    支持回测和实盘两种模式，内置风险控制和持仓管理。
-    
-    使用方式:
-        class MyStrategy(Strategy):
-            def on_bar(self, bar):
-                # 策略逻辑
-                if self.should_buy(bar):
-                    self.buy(bar)
+    策略基类抽象接口
+
+    所有策略都需要继承此类并实现抽象方法。
+    这个基类定义了策略的生命周期和交易接口，与具体执行环境无关。
+
+    Parameters
+    ----------
+    config : StrategyConfig
+        策略配置对象
+
+    Attributes
+    ----------
+    config : StrategyConfig
+        策略配置
+    is_running : bool
+        策略是否正在运行
+    bars_processed : int
+        已处理的K线数量
+    start_time : Optional[datetime]
+        策略启动时间
+    end_time : Optional[datetime]
+        策略停止时间
+
+    Examples
+    --------
+    >>> class MyStrategy(StrategyBase):
+    ...     def on_bar(self, bar: Bar) -> None:
+    ...         if self.should_buy(bar):
+    ...             self.buy(bar.instrument_id, Decimal("0.1"))
     """
-    
-    def __init__(self, config: StrategyConfig):
+
+    def __init__(self, config: StrategyConfig) -> None:
         """
         初始化策略
-        
-        Args:
-            config: 策略配置对象
+
+        Parameters
+        ----------
+        config : StrategyConfig
+            策略配置对象
         """
-        super().__init__(config)
-        
-        # 策略状态
-        self._initialized = False
-        self._positions_count = 0
-        
-        # 交易统计
-        self.trades: List[Dict[str, Any]] = []
-        self.total_pnl = 0.0
-        self.winning_trades = 0
-        self.total_trades = 0
-        
-        # 冷却期管理
-        self._cooldowns: Dict[str, datetime] = {}
-        
-        logger.info(f"策略初始化完成: {self.__class__.__name__}")
-    
-    def on_start(self):
+        self.config = config
+        self.is_running: bool = False
+        self.bars_processed: int = 0
+        self.start_time: Optional[datetime] = None
+        self.end_time: Optional[datetime] = None
+
+        # 内部状态（由子类使用）
+        self._positions: Dict[InstrumentId, Position] = {}
+        self._orders: Dict[str, Any] = {}
+
+    # ==================== 生命周期方法 ====================
+
+    @abstractmethod
+    def on_start(self) -> None:
         """
-        策略启动回调
-        
-        在策略开始运行时调用，用于初始化操作
-        """
-        self._initialized = True
-        logger.info(f"策略启动: {self.__class__.__name__}")
-        self.on_init()
-    
-    def on_init(self):
-        """
-        策略初始化
-        
-        子类可以重写此方法进行自定义初始化
+        策略启动时调用
+
+        子类应该在此方法中：
+        1. 初始化策略状态
+        2. 订阅数据（如果需要）
+        3. 输出启动日志
+
+        Examples
+        --------
+        >>> def on_start(self) -> None:
+        ...     self.log_info("策略启动")
+        ...     # 初始化指标计算
+        ...     self.prices = {}
         """
         pass
-    
-    def on_bar(self, bar: NTBar):
+
+    @abstractmethod
+    def on_bar(self, bar: Bar) -> None:
         """
-        K线数据回调
-        
-        每当收到新的K线数据时调用。
-        
-        Args:
-            bar: NautilusTrader Bar 对象
+        收到K线数据时调用
+
+        这是策略的核心方法，子类必须实现具体的交易逻辑。
+
+        Parameters
+        ----------
+        bar : Bar
+            K线数据对象
+
+        Examples
+        --------
+        >>> def on_bar(self, bar: Bar) -> None:
+        ...     # 计算指标
+        ...     sma = self.calculate_sma(bar.close)
+        ...     # 生成信号
+        ...     if self.should_buy(sma, bar.close):
+        ...         self.buy(bar.instrument_id, self.config.trade_size)
         """
         pass
-    
-    def on_stop(self):
+
+    @abstractmethod
+    def on_stop(self) -> None:
         """
-        策略停止回调
-        
-        在策略停止时调用，用于清理操作
+        策略停止时调用
+
+        子类应该在此方法中：
+        1. 清理资源
+        2. 平掉持仓（如果需要）
+        3. 输出统计日志
+
+        Examples
+        --------
+        >>> def on_stop(self) -> None:
+        ...     self.log_info("策略停止")
+        ...     # 平掉所有持仓
+        ...     for inst_id in self.config.instrument_ids:
+        ...         if not self.is_flat(inst_id):
+        ...             self.close_position(inst_id)
         """
-        logger.info(f"策略停止: {self.__class__.__name__}")
-        logger.info(f"交易统计: 总交易={self.total_trades}, 盈利={self.winning_trades}")
-    
-    def buy(self, symbol: str, price: Optional[float] = None, 
-            volume: Optional[float] = None) -> str:
+        pass
+
+    # ==================== 交易接口 ====================
+    # 注意：以下方法由执行环境（回测引擎或实盘交易引擎）提供实现
+    # 策略开发者不需要实现这些方法，只需要调用它们
+
+    def buy(
+        self,
+        instrument_id: InstrumentId,
+        quantity: Decimal,
+        price: Optional[Decimal] = None,
+        order_type: OrderType = OrderType.MARKET,
+        time_in_force: TimeInForce = TimeInForce.GTC,
+    ) -> None:
         """
-        买入
-        
-        Args:
-            symbol: 交易品种标识
-            price: 价格（None 表示市价）
-            volume: 数量
-            
-        Returns:
+        买入下单
+
+        此方法由执行环境提供实现。在回测环境中，由 StrategyAdapter 实现；
+        在实盘环境中，由相应的交易引擎实现。
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            品种标识
+        quantity : Decimal
+            交易数量
+        price : Optional[Decimal]
+            订单价格，市价单为 None
+        order_type : OrderType
+            订单类型，默认 MARKET
+        time_in_force : TimeInForce
+            订单有效期，默认 GTC
+
+        Raises
+        ------
+        NotImplementedError
+            如果执行环境没有提供实现
+        """
+        raise NotImplementedError(
+            "buy() 方法必须由执行环境提供实现。"
+            "请确保策略在正确的执行环境中运行（如回测引擎或实盘交易引擎）。"
+        )
+
+    def sell(
+        self,
+        instrument_id: InstrumentId,
+        quantity: Decimal,
+        price: Optional[Decimal] = None,
+        order_type: OrderType = OrderType.MARKET,
+        time_in_force: TimeInForce = TimeInForce.GTC,
+    ) -> None:
+        """
+        卖出下单
+
+        此方法由执行环境提供实现。
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            品种标识
+        quantity : Decimal
+            交易数量
+        price : Optional[Decimal]
+            订单价格，市价单为 None
+        order_type : OrderType
+            订单类型，默认 MARKET
+        time_in_force : TimeInForce
+            订单有效期，默认 GTC
+
+        Raises
+        ------
+        NotImplementedError
+            如果执行环境没有提供实现
+        """
+        raise NotImplementedError(
+            "sell() 方法必须由执行环境提供实现。"
+            "请确保策略在正确的执行环境中运行（如回测引擎或实盘交易引擎）。"
+        )
+
+    def close_position(self, instrument_id: InstrumentId) -> None:
+        """
+        平仓
+
+        平掉指定品种的所有持仓。此方法由执行环境提供实现。
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            品种标识
+
+        Raises
+        ------
+        NotImplementedError
+            如果执行环境没有提供实现
+        """
+        raise NotImplementedError(
+            "close_position() 方法必须由执行环境提供实现。"
+            "请确保策略在正确的执行环境中运行（如回测引擎或实盘交易引擎）。"
+        )
+
+    def cancel_order(self, order_id: str) -> None:
+        """
+        取消订单
+
+        此方法由执行环境提供实现。
+
+        Parameters
+        ----------
+        order_id : str
             订单ID
+
+        Raises
+        ------
+        NotImplementedError
+            如果执行环境没有提供实现
         """
-        if volume is None:
-            volume = self._config.max_position_size
-        
-        instrument_id = InstrumentId.from_str(symbol)
-        
-        if price is None:
-            # 市价单
-            order = self.order_factory.market(
-                instrument_id=instrument_id,
-                order_side=OrderSide.BUY,
-                quantity=self.instrument_make_qty(instrument_id, volume),
-            )
-        else:
-            # 限价单
-            order = self.order_factory.limit(
-                instrument_id=instrument_id,
-                order_side=OrderSide.BUY,
-                quantity=self.instrument_make_qty(instrument_id, volume),
-                price=self.instrument_make_price(instrument_id, price),
-            )
-        
-        self.submit_order(order)
-        return order.client_order_id.value
-    
-    def sell(self, symbol: str, price: Optional[float] = None,
-             volume: Optional[float] = None) -> str:
+        raise NotImplementedError(
+            "cancel_order() 方法必须由执行环境提供实现。"
+            "请确保策略在正确的执行环境中运行（如回测引擎或实盘交易引擎）。"
+        )
+
+    def cancel_all_orders(self, instrument_id: Optional[InstrumentId] = None) -> None:
         """
-        卖出
-        
-        Args:
-            symbol: 交易品种标识
-            price: 价格（None 表示市价）
-            volume: 数量
-            
-        Returns:
-            订单ID
+        取消所有订单
+
+        此方法由执行环境提供实现。
+
+        Parameters
+        ----------
+        instrument_id : Optional[InstrumentId]
+            品种标识，None 表示取消所有品种的订单
+
+        Raises
+        ------
+        NotImplementedError
+            如果执行环境没有提供实现
         """
-        if volume is None:
-            volume = self._config.max_position_size
-        
-        instrument_id = InstrumentId.from_str(symbol)
-        
-        if price is None:
-            # 市价单
-            order = self.order_factory.market(
-                instrument_id=instrument_id,
-                order_side=OrderSide.SELL,
-                quantity=self.instrument_make_qty(instrument_id, volume),
-            )
-        else:
-            # 限价单
-            order = self.order_factory.limit(
-                instrument_id=instrument_id,
-                order_side=OrderSide.SELL,
-                quantity=self.instrument_make_qty(instrument_id, volume),
-                price=self.instrument_make_price(instrument_id, price),
-            )
-        
-        self.submit_order(order)
-        return order.client_order_id.value
-    
-    def get_position_size(self, symbol: str) -> float:
+        raise NotImplementedError(
+            "cancel_all_orders() 方法必须由执行环境提供实现。"
+            "请确保策略在正确的执行环境中运行（如回测引擎或实盘交易引擎）。"
+        )
+
+    # ==================== 持仓查询接口 ====================
+    # 注意：以下方法由执行环境提供实现
+
+    def get_position(self, instrument_id: InstrumentId) -> Optional[Position]:
+        """
+        获取持仓信息
+
+        此方法由执行环境提供实现。
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            品种标识
+
+        Returns
+        -------
+        Optional[Position]
+            持仓对象，如果没有持仓返回 None
+
+        Raises
+        ------
+        NotImplementedError
+            如果执行环境没有提供实现
+        """
+        raise NotImplementedError(
+            "get_position() 方法必须由执行环境提供实现。"
+            "请确保策略在正确的执行环境中运行（如回测引擎或实盘交易引擎）。"
+        )
+
+    def get_position_size(self, instrument_id: InstrumentId) -> Decimal:
         """
         获取持仓数量
-        
-        Args:
-            symbol: 交易品种标识
-            
-        Returns:
-            持仓数量（正数为多头，负数为空头，0为无持仓）
-        """
-        instrument_id = InstrumentId.from_str(symbol)
-        position = self.portfolio.position(instrument_id)
-        
-        if position is None:
-            return 0.0
-        
-        return float(position.quantity)
-    
-    def has_position(self, symbol: str) -> bool:
-        """
-        检查是否有持仓
-        
-        Args:
-            symbol: 交易品种标识
-            
-        Returns:
-            是否有持仓
-        """
-        return self.get_position_size(symbol) != 0
-    
-    def is_in_cooldown(self, symbol: str) -> bool:
-        """
-        检查是否在冷却期
-        
-        Args:
-            symbol: 交易品种标识
-            
-        Returns:
-            是否在冷却期
-        """
-        if symbol not in self._cooldowns:
-            return False
-        
-        cooldown_end = self._cooldowns[symbol]
-        return datetime.now() < cooldown_end
-    
-    def set_cooldown(self, symbol: str, seconds: int = 3600):
-        """
-        设置冷却期
-        
-        Args:
-            symbol: 交易品种标识
-            seconds: 冷却时间（秒），默认3600秒
-        """
-        self._cooldowns[symbol] = datetime.now() + timedelta(seconds=seconds)
-    
 
-    
-    def calculate_pnl(self, entry_price: float, exit_price: float,
-                     size: float, direction: str) -> float:
-        """
-        计算盈亏
-        
-        Args:
-            entry_price: 入场价格
-            exit_price: 出场价格
-            size: 数量
-            direction: 方向 ('buy' 或 'sell')
-            
-        Returns:
-            盈亏金额
-        """
-        if direction == 'buy':
-            return (exit_price - entry_price) * size
-        else:
-            return (entry_price - exit_price) * size
-    
-    def on_order_filled(self, event):
-        """
-        订单成交回调
-        
-        Args:
-            event: 成交事件
-        """
-        # 更新交易统计
-        self.total_trades += 1
-        
-        # 计算盈亏
-        if hasattr(event, 'realized_pnl'):
-            pnl = float(event.realized_pnl)
-            self.total_pnl += pnl
-            if pnl > 0:
-                self.winning_trades += 1
-        
-        logger.info(f"订单成交: {event.client_order_id}, "
-                   f"盈亏: {getattr(event, 'realized_pnl', 0)}")
+        此方法由执行环境提供实现。
 
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            品种标识
 
-# 向后兼容：保留 StrategyBase 作为别名
-class StrategyBase(Strategy):
-    """
-    策略基类（向后兼容）
-    
-    此类已弃用，请使用 Strategy 类
-    """
-    
-    def __init__(self, params: Dict[str, Any]):
-        warnings.warn(
-            "StrategyBase 已弃用，请使用 Strategy 类",
-            DeprecationWarning,
-            stacklevel=2
+        Returns
+        -------
+        Decimal
+            持仓数量，正数表示多头，负数表示空头，0 表示空仓
+
+        Raises
+        ------
+        NotImplementedError
+            如果执行环境没有提供实现
+        """
+        raise NotImplementedError(
+            "get_position_size() 方法必须由执行环境提供实现。"
+            "请确保策略在正确的执行环境中运行（如回测引擎或实盘交易引擎）。"
         )
-        
-        # 转换旧版参数为新版配置
-        config = StrategyConfig(
-            stop_loss=params.get('stop_loss', 0.05),
-            take_profit=params.get('take_profit', 0.1),
-            max_position_size=params.get('max_position_size', 1.0),
-            max_open_positions=params.get('max_open_positions', 5),
-            entry_timeout=params.get('entry_timeout', 300),
-            exit_timeout=params.get('exit_timeout', 300),
-            cooldown_period=params.get('cooldown_period', 3600),
-            max_drawdown=params.get('max_drawdown', 0.1),
-            contract_type=params.get('contract_type', 'spot'),
-            price_precision=params.get('price_precision', 8),
-            size_precision=params.get('size_precision', 3),
-            leverage_enabled=params.get('leverage_enabled', False),
-            default_leverage=params.get('default_leverage', 1.0),
-            max_leverage=params.get('max_leverage', 10.0),
+
+    def is_flat(self, instrument_id: InstrumentId) -> bool:
+        """
+        检查是否空仓
+
+        此方法由执行环境提供实现。
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            品种标识
+
+        Returns
+        -------
+        bool
+            如果没有持仓返回 True
+
+        Raises
+        ------
+        NotImplementedError
+            如果执行环境没有提供实现
+        """
+        raise NotImplementedError(
+            "is_flat() 方法必须由执行环境提供实现。"
+            "请确保策略在正确的执行环境中运行（如回测引擎或实盘交易引擎）。"
         )
-        
-        super().__init__(config)
-        self.params = params
+
+    def is_long(self, instrument_id: InstrumentId) -> bool:
+        """
+        检查是否持有多头
+
+        此方法由执行环境提供实现。
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            品种标识
+
+        Returns
+        -------
+        bool
+            如果持有多头返回 True
+
+        Raises
+        ------
+        NotImplementedError
+            如果执行环境没有提供实现
+        """
+        raise NotImplementedError(
+            "is_long() 方法必须由执行环境提供实现。"
+            "请确保策略在正确的执行环境中运行（如回测引擎或实盘交易引擎）。"
+        )
+
+    def is_short(self, instrument_id: InstrumentId) -> bool:
+        """
+        检查是否持有空头
+
+        此方法由执行环境提供实现。
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            品种标识
+
+        Returns
+        -------
+        bool
+            如果持有空头返回 True
+
+        Raises
+        ------
+        NotImplementedError
+            如果执行环境没有提供实现
+        """
+        raise NotImplementedError(
+            "is_short() 方法必须由执行环境提供实现。"
+            "请确保策略在正确的执行环境中运行（如回测引擎或实盘交易引擎）。"
+        )
+
+    # ==================== 日志接口 ====================
+
+    def log_info(self, message: str) -> None:
+        """
+        输出信息日志
+
+        Parameters
+        ----------
+        message : str
+            日志消息
+        """
+        logger.info(message)
+
+    def log_debug(self, message: str) -> None:
+        """
+        输出调试日志
+
+        Parameters
+        ----------
+        message : str
+            日志消息
+        """
+        logger.debug(message)
+
+    def log_warning(self, message: str) -> None:
+        """
+        输出警告日志
+
+        Parameters
+        ----------
+        message : str
+            日志消息
+        """
+        logger.warning(message)
+
+    def log_error(self, message: str) -> None:
+        """
+        输出错误日志
+
+        Parameters
+        ----------
+        message : str
+            日志消息
+        """
+        logger.error(message)
+
+    # ==================== 工具方法 ====================
+
+    def get_bar_instrument(self, bar: Bar) -> InstrumentId:
+        """
+        获取K线对应的品种ID
+
+        Parameters
+        ----------
+        bar : Bar
+            K线数据
+
+        Returns
+        -------
+        InstrumentId
+            品种标识
+        """
+        return bar.instrument_id
+
+    def format_price(self, price: float, decimals: int = 2) -> str:
+        """
+        格式化价格显示
+
+        Parameters
+        ----------
+        price : float
+            价格
+        decimals : int
+            小数位数
+
+        Returns
+        -------
+        str
+            格式化后的价格字符串
+        """
+        return f"{price:.{decimals}f}"
+
+
+# 类型别名，用于向后兼容
+Strategy = StrategyBase
