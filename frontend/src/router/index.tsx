@@ -5,6 +5,7 @@ import type { RouteObject } from 'react-router-dom';
 import ConsoleLayout from '@/layouts/ConsoleLayout';
 
 // 导入页面组件
+import LoginPage from '@/pages/login/LoginPage';
 import ChartPage from '@/pages/chart/ChartPage';
 import Agent from '@/pages/agent/Agent';
 import StrategyManagement from '@/pages/strategy/StrategyManagement';
@@ -32,6 +33,10 @@ import SystemInfoPage from '@/pages/setting/SystemInfoPage';
 
 // 基础路由配置
 const baseRoutes: RouteObject[] = [
+  {
+    path: '/login',
+    element: <LoginPage />,
+  },
   {
     path: '/',
     element: <ConsoleLayout />,
