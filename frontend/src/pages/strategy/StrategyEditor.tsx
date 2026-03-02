@@ -18,7 +18,13 @@ import {
   EyeOutlined,
   ReloadOutlined,
   BackwardOutlined,
+  RobotOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  CopyOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
+import MonacoEditor from '@monaco-editor/react';
 import { useTranslation } from 'react-i18next';
 import { useResponsive } from '../../hooks/useResponsive';
 import { strategyApi } from '../../api';
@@ -43,6 +49,16 @@ interface Strategy {
   code: string;
 }
 
+// AI消息类型
+interface Message {
+  id: string;
+  type: 'user' | 'ai';
+  content: string;
+  timestamp: Date;
+  status?: 'generating' | 'completed' | 'error';
+  code?: string; // AI生成的代码
+}
+
 /**
  * 策略编辑器组件
  * 功能：提供策略代码编辑、执行和结果预览功能
@@ -64,6 +80,21 @@ const StrategyEditor = () => {
   // 策略描述编辑状态
   const [isEditingDescription, setIsEditingDescription] = useState<boolean>(false);
   const [tempDescription, setTempDescription] = useState<string>('');
+
+  // AI生成策略状态
+  const [aiModalVisible, setAiModalVisible] = useState<boolean>(false);
+  const [aiInput, setAiInput] = useState<string>('');
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [currentThinkingStep, setCurrentThinkingStep] = useState<number>(0);
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+
+  // AI思考步骤
+  const thinkingSteps = [
+    '分析需求...',
+    '设计策略结构...',
+    '生成代码...',
+    '优化代码...',
+  ];
 
   const navigate = useNavigate();
   const params = useParams<{ strategyName?: string }>();
@@ -111,54 +142,252 @@ const StrategyEditor = () => {
       name: 'new_strategy',
       file_name: 'new_strategy.py',
       file_path: '',
-      description: '新策略',
+      description: '新策略 - SMA交叉策略模板',
       version: '1.0.0',
-      params: [],
+      params: [
+        { name: 'fast_period', type: 'int', default: 10, description: '短期均线周期', required: false },
+        { name: 'slow_period', type: 'int', default: 30, description: '长期均线周期', required: false },
+        { name: 'trade_size', type: 'float', default: 0.1, description: '每笔交易数量', required: false },
+      ],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      code: `# 新策略模板
-from strategy import StrategyBase
+      code: `# -*- coding: utf-8 -*-
+"""
+简单SMA交叉策略
+
+使用统一策略接口的双均线交叉策略示例。
+当短期均线上穿长期均线时买入，下穿时卖出。
+
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Any, Dict, List
+
+from strategy.core import (
+    StrategyBase,
+    StrategyConfig,
+    Bar,
+    InstrumentId,
+)
+
+
+class NewStrategyConfig(StrategyConfig):
+    """
+    简单SMA交叉策略配置
+
+    支持单品种和多品种回测，统一使用列表形式传参
+
+    Parameters
+    ----------
+    instrument_ids : List[InstrumentId]
+        策略交易的品种ID列表
+    bar_types : List[str]
+        策略订阅的K线类型列表，例如 ["1-HOUR", "1-MINUTE"]
+    trade_size : Decimal
+        每笔交易的数量，默认 0.1
+    fast_period : int
+        短期均线周期，默认 10
+    slow_period : int
+        长期均线周期，默认 30
+
+    """
+
+    def __init__(
+        self,
+        instrument_ids: List[InstrumentId],
+        bar_types: List[str],
+        trade_size: Decimal = Decimal("0.1"),
+        fast_period: int = 10,
+        slow_period: int = 30,
+        log_level: str = "INFO",
+    ):
+        super().__init__(instrument_ids, bar_types, trade_size, log_level)
+        self.fast_period = fast_period
+        self.slow_period = slow_period
+
 
 class NewStrategy(StrategyBase):
     """
-    新策略模板
+    简单SMA交叉策略（支持多品种）
+
+    最简单的双均线交叉策略实现：
+    - 计算短期和长期SMA
+    - 短期均线上穿长期均线时买入
+    - 短期均线下穿长期均线时卖出
+
+    支持多品种，为每个品种维护独立的价格历史和SMA值。
+
+    Parameters
+    ----------
+    config : NewStrategyConfig
+        策略配置对象
     """
-    # 策略参数
-    param1 = 10
-    param2 = 20.0
-    param3 = "test"
 
-    def on_initialize(self):
-        """初始化策略"""
-        pass
+    def __init__(self, config: NewStrategyConfig) -> None:
+        super().__init__(config)
+        # 使用 _config 存储配置，避免与父类的 config property 冲突
+        self._config = config
 
-    def on_update_indicators(self, data):
-        """更新技术指标"""
-        pass
+        # 为每个品种维护独立的数据结构
+        # key: instrument_id, value: 价格历史列表
+        self.prices: Dict[InstrumentId, List[float]] = {}
 
-    def on_generate_signals(self, data):
-        """生成交易信号"""
-        return []
+        # 当前SMA值
+        self.fast_sma: Dict[InstrumentId, float] = {}
+        self.slow_sma: Dict[InstrumentId, float] = {}
 
-    def on_execute_orders(self, signals):
-        """执行订单"""
-        return []
+        # 上一个SMA值（用于判断交叉）
+        self.prev_fast_sma: Dict[InstrumentId, float] = {}
+        self.prev_slow_sma: Dict[InstrumentId, float] = {}
 
-    def on_risk_control(self, signals):
-        """风险控制"""
-        return signals
+        # 初始化每个品种的数据结构
+        for instrument_id in config.instrument_ids:
+            self.prices[instrument_id] = []
+            self.fast_sma[instrument_id] = 0.0
+            self.slow_sma[instrument_id] = 0.0
+            self.prev_fast_sma[instrument_id] = 0.0
+            self.prev_slow_sma[instrument_id] = 0.0
 
-    def on_update_performance(self):
-        """更新绩效指标"""
-        pass
+    def on_start(self) -> None:
+        """
+        策略启动时调用
+        """
+        self.log_info(
+            f"SMA交叉策略启动 - 快周期: {self._config.fast_period}, "
+            f"慢周期: {self._config.slow_period}, "
+            f"品种数: {len(self._config.instrument_ids)}"
+        )
 
-    def on_evaluate_performance(self):
-        """绩效评估"""
-        return {}
+    def on_bar(self, bar: Bar) -> None:
+        """
+        K线数据处理
 
-    def on_stop(self):
-        """停止策略"""
-        pass
+        Parameters
+        ----------
+        bar : Bar
+            K线数据对象
+        """
+        # 获取当前K线对应的品种ID
+        instrument_id = bar.instrument_id
+
+        # 保存当前SMA值作为上一个值
+        self.prev_fast_sma[instrument_id] = self.fast_sma[instrument_id]
+        self.prev_slow_sma[instrument_id] = self.slow_sma[instrument_id]
+
+        # 添加收盘价到历史
+        close_price = bar.close
+        self.prices[instrument_id].append(close_price)
+
+        # 保持历史数据长度
+        max_period = max(self._config.fast_period, self._config.slow_period)
+        if len(self.prices[instrument_id]) > max_period * 2:
+            self.prices[instrument_id] = self.prices[instrument_id][-max_period * 2:]
+
+        # 计算SMA
+        if len(self.prices[instrument_id]) >= self._config.slow_period:
+            self.fast_sma[instrument_id] = (
+                sum(self.prices[instrument_id][-self._config.fast_period:])
+                / self._config.fast_period
+            )
+            self.slow_sma[instrument_id] = (
+                sum(self.prices[instrument_id][-self._config.slow_period:])
+                / self._config.slow_period
+            )
+
+            # 输出调试信息
+            self.log_debug(
+                f"[{instrument_id}] Close: {close_price:.2f}, "
+                f"Fast SMA({self._config.fast_period}): {self.fast_sma[instrument_id]:.2f}, "
+                f"Slow SMA({self._config.slow_period}): {self.slow_sma[instrument_id]:.2f}"
+            )
+
+            # 检查是否有足够的上一个值来判断交叉
+            if (
+                self.prev_fast_sma[instrument_id] > 0
+                and self.prev_slow_sma[instrument_id] > 0
+            ):
+                # 判断金叉：短期均线上穿长期均线
+                golden_cross = (
+                    self.prev_fast_sma[instrument_id]
+                    <= self.prev_slow_sma[instrument_id]
+                    and self.fast_sma[instrument_id] > self.slow_sma[instrument_id]
+                )
+
+                # 判断死叉：短期均线下穿长期均线
+                death_cross = (
+                    self.prev_fast_sma[instrument_id]
+                    >= self.prev_slow_sma[instrument_id]
+                    and self.fast_sma[instrument_id] < self.slow_sma[instrument_id]
+                )
+
+                # 执行交易逻辑
+                if golden_cross:
+                    self._on_golden_cross(bar, instrument_id)
+                elif death_cross:
+                    self._on_death_cross(bar, instrument_id)
+
+    def _on_golden_cross(self, bar: Bar, instrument_id: InstrumentId) -> None:
+        """
+        金叉信号处理
+
+        Parameters
+        ----------
+        bar : Bar
+            K线数据对象
+        instrument_id : InstrumentId
+            品种ID
+        """
+        self.log_info(
+            f"[{instrument_id}] 金叉信号！"
+            f"Fast SMA({self._config.fast_period}): {self.fast_sma[instrument_id]:.2f} "
+            f"上穿 Slow SMA({self._config.slow_period}): {self.slow_sma[instrument_id]:.2f}"
+        )
+
+        # 如果当前空仓，买入该品种
+        if self.is_flat(instrument_id):
+            self.log_info(f"[{instrument_id}] 当前空仓，执行买入")
+            self.buy(instrument_id, self._config.trade_size)
+        # 如果当前空头，先平仓再买入
+        elif self.is_short(instrument_id):
+            self.log_info(f"[{instrument_id}] 当前空头，先平仓再买入")
+            self.close_position(instrument_id)
+            self.buy(instrument_id, self._config.trade_size)
+        else:
+            self.log_info(f"[{instrument_id}] 当前已持有多头，无需操作")
+
+    def _on_death_cross(self, bar: Bar, instrument_id: InstrumentId) -> None:
+        """
+        死叉信号处理
+
+        Parameters
+        ----------
+        bar : Bar
+            K线数据对象
+        instrument_id : InstrumentId
+            品种ID
+        """
+        self.log_info(
+            f"[{instrument_id}] 死叉信号！"
+            f"Fast SMA({self._config.fast_period}): {self.fast_sma[instrument_id]:.2f} "
+            f"下穿 Slow SMA({self._config.slow_period}): {self.slow_sma[instrument_id]:.2f}"
+        )
+
+        # 如果当前持有多头，卖出该品种
+        if self.is_long(instrument_id):
+            self.log_info(f"[{instrument_id}] 当前持有多头，执行卖出")
+            self.sell(instrument_id, self._config.trade_size)
+        else:
+            self.log_info(f"[{instrument_id}] 当前未持有多头，无需操作")
+
+    def on_stop(self) -> None:
+        """
+        策略停止时调用
+        """
+        self.log_info("SMA交叉策略停止")
+        # 可以在这里添加统计信息输出
+        self.log_info(f"共处理 {self.bars_processed} 条K线数据")
 `,
     };
 
@@ -231,7 +460,158 @@ class NewStrategy(StrategyBase):
       return;
     }
 
-    navigate('/backtest-config', { state: { strategy: selectedStrategy, showConfig: true } });
+    navigate('/backtest/config', { state: { strategy: selectedStrategy, showConfig: true } });
+  };
+
+  // 发送AI消息
+  const handleSendMessage = async () => {
+    if (!aiInput.trim()) {
+      message.warning(t('ai_input_empty') || '请输入策略需求');
+      return;
+    }
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      type: 'user',
+      content: aiInput.trim(),
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setAiInput('');
+    setIsGenerating(true);
+    setCurrentThinkingStep(0);
+
+    // 创建AI消息占位符
+    const aiMessageId = (Date.now() + 1).toString();
+    const aiMessage: Message = {
+      id: aiMessageId,
+      type: 'ai',
+      content: '',
+      timestamp: new Date(),
+      status: 'generating',
+    };
+    setMessages(prev => [...prev, aiMessage]);
+
+    // 模拟思考过程
+    for (let i = 0; i < thinkingSteps.length; i++) {
+      setCurrentThinkingStep(i);
+      await new Promise(resolve => setTimeout(resolve, 800));
+    }
+
+    // 模拟生成的策略代码
+    const generatedStrategyCode = `# -*- coding: utf-8 -*-
+"""
+AI生成的策略
+基于需求：${userMessage.content}
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Any, Dict, List
+
+from strategy.core import (
+    StrategyBase,
+    StrategyConfig,
+    Bar,
+    InstrumentId,
+)
+
+
+class AIGeneratedConfig(StrategyConfig):
+    """AI生成的策略配置"""
+
+    def __init__(
+        self,
+        instrument_ids: List[InstrumentId],
+        bar_types: List[str],
+        trade_size: Decimal = Decimal("0.1"),
+        log_level: str = "INFO",
+    ):
+        super().__init__(instrument_ids, bar_types, trade_size, log_level)
+
+
+class AIGeneratedStrategy(StrategyBase):
+    """
+    AI生成的策略
+    
+    根据您的需求自动生成的策略实现。
+    """
+
+    def __init__(self, config: AIGeneratedConfig) -> None:
+        super().__init__(config)
+        self._config = config
+        self.prices: Dict[InstrumentId, List[float]] = {}
+
+        for instrument_id in config.instrument_ids:
+            self.prices[instrument_id] = []
+
+    def on_start(self) -> None:
+        """策略启动"""
+        self.log_info("AI生成策略启动")
+
+    def on_bar(self, bar: Bar) -> None:
+        """K线数据处理"""
+        instrument_id = bar.instrument_id
+        close_price = bar.close
+        self.prices[instrument_id].append(close_price)
+
+        # 保持历史数据
+        if len(self.prices[instrument_id]) > 100:
+            self.prices[instrument_id] = self.prices[instrument_id][-100:]
+
+        # 简单的示例逻辑：价格高于前一期买入，低于卖出
+        if len(self.prices[instrument_id]) >= 2:
+            prev_price = self.prices[instrument_id][-2]
+            
+            if close_price > prev_price and self.is_flat(instrument_id):
+                self.log_info(f"[{instrument_id}] 价格上涨，买入信号")
+                self.buy(instrument_id, self._config.trade_size)
+            elif close_price < prev_price and self.is_long(instrument_id):
+                self.log_info(f"[{instrument_id}] 价格下跌，卖出信号")
+                self.sell(instrument_id, self._config.trade_size)
+
+    def on_stop(self) -> None:
+        """策略停止"""
+        self.log_info("AI生成策略停止")
+`;
+
+    // 流式输出AI回复内容
+    const aiResponse = `根据您的需求"${userMessage.content}"，我已经为您生成了一个策略框架。
+
+这个策略包含：
+1. 完整的配置类定义
+2. 基础的价格跟踪逻辑
+3. 简单的买卖信号判断
+4. 多品种支持
+
+您可以根据实际需要进一步修改和完善这个策略。`;
+
+    // 模拟流式输出
+    let currentContent = '';
+    for (let i = 0; i < aiResponse.length; i++) {
+      currentContent += aiResponse[i];
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.id === aiMessageId
+            ? { ...msg, content: currentContent }
+            : msg
+        )
+      );
+      await new Promise(resolve => setTimeout(resolve, 30));
+    }
+
+    // 完成生成
+    setMessages(prev =>
+      prev.map(msg =>
+        msg.id === aiMessageId
+          ? { ...msg, content: aiResponse, status: 'completed', code: generatedStrategyCode }
+          : msg
+      )
+    );
+    setIsGenerating(false);
+    setCurrentThinkingStep(0);
   };
 
   // 开始编辑策略名称
@@ -370,6 +750,13 @@ class NewStrategy(StrategyBase):
           >
             {t('save') || '保存'}
           </Button>
+          <Button
+            type="default"
+            icon={<RobotOutlined />}
+            onClick={() => setAiModalVisible(true)}
+          >
+            {t('ai_generate') || 'AI生成'}
+          </Button>
         </Space>
       </div>
 
@@ -385,15 +772,25 @@ class NewStrategy(StrategyBase):
                 label: <><CodeOutlined /> {t('editor') || '编辑器'}</>,
                 children: (
                   <div className="w-full" style={{ minHeight: '600px' }}>
-                    <textarea
+                    <MonacoEditor
+                      height="600px"
+                      language="python"
                       value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                      className="w-full h-full min-h-[600px] p-4 font-mono text-sm bg-gray-900 text-gray-100 rounded resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      style={{
-                        fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-                        lineHeight: '1.6',
+                      onChange={(value) => setCode(value || '')}
+                      options={{
+                        fontSize: 14,
+                        minimap: { enabled: true },
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                        tabSize: 4,
+                        insertSpaces: true,
+                        formatOnType: true,
+                        formatOnPaste: true,
+                        lineNumbers: "on",
+                        scrollbar: { vertical: 'auto', horizontal: 'auto' },
+                        wordWrap: 'on',
                       }}
-                      spellCheck={false}
+                      theme="vs-dark"
                     />
                   </div>
                 )
@@ -488,6 +885,189 @@ class NewStrategy(StrategyBase):
           />
         </Spin>
       </Card>
+
+      {/* AI生成策略模态框 - 聊天界面 */}
+      <Modal
+        title={
+          <div className="flex justify-between items-center">
+            <span>{t('ai_generate_strategy') || 'AI生成策略'}</span>
+            {messages.length > 0 && (
+              <Button
+                type="text"
+                size="small"
+                icon={<DeleteOutlined />}
+                onClick={() => {
+                  setMessages([]);
+                  setCurrentThinkingStep(0);
+                }}
+              >
+                {t('clear_history') || '清空历史'}
+              </Button>
+            )}
+          </div>
+        }
+        open={aiModalVisible}
+        onCancel={() => setAiModalVisible(false)}
+        footer={null}
+        width={800}
+        centered
+        bodyStyle={{ padding: 0, maxHeight: '70vh', overflow: 'hidden' }}
+      >
+        <div className="flex flex-col" style={{ height: '70vh' }}>
+          {/* 聊天消息列表 */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-gray-900">
+            {messages.length === 0 && (
+              <div className="text-center text-gray-400 py-10">
+                <RobotOutlined style={{ fontSize: 48 }} className="mb-4" />
+                <p>{t('ai_welcome') || '我是AI策略助手，请告诉我您需要什么策略？'}</p>
+                <p className="text-sm mt-2">{t('ai_example') || '例如：创建一个双均线交叉策略'}</p>
+              </div>
+            )}
+
+            {messages.map((msg) => (
+              <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className={`max-w-[80%] rounded-lg p-3 ${
+                    msg.type === 'user'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
+                  }`}
+                >
+                  {/* 用户消息 */}
+                  {msg.type === 'user' && (
+                    <div>
+                      <p>{msg.content}</p>
+                      <span className="text-xs opacity-70 mt-1 block">
+                        {msg.timestamp.toLocaleTimeString()}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* AI消息 */}
+                  {msg.type === 'ai' && (
+                    <div>
+                      {/* 思考过程 */}
+                      {msg.status === 'generating' && (
+                        <div className="mb-3 space-y-2">
+                          {thinkingSteps.map((step, stepIndex) => (
+                            <div
+                              key={stepIndex}
+                              className={`flex items-center gap-2 text-sm ${
+                                stepIndex <= currentThinkingStep
+                                  ? 'text-blue-600 dark:text-blue-400'
+                                  : 'text-gray-400'
+                              }`}
+                            >
+                              {stepIndex < currentThinkingStep ? (
+                                <CheckCircleOutlined className="text-green-500" />
+                              ) : stepIndex === currentThinkingStep ? (
+                                <span className="animate-pulse">●</span>
+                              ) : (
+                                <span className="w-4 h-4 rounded-full border-2 border-gray-300" />
+                              )}
+                              <span>{step}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* AI回复内容 */}
+                      <div className="mb-3">
+                        <p className="text-gray-700 dark:text-gray-300 mb-2">{msg.content}</p>
+                      </div>
+
+                      {/* 生成的代码 */}
+                      {msg.code && (
+                        <div className="relative">
+                          <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
+                            <pre className="text-sm text-gray-100 font-mono whitespace-pre-wrap">
+                              <code>{msg.code}</code>
+                            </pre>
+                          </div>
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<CopyOutlined />}
+                            className="absolute top-2 right-2 text-gray-400 hover:text-white"
+                            onClick={() => {
+                              navigator.clipboard.writeText(msg.code || '');
+                              message.success(t('copied') || '已复制');
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* 采纳/拒绝按钮 */}
+                      {msg.status === 'completed' && msg.code && (
+                        <div className="flex gap-2 mt-3 justify-end">
+                          <Button
+                            size="small"
+                            icon={<CloseCircleOutlined />}
+                            onClick={() => {
+                              // 拒绝：不做任何操作，允许继续对话
+                              message.info(t('ai_rejected') || '已拒绝，可以继续提问');
+                            }}
+                          >
+                            {t('reject') || '拒绝'}
+                          </Button>
+                          <Button
+                            type="primary"
+                            size="small"
+                            icon={<CheckCircleOutlined />}
+                            onClick={() => {
+                              // 采纳：将代码写入编辑器
+                              if (msg.code) {
+                                setCode(msg.code);
+                                message.success(t('ai_adopted') || '已采纳并应用到编辑器');
+                                setAiModalVisible(false);
+                              }
+                            }}
+                          >
+                            {t('adopt') || '采纳'}
+                          </Button>
+                        </div>
+                      )}
+
+                      <span className="text-xs text-gray-400 mt-2 block">
+                        {msg.timestamp.toLocaleTimeString()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 输入区域 */}
+          <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            <div className="flex gap-2">
+              <Input.TextArea
+                placeholder={t('ai_input_placeholder') || '请输入您的策略需求...'}
+                value={aiInput}
+                onChange={(e) => setAiInput(e.target.value)}
+                rows={2}
+                disabled={isGenerating}
+                onPressEnter={(e) => {
+                  if (!e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+              />
+              <Button
+                type="primary"
+                icon={<RobotOutlined />}
+                onClick={handleSendMessage}
+                loading={isGenerating}
+                disabled={!aiInput.trim() || isGenerating}
+                className="h-auto"
+              >
+                {t('send') || '发送'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </PageContainer>
   );
 };
