@@ -9,7 +9,6 @@ import {
   IconHelp,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarRightCollapse,
-  IconLogout,
   IconMenu2,
   IconSettings,
 } from "@tabler/icons-react";
@@ -31,10 +30,7 @@ const ConsoleLayout = () => {
     setThemeMode(mode);
   };
 
-  const handleLogoutClick = () => {
-    localStorage.removeItem("token");
-    window.location.href = "/login";
-  };
+  const navigate = useNavigate();
 
   const handleDocumentClick = () => {
     window.open("https://github.com/pengwow/QuantCell", "_blank");
@@ -72,15 +68,14 @@ const ConsoleLayout = () => {
                   onClick: handleDocumentClick,
                 },
                 {
-                  key: "logout",
-                  danger: true,
+                  key: "/setting",
                   icon: (
                     <span className="anticon scale-125" role="img">
-                      <IconLogout size="1em" />
+                      <IconSettings size="1em" />
                     </span>
                   ),
-                  label: t('logout') || "退出登录",
-                  onClick: handleLogoutClick,
+                  label: t('setting') || "设置",
+                  onClick: () => navigate("/setting"),
                 },
               ]}
               mode="vertical"
@@ -136,7 +131,6 @@ const ConsoleLayout = () => {
               />
               <AppLocale.LinkButton />
               <Button icon={<IconBrandGithub size="1.25em" stroke="1.25" />} onClick={handleGitHubClick} />
-              <Button danger icon={<IconLogout size="1.25em" stroke="1.25" />} onClick={handleLogoutClick} />
             </div>
           </div>
         </Layout.Header>
@@ -159,7 +153,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const MENU_KEY_AGENT = "/agent";
   const MENU_KEY_BACKTEST = "/backtest";
   const MENU_KEY_DATA = "/data-management";
-  const MENU_KEY_SETTINGS = "/setting";
 
   const menuItems: Required<MenuProps>["items"] = (
     [
@@ -168,7 +161,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       [MENU_KEY_AGENT, "agent", <IconCode size="1em" />],
       [MENU_KEY_BACKTEST, "strategy_backtest", <IconChartBar size="1em" />],
       [MENU_KEY_DATA, "data_management", <IconDatabase size="1em" />],
-      [MENU_KEY_SETTINGS, "setting", <IconSettings size="1em" />],
     ] satisfies Array<[string, string, React.ReactNode]>
   ).map(([key, label, icon]) => {
     return {

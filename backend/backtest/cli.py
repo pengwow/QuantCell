@@ -9,12 +9,14 @@
 import json
 import os
 import sys
+import datetime as dt
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import typer
+from loguru import logger
 from typing_extensions import Annotated
 
 # 创建Typer应用
@@ -842,14 +844,19 @@ def _load_event_strategy(strategy_name: str, strategy_params: dict, bar_type, in
         config_class = None
         
         # 尝试查找事件驱动策略
-        # 首先尝试导入EventDrivenStrategy基类
+        # 首先尝试导入Strategy基类（从新的strategy模块）
         try:
-            from backtest.strategies.event_strategy import EventDrivenStrategy, EventDrivenStrategyConfig
+            from backtest.strategies.strategy import Strategy, StrategyConfig
+            EventDrivenStrategy = Strategy
+            EventDrivenStrategyConfig = StrategyConfig
         except ImportError:
             # 如果无法导入，尝试其他路径
             try:
-                from backend.backtest.strategies.event_strategy import EventDrivenStrategy, EventDrivenStrategyConfig
+                from backend.backtest.strategies.strategy import Strategy, StrategyConfig
+                EventDrivenStrategy = Strategy
+                EventDrivenStrategyConfig = StrategyConfig
             except ImportError:
+                # 最后尝试从nautilus_trader导入
                 from nautilus_trader.trading.strategy import Strategy
                 EventDrivenStrategy = Strategy
                 EventDrivenStrategyConfig = None
@@ -983,6 +990,10 @@ def _load_event_strategy_multi(
     """
     加载支持多品种的事件驱动策略
 
+    支持两种策略类型：
+    1. 策略接口（StrategyBase）：使用 StrategyAdapter 包装
+    2. 传统策略接口（Strategy/StrategyAdapter）：直接使用
+
     参数：
         strategy_name: 策略名称（文件名，不含.py后缀）
         strategy_params: 策略参数字典
@@ -1018,14 +1029,32 @@ def _load_event_strategy_multi(
         # 查找策略类和配置类
         strategy_class = None
         config_class = None
+        is_core_strategy = False
 
-        # 尝试查找事件驱动策略
+        # 导入策略基类
         try:
-            from backtest.strategies.event_strategy import EventDrivenStrategy, EventDrivenStrategyConfig
-        except ImportError:
+            # 尝试导入策略接口
+            from strategy.core import StrategyBase as CoreStrategyBase, StrategyConfig as CoreStrategyConfig
+            StrategyBase = CoreStrategyBase
+            StrategyConfig = CoreStrategyConfig
+        except ImportError as e:
+            print(f"导入 strategy.core 失败: {e}")
+            StrategyBase = None
+            StrategyConfig = None
+
+        try:
+            # 尝试导入回测适配器
+            from backtest.strategies.strategy_adapter import StrategyAdapter, StrategyConfig as AdapterStrategyConfig
+            EventDrivenStrategy = StrategyAdapter
+            EventDrivenStrategyConfig = AdapterStrategyConfig
+        except ImportError as e:
             try:
-                from backend.backtest.strategies.event_strategy import EventDrivenStrategy, EventDrivenStrategyConfig
-            except ImportError:
+                from backend.backtest.strategies.strategy_adapter import StrategyAdapter, StrategyConfig as AdapterStrategyConfig
+                EventDrivenStrategy = StrategyAdapter
+                EventDrivenStrategyConfig = AdapterStrategyConfig
+            except ImportError as e:
+                print(f"导入 backtest.strategies.strategy_adapter 失败: {e}")
+                # 最后尝试从nautilus_trader导入
                 from nautilus_trader.trading.strategy import Strategy
                 EventDrivenStrategy = Strategy
                 EventDrivenStrategyConfig = None
@@ -1033,38 +1062,140 @@ def _load_event_strategy_multi(
         for name in dir(module):
             obj = getattr(module, name)
             if isinstance(obj, type):
-                # 查找策略类（继承自EventDrivenStrategy或Strategy）
-                if issubclass(obj, EventDrivenStrategy) and obj != EventDrivenStrategy:
+                # 首先检查是否是策略接口（StrategyBase）
+                if StrategyBase and issubclass(obj, StrategyBase) and obj != StrategyBase:
                     strategy_class = obj
+                    is_core_strategy = True
                     print(f"找到策略类: {name}")
-                # 查找配置类
+                # 然后检查是否是传统策略类
+                elif issubclass(obj, EventDrivenStrategy) and obj != EventDrivenStrategy:
+                    strategy_class = obj
+                    is_core_strategy = False
+                    print(f"找到策略类: {name}")
+
+                # 查找配置类（优先配置类）
+                if StrategyConfig and issubclass(obj, StrategyConfig) and obj != StrategyConfig:
+                    config_class = obj
+                    print(f"找到配置类: {name}")
                 elif EventDrivenStrategyConfig and issubclass(obj, EventDrivenStrategyConfig) and obj != EventDrivenStrategyConfig:
                     config_class = obj
                     print(f"找到配置类: {name}")
 
         if strategy_class is None:
-            print(f"在模块 {strategy_name} 中找不到事件驱动策略类")
+            print(f"在模块 {strategy_name} 中找不到策略类")
             return None
 
         # 准备品种ID列表和K线类型列表（统一使用列表形式）
-        instrument_ids_list = [inst.id for inst in instruments.values()]
+        # 将 NautilusTrader InstrumentId 转换为InstrumentId
+        from strategy.core import InstrumentId as InstrumentId
+        instrument_ids_list = []
+        for inst in instruments.values():
+            # 从 NautilusTrader InstrumentId 提取 symbol 和 venue
+            symbol = str(inst.id.symbol)
+            venue = str(inst.id.venue)
+            unified_id = InstrumentId(symbol=symbol, venue=venue)
+            instrument_ids_list.append(unified_id)
         bar_types_list = list(bar_types.values())
 
         # 创建策略实例
         if config_class:
-            # 使用配置类创建策略 - 新参数结构：统一使用列表
+            # 使用配置类创建策略
             config_params = strategy_params.copy()
             config_params['instrument_ids'] = instrument_ids_list
             config_params['bar_types'] = bar_types_list
             config = config_class(**config_params)
-            strategy = strategy_class(config)
+            user_strategy = strategy_class(config)
         else:
             # 直接使用参数创建策略
-            strategy_params['instrument_ids'] = instrument_ids_list
-            strategy_params['bar_types'] = bar_types_list
-            strategy = strategy_class(**strategy_params)
+            strategy_params_copy = strategy_params.copy()
+            strategy_params_copy['instrument_ids'] = instrument_ids_list
+            strategy_params_copy['bar_types'] = bar_types_list
+            user_strategy = strategy_class(**strategy_params_copy)
 
-        print(f"成功加载事件驱动策略: {strategy_class.__name__}（支持 {len(instruments)} 个品种）")
+        # 如果是策略接口，需要使用 StrategyAdapter 包装
+        if is_core_strategy:
+            print(f"检测到策略接口，创建回测适配策略")
+            from backtest.strategies.strategy_adapter import StrategyAdapter, StrategyConfig as AdapterStrategyConfig
+
+            # 创建适配器配置（从统一配置转换）
+            if isinstance(user_strategy.config, AdapterStrategyConfig):
+                adapter_config = user_strategy.config
+            else:
+                adapter_config = AdapterStrategyConfig(
+                    instrument_ids=user_strategy.config.instrument_ids,
+                    bar_types=user_strategy.config.bar_types,
+                    trade_size=user_strategy.config.trade_size,
+                    log_level=user_strategy.config.log_level,
+                )
+
+            # 创建动态类，继承 StrategyAdapter 和用户策略类
+            # 这样新类既有 StrategyAdapter 的交易接口实现，又有用户策略的 on_bar 逻辑
+            user_strategy_class = user_strategy.__class__
+
+            # 定义动态类
+            class BacktestStrategyAdapter(StrategyAdapter, user_strategy_class):
+                """回测用的策略适配器，同时继承 StrategyAdapter 和用户策略类"""
+
+                def __init__(self, adapter_config, user_strategy_instance):
+                    # 调用 StrategyAdapter 的 __init__（使用 adapter_config）
+                    StrategyAdapter.__init__(self, adapter_config)
+                    # 使用用户策略实例的原始配置（包含 fast_period, slow_period 等）
+                    self._config = user_strategy_instance._config
+                    # 使用不同的属性名避免与 NautilusTrader 冲突
+                    self._strategy_is_running = False
+                    self.bars_processed = 0
+                    self.start_time = None
+                    self.end_time = None
+                    # 初始化用户策略特有的状态
+                    self._init_user_strategy_state(self._config)
+                    # 保存用户策略实例
+                    self._user_strategy_instance = user_strategy_instance
+
+                def _init_user_strategy_state(self, config):
+                    """初始化用户策略的状态"""
+                    # 为每个品种维护独立的数据结构
+                    self.prices = {}
+                    self.fast_sma = {}
+                    self.slow_sma = {}
+                    self.prev_fast_sma = {}
+                    self.prev_slow_sma = {}
+                    # 初始化每个品种的数据结构
+                    for instrument_id in config.instrument_ids:
+                        self.prices[instrument_id] = []
+                        self.fast_sma[instrument_id] = 0.0
+                        self.slow_sma[instrument_id] = 0.0
+                        self.prev_fast_sma[instrument_id] = 0.0
+                        self.prev_slow_sma[instrument_id] = 0.0
+
+                def on_start(self) -> None:
+                    """策略启动"""
+                    StrategyAdapter.on_start(self)
+                    # 调用用户策略的 on_start
+                    user_strategy_class.on_start(self)
+
+                def on_bar(self, bar) -> None:
+                    """K线数据处理"""
+                    # 使用 StrategyAdapter 的转换方法
+                    self.bars_processed += 1
+                    unified_bar = self._to_unified_bar(bar)
+                    # 调用用户策略的 on_bar
+                    user_strategy_class.on_bar(self, unified_bar)
+
+                def on_stop(self) -> None:
+                    """策略停止"""
+                    # 调用用户策略的 on_stop
+                    user_strategy_class.on_stop(self)
+                    # 调用 StrategyAdapter 的 on_stop
+                    StrategyAdapter.on_stop(self)
+
+            # 创建适配策略实例
+            strategy = BacktestStrategyAdapter(adapter_config, user_strategy)
+
+            print(f"成功加载策略: {strategy_class.__name__}（支持 {len(instruments)} 个品种）")
+        else:
+            strategy = user_strategy
+            print(f"成功加载事件驱动策略: {strategy_class.__name__}（支持 {len(instruments)} 个品种）")
+
         return strategy
 
     except Exception as e:
