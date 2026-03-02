@@ -1,6 +1,6 @@
 /**
  * AI模型设置页面
- * 功能：管理AI大模型厂商配置，包括API Key、API Host和模型列表
+ * 功能：管理AI大模型厂商配置，包括API Key、API Host、代理设置和模型列表
  */
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -35,6 +35,10 @@ interface ModelProvider {
   models: Model[];
   isDefault: boolean;
   isEnabled: boolean;
+  proxyEnabled: boolean; // 是否启用代理
+  proxyUrl?: string; // 代理地址
+  proxyUsername?: string; // 代理用户名
+  proxyPassword?: string; // 代理密码
 }
 
 // 模型接口
@@ -142,7 +146,16 @@ const ModelSettingsPage = () => {
       const mergedProviders = PRESET_PROVIDERS.map((preset) => {
         const existing = parsed.find((p: ModelProvider) => p.id === preset.id);
         if (existing) {
-          return { ...existing, name: preset.name, icon: preset.icon };
+          return { 
+            ...existing, 
+            name: preset.name, 
+            icon: preset.icon,
+            // 确保代理字段存在
+            proxyEnabled: existing.proxyEnabled ?? false,
+            proxyUrl: existing.proxyUrl || "",
+            proxyUsername: existing.proxyUsername || "",
+            proxyPassword: existing.proxyPassword || "",
+          };
         }
         return {
           ...preset,
@@ -155,6 +168,10 @@ const ModelSettingsPage = () => {
           })) || [],
           isDefault: false,
           isEnabled: false,
+          proxyEnabled: false,
+          proxyUrl: "",
+          proxyUsername: "",
+          proxyPassword: "",
         };
       });
       setProviders(mergedProviders);
@@ -172,6 +189,10 @@ const ModelSettingsPage = () => {
         })) || [],
         isDefault: index === 0,
         isEnabled: index === 0,
+        proxyEnabled: false,
+        proxyUrl: "",
+        proxyUsername: "",
+        proxyPassword: "",
       }));
       setProviders(initialProviders);
       setSelectedProviderId(initialProviders[0]?.id || "");
@@ -220,6 +241,46 @@ const ModelSettingsPage = () => {
       }))
     );
     message.success(t("default_provider_set") || "默认厂商已设置");
+  };
+
+  // 从其他厂商获取代理配置
+  const getProxyFromOtherProviders = (): Partial<ModelProvider> | null => {
+    const providerWithProxy = providers.find(
+      (p) => p.proxyEnabled && p.proxyUrl && p.id !== selectedProviderId
+    );
+    if (providerWithProxy) {
+      return {
+        proxyUrl: providerWithProxy.proxyUrl,
+        proxyUsername: providerWithProxy.proxyUsername,
+        proxyPassword: providerWithProxy.proxyPassword,
+      };
+    }
+    return null;
+  };
+
+  // 处理代理开关变化
+  const handleProxyToggle = (checked: boolean) => {
+    if (checked && selectedProvider) {
+      // 启用代理时，尝试从其他厂商获取代理配置
+      const proxyConfig = getProxyFromOtherProviders();
+      if (proxyConfig) {
+        updateProvider(selectedProvider.id, {
+          proxyEnabled: true,
+          ...proxyConfig,
+        });
+        message.success(t("proxy_auto_filled") || "已自动填充代理配置");
+      } else {
+        updateProvider(selectedProvider.id, { proxyEnabled: true });
+      }
+    } else if (selectedProvider) {
+      // 关闭代理时，清空代理配置
+      updateProvider(selectedProvider.id, {
+        proxyEnabled: false,
+        proxyUrl: "",
+        proxyUsername: "",
+        proxyPassword: "",
+      });
+    }
   };
 
   // 检查可用性
@@ -312,6 +373,10 @@ const ModelSettingsPage = () => {
       })) || [],
       isDefault: index === 0,
       isEnabled: index === 0,
+      proxyEnabled: false,
+      proxyUrl: "",
+      proxyUsername: "",
+      proxyPassword: "",
     }));
     setProviders(initialProviders);
     setSelectedProviderId(initialProviders[0]?.id || "");
@@ -428,6 +493,59 @@ const ModelSettingsPage = () => {
                     }
                     placeholder={t("enter_api_host") || "请输入 API Host"}
                   />
+                </div>
+
+                <Divider className="my-4" />
+
+                {/* 代理设置 */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <Text strong className="text-base">{t("proxy_settings") || "代理设置"}</Text>
+                    <Space>
+                      <Text type="secondary" className="text-sm">{t("proxy_enabled") || "启用代理"}</Text>
+                      <Switch
+                        checked={selectedProvider.proxyEnabled}
+                        onChange={handleProxyToggle}
+                      />
+                    </Space>
+                  </div>
+
+                  {selectedProvider.proxyEnabled && (
+                    <div className="space-y-4">
+                      <div>
+                        <Text strong className="block mb-2 text-sm">{t("proxy_url") || "代理地址"}</Text>
+                        <Input
+                          value={selectedProvider.proxyUrl}
+                          onChange={(e) =>
+                            updateProvider(selectedProvider.id, { proxyUrl: e.target.value })
+                          }
+                          placeholder="http://proxy.example.com:8080"
+                        />
+                      </div>
+
+                      <div>
+                        <Text strong className="block mb-2 text-sm">{t("proxy_username") || "代理用户名"}</Text>
+                        <Input
+                          value={selectedProvider.proxyUsername}
+                          onChange={(e) =>
+                            updateProvider(selectedProvider.id, { proxyUsername: e.target.value })
+                          }
+                          placeholder={t("optional") || "可选"}
+                        />
+                      </div>
+
+                      <div>
+                        <Text strong className="block mb-2 text-sm">{t("proxy_password") || "代理密码"}</Text>
+                        <Input.Password
+                          value={selectedProvider.proxyPassword}
+                          onChange={(e) =>
+                            updateProvider(selectedProvider.id, { proxyPassword: e.target.value })
+                          }
+                          placeholder={t("optional") || "可选"}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <Divider className="my-4" />

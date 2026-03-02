@@ -136,6 +136,10 @@ export const strategyApi = {
   getStrategyDetail: (strategy_name: string) => {
     return apiRequest.post('/strategy/detail', { strategy_name });
   },
+
+  parseStrategy: (strategy_name: string, file_content: string) => {
+    return apiRequest.post('/strategy/parse', { strategy_name, file_content });
+  },
 };
 
 /**

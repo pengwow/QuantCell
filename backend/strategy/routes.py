@@ -227,7 +227,7 @@ def parse_strategy(request: StrategyParseRequest) -> StrategyParseResponse:
         logger.info(f"策略脚本解析成功: {request.strategy_name}")
 
         return StrategyParseResponse(
-            code=0, message="策略脚本解析成功", data={"strategy": strategy_info}
+            code=0, message="策略脚本解析成功", data=strategy_info
         )
     except HTTPException:
         raise

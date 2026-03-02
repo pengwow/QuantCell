@@ -17,8 +17,10 @@ from loguru import logger
 from core import lifespan
 
 # 导入业务模块路由（标准化模块化架构）
+from ai_model import router as ai_model_router
 from backtest import router as backtest_router
 from collector.routes import router as collector_router
+from exchange.config.routes import router as exchange_config_router
 from factor import router as factor_router
 from model.routes import router as model_router
 from settings.routes import router as settings_router
@@ -51,7 +53,9 @@ app.add_middleware(
 )
 
 # 注册业务路由（保持向后兼容）
+app.include_router(ai_model_router)
 app.include_router(collector_router)
+app.include_router(exchange_config_router)
 app.include_router(settings_router)
 app.include_router(factor_router)
 app.include_router(model_router)
