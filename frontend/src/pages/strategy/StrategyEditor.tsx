@@ -69,6 +69,12 @@ const StrategyEditor = () => {
   const [editorLoading, setEditorLoading] = useState<boolean>(false);
   const [code, setCode] = useState<string>('');
 
+  const [activeTabKey, setActiveTabKey] = useState<string>('editor');
+  const [isParsing, setIsParsing] = useState<boolean>(false);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [parsedStrategy, setParsedStrategy] = useState<Strategy | null>(null);
+  const parseCache = new Map<string, Strategy>();
+
   // 策略名称编辑状态
   const [isEditingName, setIsEditingName] = useState<boolean>(false);
   const [tempName, setTempName] = useState<string>('');
@@ -80,6 +86,10 @@ const StrategyEditor = () => {
   // 策略描述编辑状态
   const [isEditingDescription, setIsEditingDescription] = useState<boolean>(false);
   const [tempDescription, setTempDescription] = useState<string>('');
+
+  // 参数描述编辑状态
+  const [editingParamIndex, setEditingParamIndex] = useState<number | null>(null);
+  const [editingParamDesc, setEditingParamDesc] = useState<string>('');
 
   // AI生成策略状态
   const [aiModalVisible, setAiModalVisible] = useState<boolean>(false);
@@ -128,6 +138,122 @@ const StrategyEditor = () => {
       message.error('加载策略失败');
     } finally {
       setEditorLoading(false);
+    }
+  };
+
+  // 检查缓存数据是否有效（params不为空列表）
+  const isCacheValid = (cached: Strategy | undefined): cached is Strategy => {
+    if (!cached) return false;
+    // 如果params为空列表，认为缓存无效，需要重新解析
+    if (!cached.params || cached.params.length === 0) return false;
+    return true;
+  };
+
+  // 生成代码的哈希值（支持Unicode字符）
+  const generateCodeHash = (code: string): string => {
+    // 使用简单的字符串哈希算法，支持Unicode
+    let hash = 0;
+    for (let i = 0; i < code.length; i++) {
+      const char = code.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // 转换为32位整数
+    }
+    return hash.toString(16);
+  };
+
+  // 解析策略
+  const parseStrategy = async (retry = false) => {
+    console.log('[parseStrategy] 开始解析策略, retry:', retry);
+    if (!selectedStrategy) {
+      console.log('[parseStrategy] 没有选中策略，直接返回');
+      return;
+    }
+
+    const codeHash = generateCodeHash(code);
+    console.log('[parseStrategy] codeHash:', codeHash);
+    console.log('[parseStrategy] 缓存状态:', parseCache.has(codeHash), '缓存大小:', parseCache.size);
+    
+    if (!retry && parseCache.has(codeHash)) {
+      const cached = parseCache.get(codeHash);
+      console.log('[parseStrategy] 找到缓存数据:', cached);
+      // 只有当缓存数据有效时才使用缓存
+      if (isCacheValid(cached)) {
+        console.log('[parseStrategy] 缓存数据有效，使用缓存');
+        setParsedStrategy(cached);
+        setParseError(null);
+        return;
+      }
+      console.log('[parseStrategy] 缓存数据无效，继续调用接口');
+    }
+
+    console.log('[parseStrategy] 调用后端接口解析策略');
+    setIsParsing(true);
+    setParseError(null);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const response = await Promise.race([
+        strategyApi.parseStrategy(selectedStrategy.name, code) as Promise<Strategy>,
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('请求超时')), 30000);
+        })
+      ]);
+
+      setParsedStrategy(response);
+      parseCache.set(codeHash, response);
+      setParseError(null);
+    } catch (error: any) {
+      const errorMsg = error.message || '解析策略失败';
+      setParseError(errorMsg);
+    } finally {
+      clearTimeout(timeoutId);
+      setIsParsing(false);
+    }
+  };
+
+  // 检查是否需要解析策略
+  // 当代码发生变化或解析结果为空时，需要重新解析
+  const shouldParseStrategy = (): boolean => {
+    // 如果没有解析过，需要解析
+    if (!parsedStrategy) {
+      console.log('[shouldParseStrategy] 没有解析过，需要解析');
+      return true;
+    }
+
+    // 检查当前解析结果是否对应当前代码
+    const codeHash = generateCodeHash(code);
+    const cached = parseCache.get(codeHash);
+    
+    // 如果缓存中没有对应当前代码的解析结果，需要重新解析
+    if (!cached) {
+      console.log('[shouldParseStrategy] 缓存中没有对应当前代码的解析结果，需要重新解析');
+      return true;
+    }
+
+    // 如果缓存数据无效（params为空），需要重新解析
+    if (!cached.params || cached.params.length === 0) {
+      console.log('[shouldParseStrategy] 缓存数据无效（params为空），需要重新解析');
+      return true;
+    }
+
+    console.log('[shouldParseStrategy] 不需要重新解析');
+    return false;
+  };
+
+  // 处理标签页切换
+  const handleTabChange = (key: string) => {
+    console.log('[handleTabChange] 切换到标签页:', key);
+    setActiveTabKey(key);
+    if (key === 'preview') {
+      console.log('[handleTabChange] 切换到preview，检查是否需要解析');
+      // 只有在需要时才调用解析接口
+      const needParse = shouldParseStrategy();
+      console.log('[handleTabChange] 是否需要解析:', needParse);
+      if (needParse) {
+        parseStrategy();
+      }
     }
   };
 
@@ -677,6 +803,41 @@ class AIGeneratedStrategy(StrategyBase):
     setTempDescription(e.target.value);
   };
 
+  // 开始编辑参数描述
+  const handleStartEditParamDescription = (index: number, currentDesc: string) => {
+    setEditingParamIndex(index);
+    setEditingParamDesc(currentDesc);
+  };
+
+  // 保存参数描述
+  const handleSaveParamDescription = (index: number) => {
+    const strategy = parsedStrategy || selectedStrategy;
+    if (strategy && strategy.params) {
+      const updatedParams = [...strategy.params];
+      updatedParams[index] = {
+        ...updatedParams[index],
+        description: editingParamDesc
+      };
+      
+      // 更新解析后的策略
+      if (parsedStrategy) {
+        setParsedStrategy({
+          ...parsedStrategy,
+          params: updatedParams
+        });
+      }
+      // 同时更新原始策略
+      if (selectedStrategy) {
+        setSelectedStrategy({
+          ...selectedStrategy,
+          params: updatedParams
+        });
+      }
+    }
+    setEditingParamIndex(null);
+    setEditingParamDesc('');
+  };
+
   // 根据编辑/创建模式确定页面标题
   const pageTitle = params.strategyName
     ? t('edit_strategy') || '编辑策略'
@@ -764,7 +925,8 @@ class AIGeneratedStrategy(StrategyBase):
       <Card>
         <Spin spinning={editorLoading} tip="加载中...">
           <Tabs
-            defaultActiveKey="editor"
+            activeKey={activeTabKey}
+            onChange={handleTabChange}
             tabBarStyle={{ marginBottom: 0 }}
             items={[
               {
@@ -800,84 +962,114 @@ class AIGeneratedStrategy(StrategyBase):
                 label: <><EyeOutlined /> {t('preview') || '预览'}</>,
                 children: (
                   <div className="p-5">
-                    <h3 className="mb-4">{t('strategy_information') || '策略信息'}</h3>
-                    <Descriptions bordered column={1} className="mb-5">
-                      <Descriptions.Item label={t('name') || '名称'}>
-                        {isEditingName ? (
-                          <Space>
-                            <Input
-                              value={tempName}
-                              onChange={handleTempNameChange}
-                              onPressEnter={handleSaveName}
-                              onBlur={handleSaveName}
-                              autoFocus
-                            />
-                          </Space>
-                        ) : (
-                          <span onClick={handleStartEditName} className="cursor-pointer">
-                            {selectedStrategy?.name || ''}
-                          </span>
-                        )}
-                      </Descriptions.Item>
-                      <Descriptions.Item label={t('version') || '版本'}>
-                        {isEditingVersion ? (
-                          <Space>
-                            <Input
-                              value={tempVersion}
-                              onChange={handleTempVersionChange}
-                              onPressEnter={handleSaveVersion}
-                              onBlur={handleSaveVersion}
-                              autoFocus
-                            />
-                          </Space>
-                        ) : (
-                          <span onClick={handleStartEditVersion} className="cursor-pointer">
-                            {selectedStrategy?.version || ''}
-                          </span>
-                        )}
-                      </Descriptions.Item>
-                      <Descriptions.Item label={t('description') || '描述'}>
-                        {isEditingDescription ? (
-                          <Space>
-                            <Input.TextArea
-                              value={tempDescription}
-                              onChange={handleTempDescriptionChange}
-                              onBlur={handleSaveDescription}
-                              autoFocus
-                              rows={3}
-                            />
-                          </Space>
-                        ) : (
-                          <span onClick={handleStartEditDescription} className="cursor-pointer">
-                            {selectedStrategy?.description || t('no_description') || '暂无描述'}
-                          </span>
-                        )}
-                      </Descriptions.Item>
-                      <Descriptions.Item label={t('created_at') || '创建时间'}>
-                        {selectedStrategy ? new Date(selectedStrategy.created_at).toLocaleString() : ''}
-                      </Descriptions.Item>
-                      <Descriptions.Item label={t('updated_at') || '更新时间'}>
-                        {selectedStrategy ? new Date(selectedStrategy.updated_at).toLocaleString() : ''}
-                      </Descriptions.Item>
-                    </Descriptions>
+                    <Spin spinning={isParsing} tip="解析策略中...">
+                      {parseError ? (
+                        <div className="p-6 text-center border border-red-300 rounded-lg bg-red-50 dark:bg-red-900/20">
+                          <CloseCircleOutlined className="text-4xl text-red-500 mb-4" />
+                          <p className="text-red-600 dark:text-red-400 mb-4">{parseError}</p>
+                          <Button
+                            type="primary"
+                            icon={<ReloadOutlined />}
+                            onClick={() => parseStrategy(true)}
+                          >
+                            重试
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <h3 className="mb-4">{t('strategy_information') || '策略信息'}</h3>
+                          <Descriptions bordered column={1} className="mb-5">
+                            <Descriptions.Item label={t('version') || '版本'}>
+                              <div className="min-h-[32px] flex items-center">
+                                {isEditingVersion ? (
+                                  <Input
+                                    value={tempVersion}
+                                    onChange={handleTempVersionChange}
+                                    onPressEnter={handleSaveVersion}
+                                    onBlur={handleSaveVersion}
+                                    autoFocus
+                                    className="w-full"
+                                  />
+                                ) : (
+                                  <span 
+                                    onClick={handleStartEditVersion} 
+                                    className="cursor-pointer hover:text-blue-500 transition-colors block w-full py-1"
+                                    title={t('click_to_edit') || '点击编辑'}
+                                  >
+                                    {(parsedStrategy || selectedStrategy)?.version || ''}
+                                  </span>
+                                )}
+                              </div>
+                            </Descriptions.Item>
+                            <Descriptions.Item label={t('description') || '描述'}>
+                              <div className="min-h-[120px]">
+                                {isEditingDescription ? (
+                                  <Input.TextArea
+                                    value={tempDescription}
+                                    onChange={handleTempDescriptionChange}
+                                    onBlur={handleSaveDescription}
+                                    onPressEnter={handleSaveDescription}
+                                    autoFocus
+                                    rows={5}
+                                    className="w-full"
+                                  />
+                                ) : (
+                                  <span 
+                                    onClick={handleStartEditDescription} 
+                                    className="cursor-pointer hover:text-blue-500 transition-colors whitespace-pre-wrap block w-full py-1"
+                                    title={t('click_to_edit') || '点击编辑描述'}
+                                  >
+                                    {(parsedStrategy || selectedStrategy)?.description || t('no_description') || '暂无描述'}
+                                  </span>
+                                )}
+                              </div>
+                            </Descriptions.Item>
+                            <Descriptions.Item label={t('created_at') || '创建时间'}>
+                              {(parsedStrategy || selectedStrategy) ? new Date((parsedStrategy || selectedStrategy)!.created_at).toLocaleString() : ''}
+                            </Descriptions.Item>
+                            <Descriptions.Item label={t('updated_at') || '更新时间'}>
+                              {(parsedStrategy || selectedStrategy) ? new Date((parsedStrategy || selectedStrategy)!.updated_at).toLocaleString() : ''}
+                            </Descriptions.Item>
+                          </Descriptions>
 
-                    <h3 className="mt-5 mb-4">{t('parameter_list') || '参数列表'}</h3>
-                    {selectedStrategy?.params && selectedStrategy.params.length > 0 ? (
-                      <Descriptions bordered column={1}>
-                        {selectedStrategy.params.map((param, index) => (
-                          <Descriptions.Item key={index} label={param.name}>
-                            <div>
-                              <p className="mb-2">{param.description || t('no_description') || '暂无描述'}</p>
-                              <small>{t('type') || '类型'}: {param.type}, {t('default_value') || '默认值'}: {JSON.stringify(param.default)}</small>
+                          <h3 className="mt-5 mb-4">{t('parameter_list') || '参数列表'}</h3>
+                          {((parsedStrategy || selectedStrategy)?.params && (parsedStrategy || selectedStrategy)!.params.length > 0) ? (
+                            <Descriptions bordered column={1}>
+                              {(parsedStrategy || selectedStrategy)!.params.map((param, index) => (
+                                <Descriptions.Item key={index} label={param.name}>
+                                  <div className="min-h-[80px]">
+                                    {editingParamIndex === index ? (
+                                      <Input.TextArea
+                                        value={editingParamDesc}
+                                        onChange={(e) => setEditingParamDesc(e.target.value)}
+                                        onBlur={() => handleSaveParamDescription(index)}
+                                        onPressEnter={() => handleSaveParamDescription(index)}
+                                        autoFocus
+                                        rows={3}
+                                        className="w-full"
+                                      />
+                                    ) : (
+                                      <p 
+                                        className="cursor-pointer hover:text-blue-500 transition-colors block w-full py-1 mb-2"
+                                        onClick={() => handleStartEditParamDescription(index, param.description || '')}
+                                        title={t('click_to_edit') || '点击编辑描述'}
+                                      >
+                                        {param.description || t('no_description') || '暂无描述'}
+                                      </p>
+                                    )}
+                                    <small>{t('type') || '类型'}: {param.type}, {t('default_value') || '默认值'}: {JSON.stringify(param.default)}</small>
+                                  </div>
+                                </Descriptions.Item>
+                              ))}
+                            </Descriptions>
+                          ) : (
+                            <div className="p-5 text-center text-gray-400">
+                              {t('no_parameters') || '暂无参数'}
                             </div>
-                          </Descriptions.Item>
-                        ))}
-                      </Descriptions>
-                    ) : (
-                      <div className="p-5 text-center text-gray-400">
-                        {t('no_parameters') || '暂无参数'}
-                      </div>
-                    )}
+                          )}
+                        </>
+                      )}
+                    </Spin>
                   </div>
                 )
               }

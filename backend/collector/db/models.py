@@ -384,6 +384,73 @@ class Strategy(TimezoneAwareBase):
     workers = relationship("Worker", back_populates="strategy")
 
 
+class AIModel(TimezoneAwareBase):
+    """AI模型配置SQLAlchemy模型
+    
+    对应ai_models表的SQLAlchemy模型定义，用于存储AI大模型厂商配置信息
+    与系统配置表(system_config)分开，专门用于管理AI模型提供商的配置
+    """
+    __tablename__ = "ai_models"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)  # 主键ID
+    provider = Column(String, nullable=False, index=True)  # 厂商名称，如openai、anthropic等
+    name = Column(String, nullable=False)  # 配置名称，用于显示
+    api_key = Column(Text, nullable=False)  # API密钥，加密存储
+    api_host = Column(String, nullable=True)  # API主机地址，可选
+    models = Column(Text, nullable=True)  # 可用模型列表，JSON格式存储
+    is_default = Column(Boolean, default=False, index=True)  # 是否为默认配置
+    is_enabled = Column(Boolean, default=True, index=True)  # 是否启用
+    # 代理设置字段
+    proxy_enabled = Column(Boolean, default=False)  # 是否启用代理
+    proxy_url = Column(String, nullable=True)  # 代理地址
+    proxy_username = Column(String, nullable=True)  # 代理用户名
+    proxy_password = Column(String, nullable=True)  # 代理密码
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())  # 更新时间
+    
+    # 添加索引优化查询性能
+    __table_args__ = (
+        sqlalchemy.Index('idx_ai_models_provider_enabled', 'provider', 'is_enabled'),
+        sqlalchemy.Index('idx_ai_models_default', 'is_default'),
+    )
+
+
+class ExchangeConfig(TimezoneAwareBase):
+    """交易所配置SQLAlchemy模型
+    
+    对应exchange_configs表的SQLAlchemy模型定义，用于存储交易所配置信息
+    与系统配置表(system_config)分开，专门用于管理交易所的配置
+    """
+    __tablename__ = "exchange_configs"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)  # 主键ID
+    exchange_id = Column(String, nullable=False, index=True)  # 交易所ID，如binance、okx等
+    name = Column(String, nullable=False)  # 交易所名称，用于显示
+    # 交易设置
+    trading_mode = Column(String, default='spot')  # 交易模式：spot(现货), futures(合约), margin(杠杆)
+    quote_currency = Column(String, default='USDT')  # 计价货币
+    commission_rate = Column(sqlalchemy.Float, default=0.001)  # 手续费率
+    # API认证
+    api_key = Column(Text, nullable=True)  # API密钥
+    api_secret = Column(Text, nullable=True)  # API密钥密钥
+    # 代理设置
+    proxy_enabled = Column(Boolean, default=False)  # 是否启用代理
+    proxy_url = Column(String, nullable=True)  # 代理地址
+    proxy_username = Column(String, nullable=True)  # 代理用户名
+    proxy_password = Column(String, nullable=True)  # 代理密码
+    # 状态设置
+    is_default = Column(Boolean, default=False, index=True)  # 是否为默认交易所
+    is_enabled = Column(Boolean, default=True, index=True)  # 是否启用
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())  # 更新时间
+    
+    # 添加索引优化查询性能
+    __table_args__ = (
+        sqlalchemy.Index('idx_exchange_configs_exchange_enabled', 'exchange_id', 'is_enabled'),
+        sqlalchemy.Index('idx_exchange_configs_default', 'is_default'),
+    )
+
+
 # 业务逻辑类
 
 class SystemConfigBusiness:

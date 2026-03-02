@@ -84,7 +84,7 @@ const StrategyManagement = () => {
 
   // 回测策略
   const handleBacktestStrategy = (strategy: Strategy) => {
-    navigate('/backtest-config', { state: { strategy, showConfig: true } });
+    navigate('/backtest/config', { state: { strategy, showConfig: true } });
   };
 
   // 安全的日期格式化函数
