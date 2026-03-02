@@ -72,6 +72,16 @@ api.interceptors.response.use(
   },
   (error) => {
     console.error('网络错误:', error);
+
+    // 处理401未授权错误
+    if (error.response?.status === 401) {
+      // 清除token并跳转到登录页
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      window.location.href = '/login';
+      return Promise.reject(new ApiError(401, '登录已过期，请重新登录'));
+    }
+
     return Promise.reject(error);
   }
 );
@@ -405,14 +415,140 @@ export const systemApi = {
    * @param params 查询参数
    */
   getLogs: (params?: LogQueryParams): Promise<LogQueryResponse> => {
-    return apiRequest.get('/system/logs', params);
+    return apiRequest.get<LogQueryResponse>('/system/logs', params);
   },
 
   /**
    * 获取系统指标（连接状态、CPU、内存、磁盘等）
    */
   getSystemMetrics: (): Promise<SystemMetrics> => {
-    return apiRequest.get('/system/metrics');
+    return apiRequest.get<SystemMetrics>('/system/metrics');
+  },
+};
+
+/**
+ * 通知设置相关 API
+ */
+export const notificationApi = {
+  /**
+   * 获取通知渠道配置
+   */
+  getChannels: () => {
+    return apiRequest.get('/notifications/channels');
+  },
+
+  /**
+   * 保存通知渠道配置
+   * @param channels 通知渠道配置列表
+   */
+  saveChannels: (channels: any[]) => {
+    return apiRequest.post('/notifications/channels', channels);
+  },
+
+  /**
+   * 测试通知渠道
+   * @param channelId 渠道ID
+   * @param config 渠道配置
+   */
+  testChannel: (channelId: string, config: any) => {
+    return apiRequest.post('/notifications/test', { channel_id: channelId, config });
+  },
+};
+
+/**
+ * AI模型配置相关 API
+ */
+export const aiModelApi = {
+  /**
+   * 获取AI模型配置列表
+   */
+  getModels: () => {
+    return apiRequest.get('/ai-models/');
+  },
+
+  /**
+   * 创建AI模型配置
+   * @param data 模型配置数据
+   */
+  createModel: (data: any) => {
+    return apiRequest.post('/ai-models/', data);
+  },
+
+  /**
+   * 更新AI模型配置
+   * @param id 模型ID
+   * @param data 模型配置数据
+   */
+  updateModel: (id: string, data: any) => {
+    return apiRequest.put(`/ai-models/${id}`, data);
+  },
+
+  /**
+   * 删除AI模型配置
+   * @param id 模型ID
+   */
+  deleteModel: (id: string) => {
+    return apiRequest.delete(`/ai-models/${id}`);
+  },
+
+  /**
+   * 检查模型可用性
+   * @param data 检查请求数据
+   */
+  checkAvailability: (data: any) => {
+    return apiRequest.post('/ai-models/check', data);
+  },
+
+  /**
+   * 获取支持的厂商列表
+   */
+  getProviders: () => {
+    return apiRequest.get('/ai-models/providers');
+  },
+};
+
+/**
+ * 交易所配置相关 API
+ * 使用系统配置表存储，name="exchange"，key=交易所英文名称
+ */
+export const exchangeConfigApi = {
+  /**
+   * 获取交易所配置列表
+   */
+  getConfigs: () => {
+    return apiRequest.get('/exchange-configs/');
+  },
+
+  /**
+   * 创建交易所配置
+   * @param data 交易所配置数据
+   */
+  createConfig: (data: any) => {
+    return apiRequest.post('/exchange-configs/', data);
+  },
+
+  /**
+   * 更新交易所配置
+   * @param key 交易所英文名称（如 "binance", "okx"）
+   * @param data 交易所配置数据
+   */
+  updateConfig: (key: string, data: any) => {
+    return apiRequest.put(`/exchange-configs/${key}`, data);
+  },
+
+  /**
+   * 删除交易所配置
+   * @param key 交易所英文名称（如 "binance", "okx"）
+   */
+  deleteConfig: (key: string) => {
+    return apiRequest.delete(`/exchange-configs/${key}`);
+  },
+
+  /**
+   * 获取支持的交易所列表
+   */
+  getExchanges: () => {
+    return apiRequest.get('/exchange-configs/exchanges');
   },
 };
 

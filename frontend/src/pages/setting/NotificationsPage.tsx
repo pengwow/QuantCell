@@ -17,6 +17,7 @@ import {
 import {
   IconMail,
 } from "@tabler/icons-react";
+import { getNotificationChannels, saveNotificationChannels, testNotificationChannel } from "../../services/notificationService";
 
 const { Text } = Typography;
 const { Option } = Select;
@@ -106,46 +107,55 @@ const NotificationsPage = () => {
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // 从localStorage加载配置
+  // 从后端API加载配置
   useEffect(() => {
-    const savedChannels = localStorage.getItem("notification_channels");
-    if (savedChannels) {
-      const parsed = JSON.parse(savedChannels);
-      // 合并新渠道
-      const mergedChannels = PRESET_CHANNELS.map((preset) => {
-        const existing = parsed.find((c: NotificationChannel) => c.id === preset.id);
-        if (existing) {
-          return { ...existing, name: preset.name, icon: preset.icon };
-        }
-        return {
-          ...preset,
-          enabled: false,
-          isDefault: false,
-          config: DEFAULT_CONFIGS[preset.id],
-        };
-      });
-      setChannels(mergedChannels);
-      setSelectedChannelId(mergedChannels[0]?.id || "");
-    } else {
-      // 初始化默认配置
-      const initialChannels = PRESET_CHANNELS.map((preset, index) => ({
-        ...preset,
-        enabled: index === 0,
-        isDefault: index === 0,
-        config: DEFAULT_CONFIGS[preset.id],
-      }));
-      setChannels(initialChannels);
-      setSelectedChannelId(initialChannels[0]?.id || "");
-    }
+    loadChannels();
   }, []);
 
-  // 保存到localStorage
-  useEffect(() => {
-    if (channels.length > 0) {
-      localStorage.setItem("notification_channels", JSON.stringify(channels));
+  // 加载通知渠道配置
+  const loadChannels = async () => {
+    try {
+      setLoading(true);
+      const data = await getNotificationChannels();
+      // 响应拦截器已经提取了data部分
+      if (data?.channels) {
+        const loadedChannels = data.channels;
+        // 合并预设渠道的图标
+        const mergedChannels = loadedChannels.map((channel: NotificationChannel) => {
+          const preset = PRESET_CHANNELS.find((p) => p.id === channel.id);
+          return {
+            ...channel,
+            icon: preset?.icon || "",
+          };
+        });
+        setChannels(mergedChannels);
+        setSelectedChannelId(mergedChannels[0]?.id || "");
+      } else {
+        // 使用默认配置
+        initDefaultChannels();
+      }
+    } catch (error) {
+      console.error("加载通知渠道配置失败:", error);
+      message.error(t("load_failed") || "加载配置失败");
+      initDefaultChannels();
+    } finally {
+      setLoading(false);
     }
-  }, [channels]);
+  };
+
+  // 初始化默认配置
+  const initDefaultChannels = () => {
+    const initialChannels = PRESET_CHANNELS.map((preset, index) => ({
+      ...preset,
+      enabled: index === 0,
+      isDefault: index === 0,
+      config: DEFAULT_CONFIGS[preset.id],
+    }));
+    setChannels(initialChannels);
+    setSelectedChannelId(initialChannels[0]?.id || "");
+  };
 
   // 获取当前选中的渠道
   const selectedChannel = channels.find((c) => c.id === selectedChannelId);
@@ -161,29 +171,33 @@ const NotificationsPage = () => {
     );
   };
 
-
-
   // 保存配置
   const handleSave = async () => {
     setSaving(true);
-    // 模拟保存
-    setTimeout(() => {
+    try {
+      // 移除icon字段，后端不需要存储
+      const channelsToSave = channels.map(({ icon, ...rest }) => rest);
+      await saveNotificationChannels(channelsToSave);
+      // 响应拦截器已经处理了错误，如果执行到这里说明成功
       message.success(t("settings_saved") || "设置已保存");
+    } catch (error) {
+      console.error("保存通知渠道配置失败:", error);
+      message.error(t("save_failed") || "保存失败");
+    } finally {
       setSaving(false);
-    }, 500);
+    }
   };
 
   // 重置配置
-  const handleReset = () => {
-    const initialChannels = PRESET_CHANNELS.map((preset, index) => ({
-      ...preset,
-      enabled: index === 0,
-      isDefault: index === 0,
-      config: DEFAULT_CONFIGS[preset.id],
-    }));
-    setChannels(initialChannels);
-    setSelectedChannelId(initialChannels[0]?.id || "");
-    message.success(t("config_reset") || "配置已重置");
+  const handleReset = async () => {
+    try {
+      // 重新加载后端配置
+      await loadChannels();
+      message.success(t("config_reset") || "配置已重置");
+    } catch (error) {
+      console.error("重置配置失败:", error);
+      message.error(t("reset_failed") || "重置失败");
+    }
   };
 
   // 测试发送通知
@@ -205,12 +219,28 @@ const NotificationsPage = () => {
       return;
     }
 
-    // 模拟发送测试消息
+    // 发送测试消息
     message.loading(t("sending_test_message") || "正在发送测试消息...", 1);
-    setTimeout(() => {
-      message.success(t("test_message_sent") || "测试消息已发送");
-    }, 1000);
+    try {
+      const response = await testNotificationChannel(channelId, channel.config);
+      if (response.code === 0) {
+        message.success(t("test_message_sent") || "测试消息已发送");
+      } else {
+        message.error(response.message || t("test_failed") || "测试发送失败");
+      }
+    } catch (error) {
+      console.error("测试发送失败:", error);
+      message.error(t("test_failed") || "测试发送失败");
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Text>{t("loading") || "加载中..."}</Text>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -514,7 +544,7 @@ const NotificationsPage = () => {
       {/* 操作按钮 */}
       <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
         <Space>
-          <Button onClick={handleReset} disabled={saving}>
+          <Button onClick={handleReset} disabled={saving || loading}>
             {t("reset") || "重置"}
           </Button>
           <Button type="primary" onClick={handleSave} loading={saving}>

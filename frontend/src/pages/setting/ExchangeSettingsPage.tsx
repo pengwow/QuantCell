@@ -22,6 +22,7 @@ import {
 import {
   IconBuildingBank,
 } from "@tabler/icons-react";
+import { exchangeConfigApi } from "../../api";
 // @web3icons/react 交易所图标
 import {
   ExchangeBinance,
@@ -50,6 +51,7 @@ interface ExchangeConfig {
   apiSecret?: string; // API Secret
   isEnabled: boolean; // 是否启用
   isDefault: boolean; // 是否为默认交易所
+  key?: string; // 后端系统配置的key（交易所英文名称）
 }
 
 // 预设的交易所
@@ -105,63 +107,88 @@ const ExchangeSettingsPage = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // 从localStorage加载配置
+  // 从后端API加载配置
   useEffect(() => {
-    setLoading(true);
-    const savedExchanges = localStorage.getItem("exchange_configs");
-    if (savedExchanges) {
-      const parsed = JSON.parse(savedExchanges);
-      // 合并新交易所
-      const mergedExchanges = PRESET_EXCHANGES.map((preset) => {
-        const existing = parsed.find((e: ExchangeConfig) => e.id === preset.id);
-        if (existing) {
-          return { ...existing, name: preset.name, icon: preset.icon };
-        }
-        return {
-          ...preset,
-          tradingMode: "spot" as const,
-          quoteCurrency: "USDT",
-          commission: 0.001,
-          proxyEnabled: false,
-          proxyUrl: "",
-          proxyUsername: "",
-          proxyPassword: "",
-          apiKey: "",
-          apiSecret: "",
-          isEnabled: false,
-          isDefault: false,
-        };
-      });
-      setExchanges(mergedExchanges);
-      setSelectedExchangeId(mergedExchanges[0]?.id || "");
-    } else {
-      // 初始化默认配置
-      const initialExchanges = PRESET_EXCHANGES.map((preset, index) => ({
-        ...preset,
-        tradingMode: "spot" as const,
-        quoteCurrency: "USDT",
-        commission: 0.001,
-        proxyEnabled: false,
-        proxyUrl: "",
-        proxyUsername: "",
-        proxyPassword: "",
-        apiKey: "",
-        apiSecret: "",
-        isEnabled: index === 0,
-        isDefault: index === 0,
-      }));
-      setExchanges(initialExchanges);
-      setSelectedExchangeId(initialExchanges[0]?.id || "");
-    }
-    setLoading(false);
+    loadExchanges();
   }, []);
 
-  // 保存到localStorage
-  useEffect(() => {
-    if (exchanges.length > 0) {
-      localStorage.setItem("exchange_configs", JSON.stringify(exchanges));
+  // 加载交易所配置
+  const loadExchanges = async () => {
+    setLoading(true);
+    try {
+      const response = await exchangeConfigApi.getConfigs();
+      if (response.items && response.items.length > 0) {
+        // 将后端数据转换为前端格式
+        const loadedExchanges = PRESET_EXCHANGES.map((preset) => {
+          const existing = response.items.find((item: any) => item.exchange_id === preset.id);
+          if (existing) {
+            return {
+              id: existing.exchange_id,
+              name: preset.name,
+              icon: preset.icon,
+              tradingMode: existing.trading_mode || "spot",
+              quoteCurrency: existing.quote_currency || "USDT",
+              commission: existing.commission_rate || 0.001,
+              proxyEnabled: existing.proxy_enabled || false,
+              proxyUrl: existing.proxy_url || "",
+              proxyUsername: existing.proxy_username || "",
+              proxyPassword: existing.proxy_password || "",
+              apiKey: "",
+              apiSecret: "",
+              isEnabled: existing.is_enabled,
+              isDefault: existing.is_default,
+              key: existing.key,
+            };
+          }
+          return {
+            ...preset,
+            tradingMode: "spot" as const,
+            quoteCurrency: "USDT",
+            commission: 0.001,
+            proxyEnabled: false,
+            proxyUrl: "",
+            proxyUsername: "",
+            proxyPassword: "",
+            apiKey: "",
+            apiSecret: "",
+            isEnabled: false,
+            isDefault: false,
+          };
+        });
+        setExchanges(loadedExchanges);
+        setSelectedExchangeId(loadedExchanges[0]?.id || "");
+      } else {
+        // 初始化默认配置
+        initDefaultExchanges();
+      }
+    } catch (error) {
+      console.error("加载交易所配置失败:", error);
+      message.error(t("load_failed") || "加载配置失败");
+      initDefaultExchanges();
+    } finally {
+      setLoading(false);
     }
-  }, [exchanges]);
+  };
+
+  // 初始化默认配置
+  const initDefaultExchanges = () => {
+    const initialExchanges = PRESET_EXCHANGES.map((preset, index) => ({
+      ...preset,
+      tradingMode: "spot" as const,
+      quoteCurrency: "USDT",
+      commission: 0.001,
+      proxyEnabled: false,
+      proxyUrl: "",
+      proxyUsername: "",
+      proxyPassword: "",
+      apiKey: "",
+      apiSecret: "",
+      isEnabled: index === 0,
+      isDefault: index === 0,
+    }));
+    setExchanges(initialExchanges);
+    setSelectedExchangeId(initialExchanges[0]?.id || "");
+  };
 
   // 获取当前选中的交易所
   const selectedExchange = exchanges.find((e) => e.id === selectedExchangeId);
@@ -188,9 +215,37 @@ const ExchangeSettingsPage = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      localStorage.setItem("exchange_configs", JSON.stringify(exchanges));
+      // 保存所有交易所配置到后端（无论是否启用）
+      for (const exchange of exchanges) {
+        const configData = {
+          exchange_id: exchange.id,
+          name: exchange.name,
+          trading_mode: exchange.tradingMode,
+          quote_currency: exchange.quoteCurrency,
+          commission_rate: exchange.commission,
+          api_key: exchange.apiKey,
+          api_secret: exchange.apiSecret,
+          proxy_enabled: exchange.proxyEnabled,
+          proxy_url: exchange.proxyUrl,
+          proxy_username: exchange.proxyUsername,
+          proxy_password: exchange.proxyPassword,
+          is_enabled: exchange.isEnabled,
+          is_default: exchange.isDefault,
+        };
+
+        if (exchange.key) {
+          // 更新现有配置
+          await exchangeConfigApi.updateConfig(exchange.key, configData);
+        } else {
+          // 创建新配置
+          await exchangeConfigApi.createConfig(configData);
+        }
+      }
       message.success(t("config_saved") || "配置已保存");
+      // 重新加载以获取后端key
+      await loadExchanges();
     } catch (error) {
+      console.error("保存配置失败:", error);
       message.error(t("save_failed") || "保存失败");
     } finally {
       setSaving(false);

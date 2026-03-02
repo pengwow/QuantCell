@@ -22,6 +22,7 @@ import {
   IconTrash,
   IconRobot,
 } from "@tabler/icons-react";
+import { aiModelApi } from "../../api";
 
 const { Text } = Typography;
 
@@ -137,74 +138,71 @@ const ModelSettingsPage = () => {
   const [addModelForm] = Form.useForm();
   const [checkingProvider, setCheckingProvider] = useState<string | null>(null);
 
-  // 从localStorage加载配置
+  // 从后端API加载配置
   useEffect(() => {
-    const savedProviders = localStorage.getItem("ai_model_providers");
-    if (savedProviders) {
-      const parsed = JSON.parse(savedProviders);
-      // 合并新厂商
-      const mergedProviders = PRESET_PROVIDERS.map((preset) => {
-        const existing = parsed.find((p: ModelProvider) => p.id === preset.id);
-        if (existing) {
-          return { 
-            ...existing, 
-            name: preset.name, 
-            icon: preset.icon,
-            // 确保代理字段存在
-            proxyEnabled: existing.proxyEnabled ?? false,
-            proxyUrl: existing.proxyUrl || "",
-            proxyUsername: existing.proxyUsername || "",
-            proxyPassword: existing.proxyPassword || "",
-          };
-        }
-        return {
-          ...preset,
-          apiKey: "",
-          apiHost: getDefaultApiHost(preset.id),
-          models: PRESET_MODELS[preset.id]?.map((name) => ({
-            id: `${preset.id}-${name}`,
-            name,
-            isEnabled: false,
-          })) || [],
-          isDefault: false,
-          isEnabled: false,
-          proxyEnabled: false,
-          proxyUrl: "",
-          proxyUsername: "",
-          proxyPassword: "",
-        };
-      });
-      setProviders(mergedProviders);
-      setSelectedProviderId(mergedProviders[0]?.id || "");
-    } else {
-      // 初始化默认配置
-      const initialProviders = PRESET_PROVIDERS.map((preset, index) => ({
-        ...preset,
-        apiKey: "",
-        apiHost: getDefaultApiHost(preset.id),
-        models: PRESET_MODELS[preset.id]?.map((name) => ({
-          id: `${preset.id}-${name}`,
-          name,
-          isEnabled: index === 0,
-        })) || [],
-        isDefault: index === 0,
-        isEnabled: index === 0,
-        proxyEnabled: false,
-        proxyUrl: "",
-        proxyUsername: "",
-        proxyPassword: "",
-      }));
-      setProviders(initialProviders);
-      setSelectedProviderId(initialProviders[0]?.id || "");
-    }
+    loadProviders();
   }, []);
 
-  // 保存到localStorage
-  useEffect(() => {
-    if (providers.length > 0) {
-      localStorage.setItem("ai_model_providers", JSON.stringify(providers));
+  // 加载模型配置
+  const loadProviders = async () => {
+    try {
+      const response = await aiModelApi.getModels();
+      if (response.items && response.items.length > 0) {
+        // 将后端数据转换为前端格式
+        const loadedProviders = response.items.map((item: any) => ({
+          id: item.provider,
+          name: item.name || item.provider,
+          icon: PROVIDER_ICONS[item.provider] || "",
+          apiKey: item.api_key || "",
+          apiHost: item.api_host || getDefaultApiHost(item.provider),
+          models: item.models?.map((m: any) => ({
+            id: m.id,
+            name: m.name,
+            isEnabled: m.is_enabled,
+          })) || [],
+          isDefault: item.is_default,
+          isEnabled: item.is_enabled,
+          proxyEnabled: item.proxy_enabled || false,
+          proxyUrl: item.proxy_url || "",
+          proxyUsername: item.proxy_username || "",
+          proxyPassword: item.proxy_password || "",
+        }));
+        setProviders(loadedProviders);
+        setSelectedProviderId(loadedProviders[0]?.id || "");
+      } else {
+        // 初始化默认配置
+        initDefaultProviders();
+      }
+    } catch (error) {
+      console.error("加载模型配置失败:", error);
+      message.error(t("load_failed") || "加载配置失败");
+      initDefaultProviders();
     }
-  }, [providers]);
+  };
+
+  // 初始化默认配置
+  const initDefaultProviders = () => {
+    const initialProviders = PRESET_PROVIDERS.map((preset, index) => ({
+      ...preset,
+      apiKey: "",
+      apiHost: getDefaultApiHost(preset.id),
+      models: PRESET_MODELS[preset.id]?.map((name) => ({
+        id: `${preset.id}-${name}`,
+        name,
+        isEnabled: index === 0,
+      })) || [],
+      isDefault: index === 0,
+      isEnabled: index === 0,
+      proxyEnabled: false,
+      proxyUrl: "",
+      proxyUsername: "",
+      proxyPassword: "",
+    }));
+    setProviders(initialProviders);
+    setSelectedProviderId(initialProviders[0]?.id || "");
+  };
+
+
 
   // 获取默认API Host
   function getDefaultApiHost(providerId: string): string {
@@ -353,9 +351,45 @@ const ModelSettingsPage = () => {
   // 保存配置
   const handleSave = async () => {
     try {
-      localStorage.setItem("ai_model_providers", JSON.stringify(providers));
+      // 保存每个启用的厂商配置到后端
+      for (const provider of providers) {
+        if (provider.isEnabled) {
+          const configData = {
+            provider: provider.id,
+            name: provider.name,
+            api_key: provider.apiKey,
+            api_host: provider.apiHost,
+            models: provider.models.map((m) => ({
+              id: m.id,
+              name: m.name,
+              is_enabled: m.isEnabled,
+            })),
+            is_enabled: provider.isEnabled,
+            is_default: provider.isDefault,
+            proxy_enabled: provider.proxyEnabled,
+            proxy_url: provider.proxyUrl,
+            proxy_username: provider.proxyUsername,
+            proxy_password: provider.proxyPassword,
+          };
+
+          // 检查是否已存在
+          const existingResponse = await aiModelApi.getModels();
+          const existing = existingResponse.items?.find(
+            (item: any) => item.provider === provider.id
+          );
+
+          if (existing) {
+            // 更新现有配置
+            await aiModelApi.updateModel(existing.id, configData);
+          } else {
+            // 创建新配置
+            await aiModelApi.createModel(configData);
+          }
+        }
+      }
       message.success(t("config_saved") || "配置已保存");
     } catch (error) {
+      console.error("保存配置失败:", error);
       message.error(t("save_failed") || "保存失败");
     }
   };

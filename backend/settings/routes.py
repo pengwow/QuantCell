@@ -31,6 +31,7 @@ from loguru import logger
 
 # 导入JWT认证装饰器
 from utils.auth import jwt_auth_required_sync
+from utils.jwt_utils import create_jwt_token
 
 # 导入配置管理相关模块
 from settings.models import SystemConfigBusiness as SystemConfig
@@ -56,11 +57,76 @@ from config_manager import load_system_configs
 # 创建API路由实例
 router = APIRouter()
 
+# 创建认证API路由子路由（不需要前缀，单独处理）
+auth_router = APIRouter(tags=["auth"])
+
 # 创建配置管理API路由子路由
 config_router = APIRouter(prefix="/api/config", tags=["config-management"])
 
 # 创建系统信息API路由子路由
 system_router = APIRouter(prefix="/api/system", tags=["system-info"])
+
+
+@auth_router.post("/api/auth/login", response_model=ApiResponse)
+def login(request: Request, credentials: Dict[str, str] = Body(...)):
+    """用户登录
+
+    演示模式登录接口，默认接受 admin/123456 并返回JWT token。
+
+    Args:
+        request: FastAPI请求对象
+        credentials: 登录凭据，包含username和password
+
+    Returns:
+        ApiResponse: 包含JWT token的响应
+
+    Responses:
+        200: 登录成功
+        401: 用户名或密码错误
+    """
+    try:
+        username = credentials.get("username")
+        password = credentials.get("password")
+
+        logger.info(f"用户登录尝试: {username}")
+
+        # 演示模式：验证默认凭据
+        if username == "admin" and password == "123456":
+            # 生成JWT token
+            access_token = create_jwt_token(
+                data={"sub": username, "name": "Administrator"},
+                expires_delta=None,
+                refresh=False
+            )
+
+            # 生成刷新token
+            refresh_token = create_jwt_token(
+                data={"sub": username, "name": "Administrator"},
+                expires_delta=None,
+                refresh=True
+            )
+
+            logger.info(f"用户登录成功: {username}")
+            return ApiResponse(
+                code=0,
+                message="登录成功",
+                data={
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "token_type": "Bearer",
+                    "username": username
+                }
+            )
+        else:
+            logger.warning(f"用户登录失败: {username}")
+            return ApiResponse(
+                code=401,
+                message="用户名或密码错误",
+                data=None
+            )
+    except Exception as e:
+        logger.error(f"登录失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @config_router.get("/", response_model=ApiResponse)
@@ -485,6 +551,492 @@ async def health_check():
     }
 
 
+# 创建通知设置API路由子路由
+notification_router = APIRouter(prefix="/api/notifications", tags=["notification-config"])
+
+
+@notification_router.get("/channels", response_model=ApiResponse)
+@jwt_auth_required_sync
+def get_notification_channels(request: Request):
+    """获取所有通知渠道配置
+
+    从系统配置中获取所有通知渠道配置，每个渠道作为一条记录，name=notification_channel。
+
+    Args:
+        request: FastAPI请求对象
+
+    Returns:
+        ApiResponse: 包含通知渠道配置的响应
+
+    Responses:
+        200: 成功获取配置
+        401: 未授权访问
+        500: 获取配置失败
+    """
+    try:
+        logger.info("获取通知渠道配置")
+        import json
+
+        # 定义所有支持的渠道 (key: 渠道名称, value: 渠道ID)
+        channel_keys = {
+            "邮件通知": "email",
+            "企业微信": "wecom",
+            "飞书": "feishu"
+        }
+
+        # 默认配置
+        default_configs = {
+            "email": {
+                "id": "email",
+                "name": "邮件通知",
+                "enabled": False,
+                "isDefault": True,
+                "config": {
+                    "smtpHost": "",
+                    "smtpPort": 465,
+                    "security": "ssl",
+                    "ignoreSSL": False,
+                    "username": "",
+                    "password": "",
+                    "senderEmail": "",
+                    "senderName": "",
+                    "recipientEmail": ""
+                }
+            },
+            "wecom": {
+                "id": "wecom",
+                "name": "企业微信",
+                "enabled": False,
+                "isDefault": False,
+                "config": {
+                    "webhookUrl": "",
+                    "useCustomFormat": False,
+                    "messageFormat": '{"msgtype": "text", "text": {"content": "${NOTIFIER_SUBJECT}\\n\\n${NOTIFIER_MESSAGE}"}}'
+                }
+            },
+            "feishu": {
+                "id": "feishu",
+                "name": "飞书",
+                "enabled": False,
+                "isDefault": False,
+                "config": {
+                    "webhookUrl": "",
+                    "useCustomFormat": False,
+                    "messageFormat": '{"msg_type": "text", "content": {"text": "${NOTIFIER_SUBJECT}\\n\\n${NOTIFIER_MESSAGE}"}}'
+                }
+            }
+        }
+
+        channels = []
+
+        # 从系统配置读取每个渠道的配置 (key=渠道名称, name=notification_channel)
+        for channel_name, channel_id in channel_keys.items():
+            config = SystemConfig.get_with_details(channel_name)
+            if config and config.get("value"):
+                try:
+                    channel_config = json.loads(config["value"])
+                    # 确保有id字段
+                    if "id" not in channel_config:
+                        channel_config["id"] = channel_id
+                    if "name" not in channel_config:
+                        channel_config["name"] = channel_name
+                    channels.append(channel_config)
+                except json.JSONDecodeError:
+                    logger.warning(f"解析渠道配置失败: {channel_name}")
+                    channels.append(default_configs[channel_id])
+            else:
+                # 使用默认配置
+                channels.append(default_configs[channel_id])
+
+        return ApiResponse(
+            code=0,
+            message="获取通知渠道配置成功",
+            data={"channels": channels}
+        )
+    except Exception as e:
+        logger.error(f"获取通知渠道配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@notification_router.post("/channels", response_model=ApiResponse)
+@jwt_auth_required_sync
+def save_notification_channels(request: Request, channels: List[Dict[str, Any]] = Body(...)):
+    """保存通知渠道配置
+
+    将每个通知渠道配置保存为一条系统配置记录，name=渠道名称，key=notification_channel。
+
+    Args:
+        request: FastAPI请求对象
+        channels: 通知渠道配置列表
+
+    Returns:
+        ApiResponse: 包含保存结果的响应
+
+    Responses:
+        200: 保存成功
+        400: 请求数据格式错误
+        401: 未授权访问
+        500: 保存失败
+    """
+    try:
+        logger.info("保存通知渠道配置")
+        import json
+
+        # 渠道名称映射
+        channel_name_map = {
+            "email": "邮件通知",
+            "wecom": "企业微信",
+            "feishu": "飞书"
+        }
+
+        success_count = 0
+        for channel in channels:
+            channel_id = channel.get("id")
+            channel_name = channel_name_map.get(channel_id, channel.get("name", "未知渠道"))
+
+            # 将渠道配置序列化为JSON
+            channel_config = {
+                "id": channel_id,
+                "name": channel_name,
+                "enabled": channel.get("enabled", False),
+                "isDefault": channel.get("isDefault", False),
+                "config": channel.get("config", {})
+            }
+            config_json = json.dumps(channel_config, ensure_ascii=False)
+
+            # 保存到系统配置，key=渠道名称，name=notification_channel
+            success = SystemConfig.set(
+                key=channel_name,
+                value=config_json,
+                description=f"{channel_name}通知配置",
+                name="notification_channel"
+            )
+
+            if success:
+                success_count += 1
+                logger.info(f"保存渠道配置成功: {channel_name}")
+            else:
+                logger.error(f"保存渠道配置失败: {channel_name}")
+
+        if success_count == len(channels):
+            # 刷新应用上下文配置
+            request.app.state.configs = load_system_configs()
+            logger.info("所有通知渠道配置保存成功")
+            return ApiResponse(
+                code=0,
+                message="保存通知渠道配置成功",
+                data={"channels": channels}
+            )
+        else:
+            logger.warning(f"部分渠道配置保存失败: {success_count}/{len(channels)}")
+            return ApiResponse(
+                code=0,
+                message=f"部分配置保存成功 ({success_count}/{len(channels)})",
+                data={"channels": channels}
+            )
+    except Exception as e:
+        logger.error(f"保存通知渠道配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@notification_router.post("/test", response_model=ApiResponse)
+@jwt_auth_required_sync
+def test_notification(request: Request, test_request: Dict[str, Any] = Body(...)):
+    """测试通知渠道
+
+    发送测试消息到指定的通知渠道。
+
+    Args:
+        request: FastAPI请求对象
+        test_request: 测试请求，包含channel_id和配置信息
+
+    Returns:
+        ApiResponse: 包含测试结果的响应
+
+    Responses:
+        200: 测试完成
+        400: 请求数据格式错误
+        401: 未授权访问
+        500: 测试失败
+    """
+    try:
+        channel_id = test_request.get("channel_id")
+        config = test_request.get("config", {})
+
+        logger.info(f"测试通知渠道: {channel_id}")
+
+        # TODO: 实现实际的通知发送逻辑
+        # 这里仅返回模拟结果
+
+        return ApiResponse(
+            code=0,
+            message=f"测试消息已发送到 {channel_id}",
+            data={"channel_id": channel_id, "status": "sent"}
+        )
+    except Exception as e:
+        logger.error(f"测试通知渠道失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# 创建交易所配置API路由子路由
+exchange_router = APIRouter(prefix="/api/exchange-configs", tags=["exchange-config"])
+
+
+@exchange_router.get("/", response_model=ApiResponse)
+@jwt_auth_required_sync
+def get_exchange_configs(request: Request):
+    """获取所有交易所配置
+
+    从系统配置中获取所有交易所配置，name=exchange。
+
+    Args:
+        request: FastAPI请求对象
+
+    Returns:
+        ApiResponse: 包含交易所配置列表的响应
+    """
+    try:
+        logger.info("获取交易所配置")
+        import json
+
+        # 从系统配置获取所有name=exchange的配置
+        all_configs = SystemConfig.get_all_with_details()
+        exchange_configs = []
+
+        for key, config in all_configs.items():
+            if config.get("name") == "exchange":
+                try:
+                    config_value = json.loads(config.get("value", "{}"))
+                    exchange_configs.append({
+                        "id": key,
+                        "key": key,
+                        "name": config_value.get("name", key),
+                        "exchange_id": config_value.get("exchange_id", key),
+                        "trading_mode": config_value.get("trading_mode", "spot"),
+                        "quote_currency": config_value.get("quote_currency", "USDT"),
+                        "commission_rate": config_value.get("commission_rate", 0.001),
+                        "api_key": config_value.get("api_key", ""),
+                        "api_secret": config_value.get("api_secret", ""),
+                        "proxy_enabled": config_value.get("proxy_enabled", False),
+                        "proxy_url": config_value.get("proxy_url", ""),
+                        "proxy_username": config_value.get("proxy_username", ""),
+                        "proxy_password": config_value.get("proxy_password", ""),
+                        "is_enabled": config_value.get("is_enabled", False),
+                        "is_default": config_value.get("is_default", False),
+                    })
+                except json.JSONDecodeError:
+                    logger.warning(f"解析交易所配置失败: {key}")
+                    continue
+
+        return ApiResponse(
+            code=0,
+            message="获取交易所配置成功",
+            data={"items": exchange_configs, "total": len(exchange_configs)}
+        )
+    except Exception as e:
+        logger.error(f"获取交易所配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@exchange_router.post("/", response_model=ApiResponse)
+@jwt_auth_required_sync
+def create_exchange_config(request: Request, config: Dict[str, Any] = Body(...)):
+    """创建交易所配置
+
+    将交易所配置保存到系统配置中，name=exchange，key=交易所英文名称。
+
+    Args:
+        request: FastAPI请求对象
+        config: 交易所配置数据
+
+    Returns:
+        ApiResponse: 包含创建结果的响应
+    """
+    try:
+        logger.info(f"创建交易所配置: {config.get('exchange_id')}")
+        import json
+
+        exchange_id = config.get("exchange_id")
+        if not exchange_id:
+            return ApiResponse(code=400, message="交易所ID不能为空", data=None)
+
+        # 构建配置JSON
+        config_data = {
+            "exchange_id": exchange_id,
+            "name": config.get("name", exchange_id),
+            "trading_mode": config.get("trading_mode", "spot"),
+            "quote_currency": config.get("quote_currency", "USDT"),
+            "commission_rate": config.get("commission_rate", 0.001),
+            "api_key": config.get("api_key", ""),
+            "api_secret": config.get("api_secret", ""),
+            "proxy_enabled": config.get("proxy_enabled", False),
+            "proxy_url": config.get("proxy_url", ""),
+            "proxy_username": config.get("proxy_username", ""),
+            "proxy_password": config.get("proxy_password", ""),
+            "is_enabled": config.get("is_enabled", False),
+            "is_default": config.get("is_default", False),
+        }
+
+        # 保存到系统配置，key=交易所英文名称，name=exchange
+        success = SystemConfig.set(
+            key=exchange_id,
+            value=json.dumps(config_data, ensure_ascii=False),
+            description=f"{config.get('name', exchange_id)}交易所配置",
+            name="exchange"
+        )
+
+        if success:
+            # 刷新应用上下文配置
+            request.app.state.configs = load_system_configs()
+            logger.info(f"交易所配置创建成功: {exchange_id}")
+            return ApiResponse(
+                code=0,
+                message="交易所配置创建成功",
+                data={"key": exchange_id, **config_data}
+            )
+        else:
+            logger.error(f"交易所配置创建失败: {exchange_id}")
+            raise HTTPException(status_code=500, detail="创建配置失败")
+    except Exception as e:
+        logger.error(f"创建交易所配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@exchange_router.put("/{key}", response_model=ApiResponse)
+@jwt_auth_required_sync
+def update_exchange_config(request: Request, key: str, config: Dict[str, Any] = Body(...)):
+    """更新交易所配置
+
+    更新系统配置中的交易所配置。
+
+    Args:
+        request: FastAPI请求对象
+        key: 交易所英文名称
+        config: 交易所配置数据
+
+    Returns:
+        ApiResponse: 包含更新结果的响应
+    """
+    try:
+        logger.info(f"更新交易所配置: {key}")
+        import json
+
+        # 构建配置JSON
+        config_data = {
+            "exchange_id": key,
+            "name": config.get("name", key),
+            "trading_mode": config.get("trading_mode", "spot"),
+            "quote_currency": config.get("quote_currency", "USDT"),
+            "commission_rate": config.get("commission_rate", 0.001),
+            "api_key": config.get("api_key", ""),
+            "api_secret": config.get("api_secret", ""),
+            "proxy_enabled": config.get("proxy_enabled", False),
+            "proxy_url": config.get("proxy_url", ""),
+            "proxy_username": config.get("proxy_username", ""),
+            "proxy_password": config.get("proxy_password", ""),
+            "is_enabled": config.get("is_enabled", False),
+            "is_default": config.get("is_default", False),
+        }
+
+        # 更新系统配置
+        success = SystemConfig.set(
+            key=key,
+            value=json.dumps(config_data, ensure_ascii=False),
+            description=f"{config.get('name', key)}交易所配置",
+            name="exchange"
+        )
+
+        if success:
+            # 刷新应用上下文配置
+            request.app.state.configs = load_system_configs()
+            logger.info(f"交易所配置更新成功: {key}")
+            return ApiResponse(
+                code=0,
+                message="交易所配置更新成功",
+                data={"key": key, **config_data}
+            )
+        else:
+            logger.error(f"交易所配置更新失败: {key}")
+            raise HTTPException(status_code=500, detail="更新配置失败")
+    except Exception as e:
+        logger.error(f"更新交易所配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@exchange_router.delete("/{key}", response_model=ApiResponse)
+@jwt_auth_required_sync
+def delete_exchange_config(request: Request, key: str):
+    """删除交易所配置
+
+    从系统配置中删除交易所配置。
+
+    Args:
+        request: FastAPI请求对象
+        key: 交易所英文名称
+
+    Returns:
+        ApiResponse: 包含删除结果的响应
+    """
+    try:
+        logger.info(f"删除交易所配置: {key}")
+
+        # 从系统配置删除
+        # Note: SystemConfig doesn't have a delete method, we set empty value
+        success = SystemConfig.set(
+            key=key,
+            value="",
+            description="",
+            name=""
+        )
+
+        if success:
+            # 刷新应用上下文配置
+            request.app.state.configs = load_system_configs()
+            logger.info(f"交易所配置删除成功: {key}")
+            return ApiResponse(
+                code=0,
+                message="交易所配置删除成功",
+                data={"key": key}
+            )
+        else:
+            logger.error(f"交易所配置删除失败: {key}")
+            raise HTTPException(status_code=500, detail="删除配置失败")
+    except Exception as e:
+        logger.error(f"删除交易所配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@exchange_router.get("/exchanges", response_model=ApiResponse)
+@jwt_auth_required_sync
+def get_supported_exchanges(request: Request):
+    """获取支持的交易所列表
+
+    Returns:
+        ApiResponse: 包含支持的交易所列表
+    """
+    try:
+        exchanges = [
+            {"id": "binance", "name": "币安", "description": "全球最大的加密货币交易所"},
+            {"id": "okx", "name": "OKX", "description": "全球领先的数字资产交易平台"},
+            {"id": "bybit", "name": "Bybit", "description": "全球领先的加密货币衍生品交易所"},
+            {"id": "gate", "name": "Gate.io", "description": "全球领先的数字资产交易平台"},
+            {"id": "kucoin", "name": "KuCoin", "description": "全球知名的加密货币交易所"},
+            {"id": "bitget", "name": "Bitget", "description": "全球领先的加密货币交易平台"},
+        ]
+
+        return ApiResponse(
+            code=0,
+            message="获取支持的交易所列表成功",
+            data={"exchanges": exchanges}
+        )
+    except Exception as e:
+        logger.error(f"获取支持的交易所列表失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # 注册子路由
+router.include_router(auth_router)
 router.include_router(config_router)
 router.include_router(system_router)
+router.include_router(notification_router)
+router.include_router(exchange_router)
