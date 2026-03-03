@@ -29,12 +29,12 @@ class MarketDataService:
                               force_refresh: bool = False) -> List[Dict]:
         """获取市场数据
 
-        优先从数据库读取，过期或不存在时从交易所获取
+        优先从交易所官方接口获取，失败时回退到数据库缓存
 
         Args:
             symbols: 货币对列表
             exchange: 交易所名称
-            force_refresh: 强制刷新
+            force_refresh: 强制刷新（仍优先从官方接口获取）
 
         Returns:
             List[Dict]: 市场数据列表
@@ -46,32 +46,48 @@ class MarketDataService:
             return []
 
         result = []
-        symbols_to_fetch = []
+        failed_symbols = []
 
-        if not force_refresh:
-            # 先从数据库读取
-            db_data = await self._get_market_data_from_db(symbols, exchange)
-            result.extend(db_data["valid"])
-            symbols_to_fetch = db_data["expired"]
-        else:
-            symbols_to_fetch = symbols
+        # 优先从交易所官方接口获取数据
+        try:
+            # 使用工厂获取对应交易所的获取器
+            fetcher = market_data_fetcher_factory.get_fetcher(exchange)
+            if not fetcher:
+                raise Exception(f"不支持的交易所或未启用: {exchange}")
 
-        # 从交易所获取过期或不存在的
-        if symbols_to_fetch:
-            try:
-                # 使用工厂获取对应交易所的获取器
-                fetcher = market_data_fetcher_factory.get_fetcher(exchange)
-                if not fetcher:
-                    raise Exception(f"不支持的交易所或未启用: {exchange}")
+            logger.info(f"从{exchange}官方接口获取市场数据: {len(symbols)}个货币对")
+            fresh_data = await fetcher.fetch_market_data(symbols)
+            
+            # 记录成功获取的数据
+            fetched_symbols = {item.get("symbol") for item in fresh_data if item.get("symbol")}
+            result.extend(fresh_data)
+            
+            # 找出获取失败的货币对
+            failed_symbols = [s for s in symbols if s not in fetched_symbols]
+            if failed_symbols:
+                logger.warning(f"以下货币对从官方接口获取失败: {failed_symbols}")
+                
+        except Exception as e:
+            logger.error(f"从交易所官方接口获取市场数据失败: {e}")
+            failed_symbols = symbols  # 全部失败
 
-                fresh_data = await fetcher.fetch_market_data(symbols_to_fetch)
-                result.extend(fresh_data)
-            except Exception as e:
-                logger.error(f"从交易所获取市场数据失败: {e}")
-                # 如果从交易所获取失败，但数据库中有部分数据，返回已有数据
-                # 如果数据库中也没有数据，抛出异常
-                if not result:
-                    raise Exception(f"无法获取市场数据: {str(e)}")
+        # 对于获取失败的货币对，尝试从数据库缓存获取
+        if failed_symbols:
+            logger.info(f"从数据库缓存获取失败的货币对: {len(failed_symbols)}个")
+            db_data = await self._get_market_data_from_db(failed_symbols, exchange)
+            
+            # 添加数据库中的有效数据
+            if db_data["valid"]:
+                logger.info(f"从数据库缓存获取到{len(db_data['valid'])}条数据")
+                result.extend(db_data["valid"])
+            
+            # 记录数据库中也没有的货币对
+            if db_data["expired"]:
+                logger.warning(f"以下货币对在数据库中也不存在或已过期: {db_data['expired']}")
+
+        # 如果没有任何数据，抛出异常
+        if not result:
+            raise Exception(f"无法从交易所官方接口或数据库缓存获取市场数据")
 
         return result
 

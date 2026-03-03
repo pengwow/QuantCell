@@ -27,8 +27,8 @@ class ConnectionManager:
         self.subscriptions: Dict[str, Set[str]] = {}
         # 客户端信息映射: {client_id: client_info}
         self.client_info: Dict[str, Dict[str, Any]] = {}
-        # 消息队列
-        self.message_queue: asyncio.Queue = asyncio.Queue()
+        # 消息队列 - 延迟初始化，在 start() 中创建
+        self.message_queue: Optional[asyncio.Queue] = None
         # 消息处理任务
         self.processing_task: Optional[asyncio.Task] = None
         # 消息批处理配置
@@ -44,6 +44,10 @@ class ConnectionManager:
     
     async def start(self):
         """启动消息处理任务"""
+        # 延迟初始化消息队列，确保在事件循环中创建
+        if self.message_queue is None:
+            self.message_queue = asyncio.Queue()
+            logger.info("消息队列已初始化")
         self.processing_task = asyncio.create_task(self.process_messages())
         logger.info("WebSocket连接管理器已启动")
     
@@ -135,21 +139,24 @@ class ConnectionManager:
     
     async def subscribe(self, client_id: str, topic: str):
         """订阅主题
-        
+
         Args:
             client_id: 客户端ID
             topic: 主题名称
         """
+        logger.info(f"订阅方法被调用: client_id={client_id}, topic={topic}")
+
         if topic not in self.subscriptions:
             self.subscriptions[topic] = set()
-        
+            logger.info(f"创建新主题: {topic}")
+
         self.subscriptions[topic].add(client_id)
-        
+
         # 更新客户端订阅信息
         if client_id in self.client_info:
             self.client_info[client_id]["topics"].add(topic)
-        
-        logger.debug(f"客户端 {client_id} 订阅了主题 {topic}")
+
+        logger.info(f"客户端 {client_id} 订阅了主题 {topic}, 当前订阅该主题的客户端: {list(self.subscriptions[topic])}")
         
         # 发送订阅确认
         await self.send_personal_message(
@@ -236,73 +243,94 @@ class ConnectionManager:
     async def process_messages(self):
         """处理消息队列中的消息"""
         batch_timer = 0
+        logger.info("消息处理循环已启动")
         while True:
             try:
                 # 批量获取消息
                 messages = []
                 try:
                     # 尝试在批处理间隔内获取尽可能多的消息
-                    while len(messages) < self.batch_size:
+                    while len(messages) < self.batch_size and self.message_queue:
                         message = await asyncio.wait_for(self.message_queue.get(), timeout=self.batch_interval)
                         messages.append(message)
                 except asyncio.TimeoutError:
                     pass
-                
+
                 if messages:
+                    logger.info(f"获取到 {len(messages)} 条消息，开始处理")
                     # 批量处理消息
                     await self.batch_process_messages(messages)
                     # 标记所有消息为已处理
-                    for _ in messages:
-                        self.message_queue.task_done()
+                    if self.message_queue:
+                        for _ in messages:
+                            self.message_queue.task_done()
             except asyncio.CancelledError:
+                logger.info("消息处理循环已取消")
                 break
             except Exception as e:
-                logger.error(f"处理消息时出错: {e}")
+                logger.error(f"处理消息时出错: {e}", exc_info=True)
     
     async def batch_process_messages(self, messages: List[Dict[str, Any]]):
         """批量处理消息"""
         # 按客户端分组消息
         client_messages: Dict[str, List[Dict[str, Any]]] = {}
-        
+
+        logger.info(f"批量处理消息: 数量={len(messages)}, 订阅主题={list(self.subscriptions.keys())}, 活跃连接={list(self.active_connections.keys())}")
+
         for message in messages:
             # 序列化消息中的datetime对象
             serialized_message = json.loads(json.dumps(message, cls=DateTimeEncoder))
-            
+
             topic = serialized_message.get("topic")
+            logger.info(f"处理消息: type={serialized_message.get('type')}, topic={topic}")
+
             if topic and topic in self.subscriptions:
                 # 消息有主题，发送给订阅的客户端
                 # 使用列表副本避免字典修改问题
-                for client_id in list(self.subscriptions[topic]):
+                subscribed_clients = list(self.subscriptions[topic])
+                logger.info(f"主题 {topic} 的订阅客户端: {subscribed_clients}")
+                for client_id in subscribed_clients:
                     if client_id not in client_messages:
                         client_messages[client_id] = []
                     client_messages[client_id].append(serialized_message)
             else:
                 # 消息无主题，发送给所有客户端
                 # 使用列表副本避免字典修改问题
+                logger.debug(f"消息无主题或主题未订阅，广播给所有客户端: {list(self.active_connections.keys())}")
                 for client_id in list(self.active_connections.keys()):
                     if client_id not in client_messages:
                         client_messages[client_id] = []
                     client_messages[client_id].append(serialized_message)
-        
+
+        logger.info(f"客户端消息分组: {list(client_messages.keys())}")
+
         # 发送批量消息
         for client_id, batch_messages in client_messages.items():
             await self.send_batch_messages(client_id, batch_messages)
     
     async def send_batch_messages(self, client_id: str, batch_messages: List[Dict[str, Any]]):
         """批量发送消息给客户端"""
+        logger.info(f"发送批量消息: client_id={client_id}, messages_count={len(batch_messages)}, active_connections={list(self.active_connections.keys())}")
         if client_id in self.active_connections:
             try:
                 # 检查速率限制
                 if self._check_rate_limit(client_id, len(batch_messages)):
                     # 发送批量消息
-                    await self.active_connections[client_id].send_json({
+                    message = {
                         "type": "batch",
                         "messages": batch_messages
-                    })
+                    }
+                    logger.info(f"正在发送消息到客户端 {client_id}: {len(batch_messages)} 条消息")
+                    await self.active_connections[client_id].send_json(message)
+                    logger.info(f"消息发送成功: client_id={client_id}")
+                else:
+                    logger.warning(f"客户端 {client_id} 速率限制，跳过发送")
             except Exception as e:
                 logger.error(f"发送批量消息到客户端 {client_id} 失败: {e}")
                 # 尝试断开连接
                 await self.disconnect(client_id)
+        else:
+            logger.warning(f"客户端 {client_id} 不在活跃连接中，无法发送消息")
     
     def _check_rate_limit(self, client_id: str, message_count: int) -> bool:
         """检查客户端消息速率限制"""
@@ -331,14 +359,22 @@ class ConnectionManager:
     
     async def queue_message(self, message: Dict[str, Any], topic: Optional[str] = None):
         """将消息加入队列
-        
+
         Args:
             message: 消息内容
             topic: 主题名称
         """
+        # 确保消息队列已初始化
+        if self.message_queue is None:
+            self.message_queue = asyncio.Queue()
+            logger.info("消息队列已延迟初始化")
+
         message_with_topic = message.copy()
         if topic:
             message_with_topic["topic"] = topic
+
+        queue_size = self.message_queue.qsize() if self.message_queue else 0
+        logger.info(f"消息加入队列: type={message.get('type')}, topic={topic}, queue_size={queue_size}")
         await self.message_queue.put(message_with_topic)
     
     def get_client_count(self) -> int:
