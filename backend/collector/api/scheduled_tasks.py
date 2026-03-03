@@ -13,7 +13,7 @@ from collector.utils.scheduled_task_manager import scheduled_task_manager
 from utils.auth import jwt_auth_required
 
 # 创建API路由实例
-router = APIRouter(prefix="/api/scheduled-tasks", tags=["scheduled-tasks"])
+router = APIRouter(prefix="/scheduled-tasks", tags=["scheduled-tasks"])
 
 
 @router.get("/", response_model=ApiResponse)

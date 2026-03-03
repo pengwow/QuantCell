@@ -21,7 +21,7 @@ from ..services import DataService
 from ..db.models import CryptoSpotKline, CryptoFutureKline, StockKline
 
 # 创建API路由实例
-router = APIRouter(prefix="/api/data", tags=["data-management"])
+router = APIRouter(prefix="/data", tags=["data-management"])
 
 # 数据质量相关API
 from datetime import datetime

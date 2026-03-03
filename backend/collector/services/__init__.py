@@ -10,6 +10,8 @@
     - KlineHealthChecker: K线数据健康检查服务
     - ProductListFactory: 产品列表工厂
     - SystemService: 系统服务
+    - MarketDataService: 市场数据服务
+    - MarketDataFetcherFactory: 市场数据获取器工厂
 """
 
 from .crypto_symbol_service import CryptoSymbolService
@@ -18,6 +20,20 @@ from .kline_factory import KlineDataFactory
 from .kline_health_service import KlineHealthChecker
 from .product_factory import ProductListFactory
 from .system_service import SystemService
+from .market_data_service import market_data_service
+from .market_data_factory import (
+    MarketDataFetcherFactory,
+    MarketDataFetcher,
+    BinanceMarketDataFetcher,
+    OKXMarketDataFetcher,
+    BybitMarketDataFetcher,
+)
+from .exchange_connection_service import (
+    ExchangeConnectionService,
+    exchange_connection_service,
+    ConnectionTestResult,
+    ConnectionStatus,
+)
 
 __all__ = [
     "CryptoSymbolService",
@@ -26,4 +42,14 @@ __all__ = [
     "KlineHealthChecker",
     "ProductListFactory",
     "SystemService",
+    "market_data_service",
+    "MarketDataFetcherFactory",
+    "MarketDataFetcher",
+    "BinanceMarketDataFetcher",
+    "OKXMarketDataFetcher",
+    "BybitMarketDataFetcher",
+    "ExchangeConnectionService",
+    "exchange_connection_service",
+    "ConnectionTestResult",
+    "ConnectionStatus",
 ]

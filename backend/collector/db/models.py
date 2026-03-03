@@ -484,6 +484,32 @@ class SystemConfigBusiness:
             return default
         finally:
             db.close()
+
+
+class MarketData(TimezoneAwareBase):
+    """市场数据SQLAlchemy模型
+    
+    对应market_data表的SQLAlchemy模型定义，用于存储加密货币24小时行情数据
+    """
+    __tablename__ = "market_data"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    symbol = Column(String, nullable=False, index=True)
+    exchange = Column(String, nullable=False, index=True)
+    price = Column(sqlalchemy.DECIMAL(30, 8), nullable=True)
+    price_change_24h = Column(sqlalchemy.DECIMAL(30, 8), nullable=True)
+    price_change_percent_24h = Column(sqlalchemy.DECIMAL(10, 4), nullable=True)
+    volume_24h = Column(sqlalchemy.DECIMAL(40, 8), nullable=True)
+    high_24h = Column(sqlalchemy.DECIMAL(30, 8), nullable=True)
+    low_24h = Column(sqlalchemy.DECIMAL(30, 8), nullable=True)
+    last_update = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+    
+    # 设置唯一约束，确保symbol + exchange的组合唯一
+    __table_args__ = (
+        sqlalchemy.UniqueConstraint('symbol', 'exchange', name='unique_market_data_symbol_exchange'),
+    )
     
     @staticmethod
     def set(key: str, value: str, description: str = "", plugin: str = None, name: str = None, is_sensitive: bool = False) -> bool:

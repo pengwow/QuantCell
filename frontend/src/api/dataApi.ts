@@ -154,4 +154,107 @@ export const dataApi = {
   getQualityOptions: (params: any) => {
     return apiRequest.get('/data/quality/options', params);
   },
+
+  // ==================== 数据池（自选组）API ====================
+
+  /**
+   * 获取所有数据池（自选组）
+   * @param params 查询参数，包括type类型过滤
+   * @returns 数据池列表
+   */
+  getDataPools: (params?: { type?: string }) => {
+    return apiRequest.get('/data-pools/', params);
+  },
+
+  /**
+   * 创建数据池（自选组）
+   * @param data 数据池信息，包括name、type、description、color、tags
+   * @returns 创建结果
+   */
+  createDataPool: (data: {
+    name: string;
+    type: string;
+    description?: string;
+    color?: string;
+    tags?: string[];
+  }) => {
+    return apiRequest.post('/data-pools/', data);
+  },
+
+  /**
+   * 更新数据池（自选组）
+   * @param poolId 数据池ID
+   * @param data 更新信息
+   * @returns 更新结果
+   */
+  updateDataPool: (
+    poolId: number,
+    data: {
+      name?: string;
+      type?: string;
+      description?: string;
+      color?: string;
+      tags?: string[];
+    }
+  ) => {
+    return apiRequest.put(`/data-pools/${poolId}`, data);
+  },
+
+  /**
+   * 删除数据池（自选组）
+   * @param poolId 数据池ID
+   * @returns 删除结果
+   */
+  deleteDataPool: (poolId: number) => {
+    return apiRequest.delete(`/data-pools/${poolId}`);
+  },
+
+  /**
+   * 获取数据池资产列表
+   * @param poolId 数据池ID
+   * @returns 资产列表
+   */
+  getDataPoolAssets: (poolId: number) => {
+    return apiRequest.get(`/data-pools/${poolId}/assets`);
+  },
+
+  /**
+   * 批量添加资产到数据池
+   * @param poolId 数据池ID
+   * @param data 资产列表和类型
+   * @returns 添加结果
+   */
+  addDataPoolAssets: (
+    poolId: number,
+    data: {
+      assets: string[];
+      asset_type: string;
+    }
+  ) => {
+    return apiRequest.post(`/data-pools/${poolId}/assets`, data);
+  },
+
+  // ==================== 市场数据 API ====================
+
+  /**
+   * 获取市场数据（24小时行情）
+   * @param data 请求体，包含symbols数组、exchange、force_refresh
+   * @returns 市场数据列表
+   */
+  getMarketData: (data: {
+    symbols: string[];
+    exchange?: string;
+    force_refresh?: boolean;
+  }) => {
+    return apiRequest.post('/data/crypto/market-data', data);
+  },
+
+  /**
+   * 同步货币对列表
+   * @param exchange 交易所名称
+   * @returns 同步结果
+   */
+  syncSymbols: (exchange?: string) => {
+    return apiRequest.post('/data/crypto/sync-symbols', null, { params: { exchange } });
+  },
 };

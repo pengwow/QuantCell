@@ -530,7 +530,6 @@ class BaseExchange(ABC):
                 exchange_name=self.exchange_name,
             )
 
-    @abstractmethod
     def connect(self) -> bool:
         """
         建立与交易所的连接
@@ -542,14 +541,12 @@ class BaseExchange(ABC):
             ConnectionError: 连接失败时
             AuthenticationError: 认证失败时
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement connect()")
 
-    @abstractmethod
     def disconnect(self) -> None:
         """断开与交易所的连接"""
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement disconnect()")
 
-    @abstractmethod
     def health_check(self) -> bool:
         """
         健康检查
@@ -557,7 +554,7 @@ class BaseExchange(ABC):
         Returns:
             bool: True表示健康，False表示异常
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement health_check()")
 
     def check_status(self) -> bool:
         """
@@ -571,7 +568,6 @@ class BaseExchange(ABC):
         except Exception:
             return False
 
-    @abstractmethod
     def get_ticker(self, symbol: str) -> Ticker:
         """
         获取最新行情
@@ -582,9 +578,8 @@ class BaseExchange(ABC):
         Returns:
             Ticker: 行情数据
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_ticker()")
 
-    @abstractmethod
     def get_ohlcv(
         self,
         symbol: str,
@@ -604,9 +599,8 @@ class BaseExchange(ABC):
         Returns:
             List[OHLCV]: K线数据列表
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_ohlcv()")
 
-    @abstractmethod
     def get_order_book(self, symbol: str, limit: int = 100) -> OrderBook:
         """
         获取订单簿（深度）
@@ -618,9 +612,8 @@ class BaseExchange(ABC):
         Returns:
             OrderBook: 订单簿数据
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_order_book()")
 
-    @abstractmethod
     def get_recent_trades(self, symbol: str, limit: int = 100) -> List[Trade]:
         """
         获取最近成交记录
@@ -632,9 +625,8 @@ class BaseExchange(ABC):
         Returns:
             List[Trade]: 成交记录列表
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_recent_trades()")
 
-    @abstractmethod
     def get_balance(self, asset: Optional[str] = None) -> List[Balance]:
         """
         获取账户余额
@@ -645,9 +637,8 @@ class BaseExchange(ABC):
         Returns:
             List[Balance]: 余额列表
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_balance()")
 
-    @abstractmethod
     def get_account_info(self) -> AccountInfo:
         """
         获取账户信息
@@ -655,9 +646,8 @@ class BaseExchange(ABC):
         Returns:
             AccountInfo: 账户信息
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_account_info()")
 
-    @abstractmethod
     def create_order(self, order: Order) -> Order:
         """
         创建订单
@@ -668,9 +658,8 @@ class BaseExchange(ABC):
         Returns:
             Order: 创建后的订单（包含订单ID）
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement create_order()")
 
-    @abstractmethod
     def cancel_order(self, symbol: str, order_id: str) -> bool:
         """
         取消订单
@@ -682,9 +671,8 @@ class BaseExchange(ABC):
         Returns:
             bool: 是否成功取消
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement cancel_order()")
 
-    @abstractmethod
     def get_order(self, symbol: str, order_id: str) -> Order:
         """
         查询订单状态
@@ -696,9 +684,8 @@ class BaseExchange(ABC):
         Returns:
             Order: 订单信息
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_order()")
 
-    @abstractmethod
     def get_open_orders(self, symbol: Optional[str] = None) -> List[Order]:
         """
         获取当前挂单
@@ -709,9 +696,8 @@ class BaseExchange(ABC):
         Returns:
             List[Order]: 挂单列表
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_open_orders()")
 
-    @abstractmethod
     def get_order_history(
         self,
         symbol: Optional[str] = None,
@@ -727,9 +713,8 @@ class BaseExchange(ABC):
         Returns:
             List[Order]: 历史订单列表
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_order_history()")
 
-    @abstractmethod
     def get_my_trades(
         self,
         symbol: Optional[str] = None,
@@ -745,7 +730,7 @@ class BaseExchange(ABC):
         Returns:
             List[Trade]: 成交记录列表
         """
-        pass
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_my_trades()")
 
     def get_sub_accounts(self) -> List[SubAccount]:
         """

@@ -34,7 +34,7 @@ except ImportError:
 
 # 创建API路由实例
 router = APIRouter(
-    prefix="/api/data-pools",
+    prefix="/data-pools",
     tags=["数据池管理"],
     responses={
         401: {"description": "未授权，需要JWT认证"},
