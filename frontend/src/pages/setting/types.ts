@@ -59,6 +59,11 @@ export interface SystemConfig {
   data_mode: 'realtime' | 'cache';
   frontend_update_interval: number;
   frontend_data_cache_size: number;
+  // 交易所配置
+  exchange_api_key?: string;
+  exchange_secret_key?: string;
+  exchange_api_passphrase?: string;
+  exchange_testnet?: boolean;
 }
 
 // 版本信息类型定义

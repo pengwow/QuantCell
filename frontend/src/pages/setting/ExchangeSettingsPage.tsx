@@ -21,8 +21,9 @@ import {
 } from "antd";
 import {
   IconBuildingBank,
+  IconPlugConnected,
 } from "@tabler/icons-react";
-import { exchangeConfigApi } from "../../api";
+import { exchangeConfigApi, exchangeApi } from "../../api";
 // @web3icons/react 交易所图标
 import {
   ExchangeBinance,
@@ -106,6 +107,8 @@ const ExchangeSettingsPage = () => {
   const [selectedExchangeId, setSelectedExchangeId] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
 
   // 从后端API加载配置
   useEffect(() => {
@@ -271,6 +274,38 @@ const ExchangeSettingsPage = () => {
     setExchanges(initialExchanges);
     setSelectedExchangeId(initialExchanges[0]?.id || "");
     message.success(t("config_reset") || "配置已重置");
+  };
+
+  // 测试交易所连接
+  const handleTestConnection = async () => {
+    if (!selectedExchange) return;
+
+    setTestingConnection(true);
+    setTestResult(null);
+
+    try {
+      const result = await exchangeApi.testConnection({
+        exchange_name: selectedExchange.id,
+        api_key: selectedExchange.apiKey || undefined,
+        secret_key: selectedExchange.apiSecret || undefined,
+        proxy_url: selectedExchange.proxyEnabled ? selectedExchange.proxyUrl : undefined,
+        trading_mode: selectedExchange.tradingMode,
+      });
+
+      setTestResult(result);
+
+      if (result.success) {
+        message.success(result.message);
+      } else {
+        message.error(result.message);
+      }
+    } catch (error: any) {
+      const errorMsg = error.message || "测试连接失败";
+      setTestResult({ success: false, message: errorMsg });
+      message.error(errorMsg);
+    } finally {
+      setTestingConnection(false);
+    }
   };
 
   return (
@@ -457,6 +492,94 @@ const ExchangeSettingsPage = () => {
                           />
                         </Form.Item>
                       </>
+                    )}
+
+                    <Divider />
+
+                    {/* 测试连接按钮 */}
+                    <Form.Item>
+                      <Button
+                        type="primary"
+                        icon={<IconPlugConnected size={16} />}
+                        onClick={handleTestConnection}
+                        loading={testingConnection}
+                        disabled={testingConnection}
+                        block
+                      >
+                        {testingConnection ? t("testing") || "测试中..." : t("test_connection") || "测试连接"}
+                      </Button>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {t("test_connection_hint") || "测试交易所连接、API Key有效性及代理设置（不会产生实际交易）"}
+                      </div>
+                    </Form.Item>
+
+                    {/* 测试结果 */}
+                    {testResult && (
+                      <Form.Item>
+                        <div className={`p-3 rounded-lg ${testResult.success ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
+                          <div className="flex items-center gap-2 mb-2">
+                            {testResult.success ? (
+                              <span className="text-green-500">✓</span>
+                            ) : (
+                              <span className="text-red-500">✗</span>
+                            )}
+                            <span className={testResult.success ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}>
+                              {testResult.message}
+                            </span>
+                            {testResult.response_time_ms && (
+                              <span className="text-xs text-gray-500">({testResult.response_time_ms}ms)</span>
+                            )}
+                          </div>
+                          {testResult.details?.tests && (
+                            <div className="text-xs space-y-1 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">{t("network") || "网络连接"}:</span>
+                                <span className={testResult.details.tests.ping?.success ? 'text-green-600' : 'text-red-600'}>
+                                  {testResult.details.tests.ping?.success ? (t("success") || "通过") : (t("failed") || "失败")}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">{t("market_data") || "市场数据"}:</span>
+                                <span className={testResult.details.tests.market_data?.success ? 'text-green-600' : 'text-red-600'}>
+                                  {testResult.details.tests.market_data?.success ? (t("success") || "正常") : (t("failed") || "异常")}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">{t("websocket") || "WebSocket"}:</span>
+                                <span className={
+                                  testResult.details.tests.websocket?.skipped
+                                    ? 'text-gray-500'
+                                    : testResult.details.tests.websocket?.success
+                                      ? 'text-green-600'
+                                      : 'text-red-600'
+                                }>
+                                  {testResult.details.tests.websocket?.skipped
+                                    ? (t("not_tested") || "未测试")
+                                    : testResult.details.tests.websocket?.success
+                                      ? (t("success") || "通过")
+                                      : (t("failed") || "失败")}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">{t("authentication") || "API认证"}:</span>
+                                <span className={
+                                  testResult.details.tests.authentication?.skipped
+                                    ? 'text-gray-500'
+                                    : testResult.details.tests.authentication?.success
+                                      ? 'text-green-600'
+                                      : 'text-red-600'
+                                }>
+                                  {testResult.details.tests.authentication?.skipped
+                                    ? (t("not_tested") || "未测试")
+                                    : testResult.details.tests.authentication?.success
+                                      ? (t("success") || "通过")
+                                      : (t("failed") || "失败")}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </Form.Item>
                     )}
                   </Form>
                 </Card>

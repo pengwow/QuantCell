@@ -31,6 +31,20 @@ const LANGUAGE_OPTIONS = [
 // 分页选项
 const PER_PAGE_OPTIONS = [10, 15, 20, 30, 50, 100];
 
+// 时区选项
+const TIMEZONE_OPTIONS = [
+  { value: 'Asia/Shanghai', label: 'Asia/Shanghai (中国标准时间, UTC+8)' },
+  { value: 'Asia/Hong_Kong', label: 'Asia/Hong_Kong (香港时间, UTC+8)' },
+  { value: 'Asia/Tokyo', label: 'Asia/Tokyo (日本标准时间, UTC+9)' },
+  { value: 'Asia/Singapore', label: 'Asia/Singapore (新加坡时间, UTC+8)' },
+  { value: 'America/New_York', label: 'America/New_York (美国东部时间, UTC-5/UTC-4)' },
+  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (美国西部时间, UTC-8/UTC-7)' },
+  { value: 'Europe/London', label: 'Europe/London (格林尼治时间, UTC+0/UTC+1)' },
+  { value: 'Europe/Paris', label: 'Europe/Paris (中欧时间, UTC+1/UTC+2)' },
+  { value: 'Australia/Sydney', label: 'Australia/Sydney (澳大利亚东部时间, UTC+10/UTC+11)' },
+  { value: 'UTC', label: 'UTC (协调世界时, UTC+0)' },
+];
+
 const AppearanceSettingsPage = () => {
   const { t, i18n } = useTranslation();
   const {
@@ -70,6 +84,11 @@ const AppearanceSettingsPage = () => {
   // 处理分页变更
   const handlePerPageChange = (value: number) => {
     setUserSettings(prev => ({ ...prev, defaultPerPage: value }));
+  };
+
+  // 处理时区变更
+  const handleTimezoneChange = (value: string) => {
+    setUserSettings(prev => ({ ...prev, timezone: value }));
   };
 
   // 保存配置
@@ -166,13 +185,34 @@ const AppearanceSettingsPage = () => {
           <Form layout="vertical">
             <Form.Item label={t('default_per_page') || '列表页默认显示数量'}>
               <Select
-                value={userSettings.defaultPerPage || 15}
+                value={userSettings.defaultPerPage || 10}
                 onChange={handlePerPageChange}
                 options={PER_PAGE_OPTIONS.map((value) => ({
                   value,
                   label: `${value} ${t('per_page') || '条每页'}`,
                 }))}
                 className="w-full max-w-md"
+              />
+            </Form.Item>
+          </Form>
+        </div>
+
+        <Divider />
+
+        {/* 时区设置 */}
+        <div>
+          <h2 className="text-lg font-medium mb-4">{t('timezone') || '时区'}</h2>
+          <Form layout="vertical">
+            <Form.Item label={t('default_timezone') || '默认时区'}>
+              <Select
+                value={userSettings.timezone || 'Asia/Shanghai'}
+                onChange={handleTimezoneChange}
+                options={TIMEZONE_OPTIONS}
+                className="w-full max-w-md"
+                showSearch
+                filterOption={(input, option) =>
+                  (option?.label || '').toLowerCase().includes(input.toLowerCase())
+                }
               />
             </Form.Item>
           </Form>

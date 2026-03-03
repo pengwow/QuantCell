@@ -9,13 +9,15 @@ from loguru import logger
 from .api.data import router as data_router
 from .api.data_pool import router as data_pool_router
 from .api.scheduled_tasks import router as scheduled_tasks_router
+from .api.market_data import router as market_data_router
+from .api.exchanges import router as exchanges_router
 from .db.models import Task
 from .schemas import ApiResponse, DataConvertRequest, DataDownloadRequest
 # from .scripts.convert_to_qlib import convert_crypto_to_qlib
 from .scripts.get_data import GetData
 
 # 创建API路由实例
-router = APIRouter()
+router = APIRouter(prefix="/api")
 
 # 注册数据加载API路由
 router.include_router(data_router)
@@ -26,8 +28,14 @@ router.include_router(data_pool_router)
 # 注册定时任务管理API路由
 router.include_router(scheduled_tasks_router)
 
+# 注册市场数据API路由
+router.include_router(market_data_router)
+
+# 注册交易所管理API路由
+router.include_router(exchanges_router)
+
 # 创建数据处理API路由子路由
-router_data = APIRouter(prefix="/api/data", tags=["data-processing"])
+router_data = APIRouter(prefix="/data", tags=["data-processing"])
 
 
 

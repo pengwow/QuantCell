@@ -552,4 +552,38 @@ export const exchangeConfigApi = {
   },
 };
 
+/**
+ * 交易所连接测试相关 API
+ */
+export const exchangeApi = {
+  /**
+   * 测试交易所连接
+   * @param data 连接测试参数
+   */
+  testConnection: (data: {
+    exchange_name: string;
+    api_key?: string;
+    secret_key?: string;
+    api_passphrase?: string;
+    proxy_url?: string;
+    trading_mode?: string;
+    testnet?: boolean;
+  }) => {
+    return apiRequest.post<{
+      success: boolean;
+      status: string;
+      message: string;
+      response_time_ms?: number;
+      details?: any;
+    }>('/exchanges/test-connection', data);
+  },
+
+  /**
+   * 获取支持的交易所列表
+   */
+  getSupportedExchanges: () => {
+    return apiRequest.get<{ exchanges: string[] }>('/exchanges/supported');
+  },
+};
+
 export default api;
