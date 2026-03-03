@@ -122,11 +122,15 @@ const LoginPage = () => {
                   },
                 ]}
               >
-                <Space.Compact block>
-                  <Button icon={<IconUser size="1.25em" />} disabled />
+                <Space.Compact block className="h-10">
+                  <Button 
+                    icon={<IconUser size="1.25em" />} 
+                    disabled 
+                    className="h-10 flex items-center justify-center"
+                  />
                   <Input
                     placeholder={t("enter_username") || "请输入用户名"}
-                    size="large"
+                    className="h-10"
                     autoFocus
                   />
                 </Space.Compact>
@@ -142,11 +146,15 @@ const LoginPage = () => {
                   },
                 ]}
               >
-                <Space.Compact block>
-                  <Button icon={<IconLock size="1.25em" />} disabled />
+                <Space.Compact block className="h-10">
+                  <Button 
+                    icon={<IconLock size="1.25em" />} 
+                    disabled 
+                    className="h-10 flex items-center justify-center"
+                  />
                   <Input.Password
                     placeholder={t("enter_password") || "请输入密码"}
-                    size="large"
+                    className="h-10"
                   />
                 </Space.Compact>
               </Form.Item>

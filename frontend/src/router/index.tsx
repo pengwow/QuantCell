@@ -12,9 +12,7 @@ import StrategyManagement from '@/pages/strategy/StrategyManagement';
 import StrategyEditor from '@/pages/strategy/StrategyEditor';
 import FactorAnalysis from '@/pages/factor/FactorAnalysis';
 import ModelManagement from '@/pages/model/ModelManagement';
-import DataPoolPage from '@/pages/data/DataPoolPage';
-import DataCollectionPage from '@/pages/data/DataCollectionPage';
-import DataQualityPage from '@/pages/data/DataQualityPage';
+import DataManagementPage from '@/pages/data/DataManagementPage';
 import Setting from '@/pages/setting/Setting';
 
 // 导入回测模块
@@ -94,19 +92,7 @@ const baseRoutes: RouteObject[] = [
       },
       {
         path: '/data-management',
-        element: <Navigate to="/data-management/data-pools" replace />,
-      },
-      {
-        path: '/data-management/data-pools',
-        element: <DataPoolPage />,
-      },
-      {
-        path: '/data-management/collection',
-        element: <DataCollectionPage />,
-      },
-      {
-        path: '/data-management/quality',
-        element: <DataQualityPage />,
+        element: <DataManagementPage />,
       },
       // 设置页面及其子路由
       {
