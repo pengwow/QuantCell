@@ -21,7 +21,7 @@ async def websocket_endpoint(
     topics: Optional[str] = Query(None)
 ):
     """WebSocket主端点
-    
+
     Args:
         websocket: WebSocket连接对象
         client_id: 客户端ID
@@ -31,9 +31,13 @@ async def websocket_endpoint(
     topic_set: Set[str] = set()
     if topics:
         topic_set = set(topics.split(","))
-    
+
+    logger.info(f"WebSocket连接请求: client_id={client_id}, topics={topic_set}")
+
     # 处理连接
     client_id = await manager.connect(websocket, client_id, topic_set)
+    logger.info(f"WebSocket连接已建立: client_id={client_id}")
+    logger.info(f"当前所有订阅: {dict((k, list(v)) for k, v in manager.subscriptions.items())}")
     
     try:
         while True:
@@ -196,15 +200,18 @@ async def handle_ping(message: dict, client_id: str):
 
 async def handle_subscribe(message: dict, client_id: str):
     """处理订阅请求
-    
+
     Args:
         message: 消息内容
         client_id: 客户端ID
     """
     message_id = message.get("id")
     topics = message.get("data", {}).get("topics", [])
-    
+
+    logger.info(f"处理订阅请求: client_id={client_id}, topics={topics}")
+
     if not isinstance(topics, list):
+        logger.warning(f"无效的主题列表: client_id={client_id}, topics={topics}")
         await manager.send_personal_message(
             {
                 "type": "error",
@@ -218,9 +225,10 @@ async def handle_subscribe(message: dict, client_id: str):
             client_id
         )
         return
-    
+
     # 处理订阅
     for topic in topics:
+        logger.info(f"订阅主题: client_id={client_id}, topic={topic}")
         await manager.subscribe(client_id, topic)
 
 

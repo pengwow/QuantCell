@@ -60,11 +60,14 @@ export class WebSocketService {
    */
   connect(): void {
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+      console.log('[WebSocket] 连接已存在，跳过');
       return;
     }
 
     try {
       let wsUrl = this.config.url;
+      console.log('[WebSocket] 基础URL:', wsUrl);
+      
       if (wsUrl.includes('?')) {
         wsUrl += `&client_id=${this.clientId}`;
       } else {
@@ -75,10 +78,12 @@ export class WebSocketService {
         wsUrl += `&topics=${this.config.topics.join(',')}`;
       }
 
+      console.log('[WebSocket] 正在连接到:', wsUrl);
+      console.log('[WebSocket] 配置主题:', this.config.topics);
       this.socket = new WebSocket(wsUrl);
 
       this.socket.onopen = () => {
-        console.log('WebSocket连接已建立');
+        console.log('[WebSocket] 连接已建立');
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.notifyConnectionListeners(true);
@@ -103,8 +108,8 @@ export class WebSocketService {
         }
       };
 
-      this.socket.onclose = () => {
-        console.log('WebSocket连接已关闭');
+      this.socket.onclose = (event) => {
+        console.log('[WebSocket] 连接已关闭:', event.code, event.reason);
         this.isConnected = false;
         this.notifyConnectionListeners(false);
         this.stopPing();
@@ -112,7 +117,7 @@ export class WebSocketService {
       };
 
       this.socket.onerror = (error) => {
-        console.error('WebSocket错误:', error);
+        console.error('[WebSocket] 错误:', error);
       };
     } catch (error) {
       console.error('WebSocket连接失败:', error);
@@ -151,12 +156,14 @@ export class WebSocketService {
 
     if (this.isConnected && this.socket) {
       try {
+        console.log('[WebSocket] 发送消息:', fullMessage.type, fullMessage);
         this.socket.send(JSON.stringify(fullMessage));
       } catch (error) {
-        console.error('发送WebSocket消息失败:', error);
+        console.error('[WebSocket] 发送消息失败:', error);
         this.messageQueue.push(fullMessage);
       }
     } else {
+      console.log('[WebSocket] 连接未建立，消息加入队列:', fullMessage.type);
       this.messageQueue.push(fullMessage);
       this.connect();
     }
@@ -169,6 +176,7 @@ export class WebSocketService {
    */
   subscribe(topics: string | string[]): void {
     const topicList = Array.isArray(topics) ? topics : [topics];
+    console.log('[WebSocket] 订阅主题:', topicList);
     this.send({
       type: 'subscribe',
       data: {
@@ -375,8 +383,9 @@ export class WebSocketService {
 }
 
 // 创建默认的WebSocket服务实例
+// 使用相对路径，让 Vite 代理处理 WebSocket 连接
 const defaultConfig: WebSocketConfig = {
-  url: `ws://localhost:8000/ws`,
+  url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
   topics: ['task:progress', 'task:status', 'system:info', 'system:status', 'kline'],
 };
 

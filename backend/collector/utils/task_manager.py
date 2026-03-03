@@ -195,7 +195,7 @@ class TaskManager:
             
             # 推送进度更新
             message = {
-                "type": "task_progress",
+                "type": "task:progress",
                 "id": f"progress_{task_id}_{int(time.time() * 1000)}",
                 "timestamp": int(time.time() * 1000),
                 "data": {
@@ -210,16 +210,27 @@ class TaskManager:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
                     # 在运行的事件循环中执行
-                    loop.create_task(manager.queue_message(message, topic="task:progress"))
+                    logger.info(f"创建任务发送消息: task_id={task_id}, type={message['type']}")
+                    task = loop.create_task(manager.queue_message(message, topic="task:progress"))
+                    # 添加回调以捕获异常
+                    def callback(t):
+                        try:
+                            t.result()
+                            logger.info(f"消息发送任务完成: task_id={task_id}")
+                        except Exception as e:
+                            logger.error(f"消息发送任务失败: task_id={task_id}, error={e}")
+                    task.add_done_callback(callback)
                 else:
                     # 事件循环存在但未运行，运行直到完成
+                    logger.info(f"使用 run_until_complete 发送消息: task_id={task_id}")
                     loop.run_until_complete(manager.queue_message(message, topic="task:progress"))
-            except RuntimeError:
+            except RuntimeError as e:
                 # 没有当前事件循环，使用run_coroutine_threadsafe
                 # 创建新的事件循环并运行
+                logger.info(f"使用 asyncio.run 发送消息: task_id={task_id}, error={e}")
                 asyncio.run(manager.queue_message(message, topic="task:progress"))
         except Exception as e:
-            logger.debug(f"WebSocket推送失败: {e}")
+            logger.error(f"WebSocket推送失败: {e}", exc_info=True)
         
         logger.debug(f"更新任务进度: {task_id}, 当前: {current}, 进度: {percentage}%, 状态: {status}")
         return True
@@ -253,7 +264,7 @@ class TaskManager:
             
             # 推送状态更新
             message = {
-                "type": "task_status",
+                "type": "task:status",
                 "id": f"status_{task_id}_{int(time.time() * 1000)}",
                 "timestamp": int(time.time() * 1000),
                 "data": {
@@ -314,7 +325,7 @@ class TaskManager:
             
             # 推送状态更新
             message = {
-                "type": "task_status",
+                "type": "task:status",
                 "id": f"status_{task_id}_{int(time.time() * 1000)}",
                 "timestamp": int(time.time() * 1000),
                 "data": {

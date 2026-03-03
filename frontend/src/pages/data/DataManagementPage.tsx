@@ -4,7 +4,7 @@
  * 支持多自选组管理（创建、命名、编辑、删除）
  * 参考主流金融工具设计，以货币对为核心展示单位
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Card,
@@ -184,6 +184,11 @@ const DataManagementPage = () => {
   const [currentTaskId, setCurrentTaskId] = useState<string>('');
   const [taskStatus, setTaskStatus] = useState<string>('');
   const [taskProgress, setTaskProgress] = useState<number>(0);
+  // 使用 ref 存储最新的 currentTaskId，避免 WebSocket 回调中的闭包问题
+  const currentTaskIdRef = useRef<string>('');
+  useEffect(() => {
+    currentTaskIdRef.current = currentTaskId;
+  }, [currentTaskId]);
 
   // 当前激活的自选组
   const activeGroup = useMemo(() => 
@@ -389,16 +394,24 @@ const DataManagementPage = () => {
 
   // WebSocket 连接
   useEffect(() => {
+    console.log('[DataManagement] 初始化 WebSocket 连接');
     wsService.connect();
 
     const handleTaskProgress = (data: any) => {
-      if (data.task_id === currentTaskId) {
+      console.log('[DataManagement] 收到任务进度:', data, '当前任务ID:', currentTaskIdRef.current);
+      // 使用 ref 获取最新的 currentTaskId，避免闭包问题
+      if (data.task_id === currentTaskIdRef.current) {
+        console.log('[DataManagement] 更新任务进度:', data.progress?.percentage);
         setTaskProgress(data.progress?.percentage || 0);
+      } else {
+        console.log('[DataManagement] 任务ID不匹配，忽略:', data.task_id, '!==', currentTaskIdRef.current);
       }
     };
 
     const handleTaskStatus = (data: any) => {
-      if (data.task_id === currentTaskId) {
+      console.log('[DataManagement] 收到任务状态:', data);
+      // 使用 ref 获取最新的 currentTaskId，避免闭包问题
+      if (data.task_id === currentTaskIdRef.current) {
         setTaskStatus(data.status);
         if (data.status === 'completed' || data.status === 'failed') {
           fetchCollectionTasks();
@@ -413,12 +426,15 @@ const DataManagementPage = () => {
       wsService.off('task:progress', handleTaskProgress);
       wsService.off('task:status', handleTaskStatus);
     };
-  }, [currentTaskId]);
+  }, []); // 移除 currentTaskId 依赖，避免重复注册
 
   // 获取货币对列表（第一步）
   const fetchSymbols = async () => {
     try {
       setSymbolLoading(true);
+      // 重置市场数据获取标志，确保刷新后会重新获取市场数据
+      setHasFetchedMarketData(false);
+      
       const response = await dataApi.getCryptoSymbols({
         exchange: SYSTEM_CONFIG.exchange,
         limit: 2000,

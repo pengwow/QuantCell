@@ -27,9 +27,9 @@ class Worker(Base):
     # Worker状态: stopped, running, paused, error, starting, stopping
     status = Column(String(20), default='stopped', index=True)
     
-    # 策略关联
+    # 策略关联 - 使用backref避免循环引用问题
     strategy_id = Column(Integer, ForeignKey('strategies.id'), nullable=True)
-    strategy = relationship("Strategy", back_populates="workers")
+    strategy = relationship("Strategy", backref="workers", lazy="joined")
     
     # 交易配置
     exchange = Column(String(50), nullable=False, default='binance')

@@ -379,9 +379,6 @@ class Strategy(TimezoneAwareBase):
     tags = Column(Text, nullable=True)  # JSON格式，策略标签
     created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())  # 更新时间
-    
-    # 关联的Workers
-    workers = relationship("Worker", back_populates="strategy")
 
 
 class AIModel(TimezoneAwareBase):
