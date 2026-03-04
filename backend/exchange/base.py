@@ -367,13 +367,21 @@ class BaseCollector(abc.ABC):
 
         def collect_with_progress(_inst, index):
             nonlocal completed, failed
+            # 该货币对自身的进度跟踪
+            symbol_current = 0
+            symbol_total = 1
 
-            def download_progress_callback(symbol, current, total, status):
+            def download_progress_callback(symbol, current, total_count, status="downloading"):
+                nonlocal symbol_current, symbol_total
+                symbol_current = current
+                symbol_total = total_count if total_count > 0 else 1
                 if progress_callback:
-                    progress_callback(_inst, current, total, failed, status)
+                    # 传递该货币对自身的进度
+                    progress_callback(symbol, symbol_current, symbol_total, failed, status)
 
+            # 初始进度回调 - 该货币对自身进度为0
             if progress_callback:
-                progress_callback(_inst, completed, total, failed)
+                progress_callback(_inst, 0, 1, failed, "starting")
 
             result = self._simple_collector(_inst, download_progress_callback)
             completed += 1
@@ -382,8 +390,9 @@ class BaseCollector(abc.ABC):
                 error_symbol.append(_inst)
                 failed += 1
 
+            # 完成进度回调 - 该货币对自身进度为100%
             if progress_callback:
-                progress_callback(_inst, completed, total, failed)
+                progress_callback(_inst, symbol_total, symbol_total, failed, "completed" if result == self.NORMAL_FLAG else "failed")
 
             return result
 

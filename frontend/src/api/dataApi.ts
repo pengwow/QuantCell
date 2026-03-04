@@ -257,4 +257,13 @@ export const dataApi = {
   syncSymbols: (exchange?: string) => {
     return apiRequest.post('/data/crypto/sync-symbols', null, { params: { exchange } });
   },
+
+  /**
+   * 获取任务的子任务详情列表
+   * @param taskId 任务ID
+   * @returns 子任务详情列表
+   */
+  getTaskDetails: (taskId: string) => {
+    return apiRequest.get(`/data/tasks/${taskId}/details`);
+  },
 };

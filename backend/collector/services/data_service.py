@@ -1004,24 +1004,33 @@ class DataService:
             get_data = GetData()
             
             # 定义进度回调函数
-            def progress_callback(current, completed, total, failed, status=None):
-                """进度回调函数
+            def progress_callback(symbol, completed, total, failed, status=None):
+                """进度回调函数 - 为每个货币对推送独立进度
 
                 Args:
-                    current: 当前处理的项目
+                    symbol: 当前处理的货币对名称（如 "BTC/USDT"）
                     completed: 已完成的项目数
                     total: 总项目数
                     failed: 失败的项目数
                     status: 详细的状态描述，例如"Downloaded 2025-11-01"
                 """
-                # 计算进度百分比
+                # 计算当前货币对的进度百分比
                 progress = 0
                 if total > 0:
                     progress = (completed / total) * 100
 
-                # 更新任务进度，传递详细的状态描述
-                # task_manager.update_progress 内部会处理 WebSocket 推送
-                task_manager.update_progress(task_id, current, completed, total, failed, status)
+                # 更新任务进度，传递货币对标识和时间周期
+                task_manager.update_progress(
+                    task_id,
+                    symbol,  # 货币对名称
+                    completed,
+                    total,
+                    failed,
+                    status,
+                    symbol_progress=progress,  # 该货币对的独立进度
+                    is_per_symbol=True,  # 标记为按货币对进度
+                    interval=interval  # 当前时间周期
+                )
             
             # 处理保存目录：根据接口类型拼接路径
             save_dir = request.save_dir

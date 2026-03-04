@@ -117,6 +117,33 @@ class Task(TimezoneAwareBase):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now(), index=True)
 
 
+class TaskDetail(TimezoneAwareBase):
+    """任务明细SQLAlchemy模型
+
+    对应task_details表的SQLAlchemy模型定义，用于存储任务的详细进度信息
+    每个任务可以包含多个货币对和时间周期的组合
+    """
+    __tablename__ = "task_details"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    task_id = Column(String, nullable=False, index=True)
+    symbol = Column(String, nullable=False, index=True)
+    interval = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=True)
+    percentage = Column(sqlalchemy.Float, default=0.0)
+    completed = Column(Integer, default=0)
+    total = Column(Integer, default=0)
+    failed = Column(Integer, default=0)
+    status_text = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+    # 设置联合唯一约束，确保task_id + symbol + interval的组合唯一
+    __table_args__ = (
+        sqlalchemy.UniqueConstraint('task_id', 'symbol', 'interval', name='unique_task_symbol_interval'),
+    )
+
+
 class Feature(TimezoneAwareBase):
     """特征信息SQLAlchemy模型
     
@@ -1076,6 +1103,125 @@ class TaskBusiness:
         except Exception as e:
             db.rollback()
             logger.error(f"删除任务失败: task_id={task_id}, error={e}")
+            return False
+        finally:
+            db.close()
+
+
+class TaskDetailBusiness:
+    """任务明细模型类
+
+    用于操作task_details表，提供CRUD操作方法
+    """
+
+    @staticmethod
+    def upsert(task_id: str, symbol: str, interval: str, percentage: float = 0.0, completed: int = 0, total: int = 0, failed: int = 0, status_text: str = None) -> bool:
+        """更新或插入任务明细
+
+        Args:
+            task_id: 任务ID
+            symbol: 货币对
+            interval: 时间周期
+            percentage: 进度百分比
+            completed: 已完成数量
+            total: 总数量
+            failed: 失败数量
+            status_text: 状态描述
+
+        Returns:
+            bool: 操作成功返回True，失败返回False
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            # 查找是否已存在
+            detail = db.query(TaskDetail).filter_by(task_id=task_id, symbol=symbol, interval=interval).first()
+            if detail:
+                # 更新现有记录
+                detail.percentage = percentage
+                detail.completed = completed
+                detail.total = total
+                detail.failed = failed
+                detail.status_text = status_text
+            else:
+                # 创建新记录
+                detail = TaskDetail(
+                    task_id=task_id,
+                    symbol=symbol,
+                    interval=interval,
+                    percentage=percentage,
+                    completed=completed,
+                    total=total,
+                    failed=failed,
+                    status_text=status_text
+                )
+                db.add(detail)
+            db.commit()
+            logger.debug(f"任务明细已更新: task_id={task_id}, symbol={symbol}, interval={interval}, progress={percentage}%")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"更新任务明细失败: task_id={task_id}, symbol={symbol}, interval={interval}, error={e}")
+            return False
+        finally:
+            db.close()
+
+    @staticmethod
+    def get_by_task_id(task_id: str) -> list:
+        """获取任务的所有明细
+
+        Args:
+            task_id: 任务ID
+
+        Returns:
+            list: 任务明细列表
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            details = db.query(TaskDetail).filter_by(task_id=task_id).all()
+            return [{
+                "id": d.id,
+                "task_id": d.task_id,
+                "symbol": d.symbol,
+                "interval": d.interval,
+                "percentage": d.percentage,
+                "completed": d.completed,
+                "total": d.total,
+                "failed": d.failed,
+                "status_text": d.status_text,
+                "created_at": format_datetime(d.created_at),
+                "updated_at": format_datetime(d.updated_at)
+            } for d in details]
+        except Exception as e:
+            logger.error(f"获取任务明细失败: task_id={task_id}, error={e}")
+            return []
+        finally:
+            db.close()
+
+    @staticmethod
+    def delete_by_task_id(task_id: str) -> bool:
+        """删除任务的所有明细
+
+        Args:
+            task_id: 任务ID
+
+        Returns:
+            bool: 操作成功返回True，失败返回False
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            db.query(TaskDetail).filter_by(task_id=task_id).delete()
+            db.commit()
+            logger.info(f"任务明细已删除: task_id={task_id}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"删除任务明细失败: task_id={task_id}, error={e}")
             return False
         finally:
             db.close()

@@ -3,8 +3,8 @@
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-from fastapi import (APIRouter, BackgroundTasks, Depends, HTTPException, Query,
-                     Request)
+from fastapi import (APIRouter, BackgroundTasks, Depends, HTTPException, Path,
+                     Query, Request)
 from loguru import logger
 from sqlalchemy.orm import Session
 
@@ -1116,5 +1116,52 @@ def get_products(
         raise
     except Exception as e:
         logger.error(f"获取商品列表失败: {e}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tasks/{task_id}/details", response_model=ApiResponse)
+def get_task_details(
+    task_id: str = Path(..., description="任务ID"),
+    db: Session = Depends(get_db)
+):
+    """获取任务的子任务详情列表
+    
+    Args:
+        task_id: 任务ID
+        db: 数据库会话
+        
+    Returns:
+        ApiResponse: 包含子任务详情列表的响应
+    """
+    try:
+        from ..db.models import TaskDetailBusiness
+        
+        # 从数据库获取任务明细
+        details = TaskDetailBusiness.get_by_task_id(task_id)
+        
+        # 转换为前端需要的格式
+        task_details = [{
+            "task_key": f"{d['interval']}:{d['symbol']}",
+            "symbol": d['symbol'],
+            "interval": d['interval'],
+            "percentage": d['percentage'],
+            "status": d['status_text'],
+            "completed": d['completed'],
+            "total": d['total'],
+            "failed": d['failed'],
+        } for d in details]
+        
+        return ApiResponse(
+            code=0,
+            message="获取任务详情成功",
+            data={
+                "task_id": task_id,
+                "details": task_details,
+                "total": len(task_details)
+            }
+        )
+    except Exception as e:
+        logger.error(f"获取任务详情失败: task_id={task_id}, error={e}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
