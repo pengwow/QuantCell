@@ -1849,19 +1849,54 @@ const DataManagementPage = () => {
             <Form.Item
               name="symbols"
               label="选择货币对"
-              rules={[{ required: true, message: '请至少选择一个货币对' }]}
+              rules={[{ required: true, message: '请至少选择一个货币对或自选组' }]}
             >
               <Select
                 mode="multiple"
-                placeholder="请选择货币对"
+                placeholder="请选择货币对或自选组"
                 showSearch
-                options={symbols.map((s) => ({
-                  value: s.symbol,
-                  label: s.symbol,
-                }))}
+                allowClear
+                options={[
+                  // 自选组选项
+                  ...(favoriteGroups.length > 0 ? [
+                    {
+                      label: <Text type="secondary" style={{ fontSize: 12 }}>自选组</Text>,
+                      options: favoriteGroups.map((group) => ({
+                        value: `group:${group.id}`,
+                        label: `${group.name} (${group.symbolIds?.length || 0}个)`,
+                      })),
+                    }
+                  ] : []),
+                  // 货币对选项
+                  {
+                    label: <Text type="secondary" style={{ fontSize: 12 }}>货币对</Text>,
+                    options: symbols.map((s) => ({
+                      value: s.symbol,
+                      label: s.symbol,
+                    })),
+                  },
+                ]}
                 filterOption={(input, option) =>
-                  (option?.label || '').toLowerCase().includes(input.toLowerCase())
+                  (option?.label?.props?.children?.[0] || option?.label || '').toLowerCase().includes(input.toLowerCase())
                 }
+                onChange={(values) => {
+                  // 处理自选组选择
+                  const expandedSymbols: string[] = [];
+                  values.forEach((value: string) => {
+                    if (value.startsWith('group:')) {
+                      const groupId = parseInt(value.replace('group:', ''));
+                      const group = favoriteGroups.find(g => g.id === groupId);
+                      if (group?.symbolIds) {
+                        expandedSymbols.push(...group.symbolIds);
+                      }
+                    } else {
+                      expandedSymbols.push(value);
+                    }
+                  });
+                  // 去重
+                  const uniqueSymbols = [...new Set(expandedSymbols)];
+                  collectionForm.setFieldsValue({ symbols: uniqueSymbols });
+                }}
               />
             </Form.Item>
 
