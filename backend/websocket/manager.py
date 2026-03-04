@@ -5,6 +5,7 @@ import json
 import uuid
 from datetime import datetime
 from typing import Dict, Set, Optional, Any, List
+import threading
 
 from loguru import logger
 
@@ -17,10 +18,27 @@ class DateTimeEncoder(json.JSONEncoder):
 
 
 class ConnectionManager:
-    """WebSocket连接管理器"""
+    """WebSocket连接管理器 - 支持跨进程广播"""
+    
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        """确保只有一个实例"""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
     
     def __init__(self):
         """初始化连接管理器"""
+        # 避免重复初始化
+        if hasattr(self, '_initialized') and self._initialized:
+            return
+        
+        self._initialized = True
+        
         # 活跃连接映射: {client_id: websocket}
         self.active_connections: Dict[str, Any] = {}
         # 订阅映射: {topic: set(client_ids)}
@@ -41,24 +59,165 @@ class ConnectionManager:
         self.message_counters: Dict[str, List[float]] = {}
         # 批处理缓存: {client_id: List[Dict]}
         self.batch_cache: Dict[str, List[Dict[str, Any]]] = {}
+        
+        # ZMQ 相关 - 用于跨进程通信
+        self._zmq_context = None
+        self._zmq_socket = None
+        self._zmq_publisher = None
+        self._zmq_port = 5558  # ZMQ 广播端口
+        self._zmq_started = False
     
     async def start(self):
-        """启动消息处理任务"""
+        """启动消息处理任务和 ZMQ 服务"""
         # 延迟初始化消息队列，确保在事件循环中创建
         if self.message_queue is None:
             self.message_queue = asyncio.Queue()
             logger.info("消息队列已初始化")
+        
+        # 启动 ZMQ 服务（用于接收子进程的消息）
+        await self._start_zmq()
+        
         self.processing_task = asyncio.create_task(self.process_messages())
         logger.info("WebSocket连接管理器已启动")
     
+    async def _start_zmq(self):
+        """启动 ZMQ 服务用于跨进程通信"""
+        if self._zmq_started:
+            return
+        
+        try:
+            import zmq.asyncio
+            self._zmq_context = zmq.asyncio.Context()
+            
+            # 创建 REP socket 接收子进程的消息（支持 REQ 客户端）
+            self._zmq_socket = self._zmq_context.socket(zmq.REP)
+            self._zmq_socket.bind(f"tcp://127.0.0.1:{self._zmq_port}")
+            
+            # 启动 ZMQ 消息接收循环
+            asyncio.create_task(self._zmq_receive_loop())
+            
+            self._zmq_started = True
+            logger.info(f"[ZMQ] 服务已启动，端口: {self._zmq_port}，使用 REQ/REP 模式")
+        except Exception as e:
+            logger.error(f"[ZMQ] 服务启动失败: {e}")
+    
+    async def process_messages(self):
+        """处理消息队列中的消息"""
+        logger.info("消息处理循环已启动")
+        while True:
+            try:
+                # 从队列获取消息
+                if self.message_queue:
+                    message = await self.message_queue.get()
+                    
+                    # 处理消息
+                    topic = message.get("topic")
+                    if topic:
+                        await self.broadcast(message, topic)
+                    
+                    # 标记消息为已处理
+                    self.message_queue.task_done()
+                else:
+                    await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"处理消息时出错: {e}")
+                await asyncio.sleep(0.1)
+    
+    async def queue_message(self, message: Dict[str, Any], topic: Optional[str] = None):
+        """将消息加入队列
+
+        Args:
+            message: 消息内容
+            topic: 主题名称
+        """
+        message_with_topic = message.copy()
+        if topic:
+            message_with_topic["topic"] = topic
+
+        if self.message_queue:
+            await self.message_queue.put(message_with_topic)
+            logger.debug(f"消息加入队列: type={message.get('type')}, topic={topic}")
+        else:
+            logger.warning("消息队列未初始化，消息未加入队列")
+
+    async def _zmq_receive_loop(self):
+        """ZMQ 消息接收循环 - 接收子进程的消息并广播"""
+        logger.info("[ZMQ] 接收循环已启动，等待消息...")
+        while self._zmq_started:
+            try:
+                if self._zmq_socket:
+                    # 使用 poll 避免阻塞，允许检查 _zmq_started
+                    if await self._zmq_socket.poll(timeout=100):
+                        # REP 模式接收消息
+                        data = await self._zmq_socket.recv_json()
+                        logger.info(f"[ZMQ] 收到原始数据: {data}")
+                        message = data.get("message")
+                        topic = data.get("topic")
+
+                        if message and topic:
+                            logger.info(f"[ZMQ] 收到消息: type={message.get('type')}, topic={topic}")
+                            # 直接广播给 WebSocket 客户端
+                            await self.broadcast(message, topic)
+                            logger.info(f"[ZMQ] 消息已广播")
+                            # 发送响应
+                            await self._zmq_socket.send_json({"status": "ok"})
+                        else:
+                            logger.warning(f"[ZMQ] 收到的消息格式不正确: message={message}, topic={topic}")
+                            # 发送错误响应
+                            await self._zmq_socket.send_json({"status": "error", "reason": "invalid format"})
+                    else:
+                        # 超时，继续循环检查 _zmq_started
+                        await asyncio.sleep(0.01)
+            except asyncio.CancelledError:
+                # 正常取消，退出循环
+                break
+            except Exception as e:
+                if self._zmq_started:  # 只有在运行状态下才记录错误
+                    logger.error(f"[ZMQ] 接收消息错误: {e}")
+                    # 尝试发送错误响应
+                    try:
+                        await self._zmq_socket.send_json({"status": "error", "reason": str(e)})
+                    except:
+                        pass
+                await asyncio.sleep(0.1)
+        logger.info("[ZMQ] 接收循环已停止")
+    
+    def update_last_ping(self, client_id: str):
+        """更新客户端最后心跳时间
+
+        Args:
+            client_id: 客户端ID
+        """
+        if client_id in self.client_info:
+            self.client_info[client_id]["last_ping"] = datetime.now()
+
     async def stop(self):
-        """停止消息处理任务"""
+        """停止消息处理任务和 ZMQ 服务"""
+        # 停止 ZMQ 接收循环
+        self._zmq_started = False
+
         if self.processing_task:
             self.processing_task.cancel()
             try:
-                await self.processing_task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(self.processing_task, timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
+
+        # 停止 ZMQ 服务
+        if self._zmq_socket:
+            try:
+                self._zmq_socket.close()
+            except Exception:
+                pass
+        if self._zmq_context:
+            try:
+                # 使用 term 的超时版本
+                self._zmq_context.term()
+            except Exception:
+                pass
+
         logger.info("WebSocket连接管理器已停止")
     
     async def connect(self, websocket: Any, client_id: Optional[str] = None, topics: Optional[Set[str]] = None):
@@ -68,6 +227,9 @@ class ConnectionManager:
             websocket: WebSocket连接对象
             client_id: 客户端ID
             topics: 初始订阅的主题列表
+        
+        Returns:
+            str: 客户端ID
         """
         # 接受连接
         await websocket.accept()
@@ -99,7 +261,7 @@ class ConnectionManager:
                 "timestamp": int(datetime.now().timestamp() * 1000),
                 "data": {
                     "client_id": client_id,
-                    "message": "Welcome to WebSocket service!"
+                    "topics": list(topics) if topics else []
                 }
             },
             client_id
@@ -115,15 +277,17 @@ class ConnectionManager:
             client_id: 客户端ID
         """
         if client_id in self.active_connections:
-            # 移除连接
+            try:
+                await self.active_connections[client_id].close()
+            except:
+                pass
             del self.active_connections[client_id]
             
-            # 移除客户端信息
+            # 从客户端信息中移除
             if client_id in self.client_info:
                 del self.client_info[client_id]
             
             # 从所有订阅中移除
-            # 使用 list() 创建副本，避免在遍历时修改字典
             topics_to_remove = []
             for topic, clients in list(self.subscriptions.items()):
                 if client_id in clients:
@@ -144,7 +308,8 @@ class ConnectionManager:
             client_id: 客户端ID
             topic: 主题名称
         """
-        logger.info(f"订阅方法被调用: client_id={client_id}, topic={topic}")
+        logger.info(f"订阅方法被调用: client_id={client_id}, topic={topic}, manager_id={id(self)}")
+        logger.info(f"订阅前状态: subscriptions={dict((k, list(v)) for k, v in self.subscriptions.items())}")
 
         if topic not in self.subscriptions:
             self.subscriptions[topic] = set()
@@ -156,7 +321,8 @@ class ConnectionManager:
         if client_id in self.client_info:
             self.client_info[client_id]["topics"].add(topic)
 
-        logger.info(f"客户端 {client_id} 订阅了主题 {topic}, 当前订阅该主题的客户端: {list(self.subscriptions[topic])}")
+        logger.info(f"客户端 {client_id} 订阅了主题 {topic}")
+        logger.info(f"订阅后状态: subscriptions={dict((k, list(v)) for k, v in self.subscriptions.items())}")
         
         # 发送订阅确认
         await self.send_personal_message(
@@ -178,31 +344,16 @@ class ConnectionManager:
             client_id: 客户端ID
             topic: 主题名称
         """
-        if topic in self.subscriptions:
-            if client_id in self.subscriptions[topic]:
-                self.subscriptions[topic].remove(client_id)
-                if not self.subscriptions[topic]:
-                    del self.subscriptions[topic]
-        
-        # 更新客户端订阅信息
-        if client_id in self.client_info:
-            if topic in self.client_info[client_id]["topics"]:
+        if topic in self.subscriptions and client_id in self.subscriptions[topic]:
+            self.subscriptions[topic].remove(client_id)
+            if not self.subscriptions[topic]:
+                del self.subscriptions[topic]
+            
+            # 更新客户端订阅信息
+            if client_id in self.client_info and topic in self.client_info[client_id]["topics"]:
                 self.client_info[client_id]["topics"].remove(topic)
-        
-        logger.debug(f"客户端 {client_id} 取消订阅主题 {topic}")
-        
-        # 发送取消订阅确认
-        await self.send_personal_message(
-            {
-                "type": "unsubscribe_ack",
-                "id": f"unsub_ack_{topic}",
-                "timestamp": int(datetime.now().timestamp() * 1000),
-                "data": {
-                    "topic": topic
-                }
-            },
-            client_id
-        )
+            
+            logger.info(f"客户端 {client_id} 取消订阅了主题 {topic}")
     
     async def send_personal_message(self, message: Dict[str, Any], client_id: str):
         """发送个人消息
@@ -228,190 +379,28 @@ class ConnectionManager:
             message: 消息内容
             topic: 主题名称，为None时广播给所有客户端
         """
-        if topic:
+        logger.info(f"广播消息: type={message.get('type')}, topic={topic}")
+        logger.info(f"当前订阅状态: {dict((k, list(v)) for k, v in self.subscriptions.items())}")
+        logger.info(f"当前活跃连接: {list(self.active_connections.keys())}")
+        
+        if topic and topic in self.subscriptions:
             # 只广播给订阅了该主题的客户端
-            if topic in self.subscriptions:
-                client_ids = list(self.subscriptions[topic])
+            client_ids = list(self.subscriptions[topic])
+            if len(client_ids) > 0:
+                logger.info(f"广播给订阅了 {topic} 的客户端: {client_ids}")
                 for client_id in client_ids:
                     await self.send_personal_message(message, client_id)
+            else:
+                logger.warning(f"主题 {topic} 没有客户端订阅，消息未发送")
+        elif topic:
+            # 有主题但没有客户端订阅
+            logger.warning(f"主题 {topic} 没有客户端订阅，消息未发送")
         else:
             # 广播给所有客户端
             client_ids = list(self.active_connections.keys())
+            logger.info(f"广播给所有客户端: {client_ids}")
             for client_id in client_ids:
                 await self.send_personal_message(message, client_id)
-    
-    async def process_messages(self):
-        """处理消息队列中的消息"""
-        batch_timer = 0
-        logger.info("消息处理循环已启动")
-        while True:
-            try:
-                # 批量获取消息
-                messages = []
-                try:
-                    # 尝试在批处理间隔内获取尽可能多的消息
-                    while len(messages) < self.batch_size and self.message_queue:
-                        message = await asyncio.wait_for(self.message_queue.get(), timeout=self.batch_interval)
-                        messages.append(message)
-                except asyncio.TimeoutError:
-                    pass
-
-                if messages:
-                    logger.info(f"获取到 {len(messages)} 条消息，开始处理")
-                    # 批量处理消息
-                    await self.batch_process_messages(messages)
-                    # 标记所有消息为已处理
-                    if self.message_queue:
-                        for _ in messages:
-                            self.message_queue.task_done()
-            except asyncio.CancelledError:
-                logger.info("消息处理循环已取消")
-                break
-            except Exception as e:
-                logger.error(f"处理消息时出错: {e}", exc_info=True)
-    
-    async def batch_process_messages(self, messages: List[Dict[str, Any]]):
-        """批量处理消息"""
-        # 按客户端分组消息
-        client_messages: Dict[str, List[Dict[str, Any]]] = {}
-
-        logger.info(f"批量处理消息: 数量={len(messages)}, 订阅主题={list(self.subscriptions.keys())}, 活跃连接={list(self.active_connections.keys())}")
-
-        for message in messages:
-            # 序列化消息中的datetime对象
-            serialized_message = json.loads(json.dumps(message, cls=DateTimeEncoder))
-
-            topic = serialized_message.get("topic")
-            logger.info(f"处理消息: type={serialized_message.get('type')}, topic={topic}")
-
-            if topic and topic in self.subscriptions:
-                # 消息有主题，发送给订阅的客户端
-                # 使用列表副本避免字典修改问题
-                subscribed_clients = list(self.subscriptions[topic])
-                logger.info(f"主题 {topic} 的订阅客户端: {subscribed_clients}")
-                for client_id in subscribed_clients:
-                    if client_id not in client_messages:
-                        client_messages[client_id] = []
-                    client_messages[client_id].append(serialized_message)
-            else:
-                # 消息无主题，发送给所有客户端
-                # 使用列表副本避免字典修改问题
-                logger.debug(f"消息无主题或主题未订阅，广播给所有客户端: {list(self.active_connections.keys())}")
-                for client_id in list(self.active_connections.keys()):
-                    if client_id not in client_messages:
-                        client_messages[client_id] = []
-                    client_messages[client_id].append(serialized_message)
-
-        logger.info(f"客户端消息分组: {list(client_messages.keys())}")
-
-        # 发送批量消息
-        for client_id, batch_messages in client_messages.items():
-            await self.send_batch_messages(client_id, batch_messages)
-    
-    async def send_batch_messages(self, client_id: str, batch_messages: List[Dict[str, Any]]):
-        """批量发送消息给客户端"""
-        logger.info(f"发送批量消息: client_id={client_id}, messages_count={len(batch_messages)}, active_connections={list(self.active_connections.keys())}")
-        if client_id in self.active_connections:
-            try:
-                # 检查速率限制
-                if self._check_rate_limit(client_id, len(batch_messages)):
-                    # 发送批量消息
-                    message = {
-                        "type": "batch",
-                        "messages": batch_messages
-                    }
-                    logger.info(f"正在发送消息到客户端 {client_id}: {len(batch_messages)} 条消息")
-                    await self.active_connections[client_id].send_json(message)
-                    logger.info(f"消息发送成功: client_id={client_id}")
-                else:
-                    logger.warning(f"客户端 {client_id} 速率限制，跳过发送")
-            except Exception as e:
-                logger.error(f"发送批量消息到客户端 {client_id} 失败: {e}")
-                # 尝试断开连接
-                await self.disconnect(client_id)
-        else:
-            logger.warning(f"客户端 {client_id} 不在活跃连接中，无法发送消息")
-    
-    def _check_rate_limit(self, client_id: str, message_count: int) -> bool:
-        """检查客户端消息速率限制"""
-        import time
-        current_time = time.time()
-        
-        if client_id not in self.message_counters:
-            # 初始化客户端消息计数器
-            self.message_counters[client_id] = [current_time, 0]
-        
-        timestamp, count = self.message_counters[client_id]
-        
-        # 检查是否在速率限制窗口内
-        if current_time - timestamp < self.rate_limit_window:
-            # 在窗口内，检查消息数
-            if count + message_count > self.rate_limit:
-                logger.warning(f"客户端 {client_id} 消息速率超过限制")
-                return False
-            # 更新计数
-            self.message_counters[client_id][1] = count + message_count
-        else:
-            # 窗口外，重置计数器
-            self.message_counters[client_id] = [current_time, message_count]
-        
-        return True
-    
-    async def queue_message(self, message: Dict[str, Any], topic: Optional[str] = None):
-        """将消息加入队列
-
-        Args:
-            message: 消息内容
-            topic: 主题名称
-        """
-        # 确保消息队列已初始化
-        if self.message_queue is None:
-            self.message_queue = asyncio.Queue()
-            logger.info("消息队列已延迟初始化")
-
-        message_with_topic = message.copy()
-        if topic:
-            message_with_topic["topic"] = topic
-
-        queue_size = self.message_queue.qsize() if self.message_queue else 0
-        logger.info(f"消息加入队列: type={message.get('type')}, topic={topic}, queue_size={queue_size}")
-        await self.message_queue.put(message_with_topic)
-    
-    def get_client_count(self) -> int:
-        """获取当前连接数
-        
-        Returns:
-            int: 当前连接数
-        """
-        return len(self.active_connections)
-    
-    def get_topic_count(self) -> int:
-        """获取当前订阅主题数
-        
-        Returns:
-            int: 当前订阅主题数
-        """
-        return len(self.subscriptions)
-    
-    def get_client_info(self, client_id: str) -> Optional[Dict[str, Any]]:
-        """获取客户端信息
-        
-        Args:
-            client_id: 客户端ID
-        
-        Returns:
-            Optional[Dict[str, Any]]: 客户端信息
-        """
-        return self.client_info.get(client_id)
-    
-    def update_last_ping(self, client_id: str):
-        """更新客户端最后心跳时间
-        
-        Args:
-            client_id: 客户端ID
-        """
-        if client_id in self.client_info:
-            self.client_info[client_id]["last_ping"] = datetime.now()
 
 
 # 创建全局连接管理器实例

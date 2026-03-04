@@ -146,7 +146,7 @@ class SystemService:
         # 系统信息推送定时器
         self.push_timer: Optional[asyncio.Task] = None
         # 推送间隔（秒）
-        self.push_interval: int = 5
+        self.push_interval: int = 10
         # 交易所连接监测器
         self.exchange_monitor = ExchangeConnectionMonitor()
         # 交易所状态推送定时器

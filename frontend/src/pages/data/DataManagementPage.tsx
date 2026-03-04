@@ -395,7 +395,6 @@ const DataManagementPage = () => {
   // WebSocket 连接
   useEffect(() => {
     console.log('[DataManagement] 初始化 WebSocket 连接');
-    wsService.connect();
 
     const handleTaskProgress = (data: any) => {
       console.log('[DataManagement] 收到任务进度:', data, '当前任务ID:', currentTaskIdRef.current);
@@ -421,6 +420,14 @@ const DataManagementPage = () => {
 
     wsService.on('task:progress', handleTaskProgress);
     wsService.on('task:status', handleTaskStatus);
+
+    // 确保 WebSocket 连接已建立（connect 方法内部会自动订阅默认主题）
+    if (!wsService.connected) {
+      console.log('[DataManagement] WebSocket 未连接，调用 connect');
+      wsService.connect();
+    } else {
+      console.log('[DataManagement] WebSocket 已连接');
+    }
 
     return () => {
       wsService.off('task:progress', handleTaskProgress);
@@ -815,7 +822,7 @@ const DataManagementPage = () => {
         setCurrentTaskId(response.task_id);
         setTaskStatus('running');
         setTaskProgress(0);
-        wsService.subscribe(['task:progress', 'task:status']);
+        // 订阅已移至全局，此处不再需要
         fetchCollectionTasks();
         message.success(`已开始采集 ${symbol} 数据`);
       }
@@ -850,7 +857,7 @@ const DataManagementPage = () => {
         setCurrentTaskId(response.task_id);
         setTaskStatus('running');
         setTaskProgress(0);
-        wsService.subscribe(['task:progress', 'task:status']);
+        // 订阅已移至全局，此处不再需要
         fetchCollectionTasks();
         message.success('批量采集任务已启动');
       }

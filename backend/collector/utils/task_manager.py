@@ -204,31 +204,52 @@ class TaskManager:
                 }
             }
             
-            # 在任何线程中执行异步操作
+            # 使用 ZMQ 发送消息给主进程广播
             try:
-                # 尝试获取当前事件循环
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # 在运行的事件循环中执行
-                    logger.info(f"创建任务发送消息: task_id={task_id}, type={message['type']}")
-                    task = loop.create_task(manager.queue_message(message, topic="task:progress"))
-                    # 添加回调以捕获异常
-                    def callback(t):
-                        try:
-                            t.result()
-                            logger.info(f"消息发送任务完成: task_id={task_id}")
-                        except Exception as e:
-                            logger.error(f"消息发送任务失败: task_id={task_id}, error={e}")
-                    task.add_done_callback(callback)
-                else:
-                    # 事件循环存在但未运行，运行直到完成
-                    logger.info(f"使用 run_until_complete 发送消息: task_id={task_id}")
-                    loop.run_until_complete(manager.queue_message(message, topic="task:progress"))
-            except RuntimeError as e:
-                # 没有当前事件循环，使用run_coroutine_threadsafe
-                # 创建新的事件循环并运行
-                logger.info(f"使用 asyncio.run 发送消息: task_id={task_id}, error={e}")
-                asyncio.run(manager.queue_message(message, topic="task:progress"))
+                logger.info(f"[ZMQ] 开始发送任务进度消息: task_id={task_id}, type={message['type']}")
+                import zmq
+                
+                # 创建同步 ZMQ socket 发送消息 - 使用 REQ 模式（简单请求-响应）
+                context = zmq.Context()
+                socket = context.socket(zmq.REQ)
+                socket.setsockopt(zmq.LINGER, 0)
+                socket.setsockopt(zmq.SNDTIMEO, 2000)  # 2秒发送超时
+                socket.setsockopt(zmq.RCVTIMEO, 2000)  # 2秒接收超时
+                
+                logger.info(f"[ZMQ] 连接到 tcp://127.0.0.1:5558")
+                socket.connect("tcp://127.0.0.1:5558")
+                
+                # 发送消息（同步）
+                data = {
+                    "message": message,
+                    "topic": "task:progress"
+                }
+                logger.info(f"[ZMQ] 发送数据: {data}")
+                socket.send_json(data)
+                logger.info(f"[ZMQ] 数据已发送，等待确认...")
+                
+                # 等待响应（防止内存泄漏）
+                try:
+                    response = socket.recv_json()
+                    logger.info(f"[ZMQ] 收到响应: {response}")
+                except zmq.Again:
+                    logger.warning(f"[ZMQ] 等待响应超时")
+                
+                socket.close()
+                context.term()
+                
+                logger.info(f"[ZMQ] 任务进度消息发送完成: task_id={task_id}")
+            except Exception as e:
+                logger.warning(f"ZMQ 发送失败，尝试直接广播: {e}")
+                # 回退到直接广播（仅在主进程中有效）
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(manager.broadcast(message, topic="task:progress"))
+                    else:
+                        loop.run_until_complete(manager.broadcast(message, topic="task:progress"))
+                except Exception as e2:
+                    logger.error(f"直接广播也失败: {e2}")
         except Exception as e:
             logger.error(f"WebSocket推送失败: {e}", exc_info=True)
         

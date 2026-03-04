@@ -43,6 +43,13 @@ export class WebSocketService {
   private isConnected: boolean = false;
   private clientId: string;
 
+  /**
+   * 获取连接状态
+   */
+  get connected(): boolean {
+    return this.isConnected;
+  }
+
   constructor(config: WebSocketConfig) {
     this.config = {
       url: config.url,
@@ -89,17 +96,26 @@ export class WebSocketService {
         this.notifyConnectionListeners(true);
         this.startPing();
         this.flushMessageQueue();
+        
+        // 连接建立后自动订阅默认主题
+        if (this.config.topics && this.config.topics.length > 0) {
+          console.log('[WebSocket] 自动订阅默认主题:', this.config.topics);
+          this.subscribe(this.config.topics);
+        }
       };
 
       this.socket.onmessage = (event) => {
         try {
           const rawData = event.data;
+          console.log('[WebSocket] 收到原始数据:', rawData);
           const message: WebSocketMessage = JSON.parse(rawData);
 
           if (message.type === 'kline') {
             console.log(`[WebSocket] 收到K线消息: ${message.data?.symbol}@${message.data?.interval}, close=${message.data?.close}`);
+          } else if (message.type === 'batch') {
+            console.log(`[WebSocket] 收到批量消息，数量: ${message.messages?.length || 0}`);
           } else {
-            console.log('[WebSocket] 收到消息:', message.type);
+            console.log('[WebSocket] 收到消息:', message.type, message);
           }
 
           this.handleMessage(message);
@@ -323,6 +339,18 @@ export class WebSocketService {
       console.log('[WebSocket] 收到K线数据:', message.data);
       this.notifyListeners('kline', message.data);
       this.notifyListeners('kline:update', message.data);
+      return;
+    }
+
+    if (message.type === 'task:progress') {
+      console.log('[WebSocket] 收到任务进度消息:', message);
+      this.notifyListeners('task:progress', message.data);
+      return;
+    }
+
+    if (message.type === 'task:status') {
+      console.log('[WebSocket] 收到任务状态消息:', message);
+      this.notifyListeners('task:status', message.data);
       return;
     }
 
