@@ -65,12 +65,164 @@ import dayjs from 'dayjs';
 import PageContainer from '@/components/PageContainer';
 import { dataApi } from '@/api/dataApi';
 import { wsService } from '@/services/websocketService';
-import type { Task } from '@/types/data';
+import type { Task, TaskStatus } from '@/types/data';
 
 const { Text } = Typography;
 const { TabPane } = Tabs;
 const { RangePicker } = DatePicker;
 const { Search } = Input;
+
+// 任务卡片组件
+interface TaskCardProps {
+  task: Task;
+  isCurrent: boolean;
+  taskProgressList?: any[];
+  isProgressExpanded?: boolean;
+  setIsProgressExpanded?: (expanded: boolean) => void;
+}
+
+const TaskCard: React.FC<TaskCardProps> = ({
+  task,
+  isCurrent,
+  taskProgressList: externalProgressList = [],
+  isProgressExpanded = false,
+  setIsProgressExpanded,
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const [details, setDetails] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // 使用外部传入的进度列表（如果有）或从API获取的详情
+  const displayList = externalProgressList.length > 0 ? externalProgressList : details;
+
+  const getStatusColor = (status: TaskStatus) => {
+    switch (status) {
+      case 'running':
+        return 'processing';
+      case 'completed':
+        return 'success';
+      case 'failed':
+        return 'error';
+      default:
+        return 'default';
+    }
+  };
+
+  const getStatusText = (status: TaskStatus) => {
+    switch (status) {
+      case 'running':
+        return '运行中';
+      case 'completed':
+        return '已完成';
+      case 'failed':
+        return '失败';
+      default:
+        return '等待中';
+    }
+  };
+
+  // 获取任务详情
+  const fetchTaskDetails = async () => {
+    if (task.task_id) {
+      setLoading(true);
+      try {
+        const data = await dataApi.getTaskDetails(task.task_id);
+        if (data?.details) {
+          setDetails(data.details);
+        }
+      } catch (error) {
+        console.error('获取任务详情失败:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  // 处理展开/收起
+  const handleExpand = async () => {
+    const newExpanded = !expanded;
+    setExpanded(newExpanded);
+    // 展开时获取详情（如果还没有数据）
+    if (newExpanded && details.length === 0) {
+      await fetchTaskDetails();
+    }
+  };
+
+  return (
+    <Card size="small" style={{ marginBottom: 8 }}>
+      <Row justify="space-between" align="middle">
+        <Space direction="vertical" size={0}>
+          <Text strong>{task.task_id}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {task.created_at ? dayjs(task.created_at).format('YYYY-MM-DD HH:mm') : '-'}
+          </Text>
+        </Space>
+        <Space>
+          {isCurrent && <Tag color="blue">当前</Tag>}
+          <Tag color={getStatusColor(task.status)}>{getStatusText(task.status)}</Tag>
+        </Space>
+      </Row>
+      <Progress
+        percent={task.progress?.percentage || 0}
+        size="small"
+        style={{ marginTop: 8 }}
+        status={task.status === 'running' ? 'active' : 'normal'}
+      />
+
+      {/* 展开/收起按钮 */}
+      <Button
+        type="link"
+        onClick={handleExpand}
+        style={{ padding: 0, marginTop: 8 }}
+        loading={loading}
+      >
+        {expanded ? '收起详情' : `展开详情 (${displayList.length || '...'})`}
+      </Button>
+
+      {/* 子任务详情 */}
+      {expanded && (
+        <div style={{ marginTop: 12, padding: '12px', border: '1px solid #d9d9d9', borderRadius: '6px' }}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {displayList.length > 0 ? (
+              <>
+                {displayList.slice(0, isProgressExpanded ? undefined : 3).map((subTask: any) => (
+                  <div key={subTask.task_key} style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, alignItems: 'center' }}>
+                      <Space>
+                        <Tag color="blue">{subTask.interval}</Tag>
+                        <span style={{ fontWeight: 'bold' }}>{subTask.symbol}</span>
+                      </Space>
+                      <span>{subTask.percentage?.toFixed(1) || 0}%</span>
+                    </div>
+                    <Progress
+                      percent={subTask.percentage || 0}
+                      size="small"
+                      status={task.status === 'running' && subTask.percentage < 100 ? 'active' : 'normal'}
+                    />
+                  </div>
+                ))}
+
+                {/* 展开/收起按钮 */}
+                {displayList.length > 3 && setIsProgressExpanded && (
+                  <Button
+                    type="link"
+                    onClick={() => setIsProgressExpanded(!isProgressExpanded)}
+                    style={{ padding: 0, marginTop: 8 }}
+                  >
+                    {isProgressExpanded ? '收起' : `展开 (${displayList.length - 3} 个)`}
+                  </Button>
+                )}
+
+              </>
+            ) : (
+              <Empty description="暂无子任务详情" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            )}
+          </Space>
+        </div>
+      )}
+    </Card>
+  );
+};
 
 // 系统配置
 const SYSTEM_CONFIG = {
@@ -182,8 +334,12 @@ const DataManagementPage = () => {
   const [collectionForm] = Form.useForm();
   const [collectionTasks, setCollectionTasks] = useState<Task[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string>('');
-  const [taskStatus, setTaskStatus] = useState<string>('');
+  const [taskStatus, setTaskStatus] = useState<TaskStatus>('pending');
   const [taskProgress, setTaskProgress] = useState<number>(0);
+  // 任务进度列表 - 支持多时间周期多货币对
+  const [taskProgressList, setTaskProgressList] = useState<any[]>([]);
+  // 展开/收起状态
+  const [isProgressExpanded, setIsProgressExpanded] = useState<boolean>(false);
   // 使用 ref 存储最新的 currentTaskId，避免 WebSocket 回调中的闭包问题
   const currentTaskIdRef = useRef<string>('');
   useEffect(() => {
@@ -400,8 +556,28 @@ const DataManagementPage = () => {
       console.log('[DataManagement] 收到任务进度:', data, '当前任务ID:', currentTaskIdRef.current);
       // 使用 ref 获取最新的 currentTaskId，避免闭包问题
       if (data.task_id === currentTaskIdRef.current) {
-        console.log('[DataManagement] 更新任务进度:', data.progress?.percentage);
-        setTaskProgress(data.progress?.percentage || 0);
+        const progress = data.progress;
+        console.log('[DataManagement] 更新任务进度:', progress?.percentage, progress?.task_key);
+
+        // 更新当前处理的货币对进度
+        const percentage = progress?.percentage || 0;
+        setTaskProgress(percentage);
+
+        // 更新任务进度列表 - 按 task_key 去重
+        if (progress?.task_key) {
+          setTaskProgressList(prev => {
+            const newList = [...prev];
+            const existingIndex = newList.findIndex(t => t.task_key === progress.task_key);
+            if (existingIndex >= 0) {
+              // 更新已有任务
+              newList[existingIndex] = { ...progress };
+            } else {
+              // 添加新任务
+              newList.push({ ...progress });
+            }
+            return newList;
+          });
+        }
       } else {
         console.log('[DataManagement] 任务ID不匹配，忽略:', data.task_id, '!==', currentTaskIdRef.current);
       }
@@ -1730,81 +1906,34 @@ const DataManagementPage = () => {
 
       <Col xs={24} lg={12}>
         <Card title="采集任务">
-          {currentTaskId && (
-            <Card size="small" style={{ marginBottom: 16 }} title="当前任务">
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Row justify="space-between">
-                  <Text type="secondary">任务ID:</Text>
-                  <Text copyable>{currentTaskId}</Text>
-                </Row>
-                <Row justify="space-between">
-                  <Text type="secondary">状态:</Text>
-                  <Tag
-                    color={
-                      taskStatus === 'running'
-                        ? 'processing'
-                        : taskStatus === 'completed'
-                        ? 'success'
-                        : taskStatus === 'failed'
-                        ? 'error'
-                        : 'default'
-                    }
-                  >
-                    {taskStatus === 'running'
-                      ? '运行中'
-                      : taskStatus === 'completed'
-                      ? '已完成'
-                      : taskStatus === 'failed'
-                      ? '失败'
-                      : '等待中'}
-                  </Tag>
-                </Row>
-                <Progress percent={taskProgress} status={taskStatus === 'running' ? 'active' : 'normal'} />
-              </Space>
-            </Card>
-          )}
-
-          <div style={{ maxHeight: 400, overflow: 'auto' }}>
-            {collectionTasks.length === 0 ? (
+          <div style={{ maxHeight: 600, overflow: 'auto' }}>
+            {collectionTasks.length === 0 && !currentTaskId ? (
               <Empty description="暂无采集任务" />
             ) : (
               <Space direction="vertical" style={{ width: '100%' }}>
-                {collectionTasks.map((task) => (
-                  <Card key={task.task_id} size="small">
-                    <Row justify="space-between" align="middle">
-                      <Space direction="vertical" size={0}>
-                        <Text strong>{task.task_id}</Text>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          {task.created_at ? dayjs(task.created_at).format('YYYY-MM-DD HH:mm') : '-'}
-                        </Text>
-                      </Space>
-                      <Tag
-                        color={
-                          task.status === 'running'
-                            ? 'processing'
-                            : task.status === 'completed'
-                            ? 'success'
-                            : task.status === 'failed'
-                            ? 'error'
-                            : 'default'
-                        }
-                      >
-                        {task.status === 'running'
-                          ? '运行中'
-                          : task.status === 'completed'
-                          ? '已完成'
-                          : task.status === 'failed'
-                          ? '失败'
-                          : '等待中'}
-                      </Tag>
-                    </Row>
-                    <Progress
-                      percent={task.progress?.percentage || 0}
-                      size="small"
-                      style={{ marginTop: 8 }}
-                    />
-                  </Card>
-                ))}
+                {/* 当前任务放在最前面 */}
+                {currentTaskId && (
+                  <TaskCard
+                    task={{
+                      task_id: currentTaskId,
+                      status: taskStatus,
+                      task_type: 'download',
+                      params: {},
+                      progress: { percentage: taskProgress },
+                      created_at: new Date().toISOString(),
+                    }}
+                    isCurrent={true}
+                    taskProgressList={taskProgressList}
+                    isProgressExpanded={isProgressExpanded}
+                    setIsProgressExpanded={setIsProgressExpanded}
+                  />
+                )}
+                {/* 历史任务列表 */}
+                {collectionTasks
+                  .filter((task) => task.task_id !== currentTaskId)
+                  .map((task) => (
+                    <TaskCard key={task.task_id} task={task} isCurrent={false} />
+                  ))}
               </Space>
             )}
           </div>

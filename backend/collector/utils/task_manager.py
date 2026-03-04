@@ -149,58 +149,76 @@ class TaskManager:
         logger.info(f"开始任务: {task_id}")
         return True
     
-    def update_progress(self, task_id: str, current: str, completed: int, total: int, failed: int = 0, status: str = "") -> bool:
-        """更新任务进度
-        
+    def update_progress(self, task_id: str, current: str, completed: int, total: int, failed: int = 0, status: str = "", symbol_progress: Optional[float] = None, is_per_symbol: bool = False, interval: str = "") -> bool:
+        """更新任务进度 - 只推送单个任务进度，不计算总体进度
+
         Args:
             task_id: 任务ID
-            current: 当前正在处理的项目
+            current: 当前正在处理的项目（货币对名称）
             completed: 已完成的项目数
             total: 总项目数
             failed: 失败的项目数，默认为0
             status: 详细的状态描述，例如"Downloaded 2025-11-01"
-            
+            symbol_progress: 该货币对的独立进度百分比（0-100）
+            is_per_symbol: 是否为按货币对进度
+            interval: 时间周期（如 "15m", "1h"）
+
         Returns:
             bool: 成功返回True，失败返回False
         """
         if task_id not in self._tasks:
             logger.error(f"任务不存在: {task_id}")
             return False
-        
+
         # 计算进度百分比，确保不超过100%
-        percentage = 0
-        if total > 0:
-            percentage = min(100, int((completed + failed) / total * 100))
-        
-        # 更新内存中的进度信息
-        self._tasks[task_id]["progress"] = {
-            "total": total,
-            "completed": completed,
-            "failed": failed,
-            "current": current,
+        if symbol_progress is not None:
+            percentage = min(100, max(0, float(symbol_progress)))
+        else:
+            percentage = 0.0
+            if total > 0:
+                percentage = min(100.0, float((completed + failed) / total * 100))
+
+        symbol = current
+        task_key = f"{interval}:{symbol}" if interval else symbol
+
+        # 只保留单个任务的进度信息
+        progress_info = {
+            "symbol": symbol,
+            "interval": interval,
+            "task_key": task_key,
             "percentage": percentage,
-            "status": status  # 添加详细的状态描述
+            "status": status,
         }
-        
+
+        self._tasks[task_id]["progress"] = progress_info
+
         # 更新数据库中的进度信息
         try:
-            from ..db.models import TaskBusiness
+            from ..db.models import TaskBusiness, TaskDetailBusiness
             TaskBusiness.update_progress(task_id, current, completed, total, failed, status)
+            # 更新任务明细表
+            TaskDetailBusiness.upsert(
+                task_id=task_id,
+                symbol=symbol,
+                interval=interval,
+                percentage=percentage,
+                completed=completed,
+                total=total,
+                failed=failed,
+                status_text=status
+            )
         except Exception as e:
             logger.error(f"更新数据库任务进度失败: task_id={task_id}, error={e}")
-        
-        # 通过WebSocket推送进度更新
-        try:
 
-            
-            # 推送进度更新
+        # 通过WebSocket推送进度更新 - 只推送单个任务进度
+        try:
             message = {
                 "type": "task:progress",
                 "id": f"progress_{task_id}_{int(time.time() * 1000)}",
                 "timestamp": int(time.time() * 1000),
                 "data": {
                     "task_id": task_id,
-                    "progress": self._tasks[task_id]["progress"]
+                    "progress": progress_info  # 只包含单个任务进度
                 }
             }
             
@@ -272,6 +290,66 @@ class TaskManager:
         # 更新内存中的任务状态
         self._tasks[task_id]["status"] = TaskStatus.COMPLETED
         self._tasks[task_id]["end_time"] = datetime.now()
+        
+        # 将所有子任务进度更新为100%
+        try:
+            if "symbols_progress" in self._tasks[task_id]:
+                for task_key, progress_info in self._tasks[task_id]["symbols_progress"].items():
+                    # 更新内存中的进度
+                    self._tasks[task_id]["symbols_progress"][task_key]["percentage"] = 100.0
+                    self._tasks[task_id]["symbols_progress"][task_key]["status"] = "completed"
+                    
+                    # 更新数据库中的进度
+                    from ..db.models import TaskDetailBusiness
+                    TaskDetailBusiness.upsert(
+                        task_id=task_id,
+                        symbol=progress_info["symbol"],
+                        interval=progress_info["interval"],
+                        percentage=100.0,
+                        completed=progress_info.get("total", 0),
+                        total=progress_info.get("total", 0),
+                        failed=progress_info.get("failed", 0),
+                        status_text="completed"
+                    )
+                    
+                    # 推送每个子任务的完成进度
+                    progress_info = {
+                        "symbol": progress_info["symbol"],
+                        "interval": progress_info["interval"],
+                        "task_key": task_key,
+                        "percentage": 100.0,
+                        "status": "completed",
+                    }
+                    message = {
+                        "type": "task:progress",
+                        "id": f"progress_{task_id}_{int(time.time() * 1000)}",
+                        "timestamp": int(time.time() * 1000),
+                        "data": {
+                            "task_id": task_id,
+                            "progress": progress_info
+                        }
+                    }
+                    try:
+                        import zmq
+                        context = zmq.Context()
+                        socket = context.socket(zmq.REQ)
+                        socket.setsockopt(zmq.LINGER, 0)
+                        socket.setsockopt(zmq.SNDTIMEO, 2000)
+                        socket.setsockopt(zmq.RCVTIMEO, 2000)
+                        socket.connect("tcp://127.0.0.1:5558")
+                        socket.send_json({"message": message, "topic": "task:progress"})
+                        try:
+                            socket.recv_json()
+                        except zmq.Again:
+                            pass
+                        socket.close()
+                        context.term()
+                    except Exception as e:
+                        logger.warning(f"推送子任务完成进度失败: {e}")
+                        
+                logger.info(f"已将所有子任务进度更新为100%: task_id={task_id}, 子任务数={len(self._tasks[task_id]['symbols_progress'])}")
+        except Exception as e:
+            logger.error(f"更新子任务进度失败: task_id={task_id}, error={e}")
         
         # 更新数据库中的任务状态
         try:
