@@ -141,6 +141,8 @@ async def handle_message(message: dict, client_id: str):
     message_type = message.get("type")
     message_id = message.get("id")
     
+    logger.info(f"收到消息: client_id={client_id}, type={message_type}, message={message}")
+    
     if message_type == "ping":
         # 处理心跳消息
         await handle_ping(message, client_id)
