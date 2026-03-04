@@ -167,6 +167,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
         size="small"
         style={{ marginTop: 8 }}
         status={task.status === 'running' ? 'active' : 'normal'}
+        format={(percent) => `${percent?.toFixed(2) || '0.00'}%`}
       />
 
       {/* 展开/收起按钮 */}
@@ -192,12 +193,12 @@ const TaskCard: React.FC<TaskCardProps> = ({
                         <Tag color="blue">{subTask.interval}</Tag>
                         <span style={{ fontWeight: 'bold' }}>{subTask.symbol}</span>
                       </Space>
-                      <span>{subTask.percentage?.toFixed(1) || 0}%</span>
                     </div>
                     <Progress
                       percent={subTask.percentage || 0}
                       size="small"
                       status={task.status === 'running' && subTask.percentage < 100 ? 'active' : 'normal'}
+                      format={(percent) => `${percent?.toFixed(2) || '0.00'}%`}
                     />
                   </div>
                 ))}
@@ -559,10 +560,6 @@ const DataManagementPage = () => {
         const progress = data.progress;
         console.log('[DataManagement] 更新任务进度:', progress?.percentage, progress?.task_key);
 
-        // 更新当前处理的货币对进度
-        const percentage = progress?.percentage || 0;
-        setTaskProgress(percentage);
-
         // 更新任务进度列表 - 按 task_key 去重
         if (progress?.task_key) {
           setTaskProgressList(prev => {
@@ -575,6 +572,12 @@ const DataManagementPage = () => {
               // 添加新任务
               newList.push({ ...progress });
             }
+            
+            // 计算总体进度 = 所有子任务进度之和 / 子任务数量
+            const totalProgress = newList.reduce((sum, t) => sum + (t.percentage || 0), 0);
+            const overallPercentage = newList.length > 0 ? totalProgress / newList.length : 0;
+            setTaskProgress(overallPercentage);
+            
             return newList;
           });
         }
