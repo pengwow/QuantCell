@@ -11,3 +11,7 @@ export type { AgentState } from './agentStore';
 // 导出Strategy Store
 export { useStrategyStore } from './strategyStore';
 export type { StrategyState, Strategy } from './strategyStore';
+
+// 导出Config Store
+export { useConfigStore } from './configStore';
+export type { ConfigState, SystemConfig } from './configStore';

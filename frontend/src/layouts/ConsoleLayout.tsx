@@ -151,7 +151,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const MENU_KEY_CHART = "/chart";
   const MENU_KEY_STRATEGY = "/strategy-management";
   const MENU_KEY_AGENT = "/agent";
-  const MENU_KEY_BACKTEST = "/backtest";
   const MENU_KEY_DATA = "/data-management";
 
   const menuItems: Required<MenuProps>["items"] = (
@@ -159,7 +158,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       [MENU_KEY_CHART, "chart", <IconChartBar size="1em" />],
       [MENU_KEY_STRATEGY, "strategy_management", <IconCode size="1em" />],
       [MENU_KEY_AGENT, "agent", <IconCode size="1em" />],
-      [MENU_KEY_BACKTEST, "strategy_backtest", <IconChartBar size="1em" />],
       [MENU_KEY_DATA, "data_management", <IconDatabase size="1em" />],
     ] satisfies Array<[string, string, React.ReactNode]>
   ).map(([key, label, icon]) => {
