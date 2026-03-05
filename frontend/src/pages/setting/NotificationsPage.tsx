@@ -44,17 +44,17 @@ const CHANNEL_ICONS: Record<string, string> = {
 const PRESET_CHANNELS = [
   {
     id: "email",
-    name: "邮件通知",
+    name: "email",
     icon: CHANNEL_ICONS.email,
   },
   {
     id: "wecom",
-    name: "企业微信",
+    name: "wecom",
     icon: CHANNEL_ICONS.wecom,
   },
   {
     id: "feishu",
-    name: "飞书",
+    name: "feishu",
     icon: CHANNEL_ICONS.feishu,
   },
 ];
@@ -175,8 +175,12 @@ const NotificationsPage = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      // 移除icon字段，后端不需要存储
-      const channelsToSave = channels.map(({ icon, ...rest }) => rest);
+      // 移除icon字段，后端不需要存储，并添加key字段（使用id作为key）
+      const channelsToSave = channels.map(({ icon, id, ...rest }) => ({
+        key: id,
+        id,
+        ...rest
+      }));
       await saveNotificationChannels(channelsToSave);
       // 响应拦截器已经处理了错误，如果执行到这里说明成功
       message.success(t("settings_saved") || "设置已保存");

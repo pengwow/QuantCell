@@ -5,12 +5,23 @@
 import { useState } from 'react';
 import { Card, Form, Input, Select, Switch, Button, Space, Alert, Tag } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, ApiOutlined, LoadingOutlined } from '@ant-design/icons';
-import type { SystemConfig as SystemConfigType } from './types';
 import { exchangeApi } from '@/api/index';
 
+// 本地定义交易所配置类型
+interface ExchangeConfigType {
+  default_exchange: string;
+  crypto_trading_mode: string;
+  exchange_testnet?: boolean;
+  exchange_api_key?: string;
+  exchange_secret_key?: string;
+  exchange_api_passphrase?: string;
+  proxy_enabled: boolean;
+  proxy_url: string;
+}
+
 interface ExchangeConfigProps {
-  systemConfig: SystemConfigType;
-  setSystemConfig: React.Dispatch<React.SetStateAction<SystemConfigType>>;
+  systemConfig: ExchangeConfigType;
+  setSystemConfig: React.Dispatch<React.SetStateAction<ExchangeConfigType>>;
 }
 
 // 连接测试结果类型

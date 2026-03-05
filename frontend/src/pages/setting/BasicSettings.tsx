@@ -4,11 +4,11 @@
  */
 import { Card, Form, Select } from 'antd';
 import { useTranslation } from 'react-i18next';
-import type { UserSettings } from './types';
+import type { AppearanceSettings } from './types';
 
 interface BasicSettingsProps {
-  settings: UserSettings;
-  setSettings: React.Dispatch<React.SetStateAction<UserSettings>>;
+  settings: AppearanceSettings;
+  setSettings: React.Dispatch<React.SetStateAction<AppearanceSettings>>;
   applyTheme: (theme: 'light' | 'dark' | 'auto') => void;
   i18n: any;
 }
@@ -39,7 +39,7 @@ const BasicSettings = ({
               <Select
                 onChange={(value) => {
                   const themeValue = value as 'light' | 'dark' | 'auto';
-                  setSettings(prev => ({ ...prev, theme: themeValue }));
+                  setSettings((prev: AppearanceSettings) => ({ ...prev, theme: themeValue }));
                   applyTheme(themeValue);
                 }}
                 options={[
@@ -56,7 +56,7 @@ const BasicSettings = ({
             >
               <Select
                 onChange={(value) => {
-                  setSettings(prev => ({ ...prev, language: value as 'zh-CN' | 'en-US' }));
+                  setSettings((prev: AppearanceSettings) => ({ ...prev, language: value as 'zh-CN' | 'en-US' }));
                   // 更新i18n语言
                   i18n.changeLanguage(value);
                 }}
@@ -74,7 +74,7 @@ const BasicSettings = ({
             >
               <Select
                 onChange={(value) => {
-                  setSettings(prev => ({ ...prev, timezone: value }));
+                  setSettings((prev: AppearanceSettings) => ({ ...prev, timezone: value }));
                 }}
                 options={[
                   { value: 'Asia/Shanghai', label: '上海 (UTC+8)' },

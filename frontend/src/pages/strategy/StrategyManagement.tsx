@@ -121,7 +121,9 @@ const StrategyManagement = () => {
 
   // 从全局配置加载分页大小
   useEffect(() => {
+    console.log('[StrategyManagement] 从全局配置加载分页大小');
     const defaultPageSize = getDefaultPageSize();
+    console.log('[StrategyManagement] 获取到的默认分页大小:', defaultPageSize);
     setPagination(prev => ({
       ...prev,
       pageSize: defaultPageSize,
@@ -131,6 +133,11 @@ const StrategyManagement = () => {
       pageSize: defaultPageSize,
     }));
   }, [getDefaultPageSize]);
+
+  // 页面加载时输出全局配置（用于调试）
+  useEffect(() => {
+    console.log('[StrategyManagement] 页面加载，当前全局配置状态:', useConfigStore.getState());
+  }, []);
 
   // 设置页面标题
   useEffect(() => {
@@ -157,6 +164,38 @@ const StrategyManagement = () => {
   useEffect(() => {
     loadStrategies();
     loadBacktests();
+
+    // 从 URL 参数读取 taskId 和 strategy，自动填充搜索框
+    const taskIdFromUrl = searchParams.get('taskId');
+    const strategyFromUrl = searchParams.get('strategy');
+
+    if (taskIdFromUrl || strategyFromUrl) {
+      console.log('[StrategyManagement] 从 URL 获取参数:', { taskId: taskIdFromUrl, strategy: strategyFromUrl });
+
+      // 如果有 taskId，填充到回测搜索框
+      if (taskIdFromUrl) {
+        setBacktestSearchText(taskIdFromUrl);
+      }
+
+      // 如果有 strategy，设置选中的策略
+      if (strategyFromUrl) {
+        setSelectedStrategy(strategyFromUrl);
+      }
+
+      // 自动切换到回测记录 tab
+      setActiveTab('backtests');
+
+      // 清除 URL 参数（避免刷新页面时重复填充）
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('taskId');
+      newParams.delete('strategy');
+      if (newParams.toString()) {
+        setSearchParams(newParams);
+      } else {
+        // 如果没有其他参数，移除所有参数
+        setSearchParams({});
+      }
+    }
   }, []);
 
   // 加载回测列表

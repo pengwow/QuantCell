@@ -4,6 +4,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useLocation } from 'react-router-dom';
 import dayjs from 'dayjs';
 import {
   Card,
@@ -41,12 +42,20 @@ interface BacktestConfigProps {
   strategy?: Strategy;
 }
 
-const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy }) => {
+const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy: propStrategy }) => {
   const { t } = useTranslation();
+  const location = useLocation();
   const [form] = Form.useForm();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+
+  // 从 location.state 获取策略信息（从策略管理页面传递过来）
+  const locationStrategy = location.state?.strategy as Strategy | undefined;
+  const showConfig = location.state?.showConfig as boolean | undefined;
+
+  // 优先使用 location.state 中的策略，其次是 props 中的策略
+  const strategy = locationStrategy || propStrategy;
   const [defaultInterval, setDefaultInterval] = useState<string>('15m');
   const [defaultCommission, setDefaultCommission] = useState<number>(0.001);
   const [defaultInitialCash, setDefaultInitialCash] = useState<number>(1000000);
@@ -67,7 +76,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     overall: 0,
   });
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [, setCurrentTaskId] = useState<string>('');
+  const [currentTaskId, setCurrentTaskId] = useState<string>('');
   const [isBacktestRunning, setIsBacktestRunning] = useState<boolean>(false);
   const abortControllerRef = React.useRef<AbortController | null>(null);
 
@@ -153,8 +162,21 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       console.log('系统配置响应:', configData);
 
       if (configData && typeof configData === 'object') {
-        let configs: any = configData;
-        if (configData.configs && typeof configData.configs === 'object') {
+        // 处理按 name 分组的新格式
+        // 格式: { "backtest": { "default_interval": "15m", ... }, ... }
+        let configs: any = {};
+
+        // 将分组配置扁平化
+        Object.entries(configData).forEach(([, groupValues]) => {
+          if (groupValues && typeof groupValues === 'object') {
+            Object.entries(groupValues as Record<string, any>).forEach(([key, value]) => {
+              configs[key] = value;
+            });
+          }
+        });
+
+        // 如果没有获取到配置，尝试兼容旧格式
+        if (Object.keys(configs).length === 0 && configData.configs) {
           configs = configData.configs;
         }
 
@@ -216,8 +238,16 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     fetchSymbolOptions();
   }, []);
 
+  // 处理从策略管理页面传递过来的策略信息
   useEffect(() => {
+    console.log('[BacktestConfig] location.state:', location.state);
+    console.log('[BacktestConfig] locationStrategy:', locationStrategy);
+    console.log('[BacktestConfig] propStrategy:', propStrategy);
+    console.log('[BacktestConfig] 最终使用的 strategy:', strategy);
+    console.log('[BacktestConfig] showConfig:', showConfig);
+
     if (strategy) {
+      console.log('[BacktestConfig] 设置策略到表单:', strategy);
       setSelectedStrategy(strategy);
 
       const defaultParams: Record<string, any> = {};
@@ -242,8 +272,10 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         });
         message.info('已自动填充演示策略的回测配置');
       }
+
+      message.success(`已加载策略: ${strategy.name}`);
     }
-  }, [strategy, form]);
+  }, [strategy, form, location.state, locationStrategy, propStrategy, showConfig]);
 
   useEffect(() => {
     form.setFieldsValue({
@@ -498,13 +530,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
         message.success('回测已成功完成！');
 
-        setTimeout(() => {
-          setProgressVisible(false);
-          setIsBacktestRunning(false);
-          setCurrentTaskId('');
-          abortControllerRef.current = null;
-          onRunBacktest?.();
-        }, 1500);
+        // 回测完成后不自动关闭弹窗，让用户点击"查看结果"按钮
+        setIsBacktestRunning(false);
+        abortControllerRef.current = null;
       } catch (error: any) {
         if (error.name === 'AbortError' || error.message?.includes('aborted')) {
           console.log('回测已被用户终止');
@@ -633,7 +661,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
               <Col span={24}>
                 <div style={{ marginBottom: 8 }}>策略参数配置</div>
                 {selectedStrategy?.params && selectedStrategy.params.length > 0 ? (
-                  <div style={{ background: '#f5f5f5', padding: '16px', borderRadius: '4px' }}>
+                  <div style={{ background: 'transparent', padding: '16px', borderRadius: '4px', border: '1px solid var(--ant-color-border)' }}>
                     <Row gutter={24}>
                       {selectedStrategy.params.map((param) => (
                         <Col span={12} key={param.name}>
@@ -913,6 +941,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         errorMessage={errorMessage}
         onStop={handleStopBacktest}
         isRunning={isBacktestRunning}
+        taskId={currentTaskId}
+        strategyName={selectedStrategy?.name}
       />
     </div>
     </PageContainer>

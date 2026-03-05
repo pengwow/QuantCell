@@ -1,4 +1,4 @@
-import { ConfigProvider, theme as antdTheme } from 'antd';
+import { ConfigProvider, App as AntdApp, theme as antdTheme } from 'antd';
 import { RouterProvider } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { router } from './router';
@@ -13,8 +13,15 @@ function App() {
 
   useEffect(() => {
     // 加载系统配置
+    console.log('[App] 开始加载系统配置');
     loadConfig();
   }, [loadConfig]);
+
+  // 输出当前全局配置（用于调试）
+  useEffect(() => {
+    const config = useConfigStore.getState().config;
+    console.log('[App] 当前全局配置:', config);
+  }, []);
 
   useEffect(() => {
     // 监听主题变化
@@ -60,7 +67,9 @@ function App() {
         },
       }}
     >
-      <RouterProvider router={router} />
+      <AntdApp>
+        <RouterProvider router={router} />
+      </AntdApp>
     </ConfigProvider>
   );
 }

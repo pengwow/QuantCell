@@ -327,9 +327,28 @@ const DataManagementPage = () => {
 
   // 从全局配置加载分页大小
   useEffect(() => {
+    console.log('[DataManagement] 从全局配置加载分页大小');
     const defaultPageSize = getDefaultPageSize();
+    console.log('[DataManagement] 获取到的默认分页大小:', defaultPageSize);
     setPageSize(defaultPageSize);
   }, [getDefaultPageSize]);
+
+  // 页面加载时输出全局配置（用于调试）
+  useEffect(() => {
+    const configState = useConfigStore.getState();
+    console.log('[DataManagement] 页面加载，当前全局配置状态:', configState);
+    console.log('[DataManagement] 全局配置详情:', {
+      config: configState.config,
+      isLoading: configState.isLoading,
+      error: configState.error,
+    });
+    if (configState.config) {
+      console.log('[DataManagement] 系统配置项:', Object.keys(configState.config));
+      Object.entries(configState.config).forEach(([key, value]) => {
+        console.log(`[DataManagement] 配置项 ${key}:`, value);
+      });
+    }
+  }, []);
 
   // 是否已经获取过市场数据的标志
   const [hasFetchedMarketData, setHasFetchedMarketData] = useState(false);

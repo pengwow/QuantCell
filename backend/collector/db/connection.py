@@ -236,11 +236,11 @@ def init_db():
         # 先从配置文件读取相关配置
         from config import get_config
 
-        # 配置映射：配置文件key -> (system_config_key, 默认值, 描述)
-        config_mapping = {
-            "quant.qlib_data_dir": ("qlib_data_dir", "data/source", "QLib数据目录"),
-            "app.max_workers": ("max_workers", "4", "最大工作线程数"),
-        }
+        # # 配置映射：配置文件key -> (system_config_key, 默认值, 描述)
+        # config_mapping = {
+        #     "quant.qlib_data_dir": ("qlib_data_dir", "data/source", "QLib数据目录"),
+        #     "app.max_workers": ("max_workers", "4", "最大工作线程数"),
+        # }
         
         # 构建默认配置列表
         default_configs = []
@@ -251,18 +251,6 @@ def init_db():
             value = get_config(config_key, default_value)
             default_configs.append((db_key, str(value), description))
         
-        # 2. 添加固定默认配置（没有在配置文件中定义的）
-        fixed_defaults = [
-            ("data_download_dir", "data/source", "数据下载目录"),
-            ("current_market_type", "crypto", "当前交易模式: crypto(加密货币) 或 stock(股票)"),
-            ("crypto_trading_mode", "spot", "加密货币蜡烛图类型: spot(现货) 或 futures(期货)"),
-            ("default_exchange", "binance", "默认交易所"),
-            ("default_interval", "1d", "默认时间间隔"),
-            ("default_commission", "0.001", "默认手续费率"),
-            ("default_initial_cash", "1000000", "默认初始资金"),
-            ("data_write_to_db", "false", "是否将下载的数据写入数据库，true为写入，false为不写入"),
-        ]
-        default_configs.extend(fixed_defaults)
         
         # 使用INSERT插入默认配置
         inserted_count = 0

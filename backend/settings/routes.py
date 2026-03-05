@@ -132,35 +132,47 @@ def login(request: Request, credentials: Dict[str, str] = Body(...)):
 @config_router.get("/", response_model=ApiResponse)
 def get_all_configs():
     """获取所有系统配置
-    
+
+    按 name 字段分组返回配置，格式为：
+    {
+        "exchange": {"binance": "...", "okx": "..."},
+        "notification_channel": {"email": "...", "wecom": "..."}
+    }
+
     Returns:
-        ApiResponse[Dict[str, str]]: 包含所有配置的响应，值为敏感配置时返回"******"
-        
+        ApiResponse[Dict[str, Dict[str, str]]]: 按 name 分组的配置数据
+
     Responses:
         200: 成功获取所有配置
         500: 获取配置失败
     """
     try:
         logger.info("开始获取所有系统配置")
-        
-        # 获取所有配置的详细信息，包括插件配置
+
+        # 获取所有配置的详细信息
         configs = SystemConfig.get_all_with_details()
-        
-        # 构建简单的键值对映射，用于前端使用
-        simple_configs = {}
+
+        # 按 name 字段分组构建配置数据
+        grouped_configs: Dict[str, Dict[str, str]] = {}
         for key, config in configs.items():
-            # 如果是敏感配置，返回"******"
+            name = config.get("name") or "default"  # 如果没有 name，使用 "default"
+
+            # 初始化该 name 的分组
+            if name not in grouped_configs:
+                grouped_configs[name] = {}
+
+            # 如果是敏感配置，返回"******"，否则返回实际值
             if config.get("is_sensitive", False):
-                simple_configs[key] = "******"
+                grouped_configs[name][key] = "******"
             else:
-                simple_configs[key] = config["value"]
-        
-        logger.info(f"成功获取所有系统配置，共 {len(simple_configs)} 项")
-        
+                grouped_configs[name][key] = config["value"]
+
+        logger.info(f"成功获取所有系统配置，共 {len(configs)} 项，分为 {len(grouped_configs)} 组")
+
         return ApiResponse(
             code=0,
             message="获取所有配置成功",
-            data=simple_configs
+            data=grouped_configs
         )
     except Exception as e:
         logger.error(f"获取所有配置失败: {e}")
@@ -577,18 +589,12 @@ def get_notification_channels(request: Request):
         logger.info("获取通知渠道配置")
         import json
 
-        # 定义所有支持的渠道 (key: 渠道名称, value: 渠道ID)
-        channel_keys = {
-            "邮件通知": "email",
-            "企业微信": "wecom",
-            "飞书": "feishu"
-        }
-
-        # 默认配置
-        default_configs = {
+        # 定义所有支持的渠道 (key: 渠道ID, value: 渠道显示名称)
+        channel_configs = {
             "email": {
                 "id": "email",
-                "name": "邮件通知",
+                "name": "email",
+                "displayName": "邮件通知",
                 "enabled": False,
                 "isDefault": True,
                 "config": {
@@ -605,7 +611,8 @@ def get_notification_channels(request: Request):
             },
             "wecom": {
                 "id": "wecom",
-                "name": "企业微信",
+                "name": "wecom",
+                "displayName": "企业微信",
                 "enabled": False,
                 "isDefault": False,
                 "config": {
@@ -616,7 +623,8 @@ def get_notification_channels(request: Request):
             },
             "feishu": {
                 "id": "feishu",
-                "name": "飞书",
+                "name": "feishu",
+                "displayName": "飞书",
                 "enabled": False,
                 "isDefault": False,
                 "config": {
@@ -629,9 +637,9 @@ def get_notification_channels(request: Request):
 
         channels = []
 
-        # 从系统配置读取每个渠道的配置 (key=渠道名称, name=notification_channel)
-        for channel_name, channel_id in channel_keys.items():
-            config = SystemConfig.get_with_details(channel_name)
+        # 从系统配置读取每个渠道的配置 (key=渠道ID, name=notification_channel)
+        for channel_id, default_config in channel_configs.items():
+            config = SystemConfig.get_with_details(channel_id)
             if config and config.get("value"):
                 try:
                     channel_config = json.loads(config["value"])
@@ -639,14 +647,14 @@ def get_notification_channels(request: Request):
                     if "id" not in channel_config:
                         channel_config["id"] = channel_id
                     if "name" not in channel_config:
-                        channel_config["name"] = channel_name
+                        channel_config["name"] = channel_id
                     channels.append(channel_config)
                 except json.JSONDecodeError:
-                    logger.warning(f"解析渠道配置失败: {channel_name}")
-                    channels.append(default_configs[channel_id])
+                    logger.warning(f"解析渠道配置失败: {channel_id}")
+                    channels.append(default_config)
             else:
                 # 使用默认配置
-                channels.append(default_configs[channel_id])
+                channels.append(default_config)
 
         return ApiResponse(
             code=0,
@@ -682,41 +690,37 @@ def save_notification_channels(request: Request, channels: List[Dict[str, Any]] 
         logger.info("保存通知渠道配置")
         import json
 
-        # 渠道名称映射
-        channel_name_map = {
-            "email": "邮件通知",
-            "wecom": "企业微信",
-            "feishu": "飞书"
-        }
-
         success_count = 0
         for channel in channels:
-            channel_id = channel.get("id")
-            channel_name = channel_name_map.get(channel_id, channel.get("name", "未知渠道"))
+            # 优先使用key字段，如果没有则使用id字段
+            channel_id = channel.get("key") or channel.get("id")
+            if not channel_id:
+                logger.warning("跳过没有key或id的渠道配置")
+                continue
 
             # 将渠道配置序列化为JSON
             channel_config = {
                 "id": channel_id,
-                "name": channel_name,
+                "name": channel_id,
                 "enabled": channel.get("enabled", False),
                 "isDefault": channel.get("isDefault", False),
                 "config": channel.get("config", {})
             }
             config_json = json.dumps(channel_config, ensure_ascii=False)
 
-            # 保存到系统配置，key=渠道名称，name=notification_channel
+            # 保存到系统配置，key=渠道ID，name=notification_channel
             success = SystemConfig.set(
-                key=channel_name,
+                key=channel_id,
                 value=config_json,
-                description=f"{channel_name}通知配置",
+                description=f"{channel_id}通知配置",
                 name="notification_channel"
             )
 
             if success:
                 success_count += 1
-                logger.info(f"保存渠道配置成功: {channel_name}")
+                logger.info(f"保存渠道配置成功: {channel_id}")
             else:
-                logger.error(f"保存渠道配置失败: {channel_name}")
+                logger.error(f"保存渠道配置失败: {channel_id}")
 
         if success_count == len(channels):
             # 刷新应用上下文配置
