@@ -1390,12 +1390,12 @@ const DataManagementPage = () => {
     );
   };
 
-  // 渲染货币对工具栏
+  // 渲染货币对工具栏 - 参考策略回测页面风格
   const renderSymbolToolbar = () => (
     <div style={{ marginBottom: 16 }}>
-      {/* 第一行：搜索和视图切换 */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 12 }} align="middle">
-        <Col xs={24} sm={16} md={12} lg={10}>
+      {/* 第一行：搜索（左） + 视图切换（右） */}
+      <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
+        <Col xs={16} sm={16} md={12} lg={10}>
           <Search
             placeholder="搜索货币对"
             value={searchText}
@@ -1404,7 +1404,7 @@ const DataManagementPage = () => {
             style={{ width: '100%' }}
           />
         </Col>
-        <Col xs={24} sm={8} md={12} lg={14} style={{ textAlign: 'right' }}>
+        <Col xs={8} sm={8} md={12} lg={14} style={{ textAlign: 'right' }}>
           <Segmented
             value={viewType}
             onChange={(value) => setViewType(value as ViewType)}
@@ -1415,56 +1415,65 @@ const DataManagementPage = () => {
           />
         </Col>
       </Row>
-      
-      {/* 第二行：筛选、排序、刷新按钮 */}
+
+      {/* 第二行：筛选工具（左） + 刷新按钮（右） */}
       <Row gutter={[12, 12]} align="middle">
-        <Col xs={12} sm={8} md={6} lg={5}>
-          <Select
-            placeholder="计价货币"
-            value={quoteFilter}
-            onChange={setQuoteFilter}
-            style={{ width: '100%' }}
-            options={[
-              { value: 'all', label: '全部' },
-              { value: 'USDT', label: 'USDT' },
-              { value: 'BTC', label: 'BTC' },
-              { value: 'ETH', label: 'ETH' },
-            ]}
-          />
+        {/* 筛选工具 - 左侧 */}
+        <Col xs={24} md={16} lg={14}>
+          <Row gutter={[8, 8]}>
+            <Col xs={12} sm={12} md={12}>
+              <Select
+                placeholder="计价货币"
+                value={quoteFilter}
+                onChange={setQuoteFilter}
+                style={{ width: '100%' }}
+                options={[
+                  { value: 'all', label: '全部' },
+                  { value: 'USDT', label: 'USDT' },
+                  { value: 'BTC', label: 'BTC' },
+                  { value: 'ETH', label: 'ETH' },
+                ]}
+              />
+            </Col>
+            <Col xs={12} sm={12} md={12}>
+              <Select
+                placeholder="排序"
+                value={`${sortField}-${sortOrder}`}
+                onChange={(value) => {
+                  const [field, order] = value.split('-');
+                  setSortField(field as SortField);
+                  setSortOrder(order as SortOrder);
+                }}
+                style={{ width: '100%' }}
+                options={[
+                  { value: 'rank-asc', label: '按排名' },
+                  { value: 'symbol-asc', label: '名称 A-Z' },
+                  { value: 'symbol-desc', label: '名称 Z-A' },
+                  { value: 'price-desc', label: '价格 高-低' },
+                  { value: 'price-asc', label: '价格 低-高' },
+                  { value: 'change-desc', label: '涨幅 高-低' },
+                  { value: 'change-asc', label: '涨幅 低-高' },
+                  { value: 'volume-desc', label: '成交量 高-低' },
+                ]}
+              />
+            </Col>
+          </Row>
         </Col>
-        
-        <Col xs={12} sm={10} md={8} lg={6}>
-          <Select
-            placeholder="排序"
-            value={`${sortField}-${sortOrder}`}
-            onChange={(value) => {
-              const [field, order] = value.split('-');
-              setSortField(field as SortField);
-              setSortOrder(order as SortOrder);
-            }}
-            style={{ width: '100%' }}
-            options={[
-              { value: 'rank-asc', label: '按排名' },
-              { value: 'symbol-asc', label: '名称 A-Z' },
-              { value: 'symbol-desc', label: '名称 Z-A' },
-              { value: 'price-desc', label: '价格 高-低' },
-              { value: 'price-asc', label: '价格 低-高' },
-              { value: 'change-desc', label: '涨幅 高-低' },
-              { value: 'change-asc', label: '涨幅 低-高' },
-              { value: 'volume-desc', label: '成交量 高-低' },
-            ]}
-          />
-        </Col>
-        
-        <Col xs={24} sm={6} md={10} lg={13} style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Space>
-            <Text type="secondary">
-              {activeGroup?.name || '全部'}: {filteredSymbols.length} 个
-            </Text>
-            <Button icon={<ReloadOutlined />} onClick={fetchSymbols} loading={symbolLoading}>
-              刷新
-            </Button>
-          </Space>
+
+        {/* 刷新按钮 - 右侧 */}
+        <Col xs={24} md={8} lg={10}>
+          <Row gutter={[8, 8]}>
+            <Col xs={24} style={{ textAlign: 'right' }}>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={fetchSymbols}
+                loading={symbolLoading}
+                style={{ width: screens.xs ? '100%' : 'auto' }}
+              >
+                刷新
+              </Button>
+            </Col>
+          </Row>
         </Col>
       </Row>
     </div>
