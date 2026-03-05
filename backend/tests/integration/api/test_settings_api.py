@@ -10,17 +10,25 @@ class TestConfigListAPI:
     """配置列表API测试类"""
 
     def test_get_all_configs_success(self, client: TestClient, mocker, assert_api_response):
-        """测试获取所有配置成功"""
+        """测试获取所有配置成功 - 按 name 分组返回"""
         mock_configs = {
             "qlib_data_dir": {
                 "value": "data/crypto_data",
                 "description": "QLib数据目录",
-                "is_sensitive": False
+                "is_sensitive": False,
+                "name": "data_config"
             },
             "api_key": {
                 "value": "secret_key_123",
                 "description": "API密钥",
-                "is_sensitive": True
+                "is_sensitive": True,
+                "name": "data_config"
+            },
+            "binance": {
+                "value": "{\"api_key\": \"xxx\"}",
+                "description": "币安交易所配置",
+                "is_sensitive": False,
+                "name": "exchange"
             }
         }
         mocker.patch(
@@ -31,9 +39,13 @@ class TestConfigListAPI:
         response = client.get("/api/config/")
         assert_api_response(response)
         data = response.json()
-        assert "qlib_data_dir" in data["data"]
-        assert data["data"]["qlib_data_dir"] == "data/crypto_data"
-        assert data["data"]["api_key"] == "******"
+        # 验证按 name 分组
+        assert "data_config" in data["data"]
+        assert "exchange" in data["data"]
+        # 验证分组内的配置
+        assert data["data"]["data_config"]["qlib_data_dir"] == "data/crypto_data"
+        assert data["data"]["data_config"]["api_key"] == "******"
+        assert "binance" in data["data"]["exchange"]
 
     def test_get_all_configs_empty(self, client: TestClient, mocker, assert_api_response):
         """测试获取空配置列表"""

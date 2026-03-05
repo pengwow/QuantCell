@@ -2,11 +2,8 @@
  * 设置页面类型定义
  */
 
-// 用户设置类型定义
-export interface UserSettings {
-  username: string;
-  displayName: string;
-  email: string;
+// 外观设置类型定义
+export interface AppearanceSettings {
   theme: 'light' | 'dark' | 'auto';
   language: 'zh-CN' | 'en-US';
   showTips: boolean;
@@ -36,34 +33,6 @@ export interface ApiPermission {
 export interface ApiSettings {
   apiKey: string;
   permissions: ApiPermission[];
-}
-
-// 系统配置类型定义
-export interface SystemConfig {
-  qlib_data_dir: string;
-  max_workers: string;
-  data_download_dir: string;
-  current_market_type: string;
-  crypto_trading_mode: string;
-  default_exchange: string;
-  quote: string; // 计价货币
-  default_interval: string;
-  default_commission: number;
-  default_initial_cash: number;
-  proxy_enabled: boolean;
-  proxy_url: string;
-  proxy_username: string;
-  proxy_password: string;
-  // 实时模式配置
-  realtime_enabled: boolean;
-  data_mode: 'realtime' | 'cache';
-  frontend_update_interval: number;
-  frontend_data_cache_size: number;
-  // 交易所配置
-  exchange_api_key?: string;
-  exchange_secret_key?: string;
-  exchange_api_passphrase?: string;
-  exchange_testnet?: boolean;
 }
 
 // 版本信息类型定义

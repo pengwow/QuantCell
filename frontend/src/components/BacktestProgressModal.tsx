@@ -24,7 +24,9 @@ import {
   CloseCircleFilled,
   DownloadOutlined,
   StopOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 
 
 const { Text } = Typography;
@@ -65,6 +67,8 @@ interface BacktestProgressModalProps {
   errorMessage?: string;
   onStop?: () => void;
   isRunning?: boolean;
+  taskId?: string; // 回测任务ID
+  strategyName?: string; // 策略名称
 }
 
 const BacktestProgressModal = ({
@@ -76,7 +80,11 @@ const BacktestProgressModal = ({
   errorMessage,
   onStop,
   isRunning = false,
+  taskId,
+  strategyName,
 }: BacktestProgressModalProps) => {
+  const navigate = useNavigate();
+
   // 获取步骤图标
   const getStepIcon = (status: StepStatus, defaultIcon: React.ReactNode) => {
     switch (status) {
@@ -211,6 +219,23 @@ const BacktestProgressModal = ({
     stepStatus.analysis === 'error';
   const isStopped = errorMessage?.includes('已终止') || errorMessage?.includes('已取消');
 
+  // 跳转到策略管理-回测记录页面
+  const handleViewResult = () => {
+    // 构建查询参数
+    const params = new URLSearchParams();
+    params.set('tab', 'backtests');
+    if (taskId) {
+      params.set('taskId', taskId);
+    }
+    if (strategyName) {
+      params.set('strategy', strategyName);
+    }
+
+    // 关闭弹窗并跳转
+    onCancel();
+    navigate(`/strategy-management?${params.toString()}`);
+  };
+
   return (
     <Modal
       title="回测进度"
@@ -234,7 +259,7 @@ const BacktestProgressModal = ({
         size="small"
         style={{
           marginTop: '24px',
-          background: isError ? '#fff2f0' : isFinished ? '#f6ffed' : '#e6f7ff',
+          background: isError ? 'rgba(255, 241, 240, 0.1)' : isFinished ? 'rgba(246, 255, 237, 0.1)' : 'rgba(230, 247, 255, 0.1)',
           borderColor: isError ? '#ffccc7' : isFinished ? '#b7eb8f' : '#91d5ff',
         }}
       >
@@ -272,9 +297,10 @@ const BacktestProgressModal = ({
         </Space>
       </Card>
 
-      {/* 终止回测按钮 */}
-      {isRunning && !isFinished && !isError && onStop && (
-        <div style={{ marginTop: '24px', textAlign: 'center' }}>
+      {/* 操作按钮区域 */}
+      <div style={{ marginTop: '24px', textAlign: 'center' }}>
+        {/* 终止回测按钮 - 仅在运行中显示 */}
+        {isRunning && !isFinished && !isError && onStop && (
           <Popconfirm
             title="确认终止回测？"
             description="终止后无法恢复，已执行的回测结果将保留。"
@@ -295,8 +321,21 @@ const BacktestProgressModal = ({
               </Button>
             </Tooltip>
           </Popconfirm>
-        </div>
-      )}
+        )}
+
+        {/* 查看结果按钮 - 仅在完成时显示 */}
+        {isFinished && (
+          <Button
+            type="primary"
+            icon={<EyeOutlined />}
+            size="large"
+            style={{ minWidth: '140px' }}
+            onClick={handleViewResult}
+          >
+            查看结果
+          </Button>
+        )}
+      </div>
     </Modal>
   );
 };

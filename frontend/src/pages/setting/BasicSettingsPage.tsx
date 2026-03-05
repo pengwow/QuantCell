@@ -12,8 +12,8 @@ import PageContainer from '@/components/PageContainer';
 const BasicSettingsPage = () => {
   const { t, i18n } = useTranslation();
   const {
-    userSettings,
-    setUserSettings,
+    appearanceSettings,
+    setAppearanceSettings,
     loading,
     saving,
     saveConfig,
@@ -38,8 +38,8 @@ const BasicSettingsPage = () => {
       <Spin spinning={loading} tip={t('loading') || '加载中...'}>
         <div className="space-y-6">
           <BasicSettings
-            settings={userSettings}
-            setSettings={setUserSettings}
+            settings={appearanceSettings}
+            setSettings={setAppearanceSettings}
             applyTheme={applyTheme}
             i18n={i18n}
           />

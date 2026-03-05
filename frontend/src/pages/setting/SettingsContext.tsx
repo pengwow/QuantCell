@@ -3,21 +3,18 @@
  * 用于在设置页面的各个子组件间共享配置数据
  */
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { message } from 'antd';
+import { App } from 'antd';
 import { configApi, systemApi } from '../../api';
 import type {
-  UserSettings,
+  AppearanceSettings,
   NotificationSettings,
   ApiSettings,
   SystemInfo,
   SystemMetrics,
 } from './types';
 
-// 默认用户设置
-const defaultUserSettings: UserSettings = {
-  username: '',
-  displayName: '',
-  email: '',
+// 默认外观设置
+const defaultAppearanceSettings: AppearanceSettings = {
   theme: 'light',
   language: 'zh-CN',
   showTips: true,
@@ -79,7 +76,7 @@ const defaultSystemMetrics: SystemMetrics = {
 // Context 类型定义
 interface SettingsContextType {
   // 状态
-  userSettings: UserSettings;
+  appearanceSettings: AppearanceSettings;
   notificationSettings: NotificationSettings;
   apiSettings: ApiSettings;
   systemInfo: SystemInfo;
@@ -88,7 +85,7 @@ interface SettingsContextType {
   saving: boolean;
 
   // 设置状态的方法
-  setUserSettings: React.Dispatch<React.SetStateAction<UserSettings>>;
+  setAppearanceSettings: React.Dispatch<React.SetStateAction<AppearanceSettings>>;
   setNotificationSettings: React.Dispatch<React.SetStateAction<NotificationSettings>>;
   setApiSettings: React.Dispatch<React.SetStateAction<ApiSettings>>;
   setSystemMetrics: React.Dispatch<React.SetStateAction<SystemMetrics>>;
@@ -110,10 +107,11 @@ interface SettingsProviderProps {
 }
 
 export const SettingsProvider = ({ children }: SettingsProviderProps) => {
-  const [userSettings, setUserSettings] = useState<UserSettings>(defaultUserSettings);
+  const { message } = App.useApp();
+  const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>(defaultAppearanceSettings);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(defaultNotificationSettings);
   const [apiSettings, setApiSettings] = useState<ApiSettings>(defaultApiSettings);
-  const [systemInfo, setSystemInfo] = useState<SystemInfo>(defaultSystemInfo);
+  const [systemInfo, _setSystemInfo] = useState<SystemInfo>(defaultSystemInfo);
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics>(defaultSystemMetrics);
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
@@ -145,44 +143,49 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       setLoading(true);
       const response = await configApi.getConfig();
 
-      // 处理后端返回的配置格式（可能是扁平的键值对）
-      const config = response?.data || response;
+      // 处理后端返回的配置格式（按 name 分组的格式）
+      // 格式: { "appearance": { "theme": "light", ... }, "notification": { ... } }
+      const groupedConfig = response?.data || response;
 
-      // 如果是扁平格式，转换为嵌套格式
-      const flattenConfig: Record<string, any> = {};
-      if (config && typeof config === 'object') {
-        Object.entries(config).forEach(([key, value]) => {
-          flattenConfig[key] = value;
-        });
-      }
+      // 将分组配置扁平化，方便提取
+        const flattenConfig: Record<string, any> = {};
+        if (groupedConfig && typeof groupedConfig === 'object') {
+          Object.entries(groupedConfig).forEach(([, groupValues]) => {
+            if (groupValues && typeof groupValues === 'object') {
+              Object.entries(groupValues as Record<string, any>).forEach(([key, value]) => {
+                flattenConfig[key] = value;
+              });
+            }
+          });
+        }
 
-      // 从扁平配置中提取用户设置
-      const loadedUserSettings: Partial<UserSettings> = {
-        theme: flattenConfig['user.theme'] || flattenConfig['theme'],
-        language: flattenConfig['user.language'] || flattenConfig['language'],
-        defaultPerPage: flattenConfig['user.defaultPerPage'] || flattenConfig['defaultPerPage'],
-        showTips: flattenConfig['user.showTips'] || flattenConfig['showTips'],
-        timezone: flattenConfig['user.timezone'] || flattenConfig['timezone'],
+      // 从扁平配置中提取外观设置
+      const loadedAppearanceSettings: Partial<AppearanceSettings> = {
+        theme: flattenConfig['theme'],
+        language: flattenConfig['language'],
+        defaultPerPage: flattenConfig['defaultPerPage'] ? parseInt(flattenConfig['defaultPerPage'], 10) : undefined,
+        showTips: flattenConfig['showTips'] === 'true' || flattenConfig['showTips'] === true,
+        timezone: flattenConfig['timezone'],
       };
 
       // 过滤掉 undefined 值
-      const filteredUserSettings = Object.fromEntries(
-        Object.entries(loadedUserSettings).filter(([, v]) => v !== undefined)
-      ) as Partial<UserSettings>;
+      const filteredAppearanceSettings = Object.fromEntries(
+        Object.entries(loadedAppearanceSettings).filter(([, v]) => v !== undefined)
+      ) as Partial<AppearanceSettings>;
 
-      if (Object.keys(filteredUserSettings).length > 0) {
-        setUserSettings(prev => ({ ...prev, ...filteredUserSettings }));
-        applyTheme(filteredUserSettings.theme || 'light');
+      if (Object.keys(filteredAppearanceSettings).length > 0) {
+        setAppearanceSettings(prev => ({ ...prev, ...filteredAppearanceSettings }));
+        applyTheme(filteredAppearanceSettings.theme || 'light');
       }
 
       // 从扁平配置中提取通知设置
       const loadedNotificationSettings: Partial<NotificationSettings> = {
-        enableEmail: flattenConfig['notification.enableEmail'],
-        enableWebhook: flattenConfig['notification.enableWebhook'],
-        webhookUrl: flattenConfig['notification.webhookUrl'],
-        notifyOnAlert: flattenConfig['notification.notifyOnAlert'],
-        notifyOnTaskComplete: flattenConfig['notification.notifyOnTaskComplete'],
-        notifyOnSystemUpdate: flattenConfig['notification.notifyOnSystemUpdate'],
+        enableEmail: flattenConfig['enableEmail'] === 'true' || flattenConfig['enableEmail'] === true,
+        enableWebhook: flattenConfig['enableWebhook'] === 'true' || flattenConfig['enableWebhook'] === true,
+        webhookUrl: flattenConfig['webhookUrl'],
+        notifyOnAlert: flattenConfig['notifyOnAlert'] === 'true' || flattenConfig['notifyOnAlert'] === true,
+        notifyOnTaskComplete: flattenConfig['notifyOnTaskComplete'] === 'true' || flattenConfig['notifyOnTaskComplete'] === true,
+        notifyOnSystemUpdate: flattenConfig['notifyOnSystemUpdate'] === 'true' || flattenConfig['notifyOnSystemUpdate'] === true,
       };
 
       const filteredNotificationSettings = Object.fromEntries(
@@ -195,7 +198,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
 
       // 从扁平配置中提取 API 设置
       const loadedApiSettings: Partial<ApiSettings> = {
-        apiKey: flattenConfig['api.apiKey'],
+        apiKey: flattenConfig['apiKey'],
       };
 
       const filteredApiSettings = Object.fromEntries(
@@ -204,11 +207,6 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
 
       if (Object.keys(filteredApiSettings).length > 0) {
         setApiSettings(prev => ({ ...prev, ...filteredApiSettings }));
-      }
-
-      // 更新系统信息（如果后端返回）
-      if (config.systemInfo) {
-        setSystemInfo(prev => ({ ...prev, ...config.systemInfo }));
       }
 
       // 获取系统指标
@@ -226,25 +224,34 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     try {
       setSaving(true);
 
-      // 将嵌套配置转换为后端期望的配置项对象列表格式，只包含前端实际使用的配置
+      // 将嵌套配置转换为后端期望的配置项对象列表格式
+      // 每个配置项需要包含 key, value, name 字段
+      // name 字段用于分组，相同的 name 会被归为一组
       const configList = [
-        // 用户设置 (AppearanceSettingsPage, BasicSettingsPage)
-        { key: 'theme', value: userSettings.theme, name: '主题', description: '系统主题设置' },
-        { key: 'language', value: userSettings.language, name: '语言', description: '系统语言设置' },
-        { key: 'defaultPerPage', value: String(userSettings.defaultPerPage), name: '默认分页', description: '列表页默认显示数量' },
-        { key: 'timezone', value: userSettings.timezone, name: '时区', description: '系统默认时区' }
+        // 外观设置 - 使用 'appearance' 作为 name 分组
+        { key: 'theme', value: appearanceSettings.theme, name: 'appearance', description: '系统主题设置' },
+        { key: 'language', value: appearanceSettings.language, name: 'appearance', description: '系统语言设置' },
+        { key: 'defaultPerPage', value: String(appearanceSettings.defaultPerPage), name: 'appearance', description: '列表页默认显示数量' },
+        { key: 'timezone', value: appearanceSettings.timezone, name: 'appearance', description: '系统默认时区' },
+        { key: 'showTips', value: String(appearanceSettings.showTips), name: 'appearance', description: '是否显示提示' },
       ];
 
       await configApi.updateConfig(configList);
+
+      // 重新加载系统配置
+      console.log('[SettingsContext] 保存成功，重新加载系统配置');
+      const updatedConfig = await configApi.getConfig();
+      console.log('[SettingsContext] 重新加载的配置:', updatedConfig);
 
       // 更新全局配置
       if (typeof window !== 'undefined') {
         (window as any).APP_CONFIG = {
           ...(window as any).APP_CONFIG,
-          userSettings,
+          appearanceSettings,
           notificationSettings,
           apiSettings,
         };
+        console.log('[SettingsContext] window.APP_CONFIG 已更新:', (window as any).APP_CONFIG);
       }
 
       message.success('设置保存成功');
@@ -254,15 +261,15 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     } finally {
       setSaving(false);
     }
-  }, [userSettings, notificationSettings, apiSettings]);
+  }, [appearanceSettings, notificationSettings, apiSettings]);
 
   // 重置配置
   const resetConfig = useCallback(() => {
-    setUserSettings(defaultUserSettings);
+    setAppearanceSettings(defaultAppearanceSettings);
     setNotificationSettings(defaultNotificationSettings);
     setApiSettings(defaultApiSettings);
     setSystemMetrics(defaultSystemMetrics);
-    applyTheme(defaultUserSettings.theme);
+    applyTheme(defaultAppearanceSettings.theme);
     message.success('设置已重置为默认值');
   }, [applyTheme]);
 
@@ -272,14 +279,14 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
   }, [loadConfig]);
 
   const value: SettingsContextType = {
-    userSettings,
+    appearanceSettings,
     notificationSettings,
     apiSettings,
     systemInfo,
     systemMetrics,
     loading,
     saving,
-    setUserSettings,
+    setAppearanceSettings,
     setNotificationSettings,
     setApiSettings,
     setSystemMetrics,
