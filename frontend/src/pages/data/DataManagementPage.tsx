@@ -37,6 +37,7 @@ import {
   Transfer,
   Spin,
   Pagination,
+  Grid,
 } from 'antd';
 import {
   StarOutlined,
@@ -71,6 +72,7 @@ const { Text } = Typography;
 const { TabPane } = Tabs;
 const { RangePicker } = DatePicker;
 const { Search } = Input;
+const { useBreakpoint } = Grid;
 
 // 任务卡片组件
 interface TaskCardProps {
@@ -289,6 +291,7 @@ type ViewType = 'list' | 'card';
  */
 const DataManagementPage = () => {
   const { t } = useTranslation();
+  const screens = useBreakpoint();
   const [activeTab, setActiveTab] = useState('symbols');
 
   // ==================== 自选组管理状态 ====================
@@ -1130,7 +1133,7 @@ const DataManagementPage = () => {
 
   // 渲染自选组侧边栏
   const renderGroupSidebar = () => (
-    <div className="favorite-groups-sidebar" style={{ width: 220, flexShrink: 0 }}>
+    <div className="favorite-groups-sidebar" style={{ width: '100%' }}>
       <Card
         size="small"
         title={
@@ -1149,7 +1152,6 @@ const DataManagementPage = () => {
             />
           </Tooltip>
         }
-        style={{ height: '100%' }}
         bodyStyle={{ padding: '8px 0' }}
       >
         <Menu
@@ -1407,8 +1409,8 @@ const DataManagementPage = () => {
             value={viewType}
             onChange={(value) => setViewType(value as ViewType)}
             options={[
-              { value: 'list', icon: <UnorderedListOutlined />, label: '列表' },
-              { value: 'card', icon: <AppstoreOutlined />, label: '卡片' },
+              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? '列表' : undefined },
+              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? '卡片' : undefined },
             ]}
           />
         </Col>
@@ -1819,18 +1821,22 @@ const DataManagementPage = () => {
     );
   };
 
-  // 渲染货币对列表
+  // 渲染货币对列表 - 响应式布局：小屏幕自选组在上，列表在下
   const renderSymbolList = () => (
-    <div style={{ display: 'flex', gap: 16 }}>
-      {renderGroupSidebar()}
-      <div style={{ flex: 1, minWidth: 0 }}>
+    <Row gutter={[16, 16]}>
+      {/* 自选组侧边栏 - 小屏幕在上，大屏幕在左 */}
+      <Col xs={24} lg={4}>
+        {renderGroupSidebar()}
+      </Col>
+      {/* 列表内容 */}
+      <Col xs={24} lg={20}>
         <Card>
           {renderSymbolToolbar()}
           {renderStatistics()}
           {viewType === 'list' ? renderListView() : renderCardView()}
         </Card>
-      </div>
-    </div>
+      </Col>
+    </Row>
   );
 
   // 渲染数据采集
