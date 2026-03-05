@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import {
   Card,
   Tabs,
@@ -66,6 +67,7 @@ import dayjs from 'dayjs';
 import PageContainer from '@/components/PageContainer';
 import { dataApi } from '@/api/dataApi';
 import { wsService } from '@/services/websocketService';
+import { useConfigStore } from '@/store';
 import type { Task, TaskStatus } from '@/types/data';
 
 const { Text } = Typography;
@@ -234,14 +236,6 @@ const SYSTEM_CONFIG = {
   crypto_trading_mode: 'spot',
 };
 
-// 获取全局配置中的默认分页大小
-const getDefaultPageSize = () => {
-  if (typeof window !== 'undefined' && (window as any).APP_CONFIG?.userSettings?.defaultPerPage) {
-    return parseInt((window as any).APP_CONFIG.userSettings.defaultPerPage, 10) || 10;
-  }
-  return 10;
-};
-
 // 分页选项（与系统配置一致）
 const PAGE_SIZE_OPTIONS = ['10', '15', '20', '30', '50', '100'];
 
@@ -292,7 +286,13 @@ type ViewType = 'list' | 'card';
 const DataManagementPage = () => {
   const { t } = useTranslation();
   const screens = useBreakpoint();
-  const [activeTab, setActiveTab] = useState('symbols');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const getDefaultPageSize = useConfigStore((state: { getDefaultPageSize: () => number }) => state.getDefaultPageSize);
+
+  // 从 URL 参数读取 Tab 状态
+  const tabFromUrl = searchParams.get('tab');
+  const validTab = tabFromUrl === 'symbols' || tabFromUrl === 'tasks' ? tabFromUrl : 'symbols';
+  const [activeTab, setActiveTab] = useState(validTab);
 
   // ==================== 自选组管理状态 ====================
   const [favoriteGroups, setFavoriteGroups] = useState<FavoriteGroup[]>([]);
@@ -323,7 +323,13 @@ const DataManagementPage = () => {
 
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(getDefaultPageSize());
+  const [pageSize, setPageSize] = useState(10);
+
+  // 从全局配置加载分页大小
+  useEffect(() => {
+    const defaultPageSize = getDefaultPageSize();
+    setPageSize(defaultPageSize);
+  }, [getDefaultPageSize]);
 
   // 是否已经获取过市场数据的标志
   const [hasFetchedMarketData, setHasFetchedMarketData] = useState(false);
@@ -430,30 +436,7 @@ const DataManagementPage = () => {
     fetchCollectionTasks();
   }, []);
 
-  // 监听全局配置变化，更新分页大小
-  useEffect(() => {
-    const checkConfigChange = () => {
-      const newPageSize = getDefaultPageSize();
-      if (newPageSize !== pageSize) {
-        setPageSize(newPageSize);
-        setCurrentPage(1); // 重置到第一页
-      }
-    };
 
-    // 每秒检查一次全局配置变化
-    const interval = setInterval(checkConfigChange, 1000);
-
-    // 监听 storage 事件（跨标签页同步）
-    const handleStorageChange = () => {
-      checkConfigChange();
-    };
-    window.addEventListener('storage', handleStorageChange);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  }, [pageSize]);
 
   // 当货币对列表加载完成或分页变化时，获取当前页的市场数据
   useEffect(() => {
@@ -2149,11 +2132,20 @@ const DataManagementPage = () => {
     </Row>
   );
 
+  // 处理 Tab 切换 - 更新 URL 参数
+  const handleTabChange = (key: string) => {
+    setActiveTab(key);
+    // 更新 URL 参数，保留其他参数
+    const newParams = new URLSearchParams(searchParams);
+    newParams.set('tab', key);
+    setSearchParams(newParams);
+  };
+
   return (
     <PageContainer title={t('data_management') || '数据管理'}>
       <Tabs
         activeKey={activeTab}
-        onChange={setActiveTab}
+        onChange={handleTabChange}
         type="card"
         items={[
           {

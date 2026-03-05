@@ -2,12 +2,19 @@ import { ConfigProvider, theme as antdTheme } from 'antd';
 import { RouterProvider } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { router } from './router';
+import { useConfigStore } from './store';
 import './i18n/config';
 import './global.css';
 import './index.css';
 
 function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const loadConfig = useConfigStore((state) => state.loadConfig);
+
+  useEffect(() => {
+    // 加载系统配置
+    loadConfig();
+  }, [loadConfig]);
 
   useEffect(() => {
     // 监听主题变化
