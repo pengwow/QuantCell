@@ -111,11 +111,11 @@ export class WebSocketService {
           const message: WebSocketMessage = JSON.parse(rawData);
 
           if (message.type === 'kline') {
-            console.log(`[WebSocket] 收到K线消息: ${message.data?.symbol}@${message.data?.interval}, close=${message.data?.close}`);
+            console.debug(`[WebSocket] 收到K线消息: ${message.data?.symbol}@${message.data?.interval}, close=${message.data?.close}`);
           } else if (message.type === 'batch') {
-            console.log(`[WebSocket] 收到批量消息，数量: ${message.messages?.length || 0}`);
+            console.debug(`[WebSocket] 收到批量消息，数量: ${message.messages?.length || 0}`);
           } else {
-            console.log('[WebSocket] 收到消息:', message.type, message);
+            console.debug('[WebSocket] 收到消息:', message.type, message);
           }
 
           this.handleMessage(message);
@@ -263,22 +263,25 @@ export class WebSocketService {
 
   /**
    * 尝试重连
+   * 无限重连，没有最大尝试次数限制
    */
   private attemptReconnect(): void {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
     }
 
-    if (this.reconnectAttempts < this.config.maxReconnectAttempts!) {
-      this.reconnectAttempts++;
-      console.log(`尝试重连 (${this.reconnectAttempts}/${this.config.maxReconnectAttempts!})...`);
-      
-      this.reconnectTimer = setTimeout(() => {
-        this.connect();
-      }, this.config.reconnectInterval!);
-    } else {
-      console.error('WebSocket重连失败，已达到最大尝试次数');
-    }
+    this.reconnectAttempts++;
+    
+    // 计算重连间隔，随着重连次数增加而增加，但不超过30秒
+    const baseInterval = this.config.reconnectInterval || 3000;
+    const maxInterval = 30000;
+    const reconnectInterval = Math.min(baseInterval * Math.pow(1.5, Math.min(this.reconnectAttempts - 1, 10)), maxInterval);
+    
+    console.log(`[WebSocket] 尝试重连 (${this.reconnectAttempts})，间隔: ${Math.round(reconnectInterval)}ms...`);
+    
+    this.reconnectTimer = setTimeout(() => {
+      this.connect();
+    }, reconnectInterval);
   }
 
   /**

@@ -231,62 +231,6 @@ def init_db():
             logger.error("表创建失败，数据库初始化失败")
             raise Exception("表创建失败，数据库初始化失败")
         
-        # 插入默认配置（保留原有逻辑）
-        logger.info("插入默认配置...")
-        # 先从配置文件读取相关配置
-        from config import get_config
-
-        # # 配置映射：配置文件key -> (system_config_key, 默认值, 描述)
-        # config_mapping = {
-        #     "quant.qlib_data_dir": ("qlib_data_dir", "data/source", "QLib数据目录"),
-        #     "app.max_workers": ("max_workers", "4", "最大工作线程数"),
-        # }
-        
-        # 构建默认配置列表
-        default_configs = []
-        
-        # 1. 处理从配置文件映射的配置
-        for config_key, (db_key, default_value, description) in config_mapping.items():
-            # 从配置文件读取值，如果没有则使用默认值
-            value = get_config(config_key, default_value)
-            default_configs.append((db_key, str(value), description))
-        
-        
-        # 使用INSERT插入默认配置
-        inserted_count = 0
-        with Session(engine) as session:
-            for key, value, description in default_configs:
-                try:
-                    # 先检查配置是否存在
-                    existing_config = session.execute(
-                        text("SELECT key FROM system_config WHERE key = :key"),
-                        {"key": key}
-                    ).fetchone()
-                    
-                    if not existing_config:
-                        # 配置不存在，插入新配置
-                        session.execute(
-                            text("INSERT INTO system_config (key, value, description) VALUES (:key, :value, :description)"),
-                            {
-                                "key": key,
-                                "value": value,
-                                "description": description
-                            }
-                        )
-                        inserted_count += 1
-                except Exception as e:
-                    logger.error(f"插入配置失败: key={key}, value={value}, error={e}")
-            
-            # 提交事务
-            session.commit()
-        
-        logger.info(f"默认配置插入完成，新增配置数: {inserted_count}")
-        
-        # 验证默认配置是否插入成功
-        with Session(engine) as session:
-            config_count = session.execute(text("SELECT COUNT(*) FROM system_config")).fetchone()[0]
-        logger.info(f"系统配置表中配置数量: {config_count}")
-        
         logger.info("数据库初始化完成")
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")

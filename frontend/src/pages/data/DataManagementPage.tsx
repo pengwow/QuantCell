@@ -554,9 +554,9 @@ const DataManagementPage = () => {
     }));
   };
 
-  // WebSocket 连接
+  // WebSocket 消息监听（连接在全局 App.tsx 中管理）
   useEffect(() => {
-    console.log('[DataManagement] 初始化 WebSocket 连接');
+    console.log('[DataManagement] 注册 WebSocket 消息监听');
 
     const handleTaskProgress = (data: any) => {
       console.log('[DataManagement] 收到任务进度:', data, '当前任务ID:', currentTaskIdRef.current);
@@ -577,12 +577,12 @@ const DataManagementPage = () => {
               // 添加新任务
               newList.push({ ...progress });
             }
-            
+
             // 计算总体进度 = 所有子任务进度之和 / 子任务数量
             const totalProgress = newList.reduce((sum, t) => sum + (t.percentage || 0), 0);
             const overallPercentage = newList.length > 0 ? totalProgress / newList.length : 0;
             setTaskProgress(overallPercentage);
-            
+
             return newList;
           });
         }
@@ -604,14 +604,6 @@ const DataManagementPage = () => {
 
     wsService.on('task:progress', handleTaskProgress);
     wsService.on('task:status', handleTaskStatus);
-
-    // 确保 WebSocket 连接已建立（connect 方法内部会自动订阅默认主题）
-    if (!wsService.connected) {
-      console.log('[DataManagement] WebSocket 未连接，调用 connect');
-      wsService.connect();
-    } else {
-      console.log('[DataManagement] WebSocket 已连接');
-    }
 
     return () => {
       wsService.off('task:progress', handleTaskProgress);
