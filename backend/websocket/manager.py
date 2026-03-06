@@ -308,12 +308,12 @@ class ConnectionManager:
             client_id: 客户端ID
             topic: 主题名称
         """
-        logger.info(f"订阅方法被调用: client_id={client_id}, topic={topic}, manager_id={id(self)}")
-        logger.info(f"订阅前状态: subscriptions={dict((k, list(v)) for k, v in self.subscriptions.items())}")
+        logger.debug(f"订阅方法被调用: client_id={client_id}, topic={topic}, manager_id={id(self)}")
+        logger.debug(f"订阅前状态: subscriptions={dict((k, list(v)) for k, v in self.subscriptions.items())}")
 
         if topic not in self.subscriptions:
             self.subscriptions[topic] = set()
-            logger.info(f"创建新主题: {topic}")
+            logger.debug(f"创建新主题: {topic}")
 
         self.subscriptions[topic].add(client_id)
 
@@ -321,8 +321,8 @@ class ConnectionManager:
         if client_id in self.client_info:
             self.client_info[client_id]["topics"].add(topic)
 
-        logger.info(f"客户端 {client_id} 订阅了主题 {topic}")
-        logger.info(f"订阅后状态: subscriptions={dict((k, list(v)) for k, v in self.subscriptions.items())}")
+        logger.debug(f"客户端 {client_id} 订阅了主题 {topic}")
+        logger.debug(f"订阅后状态: subscriptions={dict((k, list(v)) for k, v in self.subscriptions.items())}")
         
         # 发送订阅确认
         await self.send_personal_message(
@@ -379,15 +379,15 @@ class ConnectionManager:
             message: 消息内容
             topic: 主题名称，为None时广播给所有客户端
         """
-        logger.info(f"广播消息: type={message.get('type')}, topic={topic}")
-        logger.info(f"当前订阅状态: {dict((k, list(v)) for k, v in self.subscriptions.items())}")
-        logger.info(f"当前活跃连接: {list(self.active_connections.keys())}")
+        logger.debug(f"广播消息: type={message.get('type')}, topic={topic}")
+        logger.debug(f"当前订阅状态: {dict((k, list(v)) for k, v in self.subscriptions.items())}")
+        logger.debug(f"当前活跃连接: {list(self.active_connections.keys())}")
         
         if topic and topic in self.subscriptions:
             # 只广播给订阅了该主题的客户端
             client_ids = list(self.subscriptions[topic])
             if len(client_ids) > 0:
-                logger.info(f"广播给订阅了 {topic} 的客户端: {client_ids}")
+                logger.debug(f"广播给订阅了 {topic} 的客户端: {client_ids}")
                 for client_id in client_ids:
                     await self.send_personal_message(message, client_id)
             else:

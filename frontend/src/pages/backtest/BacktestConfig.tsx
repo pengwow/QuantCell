@@ -526,7 +526,16 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       try {
         const backtestPromise = backtestApi.runBacktest(backtestData, abortControllerRef.current.signal);
 
-        await Promise.all([progressPromise, backtestPromise]);
+        const [_, backtestResult] = await Promise.all([progressPromise, backtestPromise]);
+
+        console.log('[BacktestConfig] 回测结果:', backtestResult);
+
+        // 从后端返回结果中获取 task_id
+        const serverTaskId = backtestResult?.data?.task_id || backtestResult?.task_id;
+        if (serverTaskId) {
+          console.log('[BacktestConfig] 使用后端返回的 task_id:', serverTaskId);
+          setCurrentTaskId(serverTaskId);
+        }
 
         message.success('回测已成功完成！');
 

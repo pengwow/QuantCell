@@ -230,7 +230,7 @@ async def handle_subscribe(message: dict, client_id: str):
 
     # 处理订阅
     for topic in topics:
-        logger.info(f"订阅主题: client_id={client_id}, topic={topic}")
+        logger.debug(f"订阅主题: client_id={client_id}, topic={topic}")
         await manager.subscribe(client_id, topic)
 
 

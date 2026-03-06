@@ -165,10 +165,52 @@ const StrategyManagement = () => {
     loadStrategies();
     loadBacktests();
 
-    // 从 URL 参数读取 taskId 和 strategy，自动填充搜索框
+    // 从 URL 参数恢复状态
     const taskIdFromUrl = searchParams.get('taskId');
     const strategyFromUrl = searchParams.get('strategy');
+    const searchFromUrl = searchParams.get('search');
+    const statusFromUrl = searchParams.get('status');
+    const sortFieldFromUrl = searchParams.get('sortField');
+    const sortOrderFromUrl = searchParams.get('sortOrder');
 
+    // 如果是从详情页返回（有 returnUrl 相关参数），恢复搜索和筛选状态
+    if (searchFromUrl !== null || statusFromUrl !== null || sortFieldFromUrl !== null || sortOrderFromUrl !== null) {
+      console.log('[StrategyManagement] 从详情页返回，恢复搜索和筛选状态:', {
+        search: searchFromUrl,
+        strategy: strategyFromUrl,
+        status: statusFromUrl,
+        sortField: sortFieldFromUrl,
+        sortOrder: sortOrderFromUrl,
+      });
+
+      // 恢复搜索文本
+      if (searchFromUrl) {
+        setBacktestSearchText(searchFromUrl);
+      }
+
+      // 恢复策略筛选
+      if (strategyFromUrl) {
+        setSelectedStrategy(strategyFromUrl);
+      }
+
+      // 恢复状态筛选
+      if (statusFromUrl) {
+        setBacktestStatusFilter(statusFromUrl);
+      }
+
+      // 恢复排序
+      if (sortFieldFromUrl) {
+        setBacktestSortField(sortFieldFromUrl);
+      }
+      if (sortOrderFromUrl) {
+        setBacktestSortOrder(sortOrderFromUrl);
+      }
+
+      // 自动切换到回测记录 tab
+      setActiveTab('backtests');
+    }
+
+    // 如果是从回测完成跳转过来（有 taskId）
     if (taskIdFromUrl || strategyFromUrl) {
       console.log('[StrategyManagement] 从 URL 获取参数:', { taskId: taskIdFromUrl, strategy: strategyFromUrl });
 
@@ -220,15 +262,40 @@ const StrategyManagement = () => {
     setActiveTab('backtests');
   };
 
+  // 构建返回 URL，保留当前的搜索和筛选状态
+  const buildReturnUrl = () => {
+    const params = new URLSearchParams();
+    params.set('tab', 'backtests');
+
+    // 保留搜索和筛选状态
+    if (backtestSearchText) {
+      params.set('search', backtestSearchText);
+    }
+    if (selectedStrategy) {
+      params.set('strategy', selectedStrategy);
+    }
+    if (backtestStatusFilter && backtestStatusFilter !== 'all') {
+      params.set('status', backtestStatusFilter);
+    }
+    if (backtestSortField && backtestSortField !== 'created_at') {
+      params.set('sortField', backtestSortField);
+    }
+    if (backtestSortOrder && backtestSortOrder !== 'desc') {
+      params.set('sortOrder', backtestSortOrder);
+    }
+
+    return encodeURIComponent(`/strategy-management?${params.toString()}`);
+  };
+
   // 跳转到回放页面 - 添加返回 URL 参数
   const handleReplay = (backtestId: string) => {
-    const returnUrl = encodeURIComponent(`/strategy-management?tab=backtests`);
+    const returnUrl = buildReturnUrl();
     navigate(`/backtest/replay/${backtestId}?returnUrl=${returnUrl}`);
   };
 
   // 跳转到详情页面 - 添加返回 URL 参数
   const handleViewDetail = (backtestId: string) => {
-    const returnUrl = encodeURIComponent(`/strategy-management?tab=backtests`);
+    const returnUrl = buildReturnUrl();
     navigate(`/backtest/detail/${backtestId}?returnUrl=${returnUrl}`);
   };
 

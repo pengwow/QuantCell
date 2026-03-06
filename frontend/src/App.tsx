@@ -3,6 +3,7 @@ import { RouterProvider } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { router } from './router';
 import { useConfigStore } from './store';
+import { wsService } from './services/websocketService';
 import './i18n/config';
 import './global.css';
 import './index.css';
@@ -16,6 +17,30 @@ function App() {
     console.log('[App] 开始加载系统配置');
     loadConfig();
   }, [loadConfig]);
+
+  // 全局 WebSocket 连接管理
+  useEffect(() => {
+    console.log('[App] 初始化全局 WebSocket 连接');
+
+    // 监听连接状态变化
+    const handleConnectionChange = (connected: boolean) => {
+      console.log('[App] WebSocket 连接状态变化:', connected);
+    };
+
+    wsService.onConnectionChange(handleConnectionChange);
+
+    // 确保 WebSocket 连接已建立
+    if (!wsService.connected) {
+      console.log('[App] WebSocket 未连接，调用 connect');
+      wsService.connect();
+    } else {
+      console.log('[App] WebSocket 已连接');
+    }
+
+    return () => {
+      wsService.offConnectionChange(handleConnectionChange);
+    };
+  }, []);
 
   // 输出当前全局配置（用于调试）
   useEffect(() => {
