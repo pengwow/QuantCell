@@ -37,6 +37,8 @@ from .schemas import (
     StrategyParseRequest,
     StrategyParseResponse,
     StrategyDetailRequest,
+    StrategyGenerateRequest,
+    StrategyGenerateResponse,
 )
 from .service import StrategyService
 
@@ -328,4 +330,50 @@ def delete_strategy(
         raise
     except Exception as e:
         logger.error(f"删除策略失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/generate",
+    response_model=StrategyGenerateResponse,
+    summary="AI生成策略",
+    description="使用AI模型根据需求描述生成策略代码",
+)
+@jwt_auth_required_sync
+def generate_strategy(
+    request: Request,
+    generate_request: StrategyGenerateRequest,
+) -> StrategyGenerateResponse:
+    """
+    使用AI模型生成策略代码
+
+    Args:
+        generate_request: AI生成策略请求
+
+    Returns:
+        StrategyGenerateResponse: AI生成策略响应
+    """
+    try:
+        logger.info(f"AI生成策略请求，prompt: {generate_request.prompt[:50]}...")
+
+        # 调用策略服务生成策略
+        result = get_strategy_service().generate_strategy(
+            prompt=generate_request.prompt,
+            model_id=generate_request.model_id,
+            model_name=generate_request.model_name,
+            provider=generate_request.provider,
+            conversation_id=generate_request.conversation_id,
+        )
+
+        logger.info("AI生成策略成功")
+
+        return StrategyGenerateResponse(
+            code=0,
+            message="策略生成成功",
+            data=result,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"AI生成策略失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

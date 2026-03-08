@@ -1,6 +1,7 @@
 # JWT认证装饰器模块
 # 实现JWT认证装饰器，用于保护API接口
 
+import os
 from typing import Callable, Optional, Any
 
 from fastapi import Depends, HTTPException, Request, Response
@@ -17,6 +18,11 @@ from .jwt_utils import (
     TokenInvalidError, 
     TokenDecodeError
 )
+
+# 检查是否为debug模式
+# 通过环境变量 DEBUG 或 APP_ENV 来判断
+IS_DEBUG_MODE = os.environ.get('DEBUG', '').lower() in ('true', '1', 'yes') or \
+                os.environ.get('APP_ENV', '').lower() in ('development', 'dev', 'debug')
 
 
 def get_current_user(request: Request) -> dict:
@@ -114,6 +120,9 @@ def jwt_auth_required(func: Callable) -> Callable:
     用于保护需要认证的API接口，验证JWT令牌的有效性
     并支持令牌自动续期功能
     
+    在debug模式下（DEBUG=true 或 APP_ENV=development/dev/debug），
+    会跳过JWT认证，直接允许访问
+    
     Args:
         func: 被装饰的API函数
     
@@ -122,6 +131,11 @@ def jwt_auth_required(func: Callable) -> Callable:
     """
     @wraps(func)
     async def wrapper(request: Request, *args, **kwargs):
+        # Debug模式下跳过认证
+        if IS_DEBUG_MODE:
+            logger.debug(f"Debug模式：跳过JWT认证 - {request.url.path}")
+            return await func(request, *args, **kwargs)
+        
         # 从请求头中提取令牌
         token = request.headers.get("Authorization")
         
@@ -236,6 +250,9 @@ def jwt_auth_required_sync(func: Callable) -> Callable:
     
     用于保护需要认证的同步API接口
     
+    在debug模式下（DEBUG=true 或 APP_ENV=development/dev/debug），
+    会跳过JWT认证，直接允许访问
+    
     Args:
         func: 被装饰的API函数
     
@@ -244,6 +261,11 @@ def jwt_auth_required_sync(func: Callable) -> Callable:
     """
     @wraps(func)
     def wrapper(request: Request, *args, **kwargs):
+        # Debug模式下跳过认证
+        if IS_DEBUG_MODE:
+            logger.debug(f"Debug模式：跳过JWT认证 - {request.url.path}")
+            return func(request, *args, **kwargs)
+        
         # 从请求头中提取令牌
         token = request.headers.get("Authorization")
         

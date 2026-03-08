@@ -226,3 +226,29 @@ class SystemConfigBusiness:
             return None
         finally:
             db.close()
+
+    @staticmethod
+    def get_name_with_details(name: str) -> Optional[Dict[str, Any]]:
+        """获取配置项名称的详细信息
+        
+        Args:
+            name: 配置项名称
+            
+        Returns:
+            Optional[Dict[str, Any]]: 配置项名称的详细信息，包括键、值、描述、插件、名称、是否敏感、创建时间和更新时间
+        """
+        result = {}
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            configs = db.query(SystemConfig).filter_by(name=name)
+            for config in configs:
+                details = SystemConfigBusiness.get_with_details(config.key)
+                if details:
+                    result[config.key] = details
+            return result
+        except Exception as e:
+            logger.error(f"获取配置名称详情失败: name={name}, error={e}")
+            return None
+        finally:
+            db.close()

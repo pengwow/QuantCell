@@ -243,3 +243,36 @@ class StrategyParseResponse(ApiResponse):
         default=None,
         description="响应数据，包含策略描述和参数信息",
     )
+
+
+class StrategyGenerateRequest(BaseSchema):
+    """
+    AI生成策略请求模型
+
+    Attributes:
+        prompt: 策略需求描述
+        model_id: AI模型配置ID（可选）
+        model_name: 具体模型名称（可选）
+        provider: AI厂商（可选）
+        conversation_id: 对话ID（可选，用于保持上下文）
+    """
+
+    prompt: str = Field(..., min_length=1, description="策略需求描述")
+    model_id: Optional[int] = Field(default=None, description="AI模型配置ID（可选）")
+    model_name: Optional[str] = Field(default=None, description="具体模型名称（可选）")
+    provider: Optional[str] = Field(default=None, description="AI厂商（可选）")
+    conversation_id: Optional[str] = Field(default=None, description="对话ID（可选）")
+
+
+class StrategyGenerateResponse(ApiResponse):
+    """
+    AI生成策略响应模型
+
+    Attributes:
+        data: 响应数据，包含生成的策略代码和说明
+    """
+
+    data: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="响应数据，包含生成的策略代码和说明",
+    )

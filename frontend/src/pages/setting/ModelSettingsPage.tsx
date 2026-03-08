@@ -31,22 +31,22 @@ interface ModelProvider {
   id: string;
   name: string;
   icon: string;
-  apiKey: string;
-  apiHost: string;
+  api_key: string;
+  api_host: string;
   models: Model[];
-  isDefault: boolean;
-  isEnabled: boolean;
-  proxyEnabled: boolean; // 是否启用代理
-  proxyUrl?: string; // 代理地址
-  proxyUsername?: string; // 代理用户名
-  proxyPassword?: string; // 代理密码
+  is_default: boolean;
+  is_enabled: boolean;
+  proxy_enabled: boolean; // 是否启用代理
+  proxy_url?: string; // 代理地址
+  proxy_username?: string; // 代理用户名
+  proxy_password?: string; // 代理密码
 }
 
 // 模型接口
 interface Model {
   id: string;
   name: string;
-  isEnabled: boolean;
+  is_enabled: boolean;
 }
 
 // 预设的模型厂商
@@ -185,19 +185,19 @@ const ModelSettingsPage = () => {
   const initDefaultProviders = () => {
     const initialProviders = PRESET_PROVIDERS.map((preset, index) => ({
       ...preset,
-      apiKey: "",
-      apiHost: getDefaultApiHost(preset.id),
+      api_key: "",
+      api_host: getDefaultApiHost(preset.id),
       models: PRESET_MODELS[preset.id]?.map((name) => ({
         id: `${preset.id}-${name}`,
         name,
-        isEnabled: index === 0,
+        is_enabled: index === 0,
       })) || [],
-      isDefault: index === 0,
-      isEnabled: index === 0,
-      proxyEnabled: false,
-      proxyUrl: "",
-      proxyUsername: "",
-      proxyPassword: "",
+      is_default: index === 0,
+      is_enabled: index === 0,
+      proxy_enabled: false,
+      proxy_url: "",
+      proxy_username: "",
+      proxy_password: "",
     }));
     setProviders(initialProviders);
     setSelectedProviderId(initialProviders[0]?.id || "");
@@ -236,7 +236,7 @@ const ModelSettingsPage = () => {
     setProviders((prev) =>
       prev.map((p) => ({
         ...p,
-        isDefault: p.id === providerId,
+        is_default: p.id === providerId,
       }))
     );
     message.success(t("default_provider_set") || "默认厂商已设置");
@@ -245,13 +245,13 @@ const ModelSettingsPage = () => {
   // 从其他厂商获取代理配置
   const getProxyFromOtherProviders = (): Partial<ModelProvider> | null => {
     const providerWithProxy = providers.find(
-      (p) => p.proxyEnabled && p.proxyUrl && p.id !== selectedProviderId
+      (p) => p.proxy_enabled && p.proxy_url && p.id !== selectedProviderId
     );
     if (providerWithProxy) {
       return {
-        proxyUrl: providerWithProxy.proxyUrl,
-        proxyUsername: providerWithProxy.proxyUsername,
-        proxyPassword: providerWithProxy.proxyPassword,
+        proxy_url: providerWithProxy.proxy_url,
+        proxy_username: providerWithProxy.proxy_username,
+        proxy_password: providerWithProxy.proxy_password,
       };
     }
     return null;
@@ -264,20 +264,20 @@ const ModelSettingsPage = () => {
       const proxyConfig = getProxyFromOtherProviders();
       if (proxyConfig) {
         updateProvider(selectedProvider.id, {
-          proxyEnabled: true,
+          proxy_enabled: true,
           ...proxyConfig,
         });
         message.success(t("proxy_auto_filled") || "已自动填充代理配置");
       } else {
-        updateProvider(selectedProvider.id, { proxyEnabled: true });
+        updateProvider(selectedProvider.id, { proxy_enabled: true });
       }
     } else if (selectedProvider) {
       // 关闭代理时，清空代理配置
       updateProvider(selectedProvider.id, {
-        proxyEnabled: false,
-        proxyUrl: "",
-        proxyUsername: "",
-        proxyPassword: "",
+        proxy_enabled: false,
+        proxy_url: "",
+        proxy_username: "",
+        proxy_password: "",
       });
     }
   };
@@ -285,7 +285,7 @@ const ModelSettingsPage = () => {
   // 检查可用性
   const checkAvailability = async (providerId: string) => {
     const provider = providers.find((p) => p.id === providerId);
-    if (!provider?.apiKey) {
+    if (!provider?.api_key) {
       message.warning(t("please_enter_api_key") || "请输入API密钥");
       return;
     }
@@ -294,12 +294,12 @@ const ModelSettingsPage = () => {
     try {
       const result = await aiModelApi.checkAvailability({
         provider: provider.id,
-        api_key: provider.apiKey,
-        api_host: provider.apiHost,
-        proxy_enabled: provider.proxyEnabled,
-        proxy_url: provider.proxyUrl,
-        proxy_username: provider.proxyUsername,
-        proxy_password: provider.proxyPassword,
+        api_key: provider.api_key,
+        api_host: provider.api_host,
+        proxy_enabled: provider.proxy_enabled,
+        proxy_url: provider.proxy_url,
+        proxy_username: provider.proxy_username,
+        proxy_password: provider.proxy_password,
       });
       
       if (result?.available) {
@@ -317,27 +317,39 @@ const ModelSettingsPage = () => {
   };
 
   // 启用/禁用模型
-  const toggleModel = (providerId: string, modelId: string, enabled: boolean) => {
+  const toggleModel = (providerId: string, model_id: string, enabled: boolean) => {
     setProviders((prev) =>
-      prev.map((p) =>
-        p.id === providerId
-          ? {
-              ...p,
-              models: p.models.map((m) =>
-                m.id === modelId ? { ...m, isEnabled: enabled } : m
-              ),
-            }
-          : p
-      )
+      prev.map((p) => {
+        if (p.id !== providerId) return p;
+        
+        // 如果开启一个模型，则关闭该提供商下的其他所有模型
+        if (enabled) {
+          return {
+            ...p,
+            models: p.models.map((m) => ({
+              ...m,
+              is_enabled: m.id === model_id, // 只有当前点击的模型开启，其他都关闭
+            })),
+          };
+        }
+        
+        // 如果关闭一个模型，则直接关闭（不开启其他）
+        return {
+          ...p,
+          models: p.models.map((m) =>
+            m.id === model_id ? { ...m, is_enabled: false } : m
+          ),
+        };
+      })
     );
   };
 
   // 删除模型
-  const deleteModel = (providerId: string, modelId: string) => {
+  const deleteModel = (providerId: string, model_id: string) => {
     setProviders((prev) =>
       prev.map((p) =>
         p.id === providerId
-          ? { ...p, models: p.models.filter((m) => m.id !== modelId) }
+          ? { ...p, models: p.models.filter((m) => m.id !== model_id) }
           : p
       )
     );
@@ -345,13 +357,13 @@ const ModelSettingsPage = () => {
   };
 
   // 添加模型
-  const handleAddModel = (values: { modelId: string; name: string }) => {
+  const handleAddModel = (values: { model_id: string; name: string }) => {
     if (!selectedProvider) return;
 
     const newModel: Model = {
-      id: `${selectedProvider.id}-${values.modelId}`,
+      id: `${selectedProvider.id}-${values.model_id}`,
       name: values.name,
-      isEnabled: true,
+      is_enabled: true,
     };
 
     setProviders((prev) =>
@@ -380,13 +392,13 @@ const ModelSettingsPage = () => {
         },
         {
           key: 'default_provider',
-          value: providers.find(p => p.isDefault)?.id || '',
+          value: providers.find(p => p.is_default)?.id || '',
           name: 'ai_models',
           description: '默认AI模型提供商ID'
         },
         {
           key: 'enabled_providers',
-          value: JSON.stringify(providers.filter(p => p.isEnabled).map(p => p.id)),
+          value: JSON.stringify(providers.filter(p => p.is_enabled).map(p => p.id)),
           name: 'ai_models',
           description: '启用的AI模型提供商ID列表'
         }
@@ -405,19 +417,19 @@ const ModelSettingsPage = () => {
   const handleReset = () => {
     const initialProviders = PRESET_PROVIDERS.map((preset, index) => ({
       ...preset,
-      apiKey: "",
-      apiHost: getDefaultApiHost(preset.id),
+      api_key: "",
+      api_host: getDefaultApiHost(preset.id),
       models: PRESET_MODELS[preset.id]?.map((name) => ({
         id: `${preset.id}-${name}`,
         name,
-        isEnabled: index === 0,
+        is_enabled: index === 0,
       })) || [],
-      isDefault: index === 0,
-      isEnabled: index === 0,
-      proxyEnabled: false,
-      proxyUrl: "",
-      proxyUsername: "",
-      proxyPassword: "",
+      is_default: index === 0,
+      is_enabled: index === 0,
+      proxy_enabled: false,
+      proxy_url: "",
+      proxy_username: "",
+      proxy_password: "",
     }));
     setProviders(initialProviders);
     setSelectedProviderId(initialProviders[0]?.id || "");
@@ -432,7 +444,7 @@ const ModelSettingsPage = () => {
       openai: "https://platform.openai.com/api-keys",
       ollama: "",
       deepseek: "https://platform.deepseek.com/api_keys",
-      dashscope: "https://dashscope.console.aliyun.com/apiKey",
+      dashscope: "https://dashscope.console.aliyun.com/api_key",
       google: "https://aistudio.google.com/app/apikey",
       azure: "https://portal.azure.com",
     };
@@ -483,7 +495,7 @@ const ModelSettingsPage = () => {
                 <Space>
                   <Text type="secondary" className="text-sm">{t("default_provider") || "默认提供商"}</Text>
                   <Switch
-                    checked={selectedProvider.isDefault}
+                    checked={selectedProvider.is_default}
                     onChange={(checked) => {
                       if (checked) setDefaultProvider(selectedProvider.id);
                     }}
@@ -497,9 +509,9 @@ const ModelSettingsPage = () => {
                   <Text strong className="block mb-2 text-base">{t("api_key") || "API密钥"}</Text>
                   <Space.Compact className="w-full">
                     <Input.Password
-                      value={selectedProvider.apiKey}
+                      value={selectedProvider.api_key}
                       onChange={(e) =>
-                        updateProvider(selectedProvider.id, { apiKey: e.target.value })
+                        updateProvider(selectedProvider.id, { api_key: e.target.value })
                       }
                       placeholder={t("enter_api_key") || "输入API密钥"}
                       className="flex-1"
@@ -528,9 +540,9 @@ const ModelSettingsPage = () => {
                 <div className="mb-6">
                   <Text strong className="block mb-2 text-base">{t("api_host") || "API主机"}</Text>
                   <Input
-                    value={selectedProvider.apiHost}
+                    value={selectedProvider.api_host}
                     onChange={(e) =>
-                      updateProvider(selectedProvider.id, { apiHost: e.target.value })
+                      updateProvider(selectedProvider.id, { api_host: e.target.value })
                     }
                     placeholder={t("enter_api_host") || "请输入 API Host"}
                   />
@@ -545,20 +557,20 @@ const ModelSettingsPage = () => {
                     <Space>
                       <Text type="secondary" className="text-sm">{t("proxy_enabled") || "启用代理"}</Text>
                       <Switch
-                        checked={selectedProvider.proxyEnabled}
+                        checked={selectedProvider.proxy_enabled}
                         onChange={handleProxyToggle}
                       />
                     </Space>
                   </div>
 
-                  {selectedProvider.proxyEnabled && (
+                  {selectedProvider.proxy_enabled && (
                     <div className="space-y-4">
                       <div>
                         <Text strong className="block mb-2 text-sm">{t("proxy_url") || "代理地址"}</Text>
                         <Input
-                          value={selectedProvider.proxyUrl}
+                          value={selectedProvider.proxy_url}
                           onChange={(e) =>
-                            updateProvider(selectedProvider.id, { proxyUrl: e.target.value })
+                            updateProvider(selectedProvider.id, { proxy_url: e.target.value })
                           }
                           placeholder="http://proxy.example.com:8080"
                         />
@@ -567,9 +579,9 @@ const ModelSettingsPage = () => {
                       <div>
                         <Text strong className="block mb-2 text-sm">{t("proxy_username") || "代理用户名"}</Text>
                         <Input
-                          value={selectedProvider.proxyUsername}
+                          value={selectedProvider.proxy_username}
                           onChange={(e) =>
-                            updateProvider(selectedProvider.id, { proxyUsername: e.target.value })
+                            updateProvider(selectedProvider.id, { proxy_username: e.target.value })
                           }
                           placeholder={t("optional") || "可选"}
                         />
@@ -578,9 +590,9 @@ const ModelSettingsPage = () => {
                       <div>
                         <Text strong className="block mb-2 text-sm">{t("proxy_password") || "代理密码"}</Text>
                         <Input.Password
-                          value={selectedProvider.proxyPassword}
+                          value={selectedProvider.proxy_password}
                           onChange={(e) =>
-                            updateProvider(selectedProvider.id, { proxyPassword: e.target.value })
+                            updateProvider(selectedProvider.id, { proxy_password: e.target.value })
                           }
                           placeholder={t("optional") || "可选"}
                         />
@@ -613,7 +625,7 @@ const ModelSettingsPage = () => {
                         <Text className="text-sm">{model.name}</Text>
                         <Space>
                           <Switch
-                            checked={model.isEnabled}
+                            checked={model.is_enabled}
                             onChange={(checked) =>
                               toggleModel(selectedProvider.id, model.id, checked)
                             }
@@ -681,7 +693,7 @@ const ModelSettingsPage = () => {
       >
         <Form form={addModelForm} onFinish={handleAddModel} layout="vertical" className="mt-4">
           <Form.Item
-            name="modelId"
+            name="model_id"
             label={<span className="font-medium">{t("model_id") || "模型ID"}</span>}
             rules={[
               { required: true, message: t("please_enter_model_id") || "请输入模型ID" },

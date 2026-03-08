@@ -19,10 +19,7 @@ import {
   ReloadOutlined,
   BackwardOutlined,
   RobotOutlined,
-  CheckCircleOutlined,
   CloseCircleOutlined,
-  CopyOutlined,
-  DeleteOutlined,
 } from '@ant-design/icons';
 import MonacoEditor from '@monaco-editor/react';
 import { useTranslation } from 'react-i18next';
@@ -30,6 +27,12 @@ import { useResponsive } from '../../hooks/useResponsive';
 import { strategyApi } from '../../api';
 import { setPageTitle } from '@/router';
 import PageContainer from '@/components/PageContainer';
+// AI 聊天弹窗组件
+import AIChatModal from '@/components/AIChatModal';
+// Mock 数据
+import { mockGenerateStrategy } from '@/mock/strategyMock';
+
+
 
 interface Strategy {
   name: string;
@@ -49,15 +52,7 @@ interface Strategy {
   code: string;
 }
 
-// AI消息类型
-interface Message {
-  id: string;
-  type: 'user' | 'ai';
-  content: string;
-  timestamp: Date;
-  status?: 'generating' | 'completed' | 'error';
-  code?: string; // AI生成的代码
-}
+
 
 /**
  * 策略编辑器组件
@@ -93,18 +88,6 @@ const StrategyEditor = () => {
 
   // AI生成策略状态
   const [aiModalVisible, setAiModalVisible] = useState<boolean>(false);
-  const [aiInput, setAiInput] = useState<string>('');
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [currentThinkingStep, setCurrentThinkingStep] = useState<number>(0);
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
-
-  // AI思考步骤
-  const thinkingSteps = [
-    '分析需求...',
-    '设计策略结构...',
-    '生成代码...',
-    '优化代码...',
-  ];
 
   const navigate = useNavigate();
   const params = useParams<{ strategyName?: string }>();
@@ -589,157 +572,6 @@ class NewStrategy(StrategyBase):
     navigate('/backtest/config', { state: { strategy: selectedStrategy, showConfig: true } });
   };
 
-  // 发送AI消息
-  const handleSendMessage = async () => {
-    if (!aiInput.trim()) {
-      message.warning(t('ai_input_empty') || '请输入策略需求');
-      return;
-    }
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      type: 'user',
-      content: aiInput.trim(),
-      timestamp: new Date(),
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setAiInput('');
-    setIsGenerating(true);
-    setCurrentThinkingStep(0);
-
-    // 创建AI消息占位符
-    const aiMessageId = (Date.now() + 1).toString();
-    const aiMessage: Message = {
-      id: aiMessageId,
-      type: 'ai',
-      content: '',
-      timestamp: new Date(),
-      status: 'generating',
-    };
-    setMessages(prev => [...prev, aiMessage]);
-
-    // 模拟思考过程
-    for (let i = 0; i < thinkingSteps.length; i++) {
-      setCurrentThinkingStep(i);
-      await new Promise(resolve => setTimeout(resolve, 800));
-    }
-
-    // 模拟生成的策略代码
-    const generatedStrategyCode = `# -*- coding: utf-8 -*-
-"""
-AI生成的策略
-基于需求：${userMessage.content}
-"""
-
-from __future__ import annotations
-
-from decimal import Decimal
-from typing import Any, Dict, List
-
-from strategy.core import (
-    StrategyBase,
-    StrategyConfig,
-    Bar,
-    InstrumentId,
-)
-
-
-class AIGeneratedConfig(StrategyConfig):
-    """AI生成的策略配置"""
-
-    def __init__(
-        self,
-        instrument_ids: List[InstrumentId],
-        bar_types: List[str],
-        trade_size: Decimal = Decimal("0.1"),
-        log_level: str = "INFO",
-    ):
-        super().__init__(instrument_ids, bar_types, trade_size, log_level)
-
-
-class AIGeneratedStrategy(StrategyBase):
-    """
-    AI生成的策略
-    
-    根据您的需求自动生成的策略实现。
-    """
-
-    def __init__(self, config: AIGeneratedConfig) -> None:
-        super().__init__(config)
-        self._config = config
-        self.prices: Dict[InstrumentId, List[float]] = {}
-
-        for instrument_id in config.instrument_ids:
-            self.prices[instrument_id] = []
-
-    def on_start(self) -> None:
-        """策略启动"""
-        self.log_info("AI生成策略启动")
-
-    def on_bar(self, bar: Bar) -> None:
-        """K线数据处理"""
-        instrument_id = bar.instrument_id
-        close_price = bar.close
-        self.prices[instrument_id].append(close_price)
-
-        # 保持历史数据
-        if len(self.prices[instrument_id]) > 100:
-            self.prices[instrument_id] = self.prices[instrument_id][-100:]
-
-        # 简单的示例逻辑：价格高于前一期买入，低于卖出
-        if len(self.prices[instrument_id]) >= 2:
-            prev_price = self.prices[instrument_id][-2]
-            
-            if close_price > prev_price and self.is_flat(instrument_id):
-                self.log_info(f"[{instrument_id}] 价格上涨，买入信号")
-                self.buy(instrument_id, self._config.trade_size)
-            elif close_price < prev_price and self.is_long(instrument_id):
-                self.log_info(f"[{instrument_id}] 价格下跌，卖出信号")
-                self.sell(instrument_id, self._config.trade_size)
-
-    def on_stop(self) -> None:
-        """策略停止"""
-        self.log_info("AI生成策略停止")
-`;
-
-    // 流式输出AI回复内容
-    const aiResponse = `根据您的需求"${userMessage.content}"，我已经为您生成了一个策略框架。
-
-这个策略包含：
-1. 完整的配置类定义
-2. 基础的价格跟踪逻辑
-3. 简单的买卖信号判断
-4. 多品种支持
-
-您可以根据实际需要进一步修改和完善这个策略。`;
-
-    // 模拟流式输出
-    let currentContent = '';
-    for (let i = 0; i < aiResponse.length; i++) {
-      currentContent += aiResponse[i];
-      setMessages(prev =>
-        prev.map(msg =>
-          msg.id === aiMessageId
-            ? { ...msg, content: currentContent }
-            : msg
-        )
-      );
-      await new Promise(resolve => setTimeout(resolve, 30));
-    }
-
-    // 完成生成
-    setMessages(prev =>
-      prev.map(msg =>
-        msg.id === aiMessageId
-          ? { ...msg, content: aiResponse, status: 'completed', code: generatedStrategyCode }
-          : msg
-      )
-    );
-    setIsGenerating(false);
-    setCurrentThinkingStep(0);
-  };
-
   // 开始编辑策略名称
   const handleStartEditName = () => {
     if (selectedStrategy) {
@@ -1078,188 +910,36 @@ class AIGeneratedStrategy(StrategyBase):
         </Spin>
       </Card>
 
-      {/* AI生成策略模态框 - 聊天界面 */}
-      <Modal
-        title={
-          <div className="flex justify-between items-center">
-            <span>{t('ai_generate_strategy') || 'AI生成策略'}</span>
-            {messages.length > 0 && (
-              <Button
-                type="text"
-                size="small"
-                icon={<DeleteOutlined />}
-                onClick={() => {
-                  setMessages([]);
-                  setCurrentThinkingStep(0);
-                }}
-              >
-                {t('clear_history') || '清空历史'}
-              </Button>
-            )}
-          </div>
-        }
+      {/* AI生成策略弹窗 - 使用 AIChatModal 组件 */}
+      <AIChatModal
         open={aiModalVisible}
-        onCancel={() => setAiModalVisible(false)}
-        footer={null}
-        width={800}
-        centered
-        bodyStyle={{ padding: 0, maxHeight: '70vh', overflow: 'hidden' }}
-      >
-        <div className="flex flex-col" style={{ height: '70vh' }}>
-          {/* 聊天消息列表 */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-gray-900">
-            {messages.length === 0 && (
-              <div className="text-center text-gray-400 py-10">
-                <RobotOutlined style={{ fontSize: 48 }} className="mb-4" />
-                <p>{t('ai_welcome') || '我是AI策略助手，请告诉我您需要什么策略？'}</p>
-                <p className="text-sm mt-2">{t('ai_example') || '例如：创建一个双均线交叉策略'}</p>
-              </div>
-            )}
-
-            {messages.map((msg) => (
-              <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div
-                  className={`max-w-[80%] rounded-lg p-3 ${
-                    msg.type === 'user'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
-                  }`}
-                >
-                  {/* 用户消息 */}
-                  {msg.type === 'user' && (
-                    <div>
-                      <p>{msg.content}</p>
-                      <span className="text-xs opacity-70 mt-1 block">
-                        {msg.timestamp.toLocaleTimeString()}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* AI消息 */}
-                  {msg.type === 'ai' && (
-                    <div>
-                      {/* 思考过程 */}
-                      {msg.status === 'generating' && (
-                        <div className="mb-3 space-y-2">
-                          {thinkingSteps.map((step, stepIndex) => (
-                            <div
-                              key={stepIndex}
-                              className={`flex items-center gap-2 text-sm ${
-                                stepIndex <= currentThinkingStep
-                                  ? 'text-blue-600 dark:text-blue-400'
-                                  : 'text-gray-400'
-                              }`}
-                            >
-                              {stepIndex < currentThinkingStep ? (
-                                <CheckCircleOutlined className="text-green-500" />
-                              ) : stepIndex === currentThinkingStep ? (
-                                <span className="animate-pulse">●</span>
-                              ) : (
-                                <span className="w-4 h-4 rounded-full border-2 border-gray-300" />
-                              )}
-                              <span>{step}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* AI回复内容 */}
-                      <div className="mb-3">
-                        <p className="text-gray-700 dark:text-gray-300 mb-2">{msg.content}</p>
-                      </div>
-
-                      {/* 生成的代码 */}
-                      {msg.code && (
-                        <div className="relative">
-                          <div className="bg-gray-900 rounded-lg p-3 overflow-x-auto">
-                            <pre className="text-sm text-gray-100 font-mono whitespace-pre-wrap">
-                              <code>{msg.code}</code>
-                            </pre>
-                          </div>
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<CopyOutlined />}
-                            className="absolute top-2 right-2 text-gray-400 hover:text-white"
-                            onClick={() => {
-                              navigator.clipboard.writeText(msg.code || '');
-                              message.success(t('copied') || '已复制');
-                            }}
-                          />
-                        </div>
-                      )}
-
-                      {/* 采纳/拒绝按钮 */}
-                      {msg.status === 'completed' && msg.code && (
-                        <div className="flex gap-2 mt-3 justify-end">
-                          <Button
-                            size="small"
-                            icon={<CloseCircleOutlined />}
-                            onClick={() => {
-                              // 拒绝：不做任何操作，允许继续对话
-                              message.info(t('ai_rejected') || '已拒绝，可以继续提问');
-                            }}
-                          >
-                            {t('reject') || '拒绝'}
-                          </Button>
-                          <Button
-                            type="primary"
-                            size="small"
-                            icon={<CheckCircleOutlined />}
-                            onClick={() => {
-                              // 采纳：将代码写入编辑器
-                              if (msg.code) {
-                                setCode(msg.code);
-                                message.success(t('ai_adopted') || '已采纳并应用到编辑器');
-                                setAiModalVisible(false);
-                              }
-                            }}
-                          >
-                            {t('adopt') || '采纳'}
-                          </Button>
-                        </div>
-                      )}
-
-                      <span className="text-xs text-gray-400 mt-2 block">
-                        {msg.timestamp.toLocaleTimeString()}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* 输入区域 */}
-          <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-            <div className="flex gap-2">
-              <Input.TextArea
-                placeholder={t('ai_input_placeholder') || '请输入您的策略需求...'}
-                value={aiInput}
-                onChange={(e) => setAiInput(e.target.value)}
-                rows={2}
-                disabled={isGenerating}
-                onPressEnter={(e) => {
-                  if (!e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-              />
-              <Button
-                type="primary"
-                icon={<RobotOutlined />}
-                onClick={handleSendMessage}
-                loading={isGenerating}
-                disabled={!aiInput.trim() || isGenerating}
-                className="h-auto"
-              >
-                {t('send') || '发送'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Modal>
+        onClose={() => setAiModalVisible(false)}
+        title={t('ai_generate_strategy') || 'AI生成策略'}
+        welcomeTitle={t('ai_welcome') || '我是AI策略助手，请告诉我您需要什么策略？'}
+        welcomeDescription={t('ai_example') || '例如：创建一个双均线交叉策略'}
+        inputPlaceholder={t('ai_input_placeholder') || '请输入您的策略需求...'}
+        onSendMessage={async (content: string, modelId: number | null, modelName: string) => {
+          // 使用 Mock 数据模拟后端 API
+          const response = await mockGenerateStrategy(content, modelId, modelName);
+          
+          if (response.code === 0) {
+            return {
+              content: response.data.explanation || response.data.content || '策略生成成功',
+              code: response.data.code,
+            };
+          } else {
+            throw new Error(response.message || '生成策略失败');
+          }
+        }}
+        onAcceptCode={(code: string) => {
+          setCode(code);
+          message.success(t('ai_adopted') || '已采纳并应用到编辑器');
+          setAiModalVisible(false);
+        }}
+        onRejectCode={() => {
+          message.info(t('ai_rejected') || '已拒绝，可以继续提问');
+        }}
+      />
     </PageContainer>
   );
 };
