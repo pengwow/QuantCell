@@ -22,7 +22,7 @@ import {
   IconTrash,
   IconRobot,
 } from "@tabler/icons-react";
-import { aiModelApi } from "../../api";
+import { configApi, aiModelApi } from "../../api";
 
 const { Text } = Typography;
 
@@ -143,32 +143,33 @@ const ModelSettingsPage = () => {
     loadProviders();
   }, []);
 
-  // 加载模型配置
+  // 从系统配置加载模型配置
   const loadProviders = async () => {
     try {
-      const response = await aiModelApi.getModels();
-      if (response.items && response.items.length > 0) {
-        // 将后端数据转换为前端格式
-        const loadedProviders = response.items.map((item: any) => ({
-          id: item.provider,
-          name: item.name || item.provider,
-          icon: PROVIDER_ICONS[item.provider] || "",
-          apiKey: item.api_key || "",
-          apiHost: item.api_host || getDefaultApiHost(item.provider),
-          models: item.models?.map((m: any) => ({
-            id: m.id,
-            name: m.name,
-            isEnabled: m.is_enabled,
-          })) || [],
-          isDefault: item.is_default,
-          isEnabled: item.is_enabled,
-          proxyEnabled: item.proxy_enabled || false,
-          proxyUrl: item.proxy_url || "",
-          proxyUsername: item.proxy_username || "",
-          proxyPassword: item.proxy_password || "",
-        }));
-        setProviders(loadedProviders);
-        setSelectedProviderId(loadedProviders[0]?.id || "");
+      const response = await configApi.getConfig();
+      // 处理后端返回的配置格式（按 name 分组的格式）
+      const groupedConfig = response?.data || response;
+
+      // 从分组配置中提取模型配置（name 为 'ai_models' 的配置组）
+      let modelConfig: any = {};
+      if (groupedConfig && typeof groupedConfig === 'object') {
+        // 查找 ai_models 分组
+        const aiModelsGroup = groupedConfig['ai_models'];
+        if (aiModelsGroup && typeof aiModelsGroup === 'object') {
+          modelConfig = aiModelsGroup;
+        }
+      }
+
+      // 检查是否有保存的模型配置
+      if (modelConfig && Object.keys(modelConfig).length > 0) {
+        // 解析保存的模型配置
+        const savedProviders = modelConfig.providers ? JSON.parse(modelConfig.providers) : null;
+        if (savedProviders && savedProviders.length > 0) {
+          setProviders(savedProviders);
+          setSelectedProviderId(savedProviders[0]?.id || "");
+        } else {
+          initDefaultProviders();
+        }
       } else {
         // 初始化默认配置
         initDefaultProviders();
@@ -290,11 +291,29 @@ const ModelSettingsPage = () => {
     }
     
     setCheckingProvider(providerId);
-    // 模拟检查
-    setTimeout(() => {
-      message.success(t("api_key_valid") || "API密钥有效");
+    try {
+      const result = await aiModelApi.checkAvailability({
+        provider: provider.id,
+        api_key: provider.apiKey,
+        api_host: provider.apiHost,
+        proxy_enabled: provider.proxyEnabled,
+        proxy_url: provider.proxyUrl,
+        proxy_username: provider.proxyUsername,
+        proxy_password: provider.proxyPassword,
+      });
+      
+      if (result?.available) {
+        message.success(result.message || t("api_key_valid") || "API密钥有效");
+      } else {
+        message.error(result.message || t("api_key_invalid") || "API密钥无效");
+      }
+    } catch (error: any) {
+      console.error("检查可用性失败:", error);
+      const errorMsg = error?.response?.data?.detail || error?.message || t("check_failed") || "检查失败";
+      message.error(errorMsg);
+    } finally {
       setCheckingProvider(null);
-    }, 1000);
+    }
   };
 
   // 启用/禁用模型
@@ -348,45 +367,33 @@ const ModelSettingsPage = () => {
     message.success(t("model_added") || "模型已添加");
   };
 
-  // 保存配置
+  // 保存配置到系统配置表
   const handleSave = async () => {
     try {
-      // 保存每个启用的厂商配置到后端
-      for (const provider of providers) {
-        if (provider.isEnabled) {
-          const configData = {
-            provider: provider.id,
-            name: provider.name,
-            api_key: provider.apiKey,
-            api_host: provider.apiHost,
-            models: provider.models.map((m) => ({
-              id: m.id,
-              name: m.name,
-              is_enabled: m.isEnabled,
-            })),
-            is_enabled: provider.isEnabled,
-            is_default: provider.isDefault,
-            proxy_enabled: provider.proxyEnabled,
-            proxy_url: provider.proxyUrl,
-            proxy_username: provider.proxyUsername,
-            proxy_password: provider.proxyPassword,
-          };
-
-          // 检查是否已存在
-          const existingResponse = await aiModelApi.getModels();
-          const existing = existingResponse.items?.find(
-            (item: any) => item.provider === provider.id
-          );
-
-          if (existing) {
-            // 更新现有配置
-            await aiModelApi.updateModel(existing.id, configData);
-          } else {
-            // 创建新配置
-            await aiModelApi.createModel(configData);
-          }
+      // 构建配置列表，使用 'ai_models' 作为分组名
+      const configList = [
+        {
+          key: 'providers',
+          value: JSON.stringify(providers),
+          name: 'ai_models',
+          description: 'AI模型提供商配置列表'
+        },
+        {
+          key: 'default_provider',
+          value: providers.find(p => p.isDefault)?.id || '',
+          name: 'ai_models',
+          description: '默认AI模型提供商ID'
+        },
+        {
+          key: 'enabled_providers',
+          value: JSON.stringify(providers.filter(p => p.isEnabled).map(p => p.id)),
+          name: 'ai_models',
+          description: '启用的AI模型提供商ID列表'
         }
-      }
+      ];
+
+      // 调用系统配置保存接口
+      await configApi.updateConfig(configList);
       message.success(t("config_saved") || "配置已保存");
     } catch (error) {
       console.error("保存配置失败:", error);

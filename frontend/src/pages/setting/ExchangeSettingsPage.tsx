@@ -309,7 +309,7 @@ const ExchangeSettingsPage = () => {
   };
 
   return (
-    <Spin spinning={loading} tip={t("loading") || "加载中..."}>
+    <Spin spinning={loading} description={t("loading") || "加载中..."}>
       <div className="space-y-6">
         {/* 主内容区域 - 响应式布局 */}
         <div className="flex flex-col lg:flex-row gap-6">

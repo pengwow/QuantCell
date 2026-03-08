@@ -43,14 +43,11 @@ from .schemas import (
 )
 from .services import AIModelService
 
-# 创建API路由实例
-router = APIRouter()
-
-# 创建AI模型配置API路由子路由
-ai_model_router = APIRouter(prefix="/api/ai-models", tags=["ai-model-config"])
+# 创建AI模型配置API路由
+router = APIRouter(prefix="/api/ai-models", tags=["ai-model-config"])
 
 
-@ai_model_router.get("/", response_model=ApiResponse)
+@router.get("/", response_model=ApiResponse)
 @jwt_auth_required_sync
 def get_ai_models(
     request: Request,
@@ -102,7 +99,7 @@ def get_ai_models(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@ai_model_router.post("/", response_model=ApiResponse)
+@router.post("/", response_model=ApiResponse)
 @jwt_auth_required_sync
 def create_ai_model(request: Request, config: AIModelCreate):
     """创建AI模型配置
@@ -154,7 +151,7 @@ def create_ai_model(request: Request, config: AIModelCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@ai_model_router.get("/providers", response_model=ApiResponse)
+@router.get("/providers", response_model=ApiResponse)
 @jwt_auth_required_sync
 def get_supported_providers(request: Request):
     """获取支持的AI厂商列表
@@ -184,7 +181,7 @@ def get_supported_providers(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@ai_model_router.post("/check", response_model=ApiResponse)
+@router.post("/check", response_model=ApiResponse)
 @jwt_auth_required_sync
 async def check_ai_model_availability(
     request: Request,
@@ -234,6 +231,10 @@ async def check_ai_model_availability(
             provider=check_request.provider,
             api_key=check_request.api_key,
             api_host=check_request.api_host,
+            proxy_enabled=check_request.proxy_enabled,
+            proxy_url=check_request.proxy_url,
+            proxy_username=check_request.proxy_username,
+            proxy_password=check_request.proxy_password,
         )
 
         return ApiResponse(
@@ -246,7 +247,7 @@ async def check_ai_model_availability(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@ai_model_router.get("/{model_id}", response_model=ApiResponse)
+@router.get("/{model_id}", response_model=ApiResponse)
 @jwt_auth_required_sync
 def get_ai_model(
     request: Request,
@@ -289,7 +290,7 @@ def get_ai_model(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@ai_model_router.put("/{model_id}", response_model=ApiResponse)
+@router.put("/{model_id}", response_model=ApiResponse)
 @jwt_auth_required_sync
 def update_ai_model(
     request: Request,
@@ -348,7 +349,7 @@ def update_ai_model(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@ai_model_router.delete("/{model_id}", response_model=ApiResponse)
+@router.delete("/{model_id}", response_model=ApiResponse)
 @jwt_auth_required_sync
 def delete_ai_model(
     request: Request,
@@ -391,7 +392,7 @@ def delete_ai_model(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@ai_model_router.get("/{model_id}/models", response_model=ApiResponse)
+@router.get("/{model_id}/models", response_model=ApiResponse)
 @jwt_auth_required_sync
 async def get_available_models(
     request: Request,
@@ -455,6 +456,3 @@ async def get_available_models(
         logger.error(f"获取可用模型列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# 注册子路由
-router.include_router(ai_model_router)

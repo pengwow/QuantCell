@@ -266,4 +266,21 @@ export const dataApi = {
   getTaskDetails: (taskId: string) => {
     return apiRequest.get(`/data/tasks/${taskId}/details`);
   },
+
+  /**
+   * 清理K线数据
+   * @param params 清理参数，包括symbol、interval、start、end、clean_type等
+   * @returns 清理结果
+   */
+  cleanKlineData: (params: {
+    symbol: string;
+    interval?: string;
+    start?: string;
+    end?: string;
+    clean_type?: 'all' | 'duplicates' | 'invalid';
+    market_type?: string;
+    crypto_type?: string;
+  }) => {
+    return apiRequest.post('/data/clean', undefined, { params });
+  },
 };

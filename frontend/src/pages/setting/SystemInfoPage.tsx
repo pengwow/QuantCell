@@ -12,7 +12,7 @@ const SystemInfoPage = () => {
   const { systemInfo, loading } = useSettings();
 
   return (
-    <Spin spinning={loading} tip={t('loading') || '加载中...'}>
+    <Spin spinning={loading} description={t('loading') || '加载中...'}>
       <SystemInfo systemInfo={systemInfo} />
     </Spin>
   );

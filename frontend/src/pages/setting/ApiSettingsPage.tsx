@@ -32,7 +32,7 @@ const ApiSettingsPage = () => {
 
   return (
     <PageContainer title={t('api_settings') || 'API 设置'}>
-      <Spin spinning={loading} tip={t('loading') || '加载中...'}>
+      <Spin spinning={loading} description={t('loading') || '加载中...'}>
         <div className="space-y-6">
           <ApiSettings
             apiSettings={apiSettings}

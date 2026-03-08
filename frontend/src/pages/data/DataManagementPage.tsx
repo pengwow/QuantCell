@@ -39,6 +39,7 @@ import {
   Spin,
   Pagination,
   Grid,
+  Alert,
 } from 'antd';
 import {
   StarOutlined,
@@ -358,6 +359,12 @@ const DataManagementPage = () => {
   const [selectedIntervalForQuality, setSelectedIntervalForQuality] = useState<string>('');
   const [qualityLoading, setQualityLoading] = useState(false);
   const [qualityDetail, setQualityDetail] = useState<any>(null);
+
+  // ==================== 数据清理状态 ====================
+  const [cleanForm] = Form.useForm();
+  const [cleanLoading, setCleanLoading] = useState(false);
+  const [cleanResult, setCleanResult] = useState<any>(null);
+  const [isCleanModalOpen, setIsCleanModalOpen] = useState(false);
 
   // ==================== 数据采集状态 ====================
   const [collectionForm] = Form.useForm();
@@ -1066,6 +1073,39 @@ const DataManagementPage = () => {
     }
   };
 
+  // 打开数据清理弹窗
+  const handleOpenCleanModal = () => {
+    cleanForm.resetFields();
+    setCleanResult(null);
+    setIsCleanModalOpen(true);
+  };
+
+  // 执行数据清理
+  const handleCleanData = async () => {
+    try {
+      const values = await cleanForm.validateFields();
+      setCleanLoading(true);
+
+      const response = await dataApi.cleanKlineData({
+        symbol: values.symbol,
+        interval: values.interval,
+        start: values.dateRange?.[0]?.format('YYYY-MM-DD'),
+        end: values.dateRange?.[1]?.format('YYYY-MM-DD'),
+        clean_type: values.cleanType,
+        market_type: 'crypto',
+        crypto_type: 'spot',
+      });
+
+      setCleanResult(response);
+      message.success(`数据清理完成，共清理 ${response.deleted_count || 0} 条记录`);
+    } catch (error) {
+      message.error('数据清理失败');
+      console.error('数据清理失败:', error);
+    } finally {
+      setCleanLoading(false);
+    }
+  };
+
   // 获取质量状态标签
   const getQualityTag = (quality?: string) => {
     switch (quality) {
@@ -1383,6 +1423,117 @@ const DataManagementPage = () => {
       </Modal>
     );
   };
+
+  // 渲染数据清理弹窗
+  const renderCleanDataModal = () => (
+    <Modal
+      title={
+        <Space>
+          <DeleteOutlined />
+          <span>数据清理</span>
+        </Space>
+      }
+      open={isCleanModalOpen}
+      onOk={handleCleanData}
+      onCancel={() => setIsCleanModalOpen(false)}
+      width={600}
+      okText="开始清理"
+      cancelText="取消"
+      confirmLoading={cleanLoading}
+      okButtonProps={{ danger: true }}
+    >
+      <Alert
+        message="警告"
+        description="数据清理操作不可恢复，请谨慎操作！"
+        type="warning"
+        showIcon
+        style={{ marginBottom: 24 }}
+      />
+      <Form
+        form={cleanForm}
+        layout="vertical"
+      >
+        <Form.Item
+          name="symbol"
+          label="货币对"
+          rules={[{ required: true, message: '请选择货币对' }]}
+        >
+          <Select
+            showSearch
+            placeholder="选择要清理的货币对"
+            options={symbols.map(s => ({ value: s.symbol, label: s.symbol }))}
+            filterOption={(input, option) =>
+              (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+            }
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="interval"
+          label="时间周期"
+        >
+          <Select
+            allowClear
+            placeholder="选择时间周期（为空则清理所有周期）"
+            options={[
+              { value: '1m', label: '1分钟' },
+              { value: '5m', label: '5分钟' },
+              { value: '15m', label: '15分钟' },
+              { value: '1h', label: '1小时' },
+              { value: '4h', label: '4小时' },
+              { value: '1d', label: '1天' },
+            ]}
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="dateRange"
+          label="时间范围"
+        >
+          <DatePicker.RangePicker
+            style={{ width: '100%' }}
+            placeholder={['开始日期', '结束日期']}
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="cleanType"
+          label="清理类型"
+          initialValue="all"
+          rules={[{ required: true, message: '请选择清理类型' }]}
+        >
+          <Select
+            placeholder="选择清理类型"
+            options={[
+              { value: 'all', label: '全部数据（清空指定范围的所有数据）' },
+              { value: 'duplicates', label: '仅重复数据（保留第一条，删除重复）' },
+              { value: 'invalid', label: '仅无效数据（负价格、负成交量、高低价异常等）' },
+            ]}
+          />
+        </Form.Item>
+      </Form>
+
+      {cleanResult && (
+        <>
+          <Divider style={{ margin: '24px 0' }} />
+          <Alert
+            message="清理结果"
+            description={
+              <Space direction="vertical">
+                <Text>货币对: {cleanResult.symbol}</Text>
+                <Text>时间周期: {cleanResult.interval || '全部'}</Text>
+                <Text>清理类型: {cleanResult.clean_type}</Text>
+                <Text>清理前记录数: {cleanResult.total_before}</Text>
+                <Text strong style={{ color: '#ff4d4f' }}>已清理记录数: {cleanResult.deleted_count}</Text>
+              </Space>
+            }
+            type="success"
+            showIcon
+          />
+        </>
+      )}
+    </Modal>
+  );
 
   // 渲染货币对工具栏 - 参考策略回测页面风格
   const renderSymbolToolbar = () => (
@@ -2066,6 +2217,23 @@ const DataManagementPage = () => {
                 开始检测
               </Button>
             </div>
+
+            <Divider />
+
+            <div>
+              <Text strong>数据清理</Text>
+              <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+                清理指定货币对、周期或时间范围的数据
+              </Text>
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                style={{ width: '100%', marginTop: 8 }}
+                onClick={handleOpenCleanModal}
+              >
+                打开清理工具
+              </Button>
+            </div>
           </Space>
         </Card>
       </Col>
@@ -2108,28 +2276,355 @@ const DataManagementPage = () => {
 
               {qualityDetail.checks && (
                 <Tabs type="card" size="small">
-                  <TabPane tab="连续性" key="continuity">
-                    <Space direction="vertical">
-                      <Text>状态: {qualityDetail.checks.continuity?.status === 'pass' ? '通过' : '失败'}</Text>
-                      <Text>预期记录: {qualityDetail.checks.continuity?.expected_records}</Text>
-                      <Text>实际记录: {qualityDetail.checks.continuity?.actual_records}</Text>
-                      <Text>缺失记录: {qualityDetail.checks.continuity?.missing_records}</Text>
-                      <Text>
-                        覆盖率:{' '}
-                        {Math.round((qualityDetail.checks.continuity?.coverage_ratio || 0) * 100)}%
-                      </Text>
+                  <TabPane tab="完整性" key="integrity">
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Row gutter={[16, 8]}>
+                        <Col span={12}>
+                          <Text strong>状态:</Text> {qualityDetail.checks.integrity?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
+                        </Col>
+                        <Col span={12}>
+                          <Text strong>总记录:</Text> {qualityDetail.checks.integrity?.total_records || 0}
+                        </Col>
+                      </Row>
+                      {qualityDetail.checks.integrity?.missing_columns && qualityDetail.checks.integrity.missing_columns.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>缺失列:</Text>
+                          <div style={{ marginTop: 8 }}>
+                            {qualityDetail.checks.integrity.missing_columns.map((col: string) => (
+                              <Tag key={col} color="error" style={{ marginBottom: 4 }}>{col}</Tag>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {qualityDetail.checks.integrity?.missing_values && Object.keys(qualityDetail.checks.integrity.missing_values).length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>缺失值统计:</Text>
+                          <div style={{ marginTop: 8 }}>
+                            {Object.entries(qualityDetail.checks.integrity.missing_values).map(([key, value]: [string, any]) => (
+                              <div key={key} style={{ marginBottom: 4 }}>
+                                <Tag color="warning">{key}</Tag>
+                                <Text type="secondary"> 缺失 {value} 个</Text>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </Space>
                   </TabPane>
-                  <TabPane tab="完整性" key="integrity">
-                    <Space direction="vertical">
-                      <Text>状态: {qualityDetail.checks.integrity?.status === 'pass' ? '通过' : '失败'}</Text>
-                      <Text>总记录: {qualityDetail.checks.integrity?.total_records}</Text>
+                  <TabPane tab="连续性" key="continuity">
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Row gutter={[16, 8]}>
+                        <Col span={12}>
+                          <Text strong>状态:</Text> {qualityDetail.checks.continuity?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
+                        </Col>
+                        <Col span={12}>
+                          <Text strong>预期记录:</Text> {qualityDetail.checks.continuity?.expected_records || 0}
+                        </Col>
+                        <Col span={12}>
+                          <Text strong>实际记录:</Text> {qualityDetail.checks.continuity?.actual_records || 0}
+                        </Col>
+                        <Col span={12}>
+                          <Text strong>缺失记录:</Text> {qualityDetail.checks.continuity?.missing_records || 0}
+                        </Col>
+                        <Col span={12}>
+                          <Text strong>覆盖率:</Text> {Math.round((qualityDetail.checks.continuity?.coverage_ratio || 0) * 100)}%
+                        </Col>
+                      </Row>
+                      {qualityDetail.checks.continuity?.missing_time_ranges && qualityDetail.checks.continuity.missing_time_ranges.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong>缺失时间段:</Text>
+                          <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
+                            {qualityDetail.checks.continuity.missing_time_ranges.map((range: any, index: number) => (
+                              <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
+                                <Tag style={{ fontSize: 12 }}>{range.start}</Tag> ~ <Tag style={{ fontSize: 12 }}>{range.end}</Tag>
+                                <Text type="secondary" style={{ marginLeft: 8 }}>
+                                  缺失 {range.count} 条
+                                </Text>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </Space>
                   </TabPane>
                   <TabPane tab="唯一性" key="uniqueness">
-                    <Space direction="vertical">
-                      <Text>状态: {qualityDetail.checks.uniqueness?.status === 'pass' ? '通过' : '失败'}</Text>
-                      <Text>重复记录: {qualityDetail.checks.uniqueness?.duplicate_records}</Text>
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Row gutter={[16, 8]}>
+                        <Col span={12}>
+                          <Text strong>状态:</Text> {qualityDetail.checks.uniqueness?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
+                        </Col>
+                        <Col span={12}>
+                          <Text strong>重复记录:</Text> {qualityDetail.checks.uniqueness?.duplicate_records || 0}
+                        </Col>
+                      </Row>
+                      {qualityDetail.checks.uniqueness?.duplicate_periods && qualityDetail.checks.uniqueness.duplicate_periods.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong>重复时间段:</Text>
+                          <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
+                            {qualityDetail.checks.uniqueness.duplicate_periods.map((period: string, index: number) => (
+                              <Tag key={index} style={{ marginBottom: 4, fontSize: 12 }}>{period}</Tag>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {qualityDetail.checks.uniqueness?.duplicate_details && qualityDetail.checks.uniqueness.duplicate_details.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong>重复详情:</Text>
+                          <div style={{ maxHeight: 300, overflow: 'auto', marginTop: 8 }}>
+                            {qualityDetail.checks.uniqueness.duplicate_details.map((detail: any, index: number) => (
+                              <Card key={index} size="small" style={{ marginBottom: 8 }}>
+                                <Text strong>时间: {detail.key}</Text>
+                                <Text style={{ marginLeft: 8 }} type="secondary">({detail.count} 条重复)</Text>
+                                <div style={{ marginTop: 8 }}>
+                                  {detail.records.map((record: any, rIndex: number) => (
+                                    <div key={rIndex} style={{ fontSize: 12, marginBottom: 4, padding: '4px 8px', background: '#f5f5f5', borderRadius: 4 }}>
+                                      <Text type="secondary">#{record.row_number}</Text>
+                                      <Text style={{ marginLeft: 8 }}>开: {record.open}</Text>
+                                      <Text style={{ marginLeft: 8 }}>高: {record.high}</Text>
+                                      <Text style={{ marginLeft: 8 }}>低: {record.low}</Text>
+                                      <Text style={{ marginLeft: 8 }}>收: {record.close}</Text>
+                                      <Text style={{ marginLeft: 8 }}>量: {record.volume}</Text>
+                                    </div>
+                                  ))}
+                                </div>
+                              </Card>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </Space>
+                  </TabPane>
+                  <TabPane tab="有效性" key="validity">
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Row gutter={[16, 8]}>
+                        <Col span={12}>
+                          <Text strong>状态:</Text> {qualityDetail.checks.validity?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
+                        </Col>
+                        <Col span={12}>
+                          <Text strong>无效记录总数:</Text> {qualityDetail.checks.validity?.total_invalid_records || 0}
+                        </Col>
+                      </Row>
+                      {qualityDetail.checks.validity?.negative_prices && qualityDetail.checks.validity.negative_prices.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>负价格记录:</Text>
+                          <Text type="secondary" style={{ marginLeft: 8 }}>{qualityDetail.checks.validity.negative_prices.length} 条</Text>
+                        </>
+                      )}
+                      {qualityDetail.checks.validity?.negative_volumes && qualityDetail.checks.validity.negative_volumes.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>负成交量记录:</Text>
+                          <Text type="secondary" style={{ marginLeft: 8 }}>{qualityDetail.checks.validity.negative_volumes.length} 条</Text>
+                        </>
+                      )}
+                      {qualityDetail.checks.validity?.invalid_high_low && qualityDetail.checks.validity.invalid_high_low.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>高低价异常记录 (high &lt; low):</Text>
+                          <Text type="secondary" style={{ marginLeft: 8 }}>{qualityDetail.checks.validity.invalid_high_low.length} 条</Text>
+                        </>
+                      )}
+                      {qualityDetail.checks.validity?.invalid_price_logic && qualityDetail.checks.validity.invalid_price_logic.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>价格逻辑异常记录:</Text>
+                          <Text type="secondary" style={{ marginLeft: 8 }}>{qualityDetail.checks.validity.invalid_price_logic.length} 条</Text>
+                        </>
+                      )}
+                      {qualityDetail.checks.validity?.abnormal_price_changes && qualityDetail.checks.validity.abnormal_price_changes.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#faad14' }}>异常涨跌幅记录 (&gt;±20%):</Text>
+                          <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
+                            {qualityDetail.checks.validity.abnormal_price_changes.map((item: any, index: number) => (
+                              <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
+                                <Tag style={{ fontSize: 12 }}>{item.timestamp}</Tag>
+                                <Text type="secondary" style={{ marginLeft: 8 }}>
+                                  涨跌幅: {item.change_pct}%
+                                </Text>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {qualityDetail.checks.validity?.abnormal_volumes && qualityDetail.checks.validity.abnormal_volumes.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#faad14' }}>异常成交量记录 (&gt;30日均量10倍):</Text>
+                          <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
+                            {qualityDetail.checks.validity.abnormal_volumes.map((item: any, index: number) => (
+                              <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
+                                <Tag style={{ fontSize: 12 }}>{item.timestamp}</Tag>
+                                <Text type="secondary" style={{ marginLeft: 8 }}>
+                                  成交量: {item.volume}, 30日均量: {item.avg_30d_volume}
+                                </Text>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {qualityDetail.checks.validity?.price_gaps && qualityDetail.checks.validity.price_gaps.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#faad14' }}>价格跳空记录 (&gt;±5%):</Text>
+                          <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
+                            {qualityDetail.checks.validity.price_gaps.map((item: any, index: number) => (
+                              <div key={index} style={{ marginBottom: 4, fontSize: 12 }}>
+                                <Tag style={{ fontSize: 12 }}>{item.timestamp}</Tag>
+                                <Text type="secondary" style={{ marginLeft: 8 }}>
+                                  跳空: {item.gap_pct}%
+                                </Text>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </Space>
+                  </TabPane>
+                  <TabPane tab="一致性" key="consistency">
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Row gutter={[16, 8]}>
+                        <Col span={12}>
+                          <Text strong>状态:</Text> {qualityDetail.checks.consistency?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
+                        </Col>
+                      </Row>
+                      {qualityDetail.checks.consistency?.time_format_issues && qualityDetail.checks.consistency.time_format_issues.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>时间格式问题:</Text>
+                          <div style={{ marginTop: 8 }}>
+                            {qualityDetail.checks.consistency.time_format_issues.map((issue: string, index: number) => (
+                              <div key={index} style={{ marginBottom: 4 }}>
+                                <Tag color="error">{issue}</Tag>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {qualityDetail.checks.consistency?.duplicate_codes && qualityDetail.checks.consistency.duplicate_codes.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>重复代码:</Text>
+                          <div style={{ marginTop: 8 }}>
+                            {qualityDetail.checks.consistency.duplicate_codes.map((code: string, index: number) => (
+                              <Tag key={index} color="error" style={{ marginBottom: 4 }}>{code}</Tag>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {qualityDetail.checks.consistency?.code_name_mismatches && qualityDetail.checks.consistency.code_name_mismatches.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>代码名称不匹配:</Text>
+                          <div style={{ marginTop: 8 }}>
+                            {qualityDetail.checks.consistency.code_name_mismatches.map((mismatch: string, index: number) => (
+                              <Tag key={index} color="warning" style={{ marginBottom: 4 }}>{mismatch}</Tag>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {qualityDetail.checks.consistency?.inconsistent_adj_factors && qualityDetail.checks.consistency.inconsistent_adj_factors.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>复权因子不一致:</Text>
+                          <div style={{ marginTop: 8 }}>
+                            {qualityDetail.checks.consistency.inconsistent_adj_factors.map((issue: string, index: number) => (
+                              <Tag key={index} color="warning" style={{ marginBottom: 4 }}>{issue}</Tag>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </Space>
+                  </TabPane>
+                  <TabPane tab="逻辑性" key="logic">
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Row gutter={[16, 8]}>
+                        <Col span={12}>
+                          <Text strong>状态:</Text> {qualityDetail.checks.logic?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
+                        </Col>
+                      </Row>
+                      {qualityDetail.checks.logic?.trading_time_issues && qualityDetail.checks.logic.trading_time_issues.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>交易时间异常:</Text>
+                          <div style={{ marginTop: 8 }}>
+                            {qualityDetail.checks.logic.trading_time_issues.map((issue: string, index: number) => (
+                              <Tag key={index} color="error" style={{ marginBottom: 4 }}>{issue}</Tag>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {qualityDetail.checks.logic?.suspension_issues && qualityDetail.checks.logic.suspension_issues.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>停牌数据问题:</Text>
+                          <div style={{ marginTop: 8 }}>
+                            {qualityDetail.checks.logic.suspension_issues.map((issue: string, index: number) => (
+                              <Tag key={index} color="warning" style={{ marginBottom: 4 }}>{issue}</Tag>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {qualityDetail.checks.logic?.price_limit_issues && qualityDetail.checks.logic.price_limit_issues.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Text strong style={{ color: '#ff4d4f' }}>涨跌停异常 (&gt;±10.1%):</Text>
+                          <div style={{ marginTop: 8 }}>
+                            {qualityDetail.checks.logic.price_limit_issues.map((issue: string, index: number) => (
+                              <Tag key={index} color="error" style={{ marginBottom: 4 }}>{issue}</Tag>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </Space>
+                  </TabPane>
+                  <TabPane tab="覆盖率" key="coverage">
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Row gutter={[16, 8]}>
+                        <Col span={12}>
+                          <Text strong>状态:</Text> {qualityDetail.checks.coverage?.status === 'pass' ? <Tag color="success">通过</Tag> : <Tag color="error">失败</Tag>}
+                        </Col>
+                        <Col span={12}>
+                          <Text strong>数据起始日期:</Text> {qualityDetail.checks.coverage?.data_start_date || '-'}
+                        </Col>
+                        <Col span={12}>
+                          <Text strong>数据结束日期:</Text> {qualityDetail.checks.coverage?.data_end_date || '-'}
+                        </Col>
+                        <Col span={12}>
+                          <Text strong>预期起始日期:</Text> {qualityDetail.checks.coverage?.expected_start_date || '-'}
+                        </Col>
+                        <Col span={12}>
+                          <Text strong>预期结束日期:</Text> {qualityDetail.checks.coverage?.expected_end_date || '-'}
+                        </Col>
+                      </Row>
+                      {qualityDetail.checks.coverage?.missing_historical_data && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Alert
+                            message="缺少历史数据"
+                            description={`缺少 ${qualityDetail.checks.coverage?.historical_gap_days || 0} 天的历史数据`}
+                            type="warning"
+                            showIcon
+                          />
+                        </>
+                      )}
+                      {qualityDetail.checks.coverage?.missing_future_data && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Alert
+                            message="缺少最新数据"
+                            description={`缺少 ${qualityDetail.checks.coverage?.future_gap_days || 0} 天的最新数据`}
+                            type="warning"
+                            showIcon
+                          />
+                        </>
+                      )}
                     </Space>
                   </TabPane>
                 </Tabs>
@@ -2192,6 +2687,7 @@ const DataManagementPage = () => {
       {renderGroupDrawer()}
       {renderGroupModal()}
       {renderBatchAddModal()}
+      {renderCleanDataModal()}
     </PageContainer>
   );
 };

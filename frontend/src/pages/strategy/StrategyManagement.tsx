@@ -1194,7 +1194,7 @@ const StrategyManagement = () => {
       children: (
         <>
           {renderToolbar()}
-          <Spin spinning={loading} tip={t('loading') || '加载中...'}>
+          <Spin spinning={loading} description={t('loading') || '加载中...'}>
             {viewType === 'list' ? renderListView() : renderCardView()}
           </Spin>
         </>
@@ -1212,7 +1212,7 @@ const StrategyManagement = () => {
       children: (
         <>
           {renderBacktestToolbar()}
-          <Spin spinning={backtestLoading} tip="加载中...">
+          <Spin spinning={backtestLoading} description="加载中...">
             {backtestViewType === 'list' ? renderBacktestListView() : renderBacktestCardView()}
           </Spin>
         </>
