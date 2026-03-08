@@ -1326,3 +1326,156 @@ class StrategyService:
             logger.error(f"更新策略实例参数失败: {e}")
             logger.exception(e)
             return False
+
+    def generate_strategy(
+        self,
+        prompt: str,
+        model_id: Optional[int] = None,
+        model_name: Optional[str] = None,
+        provider: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        使用AI模型生成策略代码
+
+        Args:
+            prompt: 策略需求描述
+            model_id: AI模型配置ID
+            model_name: 具体模型名称
+            provider: AI厂商
+            conversation_id: 对话ID
+
+        Returns:
+            Dict: 包含生成的策略代码和说明
+        """
+        try:
+            logger.info(f"开始AI生成策略，prompt: {prompt[:50]}...")
+
+            # 构建系统提示词
+            system_prompt = """你是一个专业的量化交易策略生成助手。
+请根据用户的需求生成一个完整的Python策略代码。
+
+策略代码必须遵循以下规范：
+1. 使用统一的策略接口，继承自 StrategyBase 或 StrategyConfig
+2. 包含完整的配置类和策略类
+3. 包含 on_start、on_bar、on_stop 等生命周期方法
+4. 代码需要包含详细的中文注释
+5. 支持多品种交易
+
+生成的代码应该可以直接运行，不需要用户额外修改。"""
+
+            # 构建用户提示词
+            user_prompt = f"请根据以下需求生成一个量化交易策略：\n\n{prompt}\n\n请生成完整的Python代码，包含：\n1. 策略配置类（继承自 StrategyConfig）\n2. 策略主类（继承自 StrategyBase）\n3. 完整的交易逻辑\n4. 详细的中文注释"
+
+            # 导入AI模型服务
+            from ai_model.services import AIModelService
+
+            # 获取AI模型适配器
+            adapter = None
+            if model_id:
+                # 从数据库获取模型配置
+                from ai_model.models import AIModelBusiness
+                model_config = AIModelBusiness.get_by_id(model_id, include_api_key=True)
+                if model_config:
+                    adapter = AIModelService.get_adapter(
+                        provider=model_config.get("provider", "openai"),
+                        api_key=model_config.get("api_key", ""),
+                        api_host=model_config.get("api_host"),
+                    )
+                    # 使用配置中的模型名称
+                    if not model_name and model_config.get("models"):
+                        model_name = model_config["models"][0]
+
+            # 如果没有找到适配器，使用默认配置
+            if not adapter:
+                logger.warning("未找到AI模型配置，使用默认配置")
+                # 这里可以设置默认的API密钥或抛出错误
+                raise ValueError("未配置AI模型，请先在模型设置中配置AI模型")
+
+            # 调用AI模型生成策略
+            # 构建消息列表
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+
+            # 调用AI模型
+            response = adapter.client.chat.completions.create(
+                model=model_name or "gpt-4",
+                messages=messages,
+                temperature=0.7,
+                max_tokens=4000,
+            )
+
+            # 解析AI响应
+            ai_content = response.choices[0].message.content
+
+            # 提取代码块
+            code = self._extract_code_from_markdown(ai_content)
+
+            # 生成说明
+            explanation = self._extract_explanation(ai_content)
+
+            logger.info("AI生成策略成功")
+
+            return {
+                "code": code,
+                "explanation": explanation,
+                "conversation_id": conversation_id,
+                "model_used": model_name or "gpt-4",
+            }
+
+        except Exception as e:
+            logger.error(f"AI生成策略失败: {e}")
+            logger.exception(e)
+            raise
+
+    def _extract_code_from_markdown(self, content: str) -> str:
+        """
+        从Markdown格式的内容中提取代码块
+
+        Args:
+            content: AI返回的完整内容
+
+        Returns:
+            str: 提取的Python代码
+        """
+        import re
+
+        # 尝试提取Python代码块
+        code_pattern = r'```python\n(.*?)\n```'
+        matches = re.findall(code_pattern, content, re.DOTALL)
+
+        if matches:
+            return matches[0].strip()
+
+        # 如果没有找到Python代码块，尝试提取任意代码块
+        code_pattern = r'```\n(.*?)\n```'
+        matches = re.findall(code_pattern, content, re.DOTALL)
+
+        if matches:
+            return matches[0].strip()
+
+        # 如果都没有找到，返回原始内容
+        return content.strip()
+
+    def _extract_explanation(self, content: str) -> str:
+        """
+        从AI响应中提取说明文字（非代码部分）
+
+        Args:
+            content: AI返回的完整内容
+
+        Returns:
+            str: 提取的说明文字
+        """
+        import re
+
+        # 移除代码块
+        text = re.sub(r'```python\n.*?\n```', '', content, flags=re.DOTALL)
+        text = re.sub(r'```\n.*?\n```', '', text, flags=re.DOTALL)
+
+        # 清理多余空行
+        text = re.sub(r'\n{3,}', '\n\n', text)
+
+        return text.strip()

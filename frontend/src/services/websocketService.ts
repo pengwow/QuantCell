@@ -85,8 +85,8 @@ export class WebSocketService {
         wsUrl += `&topics=${this.config.topics.join(',')}`;
       }
 
-      console.log('[WebSocket] 正在连接到:', wsUrl);
-      console.log('[WebSocket] 配置主题:', this.config.topics);
+      // console.log('[WebSocket] 正在连接到:', wsUrl);
+      // console.log('[WebSocket] 配置主题:', this.config.topics);
       this.socket = new WebSocket(wsUrl);
 
       this.socket.onopen = () => {
@@ -107,7 +107,7 @@ export class WebSocketService {
       this.socket.onmessage = (event) => {
         try {
           const rawData = event.data;
-          console.log('[WebSocket] 收到原始数据:', rawData);
+          // console.log('[WebSocket] 收到原始数据:', rawData);
           const message: WebSocketMessage = JSON.parse(rawData);
 
           if (message.type === 'kline') {
@@ -172,7 +172,7 @@ export class WebSocketService {
 
     if (this.isConnected && this.socket) {
       try {
-        console.log('[WebSocket] 发送消息:', fullMessage.type, fullMessage);
+        // console.log('[WebSocket] 发送消息:', fullMessage.type, fullMessage);
         this.socket.send(JSON.stringify(fullMessage));
       } catch (error) {
         console.error('[WebSocket] 发送消息失败:', error);
@@ -192,7 +192,7 @@ export class WebSocketService {
    */
   subscribe(topics: string | string[]): void {
     const topicList = Array.isArray(topics) ? topics : [topics];
-    console.log('[WebSocket] 订阅主题:', topicList);
+    // console.log('[WebSocket] 订阅主题:', topicList);
     this.send({
       type: 'subscribe',
       data: {
@@ -339,25 +339,25 @@ export class WebSocketService {
     }
 
     if (message.type === 'kline') {
-      console.log('[WebSocket] 收到K线数据:', message.data);
+      // console.log('[WebSocket] 收到K线数据:', message.data);
       this.notifyListeners('kline', message.data);
       this.notifyListeners('kline:update', message.data);
       return;
     }
 
     if (message.type === 'task:progress') {
-      console.log('[WebSocket] 收到任务进度消息:', message);
+      // console.log('[WebSocket] 收到任务进度消息:', message);
       this.notifyListeners('task:progress', message.data);
       return;
     }
 
     if (message.type === 'task:status') {
-      console.log('[WebSocket] 收到任务状态消息:', message);
+      // console.log('[WebSocket] 收到任务状态消息:', message);
       this.notifyListeners('task:status', message.data);
       return;
     }
 
-    console.log('收到其他消息:', message.type, message.data);
+    // console.log('收到其他消息:', message.type, message.data);
     this.notifyListeners(message.type, message.data);
   }
 

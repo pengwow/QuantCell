@@ -150,6 +150,14 @@ export const strategyApi = {
   parseStrategy: (strategy_name: string, file_content: string) => {
     return apiRequest.post('/strategy/parse', { strategy_name, file_content });
   },
+
+  /**
+   * AI生成策略
+   * @param data 生成请求数据
+   */
+  generateStrategy: (data: any) => {
+    return apiRequest.post('/strategy/generate', data);
+  },
 };
 
 /**
@@ -504,6 +512,14 @@ export const aiModelApi = {
    */
   getProviders: () => {
     return apiRequest.get('/ai-models/providers');
+  },
+
+  /**
+   * 获取默认提供商的模型列表
+   * 返回默认提供商中 is_enabled 为 true 的模型列表
+   */
+  getDefaultProviderModels: () => {
+    return apiRequest.get('/ai-models/default-provider/models');
   },
 };
 
