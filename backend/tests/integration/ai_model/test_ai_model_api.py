@@ -194,6 +194,123 @@ class TestAIModelAPI:
         assert data["code"] == 0
         assert len(data["data"]["providers"]) == 2
 
+    def test_check_ai_model_availability(self, client, mock_auth, mock_should_refresh):
+        """测试检查AI模型可用性"""
+        with patch("ai_model.services.AIModelService.check_provider_availability") as mock_check:
+            mock_check.return_value = {
+                "available": True,
+                "message": "OpenAI服务可用",
+                "models": [
+                    {"id": "gpt-4", "name": "gpt-4", "description": "GPT-4模型", "provider": "openai"}
+                ]
+            }
+
+            response = client.post(
+                "/api/ai-models/check",
+                headers={"Authorization": "Bearer test_token"},
+                json={
+                    "provider": "openai",
+                    "api_key": "sk-test123456789",
+                    "api_host": "https://api.openai.com"
+                }
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 0
+        assert data["data"]["available"] is True
+        assert len(data["data"]["models"]) == 1
+
+    def test_check_ai_model_availability_invalid_provider(self, client, mock_auth, mock_should_refresh):
+        """测试检查无效厂商的模型可用性"""
+        with patch("ai_model.services.AIModelService.check_provider_availability") as mock_check:
+            mock_check.return_value = {
+                "available": False,
+                "message": "不支持的厂商: invalid_provider",
+                "error": "Unsupported provider",
+                "supported_providers": ["openai", "anthropic"]
+            }
+
+            response = client.post(
+                "/api/ai-models/check",
+                headers={"Authorization": "Bearer test_token"},
+                json={
+                    "provider": "invalid_provider",
+                    "api_key": "sk-test123456789",
+                    "api_host": "https://api.openai.com"
+                }
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 0
+        assert data["data"]["available"] is False
+
+    def test_get_available_models(self, client, mock_auth, mock_should_refresh):
+        """测试获取配置的可用模型列表"""
+        with patch("ai_model.models.AIModelBusiness.get_by_id") as mock_get_config, \
+             patch("ai_model.services.AIModelService.fetch_available_models") as mock_fetch:
+            
+            mock_get_config.return_value = {
+                "id": 1,
+                "provider": "openai",
+                "name": "Test Config",
+                "api_host": "https://api.openai.com",
+                "api_key": "sk-test123456789"
+            }
+            
+            mock_fetch.return_value = [
+                {"id": "gpt-4", "name": "gpt-4", "description": "GPT-4模型", "provider": "openai"},
+                {"id": "gpt-3.5-turbo", "name": "gpt-3.5-turbo", "description": "GPT-3.5 Turbo模型", "provider": "openai"}
+            ]
+
+            response = client.get(
+                "/api/ai-models/1/models",
+                headers={"Authorization": "Bearer test_token"}
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 0
+        assert data["data"]["provider"] == "openai"
+        assert data["data"]["total"] == 2
+        assert len(data["data"]["models"]) == 2
+
+    def test_get_available_models_config_not_found(self, client, mock_auth, mock_should_refresh):
+        """测试获取不存在配置的可用模型列表"""
+        with patch("ai_model.models.AIModelBusiness.get_by_id") as mock_get_config:
+            mock_get_config.return_value = None
+
+            response = client.get(
+                "/api/ai-models/999/models",
+                headers={"Authorization": "Bearer test_token"}
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 1
+        assert "AI模型配置不存在" in data["message"]
+
+    def test_get_available_models_no_api_key(self, client, mock_auth, mock_should_refresh):
+        """测试获取没有API密钥的配置的可用模型列表"""
+        with patch("ai_model.models.AIModelBusiness.get_by_id") as mock_get_config:
+            mock_get_config.return_value = {
+                "id": 1,
+                "provider": "openai",
+                "name": "Test Config",
+                "api_host": "https://api.openai.com"
+            }
+
+            response = client.get(
+                "/api/ai-models/1/models",
+                headers={"Authorization": "Bearer test_token"}
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 1
+        assert "配置中没有API密钥" in data["message"]
+
 
 class TestAIModelAuth:
     """AI模型配置认证测试类"""
