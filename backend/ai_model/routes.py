@@ -29,7 +29,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request
 from loguru import logger
 
 from common.schemas import ApiResponse
-from utils.auth import jwt_auth_required_sync
+from utils.auth import jwt_auth_required, jwt_auth_required_sync
 
 from .models import AIModelBusiness
 from .schemas import (
@@ -62,7 +62,7 @@ def get_ai_models(
 
     Args:
         request: FastAPI请求对象
-        page: 页码，从1开始
+        page: 页码，从1开始 
         limit: 每页记录数
         provider: 按厂商筛选
         is_enabled: 按启用状态筛选
@@ -182,7 +182,7 @@ def get_supported_providers(request: Request):
 
 
 @router.post("/check", response_model=ApiResponse)
-@jwt_auth_required_sync
+@jwt_auth_required
 async def check_ai_model_availability(
     request: Request,
     check_request: AIModelCheckRequest,
@@ -393,7 +393,7 @@ def delete_ai_model(
 
 
 @router.get("/{model_id}/models", response_model=ApiResponse)
-@jwt_auth_required_sync
+@jwt_auth_required
 async def get_available_models(
     request: Request,
     model_id: int = Path(..., ge=1, description="配置ID"),
