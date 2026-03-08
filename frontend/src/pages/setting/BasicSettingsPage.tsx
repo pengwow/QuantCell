@@ -35,7 +35,7 @@ const BasicSettingsPage = () => {
 
   return (
     <PageContainer title={t('basic_settings') || '基本设置'}>
-      <Spin spinning={loading} tip={t('loading') || '加载中...'}>
+      <Spin spinning={loading} description={t('loading') || '加载中...'}>
         <div className="space-y-6">
           <BasicSettings
             settings={appearanceSettings}

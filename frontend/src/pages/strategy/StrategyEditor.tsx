@@ -923,7 +923,7 @@ class AIGeneratedStrategy(StrategyBase):
 
       {/* 主内容区域 */}
       <Card>
-        <Spin spinning={editorLoading} tip="加载中...">
+        <Spin spinning={editorLoading} description="加载中...">
           <Tabs
             activeKey={activeTabKey}
             onChange={handleTabChange}
@@ -962,7 +962,7 @@ class AIGeneratedStrategy(StrategyBase):
                 label: <><EyeOutlined /> {t('preview') || '预览'}</>,
                 children: (
                   <div className="p-5">
-                    <Spin spinning={isParsing} tip="解析策略中...">
+                    <Spin spinning={isParsing} description="解析策略中...">
                       {parseError ? (
                         <div className="p-6 text-center border border-red-300 rounded-lg bg-red-50 dark:bg-red-900/20">
                           <CloseCircleOutlined className="text-4xl text-red-500 mb-4" />

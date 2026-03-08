@@ -3,12 +3,13 @@
  * 参考 certimate 项目登录页面设计
  * 默认填充 admin/123456 用于演示生成 JWT token
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { IconArrowRight, IconLock, IconUser } from "@tabler/icons-react";
 import { Button, Card, Form, Input, Space, Typography, message } from "antd";
 import { saveToken } from "../../utils/tokenManager";
+import { configApi } from "../../api";
 
 const { Title, Text } = Typography;
 
@@ -18,11 +19,77 @@ const DEFAULT_CREDENTIALS = {
   password: "123456",
 };
 
+// 应用主题函数
+const applyTheme = (theme: 'light' | 'dark' | 'auto') => {
+  const root = document.documentElement;
+  let effectiveTheme: 'light' | 'dark';
+
+  if (theme === 'auto') {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    effectiveTheme = prefersDark ? 'dark' : 'light';
+  } else {
+    effectiveTheme = theme;
+  }
+
+  // 设置 data-theme 属性（用于 CSS 变量选择）
+  root.setAttribute('data-theme', effectiveTheme);
+
+  // 同时设置/移除 dark class（用于 App.tsx 中的主题监听和 Tailwind 暗色模式）
+  if (effectiveTheme === 'dark') {
+    root.classList.add('dark');
+  } else {
+    root.classList.remove('dark');
+  }
+
+  // 同步到 localStorage（用于 useBrowserTheme hook）
+  localStorage.setItem('quantcell-ui-theme', effectiveTheme);
+};
+
+// 加载主题配置
+const loadThemeConfig = async () => {
+  try {
+    // 先尝试从 localStorage 获取
+    const savedTheme = localStorage.getItem('quantcell-ui-theme');
+    if (savedTheme) {
+      applyTheme(savedTheme as 'light' | 'dark' | 'auto');
+      return;
+    }
+
+    // 如果没有，从后端获取
+    const response = await configApi.getConfig();
+    const groupedConfig = response?.data || response;
+
+    // 将分组配置扁平化
+    const flattenConfig: Record<string, any> = {};
+    if (groupedConfig && typeof groupedConfig === 'object') {
+      Object.entries(groupedConfig).forEach(([, groupValues]) => {
+        if (groupValues && typeof groupValues === 'object') {
+          Object.entries(groupValues as Record<string, any>).forEach(([key, value]) => {
+            flattenConfig[key] = value;
+          });
+        }
+      });
+    }
+
+    const theme = flattenConfig['theme'] || 'light';
+    applyTheme(theme as 'light' | 'dark' | 'auto');
+  } catch (error) {
+    console.error('加载主题配置失败:', error);
+    // 默认使用浅色主题
+    applyTheme('light');
+  }
+};
+
 const LoginPage = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+
+  // 加载主题配置
+  useEffect(() => {
+    loadThemeConfig();
+  }, []);
 
   // 背景样式 - 参考 certimate 的网格背景
   const bgStyle = useMemo<React.CSSProperties>(() => {
@@ -74,7 +141,7 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="relative min-h-screen w-full">
+    <div className="relative min-h-screen w-full bg-background text-foreground">
       {/* 背景 */}
       <div
         className="pointer-events-none fixed inset-0"
@@ -83,7 +150,7 @@ const LoginPage = () => {
 
       {/* 登录卡片 */}
       <div className="flex h-screen w-full items-center justify-center px-4">
-        <Card className="w-full max-w-md rounded-lg shadow-lg">
+        <Card className="w-full max-w-md rounded-lg shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
           <div className="px-6 py-8">
             {/* Logo */}
             <div className="mb-8 flex flex-col items-center justify-center">
@@ -96,10 +163,10 @@ const LoginPage = () => {
                   (e.target as HTMLImageElement).style.display = "none";
                 }}
               />
-              <Title level={3} className="m-0">
+              <Title level={3} className="m-0 dark:text-white">
                 QuantCell
               </Title>
-              <Text type="secondary">
+              <Text type="secondary" className="dark:text-gray-400">
                 {t("login_subtitle") || "量化交易平台"}
               </Text>
             </div>
@@ -114,7 +181,7 @@ const LoginPage = () => {
             >
               <Form.Item
                 name="username"
-                label={t("username") || "用户名"}
+                label={<span className="dark:text-gray-300">{t("username") || "用户名"}</span>}
                 rules={[
                   {
                     required: true,
@@ -123,14 +190,14 @@ const LoginPage = () => {
                 ]}
               >
                 <Space.Compact block className="h-10">
-                  <Button 
-                    icon={<IconUser size="1.25em" />} 
-                    disabled 
-                    className="h-10 flex items-center justify-center"
+                  <Button
+                    icon={<IconUser size="1.25em" />}
+                    disabled
+                    className="h-10 flex items-center justify-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
                   />
                   <Input
                     placeholder={t("enter_username") || "请输入用户名"}
-                    className="h-10"
+                    className="h-10 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
                     autoFocus
                   />
                 </Space.Compact>
@@ -138,7 +205,7 @@ const LoginPage = () => {
 
               <Form.Item
                 name="password"
-                label={t("password") || "密码"}
+                label={<span className="dark:text-gray-300">{t("password") || "密码"}</span>}
                 rules={[
                   {
                     required: true,
@@ -147,14 +214,14 @@ const LoginPage = () => {
                 ]}
               >
                 <Space.Compact block className="h-10">
-                  <Button 
-                    icon={<IconLock size="1.25em" />} 
-                    disabled 
-                    className="h-10 flex items-center justify-center"
+                  <Button
+                    icon={<IconLock size="1.25em" />}
+                    disabled
+                    className="h-10 flex items-center justify-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
                   />
                   <Input.Password
                     placeholder={t("enter_password") || "请输入密码"}
-                    className="h-10"
+                    className="h-10 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
                   />
                 </Space.Compact>
               </Form.Item>
@@ -176,7 +243,7 @@ const LoginPage = () => {
 
             {/* 提示信息 */}
             <div className="mt-6 text-center">
-              <Text type="secondary" className="text-sm">
+              <Text type="secondary" className="text-sm dark:text-gray-400">
                 {t("demo_hint") || "演示模式：默认已填写用户名和密码"}
               </Text>
             </div>

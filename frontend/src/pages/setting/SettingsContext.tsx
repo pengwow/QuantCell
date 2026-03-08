@@ -119,12 +119,27 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
   // 应用主题
   const applyTheme = useCallback((theme: 'light' | 'dark' | 'auto') => {
     const root = document.documentElement;
+    let effectiveTheme: 'light' | 'dark';
+
     if (theme === 'auto') {
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+      effectiveTheme = prefersDark ? 'dark' : 'light';
     } else {
-      root.setAttribute('data-theme', theme);
+      effectiveTheme = theme;
     }
+
+    // 设置 data-theme 属性（用于 CSS 变量选择）
+    root.setAttribute('data-theme', effectiveTheme);
+
+    // 同时设置/移除 dark class（用于 App.tsx 中的主题监听和 Tailwind 暗色模式）
+    if (effectiveTheme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+
+    // 同步到 localStorage（用于 useBrowserTheme hook）
+    localStorage.setItem('quantcell-ui-theme', effectiveTheme);
   }, []);
 
   // 刷新系统指标

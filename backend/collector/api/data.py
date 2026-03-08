@@ -140,16 +140,19 @@ async def check_kline_quality(
 ):
     """
     K线数据质量检查API
-    
+
     用于检查数据库中K线数据的质量，包括完整性、连续性、有效性和唯一性
     """
     # 导入健康检查服务
     from backend.collector.services.kline_health_service import KlineHealthChecker
-    
+
+    # 格式化 symbol 字段，去除其中的 "/" 字符（前端传递的如 ETH/USDT 需要转换为 ETHUSDT）
+    formatted_symbol = symbol.replace("/", "")
+
     # 解析时间参数
     start_dt = None
     end_dt = None
-    
+
     if start:
         try:
             start_dt = datetime.fromisoformat(start)
@@ -158,7 +161,7 @@ async def check_kline_quality(
                 start_dt = datetime.strptime(start, "%Y-%m-%d")
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"无效的开始时间格式: {start}")
-    
+
     if end:
         try:
             end_dt = datetime.fromisoformat(end)
@@ -167,10 +170,10 @@ async def check_kline_quality(
                 end_dt = datetime.strptime(end, "%Y-%m-%d")
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"无效的结束时间格式: {end}")
-    
+
     # 执行健康检查
     checker = KlineHealthChecker()
-    result = checker.check_all(symbol, interval, start_dt, end_dt, market_type, crypto_type)
+    result = checker.check_all(formatted_symbol, interval, start_dt, end_dt, market_type, crypto_type)
     
     return ApiResponse(
         code=0,
@@ -433,6 +436,186 @@ async def resolve_kline_duplicates(
 
 # 将数据质量路由挂载到主路由下
 router.include_router(quality_router)
+
+
+# 数据清理路由
+@router.post("/clean", response_model=ApiResponse)
+async def clean_kline_data(
+    symbol: str = Query(..., description="货币对，如BTCUSDT"),
+    interval: Optional[str] = Query(None, description="时间周期，如1m, 5m, 1h, 1d，为空时清理所有周期"),
+    start: Optional[str] = Query(None, description="开始时间，格式为YYYY-MM-DD HH:MM:SS或YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="结束时间，格式为YYYY-MM-DD HH:MM:SS或YYYY-MM-DD"),
+    clean_type: str = Query("all", description="清理类型：all(全部), duplicates(仅重复), invalid(仅无效数据)"),
+    market_type: str = Query("crypto", description="市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币）"),
+    crypto_type: str = Query("spot", description="加密货币类型，当market_type为crypto时有效，可选值：spot（现货）、future（合约）"),
+    db: Session = Depends(get_db)
+):
+    """
+    清理K线数据API
+    
+    用于清理数据库中的K线数据，支持按货币对、时间周期、时间范围清理
+    支持清理重复数据、无效数据或全部清理
+    
+    Args:
+        symbol: 货币对
+        interval: 时间周期，为空时清理所有周期
+        start: 开始时间
+        end: 结束时间
+        clean_type: 清理类型
+        market_type: 市场类型
+        crypto_type: 加密货币类型
+        db: 数据库会话
+        
+    Returns:
+        ApiResponse: 清理结果
+    """
+    from datetime import datetime
+    from backend.collector.services.kline_health_service import KlineHealthChecker
+    
+    # 格式化 symbol 字段，去除其中的 "/" 字符
+    formatted_symbol = symbol.replace("/", "")
+    
+    # 解析时间参数
+    start_dt = None
+    end_dt = None
+    
+    if start:
+        try:
+            start_dt = datetime.fromisoformat(start)
+        except ValueError:
+            try:
+                start_dt = datetime.strptime(start, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"无效的开始时间格式: {start}")
+    
+    if end:
+        try:
+            end_dt = datetime.fromisoformat(end)
+        except ValueError:
+            try:
+                end_dt = datetime.strptime(end, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"无效的结束时间格式: {end}")
+    
+    # 根据市场类型和加密货币类型选择相应的模型
+    KlineModel = None
+    if market_type == "crypto":
+        if crypto_type == "spot":
+            KlineModel = CryptoSpotKline
+        elif crypto_type == "future":
+            KlineModel = CryptoFutureKline
+        else:
+            raise HTTPException(status_code=400, detail=f"不支持的加密货币类型: {crypto_type}")
+    elif market_type == "stock":
+        KlineModel = StockKline
+    else:
+        raise HTTPException(status_code=400, detail=f"不支持的市场类型: {market_type}")
+    
+    try:
+        # 构建基础查询
+        query = db.query(KlineModel).filter(KlineModel.symbol == formatted_symbol)
+        
+        # 添加时间周期过滤
+        if interval:
+            query = query.filter(KlineModel.interval == interval)
+        
+        # 添加时间范围过滤
+        if start_dt:
+            query = query.filter(KlineModel.timestamp >= start_dt)
+        if end_dt:
+            query = query.filter(KlineModel.timestamp <= end_dt)
+        
+        # 获取清理前的记录数
+        total_before = query.count()
+        
+        deleted_count = 0
+        
+        if clean_type == "all":
+            # 清理所有匹配的数据
+            deleted_count = query.delete(synchronize_session=False)
+            
+        elif clean_type == "duplicates":
+            # 仅清理重复数据
+            # 获取数据
+            checker = KlineHealthChecker()
+            df = checker.get_kline_data(formatted_symbol, interval or "1m", start_dt, end_dt, market_type, crypto_type)
+            
+            if not df.empty and 'timestamp' in df.columns:
+                # 找出重复的时间戳
+                duplicate_timestamps = df[df.duplicated(subset=['timestamp'], keep=False)]['timestamp'].unique()
+                
+                # 删除重复记录（保留第一条）
+                for ts in duplicate_timestamps:
+                    # 获取该时间戳的所有记录
+                    records = db.query(KlineModel).filter(
+                        KlineModel.symbol == formatted_symbol,
+                        KlineModel.timestamp == ts
+                    ).all()
+                    
+                    if len(records) > 1:
+                        # 保留第一条，删除其他
+                        for record in records[1:]:
+                            db.delete(record)
+                            deleted_count += 1
+                            
+        elif clean_type == "invalid":
+            # 仅清理无效数据
+            # 获取数据
+            checker = KlineHealthChecker()
+            df = checker.get_kline_data(formatted_symbol, interval or "1m", start_dt, end_dt, market_type, crypto_type)
+            
+            if not df.empty:
+                # 找出无效记录
+                invalid_indices = set()
+                
+                # 负价格
+                negative_prices = df[(df['open'] < 0) | (df['high'] < 0) | (df['low'] < 0) | (df['close'] < 0)]
+                invalid_indices.update(negative_prices.index.tolist())
+                
+                # 负成交量
+                negative_volumes = df[df['volume'] < 0]
+                invalid_indices.update(negative_volumes.index.tolist())
+                
+                # 高低价异常
+                invalid_high_low = df[df['high'] < df['low']]
+                invalid_indices.update(invalid_high_low.index.tolist())
+                
+                # 删除无效记录
+                for idx in invalid_indices:
+                    if idx < len(df):
+                        row = df.iloc[idx]
+                        record = db.query(KlineModel).filter(
+                            KlineModel.symbol == formatted_symbol,
+                            KlineModel.timestamp == row['timestamp']
+                        ).first()
+                        if record:
+                            db.delete(record)
+                            deleted_count += 1
+        
+        # 提交事务
+        db.commit()
+        
+        return ApiResponse(
+            code=0,
+            message=f"数据清理完成",
+            data={
+                "symbol": formatted_symbol,
+                "interval": interval,
+                "clean_type": clean_type,
+                "start_time": start,
+                "end_time": end,
+                "total_before": total_before,
+                "deleted_count": deleted_count,
+                "market_type": market_type,
+                "crypto_type": crypto_type
+            }
+        )
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"数据清理失败: {e}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=f"数据清理失败: {str(e)}")
 
 
 @router.post("/load", response_model=ApiResponse)

@@ -55,7 +55,6 @@ const ConsoleLayout = () => {
           <div className="w-full px-2 pb-2">
             <Menu
               style={{ background: "transparent", borderInlineEnd: "none" }}
-              inlineCollapsed={siderCollapsed}
               items={[
                 {
                   key: "document",
@@ -64,7 +63,7 @@ const ConsoleLayout = () => {
                       <IconHelp size="1em" />
                     </span>
                   ),
-                  label: t('help') || "帮助",
+                  label: siderCollapsed ? undefined : (t('help') || "帮助"),
                   onClick: handleDocumentClick,
                 },
                 {
@@ -74,7 +73,7 @@ const ConsoleLayout = () => {
                       <IconSettings size="1em" />
                     </span>
                   ),
-                  label: t('setting') || "设置",
+                  label: siderCollapsed ? undefined : (t('setting') || "设置"),
                   onClick: () => navigate("/setting"),
                 },
               ]}
@@ -168,7 +167,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
           {icon}
         </span>
       ),
-      label: t(label),
+      label: collapsed ? undefined : t(label),
       onClick: () => {
         navigate(key);
         onSelect?.(key);
@@ -215,7 +214,6 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       <div className="w-full grow overflow-x-hidden overflow-y-auto">
         <Menu
           style={{ background: "transparent", borderInlineEnd: "none" }}
-          inlineCollapsed={collapsed}
           items={menuItems}
           mode="vertical"
           selectedKeys={menuSelectedKey ? [menuSelectedKey] : []}

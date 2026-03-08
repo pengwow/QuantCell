@@ -137,7 +137,7 @@ const BacktestDetail = () => {
     return (
       <PageContainer title={detailData?.strategy_name || '回测详情'}>
         <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}>
-          <Spin size="large" tip="加载中..." />
+          <Spin size="large" description="加载中..." />
         </div>
       </PageContainer>
     );

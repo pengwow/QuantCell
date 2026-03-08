@@ -107,7 +107,7 @@ const AppearanceSettingsPage = () => {
   };
 
   return (
-    <Spin spinning={loading} tip={t('loading') || '加载中...'}>
+    <Spin spinning={loading} description={t('loading') || '加载中...'}>
       <div className="space-y-6">
         {/* 主题设置 */}
         <div>

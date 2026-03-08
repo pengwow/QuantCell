@@ -58,6 +58,7 @@ dependencies = [
     "backtrader>=1.9.78.123",
     "python-binance>=1.0.34",
     "nautilus_trader>=1.222.0",
+    "openai>=2.26.0",
 ]
 
 [tool.pytest.ini_options]
