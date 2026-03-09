@@ -12,8 +12,10 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime
 import typer
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .config import load_config, create_default_config, SimulationConfig
 from .data_loader import create_data_loader
 from .data_pusher import create_data_pusher

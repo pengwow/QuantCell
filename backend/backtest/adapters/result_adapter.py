@@ -16,9 +16,10 @@ trading engine 回测结果适配器
 import pandas as pd
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 def convert_default_results(advanced_result: Any) -> Dict[str, Any]:
     """
     将 trading engine 回测结果转换为内部格式

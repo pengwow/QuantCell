@@ -14,9 +14,10 @@ from typing import Optional
 
 import tomli
 import tomli_w
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 配置文件路径
 CONFIG_FILE = Path(__file__).parent.parent / "config.toml"
 BACKUP_FILE = Path(__file__).parent.parent / "config.toml.bak"

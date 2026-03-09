@@ -8,8 +8,10 @@ import asyncio
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass
 from datetime import datetime
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .worker_process import WorkerProcess
 from .state import WorkerState, WorkerStatus
 

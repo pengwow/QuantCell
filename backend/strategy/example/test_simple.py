@@ -15,8 +15,10 @@ if project_dir not in sys.path:
 
 import numpy as np
 import pandas as pd
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 尝试导入策略和适配器，如果不存在则创建简单版本用于测试
 try:
     from backend.strategies.grid_trading import GridTradingStrategy

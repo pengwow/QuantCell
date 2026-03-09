@@ -27,14 +27,17 @@ import json
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from common.schemas import ApiResponse
 from utils.auth import jwt_auth_required, jwt_auth_required_sync
 
 # 导入系统配置模型
 from settings.models import SystemConfigBusiness as SystemConfig
 
+from .config_utils import get_default_provider_and_models
 from .schemas import (
     AIModelCheckRequest,
     AIModelCreate,
@@ -518,102 +521,58 @@ def delete_ai_model(
 def get_default_provider_models(
     request: Request,
 ):
-    """获取默认提供商的模型列表
+    """获取默认提供商的模型
 
-    从系统配置中读取默认提供商的配置，返回其 models 字段中 is_enabled 为 true 的模型列表。
+    从系统配置中读取默认提供商的配置，返回其第一个启用的模型。
+    使用 get_default_provider_and_models 公共方法获取配置。
 
     Args:
         request: FastAPI请求对象
 
     Returns:
-        ApiResponse: 包含默认提供商模型列表的响应
+        ApiResponse: 包含默认提供商和默认模型的响应
 
     Responses:
-        200: 成功获取模型列表
+        200: 成功获取模型
         401: 未授权访问
         404: 默认提供商不存在
         500: 获取失败
     """
     try:
-        logger.info("获取默认提供商的模型列表")
+        logger.info("获取默认提供商的模型")
 
-        # 从系统配置表读取所有配置
-        all_configs = SystemConfig.get_all_with_details()
-        
-        # 查找默认提供商ID
-        default_provider_id = None
-        providers_config = None
-        
-        for key, config in all_configs.items():
-            if not isinstance(config, dict):
-                continue
-            if config.get("name") == AI_MODELS_CONFIG_NAME:
-                # 查找 default_provider
-                if key == "default_provider":
-                    default_provider_id = config.get("value", "")
-                # 查找 providers 配置
-                elif key == "providers":
-                    try:
-                        providers_config = json.loads(config.get("value", "[]"))
-                    except json.JSONDecodeError:
-                        logger.warning(f"解析 providers 配置失败")
-        
-        if not default_provider_id:
+        # 使用公共方法获取默认提供商和模型
+        result = get_default_provider_and_models()
+
+        if not result:
             return ApiResponse(
                 code=1,
-                message="未设置默认提供商",
+                message="未配置默认AI模型或提供商",
                 data=None,
             )
-        
-        if not providers_config:
-            return ApiResponse(
-                code=1,
-                message="未找到提供商配置",
-                data=None,
-            )
-        
-        # 查找默认提供商的配置
-        default_provider = None
-        for provider in providers_config:
-            if isinstance(provider, dict) and provider.get("id") == default_provider_id:
-                default_provider = provider
-                break
-        
-        if not default_provider:
-            return ApiResponse(
-                code=1,
-                message="默认提供商不存在",
-                data=None,
-            )
-        
-        # 获取 models 字段中 is_enabled 为 true 的模型
-        models = default_provider.get("models", [])
-        enabled_models = [
-            {
-                "id": model.get("id"),
-                "name": model.get("name"),
-            }
-            for model in models
-            if isinstance(model, dict) and model.get("is_enabled", False)
-        ]
-        
-        logger.info(f"默认提供商 {default_provider_id} 有 {len(enabled_models)} 个启用的模型")
+
+        provider = result["provider"]
+        enabled_models = result["enabled_models"]
+
+        # 获取第一个启用的模型作为默认模型
+        default_model = enabled_models[0] if enabled_models else None
+
+        logger.info(f"默认提供商 {provider['id']} 的默认模型: {default_model['name'] if default_model else '无'}")
 
         return ApiResponse(
             code=0,
-            message="获取默认提供商模型列表成功",
+            message="获取默认提供商模型成功",
             data={
                 "provider": {
-                    "id": default_provider.get("id"),
-                    "name": default_provider.get("name"),
-                    "provider": default_provider.get("provider"),
+                    "id": provider.get("id"),
+                    "name": provider.get("name"),
+                    "provider": provider.get("provider"),
                 },
-                "models": enabled_models,
-                "total": len(enabled_models),
+                "model": default_model,
             },
         )
     except Exception as e:
-        logger.error(f"获取默认提供商模型列表失败: {e}")
+        logger.error(f"获取默认提供商模型失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

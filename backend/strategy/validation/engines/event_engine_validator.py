@@ -5,8 +5,10 @@
 
 from typing import Any, Dict, List, Optional
 from datetime import datetime
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from ..core.base import BaseValidator, ValidationResult, ValidationSeverity, ValidationSuite
 from ..core.registry import register_validator
 

@@ -4,8 +4,10 @@ from typing import Optional, Union
 
 import pandas as pd
 import requests
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from exchange.base import BaseCollector
 from utils.decorators import deco_retry
 

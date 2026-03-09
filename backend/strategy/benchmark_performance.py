@@ -5,9 +5,10 @@ import numpy as np
 import pandas as pd
 import time
 from typing import Dict, Any
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 def generate_test_data(n_steps: int = 10000, n_assets: int = 10) -> Dict[str, np.ndarray]:
     """
     生成测试数据

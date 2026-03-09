@@ -6,8 +6,10 @@
 
 from typing import Dict, List, Optional, Callable, Any, Set
 from dataclasses import dataclass, field
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .protocol import Message, MessageType, MessageTopic
 from .comm_manager import CommManager
 

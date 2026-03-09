@@ -10,8 +10,10 @@ import signal
 import os
 from typing import Dict, Any, Optional, Callable
 from datetime import datetime
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .ipc import WorkerCommClient, Message, MessageType
 from .state import WorkerState, WorkerStatus
 

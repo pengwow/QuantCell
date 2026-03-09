@@ -5,7 +5,10 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 from fastapi import (APIRouter, BackgroundTasks, Depends, HTTPException, Path,
                      Query, Request)
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from sqlalchemy.orm import Session
 
 from ..db.database import get_db

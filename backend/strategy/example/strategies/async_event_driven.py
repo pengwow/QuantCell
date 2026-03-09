@@ -14,8 +14,10 @@ import time
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from collections import defaultdict
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from strategy.core import (
     AsyncEventEngine,
     create_async_engine,

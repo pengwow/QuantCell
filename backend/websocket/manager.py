@@ -7,8 +7,10 @@ from datetime import datetime
 from typing import Dict, Set, Optional, Any, List
 import threading
 
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 自定义JSON编码器，处理datetime对象
 class DateTimeEncoder(json.JSONEncoder):
     def default(self, obj):

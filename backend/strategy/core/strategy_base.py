@@ -7,9 +7,10 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 from decimal import Decimal, getcontext, ROUND_DOWN, ROUND_UP, ROUND_HALF_UP
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 getcontext().prec = 28
 
 

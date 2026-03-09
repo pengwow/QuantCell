@@ -22,8 +22,10 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from nautilus_trader.model.data import QuoteTick, TradeTick, Bar
 from nautilus_trader.model.data import BarType, BarSpecification
 from nautilus_trader.model.objects import Price, Quantity

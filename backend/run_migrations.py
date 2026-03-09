@@ -12,8 +12,10 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from collector.db.migrations import run_migrations
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 if __name__ == "__main__":
     logger.info("开始执行数据库迁移...")
     try:

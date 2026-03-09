@@ -3,8 +3,10 @@
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .schemas import (ApiResponse, ModelConfigRequest, ModelDeleteRequest,
                       ModelEvaluateRequest, ModelListRequest, ModelLoadRequest,
                       ModelPredictRequest, ModelSaveRequest, ModelTrainRequest)

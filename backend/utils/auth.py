@@ -6,8 +6,10 @@ from typing import Callable, Optional, Any
 
 from fastapi import Depends, HTTPException, Request, Response
 from functools import wraps
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .jwt_utils import (
     decode_jwt_token, 
     verify_jwt_token, 

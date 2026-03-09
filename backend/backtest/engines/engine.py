@@ -15,8 +15,10 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 交易引擎核心导入
 from nautilus_trader.backtest.node import (
     BacktestDataConfig,

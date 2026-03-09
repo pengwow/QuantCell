@@ -13,7 +13,10 @@ import time
 
 import typer
 from typing_extensions import Annotated
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from sqlalchemy import func
 import pandas as pd
 

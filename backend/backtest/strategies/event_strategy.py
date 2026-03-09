@@ -20,9 +20,10 @@ from abc import abstractmethod
 from decimal import Decimal
 from typing import Any, Optional
 
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 class EventDrivenStrategyConfig:
     """
     事件驱动策略配置基类

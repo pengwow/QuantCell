@@ -12,8 +12,10 @@ import asyncio
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any, Callable
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from collector.services.data_service import DataService
 from collector.schemas.data import DownloadCryptoRequest
 from collector.utils.task_manager import task_manager

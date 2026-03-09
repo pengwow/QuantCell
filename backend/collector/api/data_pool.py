@@ -6,8 +6,10 @@
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request, status
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from ..db import DataPoolBusiness as DataPool
 from ..schemas import ApiResponse
 from ..schemas_data_pool import (

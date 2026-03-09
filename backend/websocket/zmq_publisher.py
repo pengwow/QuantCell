@@ -6,9 +6,10 @@ import zmq.asyncio
 import asyncio
 import json
 from typing import Optional, Dict, Any
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 class ZMQWebSocketPublisher:
     """ZMQ WebSocket 发布器
     

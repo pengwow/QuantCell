@@ -8,8 +8,10 @@ import tempfile
 from pathlib import Path
 
 import pandas as pd
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.append(str(project_root))

@@ -5,9 +5,10 @@ from queue import Queue, Empty
 from threading import Thread
 from typing import Callable, Dict, Any, List
 import time
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 class EventEngine:
     """
     事件引擎

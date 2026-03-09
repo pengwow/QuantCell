@@ -5,8 +5,10 @@ import time
 from typing import Optional, Set
 
 from fastapi import WebSocket, WebSocketDisconnect, APIRouter, Query
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from websocket.manager import manager
 from collector.utils.task_manager import task_manager
 

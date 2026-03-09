@@ -1,7 +1,10 @@
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.database import SessionLocal, init_database_config
 from collector.db.models import BacktestResult, BacktestTask
 from strategy.service import StrategyService

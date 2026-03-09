@@ -5,8 +5,10 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 数据库文件路径
 default_db_dir = Path(__file__).parent.parent.parent / "data"
 

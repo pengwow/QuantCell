@@ -1,8 +1,9 @@
 # 数据分发器
 from typing import Dict, Any, List, Callable, Optional
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 class DataDistributor:
     """数据分发器，负责将处理后的数据分发给不同的消费者"""
     

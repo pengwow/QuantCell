@@ -3,9 +3,10 @@
 
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 class OrderManager:
     """
     订单管理器

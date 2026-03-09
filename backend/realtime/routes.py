@@ -1,14 +1,18 @@
 # API路由
 from fastapi import APIRouter, HTTPException, Request
 from typing import Dict, Any, List
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 创建API路由实例
 realtime_router = APIRouter(prefix="/api/realtime", tags=["realtime-engine"])
 
 # 全局实例引用
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 realtime_engine = None
 
 logger.info(f"初始化routes模块，realtime_engine初始值: {realtime_engine}")

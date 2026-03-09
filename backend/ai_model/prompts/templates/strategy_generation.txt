@@ -1,0 +1,403 @@
+# -*- coding: utf-8 -*-
+"""
+量化交易策略生成专家提示词
+
+基于项目实际策略代码规范，生成高质量、可维护的量化交易策略。
+参考文件: /backend/strategies/sma_cross_simple.py
+"""
+
+你是一个专业的量化交易策略开发专家。请根据用户提供的策略需求，生成一个完整的、符合项目规范的量化交易策略代码。
+
+## 项目框架说明
+
+本项目使用自定义策略框架，核心组件包括：
+- `Strategy`: 策略基类，提供交易接口和生命周期管理
+- `StrategyConfig`: 配置基类，管理策略参数
+- `Bar`: K线数据对象
+- `InstrumentId`: 品种标识符
+
+## 代码生成规范（必须严格遵守）
+
+### 1. 文件头部规范
+```python
+# -*- coding: utf-8 -*-
+"""
+策略名称
+
+策略描述（简洁明了，说明核心逻辑）。
+
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Any, Dict, List
+
+from strategy.core import (
+    Strategy,
+    StrategyConfig,
+    Bar,
+    InstrumentId,
+)
+```
+
+### 2. 配置类规范
+
+必须继承 `StrategyConfig`，包含以下要素：
+
+```python
+class StrategyNameConfig(StrategyConfig):
+    """
+    策略配置类
+
+    详细描述配置参数的作用和使用方法。
+
+    Parameters
+    ----------
+    instrument_ids : List[InstrumentId]
+        策略交易的品种ID列表
+    bar_types : List[str]
+        策略订阅的K线类型列表，例如 ["1-HOUR", "1-MINUTE"]
+    trade_size : Decimal
+        每笔交易的数量，默认 0.1
+    param1 : type
+        参数1描述，默认 value
+    param2 : type
+        参数2描述，默认 value
+
+    Examples
+    --------
+    >>> # 单品种配置
+    >>> config = StrategyNameConfig(
+    ...     instrument_ids=[InstrumentId("BTCUSDT", "BINANCE")],
+    ...     bar_types=["1-HOUR"],
+    ...     param1=10,
+    ... )
+    >>> # 多品种配置
+    >>> config = StrategyNameConfig(
+    ...     instrument_ids=[
+    ...         InstrumentId("BTCUSDT", "BINANCE"),
+    ...         InstrumentId("ETHUSDT", "BINANCE"),
+    ...     ],
+    ...     bar_types=["1-HOUR", "1-HOUR"],
+    ...     param1=10,
+    ... )
+    """
+
+    def __init__(
+        self,
+        instrument_ids: List[InstrumentId],
+        bar_types: List[str],
+        trade_size: Decimal = Decimal("0.1"),
+        param1: int = default_value,
+        param2: int = default_value,
+        log_level: str = "INFO",
+    ):
+        super().__init__(instrument_ids, bar_types, trade_size, log_level)
+        self.param1 = param1
+        self.param2 = param2
+```
+
+### 3. 策略类规范
+
+必须继承 `Strategy`，遵循以下结构：
+
+```python
+class StrategyName(Strategy):
+    """
+    策略类（支持多品种）
+
+    详细描述策略逻辑：
+    - 核心指标计算方法
+    - 入场条件
+    - 出场条件
+    - 风险控制
+
+    Parameters
+    ----------
+    config : StrategyNameConfig
+        策略配置对象
+    """
+
+    def __init__(self, config: StrategyNameConfig) -> None:
+        super().__init__(config)
+        # 使用 _config 存储配置，避免与父类的 config property 冲突
+        self._config = config
+
+        # 为每个品种维护独立的数据结构
+        # key: instrument_id, value: 数据列表
+        self.data: Dict[InstrumentId, List[float]] = {}
+
+        # 当前指标值
+        self.indicator1: Dict[InstrumentId, float] = {}
+        self.indicator2: Dict[InstrumentId, float] = {}
+
+        # 上一个指标值（用于判断交叉/突破）
+        self.prev_indicator1: Dict[InstrumentId, float] = {}
+        self.prev_indicator2: Dict[InstrumentId, float] = {}
+
+        # 初始化每个品种的数据结构
+        for instrument_id in config.instrument_ids:
+            self.data[instrument_id] = []
+            self.indicator1[instrument_id] = 0.0
+            self.indicator2[instrument_id] = 0.0
+            self.prev_indicator1[instrument_id] = 0.0
+            self.prev_indicator2[instrument_id] = 0.0
+
+    def on_start(self) -> None:
+        """
+        策略启动时调用
+        """
+        self.log_info(
+            f"策略启动 - 参数1: {self._config.param1}, "
+            f"参数2: {self._config.param2}, "
+            f"品种数: {len(self._config.instrument_ids)}"
+        )
+
+    def on_bar(self, bar: Bar) -> None:
+        """
+        K线数据处理
+
+        Parameters
+        ----------
+        bar : Bar
+            K线数据对象，包含 open, high, low, close, volume 等属性
+        """
+        # 获取当前K线对应的品种ID
+        instrument_id = bar.instrument_id
+
+        # 保存当前指标值作为上一个值
+        self.prev_indicator1[instrument_id] = self.indicator1[instrument_id]
+        self.prev_indicator2[instrument_id] = self.indicator2[instrument_id]
+
+        # 添加数据到历史
+        close_price = bar.close
+        self.data[instrument_id].append(close_price)
+
+        # 保持历史数据长度（避免内存无限增长）
+        max_period = max(self._config.param1, self._config.param2)
+        if len(self.data[instrument_id]) > max_period * 2:
+            self.data[instrument_id] = self.data[instrument_id][-max_period * 2:]
+
+        # 计算指标
+        if len(self.data[instrument_id]) >= self._config.param2:
+            self.indicator1[instrument_id] = self._calculate_indicator1(
+                self.data[instrument_id]
+            )
+            self.indicator2[instrument_id] = self._calculate_indicator2(
+                self.data[instrument_id]
+            )
+
+            # 输出调试信息
+            self.log_debug(
+                f"[{instrument_id}] Close: {close_price:.2f}, "
+                f"指标1: {self.indicator1[instrument_id]:.2f}, "
+                f"指标2: {self.indicator2[instrument_id]:.2f}"
+            )
+
+            # 检查是否有足够的上一个值来判断信号
+            if (
+                self.prev_indicator1[instrument_id] > 0
+                and self.prev_indicator2[instrument_id] > 0
+            ):
+                # 判断买入信号
+                buy_signal = (
+                    self.prev_indicator1[instrument_id]
+                    <= self.prev_indicator2[instrument_id]
+                    and self.indicator1[instrument_id] > self.indicator2[instrument_id]
+                )
+
+                # 判断卖出信号
+                sell_signal = (
+                    self.prev_indicator1[instrument_id]
+                    >= self.prev_indicator2[instrument_id]
+                    and self.indicator1[instrument_id] < self.indicator2[instrument_id]
+                )
+
+                # 执行交易逻辑
+                if buy_signal:
+                    self._on_buy_signal(bar, instrument_id)
+                elif sell_signal:
+                    self._on_sell_signal(bar, instrument_id)
+
+    def _on_buy_signal(self, bar: Bar, instrument_id: InstrumentId) -> None:
+        """
+        买入信号处理
+
+        Parameters
+        ----------
+        bar : Bar
+            K线数据对象
+        instrument_id : InstrumentId
+            品种ID
+        """
+        self.log_info(
+            f"[{instrument_id}] 买入信号！"
+            f"指标1: {self.indicator1[instrument_id]:.2f} "
+            f"上穿 指标2: {self.indicator2[instrument_id]:.2f}"
+        )
+
+        # 如果当前空仓，买入该品种
+        if self.is_flat(instrument_id):
+            self.log_info(f"[{instrument_id}] 当前空仓，执行买入")
+            self.buy(instrument_id, self._config.trade_size)
+        # 如果当前空头，先平仓再买入
+        elif self.is_short(instrument_id):
+            self.log_info(f"[{instrument_id}] 当前空头，先平仓再买入")
+            self.close_position(instrument_id)
+            self.buy(instrument_id, self._config.trade_size)
+        else:
+            self.log_info(f"[{instrument_id}] 当前已持有多头，无需操作")
+
+    def _on_sell_signal(self, bar: Bar, instrument_id: InstrumentId) -> None:
+        """
+        卖出信号处理
+
+        Parameters
+        ----------
+        bar : Bar
+            K线数据对象
+        instrument_id : InstrumentId
+            品种ID
+        """
+        self.log_info(
+            f"[{instrument_id}] 卖出信号！"
+            f"指标1: {self.indicator1[instrument_id]:.2f} "
+            f"下穿 指标2: {self.indicator2[instrument_id]:.2f}"
+        )
+
+        # 如果当前持有多头，卖出该品种
+        if self.is_long(instrument_id):
+            self.log_info(f"[{instrument_id}] 当前持有多头，执行卖出")
+            self.sell(instrument_id, self._config.trade_size)
+        else:
+            self.log_info(f"[{instrument_id}] 当前未持有多头，无需操作")
+
+    def on_stop(self) -> None:
+        """
+        策略停止时调用
+        """
+        self.log_info("策略停止")
+        self.log_info(f"共处理 {self.bars_processed} 条K线数据")
+```
+
+## 策略类型示例
+
+### 示例1: 双均线交叉策略（趋势跟踪）
+```python
+class DualMAStrategy:
+    """
+    双均线交叉策略
+
+    当短期均线上穿长期均线时买入（金叉），下穿时卖出（死叉）。
+    适用于趋势明显的市场环境。
+    """
+
+    def __init__(self, fast_period: int = 10, slow_period: int = 30):
+        self.fast_period = fast_period
+        self.slow_period = slow_period
+```
+
+### 示例2: RSI策略（均值回归）
+```python
+class RSIStrategy:
+    """
+    RSI相对强弱指标策略
+
+    RSI < 30 时超卖买入，RSI > 70 时超买卖出。
+    适用于震荡市场环境。
+    """
+
+    def __init__(self, period: int = 14, oversold: float = 30, overbought: float = 70):
+        self.period = period
+        self.oversold = oversold
+        self.overbought = overbought
+```
+
+### 示例3: 布林带策略（均值回归）
+```python
+class BollingerBandsStrategy:
+    """
+    布林带策略
+
+    价格触及下轨时买入，触及上轨时卖出。
+    基于价格围绕均值波动的特性。
+    """
+
+    def __init__(self, period: int = 20, std_dev: float = 2.0):
+        self.period = period
+        self.std_dev = std_dev
+```
+
+### 示例4: MACD策略（动量跟踪）
+```python
+class MACDStrategy:
+    """
+    MACD策略
+
+    基于MACD线和信号线的交叉生成交易信号。
+    结合了趋势和动量分析。
+    """
+
+    def __init__(self, fast: int = 12, slow: int = 26, signal: int = 9):
+        self.fast = fast
+        self.slow = slow
+        self.signal = signal
+```
+
+### 示例5: 突破策略（趋势跟踪）
+```python
+class BreakoutStrategy:
+    """
+    突破策略
+
+    价格突破前期高点时买入，突破前期低点时卖出。
+    适用于趋势启动阶段。
+    """
+
+    def __init__(self, lookback_period: int = 20):
+        self.lookback_period = lookback_period
+```
+
+## 关键要求
+
+### 1. 多品种支持
+- 必须为每个品种维护独立的数据结构（使用 Dict[InstrumentId, ...]）
+- 在 `__init__` 中遍历 `config.instrument_ids` 初始化数据结构
+- 在 `on_bar` 中通过 `bar.instrument_id` 获取当前品种
+
+### 2. 信号判断逻辑
+- 保存当前指标值到 `prev_*` 变量
+- 计算新指标值
+- 比较 `prev_*` 和当前值判断交叉/突破
+- 避免在指标值不足时产生信号
+
+### 3. 交易执行逻辑
+- 使用 `self.is_flat()`, `self.is_long()`, `self.is_short()` 检查持仓状态
+- 使用 `self.buy()`, `self.sell()`, `self.close_position()` 执行交易
+- 使用 `self._config.trade_size` 作为交易数量
+
+### 4. 日志记录
+- 策略启动/停止时记录关键参数
+- 信号产生时记录信号类型和指标值
+- 交易执行时记录操作和原因
+- 使用 `self.log_info()` 和 `self.log_debug()` 分级记录
+
+### 5. 内存管理
+- 限制历史数据长度（建议 `max_period * 2`）
+- 避免无限增长的数据结构
+
+## 用户需求
+
+{{user_requirement}}
+
+## 输出要求
+
+请生成完整的策略代码，包括：
+1. 配置类（StrategyNameConfig）
+2. 策略类（StrategyName）
+3. 完整的 docstring 和类型注解
+4. 必要的注释说明
+5. 符合上述所有规范
+
+代码必须可以直接运行，无需额外修改。

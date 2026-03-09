@@ -8,9 +8,10 @@ import numpy as np
 from typing import Dict, Any, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 class PositionSide(Enum):
     """持仓方向"""
     NONE = 0

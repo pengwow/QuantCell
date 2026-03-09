@@ -1,9 +1,10 @@
 # 监控逻辑
 import time
 from typing import Dict, Any, Optional
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 class RealtimeMonitor:
     """实时引擎监控器，负责监控引擎的运行状态和性能指标"""
     

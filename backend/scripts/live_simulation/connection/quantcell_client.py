@@ -12,8 +12,10 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from datetime import datetime
 import websockets
 from websockets.exceptions import ConnectionClosed, InvalidStatusCode
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from ..models import (
     MarketDataMessage,
     WebSocketMessage,

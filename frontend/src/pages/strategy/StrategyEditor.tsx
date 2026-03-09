@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   Card,
   Button,
@@ -24,13 +24,11 @@ import {
 import MonacoEditor from '@monaco-editor/react';
 import { useTranslation } from 'react-i18next';
 import { useResponsive } from '../../hooks/useResponsive';
-import { strategyApi } from '../../api';
+import { strategyApi, aiModelApi } from '../../api';
 import { setPageTitle } from '@/router';
 import PageContainer from '@/components/PageContainer';
 // AI 聊天弹窗组件
 import AIChatModal from '@/components/AIChatModal';
-// Mock 数据
-import { mockGenerateStrategy } from '@/mock/strategyMock';
 
 
 
@@ -91,8 +89,29 @@ const StrategyEditor = () => {
 
   const navigate = useNavigate();
   const params = useParams<{ strategyName?: string }>();
+  const location = useLocation();
   const { t } = useTranslation();
   const { isMobile } = useResponsive();
+
+  // 使用 AI 生成的代码创建策略
+  const handleCreateStrategyWithCode = (generatedCode: string, strategyName?: string) => {
+    const name = strategyName || 'ai_generated_strategy';
+    const newStrategy: Strategy = {
+      name: name,
+      file_name: `${name}.py`,
+      file_path: '',
+      description: 'AI 生成的策略',
+      version: '1.0.0',
+      params: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      code: generatedCode,
+    };
+
+    setSelectedStrategy(newStrategy);
+    setCode(generatedCode);
+    message.success('AI 生成策略已加载到编辑器');
+  };
 
   // 设置页面标题
   useEffect(() => {
@@ -104,8 +123,21 @@ const StrategyEditor = () => {
     if (params.strategyName) {
       loadStrategyByName(params.strategyName);
     } else {
-      // 创建新策略
-      handleCreateStrategy();
+      // 检查是否有从其他页面传递过来的生成代码
+      const state = location.state as {
+        generatedCode?: string;
+        generatedStrategyName?: string;
+      } | null;
+
+      if (state?.generatedCode) {
+        // 使用 AI 生成的代码创建策略
+        handleCreateStrategyWithCode(state.generatedCode, state.generatedStrategyName);
+        // 清除 state，避免刷新页面时重复使用
+        navigate(location.pathname, { replace: true });
+      } else {
+        // 创建新策略
+        handleCreateStrategy();
+      }
     }
   }, [params.strategyName]);
 
@@ -918,18 +950,54 @@ class NewStrategy(StrategyBase):
         welcomeTitle={t('ai_welcome') || '我是AI策略助手，请告诉我您需要什么策略？'}
         welcomeDescription={t('ai_example') || '例如：创建一个双均线交叉策略'}
         inputPlaceholder={t('ai_input_placeholder') || '请输入您的策略需求...'}
-        onSendMessage={async (content: string, modelId: number | null, modelName: string) => {
-          // 使用 Mock 数据模拟后端 API
-          const response = await mockGenerateStrategy(content, modelId, modelName);
-          
-          if (response.code === 0) {
-            return {
-              content: response.data.explanation || response.data.content || '策略生成成功',
-              code: response.data.code,
-            };
-          } else {
-            throw new Error(response.message || '生成策略失败');
-          }
+        onStreamGenerate={(content, modelId, modelName, onChunk, onComplete, onError, onThinkingChain) => {
+          // 使用流式策略生成 API，避免超时问题
+          let fullContent = '';
+          let generatedCode = '';
+
+          const cancelStream = aiModelApi.generateStrategyStream(
+            {
+              requirement: content,
+              model_id: modelId || undefined,
+              model_name: modelName || undefined,
+            },
+            // onMessage - 接收流式数据
+            (response) => {
+              if (response.type === 'content' && response.content) {
+                fullContent += response.content;
+                onChunk(response.content);
+              } else if (response.type === 'done') {
+                // 生成完成，提取代码
+                if (response.code) {
+                  generatedCode = response.code;
+                }
+                onComplete({
+                  content: fullContent || '策略生成成功',
+                  code: generatedCode,
+                });
+              } else if (response.type === 'error' && response.error) {
+                onError(new Error(response.error));
+              }
+            },
+            // onError
+            (error) => {
+              onError(error);
+            },
+            // onComplete
+            () => {
+              // 流结束，确保返回结果
+              if (!generatedCode && fullContent) {
+                onComplete({
+                  content: fullContent,
+                  code: generatedCode,
+                });
+              }
+            },
+            // onThinkingChain - 思维链状态更新
+            onThinkingChain
+          );
+
+          return cancelStream;
         }}
         onAcceptCode={(code: string) => {
           setCode(code);

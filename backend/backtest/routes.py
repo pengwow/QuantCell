@@ -28,8 +28,10 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from common.schemas import ApiResponse
 from strategy.schemas import StrategyUploadRequest
 from utils.auth import jwt_auth_required_sync

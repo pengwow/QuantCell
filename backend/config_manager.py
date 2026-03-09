@@ -1,9 +1,10 @@
 # 配置管理模块
 # 用于加载和管理系统配置，避免循环导入
 
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 def load_system_configs():
     """从数据库加载所有系统配置
     

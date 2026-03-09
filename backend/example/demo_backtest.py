@@ -20,8 +20,10 @@ from dataclasses import dataclass
 
 import pandas as pd
 import numpy as np
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 添加 backend 目录到 Python 路径
 backend_dir = Path(__file__).parent.parent
 if str(backend_dir) not in sys.path:

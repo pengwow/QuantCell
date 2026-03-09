@@ -12,7 +12,10 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from datetime import datetime
 
 from strategy.core.vector_engine import VectorEngine

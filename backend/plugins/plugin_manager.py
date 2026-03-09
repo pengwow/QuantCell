@@ -3,7 +3,10 @@ import sys
 import json
 import importlib.util
 from typing import Dict, List, Any
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from fastapi import FastAPI, APIRouter
 from .plugin_base import PluginBase
 

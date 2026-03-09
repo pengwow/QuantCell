@@ -11,8 +11,10 @@
 import time
 import functools
 from typing import Callable, TypeVar, Optional
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from exchange.exceptions import (
     RateLimitError,
     TemporaryError,

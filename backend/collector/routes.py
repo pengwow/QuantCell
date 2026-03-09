@@ -3,8 +3,10 @@
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 导入配置管理API路由
 from .api.data import router as data_router
 from .api.data_pool import router as data_pool_router
