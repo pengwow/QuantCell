@@ -3,8 +3,10 @@
 
 from decimal import Decimal, getcontext, ROUND_DOWN, ROUND_UP
 from typing import Dict, Any, Optional
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 getcontext().prec = 28
 
 

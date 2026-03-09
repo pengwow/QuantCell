@@ -17,8 +17,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 try:
     from backend.utils import safe_float
 except ImportError:

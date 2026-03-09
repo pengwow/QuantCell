@@ -23,9 +23,10 @@ import asyncio
 import time
 from functools import wraps
 
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 def deco_retry(max_retry: int = 3, delay: float = 1.0):
     """
     重试装饰器，用于处理网络请求等可能失败的操作

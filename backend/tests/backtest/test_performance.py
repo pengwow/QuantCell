@@ -27,8 +27,10 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import pytest
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 确保能够导入后端模块
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))

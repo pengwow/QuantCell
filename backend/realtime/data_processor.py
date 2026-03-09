@@ -1,8 +1,9 @@
 # 数据处理器
 from typing import Dict, Any, Optional
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 class DataProcessor:
     """数据处理器，负责处理和标准化从WebSocket接收到的数据"""
     

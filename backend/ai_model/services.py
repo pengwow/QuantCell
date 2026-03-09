@@ -4,7 +4,10 @@
 from typing import Any, Dict, List, Optional
 
 import httpx
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from openai import AsyncOpenAI, APIError, APIConnectionError, APITimeoutError, AuthenticationError, RateLimitError
 
 

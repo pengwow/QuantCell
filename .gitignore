@@ -48,3 +48,5 @@ ui/node_modules/
 temp/.*
 QuantCell.code-workspace
 
+backend/ai_model/docs/*
+.agents/*

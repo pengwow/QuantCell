@@ -1,0 +1,699 @@
+# ============================================
+# 策略模板库
+# ============================================
+# 定义常用量化交易策略模板，支持参数化代码生成
+# ============================================
+
+version: "1.0.0"
+description: "QuantCell 策略模板库 - 常用量化交易策略模板集合"
+
+# 模板分类定义
+categories:
+  - id: "trend_following"
+    name: "趋势跟踪"
+    description: "基于趋势识别的交易策略"
+  - id: "mean_reversion"
+    name: "均值回归"
+    description: "基于价格回归均值的策略"
+  - id: "momentum"
+    name: "动量策略"
+    description: "基于价格动量的交易策略"
+  - id: "volatility"
+    name: "波动率策略"
+    description: "基于波动率的交易策略"
+  - id: "breakout"
+    name: "突破策略"
+    description: "基于价格突破的交易策略"
+
+# 策略模板定义
+templates:
+  # 双均线策略
+  - id: "dual_ma"
+    name: "双均线交叉策略"
+    category: "trend_following"
+    description: |
+      经典的双均线交叉策略。当短期均线上穿长期均线时产生买入信号，
+      当短期均线下穿长期均线时产生卖出信号。适用于趋势明显的市场环境。
+    author: "QuantCell"
+    version: "1.0.0"
+    tags: ["均线", "趋势", "交叉"]
+    parameters:
+      - name: "fast_period"
+        type: "int"
+        default: 10
+        min: 2
+        max: 100
+        description: "短期均线周期"
+      - name: "slow_period"
+        type: "int"
+        default: 30
+        min: 5
+        max: 200
+        description: "长期均线周期"
+      - name: "trade_size"
+        type: "float"
+        default: 0.1
+        min: 0.001
+        max: 1000
+        description: "每笔交易数量"
+    code_template: |
+      from decimal import Decimal
+      from typing import Dict, List
+
+      from strategy.core import (
+          Strategy,
+          StrategyConfig,
+          Bar,
+          InstrumentId,
+      )
+
+
+      class {{strategy_name}}Config(StrategyConfig):
+          """{{strategy_name}} 策略配置"""
+
+          def __init__(
+              self,
+              instrument_ids: List[InstrumentId],
+              bar_types: List[str],
+              trade_size: Decimal = Decimal("{{trade_size}}"),
+              fast_period: int = {{fast_period}},
+              slow_period: int = {{slow_period}},
+              log_level: str = "INFO",
+          ):
+              super().__init__(instrument_ids, bar_types, trade_size, log_level)
+              self.fast_period = fast_period
+              self.slow_period = slow_period
+
+
+      class {{strategy_name}}(Strategy):
+          """
+          {{strategy_name}} - 双均线交叉策略
+
+          当短期均线上穿长期均线时买入，下穿时卖出。
+          """
+
+          def __init__(self, config: {{strategy_name}}Config) -> None:
+              super().__init__(config)
+              self._config = config
+              self.prices: Dict[InstrumentId, List[float]] = {}
+              self.fast_sma: Dict[InstrumentId, float] = {}
+              self.slow_sma: Dict[InstrumentId, float] = {}
+              self.prev_fast_sma: Dict[InstrumentId, float] = {}
+              self.prev_slow_sma: Dict[InstrumentId, float] = {}
+
+              for instrument_id in config.instrument_ids:
+                  self.prices[instrument_id] = []
+                  self.fast_sma[instrument_id] = 0.0
+                  self.slow_sma[instrument_id] = 0.0
+                  self.prev_fast_sma[instrument_id] = 0.0
+                  self.prev_slow_sma[instrument_id] = 0.0
+
+          def on_bar(self, bar: Bar) -> None:
+              instrument_id = bar.instrument_id
+              self.prev_fast_sma[instrument_id] = self.fast_sma[instrument_id]
+              self.prev_slow_sma[instrument_id] = self.slow_sma[instrument_id]
+
+              close_price = bar.close
+              self.prices[instrument_id].append(close_price)
+
+              max_period = max(self._config.fast_period, self._config.slow_period)
+              if len(self.prices[instrument_id]) > max_period * 2:
+                  self.prices[instrument_id] = self.prices[instrument_id][-max_period * 2:]
+
+              if len(self.prices[instrument_id]) >= self._config.slow_period:
+                  self.fast_sma[instrument_id] = (
+                      sum(self.prices[instrument_id][-self._config.fast_period:])
+                      / self._config.fast_period
+                  )
+                  self.slow_sma[instrument_id] = (
+                      sum(self.prices[instrument_id][-self._config.slow_period:])
+                      / self._config.slow_period
+                  )
+
+                  if (
+                      self.prev_fast_sma[instrument_id] > 0
+                      and self.prev_slow_sma[instrument_id] > 0
+                  ):
+                      golden_cross = (
+                          self.prev_fast_sma[instrument_id] <= self.prev_slow_sma[instrument_id]
+                          and self.fast_sma[instrument_id] > self.slow_sma[instrument_id]
+                      )
+                      death_cross = (
+                          self.prev_fast_sma[instrument_id] >= self.prev_slow_sma[instrument_id]
+                          and self.fast_sma[instrument_id] < self.slow_sma[instrument_id]
+                      )
+
+                      if golden_cross and self.is_flat(instrument_id):
+                          self.buy(instrument_id, self._config.trade_size)
+                      elif death_cross and self.is_long(instrument_id):
+                          self.sell(instrument_id, self._config.trade_size)
+
+  # MACD策略
+  - id: "macd"
+    name: "MACD策略"
+    category: "momentum"
+    description: |
+      基于MACD指标的交易策略。当MACD线上穿信号线时买入，下穿时卖出。
+      MACD结合了趋势跟踪和动量特征，适用于中短期交易。
+    author: "QuantCell"
+    version: "1.0.0"
+    tags: ["MACD", "动量", "指标"]
+    parameters:
+      - name: "fast_period"
+        type: "int"
+        default: 12
+        min: 2
+        max: 50
+        description: "快线周期"
+      - name: "slow_period"
+        type: "int"
+        default: 26
+        min: 5
+        max: 100
+        description: "慢线周期"
+      - name: "signal_period"
+        type: "int"
+        default: 9
+        min: 2
+        max: 50
+        description: "信号线周期"
+      - name: "trade_size"
+        type: "float"
+        default: 0.1
+        min: 0.001
+        max: 1000
+        description: "每笔交易数量"
+    code_template: |
+      from decimal import Decimal
+      from typing import Dict, List
+
+      from strategy.core import (
+          Strategy,
+          StrategyConfig,
+          Bar,
+          InstrumentId,
+      )
+
+
+      class {{strategy_name}}Config(StrategyConfig):
+          """{{strategy_name}} 策略配置"""
+
+          def __init__(
+              self,
+              instrument_ids: List[InstrumentId],
+              bar_types: List[str],
+              trade_size: Decimal = Decimal("{{trade_size}}"),
+              fast_period: int = {{fast_period}},
+              slow_period: int = {{slow_period}},
+              signal_period: int = {{signal_period}},
+              log_level: str = "INFO",
+          ):
+              super().__init__(instrument_ids, bar_types, trade_size, log_level)
+              self.fast_period = fast_period
+              self.slow_period = slow_period
+              self.signal_period = signal_period
+
+
+      class {{strategy_name}}(Strategy):
+          """
+          {{strategy_name}} - MACD策略
+
+          当MACD线上穿信号线时买入，下穿时卖出。
+          """
+
+          def __init__(self, config: {{strategy_name}}Config) -> None:
+              super().__init__(config)
+              self._config = config
+              self.prices: Dict[InstrumentId, List[float]] = {}
+              self.ema_fast: Dict[InstrumentId, float] = {}
+              self.ema_slow: Dict[InstrumentId, float] = {}
+              self.macd_line: Dict[InstrumentId, float] = {}
+              self.signal_line: Dict[InstrumentId, float] = {}
+              self.prev_macd: Dict[InstrumentId, float] = {}
+              self.prev_signal: Dict[InstrumentId, float] = {}
+
+              for instrument_id in config.instrument_ids:
+                  self.prices[instrument_id] = []
+                  self.ema_fast[instrument_id] = 0.0
+                  self.ema_slow[instrument_id] = 0.0
+                  self.macd_line[instrument_id] = 0.0
+                  self.signal_line[instrument_id] = 0.0
+                  self.prev_macd[instrument_id] = 0.0
+                  self.prev_signal[instrument_id] = 0.0
+
+          def _calculate_ema(self, prices: List[float], period: int, prev_ema: float) -> float:
+              if len(prices) < period:
+                  return sum(prices) / len(prices) if prices else 0.0
+              multiplier = 2.0 / (period + 1)
+              if prev_ema == 0.0:
+                  return sum(prices[-period:]) / period
+              return (prices[-1] - prev_ema) * multiplier + prev_ema
+
+          def on_bar(self, bar: Bar) -> None:
+              instrument_id = bar.instrument_id
+              close_price = bar.close
+              self.prices[instrument_id].append(close_price)
+
+              max_period = max(self._config.fast_period, self._config.slow_period) * 2
+              if len(self.prices[instrument_id]) > max_period:
+                  self.prices[instrument_id] = self.prices[instrument_id][-max_period:]
+
+              if len(self.prices[instrument_id]) >= self._config.slow_period:
+                  self.prev_macd[instrument_id] = self.macd_line[instrument_id]
+                  self.prev_signal[instrument_id] = self.signal_line[instrument_id]
+
+                  self.ema_fast[instrument_id] = self._calculate_ema(
+                      self.prices[instrument_id],
+                      self._config.fast_period,
+                      self.ema_fast[instrument_id]
+                  )
+                  self.ema_slow[instrument_id] = self._calculate_ema(
+                      self.prices[instrument_id],
+                      self._config.slow_period,
+                      self.ema_slow[instrument_id]
+                  )
+
+                  self.macd_line[instrument_id] = (
+                      self.ema_fast[instrument_id] - self.ema_slow[instrument_id]
+                  )
+
+                  signal_multiplier = 2.0 / (self._config.signal_period + 1)
+                  if self.prev_signal[instrument_id] == 0.0:
+                      self.signal_line[instrument_id] = self.macd_line[instrument_id]
+                  else:
+                      self.signal_line[instrument_id] = (
+                          (self.macd_line[instrument_id] - self.prev_signal[instrument_id])
+                          * signal_multiplier + self.prev_signal[instrument_id]
+                      )
+
+                  if self.prev_macd[instrument_id] != 0.0:
+                      bullish_cross = (
+                          self.prev_macd[instrument_id] <= self.prev_signal[instrument_id]
+                          and self.macd_line[instrument_id] > self.signal_line[instrument_id]
+                      )
+                      bearish_cross = (
+                          self.prev_macd[instrument_id] >= self.prev_signal[instrument_id]
+                          and self.macd_line[instrument_id] < self.signal_line[instrument_id]
+                      )
+
+                      if bullish_cross and self.is_flat(instrument_id):
+                          self.buy(instrument_id, self._config.trade_size)
+                      elif bearish_cross and self.is_long(instrument_id):
+                          self.sell(instrument_id, self._config.trade_size)
+
+  # RSI策略
+  - id: "rsi"
+    name: "RSI相对强弱策略"
+    category: "mean_reversion"
+    description: |
+      基于RSI指标的交易策略。当RSI低于超卖阈值时买入，高于超买阈值时卖出。
+      适用于识别超买超卖状态，进行均值回归交易。
+    author: "QuantCell"
+    version: "1.0.0"
+    tags: ["RSI", "超买超卖", "均值回归"]
+    parameters:
+      - name: "rsi_period"
+        type: "int"
+        default: 14
+        min: 2
+        max: 50
+        description: "RSI计算周期"
+      - name: "oversold"
+        type: "int"
+        default: 30
+        min: 0
+        max: 50
+        description: "超卖阈值"
+      - name: "overbought"
+        type: "int"
+        default: 70
+        min: 50
+        max: 100
+        description: "超买阈值"
+      - name: "trade_size"
+        type: "float"
+        default: 0.1
+        min: 0.001
+        max: 1000
+        description: "每笔交易数量"
+    code_template: |
+      from decimal import Decimal
+      from typing import Dict, List
+
+      from strategy.core import (
+          Strategy,
+          StrategyConfig,
+          Bar,
+          InstrumentId,
+      )
+
+
+      class {{strategy_name}}Config(StrategyConfig):
+          """{{strategy_name}} 策略配置"""
+
+          def __init__(
+              self,
+              instrument_ids: List[InstrumentId],
+              bar_types: List[str],
+              trade_size: Decimal = Decimal("{{trade_size}}"),
+              rsi_period: int = {{rsi_period}},
+              oversold: int = {{oversold}},
+              overbought: int = {{overbought}},
+              log_level: str = "INFO",
+          ):
+              super().__init__(instrument_ids, bar_types, trade_size, log_level)
+              self.rsi_period = rsi_period
+              self.oversold = oversold
+              self.overbought = overbought
+
+
+      class {{strategy_name}}(Strategy):
+          """
+          {{strategy_name}} - RSI相对强弱策略
+
+          当RSI低于超卖阈值时买入，高于超买阈值时卖出。
+          """
+
+          def __init__(self, config: {{strategy_name}}Config) -> None:
+              super().__init__(config)
+              self._config = config
+              self.prices: Dict[InstrumentId, List[float]] = {}
+              self.gains: Dict[InstrumentId, List[float]] = {}
+              self.losses: Dict[InstrumentId, List[float]] = {}
+              self.rsi: Dict[InstrumentId, float] = {}
+              self.prev_rsi: Dict[InstrumentId, float] = {}
+
+              for instrument_id in config.instrument_ids:
+                  self.prices[instrument_id] = []
+                  self.gains[instrument_id] = []
+                  self.losses[instrument_id] = []
+                  self.rsi[instrument_id] = 50.0
+                  self.prev_rsi[instrument_id] = 50.0
+
+          def _calculate_rsi(self, instrument_id: InstrumentId) -> float:
+              prices = self.prices[instrument_id]
+              if len(prices) < self._config.rsi_period + 1:
+                  return 50.0
+
+              gains = self.gains[instrument_id]
+              losses = self.losses[instrument_id]
+
+              if len(gains) < self._config.rsi_period:
+                  return 50.0
+
+              avg_gain = sum(gains[-self._config.rsi_period:]) / self._config.rsi_period
+              avg_loss = sum(losses[-self._config.rsi_period:]) / self._config.rsi_period
+
+              if avg_loss == 0:
+                  return 100.0
+
+              rs = avg_gain / avg_loss
+              return 100.0 - (100.0 / (1.0 + rs))
+
+          def on_bar(self, bar: Bar) -> None:
+              instrument_id = bar.instrument_id
+              close_price = bar.close
+
+              if self.prices[instrument_id]:
+                  prev_close = self.prices[instrument_id][-1]
+                  change = close_price - prev_close
+                  self.gains[instrument_id].append(max(change, 0))
+                  self.losses[instrument_id].append(max(-change, 0))
+
+                  max_len = self._config.rsi_period * 2
+                  if len(self.gains[instrument_id]) > max_len:
+                      self.gains[instrument_id] = self.gains[instrument_id][-max_len:]
+                      self.losses[instrument_id] = self.losses[instrument_id][-max_len:]
+
+              self.prices[instrument_id].append(close_price)
+              max_period = self._config.rsi_period * 3
+              if len(self.prices[instrument_id]) > max_period:
+                  self.prices[instrument_id] = self.prices[instrument_id][-max_period:]
+
+              self.prev_rsi[instrument_id] = self.rsi[instrument_id]
+              self.rsi[instrument_id] = self._calculate_rsi(instrument_id)
+
+              if len(self.prices[instrument_id]) >= self._config.rsi_period + 1:
+                  if (
+                      self.prev_rsi[instrument_id] > self._config.oversold
+                      and self.rsi[instrument_id] <= self._config.oversold
+                      and self.is_flat(instrument_id)
+                  ):
+                      self.buy(instrument_id, self._config.trade_size)
+                  elif (
+                      self.prev_rsi[instrument_id] < self._config.overbought
+                      and self.rsi[instrument_id] >= self._config.overbought
+                      and self.is_long(instrument_id)
+                  ):
+                      self.sell(instrument_id, self._config.trade_size)
+
+  # 布林带策略
+  - id: "bollinger"
+    name: "布林带策略"
+    category: "volatility"
+    description: |
+      基于布林带指标的交易策略。当价格触及下轨时买入，触及上轨时卖出。
+      利用价格波动范围进行交易，适用于震荡市场。
+    author: "QuantCell"
+    version: "1.0.0"
+    tags: ["布林带", "波动率", "均值回归"]
+    parameters:
+      - name: "bb_period"
+        type: "int"
+        default: 20
+        min: 5
+        max: 100
+        description: "布林带周期"
+      - name: "bb_std"
+        type: "float"
+        default: 2.0
+        min: 0.5
+        max: 5.0
+        description: "标准差倍数"
+      - name: "trade_size"
+        type: "float"
+        default: 0.1
+        min: 0.001
+        max: 1000
+        description: "每笔交易数量"
+    code_template: |
+      from decimal import Decimal
+      from typing import Dict, List
+      import math
+
+      from strategy.core import (
+          Strategy,
+          StrategyConfig,
+          Bar,
+          InstrumentId,
+      )
+
+
+      class {{strategy_name}}Config(StrategyConfig):
+          """{{strategy_name}} 策略配置"""
+
+          def __init__(
+              self,
+              instrument_ids: List[InstrumentId],
+              bar_types: List[str],
+              trade_size: Decimal = Decimal("{{trade_size}}"),
+              bb_period: int = {{bb_period}},
+              bb_std: float = {{bb_std}},
+              log_level: str = "INFO",
+          ):
+              super().__init__(instrument_ids, bar_types, trade_size, log_level)
+              self.bb_period = bb_period
+              self.bb_std = bb_std
+
+
+      class {{strategy_name}}(Strategy):
+          """
+          {{strategy_name}} - 布林带策略
+
+          当价格触及下轨时买入，触及上轨时卖出。
+          """
+
+          def __init__(self, config: {{strategy_name}}Config) -> None:
+              super().__init__(config)
+              self._config = config
+              self.prices: Dict[InstrumentId, List[float]] = {}
+              self.sma: Dict[InstrumentId, float] = {}
+              self.upper_band: Dict[InstrumentId, float] = {}
+              self.lower_band: Dict[InstrumentId, float] = {}
+              self.prev_close: Dict[InstrumentId, float] = {}
+
+              for instrument_id in config.instrument_ids:
+                  self.prices[instrument_id] = []
+                  self.sma[instrument_id] = 0.0
+                  self.upper_band[instrument_id] = 0.0
+                  self.lower_band[instrument_id] = 0.0
+                  self.prev_close[instrument_id] = 0.0
+
+          def _calculate_std(self, values: List[float]) -> float:
+              if len(values) < 2:
+                  return 0.0
+              mean = sum(values) / len(values)
+              variance = sum((x - mean) ** 2 for x in values) / len(values)
+              return math.sqrt(variance)
+
+          def _calculate_bands(self, instrument_id: InstrumentId):
+              prices = self.prices[instrument_id]
+              if len(prices) < self._config.bb_period:
+                  return
+
+              period_prices = prices[-self._config.bb_period:]
+              self.sma[instrument_id] = sum(period_prices) / len(period_prices)
+              std = self._calculate_std(period_prices)
+
+              self.upper_band[instrument_id] = self.sma[instrument_id] + std * self._config.bb_std
+              self.lower_band[instrument_id] = self.sma[instrument_id] - std * self._config.bb_std
+
+          def on_bar(self, bar: Bar) -> None:
+              instrument_id = bar.instrument_id
+              close_price = bar.close
+
+              self.prices[instrument_id].append(close_price)
+              max_period = self._config.bb_period * 2
+              if len(self.prices[instrument_id]) > max_period:
+                  self.prices[instrument_id] = self.prices[instrument_id][-max_period:]
+
+              self._calculate_bands(instrument_id)
+
+              prev_close = self.prev_close[instrument_id]
+              self.prev_close[instrument_id] = close_price
+
+              if len(self.prices[instrument_id]) < self._config.bb_period:
+                  return
+
+              upper = self.upper_band[instrument_id]
+              lower = self.lower_band[instrument_id]
+
+              if upper == 0.0 or lower == 0.0:
+                  return
+
+              if prev_close > lower and close_price <= lower and self.is_flat(instrument_id):
+                  self.buy(instrument_id, self._config.trade_size)
+              elif prev_close < upper and close_price >= upper and self.is_long(instrument_id):
+                  self.sell(instrument_id, self._config.trade_size)
+
+  # 突破策略
+  - id: "breakout"
+    name: "通道突破策略"
+    category: "breakout"
+    description: |
+      基于价格通道突破的交易策略。当价格突破近期高点时买入，突破近期低点时卖出。
+      适用于捕捉趋势启动点。
+    author: "QuantCell"
+    version: "1.0.0"
+    tags: ["突破", "趋势", "通道"]
+    parameters:
+      - name: "lookback_period"
+        type: "int"
+        default: 20
+        min: 5
+        max: 100
+        description: "回顾周期"
+      - name: "trade_size"
+        type: "float"
+        default: 0.1
+        min: 0.001
+        max: 1000
+        description: "每笔交易数量"
+    code_template: |
+      from decimal import Decimal
+      from typing import Dict, List
+
+      from strategy.core import (
+          Strategy,
+          StrategyConfig,
+          Bar,
+          InstrumentId,
+      )
+
+
+      class {{strategy_name}}Config(StrategyConfig):
+          """{{strategy_name}} 策略配置"""
+
+          def __init__(
+              self,
+              instrument_ids: List[InstrumentId],
+              bar_types: List[str],
+              trade_size: Decimal = Decimal("{{trade_size}}"),
+              lookback_period: int = {{lookback_period}},
+              log_level: str = "INFO",
+          ):
+              super().__init__(instrument_ids, bar_types, trade_size, log_level)
+              self.lookback_period = lookback_period
+
+
+      class {{strategy_name}}(Strategy):
+          """
+          {{strategy_name}} - 通道突破策略
+
+          当价格突破近期高点时买入，突破近期低点时卖出。
+          """
+
+          def __init__(self, config: {{strategy_name}}Config) -> None:
+              super().__init__(config)
+              self._config = config
+              self.highs: Dict[InstrumentId, List[float]] = {}
+              self.lows: Dict[InstrumentId, List[float]] = {}
+              self.prev_high: Dict[InstrumentId, float] = {}
+              self.prev_low: Dict[InstrumentId, float] = {}
+
+              for instrument_id in config.instrument_ids:
+                  self.highs[instrument_id] = []
+                  self.lows[instrument_id] = []
+                  self.prev_high[instrument_id] = 0.0
+                  self.prev_low[instrument_id] = 0.0
+
+          def _get_highest_high(self, instrument_id: InstrumentId) -> float:
+              highs = self.highs[instrument_id]
+              if len(highs) < self._config.lookback_period:
+                  return max(highs) if highs else 0.0
+              return max(highs[-self._config.lookback_period:])
+
+          def _get_lowest_low(self, instrument_id: InstrumentId) -> float:
+              lows = self.lows[instrument_id]
+              if len(lows) < self._config.lookback_period:
+                  return min(lows) if lows else 0.0
+              return min(lows[-self._config.lookback_period:])
+
+          def on_bar(self, bar: Bar) -> None:
+              instrument_id = bar.instrument_id
+              high_price = bar.high
+              low_price = bar.low
+              close_price = bar.close
+
+              prev_highest = self._get_highest_high(instrument_id)
+              prev_lowest = self._get_lowest_low(instrument_id)
+
+              self.highs[instrument_id].append(high_price)
+              self.lows[instrument_id].append(low_price)
+
+              max_period = self._config.lookback_period * 2
+              if len(self.highs[instrument_id]) > max_period:
+                  self.highs[instrument_id] = self.highs[instrument_id][-max_period:]
+                  self.lows[instrument_id] = self.lows[instrument_id][-max_period:]
+
+              if len(self.highs[instrument_id]) < self._config.lookback_period:
+                  return
+
+              highest = self._get_highest_high(instrument_id)
+              lowest = self._get_lowest_low(instrument_id)
+
+              if (
+                  prev_highest > 0
+                  and close_price > prev_highest
+                  and self.is_flat(instrument_id)
+              ):
+                  self.buy(instrument_id, self._config.trade_size)
+              elif (
+                  prev_lowest > 0
+                  and close_price < prev_lowest
+                  and self.is_long(instrument_id)
+              ):
+                  self.sell(instrument_id, self._config.trade_size)
+
+              self.prev_high[instrument_id] = highest
+              self.prev_low[instrument_id] = lowest

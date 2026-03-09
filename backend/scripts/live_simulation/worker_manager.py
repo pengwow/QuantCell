@@ -11,8 +11,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .models import WorkerStatus, WorkerState, TradeSignal, OrderInfo, PositionInfo
 from .config import WorkerConfig
 

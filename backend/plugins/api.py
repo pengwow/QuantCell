@@ -1,6 +1,8 @@
 from typing import Any, Dict, List
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 class PluginAPI:
     """插件API，提供核心功能访问和插件间通信"""
     

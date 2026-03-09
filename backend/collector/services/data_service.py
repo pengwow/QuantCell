@@ -7,7 +7,10 @@ from math import log
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from sqlalchemy.orm import Session
 
 # from ..data_loader import data_loader

@@ -1,7 +1,10 @@
 # 实时引擎核心类
 import asyncio
 from typing import Dict, Any, List, Optional
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .factory import ExchangeClientFactory
 from .websocket_manager import WebSocketManager
 from .data_processor import DataProcessor

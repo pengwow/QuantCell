@@ -9,8 +9,10 @@ import zmq
 import zmq.asyncio
 from typing import Dict, Optional, Callable, Any, List, Set
 import asyncio
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .protocol import Message, MessageType, serialize_message, deserialize_message
 
 # 超时配置常量

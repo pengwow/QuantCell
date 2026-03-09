@@ -16,8 +16,10 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.database import SessionLocal, init_database_config
 from collector.db.models import CryptoSymbol
 from collector.services.crypto_symbol_service import sync_crypto_symbols

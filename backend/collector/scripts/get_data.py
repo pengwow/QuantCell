@@ -10,8 +10,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
 from pathlib import Path
 
 import fire
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from exchange import BinanceCollector, OKXCollector
 from collector.db.models import SystemConfigBusiness as SystemConfig
 

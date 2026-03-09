@@ -5,8 +5,10 @@
 
 from typing import Any, Dict, List, Optional
 import numpy as np
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from ..core.base import BaseValidator, ValidationResult, ValidationSeverity
 from ..core.registry import register_validator
 

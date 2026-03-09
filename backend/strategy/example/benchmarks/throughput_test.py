@@ -7,8 +7,10 @@
 import time
 import asyncio
 from typing import Dict, Any, List
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .base import BenchmarkBase, BenchmarkResult
 from strategy.core import (
     OptimizedEventEngine,

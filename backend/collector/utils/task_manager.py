@@ -6,7 +6,10 @@ from enum import Enum
 from typing import Any, Dict, Optional
 import time
 import asyncio
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from websocket.manager import manager
 from collector.db.models import Task
 

@@ -16,8 +16,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, ROUND_DOWN
 from enum import Enum
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .config import OrderSide, OrderType, OrderStatus, TimeInForce
 from .exceptions import BinanceOrderError
 

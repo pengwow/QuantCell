@@ -10,9 +10,12 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from loguru import logger
 
 from collector.db import init_db
+from utils.logger import get_logger, LogType
+
+# 获取生命周期管理模块日志器
+logger = get_logger(__name__, LogType.SYSTEM)
 from collector.utils.task_manager import task_manager
 from collector.utils.scheduled_task_manager import scheduled_task_manager
 from collector.services.system_service import SystemService

@@ -17,9 +17,10 @@ from typing import Dict, Any, List, Optional, Union
 
 import numpy as np
 import pandas as pd
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 class NautilusJSONEncoder(json.JSONEncoder):
     """自定义JSON编码器，处理NautilusTrader和pandas特殊类型"""
 

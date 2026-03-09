@@ -7,8 +7,10 @@
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 导入SessionLocal以正确创建session
 try:
     from collector.db.database import SessionLocal

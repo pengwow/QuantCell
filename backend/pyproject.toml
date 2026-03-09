@@ -59,6 +59,7 @@ dependencies = [
     "python-binance>=1.0.34",
     "nautilus_trader>=1.222.0",
     "openai>=2.26.0",
+    "toml>=0.10.2",
 ]
 
 [tool.pytest.ini_options]

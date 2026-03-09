@@ -80,9 +80,9 @@ const SystemLogs = () => {
       });
 
       if (isLoadMore) {
-        setLogs(prev => [...prev, ...response.records]);
+        setLogs(prev => [...prev, ...(response.records || [])]);
       } else {
-        setLogs(response.records);
+        setLogs(response.records || []);
       }
 
       setTotal(response.total);

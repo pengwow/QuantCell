@@ -12,8 +12,10 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 import pandas as pd
 import numpy as np
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.database import SessionLocal
 from collector.db.models import CryptoSpotKline, CryptoFutureKline
 

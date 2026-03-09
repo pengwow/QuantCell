@@ -5,8 +5,10 @@
 import json
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.database import get_db
 from collector.db.models import MarketData
 from settings.models import SystemConfigBusiness as SystemConfig

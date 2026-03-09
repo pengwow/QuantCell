@@ -7,8 +7,10 @@
 import os
 from pathlib import Path
 from typing import Dict, Any, List
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 使用tomli和tomli-w处理TOML文件
 import tomli
 import tomli_w

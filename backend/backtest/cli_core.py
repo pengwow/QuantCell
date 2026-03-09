@@ -23,8 +23,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 添加策略目录到路径
 backend_path = Path(__file__).resolve().parent.parent
 strategies_dir = backend_path / 'strategies'

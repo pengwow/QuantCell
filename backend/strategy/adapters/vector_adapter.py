@@ -4,7 +4,10 @@
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from strategy.core.vector_engine import VectorEngine
 from strategy.core.strategy_base import StrategyBase
 

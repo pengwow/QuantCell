@@ -16,7 +16,10 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from typing_extensions import Annotated
 
 # 创建Typer应用

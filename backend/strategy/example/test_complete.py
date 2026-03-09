@@ -17,8 +17,10 @@ if project_dir not in sys.path:
 
 import numpy as np
 import pandas as pd
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 导入策略引擎模块 - 更新为正确的导入路径
 from strategy.core import StrategyBase, VectorEngine, EventEngine, EventType
 from strategy.core.numba_functions import (

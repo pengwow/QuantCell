@@ -5,7 +5,10 @@ import time
 from datetime import datetime
 from typing import Any, Dict
 
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 import psutil
 
 

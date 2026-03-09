@@ -22,8 +22,10 @@ from abc import abstractmethod
 from decimal import Decimal
 from typing import Any, Optional
 
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 导入 NautilusTrader 原生 Strategy
 from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
 from nautilus_trader.trading.config import StrategyConfig as NautilusStrategyConfig

@@ -7,8 +7,10 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 
 import jwt
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 导入密钥管理器
 from utils.secret_key_manager import get_secret_key
 

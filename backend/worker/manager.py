@@ -8,8 +8,10 @@ import asyncio
 import uuid
 from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .ipc import CommManager, DataBroker, Message, MessageType
 from .state import WorkerState, WorkerStatus
 from .worker_process import WorkerProcess

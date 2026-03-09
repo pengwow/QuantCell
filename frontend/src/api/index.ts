@@ -2,6 +2,171 @@ import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse 
 import { getAccessToken, updateAccessToken } from '../utils/tokenManager';
 import type { LogQueryParams, LogQueryResponse, SystemMetrics } from '../pages/setting/types';
 
+// ============================================
+// 策略生成相关类型定义
+// ============================================
+
+/**
+ * 策略生成请求
+ */
+export interface StrategyGenerateRequest {
+  requirement: string;
+  model_id?: string;
+  model_name?: string;
+  temperature?: number;
+  template_vars?: Record<string, any>;
+}
+
+/**
+ * 策略生成响应
+ */
+export interface StrategyGenerateResponse {
+  code: string;
+  explanation: string;
+  model_used: string;
+  tokens_used: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+
+/**
+ * 思维链步骤状态
+ */
+export interface ThinkingChainStep {
+  title: string;
+  description: string;
+  status: 'pending' | 'processing' | 'completed' | 'error';
+}
+
+/**
+ * 思维链事件数据
+ */
+export interface ThinkingChainEventData {
+  current_step: number;
+  total_steps: number;
+  step_title: string;
+  step_key?: string;
+  status: 'pending' | 'processing' | 'completed' | 'error';
+  progress: number;
+  message?: string;
+}
+
+/**
+ * 流式策略生成响应
+ */
+export interface StrategyGenerateStreamResponse {
+  type: 'thinking_chain' | 'content' | 'done' | 'error';
+  content?: string;
+  code?: string;
+  data?: ThinkingChainEventData;
+  metadata?: {
+    model_used?: string;
+    tokens_used?: {
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+    };
+    generation_time?: number;
+  };
+  error?: string;
+}
+
+/**
+ * 代码验证请求
+ */
+export interface CodeValidationRequest {
+  code: string;
+  language?: string;
+}
+
+/**
+ * 代码验证响应
+ */
+export interface CodeValidationResponse {
+  valid: boolean;
+  errors: Array<{
+    type: string;
+    line: number;
+    column: number;
+    message: string;
+  }>;
+  warnings: Array<{
+    type: string;
+    line: number;
+    message: string;
+  }>;
+}
+
+/**
+ * 策略模板
+ */
+export interface StrategyTemplate {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  parameters: Array<{
+    name: string;
+    type: string;
+    default: any;
+    description: string;
+  }>;
+  tags?: string[];
+}
+
+/**
+ * 策略模板分类
+ */
+export interface StrategyTemplateCategory {
+  id: string;
+  name: string;
+  description: string;
+}
+
+/**
+ * 策略历史记录
+ */
+export interface StrategyHistoryItem {
+  id: string;
+  title: string;
+  requirement: string;
+  code: string;
+  explanation: string;
+  model_id: string;
+  temperature: number;
+  tokens_used: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+  generation_time: number;
+  is_valid: boolean;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * 性能统计
+ */
+export interface PerformanceStats {
+  total_requests: number;
+  success_rate: number;
+  avg_generation_time: number;
+  avg_tokens_used: number;
+  by_model: Record<string, {
+    requests: number;
+    success_rate: number;
+    avg_time: number;
+  }>;
+  by_date: Record<string, {
+    requests: number;
+    success_rate: number;
+  }>;
+}
+
 /**
  * API 响应类型
  */
@@ -520,6 +685,227 @@ export const aiModelApi = {
    */
   getDefaultProviderModels: () => {
     return apiRequest.get('/ai-models/default-provider/models');
+  },
+
+  // ============================================
+  // 策略生成相关 API
+  // ============================================
+
+  /**
+   * 流式生成策略（SSE）
+   * @param data 生成请求数据
+   * @returns EventSource 实例
+   */
+  generateStrategy: (_data: StrategyGenerateRequest): EventSource => {
+    const token = getAccessToken();
+    const url = `/api/ai-models/strategy/generate?token=${token}`;
+
+    // 使用 POST 方法创建 EventSource，需要通过 fetch 实现
+    const eventSource = new EventSource(url);
+
+    // 发送请求数据（需要在连接建立后发送）
+    // 注意：标准 EventSource 不支持 POST，这里使用查询参数传递简单数据
+    // 复杂数据建议使用 generateStrategyStream 方法
+    return eventSource;
+  },
+
+  /**
+   * 使用 fetch + ReadableStream 实现流式生成策略
+   * 支持 POST 请求和请求体，支持思维链事件
+   * @param data 生成请求数据
+   * @param onMessage 消息回调
+   * @param onError 错误回调
+   * @param onComplete 完成回调
+   * @param onThinkingChain 思维链状态更新回调
+   * @returns 取消函数
+   */
+  generateStrategyStream: (
+    data: StrategyGenerateRequest,
+    onMessage: (response: StrategyGenerateStreamResponse) => void,
+    onError?: (error: Error) => void,
+    onComplete?: () => void,
+    onThinkingChain?: (data: ThinkingChainEventData) => void
+  ): (() => void) => {
+    const token = getAccessToken();
+    const controller = new AbortController();
+
+    // 使用 Promise 包装 fetch 调用
+    const fetchPromise = fetch('/api/ai-models/strategy/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+      signal: controller.signal,
+    });
+
+    // 立即开始处理 fetch
+    fetchPromise
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('Response body is null');
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const jsonData = JSON.parse(line.slice(6)) as StrategyGenerateStreamResponse;
+                
+                // 处理思维链事件
+                if (jsonData.type === 'thinking_chain' && jsonData.data && onThinkingChain) {
+                  onThinkingChain(jsonData.data);
+                }
+                
+                onMessage(jsonData);
+              } catch (e) {
+                console.error('解析SSE数据失败:', e);
+              }
+            }
+          }
+        }
+
+        onComplete?.();
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          onError?.(error);
+        }
+      });
+
+    // 返回取消函数
+    return () => controller.abort();
+  },
+
+  /**
+   * 同步生成策略
+   * @param data 生成请求数据
+   * @returns 生成结果
+   */
+  generateStrategySync: (data: StrategyGenerateRequest): Promise<StrategyGenerateResponse> => {
+    return apiRequest.post('/ai-models/strategy/generate-sync', data);
+  },
+
+  /**
+   * 验证代码
+   * @param data 验证请求数据
+   * @returns 验证结果
+   */
+  validateCode: (data: CodeValidationRequest): Promise<CodeValidationResponse> => {
+    return apiRequest.post('/ai-models/strategy/validate-code', data);
+  },
+
+  /**
+   * 获取策略模板列表
+   * @param category 分类ID（可选）
+   * @returns 模板列表
+   */
+  getTemplates: (category?: string): Promise<StrategyTemplate[]> => {
+    return apiRequest.get('/ai-models/strategy/templates', { category });
+  },
+
+  /**
+   * 获取策略模板分类
+   * @returns 分类列表
+   */
+  getTemplateCategories: (): Promise<StrategyTemplateCategory[]> => {
+    return apiRequest.get('/ai-models/strategy/templates/categories');
+  },
+
+  /**
+   * 获取单个策略模板
+   * @param id 模板ID
+   * @returns 模板详情
+   */
+  getTemplateById: (id: string): Promise<StrategyTemplate> => {
+    return apiRequest.get(`/ai-models/strategy/templates/${id}`);
+  },
+
+  /**
+   * 基于模板生成策略
+   * @param templateId 模板ID
+   * @param params 模板参数
+   * @returns 生成结果
+   */
+  generateFromTemplate: (
+    templateId: string,
+    params: Record<string, any>
+  ): Promise<StrategyGenerateResponse> => {
+    return apiRequest.post('/ai-models/strategy/generate-from-template', {
+      template_id: templateId,
+      parameters: params,
+    });
+  },
+
+  /**
+   * 获取策略生成历史记录
+   * @param page 页码
+   * @param pageSize 每页数量
+   * @returns 历史记录列表
+   */
+  getHistory: (page?: number, pageSize?: number): Promise<{
+    items: StrategyHistoryItem[];
+    total: number;
+    page: number;
+    page_size: number;
+  }> => {
+    return apiRequest.get('/ai-models/strategy/history', { page, page_size: pageSize });
+  },
+
+  /**
+   * 获取单个历史记录
+   * @param id 历史记录ID
+   * @returns 历史记录详情
+   */
+  getHistoryById: (id: string): Promise<StrategyHistoryItem> => {
+    return apiRequest.get(`/ai-models/strategy/history/${id}`);
+  },
+
+  /**
+   * 删除历史记录
+   * @param id 历史记录ID
+   */
+  deleteHistory: (id: string): Promise<void> => {
+    return apiRequest.delete(`/ai-models/strategy/history/${id}`);
+  },
+
+  /**
+   * 基于历史记录重新生成
+   * @param id 历史记录ID
+   * @param newRequirement 新的需求描述（可选）
+   * @returns 生成结果
+   */
+  regenerateFromHistory: (
+    id: string,
+    newRequirement?: string
+  ): Promise<StrategyGenerateResponse> => {
+    return apiRequest.post(`/ai-models/strategy/history/${id}/regenerate`, {
+      new_requirement: newRequirement,
+    });
+  },
+
+  /**
+   * 获取性能统计
+   * @returns 性能统计数据
+   */
+  getPerformanceStats: (): Promise<PerformanceStats> => {
+    return apiRequest.get('/ai-models/strategy/stats');
   },
 };
 

@@ -9,8 +9,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 import psutil
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 导入WebSocket连接管理器
 from websocket.manager import manager
 

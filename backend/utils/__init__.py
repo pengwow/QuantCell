@@ -8,6 +8,18 @@
 from .decorators import async_deco_retry, deco_retry
 from .i18n import get_translation_dict, extract_lang
 from .jwt_utils import create_jwt_token, verify_jwt_token
+from .logger import (
+    get_logger,
+    get_strategy_logger,
+    LogLevel,
+    LogType,
+    LoggerWrapper,
+    set_log_level,
+    set_trace_id,
+    get_trace_id,
+    clear_trace_id,
+    shutdown_logger,
+)
 from .number_utils import (
     safe_float,
     safe_int,
@@ -40,6 +52,17 @@ __all__ = [
     # jwt_utils
     "create_jwt_token",
     "verify_jwt_token",
+    # logger
+    "get_logger",
+    "get_strategy_logger",
+    "LogLevel",
+    "LogType",
+    "LoggerWrapper",
+    "set_log_level",
+    "set_trace_id",
+    "get_trace_id",
+    "clear_trace_id",
+    "shutdown_logger",
     # number_utils
     "safe_float",
     "safe_int",

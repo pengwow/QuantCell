@@ -3,9 +3,10 @@
 
 import numpy as np
 from typing import Dict, Any
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 class VectorEngine:
     """
     向量引擎

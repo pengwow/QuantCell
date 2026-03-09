@@ -3,8 +3,10 @@
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.models import ScheduledTaskBusiness
 from collector.schemas import ApiResponse, ScheduledTaskCreate, ScheduledTaskUpdate
 from collector.utils.scheduled_task_manager import scheduled_task_manager

@@ -1,7 +1,10 @@
 import json
 from typing import Any, Dict, Optional
 
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from sqlalchemy.orm import Session
 
 # 导入数据库连接和SystemConfig模型

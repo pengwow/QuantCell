@@ -1,7 +1,10 @@
 # WebSocket连接管理器
 import asyncio
 from typing import Dict, List, Any, Optional, Callable
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .abstract_client import AbstractExchangeClient
 
 

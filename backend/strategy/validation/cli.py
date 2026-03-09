@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Optional
 
 # 在导入任何其他模块之前，先配置日志以抑制模块导入时的调试输出
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 移除默认的日志处理器并设置日志级别为 INFO
 logger.remove()
 logger.add(sys.stderr, level="INFO", format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")

@@ -20,8 +20,10 @@ import time
 
 from binance import AsyncClient
 from binance.ws.streams import BinanceSocketManager
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .config import BinanceConfig
 from .exceptions import BinanceWebSocketError, BinanceConnectionError
 

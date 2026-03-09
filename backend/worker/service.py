@@ -694,4 +694,7 @@ async def batch_operation(db: Session, request: schemas.BatchOperationRequest) -
 
 
 # 导入 logger
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)

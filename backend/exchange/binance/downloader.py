@@ -10,8 +10,10 @@ import aiohttp
 import certifi
 import pandas as pd
 import requests
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from exchange.base import BaseCollector
 from utils.decorators import async_deco_retry, deco_retry
 from utils.time_parser import get_date_range

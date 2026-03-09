@@ -10,7 +10,10 @@ import pandas as pd
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from loguru import logger
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from queue import Queue
 
 

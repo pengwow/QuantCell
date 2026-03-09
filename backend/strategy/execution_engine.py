@@ -7,8 +7,10 @@ from datetime import datetime
 import uuid
 import pandas as pd
 import numpy as np
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 from .strategy_base import (
     StrategyBase,
     BacktestStrategyBase,

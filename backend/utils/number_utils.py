@@ -17,9 +17,10 @@ Provides utility functions for safe numeric conversions with proper error handli
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional, Union
 
-from loguru import logger
+from utils.logger import get_logger, LogType
 
-
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 NumberType = Union[int, float, str, Decimal, None]
 
 

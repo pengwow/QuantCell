@@ -13,6 +13,12 @@ class ApiResponse(BaseModel):
     统一API响应模型
     所有服务的API响应都应使用此模型
     """
+    model_config = {
+        "json_encoders": {
+            datetime: lambda v: v.isoformat(),
+        }
+    }
+
     code: int = Field(
         ...,
         description="响应状态码，0表示成功，非0表示失败",

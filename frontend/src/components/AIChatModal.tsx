@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Button,
   Modal,
@@ -12,12 +12,9 @@ import {
   ArrowUpOutlined,
   RedoOutlined,
   CopyOutlined,
-  UserOutlined,
-  RobotOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { Bubble, Sender, ThoughtChain, CodeHighlighter } from '@ant-design/x';
-import { Avatar } from 'antd';
+import { Bubble, Sender, ThoughtChain } from '@ant-design/x';
 import { aiModelApi } from '../api';
 
 // AI模型配置类型
@@ -31,6 +28,24 @@ export interface AIModel {
   is_enabled: boolean;
 }
 
+// 思维链步骤状态类型
+export interface ThinkingChainStepState {
+  title: string;
+  description: string;
+  status: 'pending' | 'processing' | 'completed' | 'error';
+}
+
+// 思维链SSE事件数据类型
+export interface ThinkingChainEventData {
+  current_step: number;
+  total_steps: number;
+  step_title: string;
+  step_description?: string;
+  status: 'pending' | 'processing' | 'completed' | 'error';
+  progress: number;
+  message?: string;
+}
+
 // AI消息类型
 export interface Message {
   id: string;
@@ -41,62 +56,47 @@ export interface Message {
   code?: string;
 }
 
-// 思考步骤类型
-export interface ThinkingStep {
-  label: string;
-  status: 'pending' | 'active' | 'completed';
-}
+// 流式生成回调类型
+export type StreamGenerateCallback = (
+  content: string,
+  modelId: string | null,
+  modelName: string,
+  onChunk: (chunk: string) => void,
+  onComplete: (result: { content: string; code?: string }) => void,
+  onError: (error: Error) => void,
+  onThinkingChain?: (data: ThinkingChainEventData) => void
+) => (() => void); // 返回取消函数
 
 // AIChatModal 组件 Props
 export interface AIChatModalProps {
-  // 基础配置
   open: boolean;
   onClose: () => void;
   title?: string;
   width?: number;
   height?: string | number;
-
-  // 欢迎信息配置
   welcomeIcon?: React.ReactNode;
   welcomeTitle?: string;
   welcomeDescription?: string;
-
-  // 输入配置
   inputPlaceholder?: string;
   submitType?: 'enter' | 'shiftEnter';
-
-  // 模型配置
   modelSelectorEnabled?: boolean;
-  defaultModelId?: number;
-  onModelChange?: (modelId: number, modelName: string) => void;
-
-  // 消息处理
-  onSendMessage: (content: string, modelId: number | null, modelName: string) => Promise<{
+  defaultModelId?: string;
+  onModelChange?: (modelId: string, modelName: string) => void;
+  // 同步方式（二选一）
+  onSendMessage?: (content: string, modelId: string | null, modelName: string) => Promise<{
     content: string;
     code?: string;
   }>;
-
-  // 代码操作
+  // 流式方式（二选一）
+  onStreamGenerate?: StreamGenerateCallback;
   onAcceptCode?: (code: string) => void;
   onRejectCode?: () => void;
-
-  // 思考步骤配置
-  thinkingSteps?: string[];
-  showThinkingSteps?: boolean;
-
-  // 自定义渲染
   renderMessageContent?: (msg: Message) => React.ReactNode;
   renderActions?: (msg: Message) => React.ReactNode;
-
-  // 样式配置
   className?: string;
   bodyClassName?: string;
 }
 
-/**
- * AI 聊天弹窗组件
- * 通用的 AI 对话弹窗，支持模型选择、消息列表、代码展示等功能
- */
 const AIChatModal: React.FC<AIChatModalProps> = ({
   open,
   onClose,
@@ -111,10 +111,9 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
   modelSelectorEnabled = true,
   onModelChange,
   onSendMessage,
+  onStreamGenerate,
   onAcceptCode,
   onRejectCode,
-  thinkingSteps: customThinkingSteps,
-  showThinkingSteps = true,
   renderMessageContent,
   renderActions,
   className,
@@ -122,57 +121,49 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  // 消息列表
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [currentThinkingStep, setCurrentThinkingStep] = useState(0);
-
-  // 模型配置（已隐藏模型选择器，简化处理）
   const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [selectedModelName, setSelectedModelName] = useState<string>('');
 
-  // 默认思考步骤
-  const defaultThinkingSteps = [
-    t('thinking_analyze') || '分析需求...',
-    t('thinking_design') || '设计策略结构...',
-    t('thinking_generate') || '生成代码...',
-    t('thinking_optimize') || '优化代码...',
-  ];
-  const thinkingSteps = customThinkingSteps || defaultThinkingSteps;
+  // 流式生成取消函数引用
+  const streamCancelRef = useRef<(() => void) | null>(null);
 
-  // 加载默认模型名称
+  // 思维链状态 - 动态从后端获取
+  const [thinkingSteps, setThinkingSteps] = useState<ThinkingChainStepState[]>([]);
+  const [, setCurrentStep] = useState(0);
+  const [thinkingProgress, setThinkingProgress] = useState(0);
+
   useEffect(() => {
     if (open && modelSelectorEnabled) {
       loadDefaultModel();
     }
   }, [open, modelSelectorEnabled]);
 
-  // 加载默认模型名称
   const loadDefaultModel = async () => {
     try {
-      // 使用新接口获取默认提供商的模型列表
       const result = await aiModelApi.getDefaultProviderModels();
-      // API 拦截器已经处理了 code，直接返回 data
-      if (result?.models && result.models.length > 0) {
-        // 使用第一个启用的模型
-        const firstModel = result.models[0];
-        setSelectedModelId(firstModel.id);
-        setSelectedModelName(firstModel.name);
-        onModelChange?.(Number(firstModel.id), firstModel.name);
+      console.log('getDefaultProviderModels返回结果:', result);
+      if (result?.model) {
+        const model = result.model;
+        console.log('设置的模型ID:', model.id, '类型:', typeof model.id);
+        setSelectedModelId(model.id);
+        setSelectedModelName(model.name);
+        onModelChange?.(model.id, model.name);
       }
     } catch (error) {
       console.error('加载默认模型失败:', error);
     }
   };
 
-  // 清空消息
   const handleClearMessages = () => {
     setMessages([]);
-    setCurrentThinkingStep(0);
+    setCurrentStep(0);
+    setThinkingProgress(0);
+    setThinkingSteps([]);
   };
 
-  // 发送消息
   const handleSendMessage = async () => {
     if (!inputValue.trim()) {
       message.warning(t('input_empty') || '请输入内容');
@@ -189,175 +180,232 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
     setMessages((prev) => [...prev, userMessage]);
     setInputValue('');
     setIsGenerating(true);
-    setCurrentThinkingStep(0);
+    setCurrentStep(0);
+    setThinkingProgress(0);
 
-    // 创建AI消息占位符
-    const aiMessageId = (Date.now() + 1).toString();
-    const aiMessage: Message = {
-      id: aiMessageId,
-      type: 'ai',
-      content: '',
-      timestamp: new Date(),
-      status: 'generating',
-    };
-    setMessages((prev) => [...prev, aiMessage]);
+    // 如果有流式生成回调，使用流式方式
+    if (onStreamGenerate) {
+      let fullContent = '';
 
-    try {
-      // 模拟思考过程
-      if (showThinkingSteps) {
-        for (let i = 0; i < thinkingSteps.length; i++) {
-          setCurrentThinkingStep(i);
-          await new Promise((resolve) => setTimeout(resolve, 800));
-        }
-      }
-
-      // 调用外部处理函数
-      const result = await onSendMessage(
+      const cancelStream = onStreamGenerate(
         userMessage.content,
-        Number(selectedModelId),
-        selectedModelName
-      );
-
-      // 更新AI消息
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === aiMessageId
-            ? {
-                ...msg,
-                content: result.content,
-                status: 'completed',
-                code: result.code,
-              }
-            : msg
-        )
-      );
-    } catch (error: any) {
-      const errorMsg = error?.message || t('generate_failed') || '生成失败';
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === aiMessageId
-            ? { ...msg, content: errorMsg, status: 'error' }
-            : msg
-        )
-      );
-      message.error(errorMsg);
-    } finally {
-      setIsGenerating(false);
-      setCurrentThinkingStep(0);
-    }
-  };
-
-  // 渲染默认的 AI 消息内容
-  const renderDefaultMessageContent = (msg: Message) => {
-    if (msg.type === 'user') {
-      return msg.content;
-    }
-
-    return (
-      <div>
-        {/* 思考过程 - 使用 Ant Design X ThoughtChain 组件 */}
-        {showThinkingSteps && msg.status === 'generating' && (
-          <div className="mb-3">
-            <ThoughtChain
-              items={thinkingSteps.map((step, stepIndex) => ({
-                key: String(stepIndex),
-                title: step,
-                status:
-                  stepIndex < currentThinkingStep
-                    ? 'success'
-                    : stepIndex === currentThinkingStep
-                    ? 'loading'
-                    : undefined,
-                description:
-                  stepIndex === currentThinkingStep
-                    ? t('thinking_in_progress') || '进行中...'
-                    : stepIndex < currentThinkingStep
-                    ? t('thinking_completed') || '已完成'
-                    : t('thinking_pending') || '等待中',
-              }))}
-            />
-          </div>
-        )}
-
-        {/* AI回复内容 */}
-        <div className="mb-3">
-          <p className="text-gray-700 dark:text-gray-300 mb-2">{msg.content}</p>
-        </div>
-
-        {/* 生成的代码 - 使用 CodeHighlighter */}
-        {msg.code && (
-          <div className="mb-3">
-            <CodeHighlighter
-              lang="python"
-              header={t('generated_code') || '生成的代码'}
-              className="rounded-lg overflow-hidden"
-            >
-              {msg.code}
-            </CodeHighlighter>
-          </div>
-        )}
-
-        {/* 默认的采纳/拒绝按钮 */}
-        {msg.status === 'completed' && msg.code && !renderActions && (
-          <div className="flex gap-2 mt-3 justify-end">
-            <Button
-              size="small"
-              icon={<CloseCircleOutlined />}
-              onClick={() => {
-                onRejectCode?.();
-                message.info(t('rejected') || '已拒绝');
-              }}
-            >
-              {t('reject') || '拒绝'}
-            </Button>
-            <Button
-              type="primary"
-              size="small"
-              icon={<CheckCircleOutlined />}
-              onClick={() => {
-                if (msg.code) {
-                  onAcceptCode?.(msg.code);
-                  message.success(t('accepted') || '已采纳');
-                  onClose();
+        selectedModelId || null,
+        selectedModelName,
+        // onChunk - 接收流式内容
+        (chunk: string) => {
+          fullContent += chunk;
+          // 更新AI消息内容（流式显示）
+          setMessages((prev) => {
+            const lastMsg = prev[prev.length - 1];
+            if (lastMsg?.type === 'ai' && lastMsg.status === 'generating') {
+              return [
+                ...prev.slice(0, -1),
+                { ...lastMsg, content: fullContent }
+              ];
+            }
+            return [...prev, {
+              id: (Date.now() + 1).toString(),
+              type: 'ai',
+              content: fullContent,
+              timestamp: new Date(),
+              status: 'generating',
+            }];
+          });
+        },
+        // onComplete - 生成完成
+        (result: { content: string; code?: string }) => {
+          fullContent = result.content;
+          setMessages((prev) => {
+            const lastMsg = prev[prev.length - 1];
+            if (lastMsg?.type === 'ai') {
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...lastMsg,
+                  content: result.content,
+                  status: 'completed',
+                  code: result.code,
                 }
-              }}
-            >
-              {t('accept') || '采纳'}
-            </Button>
-          </div>
-        )}
+              ];
+            }
+            return [...prev, {
+              id: (Date.now() + 1).toString(),
+              type: 'ai',
+              content: result.content,
+              timestamp: new Date(),
+              status: 'completed',
+              code: result.code,
+            }];
+          });
+          setIsGenerating(false);
+        },
+        // onError - 生成错误
+        (error: Error) => {
+          console.error('流式生成失败:', error);
+          setMessages((prev) => {
+            const lastMsg = prev[prev.length - 1];
+            if (lastMsg?.type === 'ai') {
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...lastMsg,
+                  content: t('generate_error') || '生成失败，请重试',
+                  status: 'error',
+                }
+              ];
+            }
+            return [...prev, {
+              id: (Date.now() + 1).toString(),
+              type: 'ai',
+              content: t('generate_error') || '生成失败，请重试',
+              timestamp: new Date(),
+              status: 'error',
+            }];
+          });
+          setIsGenerating(false);
+        },
+        // onThinkingChain - 处理思维链SSE事件
+        (data: ThinkingChainEventData) => {
+          setCurrentStep(data.current_step);
+          setThinkingProgress(data.progress);
+          setThinkingSteps((prev) => {
+            // 初始化步骤列表（如果是第一次接收）
+            if (prev.length === 0 || prev.length !== data.total_steps) {
+              const newSteps: ThinkingChainStepState[] = [];
+              for (let i = 1; i <= data.total_steps; i++) {
+                newSteps.push({
+                  title: i === data.current_step ? data.step_title : `步骤 ${i}`,
+                  description: i === data.current_step ? (data.step_description || data.message || '') : '',
+                  status: i < data.current_step ? 'completed' : i === data.current_step ? data.status : 'pending',
+                });
+              }
+              return newSteps;
+            }
+            // 更新现有步骤
+            return prev.map((step, index) => {
+              const stepNumber = index + 1;
+              if (stepNumber === data.current_step) {
+                return {
+                  ...step,
+                  title: data.step_title,
+                  description: data.step_description || data.message || '',
+                  status: data.status,
+                };
+              } else if (stepNumber < data.current_step) {
+                return { ...step, status: 'completed' as const };
+              }
+              return step;
+            });
+          });
+        }
+      );
 
-        {/* 自定义操作按钮 */}
-        {renderActions && renderActions(msg)}
-      </div>
-    );
+      // 保存取消函数到 ref，以便在组件卸载时取消
+      streamCancelRef.current = cancelStream;
+    } else if (onSendMessage) {
+      // 使用同步方式（同步方式不支持思维链显示）
+      try {
+        console.log('发送消息时的selectedModelId:', selectedModelId);
+        const result = await onSendMessage(
+          userMessage.content,
+          selectedModelId || null,
+          selectedModelName
+        );
+
+        setMessages((prev) =>
+          [...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            type: 'ai',
+            content: result.content,
+            timestamp: new Date(),
+            status: 'completed',
+            code: result.code,
+          }]
+        );
+      } catch (error) {
+        console.error('发送消息失败:', error);
+        setMessages((prev) =>
+          [...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            type: 'ai',
+            content: t('generate_error') || '生成失败，请重试',
+            timestamp: new Date(),
+            status: 'error',
+          }]
+        );
+      } finally {
+        setIsGenerating(false);
+      }
+    }
   };
 
-  // 渲染消息内容
   const getMessageContent = (msg: Message) => {
     if (renderMessageContent) {
       return renderMessageContent(msg);
     }
-    return renderDefaultMessageContent(msg);
+
+    if (msg.code) {
+      return (
+        <div className="space-y-4">
+          <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+          <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm">
+            <code>{msg.code}</code>
+          </pre>
+          {renderActions && renderActions(msg)}
+          {msg.type === 'ai' && msg.code && (
+            <div className="flex gap-3 pt-2">
+              <Button
+                type="primary"
+                icon={<CheckCircleOutlined />}
+                onClick={() => onAcceptCode?.(msg.code!)}
+                className="flex-1"
+              >
+                {t('accept_code') || '采纳代码'}
+              </Button>
+              <Button
+                icon={<CloseCircleOutlined />}
+                onClick={onRejectCode}
+                className="flex-1"
+              >
+                {t('reject_code') || '拒绝'}
+              </Button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>;
+  };
+
+  // 更新思维链状态 - 根据后端数据动态渲染
+  const getThinkingItems = () => {
+    return thinkingSteps.map((step, index) => {
+      // 将后端状态映射到ThoughtChain组件的状态
+      let status: 'success' | 'loading' | 'error' | undefined;
+      if (step.status === 'completed') {
+        status = 'success';
+      } else if (step.status === 'processing' && isGenerating) {
+        status = 'loading';
+      } else if (step.status === 'error') {
+        status = 'error';
+      }
+
+      return {
+        key: index.toString(),
+        title: step.title,
+        description: step.description,
+        status,
+      };
+    });
   };
 
   return (
     <Modal
       title={
-        <div className="flex justify-between items-center pr-8">
-          <span className="font-medium">{title || t('ai_chat') || 'AI 对话'}</span>
-          {messages.length > 0 && (
-            <Button
-              type="text"
-              size="small"
-              icon={<DeleteOutlined />}
-              onClick={handleClearMessages}
-              className="ml-4"
-            >
-              {t('clear_history') || '清空历史'}
-            </Button>
-          )}
-        </div>
+        <span className="font-medium">{title || t('ai_chat') || 'AI 对话'}</span>
       }
       open={open}
       onCancel={onClose}
@@ -369,74 +417,110 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
       }}
       className={className}
     >
-      <div className={`flex flex-col ${bodyClassName}`} style={{ height }}>
-        {/* 聊天消息列表 */}
-        <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+      <div className={`flex flex-col w-full ${bodyClassName}`} style={{ height }}>
+        <div className="flex-1 overflow-y-auto bg-[#f5f5f5] dark:bg-[#141414] w-full">
           {messages.length === 0 ? (
-            <div className="text-center text-gray-400 py-10">
+            <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 dark:text-gray-500">
               {welcomeIcon || <ThunderboltOutlined style={{ fontSize: 48 }} className="mb-4" />}
-              <p>{welcomeTitle || t('ai_welcome') || '我是AI助手，有什么可以帮您的？'}</p>
+              <p className="text-lg font-medium text-gray-600 dark:text-gray-300">
+                {welcomeTitle || t('ai_welcome') || '我是AI助手，有什么可以帮您的？'}
+              </p>
               {welcomeDescription && (
                 <p className="text-sm mt-2">{welcomeDescription}</p>
               )}
             </div>
           ) : (
-            <Bubble.List
-              items={messages.map((msg) => ({
-                key: msg.id,
-                role: msg.type,
-                content: getMessageContent(msg),
-                loading: msg.status === 'generating' && msg.type === 'ai',
-              }))}
-              role={{
-                user: {
-                  placement: 'end',
-                  variant: 'shadow',
-                  shape: 'corner',
-                  className: 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100',
-                  avatar: <Avatar icon={<UserOutlined />} style={{ background: '#1677ff' }} />,
-                },
-                ai: {
-                  placement: 'start',
-                  variant: 'shadow',
-                  shape: 'corner',
-                  className: 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100',
-                  avatar: <Avatar icon={<RobotOutlined />} style={{ background: '#52c41a' }} />,
-                  typing: { effect: 'typing', step: 2, interval: 50 },
-                  footer: (content: string) => (
-                    <div className="flex gap-2 mt-2">
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<CopyOutlined />}
-                        onClick={() => {
-                          navigator.clipboard.writeText(content);
-                          message.success('已复制');
-                        }}
-                      >
-                        复制
-                      </Button>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<RedoOutlined />}
-                        onClick={() => {
-                          handleSendMessage();
-                        }}
-                      >
-                        重试
-                      </Button>
+            <div className="w-full">
+              {/* 清空历史按钮 */}
+              <div className="flex justify-end px-4 py-2">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  onClick={handleClearMessages}
+                >
+                  {t('clear_history') || '清空历史'}
+                </Button>
+              </div>
+              {/* 思维链 - 带进度显示和动画效果 */}
+              {isGenerating && thinkingSteps.length > 0 && (
+                <div className="px-4 py-3 bg-white dark:bg-gray-800 mx-4 my-2 rounded-xl shadow-sm transition-all duration-300 ease-in-out">
+                  {/* 进度条 */}
+                  <div className="mb-3">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {t('thinking_progress') || '思考进度'}
+                      </span>
+                      <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                        {Math.round(thinkingProgress)}%
+                      </span>
                     </div>
-                  ),
-                },
-              }}
-              autoScroll
-            />
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                      <div
+                        className="bg-blue-500 h-2 rounded-full transition-all duration-500 ease-out"
+                        style={{ width: `${thinkingProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                  <ThoughtChain
+                    items={getThinkingItems()}
+                    className="w-full"
+                  />
+                </div>
+              )}
+              <Bubble.List
+                className="w-full"
+                items={messages.map((msg) => ({
+                  key: msg.id,
+                  role: msg.type,
+                  content: getMessageContent(msg),
+                  loading: msg.status === 'generating' && msg.type === 'ai',
+                }))}
+                role={{
+                  user: {
+                    placement: 'end',
+                    variant: 'filled',
+                    className: 'rounded-2xl px-4 py-3',
+                  },
+                  ai: {
+                    placement: 'start',
+                    variant: 'filled',
+                    className: 'rounded-2xl px-4 py-3 shadow-sm',
+                    typing: { effect: 'typing', step: 2, interval: 50 },
+                    footer: (content: string) => (
+                      <div className="flex gap-2 mt-2 ml-0">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<CopyOutlined />}
+                          onClick={() => {
+                            navigator.clipboard.writeText(content);
+                            message.success('已复制');
+                          }}
+                        >
+                          复制
+                        </Button>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<RedoOutlined />}
+                          onClick={() => {
+                            handleSendMessage();
+                          }}
+                        >
+                          重试
+                        </Button>
+                      </div>
+                    ),
+                  },
+                }}
+                autoScroll
+              />
+            </div>
           )}
         </div>
 
-        {/* 输入区域 */}
-        <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+        <div className="border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-[#141414] p-4">
           <Sender
             value={inputValue}
             onChange={setInputValue}
@@ -445,9 +529,8 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
             placeholder={inputPlaceholder || t('input_placeholder') || '请输入...'}
             disabled={isGenerating}
             submitType={submitType}
-            // 自定义前缀 - 模型选择器（已隐藏）
             prefix={undefined}
-            // 自定义后缀 - 发送按钮
+            className="rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#1f1f1f]"
             suffix={() => (
               <Button
                 type="primary"
@@ -456,7 +539,10 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
                 onClick={handleSendMessage}
                 loading={isGenerating}
                 disabled={!inputValue.trim() || isGenerating}
-                style={{ width: 36, height: 36 }}
+                style={{ 
+                  width: 36, 
+                  height: 36,
+                }}
               />
             )}
           />

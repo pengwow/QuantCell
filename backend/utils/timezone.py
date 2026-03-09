@@ -4,8 +4,10 @@ import os
 from typing import Optional, Union
 import datetime
 import pytz
-from loguru import logger
+from utils.logger import get_logger, LogType
 
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 # 避免循环导入，延迟导入配置
 _config_manager = None
 _timezone_cache = None
