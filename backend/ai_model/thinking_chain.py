@@ -38,10 +38,11 @@ def _get_engine():
         os.makedirs(default_db_path, exist_ok=True)
 
         if db_type == "sqlite":
-            db_file = os.environ.get("DB_FILE", os.path.join(default_db_path, "quantcell.db"))
+            # 默认使用 quantcell_sqlite.db，与项目主数据库一致
+            db_file = os.environ.get("DB_FILE", os.path.join(default_db_path, "quantcell_sqlite.db"))
             _engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
         else:
-            db_file = os.environ.get("DB_FILE", os.path.join(default_db_path, "quantcell.db"))
+            db_file = os.environ.get("DB_FILE", os.path.join(default_db_path, "quantcell_sqlite.db"))
             _engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
 
         # 绑定 Base metadata

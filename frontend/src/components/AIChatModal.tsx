@@ -130,16 +130,61 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
   // 流式生成取消函数引用
   const streamCancelRef = useRef<(() => void) | null>(null);
 
+  
   // 思维链状态 - 动态从后端获取
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingChainStepState[]>([]);
   const [, setCurrentStep] = useState(0);
   const [thinkingProgress, setThinkingProgress] = useState(0);
+  const [isPreloadingChain, setIsPreloadingChain] = useState(true);
+  
+  // 思维链缓存
+  const thinkingChainCacheRef = useRef<{
+    strategy_generation?: ThinkingChainStepState[];
+    indicator_generation?: ThinkingChainStepState[];
+  }>({});
 
   useEffect(() => {
-    if (open && modelSelectorEnabled) {
-      loadDefaultModel();
+    if (open) {
+      // 并行预加载默认模型和思维链配置
+      setIsPreloadingChain(true);
+      if (modelSelectorEnabled) {
+        loadDefaultModel();
+      }
+      preloadThinkingChain();
     }
   }, [open, modelSelectorEnabled]);
+
+  
+  const preloadThinkingChain = async () => {
+    try {
+      // 检查缓存
+    const chainType = 'strategy_generation';
+    if (thinkingChainCacheRef.current[chainType]) {
+      setThinkingSteps(thinkingChainCacheRef.current[chainType]!);
+      setIsPreloadingChain(false);
+      return;
+      }
+
+      const result = await aiModelApi.preloadThinkingChain(chainType);
+      console.log('预加载思维链配置:', result);
+      
+      if (result && result.steps) {
+        const steps: ThinkingChainStepState[] = result.steps.map((step: any) => ({
+          title: step.title,
+          description: step.description || '',
+          status: 'pending' as const,
+        }));
+        
+        // 缓存预加载的思维链
+        thinkingChainCacheRef.current[chainType] = steps;
+        setThinkingSteps(steps);
+      }
+    } catch (error) {
+      console.error('预加载思维链失败:', error);
+    } finally {
+      setIsPreloadingChain(false);
+    }
+  };
 
   const loadDefaultModel = async () => {
     try {

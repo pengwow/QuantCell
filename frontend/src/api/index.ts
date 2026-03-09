@@ -47,6 +47,7 @@ export interface ThinkingChainEventData {
   current_step: number;
   total_steps: number;
   step_title: string;
+  step_description?: string;
   step_key?: string;
   status: 'pending' | 'processing' | 'completed' | 'error';
   progress: number;
@@ -800,6 +801,23 @@ export const aiModelApi = {
    */
   generateStrategySync: (data: StrategyGenerateRequest): Promise<StrategyGenerateResponse> => {
     return apiRequest.post('/ai-models/strategy/generate-sync', data);
+  },
+
+  /**
+   * 预加载思维链配置
+   * 用于前端页面打开时快速获取激活的思维链配置
+   * @param chainType 思维链类型
+   * @returns 思维链配置
+   */
+  preloadThinkingChain: (chainType: 'strategy_generation' | 'indicator_generation' = 'strategy_generation'): Promise<{
+    id: string;
+    chain_type: string;
+    name: string;
+    description?: string;
+    steps: Array<{ title: string; description?: string }>;
+    is_active: boolean;
+  } | null> => {
+    return apiRequest.get(`/ai-models/strategy/thinking-chains/preload`, { chain_type: chainType });
   },
 
   /**

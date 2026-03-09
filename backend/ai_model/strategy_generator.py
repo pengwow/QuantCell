@@ -443,6 +443,7 @@ class StrategyGenerator:
                 "current_step": step_info.get("current_step", step_index + 1),
                 "total_steps": step_info.get("total_steps", len(self._thinking_chain_steps)),
                 "step_title": step_info.get("step_title", ""),
+                "step_description": self._thinking_chain_steps[step_index].get("description", "") if 0 <= step_index < len(self._thinking_chain_steps) else "",
                 "step_key": step_info.get("step_key", ""),
                 "status": status,
                 "progress": step_info.get("progress", 0),

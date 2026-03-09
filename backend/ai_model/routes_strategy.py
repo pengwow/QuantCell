@@ -1381,6 +1381,74 @@ async def get_performance_stats(
 
 # ==================== 思维链API端点 ====================
 
+@router.get("/thinking-chains/preload", response_model=ApiResponse)
+@jwt_auth_required
+async def preload_thinking_chain(
+    request: Request,
+    chain_type: str = Query("strategy_generation", description="思维链类型: strategy_generation/indicator_generation"),
+):
+    """预加载思维链配置
+
+    用于前端页面打开时快速获取激活的思维链配置，减少用户等待时间。
+    返回指定类型的激活思维链配置，包含完整的步骤信息。
+
+    Args:
+        request: FastAPI请求对象
+        chain_type: 思维链类型，默认为 strategy_generation
+
+    Returns:
+        ApiResponse: 包含思维链配置的响应
+
+    示例请求:
+        ```bash
+        curl -X GET "http://localhost:8000/api/ai-models/strategy/thinking-chains/preload?chain_type=strategy_generation" \
+            -H "Authorization: Bearer <jwt_token>"
+        ```
+
+    成功响应示例:
+        ```json
+        {
+            "code": 0,
+            "message": "获取成功",
+            "data": {
+                "id": "chain_xxx",
+                "chain_type": "strategy_generation",
+                "name": "策略生成思维链",
+                "description": "标准策略生成流程",
+                "steps": [
+                    {
+                        "title": "需求分析",
+                        "description": "分析用户策略需求",
+                        "status": "pending"
+                    }
+                ],
+                "is_active": true
+            }
+        }
+        ```
+    """
+    try:
+        logger.info(f"预加载思维链配置, chain_type={chain_type}")
+        
+        chain = ThinkingChainManager.get_active_chain_by_type(chain_type)
+        
+        if not chain:
+            return ApiResponse(
+                code=1,
+                message=f"未找到类型为 {chain_type} 的激活思维链配置",
+                data=None,
+            )
+        
+        return ApiResponse(
+            code=0,
+            message="获取成功",
+            data=chain,
+        )
+    except Exception as e:
+        logger.error(f"预加载思维链失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/thinking-chains", response_model=ApiResponse)
 @jwt_auth_required
 async def get_thinking_chains(
