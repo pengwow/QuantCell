@@ -409,16 +409,61 @@ export const sendTradingSignal = async (
 // ==================== WebSocket连接（用于实时日志） ====================
 
 /**
+ * 从tokenManager获取token，确保与axios实例使用相同的token来源
+ */
+const getWebSocketToken = (): string | undefined => {
+  // 优先使用tokenManager获取token
+  const { getAccessToken } = require('../utils/tokenManager');
+  return getAccessToken();
+};
+
+/**
+ * 处理WebSocket认证错误
+ * 当收到401错误时，统一跳转到登录页面
+ */
+const handleWebSocketAuthError = (): void => {
+  // 保存当前页面状态
+  const currentPath = window.location.pathname + window.location.search + window.location.hash;
+  sessionStorage.setItem('redirect_after_login', currentPath);
+
+  // 清除认证数据
+  const { removeToken } = require('../utils/tokenManager');
+  removeToken();
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  localStorage.removeItem('quantcell_jwt_token');
+
+  // 跳转到登录页
+  window.location.href = '/login';
+};
+
+/**
  * 创建WebSocket连接（用于实时日志流）
+ * 增强401错误处理，确保认证失败时统一跳转
  */
 export const createLogWebSocket = (agentId: number): WebSocket => {
-  const wsUrl = `${API_BASE_URL.replace('http', 'ws')}/workers/${agentId}/monitoring/logs/stream`;
+  const token = getWebSocketToken();
+  // 如果token存在，添加到URL查询参数中
+  const wsUrl = token
+    ? `${API_BASE_URL.replace('http', 'ws')}/workers/${agentId}/monitoring/logs/stream?token=${encodeURIComponent(token)}`
+    : `${API_BASE_URL.replace('http', 'ws')}/workers/${agentId}/monitoring/logs/stream`;
+
   const ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      ws.send(JSON.stringify({ type: 'auth', token }));
+    // 连接已建立，token已通过URL传递
+  };
+
+  ws.onerror = (error) => {
+    console.error('WebSocket错误:', error);
+  };
+
+  ws.onclose = (event) => {
+    // 处理认证失败关闭连接的情况
+    if (event.code === 1008 || event.code === 1006) {
+      // 1008: Policy Violation (认证失败)
+      // 1006: Abnormal Closure (可能被服务器拒绝)
+      handleWebSocketAuthError();
     }
   };
 

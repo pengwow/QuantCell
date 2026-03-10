@@ -101,6 +101,20 @@ const LoginPage = () => {
     };
   }, []);
 
+  /**
+   * 获取登录后跳转的目标路径
+   * 优先使用sessionStorage中保存的redirect_after_login
+   */
+  const getRedirectPath = (): string => {
+    const savedPath = sessionStorage.getItem('redirect_after_login');
+    if (savedPath && savedPath !== '/login') {
+      // 清除保存的路径，避免重复跳转
+      sessionStorage.removeItem('redirect_after_login');
+      return savedPath;
+    }
+    return '/';
+  };
+
   // 处理登录
   const handleLogin = async (values: { username: string; password: string }) => {
     setLoading(true);
@@ -128,7 +142,9 @@ const LoginPage = () => {
           token_type: data.data.token_type || "Bearer",
         });
         message.success(t("login_success") || "登录成功");
-        navigate("/");
+        // 跳转到之前保存的页面或首页
+        const redirectPath = getRedirectPath();
+        navigate(redirectPath);
       } else {
         message.error(data.message || t("login_failed") || "登录失败");
       }

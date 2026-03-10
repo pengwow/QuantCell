@@ -543,12 +543,28 @@
 .custom-indicator-item:hover {
   background: rgba(100, 108, 255, 0.05);
   border-color: var(--ant-color-primary);
-  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .custom-indicator-item.active {
-  background: rgba(100, 108, 255, 0.1);
-  border-left: 3px solid var(--ant-color-primary);
+  background: var(--ant-color-primary);
+  border-color: var(--ant-color-primary);
+}
+
+.custom-indicator-item.active .custom-indicator-name {
+  color: white;
+}
+
+.custom-indicator-item.active .custom-indicator-desc {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.custom-indicator-item.active .custom-indicator-actions .ant-btn {
+  color: white;
+}
+
+.custom-indicator-item.active .custom-indicator-actions .ant-btn-dangerous {
+  color: var(--ant-color-error);
 }
 
 /* 指标信息 */

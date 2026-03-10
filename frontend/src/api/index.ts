@@ -1,6 +1,55 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios';
-import { getAccessToken, updateAccessToken } from '../utils/tokenManager';
+import { getAccessToken, updateAccessToken, removeToken } from '../utils/tokenManager';
 import type { LogQueryParams, LogQueryResponse, SystemMetrics } from '../pages/setting/types';
+
+// ============================================
+// 全局401错误处理配置
+// ============================================
+
+/**
+ * 保存当前页面状态到sessionStorage，用于登录后返回
+ */
+const saveCurrentPageState = (): void => {
+  const currentPath = window.location.pathname + window.location.search;
+  const currentHash = window.location.hash;
+  sessionStorage.setItem('redirect_after_login', currentPath + currentHash);
+};
+
+/**
+ * 清除登录相关的所有存储数据
+ */
+const clearAuthData = (): void => {
+  removeToken();
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  localStorage.removeItem('quantcell_jwt_token');
+};
+
+/**
+ * 处理401未授权错误 - 统一跳转登录页
+ * 使用防抖机制避免重复跳转
+ */
+let isRedirecting = false;
+
+const handleUnauthorized = (): void => {
+  if (isRedirecting) return;
+  isRedirecting = true;
+
+  // 保存当前页面状态
+  saveCurrentPageState();
+
+  // 清除认证数据
+  clearAuthData();
+
+  // 延迟跳转，确保状态保存完成
+  setTimeout(() => {
+    window.location.href = '/login';
+    // 重置标志（虽然页面会跳转，但为了代码完整性）
+    setTimeout(() => {
+      isRedirecting = false;
+    }, 1000);
+  }, 100);
+};
 
 // ============================================
 // 策略生成相关类型定义
@@ -15,6 +64,7 @@ export interface StrategyGenerateRequest {
   model_name?: string;
   temperature?: number;
   template_vars?: Record<string, any>;
+  prompt_category?: 'strategy_generation' | 'indicator_generation';
 }
 
 /**
@@ -225,6 +275,7 @@ api.interceptors.request.use(
 
 /**
  * 响应拦截器
+ * 统一处理401错误，确保所有请求都能正确响应认证失败
  */
 api.interceptors.response.use(
   (response: AxiosResponse<ApiResponse>) => {
@@ -242,17 +293,20 @@ api.interceptors.response.use(
     }
   },
   (error) => {
-    console.error('网络错误:', error);
-
-    // 处理401未授权错误
+    // 处理HTTP 401未授权错误
     if (error.response?.status === 401) {
-      // 清除token并跳转到登录页
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-      window.location.href = '/login';
+      handleUnauthorized();
       return Promise.reject(new ApiError(401, '登录已过期，请重新登录'));
     }
 
+    // 处理后端返回的401业务错误码
+    if (error.response?.data?.code === 401) {
+      handleUnauthorized();
+      return Promise.reject(new ApiError(401, error.response.data.message || '登录已过期，请重新登录'));
+    }
+
+    // 其他网络错误
+    console.error('网络错误:', error);
     return Promise.reject(error);
   }
 );
@@ -704,10 +758,27 @@ export const aiModelApi = {
    */
   generateStrategy: (_data: StrategyGenerateRequest): EventSource => {
     const token = getAccessToken();
-    const url = `/api/ai-models/strategy/generate?token=${token}`;
+
+    // 检查token是否存在
+    if (!token) {
+      handleUnauthorized();
+      throw new Error('登录已过期，请重新登录');
+    }
+
+    const url = `/api/ai-models/strategy/generate?token=${encodeURIComponent(token)}`;
 
     // 使用 POST 方法创建 EventSource，需要通过 fetch 实现
     const eventSource = new EventSource(url);
+
+    // 监听错误事件，处理401认证失败
+    eventSource.onerror = (_error) => {
+      // EventSource在认证失败时会触发error事件
+      // 由于EventSource无法直接获取HTTP状态码，我们通过检查readyState来判断
+      if (eventSource.readyState === EventSource.CLOSED) {
+        // 连接被关闭，可能是认证失败
+        handleUnauthorized();
+      }
+    };
 
     // 发送请求数据（需要在连接建立后发送）
     // 注意：标准 EventSource 不支持 POST，这里使用查询参数传递简单数据
@@ -747,6 +818,12 @@ export const aiModelApi = {
     // 立即开始处理 fetch
     fetchPromise
       .then(async (response) => {
+        // 处理401未授权错误
+        if (response.status === 401) {
+          handleUnauthorized();
+          throw new Error('登录已过期，请重新登录');
+        }
+
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }

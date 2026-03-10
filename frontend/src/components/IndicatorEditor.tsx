@@ -1,6 +1,6 @@
 /**
  * 指标编辑器组件
- * 提供Python代码编辑、AI生成、代码验证功能
+ * 提供Python代码编辑、AI生成（带思维链）、代码验证功能
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -26,6 +26,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import Editor from '@monaco-editor/react';
 import { useIndicators, type Indicator, defaultIndicatorCode } from '../hooks/useIndicators';
+import { aiModelApi, type ThinkingChainEventData } from '../api';
 
 interface IndicatorEditorProps {
   visible: boolean;
@@ -36,6 +37,13 @@ interface IndicatorEditorProps {
 
 const { TextArea } = Input;
 
+// 思维链步骤状态
+interface ThinkingStep {
+  title: string;
+  description: string;
+  status: 'pending' | 'processing' | 'completed' | 'error';
+}
+
 const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
   visible,
   editingIndicator,
@@ -43,7 +51,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
   onSave,
 }) => {
   const { t } = useTranslation();
-  const { createIndicator, updateIndicator, verifyCode, aiGenerateCode } = useIndicators();
+  const { createIndicator, updateIndicator, verifyCode } = useIndicators();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -51,14 +59,22 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
   const [aiPrompt, setAiPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('code');
+  const editorRef = useRef<any>(null);
+  
+  // 思维链状态
+  const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
+  const [thinkingProgress, setThinkingProgress] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const streamCancelRef = useRef<(() => void) | null>(null);
+
+  // 验证结果
   const [verifyResult, setVerifyResult] = useState<{
     valid: boolean;
     message: string;
     plots_count?: number;
     signals_count?: number;
   } | null>(null);
-  const [activeTab, setActiveTab] = useState('code');
-  const editorRef = useRef<any>(null);
 
   // 初始化编辑器内容
   useEffect(() => {
@@ -75,8 +91,21 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       setVerifyResult(null);
       setAiPrompt('');
       setActiveTab('code');
+      // 重置思维链状态
+      setThinkingSteps([]);
+      setThinkingProgress(0);
+      setIsGenerating(false);
     }
   }, [visible, editingIndicator]);
+
+  // 组件卸载时取消流式生成
+  useEffect(() => {
+    return () => {
+      if (streamCancelRef.current) {
+        streamCancelRef.current();
+      }
+    };
+  }, []);
 
   // 验证代码
   const handleVerify = async () => {
@@ -87,21 +116,30 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
 
     setLoading(true);
     try {
-      const result = await verifyCode(code);
-      setVerifyResult(result);
-      if (result.valid) {
+      const response = await verifyCode(code);
+      // 后端返回标准格式: { code: 0, message: "...", data: {...} }
+      const result = response.data || response;
+      // 处理后端返回的数据，确保 valid 是布尔值
+      const normalizedResult = {
+        ...result,
+        valid: result.valid === true || result.valid === 'true',
+      };
+      setVerifyResult(normalizedResult);
+      if (normalizedResult.valid) {
         message.success(t('indicator.verifySuccess', '代码验证通过'));
       } else {
-        message.error(result.message || t('indicator.verifyFailed', '代码验证失败'));
+        message.error(normalizedResult.message || t('indicator.verifyFailed', '代码验证失败'));
       }
-    } catch (err) {
-      message.error(t('indicator.verifyError', '验证出错'));
+    } catch (err: any) {
+      // 显示详细的错误信息
+      const errorMessage = err?.response?.data?.message || err?.message || t('indicator.verifyError', '验证出错');
+      message.error(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  // AI生成代码
+  // AI生成代码（带思维链）
   const handleAIGenerate = async () => {
     if (!aiPrompt.trim()) {
       message.warning(t('indicator.aiPromptEmpty', '请输入AI提示词'));
@@ -109,27 +147,75 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
     }
 
     setAiLoading(true);
-    setActiveTab('code');
-    
+    setIsGenerating(true);
+    setThinkingProgress(0);
+    // 注：移除 setActiveTab('code')，保持页面在AI生成tab页不动
+
     try {
-      let generatedCode = '';
-      await aiGenerateCode(
-        aiPrompt,
-        code,
-        (chunk) => {
-          generatedCode += chunk;
-          setCode(generatedCode);
+      // 使用优化的流式生成API（带思维链）
+      const cancelStream = aiModelApi.generateStrategyStream(
+        {
+          requirement: aiPrompt,
+          prompt_category: 'indicator_generation',
         },
-        () => {
-          message.success(t('indicator.aiGenerateSuccess', 'AI生成完成'));
+        // onThinkingChain - 思维链进度实时更新
+        (data: ThinkingChainEventData) => {
+          setThinkingProgress(data.progress);
+          setThinkingSteps((prev) => {
+            // 初始化步骤列表
+            if (prev.length === 0 || prev.length !== data.total_steps) {
+              const newSteps: ThinkingStep[] = [];
+              for (let i = 1; i <= data.total_steps; i++) {
+                newSteps.push({
+                  title: i === data.current_step ? data.step_title : `步骤 ${i}`,
+                  description: i === data.current_step ? (data.step_description || '') : '',
+                  status: i < data.current_step ? 'completed' : i === data.current_step ? data.status : 'pending',
+                });
+              }
+              return newSteps;
+            }
+            // 更新现有步骤
+            return prev.map((step, index) => {
+              const stepNumber = index + 1;
+              if (stepNumber === data.current_step) {
+                return {
+                  ...step,
+                  title: data.step_title,
+                  description: data.step_description || data.message || '',
+                  status: data.status,
+                };
+              } else if (stepNumber < data.current_step) {
+                return { ...step, status: 'completed' };
+              }
+              return step;
+            });
+          });
         },
+        // onDone - 生成完成
+        (result) => {
+          if (result.code) {
+            setCode(result.code);
+            message.success(t('indicator.aiGenerateSuccess', 'AI生成完成'));
+          }
+          setThinkingProgress(100);
+          setThinkingSteps((prev) => 
+            prev.map((step) => ({ ...step, status: 'completed' }))
+          );
+          setIsGenerating(false);
+          setAiLoading(false);
+        },
+        // onError - 错误处理
         (error) => {
-          message.error(t('indicator.aiGenerateError', 'AI生成失败') + ': ' + error);
+          message.error(t('indicator.aiGenerateError', 'AI生成失败') + ': ' + error.message);
+          setIsGenerating(false);
+          setAiLoading(false);
         }
       );
+      
+      streamCancelRef.current = cancelStream;
     } catch (err) {
       message.error(t('indicator.aiGenerateError', 'AI生成失败'));
-    } finally {
+      setIsGenerating(false);
       setAiLoading(false);
     }
   };
@@ -182,6 +268,74 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
     editorRef.current = editor;
   };
 
+  // 渲染思维链
+  const renderThinkingChain = () => {
+    if (thinkingSteps.length === 0) return null;
+    
+    return (
+      <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+        {/* 思维链步骤 */}
+        <div className="space-y-2 mb-3">
+          {thinkingSteps.map((step, index) => (
+            <div key={index} className="flex items-start gap-2">
+              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
+                step.status === 'completed' ? 'bg-green-500 text-white' :
+                step.status === 'processing' ? 'bg-blue-500 text-white' :
+                'bg-gray-300 text-gray-600'
+              }`}>
+                {step.status === 'completed' ? (
+                  <CheckCircleOutlined style={{ fontSize: 12 }} />
+                ) : (
+                  index + 1
+                )}
+              </div>
+              <div className="flex-1">
+                <div className={`text-sm font-medium ${
+                  step.status === 'completed' ? 'text-green-600' :
+                  step.status === 'processing' ? 'text-blue-600' :
+                  'text-gray-600'
+                }`}>
+                  {step.title}
+                </div>
+                {step.description && (
+                  <div className="text-xs text-gray-500 mt-0.5">{step.description}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        {/* 进度条 - 放在思维链底部 */}
+        <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-between items-center mb-1">
+            <span className="text-xs text-gray-500 flex items-center gap-2">
+              {isGenerating ? (
+                <>
+                  <Spin size="small" />
+                  {t('thinking_progress') || '思考进度'}
+                </>
+              ) : (
+                <>
+                  <CheckCircleOutlined className="text-green-500" />
+                  {t('thinking_complete') || '思考完成'}
+                </>
+              )}
+            </span>
+            <span className={`text-xs font-medium ${isGenerating ? 'text-blue-600' : 'text-green-600'}`}>
+              {Math.round(thinkingProgress)}%
+            </span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+            <div
+              className={`h-2 rounded-full transition-all duration-500 ease-out ${isGenerating ? 'bg-blue-500' : 'bg-green-500'}`}
+              style={{ width: `${thinkingProgress}%` }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const tabItems = [
     {
       key: 'code',
@@ -193,6 +347,16 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       ),
       children: (
         <div className="code-editor-container">
+          {/* 验证结果提示 */}
+          {verifyResult && (
+            <Alert
+              message={verifyResult.valid ? t('indicator.verifySuccess', '代码验证通过') : t('indicator.verifyFailed', '代码验证失败')}
+              description={!verifyResult.valid ? verifyResult.message : undefined}
+              type={verifyResult.valid ? 'success' : 'error'}
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+          )}
           <Editor
             height="400px"
             defaultLanguage="python"
@@ -233,6 +397,10 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
             showIcon
             style={{ marginBottom: 16 }}
           />
+          
+          {/* 思维链显示 */}
+          {renderThinkingChain()}
+          
           <TextArea
             rows={4}
             placeholder={t('indicator.aiPromptPlaceholder', '请输入指标描述，例如：创建一个基于5日和20日均线交叉产生买卖信号的指标')}
@@ -318,33 +486,8 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
             />
           </div>
         </div>
-
-        {/* 验证结果 */}
-        {verifyResult && (
-          <Alert
-            message={verifyResult.valid ? t('indicator.verifySuccess', '代码验证通过') : t('indicator.verifyFailed', '代码验证失败')}
-            description={
-              verifyResult.valid ? (
-                <Space direction="vertical" size="small">
-                  <span>{verifyResult.message}</span>
-                  {verifyResult.plots_count !== undefined && (
-                    <span>{t('indicator.plotsCount', '绘图数量')}: {verifyResult.plots_count}</span>
-                  )}
-                  {verifyResult.signals_count !== undefined && (
-                    <span>{t('indicator.signalsCount', '信号数量')}: {verifyResult.signals_count}</span>
-                  )}
-                </Space>
-              ) : (
-                verifyResult.message
-              )
-            }
-            type={verifyResult.valid ? 'success' : 'error'}
-            showIcon
-            style={{ marginBottom: 16 }}
-          />
-        )}
-
-        {/* 代码编辑/AI生成标签页 */}
+        
+        {/* 标签页 */}
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
