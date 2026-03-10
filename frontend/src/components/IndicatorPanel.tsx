@@ -51,7 +51,8 @@ const IndicatorPanel: React.FC<IndicatorPanelProps> = ({
 
   // 检查指标是否已激活
   const isIndicatorActive = (indicatorId: number | string) => {
-    return activeIndicators.some(ind => ind.id === indicatorId);
+    // 将两者都转换为字符串进行比较，避免类型不匹配
+    return activeIndicators.some(ind => String(ind.id) === String(indicatorId));
   };
 
   // 处理内置指标点击

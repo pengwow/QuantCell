@@ -25,6 +25,7 @@ from ai_model.routes_strategy import router as ai_model_strategy_router
 from backtest import router as backtest_router
 from collector.routes import router as collector_router
 from factor import router as factor_router
+from indicators.routes import router as indicators_router
 from model.routes import router as model_router
 from settings.routes import router as settings_router
 from strategy import router as strategy_router
@@ -62,6 +63,7 @@ app.include_router(ai_model_strategy_router)
 app.include_router(collector_router)
 app.include_router(settings_router)
 app.include_router(factor_router)
+app.include_router(indicators_router)
 app.include_router(model_router)
 app.include_router(strategy_router)
 app.include_router(backtest_router)
