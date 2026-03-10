@@ -5,6 +5,7 @@
 集成思维链管理，支持策略生成过程的可视化追踪。
 """
 
+import asyncio
 import json
 import re
 import time
@@ -495,17 +496,21 @@ class StrategyGenerator:
             # 步骤1: 分析需求 - 开始
             yield self._create_thinking_chain_event(0, "processing", "正在分析策略需求...")
             logger.info(f"[{request_id}] 思维链步骤1: 分析需求 - 开始")
+            await asyncio.sleep(0.1)  # 确保事件及时发送
 
             # 构建完整提示词
             prompt = self._build_prompt(requirement, prompt_category, **template_vars)
+            await asyncio.sleep(0.1)  # 模拟处理时间，让前端看到进度
 
             # 步骤1: 分析需求 - 完成
             yield self._create_thinking_chain_event(0, "completed", "需求分析完成")
             logger.info(f"[{request_id}] 思维链步骤1: 分析需求 - 完成")
+            await asyncio.sleep(0.1)  # 确保事件及时发送
 
             # 步骤2: 设计策略 - 开始
             yield self._create_thinking_chain_event(1, "processing", "正在设计交易策略逻辑...")
             logger.info(f"[{request_id}] 思维链步骤2: 设计策略 - 开始")
+            await asyncio.sleep(0.1)  # 确保事件及时发送
 
             # 流式调用API（使用model_name进行API调用）
             stream = self._client.chat.completions.create(
@@ -522,29 +527,27 @@ class StrategyGenerator:
             # 步骤2: 设计策略 - 完成
             yield self._create_thinking_chain_event(1, "completed", "策略设计完成")
             logger.info(f"[{request_id}] 思维链步骤2: 设计策略 - 完成")
+            await asyncio.sleep(0.1)  # 确保事件及时发送
 
             # 步骤3: 生成代码 - 开始
             yield self._create_thinking_chain_event(2, "processing", "正在生成策略代码...")
             logger.info(f"[{request_id}] 思维链步骤3: 生成代码 - 开始")
+            await asyncio.sleep(0.1)  # 确保事件及时发送
 
+            # 内部累积完整内容，不再流式传输
             full_content = ""
             chunk_count = 0
 
             for chunk in stream:
                 chunk_count += 1
                 delta = chunk.choices[0].delta.content
-
                 if delta:
                     full_content += delta
-                    yield {
-                        "type": "content",
-                        "content": delta,
-                        "request_id": request_id,
-                    }
 
             # 步骤3: 生成代码 - 完成
             yield self._create_thinking_chain_event(2, "completed", "代码生成完成")
             logger.info(f"[{request_id}] 思维链步骤3: 生成代码 - 完成")
+            await asyncio.sleep(0.1)  # 确保事件及时发送
 
             elapsed_time = time.time() - start_time
             logger.info(
@@ -555,13 +558,16 @@ class StrategyGenerator:
             # 步骤4: 优化完善 - 开始
             yield self._create_thinking_chain_event(3, "processing", "正在优化代码结构...")
             logger.info(f"[{request_id}] 思维链步骤4: 优化完善 - 开始")
+            await asyncio.sleep(0.1)  # 确保事件及时发送
 
             # 解析完整响应
             result = self._parse_response(full_content)
+            await asyncio.sleep(0.1)  # 模拟处理时间
 
             # 步骤4: 优化完善 - 完成
             yield self._create_thinking_chain_event(3, "completed", "代码优化完成")
             logger.info(f"[{request_id}] 思维链步骤4: 优化完善 - 完成")
+            await asyncio.sleep(0.1)  # 确保事件及时发送
 
             # 记录性能指标（流式请求没有token使用量）
             self._performance_monitor.record_request(
