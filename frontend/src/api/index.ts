@@ -56,14 +56,18 @@ export interface ThinkingChainEventData {
 
 /**
  * 流式策略生成响应
+ * 优化后：仅保留思维链进度和最终结果，移除content事件
  */
 export interface StrategyGenerateStreamResponse {
-  type: 'thinking_chain' | 'content' | 'done' | 'error';
-  content?: string;
+  type: 'thinking_chain' | 'done' | 'error';
   code?: string;
+  raw_content?: string;
   data?: ThinkingChainEventData;
   metadata?: {
-    model_used?: string;
+    request_id?: string;
+    model?: string;
+    elapsed_time?: number;
+    chunk_count?: number;
     tokens_used?: {
       prompt_tokens: number;
       completion_tokens: number;
@@ -72,6 +76,7 @@ export interface StrategyGenerateStreamResponse {
     generation_time?: number;
   };
   error?: string;
+  error_code?: string;
 }
 
 /**
@@ -711,21 +716,19 @@ export const aiModelApi = {
   },
 
   /**
-   * 使用 fetch + ReadableStream 实现流式生成策略
-   * 支持 POST 请求和请求体，支持思维链事件
+   * 使用 fetch + ReadableStream 实现流式生成策略（优化版）
+   * 仅保留思维链进度和最终结果，移除content事件流式传输
    * @param data 生成请求数据
-   * @param onMessage 消息回调
-   * @param onError 错误回调
-   * @param onComplete 完成回调
    * @param onThinkingChain 思维链状态更新回调
+   * @param onDone 生成完成回调
+   * @param onError 错误回调
    * @returns 取消函数
    */
   generateStrategyStream: (
     data: StrategyGenerateRequest,
-    onMessage: (response: StrategyGenerateStreamResponse) => void,
-    onError?: (error: Error) => void,
-    onComplete?: () => void,
-    onThinkingChain?: (data: ThinkingChainEventData) => void
+    onThinkingChain?: (data: ThinkingChainEventData) => void,
+    onDone?: (result: { code?: string; raw_content?: string; metadata?: any }) => void,
+    onError?: (error: Error) => void
   ): (() => void) => {
     const token = getAccessToken();
     const controller = new AbortController();
@@ -774,15 +777,25 @@ export const aiModelApi = {
                   onThinkingChain(jsonData.data);
                 }
                 
-                onMessage(jsonData);
+                // 处理完成事件
+                if (jsonData.type === 'done' && onDone) {
+                  onDone({
+                    code: jsonData.code,
+                    raw_content: jsonData.raw_content,
+                    metadata: jsonData.metadata,
+                  });
+                }
+                
+                // 处理错误事件
+                if (jsonData.type === 'error' && onError) {
+                  onError(new Error(jsonData.error || '生成失败'));
+                }
               } catch (e) {
                 console.error('解析SSE数据失败:', e);
               }
             }
           }
         }
-
-        onComplete?.();
       })
       .catch((error) => {
         if (error.name !== 'AbortError') {

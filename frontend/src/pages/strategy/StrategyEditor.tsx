@@ -950,51 +950,26 @@ class NewStrategy(StrategyBase):
         welcomeTitle={t('ai_welcome') || '我是AI策略助手，请告诉我您需要什么策略？'}
         welcomeDescription={t('ai_example') || '例如：创建一个双均线交叉策略'}
         inputPlaceholder={t('ai_input_placeholder') || '请输入您的策略需求...'}
-        onStreamGenerate={(content, modelId, modelName, onChunk, onComplete, onError, onThinkingChain) => {
-          // 使用流式策略生成 API，避免超时问题
-          let fullContent = '';
-          let generatedCode = '';
-
+        onStreamGenerate={(content, modelId, modelName, onComplete, onError, onThinkingChain) => {
+          // 使用优化后的流式策略生成 API
+          // 思维链进度实时传输，代码内容一次性返回
           const cancelStream = aiModelApi.generateStrategyStream(
             {
               requirement: content,
               model_id: modelId || undefined,
               model_name: modelName || undefined,
             },
-            // onMessage - 接收流式数据
-            (response) => {
-              if (response.type === 'content' && response.content) {
-                fullContent += response.content;
-                onChunk(response.content);
-              } else if (response.type === 'done') {
-                // 生成完成，提取代码
-                if (response.code) {
-                  generatedCode = response.code;
-                }
-                onComplete({
-                  content: fullContent || '策略生成成功',
-                  code: generatedCode,
-                });
-              } else if (response.type === 'error' && response.error) {
-                onError(new Error(response.error));
-              }
+            // onThinkingChain - 思维链进度实时更新
+            onThinkingChain,
+            // onDone - 生成完成，一次性返回完整结果
+            (result) => {
+              onComplete({
+                content: result.raw_content || result.code || '策略生成成功',
+                code: result.code,
+              });
             },
-            // onError
-            (error) => {
-              onError(error);
-            },
-            // onComplete
-            () => {
-              // 流结束，确保返回结果
-              if (!generatedCode && fullContent) {
-                onComplete({
-                  content: fullContent,
-                  code: generatedCode,
-                });
-              }
-            },
-            // onThinkingChain - 思维链状态更新
-            onThinkingChain
+            // onError - 错误处理
+            onError
           );
 
           return cancelStream;

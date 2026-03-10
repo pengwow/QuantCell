@@ -3,6 +3,7 @@ import {
   Button,
   Modal,
   message,
+  Spin,
 } from 'antd';
 import {
   DeleteOutlined,
@@ -56,12 +57,12 @@ export interface Message {
   code?: string;
 }
 
-// 流式生成回调类型
+// 流式生成回调类型（优化版）
+// 移除onChunk，改为一次性返回完整结果
 export type StreamGenerateCallback = (
   content: string,
   modelId: string | null,
   modelName: string,
-  onChunk: (chunk: string) => void,
   onComplete: (result: { content: string; code?: string }) => void,
   onError: (error: Error) => void,
   onThinkingChain?: (data: ThinkingChainEventData) => void
@@ -135,7 +136,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingChainStepState[]>([]);
   const [, setCurrentStep] = useState(0);
   const [thinkingProgress, setThinkingProgress] = useState(0);
-  const [isPreloadingChain, setIsPreloadingChain] = useState(true);
+  const [, setIsPreloadingChain] = useState(true);
   
   // 思维链缓存
   const thinkingChainCacheRef = useRef<{
@@ -157,12 +158,14 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
   
   const preloadThinkingChain = async () => {
     try {
+      setIsPreloadingChain(true);
       // 检查缓存
-    const chainType = 'strategy_generation';
-    if (thinkingChainCacheRef.current[chainType]) {
-      setThinkingSteps(thinkingChainCacheRef.current[chainType]!);
-      setIsPreloadingChain(false);
-      return;
+      const chainType = 'strategy_generation';
+      if (thinkingChainCacheRef.current[chainType]) {
+        setThinkingSteps(thinkingChainCacheRef.current[chainType]!);
+        setThinkingProgress(0); // 初始化进度为0
+        setIsPreloadingChain(false);
+        return;
       }
 
       const result = await aiModelApi.preloadThinkingChain(chainType);
@@ -178,6 +181,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
         // 缓存预加载的思维链
         thinkingChainCacheRef.current[chainType] = steps;
         setThinkingSteps(steps);
+        setThinkingProgress(0); // 初始化进度为0
       }
     } catch (error) {
       console.error('预加载思维链失败:', error);
@@ -228,38 +232,24 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
     setCurrentStep(0);
     setThinkingProgress(0);
 
-    // 如果有流式生成回调，使用流式方式
+    // 如果有流式生成回调，使用流式方式（优化版：移除onChunk，一次性返回完整结果）
     if (onStreamGenerate) {
-      let fullContent = '';
+      // 先添加一个生成中的消息占位
+      setMessages((prev) => [...prev, {
+        id: (Date.now() + 1).toString(),
+        type: 'ai',
+        content: '',
+        timestamp: new Date(),
+        status: 'generating',
+      }]);
 
       const cancelStream = onStreamGenerate(
         userMessage.content,
         selectedModelId || null,
         selectedModelName,
-        // onChunk - 接收流式内容
-        (chunk: string) => {
-          fullContent += chunk;
-          // 更新AI消息内容（流式显示）
-          setMessages((prev) => {
-            const lastMsg = prev[prev.length - 1];
-            if (lastMsg?.type === 'ai' && lastMsg.status === 'generating') {
-              return [
-                ...prev.slice(0, -1),
-                { ...lastMsg, content: fullContent }
-              ];
-            }
-            return [...prev, {
-              id: (Date.now() + 1).toString(),
-              type: 'ai',
-              content: fullContent,
-              timestamp: new Date(),
-              status: 'generating',
-            }];
-          });
-        },
-        // onComplete - 生成完成
+        // onComplete - 生成完成（一次性返回完整结果）
         (result: { content: string; code?: string }) => {
-          fullContent = result.content;
+          // 更新消息内容
           setMessages((prev) => {
             const lastMsg = prev[prev.length - 1];
             if (lastMsg?.type === 'ai') {
@@ -282,6 +272,13 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
               code: result.code,
             }];
           });
+          
+          // 更新思维链状态为全部完成
+          setThinkingProgress(100);
+          setThinkingSteps((prev) => 
+            prev.map((step) => ({ ...step, status: 'completed' as const }))
+          );
+          
           setIsGenerating(false);
         },
         // onError - 生成错误
@@ -309,7 +306,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
           });
           setIsGenerating(false);
         },
-        // onThinkingChain - 处理思维链SSE事件
+        // onThinkingChain - 处理思维链SSE事件（保留流式）
         (data: ThinkingChainEventData) => {
           setCurrentStep(data.current_step);
           setThinkingProgress(data.progress);
@@ -394,7 +391,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
     if (msg.code) {
       return (
         <div className="space-y-4">
-          <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+          {/* <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div> */}
           <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm">
             <code>{msg.code}</code>
           </pre>
@@ -432,7 +429,7 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
       let status: 'success' | 'loading' | 'error' | undefined;
       if (step.status === 'completed') {
         status = 'success';
-      } else if (step.status === 'processing' && isGenerating) {
+      } else if (step.status === 'processing') {
         status = 'loading';
       } else if (step.status === 'error') {
         status = 'error';
@@ -488,29 +485,41 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
                 </Button>
               </div>
               {/* 思维链 - 带进度显示和动画效果 */}
-              {isGenerating && thinkingSteps.length > 0 && (
+              {/* 修改：只要有思维链步骤就显示，不仅限于生成中 */}
+              {thinkingSteps.length > 0 && (
                 <div className="px-4 py-3 bg-white dark:bg-gray-800 mx-4 my-2 rounded-xl shadow-sm transition-all duration-300 ease-in-out">
-                  {/* 进度条 */}
-                  <div className="mb-3">
+                  {/* 思维链步骤 */}
+                  <ThoughtChain
+                    items={getThinkingItems()}
+                    className="w-full"
+                  />
+                  {/* 进度条 - 放在思维链底部 */}
+                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        {t('thinking_progress') || '思考进度'}
+                      <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                        {isGenerating ? (
+                          <>
+                            <Spin size="small" />
+                            {t('thinking_progress') || '思考进度'}
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircleOutlined className="text-green-500" />
+                            {t('thinking_complete') || '思考完成'}
+                          </>
+                        )}
                       </span>
-                      <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                      <span className={`text-xs font-medium ${isGenerating ? 'text-blue-600 dark:text-blue-400' : 'text-green-600 dark:text-green-400'}`}>
                         {Math.round(thinkingProgress)}%
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
                       <div
-                        className="bg-blue-500 h-2 rounded-full transition-all duration-500 ease-out"
+                        className={`h-2 rounded-full transition-all duration-500 ease-out ${isGenerating ? 'bg-blue-500' : 'bg-green-500'}`}
                         style={{ width: `${thinkingProgress}%` }}
                       />
                     </div>
                   </div>
-                  <ThoughtChain
-                    items={getThinkingItems()}
-                    className="w-full"
-                  />
                 </div>
               )}
               <Bubble.List

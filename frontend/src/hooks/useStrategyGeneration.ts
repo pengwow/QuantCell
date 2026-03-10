@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { message } from 'antd';
-import { aiModelApi, type StrategyGenerateRequest, type StrategyGenerateStreamResponse, type CodeValidationRequest, type StrategyTemplate } from '../api';
+import { aiModelApi, type StrategyGenerateRequest, type ThinkingChainEventData, type CodeValidationRequest, type StrategyTemplate } from '../api';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -153,64 +153,58 @@ export function useStrategyGeneration(): UseStrategyGenerationReturn {
     };
     
     try {
-      // 使用流式生成
+      // 使用优化后的流式生成（思维链实时，代码一次性返回）
       cancelRef.current = aiModelApi.generateStrategyStream(
         requestData,
-        (response: StrategyGenerateStreamResponse) => {
-          switch (response.type) {
-            case 'thinking_chain':
-              // 思维链状态更新 - 由专门的回调处理
-              break;
-              
-            case 'content':
-              // 累积生成内容
-              if (response.content) {
-                setGeneratedContent(prev => prev + response.content);
-              }
-              break;
-              
-            case 'done':
-              // 生成完成
-              updateStepStatus(3, 'completed');
-              
-              // 提取代码
-              const finalContent = generatedContent + (response.content || '');
-              const code = response.code || extractCode(finalContent);
-              setGeneratedCode(code);
-              
-              // 设置结果
-              if (response.metadata) {
-                setResult({
-                  code,
-                  explanation: finalContent.replace(/```python\n[\s\S]*?\n```/g, '').trim(),
-                  modelUsed: response.metadata.model_used || '',
-                  tokensUsed: {
-                    promptTokens: response.metadata.tokens_used?.prompt_tokens || 0,
-                    completionTokens: response.metadata.tokens_used?.completion_tokens || 0,
-                    totalTokens: response.metadata.tokens_used?.total_tokens || 0,
-                  },
-                });
-              }
-              
-              setIsGenerating(false);
-              message.success(t('generate_success') || '策略生成成功');
-              break;
-              
-            case 'error':
-              // 生成错误
-              throw new Error(response.error || t('generate_error') || '生成失败');
+        // onThinkingChain - 思维链进度实时更新
+        (data: ThinkingChainEventData) => {
+          // 根据当前步骤更新思维链状态
+          if (data.current_step === 1) {
+            updateStepStatus(0, 'active');
+          } else if (data.current_step === 2) {
+            updateStepStatus(0, 'completed');
+            updateStepStatus(1, 'active');
+          } else if (data.current_step === 3) {
+            updateStepStatus(1, 'completed');
+            updateStepStatus(2, 'active');
+          } else if (data.current_step === 4) {
+            updateStepStatus(2, 'completed');
+            updateStepStatus(3, 'active');
           }
         },
+        // onDone - 生成完成，一次性返回完整结果
+        (result: { code?: string; raw_content?: string; metadata?: any }) => {
+          updateStepStatus(3, 'completed');
+          
+          // 提取代码
+          const finalContent = result.raw_content || '';
+          const code = result.code || extractCode(finalContent);
+          setGeneratedCode(code);
+          
+          // 设置结果
+          if (result.metadata) {
+            setResult({
+              code,
+              explanation: finalContent.replace(/```python\n[\s\S]*?\n```/g, '').trim(),
+              modelUsed: result.metadata.model || '',
+              tokensUsed: {
+                promptTokens: result.metadata.tokens_used?.prompt_tokens || 0,
+                completionTokens: result.metadata.tokens_used?.completion_tokens || 0,
+                totalTokens: result.metadata.tokens_used?.total_tokens || 0,
+              },
+            });
+          }
+          
+          setIsGenerating(false);
+          message.success(t('generate_success') || '策略生成成功');
+        },
+        // onError - 错误处理
         (err: Error) => {
           // 错误处理
           console.error('策略生成错误:', err);
           setError(err);
           setIsGenerating(false);
           message.error(err.message || t('generate_error') || '策略生成失败');
-        },
-        () => {
-          // 完成回调（流结束）
-          console.log('策略生成流结束');
         }
       );
     } catch (err) {

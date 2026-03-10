@@ -233,15 +233,22 @@ async def generate_strategy_stream(request: Request, gen_request: StrategyGenera
         每个事件以"data: "开头，以"\n\n"结束，内容为JSON格式。
 
     SSE事件类型(type字段):
-        - content: 生成的内容片段
+        - thinking_chain: 思维链进度更新（保留流式传输）
             ```json
             {
-                "type": "content",
-                "content": "class DualMAStrategy:",
-                "request_id": "stream_123456"
+                "type": "thinking_chain",
+                "data": {
+                    "current_step": 2,
+                    "total_steps": 4,
+                    "step_title": "生成代码",
+                    "step_description": "正在生成策略代码...",
+                    "status": "processing",
+                    "progress": 50,
+                    "message": "正在生成策略代码..."
+                }
             }
             ```
-        - done: 生成完成，包含完整代码和元数据
+        - done: 生成完成，包含完整代码和元数据（非流式，一次性返回）
             ```json
             {
                 "type": "done",
@@ -263,6 +270,11 @@ async def generate_strategy_stream(request: Request, gen_request: StrategyGenera
                 "request_id": "stream_123456"
             }
             ```
+
+    优化说明:
+        - 思维链进度信息通过流式传输实时展示生成进度
+        - 生成的代码内容改为非流式返回，在done事件中一次性返回完整代码
+        - 减少网络开销，提升高并发场景下的稳定性
 
     HTTP响应状态码:
         - 200: 流式响应开始，连接建立成功
@@ -291,10 +303,12 @@ async def generate_strategy_stream(request: Request, gen_request: StrategyGenera
 
     示例SSE响应流:
         ```
-        data: {"type": "content", "content": "class", "request_id": "stream_001"}\n\n
-        data: {"type": "content", "content": " DualMAStrategy", "request_id": "stream_001"}\n\n
-        data: {"type": "content", "content": ":", "request_id": "stream_001"}\n\n
+        // 思维链进度更新（流式传输）
+        data: {"type": "thinking_chain", "data": {"current_step": 1, "total_steps": 4, "step_title": "分析需求", "status": "processing", "progress": 25}}\n\n
+        data: {"type": "thinking_chain", "data": {"current_step": 1, "total_steps": 4, "step_title": "分析需求", "status": "completed", "progress": 25}}\n\n
+        data: {"type": "thinking_chain", "data": {"current_step": 2, "total_steps": 4, "step_title": "设计策略", "status": "processing", "progress": 50}}\n\n
         ...
+        // 生成完成，一次性返回完整代码（非流式）
         data: {"type": "done", "code": "class DualMAStrategy:\n    pass", "metadata": {...}, "request_id": "stream_001"}\n\n
         ```
 
