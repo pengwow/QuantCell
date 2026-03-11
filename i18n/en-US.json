@@ -97,6 +97,8 @@
   "saving": "Saving...",
   "about": "About System",
   "strategy_management": "Strategy Management",
+  "strategy_task": "Strategy Task",
+  "strategy_task_title": "Strategy Task",
   "not_found": "Resource not found",
   "internal_error": "Internal server error",
   "invalid_request": "Invalid request",

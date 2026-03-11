@@ -196,8 +196,8 @@ const TaskCard: React.FC<TaskCardProps> = ({
                   <div key={subTask.task_key} style={{ marginBottom: 8 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, alignItems: 'center' }}>
                       <Space>
-                        <Tag color="blue">{subTask.interval}</Tag>
                         <span style={{ fontWeight: 'bold' }}>{subTask.symbol}</span>
+                        <Tag color="blue">{subTask.interval}</Tag>
                       </Space>
                     </div>
                     <Progress
@@ -1007,8 +1007,8 @@ const DataManagementPage = () => {
       pageSize,
     };
 
-    // 导航到回放页面，传递返回路径和状态
-    navigate(`/data-management/replay/${symbol}`, {
+    // 导航到回放页面，使用查询参数传递货币对
+    navigate(`/data-management/replay?symbol=${encodeURIComponent(symbol)}`, {
       state: {
         returnPath: '/data-management',
         returnSearch: window.location.search,
@@ -1568,6 +1568,45 @@ const DataManagementPage = () => {
   );
 
   // 渲染货币对工具栏 - 参考策略回测页面风格
+  // 批量开启自动更新
+  const batchEnableAutoUpdate = () => {
+    if (selectedSymbols.length === 0) {
+      message.warning('请先选择货币对');
+      return;
+    }
+    setSymbols(prev =>
+      prev.map(s => selectedSymbols.includes(s.symbol) ? { ...s, autoUpdate: true } : s)
+    );
+    message.success(`已开启 ${selectedSymbols.length} 个货币对的自动更新`);
+  };
+
+  // 批量关闭自动更新
+  const batchDisableAutoUpdate = () => {
+    if (selectedSymbols.length === 0) {
+      message.warning('请先选择货币对');
+      return;
+    }
+    setSymbols(prev =>
+      prev.map(s => selectedSymbols.includes(s.symbol) ? { ...s, autoUpdate: false } : s)
+    );
+    message.success(`已关闭 ${selectedSymbols.length} 个货币对的自动更新`);
+  };
+
+  // 批量采集数据
+  const batchCollectData = () => {
+    if (selectedSymbols.length === 0) {
+      message.warning('请先选择货币对');
+      return;
+    }
+    // 这里可以实现批量采集逻辑
+    message.info(`批量采集功能开发中，已选择 ${selectedSymbols.length} 个货币对`);
+  };
+
+  // 清空选择
+  const clearSelection = () => {
+    setSelectedSymbols([]);
+  };
+
   const renderSymbolToolbar = () => (
     <div style={{ marginBottom: 16 }}>
       {/* 第一行：搜索（左） + 视图切换（右） */}
@@ -1592,6 +1631,54 @@ const DataManagementPage = () => {
           />
         </Col>
       </Row>
+
+      {/* 批量操作工具栏 - 当有选中项时显示 */}
+      {selectedSymbols.length > 0 && (
+        <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
+          <Col xs={24}>
+            <Card size="small" style={{ backgroundColor: '#f6ffed', borderColor: '#b7eb8f' }}>
+              <Row align="middle" justify="space-between">
+                <Col>
+                  <Space>
+                    <span style={{ color: '#52c41a', fontWeight: 500 }}>
+                      已选择 {selectedSymbols.length} 个货币对
+                    </span>
+                    <Button type="link" size="small" onClick={clearSelection}>
+                      清空选择
+                    </Button>
+                  </Space>
+                </Col>
+                <Col>
+                  <Space wrap>
+                    <Button
+                      size="small"
+                      icon={<CheckCircleOutlined />}
+                      onClick={batchEnableAutoUpdate}
+                    >
+                      批量开启自动更新
+                    </Button>
+                    <Button
+                      size="small"
+                      icon={<CloseCircleOutlined />}
+                      onClick={batchDisableAutoUpdate}
+                    >
+                      批量关闭自动更新
+                    </Button>
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<CloudDownloadOutlined />}
+                      onClick={batchCollectData}
+                    >
+                      批量采集
+                    </Button>
+                  </Space>
+                </Col>
+              </Row>
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       {/* 第二行：筛选工具（左） + 刷新按钮（右） */}
       <Row gutter={[12, 12]} align="middle">
