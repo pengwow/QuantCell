@@ -18,6 +18,7 @@ import {
   IconMail,
 } from "@tabler/icons-react";
 import { getNotificationChannels, saveNotificationChannels, testNotificationChannel } from "../../services/notificationService";
+import { useGuestRestriction } from "../../hooks/useGuestRestriction";
 
 const { Text } = Typography;
 const { Option } = Select;
@@ -104,6 +105,7 @@ const DEFAULT_CONFIGS: Record<string, any> = {
 
 const NotificationsPage = () => {
   const { t } = useTranslation();
+  const { isGuest } = useGuestRestriction();
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState<string>("");
   const [saving, setSaving] = useState(false);
@@ -548,10 +550,10 @@ const NotificationsPage = () => {
       {/* 操作按钮 */}
       <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
         <Space>
-          <Button onClick={handleReset} disabled={saving || loading}>
+          <Button onClick={handleReset} disabled={saving || loading || isGuest}>
             {t("reset") || "重置"}
           </Button>
-          <Button type="primary" onClick={handleSave} loading={saving}>
+          <Button type="primary" onClick={handleSave} loading={saving} disabled={isGuest}>
             {t("save") || "保存"}
           </Button>
         </Space>

@@ -24,6 +24,7 @@ import {
   IconPlugConnected,
 } from "@tabler/icons-react";
 import { exchangeConfigApi, exchangeApi } from "../../api";
+import { useGuestRestriction } from "../../hooks/useGuestRestriction";
 // @web3icons/react 交易所图标
 import {
   ExchangeBinance,
@@ -103,6 +104,7 @@ const TRADING_MODES = [
 
 const ExchangeSettingsPage = () => {
   const { t } = useTranslation();
+  const { isGuest } = useGuestRestriction();
   const [exchanges, setExchanges] = useState<ExchangeConfig[]>([]);
   const [selectedExchangeId, setSelectedExchangeId] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -598,10 +600,10 @@ const ExchangeSettingsPage = () => {
         {/* 操作按钮 */}
         <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           <Space>
-            <Button onClick={handleReset} disabled={saving}>
+            <Button onClick={handleReset} disabled={saving || isGuest}>
               {t("reset") || "重置"}
             </Button>
-            <Button type="primary" onClick={handleSave} loading={saving}>
+            <Button type="primary" onClick={handleSave} loading={saving} disabled={isGuest}>
               {t("save") || "保存"}
             </Button>
           </Space>

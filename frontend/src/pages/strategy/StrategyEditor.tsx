@@ -24,6 +24,7 @@ import {
 import MonacoEditor from '@monaco-editor/react';
 import { useTranslation } from 'react-i18next';
 import { useResponsive } from '../../hooks/useResponsive';
+import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { strategyApi, aiModelApi } from '../../api';
 import { setPageTitle } from '@/router';
 import PageContainer from '@/components/PageContainer';
@@ -92,6 +93,7 @@ const StrategyEditor = () => {
   const location = useLocation();
   const { t } = useTranslation();
   const { isMobile } = useResponsive();
+  const { isGuest } = useGuestRestriction();
 
   // 使用 AI 生成的代码创建策略
   const handleCreateStrategyWithCode = (generatedCode: string, strategyName?: string) => {
@@ -772,6 +774,7 @@ class NewStrategy(StrategyBase):
             icon={<SaveOutlined />}
             onClick={handleSaveStrategy}
             loading={loading}
+            disabled={isGuest}
           >
             {t('save') || '保存'}
           </Button>

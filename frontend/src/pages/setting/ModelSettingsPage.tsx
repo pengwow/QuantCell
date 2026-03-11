@@ -23,6 +23,7 @@ import {
   IconRobot,
 } from "@tabler/icons-react";
 import { configApi, aiModelApi } from "../../api";
+import { useGuestRestriction } from "../../hooks/useGuestRestriction";
 
 const { Text } = Typography;
 
@@ -132,6 +133,7 @@ const PRESET_MODELS: Record<string, string[]> = {
 
 const ModelSettingsPage = () => {
   const { t } = useTranslation();
+  const { isGuest } = useGuestRestriction();
   const [providers, setProviders] = useState<ModelProvider[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string>("");
   const [isAddModelModalOpen, setIsAddModelModalOpen] = useState(false);
@@ -671,10 +673,10 @@ const ModelSettingsPage = () => {
       {/* 操作按钮 */}
       <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
         <Space>
-          <Button onClick={handleReset}>
+          <Button onClick={handleReset} disabled={isGuest}>
             {t("reset") || "重置"}
           </Button>
-          <Button type="primary" onClick={handleSave}>
+          <Button type="primary" onClick={handleSave} disabled={isGuest}>
             {t("save") || "保存"}
           </Button>
         </Space>

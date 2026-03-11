@@ -24,10 +24,12 @@
 
 import os
 import sys
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from utils.logger import get_logger, LogType
+from utils.rbac import is_guest_user
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -252,8 +254,21 @@ def update_config(request: Request, config: ConfigUpdateRequest):
     Responses:
         200: 成功更新配置
         400: 请求数据格式错误
+        403: 访客用户无权限
         500: 更新配置失败
+
+    权限控制: 访客用户无法更新系统配置
     """
+    # 检查是否为访客用户
+    if is_guest_user(request):
+        logger.warning(f"访客用户尝试更新配置(key={config.key})，已拦截")
+        return ApiResponse(
+            code=403,
+            message="权限不足",
+            data={"detail": "访客用户无法修改系统配置，请使用普通用户账号登录"},
+            timestamp=datetime.now()
+        )
+
     try:
         # 从Pydantic模型中获取配置字段
         key = config.key
@@ -353,12 +368,15 @@ def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[D
 
     Returns:
         ApiResponse: 包含更新结果的响应
-        
+
     Responses:
         200: 成功批量更新配置
         400: 请求数据格式错误
+        403: 访客用户无权限
         500: 批量更新配置失败
-        
+
+    权限控制: 访客用户无法批量更新系统配置
+
     Request Examples:
         1. 字典格式:
            {
@@ -384,6 +402,16 @@ def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[D
                }
            }
     """
+    # 检查是否为访客用户
+    if is_guest_user(request):
+        logger.warning("访客用户尝试批量更新配置，已拦截")
+        return ApiResponse(
+            code=403,
+            message="权限不足",
+            data={"detail": "访客用户无法修改系统配置，请使用普通用户账号登录"},
+            timestamp=datetime.now()
+        )
+
     try:
         logger.info("开始批量更新系统配置")
         updated_count = 0
