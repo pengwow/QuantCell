@@ -6,7 +6,7 @@
  */
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Card,
   Tabs,
@@ -61,6 +61,7 @@ import {
   UnorderedListOutlined,
   SettingOutlined,
   ImportOutlined,
+  PlayCircleOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 
@@ -288,16 +289,21 @@ const DataManagementPage = () => {
   const { t } = useTranslation();
   const screens = useBreakpoint();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const location = useLocation();
   const getDefaultPageSize = useConfigStore((state: { getDefaultPageSize: () => number }) => state.getDefaultPageSize);
 
-  // 从 URL 参数读取 Tab 状态
+  // 从路由状态恢复页面状态
+  const restoredState = location.state as { pageState?: Record<string, any> } | null;
+
+  // 从 URL 参数读取 Tab 状态，优先从恢复的状态读取
   const tabFromUrl = searchParams.get('tab');
   const validTab = tabFromUrl === 'symbols' || tabFromUrl === 'tasks' ? tabFromUrl : 'symbols';
-  const [activeTab, setActiveTab] = useState(validTab);
+  const [activeTab, setActiveTab] = useState(restoredState?.pageState?.activeTab || validTab);
 
   // ==================== 自选组管理状态 ====================
   const [favoriteGroups, setFavoriteGroups] = useState<FavoriteGroup[]>([]);
-  const [activeGroupId, setActiveGroupId] = useState<number>(0);
+  const [activeGroupId, setActiveGroupId] = useState<number>(restoredState?.pageState?.activeGroupId || 0);
   const [isGroupDrawerOpen, setIsGroupDrawerOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<FavoriteGroup | null>(null);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
@@ -312,19 +318,19 @@ const DataManagementPage = () => {
   // ==================== 货币对列表状态 ====================
   const [symbols, setSymbols] = useState<SymbolData[]>([]);
   const [symbolLoading, setSymbolLoading] = useState(false);
-  const [searchText, setSearchText] = useState('');
-  const [quoteFilter, setQuoteFilter] = useState<string>('all');
-  const [viewType, setViewType] = useState<ViewType>('list');
-  const [sortField, setSortField] = useState<SortField>('rank');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
-  const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
+  const [searchText, setSearchText] = useState(restoredState?.pageState?.searchText || '');
+  const [quoteFilter, setQuoteFilter] = useState<string>(restoredState?.pageState?.quoteFilter || 'all');
+  const [viewType, setViewType] = useState<ViewType>(restoredState?.pageState?.viewType || 'list');
+  const [sortField, setSortField] = useState<SortField>(restoredState?.pageState?.sortField || 'rank');
+  const [sortOrder, setSortOrder] = useState<SortOrder>(restoredState?.pageState?.sortOrder || 'asc');
+  const [selectedSymbols, setSelectedSymbols] = useState<string[]>(restoredState?.pageState?.selectedSymbols || []);
 
   // 市场数据加载状态
   const [marketDataLoading, setMarketDataLoading] = useState<Record<string, boolean>>({});
 
   // 分页状态
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [currentPage, setCurrentPage] = useState(restoredState?.pageState?.currentPage || 1);
+  const [pageSize, setPageSize] = useState(restoredState?.pageState?.pageSize || 10);
 
   // 从全局配置加载分页大小
   useEffect(() => {
@@ -983,6 +989,32 @@ const DataManagementPage = () => {
     } catch (error) {
       console.error('获取任务列表失败:', error);
     }
+  };
+
+  // 打开回放页面
+  const openReplayPage = (symbol: string) => {
+    // 保存当前页面状态
+    const pageState = {
+      activeTab,
+      activeGroupId,
+      searchText,
+      quoteFilter,
+      viewType,
+      sortField,
+      sortOrder,
+      selectedSymbols,
+      currentPage,
+      pageSize,
+    };
+
+    // 导航到回放页面，传递返回路径和状态
+    navigate(`/data-management/replay/${symbol}`, {
+      state: {
+        returnPath: '/data-management',
+        returnSearch: window.location.search,
+        pageState,
+      },
+    });
   };
 
   // 开始数据采集
@@ -1802,7 +1834,7 @@ const DataManagementPage = () => {
     {
       title: '操作',
       key: 'action',
-      width: 200,
+      width: 280,
       render: (_: any, record: SymbolData) => (
         <Space>
           {!record.hasData ? (
@@ -1829,6 +1861,13 @@ const DataManagementPage = () => {
                 onClick={() => startCollection(record.symbol)}
               >
                 更新
+              </Button>
+              <Button
+                size="small"
+                icon={<PlayCircleOutlined />}
+                onClick={() => openReplayPage(record.symbol)}
+              >
+                回放
               </Button>
             </>
           )}

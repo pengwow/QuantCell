@@ -13,6 +13,7 @@ import StrategyEditor from '@/pages/strategy/StrategyEditor';
 import FactorAnalysis from '@/pages/factor/FactorAnalysis';
 import ModelManagement from '@/pages/model/ModelManagement';
 import DataManagementPage from '@/pages/data/DataManagementPage';
+import KlineReplayPage from '@/pages/data/KlineReplayPage';
 import Setting from '@/pages/setting/Setting';
 
 // 导入回测模块
@@ -93,6 +94,10 @@ const baseRoutes: RouteObject[] = [
       {
         path: '/data-management',
         element: <DataManagementPage />,
+      },
+      {
+        path: '/data-management/replay/:symbol',
+        element: <KlineReplayPage />,
       },
       // 设置页面及其子路由
       {
