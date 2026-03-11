@@ -27,6 +27,7 @@ import { useTranslation } from 'react-i18next';
 import Editor from '@monaco-editor/react';
 import { useIndicators, type Indicator, defaultIndicatorCode } from '../hooks/useIndicators';
 import { aiModelApi, type ThinkingChainEventData } from '../api';
+import { useGuestRestriction } from '../hooks/useGuestRestriction';
 
 interface IndicatorEditorProps {
   visible: boolean;
@@ -52,6 +53,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
 }) => {
   const { t } = useTranslation();
   const { createIndicator, updateIndicator, verifyCode } = useIndicators();
+  const { isGuest } = useGuestRestriction();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -456,6 +458,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
           icon={<SaveOutlined />}
           onClick={handleSave}
           loading={loading}
+          disabled={isGuest}
         >
           {t('common.save', '保存')}
         </Button>,

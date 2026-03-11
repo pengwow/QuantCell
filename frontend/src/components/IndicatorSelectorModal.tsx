@@ -35,6 +35,7 @@ import {
   type ActiveIndicator,
 } from '../hooks/useIndicators';
 import IndicatorEditor from './IndicatorEditor';
+import { useGuestRestriction } from '../hooks/useGuestRestriction';
 
 interface IndicatorSelectorModalProps {
   visible: boolean;
@@ -61,6 +62,7 @@ const IndicatorSelectorModal: React.FC<IndicatorSelectorModalProps> = ({
   const { indicators, loading, deleteIndicator, fetchIndicators } = useIndicators();
   const [editorVisible, setEditorVisible] = useState(false);
   const [editingIndicator, setEditingIndicator] = useState<Indicator | null>(null);
+  const { isGuest, checkPermission } = useGuestRestriction();
 
   // 检查指标是否已激活
   const isIndicatorActive = (indicatorId: number | string) => {
@@ -112,6 +114,10 @@ const IndicatorSelectorModal: React.FC<IndicatorSelectorModalProps> = ({
   // 删除指标
   const handleDeleteIndicator = async (indicator: Indicator, e: React.MouseEvent) => {
     e.stopPropagation();
+    // 检查访客权限
+    if (!checkPermission('删除指标')) {
+      return;
+    }
     Modal.confirm({
       title: t('indicator.deleteConfirmTitle', '确认删除'),
       content: t('indicator.deleteConfirmContent', '确定要删除指标 "{{name}}" 吗？此操作不可撤销。', { name: indicator.name }),
@@ -122,8 +128,13 @@ const IndicatorSelectorModal: React.FC<IndicatorSelectorModalProps> = ({
         try {
           await deleteIndicator(indicator.id);
           message.success(t('indicator.deleteSuccess', '删除成功'));
-        } catch {
-          message.error(t('indicator.deleteError', '删除失败'));
+        } catch (error: any) {
+          // 处理后端返回的权限错误
+          if (error?.response?.data?.code === 403) {
+            message.error(error.response.data.message || '访客用户无法删除指标');
+          } else {
+            message.error(t('indicator.deleteError', '删除失败'));
+          }
         }
       },
     });
@@ -205,14 +216,16 @@ const IndicatorSelectorModal: React.FC<IndicatorSelectorModalProps> = ({
               </div>
             }
             extra={
-              <Button
-                type="primary"
-                size="small"
-                icon={<PlusOutlined />}
-                onClick={handleCreateIndicator}
-              >
-                {t('indicator.create', '创建')}
-              </Button>
+              <Tooltip title={t('indicator.create', '创建自定义指标')}>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<PlusOutlined />}
+                  onClick={handleCreateIndicator}
+                >
+                  {t('indicator.create', '创建')}
+                </Button>
+              </Tooltip>
             }
             className="indicator-section-card"
             variant="borderless"
@@ -259,20 +272,22 @@ const IndicatorSelectorModal: React.FC<IndicatorSelectorModalProps> = ({
                             }}
                           />
                         </Tooltip>
-                        <Tooltip title={t('common.edit', '编辑')}>
+                        <Tooltip title={isGuest ? '访客用户无法编辑指标' : t('common.edit', '编辑')}>
                           <Button
                             type="text"
                             size="small"
                             icon={<EditOutlined />}
+                            disabled={isGuest}
                             onClick={(e) => handleEditIndicator(indicator, e)}
                           />
                         </Tooltip>
-                        <Tooltip title={t('common.delete', '删除')}>
+                        <Tooltip title={isGuest ? '访客用户无法删除指标' : t('common.delete', '删除')}>
                           <Button
                             type="text"
                             size="small"
                             danger
                             icon={<DeleteOutlined />}
+                            disabled={isGuest}
                             onClick={(e) => handleDeleteIndicator(indicator, e)}
                           />
                         </Tooltip>

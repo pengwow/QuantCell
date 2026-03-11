@@ -5,8 +5,9 @@
  */
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, message } from 'antd';
+import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, message, Tooltip } from 'antd';
 import { useSettings } from './SettingsContext';
+import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 
 // 主题图片路径
 const THEME_IMAGES: Record<string, string> = {
@@ -56,6 +57,7 @@ const GeneralSettingsPage = () => {
     resetConfig,
     applyTheme,
   } = useSettings();
+  const { isGuest, checkPermission } = useGuestRestriction();
 
   const [themeChanged, setThemeChanged] = useState(false);
   const [localeChanged, setLocaleChanged] = useState(false);
@@ -93,9 +95,20 @@ const GeneralSettingsPage = () => {
 
   // 保存配置
   const handleSave = async () => {
-    await saveConfig();
-    setThemeChanged(false);
-    setLocaleChanged(false);
+    // 检查访客权限
+    if (!checkPermission('保存系统配置')) {
+      return;
+    }
+    try {
+      await saveConfig();
+      setThemeChanged(false);
+      setLocaleChanged(false);
+    } catch (error: any) {
+      // 处理后端返回的权限错误
+      if (error?.response?.data?.code === 403) {
+        message.error(error.response.data.message || '访客用户无法保存系统配置');
+      }
+    }
   };
 
   // 重置配置
@@ -221,12 +234,16 @@ const GeneralSettingsPage = () => {
         {/* 操作按钮 */}
         <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           <Space>
-            <Button onClick={handleReset} disabled={saving}>
-              {t('reset') || '重置'}
-            </Button>
-            <Button type="primary" onClick={handleSave} loading={saving}>
-              {t('save') || '保存'}
-            </Button>
+            <Tooltip title={isGuest ? '访客用户无法重置配置' : ''}>
+              <Button onClick={handleReset} disabled={saving || isGuest}>
+                {t('reset') || '重置'}
+              </Button>
+            </Tooltip>
+            <Tooltip title={isGuest ? '访客用户无法保存配置' : ''}>
+              <Button type="primary" onClick={handleSave} loading={saving} disabled={isGuest}>
+                {t('save') || '保存'}
+              </Button>
+            </Tooltip>
           </Space>
         </div>
       </div>

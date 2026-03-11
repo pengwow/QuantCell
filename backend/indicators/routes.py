@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from utils.logger import get_logger, LogType
 from common.schemas import ApiResponse
+from utils.rbac import is_guest_user, require_permission_sync, Permission
 
 # 尝试导入思维链管理器
 try:
@@ -168,7 +169,7 @@ async def get_indicator(indicator_id: int):
 
 
 @router.post("")
-async def create_indicator(request: IndicatorCreateRequest):
+async def create_indicator(request: IndicatorCreateRequest, http_request: Request):
     """创建新指标
 
     返回标准API响应格式:
@@ -178,7 +179,19 @@ async def create_indicator(request: IndicatorCreateRequest):
         "data": {...},
         "timestamp": "2026-03-10T15:37:48.767391"
     }
+
+    权限控制: 访客用户无法创建指标
     """
+    # 检查是否为访客用户
+    if is_guest_user(http_request):
+        logger.warning("访客用户尝试创建指标，已拦截")
+        return ApiResponse(
+            code=403,
+            message="权限不足",
+            data={"detail": "访客用户无法创建指标，请使用普通用户账号登录"},
+            timestamp=datetime.now()
+        )
+
     global indicator_id_counter
 
     indicator = {
@@ -204,7 +217,7 @@ async def create_indicator(request: IndicatorCreateRequest):
 
 
 @router.put("/{indicator_id}")
-async def update_indicator(indicator_id: int, request: IndicatorUpdateRequest):
+async def update_indicator(indicator_id: int, request: IndicatorUpdateRequest, http_request: Request):
     """更新指标
 
     返回标准API响应格式:
@@ -214,7 +227,19 @@ async def update_indicator(indicator_id: int, request: IndicatorUpdateRequest):
         "data": {...},
         "timestamp": "2026-03-10T15:37:48.767391"
     }
+
+    权限控制: 访客用户无法更新指标
     """
+    # 检查是否为访客用户
+    if is_guest_user(http_request):
+        logger.warning(f"访客用户尝试更新指标(ID: {indicator_id})，已拦截")
+        return ApiResponse(
+            code=403,
+            message="权限不足",
+            data={"detail": "访客用户无法更新指标，请使用普通用户账号登录"},
+            timestamp=datetime.now()
+        )
+
     if indicator_id not in indicators_db:
         return ApiResponse(
             code=404,
@@ -243,7 +268,7 @@ async def update_indicator(indicator_id: int, request: IndicatorUpdateRequest):
 
 
 @router.delete("/{indicator_id}")
-async def delete_indicator(indicator_id: int):
+async def delete_indicator(indicator_id: int, request: Request):
     """删除指标
 
     返回标准API响应格式:
@@ -253,7 +278,19 @@ async def delete_indicator(indicator_id: int):
         "data": null,
         "timestamp": "2026-03-10T15:37:48.767391"
     }
+
+    权限控制: 访客用户无法删除指标
     """
+    # 检查是否为访客用户
+    if is_guest_user(request):
+        logger.warning(f"访客用户尝试删除指标(ID: {indicator_id})，已拦截")
+        return ApiResponse(
+            code=403,
+            message="权限不足",
+            data={"detail": "访客用户无法删除指标，请使用普通用户账号登录"},
+            timestamp=datetime.now()
+        )
+
     if indicator_id not in indicators_db:
         return ApiResponse(
             code=404,

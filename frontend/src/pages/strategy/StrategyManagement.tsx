@@ -34,6 +34,7 @@ import { strategyApi, backtestApi } from '../../api';
 import type { Strategy } from '../../types';
 import type { BacktestTask } from '../../types/backtest';
 import { useTranslation } from 'react-i18next';
+import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { setPageTitle } from '@/router';
 import PageContainer from '@/components/PageContainer';
 import type { TableProps } from 'antd';
@@ -67,6 +68,7 @@ const StrategyManagement = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { isGuest } = useGuestRestriction();
   const screens = useBreakpoint();
   const [searchParams, setSearchParams] = useSearchParams();
   const getDefaultPageSize = useConfigStore((state: { getDefaultPageSize: () => number }) => state.getDefaultPageSize);
@@ -471,13 +473,14 @@ const StrategyManagement = () => {
               onClick={() => handleEditStrategy(record)}
             />
           </Tooltip>
-          <Tooltip title={t('delete_strategy') || '删除策略'}>
+          <Tooltip title={isGuest ? '访客用户无法删除策略' : (t('delete_strategy') || '删除策略')}>
             <Button
               type="text"
               size="small"
               danger
               icon={<DeleteOutlined />}
               onClick={() => handleDeleteStrategy(record)}
+              disabled={isGuest}
             />
           </Tooltip>
           <Tooltip title={t('backtest_strategy') || '回测策略'}>
@@ -627,13 +630,14 @@ const StrategyManagement = () => {
                           onClick={() => handleEditStrategy(strategy)}
                         />
                       </Tooltip>
-                      <Tooltip title={t('delete_strategy') || '删除策略'}>
+                      <Tooltip title={isGuest ? '访客用户无法删除策略' : (t('delete_strategy') || '删除策略')}>
                         <Button
                           type="text"
                           size="small"
                           danger
                           icon={<DeleteOutlined />}
                           onClick={() => handleDeleteStrategy(strategy)}
+                          disabled={isGuest}
                         />
                       </Tooltip>
                     </Space>
