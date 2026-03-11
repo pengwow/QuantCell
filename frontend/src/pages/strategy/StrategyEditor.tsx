@@ -10,6 +10,7 @@ import {
   Modal,
   Input,
   Descriptions,
+  Tooltip,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -769,15 +770,17 @@ class NewStrategy(StrategyBase):
           >
             {t('backtest') || '回测'}
           </Button>
-          <Button
-            type="primary"
-            icon={<SaveOutlined />}
-            onClick={handleSaveStrategy}
-            loading={loading}
-            disabled={isGuest}
-          >
-            {t('save') || '保存'}
-          </Button>
+          <Tooltip title={isGuest ? '访客用户无法保存策略，请使用普通用户账号登录' : ''}>
+            <Button
+              type="primary"
+              icon={<SaveOutlined />}
+              onClick={handleSaveStrategy}
+              loading={loading}
+              disabled={isGuest}
+            >
+              {t('save') || '保存'}
+            </Button>
+          </Tooltip>
           <Button
             type="default"
             icon={<RobotOutlined />}
