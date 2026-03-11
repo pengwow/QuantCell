@@ -98,6 +98,8 @@
   "saving": "保存中...",
   "about": "关于系统",
   "strategy_management": "策略管理",
+  "strategy_task": "策略任务",
+  "strategy_task_title": "策略任务",
   "not_found": "资源未找到",
   "internal_error": "内部服务器错误",
   "invalid_request": "无效的请求",

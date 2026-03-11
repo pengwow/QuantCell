@@ -3,7 +3,7 @@
  * 功能：回放指定货币对的K线数据，支持播放控制、速度调节、时间范围选择
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Card,
   Button,
@@ -117,9 +117,12 @@ interface KlineReplayPageProps {
 }
 
 const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
-  const { symbol: urlSymbol } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // 从查询参数中获取货币对
+  const queryParams = new URLSearchParams(location.search);
+  const symbol = queryParams.get('symbol') || '';
 
   // 从路由状态中获取返回信息
   const returnState = location.state as {
@@ -127,9 +130,6 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
     returnSearch?: string;
     pageState?: Record<string, any>;
   } | null;
-
-  // 货币对信息
-  const symbol = urlSymbol || '';
 
   // K线数据
   const [klines, setKlines] = useState<any[]>([]);
@@ -483,20 +483,20 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
             {/* 第一行：时间范围和周期选择 */}
             <Row align="middle" gutter={[16, 16]}>
-              <Col xs={24} sm={12} md={8}>
-                <Space>
+              <Col xs={24} lg={12} xl={10}>
+                <Space wrap>
                   <CalendarOutlined />
                   <span>时间范围:</span>
                   <RangePicker
                     showTime
                     value={dateRange}
                     onChange={handleDateRangeChange}
-                    style={{ width: 320 }}
+                    style={{ width: '100%', maxWidth: 320 }}
                     disabled={isPlaying}
                   />
                 </Space>
               </Col>
-              <Col xs={24} sm={12} md={4}>
+              <Col xs={12} sm={8} lg={6} xl={5}>
                 <Space>
                   <ClockCircleOutlined />
                   <span>周期:</span>
@@ -514,22 +514,22 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
                   </Select>
                 </Space>
               </Col>
-              <Col xs={24} sm={24} md={12}>
-                <Space>
+              <Col xs={12} sm={16} lg={6} xl={9}>
+                <Space wrap>
                   <Button type="primary" onClick={loadKlines} disabled={isPlaying}>
                     加载数据
                   </Button>
                   <Button onClick={handleBack} icon={<ArrowLeftOutlined />}>
-                    返回数据管理
+                    返回
                   </Button>
                 </Space>
               </Col>
             </Row>
 
             {/* 第二行：播放控制按钮 */}
-            <Row align="middle" gutter={[16, 16]}>
-              <Col>
-                <Space>
+            <Row align="middle" gutter={[16, 16]} wrap>
+              <Col xs={24} sm={12} lg="auto">
+                <Space wrap>
                   <Tooltip title="单步后退">
                     <Button
                       icon={<StepBackwardOutlined />}
@@ -565,8 +565,8 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
                   </Tooltip>
                 </Space>
               </Col>
-              <Col>
-                <Space>
+              <Col xs={24} sm={12} lg="auto">
+                <Space wrap>
                   <Tooltip title="快退">
                     <Button
                       icon={<FastForwardOutlined style={{ transform: 'rotate(180deg)' }} />}

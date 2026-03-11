@@ -45,7 +45,7 @@ const baseRoutes: RouteObject[] = [
         element: <ChartPage />,
       },
       {
-        path: '/agent',
+        path: '/strategy-task',
         element: <Agent />,
       },
       {
@@ -96,7 +96,7 @@ const baseRoutes: RouteObject[] = [
         element: <DataManagementPage />,
       },
       {
-        path: '/data-management/replay/:symbol',
+        path: '/data-management/replay',
         element: <KlineReplayPage />,
       },
       // 设置页面及其子路由
