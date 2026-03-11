@@ -2,14 +2,17 @@
  * 设置页面类型定义
  */
 
-// 外观设置类型定义
-export interface AppearanceSettings {
+// 通用设置类型定义
+export interface GeneralSettings {
   theme: 'light' | 'dark' | 'auto';
   language: 'zh-CN' | 'en-US';
   showTips: boolean;
   timezone: string; // 时区配置
   defaultPerPage?: number; // 默认分页大小
 }
+
+// 保持向后兼容的别名
+export type AppearanceSettings = GeneralSettings;
 
 // 通知设置类型定义
 export interface NotificationSettings {

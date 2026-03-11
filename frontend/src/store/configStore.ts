@@ -42,14 +42,14 @@ const getConfigFromWindow = (): Partial<SystemConfig> => {
   console.log('[ConfigStore] window.APP_CONFIG 原始数据:', appConfig);
 
   if (typeof window !== 'undefined' && appConfig) {
-    // 尝试从 appearanceSettings 获取 defaultPerPage
-    if (appConfig.appearanceSettings?.defaultPerPage) {
-      const defaultPerPage = parseInt(appConfig.appearanceSettings.defaultPerPage, 10);
-      console.log('[ConfigStore] 从 appearanceSettings 获取 defaultPerPage:', defaultPerPage);
+    // 尝试从 generalSettings 获取 defaultPerPage
+    if (appConfig.generalSettings?.defaultPerPage) {
+      const defaultPerPage = parseInt(appConfig.generalSettings.defaultPerPage, 10);
+      console.log('[ConfigStore] 从 generalSettings 获取 defaultPerPage:', defaultPerPage);
       return { defaultPerPage };
     }
   }
-  console.log('[ConfigStore] window.APP_CONFIG 不存在或没有 appearanceSettings');
+  console.log('[ConfigStore] window.APP_CONFIG 不存在或没有 generalSettings');
   return {};
 };
 

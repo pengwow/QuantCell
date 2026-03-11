@@ -33,7 +33,7 @@ from utils.logger import get_logger, LogType
 logger = get_logger(__name__, LogType.APPLICATION)
 # 导入JWT认证装饰器
 from utils.auth import jwt_auth_required_sync
-from utils.jwt_utils import create_jwt_token
+from utils.jwt_utils import create_jwt_token, generate_tokens, generate_guest_tokens
 
 # 导入配置管理相关模块
 from settings.models import SystemConfigBusiness as SystemConfig
@@ -73,7 +73,9 @@ system_router = APIRouter(prefix="/api/system", tags=["system-info"])
 def login(request: Request, credentials: Dict[str, str] = Body(...)):
     """用户登录
 
-    演示模式登录接口，默认接受 admin/123456 并返回JWT token。
+    支持普通用户登录和访客登录。
+    - 普通用户：输入正确的用户名和密码
+    - 访客：不输入用户名和密码，直接点击登录
 
     Args:
         request: FastAPI请求对象
@@ -87,36 +89,48 @@ def login(request: Request, credentials: Dict[str, str] = Body(...)):
         401: 用户名或密码错误
     """
     try:
-        username = credentials.get("username")
-        password = credentials.get("password")
+        username = credentials.get("username", "").strip()
+        password = credentials.get("password", "").strip()
+
+        # 检查是否为访客登录（空用户名和空密码）
+        if not username and not password:
+            logger.info("访客登录尝试")
+
+            # 生成访客token
+            tokens = generate_guest_tokens()
+
+            logger.info(f"访客登录成功: {tokens.get('access_token', '')[:20]}...")
+            return ApiResponse(
+                code=0,
+                message="访客登录成功",
+                data={
+                    "access_token": tokens["access_token"],
+                    "refresh_token": tokens["refresh_token"],
+                    "token_type": "Bearer",
+                    "username": "访客",
+                    "is_guest": True,
+                    "role": "guest"
+                }
+            )
 
         logger.info(f"用户登录尝试: {username}")
 
         # 演示模式：验证默认凭据
         if username == "admin" and password == "123456":
-            # 生成JWT token
-            access_token = create_jwt_token(
-                data={"sub": username, "name": "Administrator"},
-                expires_delta=None,
-                refresh=False
-            )
-
-            # 生成刷新token
-            refresh_token = create_jwt_token(
-                data={"sub": username, "name": "Administrator"},
-                expires_delta=None,
-                refresh=True
-            )
+            # 生成普通用户token
+            tokens = generate_tokens(username, "Administrator", role="user")
 
             logger.info(f"用户登录成功: {username}")
             return ApiResponse(
                 code=0,
                 message="登录成功",
                 data={
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
+                    "access_token": tokens["access_token"],
+                    "refresh_token": tokens["refresh_token"],
                     "token_type": "Bearer",
-                    "username": username
+                    "username": username,
+                    "is_guest": False,
+                    "role": "user"
                 }
             )
         else:

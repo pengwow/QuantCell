@@ -1,6 +1,6 @@
 /**
- * 外观设置子页面
- * 功能：提供主题、语言、分页等外观设置
+ * 通用设置子页面
+ * 功能：提供主题、语言、分页等通用设置
  * 参考：/Users/liupeng/workspace/certimate-main/ui/src/pages/settings/SettingsAppearance.tsx
  */
 import { useState } from 'react';
@@ -45,11 +45,11 @@ const TIMEZONE_OPTIONS = [
   { value: 'UTC', label: 'UTC (协调世界时, UTC+0)' },
 ];
 
-const AppearanceSettingsPage = () => {
+const GeneralSettingsPage = () => {
   const { t, i18n } = useTranslation();
   const {
-    appearanceSettings,
-    setAppearanceSettings,
+    generalSettings,
+    setGeneralSettings,
     loading,
     saving,
     saveConfig,
@@ -63,9 +63,9 @@ const AppearanceSettingsPage = () => {
   // 处理主题变更
   const handleThemeChange = (e: RadioChangeEvent) => {
     const value = e.target.value as 'light' | 'dark' | 'auto';
-    if (value !== appearanceSettings.theme) {
+    if (value !== generalSettings.theme) {
       setThemeChanged(true);
-      setAppearanceSettings(prev => ({ ...prev, theme: value }));
+      setGeneralSettings(prev => ({ ...prev, theme: value }));
       applyTheme(value);
       message.success(t('theme_changed') || '主题已切换');
     }
@@ -75,7 +75,7 @@ const AppearanceSettingsPage = () => {
   const handleLanguageChange = (value: string) => {
     if (value !== (i18n.resolvedLanguage ?? i18n.language)) {
       setLocaleChanged(true);
-      setAppearanceSettings(prev => ({ ...prev, language: value as 'zh-CN' | 'en-US' }));
+      setGeneralSettings(prev => ({ ...prev, language: value as 'zh-CN' | 'en-US' }));
       i18n.changeLanguage(value);
       message.success(t('language_changed') || '语言已切换');
     }
@@ -83,12 +83,12 @@ const AppearanceSettingsPage = () => {
 
   // 处理分页变更
   const handlePerPageChange = (value: number) => {
-    setAppearanceSettings(prev => ({ ...prev, defaultPerPage: value }));
+    setGeneralSettings(prev => ({ ...prev, defaultPerPage: value }));
   };
 
   // 处理时区变更
   const handleTimezoneChange = (value: string) => {
-    setAppearanceSettings(prev => ({ ...prev, timezone: value }));
+    setGeneralSettings(prev => ({ ...prev, timezone: value }));
   };
 
   // 保存配置
@@ -121,7 +121,7 @@ const AppearanceSettingsPage = () => {
                   <div
                     key={item.key}
                     className={`relative flex-1 min-w-[120px] max-w-[200px] cursor-pointer overflow-hidden rounded-lg border border-solid transition-colors ${
-                      appearanceSettings.theme === item.key
+                      generalSettings.theme === item.key
                         ? 'border-blue-500 ring-2 ring-blue-500/20'
                         : 'border-gray-200 dark:border-gray-700 hover:border-blue-400'
                     }`}
@@ -137,18 +137,18 @@ const AppearanceSettingsPage = () => {
                     </div>
                     <div className="p-3 bg-white dark:bg-gray-800 flex items-center gap-2">
                       <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                        appearanceSettings.theme === item.key
+                        generalSettings.theme === item.key
                           ? 'border-blue-500 bg-blue-500'
                           : 'border-gray-300 dark:border-gray-600'
                       }`}>
-                        {appearanceSettings.theme === item.key && (
+                        {generalSettings.theme === item.key && (
                           <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                           </svg>
                         )}
                       </div>
                       <span className={`text-sm font-medium ${
-                        appearanceSettings.theme === item.key ? 'text-blue-600 dark:text-blue-400' : ''
+                        generalSettings.theme === item.key ? 'text-blue-600 dark:text-blue-400' : ''
                       }`}>{item.label}</span>
                     </div>
                   </div>
@@ -168,7 +168,7 @@ const AppearanceSettingsPage = () => {
               extra={localeChanged ? t('language_changed_hint') || '语言已更改' : undefined}
             >
               <Select
-                value={appearanceSettings.language}
+                value={generalSettings.language}
                 onChange={handleLanguageChange}
                 options={LANGUAGE_OPTIONS}
                 className="w-full max-w-md"
@@ -185,7 +185,7 @@ const AppearanceSettingsPage = () => {
           <Form layout="vertical">
             <Form.Item label={t('default_per_page') || '列表页默认显示数量'}>
               <Select
-                value={appearanceSettings.defaultPerPage || 10}
+                value={generalSettings.defaultPerPage || 10}
                 onChange={handlePerPageChange}
                 options={PER_PAGE_OPTIONS.map((value) => ({
                   value,
@@ -205,7 +205,7 @@ const AppearanceSettingsPage = () => {
           <Form layout="vertical">
             <Form.Item label={t('default_timezone') || '默认时区'}>
               <Select
-                value={appearanceSettings.timezone || 'Asia/Shanghai'}
+                value={generalSettings.timezone || 'Asia/Shanghai'}
                 onChange={handleTimezoneChange}
                 options={TIMEZONE_OPTIONS}
                 className="w-full max-w-md"
@@ -234,4 +234,4 @@ const AppearanceSettingsPage = () => {
   );
 };
 
-export default AppearanceSettingsPage;
+export default GeneralSettingsPage;

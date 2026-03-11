@@ -6,15 +6,15 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import { App } from 'antd';
 import { configApi, systemApi } from '../../api';
 import type {
-  AppearanceSettings,
+  GeneralSettings,
   NotificationSettings,
   ApiSettings,
   SystemInfo,
   SystemMetrics,
 } from './types';
 
-// 默认外观设置
-const defaultAppearanceSettings: AppearanceSettings = {
+// 默认通用设置
+const defaultGeneralSettings: GeneralSettings = {
   theme: 'light',
   language: 'zh-CN',
   showTips: true,
@@ -76,7 +76,7 @@ const defaultSystemMetrics: SystemMetrics = {
 // Context 类型定义
 interface SettingsContextType {
   // 状态
-  appearanceSettings: AppearanceSettings;
+  generalSettings: GeneralSettings;
   notificationSettings: NotificationSettings;
   apiSettings: ApiSettings;
   systemInfo: SystemInfo;
@@ -85,7 +85,7 @@ interface SettingsContextType {
   saving: boolean;
 
   // 设置状态的方法
-  setAppearanceSettings: React.Dispatch<React.SetStateAction<AppearanceSettings>>;
+  setGeneralSettings: React.Dispatch<React.SetStateAction<GeneralSettings>>;
   setNotificationSettings: React.Dispatch<React.SetStateAction<NotificationSettings>>;
   setApiSettings: React.Dispatch<React.SetStateAction<ApiSettings>>;
   setSystemMetrics: React.Dispatch<React.SetStateAction<SystemMetrics>>;
@@ -108,7 +108,7 @@ interface SettingsProviderProps {
 
 export const SettingsProvider = ({ children }: SettingsProviderProps) => {
   const { message } = App.useApp();
-  const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>(defaultAppearanceSettings);
+  const [generalSettings, setGeneralSettings] = useState<GeneralSettings>(defaultGeneralSettings);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(defaultNotificationSettings);
   const [apiSettings, setApiSettings] = useState<ApiSettings>(defaultApiSettings);
   const [systemInfo, _setSystemInfo] = useState<SystemInfo>(defaultSystemInfo);
@@ -174,8 +174,8 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
           });
         }
 
-      // 从扁平配置中提取外观设置
-      const loadedAppearanceSettings: Partial<AppearanceSettings> = {
+      // 从扁平配置中提取通用设置
+      const loadedGeneralSettings: Partial<GeneralSettings> = {
         theme: flattenConfig['theme'],
         language: flattenConfig['language'],
         defaultPerPage: flattenConfig['defaultPerPage'] ? parseInt(flattenConfig['defaultPerPage'], 10) : undefined,
@@ -184,13 +184,13 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       };
 
       // 过滤掉 undefined 值
-      const filteredAppearanceSettings = Object.fromEntries(
-        Object.entries(loadedAppearanceSettings).filter(([, v]) => v !== undefined)
-      ) as Partial<AppearanceSettings>;
+      const filteredGeneralSettings = Object.fromEntries(
+        Object.entries(loadedGeneralSettings).filter(([, v]) => v !== undefined)
+      ) as Partial<GeneralSettings>;
 
-      if (Object.keys(filteredAppearanceSettings).length > 0) {
-        setAppearanceSettings(prev => ({ ...prev, ...filteredAppearanceSettings }));
-        applyTheme(filteredAppearanceSettings.theme || 'light');
+      if (Object.keys(filteredGeneralSettings).length > 0) {
+        setGeneralSettings(prev => ({ ...prev, ...filteredGeneralSettings }));
+        applyTheme(filteredGeneralSettings.theme || 'light');
       }
 
       // 从扁平配置中提取通知设置
@@ -243,12 +243,12 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       // 每个配置项需要包含 key, value, name 字段
       // name 字段用于分组，相同的 name 会被归为一组
       const configList = [
-        // 外观设置 - 使用 'appearance' 作为 name 分组
-        { key: 'theme', value: appearanceSettings.theme, name: 'appearance', description: '系统主题设置' },
-        { key: 'language', value: appearanceSettings.language, name: 'appearance', description: '系统语言设置' },
-        { key: 'defaultPerPage', value: String(appearanceSettings.defaultPerPage), name: 'appearance', description: '列表页默认显示数量' },
-        { key: 'timezone', value: appearanceSettings.timezone, name: 'appearance', description: '系统默认时区' },
-        { key: 'showTips', value: String(appearanceSettings.showTips), name: 'appearance', description: '是否显示提示' },
+        // 通用设置 - 使用 'general' 作为 name 分组
+        { key: 'theme', value: generalSettings.theme, name: 'general', description: '系统主题设置' },
+        { key: 'language', value: generalSettings.language, name: 'general', description: '系统语言设置' },
+        { key: 'defaultPerPage', value: String(generalSettings.defaultPerPage), name: 'general', description: '列表页默认显示数量' },
+        { key: 'timezone', value: generalSettings.timezone, name: 'general', description: '系统默认时区' },
+        { key: 'showTips', value: String(generalSettings.showTips), name: 'general', description: '是否显示提示' },
       ];
 
       await configApi.updateConfig(configList);
@@ -262,7 +262,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       if (typeof window !== 'undefined') {
         (window as any).APP_CONFIG = {
           ...(window as any).APP_CONFIG,
-          appearanceSettings,
+          generalSettings,
           notificationSettings,
           apiSettings,
         };
@@ -276,15 +276,15 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     } finally {
       setSaving(false);
     }
-  }, [appearanceSettings, notificationSettings, apiSettings]);
+  }, [generalSettings, notificationSettings, apiSettings]);
 
   // 重置配置
   const resetConfig = useCallback(() => {
-    setAppearanceSettings(defaultAppearanceSettings);
+    setGeneralSettings(defaultGeneralSettings);
     setNotificationSettings(defaultNotificationSettings);
     setApiSettings(defaultApiSettings);
     setSystemMetrics(defaultSystemMetrics);
-    applyTheme(defaultAppearanceSettings.theme);
+    applyTheme(defaultGeneralSettings.theme);
     message.success('设置已重置为默认值');
   }, [applyTheme]);
 
@@ -294,14 +294,14 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
   }, [loadConfig]);
 
   const value: SettingsContextType = {
-    appearanceSettings,
+    generalSettings,
     notificationSettings,
     apiSettings,
     systemInfo,
     systemMetrics,
     loading,
     saving,
-    setAppearanceSettings,
+    setGeneralSettings,
     setNotificationSettings,
     setApiSettings,
     setSystemMetrics,

@@ -18,6 +18,7 @@ import AppLocale from "@/components/AppLocale";
 import AppTheme from "@/components/AppTheme";
 import useBrowserTheme from "@/hooks/useBrowserTheme";
 import type { ThemeMode } from "@/components/AppTheme";
+import { GuestTag } from "@/components/GuestBadge";
 
 const ConsoleLayout = () => {
   const { t } = useTranslation();
@@ -124,6 +125,7 @@ const ConsoleLayout = () => {
               <SiderMenuDrawer trigger={<Button icon={<IconMenu2 size="1.25em" stroke="1.25" />} />} />
             </div>
             <div className="flex size-full grow items-center justify-end gap-4 overflow-hidden">
+              <GuestTag />
               <AppTheme.LinkButton
                 themeMode={themeMode as ThemeMode}
                 setThemeMode={handleSetThemeMode}

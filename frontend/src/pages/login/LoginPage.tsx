@@ -1,13 +1,13 @@
 /**
  * 登录页面
  * 参考 certimate 项目登录页面设计
- * 默认填充 admin/123456 用于演示生成 JWT token
+ * 支持普通用户登录和访客登录
  */
 import { useMemo, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { IconArrowRight, IconLock, IconUser } from "@tabler/icons-react";
-import { Button, Card, Form, Input, Space, Typography, message } from "antd";
+import { IconArrowRight, IconLock, IconUser, IconUserCircle } from "@tabler/icons-react";
+import { Button, Card, Form, Input, Space, Typography, message, Divider, Tag } from "antd";
 import { saveToken } from "../../utils/tokenManager";
 import { configApi } from "../../api";
 
@@ -141,7 +141,15 @@ const LoginPage = () => {
           refresh_token: data.data.refresh_token || "",
           token_type: data.data.token_type || "Bearer",
         });
-        message.success(t("login_success") || "登录成功");
+        // 保存用户角色信息到 localStorage
+        localStorage.setItem('user_role', data.data.role || 'user');
+        localStorage.setItem('is_guest', String(data.data.is_guest || false));
+        localStorage.setItem('username', data.data.username || '访客');
+
+        const loginMessage = data.data.is_guest
+          ? (t("guest_login_success") || "访客登录成功")
+          : (t("login_success") || "登录成功");
+        message.success(loginMessage);
         // 跳转到之前保存的页面或首页
         const redirectPath = getRedirectPath();
         navigate(redirectPath);
@@ -151,6 +159,52 @@ const LoginPage = () => {
     } catch (error) {
       console.error("登录错误:", error);
       message.error(t("login_failed") || "登录失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 处理访客登录
+  const handleGuestLogin = async () => {
+    setLoading(true);
+    try {
+      // 调用后端登录 API，不传递用户名和密码
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username: "", password: "" }),
+      });
+
+      if (!response.ok) {
+        throw new Error("访客登录失败");
+      }
+
+      const data = await response.json();
+
+      if (data.code === 0 && data.data?.access_token) {
+        // 保存 token 使用 tokenManager
+        saveToken({
+          access_token: data.data.access_token,
+          refresh_token: data.data.refresh_token || "",
+          token_type: data.data.token_type || "Bearer",
+        });
+        // 保存用户角色信息到 localStorage
+        localStorage.setItem('user_role', data.data.role || 'guest');
+        localStorage.setItem('is_guest', 'true');
+        localStorage.setItem('username', '访客');
+
+        message.success(t("guest_login_success") || "访客登录成功");
+        // 跳转到之前保存的页面或首页
+        const redirectPath = getRedirectPath();
+        navigate(redirectPath);
+      } else {
+        message.error(data.message || t("guest_login_failed") || "访客登录失败");
+      }
+    } catch (error) {
+      console.error("访客登录错误:", error);
+      message.error(t("guest_login_failed") || "访客登录失败");
     } finally {
       setLoading(false);
     }
@@ -262,6 +316,31 @@ const LoginPage = () => {
               <Text type="secondary" className="text-sm dark:text-gray-400">
                 {t("demo_hint") || "演示模式：默认已填写用户名和密码"}
               </Text>
+            </div>
+
+            {/* 访客登录选项 */}
+            <Divider className="dark:border-gray-600">
+              <Text type="secondary" className="text-xs dark:text-gray-400">
+                {t("or") || "或"}
+              </Text>
+            </Divider>
+
+            <Button
+              type="default"
+              block
+              size="large"
+              loading={loading}
+              icon={<IconUserCircle size="1.25em" />}
+              onClick={handleGuestLogin}
+              className="dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
+            >
+              {t("guest_login") || "访客登录"}
+            </Button>
+
+            <div className="mt-4 text-center">
+              <Tag color="orange" className="dark:bg-orange-900 dark:text-orange-200">
+                {t("guest_hint") || "访客：仅可浏览，部分功能受限"}
+              </Tag>
             </div>
           </div>
         </Card>
