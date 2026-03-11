@@ -22,6 +22,7 @@ import {
   Alert,
   Spin,
   Space,
+  Tooltip,
 } from 'antd';
 import { useTranslation } from 'react-i18next';
 import Editor from '@monaco-editor/react';
@@ -452,16 +453,18 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
         >
           {t('indicator.verify', '验证代码')}
         </Button>,
-        <Button
-          key="save"
-          type="primary"
-          icon={<SaveOutlined />}
-          onClick={handleSave}
-          loading={loading}
-          disabled={isGuest}
-        >
-          {t('common.save', '保存')}
-        </Button>,
+        <Tooltip title={isGuest ? '访客用户无法保存指标，请使用普通用户账号登录' : ''}>
+          <Button
+            key="save"
+            type="primary"
+            icon={<SaveOutlined />}
+            onClick={handleSave}
+            loading={loading}
+            disabled={isGuest}
+          >
+            {t('common.save', '保存')}
+          </Button>
+        </Tooltip>,
       ]}
     >
       <Spin spinning={loading}>
