@@ -24,7 +24,7 @@ const SettingLayout = () => {
 
   // 菜单配置
   const menus = [
-    ["appearance", t("appearance") || "外观", <IconPalette size="1em" />],
+    ["general", t("general") || "通用", <IconPalette size="1em" />],
     ["exchange", t("exchange_settings") || "交易所", <IconBuildingBank size="1em" />],
     ["notifications", t("notification_settings") || "通知设置", <IconBell size="1em" />],
     ["model", t("model_settings") || "模型", <IconRobot size="1em" />],
@@ -34,14 +34,14 @@ const SettingLayout = () => {
   // 当前选中的菜单项
   const [menuKey, setMenuKey] = useState<string>(() => {
     const pathParts = location.pathname.split("/");
-    return pathParts[2] || "appearance";
+    return pathParts[2] || "general";
   });
 
   // 监听路由变化，更新选中菜单
   useEffect(() => {
     const subpath = location.pathname.split("/")[2];
     if (!subpath) {
-      navigate("/setting/appearance");
+      navigate("/setting/general");
       return;
     }
     setMenuKey(subpath);

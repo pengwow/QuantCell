@@ -23,7 +23,7 @@ import BacktestConfig from '@/pages/backtest/BacktestConfig';
 import BacktestReplay from '@/pages/backtest/BacktestReplay';
 
 // 导入设置子页面
-import AppearanceSettingsPage from '@/pages/setting/AppearanceSettingsPage';
+import GeneralSettingsPage from '@/pages/setting/GeneralSettingsPage';
 import ExchangeSettingsPage from '@/pages/setting/ExchangeSettingsPage';
 import NotificationsPage from '@/pages/setting/NotificationsPage';
 import ModelSettingsPage from '@/pages/setting/ModelSettingsPage';
@@ -101,11 +101,11 @@ const baseRoutes: RouteObject[] = [
         children: [
           {
             index: true,
-            element: <Navigate to="/setting/appearance" replace />,
+            element: <Navigate to="/setting/general" replace />,
           },
           {
-            path: 'appearance',
-            element: <AppearanceSettingsPage />,
+            path: 'general',
+            element: <GeneralSettingsPage />,
           },
           {
             path: 'exchange',

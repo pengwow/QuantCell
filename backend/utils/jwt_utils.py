@@ -192,22 +192,23 @@ def should_refresh_token(token: str, threshold_minutes: int = 10) -> bool:
     return remaining_seconds > 0 and remaining_seconds < (threshold_minutes * 60)
 
 
-def generate_tokens(user_id: str, user_name: str) -> Dict[str, str]:
+def generate_tokens(user_id: str, user_name: str, role: str = "user") -> Dict[str, str]:
     """生成访问令牌和刷新令牌
     
     Args:
         user_id: 用户ID
         user_name: 用户名称
+        role: 用户角色 (user/guest)
     
     Returns:
         Dict[str, str]: 包含访问令牌和刷新令牌的字典
     """
     # 生成访问令牌
-    access_token = create_jwt_token(data={"sub": user_id, "name": user_name})
+    access_token = create_jwt_token(data={"sub": user_id, "name": user_name, "role": role})
     
     # 生成刷新令牌
     refresh_token = create_jwt_token(
-        data={"sub": user_id, "name": user_name},
+        data={"sub": user_id, "name": user_name, "role": role},
         refresh=True
     )
     
@@ -215,4 +216,34 @@ def generate_tokens(user_id: str, user_name: str) -> Dict[str, str]:
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer"
+    }
+
+
+def generate_guest_tokens() -> Dict[str, str]:
+    """生成访客访问令牌和刷新令牌
+    
+    Returns:
+        Dict[str, str]: 包含访客访问令牌和刷新令牌的字典
+    """
+    # 生成唯一的访客ID
+    guest_id = f"guest_{uuid.uuid4().hex[:8]}"
+    
+    # 生成访问令牌 - 访客token设置较短的过期时间
+    access_token = create_jwt_token(
+        data={"sub": guest_id, "name": "访客", "role": "guest"},
+        expires_delta=timedelta(hours=2)  # 访客token 2小时过期
+    )
+    
+    # 生成刷新令牌
+    refresh_token = create_jwt_token(
+        data={"sub": guest_id, "name": "访客", "role": "guest"},
+        expires_delta=timedelta(hours=4),  # 访客刷新token 4小时过期
+        refresh=True
+    )
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "is_guest": True
     }
