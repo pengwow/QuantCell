@@ -23,7 +23,7 @@ import {
   IconBuildingBank,
   IconPlugConnected,
 } from "@tabler/icons-react";
-import { exchangeConfigApi, exchangeApi } from "../../api";
+import { configApi, exchangeApi } from "../../api";
 import { useGuestRestriction } from "../../hooks/useGuestRestriction";
 // @web3icons/react 交易所图标
 import {
@@ -117,55 +117,72 @@ const ExchangeSettingsPage = () => {
     loadExchanges();
   }, []);
 
-  // 加载交易所配置
+  // 加载交易所配置（从扁平化配置加载）
   const loadExchanges = async () => {
     setLoading(true);
     try {
-      const response = await exchangeConfigApi.getConfigs();
-      if (response.items && response.items.length > 0) {
-        // 将后端数据转换为前端格式
-        const loadedExchanges = PRESET_EXCHANGES.map((preset) => {
-          const existing = response.items.find((item: any) => item.exchange_id === preset.id);
-          if (existing) {
-            return {
-              id: existing.exchange_id,
-              name: preset.name,
-              icon: preset.icon,
-              tradingMode: existing.trading_mode || "spot",
-              quoteCurrency: existing.quote_currency || "USDT",
-              commission: existing.commission_rate || 0.001,
-              proxyEnabled: existing.proxy_enabled || false,
-              proxyUrl: existing.proxy_url || "",
-              proxyUsername: existing.proxy_username || "",
-              proxyPassword: existing.proxy_password || "",
-              apiKey: "",
-              apiSecret: "",
-              isEnabled: existing.is_enabled,
-              isDefault: existing.is_default,
-              key: existing.key,
-            };
+      // 使用 configApi 获取所有配置（返回格式为按 name 分组）
+      const groupedConfigs = await configApi.getConfig() as Record<string, Record<string, string>>;
+
+      // 获取 exchange 分组的配置
+      const exchangeGroup = groupedConfigs.exchange || {};
+
+      // 将扁平化配置按交易所ID分组
+      const exchangeConfigs: Record<string, Record<string, string>> = {};
+      Object.entries(exchangeGroup).forEach(([key, value]) => {
+        if (key.startsWith('exchange.')) {
+          const parts = key.split('.');
+          if (parts.length >= 3) {
+            const exchangeId = parts[1];
+            const field = parts[2];
+            if (!exchangeConfigs[exchangeId]) {
+              exchangeConfigs[exchangeId] = {};
+            }
+            exchangeConfigs[exchangeId][field] = value;
           }
+        }
+      });
+
+      // 将后端数据转换为前端格式
+      const loadedExchanges = PRESET_EXCHANGES.map((preset) => {
+        const existing = exchangeConfigs[preset.id];
+        if (existing && Object.keys(existing).length > 0) {
           return {
-            ...preset,
-            tradingMode: "spot" as const,
-            quoteCurrency: "USDT",
-            commission: 0.001,
-            proxyEnabled: false,
-            proxyUrl: "",
-            proxyUsername: "",
-            proxyPassword: "",
-            apiKey: "",
-            apiSecret: "",
-            isEnabled: false,
-            isDefault: false,
+            id: preset.id,
+            name: preset.name,
+            icon: preset.icon,
+            tradingMode: (existing.trading_mode as 'spot' | 'futures' | 'margin') || "spot",
+            quoteCurrency: existing.quote_currency || "USDT",
+            commission: parseFloat(existing.commission_rate) || 0.001,
+            proxyEnabled: existing.proxy_enabled === '1',
+            proxyUrl: existing.proxy_url || "",
+            proxyUsername: existing.proxy_username || "",
+            proxyPassword: existing.proxy_password || "",
+            apiKey: existing.api_key || "",
+            apiSecret: existing.api_secret || "",
+            isEnabled: existing.is_enabled === '1',
+            isDefault: existing.is_default === '1',
+            key: preset.id,
           };
-        });
-        setExchanges(loadedExchanges);
-        setSelectedExchangeId(loadedExchanges[0]?.id || "");
-      } else {
-        // 初始化默认配置
-        initDefaultExchanges();
-      }
+        }
+        return {
+          ...preset,
+          tradingMode: "spot" as const,
+          quoteCurrency: "USDT",
+          commission: 0.001,
+          proxyEnabled: false,
+          proxyUrl: "",
+          proxyUsername: "",
+          proxyPassword: "",
+          apiKey: "",
+          apiSecret: "",
+          isEnabled: false,
+          isDefault: false,
+          key: preset.id,
+        };
+      });
+      setExchanges(loadedExchanges);
+      setSelectedExchangeId(loadedExchanges[0]?.id || "");
     } catch (error) {
       console.error("加载交易所配置失败:", error);
       message.error(t("load_failed") || "加载配置失败");
@@ -216,39 +233,42 @@ const ExchangeSettingsPage = () => {
     message.success(t("default_exchange_set") || "默认交易所已设置");
   };
 
-  // 保存配置
+  // 保存配置（使用批量更新接口，对象数组格式）
   const handleSave = async () => {
     setSaving(true);
     try {
-      // 保存所有交易所配置到后端（无论是否启用）
-      for (const exchange of exchanges) {
-        const configData = {
-          exchange_id: exchange.id,
-          name: exchange.name,
-          trading_mode: exchange.tradingMode,
-          quote_currency: exchange.quoteCurrency,
-          commission_rate: exchange.commission,
-          api_key: exchange.apiKey,
-          api_secret: exchange.apiSecret,
-          proxy_enabled: exchange.proxyEnabled,
-          proxy_url: exchange.proxyUrl,
-          proxy_username: exchange.proxyUsername,
-          proxy_password: exchange.proxyPassword,
-          is_enabled: exchange.isEnabled,
-          is_default: exchange.isDefault,
-        };
+      // 构建批量更新的配置数组，格式与 general 页面一致
+      const batchConfigs: Array<{
+        key: string;
+        value: string;
+        name: string;
+        description: string;
+      }> = [];
 
-        if (exchange.key) {
-          // 更新现有配置
-          await exchangeConfigApi.updateConfig(exchange.key, configData);
-        } else {
-          // 创建新配置
-          await exchangeConfigApi.createConfig(configData);
-        }
-      }
+      exchanges.forEach((exchange) => {
+        const prefix = `exchange.${exchange.id}`;
+        const exchangeName = exchange.name;
+
+        batchConfigs.push(
+          { key: `${prefix}.name`, value: exchange.name, name: 'exchange', description: `${exchangeName}交易所名称` },
+          { key: `${prefix}.trading_mode`, value: exchange.tradingMode, name: 'exchange', description: `${exchangeName}交易模式` },
+          { key: `${prefix}.quote_currency`, value: exchange.quoteCurrency, name: 'exchange', description: `${exchangeName}计价货币` },
+          { key: `${prefix}.commission_rate`, value: String(exchange.commission), name: 'exchange', description: `${exchangeName}手续费率` },
+          { key: `${prefix}.api_key`, value: exchange.apiKey || '', name: 'exchange', description: `${exchangeName}API Key` },
+          { key: `${prefix}.api_secret`, value: exchange.apiSecret || '', name: 'exchange', description: `${exchangeName}API Secret` },
+          { key: `${prefix}.proxy_enabled`, value: exchange.proxyEnabled ? '1' : '0', name: 'exchange', description: `${exchangeName}是否启用代理` },
+          { key: `${prefix}.proxy_url`, value: exchange.proxyUrl || '', name: 'exchange', description: `${exchangeName}代理地址` },
+          { key: `${prefix}.proxy_username`, value: exchange.proxyUsername || '', name: 'exchange', description: `${exchangeName}代理用户名` },
+          { key: `${prefix}.proxy_password`, value: exchange.proxyPassword || '', name: 'exchange', description: `${exchangeName}代理密码` },
+          { key: `${prefix}.is_enabled`, value: exchange.isEnabled ? '1' : '0', name: 'exchange', description: `${exchangeName}是否启用` },
+          { key: `${prefix}.is_default`, value: exchange.isDefault ? '1' : '0', name: 'exchange', description: `${exchangeName}是否为默认` }
+        );
+      });
+
+      // 使用批量更新接口保存所有配置（对象数组格式）
+      await configApi.updateConfig(batchConfigs);
+
       message.success(t("config_saved") || "配置已保存");
-      // 重新加载以获取后端key
-      await loadExchanges();
     } catch (error) {
       console.error("保存配置失败:", error);
       message.error(t("save_failed") || "保存失败");

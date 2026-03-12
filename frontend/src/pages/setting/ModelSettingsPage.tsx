@@ -145,33 +145,86 @@ const ModelSettingsPage = () => {
     loadProviders();
   }, []);
 
-  // 从系统配置加载模型配置
+  // 从系统配置加载模型配置（从扁平化配置加载）
   const loadProviders = async () => {
     try {
-      const response = await configApi.getConfig();
-      // 处理后端返回的配置格式（按 name 分组的格式）
-      const groupedConfig = response?.data || response;
+      // 使用 configApi 获取所有配置（返回格式为按 name 分组）
+      const groupedConfigs = await configApi.getConfig() as Record<string, Record<string, string>>;
 
-      // 从分组配置中提取模型配置（name 为 'ai_models' 的配置组）
-      let modelConfig: any = {};
-      if (groupedConfig && typeof groupedConfig === 'object') {
-        // 查找 ai_models 分组
-        const aiModelsGroup = groupedConfig['ai_models'];
-        if (aiModelsGroup && typeof aiModelsGroup === 'object') {
-          modelConfig = aiModelsGroup;
-        }
-      }
+      // 获取 ai_model 分组的配置
+      const aiModelGroup = groupedConfigs.ai_model || {};
 
-      // 检查是否有保存的模型配置
-      if (modelConfig && Object.keys(modelConfig).length > 0) {
-        // 解析保存的模型配置
-        const savedProviders = modelConfig.providers ? JSON.parse(modelConfig.providers) : null;
-        if (savedProviders && savedProviders.length > 0) {
-          setProviders(savedProviders);
-          setSelectedProviderId(savedProviders[0]?.id || "");
-        } else {
-          initDefaultProviders();
+      // 将扁平化配置按厂商ID分组
+      const providerConfigs: Record<string, Record<string, string>> = {};
+      Object.entries(aiModelGroup).forEach(([key, value]) => {
+        if (key.startsWith('ai_model.')) {
+          const parts = key.split('.');
+          if (parts.length >= 3) {
+            const providerId = parts[1];
+            const field = parts[2];
+            if (!providerConfigs[providerId]) {
+              providerConfigs[providerId] = {};
+            }
+            providerConfigs[providerId][field] = value;
+          }
         }
+      });
+
+      // 检查是否有保存的配置
+      const hasSavedConfig = Object.keys(providerConfigs).length > 0;
+
+      if (hasSavedConfig) {
+        // 将后端数据转换为前端格式
+        const loadedProviders = PRESET_PROVIDERS.map((preset) => {
+          const existing = providerConfigs[preset.id];
+          if (existing && Object.keys(existing).length > 0) {
+            // 解析 models JSON
+            let models: Model[] = [];
+            try {
+              if (existing.models) {
+                models = JSON.parse(existing.models);
+              }
+            } catch (e) {
+              console.warn(`解析 ${preset.id} 模型列表失败`, e);
+            }
+
+            return {
+              id: preset.id,
+              name: existing.name || preset.name,
+              icon: preset.icon,
+              api_key: existing.api_key || "",
+              api_host: existing.api_host || getDefaultApiHost(preset.id),
+              models: models,
+              is_default: existing.is_default === '1',
+              is_enabled: existing.is_enabled === '1',
+              proxy_enabled: existing.proxy_enabled === '1',
+              proxy_url: existing.proxy_url || "",
+              proxy_username: existing.proxy_username || "",
+              proxy_password: existing.proxy_password || "",
+            };
+          }
+          // 返回默认配置
+          return {
+            id: preset.id,
+            name: preset.name,
+            icon: preset.icon,
+            api_key: "",
+            api_host: getDefaultApiHost(preset.id),
+            models: PRESET_MODELS[preset.id]?.map((name) => ({
+              id: `${preset.id}-${name}`,
+              name,
+              is_enabled: false,
+            })) || [],
+            is_default: false,
+            is_enabled: false,
+            proxy_enabled: false,
+            proxy_url: "",
+            proxy_username: "",
+            proxy_password: "",
+          };
+        });
+        setProviders(loadedProviders);
+        setSelectedProviderId(loadedProviders[0]?.id || "");
       } else {
         // 初始化默认配置
         initDefaultProviders();
@@ -183,19 +236,19 @@ const ModelSettingsPage = () => {
     }
   };
 
-  // 初始化默认配置
+  // 初始化默认配置（所有状态默认关闭）
   const initDefaultProviders = () => {
-    const initialProviders = PRESET_PROVIDERS.map((preset, index) => ({
+    const initialProviders = PRESET_PROVIDERS.map((preset) => ({
       ...preset,
       api_key: "",
       api_host: getDefaultApiHost(preset.id),
       models: PRESET_MODELS[preset.id]?.map((name) => ({
         id: `${preset.id}-${name}`,
         name,
-        is_enabled: index === 0,
+        is_enabled: false,
       })) || [],
-      is_default: index === 0,
-      is_enabled: index === 0,
+      is_default: false,
+      is_enabled: false,
       proxy_enabled: false,
       proxy_url: "",
       proxy_username: "",
@@ -381,33 +434,37 @@ const ModelSettingsPage = () => {
     message.success(t("model_added") || "模型已添加");
   };
 
-  // 保存配置到系统配置表
+  // 保存配置到系统配置表（使用扁平化存储格式）
   const handleSave = async () => {
     try {
-      // 构建配置列表，使用 'ai_models' 作为分组名
-      const configList = [
-        {
-          key: 'providers',
-          value: JSON.stringify(providers),
-          name: 'ai_models',
-          description: 'AI模型提供商配置列表'
-        },
-        {
-          key: 'default_provider',
-          value: providers.find(p => p.is_default)?.id || '',
-          name: 'ai_models',
-          description: '默认AI模型提供商ID'
-        },
-        {
-          key: 'enabled_providers',
-          value: JSON.stringify(providers.filter(p => p.is_enabled).map(p => p.id)),
-          name: 'ai_models',
-          description: '启用的AI模型提供商ID列表'
-        }
-      ];
+      // 构建批量更新的配置数组，格式与 general 页面一致
+      const batchConfigs: Array<{
+        key: string;
+        value: string;
+        name: string;
+        description: string;
+      }> = [];
 
-      // 调用系统配置保存接口
-      await configApi.updateConfig(configList);
+      providers.forEach((provider) => {
+        const prefix = `ai_model.${provider.id}`;
+        const providerName = provider.name;
+
+        batchConfigs.push(
+          { key: `${prefix}.name`, value: provider.name, name: 'ai_model', description: `${providerName}厂商名称` },
+          { key: `${prefix}.api_key`, value: provider.api_key || '', name: 'ai_model', description: `${providerName}API Key` },
+          { key: `${prefix}.api_host`, value: provider.api_host || '', name: 'ai_model', description: `${providerName}API Host` },
+          { key: `${prefix}.models`, value: JSON.stringify(provider.models), name: 'ai_model', description: `${providerName}模型列表` },
+          { key: `${prefix}.is_default`, value: provider.is_default ? '1' : '0', name: 'ai_model', description: `${providerName}是否为默认` },
+          { key: `${prefix}.is_enabled`, value: provider.is_enabled ? '1' : '0', name: 'ai_model', description: `${providerName}是否启用` },
+          { key: `${prefix}.proxy_enabled`, value: provider.proxy_enabled ? '1' : '0', name: 'ai_model', description: `${providerName}是否启用代理` },
+          { key: `${prefix}.proxy_url`, value: provider.proxy_url || '', name: 'ai_model', description: `${providerName}代理地址` },
+          { key: `${prefix}.proxy_username`, value: provider.proxy_username || '', name: 'ai_model', description: `${providerName}代理用户名` },
+          { key: `${prefix}.proxy_password`, value: provider.proxy_password || '', name: 'ai_model', description: `${providerName}代理密码` }
+        );
+      });
+
+      // 调用系统配置批量更新接口
+      await configApi.updateConfig(batchConfigs);
       message.success(t("config_saved") || "配置已保存");
     } catch (error) {
       console.error("保存配置失败:", error);

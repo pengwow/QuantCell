@@ -17,7 +17,8 @@ import {
 import {
   IconMail,
 } from "@tabler/icons-react";
-import { getNotificationChannels, saveNotificationChannels, testNotificationChannel } from "../../services/notificationService";
+import { testNotificationChannel } from "../../services/notificationService";
+import { configApi } from "../../api";
 import { useGuestRestriction } from "../../hooks/useGuestRestriction";
 
 const { Text } = Typography;
@@ -116,24 +117,71 @@ const NotificationsPage = () => {
     loadChannels();
   }, []);
 
-  // 加载通知渠道配置
+  // 加载通知渠道配置（从扁平化配置加载）
   const loadChannels = async () => {
     try {
       setLoading(true);
-      const data = await getNotificationChannels();
-      // 响应拦截器已经提取了data部分
-      if (data?.channels) {
-        const loadedChannels = data.channels;
-        // 合并预设渠道的图标
-        const mergedChannels = loadedChannels.map((channel: NotificationChannel) => {
-          const preset = PRESET_CHANNELS.find((p) => p.id === channel.id);
+      // 使用 configApi 获取所有配置（返回格式为按 name 分组）
+      const groupedConfigs = await configApi.getConfig() as Record<string, Record<string, string>>;
+
+      // 获取 notification 分组的配置
+      const notificationGroup = groupedConfigs.notification || {};
+
+      // 将扁平化配置按渠道ID分组
+      const channelConfigs: Record<string, Record<string, string>> = {};
+      Object.entries(notificationGroup).forEach(([key, value]) => {
+        if (key.startsWith('notification.')) {
+          const parts = key.split('.');
+          if (parts.length >= 3) {
+            const channelId = parts[1];
+            const field = parts[2];
+            if (!channelConfigs[channelId]) {
+              channelConfigs[channelId] = {};
+            }
+            channelConfigs[channelId][field] = value;
+          }
+        }
+      });
+
+      // 检查是否有保存的配置
+      const hasSavedConfig = Object.keys(channelConfigs).length > 0;
+
+      if (hasSavedConfig) {
+        // 将后端数据转换为前端格式
+        const loadedChannels = PRESET_CHANNELS.map((preset) => {
+          const existing = channelConfigs[preset.id];
+          if (existing && Object.keys(existing).length > 0) {
+            // 解析 config JSON
+            let config = DEFAULT_CONFIGS[preset.id];
+            try {
+              if (existing.config) {
+                config = JSON.parse(existing.config);
+              }
+            } catch (e) {
+              console.warn(`解析 ${preset.id} 配置失败`, e);
+            }
+
+            return {
+              id: preset.id,
+              name: existing.name || preset.name,
+              icon: preset.icon,
+              enabled: existing.enabled === '1',
+              isDefault: existing.isDefault === '1',
+              config: config,
+            };
+          }
+          // 返回默认配置
           return {
-            ...channel,
-            icon: preset?.icon || "",
+            id: preset.id,
+            name: preset.name,
+            icon: preset.icon,
+            enabled: false,
+            isDefault: false,
+            config: DEFAULT_CONFIGS[preset.id],
           };
         });
-        setChannels(mergedChannels);
-        setSelectedChannelId(mergedChannels[0]?.id || "");
+        setChannels(loadedChannels);
+        setSelectedChannelId(loadedChannels[0]?.id || "");
       } else {
         // 使用默认配置
         initDefaultChannels();
@@ -173,18 +221,33 @@ const NotificationsPage = () => {
     );
   };
 
-  // 保存配置
+  // 保存配置（使用批量更新接口，对象数组格式）
   const handleSave = async () => {
     setSaving(true);
     try {
-      // 移除icon字段，后端不需要存储，并添加key字段（使用id作为key）
-      const channelsToSave = channels.map(({ icon, id, ...rest }) => ({
-        key: id,
-        id,
-        ...rest
-      }));
-      await saveNotificationChannels(channelsToSave);
-      // 响应拦截器已经处理了错误，如果执行到这里说明成功
+      // 构建批量更新的配置数组，格式与 general 页面一致
+      const batchConfigs: Array<{
+        key: string;
+        value: string;
+        name: string;
+        description: string;
+      }> = [];
+
+      channels.forEach((channel) => {
+        const prefix = `notification.${channel.id}`;
+        const channelName = channel.name;
+
+        batchConfigs.push(
+          { key: `${prefix}.name`, value: channel.name, name: 'notification', description: `${channelName}通知渠道名称` },
+          { key: `${prefix}.enabled`, value: channel.enabled ? '1' : '0', name: 'notification', description: `${channelName}是否启用` },
+          { key: `${prefix}.isDefault`, value: channel.isDefault ? '1' : '0', name: 'notification', description: `${channelName}是否为默认` },
+          { key: `${prefix}.config`, value: JSON.stringify(channel.config), name: 'notification', description: `${channelName}配置详情` }
+        );
+      });
+
+      // 使用批量更新接口保存所有配置（对象数组格式）
+      await configApi.updateConfig(batchConfigs);
+
       message.success(t("settings_saved") || "设置已保存");
     } catch (error) {
       console.error("保存通知渠道配置失败:", error);

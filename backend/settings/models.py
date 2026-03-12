@@ -255,3 +255,208 @@ class SystemConfigBusiness:
             return None
         finally:
             db.close()
+
+    # ==================== 扁平化存储辅助方法 ====================
+
+    @staticmethod
+    def set_flattened(prefix: str, config_dict: dict, name: str = None, description: str = "") -> bool:
+        """将字典配置扁平化存储，key格式为: prefix.field_name
+        
+        Args:
+            prefix: 配置前缀，如 "exchange.binance"
+            config_dict: 配置字典
+            name: 配置名称，用于分组
+            description: 配置描述
+            
+        Returns:
+            bool: 是否全部保存成功
+        """
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            success_count = 0
+            total_count = len(config_dict)
+            
+            for field_name, value in config_dict.items():
+                key = f"{prefix}.{field_name}"
+                
+                # 确保value是字符串类型
+                if isinstance(value, bool):
+                    str_value = '1' if value else '0'
+                elif isinstance(value, (dict, list)):
+                    str_value = json.dumps(value, ensure_ascii=False)
+                else:
+                    str_value = str(value)
+                
+                # 检查配置是否已存在
+                config = db.query(SystemConfig).filter_by(key=key).first()
+                
+                if config:
+                    config.value = str_value
+                    if description:
+                        config.description = description
+                    if name is not None:
+                        config.name = name
+                else:
+                    config = SystemConfig(
+                        key=key,
+                        value=str_value,
+                        description=description,
+                        name=name,
+                        is_sensitive=False
+                    )
+                    db.add(config)
+                success_count += 1
+            
+            db.commit()
+            logger.info(f"扁平化配置已保存: prefix={prefix}, fields={success_count}/{total_count}")
+            return success_count == total_count
+        except Exception as e:
+            db.rollback()
+            logger.error(f"保存扁平化配置失败: prefix={prefix}, error={e}")
+            return False
+        finally:
+            db.close()
+
+    @staticmethod
+    def get_flattened(prefix: str) -> dict:
+        """获取指定前缀的所有配置并组装为字典
+        
+        Args:
+            prefix: 配置前缀，如 "exchange.binance"
+            
+        Returns:
+            dict: 组装后的配置字典
+        """
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            # 查询所有以prefix开头的配置
+            configs = db.query(SystemConfig).filter(SystemConfig.key.like(f"{prefix}.%")).all()
+            
+            result = {}
+            prefix_len = len(prefix) + 1  # +1 for the dot
+            
+            for config in configs:
+                field_name = config.key[prefix_len:]
+                value = config.value
+                
+                # 尝试解析JSON
+                try:
+                    value = json.loads(value)
+                except (json.JSONDecodeError, TypeError):
+                    # 不是JSON，保持字符串
+                    # 尝试转换为布尔值
+                    if value == '1':
+                        value = True
+                    elif value == '0':
+                        value = False
+                    # 尝试转换为数字
+                    elif value.isdigit():
+                        value = int(value)
+                    elif value.replace('.', '', 1).isdigit():
+                        value = float(value)
+                
+                result[field_name] = value
+            
+            logger.info(f"扁平化配置已加载: prefix={prefix}, fields={len(result)}")
+            return result
+        except Exception as e:
+            logger.error(f"加载扁平化配置失败: prefix={prefix}, error={e}")
+            return {}
+        finally:
+            db.close()
+
+    @staticmethod
+    def get_all_flattened_by_prefix(base_prefix: str) -> Dict[str, dict]:
+        """获取所有以base_prefix开头的配置，按子前缀分组
+        
+        例如: base_prefix="exchange" 会返回所有交易所配置
+        {
+            "binance": {"name": "币安", "trading_mode": "spot", ...},
+            "okx": {"name": "OKX", "trading_mode": "spot", ...}
+        }
+        
+        Args:
+            base_prefix: 基础前缀，如 "exchange"
+            
+        Returns:
+            Dict[str, dict]: 按子前缀分组的配置字典
+        """
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            # 查询所有以base_prefix开头的配置
+            configs = db.query(SystemConfig).filter(SystemConfig.key.like(f"{base_prefix}.%")).all()
+            
+            result: Dict[str, dict] = {}
+            base_prefix_len = len(base_prefix) + 1  # +1 for the dot
+            
+            for config in configs:
+                # 提取子前缀 (如 "exchange.binance.name" -> "binance")
+                key_without_base = config.key[base_prefix_len:]
+                parts = key_without_base.split('.', 1)
+                
+                if len(parts) < 1:
+                    continue
+                    
+                sub_prefix = parts[0]
+                field_name = parts[1] if len(parts) > 1 else "value"
+                
+                if sub_prefix not in result:
+                    result[sub_prefix] = {}
+                
+                value = config.value
+                
+                # 尝试解析JSON
+                try:
+                    value = json.loads(value)
+                except (json.JSONDecodeError, TypeError):
+                    # 不是JSON，尝试类型转换
+                    if value == '1':
+                        value = True
+                    elif value == '0':
+                        value = False
+                    elif value.isdigit():
+                        value = int(value)
+                    elif value.replace('.', '', 1).isdigit():
+                        value = float(value)
+                
+                result[sub_prefix][field_name] = value
+            
+            logger.info(f"扁平化配置已分组加载: base_prefix={base_prefix}, groups={len(result)}")
+            return result
+        except Exception as e:
+            logger.error(f"加载分组扁平化配置失败: base_prefix={base_prefix}, error={e}")
+            return {}
+        finally:
+            db.close()
+
+    @staticmethod
+    def delete_flattened(prefix: str) -> bool:
+        """删除指定前缀的所有配置
+        
+        Args:
+            prefix: 配置前缀
+            
+        Returns:
+            bool: 是否删除成功
+        """
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            # 删除所有以prefix开头的配置
+            configs = db.query(SystemConfig).filter(SystemConfig.key.like(f"{prefix}.%")).all()
+            
+            for config in configs:
+                db.delete(config)
+            
+            db.commit()
+            logger.info(f"扁平化配置已删除: prefix={prefix}, count={len(configs)}")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"删除扁平化配置失败: prefix={prefix}, error={e}")
+            return False
+        finally:
+            db.close()
