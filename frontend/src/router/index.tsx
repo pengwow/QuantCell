@@ -7,7 +7,7 @@ import ConsoleLayout from '@/layouts/ConsoleLayout';
 // 导入页面组件
 import LoginPage from '@/pages/login/LoginPage';
 import ChartPage from '@/pages/chart/ChartPage';
-import Agent from '@/pages/agent/Agent';
+import Worker from '@/pages/worker/Worker';
 import StrategyManagement from '@/pages/strategy/StrategyManagement';
 import StrategyEditor from '@/pages/strategy/StrategyEditor';
 import FactorAnalysis from '@/pages/factor/FactorAnalysis';
@@ -45,8 +45,8 @@ const baseRoutes: RouteObject[] = [
         element: <ChartPage />,
       },
       {
-        path: '/strategy-task',
-        element: <Agent />,
+        path: '/strategy-worker',
+        element: <Worker />,
       },
       {
         path: '/strategy-management',

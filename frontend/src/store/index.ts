@@ -4,9 +4,9 @@
  * 使用Zustand进行状态管理
  */
 
-// 导出Agent Store
-export { useAgentStore } from './agentStore';
-export type { AgentState } from './agentStore';
+// 导出Worker Store
+export { useWorkerStore } from './workerStore';
+export type { WorkerState } from './workerStore';
 
 // 导出Strategy Store
 export { useStrategyStore } from './strategyStore';

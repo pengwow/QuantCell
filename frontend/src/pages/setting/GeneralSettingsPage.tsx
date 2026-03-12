@@ -5,7 +5,7 @@
  */
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, message, Tooltip } from 'antd';
+import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, message, Tooltip, Input } from 'antd';
 import { useSettings } from './SettingsContext';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 
@@ -226,6 +226,37 @@ const GeneralSettingsPage = () => {
                 filterOption={(input, option) =>
                   (option?.label || '').toLowerCase().includes(input.toLowerCase())
                 }
+              />
+            </Form.Item>
+          </Form>
+        </div>
+
+        <Divider />
+
+        {/* 用户配置 */}
+        <div>
+          <h2 className="text-lg font-medium mb-4">{t('user_settings') || '用户设置'}</h2>
+          <Form layout="vertical">
+            <Form.Item label={t('username') || '用户名'}>
+              <Input
+                value={generalSettings.user?.username || ''}
+                onChange={(e) => setGeneralSettings(prev => ({
+                  ...prev,
+                  user: { ...prev.user, username: e.target.value }
+                }))}
+                placeholder={t('enter_username') || '请输入用户名'}
+                className="w-full max-w-md"
+              />
+            </Form.Item>
+            <Form.Item label={t('password') || '密码'}>
+              <Input.Password
+                value={generalSettings.user?.password || ''}
+                onChange={(e) => setGeneralSettings(prev => ({
+                  ...prev,
+                  user: { ...prev.user, password: e.target.value }
+                }))}
+                placeholder={t('enter_password') || '请输入密码'}
+                className="w-full max-w-md"
               />
             </Form.Item>
           </Form>

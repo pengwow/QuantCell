@@ -64,7 +64,7 @@ const SystemLogs = () => {
   const pageSize = 20;
 
   /**
-   * 加载日志
+   * 加载日志（按当前时间获取，默认最近1小时）
    */
   const loadLogs = useCallback(async (pageNum: number, isLoadMore: boolean = false) => {
     try {
@@ -74,9 +74,15 @@ const SystemLogs = () => {
         setLoading(true);
       }
 
+      // 计算时间范围：最近1小时
+      const endTime = new Date();
+      const startTime = new Date(endTime.getTime() - 60 * 60 * 1000); // 1小时前
+
       const response: LogQueryResponse = await systemApi.getLogs({
         page: pageNum,
         pageSize,
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
       });
 
       if (isLoadMore) {
