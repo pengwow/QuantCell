@@ -833,9 +833,9 @@ exchange_router = APIRouter(prefix="/api/exchange-configs", tags=["exchange-conf
 @exchange_router.get("/", response_model=ApiResponse)
 @jwt_auth_required_sync
 def get_exchange_configs(request: Request):
-    """获取所有交易所配置
+    """获取所有交易所配置（扁平化存储）
 
-    从系统配置中获取所有交易所配置，name=exchange。
+    从扁平化存储中获取所有交易所配置，key格式为：exchange.{exchange_id}.{field}。
 
     Args:
         request: FastAPI请求对象
@@ -844,37 +844,30 @@ def get_exchange_configs(request: Request):
         ApiResponse: 包含交易所配置列表的响应
     """
     try:
-        logger.info("获取交易所配置")
-        import json
+        logger.info("获取交易所配置（扁平化存储）")
 
-        # 从系统配置获取所有name=exchange的配置
-        all_configs = SystemConfig.get_all_with_details()
+        # 使用扁平化存储方法获取所有交易所配置
+        exchanges_data = SystemConfig.get_all_flattened_by_prefix("exchange")
         exchange_configs = []
 
-        for key, config in all_configs.items():
-            if config.get("name") == "exchange":
-                try:
-                    config_value = json.loads(config.get("value", "{}"))
-                    exchange_configs.append({
-                        "id": key,
-                        "key": key,
-                        "name": config_value.get("name", key),
-                        "exchange_id": config_value.get("exchange_id", key),
-                        "trading_mode": config_value.get("trading_mode", "spot"),
-                        "quote_currency": config_value.get("quote_currency", "USDT"),
-                        "commission_rate": config_value.get("commission_rate", 0.001),
-                        "api_key": config_value.get("api_key", ""),
-                        "api_secret": config_value.get("api_secret", ""),
-                        "proxy_enabled": config_value.get("proxy_enabled", False),
-                        "proxy_url": config_value.get("proxy_url", ""),
-                        "proxy_username": config_value.get("proxy_username", ""),
-                        "proxy_password": config_value.get("proxy_password", ""),
-                        "is_enabled": config_value.get("is_enabled", False),
-                        "is_default": config_value.get("is_default", False),
-                    })
-                except json.JSONDecodeError:
-                    logger.warning(f"解析交易所配置失败: {key}")
-                    continue
+        for exchange_id, config_data in exchanges_data.items():
+            exchange_configs.append({
+                "id": exchange_id,
+                "key": exchange_id,
+                "name": config_data.get("name", exchange_id),
+                "exchange_id": exchange_id,
+                "trading_mode": config_data.get("trading_mode", "spot"),
+                "quote_currency": config_data.get("quote_currency", "USDT"),
+                "commission_rate": config_data.get("commission_rate", 0.001),
+                "api_key": config_data.get("api_key", ""),
+                "api_secret": config_data.get("api_secret", ""),
+                "proxy_enabled": config_data.get("proxy_enabled", False),
+                "proxy_url": config_data.get("proxy_url", ""),
+                "proxy_username": config_data.get("proxy_username", ""),
+                "proxy_password": config_data.get("proxy_password", ""),
+                "is_enabled": config_data.get("is_enabled", False),
+                "is_default": config_data.get("is_default", False),
+            })
 
         return ApiResponse(
             code=0,
@@ -889,9 +882,9 @@ def get_exchange_configs(request: Request):
 @exchange_router.post("/", response_model=ApiResponse)
 @jwt_auth_required_sync
 def create_exchange_config(request: Request, config: Dict[str, Any] = Body(...)):
-    """创建交易所配置
+    """创建交易所配置（扁平化存储）
 
-    将交易所配置保存到系统配置中，name=exchange，key=交易所英文名称。
+    将交易所配置以扁平化方式保存，key格式为：exchange.{exchange_id}.{field}。
 
     Args:
         request: FastAPI请求对象
@@ -901,16 +894,14 @@ def create_exchange_config(request: Request, config: Dict[str, Any] = Body(...))
         ApiResponse: 包含创建结果的响应
     """
     try:
-        logger.info(f"创建交易所配置: {config.get('exchange_id')}")
-        import json
+        logger.info(f"创建交易所配置（扁平化存储）: {config.get('exchange_id')}")
 
         exchange_id = config.get("exchange_id")
         if not exchange_id:
             return ApiResponse(code=400, message="交易所ID不能为空", data=None)
 
-        # 构建配置JSON
+        # 构建配置字典
         config_data = {
-            "exchange_id": exchange_id,
             "name": config.get("name", exchange_id),
             "trading_mode": config.get("trading_mode", "spot"),
             "quote_currency": config.get("quote_currency", "USDT"),
@@ -925,12 +916,13 @@ def create_exchange_config(request: Request, config: Dict[str, Any] = Body(...))
             "is_default": config.get("is_default", False),
         }
 
-        # 保存到系统配置，key=交易所英文名称，name=exchange
-        success = SystemConfig.set(
-            key=exchange_id,
-            value=json.dumps(config_data, ensure_ascii=False),
-            description=f"{config.get('name', exchange_id)}交易所配置",
-            name="exchange"
+        # 使用扁平化存储方法保存配置
+        prefix = f"exchange.{exchange_id}"
+        success = SystemConfig.set_flattened(
+            prefix=prefix,
+            config_dict=config_data,
+            name="exchange",
+            description=f"{config.get('name', exchange_id)}交易所配置"
         )
 
         if success:
@@ -940,7 +932,7 @@ def create_exchange_config(request: Request, config: Dict[str, Any] = Body(...))
             return ApiResponse(
                 code=0,
                 message="交易所配置创建成功",
-                data={"key": exchange_id, **config_data}
+                data={"key": exchange_id, "exchange_id": exchange_id, **config_data}
             )
         else:
             logger.error(f"交易所配置创建失败: {exchange_id}")
@@ -953,9 +945,9 @@ def create_exchange_config(request: Request, config: Dict[str, Any] = Body(...))
 @exchange_router.put("/{key}", response_model=ApiResponse)
 @jwt_auth_required_sync
 def update_exchange_config(request: Request, key: str, config: Dict[str, Any] = Body(...)):
-    """更新交易所配置
+    """更新交易所配置（扁平化存储）
 
-    更新系统配置中的交易所配置。
+    以扁平化方式更新交易所配置。
 
     Args:
         request: FastAPI请求对象
@@ -966,12 +958,10 @@ def update_exchange_config(request: Request, key: str, config: Dict[str, Any] = 
         ApiResponse: 包含更新结果的响应
     """
     try:
-        logger.info(f"更新交易所配置: {key}")
-        import json
+        logger.info(f"更新交易所配置（扁平化存储）: {key}")
 
-        # 构建配置JSON
+        # 构建配置字典
         config_data = {
-            "exchange_id": key,
             "name": config.get("name", key),
             "trading_mode": config.get("trading_mode", "spot"),
             "quote_currency": config.get("quote_currency", "USDT"),
@@ -986,12 +976,13 @@ def update_exchange_config(request: Request, key: str, config: Dict[str, Any] = 
             "is_default": config.get("is_default", False),
         }
 
-        # 更新系统配置
-        success = SystemConfig.set(
-            key=key,
-            value=json.dumps(config_data, ensure_ascii=False),
-            description=f"{config.get('name', key)}交易所配置",
-            name="exchange"
+        # 使用扁平化存储方法更新配置
+        prefix = f"exchange.{key}"
+        success = SystemConfig.set_flattened(
+            prefix=prefix,
+            config_dict=config_data,
+            name="exchange",
+            description=f"{config.get('name', key)}交易所配置"
         )
 
         if success:
@@ -1001,7 +992,7 @@ def update_exchange_config(request: Request, key: str, config: Dict[str, Any] = 
             return ApiResponse(
                 code=0,
                 message="交易所配置更新成功",
-                data={"key": key, **config_data}
+                data={"key": key, "exchange_id": key, **config_data}
             )
         else:
             logger.error(f"交易所配置更新失败: {key}")
@@ -1014,9 +1005,9 @@ def update_exchange_config(request: Request, key: str, config: Dict[str, Any] = 
 @exchange_router.delete("/{key}", response_model=ApiResponse)
 @jwt_auth_required_sync
 def delete_exchange_config(request: Request, key: str):
-    """删除交易所配置
+    """删除交易所配置（扁平化存储）
 
-    从系统配置中删除交易所配置。
+    删除指定交易所的所有扁平化配置记录。
 
     Args:
         request: FastAPI请求对象
@@ -1026,16 +1017,11 @@ def delete_exchange_config(request: Request, key: str):
         ApiResponse: 包含删除结果的响应
     """
     try:
-        logger.info(f"删除交易所配置: {key}")
+        logger.info(f"删除交易所配置（扁平化存储）: {key}")
 
-        # 从系统配置删除
-        # Note: SystemConfig doesn't have a delete method, we set empty value
-        success = SystemConfig.set(
-            key=key,
-            value="",
-            description="",
-            name=""
-        )
+        # 使用扁平化存储方法删除配置
+        prefix = f"exchange.{key}"
+        success = SystemConfig.delete_flattened(prefix)
 
         if success:
             # 刷新应用上下文配置

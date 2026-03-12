@@ -6,7 +6,7 @@
  */
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import {
   Card,
   Tabs,
@@ -61,7 +61,6 @@ import {
   UnorderedListOutlined,
   SettingOutlined,
   ImportOutlined,
-  PlayCircleOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 
@@ -289,7 +288,7 @@ const DataManagementPage = () => {
   const { t } = useTranslation();
   const screens = useBreakpoint();
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
+
   const location = useLocation();
   const getDefaultPageSize = useConfigStore((state: { getDefaultPageSize: () => number }) => state.getDefaultPageSize);
 
@@ -989,32 +988,6 @@ const DataManagementPage = () => {
     } catch (error) {
       console.error('获取任务列表失败:', error);
     }
-  };
-
-  // 打开回放页面
-  const openReplayPage = (symbol: string) => {
-    // 保存当前页面状态
-    const pageState = {
-      activeTab,
-      activeGroupId,
-      searchText,
-      quoteFilter,
-      viewType,
-      sortField,
-      sortOrder,
-      selectedSymbols,
-      currentPage,
-      pageSize,
-    };
-
-    // 导航到回放页面，使用查询参数传递货币对
-    navigate(`/data-management/replay?symbol=${encodeURIComponent(symbol)}`, {
-      state: {
-        returnPath: '/data-management',
-        returnSearch: window.location.search,
-        pageState,
-      },
-    });
   };
 
   // 开始数据采集
@@ -1948,13 +1921,6 @@ const DataManagementPage = () => {
                 onClick={() => startCollection(record.symbol)}
               >
                 更新
-              </Button>
-              <Button
-                size="small"
-                icon={<PlayCircleOutlined />}
-                onClick={() => openReplayPage(record.symbol)}
-              >
-                回放
               </Button>
             </>
           )}
