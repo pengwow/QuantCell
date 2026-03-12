@@ -208,7 +208,8 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
           <img src="/logo.svg" className="size-[36px]" />
           {!collapsed && (
             <>
-              <span className="w-[81px] truncate text-base leading-[64px] font-semibold">QuantCell</span>
+              <span className="truncate text-base leading-[64px] font-semibold">QuantCell</span>
+              <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">v{__APP_VERSION__}</span>
             </>
           )}
         </div>
