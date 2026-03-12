@@ -20,6 +20,10 @@ const defaultGeneralSettings: GeneralSettings = {
   showTips: true,
   timezone: 'Asia/Shanghai',
   defaultPerPage: 10,
+  user: {
+    username: '',
+    password: '',
+  },
 };
 
 // 默认通知设置
@@ -181,6 +185,10 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
         defaultPerPage: flattenConfig['defaultPerPage'] ? parseInt(flattenConfig['defaultPerPage'], 10) : undefined,
         showTips: flattenConfig['showTips'] === 'true' || flattenConfig['showTips'] === true,
         timezone: flattenConfig['timezone'],
+        user: {
+          username: flattenConfig['user.username'] || '',
+          password: flattenConfig['user.password'] || '',
+        },
       };
 
       // 过滤掉 undefined 值
@@ -249,6 +257,9 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
         { key: 'defaultPerPage', value: String(generalSettings.defaultPerPage), name: 'general', description: '列表页默认显示数量' },
         { key: 'timezone', value: generalSettings.timezone, name: 'general', description: '系统默认时区' },
         { key: 'showTips', value: String(generalSettings.showTips), name: 'general', description: '是否显示提示' },
+        // 用户配置
+        { key: 'user.username', value: generalSettings.user?.username || '', name: 'general', description: '系统登录用户名' },
+        { key: 'user.password', value: generalSettings.user?.password || '', name: 'general', description: '系统登录密码（加密存储）' },
       ];
 
       await configApi.updateConfig(configList);

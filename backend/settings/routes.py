@@ -24,6 +24,7 @@
 
 import os
 import sys
+import hashlib
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
@@ -36,6 +37,35 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # 导入JWT认证装饰器
 from utils.auth import jwt_auth_required_sync
 from utils.jwt_utils import create_jwt_token, generate_tokens, generate_guest_tokens
+
+
+def hash_password(password: str) -> str:
+    """对密码进行单向加密（SHA256）
+    
+    Args:
+        password: 原始密码
+        
+    Returns:
+        str: 加密后的密码哈希值
+    """
+    if not password:
+        return ""
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+
+def verify_password(password: str, hashed_password: str) -> bool:
+    """验证密码是否与存储的哈希值匹配
+    
+    Args:
+        password: 原始密码
+        hashed_password: 存储的密码哈希值
+        
+    Returns:
+        bool: 密码是否匹配
+    """
+    if not password or not hashed_password:
+        return False
+    return hash_password(password) == hashed_password
 
 # 导入配置管理相关模块
 from settings.models import SystemConfigBusiness as SystemConfig
@@ -76,7 +106,7 @@ def login(request: Request, credentials: Dict[str, str] = Body(...)):
     """用户登录
 
     支持普通用户登录和访客登录。
-    - 普通用户：输入正确的用户名和密码
+    - 普通用户：输入正确的用户名和密码（从系统配置表中验证）
     - 访客：不输入用户名和密码，直接点击登录
 
     Args:
@@ -117,31 +147,54 @@ def login(request: Request, credentials: Dict[str, str] = Body(...)):
 
         logger.info(f"用户登录尝试: {username}")
 
-        # 演示模式：验证默认凭据
-        if username == "admin" and password == "123456":
-            # 生成普通用户token
-            tokens = generate_tokens(username, "Administrator", role="user")
+        # 从系统配置表中获取用户配置
+        stored_username = SystemConfig.get('user.username')
+        stored_password_hash = SystemConfig.get('user.password')
 
-            logger.info(f"用户登录成功: {username}")
-            return ApiResponse(
-                code=0,
-                message="登录成功",
-                data={
-                    "access_token": tokens["access_token"],
-                    "refresh_token": tokens["refresh_token"],
-                    "token_type": "Bearer",
-                    "username": username,
-                    "is_guest": False,
-                    "role": "user"
-                }
-            )
+        # 如果没有配置用户，使用默认凭据
+        if not stored_username:
+            logger.info("系统未配置用户，使用默认凭据")
+            if username == "admin" and password == "123456":
+                tokens = generate_tokens(username, "Administrator", role="user")
+                logger.info(f"用户登录成功（默认凭据）: {username}")
+                return ApiResponse(
+                    code=0,
+                    message="登录成功",
+                    data={
+                        "access_token": tokens["access_token"],
+                        "refresh_token": tokens["refresh_token"],
+                        "token_type": "Bearer",
+                        "username": username,
+                        "is_guest": False,
+                        "role": "user"
+                    }
+                )
         else:
-            logger.warning(f"用户登录失败: {username}")
-            return ApiResponse(
-                code=401,
-                message="用户名或密码错误",
-                data=None
-            )
+            # 验证用户名和密码
+            if username == stored_username and verify_password(password, stored_password_hash or ''):
+                # 生成普通用户token
+                tokens = generate_tokens(username, "Administrator", role="user")
+
+                logger.info(f"用户登录成功: {username}")
+                return ApiResponse(
+                    code=0,
+                    message="登录成功",
+                    data={
+                        "access_token": tokens["access_token"],
+                        "refresh_token": tokens["refresh_token"],
+                        "token_type": "Bearer",
+                        "username": username,
+                        "is_guest": False,
+                        "role": "user"
+                    }
+                )
+
+        logger.warning(f"用户登录失败: {username}")
+        return ApiResponse(
+            code=401,
+            message="用户名或密码错误",
+            data=None
+        )
     except Exception as e:
         logger.error(f"登录失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -439,7 +492,14 @@ def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[D
                 plugin = config_item.get("plugin", None)
                 name = config_item.get("name", None)
                 is_sensitive = config_item.get("is_sensitive", False)
-                logger.info(f"更新配置: key={key}, value={value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}")
+                
+                # 如果是用户密码配置，进行单向加密
+                if key == 'user.password' and value:
+                    value = hash_password(value)
+                    is_sensitive = True
+                    logger.info(f"用户密码已加密存储")
+                
+                logger.info(f"更新配置: key={key}, value={'******' if is_sensitive else value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}")
                 SystemConfig.set(key, value, description, plugin, name, is_sensitive)
                 updated_count += 1
         

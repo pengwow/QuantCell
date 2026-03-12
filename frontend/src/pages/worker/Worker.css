@@ -1,41 +1,54 @@
 /* 策略任务页面样式 */
 
 /* 任务列表容器 */
-.agent-list-container {
+.worker-list-container {
   display: flex;
   flex-direction: column;
 }
 
 /* 任务列表项 */
-.agent-list-item {
+.worker-list-item {
   padding: 12px 16px;
   border-bottom: 1px solid #f0f0f0;
   cursor: pointer;
   transition: background-color 0.2s;
 }
 
-.agent-list-item:hover {
+.dark .worker-list-item {
+  border-bottom-color: #303030;
+}
+
+.worker-list-item:hover {
   background-color: #f5f5f5;
 }
 
-.agent-list-item.selected {
+.dark .worker-list-item:hover {
+  background-color: #262626;
+}
+
+.worker-list-item.selected {
   background-color: #e6f7ff;
   border-left: 3px solid #1890ff;
 }
 
-.agent-list-item:last-child {
+.dark .worker-list-item.selected {
+  background-color: #111d2c;
+  border-left-color: #177ddc;
+}
+
+.worker-list-item:last-child {
   border-bottom: none;
 }
 
 /* 任务列表项头部 */
-.agent-list-item-header {
+.worker-list-item-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
 }
 
-.agent-list-item-name {
+.worker-list-item-name {
   font-weight: 500;
   font-size: 14px;
   color: #262626;
@@ -46,8 +59,12 @@
   margin-right: 8px;
 }
 
+.dark .worker-list-item-name {
+  color: #e0e0e0;
+}
+
 /* 任务列表项信息 */
-.agent-list-item-info {
+.worker-list-item-info {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -56,36 +73,45 @@
   margin-bottom: 8px;
 }
 
-.agent-list-item-timeframe {
+.dark .worker-list-item-info {
+  color: #a6a6a6;
+}
+
+.worker-list-item-timeframe {
   background-color: #f5f5f5;
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 11px;
 }
 
+.dark .worker-list-item-timeframe {
+  background-color: #333;
+  color: #a6a6a6;
+}
+
 /* 任务列表项底部 */
-.agent-list-item-footer {
+.worker-list-item-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.agent-list-item-return {
+.worker-list-item-return {
   font-weight: 600;
   font-size: 14px;
 }
 
-.agent-list-item-return.positive {
+.worker-list-item-return.positive {
   color: #52c41a;
 }
 
-.agent-list-item-return.negative {
+.worker-list-item-return.negative {
   color: #f5222d;
 }
 
 /* 响应式调整 */
 @media (max-width: 992px) {
-  .agent-list-item {
+  .worker-list-item {
     padding: 10px 12px;
   }
 }

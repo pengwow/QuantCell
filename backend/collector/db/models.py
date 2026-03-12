@@ -2309,13 +2309,13 @@ class SystemLogBusiness:
 
     @staticmethod
     def query_logs(
-        level: str = None,
-        log_type: str = None,
-        module: str = None,
-        trace_id: str = None,
-        start_time: datetime = None,
-        end_time: datetime = None,
-        keyword: str = None,
+        level: Optional[str] = None,
+        log_type: Optional[str] = None,
+        module: Optional[str] = None,
+        trace_id: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        keyword: Optional[str] = None,
         page: int = 1,
         page_size: int = 50
     ) -> Dict[str, Any]:

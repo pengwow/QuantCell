@@ -2,6 +2,12 @@
  * 设置页面类型定义
  */
 
+// 用户配置类型定义
+export interface UserSettings {
+  username?: string;
+  password?: string;
+}
+
 // 通用设置类型定义
 export interface GeneralSettings {
   theme: 'light' | 'dark' | 'auto';
@@ -9,6 +15,7 @@ export interface GeneralSettings {
   showTips: boolean;
   timezone: string; // 时区配置
   defaultPerPage?: number; // 默认分页大小
+  user?: UserSettings; // 用户配置
 }
 
 // 保持向后兼容的别名

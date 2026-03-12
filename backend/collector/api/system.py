@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from collector.schemas import ApiResponse
 from collector.services.system_service import SystemService
+from collector.db.models import SystemLogBusiness
 
 
 router = APIRouter(prefix="/system", tags=["system"])
@@ -32,18 +33,28 @@ class SystemMetrics(BaseModel):
 
 class LogEntry(BaseModel):
     """日志条目模型"""
+    id: int = Field(..., description="日志ID")
     timestamp: str = Field(..., description="日志时间")
     level: str = Field(..., description="日志级别")
     message: str = Field(..., description="日志内容")
-    source: Optional[str] = Field(None, description="日志来源")
+    module: Optional[str] = Field(None, description="模块名称")
+    function: Optional[str] = Field(None, description="函数名称")
+    line: Optional[int] = Field(None, description="代码行号")
+    logger_name: Optional[str] = Field(None, description="日志器名称")
+    log_type: Optional[str] = Field(None, description="日志类型")
+    extra_data: Optional[dict] = Field(None, description="额外数据")
+    exception_info: Optional[str] = Field(None, description="异常信息")
+    trace_id: Optional[str] = Field(None, description="跟踪ID")
+    created_at: Optional[str] = Field(None, description="创建时间")
 
 
 class LogQueryResponse(BaseModel):
     """日志查询响应模型"""
-    logs: list[LogEntry] = Field(..., description="日志列表")
+    records: list[LogEntry] = Field(..., description="日志列表")
     total: int = Field(..., description="总日志数")
     page: int = Field(..., description="当前页码")
     page_size: int = Field(..., description="每页大小")
+    hasMore: bool = Field(..., description="是否有更多数据")
 
 
 @router.get("/metrics", response_model=ApiResponse)
@@ -115,22 +126,64 @@ async def get_system_logs(
     - **page_size**: 每页大小，范围1-100
     """
     try:
-        # 这里可以实现从日志文件或数据库中读取日志的逻辑
-        # 目前返回示例数据
-        logs = [
-            LogEntry(
-                timestamp=datetime.now().isoformat(),
-                level="INFO",
-                message="系统运行正常",
-                source="system"
-            )
-        ]
-
-        response_data = LogQueryResponse(
-            logs=logs,
-            total=len(logs),
+        # 解析时间参数
+        parsed_start_time = None
+        parsed_end_time = None
+        
+        if start_time:
+            try:
+                parsed_start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            except ValueError:
+                pass
+        
+        if end_time:
+            try:
+                parsed_end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+            except ValueError:
+                pass
+        
+        # 从数据库查询日志
+        result = SystemLogBusiness.query_logs(
+            level=level if level else None,
+            log_type=source if source else None,
+            start_time=parsed_start_time,
+            end_time=parsed_end_time,
             page=page,
             page_size=page_size
+        )
+        
+        # 转换日志数据
+        logs = []
+        for log in result.get("logs", []):
+            logs.append(LogEntry(
+                id=log.get("id", 0),
+                timestamp=log.get("timestamp", ""),
+                level=log.get("level", "INFO"),
+                message=log.get("message", ""),
+                module=log.get("module"),
+                function=log.get("function"),
+                line=log.get("line"),
+                logger_name=log.get("logger_name"),
+                log_type=log.get("log_type"),
+                extra_data=log.get("extra_data"),
+                exception_info=log.get("exception_info"),
+                trace_id=log.get("trace_id"),
+                created_at=log.get("created_at")
+            ))
+        
+        # 计算是否有更多数据
+        pagination = result.get("pagination", {})
+        total = pagination.get("total", 0)
+        current_page = pagination.get("page", page)
+        pages = pagination.get("pages", 1)
+        has_more = current_page < pages
+
+        response_data = LogQueryResponse(
+            records=logs,
+            total=total,
+            page=current_page,
+            page_size=pagination.get("page_size", page_size),
+            hasMore=has_more
         )
 
         return ApiResponse(

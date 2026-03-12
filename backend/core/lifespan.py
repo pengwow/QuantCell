@@ -57,7 +57,6 @@ async def lifespan(app: FastAPI):
 
     # 异步加载系统配置到应用上下文
     app.state.configs = await asyncio.to_thread(load_system_configs)
-    logger.info(f"系统配置: {app.state.configs}")
 
     # 从配置中提取代理信息
     proxy_enabled = app.state.configs.get("proxy_enabled", "0")

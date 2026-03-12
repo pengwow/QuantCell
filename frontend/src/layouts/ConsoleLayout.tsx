@@ -151,7 +151,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
 
   const MENU_KEY_CHART = "/chart";
   const MENU_KEY_STRATEGY = "/strategy-management";
-  const MENU_KEY_STRATEGY_TASK = "/strategy-task";
+  const MENU_KEY_STRATEGY_TASK = "/strategy-worker";
   const MENU_KEY_DATA = "/data-management";
 
   const menuItems: Required<MenuProps>["items"] = (

@@ -32,47 +32,47 @@ import {
   BarChartOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
-import { useAgentStore } from '../../store';
-import { AgentStatusTagColor, AgentStatusDisplayText, type AgentWithPerformance } from '../../types/agent';
+import { useWorkerStore } from '../../store';
+import { WorkerStatusTagColor, WorkerStatusDisplayText, type WorkerWithPerformance } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
-import './Agent.css';
+import './Worker.css';
 
 const { useBreakpoint } = Grid;
 
-const Agent = () => {
+const Worker = () => {
   const { t } = useTranslation();
   const screens = useBreakpoint();
   const {
-    agents,
-    selectedAgent,
+    workers,
+    selectedWorker,
     loading,
-    fetchAgents,
-    selectAgent,
-    startAgent,
-    stopAgent,
-    pauseAgent,
-  } = useAgentStore();
+    fetchWorkers,
+    selectWorker,
+    startWorker,
+    stopWorker,
+    pauseWorker,
+  } = useWorkerStore();
 
   const [tradePagination, setTradePagination] = useState({ current: 1, pageSize: 10 });
 
   // 初始加载
   useEffect(() => {
-    fetchAgents();
-  }, [fetchAgents]);
+    fetchWorkers();
+  }, [fetchWorkers]);
 
   // 统计各状态的任务数量
   const statusStats = useMemo(() => {
     return {
-      total: agents.length,
-      running: agents.filter(a => a.status === 'running').length,
-      stopped: agents.filter(a => a.status === 'stopped').length,
-      paused: agents.filter(a => a.status === 'paused').length,
+      total: workers.length,
+      running: workers.filter(w => w.status === 'running').length,
+      stopped: workers.filter(w => w.status === 'stopped').length,
+      paused: workers.filter(w => w.status === 'paused').length,
     };
-  }, [agents]);
+  }, [workers]);
 
   // 收益曲线图配置
   const chartOption = useMemo(() => {
-    if (!selectedAgent?.returnRateData?.length) {
+    if (!selectedWorker?.returnRateData?.length) {
       return {
         title: { text: '暂无数据', left: 'center', top: 'center' },
         xAxis: { type: 'category', data: [] },
@@ -81,7 +81,7 @@ const Agent = () => {
       };
     }
 
-    const data = selectedAgent.returnRateData;
+    const data = selectedWorker.returnRateData;
     const values = data.map(d => d.value);
     const minValue = Math.min(...values);
     const maxValue = Math.max(...values);
@@ -133,58 +133,58 @@ const Agent = () => {
         },
       ],
     };
-  }, [selectedAgent?.returnRateData]);
+  }, [selectedWorker?.returnRateData]);
 
   // 交易记录表格列
   const tradeColumns = [
     {
-      title: t('agent.tradeTime', '交易时间'),
+      title: t('worker.tradeTime', '交易时间'),
       dataIndex: 'timestamp',
       key: 'timestamp',
       width: 160,
       render: (text: string) => new Date(text).toLocaleString(),
     },
     {
-      title: t('agent.symbol', '交易品种'),
+      title: t('worker.symbol', '交易品种'),
       dataIndex: 'symbol',
       key: 'symbol',
     },
     {
-      title: t('agent.action', '操作'),
+      title: t('worker.action', '操作'),
       dataIndex: 'action',
       key: 'action',
       render: (action: 'buy' | 'sell') => (
         <Tag color={action === 'buy' ? 'red' : 'green'}>
-          {action === 'buy' ? t('agent.buy', '买入') : t('agent.sell', '卖出')}
+          {action === 'buy' ? t('worker.buy', '买入') : t('worker.sell', '卖出')}
         </Tag>
       ),
     },
     {
-      title: t('agent.price', '价格'),
+      title: t('worker.price', '价格'),
       dataIndex: 'price',
       key: 'price',
       render: (price: number) => `$${price.toFixed(2)}`,
     },
     {
-      title: t('agent.quantity', '数量'),
+      title: t('worker.quantity', '数量'),
       dataIndex: 'quantity',
       key: 'quantity',
     },
     {
-      title: t('agent.amount', '金额'),
+      title: t('worker.amount', '金额'),
       dataIndex: 'amount',
       key: 'amount',
       render: (amount: number) => `$${amount.toFixed(2)}`,
     },
     {
-      title: t('agent.status', '状态'),
+      title: t('worker.status', '状态'),
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => {
         const statusMap: Record<string, { text: string; color: string }> = {
-          filled: { text: t('agent.filled', '已成交'), color: 'success' },
-          pending: { text: t('agent.pending', '待成交'), color: 'warning' },
-          cancelled: { text: t('agent.cancelled', '已取消'), color: 'default' },
+          filled: { text: t('worker.filled', '已成交'), color: 'success' },
+          pending: { text: t('worker.pending', '待成交'), color: 'warning' },
+          cancelled: { text: t('worker.cancelled', '已取消'), color: 'default' },
         };
         const { text, color } = statusMap[status] || { text: status, color: 'default' };
         return <Tag color={color}>{text}</Tag>;
@@ -193,58 +193,58 @@ const Agent = () => {
   ];
 
   // 处理启动
-  const handleStart = async (agent: AgentWithPerformance, e: React.MouseEvent) => {
+  const handleStart = async (worker: WorkerWithPerformance, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await startAgent(agent.id);
-      message.success(t('agent.startSuccess', '策略任务启动成功'));
+      await startWorker(worker.id);
+      message.success(t('worker.startSuccess', '策略任务启动成功'));
     } catch {
-      message.error(t('agent.startError', '策略任务启动失败'));
+      message.error(t('worker.startError', '策略任务启动失败'));
     }
   };
 
   // 处理停止
-  const handleStop = async (agent: AgentWithPerformance, e: React.MouseEvent) => {
+  const handleStop = async (worker: WorkerWithPerformance, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await stopAgent(agent.id);
-      message.success(t('agent.stopSuccess', '策略任务停止成功'));
+      await stopWorker(worker.id);
+      message.success(t('worker.stopSuccess', '策略任务停止成功'));
     } catch {
-      message.error(t('agent.stopError', '策略任务停止失败'));
+      message.error(t('worker.stopError', '策略任务停止失败'));
     }
   };
 
   // 处理暂停
-  const handlePause = async (agent: AgentWithPerformance, e: React.MouseEvent) => {
+  const handlePause = async (worker: WorkerWithPerformance, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await pauseAgent(agent.id);
-      message.success(t('agent.pauseSuccess', '策略任务暂停成功'));
+      await pauseWorker(worker.id);
+      message.success(t('worker.pauseSuccess', '策略任务暂停成功'));
     } catch {
-      message.error(t('agent.pauseError', '策略任务暂停失败'));
+      message.error(t('worker.pauseError', '策略任务暂停失败'));
     }
   };
 
   // 处理导出
   const handleExport = () => {
-    message.info(t('agent.exportComingSoon', '导出功能即将上线'));
+    message.info(t('worker.exportComingSoon', '导出功能即将上线'));
   };
 
   // 绩效指标数据
   const metricsData = useMemo(() => {
-    if (!selectedAgent?.performance) return [];
-    const p = selectedAgent.performance;
+    if (!selectedWorker?.performance) return [];
+    const p = selectedWorker.performance;
     return [
-      { label: t('agent.winRate', '胜率'), value: `${p.winRate.toFixed(2)}%`, positive: p.winRate >= 50 },
-      { label: t('agent.profitLossRatio', '盈亏比'), value: p.profitLossRatio.toFixed(2), positive: p.profitLossRatio >= 1 },
-      { label: t('agent.maxDrawdown', '最大回撤'), value: `${p.maxDrawdown.toFixed(2)}%`, positive: false },
-      { label: t('agent.sharpeRatio', '夏普比率'), value: p.sharpeRatio.toFixed(2), positive: p.sharpeRatio >= 1 },
-      { label: t('agent.totalTrades', '总交易数'), value: p.totalTrades.toString(), positive: true },
-      { label: t('agent.winningTrades', '盈利交易'), value: p.winningTrades.toString(), positive: true },
-      { label: t('agent.losingTrades', '亏损交易'), value: p.losingTrades.toString(), positive: false },
-      { label: t('agent.totalProfit', '总收益'), value: `$${p.totalProfit.toFixed(2)}`, positive: p.totalProfit > 0 },
+      { label: t('worker.winRate', '胜率'), value: `${p.winRate.toFixed(2)}%`, positive: p.winRate >= 50 },
+      { label: t('worker.profitLossRatio', '盈亏比'), value: p.profitLossRatio.toFixed(2), positive: p.profitLossRatio >= 1 },
+      { label: t('worker.maxDrawdown', '最大回撤'), value: `${p.maxDrawdown.toFixed(2)}%`, positive: false },
+      { label: t('worker.sharpeRatio', '夏普比率'), value: p.sharpeRatio.toFixed(2), positive: p.sharpeRatio >= 1 },
+      { label: t('worker.totalTrades', '总交易数'), value: p.totalTrades.toString(), positive: true },
+      { label: t('worker.winningTrades', '盈利交易'), value: p.winningTrades.toString(), positive: true },
+      { label: t('worker.losingTrades', '亏损交易'), value: p.losingTrades.toString(), positive: false },
+      { label: t('worker.totalProfit', '总收益'), value: `$${p.totalProfit.toFixed(2)}`, positive: p.totalProfit > 0 },
     ];
-  }, [selectedAgent?.performance, t]);
+  }, [selectedWorker?.performance, t]);
 
   // 渲染统计卡片
   const renderStatistics = () => (
@@ -297,17 +297,17 @@ const Agent = () => {
       <Col xs={24} md={12} lg={16}>
         <Space>
           <Button type="primary" icon={<PlusOutlined />}>
-            {t('agent.new', '新建任务')}
+            {t('worker.new', '新建任务')}
           </Button>
         </Space>
       </Col>
       <Col xs={24} md={12} lg={8} style={{ textAlign: screens.md ? 'right' : 'left' }}>
         <Space wrap>
-          <Button icon={<ReloadOutlined />} onClick={fetchAgents} loading={loading}>
-            {t('agent.refresh', '刷新')}
+          <Button icon={<ReloadOutlined />} onClick={fetchWorkers} loading={loading}>
+            {t('worker.refresh', '刷新')}
           </Button>
           <Button icon={<ExportOutlined />} onClick={handleExport}>
-            {t('agent.export', '导出')}
+            {t('worker.export', '导出')}
           </Button>
         </Space>
       </Col>
@@ -317,94 +317,94 @@ const Agent = () => {
   // 渲染任务列表
   const renderTaskList = () => (
     <Card 
-      title={t('agent.taskList', '任务列表')} 
+      title={t('worker.taskList', '任务列表')} 
       size="small"
       bodyStyle={{ padding: 0, maxHeight: 600, overflow: 'auto' }}
     >
-      {agents.length === 0 ? (
+      {workers.length === 0 ? (
         <Empty description="暂无策略任务" style={{ padding: 40 }} />
       ) : (
-        <div className="agent-list-container">
-          {agents.map((agent) => (
+        <div className="worker-list-container">
+          {workers.map((worker) => (
             <div
-              key={agent.id}
-              className={`agent-list-item ${selectedAgent?.id === agent.id ? 'selected' : ''}`}
-              onClick={() => selectAgent(agent)}
+              key={worker.id}
+              className={`worker-list-item ${selectedWorker?.id === worker.id ? 'selected' : ''}`}
+              onClick={() => selectWorker(worker)}
             >
-              <div className="agent-list-item-header">
-                <span className="agent-list-item-name">{agent.name}</span>
-                <Tag color={AgentStatusTagColor[agent.status]}>
-                  {AgentStatusDisplayText[agent.status]}
+              <div className="worker-list-item-header">
+                <span className="worker-list-item-name">{worker.name}</span>
+                <Tag color={WorkerStatusTagColor[worker.status]}>
+                  {WorkerStatusDisplayText[worker.status]}
                 </Tag>
               </div>
-              <div className="agent-list-item-info">
-                <span>{agent.symbol}</span>
-                <span className="agent-list-item-timeframe">{agent.timeframe}</span>
+              <div className="worker-list-item-info">
+                <span>{worker.symbol}</span>
+                <span className="worker-list-item-timeframe">{worker.timeframe}</span>
               </div>
-              <div className="agent-list-item-footer">
-                <span className={`agent-list-item-return ${agent.totalReturn >= 0 ? 'positive' : 'negative'}`}>
-                  {agent.totalReturn >= 0 ? '+' : ''}{agent.totalReturn.toFixed(2)}%
+              <div className="worker-list-item-footer">
+                <span className={`worker-list-item-return ${worker.totalReturn >= 0 ? 'positive' : 'negative'}`}>
+                  {worker.totalReturn >= 0 ? '+' : ''}{worker.totalReturn.toFixed(2)}%
                 </span>
                 <Space size="small" onClick={(e) => e.stopPropagation()}>
-                  {agent.status === 'stopped' && (
-                    <Tooltip title={t('agent.start', '启动')}>
+                  {worker.status === 'stopped' && (
+                    <Tooltip title={t('worker.start', '启动')}>
                       <Button
                         type="text"
                         size="small"
                         icon={<PlayCircleOutlined />}
-                        onClick={(e) => handleStart(agent, e)}
+                        onClick={(e) => handleStart(worker, e)}
                       />
                     </Tooltip>
                   )}
-                  {agent.status === 'running' && (
+                  {worker.status === 'running' && (
                     <>
-                      <Tooltip title={t('agent.pause', '暂停')}>
+                      <Tooltip title={t('worker.pause', '暂停')}>
                         <Button
                           type="text"
                           size="small"
                           icon={<PauseCircleOutlined />}
-                          onClick={(e) => handlePause(agent, e)}
+                          onClick={(e) => handlePause(worker, e)}
                         />
                       </Tooltip>
-                      <Tooltip title={t('agent.stop', '停止')}>
+                      <Tooltip title={t('worker.stop', '停止')}>
                         <Button
                           type="text"
                           size="small"
                           icon={<StopOutlined />}
-                          onClick={(e) => handleStop(agent, e)}
+                          onClick={(e) => handleStop(worker, e)}
                         />
                       </Tooltip>
                     </>
                   )}
-                  {agent.status === 'paused' && (
+                  {worker.status === 'paused' && (
                     <>
-                      <Tooltip title={t('agent.resume', '恢复')}>
+                      <Tooltip title={t('worker.resume', '恢复')}>
                         <Button
                           type="text"
                           size="small"
                           icon={<PlayCircleOutlined />}
-                          onClick={(e) => handleStart(agent, e)}
+                          onClick={(e) => handleStart(worker, e)}
                         />
                       </Tooltip>
-                      <Tooltip title={t('agent.stop', '停止')}>
+                      <Tooltip title={t('worker.stop', '停止')}>
                         <Button
                           type="text"
                           size="small"
                           icon={<StopOutlined />}
-                          onClick={(e) => handleStop(agent, e)}
+                          onClick={(e) => handleStop(worker, e)}
                         />
                       </Tooltip>
                     </>
                   )}
-                  <Tooltip title={t('agent.edit', '编辑')}>
+                  <Tooltip title={t('worker.edit', '编辑')}>
                     <Button type="text" size="small" icon={<EditOutlined />} />
                   </Tooltip>
                   <Popconfirm
-                    title={t('agent.deleteConfirm', '确定要删除此策略任务吗？')}
+                    title={t('worker.deleteConfirm', '确定要删除此策略任务吗？')}
                     okText={t('common.yes', '是')}
                     cancelText={t('common.no', '否')}
                   >
-                    <Tooltip title={t('agent.delete', '删除')}>
+                    <Tooltip title={t('worker.delete', '删除')}>
                       <Button type="text" size="small" danger icon={<DeleteOutlined />} />
                     </Tooltip>
                   </Popconfirm>
@@ -419,12 +419,12 @@ const Agent = () => {
 
   // 渲染任务详情
   const renderTaskDetail = () => {
-    if (!selectedAgent) {
+    if (!selectedWorker) {
       return (
         <Card style={{ height: '100%', minHeight: 400 }}>
           <Empty
             image={<RobotOutlined style={{ fontSize: 64, opacity: 0.3 }} />}
-            description={t('agent.selectPrompt', '请从左侧选择一个策略任务查看详情')}
+            description={t('worker.selectPrompt', '请从左侧选择一个策略任务查看详情')}
             style={{ paddingTop: 100 }}
           />
         </Card>
@@ -434,73 +434,73 @@ const Agent = () => {
     return (
       <Space direction="vertical" style={{ width: '100%' }} size="middle">
         {/* 策略概览 */}
-        <Card size="small" title={selectedAgent.name}>
+        <Card size="small" title={selectedWorker.name}>
           <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
             <Col>
               <Space>
-                <Tag color={AgentStatusTagColor[selectedAgent.status]}>
-                  {AgentStatusDisplayText[selectedAgent.status]}
+                <Tag color={WorkerStatusTagColor[selectedWorker.status]}>
+                  {WorkerStatusDisplayText[selectedWorker.status]}
                 </Tag>
-                <span>{selectedAgent.symbol} | {selectedAgent.timeframe}</span>
+                <span>{selectedWorker.symbol} | {selectedWorker.timeframe}</span>
               </Space>
             </Col>
             <Col>
               <Space>
-                {selectedAgent.status === 'stopped' && (
-                  <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => startAgent(selectedAgent.id)}>
-                    {t('agent.start', '启动')}
+                {selectedWorker.status === 'stopped' && (
+                  <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => startWorker(selectedWorker.id)}>
+                    {t('worker.start', '启动')}
                   </Button>
                 )}
-                {selectedAgent.status === 'running' && (
+                {selectedWorker.status === 'running' && (
                   <>
-                    <Button icon={<PauseCircleOutlined />} onClick={() => pauseAgent(selectedAgent.id)}>
-                      {t('agent.pause', '暂停')}
+                    <Button icon={<PauseCircleOutlined />} onClick={() => pauseWorker(selectedWorker.id)}>
+                      {t('worker.pause', '暂停')}
                     </Button>
-                    <Button danger icon={<StopOutlined />} onClick={() => stopAgent(selectedAgent.id)}>
-                      {t('agent.stop', '停止')}
+                    <Button danger icon={<StopOutlined />} onClick={() => stopWorker(selectedWorker.id)}>
+                      {t('worker.stop', '停止')}
                     </Button>
                   </>
                 )}
-                {selectedAgent.status === 'paused' && (
+                {selectedWorker.status === 'paused' && (
                   <>
-                    <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => startAgent(selectedAgent.id)}>
-                      {t('agent.resume', '恢复')}
+                    <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => startWorker(selectedWorker.id)}>
+                      {t('worker.resume', '恢复')}
                     </Button>
-                    <Button danger icon={<StopOutlined />} onClick={() => stopAgent(selectedAgent.id)}>
-                      {t('agent.stop', '停止')}
+                    <Button danger icon={<StopOutlined />} onClick={() => stopWorker(selectedWorker.id)}>
+                      {t('worker.stop', '停止')}
                     </Button>
                   </>
                 )}
               </Space>
             </Col>
           </Row>
-          <p style={{ color: '#666', marginBottom: 16 }}>{selectedAgent.description}</p>
+          <p style={{ color: '#666', marginBottom: 16 }}>{selectedWorker.description}</p>
           <Row gutter={[16, 16]}>
             <Col span={8}>
-              <Statistic title={t('agent.exchange', '交易所')} value={selectedAgent.exchange} />
+              <Statistic title={t('worker.exchange', '交易所')} value={selectedWorker.exchange} />
             </Col>
             <Col span={8}>
-              <Statistic title={t('agent.createdAt', '创建时间')} value={new Date(selectedAgent.created_at).toLocaleDateString()} />
+              <Statistic title={t('worker.createdAt', '创建时间')} value={new Date(selectedWorker.created_at).toLocaleDateString()} />
             </Col>
             <Col span={8}>
               <Statistic 
-                title={t('agent.totalReturn', '总收益')} 
-                value={`${selectedAgent.totalReturn >= 0 ? '+' : ''}${selectedAgent.totalReturn.toFixed(2)}%`}
-                valueStyle={{ color: selectedAgent.totalReturn >= 0 ? '#52c41a' : '#f5222d' }}
+                title={t('worker.totalReturn', '总收益')} 
+                value={`${selectedWorker.totalReturn >= 0 ? '+' : ''}${selectedWorker.totalReturn.toFixed(2)}%`}
+                valueStyle={{ color: selectedWorker.totalReturn >= 0 ? '#52c41a' : '#f5222d' }}
               />
             </Col>
           </Row>
         </Card>
 
         {/* 收益曲线图 */}
-        <Card size="small" title={t('agent.returnRateChart', '收益率曲线')}>
+        <Card size="small" title={t('worker.returnRateChart', '收益率曲线')}>
           <div style={{ height: 300 }}>
             <ReactECharts option={chartOption} style={{ height: '100%', width: '100%' }} />
           </div>
         </Card>
 
         {/* 绩效指标 */}
-        <Card size="small" title={t('agent.performanceMetrics', '绩效指标')}>
+        <Card size="small" title={t('worker.performanceMetrics', '绩效指标')}>
           <Row gutter={[16, 16]}>
             {metricsData.map((metric, index) => (
               <Col xs={12} sm={8} md={6} key={index}>
@@ -520,10 +520,10 @@ const Agent = () => {
         </Card>
 
         {/* 交易记录 */}
-        <Card size="small" title={t('agent.tradeRecords', '交易记录')}>
+        <Card size="small" title={t('worker.tradeRecords', '交易记录')}>
           <Table
             columns={tradeColumns}
-            dataSource={selectedAgent.tradeRecords}
+            dataSource={selectedWorker.tradeRecords}
             rowKey="id"
             pagination={{
               ...tradePagination,
@@ -560,4 +560,4 @@ const Agent = () => {
   );
 };
 
-export default Agent;
+export default Worker;
