@@ -41,7 +41,7 @@ sys.path.append(str(project_root))
 from collector.services.data_service import DataService
 from strategy.service import StrategyService
 from i18n.utils import load_translations
-from config_manager import get_config
+from utils.config_manager import config_manager
 from utils.timezone import format_datetime
 
 # 导入回测引擎
@@ -1021,7 +1021,7 @@ class BacktestService:
         :return: 翻译后的回测结果
         """
         # 获取当前语言设置
-        language = get_config("language", "zh-CN")
+        language = config_manager.get_config_item("general", "language", "zh-CN")
         # 加载翻译
         trans = load_translations(language)
         
