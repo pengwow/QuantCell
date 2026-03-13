@@ -13,12 +13,6 @@ import { configApi } from "../../api";
 
 const { Title, Text } = Typography;
 
-// 默认登录凭据
-const DEFAULT_CREDENTIALS = {
-  username: "admin",
-  password: "123456",
-};
-
 // 应用主题函数
 const applyTheme = (theme: 'light' | 'dark' | 'auto') => {
   const root = document.documentElement;
@@ -245,7 +239,6 @@ const LoginPage = () => {
             <Form
               form={form}
               layout="vertical"
-              initialValues={DEFAULT_CREDENTIALS}
               onFinish={handleLogin}
               autoComplete="off"
             >
@@ -258,6 +251,7 @@ const LoginPage = () => {
                     message: t("username_required") || "请输入用户名",
                   },
                 ]}
+                validateTrigger="onSubmit"
               >
                 <Space.Compact block className="h-10">
                   <Button
@@ -282,6 +276,7 @@ const LoginPage = () => {
                     message: t("password_required") || "请输入密码",
                   },
                 ]}
+                validateTrigger="onSubmit"
               >
                 <Space.Compact block className="h-10">
                   <Button
@@ -314,7 +309,7 @@ const LoginPage = () => {
             {/* 提示信息 */}
             <div className="mt-6 text-center">
               <Text type="secondary" className="text-sm dark:text-gray-400">
-                {t("demo_hint") || "演示模式：默认已填写用户名和密码"}
+                {t("login_hint") || "请输入用户名和密码进行登录"}
               </Text>
             </div>
 

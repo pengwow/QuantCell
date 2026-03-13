@@ -1,13 +1,13 @@
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import sqlalchemy
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from sqlalchemy import Boolean, Column, DateTime, Integer, Identity, String, Text, func, text
-from sqlalchemy.orm import Session, relationship
+from sqlalchemy import Boolean, Column, DateTime, Integer, Identity, String, Text, func, text, ForeignKey
+from sqlalchemy.orm import Session, relationship, foreign
 
 from .database import Base
 
@@ -539,9 +539,10 @@ class MarketData(TimezoneAwareBase):
     )
     
     @staticmethod
-    def set(key: str, value: str, description: str = "", plugin: str = None, name: str = None, is_sensitive: bool = False) -> bool:
+    def set(key: str, value: str, description: str = "", plugin: str = None, name: str = None,
+            is_sensitive: bool = False) -> bool:
         """设置配置项的值
-        
+
         Args:
             key: 配置项键名
             value: 配置项值
@@ -549,7 +550,7 @@ class MarketData(TimezoneAwareBase):
             plugin: 插件名称，用于区分是插件配置还是基础配置
             name: 配置名称，用于区分系统配置页面的子菜单名称
             is_sensitive: 是否为敏感配置，敏感配置API不返回真实值
-            
+
         Returns:
             bool: 设置成功返回True，失败返回False
         """
@@ -581,7 +582,8 @@ class MarketData(TimezoneAwareBase):
                 )
                 db.add(config)
             db.commit()
-            logger.info(f"配置已更新: key={key}, value={value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}")
+            logger.info(f"配置已更新: key={key}, value={value}, plugin={plugin}, name={name}, "
+                       f"is_sensitive={is_sensitive}")
             return True
         except Exception as e:
             db.rollback()

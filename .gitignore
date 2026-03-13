@@ -34,6 +34,10 @@ backend/performance_reports/*.json
 backend/performance_reports/*.md
 backend/performance_reports/*.csv
 backend/quantcell/backtest/results/*.json
+backend/temp
+backend/config.toml
+backend/ai_model/docs/*
+
 
 data/source/*
 results/*
@@ -48,5 +52,7 @@ ui/node_modules/
 temp/.*
 QuantCell.code-workspace
 
-backend/ai_model/docs/*
 .agents/*
+
+
+backend/config.toml

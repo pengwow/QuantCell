@@ -44,7 +44,7 @@ class ScheduledTaskManager:
         try:
             # 创建后台调度器
             self._scheduler = BackgroundScheduler()
-            logger.info("APScheduler初始化成功")
+            # logger.info("APScheduler初始化成功")
         except Exception as e:
             logger.error(f"APScheduler初始化失败: {e}")
             raise
