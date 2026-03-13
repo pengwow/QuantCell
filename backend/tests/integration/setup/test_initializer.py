@@ -65,7 +65,7 @@ class TestProjectInitializer:
         assert initializer.verbose is False
     
     @patch('utils.initializer.EnvChecker.check_all')
-    @patch('utils.initializer.ConfigIO.import_from_toml')
+    @patch('utils.initializer.ConfigManager.import_from_toml')
     def test_run_with_config(self, mock_import, mock_check):
         """测试带配置的初始化运行"""
         mock_check.return_value = {"overall": True}

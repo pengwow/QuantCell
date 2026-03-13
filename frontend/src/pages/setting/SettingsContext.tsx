@@ -249,7 +249,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
 
       // 将嵌套配置转换为后端期望的配置项对象列表格式
       // 每个配置项需要包含 key, value, name 字段
-      // name 字段用于分组，相同的 name 会被归为一组
+      // name 字段用于分组
       const configList = [
         // 通用设置 - 使用 'general' 作为 name 分组
         { key: 'theme', value: generalSettings.theme, name: 'general', description: '系统主题设置' },

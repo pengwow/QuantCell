@@ -7,7 +7,7 @@ import tempfile
 import os
 from pathlib import Path
 
-from utils.config_io import ConfigIO
+from utils.config_manager import ConfigManager as ConfigIO
 
 
 class TestConfigIO:

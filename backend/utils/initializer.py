@@ -12,7 +12,7 @@ from pathlib import Path
 
 from utils.logger import get_logger, LogType
 from utils.env_checker import EnvChecker
-from utils.config_io import ConfigIO
+from utils.config_manager import ConfigManager as ConfigIO
 
 logger = get_logger(__name__, LogType.APPLICATION)
 

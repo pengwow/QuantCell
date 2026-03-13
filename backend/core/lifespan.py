@@ -19,7 +19,7 @@ logger = get_logger(__name__, LogType.SYSTEM)
 from collector.utils.task_manager import task_manager
 from collector.utils.scheduled_task_manager import scheduled_task_manager
 from collector.services.system_service import SystemService
-from config_manager import load_system_configs
+from utils.config_manager import load_system_configs
 from plugins import init_plugin_system
 from realtime.engine import RealtimeEngine
 from realtime.routes import setup_routes

@@ -5,6 +5,7 @@ QuantCell 系统配置管理与数据库初始化工具
 提供系统配置的导入导出、数据库初始化和迁移等功能
 """
 
+import hashlib
 import sys
 from pathlib import Path
 from typing import Optional
@@ -14,6 +15,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
+from rich.prompt import Prompt, Confirm
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent
@@ -21,8 +23,9 @@ sys.path.insert(0, str(project_root))
 
 from utils.logger import get_logger, LogType
 from utils.env_checker import EnvChecker
-from utils.config_io import ConfigIO
+from utils.config_manager import ConfigManager as ConfigIO
 from utils.initializer import ProjectInitializer, setup_project
+from settings.models import SystemConfigBusiness as SystemConfig
 
 # 初始化日志
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -65,6 +68,110 @@ def export(
     except Exception as e:
         console.print(Panel(
             f"✗ 导出失败: {e}",
+            title="错误",
+            border_style="red"
+        ))
+        raise typer.Exit(1)
+
+
+def hash_password(password: str) -> str:
+    """对密码进行单向加密（SHA256）
+
+    Args:
+        password: 原始密码
+
+    Returns:
+        str: 加密后的密码哈希值
+    """
+    if not password:
+        return ""
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+
+@app.command()
+def create_user(
+    username: Optional[str] = typer.Option(
+        None, "--username", "-u",
+        help="用户名，不提供则交互式输入"
+    ),
+    password: Optional[str] = typer.Option(
+        None, "--password", "-p",
+        help="密码，不提供则交互式输入（推荐，避免密码泄露）"
+    ),
+    force: bool = typer.Option(
+        False, "--force",
+        help="强制覆盖已存在的用户"
+    ),
+):
+    """创建系统用户
+
+    创建系统登录用户，密码使用SHA256单向加密存储。
+    如果不提供用户名和密码，将进入交互式模式。
+    """
+    try:
+        # 检查是否已存在用户
+        existing_username = SystemConfig.get('user.username')
+        if existing_username and not force:
+            console.print(Panel(
+                f"用户已存在: [bold cyan]{existing_username}[/bold cyan]\n"
+                f"使用 --force 参数覆盖现有用户",
+                title="警告",
+                border_style="yellow"
+            ))
+            raise typer.Exit(1)
+
+        # 交互式输入用户名
+        if not username:
+            username = Prompt.ask("请输入用户名")
+
+        if not username:
+            console.print(Panel(
+                "用户名不能为空",
+                title="错误",
+                border_style="red"
+            ))
+            raise typer.Exit(1)
+
+        # 交互式输入密码
+        if not password:
+            password = Prompt.ask("请输入密码", password=True)
+            confirm_password = Prompt.ask("请再次输入密码", password=True)
+
+            if password != confirm_password:
+                console.print(Panel(
+                    "两次输入的密码不一致",
+                    title="错误",
+                    border_style="red"
+                ))
+                raise typer.Exit(1)
+
+        if not password:
+            console.print(Panel(
+                "密码不能为空",
+                title="错误",
+                border_style="red"
+            ))
+            raise typer.Exit(1)
+
+        # 加密密码
+        hashed_password = hash_password(password)
+
+        # 保存用户配置
+        with console.status("[bold green]正在创建用户..."):
+            SystemConfig.set('user.username', username, description='系统登录用户名', name='general')
+            SystemConfig.set('user.password', hashed_password, description='系统登录密码（SHA256加密）', name='general', is_sensitive=True)
+
+        console.print(Panel(
+            f"✓ 用户创建成功\n"
+            f"用户名: [bold cyan]{username}[/bold cyan]\n"
+            f"密码: [bold green]已加密存储[/bold green]",
+            title="成功",
+            border_style="green"
+        ))
+
+    except Exception as e:
+        console.print(Panel(
+            f"✗ 创建用户失败: {e}",
             title="错误",
             border_style="red"
         ))
@@ -298,6 +405,41 @@ def migrate_current():
         raise typer.Exit(1)
 
 
+def _ensure_config_file():
+    """确保配置文件存在，如果不存在则创建"""
+    from utils.secret_key_manager import CONFIG_FILE, load_config, save_config, generate_secure_key, _set_nested_value, SECRET_KEY_PATH
+    
+    if not CONFIG_FILE.exists():
+        console.print(f"[yellow]配置文件不存在，正在创建: {CONFIG_FILE}[/yellow]")
+        # 创建空配置
+        config = {}
+        save_config(config)
+        console.print(f"[green]✓ 配置文件已创建[/green]")
+        return True
+    return False
+
+
+def _ensure_secret_key():
+    """确保 secret_key 存在，如果不存在则生成"""
+    from utils.secret_key_manager import (
+        get_secret_key_from_config, generate_and_save_secret_key,
+        is_secret_key_configured
+    )
+    
+    if not is_secret_key_configured():
+        console.print("[yellow]secret_key 未配置，正在生成...[/yellow]")
+        new_key = generate_and_save_secret_key()
+        if new_key:
+            console.print(f"[green]✓ secret_key 已生成并保存[/green]")
+            return True
+        else:
+            console.print("[red]✗ secret_key 生成失败[/red]")
+            return False
+    else:
+        console.print("[green]✓ secret_key 已配置[/green]")
+        return True
+
+
 @app.command()
 def setup(
     config_file: Optional[str] = typer.Option(
@@ -323,7 +465,7 @@ def setup(
 ):
     """一键初始化项目环境
     
-    执行完整的初始化流程：环境检查 -> 配置导入 -> 数据库初始化 -> 迁移 -> 数据填充 -> 验证
+    执行完整的初始化流程：环境检查 -> 配置文件检查 -> 密钥生成 -> 配置导入 -> 数据库初始化 -> 迁移 -> 数据填充 -> 验证
     """
     try:
         console.print(Panel(
@@ -331,6 +473,14 @@ def setup(
             title="QuantCell Setup",
             border_style="blue"
         ))
+        
+        # 步骤1: 确保配置文件存在
+        console.print("\n[bold cyan]步骤 1/8: 检查配置文件...[/bold cyan]")
+        _ensure_config_file()
+        
+        # 步骤2: 确保 secret_key 存在
+        console.print("\n[bold cyan]步骤 2/8: 检查 JWT 密钥...[/bold cyan]")
+        _ensure_secret_key()
         
         # 执行初始化
         results = setup_project(

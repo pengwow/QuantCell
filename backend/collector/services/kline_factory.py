@@ -424,7 +424,7 @@ class CryptoSpotKlineFetcher(BaseKlineFetcher):
                 logger.warning(f"数据库数据已过期，尝试从ccxt获取最新数据: symbol={symbol}, interval={interval}")
 
             # 获取系统配置中的代理信息
-            from config_manager import load_system_configs
+            from utils.config_manager import load_system_configs
             configs = load_system_configs()
             proxy_config = {
                 "enabled": configs.get("proxy_enabled", False),
@@ -480,7 +480,7 @@ class CryptoFutureKlineFetcher(BaseKlineFetcher):
             logger.warning(f"数据库中未找到K线数据，尝试从ccxt获取: symbol={symbol}, interval={interval}")
             
             # 获取系统配置中的代理信息
-            from config_manager import load_system_configs
+            from utils.config_manager import load_system_configs
             configs = load_system_configs()
             proxy_config = {
                 "enabled": configs.get("proxy_enabled", False),
