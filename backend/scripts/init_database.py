@@ -171,7 +171,7 @@ def init_database():
             
             sys.path.insert(0, str(Path(__file__).parent.parent))
             from utils.config_manager import config_manager
-            from collector.db.models import SystemConfigBusiness
+            from settings.models import SystemConfigBusiness
             
             # 使用配置管理器读取配置文件
             config_data = config_manager.read_config()
