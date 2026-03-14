@@ -11,6 +11,8 @@ import {
   IconLayoutSidebarRightCollapse,
   IconMenu2,
   IconSettings,
+  IconBotId,
+  IconRobot
 } from "@tabler/icons-react";
 import { Button, Drawer, Layout, Menu, type MenuProps, theme } from "antd";
 
@@ -154,15 +156,17 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const MENU_KEY_STRATEGY = "/strategy-management";
   const MENU_KEY_STRATEGY_TASK = "/strategy-worker";
   const MENU_KEY_DATA = "/data-management";
+  const MENU_KEY_AGENT = "/agent";
 
   const menuItems: Required<MenuProps>["items"] = (
     [
-      [MENU_KEY_CHART, "chart", <IconChartBar size="1em" />],
-      [MENU_KEY_STRATEGY, "strategy_management", <IconCode size="1em" />],
-      [MENU_KEY_STRATEGY_TASK, "strategy_task", <IconCode size="1em" />],
-      [MENU_KEY_DATA, "data_management", <IconDatabase size="1em" />],
-    ] satisfies Array<[string, string, React.ReactNode]>
-  ).map(([key, label, icon]) => {
+      [MENU_KEY_CHART, "chart", <IconChartBar size="1em" />, false],
+      [MENU_KEY_AGENT, "agent", <IconRobot size="1em" />, true],
+      [MENU_KEY_STRATEGY, "strategy_management", <IconCode size="1em" />, false],
+      [MENU_KEY_STRATEGY_TASK, "strategy_task", <IconBotId size="1em" />, false],
+      [MENU_KEY_DATA, "data_management", <IconDatabase size="1em" />, false],
+    ] satisfies Array<[string, string, React.ReactNode, boolean]>
+  ).map(([key, label, icon, disabled]) => {
     return {
       key: key,
       icon: (
@@ -171,9 +175,12 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
         </span>
       ),
       label: collapsed ? undefined : t(label),
+      disabled: disabled,
       onClick: () => {
-        navigate(key);
-        onSelect?.(key);
+        if (!disabled) {
+          navigate(key);
+          onSelect?.(key);
+        }
       },
     };
   });
