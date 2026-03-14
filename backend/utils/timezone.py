@@ -17,8 +17,8 @@ def _get_config_manager():
     """获取配置管理器实例"""
     global _config_manager
     if _config_manager is None:
-        from config import config_manager
-        _config_manager = config_manager
+        from config import config_manager as cfg_manager
+        _config_manager = cfg_manager
     return _config_manager
 
 
