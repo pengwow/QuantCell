@@ -131,7 +131,70 @@ export interface BacktestSymbols {
 // 进度状态类型
 export type StepStatus = 'wait' | 'process' | 'finish' | 'error';
 
-// 进度数据接口
+// 阶段状态类型
+export type StageStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+// 当前阶段类型
+export type CurrentStage = 'data_prep' | 'execution' | 'analysis' | 'completed';
+
+// 数据准备步骤类型
+export type DataPrepStep = 'checking' | 'downloading' | 'loading';
+
+// 下载进度信息
+export interface DownloadProgressInfo {
+  symbol: string;
+  progress: number;
+}
+
+// 数据准备阶段进度
+export interface DataPrepProgress {
+  status: StageStatus;
+  progress: number;
+  current_step: DataPrepStep;
+  checked_symbols: number;
+  total_symbols: number;
+  downloading?: DownloadProgressInfo;
+  message?: string;
+}
+
+// 执行阶段进度
+export interface ExecutionProgress {
+  status: StageStatus;
+  progress: number;
+  current_symbol: string;
+  completed_symbols: number;
+  total_symbols: number;
+  message?: string;
+}
+
+// 结果统计阶段进度
+export interface AnalysisProgress {
+  status: StageStatus;
+  progress: number;
+  message?: string;
+}
+
+// 错误信息
+export interface ErrorInfo {
+  stage: string;
+  message: string;
+}
+
+// 后端返回的进度数据接口
+export interface BacktestProgressData {
+  task_id: string;
+  status: StageStatus;
+  current_stage: CurrentStage;
+  overall_progress: number;
+  data_prep: DataPrepProgress;
+  execution: ExecutionProgress;
+  analysis: AnalysisProgress;
+  error?: ErrorInfo;
+  created_at: string;
+  updated_at: string;
+}
+
+// 进度数据接口（兼容旧版本）
 export interface ProgressData {
   overall: number;
   dataPrep?: {

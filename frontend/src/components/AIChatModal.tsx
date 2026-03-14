@@ -447,7 +447,19 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
   return (
     <Modal
       title={
-        <span className="font-medium">{title || t('ai_chat') || 'AI 对话'}</span>
+        <div className="flex items-center justify-between w-full pr-8">
+          <span className="font-medium">{title || t('ai_chat') || 'AI 对话'}</span>
+          {messages.length > 0 && (
+            <Button
+              type="text"
+              size="small"
+              icon={<DeleteOutlined />}
+              onClick={handleClearMessages}
+            >
+              {t('clear_history') || '清空历史'}
+            </Button>
+          )}
+        </div>
       }
       open={open}
       onCancel={onClose}
@@ -473,17 +485,6 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
             </div>
           ) : (
             <div className="w-full">
-              {/* 清空历史按钮 */}
-              <div className="flex justify-end px-4 py-2">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<DeleteOutlined />}
-                  onClick={handleClearMessages}
-                >
-                  {t('clear_history') || '清空历史'}
-                </Button>
-              </div>
               {/* 思维链 - 带进度显示和动画效果 */}
               {/* 修改：只要有思维链步骤就显示，不仅限于生成中 */}
               {thinkingSteps.length > 0 && (

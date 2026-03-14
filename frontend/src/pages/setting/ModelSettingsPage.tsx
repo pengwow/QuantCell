@@ -36,7 +36,7 @@ interface ModelProvider {
   api_host: string;
   models: Model[];
   is_default: boolean;
-  is_enabled: boolean;
+  is_enabled: string | null; // 存储启用的模型ID，null表示未启用
   proxy_enabled: boolean; // 是否启用代理
   proxy_url?: string; // 代理地址
   proxy_username?: string; // 代理用户名
@@ -47,7 +47,7 @@ interface ModelProvider {
 interface Model {
   id: string;
   name: string;
-  is_enabled: boolean;
+  // 删除 is_enabled 字段，改为在 provider 级别管理
 }
 
 // 预设的模型厂商
@@ -194,9 +194,9 @@ const ModelSettingsPage = () => {
               icon: preset.icon,
               api_key: existing.api_key || "",
               api_host: existing.api_host || getDefaultApiHost(preset.id),
-              models: models,
+              models: models.map(m => ({ id: m.id, name: m.name })), // 删除模型中的 is_enabled
               is_default: existing.is_default === '1',
-              is_enabled: existing.is_enabled === '1',
+              is_enabled: existing.is_enabled || null, // 直接存储模型ID
               proxy_enabled: existing.proxy_enabled === '1',
               proxy_url: existing.proxy_url || "",
               proxy_username: existing.proxy_username || "",
@@ -213,10 +213,9 @@ const ModelSettingsPage = () => {
             models: PRESET_MODELS[preset.id]?.map((name) => ({
               id: `${preset.id}-${name}`,
               name,
-              is_enabled: false,
             })) || [],
             is_default: false,
-            is_enabled: false,
+            is_enabled: null,
             proxy_enabled: false,
             proxy_url: "",
             proxy_username: "",
@@ -245,10 +244,9 @@ const ModelSettingsPage = () => {
       models: PRESET_MODELS[preset.id]?.map((name) => ({
         id: `${preset.id}-${name}`,
         name,
-        is_enabled: false,
       })) || [],
       is_default: false,
-      is_enabled: false,
+      is_enabled: null as string | null,
       proxy_enabled: false,
       proxy_url: "",
       proxy_username: "",
@@ -376,24 +374,10 @@ const ModelSettingsPage = () => {
     setProviders((prev) =>
       prev.map((p) => {
         if (p.id !== providerId) return p;
-        
-        // 如果开启一个模型，则关闭该提供商下的其他所有模型
-        if (enabled) {
-          return {
-            ...p,
-            models: p.models.map((m) => ({
-              ...m,
-              is_enabled: m.id === model_id, // 只有当前点击的模型开启，其他都关闭
-            })),
-          };
-        }
-        
-        // 如果关闭一个模型，则直接关闭（不开启其他）
+        // 启用时设置为模型ID，禁用时设为null
         return {
           ...p,
-          models: p.models.map((m) =>
-            m.id === model_id ? { ...m, is_enabled: false } : m
-          ),
+          is_enabled: enabled ? model_id : null,
         };
       })
     );
@@ -418,13 +402,13 @@ const ModelSettingsPage = () => {
     const newModel: Model = {
       id: `${selectedProvider.id}-${values.model_id}`,
       name: values.name,
-      is_enabled: true,
     };
 
+    // 添加模型时自动启用该模型
     setProviders((prev) =>
       prev.map((p) =>
         p.id === selectedProvider.id
-          ? { ...p, models: [...p.models, newModel] }
+          ? { ...p, models: [...p.models, newModel], is_enabled: newModel.id }
           : p
       )
     );
@@ -455,7 +439,7 @@ const ModelSettingsPage = () => {
           { key: `${prefix}.api_host`, value: provider.api_host || '', name: 'ai_model', description: `${providerName}API Host` },
           { key: `${prefix}.models`, value: JSON.stringify(provider.models), name: 'ai_model', description: `${providerName}模型列表` },
           { key: `${prefix}.is_default`, value: provider.is_default ? '1' : '0', name: 'ai_model', description: `${providerName}是否为默认` },
-          { key: `${prefix}.is_enabled`, value: provider.is_enabled ? '1' : '0', name: 'ai_model', description: `${providerName}是否启用` },
+          { key: `${prefix}.is_enabled`, value: provider.is_enabled || '', name: 'ai_model', description: `${providerName}启用的模型ID` },
           { key: `${prefix}.proxy_enabled`, value: provider.proxy_enabled ? '1' : '0', name: 'ai_model', description: `${providerName}是否启用代理` },
           { key: `${prefix}.proxy_url`, value: provider.proxy_url || '', name: 'ai_model', description: `${providerName}代理地址` },
           { key: `${prefix}.proxy_username`, value: provider.proxy_username || '', name: 'ai_model', description: `${providerName}代理用户名` },
@@ -474,22 +458,24 @@ const ModelSettingsPage = () => {
 
   // 重置配置
   const handleReset = () => {
-    const initialProviders = PRESET_PROVIDERS.map((preset, index) => ({
-      ...preset,
-      api_key: "",
-      api_host: getDefaultApiHost(preset.id),
-      models: PRESET_MODELS[preset.id]?.map((name) => ({
+    const initialProviders = PRESET_PROVIDERS.map((preset, index) => {
+      const models = PRESET_MODELS[preset.id]?.map((name) => ({
         id: `${preset.id}-${name}`,
         name,
-        is_enabled: index === 0,
-      })) || [],
-      is_default: index === 0,
-      is_enabled: index === 0,
-      proxy_enabled: false,
-      proxy_url: "",
-      proxy_username: "",
-      proxy_password: "",
-    }));
+      })) || [];
+      return {
+        ...preset,
+        api_key: "",
+        api_host: getDefaultApiHost(preset.id),
+        models: models,
+        is_default: index === 0,
+        is_enabled: index === 0 && models.length > 0 ? models[0].id : null as string | null,
+        proxy_enabled: false,
+        proxy_url: "",
+        proxy_username: "",
+        proxy_password: "",
+      };
+    });
     setProviders(initialProviders);
     setSelectedProviderId(initialProviders[0]?.id || "");
     message.success(t("config_reset") || "配置已重置");
@@ -684,7 +670,7 @@ const ModelSettingsPage = () => {
                         <Text className="text-sm">{model.name}</Text>
                         <Space>
                           <Switch
-                            checked={model.is_enabled}
+                            checked={selectedProvider.is_enabled === model.id}
                             onChange={(checked) =>
                               toggleModel(selectedProvider.id, model.id, checked)
                             }

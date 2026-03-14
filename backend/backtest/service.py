@@ -47,6 +47,7 @@ from utils.timezone import format_datetime
 # 导入回测引擎
 from backtest.engines import Engine, LegacyEngine, BacktestEngineBase
 from backtest.config import EngineType
+from backtest.progress_tracker import get_progress_tracker, StageStatus
 
 
 class BacktestService:
@@ -238,15 +239,20 @@ class BacktestService:
             logger.exception(e)
             return False
     
-    def run_single_backtest(self, strategy_config, backtest_config, task_id):
+    def run_single_backtest(self, strategy_config, backtest_config, task_id, symbol_index=0, total_symbols=1):
         """
         执行单个货币对的回测
         
         :param strategy_config: 策略配置
         :param backtest_config: 回测配置，包含单个货币对信息
         :param task_id: 回测任务ID，所有货币对共享同一个task_id
+        :param symbol_index: 当前货币对索引（用于进度计算）
+        :param total_symbols: 总货币对数量（用于进度计算）
         :return: 单个货币对的回测结果数据，不直接保存到数据库
         """
+        # 获取进度跟踪器
+        progress_tracker = get_progress_tracker()
+        
         try:
             from collector.db.database import SessionLocal, init_database_config
             import json
@@ -271,6 +277,20 @@ class BacktestService:
             
             # ========== 数据完整性检查 ==========
             logger.info(f"[{symbol}] 开始数据完整性检查...")
+            
+            # 更新进度：数据准备阶段 - 检查中
+            progress_tracker.update_progress(
+                task_id,
+                "data_prep",
+                {
+                    "status": "running",
+                    "current_step": "checking",
+                    "checked_symbols": symbol_index,
+                    "total_symbols": total_symbols,
+                    "message": f"正在检查 {symbol} 数据完整性..."
+                }
+            )
+            
             from .data_integrity import DataIntegrityChecker
             from .data_downloader import BacktestDataDownloader
             
@@ -293,6 +313,23 @@ class BacktestService:
                     f"缺失: {integrity_result.missing_count} 条"
                 )
                 
+                # 更新进度：数据准备阶段 - 下载中
+                progress_tracker.update_progress(
+                    task_id,
+                    "data_prep",
+                    {
+                        "status": "running",
+                        "current_step": "downloading",
+                        "checked_symbols": symbol_index + 1,
+                        "total_symbols": total_symbols,
+                        "downloading": {
+                            "symbol": symbol,
+                            "progress": 0
+                        },
+                        "message": f"正在下载 {symbol} 缺失数据..."
+                    }
+                )
+                
                 # 尝试下载缺失数据
                 logger.info(f"[{symbol}] 开始下载缺失数据...")
                 download_success, new_result = data_downloader.ensure_data_complete(
@@ -304,20 +341,54 @@ class BacktestService:
                 )
                 
                 if not download_success:
-                    logger.error(f"[{symbol}] 数据下载失败，回测无法继续")
-                    return {
-                        "symbol": symbol,
-                        "task_id": task_id,
-                        "status": "failed",
-                        "message": f"数据不完整且下载失败，覆盖率: {new_result.coverage_percent:.2f}%",
-                        "data_integrity": new_result.to_dict()
-                    }
+                    # 检查覆盖率，如果达到可接受水平（如80%以上），则继续回测
+                    min_coverage = 80.0  # 最小可接受覆盖率
+                    if new_result.coverage_percent >= min_coverage:
+                        logger.warning(
+                            f"[{symbol}] 数据下载不完全，但覆盖率达到 {new_result.coverage_percent:.2f}%，继续回测"
+                        )
+                        integrity_result = new_result
+                    else:
+                        logger.error(f"[{symbol}] 数据下载失败且覆盖率不足，回测无法继续")
+                        # 更新进度为失败状态
+                        progress_tracker.update_progress(
+                            task_id,
+                            "data_prep",
+                            {
+                                "status": "failed",
+                                "progress": new_result.coverage_percent,
+                                "checked_symbols": symbol_index + 1,
+                                "total_symbols": total_symbols,
+                                "message": f"{symbol} 数据不完整: 覆盖率 {new_result.coverage_percent:.2f}%"
+                            }
+                        )
+                        return {
+                            "symbol": symbol,
+                            "task_id": task_id,
+                            "status": "failed",
+                            "message": f"数据不完整且下载失败，覆盖率: {new_result.coverage_percent:.2f}%",
+                            "data_integrity": new_result.to_dict()
+                        }
                 
                 logger.info(f"[{symbol}] 数据下载完成，重新检查完整性...")
                 integrity_result = new_result
             
             logger.info(f"[{symbol}] 数据完整性检查通过，覆盖率: {integrity_result.coverage_percent:.2f}%")
             # ========== 数据完整性检查结束 ==========
+            
+            # 更新进度：数据准备阶段完成
+            progress_tracker.update_progress(
+                task_id,
+                "data_prep",
+                {
+                    "status": "completed" if symbol_index == total_symbols - 1 else "running",
+                    "progress": 100.0,
+                    "current_step": "loading",
+                    "checked_symbols": symbol_index + 1,
+                    "total_symbols": total_symbols,
+                    "message": f"{symbol} 数据准备完成"
+                }
+            )
             
             # 加载策略类
             strategy_class = self.load_strategy_from_file(strategy_name)
@@ -754,7 +825,7 @@ class BacktestService:
                 "currencies": results
             }
     
-    def run_backtest(self, strategy_config, backtest_config):
+    def run_backtest(self, strategy_config, backtest_config, task_id=None):
         """
         执行回测，支持多货币对并行回测
 
@@ -764,9 +835,14 @@ class BacktestService:
 
         :param strategy_config: 策略配置
         :param backtest_config: 回测配置，包含symbols列表和可选的engine_type
+        :param task_id: 可选的任务ID，如果提供则使用现有任务，否则创建新任务
         :return: 回测结果，单个货币对返回BacktestResult，多个货币对返回MultiBacktestResult
         """
         db = None
+        # 获取进度跟踪器
+        progress_tracker = get_progress_tracker()
+        is_new_task = task_id is None
+
         try:
             from collector.db.database import SessionLocal, init_database_config
             from collector.db.models import BacktestTask, BacktestResult
@@ -792,33 +868,95 @@ class BacktestService:
             logger.info(f"手续费率: {backtest_config.get('commission', 0.001)}")
             logger.info(f"回测引擎: {engine_type}")
 
-            # 创建引擎配置
-            engine_config = {
-                "engine_type": engine_type,
-                "initial_capital": backtest_config.get("initial_cash", 10000),
-                "start_date": backtest_config.get("start_time"),
-                "end_date": backtest_config.get("end_time"),
-                "symbols": symbols,
-                "strategy_config": strategy_config,
-            }
+            # 如果没有提供task_id，则生成新的
+            if is_new_task:
+                task_id = str(uuid.uuid4())
+                # 创建进度记录
+                progress_tracker.create_progress(task_id)
+            else:
+                logger.info(f"使用现有任务ID: {task_id}")
+                # 确保进度记录存在
+                if not progress_tracker.get_progress(task_id):
+                    progress_tracker.create_progress(task_id)
 
-            # 创建回测引擎
-            self.create_engine(engine_config)
-            
-            # 生成唯一的task_id
-            task_id = str(uuid.uuid4())
-            
-            # 创建回测任务记录
-            from datetime import datetime, timezone
-            task = BacktestTask(
-                id=task_id,
-                strategy_name=strategy_name,
-                backtest_config=json.dumps(backtest_config),
-                status="in_progress",
-                started_at=datetime.now(timezone.utc)
+            progress_tracker.update_progress(
+                task_id,
+                "overall",
+                {
+                    "status": "running"
+                }
             )
-            db.add(task)
-            db.commit()
+
+            # ========== 启动阶段错误处理 ==========
+            # 尝试创建回测引擎（可能失败的第三方 API 调用）
+            try:
+                # 创建引擎配置
+                engine_config = {
+                    "engine_type": engine_type,
+                    "initial_capital": backtest_config.get("initial_cash", 10000),
+                    "start_date": backtest_config.get("start_time"),
+                    "end_date": backtest_config.get("end_time"),
+                    "symbols": symbols,
+                    "strategy_config": strategy_config,
+                }
+
+                # 创建回测引擎
+                self.create_engine(engine_config)
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"创建回测引擎失败: {error_msg}")
+
+                # 记录失败状态到进度跟踪器
+                progress_tracker.fail_progress(
+                    task_id,
+                    f"启动失败: {error_msg}。请检查网络连接或代理配置。",
+                    "initialization"
+                )
+
+                # 更新任务状态为失败
+                from datetime import datetime, timezone
+                task = db.query(BacktestTask).filter(BacktestTask.id == task_id).first()
+                if task:
+                    task.status = "failed"
+                    task.completed_at = datetime.now(timezone.utc)
+                    db.commit()
+                elif is_new_task:
+                    # 如果是新任务且不存在，创建失败记录
+                    task = BacktestTask(
+                        id=task_id,
+                        strategy_name=strategy_name,
+                        backtest_config=json.dumps(backtest_config),
+                        status="failed",
+                        started_at=datetime.now(timezone.utc),
+                        completed_at=datetime.now(timezone.utc)
+                    )
+                    db.add(task)
+                    db.commit()
+
+                return {
+                    "status": "failed",
+                    "task_id": task_id,
+                    "message": f"启动失败: {error_msg}。请检查网络连接或代理配置。"
+                }
+            # ========== 启动阶段错误处理结束 ==========
+
+            # 更新任务状态为进行中
+            from datetime import datetime, timezone
+            task = db.query(BacktestTask).filter(BacktestTask.id == task_id).first()
+            if task:
+                task.status = "in_progress"
+                db.commit()
+            elif is_new_task:
+                # 如果是新任务且不存在，创建任务记录
+                task = BacktestTask(
+                    id=task_id,
+                    strategy_name=strategy_name,
+                    backtest_config=json.dumps(backtest_config),
+                    status="in_progress",
+                    started_at=datetime.now(timezone.utc)
+                )
+                db.add(task)
+                db.commit()
             
             # 限制线程数量，避免系统过载
             cpu_count = os.cpu_count() or 1
@@ -834,6 +972,7 @@ class BacktestService:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # 提交所有回测任务
                 future_to_symbol = {}
+                symbol_index_map = {symbol: idx for idx, symbol in enumerate(symbols)}
                 for symbol in symbols:
                     # 复制配置，替换货币对
                     single_config = backtest_config.copy()
@@ -845,7 +984,9 @@ class BacktestService:
                         self.run_single_backtest,
                         strategy_config,
                         single_config,
-                        task_id  # 传递task_id
+                        task_id,  # 传递task_id
+                        symbol_index_map[symbol],  # 传递货币对索引
+                        len(symbols)  # 传递总货币对数
                     )
                     future_to_symbol[future] = symbol
                 
@@ -857,6 +998,21 @@ class BacktestService:
                         result = future.result(timeout=3600)  # 1小时超时
                         results[symbol] = result
                         completed_count += 1
+                        
+                        # 更新执行阶段进度
+                        progress_tracker.update_progress(
+                            task_id,
+                            "execution",
+                            {
+                                "status": "running",
+                                "current_symbol": symbol,
+                                "completed_symbols": completed_count,
+                                "total_symbols": total_futures,
+                                "progress": (completed_count / total_futures) * 100,
+                                "message": f"已完成 {completed_count}/{total_futures} 个货币对"
+                            }
+                        )
+                        
                         logger.info(f"回测完成 [{completed_count}/{total_futures}]: {symbol}, 状态: {result.get('status')}")
                         if result.get('status') == 'success':
                             # 记录关键指标
@@ -889,6 +1045,30 @@ class BacktestService:
             logger.info(f"成功数量: {completed_count - failed_count}")
             logger.info(f"失败数量: {failed_count}")
             logger.info(f"完成率: {(completed_count / len(symbols)) * 100:.2f}%")
+            
+            # 更新执行阶段为完成
+            progress_tracker.update_progress(
+                task_id,
+                "execution",
+                {
+                    "status": "completed",
+                    "progress": 100.0,
+                    "completed_symbols": completed_count,
+                    "total_symbols": total_futures,
+                    "message": "回测执行完成"
+                }
+            )
+            
+            # 更新结果统计阶段
+            progress_tracker.update_progress(
+                task_id,
+                "analysis",
+                {
+                    "status": "running",
+                    "progress": 50.0,
+                    "message": "正在合并回测结果..."
+                }
+            )
             
             # 保存每个货币对的回测结果到数据库
             successful_results = []
@@ -931,6 +1111,32 @@ class BacktestService:
             # 保存合并后的回测结果到文件系统
             self.save_backtest_result(task_id, merged_result)
             
+            # 检查是否有成功的回测结果
+            if not successful_results:
+                # 所有货币对都失败
+                logger.error(f"所有货币对回测失败，任务 {task_id} 标记为失败")
+                progress_tracker.fail_progress(
+                    task_id,
+                    f"所有货币对回测失败: {', '.join(failed_results)}",
+                    "execution"
+                )
+                
+                # 更新任务状态为失败
+                task.status = "failed"
+                task.completed_at = datetime.now(timezone.utc)
+                db.commit()
+                
+                return {
+                    "task_id": task_id,
+                    "status": "failed",
+                    "message": f"所有货币对回测失败，共 {len(failed_results)} 个失败",
+                    "failed_currencies": failed_results,
+                    "results": merged_result
+                }
+            
+            # 标记任务完成
+            progress_tracker.complete_progress(task_id)
+            
             # 构建响应结果
             response = {
                 "task_id": task_id,
@@ -947,6 +1153,9 @@ class BacktestService:
                 db.rollback()
             logger.error(f"回测任务执行失败: {e}")
             logger.exception(e)
+            # 标记任务失败
+            if task_id:
+                progress_tracker.fail_progress(task_id, str(e), "execution")
             return {
                 "status": "failed",
                 "message": str(e)

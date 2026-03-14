@@ -52,42 +52,36 @@ router = APIRouter(prefix="/api/ai-models", tags=["ai-model-config"])
 AI_MODELS_CONFIG_NAME = "ai_models"
 
 
-def get_ai_models_from_config() -> Dict[str, Dict[str, Any]]:
+def get_ai_models_from_config() -> List[Dict[str, Any]]:
     """从系统配置表读取AI模型配置
     
-    读取name=ai_models的所有配置项
+    使用新的 ai_model.{provider_id}.{field} 格式读取配置
     
     Returns:
-        Dict[str, Dict[str, Any]]: AI模型配置字典，键为配置ID
+        List[Dict[str, Any]]: AI模型提供商配置列表
     """
     try:
-        # 获取AI模型配置
-        ai_model_configs = SystemConfig.get_name_with_details(AI_MODELS_CONFIG_NAME)
+        from .config_utils import get_all_providers
         
-        # 调试日志：打印所有配置
-        logger.info(f"获取到 {len(ai_model_configs)} 条系统配置")
-        for key, config in ai_model_configs.items():
-            logger.info(f"配置项: key={key}, name={config.get('name')}, value={config.get('value', '')[:50]}...")
+        # 使用新的配置解析方法
+        providers = get_all_providers()
         
-        # 确保返回的是字典
-        if not isinstance(ai_model_configs, dict):
-            logger.error(f"get_name_with_details 返回类型错误: {type(ai_model_configs)}")
-            return {}
-
-        providers = ai_model_configs.get('providers', {})
-        if providers.get('value'):
-            providers['value'] = json.loads(providers.get('value', '[]'))
-            ai_model_configs['providers'] = providers
-        return ai_model_configs
+        logger.info(f"获取到 {len(providers)} 个AI模型提供商配置")
+        for provider in providers:
+            logger.info(f"提供商: id={provider.get('id')}, name={provider.get('name')}, enabled={provider.get('is_enabled')}")
+        
+        return providers
     except Exception as e:
         logger.error(f"从系统配置读取AI模型失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return {}
+        return []
 
 
 def save_ai_model_to_config(model_id: str, model_data: Dict[str, Any]) -> bool:
     """保存AI模型配置到系统配置表
+    
+    使用新的 ai_model.{provider_id}.{field} 格式存储
     
     Args:
         model_id: 模型配置ID
@@ -97,20 +91,46 @@ def save_ai_model_to_config(model_id: str, model_data: Dict[str, Any]) -> bool:
         bool: 是否保存成功
     """
     try:
-        success = SystemConfig.set(
-            key=model_id,
-            value=json.dumps(model_data, ensure_ascii=False),
-            description=f"{model_data.get('name', 'AI模型')}配置",
-            name=AI_MODELS_CONFIG_NAME
-        )
-        return success
+        # 将模型数据分解为多个配置项
+        fields_to_save = [
+            "name", "provider", "api_key", "api_host", 
+            "models", "is_default", "is_enabled",
+            "proxy_enabled", "proxy_url", "proxy_username", "proxy_password"
+        ]
+        
+        for field in fields_to_save:
+            value = model_data.get(field)
+            if value is not None:
+                # 特殊处理复杂字段
+                if field == "models" and isinstance(value, list):
+                    value = json.dumps(value, ensure_ascii=False)
+                elif field in ["is_default", "proxy_enabled"]:
+                    # 布尔字段
+                    value = "true" if value else "false"
+                elif field == "is_enabled":
+                    # is_enabled 直接存储模型ID字符串（或空字符串）
+                    value = str(value) if value else ""
+                
+                key = f"{AI_MODELS_CONFIG_NAME}.{model_id}.{field}"
+                SystemConfig.set(
+                    key=key,
+                    value=str(value),
+                    description=f"{model_data.get('name', 'AI模型')}的{field}配置",
+                    name=AI_MODELS_CONFIG_NAME
+                )
+        
+        return True
     except Exception as e:
         logger.error(f"保存AI模型配置失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 
 def delete_ai_model_from_config(model_id: str) -> bool:
     """从系统配置表删除AI模型配置
+    
+    删除该提供商的所有配置项
     
     Args:
         model_id: 模型配置ID
@@ -119,16 +139,28 @@ def delete_ai_model_from_config(model_id: str) -> bool:
         bool: 是否删除成功
     """
     try:
-        # SystemConfig没有delete方法，使用set设置空值
-        success = SystemConfig.set(
-            key=model_id,
-            value="",
-            description="",
-            name=""
-        )
-        return success
+        from settings.models import SystemConfigBusiness as SystemConfig
+        
+        # 获取所有配置
+        all_configs = SystemConfig.get_all_with_details()
+        
+        # 删除该提供商的所有配置项
+        prefix = f"{AI_MODELS_CONFIG_NAME}.{model_id}."
+        for key in list(all_configs.keys()):
+            if key.startswith(prefix):
+                # 使用set设置空值来删除
+                SystemConfig.set(
+                    key=key,
+                    value="",
+                    description="",
+                    name=""
+                )
+        
+        return True
     except Exception as e:
         logger.error(f"删除AI模型配置失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 
@@ -168,33 +200,36 @@ def get_ai_models(
         logger.info(f"获取AI模型配置列表: page={page}, limit={limit}, provider={provider}")
 
         # 从系统配置表读取AI模型配置
-        all_models = get_ai_models_from_config()
+        all_providers = get_ai_models_from_config()
         
         # 筛选
-        filtered_models = all_models
+        filtered_providers = all_providers
         if provider:
-            filtered_models = [m for m in filtered_models.get('providers', [{}]) if m.get("id") == provider]
+            filtered_providers = [p for p in filtered_providers if p.get("id") == provider]
 
         if is_default is not None:
-            default_provider = all_models.get('default_provider', "")
-            if default_provider:
-                filtered_models = [m for m in filtered_models if m.get("id") == default_provider.get("value", "")]
+            if is_default:
+                # 只返回默认提供商
+                filtered_providers = [p for p in filtered_providers if p.get("is_default", False)]
+            else:
+                # 返回非默认提供商
+                filtered_providers = [p for p in filtered_providers if not p.get("is_default", False)]
 
         # 排序
         reverse = sort_order.lower() == "desc"
-        filtered_models.sort(key=lambda x: x.get(sort_by, ""), reverse=reverse)
+        filtered_providers.sort(key=lambda x: x.get(sort_by, ""), reverse=reverse)
         
         # 分页
-        total = len(filtered_models)
+        total = len(filtered_providers)
         start_idx = (page - 1) * limit
         end_idx = start_idx + limit
-        paginated_models = filtered_models[start_idx:end_idx]
+        paginated_providers = filtered_providers[start_idx:end_idx]
 
         return ApiResponse(
             code=0,
             message="获取AI模型配置列表成功",
             data={
-                "items": paginated_models,
+                "items": paginated_providers,
                 "total": total,
                 "page": page,
                 "limit": limit,

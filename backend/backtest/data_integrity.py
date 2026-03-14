@@ -109,6 +109,19 @@ class DataIntegrityChecker:
         result = DataIntegrityResult()
         
         try:
+            # 记录输入参数类型和值，用于调试
+            logger.info(f"数据完整性检查输入: symbol={symbol}, interval={interval}")
+            logger.info(f"start_time类型: {type(start_time)}, 值: {start_time}")
+            logger.info(f"end_time类型: {type(end_time)}, 值: {end_time}")
+            
+            # 转换字符串为datetime对象
+            if isinstance(start_time, str):
+                logger.info(f"转换start_time从字符串到datetime: {start_time}")
+                start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            if isinstance(end_time, str):
+                logger.info(f"转换end_time从字符串到datetime: {end_time}")
+                end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+            
             # 1. 获取现有数据
             existing_data = self._get_existing_data(
                 symbol, interval, start_time, end_time, market_type, crypto_type
@@ -128,11 +141,20 @@ class DataIntegrityChecker:
                 result.missing_ranges = self._calculate_missing_ranges(
                     existing_data, start_time, end_time, interval
                 )
-                result.missing_count = result.total_expected - result.total_actual
+                # 使用缺失时间段计算真实的缺失数据点数量
+                result.missing_count = sum(
+                    self._calculate_expected_count(start, end, interval)
+                    for start, end in result.missing_ranges
+                )
             
-            # 4. 计算覆盖率
+            # 4. 计算覆盖率（限制在0-100%之间）
             if result.total_expected > 0:
-                result.coverage_percent = (result.total_actual / result.total_expected) * 100
+                # 实际数据可能超出期望范围，限制覆盖率不超过100%
+                actual_in_range = min(result.total_actual, result.total_expected)
+                result.coverage_percent = min(
+                    (actual_in_range / result.total_expected) * 100,
+                    100.0
+                )
             
             # 5. 检查数据质量
             if not existing_data.empty:
@@ -252,17 +274,22 @@ class DataIntegrityChecker:
             freq=freq
         )
         
-        # 获取现有数据的时间戳
+        # 获取现有数据的时间戳（转换为毫秒时间戳以便比较）
         existing_timestamps = set(existing_data['timestamp'])
         
-        # 找出缺失的时间点
-        missing_timestamps = [
-            ts for ts in full_range 
-            if ts not in existing_timestamps
-        ]
+        # 将 pd.date_range 生成的时间戳转换为毫秒时间戳
+        full_range_ms = set(int(ts.timestamp() * 1000) for ts in full_range)
         
-        if not missing_timestamps:
+        # 找出缺失的时间点
+        missing_timestamps_ms = full_range_ms - existing_timestamps
+        
+        if not missing_timestamps_ms:
             return []
+        
+        # 将毫秒时间戳转换回 datetime 对象
+        missing_timestamps = [
+            datetime.fromtimestamp(ts / 1000) for ts in sorted(missing_timestamps_ms)
+        ]
         
         # 合并连续的缺失时间点为时间段
         missing_ranges = self._merge_continuous_timestamps(

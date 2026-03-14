@@ -37,11 +37,15 @@ export class WebSocketService {
   private reconnectAttempts: number = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setTimeout> | null = null;
+  private healthCheckTimer: ReturnType<typeof setTimeout> | null = null;
   private messageListeners: Map<string, Set<WebSocketEventListener>> = new Map();
   private connectionListeners: Set<(connected: boolean) => void> = new Set();
   private messageQueue: WebSocketMessage[] = [];
   private isConnected: boolean = false;
   private clientId: string;
+  private lastPongTime: number = 0;
+  private healthCheckInterval: number = 15000; // 15秒健康检查
+  private pongTimeout: number = 60000; // 60秒pong超时（应该是ping间隔的2倍以上）
 
   /**
    * 获取连接状态
@@ -125,8 +129,13 @@ export class WebSocketService {
       };
 
       this.socket.onclose = (event) => {
-        console.log('[WebSocket] 连接已关闭:', event.code, event.reason);
+        // 避免重复处理关闭事件
+        if (!this.isConnected && !this.socket) {
+          return;
+        }
+        console.log(`[WebSocket] 连接已关闭: code=${event.code}, reason=${event.reason || '无'}, wasClean=${event.wasClean}`);
         this.isConnected = false;
+        this.socket = null; // 清除socket引用
         this.notifyConnectionListeners(false);
         this.stopPing();
         this.attemptReconnect();
@@ -134,6 +143,12 @@ export class WebSocketService {
 
       this.socket.onerror = (error) => {
         console.error('[WebSocket] 错误:', error);
+        // 注意：onerror 后通常会触发 onclose，所以这里不直接重连
+        // 只在特定情况下（如连接从未成功建立）才触发重连
+        if (this.socket?.readyState === WebSocket.CLOSED && !this.isConnected) {
+          console.log('[WebSocket] 连接错误且从未成功建立，准备重连...');
+          this.attemptReconnect();
+        }
       };
     } catch (error) {
       console.error('WebSocket连接失败:', error);
@@ -289,6 +304,8 @@ export class WebSocketService {
    */
   private startPing(): void {
     this.stopPing();
+    this.lastPongTime = Date.now();
+    this.startHealthCheck();
     this.pingTimer = setInterval(() => {
       if (this.isConnected && this.socket) {
         this.send({ type: 'ping' });
@@ -304,6 +321,36 @@ export class WebSocketService {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
     }
+    this.stopHealthCheck();
+  }
+
+  /**
+   * 开始健康检查
+   * 定期检查连接是否存活，如果超过pongTimeout没有收到pong响应，认为连接已断开
+   */
+  private startHealthCheck(): void {
+    this.stopHealthCheck();
+    this.healthCheckTimer = setInterval(() => {
+      if (this.isConnected) {
+        const timeSinceLastPong = Date.now() - this.lastPongTime;
+        // 如果超过pongTimeout没有收到pong响应，认为连接已断开
+        if (timeSinceLastPong > this.pongTimeout) {
+          console.warn(`[WebSocket] 健康检查失败，${timeSinceLastPong}ms未收到pong响应，准备重连...`);
+          this.disconnect();
+          this.attemptReconnect();
+        }
+      }
+    }, this.healthCheckInterval);
+  }
+
+  /**
+   * 停止健康检查
+   */
+  private stopHealthCheck(): void {
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = null;
+    }
   }
 
   /**
@@ -311,6 +358,7 @@ export class WebSocketService {
    */
   private handleMessage(message: WebSocketMessage): void {
     if (message.type === 'pong') {
+      this.lastPongTime = Date.now();
       return;
     }
 

@@ -50,13 +50,10 @@ export default defineConfig({
         // 添加错误处理，避免 EPIPE 错误导致崩溃
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
-            console.log('WebSocket 代理错误:', err.message);
-          });
-          proxy.on('proxyReqWs', (_proxyReq, req, _socket, _options, _head) => {
-            console.log('WebSocket 代理连接:', req.url);
-          });
-          proxy.on('close', (_res, _socket, _head) => {
-            console.log('WebSocket 代理连接关闭');
+            // 只在非 EPIPE 错误时输出日志，减少日志噪音
+            if (!err.message.includes('EPIPE') && !err.message.includes('ECONNRESET')) {
+              console.log('WebSocket 代理错误:', err.message);
+            }
           });
         },
       },

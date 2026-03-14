@@ -13,7 +13,7 @@ class AIModelBase(BaseModel):
     name: str = Field(..., description="配置名称，用于显示", examples=["OpenAI GPT-4"])
     api_host: Optional[str] = Field(None, description="API主机地址，可选", examples=["https://api.openai.com"])
     is_default: bool = Field(default=False, description="是否为默认配置")
-    is_enabled: bool = Field(default=True, description="是否启用")
+    is_enabled: Optional[str] = Field(default=None, description="启用的模型ID，为None表示未启用")
     # 代理设置字段
     proxy_enabled: bool = Field(default=False, description="是否启用代理")
     proxy_url: Optional[str] = Field(None, description="代理地址", examples=["http://proxy.example.com:8080"])
@@ -35,7 +35,7 @@ class AIModelUpdate(BaseModel):
     api_host: Optional[str] = Field(None, description="API主机地址")
     models: Optional[List[str]] = Field(None, description="可用模型列表")
     is_default: Optional[bool] = Field(None, description="是否为默认配置")
-    is_enabled: Optional[bool] = Field(None, description="是否启用")
+    is_enabled: Optional[str] = Field(None, description="启用的模型ID，为None表示未启用")
     # 代理设置字段
     proxy_enabled: Optional[bool] = Field(None, description="是否启用代理")
     proxy_url: Optional[str] = Field(None, description="代理地址")
@@ -69,7 +69,7 @@ class AIModelQueryParams(BaseModel):
     page: int = Field(default=1, description="页码，从1开始", ge=1)
     limit: int = Field(default=10, description="每页记录数", ge=1, le=100)
     provider: Optional[str] = Field(None, description="按厂商筛选")
-    is_enabled: Optional[bool] = Field(None, description="按启用状态筛选")
+    is_enabled: Optional[str] = Field(None, description="按启用的模型ID筛选")
     sort_by: str = Field(default="created_at", description="排序字段")
     sort_order: str = Field(default="desc", description="排序顺序，asc或desc")
 
