@@ -298,6 +298,49 @@ class MarketDataFetcherFactory:
     _fetchers: Dict[str, MarketDataFetcher] = {}
 
     @classmethod
+    def _get_exchange_config_from_db(cls, exchange_id: str) -> Optional[Dict[str, Any]]:
+        """从数据库中组装交易所配置
+        
+        从分散的配置项中组装交易所配置，支持的key格式：
+        - exchange.{exchange_id}.name
+        - exchange.{exchange_id}.api_key
+        - exchange.{exchange_id}.api_secret
+        - exchange.{exchange_id}.proxy_enabled
+        - exchange.{exchange_id}.proxy_url
+        - exchange.{exchange_id}.proxy_username
+        - exchange.{exchange_id}.proxy_password
+        - exchange.{exchange_id}.is_enabled
+        
+        Args:
+            exchange_id: 交易所ID
+            
+        Returns:
+            Optional[Dict[str, Any]]: 交易所配置字典，如果未找到则返回None
+        """
+        config = {}
+        prefix = f"exchange.{exchange_id}."
+        
+        # 获取所有以 exchange.{exchange_id}. 开头的配置
+        all_configs = SystemConfig.get_all()
+        found = False
+        
+        for key, value in all_configs.items():
+            if key.startswith(prefix):
+                found = True
+                # 提取配置项名称（去掉前缀）
+                config_name = key[len(prefix):]
+                config[config_name] = value
+        
+        if not found:
+            return None
+            
+        # 设置默认值
+        config.setdefault("is_enabled", True)
+        config.setdefault("name", exchange_id)
+        
+        return config
+
+    @classmethod
     def get_fetcher(cls, exchange_id: str) -> Optional[MarketDataFetcher]:
         """获取指定交易所的市场数据获取器
 
@@ -312,15 +355,21 @@ class MarketDataFetcherFactory:
             return cls._fetchers[exchange_id]
 
         # 从系统配置读取交易所配置
-        config_str = SystemConfig.get(exchange_id)
-        if not config_str:
+        # 首先尝试从分散的配置项中组装
+        config = cls._get_exchange_config_from_db(exchange_id)
+        
+        if not config:
+            # 尝试从单个JSON配置中读取（兼容旧格式）
+            config_str = SystemConfig.get(exchange_id)
+            if config_str:
+                try:
+                    config = json.loads(config_str)
+                except json.JSONDecodeError as e:
+                    logger.error(f"解析交易所配置失败: {exchange_id}, error={e}")
+                    return None
+        
+        if not config:
             logger.error(f"未找到交易所配置: {exchange_id}")
-            return None
-
-        try:
-            config = json.loads(config_str)
-        except json.JSONDecodeError as e:
-            logger.error(f"解析交易所配置失败: {exchange_id}, error={e}")
             return None
 
         # 检查交易所是否启用

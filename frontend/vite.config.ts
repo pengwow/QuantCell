@@ -46,6 +46,19 @@ export default defineConfig({
       '/ws': {
         target: 'ws://localhost:8000',
         ws: true,
+        changeOrigin: true,
+        // 添加错误处理，避免 EPIPE 错误导致崩溃
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('WebSocket 代理错误:', err.message);
+          });
+          proxy.on('proxyReqWs', (_proxyReq, req, _socket, _options, _head) => {
+            console.log('WebSocket 代理连接:', req.url);
+          });
+          proxy.on('close', (_res, _socket, _head) => {
+            console.log('WebSocket 代理连接关闭');
+          });
+        },
       },
     },
   },

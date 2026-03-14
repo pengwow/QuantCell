@@ -58,7 +58,7 @@ class DBConnection:
             
             # 如果环境变量未设置，尝试从配置读取
             try:
-                from utils.config_manager import get_config
+                from config import get_config
                 config_db_type = get_config("database.type")
                 if config_db_type:
                     db_type = config_db_type
