@@ -60,6 +60,13 @@ const Worker = () => {
     fetchWorkers();
   }, [fetchWorkers]);
 
+  // 默认选中第一个任务
+  useEffect(() => {
+    if (workers.length > 0 && !selectedWorker) {
+      selectWorker(workers[0]);
+    }
+  }, [workers, selectedWorker, selectWorker]);
+
   // 统计各状态的任务数量
   const statusStats = useMemo(() => {
     return {
@@ -540,21 +547,57 @@ const Worker = () => {
   return (
     <PageContainer title={t('strategy_task')}>
       <Spin spinning={loading}>
-        {/* 统计卡片 */}
-        {renderStatistics()}
+        {/* 开发中遮盖层 */}
+        <div style={{ position: 'relative' }}>
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(255, 255, 255, 0.6)',
+              backdropFilter: 'blur(1px)',
+              zIndex: 1000,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                padding: '24px 48px',
+                borderRadius: 8,
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                textAlign: 'center',
+                pointerEvents: 'auto',
+              }}
+            >
+              <RobotOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
+              <h3 style={{ margin: '0 0 8px 0', color: '#262626' }}>功能开发中</h3>
+              <p style={{ margin: 0, color: '#8c8c8c' }}>策略任务功能正在开发，敬请期待</p>
+            </div>
+          </div>
 
-        {/* 工具栏 */}
-        {renderToolbar()}
+          {/* 统计卡片 */}
+          {renderStatistics()}
 
-        {/* 主内容区 */}
-        <Row gutter={[16, 16]}>
-          <Col xs={24} lg={8} xl={6}>
-            {renderTaskList()}
-          </Col>
-          <Col xs={24} lg={16} xl={18}>
-            {renderTaskDetail()}
-          </Col>
-        </Row>
+          {/* 工具栏 */}
+          {renderToolbar()}
+
+          {/* 主内容区 */}
+          <Row gutter={[16, 16]}>
+            <Col xs={24} lg={8} xl={6}>
+              {renderTaskList()}
+            </Col>
+            <Col xs={24} lg={16} xl={18}>
+              {renderTaskDetail()}
+            </Col>
+          </Row>
+        </div>
       </Spin>
     </PageContainer>
   );

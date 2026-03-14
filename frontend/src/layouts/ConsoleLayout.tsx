@@ -132,6 +132,7 @@ const ConsoleLayout = () => {
               />
               <AppLocale.LinkButton />
               <Button icon={<IconBrandGithub size="1.25em" stroke="1.25" />} onClick={handleGitHubClick} />
+              <Button icon={<IconSettings size="1.25em" stroke="1.25" />} onClick={() => navigate("/setting")} />
             </div>
           </div>
         </Layout.Header>

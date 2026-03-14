@@ -11,6 +11,7 @@ import {
   Input,
   Descriptions,
   Tooltip,
+  Tag,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -88,6 +89,9 @@ const StrategyEditor = () => {
 
   // AI生成策略状态
   const [aiModalVisible, setAiModalVisible] = useState<boolean>(false);
+
+  // 数据来源状态：'database' 表示来自数据库，'parsed' 表示来自策略解析
+  const [dataSource, setDataSource] = useState<'database' | 'parsed'>('database');
 
   const navigate = useNavigate();
   const params = useParams<{ strategyName?: string }>();
@@ -180,8 +184,9 @@ const StrategyEditor = () => {
   };
 
   // 解析策略
-  const parseStrategy = async (retry = false) => {
-    console.log('[parseStrategy] 开始解析策略, retry:', retry);
+  // force: 是否强制重新解析，忽略缓存
+  const parseStrategy = async (force = false) => {
+    console.log('[parseStrategy] 开始解析策略, force:', force);
     if (!selectedStrategy) {
       console.log('[parseStrategy] 没有选中策略，直接返回');
       return;
@@ -190,14 +195,16 @@ const StrategyEditor = () => {
     const codeHash = generateCodeHash(code);
     console.log('[parseStrategy] codeHash:', codeHash);
     console.log('[parseStrategy] 缓存状态:', parseCache.has(codeHash), '缓存大小:', parseCache.size);
-    
-    if (!retry && parseCache.has(codeHash)) {
+
+    // 如果不是强制解析，检查缓存
+    if (!force && parseCache.has(codeHash)) {
       const cached = parseCache.get(codeHash);
       console.log('[parseStrategy] 找到缓存数据:', cached);
       // 只有当缓存数据有效时才使用缓存
       if (isCacheValid(cached)) {
         console.log('[parseStrategy] 缓存数据有效，使用缓存');
         setParsedStrategy(cached);
+        setDataSource('parsed');
         setParseError(null);
         return;
       }
@@ -221,10 +228,13 @@ const StrategyEditor = () => {
 
       setParsedStrategy(response);
       parseCache.set(codeHash, response);
+      setDataSource('parsed');
       setParseError(null);
+      message.success('策略解析成功');
     } catch (error: any) {
       const errorMsg = error.message || '解析策略失败';
       setParseError(errorMsg);
+      message.error(`策略解析失败: ${errorMsg}`);
     } finally {
       clearTimeout(timeoutId);
       setIsParsing(false);
@@ -234,6 +244,12 @@ const StrategyEditor = () => {
   // 检查是否需要解析策略
   // 当代码发生变化或解析结果为空时，需要重新解析
   const shouldParseStrategy = (): boolean => {
+    // 如果后台已有存储数据（selectedStrategy存在且有参数），直接使用存储数据，不再解析
+    if (selectedStrategy && selectedStrategy.params && selectedStrategy.params.length > 0) {
+      console.log('[shouldParseStrategy] 后台已有存储数据，直接使用，不需要解析');
+      return false;
+    }
+
     // 如果没有解析过，需要解析
     if (!parsedStrategy) {
       console.log('[shouldParseStrategy] 没有解析过，需要解析');
@@ -271,7 +287,49 @@ const StrategyEditor = () => {
       console.log('[handleTabChange] 是否需要解析:', needParse);
       if (needParse) {
         parseStrategy();
+      } else {
+        // 如果不需要解析（使用存储数据），确保数据来源设置为数据库
+        setDataSource('database');
       }
+    }
+  };
+
+  // 处理重新解析按钮点击
+  const handleReparse = () => {
+    Modal.confirm({
+      title: '确认重新解析',
+      content: '重新解析将从当前代码中提取策略信息，覆盖当前预览显示。此操作不会保存到数据库，是否继续？',
+      okText: '重新解析',
+      cancelText: '取消',
+      onOk: () => {
+        parseStrategy(true); // 强制重新解析
+      },
+    });
+  };
+
+  // 切换数据来源
+  const handleSwitchDataSource = () => {
+    if (dataSource === 'database') {
+      // 切换到解析数据
+      if (parsedStrategy) {
+        setDataSource('parsed');
+        message.info('已切换到策略解析数据');
+      } else {
+        // 如果没有解析数据，提示用户先解析
+        Modal.confirm({
+          title: '无解析数据',
+          content: '当前没有策略解析数据，是否立即解析？',
+          okText: '立即解析',
+          cancelText: '取消',
+          onOk: () => {
+            parseStrategy(true);
+          },
+        });
+      }
+    } else {
+      // 切换到数据库数据
+      setDataSource('database');
+      message.info('已切换到数据库存储数据');
     }
   };
 
@@ -561,7 +619,8 @@ class NewStrategy(StrategyBase):
             strategy_name: selectedStrategy.name,
             file_content: code,
             version: selectedStrategy.version,
-            description: selectedStrategy.description
+            description: selectedStrategy.description,
+            params: selectedStrategy.params
           });
 
           message.success('策略保存成功');
@@ -638,10 +697,23 @@ class NewStrategy(StrategyBase):
 
   // 保存策略版本
   const handleSaveVersion = () => {
-    if (selectedStrategy && tempVersion.trim()) {
-      setSelectedStrategy(prev => prev ? { ...prev, version: tempVersion.trim() } : null);
-      setIsEditingVersion(false);
+    const trimmedVersion = tempVersion.trim();
+    if (!trimmedVersion) return;
+
+    // 同时更新 parsedStrategy 和 selectedStrategy
+    if (parsedStrategy) {
+      setParsedStrategy({
+        ...parsedStrategy,
+        version: trimmedVersion
+      });
     }
+    if (selectedStrategy) {
+      setSelectedStrategy({
+        ...selectedStrategy,
+        version: trimmedVersion
+      });
+    }
+    setIsEditingVersion(false);
   };
 
   // 处理临时版本变化
@@ -659,10 +731,20 @@ class NewStrategy(StrategyBase):
 
   // 保存策略描述
   const handleSaveDescription = () => {
-    if (selectedStrategy) {
-      setSelectedStrategy(prev => prev ? { ...prev, description: tempDescription } : null);
-      setIsEditingDescription(false);
+    // 同时更新 parsedStrategy 和 selectedStrategy
+    if (parsedStrategy) {
+      setParsedStrategy({
+        ...parsedStrategy,
+        description: tempDescription
+      });
     }
+    if (selectedStrategy) {
+      setSelectedStrategy({
+        ...selectedStrategy,
+        description: tempDescription
+      });
+    }
+    setIsEditingDescription(false);
   };
 
   // 处理临时描述变化
@@ -847,7 +929,41 @@ class NewStrategy(StrategyBase):
                         </div>
                       ) : (
                         <>
-                          <h3 className="mb-4">{t('strategy_information') || '策略信息'}</h3>
+                          {/* 策略信息头部：标题、数据来源标签、操作按钮 */}
+                          <div className="flex justify-between items-center mb-4">
+                            <h3 className="mb-0">{t('strategy_information') || '策略信息'}</h3>
+                            <Space>
+                              {/* 数据来源标签 */}
+                              <Tooltip title={dataSource === 'database' ? '当前显示数据来自数据库存储' : '当前显示数据来自策略代码解析'}>
+                                <Tag
+                                  color={dataSource === 'database' ? 'blue' : 'green'}
+                                  className="cursor-pointer"
+                                  onClick={handleSwitchDataSource}
+                                >
+                                  {dataSource === 'database' ? '来源: 数据库' : '来源: 策略解析'}
+                                </Tag>
+                              </Tooltip>
+                              {/* 重新解析按钮 */}
+                              <Button
+                                icon={<ReloadOutlined />}
+                                onClick={handleReparse}
+                                loading={isParsing}
+                                size="small"
+                              >
+                                重新解析
+                              </Button>
+                            </Space>
+                          </div>
+
+                          {/* 数据来源提示 */}
+                          <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded text-sm text-gray-600 dark:text-gray-400">
+                            {dataSource === 'database' ? (
+                              <span>当前显示的是数据库存储的策略信息。如需查看最新代码中的信息，请点击"重新解析"。</span>
+                            ) : (
+                              <span>当前显示的是从代码解析的策略信息。如需恢复数据库中的信息，请点击来源标签切换。</span>
+                            )}
+                          </div>
+
                           <Descriptions bordered column={1} className="mb-5">
                             <Descriptions.Item label={t('version') || '版本'}>
                               <div className="min-h-[32px] flex items-center">
@@ -857,16 +973,19 @@ class NewStrategy(StrategyBase):
                                     onChange={handleTempVersionChange}
                                     onPressEnter={handleSaveVersion}
                                     onBlur={handleSaveVersion}
+                                    onFocus={(e) => e.target.select()}
                                     autoFocus
                                     className="w-full"
                                   />
                                 ) : (
-                                  <span 
-                                    onClick={handleStartEditVersion} 
+                                  <span
+                                    onClick={handleStartEditVersion}
                                     className="cursor-pointer hover:text-blue-500 transition-colors block w-full py-1"
                                     title={t('click_to_edit') || '点击编辑'}
                                   >
-                                    {(parsedStrategy || selectedStrategy)?.version || ''}
+                                    {dataSource === 'database'
+                                      ? (selectedStrategy?.version || '')
+                                      : (parsedStrategy?.version || selectedStrategy?.version || '')}
                                   </span>
                                 )}
                               </div>
@@ -879,64 +998,76 @@ class NewStrategy(StrategyBase):
                                     onChange={handleTempDescriptionChange}
                                     onBlur={handleSaveDescription}
                                     onPressEnter={handleSaveDescription}
+                                    onFocus={(e) => e.target.select()}
                                     autoFocus
                                     rows={5}
                                     className="w-full"
                                   />
                                 ) : (
-                                  <span 
-                                    onClick={handleStartEditDescription} 
+                                  <span
+                                    onClick={handleStartEditDescription}
                                     className="cursor-pointer hover:text-blue-500 transition-colors whitespace-pre-wrap block w-full py-1"
                                     title={t('click_to_edit') || '点击编辑描述'}
                                   >
-                                    {(parsedStrategy || selectedStrategy)?.description || t('no_description') || '暂无描述'}
+                                    {dataSource === 'database'
+                                      ? (selectedStrategy?.description || t('no_description') || '暂无描述')
+                                      : (parsedStrategy?.description || selectedStrategy?.description || t('no_description') || '暂无描述')}
                                   </span>
                                 )}
                               </div>
                             </Descriptions.Item>
                             <Descriptions.Item label={t('created_at') || '创建时间'}>
-                              {(parsedStrategy || selectedStrategy) ? new Date((parsedStrategy || selectedStrategy)!.created_at).toLocaleString() : ''}
+                              {selectedStrategy ? new Date(selectedStrategy.created_at).toLocaleString() : ''}
                             </Descriptions.Item>
                             <Descriptions.Item label={t('updated_at') || '更新时间'}>
-                              {(parsedStrategy || selectedStrategy) ? new Date((parsedStrategy || selectedStrategy)!.updated_at).toLocaleString() : ''}
+                              {selectedStrategy ? new Date(selectedStrategy.updated_at).toLocaleString() : ''}
                             </Descriptions.Item>
                           </Descriptions>
 
                           <h3 className="mt-5 mb-4">{t('parameter_list') || '参数列表'}</h3>
-                          {((parsedStrategy || selectedStrategy)?.params && (parsedStrategy || selectedStrategy)!.params.length > 0) ? (
-                            <Descriptions bordered column={1}>
-                              {(parsedStrategy || selectedStrategy)!.params.map((param, index) => (
-                                <Descriptions.Item key={index} label={param.name}>
-                                  <div className="min-h-[80px]">
-                                    {editingParamIndex === index ? (
-                                      <Input.TextArea
-                                        value={editingParamDesc}
-                                        onChange={(e) => setEditingParamDesc(e.target.value)}
-                                        onBlur={() => handleSaveParamDescription(index)}
-                                        onPressEnter={() => handleSaveParamDescription(index)}
-                                        autoFocus
-                                        rows={3}
-                                        className="w-full"
-                                      />
-                                    ) : (
-                                      <p 
-                                        className="cursor-pointer hover:text-blue-500 transition-colors block w-full py-1 mb-2"
-                                        onClick={() => handleStartEditParamDescription(index, param.description || '')}
-                                        title={t('click_to_edit') || '点击编辑描述'}
-                                      >
-                                        {param.description || t('no_description') || '暂无描述'}
-                                      </p>
-                                    )}
-                                    <small>{t('type') || '类型'}: {param.type}, {t('default_value') || '默认值'}: {JSON.stringify(param.default)}</small>
-                                  </div>
-                                </Descriptions.Item>
-                              ))}
-                            </Descriptions>
-                          ) : (
-                            <div className="p-5 text-center text-gray-400">
-                              {t('no_parameters') || '暂无参数'}
-                            </div>
-                          )}
+                          {/* 根据数据来源选择参数列表 */}
+                          {(() => {
+                            // 根据数据来源确定要显示的参数列表
+                            const params = dataSource === 'database'
+                              ? (selectedStrategy?.params || [])
+                              : (parsedStrategy?.params || selectedStrategy?.params || []);
+
+                            return params.length > 0 ? (
+                              <Descriptions bordered column={1}>
+                                {params.map((param, index) => (
+                                  <Descriptions.Item key={index} label={param.name}>
+                                    <div className="min-h-[80px]">
+                                      {editingParamIndex === index ? (
+                                        <Input.TextArea
+                                          value={editingParamDesc}
+                                          onChange={(e) => setEditingParamDesc(e.target.value)}
+                                          onBlur={() => handleSaveParamDescription(index)}
+                                          onPressEnter={() => handleSaveParamDescription(index)}
+                                          onFocus={(e) => e.target.select()}
+                                          autoFocus
+                                          rows={3}
+                                          className="w-full"
+                                        />
+                                      ) : (
+                                        <p
+                                          className="cursor-pointer hover:text-blue-500 transition-colors block w-full py-1 mb-2"
+                                          onClick={() => handleStartEditParamDescription(index, param.description || '')}
+                                          title={t('click_to_edit') || '点击编辑描述'}
+                                        >
+                                          {param.description || t('no_description') || '暂无描述'}
+                                        </p>
+                                      )}
+                                      <small>{t('type') || '类型'}: {param.type}, {t('default_value') || '默认值'}: {JSON.stringify(param.default)}</small>
+                                    </div>
+                                  </Descriptions.Item>
+                                ))}
+                              </Descriptions>
+                            ) : (
+                              <div className="p-5 text-center text-gray-400">
+                                {t('no_parameters') || '暂无参数'}
+                              </div>
+                            );
+                          })()}
                         </>
                       )}
                     </Spin>

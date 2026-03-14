@@ -420,7 +420,7 @@ class StrategyService:
     def get_strategy_detail(self, strategy_name, file_content=None):
         """
         获取单个策略的详细信息
-        
+
         :param strategy_name: 策略名称
         :param file_content: 策略文件内容（可选），如果提供则直接解析
         :return: 策略详细信息，如果获取失败返回None
@@ -434,49 +434,31 @@ class StrategyService:
                     strategy_info["source"] = "content"
                     logger.info(f"通过内容获取策略详情成功: {strategy_name}")
                     return strategy_info
-                
+
                 logger.error(f"解析策略内容失败: {strategy_name}")
                 return None
-            else:
-                # 首先尝试从文件获取
-                strategy_file = self.strategy_dir / f"{strategy_name}.py"
-                if strategy_file.exists():
-                    strategy_info = self._parse_strategy_file(strategy_file)
-                    if strategy_info:
-                        logger.info(f"从文件获取策略详情成功: {strategy_name}")
-                        return strategy_info
-                    
-                    logger.error(f"解析策略文件失败: {strategy_file}")
-                
-                # 如果文件不存在或解析失败，尝试从数据库获取
+
+            # 1. 首先尝试从数据库获取
+            try:
+                from collector.db.database import SessionLocal, init_database_config
+                from collector.db.models import Strategy
+                import json
+
+                init_database_config()
+                db = SessionLocal()
                 try:
-                    from collector.db.database import SessionLocal, init_database_config
-                    from collector.db.models import Strategy
-                    import json
-                    
-                    init_database_config()
-                    db = SessionLocal()
-                    try:
-                        # 查询策略
-                        strategy = db.query(Strategy).filter_by(name=strategy_name).first()
-                        if strategy:
-                            logger.info(f"从数据库获取策略详情: {strategy_name}")
-                            # 使用数据库中的内容解析策略
-                            if strategy.content:
-                                strategy_info = self._parse_strategy_content(strategy.content, strategy_name)
-                                if strategy_info:
-                                    # 使用数据库中的版本值覆盖解析结果中的版本值
-                                    strategy_info["version"] = strategy.version or "1.0.0"
-                                    # 使用数据库中的创建时间和更新时间
-                                    strategy_info["created_at"] = strategy.created_at
-                                    strategy_info["updated_at"] = strategy.updated_at
-                                    # 设置来源为db
-                                    strategy_info["source"] = "db"
-                                    logger.info(f"通过数据库内容获取策略详情成功: {strategy_name}")
-                                    return strategy_info
-                                
-                            # 如果解析失败，构建基本策略信息
-                            logger.info(f"构建基本策略信息: {strategy_name}")
+                    # 查询策略
+                    strategy = db.query(Strategy).filter_by(name=strategy_name).first()
+                    if strategy:
+                        logger.info(f"从数据库获取策略详情: {strategy_name}")
+
+                        # 检查数据库中是否已有描述或参数信息（之前解析并保存过）
+                        has_description = strategy.description and strategy.description.strip()
+                        has_params = strategy.parameters and strategy.parameters.strip() and strategy.parameters != "[]"
+
+                        if has_description or has_params:
+                            # 数据库中已有描述或参数信息，直接使用数据库数据，不再解析
+                            logger.info(f"数据库中已有策略信息，直接使用: {strategy_name}, has_description={bool(has_description)}, has_params={bool(has_params)}")
                             return {
                                 "name": strategy.name,
                                 "file_name": strategy.filename,
@@ -489,14 +471,74 @@ class StrategyService:
                                 "code": strategy.content or "",
                                 "source": "db"
                             }
-                    finally:
-                        db.close()
-                except Exception as db_e:
-                    logger.error(f"从数据库获取策略详情失败: {db_e}")
-                    logger.exception(db_e)
-                
-                logger.error(f"获取策略详情失败: {strategy_name}")
-                return None
+
+                        # 数据库中没有描述或参数信息，尝试解析策略内容
+                        if strategy.content:
+                            strategy_info = self._parse_strategy_content(strategy.content, strategy_name)
+                            if strategy_info:
+                                # 使用数据库中的版本值覆盖解析结果中的版本值
+                                strategy_info["version"] = strategy.version or "1.0.0"
+                                # 使用数据库中的创建时间和更新时间
+                                strategy_info["created_at"] = strategy.created_at
+                                strategy_info["updated_at"] = strategy.updated_at
+                                # 设置来源为db
+                                strategy_info["source"] = "db"
+                                logger.info(f"通过数据库内容解析策略详情成功: {strategy_name}")
+                                return strategy_info
+
+                        # 如果解析失败或没有内容，构建基本策略信息
+                        logger.info(f"构建基本策略信息: {strategy_name}")
+                        return {
+                            "name": strategy.name,
+                            "file_name": strategy.filename,
+                            "file_path": str(self.strategy_dir / strategy.filename),
+                            "description": strategy.description or "",
+                            "version": strategy.version or "1.0.0",
+                            "params": json.loads(strategy.parameters) if strategy.parameters else [],
+                            "created_at": strategy.created_at,
+                            "updated_at": strategy.updated_at,
+                            "code": strategy.content or "",
+                            "source": "db"
+                        }
+                finally:
+                    db.close()
+            except Exception as db_e:
+                logger.error(f"从数据库获取策略详情失败: {db_e}")
+                logger.exception(db_e)
+
+            # 2. 数据库没有，则读取文件并解析（只解析，不存库）
+            logger.info(f"数据库中没有策略，尝试从文件读取: {strategy_name}")
+            strategy_file = self.strategy_dir / f"{strategy_name}.py"
+            if strategy_file.exists():
+                try:
+                    # 读取文件内容
+                    with open(strategy_file, "r", encoding="utf-8") as f:
+                        file_content = f.read()
+
+                    # 解析文件内容
+                    strategy_info = self._parse_strategy_content(file_content, strategy_name)
+                    if strategy_info:
+                        # 添加文件路径和来源
+                        strategy_info["file_path"] = str(strategy_file)
+                        strategy_info["source"] = "file"
+                        strategy_info["code"] = file_content
+                        # 添加默认时间戳
+                        from datetime import datetime
+                        now = datetime.now()
+                        strategy_info["created_at"] = now
+                        strategy_info["updated_at"] = now
+                        logger.info(f"从文件解析策略详情成功: {strategy_name}")
+                        return strategy_info
+
+                    logger.error(f"解析策略文件失败: {strategy_file}")
+                except Exception as file_e:
+                    logger.error(f"读取或解析策略文件失败: {file_e}")
+                    logger.exception(file_e)
+            else:
+                logger.error(f"策略文件不存在: {strategy_file}")
+
+            logger.error(f"获取策略详情失败: {strategy_name}")
+            return None
         except Exception as e:
             logger.error(f"获取策略详情失败: {e}")
             logger.exception(e)
@@ -1046,16 +1088,17 @@ class StrategyService:
             logger.exception(e)
             return False
     
-    def upload_strategy_file(self, strategy_name: str, file_content: str, version: Optional[str] = None, description: Optional[str] = None, tags: Optional[List[str]] = None, id: Optional[int] = None) -> bool:
+    def upload_strategy_file(self, strategy_name: str, file_content: str, version: Optional[str] = None, description: Optional[str] = None, tags: Optional[List[str]] = None, id: Optional[int] = None, params: Optional[List[Dict]] = None) -> bool:
         """
         上传策略文件
-        
+
         :param strategy_name: 策略名称
         :param file_content: 文件内容
         :param version: 策略版本（可选），如果提供则使用，否则从文件内容中提取
         :param description: 策略描述（可选），如果提供则使用，否则从文件内容中提取
         :param tags: 策略标签（可选）
         :param id: 策略ID（可选），如果提供则更新现有策略，否则根据策略名称判断
+        :param params: 策略参数列表（可选），如果提供则优先使用
         :return: 是否上传成功
         """
         try:
@@ -1093,25 +1136,32 @@ class StrategyService:
                     "description": description or "",
                     "version": version or "1.0.0",
                     "tags": tags or [],
-                    "params": []
+                    "params": params or []  # 如果传入了params，优先使用
                 }
-                
-                # 尝试解析策略内容，提取策略信息
-                try:
-                    parsed_info = self._parse_strategy_content(file_content, strategy_name)
-                    if parsed_info:
-                        strategy_info["description"] = description or parsed_info["description"]
-                        strategy_info["params"] = parsed_info["params"]
-                        # 如果没有提供tags，保留默认空列表；如果提供了tags，使用提供的
-                        if not tags and "tags" in parsed_info:
-                             strategy_info["tags"] = parsed_info["tags"]
-                        logger.info(f"策略解析成功，使用解析的信息")
-                    else:
-                        logger.info(f"策略解析失败，使用默认信息")
-                except Exception as parse_e:
-                    logger.error(f"解析策略内容失败: {parse_e}")
-                    logger.exception(parse_e)
-                
+
+                # 如果没有传入params，尝试解析策略内容提取参数
+                if not params:
+                    try:
+                        parsed_info = self._parse_strategy_content(file_content, strategy_name)
+                        if parsed_info:
+                            # 只有当 description 为 None 时才使用解析的描述，空字符串应该被保留
+                            if description is None:
+                                strategy_info["description"] = parsed_info["description"]
+                            else:
+                                strategy_info["description"] = description
+                            strategy_info["params"] = parsed_info["params"]
+                            # 如果没有提供tags，保留默认空列表；如果提供了tags，使用提供的
+                            if not tags and "tags" in parsed_info:
+                                 strategy_info["tags"] = parsed_info["tags"]
+                            logger.info(f"策略解析成功，使用解析的信息")
+                        else:
+                            logger.info(f"策略解析失败，使用默认信息")
+                    except Exception as parse_e:
+                        logger.error(f"解析策略内容失败: {parse_e}")
+                        logger.exception(parse_e)
+                else:
+                    logger.info(f"使用传入的参数列表，跳过解析: {params}")
+
                 # 准备参数JSON
                 params_json = json.dumps(strategy_info["params"]) if strategy_info["params"] else None
                 tags_json = json.dumps(strategy_info["tags"]) if strategy_info["tags"] else None
