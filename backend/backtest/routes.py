@@ -47,8 +47,10 @@ from .schemas import (
     DataIntegrityCheckResponse,
     DataDownloadResponse,
     StrategyConfigRequest,
+    BacktestProgressResponse,
 )
 from .service import BacktestService
+from .progress_tracker import get_progress_tracker, StageStatus
 
 # 创建回测服务实例
 backtest_service = BacktestService()
@@ -137,47 +139,107 @@ def get_strategy_list() -> ApiResponse:
     "/run",
     response_model=ApiResponse,
     summary="执行回测",
-    description="根据策略配置和回测配置执行回测，返回回测结果",
+    description="根据策略配置和回测配置创建回测任务，异步执行并立即返回任务ID",
     responses={
-        200: {"description": "回测执行成功"},
-        500: {"description": "回测执行失败"},
+        200: {"description": "回测任务创建成功"},
+        500: {"description": "回测任务创建失败"},
     }
 )
 def run_backtest(request: BacktestRunRequest) -> ApiResponse:
     """
-    执行回测
+    创建回测任务并异步执行
+
+    创建回测任务后立即返回任务ID，后端在后台线程中异步执行回测。
+    前端可以通过 /api/backtest/progress/{task_id} 接口轮询获取进度。
 
     Args:
         request: 回测执行请求参数，包含策略配置和回测配置
 
     Returns:
-        ApiResponse: API响应，包含回测结果
+        ApiResponse: API响应，包含任务ID和初始状态
     """
+    import threading
+    import uuid
+    from datetime import datetime, timezone
+    from collector.db.database import SessionLocal, init_database_config
+    from collector.db.models import BacktestTask
+    import json
+
     try:
-        logger.info(f"执行回测请求，参数: {request.model_dump()}")
+        logger.info(f"创建回测任务请求，参数: {request.model_dump()}")
 
-        # 执行回测
-        result = backtest_service.run_backtest(
-            strategy_config=request.strategy_config.model_dump(),
-            backtest_config=request.backtest_config.model_dump()
-        )
+        # 生成任务ID
+        task_id = str(uuid.uuid4())
 
-        logger.info(f"回测执行完成，结果: {result}")
+        # 初始化数据库连接
+        init_database_config()
+        db = SessionLocal()
 
-        if result.get("status") == "failed":
-            return ApiResponse(
-                code=1,
-                message=result.get("message", "回测执行失败"),
-                data=result
+        try:
+            # 创建回测任务记录
+            task = BacktestTask(
+                id=task_id,
+                strategy_name=request.strategy_config.strategy_name,
+                backtest_config=json.dumps(request.backtest_config.model_dump()),
+                status="pending",
+                started_at=datetime.now(timezone.utc)
+            )
+            db.add(task)
+            db.commit()
+
+            logger.info(f"回测任务已创建: {task_id}")
+
+            # 创建进度记录
+            progress_tracker = get_progress_tracker()
+            progress_tracker.create_progress(task_id)
+            progress_tracker.update_progress(
+                task_id,
+                "overall",
+                {
+                    "status": "running"
+                }
             )
 
-        return ApiResponse(
-            code=0,
-            message="回测执行成功",
-            data=result
-        )
+            # 在后台线程中异步执行回测
+            def run_backtest_async():
+                try:
+                    result = backtest_service.run_backtest(
+                        strategy_config=request.strategy_config.model_dump(),
+                        backtest_config=request.backtest_config.model_dump(),
+                        task_id=task_id  # 传递已有的 task_id
+                    )
+                    logger.info(f"回测任务 {task_id} 执行完成: {result.get('status')}")
+                except Exception as e:
+                    logger.error(f"回测任务 {task_id} 执行失败: {e}")
+                    # 更新进度为失败状态
+                    progress_tracker.fail_progress(
+                        task_id,
+                        f"回测执行失败: {str(e)}",
+                        "execution"
+                    )
+
+            # 启动后台线程
+            thread = threading.Thread(target=run_backtest_async, daemon=True)
+            thread.start()
+
+            logger.info(f"回测任务 {task_id} 已在后台启动")
+
+            # 立即返回任务ID
+            return ApiResponse(
+                code=0,
+                message="回测任务已创建",
+                data={
+                    "task_id": task_id,
+                    "status": "pending",
+                    "message": "回测任务已创建并开始执行，请通过进度接口查询状态"
+                }
+            )
+
+        finally:
+            db.close()
+
     except Exception as e:
-        logger.error(f"回测执行失败: {e}")
+        logger.error(f"创建回测任务失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -651,4 +713,86 @@ def download_missing_data(request: DataIntegrityCheckRequest) -> DataDownloadRes
         )
     except Exception as e:
         logger.error(f"数据下载失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/progress/{task_id}",
+    response_model=BacktestProgressResponse,
+    summary="获取回测任务进度",
+    description="获取指定回测任务的实时进度信息",
+    responses={
+        200: {"description": "获取进度成功"},
+        404: {"description": "任务不存在"},
+        500: {"description": "获取进度失败"},
+    }
+)
+def get_backtest_progress(task_id: str) -> BacktestProgressResponse:
+    """
+    获取回测任务进度
+
+    Args:
+        task_id: 回测任务ID
+
+    Returns:
+        BacktestProgressResponse: 回测进度数据
+    """
+    try:
+        logger.debug(f"获取回测任务进度: {task_id}")
+
+        # 获取进度跟踪器
+        tracker = get_progress_tracker()
+        progress = tracker.get_progress(task_id)
+
+        if not progress:
+            return BacktestProgressResponse(
+                code=1,
+                message=f"任务不存在: {task_id}",
+                data=None
+            )
+
+        # 转换为响应格式
+        response_data = {
+            "task_id": progress.task_id,
+            "status": progress.status.value if isinstance(progress.status, StageStatus) else progress.status,
+            "current_stage": progress.current_stage.value if hasattr(progress.current_stage, 'value') else progress.current_stage,
+            "overall_progress": progress.overall_progress,
+            "data_prep": {
+                "status": progress.data_prep.status.value if isinstance(progress.data_prep.status, StageStatus) else progress.data_prep.status,
+                "progress": progress.data_prep.progress,
+                "current_step": progress.data_prep.current_step.value if hasattr(progress.data_prep.current_step, 'value') else progress.data_prep.current_step,
+                "checked_symbols": progress.data_prep.checked_symbols,
+                "total_symbols": progress.data_prep.total_symbols,
+                "downloading": progress.data_prep.downloading,
+                "message": progress.data_prep.message
+            },
+            "execution": {
+                "status": progress.execution.status.value if isinstance(progress.execution.status, StageStatus) else progress.execution.status,
+                "progress": progress.execution.progress,
+                "current_symbol": progress.execution.current_symbol,
+                "completed_symbols": progress.execution.completed_symbols,
+                "total_symbols": progress.execution.total_symbols,
+                "message": progress.execution.message
+            },
+            "analysis": {
+                "status": progress.analysis.status.value if isinstance(progress.analysis.status, StageStatus) else progress.analysis.status,
+                "progress": progress.analysis.progress,
+                "message": progress.analysis.message
+            },
+            "error": {
+                "stage": progress.error.stage,
+                "message": progress.error.message
+            } if progress.error else None,
+            "created_at": progress.created_at,
+            "updated_at": progress.updated_at
+        }
+
+        return BacktestProgressResponse(
+            code=0,
+            message="获取进度成功",
+            data=response_data
+        )
+
+    except Exception as e:
+        logger.error(f"获取回测任务进度失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

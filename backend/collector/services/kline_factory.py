@@ -210,7 +210,33 @@ class BaseKlineFetcher(KlineDataFetcher):
             
             return kline_data
         except Exception as e:
-            logger.error(f"从ccxt获取K线数据失败: symbol={symbol}, interval={interval}, error={e}")
+            import traceback
+            error_type = type(e).__name__
+            error_msg = str(e)
+            stack_trace = traceback.format_exc()
+            
+            logger.error(f"从ccxt获取K线数据失败: symbol={symbol}, interval={interval}")
+            logger.error(f"错误类型: {error_type}")
+            logger.error(f"错误信息: {error_msg}")
+            logger.error(f"堆栈跟踪:\n{stack_trace}")
+            
+            # 输出代理配置信息
+            if proxy_config:
+                logger.info(f"代理配置: enabled={proxy_config.get('enabled', False)}, "
+                           f"url={proxy_config.get('url', '未设置')}, "
+                           f"username={'已设置' if proxy_config.get('username') else '未设置'}, "
+                           f"password={'已设置' if proxy_config.get('password') else '未设置'}")
+            else:
+                logger.info("代理配置: 未提供")
+            
+            # 检查是否是网络相关错误
+            if "exchangeInfo" in error_msg or "Network" in error_type:
+                logger.error("可能是网络连接问题或Binance API访问受限，请检查代理配置")
+                if proxy_config and not proxy_config.get('enabled', False):
+                    logger.error("代理未启用，建议启用代理或检查网络连接")
+                elif not proxy_config or not proxy_config.get('url'):
+                    logger.error("代理未配置，建议配置代理以访问Binance API")
+            
             return []
     
     def _fetch_from_database(
@@ -424,14 +450,38 @@ class CryptoSpotKlineFetcher(BaseKlineFetcher):
                 logger.warning(f"数据库数据已过期，尝试从ccxt获取最新数据: symbol={symbol}, interval={interval}")
 
             # 获取系统配置中的代理信息
+            # 新的配置格式: exchange.{交易商}.proxy_enabled 等
             from utils.config_manager import load_system_configs
             configs = load_system_configs()
+            
+            # 从symbol中提取交易所ID (如 BTCUSDT -> binance)
+            # 默认使用binance
+            exchange_id = "binance"
+            
+            # 构建配置键
+            proxy_enabled_key = f"exchange.{exchange_id}.proxy_enabled"
+            proxy_url_key = f"exchange.{exchange_id}.proxy_url"
+            proxy_username_key = f"exchange.{exchange_id}.proxy_username"
+            proxy_password_key = f"exchange.{exchange_id}.proxy_password"
+            
+            # 读取配置，proxy_enabled为"1"表示启用
+            proxy_enabled = configs.get(proxy_enabled_key) in ("1", "true", True)
+            proxy_url = configs.get(proxy_url_key)
+            proxy_username = configs.get(proxy_username_key)
+            proxy_password = configs.get(proxy_password_key)
+            
             proxy_config = {
-                "enabled": configs.get("proxy_enabled", False),
-                "url": configs.get("proxy_url", None),
-                "username": configs.get("proxy_username", None),
-                "password": configs.get("proxy_password", None)
+                "enabled": proxy_enabled,
+                "url": proxy_url,
+                "username": proxy_username,
+                "password": proxy_password
             }
+            
+            # 输出代理配置信息
+            logger.info(f"当前代理配置 (交易所: {exchange_id}): enabled={proxy_config['enabled']}, "
+                       f"url={proxy_config['url'] or '未设置'}, "
+                       f"username={'已设置' if proxy_config['username'] else '未设置'}, "
+                       f"password={'已设置' if proxy_config['password'] else '未设置'}")
 
             # 从ccxt获取K线数据
             ccxt_data = self._fetch_from_ccxt(symbol, interval, limit, proxy_config)

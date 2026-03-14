@@ -518,3 +518,105 @@ class DataDownloadResponse(ApiResponse):
     """
 
     data: Optional[DataDownloadProgress] = Field(default=None, description="下载进度信息")
+
+
+# ==================== 回测进度相关模型 ====================
+
+class BacktestProgressStage(BaseSchema):
+    """
+    回测进度阶段模型
+
+    Attributes:
+        status: 阶段状态 (pending, running, completed, failed)
+        progress: 进度百分比 (0-100)
+        message: 状态消息
+    """
+
+    status: str = Field(default="pending", description="阶段状态")
+    progress: float = Field(default=0.0, ge=0.0, le=100.0, description="进度百分比")
+    message: Optional[str] = Field(default=None, description="状态消息")
+
+
+class DataPrepProgressDetail(BacktestProgressStage):
+    """
+    数据准备阶段详细进度模型
+
+    Attributes:
+        current_step: 当前步骤 (checking, downloading, loading)
+        checked_symbols: 已检查货币对数量
+        total_symbols: 总货币对数量
+        downloading: 下载进度信息
+    """
+
+    current_step: str = Field(default="checking", description="当前步骤")
+    checked_symbols: int = Field(default=0, ge=0, description="已检查货币对数量")
+    total_symbols: int = Field(default=0, ge=0, description="总货币对数量")
+    downloading: Optional[Dict[str, Any]] = Field(default=None, description="下载进度信息")
+
+
+class ExecutionProgressDetail(BacktestProgressStage):
+    """
+    执行阶段详细进度模型
+
+    Attributes:
+        current_symbol: 当前处理的货币对
+        completed_symbols: 已完成货币对数量
+        total_symbols: 总货币对数量
+    """
+
+    current_symbol: str = Field(default="", description="当前处理的货币对")
+    completed_symbols: int = Field(default=0, ge=0, description="已完成货币对数量")
+    total_symbols: int = Field(default=0, ge=0, description="总货币对数量")
+
+
+class ErrorInfoDetail(BaseSchema):
+    """
+    错误信息详细模型
+
+    Attributes:
+        stage: 发生错误的阶段
+        message: 错误消息
+    """
+
+    stage: str = Field(..., description="发生错误的阶段")
+    message: str = Field(..., description="错误消息")
+
+
+class BacktestProgressData(BaseSchema):
+    """
+    回测进度数据模型
+
+    Attributes:
+        task_id: 任务ID
+        status: 任务状态 (pending, running, completed, failed)
+        current_stage: 当前阶段 (data_prep, execution, analysis, completed)
+        overall_progress: 总体进度百分比
+        data_prep: 数据准备阶段进度
+        execution: 执行阶段进度
+        analysis: 结果统计阶段进度
+        error: 错误信息
+        created_at: 创建时间
+        updated_at: 更新时间
+    """
+
+    task_id: str = Field(..., description="任务ID")
+    status: str = Field(default="pending", description="任务状态")
+    current_stage: str = Field(default="data_prep", description="当前阶段")
+    overall_progress: float = Field(default=0.0, ge=0.0, le=100.0, description="总体进度百分比")
+    data_prep: DataPrepProgressDetail = Field(default_factory=DataPrepProgressDetail, description="数据准备阶段进度")
+    execution: ExecutionProgressDetail = Field(default_factory=ExecutionProgressDetail, description="执行阶段进度")
+    analysis: BacktestProgressStage = Field(default_factory=BacktestProgressStage, description="结果统计阶段进度")
+    error: Optional[ErrorInfoDetail] = Field(default=None, description="错误信息")
+    created_at: str = Field(default="", description="创建时间")
+    updated_at: str = Field(default="", description="更新时间")
+
+
+class BacktestProgressResponse(ApiResponse):
+    """
+    回测进度查询响应模型
+
+    Attributes:
+        data: 回测进度数据
+    """
+
+    data: Optional[BacktestProgressData] = Field(default=None, description="回测进度数据")

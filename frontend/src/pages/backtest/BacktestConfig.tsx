@@ -29,7 +29,8 @@ import { PlusOutlined, UploadOutlined, InfoCircleOutlined, EyeOutlined } from '@
 import { backtestApi, configApi, strategyApi, dataApi } from '../../api';
 import BacktestProgressModal from '../../components/BacktestProgressModal';
 import type { StepStatusState, ProgressData } from '../../components/BacktestProgressModal';
-import type { Strategy, StrategyParam } from '../../types/backtest';
+import type { Strategy, StrategyParam, BacktestProgressData } from '../../types/backtest';
+import { pollBacktestProgress } from '../../api/backtest';
 import PageContainer from '@/components/PageContainer';
 
 const { RangePicker } = DatePicker;
@@ -75,10 +76,12 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const [progressData, setProgressData] = useState<ProgressData>({
     overall: 0,
   });
+  const [, setBacktestProgressData] = useState<BacktestProgressData | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [currentTaskId, setCurrentTaskId] = useState<string>('');
   const [isBacktestRunning, setIsBacktestRunning] = useState<boolean>(false);
   const abortControllerRef = React.useRef<AbortController | null>(null);
+  const stopPollingRef = React.useRef<(() => void) | null>(null);
 
   const [symbolOptions, setSymbolOptions] = useState<Array<{ value: string; label: string; type: string; symbols?: string[] }>>([]);
   const [symbolOptionsLoading, setSymbolOptionsLoading] = useState(false);
@@ -236,6 +239,14 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     loadStrategies();
     loadSystemConfig();
     fetchSymbolOptions();
+
+    // 组件卸载时清理资源
+    return () => {
+      stopProgressPolling();
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
   // 处理从策略管理页面传递过来的策略信息
@@ -374,72 +385,164 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     return <Input />;
   };
 
-  const simulateBacktestProgress = async (symbols: string[]) => {
-    setCurrentStep(0);
-    setStepStatus({ dataPrep: 'process', execution: 'wait', analysis: 'wait' });
-    setProgressData({ overall: 5, dataPrep: { percent: 0 } });
+  /**
+   * 处理后端返回的进度数据，更新前端状态
+   */
+  const handleProgressUpdate = (data: BacktestProgressData) => {
+    setBacktestProgressData(data);
 
-    for (let i = 0; i <= 100; i += 20) {
-      await new Promise(resolve => setTimeout(resolve, 200));
-      setProgressData(prev => ({
-        ...prev,
-        overall: 5 + i * 0.15,
-        dataPrep: { percent: i },
-      }));
-    }
+    // 检查是否有错误（包括初始化阶段错误）
+    if (data.error) {
+      setErrorMessage(data.error.message);
+      message.error(data.error.message);
 
-    setProgressData(prev => ({
-      ...prev,
-      dataPrep: { percent: 100, downloading: true, downloadProgress: 0 },
-    }));
+      // 如果是初始化阶段错误，停止轮询并更新状态
+      if (data.error.stage === 'initialization' || data.error.stage === 'polling') {
+        stopProgressPolling();
+        setIsBacktestRunning(false);
+        setLoading(false);
 
-    for (let i = 0; i <= 100; i += 10) {
-      await new Promise(resolve => setTimeout(resolve, 300));
-      setProgressData(prev => ({
-        ...prev,
-        overall: 20 + i * 0.15,
-        dataPrep: { percent: 100, downloading: true, downloadProgress: i },
-      }));
-    }
-
-    setStepStatus({ dataPrep: 'finish', execution: 'wait', analysis: 'wait' });
-
-    await new Promise(resolve => setTimeout(resolve, 500));
-    setCurrentStep(1);
-    setStepStatus({ dataPrep: 'finish', execution: 'process', analysis: 'wait' });
-
-    for (let i = 0; i < symbols.length; i++) {
-      const symbol = symbols[i];
-      for (let progress = 0; progress <= 100; progress += 25) {
-        await new Promise(resolve => setTimeout(resolve, 200));
-        setProgressData({
-          overall: 35 + ((i * 100 + progress) / symbols.length) * 0.4,
-          execution: {
-            percent: progress,
-            current: i + 1,
-            total: symbols.length,
-            currentSymbol: symbol,
-          },
+        // 更新步骤状态为错误
+        setStepStatus({
+          dataPrep: 'error',
+          execution: 'error',
+          analysis: 'error',
         });
+        return;
       }
     }
 
-    setStepStatus({ dataPrep: 'finish', execution: 'finish', analysis: 'wait' });
-
-    await new Promise(resolve => setTimeout(resolve, 500));
-    setCurrentStep(2);
-    setStepStatus({ dataPrep: 'finish', execution: 'finish', analysis: 'process' });
-
-    for (let i = 0; i <= 100; i += 25) {
-      await new Promise(resolve => setTimeout(resolve, 200));
-      setProgressData(prev => ({
-        ...prev,
-        overall: 75 + i * 0.25,
-      }));
+    // 检查任务状态
+    if (data.status === 'failed') {
+      stopProgressPolling();
+      setIsBacktestRunning(false);
+      setLoading(false);
+      
+      // 更新步骤状态为错误
+      setStepStatus({
+        dataPrep: data.data_prep?.status === 'failed' ? 'error' : 'finish',
+        execution: data.execution?.status === 'failed' ? 'error' : 'finish',
+        analysis: data.analysis?.status === 'failed' ? 'error' : 'finish',
+      });
+      
+      // 显示错误消息
+      if (data.error) {
+        message.error(data.error.message);
+      } else {
+        message.error('回测执行失败');
+      }
+      
+      return; // 立即返回，不再执行后续代码
+    }
+    
+    // 检查任务是否完成
+    if (data.status === 'completed') {
+      stopProgressPolling();
+      setIsBacktestRunning(false);
+      setLoading(false);
+      message.success('回测执行成功！');
+      return; // 立即返回，不再执行后续代码
     }
 
-    setStepStatus({ dataPrep: 'finish', execution: 'finish', analysis: 'finish' });
-    setProgressData({ overall: 100 });
+    // 更新总体进度
+    setProgressData({
+      overall: data.overall_progress,
+      dataPrep: data.data_prep ? {
+        percent: data.data_prep.progress,
+        downloading: data.data_prep.current_step === 'downloading',
+        downloadProgress: data.data_prep.downloading?.progress,
+      } : undefined,
+      execution: data.execution ? {
+        percent: data.execution.progress,
+        current: data.execution.completed_symbols,
+        total: data.execution.total_symbols,
+        currentSymbol: data.execution.current_symbol,
+      } : undefined,
+    });
+
+    // 更新步骤状态
+    const newStepStatus: StepStatusState = {
+      dataPrep: 'wait',
+      execution: 'wait',
+      analysis: 'wait',
+    };
+
+    // 数据准备阶段状态
+    if (data.data_prep) {
+      if (data.data_prep.status === 'completed') {
+        newStepStatus.dataPrep = 'finish';
+      } else if (data.data_prep.status === 'running') {
+        newStepStatus.dataPrep = 'process';
+      } else if (data.data_prep.status === 'failed') {
+        newStepStatus.dataPrep = 'error';
+      }
+    }
+
+    // 执行阶段状态
+    if (data.execution) {
+      if (data.execution.status === 'completed') {
+        newStepStatus.execution = 'finish';
+      } else if (data.execution.status === 'running') {
+        newStepStatus.execution = 'process';
+      } else if (data.execution.status === 'failed') {
+        newStepStatus.execution = 'error';
+      }
+    }
+
+    // 结果统计阶段状态
+    if (data.analysis) {
+      if (data.analysis.status === 'completed') {
+        newStepStatus.analysis = 'finish';
+      } else if (data.analysis.status === 'running') {
+        newStepStatus.analysis = 'process';
+      } else if (data.analysis.status === 'failed') {
+        newStepStatus.analysis = 'error';
+      }
+    }
+
+    setStepStatus(newStepStatus);
+
+    // 更新当前步骤
+    if (data.current_stage === 'data_prep') {
+      setCurrentStep(0);
+    } else if (data.current_stage === 'execution') {
+      setCurrentStep(1);
+    } else if (data.current_stage === 'analysis' || data.current_stage === 'completed') {
+      setCurrentStep(2);
+    }
+  };
+
+  /**
+   * 开始轮询获取回测进度
+   */
+  const startProgressPolling = (taskId: string) => {
+    // 停止之前的轮询
+    if (stopPollingRef.current) {
+      stopPollingRef.current();
+    }
+
+    // 重置状态
+    setCurrentStep(0);
+    setStepStatus({ dataPrep: 'process', execution: 'wait', analysis: 'wait' });
+    setProgressData({ overall: 0 });
+
+    // 开始新的轮询
+    stopPollingRef.current = pollBacktestProgress(taskId, handleProgressUpdate, {
+      initialInterval: 500,
+      maxInterval: 5000,
+      maxRetries: 60,
+      timeout: 300000
+    });
+  };
+
+  /**
+   * 停止轮询
+   */
+  const stopProgressPolling = () => {
+    if (stopPollingRef.current) {
+      stopPollingRef.current();
+      stopPollingRef.current = null;
+    }
   };
 
   const handleSubmit = async (values: any) => {
@@ -515,34 +618,73 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       };
 
       setIsBacktestRunning(true);
-
-      const taskId = `bt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      setCurrentTaskId(taskId);
+      setErrorMessage('');
 
       abortControllerRef.current = new AbortController();
 
-      const progressPromise = simulateBacktestProgress(symbols);
+      // 添加启动超时机制（30秒）
+      const startTimeout = setTimeout(() => {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          message.error('回测启动超时，请检查网络连接或代理配置');
+          setErrorMessage('回测启动超时，请检查网络连接或代理配置');
+          setStepStatus(prev => ({ ...prev, dataPrep: 'error' }));
+          setIsBacktestRunning(false);
+          setLoading(false);
+        }
+      }, 30000);
 
       try {
-        const backtestPromise = backtestApi.runBacktest(backtestData, abortControllerRef.current.signal);
+        // 先启动回测，获取 task_id
+        const backtestResult = await backtestApi.runBacktest(backtestData, abortControllerRef.current.signal);
 
-        const [_, backtestResult] = await Promise.all([progressPromise, backtestPromise]);
+        // 清除启动超时
+        clearTimeout(startTimeout);
 
         console.log('[BacktestConfig] 回测结果:', backtestResult);
 
-        // 从后端返回结果中获取 task_id
-        const serverTaskId = backtestResult?.data?.task_id || backtestResult?.task_id;
-        if (serverTaskId) {
-          console.log('[BacktestConfig] 使用后端返回的 task_id:', serverTaskId);
-          setCurrentTaskId(serverTaskId);
+        // 检查回测是否启动成功
+        if (backtestResult?.status === 'failed') {
+          const errorMsg = backtestResult.message || '回测启动失败';
+          console.error('[BacktestConfig] 回测启动失败:', errorMsg);
+          message.error(errorMsg);
+          setErrorMessage(errorMsg);
+          setStepStatus(prev => ({ ...prev, dataPrep: 'error' }));
+          setIsBacktestRunning(false);
+          setLoading(false);
+          return;
         }
 
-        message.success('回测已成功完成！');
+        // 从后端返回结果中获取 task_id
+        const serverTaskId = backtestResult?.data?.task_id || backtestResult?.task_id;
 
-        // 回测完成后不自动关闭弹窗，让用户点击"查看结果"按钮
-        setIsBacktestRunning(false);
-        abortControllerRef.current = null;
+        if (!serverTaskId) {
+          console.error('[BacktestConfig] 后端未返回 task_id');
+          message.error('回测启动失败：未获取到任务ID');
+          setErrorMessage('回测启动失败：未获取到任务ID');
+          setStepStatus(prev => ({ ...prev, dataPrep: 'error' }));
+          setIsBacktestRunning(false);
+          setLoading(false);
+          return;
+        }
+
+        console.log('[BacktestConfig] 使用后端返回的 task_id:', serverTaskId);
+        setCurrentTaskId(serverTaskId);
+
+        // 立即显示进度弹窗
+        setProgressVisible(true);
+
+        // 延迟开始轮询，给后端一些初始化时间
+        setTimeout(() => {
+          startProgressPolling(serverTaskId);
+        }, 500);
+
+        // 注意：不再立即显示成功消息，而是等待轮询完成
+        // message.success('回测任务已创建，正在执行中...');
       } catch (error: any) {
+        // 清除启动超时
+        clearTimeout(startTimeout);
+
         if (error.name === 'AbortError' || error.message?.includes('aborted')) {
           console.log('回测已被用户终止');
           setErrorMessage('回测已终止');
@@ -554,7 +696,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           message.info('回测已终止');
         } else {
           console.error('执行回测失败:', error);
-          setErrorMessage(error.message || '执行回测失败');
+          const errorMsg = error.message || '执行回测失败';
+          setErrorMessage(errorMsg);
 
           setStepStatus(prev => {
             const newStatus = { ...prev };
@@ -564,11 +707,13 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
             return newStatus;
           });
 
-          message.error(error.message || '执行回测失败');
+          message.error(errorMsg);
         }
         setIsBacktestRunning(false);
         setCurrentTaskId('');
         abortControllerRef.current = null;
+        // 停止轮询
+        stopProgressPolling();
       }
     } catch (error: any) {
       console.error('执行回测失败:', error);
@@ -584,6 +729,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
   const handleStopBacktest = async () => {
     try {
+      // 停止轮询
+      stopProgressPolling();
+
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         message.info('正在终止回测...');
@@ -940,6 +1088,8 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         visible={progressVisible}
         onCancel={() => {
           setProgressVisible(false);
+          // 停止轮询
+          stopProgressPolling();
           if (!isBacktestRunning) {
             onRunBacktest?.();
           }

@@ -513,12 +513,20 @@ class DataService:
             import ccxt
             logger.info(f"配置参数: {configs}")
             # 读取代理配置
-            proxy_enabled = configs.get("proxy_enabled") == "1"
-            proxy_url = configs.get("proxy_url")
-            proxy_username = configs.get("proxy_username")
-            proxy_password = configs.get("proxy_password")
+            # 新的配置格式: exchange.{交易商}.proxy_enabled 等
+            exchange_id = exchange.lower()  # 使用传入的交易所ID
             
-            logger.info(f"代理配置: enabled={proxy_enabled}, url={proxy_url}")
+            proxy_enabled_key = f"exchange.{exchange_id}.proxy_enabled"
+            proxy_url_key = f"exchange.{exchange_id}.proxy_url"
+            proxy_username_key = f"exchange.{exchange_id}.proxy_username"
+            proxy_password_key = f"exchange.{exchange_id}.proxy_password"
+            
+            proxy_enabled = configs.get(proxy_enabled_key) in ("1", "true", True)
+            proxy_url = configs.get(proxy_url_key)
+            proxy_username = configs.get(proxy_username_key)
+            proxy_password = configs.get(proxy_password_key)
+            
+            logger.info(f"代理配置 (交易所: {exchange_id}): enabled={proxy_enabled}, url={proxy_url}")
             
             # 创建交易所实例
             exchange_instance = getattr(ccxt, exchange)()
@@ -566,12 +574,25 @@ class DataService:
                 markets = exchange_instance.fetch_markets()
                 logger.info(f"成功获取{exchange}交易所的货币对列表，共{len(markets)}个货币对")
             except Exception as e:
-                logger.error(f"调用{exchange}.fetch_markets()失败: {e}")
+                import traceback
+                error_type = type(e).__name__
+                error_msg = str(e)
+                stack_trace = traceback.format_exc()
+                
+                logger.error(f"调用{exchange}.fetch_markets()失败")
+                logger.error(f"错误类型: {error_type}")
+                logger.error(f"错误信息: {error_msg}")
+                logger.error(f"堆栈跟踪:\n{stack_trace}")
+                
+                # 检查是否是网络相关错误
+                if "Network" in error_type or "Connection" in error_msg or "Timeout" in error_msg:
+                    logger.error(f"可能是网络连接问题或{exchange} API访问受限，请检查代理配置")
+                
                 # 返回友好的错误信息给客户端
                 return {
                     "success": False,
                     "message": f"获取{exchange}交易所货币对列表失败，请检查网络连接或交易所状态",
-                    "error": str(e),
+                    "error": f"{error_type}: {error_msg}",
                     "exchange": exchange
                 }
             
