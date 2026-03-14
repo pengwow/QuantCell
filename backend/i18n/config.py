@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from config_manager import get_config
+from config import get_config
 
 # 获取支持的语言列表
 SUPPORTED_LOCALES = ["zh-CN", "en-US"]
