@@ -17,7 +17,7 @@ from utils.secret_key_manager import get_secret_key
 # 默认JWT配置
 # JWT_SECRET_KEY 从配置文件动态加载，首次启动时自动生成
 JWT_SECRET_KEY = get_secret_key()
-JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 30  # 访问令牌过期时间（分钟）
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 120  # 访问令牌过期时间（分钟）
 JWT_REFRESH_TOKEN_EXPIRE_DAYS = 7  # 刷新令牌过期时间（天）
 JWT_ALGORITHM = "HS256"  # 加密算法
 

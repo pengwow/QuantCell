@@ -687,7 +687,7 @@ class DataService:
 
             from ..db.database import SessionLocal, init_database_config
             from ..db.models import CryptoSymbol
-            from utils.config_manager import get_config
+            from config import get_config
 
             # 从系统配置获取计价货币
             quote_currency = get_config('quote', 'USDT')

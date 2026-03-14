@@ -211,7 +211,7 @@ class CryptoSpotProductListFetcher(BaseProductListFetcher):
             }
 
         # 从系统配置获取计价货币
-        from utils.config_manager import get_config
+        from config import get_config
         from ..db.models import CryptoSymbol
         quote_currency = get_config('quote', 'USDT')
         logger.info(f"系统配置计价货币: quote={quote_currency}")
