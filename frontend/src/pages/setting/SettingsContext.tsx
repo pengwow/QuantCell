@@ -100,6 +100,14 @@ interface SettingsContextType {
   resetConfig: () => void;
   applyTheme: (theme: 'light' | 'dark' | 'auto') => void;
   refreshSystemMetrics: () => Promise<void>;
+
+  // 变更检测方法
+  hasGeneralSettingsChanged: () => boolean;
+  hasNotificationSettingsChanged: () => boolean;
+  hasApiSettingsChanged: () => boolean;
+
+  // 密码修改标记
+  markPasswordModified: () => void;
 }
 
 // 创建 Context
@@ -119,6 +127,14 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics>(defaultSystemMetrics);
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
+
+  // 用于跟踪初始配置值，用于检测变更
+  const [initialGeneralSettings, setInitialGeneralSettings] = useState<GeneralSettings>(defaultGeneralSettings);
+  const [initialNotificationSettings, setInitialNotificationSettings] = useState<NotificationSettings>(defaultNotificationSettings);
+  const [initialApiSettings, setInitialApiSettings] = useState<ApiSettings>(defaultApiSettings);
+
+  // 密码是否被修改的标志
+  const [passwordModified, setPasswordModified] = useState<boolean>(false);
 
   // 应用主题
   const applyTheme = useCallback((theme: 'light' | 'dark' | 'auto') => {
@@ -197,7 +213,10 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       ) as Partial<GeneralSettings>;
 
       if (Object.keys(filteredGeneralSettings).length > 0) {
-        setGeneralSettings(prev => ({ ...prev, ...filteredGeneralSettings }));
+        const newSettings = { ...defaultGeneralSettings, ...filteredGeneralSettings };
+        setGeneralSettings(newSettings);
+        // 保存初始值用于变更检测
+        setInitialGeneralSettings(newSettings);
         applyTheme(filteredGeneralSettings.theme || 'light');
       }
 
@@ -216,7 +235,10 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       ) as Partial<NotificationSettings>;
 
       if (Object.keys(filteredNotificationSettings).length > 0) {
-        setNotificationSettings(prev => ({ ...prev, ...filteredNotificationSettings }));
+        const newSettings = { ...defaultNotificationSettings, ...filteredNotificationSettings };
+        setNotificationSettings(newSettings);
+        // 保存初始值用于变更检测
+        setInitialNotificationSettings(newSettings);
       }
 
       // 从扁平配置中提取 API 设置
@@ -229,7 +251,10 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       ) as Partial<ApiSettings>;
 
       if (Object.keys(filteredApiSettings).length > 0) {
-        setApiSettings(prev => ({ ...prev, ...filteredApiSettings }));
+        const newSettings = { ...defaultApiSettings, ...filteredApiSettings };
+        setApiSettings(newSettings);
+        // 保存初始值用于变更检测
+        setInitialApiSettings(newSettings);
       }
 
       // 获取系统指标
@@ -259,10 +284,16 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
         { key: 'showTips', value: String(generalSettings.showTips), name: 'general', description: '是否显示提示' },
         // 用户配置
         { key: 'user.username', value: generalSettings.user?.username || '', name: 'general', description: '系统登录用户名' },
-        { key: 'user.password', value: generalSettings.user?.password || '', name: 'general', description: '系统登录密码（加密存储）' },
+        // 密码只在被修改时才提交
+        ...(passwordModified ? [{ key: 'user.password', value: generalSettings.user?.password || '', name: 'general', description: '系统登录密码（加密存储）' }] : []),
       ];
 
       await configApi.updateConfig(configList);
+
+      // 保存成功后重置密码修改标志
+      setPasswordModified(false);
+      // 更新初始值
+      setInitialGeneralSettings(generalSettings);
 
       // 重新加载系统配置
       console.log('[SettingsContext] 保存成功，重新加载系统配置');
@@ -295,9 +326,31 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     setNotificationSettings(defaultNotificationSettings);
     setApiSettings(defaultApiSettings);
     setSystemMetrics(defaultSystemMetrics);
+    // 重置密码修改标志
+    setPasswordModified(false);
     applyTheme(defaultGeneralSettings.theme);
     message.success('设置已重置为默认值');
   }, [applyTheme]);
+
+  // 检测通用设置是否有变更
+  const hasGeneralSettingsChanged = useCallback(() => {
+    return JSON.stringify(generalSettings) !== JSON.stringify(initialGeneralSettings);
+  }, [generalSettings, initialGeneralSettings]);
+
+  // 检测通知设置是否有变更
+  const hasNotificationSettingsChanged = useCallback(() => {
+    return JSON.stringify(notificationSettings) !== JSON.stringify(initialNotificationSettings);
+  }, [notificationSettings, initialNotificationSettings]);
+
+  // 检测 API 设置是否有变更
+  const hasApiSettingsChanged = useCallback(() => {
+    return JSON.stringify(apiSettings) !== JSON.stringify(initialApiSettings);
+  }, [apiSettings, initialApiSettings]);
+
+  // 标记密码已被修改
+  const markPasswordModified = useCallback(() => {
+    setPasswordModified(true);
+  }, []);
 
   // 组件挂载时加载配置
   useEffect(() => {
@@ -321,6 +374,10 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     resetConfig,
     applyTheme,
     refreshSystemMetrics,
+    hasGeneralSettingsChanged,
+    hasNotificationSettingsChanged,
+    hasApiSettingsChanged,
+    markPasswordModified,
   };
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

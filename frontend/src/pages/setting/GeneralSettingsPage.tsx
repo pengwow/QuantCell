@@ -56,11 +56,16 @@ const GeneralSettingsPage = () => {
     saveConfig,
     resetConfig,
     applyTheme,
+    hasGeneralSettingsChanged,
+    markPasswordModified,
   } = useSettings();
   const { isGuest, checkPermission } = useGuestRestriction();
 
   const [themeChanged, setThemeChanged] = useState(false);
   const [localeChanged, setLocaleChanged] = useState(false);
+
+  // 检测表单是否有变更
+  const isFormChanged = hasGeneralSettingsChanged();
 
   // 处理主题变更
   const handleThemeChange = (e: RadioChangeEvent) => {
@@ -251,10 +256,14 @@ const GeneralSettingsPage = () => {
             <Form.Item label={t('password') || '密码'}>
               <Input.Password
                 value={generalSettings.user?.password || ''}
-                onChange={(e) => setGeneralSettings(prev => ({
-                  ...prev,
-                  user: { ...prev.user, password: e.target.value }
-                }))}
+                onChange={(e) => {
+                  setGeneralSettings(prev => ({
+                    ...prev,
+                    user: { ...prev.user, password: e.target.value }
+                  }));
+                  // 标记密码已被修改
+                  markPasswordModified();
+                }}
                 placeholder={t('enter_password') || '请输入密码'}
                 className="w-full max-w-md"
               />
@@ -270,8 +279,21 @@ const GeneralSettingsPage = () => {
                 {t('reset') || '重置'}
               </Button>
             </Tooltip>
-            <Tooltip title={isGuest ? '访客用户无法保存配置' : ''}>
-              <Button type="primary" onClick={handleSave} loading={saving} disabled={isGuest}>
+            <Tooltip
+              title={
+                isGuest
+                  ? '访客用户无法保存配置'
+                  : !isFormChanged
+                    ? '请先修改配置后再保存'
+                    : ''
+              }
+            >
+              <Button
+                type="primary"
+                onClick={handleSave}
+                loading={saving}
+                disabled={isGuest || !isFormChanged}
+              >
                 {t('save') || '保存'}
               </Button>
             </Tooltip>
