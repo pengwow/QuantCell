@@ -27,7 +27,7 @@ import {
   EyeOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-
+import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
 
@@ -84,6 +84,7 @@ const BacktestProgressModal = ({
   strategyName,
 }: BacktestProgressModalProps) => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   // 获取步骤图标
   const getStepIcon = (status: StepStatus, defaultIcon: React.ReactNode) => {
@@ -102,7 +103,7 @@ const BacktestProgressModal = ({
   // 步骤配置
   const steps = [
     {
-      title: '数据准备',
+      title: t('data_preparation') || '数据准备',
       icon: getStepIcon(stepStatus.dataPrep, <DatabaseOutlined />),
       description: (
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
@@ -111,7 +112,7 @@ const BacktestProgressModal = ({
               {progressData.dataPrep.downloading ? (
                 <>
                   <Text type="warning">
-                    <DownloadOutlined /> 检测到数据缺失，正在自动下载...
+                    <DownloadOutlined /> {t('data_missing_auto_download') || '检测到数据缺失，正在自动下载...'}
                   </Text>
                   <Progress
                     percent={progressData.dataPrep.downloadProgress || 0}
@@ -122,7 +123,7 @@ const BacktestProgressModal = ({
                 </>
               ) : (
                 <>
-                  <Text type="secondary">正在检查数据完整性...</Text>
+                  <Text type="secondary">{t('checking_data_integrity') || '正在检查数据完整性...'}</Text>
                   <Progress
                     percent={progressData.dataPrep.percent}
                     size="small"
@@ -135,29 +136,29 @@ const BacktestProgressModal = ({
           )}
           {stepStatus.dataPrep === 'error' && (
             <Alert
-              message="数据准备失败"
-              description={errorMessage || '数据完整性检查或下载失败'}
+              message={t('preparation_failed') || '数据准备失败'}
+              description={errorMessage || (t('data_integrity_check_failed') || '数据完整性检查或下载失败')}
               type="error"
               showIcon
             />
           )}
           {stepStatus.dataPrep === 'finish' && (
             <Text type="success" style={{ fontSize: '12px' }}>
-              <CheckCircleFilled /> 数据完整性检查通过
+              <CheckCircleFilled /> {t('data_integrity_passed') || '数据完整性检查通过'}
             </Text>
           )}
         </Space>
       ),
     },
     {
-      title: '执行回测',
+      title: t('executing_backtest') || '执行回测',
       icon: getStepIcon(stepStatus.execution, <PlayCircleOutlined />),
       description: (
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           {stepStatus.execution === 'process' && progressData.execution && (
             <>
               <Text type="secondary">
-                正在回测: {progressData.execution.currentSymbol || '准备中'}
+                {t('backtest_executing', { progress: progressData.execution.currentSymbol || t('loading') || '准备中' }) || `正在回测: ${progressData.execution.currentSymbol || '准备中'}`}
                 <span style={{ marginLeft: 8, color: '#8c8c8c' }}>
                   ({progressData.execution.current}/{progressData.execution.total})
                 </span>
@@ -171,39 +172,39 @@ const BacktestProgressModal = ({
           )}
           {stepStatus.execution === 'error' && (
             <Alert
-              message="回测执行失败"
-              description={errorMessage || '回测过程中发生错误'}
+              message={t('backtest_execute_failed') || '回测执行失败'}
+              description={errorMessage || (t('backtest_execute_error') || '回测过程中发生错误')}
               type="error"
               showIcon
             />
           )}
           {stepStatus.execution === 'finish' && (
             <Text type="success" style={{ fontSize: '12px' }}>
-              <CheckCircleFilled /> 回测执行完成
+              <CheckCircleFilled /> {t('backtest_execute_complete') || '回测执行完成'}
             </Text>
           )}
         </Space>
       ),
     },
     {
-      title: '结果统计',
+      title: t('result_statistics') || '结果统计',
       icon: getStepIcon(stepStatus.analysis, <BarChartOutlined />),
       description: (
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           {stepStatus.analysis === 'process' && (
-            <Text type="secondary">正在生成统计报告...</Text>
+            <Text type="secondary">{t('generating_report') || '正在生成统计报告...'}</Text>
           )}
           {stepStatus.analysis === 'error' && (
             <Alert
-              message="结果统计失败"
-              description={errorMessage || '生成统计报告时发生错误'}
+              message={t('statistics_failed') || '结果统计失败'}
+              description={errorMessage || (t('generate_report_error') || '生成统计报告时发生错误')}
               type="error"
               showIcon
             />
           )}
           {stepStatus.analysis === 'finish' && (
             <Text type="success" style={{ fontSize: '12px' }}>
-              <CheckCircleFilled /> 结果统计完成
+              <CheckCircleFilled /> {t('statistics_complete') || '结果统计完成'}
             </Text>
           )}
         </Space>
@@ -238,7 +239,7 @@ const BacktestProgressModal = ({
 
   return (
     <Modal
-      title="回测进度"
+      title={t('backtest_progress') || '回测进度'}
       open={visible}
       onCancel={onCancel}
       footer={null}
@@ -265,7 +266,7 @@ const BacktestProgressModal = ({
       >
         <Space direction="vertical" style={{ width: '100%' }}>
           <Text strong>
-            {isError ? (isStopped ? '回测已终止' : '回测失败') : isFinished ? '回测完成' : '总体进度'}
+            {isError ? (isStopped ? t('backtest_terminated') || '回测已终止' : t('error') || '回测失败') : isFinished ? t('backtest_completed') || '回测完成' : t('overall_progress') || '总体进度'}
           </Text>
           <Progress
             percent={Number(((progressData.overall || 0)).toFixed(2))}
@@ -281,17 +282,17 @@ const BacktestProgressModal = ({
           />
           {isFinished && (
             <Text type="success" style={{ textAlign: 'center', display: 'block' }}>
-              回测已成功完成！
+              {t('backtest_success_complete') || '回测已成功完成！'}
             </Text>
           )}
           {isError && !isStopped && (
             <Text type="danger" style={{ textAlign: 'center', display: 'block' }}>
-              回测过程中发生错误，请检查配置后重试
+              {t('backtest_error_occurred') || '回测过程中发生错误，请检查配置后重试'}
             </Text>
           )}
           {isStopped && (
             <Text type="warning" style={{ textAlign: 'center', display: 'block' }}>
-              回测已被用户终止
+              {t('backtest_user_terminated_status') || '回测已被用户终止'}
             </Text>
           )}
         </Space>
@@ -302,14 +303,14 @@ const BacktestProgressModal = ({
         {/* 终止回测按钮 - 仅在运行中显示 */}
         {isRunning && !isFinished && !isError && onStop && (
           <Popconfirm
-            title="确认终止回测？"
-            description="终止后无法恢复，已执行的回测结果将保留。"
+            title={t('confirm_terminate_backtest') || '确认终止回测？'}
+            description={t('terminate_warning') || '终止后无法恢复，已执行的回测结果将保留。'}
             onConfirm={onStop}
-            okText="确认终止"
-            cancelText="取消"
+            okText={t('confirm_terminate') || '确认终止'}
+            cancelText={t('cancel') || '取消'}
             okButtonProps={{ danger: true }}
           >
-            <Tooltip title="终止当前回测进程">
+            <Tooltip title={t('terminate_current_backtest') || '终止当前回测进程'}>
               <Button
                 type="primary"
                 danger
@@ -317,7 +318,7 @@ const BacktestProgressModal = ({
                 size="large"
                 style={{ minWidth: '140px' }}
               >
-                终止回测
+                {t('terminate_backtest_btn') || '终止回测'}
               </Button>
             </Tooltip>
           </Popconfirm>
@@ -332,7 +333,7 @@ const BacktestProgressModal = ({
             style={{ minWidth: '140px' }}
             onClick={handleViewResult}
           >
-            查看结果
+            {t('view_result') || '查看结果'}
           </Button>
         )}
       </div>
