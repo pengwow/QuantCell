@@ -170,6 +170,12 @@ def upload_strategy(request: StrategyUploadRequest) -> StrategyUploadResponse:
     try:
         logger.info(f"上传策略文件请求，策略名称: {request.strategy_name}")
 
+        # 将参数列表转换为字典列表
+        params = None
+        if request.params:
+            params = [param.model_dump() for param in request.params]
+            logger.info(f"上传策略参数: {params}")
+
         # 上传策略文件
         success = get_strategy_service().upload_strategy_file(
             request.strategy_name,
@@ -177,7 +183,8 @@ def upload_strategy(request: StrategyUploadRequest) -> StrategyUploadResponse:
             request.version,
             request.description,
             request.tags,
-            request.id
+            request.id,
+            params
         )
 
         if success:

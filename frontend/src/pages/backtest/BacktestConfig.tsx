@@ -235,10 +235,67 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     }
   };
 
+  // 加载上次回测配置
+  const loadLastBacktestConfig = () => {
+    try {
+      const lastConfig = localStorage.getItem('lastBacktestConfig');
+      if (lastConfig) {
+        const config = JSON.parse(lastConfig);
+        console.log('[BacktestConfig] 加载上次回测配置:', config);
+        
+        // 填充交易标的
+        if (config.symbols && config.symbols.length > 0) {
+          form.setFieldsValue({
+            symbols: config.symbols,
+          });
+          console.log('[BacktestConfig] 已自动填充交易标的:', config.symbols);
+        }
+        
+        // 填充其他配置（如果存在）
+        if (config.interval) {
+          form.setFieldsValue({ interval: config.interval });
+        }
+        if (config.commission !== undefined) {
+          form.setFieldsValue({ commission: config.commission });
+        }
+        if (config.initialCash !== undefined) {
+          form.setFieldsValue({ initialCash: config.initialCash });
+        }
+        if (config.startTime && config.endTime) {
+          form.setFieldsValue({
+            timeRange: [dayjs(config.startTime), dayjs(config.endTime)],
+          });
+        }
+      }
+    } catch (error) {
+      console.error('[BacktestConfig] 加载上次回测配置失败:', error);
+    }
+  };
+
+  // 保存回测配置到 localStorage
+  const saveBacktestConfig = (values: any, symbols: string[]) => {
+    try {
+      const config = {
+        symbols: symbols,
+        interval: values.interval,
+        commission: values.commission,
+        initialCash: values.initialCash,
+        startTime: values.timeRange?.[0]?.format('YYYY-MM-DD HH:mm:ss'),
+        endTime: values.timeRange?.[1]?.format('YYYY-MM-DD HH:mm:ss'),
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem('lastBacktestConfig', JSON.stringify(config));
+      console.log('[BacktestConfig] 已保存回测配置:', config);
+    } catch (error) {
+      console.error('[BacktestConfig] 保存回测配置失败:', error);
+    }
+  };
+
   useEffect(() => {
     loadStrategies();
     loadSystemConfig();
     fetchSymbolOptions();
+    loadLastBacktestConfig();
 
     // 组件卸载时清理资源
     return () => {
@@ -592,6 +649,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         setLoading(false);
         return;
       }
+
+      // 保存回测配置到 localStorage
+      saveBacktestConfig(values, symbols);
 
       setProgressVisible(true);
       setCurrentStep(0);

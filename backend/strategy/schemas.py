@@ -97,6 +97,24 @@ class StrategyListResponse(ApiResponse):
     )
 
 
+class StrategyParam(BaseSchema):
+    """
+    策略参数模型
+
+    Attributes:
+        name: 参数名称
+        type: 参数类型
+        default: 默认值
+        description: 参数描述
+        required: 是否必填
+    """
+    name: str = Field(..., description="参数名称")
+    type: str = Field(..., description="参数类型")
+    default: Any = Field(default=None, description="默认值")
+    description: str = Field(default="", description="参数描述")
+    required: bool = Field(default=False, description="是否必填")
+
+
 class StrategyUploadRequest(BaseSchema):
     """
     策略文件上传请求模型
@@ -108,6 +126,7 @@ class StrategyUploadRequest(BaseSchema):
         version: 策略版本（可选）
         tags: 策略标签（可选）
         description: 策略描述（可选）
+        params: 策略参数列表（可选）
     """
 
     id: Optional[int] = Field(default=None, description="策略ID（可选）")
@@ -116,6 +135,7 @@ class StrategyUploadRequest(BaseSchema):
     version: Optional[str] = Field(default=None, description="策略版本（可选）")
     tags: Optional[List[str]] = Field(default=None, description="策略标签（可选）")
     description: Optional[str] = Field(default=None, description="策略描述（可选）")
+    params: Optional[List[StrategyParam]] = Field(default=None, description="策略参数列表（可选）")
 
 
 class StrategyDetailRequest(BaseSchema):
