@@ -36,6 +36,9 @@ backend/performance_reports/*.csv
 backend/quantcell/backtest/results/*.json
 backend/temp
 backend/config.toml
+
+# 端口信息文件
+.quantcell/ports.json
 backend/ai_model/docs/*
 
 
