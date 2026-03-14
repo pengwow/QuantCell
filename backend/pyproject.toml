@@ -60,6 +60,7 @@ dependencies = [
     "nautilus_trader>=1.222.0",
     "openai>=2.26.0",
     "toml>=0.10.2",
+    "psutil>=7.1.3",
 ]
 
 [tool.pytest.ini_options]
