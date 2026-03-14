@@ -107,7 +107,7 @@ const StrategyEditor = () => {
       name: name,
       file_name: `${name}.py`,
       file_path: '',
-      description: 'AI 生成的策略',
+      description: t('ai_generated_strategy') || 'AI 生成的策略',
       version: '1.0.0',
       params: [],
       created_at: new Date().toISOString(),
@@ -117,7 +117,7 @@ const StrategyEditor = () => {
 
     setSelectedStrategy(newStrategy);
     setCode(generatedCode);
-    message.success('AI 生成策略已加载到编辑器');
+    message.success(t('ai_loaded_to_editor') || 'AI 生成策略已加载到编辑器');
   };
 
   // 设置页面标题
@@ -156,8 +156,8 @@ const StrategyEditor = () => {
       setSelectedStrategy(response);
       setCode(response.code);
     } catch (error) {
-      console.error('加载策略失败:', error);
-      message.error('加载策略失败');
+      console.error(t('load_strategy_error', { message: error }) || '加载策略失败:', error);
+      message.error(t('load_strategy_failed') || '加载策略失败');
     } finally {
       setEditorLoading(false);
     }
@@ -230,11 +230,11 @@ const StrategyEditor = () => {
       parseCache.set(codeHash, response);
       setDataSource('parsed');
       setParseError(null);
-      message.success('策略解析成功');
+      message.success(t('parse_success') || '策略解析成功');
     } catch (error: any) {
-      const errorMsg = error.message || '解析策略失败';
+      const errorMsg = error.message || t('parse_failed') || '解析策略失败';
       setParseError(errorMsg);
-      message.error(`策略解析失败: ${errorMsg}`);
+      message.error(t('parse_failed', { message: errorMsg }) || `策略解析失败: ${errorMsg}`);
     } finally {
       clearTimeout(timeoutId);
       setIsParsing(false);
@@ -297,10 +297,10 @@ const StrategyEditor = () => {
   // 处理重新解析按钮点击
   const handleReparse = () => {
     Modal.confirm({
-      title: '确认重新解析',
-      content: '重新解析将从当前代码中提取策略信息，覆盖当前预览显示。此操作不会保存到数据库，是否继续？',
-      okText: '重新解析',
-      cancelText: '取消',
+      title: t('confirm_reparse') || '确认重新解析',
+      content: t('reparse_warning') || '重新解析将从当前代码中提取策略信息，覆盖当前预览显示。此操作不会保存到数据库，是否继续？',
+      okText: t('reparse') || '重新解析',
+      cancelText: t('cancel') || '取消',
       onOk: () => {
         parseStrategy(true); // 强制重新解析
       },
@@ -313,14 +313,14 @@ const StrategyEditor = () => {
       // 切换到解析数据
       if (parsedStrategy) {
         setDataSource('parsed');
-        message.info('已切换到策略解析数据');
+        message.info(t('switch_to_parsed') || '已切换到策略解析数据');
       } else {
         // 如果没有解析数据，提示用户先解析
         Modal.confirm({
-          title: '无解析数据',
-          content: '当前没有策略解析数据，是否立即解析？',
-          okText: '立即解析',
-          cancelText: '取消',
+          title: t('no_parse_data') || '无解析数据',
+          content: t('parse_now_confirm') || '当前没有策略解析数据，是否立即解析？',
+          okText: t('parse_now') || '立即解析',
+          cancelText: t('cancel') || '取消',
           onOk: () => {
             parseStrategy(true);
           },
@@ -329,7 +329,7 @@ const StrategyEditor = () => {
     } else {
       // 切换到数据库数据
       setDataSource('database');
-      message.info('已切换到数据库存储数据');
+      message.info(t('switch_to_db') || '已切换到数据库存储数据');
     }
   };
 
@@ -344,21 +344,20 @@ const StrategyEditor = () => {
       name: 'new_strategy',
       file_name: 'new_strategy.py',
       file_path: '',
-      description: '新策略 - SMA交叉策略模板',
+      description: t('new_strategy_template') || '新策略 - SMA交叉策略模板',
       version: '1.0.0',
       params: [
-        { name: 'fast_period', type: 'int', default: 10, description: '短期均线周期', required: false },
-        { name: 'slow_period', type: 'int', default: 30, description: '长期均线周期', required: false },
-        { name: 'trade_size', type: 'float', default: 0.1, description: '每笔交易数量', required: false },
+        { name: 'fast_period', type: 'int', default: 10, description: t('short_period') || '短期均线周期', required: false },
+        { name: 'slow_period', type: 'int', default: 30, description: t('long_period') || '长期均线周期', required: false },
+        { name: 'trade_size', type: 'float', default: 0.1, description: t('quantity_per_trade') || '每笔交易数量', required: false },
       ],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       code: `# -*- coding: utf-8 -*-
 """
-简单SMA交叉策略
+${t('sma_cross_strategy') || '简单SMA交叉策略'}
 
-使用统一策略接口的双均线交叉策略示例。
-当短期均线上穿长期均线时买入，下穿时卖出。
+${t('strategy_desc_sma') || '使用统一策略接口的双均线交叉策略示例。当短期均线上穿长期均线时买入，下穿时卖出。'}
 
 """
 
@@ -377,9 +376,9 @@ from strategy.core import (
 
 class NewStrategyConfig(StrategyConfig):
     """
-    简单SMA交叉策略配置
+    ${t('sma_cross_config') || '简单SMA交叉策略配置'}
 
-    支持单品种和多品种回测，统一使用列表形式传参
+    ${t('sma_cross_config_desc') || '支持单品种和多品种回测，统一使用列表形式传参'}
 
     Parameters
     ----------
@@ -412,14 +411,14 @@ class NewStrategyConfig(StrategyConfig):
 
 class NewStrategy(StrategyBase):
     """
-    简单SMA交叉策略（支持多品种）
+    ${t('sma_cross_strategy_multi') || '简单SMA交叉策略（支持多品种）'}
 
-    最简单的双均线交叉策略实现：
-    - 计算短期和长期SMA
-    - 短期均线上穿长期均线时买入
-    - 短期均线下穿长期均线时卖出
+    ${t('sma_cross_simplest') || '最简单的双均线交叉策略实现：'}
+    ${t('sma_cross_step1') || '- 计算短期和长期SMA'}
+    ${t('sma_cross_step2') || '- 短期均线上穿长期均线时买入'}
+    ${t('sma_cross_step3') || '- 短期均线下穿长期均线时卖出'}
 
-    支持多品种，为每个品种维护独立的价格历史和SMA值。
+    ${t('sma_cross_multi_support') || '支持多品种，为每个品种维护独立的价格历史和SMA值。'}
 
     Parameters
     ----------
@@ -454,7 +453,7 @@ class NewStrategy(StrategyBase):
 
     def on_start(self) -> None:
         """
-        策略启动时调用
+        ${t('strategy_on_start') || '策略启动时调用'}
         """
         self.log_info(
             f"SMA交叉策略启动 - 快周期: {self._config.fast_period}, "
@@ -464,7 +463,7 @@ class NewStrategy(StrategyBase):
 
     def on_bar(self, bar: Bar) -> None:
         """
-        K线数据处理
+        ${t('kline_data_process') || 'K线数据处理'}
 
         Parameters
         ----------
@@ -532,7 +531,7 @@ class NewStrategy(StrategyBase):
 
     def _on_golden_cross(self, bar: Bar, instrument_id: InstrumentId) -> None:
         """
-        金叉信号处理
+        ${t('golden_cross_signal') || '金叉信号处理'}
 
         Parameters
         ----------
@@ -542,26 +541,26 @@ class NewStrategy(StrategyBase):
             品种ID
         """
         self.log_info(
-            f"[{instrument_id}] 金叉信号！"
+            f"[{instrument_id}] ${t('golden_cross') || '金叉信号！'}"
             f"Fast SMA({self._config.fast_period}): {self.fast_sma[instrument_id]:.2f} "
             f"上穿 Slow SMA({self._config.slow_period}): {self.slow_sma[instrument_id]:.2f}"
         )
 
         # 如果当前空仓，买入该品种
         if self.is_flat(instrument_id):
-            self.log_info(f"[{instrument_id}] 当前空仓，执行买入")
+            self.log_info(f"[{instrument_id}] ${t('current_empty_buy') || '当前空仓，执行买入'}")
             self.buy(instrument_id, self._config.trade_size)
         # 如果当前空头，先平仓再买入
         elif self.is_short(instrument_id):
-            self.log_info(f"[{instrument_id}] 当前空头，先平仓再买入")
+            self.log_info(f"[{instrument_id}] ${t('current_short_close_buy') || '当前空头，先平仓再买入'}")
             self.close_position(instrument_id)
             self.buy(instrument_id, self._config.trade_size)
         else:
-            self.log_info(f"[{instrument_id}] 当前已持有多头，无需操作")
+            self.log_info(f"[{instrument_id}] ${t('current_long_noop') || '当前已持有多头，无需操作'}")
 
     def _on_death_cross(self, bar: Bar, instrument_id: InstrumentId) -> None:
         """
-        死叉信号处理
+        ${t('death_cross_signal') || '死叉信号处理'}
 
         Parameters
         ----------
@@ -571,25 +570,25 @@ class NewStrategy(StrategyBase):
             品种ID
         """
         self.log_info(
-            f"[{instrument_id}] 死叉信号！"
+            f"[{instrument_id}] ${t('death_cross') || '死叉信号！'}"
             f"Fast SMA({self._config.fast_period}): {self.fast_sma[instrument_id]:.2f} "
             f"下穿 Slow SMA({self._config.slow_period}): {self.slow_sma[instrument_id]:.2f}"
         )
 
         # 如果当前持有多头，卖出该品种
         if self.is_long(instrument_id):
-            self.log_info(f"[{instrument_id}] 当前持有多头，执行卖出")
+            self.log_info(f"[{instrument_id}] ${t('current_long_sell') || '当前持有多头，执行卖出'}")
             self.sell(instrument_id, self._config.trade_size)
         else:
-            self.log_info(f"[{instrument_id}] 当前未持有多头，无需操作")
+            self.log_info(f"[{instrument_id}] ${t('current_no_long_noop') || '当前未持有多头，无需操作'}")
 
     def on_stop(self) -> None:
         """
-        策略停止时调用
+        ${t('strategy_on_stop') || '策略停止时调用'}
         """
         self.log_info("SMA交叉策略停止")
         # 可以在这里添加统计信息输出
-        self.log_info(f"共处理 {self.bars_processed} 条K线数据")
+        self.log_info(f"${t('total_processed') || '共处理'} {self.bars_processed} ${t('klines_processed') || '条K线数据'}")
 `,
     };
 
@@ -600,16 +599,16 @@ class NewStrategy(StrategyBase):
   // 保存策略
   const handleSaveStrategy = async () => {
     if (!selectedStrategy) {
-      message.error('请先选择或创建策略');
+      message.error(t('please_select_create_strategy') || '请先选择或创建策略');
       return;
     }
 
     Modal.confirm({
-      title: '确认保存策略',
-      content: '您确定要保存当前策略吗？',
-      okText: '保存',
+      title: t('confirm_save_strategy') || '确认保存策略',
+      content: t('save_strategy_confirm') || '您确定要保存当前策略吗？',
+      okText: t('save') || '保存',
       okType: 'primary',
-      cancelText: '取消',
+      cancelText: t('cancel') || '取消',
       onOk: async () => {
         try {
           setLoading(true);
@@ -623,10 +622,10 @@ class NewStrategy(StrategyBase):
             params: selectedStrategy.params
           });
 
-          message.success('策略保存成功');
+          message.success(t('strategy_saved') || '策略保存成功');
         } catch (error) {
-          console.error('保存策略失败:', error);
-          message.error('保存策略失败');
+          console.error(t('save_strategy_failed') || '保存策略失败:', error);
+          message.error(t('save_strategy_failed') || '保存策略失败');
         } finally {
           setLoading(false);
         }
@@ -637,20 +636,20 @@ class NewStrategy(StrategyBase):
   // 重置策略代码
   const handleResetCode = () => {
     if (!selectedStrategy) {
-      message.error('请先选择或创建策略');
+      message.error(t('please_select_create_strategy') || '请先选择或创建策略');
       return;
     }
 
     Modal.confirm({
-      title: '确认重置策略代码',
-      content: '您确定要重置当前策略代码吗？所有未保存的更改将丢失。',
-      okText: '重置',
+      title: t('confirm_reset_code') || '确认重置策略代码',
+      content: t('reset_code_confirm') || '您确定要重置当前策略代码吗？所有未保存的更改将丢失。',
+      okText: t('reset') || '重置',
       okType: 'danger',
-      cancelText: '取消',
+      cancelText: t('cancel') || '取消',
       onOk: () => {
         if (selectedStrategy) {
           setCode(selectedStrategy.code);
-          message.success('策略代码已重置');
+          message.success(t('code_reset') || '策略代码已重置');
         }
       },
     });
@@ -659,7 +658,7 @@ class NewStrategy(StrategyBase):
   // 回测策略
   const handleBacktestStrategy = () => {
     if (!selectedStrategy) {
-      message.error('请先选择或创建策略');
+      message.error(t('please_select_create_strategy') || '请先选择或创建策略');
       return;
     }
 
@@ -852,7 +851,7 @@ class NewStrategy(StrategyBase):
           >
             {t('backtest') || '回测'}
           </Button>
-          <Tooltip title={isGuest ? '访客用户无法保存策略，请使用普通用户账号登录' : ''}>
+          <Tooltip title={isGuest ? (t('guest_save_restricted') || '访客用户无法保存策略，请使用普通用户账号登录') : ''}>
             <Button
               type="primary"
               icon={<SaveOutlined />}
@@ -875,7 +874,7 @@ class NewStrategy(StrategyBase):
 
       {/* 主内容区域 */}
       <Card>
-        <Spin spinning={editorLoading} description="加载中...">
+        <Spin spinning={editorLoading} description={t('loading') || '加载中...'}>
           <Tabs
             activeKey={activeTabKey}
             onChange={handleTabChange}
@@ -924,7 +923,7 @@ class NewStrategy(StrategyBase):
                             icon={<ReloadOutlined />}
                             onClick={() => parseStrategy(true)}
                           >
-                            重试
+                            {t('retry') || '重试'}
                           </Button>
                         </div>
                       ) : (
@@ -934,13 +933,13 @@ class NewStrategy(StrategyBase):
                             <h3 className="mb-0">{t('strategy_information') || '策略信息'}</h3>
                             <Space>
                               {/* 数据来源标签 */}
-                              <Tooltip title={dataSource === 'database' ? '当前显示数据来自数据库存储' : '当前显示数据来自策略代码解析'}>
+                              <Tooltip title={dataSource === 'database' ? (t('data_from_db') || '当前显示数据来自数据库存储') : (t('data_from_parse') || '当前显示数据来自策略代码解析')}>
                                 <Tag
                                   color={dataSource === 'database' ? 'blue' : 'green'}
                                   className="cursor-pointer"
                                   onClick={handleSwitchDataSource}
                                 >
-                                  {dataSource === 'database' ? '来源: 数据库' : '来源: 策略解析'}
+                                  {dataSource === 'database' ? (t('source_db') || '来源: 数据库') : (t('source_parse') || '来源: 策略解析')}
                                 </Tag>
                               </Tooltip>
                               {/* 重新解析按钮 */}
@@ -950,7 +949,7 @@ class NewStrategy(StrategyBase):
                                 loading={isParsing}
                                 size="small"
                               >
-                                重新解析
+                                {t('reparse') || '重新解析'}
                               </Button>
                             </Space>
                           </div>
@@ -958,9 +957,9 @@ class NewStrategy(StrategyBase):
                           {/* 数据来源提示 */}
                           <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded text-sm text-gray-600 dark:text-gray-400">
                             {dataSource === 'database' ? (
-                              <span>当前显示的是数据库存储的策略信息。如需查看最新代码中的信息，请点击"重新解析"。</span>
+                              <span>{t('db_data_hint') || '当前显示的是数据库存储的策略信息。如需查看最新代码中的信息，请点击"重新解析"。'}</span>
                             ) : (
-                              <span>当前显示的是从代码解析的策略信息。如需恢复数据库中的信息，请点击来源标签切换。</span>
+                              <span>{t('parse_data_hint') || '当前显示的是从代码解析的策略信息。如需恢复数据库中的信息，请点击来源标签切换。'}</span>
                             )}
                           </div>
 

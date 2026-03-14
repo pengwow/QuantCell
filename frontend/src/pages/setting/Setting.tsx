@@ -24,10 +24,10 @@ const SettingLayout = () => {
 
   // 菜单配置
   const menus = [
-    ["general", t("general") || "通用", <IconPalette size="1em" />],
-    ["exchange", t("exchange_settings") || "交易所", <IconBuildingBank size="1em" />],
+    ["general", t("general_settings") || "通用设置", <IconPalette size="1em" />],
+    ["exchange", t("exchange_settings") || "交易所设置", <IconBuildingBank size="1em" />],
     ["notifications", t("notification_settings") || "通知设置", <IconBell size="1em" />],
-    ["model", t("model_settings") || "模型", <IconRobot size="1em" />],
+    ["model", t("model_settings") || "模型设置", <IconRobot size="1em" />],
     ["info", t("system_info") || "系统信息", <IconInfoCircle size="1em" />],
   ] satisfies [string, string, React.ReactElement][];
 

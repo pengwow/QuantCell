@@ -118,7 +118,7 @@ const StrategyManagement = () => {
     pageSize: 10,
     showSizeChanger: true,
     pageSizeOptions: PAGE_SIZE_OPTIONS,
-    showTotal: (total) => `共 ${total} 条`,
+    showTotal: (total) => `${t('total') || '共'}: ${total}`,
   });
 
   // 从全局配置加载分页大小
@@ -156,7 +156,7 @@ const StrategyManagement = () => {
       }
     } catch (error) {
       console.error('加载策略列表失败:', error);
-      message.error('加载策略列表失败');
+      message.error(t('load_strategy_list_failed_generic') || '加载策略列表失败');
     } finally {
       setLoading(false);
     }
@@ -252,7 +252,7 @@ const StrategyManagement = () => {
       }
     } catch (error) {
       console.error('加载回测列表失败:', error);
-      message.error('加载回测列表失败');
+      message.error(t('load_backtest_list_failed_generic') || '加载回测列表失败');
     } finally {
       setBacktestLoading(false);
     }
@@ -323,11 +323,11 @@ const StrategyManagement = () => {
         try {
           setLoading(true);
           await strategyApi.deleteStrategy(strategy.name);
-          message.success('策略删除成功');
+          message.success(t('strategy_delete_success') || '策略删除成功');
           loadStrategies();
         } catch (error) {
           console.error('删除策略失败:', error);
-          message.error('删除策略失败');
+          message.error(t('strategy_delete_failed') || '删除策略失败');
         } finally {
           setLoading(false);
         }
@@ -414,7 +414,7 @@ const StrategyManagement = () => {
   // 表格列定义
   const columns: TableProps<Strategy>['columns'] = [
     {
-      title: '策略名称',
+      title: t('strategy_name') || '策略名称',
       dataIndex: 'name',
       key: 'name',
       width: 200,
@@ -431,7 +431,7 @@ const StrategyManagement = () => {
       ),
     },
     {
-      title: '描述',
+      title: t('description') || '描述',
       dataIndex: 'description',
       key: 'description',
       width: 250,
@@ -439,27 +439,27 @@ const StrategyManagement = () => {
         showTitle: false,
       },
       render: (text: string) => (
-        <Tooltip title={text || '暂无描述'} placement="topLeft">
+        <Tooltip title={text || t('no_description') || '暂无描述'} placement="topLeft">
           <span style={{ maxWidth: 230, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
-            {text || '暂无描述'}
+            {text || t('no_description') || '暂无描述'}
           </span>
         </Tooltip>
       ),
     },
     {
-      title: '创建时间',
+      title: t('create_time') || '创建时间',
       key: 'created_at',
       width: 160,
       render: (_: any, record: Strategy) => formatDate((record as any).created_at),
     },
     {
-      title: '更新时间',
+      title: t('update_time') || '更新时间',
       key: 'updated_at',
       width: 160,
       render: (_: any, record: Strategy) => formatDate((record as any).updated_at),
     },
     {
-      title: '操作',
+      title: t('action') || '操作',
       key: 'action',
       width: 180,
       fixed: 'right',
@@ -473,7 +473,7 @@ const StrategyManagement = () => {
               onClick={() => handleEditStrategy(record)}
             />
           </Tooltip>
-          <Tooltip title={isGuest ? '访客用户无法删除策略' : (t('delete_strategy') || '删除策略')}>
+          <Tooltip title={isGuest ? t('guest_save_restricted') || '访客用户无法删除策略' : (t('delete_strategy') || '删除策略')}>
             <Button
               type="text"
               size="small"
@@ -491,7 +491,7 @@ const StrategyManagement = () => {
               onClick={() => handleBacktestStrategy(record)}
             />
           </Tooltip>
-          <Tooltip title="回测记录">
+          <Tooltip title={t('backtest_records') || '回测记录'}>
             <Button
               type="text"
               size="small"
@@ -511,7 +511,7 @@ const StrategyManagement = () => {
       <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
         <Col xs={16} sm={16} md={12} lg={10}>
           <Search
-            placeholder="搜索策略名称或描述"
+            placeholder={t('search_strategy') || '搜索策略名称或描述'}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             allowClear
@@ -523,8 +523,8 @@ const StrategyManagement = () => {
             value={viewType}
             onChange={(value) => setViewType(value as ViewType)}
             options={[
-              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? '列表' : undefined },
-              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? '卡片' : undefined },
+              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? (t('list_view') || '列表') : undefined },
+              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? (t('card_view') || '卡片') : undefined },
             ]}
           />
         </Col>
@@ -537,7 +537,7 @@ const StrategyManagement = () => {
           <Row gutter={[8, 8]}>
             <Col xs={12} sm={12} md={8}>
               <Select
-                placeholder="排序"
+                placeholder={t('sort_by') || '排序'}
                 value={`${sortField}-${sortOrder}`}
                 onChange={(value) => {
                   const [field, order] = value.split('-');
@@ -546,12 +546,12 @@ const StrategyManagement = () => {
                 }}
                 style={{ width: '100%' }}
                 options={[
-                  { value: 'updated_at-desc', label: '更新时间 ↓' },
-                  { value: 'updated_at-asc', label: '更新时间 ↑' },
-                  { value: 'created_at-desc', label: '创建时间 ↓' },
-                  { value: 'created_at-asc', label: '创建时间 ↑' },
-                  { value: 'name-asc', label: '名称 A-Z' },
-                  { value: 'name-desc', label: '名称 Z-A' },
+                  { value: 'updated_at-desc', label: t('sort_update_time_desc') || '更新时间 ↓' },
+                  { value: 'updated_at-asc', label: t('sort_update_time_asc') || '更新时间 ↑' },
+                  { value: 'created_at-desc', label: t('sort_create_time_backtest_desc') || '创建时间 ↓' },
+                  { value: 'created_at-asc', label: t('sort_create_time_backtest_asc') || '创建时间 ↑' },
+                  { value: 'name-asc', label: t('sort_name_asc') || '名称 A-Z' },
+                  { value: 'name-desc', label: t('sort_name_desc') || '名称 Z-A' },
                 ]}
               />
             </Col>
@@ -567,7 +567,7 @@ const StrategyManagement = () => {
                 onClick={handleResetFilters}
                 style={{ width: '100%' }}
               >
-                重置
+                {t('reset') || '重置'}
               </Button>
             </Col>
             <Col xs={12}>
@@ -577,7 +577,7 @@ const StrategyManagement = () => {
                 onClick={handleCreateStrategy}
                 style={{ width: '100%' }}
               >
-                新建策略
+                {t('new_strategy') || '新建策略'}
               </Button>
             </Col>
           </Row>
@@ -630,7 +630,7 @@ const StrategyManagement = () => {
                           onClick={() => handleEditStrategy(strategy)}
                         />
                       </Tooltip>
-                      <Tooltip title={isGuest ? '访客用户无法删除策略' : (t('delete_strategy') || '删除策略')}>
+                      <Tooltip title={isGuest ? t('guest_save_restricted') || '访客用户无法删除策略' : (t('delete_strategy') || '删除策略')}>
                         <Button
                           type="text"
                           size="small"
@@ -649,10 +649,10 @@ const StrategyManagement = () => {
                 >
                   <div className="mb-3">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="text-gray-500 text-sm">策略描述</span>
+                      <span className="text-gray-500 text-sm">{t('strategy_description') || '策略描述'}</span>
                       <Tag color="blue">v{(strategy as any).version || '1.0.0'}</Tag>
                     </div>
-                    <Tooltip title={strategy.description || '暂无描述'} placement="topLeft">
+                    <Tooltip title={strategy.description || t('no_description') || '暂无描述'} placement="topLeft">
                       <div
                         className="overflow-hidden text-ellipsis"
                         style={{
@@ -662,18 +662,18 @@ const StrategyManagement = () => {
                           WebkitBoxOrient: 'vertical',
                         }}
                       >
-                        {strategy.description || '暂无描述'}
+                        {strategy.description || t('no_description') || '暂无描述'}
                       </div>
                     </Tooltip>
                   </div>
 
                   <div className="text-xs text-gray-500 space-y-1">
                     <div className="flex justify-between">
-                      <span>创建时间:</span>
+                      <span>{t('create_time') || '创建时间'}:</span>
                       <span>{formatDate((strategy as any).created_at)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>更新时间:</span>
+                      <span>{t('update_time') || '更新时间'}:</span>
                       <span>{formatDate((strategy as any).updated_at)}</span>
                     </div>
                   </div>
@@ -688,7 +688,7 @@ const StrategyManagement = () => {
                           onClick={() => handleBacktestStrategy(strategy)}
                           style={{ width: '100%' }}
                         >
-                          回测
+                          {t('backtest') || '回测'}
                         </Button>
                       </Col>
                       <Col span={12}>
@@ -698,7 +698,7 @@ const StrategyManagement = () => {
                           onClick={() => handleViewBacktests(strategy.name)}
                           style={{ width: '100%' }}
                         >
-                          记录
+                          {t('records') || '记录'}
                         </Button>
                       </Col>
                     </Row>
@@ -729,7 +729,7 @@ const StrategyManagement = () => {
             total={filteredStrategies.length}
             showSizeChanger
             pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => `共 ${total} 个策略`}
+            showTotal={(total) => `${t('total') || '共'}: ${total}`}
             onChange={(page, size) => {
               setPagination({
                 ...pagination,
@@ -762,14 +762,14 @@ const StrategyManagement = () => {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'completed':
-        return '已完成';
+        return t('status_completed') || '已完成';
       case 'running':
       case 'in_progress':
-        return '运行中';
+        return t('status_running') || '运行中';
       case 'failed':
-        return '失败';
+        return t('status_failed') || '失败';
       case 'pending':
-        return '等待中';
+        return t('status_pending') || '等待中';
       default:
         return status;
     }
@@ -855,14 +855,14 @@ const StrategyManagement = () => {
   // 回测列表表格列
   const backtestColumns: TableProps<BacktestTask>['columns'] = [
     {
-      title: '策略名称',
+      title: t('strategy_name') || '策略名称',
       dataIndex: 'strategy_name',
       key: 'strategy_name',
       width: 150,
       ellipsis: true,
     },
     {
-      title: '状态',
+      title: t('status') || '状态',
       dataIndex: 'status',
       key: 'status',
       width: 90,
@@ -872,7 +872,7 @@ const StrategyManagement = () => {
       ),
     },
     {
-      title: '收益率',
+      title: t('total_return') || '收益率',
       dataIndex: 'total_return',
       key: 'total_return',
       width: 100,
@@ -888,7 +888,7 @@ const StrategyManagement = () => {
       },
     },
     {
-      title: '最大回撤',
+      title: t('max_drawdown') || '最大回撤',
       dataIndex: 'max_drawdown',
       key: 'max_drawdown',
       width: 100,
@@ -899,20 +899,20 @@ const StrategyManagement = () => {
       },
     },
     {
-      title: '创建时间',
+      title: t('create_time') || '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
       width: 160,
       render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm:ss'),
     },
     {
-      title: '操作',
+      title: t('action') || '操作',
       key: 'action',
       width: 120,
       fixed: 'right',
       render: (_: any, record: BacktestTask) => (
         <Space size="small">
-          <Tooltip title="查看详情">
+          <Tooltip title={t('view_details') || '查看详情'}>
             <Button
               type="text"
               size="small"
@@ -920,7 +920,7 @@ const StrategyManagement = () => {
               onClick={() => handleViewDetail(record.id)}
             />
           </Tooltip>
-          <Tooltip title="回放">
+          <Tooltip title={t('replay') || '回放'}>
             <Button
               type="text"
               size="small"
@@ -997,7 +997,7 @@ const StrategyManagement = () => {
               >
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">收益率</span>
+                    <span className="text-gray-500">{t('total_return') || '收益率'}</span>
                     <span
                       style={{
                         color:
@@ -1015,7 +1015,7 @@ const StrategyManagement = () => {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">最大回撤</span>
+                    <span className="text-gray-500">{t('max_drawdown') || '最大回撤'}</span>
                     <span style={{ color: '#ff4d4f', fontWeight: 'bold' }}>
                       {task.max_drawdown === undefined || task.max_drawdown === null
                         ? 'N/A'
@@ -1023,7 +1023,7 @@ const StrategyManagement = () => {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">创建时间</span>
+                    <span className="text-gray-500">{t('create_time') || '创建时间'}</span>
                     <span className="text-sm text-gray-600">{dayjs(task.created_at).format('YYYY-MM-DD HH:mm')}</span>
                   </div>
                   <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
@@ -1036,7 +1036,7 @@ const StrategyManagement = () => {
                         handleViewDetail(task.id);
                       }}
                     >
-                      查看
+                      {t('view') || '查看'}
                     </Button>
                     <Button
                       type="link"
@@ -1047,7 +1047,7 @@ const StrategyManagement = () => {
                         handleReplay(task.id);
                       }}
                     >
-                      回放
+                      {t('replay') || '回放'}
                     </Button>
                   </div>
                 </div>
@@ -1062,7 +1062,7 @@ const StrategyManagement = () => {
             total={filteredBacktests.length}
             showSizeChanger
             pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => `共 ${total} 条`}
+            showTotal={(total) => `${t('total') || '共'}: ${total}`}
             onChange={(page, size) => {
               setBacktestPagination({
                 ...backtestPagination,
@@ -1083,7 +1083,7 @@ const StrategyManagement = () => {
       <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
         <Col xs={16} sm={16} md={12} lg={10}>
           <Search
-            placeholder="搜索策略名称或ID"
+            placeholder={t('search_backtest') || '搜索策略名称或ID'}
             value={backtestSearchText}
             onChange={(e) => setBacktestSearchText(e.target.value)}
             allowClear
@@ -1095,8 +1095,8 @@ const StrategyManagement = () => {
             value={backtestViewType}
             onChange={(value) => setBacktestViewType(value as ViewType)}
             options={[
-              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? '列表' : undefined },
-              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? '卡片' : undefined },
+              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? (t('list_view') || '列表') : undefined },
+              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? (t('card_view') || '卡片') : undefined },
             ]}
           />
         </Col>
@@ -1109,7 +1109,7 @@ const StrategyManagement = () => {
           <Row gutter={[8, 8]}>
             <Col xs={12} sm={8} md={8}>
               <Select
-                placeholder="选择策略"
+                placeholder={t('select_strategy') || '选择策略'}
                 value={selectedStrategy || undefined}
                 onChange={(value) => setSelectedStrategy(value)}
                 style={{ width: '100%' }}
@@ -1119,22 +1119,22 @@ const StrategyManagement = () => {
             </Col>
             <Col xs={12} sm={8} md={8}>
               <Select
-                placeholder="状态"
+                placeholder={t('status') || '状态'}
                 value={backtestStatusFilter}
                 onChange={setBacktestStatusFilter}
                 style={{ width: '100%' }}
                 options={[
-                  { value: 'all', label: '全部状态' },
-                  { value: 'completed', label: '已完成' },
-                  { value: 'running', label: '运行中' },
-                  { value: 'failed', label: '失败' },
-                  { value: 'pending', label: '等待中' },
+                  { value: 'all', label: t('all_status_backtest') || '全部状态' },
+                  { value: 'completed', label: t('status_completed') || '已完成' },
+                  { value: 'running', label: t('status_running') || '运行中' },
+                  { value: 'failed', label: t('status_failed') || '失败' },
+                  { value: 'pending', label: t('status_pending') || '等待中' },
                 ]}
               />
             </Col>
             <Col xs={12} sm={8} md={8}>
               <Select
-                placeholder="排序"
+                placeholder={t('sort_by') || '排序'}
                 value={`${backtestSortField}-${backtestSortOrder}`}
                 onChange={(value) => {
                   const [field, order] = value.split('-');
@@ -1143,13 +1143,13 @@ const StrategyManagement = () => {
                 }}
                 style={{ width: '100%' }}
                 options={[
-                  { value: 'created_at-desc', label: '创建时间 ↓' },
-                  { value: 'created_at-asc', label: '创建时间 ↑' },
-                  { value: 'total_return-desc', label: '收益率 ↓' },
-                  { value: 'total_return-asc', label: '收益率 ↑' },
-                  { value: 'max_drawdown-desc', label: '最大回撤 ↓' },
-                  { value: 'max_drawdown-asc', label: '最大回撤 ↑' },
-                  { value: 'strategy_name-asc', label: '策略名称 A-Z' },
+                  { value: 'created_at-desc', label: t('sort_create_time_desc') || '创建时间 ↓' },
+                  { value: 'created_at-asc', label: t('sort_create_time_asc') || '创建时间 ↑' },
+                  { value: 'total_return-desc', label: t('sort_return_desc') || '收益率 ↓' },
+                  { value: 'total_return-asc', label: t('sort_return_asc') || '收益率 ↑' },
+                  { value: 'max_drawdown-desc', label: t('sort_drawdown_desc') || '最大回撤 ↓' },
+                  { value: 'max_drawdown-asc', label: t('sort_drawdown_asc') || '最大回撤 ↑' },
+                  { value: 'strategy_name-asc', label: t('sort_name_asc') || '策略名称 A-Z' },
                 ]}
               />
             </Col>
@@ -1165,7 +1165,7 @@ const StrategyManagement = () => {
                 onClick={handleResetBacktestFilters}
                 style={{ width: '100%' }}
               >
-                重置
+                {t('reset') || '重置'}
               </Button>
             </Col>
             <Col xs={12}>
@@ -1176,7 +1176,7 @@ const StrategyManagement = () => {
                 loading={backtestLoading}
                 style={{ width: '100%' }}
               >
-                刷新
+                {t('refresh') || '刷新'}
               </Button>
             </Col>
           </Row>
@@ -1192,7 +1192,7 @@ const StrategyManagement = () => {
       label: (
         <span>
           <AppstoreOutlined style={{ marginRight: 8 }} />
-          策略列表
+          {t('strategy_list') || '策略列表'}
         </span>
       ),
       children: (
@@ -1209,14 +1209,14 @@ const StrategyManagement = () => {
       label: (
         <span>
           <HistoryOutlined style={{ marginRight: 8 }} />
-          回测记录
+          {t('backtest_records') || '回测记录'}
           {selectedStrategy && <Tag color="blue" style={{ marginLeft: 8 }}>{selectedStrategy}</Tag>}
         </span>
       ),
       children: (
         <>
           {renderBacktestToolbar()}
-          <Spin spinning={backtestLoading} description="加载中...">
+          <Spin spinning={backtestLoading} description={t('loading') || '加载中...'}>
             {backtestViewType === 'list' ? renderBacktestListView() : renderBacktestCardView()}
           </Spin>
         </>

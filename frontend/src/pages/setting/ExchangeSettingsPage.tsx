@@ -3,7 +3,7 @@
  * 功能：管理交易所配置，包括交易模式、计价货币、手续费、代理设置等
  * 参考：ModelSettingsPage 和 SystemConfigPage
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Card,
@@ -75,8 +75,8 @@ const EXCHANGE_ICONS: Record<string, React.ReactNode> = {
   bitget: <ExchangeBitget size={32} variant="branded" />,
 };
 
-const PRESET_EXCHANGES: PresetExchange[] = [
-  { id: "binance", name: "币安", icon: EXCHANGE_ICONS.binance },
+const getPresetExchanges = (t: any): PresetExchange[] => [
+  { id: "binance", name: t('exchange_binance') || "币安", icon: EXCHANGE_ICONS.binance },
   { id: "okx", name: "OKX", icon: EXCHANGE_ICONS.okx },
   { id: "bybit", name: "Bybit", icon: EXCHANGE_ICONS.bybit },
   { id: "gate", name: "Gate.io", icon: EXCHANGE_ICONS.gate },
@@ -96,10 +96,10 @@ const QUOTE_CURRENCIES = [
 ];
 
 // 交易模式选项
-const TRADING_MODES = [
-  { value: "spot", label: "现货" },
-  { value: "futures", label: "合约" },
-  { value: "margin", label: "杠杆" },
+const getTradingModes = (t: any) => [
+  { value: "spot", label: t('trading_mode_spot') || "现货" },
+  { value: "futures", label: t('trading_mode_futures') || "合约" },
+  { value: "margin", label: t('trading_mode_margin') || "杠杆" },
 ];
 
 const ExchangeSettingsPage = () => {
@@ -111,6 +111,10 @@ const ExchangeSettingsPage = () => {
   const [saving, setSaving] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
+
+  // 使用 useMemo 缓存翻译后的配置数组
+  const PRESET_EXCHANGES = useMemo(() => getPresetExchanges(t), [t]);
+  const TRADING_MODES = useMemo(() => getTradingModes(t), [t]);
 
   // 从后端API加载配置
   useEffect(() => {

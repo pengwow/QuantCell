@@ -163,7 +163,7 @@ const NotificationsPage = () => {
 
             return {
               id: preset.id,
-              name: existing.name || preset.name,
+              name: t(existing.name) || preset.name,
               icon: preset.icon,
               enabled: existing.enabled === '1',
               isDefault: existing.isDefault === '1',
@@ -173,7 +173,7 @@ const NotificationsPage = () => {
           // 返回默认配置
           return {
             id: preset.id,
-            name: preset.name,
+            name: t(preset.name) || preset.name,
             icon: preset.icon,
             enabled: false,
             isDefault: false,

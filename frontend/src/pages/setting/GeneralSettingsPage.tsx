@@ -1,9 +1,8 @@
 /**
  * 通用设置子页面
  * 功能：提供主题、语言、分页等通用设置
- * 参考：/Users/liupeng/workspace/certimate-main/ui/src/pages/settings/SettingsAppearance.tsx
  */
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, message, Tooltip, Input } from 'antd';
 import { useSettings } from './SettingsContext';
@@ -17,15 +16,15 @@ const THEME_IMAGES: Record<string, string> = {
 };
 
 // 主题选项
-const THEME_OPTIONS = [
-  { key: 'light', label: '浅色', image: THEME_IMAGES.light },
-  { key: 'dark', label: '暗黑', image: THEME_IMAGES.dark },
-  { key: 'auto', label: '自动', image: THEME_IMAGES.auto },
+const getThemeOptions = (t: any) => [
+  { key: 'light', label: t('theme_light') || '浅色', image: THEME_IMAGES.light },
+  { key: 'dark', label: t('theme_dark') || '暗黑', image: THEME_IMAGES.dark },
+  { key: 'auto', label: t('theme_auto') || '自动', image: THEME_IMAGES.auto },
 ];
 
 // 语言选项
-const LANGUAGE_OPTIONS = [
-  { value: 'zh-CN', label: '简体中文' },
+const getLanguageOptions = (t: any) => [
+  { value: 'zh-CN', label: t('language_zh_cn') || '简体中文' },
   { value: 'en-US', label: 'English' },
 ];
 
@@ -33,17 +32,17 @@ const LANGUAGE_OPTIONS = [
 const PER_PAGE_OPTIONS = [10, 15, 20, 30, 50, 100];
 
 // 时区选项
-const TIMEZONE_OPTIONS = [
-  { value: 'Asia/Shanghai', label: 'Asia/Shanghai (中国标准时间, UTC+8)' },
-  { value: 'Asia/Hong_Kong', label: 'Asia/Hong_Kong (香港时间, UTC+8)' },
-  { value: 'Asia/Tokyo', label: 'Asia/Tokyo (日本标准时间, UTC+9)' },
-  { value: 'Asia/Singapore', label: 'Asia/Singapore (新加坡时间, UTC+8)' },
-  { value: 'America/New_York', label: 'America/New_York (美国东部时间, UTC-5/UTC-4)' },
-  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (美国西部时间, UTC-8/UTC-7)' },
-  { value: 'Europe/London', label: 'Europe/London (格林尼治时间, UTC+0/UTC+1)' },
-  { value: 'Europe/Paris', label: 'Europe/Paris (中欧时间, UTC+1/UTC+2)' },
-  { value: 'Australia/Sydney', label: 'Australia/Sydney (澳大利亚东部时间, UTC+10/UTC+11)' },
-  { value: 'UTC', label: 'UTC (协调世界时, UTC+0)' },
+const getTimezoneOptions = (t: any) => [
+  { value: 'Asia/Shanghai', label: t('timezone_shanghai') || 'Asia/Shanghai (中国标准时间, UTC+8)' },
+  { value: 'Asia/Hong_Kong', label: t('timezone_hongkong') || 'Asia/Hong_Kong (香港时间, UTC+8)' },
+  { value: 'Asia/Tokyo', label: t('timezone_tokyo') || 'Asia/Tokyo (日本标准时间, UTC+9)' },
+  { value: 'Asia/Singapore', label: t('timezone_singapore') || 'Asia/Singapore (新加坡时间, UTC+8)' },
+  { value: 'America/New_York', label: t('timezone_newyork') || 'America/New_York (美国东部时间, UTC-5/UTC-4)' },
+  { value: 'America/Los_Angeles', label: t('timezone_losangeles') || 'America/Los_Angeles (美国西部时间, UTC-8/UTC-7)' },
+  { value: 'Europe/London', label: t('timezone_london') || 'Europe/London (格林尼治时间, UTC+0/UTC+1)' },
+  { value: 'Europe/Paris', label: t('timezone_paris') || 'Europe/Paris (中欧时间, UTC+1/UTC+2)' },
+  { value: 'Australia/Sydney', label: t('timezone_sydney') || 'Australia/Sydney (澳大利亚东部时间, UTC+10/UTC+11)' },
+  { value: 'UTC', label: t('timezone_utc') || 'UTC (协调世界时, UTC+0)' },
 ];
 
 const GeneralSettingsPage = () => {
@@ -63,6 +62,11 @@ const GeneralSettingsPage = () => {
 
   const [themeChanged, setThemeChanged] = useState(false);
   const [localeChanged, setLocaleChanged] = useState(false);
+
+  // 使用 useMemo 缓存翻译后的选项数组
+  const THEME_OPTIONS = useMemo(() => getThemeOptions(t), [t]);
+  const LANGUAGE_OPTIONS = useMemo(() => getLanguageOptions(t), [t]);
+  const TIMEZONE_OPTIONS = useMemo(() => getTimezoneOptions(t), [t]);
 
   // 检测表单是否有变更
   const isFormChanged = hasGeneralSettingsChanged();

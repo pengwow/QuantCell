@@ -2,7 +2,7 @@
  * AI模型设置页面
  * 功能：管理AI大模型厂商配置，包括API Key、API Host、代理设置和模型列表
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Card,
@@ -70,7 +70,7 @@ const PROVIDER_ICONS: Record<string, string> = {
   azure: "/imgs/model_providers/azure.png",
 };
 
-const PRESET_PROVIDERS: PresetProvider[] = [
+const getPresetProviders = (t: any): PresetProvider[] => [
   {
     id: "openrouter",
     name: "OpenRouter",
@@ -78,7 +78,7 @@ const PRESET_PROVIDERS: PresetProvider[] = [
   },
   {
     id: "siliconflow",
-    name: "硅基流动",
+    name: t('provider_siliconflow') || '硅基流动',
     icon: PROVIDER_ICONS.siliconflow,
   },
   {
@@ -93,27 +93,27 @@ const PRESET_PROVIDERS: PresetProvider[] = [
   },
   {
     id: "openai-compatible",
-    name: "OpenAI兼容API",
+    name: t('provider_openai_compatible') || 'OpenAI兼容API',
     icon: PROVIDER_ICONS["openai-compatible"],
   },
   {
     id: "deepseek",
-    name: "深度求索",
+    name: t('provider_deepseek') || '深度求索',
     icon: PROVIDER_ICONS.deepseek,
   },
   {
     id: "dashscope",
-    name: "阿里云",
+    name: t('provider_aliyun') || '阿里云',
     icon: PROVIDER_ICONS.dashscope,
   },
   {
     id: "google",
-    name: "谷歌云",
+    name: t('provider_google') || '谷歌云',
     icon: PROVIDER_ICONS.google,
   },
   {
     id: "azure",
-    name: "微软Azure OpenAI",
+    name: t('provider_azure') || '微软Azure OpenAI',
     icon: PROVIDER_ICONS.azure,
   },
 ];
@@ -139,6 +139,9 @@ const ModelSettingsPage = () => {
   const [isAddModelModalOpen, setIsAddModelModalOpen] = useState(false);
   const [addModelForm] = Form.useForm();
   const [checkingProvider, setCheckingProvider] = useState<string | null>(null);
+
+  // 获取预设厂商列表（使用翻译）
+  const PRESET_PROVIDERS = useMemo(() => getPresetProviders(t), [t]);
 
   // 从后端API加载配置
   useEffect(() => {
@@ -185,7 +188,7 @@ const ModelSettingsPage = () => {
                 models = JSON.parse(existing.models);
               }
             } catch (e) {
-              console.warn(`解析 ${preset.id} 模型列表失败`, e);
+              console.warn(t('parse_model_list_failed', { provider: preset.id }) || `解析 ${preset.id} 模型列表失败`, e);
             }
 
             return {
@@ -229,7 +232,7 @@ const ModelSettingsPage = () => {
         initDefaultProviders();
       }
     } catch (error) {
-      console.error("加载模型配置失败:", error);
+      console.error(t('load_model_config_failed', { message: error }) || "加载模型配置失败:", error);
       message.error(t("load_failed") || "加载配置失败");
       initDefaultProviders();
     }
@@ -404,11 +407,11 @@ const ModelSettingsPage = () => {
       name: values.name,
     };
 
-    // 添加模型时自动启用该模型
+    // 添加模型时默认不启用（保持原有启用状态）
     setProviders((prev) =>
       prev.map((p) =>
         p.id === selectedProvider.id
-          ? { ...p, models: [...p.models, newModel], is_enabled: newModel.id }
+          ? { ...p, models: [...p.models, newModel] }
           : p
       )
     );
@@ -451,7 +454,7 @@ const ModelSettingsPage = () => {
       await configApi.updateConfig(batchConfigs);
       message.success(t("config_saved") || "配置已保存");
     } catch (error) {
-      console.error("保存配置失败:", error);
+      console.error(t('save_model_config_failed', { message: error }) || "保存配置失败:", error);
       message.error(t("save_failed") || "保存失败");
     }
   };
