@@ -1,10 +1,2 @@
 [app]
 secret_key = "niWWyFI1HXYRR0JaZJr9u67RS8iiY40PINUKen7-gaM"
-
-[ports]
-backend_default = 8000
-backend_range_start = 8000
-backend_range_end = 8010
-frontend_default = 5173
-frontend_range_start = 5173
-frontend_range_end = 5183

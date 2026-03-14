@@ -1,0 +1,14 @@
+{
+  "backend": {
+    "port": 8000,
+    "pid": 47739,
+    "started_at": "2026-03-14T09:07:46.674103",
+    "service": "backend"
+  },
+  "frontend": {
+    "port": 3001,
+    "pid": 55199,
+    "startedAt": "2026-03-14T01:35:24.860Z",
+    "service": "frontend"
+  }
+}
