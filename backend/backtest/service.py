@@ -55,6 +55,417 @@ class BacktestService:
     回测服务类，用于执行策略回测和分析回测结果
     """
     
+    def _run_event_backtest(
+        self,
+        strategy_config,
+        backtest_config,
+        task_id,
+        db,
+        is_new_task,
+        progress_tracker
+    ):
+        """
+        使用事件驱动引擎执行回测（与CLI保持一致）
+        
+        :param strategy_config: 策略配置
+        :param backtest_config: 回测配置
+        :param task_id: 任务ID
+        :param db: 数据库会话
+        :param is_new_task: 是否新任务
+        :param progress_tracker: 进度跟踪器
+        :return: 回测结果
+        """
+        import sys
+        from pathlib import Path
+        from datetime import datetime, timezone
+        import json
+        
+        # 添加后端目录到路径
+        backend_path = Path(__file__).resolve().parent.parent
+        if str(backend_path) not in sys.path:
+            sys.path.insert(0, str(backend_path))
+        
+        # 延迟导入CLI核心模块
+        try:
+            from backtest.cli_core import CLICore, get_system_config
+        except ImportError:
+            from backend.backtest.cli_core import CLICore, get_system_config
+        
+        from utils.validation import parse_symbols, parse_timeframes
+        from collector.db.models import BacktestTask, BacktestResult
+        
+        try:
+            # 更新数据准备阶段进度
+            progress_tracker.update_progress(
+                task_id,
+                "data_prep",
+                {
+                    "status": "running",
+                    "current_step": "loading",
+                    "message": "正在准备数据..."
+                }
+            )
+            
+            # 创建CLI核心
+            cli_core = CLICore(verbose=True, detail=True)
+            
+            # 获取参数
+            strategy_name = strategy_config.get("strategy_name")
+            strategy_params = strategy_config.get("params", {})
+            symbols_list = backtest_config.get("symbols", ["BTCUSDT"])
+            timeframes_list = [backtest_config.get("interval", "1h")]
+            init_cash = backtest_config.get("initial_cash", 10000.0)
+            fees = backtest_config.get("commission", 0.001)
+            base_currency = backtest_config.get("base_currency", "USDT")
+            leverage = backtest_config.get("leverage", 1.0)
+            venue = backtest_config.get("venue", "SIM")
+            
+            # 获取数据处理和进度显示配置
+            auto_download = backtest_config.get("auto_download", True)
+            ignore_missing = backtest_config.get("ignore_missing", False)
+            show_progress = backtest_config.get("show_progress", True)
+            
+            # 解析时间范围
+            start_time = backtest_config.get("start_time")
+            end_time = backtest_config.get("end_time")
+            
+            # 如果有时间范围，格式化为CLI使用的格式
+            time_range = None
+            if start_time and end_time:
+                try:
+                    start_dt = datetime.strptime(start_time.split()[0], "%Y-%m-%d")
+                    end_dt = datetime.strptime(end_time.split()[0], "%Y-%m-%d")
+                    time_range = f"{start_dt.strftime('%Y%m%d')}-{end_dt.strftime('%Y%m%d')}"
+                except Exception as e:
+                    logger.warning(f"时间范围格式转换失败: {e}")
+            
+            # 更新任务状态为进行中
+            task = db.query(BacktestTask).filter(BacktestTask.id == task_id).first()
+            if task:
+                task.status = "in_progress"
+                db.commit()
+            elif is_new_task:
+                # 如果是新任务且不存在，创建任务记录
+                task = BacktestTask(
+                    id=task_id,
+                    strategy_name=strategy_name,
+                    backtest_config=json.dumps(backtest_config),
+                    status="in_progress",
+                    started_at=datetime.now(timezone.utc)
+                )
+                db.add(task)
+                db.commit()
+            
+            logger.info(f"[事件驱动引擎] 准备数据...")
+            # 准备数据
+            data_dict, download_results = cli_core.prepare_data(
+                symbols=symbols_list,
+                timeframes=timeframes_list,
+                time_range=time_range,
+                trading_mode='spot',
+                auto_download=auto_download,
+                ignore_missing=ignore_missing,
+                show_progress=show_progress
+            )
+            
+            if not data_dict:
+                raise ValueError("没有成功加载任何数据，回测无法继续")
+            
+            # 更新执行阶段进度
+            progress_tracker.update_progress(
+                task_id,
+                "data_prep",
+                {
+                    "status": "completed",
+                    "progress": 100.0,
+                    "message": "数据准备完成"
+                }
+            )
+            progress_tracker.update_progress(
+                task_id,
+                "execution",
+                {
+                    "status": "running",
+                    "message": "正在执行回测..."
+                }
+            )
+            
+            logger.info(f"[事件驱动引擎] 初始化事件驱动引擎...")
+            # 初始化事件驱动引擎
+            try:
+                from decimal import Decimal
+                from backtest.engines.event_engine import EventDrivenBacktestEngine
+                from nautilus_trader.model import Venue
+                from nautilus_trader.model.enums import AccountType, OmsType
+                from nautilus_trader.model.objects import Money
+                from nautilus_trader.model.data import BarType
+                from nautilus_trader.test_kit.providers import TestInstrumentProvider
+                from nautilus_trader.persistence.wranglers import BarDataWrangler
+                import pandas as pd
+            except ImportError as e:
+                logger.error(f"无法导入事件驱动引擎模块: {e}")
+                raise RuntimeError(f"事件驱动引擎依赖缺失: {e}")
+            
+            # 创建引擎配置
+            engine_config = {
+                "trader_id": f"BACKTEST-{strategy_name.upper()}",
+                "log_level": "INFO",
+                "initial_capital": init_cash,
+            }
+            
+            # 解析时间范围
+            start_date = '2023-01-01'
+            end_date = '2023-12-31'
+            if time_range:
+                from utils.validation import parse_time_range
+                start_dt, end_dt = parse_time_range(time_range)
+                start_date = start_dt.strftime('%Y-%m-%d') if start_dt else '2023-01-01'
+                end_date = end_dt.strftime('%Y-%m-%d') if end_dt else '2023-12-31'
+            elif data_dict:
+                # 使用第一个数据的时间范围
+                first_key = list(data_dict.keys())[0]
+                first_df = data_dict[first_key]
+                if len(first_df) > 0:
+                    first_idx = first_df.index[0]
+                    last_idx = first_df.index[-1]
+                    start_date = str(first_idx)[:10] if first_idx is not None else '2023-01-01'
+                    end_date = str(last_idx)[:10] if last_idx is not None else '2023-12-31'
+            
+            engine_config["start_date"] = start_date
+            engine_config["end_date"] = end_date
+            
+            logger.info(f"[事件驱动引擎] 回测时间范围: {start_date} 至 {end_date}")
+            
+            # 创建引擎实例
+            engine = EventDrivenBacktestEngine(engine_config)
+            engine.initialize()
+            
+            # 为每个品种创建交易品种并加载数据
+            instruments = {}
+            bar_types = {}
+            all_bars = []
+            
+            # 使用第一个品种的venue作为交易所
+            first_symbol = symbols_list[0]
+            first_timeframe = timeframes_list[0]
+            first_key = f"{first_symbol}_{first_timeframe}"
+            
+            # 创建第一个品种以获取venue
+            if first_symbol == 'BTCUSDT' or first_symbol == 'BTC/USDT':
+                first_instrument = TestInstrumentProvider.btcusdt_binance()
+            elif first_symbol == 'ETHUSDT' or first_symbol == 'ETH/USDT':
+                first_instrument = TestInstrumentProvider.ethusdt_binance()
+            else:
+                first_instrument = TestInstrumentProvider.btcusdt_binance()
+            instrument_venue = str(first_instrument.id.venue)
+            
+            # 添加交易所
+            engine.add_venue(
+                venue_name=instrument_venue,
+                oms_type=OmsType.NETTING,
+                account_type=AccountType.MARGIN,
+                starting_capital=init_cash,
+                base_currency=base_currency,
+                default_leverage=Decimal(str(leverage)),
+            )
+            
+            # 为每个品种创建instrument并加载数据
+            for symbol in symbols_list:
+                timeframe = timeframes_list[0]
+                key = f"{symbol}_{timeframe}"
+                
+                if key not in data_dict:
+                    logger.warning(f"跳过 {key}，数据未加载")
+                    continue
+                
+                df = data_dict[key]
+                
+                # 创建交易品种
+                if symbol == 'BTCUSDT' or symbol == 'BTC/USDT':
+                    instrument = TestInstrumentProvider.btcusdt_binance()
+                elif symbol == 'ETHUSDT' or symbol == 'ETH/USDT':
+                    instrument = TestInstrumentProvider.ethusdt_binance()
+                else:
+                    instrument = TestInstrumentProvider.btcusdt_binance()
+                
+                engine.add_instrument(instrument)
+                instruments[symbol] = instrument
+                
+                # 转换数据格式并加载
+                df = df.copy()
+                df.columns = [col.lower() for col in df.columns]
+                
+                # 确保索引是带时区的datetime类型
+                if not isinstance(df.index, pd.DatetimeIndex):
+                    if 'timestamp' in df.columns:
+                        df = df.set_index('timestamp')
+                    df.index = pd.to_datetime(df.index, utc=True)
+                
+                # 确保所有价格列都是float64类型
+                for col in ['open', 'high', 'low', 'close', 'volume']:
+                    if col in df.columns:
+                        df[col] = df[col].astype('float64')
+                
+                # 创建BarType
+                from backtest.cli import _convert_timeframe_to_event
+                bar_type_str = f"{instrument.id}-{_convert_timeframe_to_event(timeframe)}-LAST-EXTERNAL"
+                bar_type = BarType.from_str(bar_type_str)
+                bar_types[symbol] = bar_type
+                
+                # 使用BarDataWrangler转换数据
+                wrangler = BarDataWrangler(bar_type, instrument)
+                bars = wrangler.process(df)
+                
+                # 添加数据到引擎
+                if hasattr(engine, 'engine') and engine.engine is not None:
+                    engine.engine.add_data(bars)
+                engine._data.extend(bars)
+                all_bars.extend(bars)
+                
+                logger.info(f"[事件驱动引擎] 成功加载 {symbol} 的 {len(bars)} 条K线数据")
+            
+            # 加载策略
+            logger.info(f"[事件驱动引擎] 加载策略...")
+            from backtest.cli import _load_event_strategy_multi
+            strategy = _load_event_strategy_multi(
+                strategy_name, strategy_params, bar_types, instruments
+            )
+            
+            if strategy is None:
+                raise ValueError(f"无法加载策略 {strategy_name}")
+            
+            engine.add_strategy(strategy)
+            
+            # 执行回测
+            logger.info(f"[事件驱动引擎] 开始执行回测...")
+            results = engine.run_backtest()
+            
+            # 格式化结果
+            logger.info(f"[事件驱动引擎] 处理回测结果...")
+            from backtest.cli import _format_event_results_multi
+            formatted_results = _format_event_results_multi(
+                results, symbols_list, timeframes_list[0], strategy_name, instruments
+            )
+            
+            # 保存结果到文件
+            output_file = str(cli_core.results_dir / f"{strategy_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_event_results.json")
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(formatted_results, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"[事件驱动引擎] 结果已保存到: {output_file}")
+            
+            # 清理引擎资源
+            engine.cleanup()
+            
+            # 更新执行阶段为完成
+            progress_tracker.update_progress(
+                task_id,
+                "execution",
+                {
+                    "status": "completed",
+                    "progress": 100.0,
+                    "message": "回测执行完成"
+                }
+            )
+            progress_tracker.update_progress(
+                task_id,
+                "analysis",
+                {
+                    "status": "running",
+                    "progress": 50.0,
+                    "message": "正在保存结果..."
+                }
+            )
+            
+            # 保存结果到数据库
+            # 创建回测结果记录
+            result_id = str(uuid.uuid4())
+            
+            # 从事件驱动结果中提取指标
+            portfolio_metrics = formatted_results.get('portfolio', {}).get('metrics', {})
+            trades = formatted_results.get('portfolio', {}).get('trades', [])
+            equity_curve = formatted_results.get('portfolio', {}).get('equity_curve', [])
+            
+            # 转换指标格式
+            metrics_list = []
+            for key, value in portfolio_metrics.items():
+                metrics_list.append({
+                    'name': key,
+                    'key': key,
+                    'value': value,
+                    'description': key,
+                    'type': 'number'
+                })
+            
+            backtest_result = BacktestResult(
+                id=result_id,
+                task_id=task_id,
+                strategy_name=strategy_name,
+                symbol=','.join(symbols_list),
+                metrics=json.dumps(metrics_list),
+                trades=json.dumps(trades),
+                equity_curve=json.dumps(equity_curve),
+                strategy_data=json.dumps([])
+            )
+            db.add(backtest_result)
+            
+            # 更新回测任务状态
+            task.status = "completed"
+            task.result_id = result_id
+            task.completed_at = datetime.now(timezone.utc)
+            db.commit()
+            
+            # 保存合并后的回测结果
+            self.save_backtest_result(task_id, formatted_results)
+            
+            # 更新进度为完成
+            progress_tracker.update_progress(
+                task_id,
+                "analysis",
+                {
+                    "status": "completed",
+                    "progress": 100.0,
+                    "message": "回测完成"
+                }
+            )
+            progress_tracker.complete_progress(task_id)
+            
+            logger.info(f"[事件驱动引擎] 回测任务 {task_id} 成功完成")
+            
+            # 构建响应结果
+            return {
+                "task_id": task_id,
+                "status": "completed",
+                "message": f"回测完成，共 {len(symbols_list)} 个货币对",
+                "successful_currencies": symbols_list,
+                "failed_currencies": [],
+                "results": formatted_results
+            }
+            
+        except Exception as e:
+            logger.error(f"[事件驱动引擎] 回测失败: {e}")
+            logger.exception(e)
+            
+            # 更新进度为失败
+            progress_tracker.fail_progress(
+                task_id,
+                f"事件驱动回测失败: {str(e)}",
+                "execution"
+            )
+            
+            # 更新任务状态为失败
+            task = db.query(BacktestTask).filter(BacktestTask.id == task_id).first()
+            if task:
+                task.status = "failed"
+                task.completed_at = datetime.now(timezone.utc)
+                db.commit()
+            
+            return {
+                "status": "failed",
+                "task_id": task_id,
+                "message": f"事件驱动回测失败: {str(e)}"
+            }
+    
     def __init__(self):
         """初始化回测服务"""
         # 策略服务实例 - 使用独立的策略模块
@@ -832,6 +1243,7 @@ class BacktestService:
         根据 backtest_config 中的 engine_type 参数选择回测引擎：
         - "default": 使用 trading engine 引擎（默认）
         - "legacy": 使用传统 backtesting.py 引擎
+        - "event": 使用事件驱动引擎
 
         :param strategy_config: 策略配置
         :param backtest_config: 回测配置，包含symbols列表和可选的engine_type
@@ -886,6 +1298,19 @@ class BacktestService:
                     "status": "running"
                 }
             )
+
+            # ========== 事件驱动引擎分支 ==========
+            if engine_type == "event":
+                logger.info(f"使用事件驱动引擎执行回测")
+                return self._run_event_backtest(
+                    strategy_config=strategy_config,
+                    backtest_config=backtest_config,
+                    task_id=task_id,
+                    db=db,
+                    is_new_task=is_new_task,
+                    progress_tracker=progress_tracker
+                )
+            # ========== 事件驱动引擎分支结束 ==========
 
             # ========== 启动阶段错误处理 ==========
             # 尝试创建回测引擎（可能失败的第三方 API 调用）

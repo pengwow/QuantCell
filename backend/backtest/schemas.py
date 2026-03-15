@@ -42,6 +42,13 @@ class BacktestConfig(BaseSchema):
         initial_cash: 初始资金
         commission: 手续费率
         exclusive_orders: 是否取消未完成订单
+        engine_type: 回测引擎类型 (default/event)
+        base_currency: 基础货币代码（仅事件驱动引擎）
+        leverage: 杠杆倍数（仅事件驱动引擎）
+        venue: 交易所名称（仅事件驱动引擎）
+        auto_download: 是否自动下载缺失数据
+        ignore_missing: 是否忽略缺失数据
+        show_progress: 是否显示进度
     """
 
     symbols: List[str] = Field(
@@ -81,6 +88,42 @@ class BacktestConfig(BaseSchema):
     exclusive_orders: bool = Field(
         default=True,
         description="是否取消未完成订单",
+        json_schema_extra={"example": True},
+    )
+    engine_type: str = Field(
+        default="event",
+        description="回测引擎类型 (default/event)",
+        json_schema_extra={"example": "event"},
+    )
+    base_currency: str = Field(
+        default="USDT",
+        description="基础货币代码（仅事件驱动引擎）",
+        json_schema_extra={"example": "USDT"},
+    )
+    leverage: float = Field(
+        default=1.0,
+        ge=0,
+        description="杠杆倍数（仅事件驱动引擎）",
+        json_schema_extra={"example": 1.0},
+    )
+    venue: str = Field(
+        default="SIM",
+        description="交易所名称（仅事件驱动引擎）",
+        json_schema_extra={"example": "BINANCE"},
+    )
+    auto_download: bool = Field(
+        default=True,
+        description="是否自动下载缺失数据",
+        json_schema_extra={"example": True},
+    )
+    ignore_missing: bool = Field(
+        default=False,
+        description="是否忽略缺失数据，允许不完整数据继续回测",
+        json_schema_extra={"example": False},
+    )
+    show_progress: bool = Field(
+        default=True,
+        description="是否显示进度",
         json_schema_extra={"example": True},
     )
 
