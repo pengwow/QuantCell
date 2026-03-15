@@ -164,12 +164,42 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
     from collector.db.database import SessionLocal, init_database_config
     from collector.db.models import BacktestTask
     import json
+    from utils.validation import validate_time_range, parse_time_range
 
     try:
-        logger.info(f"创建回测任务请求，参数: {request.model_dump()}")
+        logger.info("=" * 80)
+        logger.info("收到回测任务请求")
+        logger.info(f"策略名称: {request.strategy_config.strategy_name}")
+        logger.info(f"策略参数: {json.dumps(request.strategy_config.params, ensure_ascii=False)}")
+        logger.info(f"回测引擎: {request.backtest_config.engine_type}")
+        logger.info(f"交易对: {request.backtest_config.symbols}")
+        logger.info(f"时间周期: {request.backtest_config.interval}")
+        logger.info(f"初始资金: {request.backtest_config.initial_cash}")
+        logger.info(f"时间范围: {request.backtest_config.start_time} 至 {request.backtest_config.end_time}")
+        logger.info("=" * 80)
+
+        # 处理时间范围格式（支持YYYYMMDD-YYYYMMDD格式）
+        backtest_config_dict = request.backtest_config.model_dump()
+        strategy_config_dict = request.strategy_config.model_dump()
+        
+        # 检查并转换时间范围格式
+        start_time = backtest_config_dict.get("start_time")
+        end_time = backtest_config_dict.get("end_time")
+        
+        # 如果是YYYYMMDD-YYYYMMDD格式，解析并转换
+        if start_time and "-" in start_time and len(start_time) == 17:
+            try:
+                if validate_time_range(start_time):
+                    start_dt, end_dt = parse_time_range(start_time)
+                    backtest_config_dict["start_time"] = start_dt.strftime("%Y-%m-%d 00:00:00")
+                    backtest_config_dict["end_time"] = end_dt.strftime("%Y-%m-%d 23:59:59")
+                    logger.info(f"时间范围格式转换: {start_time} -> {backtest_config_dict['start_time']} 至 {backtest_config_dict['end_time']}")
+            except Exception as e:
+                logger.warning(f"时间范围格式转换失败，使用原值: {e}")
 
         # 生成任务ID
         task_id = str(uuid.uuid4())
+        logger.info(f"生成任务ID: {task_id}")
 
         # 初始化数据库连接
         init_database_config()
@@ -180,14 +210,14 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
             task = BacktestTask(
                 id=task_id,
                 strategy_name=request.strategy_config.strategy_name,
-                backtest_config=json.dumps(request.backtest_config.model_dump()),
+                backtest_config=json.dumps(backtest_config_dict),
                 status="pending",
                 started_at=datetime.now(timezone.utc)
             )
             db.add(task)
             db.commit()
 
-            logger.info(f"回测任务已创建: {task_id}")
+            logger.info(f"回测任务记录已保存到数据库: {task_id}")
 
             # 创建进度记录
             progress_tracker = get_progress_tracker()
@@ -203,14 +233,23 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
             # 在后台线程中异步执行回测
             def run_backtest_async():
                 try:
+                    logger.info(f"[任务 {task_id}] 开始后台执行回测")
+                    logger.info(f"[任务 {task_id}] 使用引擎: {backtest_config_dict.get('engine_type', 'default')}")
+                    
                     result = backtest_service.run_backtest(
-                        strategy_config=request.strategy_config.model_dump(),
-                        backtest_config=request.backtest_config.model_dump(),
-                        task_id=task_id  # 传递已有的 task_id
+                        strategy_config=strategy_config_dict,
+                        backtest_config=backtest_config_dict,
+                        task_id=task_id
                     )
-                    logger.info(f"回测任务 {task_id} 执行完成: {result.get('status')}")
+                    
+                    logger.info(f"[任务 {task_id}] 回测执行完成，状态: {result.get('status')}")
+                    if result.get('status') == 'success':
+                        logger.info(f"[任务 {task_id}] 回测成功完成")
+                    else:
+                        logger.error(f"[任务 {task_id}] 回测失败: {result.get('message')}")
                 except Exception as e:
-                    logger.error(f"回测任务 {task_id} 执行失败: {e}")
+                    logger.error(f"[任务 {task_id}] 回测执行发生异常: {e}")
+                    logger.exception(e)
                     # 更新进度为失败状态
                     progress_tracker.fail_progress(
                         task_id,
@@ -222,7 +261,7 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
             thread = threading.Thread(target=run_backtest_async, daemon=True)
             thread.start()
 
-            logger.info(f"回测任务 {task_id} 已在后台启动")
+            logger.info(f"回测任务 {task_id} 已在后台线程启动")
 
             # 立即返回任务ID
             return ApiResponse(
@@ -240,6 +279,7 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
 
     except Exception as e:
         logger.error(f"创建回测任务失败: {e}")
+        logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

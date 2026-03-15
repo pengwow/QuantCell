@@ -506,14 +506,20 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
       overall: data.overall_progress,
       dataPrep: data.data_prep ? {
         percent: data.data_prep.progress,
-        downloading: data.data_prep.current_step === 'downloading',
-        downloadProgress: data.data_prep.downloading?.progress,
+        downloading: data.data_prep.current_step === 'downloading' || !!data.data_prep.downloading,
+        downloadProgress: data.data_prep.downloading?.progress || 0,
+        message: data.data_prep.message,
       } : undefined,
       execution: data.execution ? {
         percent: data.execution.progress,
         current: data.execution.completed_symbols,
         total: data.execution.total_symbols,
         currentSymbol: data.execution.current_symbol,
+        message: data.execution.message,
+      } : undefined,
+      analysis: data.analysis ? {
+        percent: data.analysis.progress,
+        message: data.analysis.message,
       } : undefined,
     });
 

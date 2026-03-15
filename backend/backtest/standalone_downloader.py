@@ -56,11 +56,36 @@ class StandaloneDataDownloader:
         """初始化独立下载器"""
         # 使用临时目录作为保存路径（数据实际直接保存到数据库）
         from pathlib import Path
-        temp_dir = Path(__file__).parent.parent / "data" / "temp"
-        temp_dir.mkdir(parents=True, exist_ok=True)
+        self.temp_dir = Path(__file__).parent.parent / "data" / "temp"
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
         
-        self.spot_downloader = BinanceDownloader(save_dir=temp_dir, candle_type='spot')
-        self.futures_downloader = BinanceDownloader(save_dir=temp_dir, candle_type='futures')
+        # 延迟初始化下载器，避免在初始化时调用API获取交易对列表
+        self._spot_downloader = None
+        self._futures_downloader = None
+    
+    @property
+    def spot_downloader(self):
+        """延迟初始化现货下载器"""
+        if self._spot_downloader is None:
+            # 传入空列表作为symbols，避免调用API获取全量交易对
+            self._spot_downloader = BinanceDownloader(
+                save_dir=self.temp_dir, 
+                candle_type='spot',
+                symbols=[]  # 传入空列表，避免调用get_all_symbols
+            )
+        return self._spot_downloader
+    
+    @property
+    def futures_downloader(self):
+        """延迟初始化合约下载器"""
+        if self._futures_downloader is None:
+            # 传入空列表作为symbols，避免调用API获取全量交易对
+            self._futures_downloader = BinanceDownloader(
+                save_dir=self.temp_dir, 
+                candle_type='futures',
+                symbols=[]  # 传入空列表，避免调用get_all_symbols
+            )
+        return self._futures_downloader
         
     async def download_data(
         self,

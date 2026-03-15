@@ -41,12 +41,18 @@ export interface ProgressData {
     percent: number;
     downloading?: boolean;
     downloadProgress?: number;
+    message?: string;
   };
   execution?: {
     percent: number;
     current: number;
     total: number;
     currentSymbol?: string;
+    message?: string;
+  };
+  analysis?: {
+    percent?: number;
+    message?: string;
   };
 }
 
@@ -112,7 +118,7 @@ const BacktestProgressModal = ({
               {progressData.dataPrep.downloading ? (
                 <>
                   <Text type="warning">
-                    <DownloadOutlined /> {t('data_missing_auto_download') || '检测到数据缺失，正在自动下载...'}
+                    <DownloadOutlined /> {progressData.dataPrep.message || (t('data_missing_auto_download') || '检测到数据缺失，正在自动下载...')}
                   </Text>
                   <Progress
                     percent={progressData.dataPrep.downloadProgress || 0}
@@ -123,7 +129,7 @@ const BacktestProgressModal = ({
                 </>
               ) : (
                 <>
-                  <Text type="secondary">{t('checking_data_integrity') || '正在检查数据完整性...'}</Text>
+                  <Text type="secondary">{progressData.dataPrep.message || (t('checking_data_integrity') || '正在检查数据完整性...')}</Text>
                   <Progress
                     percent={progressData.dataPrep.percent}
                     size="small"
@@ -144,7 +150,7 @@ const BacktestProgressModal = ({
           )}
           {stepStatus.dataPrep === 'finish' && (
             <Text type="success" style={{ fontSize: '12px' }}>
-              <CheckCircleFilled /> {t('data_integrity_passed') || '数据完整性检查通过'}
+              <CheckCircleFilled /> {progressData.dataPrep?.message || (t('data_integrity_passed') || '数据完整性检查通过')}
             </Text>
           )}
         </Space>
@@ -158,7 +164,7 @@ const BacktestProgressModal = ({
           {stepStatus.execution === 'process' && progressData.execution && (
             <>
               <Text type="secondary">
-                {t('backtest_executing', { progress: progressData.execution.currentSymbol || t('loading') || '准备中' }) || `正在回测: ${progressData.execution.currentSymbol || '准备中'}`}
+                {progressData.execution.message || (t('backtest_executing', { progress: progressData.execution.currentSymbol || t('loading') || '准备中' }) || `正在回测: ${progressData.execution.currentSymbol || '准备中'}`)}
                 <span style={{ marginLeft: 8, color: '#8c8c8c' }}>
                   ({progressData.execution.current}/{progressData.execution.total})
                 </span>
@@ -180,7 +186,7 @@ const BacktestProgressModal = ({
           )}
           {stepStatus.execution === 'finish' && (
             <Text type="success" style={{ fontSize: '12px' }}>
-              <CheckCircleFilled /> {t('backtest_execute_complete') || '回测执行完成'}
+              <CheckCircleFilled /> {progressData.execution?.message || (t('backtest_execute_complete') || '回测执行完成')}
             </Text>
           )}
         </Space>
@@ -192,7 +198,16 @@ const BacktestProgressModal = ({
       description: (
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           {stepStatus.analysis === 'process' && (
-            <Text type="secondary">{t('generating_report') || '正在生成统计报告...'}</Text>
+            <>
+              <Text type="secondary">{progressData.analysis?.message || (t('generating_report') || '正在生成统计报告...')}</Text>
+              {progressData.analysis?.percent !== undefined && (
+                <Progress
+                  percent={progressData.analysis.percent}
+                  size="small"
+                  status="active"
+                />
+              )}
+            </>
           )}
           {stepStatus.analysis === 'error' && (
             <Alert
@@ -204,7 +219,7 @@ const BacktestProgressModal = ({
           )}
           {stepStatus.analysis === 'finish' && (
             <Text type="success" style={{ fontSize: '12px' }}>
-              <CheckCircleFilled /> {t('statistics_complete') || '结果统计完成'}
+              <CheckCircleFilled /> {progressData.analysis?.message || (t('statistics_complete') || '结果统计完成')}
             </Text>
           )}
         </Space>
