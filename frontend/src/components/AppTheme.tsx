@@ -19,7 +19,7 @@ export const useAppThemeMenuItems = (props: AppThemeProps) => {
   const items: MenuProps["items"] = [
     {
       key: "light",
-      label: t("theme.light"),
+      label: t("theme_light"),
       icon: <IconSun className="size-4" />,
       onClick: () => {
         if (themeMode !== "light") {
@@ -29,7 +29,7 @@ export const useAppThemeMenuItems = (props: AppThemeProps) => {
     },
     {
       key: "dark",
-      label: t("theme.dark"),
+      label: t("theme_dark"),
       icon: <IconMoon className="size-4" />,
       onClick: () => {
         if (themeMode !== "dark") {
@@ -39,7 +39,7 @@ export const useAppThemeMenuItems = (props: AppThemeProps) => {
     },
     {
       key: "system",
-      label: t("theme.system"),
+      label: t("theme_system"),
       icon: <IconDeviceDesktop className="size-4" />,
       onClick: () => {
         if (themeMode !== "system") {
@@ -104,7 +104,7 @@ const AppThemeLinkButton = ({ className, style, ...props }: AppThemeLinkButtonPr
         type="secondary"
       >
         <AppThemeIcon className="size-4" themeMode={themeMode} />
-        <span>{t(`theme.${themeMode}`)}</span>
+        <span>{t(`theme_${themeMode}`)}</span>
       </Typography.Text>
     </AppThemeDropdown>
   );

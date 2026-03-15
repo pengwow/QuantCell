@@ -2,7 +2,6 @@
  * 统一数据管理页面 - 多自选组管理优化版
  * 整合数据池、数据采集、数据质量三个核心功能模块
  * 支持多自选组管理（创建、命名、编辑、删除）
- * 参考主流金融工具设计，以货币对为核心展示单位
  */
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -1178,11 +1177,11 @@ const DataManagementPage = () => {
         title={
           <Space>
             <FolderOutlined />
-            <span>自选组</span>
+            <span>{t('favorite_group') || '自选组'}</span>
           </Space>
         }
         extra={
-          <Tooltip title="管理自选组">
+          <Tooltip title={t('manage_watchlist') || '管理自选组'}>
             <Button
               type="text"
               size="small"
@@ -1210,7 +1209,7 @@ const DataManagementPage = () => {
               icon: <DatabaseOutlined />,
               label: (
                 <Space style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <span>全部</span>
+                  <span>{t('all') || '全部'}</span>
                   <Tag>{symbols.length}</Tag>
                 </Space>
               ),
@@ -1237,7 +1236,7 @@ const DataManagementPage = () => {
           onClick={handleCreateGroup}
           style={{ margin: '0 16px', width: 'calc(100% - 32px)' }}
         >
-          新建自选组
+          {t('create_watchlist') || '新建自选组'}
         </Button>
       </Card>
     </div>
@@ -1246,14 +1245,14 @@ const DataManagementPage = () => {
   // 渲染组管理抽屉
   const renderGroupDrawer = () => (
     <Drawer
-      title="管理自选组"
+      title={t('manage_watchlist') || '管理自选组'}
       placement="right"
       width={400}
       open={isGroupDrawerOpen}
       onClose={() => setIsGroupDrawerOpen(false)}
       extra={
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateGroup}>
-          新建
+          {t('new') || '新建'}
         </Button>
       }
     >
@@ -1264,14 +1263,14 @@ const DataManagementPage = () => {
             size="small"
             style={{ borderLeft: `4px solid ${group.color}` }}
             actions={[
-              <Tooltip key="batch-add" title="批量添加自选">
+              <Tooltip key="batch-add" title={t('batch_add_favorite') || '批量添加自选'}>
                 <Button
                   type="text"
                   icon={<ImportOutlined />}
                   onClick={(e) => handleOpenBatchAdd(group, e)}
                 />
               </Tooltip>,
-              <Tooltip key="edit" title="编辑自选组">
+              <Tooltip key="edit" title={t('edit_watchlist') || '编辑自选组'}>
                 <Button
                   type="text"
                   icon={<EditOutlined />}
@@ -1280,8 +1279,8 @@ const DataManagementPage = () => {
               </Tooltip>,
               <Popconfirm
                 key="delete"
-                title="确定删除此自选组？"
-                description="组内的货币对不会被删除"
+                title={t('confirm_delete') || '确定删除此自选组？'}
+                description={t('delete_description') || '组内的货币对不会被删除'}
                 onConfirm={(e) => handleDeleteGroup(group.id, e as any)}
                 disabled={group.isDefault}
               >
@@ -1298,13 +1297,13 @@ const DataManagementPage = () => {
               title={
                 <Space>
                   <span>{group.name}</span>
-                  {group.isDefault && <Tag>默认</Tag>}
+                  {group.isDefault && <Tag>{t('default') || '默认'}</Tag>}
                 </Space>
               }
               description={
                 <Space direction="vertical" size={0}>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    {group.description || '暂无描述'}
+                    {group.description || t('no_description') || '暂无描述'}
                   </Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     {group.symbolIds.length} 个货币对 · 创建于 {group.createdAt}
@@ -1321,36 +1320,36 @@ const DataManagementPage = () => {
   // 渲染组编辑弹窗
   const renderGroupModal = () => (
     <Modal
-      title={editingGroup ? '编辑自选组' : '新建自选组'}
+      title={editingGroup ? t('edit_watchlist') || '编辑自选组' : t('create_watchlist') || '新建自选组'}
       open={isGroupModalOpen}
       onOk={handleSaveGroup}
       onCancel={() => setIsGroupModalOpen(false)}
-      okText="保存"
-      cancelText="取消"
+      okText={t('save') || '保存'}
+      cancelText={t('cancel') || '取消'}
     >
       <Form form={groupForm} layout="vertical">
         <Form.Item
           name="name"
-          label="组名称"
-          rules={[{ required: true, message: '请输入组名称' }]}
+          label={t('watchlist_name') || '组名称'}
+          rules={[{ required: true, message: t('watchlist_name_placeholder') || '请输入组名称' }]}
         >
-          <Input placeholder="例如：小市值、热门币种" />
+          <Input placeholder={t('watchlist_name_example') || '例如：小市值、热门币种'} />
         </Form.Item>
         
         <Form.Item
           name="description"
-          label="描述"
+          label={t('watchlist_desc') || '描述'}
         >
-          <Input.TextArea rows={2} placeholder="可选，描述此自选组的用途" />
+          <Input.TextArea rows={2} placeholder={t('watchlist_desc_placeholder') || '可选，描述此自选组的用途'} />
         </Form.Item>
         
         <Form.Item
           name="color"
-          label="颜色标识"
+          label={t('color_tag') || '颜色标识'}
           initialValue="#1890ff"
         >
           <Select
-            placeholder="选择颜色"
+            placeholder={t('color_tag_placeholder') || '选择颜色'}
             options={[
               { value: '#1890ff', label: <Space><div style={{ width: 16, height: 16, backgroundColor: '#1890ff', borderRadius: 4 }} />蓝色</Space> },
               { value: '#52c41a', label: <Space><div style={{ width: 16, height: 16, backgroundColor: '#52c41a', borderRadius: 4 }} />绿色</Space> },
@@ -1419,10 +1418,10 @@ const DataManagementPage = () => {
             item.description!.toLowerCase().includes(inputValue.toLowerCase())
           }
           locale={{
-            searchPlaceholder: '搜索货币对',
-            itemUnit: '项',
-            itemsUnit: '项',
-            notFoundContent: '暂无数据',
+            searchPlaceholder: t('search_symbol') || '搜索货币对',
+            itemUnit: t('item_unit') || '项',
+            itemsUnit: t('items_unit') || '项',
+            notFoundContent: t('not_found') || '暂无数据',
           }}
         />
       </Modal>
@@ -1586,7 +1585,7 @@ const DataManagementPage = () => {
       <Row gutter={[12, 12]} style={{ marginBottom: 12 }} align="middle">
         <Col xs={16} sm={16} md={12} lg={10}>
           <Search
-            placeholder="搜索货币对"
+            placeholder={t('search_symbol') || '搜索货币对'}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             allowClear
@@ -1598,8 +1597,8 @@ const DataManagementPage = () => {
             value={viewType}
             onChange={(value) => setViewType(value as ViewType)}
             options={[
-              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? '列表' : undefined },
-              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? '卡片' : undefined },
+              { value: 'list', icon: <UnorderedListOutlined />, label: screens.sm ? t('list_view') || '列表' : undefined },
+              { value: 'card', icon: <AppstoreOutlined />, label: screens.sm ? t('card_view') || '卡片' : undefined },
             ]}
           />
         </Col>
@@ -1617,7 +1616,7 @@ const DataManagementPage = () => {
                       已选择 {selectedSymbols.length} 个货币对
                     </span>
                     <Button type="link" size="small" onClick={clearSelection}>
-                      清空选择
+                      {t('clear_selection') || '清空选择'}
                     </Button>
                   </Space>
                 </Col>
@@ -1628,14 +1627,14 @@ const DataManagementPage = () => {
                       icon={<CheckCircleOutlined />}
                       onClick={batchEnableAutoUpdate}
                     >
-                      批量开启自动更新
+                      {t('batch_enable_auto_update') || '批量开启自动更新'}
                     </Button>
                     <Button
                       size="small"
                       icon={<CloseCircleOutlined />}
                       onClick={batchDisableAutoUpdate}
                     >
-                      批量关闭自动更新
+                      {t('batch_disable_auto_update') || '批量关闭自动更新'}
                     </Button>
                     <Button
                       size="small"
@@ -1643,7 +1642,7 @@ const DataManagementPage = () => {
                       icon={<CloudDownloadOutlined />}
                       onClick={batchCollectData}
                     >
-                      批量采集
+                      {t('batch_collection') || '批量采集'}
                     </Button>
                   </Space>
                 </Col>
@@ -1660,12 +1659,12 @@ const DataManagementPage = () => {
           <Row gutter={[8, 8]}>
             <Col xs={12} sm={12} md={12}>
               <Select
-                placeholder="计价货币"
+                placeholder={t('quote_currency') || '计价货币'}
                 value={quoteFilter}
                 onChange={setQuoteFilter}
                 style={{ width: '100%' }}
                 options={[
-                  { value: 'all', label: '全部' },
+                  { value: 'all', label: t('all') || '全部' },
                   { value: 'USDT', label: 'USDT' },
                   { value: 'BTC', label: 'BTC' },
                   { value: 'ETH', label: 'ETH' },
@@ -1674,7 +1673,7 @@ const DataManagementPage = () => {
             </Col>
             <Col xs={12} sm={12} md={12}>
               <Select
-                placeholder="排序"
+                placeholder={t('sort') || '排序'}
                 value={`${sortField}-${sortOrder}`}
                 onChange={(value) => {
                   const [field, order] = value.split('-');
@@ -1683,14 +1682,14 @@ const DataManagementPage = () => {
                 }}
                 style={{ width: '100%' }}
                 options={[
-                  { value: 'rank-asc', label: '按排名' },
-                  { value: 'symbol-asc', label: '名称 A-Z' },
-                  { value: 'symbol-desc', label: '名称 Z-A' },
-                  { value: 'price-desc', label: '价格 高-低' },
-                  { value: 'price-asc', label: '价格 低-高' },
-                  { value: 'change-desc', label: '涨幅 高-低' },
-                  { value: 'change-asc', label: '涨幅 低-高' },
-                  { value: 'volume-desc', label: '成交量 高-低' },
+                  { value: 'rank-asc', label: t('sort_by_rank') || '按排名' },
+                  { value: 'symbol-asc', label: t('sort_by_name_asc') || '名称 A-Z' },
+                  { value: 'symbol-desc', label: t('sort_by_name_desc') || '名称 Z-A' },
+                  { value: 'price-desc', label: t('sort_by_price_desc') || '价格 高-低' },
+                  { value: 'price-asc', label: t('sort_by_price_asc') || '价格 低-高' },
+                  { value: 'change-desc', label: t('sort_by_change_desc') || '涨幅 高-低' },
+                  { value: 'change-asc', label: t('sort_by_change_asc') || '涨幅 低-高' },
+                  { value: 'volume-desc', label: t('sort_by_volume_desc') || '成交量 高-低' },
                 ]}
               />
             </Col>
@@ -1707,7 +1706,7 @@ const DataManagementPage = () => {
                 loading={symbolLoading}
                 style={{ width: screens.xs ? '100%' : 'auto' }}
               >
-                刷新
+                {t('refresh') || '刷新'}
               </Button>
             </Col>
           </Row>
@@ -1722,7 +1721,7 @@ const DataManagementPage = () => {
       <Col xs={12} sm={6}>
         <Card size="small">
           <Statistic
-            title="总货币对"
+            title={t('total_symbols') || '总货币对'}
             value={symbols.length}
             prefix={<DatabaseOutlined />}
           />
@@ -1731,7 +1730,7 @@ const DataManagementPage = () => {
       <Col xs={12} sm={6}>
         <Card size="small">
           <Statistic
-            title="当前组"
+            title={t('current_group') || '当前组'}
             value={activeGroup?.symbolIds.length || 0}
             prefix={<FolderOpenOutlined style={{ color: activeGroup?.color }} />}
           />
@@ -1740,7 +1739,7 @@ const DataManagementPage = () => {
       <Col xs={12} sm={6}>
         <Card size="small">
           <Statistic
-            title="有数据"
+            title={t('has_data') || '有数据'}
             value={filteredSymbols.filter(s => s.hasData).length}
             prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
           />
@@ -1749,7 +1748,7 @@ const DataManagementPage = () => {
       <Col xs={12} sm={6}>
         <Card size="small">
           <Statistic
-            title="自动更新"
+            title={t('auto_update') || '自动更新'}
             value={filteredSymbols.filter(s => s.autoUpdate).length}
             prefix={<ReloadOutlined style={{ color: '#1890ff' }} />}
           />
@@ -1798,7 +1797,7 @@ const DataManagementPage = () => {
       },
     },
     {
-      title: '货币对',
+      title: t('symbol') || '货币对',
       dataIndex: 'symbol',
       key: 'symbol',
       render: (text: string, record: SymbolData) => (
@@ -1810,7 +1809,7 @@ const DataManagementPage = () => {
       ),
     },
     {
-      title: '最新价格',
+      title: t('latest_price') || '最新价格',
       dataIndex: 'price',
       key: 'price',
       align: 'right' as const,
@@ -1822,7 +1821,7 @@ const DataManagementPage = () => {
       },
     },
     {
-      title: '24h涨跌',
+      title: t('change_24h') || '24h涨跌',
       key: 'change',
       align: 'right' as const,
       render: (_: any, record: SymbolData) => {
@@ -1839,7 +1838,7 @@ const DataManagementPage = () => {
       },
     },
     {
-      title: '24h成交量',
+      title: t('volume_24h') || '24h成交量',
       dataIndex: 'volume24h',
       key: 'volume24h',
       align: 'right' as const,
@@ -1851,14 +1850,14 @@ const DataManagementPage = () => {
       },
     },
     {
-      title: '市值',
+      title: t('market_cap') || '市值',
       dataIndex: 'marketCap',
       key: 'marketCap',
       align: 'right' as const,
       render: (cap?: number) => cap ? `$${(cap / 1000000000).toFixed(2)}B` : '-',
     },
     {
-      title: '数据状态',
+      title: t('data_status') || '数据状态',
       key: 'dataStatus',
       render: (_: any, record: SymbolData) => (
         <Space>
@@ -1870,13 +1869,13 @@ const DataManagementPage = () => {
               </Text>
             </>
           ) : (
-            <Tag>无数据</Tag>
+            <Tag>{t('no_data') || '无数据'}</Tag>
           )}
         </Space>
       ),
     },
     {
-      title: '自动更新',
+      title: t('auto_update') || '自动更新',
       key: 'autoUpdate',
       width: 100,
       render: (_: any, record: SymbolData) => (
@@ -1892,7 +1891,7 @@ const DataManagementPage = () => {
       ),
     },
     {
-      title: '操作',
+      title: t('action') || '操作',
       key: 'action',
       width: 280,
       render: (_: any, record: SymbolData) => (
@@ -1904,7 +1903,7 @@ const DataManagementPage = () => {
               icon={<CloudDownloadOutlined />}
               onClick={() => startCollection(record.symbol)}
             >
-              采集
+              {t('collect') || '采集'}
             </Button>
           ) : (
             <>
@@ -1913,14 +1912,14 @@ const DataManagementPage = () => {
                 icon={<BarChartOutlined />}
                 onClick={() => checkQuality(record.symbol, '1h')}
               >
-                质量
+                {t('quality') || '质量'}
               </Button>
               <Button
                 size="small"
                 icon={<ReloadOutlined />}
                 onClick={() => startCollection(record.symbol)}
               >
-                更新
+                {t('update') || '更新'}
               </Button>
             </>
           )}
@@ -2059,7 +2058,7 @@ const DataManagementPage = () => {
             total={filteredSymbols.length}
             showSizeChanger
             pageSizeOptions={PAGE_SIZE_OPTIONS}
-            showTotal={(total) => `共 ${total} 条`}
+            showTotal={(total) => `${t('total_prefix') || '共'} ${total} ${t('items') || '条'}`}
             onChange={handlePageChange}
           />
         </Row>
@@ -2089,7 +2088,7 @@ const DataManagementPage = () => {
   const renderCollection = () => (
     <Row gutter={[16, 16]}>
       <Col xs={24} lg={12}>
-        <Card title="批量数据采集">
+        <Card title={t('batch_collect') || '批量数据采集'}>
           <Form
             form={collectionForm}
             layout="vertical"
@@ -2100,28 +2099,28 @@ const DataManagementPage = () => {
           >
             <Form.Item
               name="symbols"
-              label="选择货币对"
-              rules={[{ required: true, message: '请至少选择一个货币对或自选组' }]}
+              label={t('select_symbol_or_group') || '选择货币对'}
+              rules={[{ required: true, message: t('please_select_symbol_or_group') || '请至少选择一个货币对或自选组' }]}
             >
               <Select
                 mode="multiple"
-                placeholder="请选择货币对或自选组"
+                placeholder={t('select_symbol_or_group_placeholder') || '请选择货币对或自选组'}
                 showSearch
                 allowClear
                 options={[
                   // 自选组选项
                   ...(favoriteGroups.length > 0 ? [
                     {
-                      label: <Text type="secondary" style={{ fontSize: 12 }}>自选组</Text>,
+                      label: <Text type="secondary" style={{ fontSize: 12 }}>{t('favorite_groups') || '自选组'}</Text>,
                       options: favoriteGroups.map((group) => ({
                         value: `group:${group.id}`,
-                        label: `${group.name} (${group.symbolIds?.length || 0}个)`,
+                        label: `${group.name} (${group.symbolIds?.length || 0}${t('item') || '个'})`,
                       })),
                     }
                   ] : []),
                   // 货币对选项
                   {
-                    label: <Text type="secondary" style={{ fontSize: 12 }}>货币对</Text>,
+                    label: <Text type="secondary" style={{ fontSize: 12 }}>{t('symbols') || '货币对'}</Text>,
                     options: symbols.map((s) => ({
                       value: s.symbol,
                       label: s.symbol,
@@ -2154,28 +2153,28 @@ const DataManagementPage = () => {
 
             <Form.Item
               name="intervals"
-              label="时间周期"
-              rules={[{ required: true, message: '请至少选择一个时间周期' }]}
+              label={t('interval') || '时间周期'}
+              rules={[{ required: true, message: t('please_select_interval') || '请至少选择一个时间周期' }]}
             >
               <Select
                 mode="multiple"
-                placeholder="选择时间周期"
+                placeholder={t('select_interval_placeholder') || '选择时间周期'}
                 options={[
-                  { value: '1m', label: '1分钟' },
-                  { value: '5m', label: '5分钟' },
-                  { value: '15m', label: '15分钟' },
-                  { value: '30m', label: '30分钟' },
-                  { value: '1h', label: '1小时' },
-                  { value: '4h', label: '4小时' },
-                  { value: '1d', label: '1天' },
+                  { value: '1m', label: t('interval_1m') || '1分钟' },
+                  { value: '5m', label: t('interval_5m') || '5分钟' },
+                  { value: '15m', label: t('interval_15m') || '15分钟' },
+                  { value: '30m', label: t('interval_30m') || '30分钟' },
+                  { value: '1h', label: t('interval_1h') || '1小时' },
+                  { value: '4h', label: t('interval_4h') || '4小时' },
+                  { value: '1d', label: t('interval_1d') || '1天' },
                 ]}
               />
             </Form.Item>
 
             <Form.Item
               name="dateRange"
-              label="时间范围"
-              rules={[{ required: true, message: '请选择时间范围' }]}
+              label={t('date_range') || '时间范围'}
+              rules={[{ required: true, message: t('please_select_date_range') || '请选择时间范围' }]}
             >
               <RangePicker style={{ width: '100%' }} />
             </Form.Item>
@@ -2187,7 +2186,7 @@ const DataManagementPage = () => {
                 onClick={handleBatchCollection}
                 block
               >
-                开始批量采集
+                {t('start_batch_collect') || '开始批量采集'}
               </Button>
             </Form.Item>
           </Form>
@@ -2195,10 +2194,10 @@ const DataManagementPage = () => {
       </Col>
 
       <Col xs={24} lg={12}>
-        <Card title="采集任务">
+        <Card title={t('collection_tasks') || '采集任务'}>
           <div style={{ maxHeight: 600, overflow: 'auto' }}>
             {collectionTasks.length === 0 && !currentTaskId ? (
-              <Empty description="暂无采集任务" />
+              <Empty description={t('no_collection_tasks') || '暂无采集任务'} />
             ) : (
               <Space direction="vertical" style={{ width: '100%' }}>
                 {/* 当前任务放在最前面 */}
@@ -2750,7 +2749,7 @@ const DataManagementPage = () => {
             key: 'symbols',
             label: (
               <span>
-                <DatabaseOutlined /> 货币对
+                <DatabaseOutlined /> {t('symbols') || '货币对'}
               </span>
             ),
             children: renderSymbolList(),
@@ -2759,7 +2758,7 @@ const DataManagementPage = () => {
             key: 'collection',
             label: (
               <span>
-                <CloudDownloadOutlined /> 数据采集
+                <CloudDownloadOutlined /> {t('data_collection') || '数据采集'}
               </span>
             ),
             children: renderCollection(),
@@ -2768,7 +2767,7 @@ const DataManagementPage = () => {
             key: 'quality',
             label: (
               <span>
-                <BarChartOutlined /> 数据质量
+                <BarChartOutlined /> {t('data_quality') || '数据质量'}
               </span>
             ),
             children: renderQuality(),

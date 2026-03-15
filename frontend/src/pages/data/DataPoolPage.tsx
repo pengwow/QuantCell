@@ -8,40 +8,40 @@ const DataPoolPage = () => {
 
   const columns = [
     {
-      title: '数据池名称',
+      title: t('data_pool_name') || '数据池名称',
       dataIndex: 'name',
       key: 'name',
     },
     {
-      title: '交易对',
+      title: t('symbol') || '交易对',
       dataIndex: 'symbol',
       key: 'symbol',
     },
     {
-      title: '时间周期',
+      title: t('timeframe') || '时间周期',
       dataIndex: 'timeframe',
       key: 'timeframe',
     },
     {
-      title: '数据范围',
+      title: t('data_range') || '数据范围',
       dataIndex: 'range',
       key: 'range',
     },
     {
-      title: '操作',
+      title: t('action') || '操作',
       key: 'action',
       render: () => (
-        <Button type="link">管理</Button>
+        <Button type="link">{t('manage') || '管理'}</Button>
       ),
     },
   ];
 
   return (
-    <PageContainer title={t('data_pool_management')}>
+    <PageContainer title={t('data_pool_management') || '数据池管理'}>
       <div className="space-y-4">
         <div className="flex justify-end items-center">
           <Button type="primary" icon={<IconPlus size={16} />}>
-            新建数据池
+            {t('new_data_pool') || '新建数据池'}
           </Button>
         </div>
         <Card>
