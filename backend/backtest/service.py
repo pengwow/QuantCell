@@ -1389,7 +1389,7 @@ class BacktestService:
             # 加载回测结果文件
             result_path = self.backtest_result_dir / f"{backtest_id}.json"
             if not result_path.exists():
-                logger.error(f"回测结果文件不存在: {result_path}")
+                logger.warning(f"回测结果文件不存在: {result_path}")
                 return None
             
             with open(result_path, "r", encoding="utf-8") as f:
