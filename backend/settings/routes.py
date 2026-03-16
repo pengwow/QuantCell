@@ -872,20 +872,57 @@ def test_notification(request: Request, test_request: Dict[str, Any] = Body(...)
         401: 未授权访问
         500: 测试失败
     """
+    import asyncio
+    from common.notifications import notification_service, NotificationChannel
+
     try:
         channel_id = test_request.get("channel_id")
         config = test_request.get("config", {})
 
         logger.info(f"测试通知渠道: {channel_id}")
 
-        # TODO: 实现实际的通知发送逻辑
-        # 这里仅返回模拟结果
+        if not channel_id:
+            return ApiResponse(
+                code=400,
+                message="缺少channel_id参数",
+                data=None
+            )
 
-        return ApiResponse(
-            code=0,
-            message=f"测试消息已发送到 {channel_id}",
-            data={"channel_id": channel_id, "status": "sent"}
+        # 将channel_id转换为NotificationChannel枚举
+        channel_map = {
+            "email": NotificationChannel.EMAIL,
+            "wecom": NotificationChannel.WECOM,
+            "feishu": NotificationChannel.FEISHU,
+            "websocket": NotificationChannel.WEBSOCKET,
+        }
+
+        channel_type = channel_map.get(channel_id)
+        if not channel_type:
+            return ApiResponse(
+                code=400,
+                message=f"未知的通知渠道: {channel_id}",
+                data=None
+            )
+
+        # 异步执行通知测试
+        loop = asyncio.get_event_loop()
+        result = loop.run_until_complete(
+            notification_service.test_channel(channel_type, config if config else None)
         )
+
+        if result.get("success"):
+            return ApiResponse(
+                code=0,
+                message=f"测试消息已成功发送到 {channel_id}",
+                data={"channel_id": channel_id, "result": result}
+            )
+        else:
+            return ApiResponse(
+                code=500,
+                message=f"测试发送失败: {result.get('error', '未知错误')}",
+                data={"channel_id": channel_id, "error": result.get("error")}
+            )
+
     except Exception as e:
         logger.error(f"测试通知渠道失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
