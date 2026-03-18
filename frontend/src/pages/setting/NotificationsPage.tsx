@@ -20,6 +20,7 @@ import {
 import { testNotificationChannel } from "../../services/notificationService";
 import { configApi } from "../../api";
 import { useGuestRestriction } from "../../hooks/useGuestRestriction";
+import { IconPlugConnected } from "@tabler/icons-react";
 
 const { Text } = Typography;
 const { Option } = Select;
@@ -111,6 +112,8 @@ const NotificationsPage = () => {
   const [selectedChannelId, setSelectedChannelId] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [testingChannel, setTestingChannel] = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
 
   // 从后端API加载配置
   useEffect(() => {
@@ -269,7 +272,7 @@ const NotificationsPage = () => {
     }
   };
 
-  // 测试发送通知
+  // 测试发送通知（渠道级别）
   const handleTestSend = async (channelId: string) => {
     const channel = channels.find((c) => c.id === channelId);
     if (!channel) return;
@@ -300,6 +303,51 @@ const NotificationsPage = () => {
     } catch (error) {
       console.error("测试发送失败:", error);
       message.error(t("test_failed") || "测试发送失败");
+    }
+  };
+
+  // 测试当前选中的通知渠道（页面级别）
+  const handleTestChannel = async () => {
+    if (!selectedChannel) return;
+
+    // 检查渠道是否启用
+    if (!selectedChannel.enabled) {
+      message.warning(t("channel_not_enabled") || "该通知渠道未启用，请先启用后再测试");
+      return;
+    }
+
+    // 检查配置是否完整
+    if (selectedChannel.id === "email" && (!selectedChannel.config.smtpHost || !selectedChannel.config.username || !selectedChannel.config.password)) {
+      message.error(t("email_config_incomplete") || "邮件配置不完整，请填写 SMTP 服务器地址、用户名和密码");
+      return;
+    }
+    if (selectedChannel.id === "wecom" && !selectedChannel.config.webhookUrl) {
+      message.error(t("wecom_config_incomplete") || "企业微信配置不完整，请填写 Webhook 地址");
+      return;
+    }
+    if (selectedChannel.id === "feishu" && !selectedChannel.config.webhookUrl) {
+      message.error(t("feishu_config_incomplete") || "飞书配置不完整，请填写 Webhook 地址");
+      return;
+    }
+
+    setTestingChannel(true);
+    setTestResult(null);
+
+    try {
+      const response = await testNotificationChannel(selectedChannel.id, selectedChannel.config);
+      setTestResult(response);
+
+      if (response.code === 0) {
+        message.success(response.message || t("test_success") || "测试成功");
+      } else {
+        message.error(response.message || t("test_failed") || "测试失败");
+      }
+    } catch (error: any) {
+      const errorMsg = error.message || t("test_failed") || "测试失败";
+      setTestResult({ code: -1, message: errorMsg });
+      message.error(errorMsg);
+    } finally {
+      setTestingChannel(false);
     }
   };
 
@@ -351,9 +399,20 @@ const NotificationsPage = () => {
         <div className="flex-1">
           {selectedChannel ? (
             <div className="space-y-4">
-              {/* 渠道标题 - 与左侧标题对齐 */}
+              {/* 渠道标题和测试按钮 - 与左侧标题对齐 */}
               <div className="flex items-center justify-between h-8">
                 <div className="text-base font-medium">{selectedChannel.name}</div>
+                <Space>
+                  <Button
+                    type="primary"
+                    icon={<IconPlugConnected size={16} />}
+                    onClick={handleTestChannel}
+                    loading={testingChannel}
+                    disabled={testingChannel || !selectedChannel.enabled}
+                  >
+                    {testingChannel ? t("testing") || "测试中..." : t("test_channel") || "测试渠道"}
+                  </Button>
+                </Space>
               </div>
 
               <Card className="shadow-sm">
@@ -594,6 +653,36 @@ const NotificationsPage = () => {
                         {t("test_send") || "测试发送"}
                       </Button>
                     </div>
+                  </div>
+                )}
+
+                {/* 测试结果 */}
+                {testResult && (
+                  <div className={`mt-4 p-3 rounded-lg ${testResult.code === 0 ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
+                    <div className="flex items-center gap-2">
+                      {testResult.code === 0 ? (
+                        <span className="text-green-500">✓</span>
+                      ) : (
+                        <span className="text-red-500">✗</span>
+                      )}
+                      <span className={testResult.code === 0 ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}>
+                        {testResult.message}
+                      </span>
+                    </div>
+                    {testResult.data?.result && (
+                      <div className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                        <div className="flex justify-between">
+                          <span>{t("channel") || "渠道"}:</span>
+                          <span>{selectedChannel?.name}</span>
+                        </div>
+                        {testResult.data.result.error && (
+                          <div className="flex justify-between mt-1">
+                            <span>{t("error_details") || "错误详情"}:</span>
+                            <span className="text-red-600">{testResult.data.result.error}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
