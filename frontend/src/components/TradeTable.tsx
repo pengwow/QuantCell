@@ -1,22 +1,27 @@
 /**
  * 交易详情表格组件
  * 功能：展示交易记录的详细信息，支持分页和收益颜色标识
- * 适用场景：回测结果、交易记录、订单历史等
+ * 适配后端返回格式：{ trade_id, side, direction, quantity, price, volume, commission, timestamp, formatted_time, status }
  */
 import { Table, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import dayjs from 'dayjs';
 
-// 交易数据接口
+// 后端返回的交易数据接口
 export interface Trade {
-  EntryTime: string;
-  ExitTime: string;
-  Direction: string;
-  EntryPrice: number;
-  ExitPrice: number;
-  Size: number;
-  PnL: number;
-  ReturnPct: number;
+  trade_id: string;
+  client_order_id?: string;
+  venue_order_id?: string;
+  position_id?: string;
+  instrument_id?: string;
+  side: string;
+  direction: string;
+  quantity: number;
+  price: number;
+  volume: number;
+  commission: string;
+  timestamp: number;
+  formatted_time: string;
+  status: string;
 }
 
 // 组件属性接口
@@ -27,114 +32,100 @@ export interface TradeTableProps {
 }
 
 /**
- * 格式化日期时间
- */
-const formatDateTime = (datetime: string): string => {
-  return dayjs(datetime).format('YYYY-MM-DD HH:mm:ss');
-};
-
-/**
  * 格式化价格，保留4位小数
  */
 const formatPrice = (price: number): string => {
+  if (typeof price !== 'number') return '-';
   return price.toFixed(4);
 };
 
 /**
- * 格式化仓位，保留2位小数
+ * 格式化数量，保留4位小数
  */
-const formatSize = (size: number): string => {
-  return size.toFixed(2);
+const formatQuantity = (quantity: number): string => {
+  if (typeof quantity !== 'number') return '-';
+  return quantity.toFixed(4);
 };
 
 /**
- * 格式化收益，保留2位小数
+ * 格式化金额，保留2位小数
  */
-const formatPnL = (pnl: number): string => {
-  return pnl.toFixed(2);
-};
-
-/**
- * 格式化收益率，显示百分比
- */
-const formatReturnPct = (returnPct: number): string => {
-  return `${(returnPct * 100).toFixed(2)}%`;
+const formatVolume = (volume: number): string => {
+  if (typeof volume !== 'number') return '-';
+  return volume.toFixed(2);
 };
 
 const TradeTable = ({ data, loading = false, pagination = true }: TradeTableProps) => {
   // 表格列定义
   const columns: ColumnsType<Trade> = [
     {
-      title: '入场时间',
-      dataIndex: 'EntryTime',
-      key: 'EntryTime',
-      render: (value: string) => formatDateTime(value),
-      sorter: (a, b) => dayjs(a.EntryTime).unix() - dayjs(b.EntryTime).unix(),
-    },
-    {
-      title: '出场时间',
-      dataIndex: 'ExitTime',
-      key: 'ExitTime',
-      render: (value: string) => formatDateTime(value),
-      sorter: (a, b) => dayjs(a.ExitTime).unix() - dayjs(b.ExitTime).unix(),
+      title: '时间',
+      dataIndex: 'formatted_time',
+      key: 'formatted_time',
+      render: (value: string) => value || '-',
+      sorter: (a, b) => (a.timestamp || 0) - (b.timestamp || 0),
     },
     {
       title: '方向',
-      dataIndex: 'Direction',
-      key: 'Direction',
-      render: (value: string) => {
-        const isLong = value.toLowerCase() === 'long' || value === '做多';
+      dataIndex: 'side',
+      key: 'side',
+      render: (value: string, record: Trade) => {
+        const isBuy = value?.toUpperCase() === 'BUY' || record.direction?.includes('买入');
         return (
-          <Tag color={isLong ? 'green' : 'red'}>
-            {isLong ? '做多' : '做空'}
+          <Tag color={isBuy ? 'green' : 'red'}>
+            {record.direction || value || '-'}
           </Tag>
         );
       },
     },
     {
-      title: '入场价格',
-      dataIndex: 'EntryPrice',
-      key: 'EntryPrice',
+      title: '价格',
+      dataIndex: 'price',
+      key: 'price',
       render: (value: number) => formatPrice(value),
       align: 'right',
     },
     {
-      title: '出场价格',
-      dataIndex: 'ExitPrice',
-      key: 'ExitPrice',
-      render: (value: number) => formatPrice(value),
+      title: '数量',
+      dataIndex: 'quantity',
+      key: 'quantity',
+      render: (value: number) => formatQuantity(value),
       align: 'right',
     },
     {
-      title: '仓位',
-      dataIndex: 'Size',
-      key: 'Size',
-      render: (value: number) => formatSize(value),
+      title: '金额',
+      dataIndex: 'volume',
+      key: 'volume',
+      render: (value: number) => formatVolume(value),
       align: 'right',
     },
     {
-      title: '收益',
-      dataIndex: 'PnL',
-      key: 'PnL',
-      render: (value: number) => (
-        <span style={{ color: value >= 0 ? '#52c41a' : '#ff4d4f' }}>
-          {formatPnL(value)}
-        </span>
-      ),
+      title: '手续费',
+      dataIndex: 'commission',
+      key: 'commission',
+      render: (value: string) => value || '-',
       align: 'right',
-      sorter: (a, b) => a.PnL - b.PnL,
     },
     {
-      title: '收益率',
-      dataIndex: 'ReturnPct',
-      key: 'ReturnPct',
-      render: (value: number) => (
-        <span style={{ color: value >= 0 ? '#52c41a' : '#ff4d4f' }}>
-          {formatReturnPct(value)}
-        </span>
-      ),
-      align: 'right',
-      sorter: (a, b) => a.ReturnPct - b.ReturnPct,
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      render: (value: string) => {
+        const statusMap: Record<string, { color: string; text: string }> = {
+          'FILLED': { color: 'green', text: '已成交' },
+          'PENDING': { color: 'orange', text: '待成交' },
+          'CANCELLED': { color: 'red', text: '已取消' },
+        };
+        const status = statusMap[value?.toUpperCase()] || { color: 'default', text: value || '-' };
+        return <Tag color={status.color}>{status.text}</Tag>;
+      },
+    },
+    {
+      title: '交易ID',
+      dataIndex: 'trade_id',
+      key: 'trade_id',
+      render: (value: string) => value || '-',
+      ellipsis: true,
     },
   ];
 
@@ -142,7 +133,7 @@ const TradeTable = ({ data, loading = false, pagination = true }: TradeTableProp
     <Table
       columns={columns}
       dataSource={data}
-      rowKey={(record, index) => `${record.EntryTime}-${index}`}
+      rowKey={(record) => record.trade_id || `${record.timestamp}-${Math.random()}`}
       loading={loading}
       pagination={
         pagination

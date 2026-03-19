@@ -444,135 +444,128 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
   /**
    * 处理后端返回的进度数据，更新前端状态
+   * 重构版本：简化逻辑，确保状态正确更新
    */
   const handleProgressUpdate = (data: BacktestProgressData) => {
+    console.log('[handleProgressUpdate] 收到进度数据:', JSON.stringify(data, null, 2));
     setBacktestProgressData(data);
 
-    // 检查是否有错误（包括初始化阶段错误）
-    if (data.error) {
+    // 处理错误状态
+    if (data.error && (data.error.stage === 'initialization' || data.error.stage === 'polling')) {
       setErrorMessage(data.error.message);
       message.error(data.error.message);
-
-      // 如果是初始化阶段错误，停止轮询并更新状态
-      if (data.error.stage === 'initialization' || data.error.stage === 'polling') {
-        stopProgressPolling();
-        setIsBacktestRunning(false);
-        setLoading(false);
-
-        // 更新步骤状态为错误
-        setStepStatus({
-          dataPrep: 'error',
-          execution: 'error',
-          analysis: 'error',
-        });
-        return;
-      }
-    }
-
-    // 检查任务状态
-    if (data.status === 'failed') {
       stopProgressPolling();
       setIsBacktestRunning(false);
       setLoading(false);
-      
-      // 更新步骤状态为错误
-      setStepStatus({
-        dataPrep: data.data_prep?.status === 'failed' ? 'error' : 'finish',
-        execution: data.execution?.status === 'failed' ? 'error' : 'finish',
-        analysis: data.analysis?.status === 'failed' ? 'error' : 'finish',
-      });
-      
-      // 显示错误消息
-      if (data.error) {
-        message.error(data.error.message);
-      } else {
-        message.error('回测执行失败');
-      }
-      
-      return; // 立即返回，不再执行后续代码
+      setStepStatus({ dataPrep: 'error', execution: 'error', analysis: 'error' });
+      return;
     }
-    
-    // 检查任务是否完成
+
+    // 根据后端状态计算前端状态
+    const newStepStatus: StepStatusState = {
+      dataPrep: mapStatus(data.data_prep?.status),
+      execution: mapStatus(data.execution?.status),
+      analysis: mapStatus(data.analysis?.status),
+    };
+
+    // 计算当前步骤
+    let newCurrentStep = 0;
+    if (data.current_stage === 'execution') {
+      newCurrentStep = 1;
+    } else if (data.current_stage === 'analysis' || data.current_stage === 'completed') {
+      newCurrentStep = 2;
+    }
+
+    // 构建进度数据 - 确保所有字段都有默认值
+    const newProgressData: ProgressData = {
+      overall: data.overall_progress || 0,
+      dataPrep: {
+        percent: data.data_prep?.progress || 0,
+        downloading: data.data_prep?.current_step === 'downloading' || !!data.data_prep?.downloading,
+        downloadProgress: data.data_prep?.downloading?.progress || 0,
+        message: data.data_prep?.message || getDefaultMessage(data.data_prep?.current_step, 'data_prep'),
+      },
+      execution: {
+        percent: data.execution?.progress || 0,
+        current: data.execution?.completed_symbols || 0,
+        total: data.execution?.total_symbols || 1,
+        currentSymbol: data.execution?.current_symbol || '',
+        message: data.execution?.message || '准备执行回测...',
+      },
+      analysis: {
+        percent: data.analysis?.progress || 0,
+        message: data.analysis?.message || '等待结果统计...',
+      },
+    };
+
+    // 更新所有状态
+    setProgressData(newProgressData);
+    setStepStatus(newStepStatus);
+    setCurrentStep(newCurrentStep);
+
+    console.log('[handleProgressUpdate] 更新后的状态:', {
+      progressData: newProgressData,
+      stepStatus: newStepStatus,
+      currentStep: newCurrentStep,
+    });
+
+    // 处理完成状态
     if (data.status === 'completed') {
       stopProgressPolling();
       setIsBacktestRunning(false);
       setLoading(false);
       message.success('回测执行成功！');
-      return; // 立即返回，不再执行后续代码
+      return;
     }
 
-    // 更新总体进度
-    setProgressData({
-      overall: data.overall_progress,
-      dataPrep: data.data_prep ? {
-        percent: data.data_prep.progress,
-        downloading: data.data_prep.current_step === 'downloading' || !!data.data_prep.downloading,
-        downloadProgress: data.data_prep.downloading?.progress || 0,
-        message: data.data_prep.message,
-      } : undefined,
-      execution: data.execution ? {
-        percent: data.execution.progress,
-        current: data.execution.completed_symbols,
-        total: data.execution.total_symbols,
-        currentSymbol: data.execution.current_symbol,
-        message: data.execution.message,
-      } : undefined,
-      analysis: data.analysis ? {
-        percent: data.analysis.progress,
-        message: data.analysis.message,
-      } : undefined,
-    });
+    // 处理失败状态
+    if (data.status === 'failed') {
+      stopProgressPolling();
+      setIsBacktestRunning(false);
+      setLoading(false);
+      if (data.error) {
+        setErrorMessage(data.error.message);
+        message.error(data.error.message);
+      } else {
+        message.error('回测执行失败');
+      }
+      return;
+    }
+  };
 
-    // 更新步骤状态
-    const newStepStatus: StepStatusState = {
-      dataPrep: 'wait',
-      execution: 'wait',
-      analysis: 'wait',
-    };
+  /**
+   * 将后端状态映射为前端步骤状态
+   */
+  const mapStatus = (status?: string): StepStatusState['dataPrep'] => {
+    switch (status) {
+      case 'completed':
+        return 'finish';
+      case 'running':
+        return 'process';
+      case 'failed':
+        return 'error';
+      default:
+        return 'wait';
+    }
+  };
 
-    // 数据准备阶段状态
-    if (data.data_prep) {
-      if (data.data_prep.status === 'completed') {
-        newStepStatus.dataPrep = 'finish';
-      } else if (data.data_prep.status === 'running') {
-        newStepStatus.dataPrep = 'process';
-      } else if (data.data_prep.status === 'failed') {
-        newStepStatus.dataPrep = 'error';
+  /**
+   * 获取默认消息
+   */
+  const getDefaultMessage = (step?: string, stage?: string): string => {
+    if (stage === 'data_prep') {
+      switch (step) {
+        case 'checking':
+          return '正在检查数据完整性...';
+        case 'downloading':
+          return '正在下载数据...';
+        case 'loading':
+          return '正在加载数据...';
+        default:
+          return '准备数据...';
       }
     }
-
-    // 执行阶段状态
-    if (data.execution) {
-      if (data.execution.status === 'completed') {
-        newStepStatus.execution = 'finish';
-      } else if (data.execution.status === 'running') {
-        newStepStatus.execution = 'process';
-      } else if (data.execution.status === 'failed') {
-        newStepStatus.execution = 'error';
-      }
-    }
-
-    // 结果统计阶段状态
-    if (data.analysis) {
-      if (data.analysis.status === 'completed') {
-        newStepStatus.analysis = 'finish';
-      } else if (data.analysis.status === 'running') {
-        newStepStatus.analysis = 'process';
-      } else if (data.analysis.status === 'failed') {
-        newStepStatus.analysis = 'error';
-      }
-    }
-
-    setStepStatus(newStepStatus);
-
-    // 更新当前步骤
-    if (data.current_stage === 'data_prep') {
-      setCurrentStep(0);
-    } else if (data.current_stage === 'execution') {
-      setCurrentStep(1);
-    } else if (data.current_stage === 'analysis' || data.current_stage === 'completed') {
-      setCurrentStep(2);
-    }
+    return '处理中...';
   };
 
   /**
@@ -587,7 +580,26 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
     // 重置状态
     setCurrentStep(0);
     setStepStatus({ dataPrep: 'process', execution: 'wait', analysis: 'wait' });
-    setProgressData({ overall: 0 });
+    setProgressData({
+      overall: 0,
+      dataPrep: {
+        percent: 0,
+        downloading: false,
+        downloadProgress: 0,
+        message: '准备开始...',
+      },
+      execution: {
+        percent: 0,
+        current: 0,
+        total: 1,
+        currentSymbol: '',
+        message: '等待数据准备...',
+      },
+      analysis: {
+        percent: 0,
+        message: '等待执行完成...',
+      },
+    });
 
     // 开始新的轮询
     stopPollingRef.current = pollBacktestProgress(taskId, handleProgressUpdate, {

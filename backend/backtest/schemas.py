@@ -122,9 +122,9 @@ class BacktestConfig(BaseSchema):
         json_schema_extra={"example": False},
     )
     show_progress: bool = Field(
-        default=True,
+        default=False,
         description="是否显示进度",
-        json_schema_extra={"example": True},
+        json_schema_extra={"example": False},
     )
 
 

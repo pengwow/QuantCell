@@ -616,12 +616,12 @@ class CLICore:
                     task = BacktestTask(
                         id=task_id,
                         strategy_name=strategy_name,
-                        backtest_config=json.dumps(backtest_config, ensure_ascii=False),
+                        backtest_config=json.dumps(backtest_config, ensure_ascii=False, default=str),
                         status='completed',
                         completed_at=func.now()
                     )
                     db.add(task)
-                    
+
                     result_record = BacktestResult(
                         id=f"{task_id}_result",
                         task_id=task_id,
@@ -662,12 +662,12 @@ class CLICore:
                     task = BacktestTask(
                         id=task_id,
                         strategy_name=strategy_name,
-                        backtest_config=json.dumps(backtest_config, ensure_ascii=False),
+                        backtest_config=json.dumps(backtest_config, ensure_ascii=False, default=str),
                         status='completed',
                         completed_at=func.now()
                     )
                     db.add(task)
-                    
+
                     result_record = BacktestResult(
                         id=f"{task_id}_result",
                         task_id=task_id,

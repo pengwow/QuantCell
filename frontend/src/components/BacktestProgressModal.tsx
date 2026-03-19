@@ -113,7 +113,7 @@ const BacktestProgressModal = ({
       icon: getStepIcon(stepStatus.dataPrep, <DatabaseOutlined />),
       description: (
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
-          {stepStatus.dataPrep === 'process' && progressData.dataPrep && (
+          {(stepStatus.dataPrep === 'process' || stepStatus.dataPrep === 'wait') && progressData.dataPrep && (
             <>
               {progressData.dataPrep.downloading ? (
                 <>
@@ -161,7 +161,7 @@ const BacktestProgressModal = ({
       icon: getStepIcon(stepStatus.execution, <PlayCircleOutlined />),
       description: (
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
-          {stepStatus.execution === 'process' && progressData.execution && (
+          {(stepStatus.execution === 'process' || stepStatus.execution === 'wait') && progressData.execution && (
             <>
               <Text type="secondary">
                 {progressData.execution.message || (t('backtest_executing', { progress: progressData.execution.currentSymbol || t('loading') || '准备中' }) || `正在回测: ${progressData.execution.currentSymbol || '准备中'}`)}
@@ -197,7 +197,7 @@ const BacktestProgressModal = ({
       icon: getStepIcon(stepStatus.analysis, <BarChartOutlined />),
       description: (
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
-          {stepStatus.analysis === 'process' && (
+          {(stepStatus.analysis === 'process' || stepStatus.analysis === 'wait') && (
             <>
               <Text type="secondary">{progressData.analysis?.message || (t('generating_report') || '正在生成统计报告...')}</Text>
               {progressData.analysis?.percent !== undefined && (
