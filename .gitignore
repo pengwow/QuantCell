@@ -56,3 +56,4 @@ QuantCell.code-workspace
 
 
 backend/config.toml
+backend/tmp/*

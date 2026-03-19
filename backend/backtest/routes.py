@@ -210,7 +210,7 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
             task = BacktestTask(
                 id=task_id,
                 strategy_name=request.strategy_config.strategy_name,
-                backtest_config=json.dumps(backtest_config_dict),
+                backtest_config=json.dumps(backtest_config_dict, default=str, ensure_ascii=False),
                 status="pending",
                 started_at=datetime.now(timezone.utc)
             )
@@ -528,23 +528,78 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
     try:
         logger.info(f"获取回测结果详情请求，回测ID: {backtest_id}")
 
-        # 获取回测结果详情
-        result = backtest_service.analyze_backtest(backtest_id)
+        # 从数据库获取回测任务和结果
+        from collector.db.database import SessionLocal, init_database_config
+        from collector.db.models import BacktestTask, BacktestResult
+        import json
 
-        if result and result.get("status") == "success":
+        init_database_config()
+        db = SessionLocal()
+
+        try:
+            # 获取回测任务
+            task = db.query(BacktestTask).filter_by(id=backtest_id).first()
+
+            if not task:
+                logger.error(f"回测任务不存在，回测ID: {backtest_id}")
+                return ApiResponse(
+                    code=1,
+                    message="回测任务不存在",
+                    data={}
+                )
+
+            # 解析回测配置
+            backtest_config = {}
+            strategy_config = {}
+            try:
+                if task.backtest_config:
+                    backtest_config = json.loads(task.backtest_config)
+                if task.strategy_config:
+                    strategy_config = json.loads(task.strategy_config)
+            except Exception as e:
+                logger.warning(f"解析配置失败: {e}")
+
+            # 获取回测结果
+            result_record = db.query(BacktestResult).filter_by(task_id=backtest_id).first()
+
+            metrics = []
+            trades = []
+            equity_curve = []
+
+            if result_record:
+                try:
+                    if result_record.metrics:
+                        metrics = json.loads(result_record.metrics)
+                    if result_record.trades:
+                        trades = json.loads(result_record.trades)
+                    if result_record.equity_curve:
+                        equity_curve = json.loads(result_record.equity_curve)
+                except Exception as e:
+                    logger.warning(f"解析结果数据失败: {e}")
+
+            # 构建前端期望的响应格式
+            detail_data = {
+                "id": task.id,
+                "strategy_name": task.strategy_name,
+                "backtest_config": backtest_config,
+                "strategy_config": strategy_config,
+                "metrics": metrics,
+                "equity_curve": equity_curve,
+                "trades": trades,
+                "status": task.status,
+                "created_at": task.created_at.isoformat() if task.created_at else None,
+            }
+
             logger.info(f"成功获取回测结果详情，回测ID: {backtest_id}")
             return ApiResponse(
                 code=0,
                 message="获取回测结果详情成功",
-                data=result
+                data=detail_data
             )
-        else:
-            logger.error(f"获取回测结果详情失败，回测ID: {backtest_id}")
-            return ApiResponse(
-                code=1,
-                message="获取回测结果详情失败",
-                data={}
-            )
+
+        finally:
+            db.close()
+
     except Exception as e:
         logger.error(f"获取回测结果详情失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

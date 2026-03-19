@@ -78,7 +78,7 @@ class ConsoleProgressBar:
 
     def update(self, n: int = 1, message: Optional[str] = None):
         """
-        更新进度 - 增强版，支持动画效果和详细状态显示
+        更新进度 - 只显示百分比，不显示命令行进度条
 
         参数：
             n: 增加的进度
@@ -90,14 +90,10 @@ class ConsoleProgressBar:
 
         # 计算进度（精确到小数点后两位）
         percentage = (self.current / self.total) * 100 if self.total > 0 else 0
-        filled = int(self.bar_length * self.current / self.total) if self.total > 0 else 0
 
         # 动画效果
         self.animation_idx = (self.animation_idx + 1) % len(self.animation_chars)
         spinner = self.animation_chars[self.animation_idx]
-
-        # 构建进度条
-        bar = '█' * filled + '░' * (self.bar_length - filled)
 
         # 计算时间信息
         elapsed = time.time() - self.start_time
@@ -117,8 +113,8 @@ class ConsoleProgressBar:
         else:
             status = spinner
 
-        # 输出格式：描述 + 进度条 + 百分比(两位小数) + 数量 + 时间 + 状态
-        output = f"\r{self.desc}: [{bar}] {percentage:.2f}% " \
+        # 输出格式：描述 + 百分比(两位小数) + 数量 + 时间 + 状态（不显示进度条）
+        output = f"\r{self.desc}: {percentage:.2f}% " \
                  f"({self.current}/{self.total}) {time_info} {status}"
 
         # 清屏并重新输出，避免残留字符

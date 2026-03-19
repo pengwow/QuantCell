@@ -20,18 +20,27 @@ interface ApiResponse<T> {
  */
 export async function getBacktestProgress(taskId: string): Promise<BacktestProgressData | null> {
   try {
-    const data = await apiRequest.get<ApiResponse<BacktestProgressData>>(
+    // apiRequest.get 已经通过响应拦截器处理了 ApiResponse，直接返回 data 字段
+    const data = await apiRequest.get<BacktestProgressData>(
       `/backtest/progress/${taskId}`
     );
 
-    if (data.code === 0 && data.data) {
-      return data.data;
+    console.log('[getBacktestProgress] 获取到数据:', JSON.stringify(data, null, 2));
+
+    if (!data) {
+      console.warn('[getBacktestProgress] 响应为空');
+      return null;
     }
 
-    console.warn('获取回测进度失败:', data.message);
+    // 检查是否是有效的进度数据（必须有 task_id 字段）
+    if (data.task_id) {
+      return data;
+    }
+
+    console.warn('[getBacktestProgress] 返回的数据格式不正确，缺少 task_id');
     return null;
   } catch (error) {
-    console.error('获取回测进度出错:', error);
+    console.error('[getBacktestProgress] 获取回测进度出错:', error);
     return null;
   }
 }
@@ -188,26 +197,31 @@ export function pollBacktestProgress(
     }
 
     try {
+      console.log(`[pollBacktestProgress] 开始获取进度，taskId: ${taskId}`);
       const data = await getBacktestProgress(taskId);
+      console.log(`[pollBacktestProgress] 获取到数据:`, data ? '有数据' : '无数据');
+
       retryCount = 0; // 重置重试计数
       currentInterval = initialInterval; // 重置间隔
 
       if (data) {
+        console.log(`[pollBacktestProgress] 调用 onProgress，状态: ${data.status}`);
         onProgress(data);
 
         // 如果任务已完成或失败，停止轮询
         if (data.status === 'completed' || data.status === 'failed') {
+          console.log(`[pollBacktestProgress] 任务${data.status}，停止轮询`);
           isRunning = false;
           return;
         }
       } else {
         // 数据为空，增加重试计数
         retryCount++;
-        console.warn(`获取进度数据为空 (${retryCount}/${maxRetries})`);
+        console.warn(`[pollBacktestProgress] 获取进度数据为空 (${retryCount}/${maxRetries})`);
       }
     } catch (error) {
       retryCount++;
-      console.error(`轮询出错 (${retryCount}/${maxRetries}):`, error);
+      console.error(`[pollBacktestProgress] 轮询出错 (${retryCount}/${maxRetries}):`, error);
       // 指数退避
       currentInterval = Math.min(currentInterval * 1.5, maxInterval);
     }

@@ -106,8 +106,8 @@ class BacktestService:
                 }
             )
             
-            # 创建CLI核心
-            cli_core = CLICore(verbose=True, detail=True)
+            # 创建CLI核心 - 前端调用时不显示详细日志和进度条
+            cli_core = CLICore(verbose=False, detail=False)
             
             # 获取参数
             strategy_name = strategy_config.get("strategy_name")
@@ -123,7 +123,9 @@ class BacktestService:
             # 获取数据处理和进度显示配置
             auto_download = backtest_config.get("auto_download", True)
             ignore_missing = backtest_config.get("ignore_missing", False)
-            show_progress = backtest_config.get("show_progress", True)
+            # 前端调用时默认不显示命令行进度条，只在CLI模式下显示
+            show_progress = backtest_config.get("show_progress", False)
+            logger.info(f"[DEBUG] show_progress value: {show_progress}, backtest_config show_progress: {backtest_config.get('show_progress', 'NOT_SET')}")
             
             # 解析时间范围
             start_time = backtest_config.get("start_time")
@@ -149,7 +151,7 @@ class BacktestService:
                 task = BacktestTask(
                     id=task_id,
                     strategy_name=strategy_name,
-                    backtest_config=json.dumps(backtest_config),
+                    backtest_config=json.dumps(backtest_config, default=str, ensure_ascii=False),
                     status="in_progress",
                     started_at=datetime.now(timezone.utc)
                 )
@@ -157,6 +159,21 @@ class BacktestService:
                 db.commit()
             
             logger.info(f"[事件驱动引擎] 准备数据...")
+            
+            # 更新进度：开始数据准备，让用户知道正在检查/下载数据
+            progress_tracker.update_progress(
+                task_id,
+                "data_prep",
+                {
+                    "status": "running",
+                    "current_step": "checking",
+                    "progress": 10.0,
+                    "checked_symbols": 0,
+                    "total_symbols": len(symbols_list),
+                    "message": f"正在检查 {symbols_list[0]} 数据完整性..."
+                }
+            )
+            
             # 准备数据
             data_dict, download_results = cli_core.prepare_data(
                 symbols=symbols_list,
@@ -171,14 +188,17 @@ class BacktestService:
             if not data_dict:
                 raise ValueError("没有成功加载任何数据，回测无法继续")
             
-            # 更新执行阶段进度
+            # 更新执行阶段进度 - 数据准备完成
             progress_tracker.update_progress(
                 task_id,
                 "data_prep",
                 {
                     "status": "completed",
                     "progress": 100.0,
-                    "message": "数据准备完成"
+                    "current_step": "loading",
+                    "checked_symbols": len(symbols_list),
+                    "total_symbols": len(symbols_list),
+                    "message": f"数据准备完成，共加载 {len(data_dict)} 个数据文件"
                 }
             )
             progress_tracker.update_progress(
@@ -349,10 +369,16 @@ class BacktestService:
             
             # 保存结果到文件
             output_file = str(cli_core.results_dir / f"{strategy_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_event_results.json")
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(formatted_results, f, ensure_ascii=False, indent=2)
-            
-            logger.info(f"[事件驱动引擎] 结果已保存到: {output_file}")
+            try:
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump(formatted_results, f, ensure_ascii=False, indent=2, default=str)
+                logger.info(f"[事件驱动引擎] 结果已保存到: {output_file}")
+            except Exception as e:
+                logger.error(f"[事件驱动引擎] 保存结果文件失败: {e}")
+                # 尝试找出哪个字段包含 Timestamp
+                import traceback
+                logger.error(f"保存结果时的堆栈: {traceback.format_exc()}")
+                # 继续执行，不因为保存文件失败而中断
             
             # 清理引擎资源
             engine.cleanup()
@@ -402,10 +428,10 @@ class BacktestService:
                 task_id=task_id,
                 strategy_name=strategy_name,
                 symbol=','.join(symbols_list),
-                metrics=json.dumps(metrics_list),
-                trades=json.dumps(trades),
-                equity_curve=json.dumps(equity_curve),
-                strategy_data=json.dumps([])
+                metrics=json.dumps(metrics_list, default=str, ensure_ascii=False),
+                trades=json.dumps(trades, default=str, ensure_ascii=False),
+                equity_curve=json.dumps(equity_curve, default=str, ensure_ascii=False),
+                strategy_data=json.dumps([], default=str, ensure_ascii=False)
             )
             db.add(backtest_result)
             
@@ -1350,7 +1376,7 @@ class BacktestService:
                     task = BacktestTask(
                         id=task_id,
                         strategy_name=strategy_name,
-                        backtest_config=json.dumps(backtest_config),
+                        backtest_config=json.dumps(backtest_config, default=str, ensure_ascii=False),
                         status="failed",
                         started_at=datetime.now(timezone.utc),
                         completed_at=datetime.now(timezone.utc)
@@ -1376,7 +1402,7 @@ class BacktestService:
                 task = BacktestTask(
                     id=task_id,
                     strategy_name=strategy_name,
-                    backtest_config=json.dumps(backtest_config),
+                    backtest_config=json.dumps(backtest_config, default=str, ensure_ascii=False),
                     status="in_progress",
                     started_at=datetime.now(timezone.utc)
                 )
@@ -1507,10 +1533,10 @@ class BacktestService:
                         task_id=task_id,
                         strategy_name=strategy_name,
                         symbol=symbol,
-                        metrics=json.dumps(result['metrics']),
-                        trades=json.dumps(result['trades']),
-                        equity_curve=json.dumps(result['equity_curve']),
-                        strategy_data=json.dumps(result['strategy_data'])
+                        metrics=json.dumps(result['metrics'], default=str, ensure_ascii=False),
+                        trades=json.dumps(result['trades'], default=str, ensure_ascii=False),
+                        equity_curve=json.dumps(result['equity_curve'], default=str, ensure_ascii=False),
+                        strategy_data=json.dumps(result['strategy_data'], default=str, ensure_ascii=False)
                     )
                     db.add(backtest_result)
                     # 保存回测结果到文件
@@ -1893,12 +1919,13 @@ class BacktestService:
     def list_backtest_results(self):
         """
         列出所有回测结果
+        优先从数据库获取，数据库中不存在时才尝试从文件系统获取
         
         :return: 回测结果列表
         """
         try:
             from collector.db.database import SessionLocal, init_database_config
-            from collector.db.models import BacktestTask
+            from collector.db.models import BacktestTask, BacktestResult
             import json
             
             # 初始化数据库配置
@@ -1920,95 +1947,96 @@ class BacktestService:
                             "status": task.status
                         }
 
-                        # 首先尝试从文件系统加载合并后的回测结果
-                        logger.info(f"尝试从文件系统加载回测结果，任务ID: {task.id}")
-                        file_result = self.load_backtest_result(task.id)
-                        if file_result:
-                            logger.info(f"文件系统加载成功，任务ID: {task.id}")
-                            # 从合并结果中提取指标
-                            if "summary" in file_result:
-                                logger.info(f"回测结果包含summary字段，任务ID: {task.id}")
-                                # 多货币对回测结果
-                                if "total_return" in file_result["summary"]:
-                                    logger.info(f"summary中包含total_return: {file_result['summary']['total_return']}, 任务ID: {task.id}")
-                                    # 只有当total_return不是-100.0时才使用它
-                                    if float(file_result["summary"]["total_return"]) != -100.0:
-                                        backtest_info["total_return"] = round(float(file_result["summary"]["total_return"]), 2)
-                                if "average_max_drawdown" in file_result["summary"]:
-                                    logger.info(f"summary中包含average_max_drawdown: {file_result['summary']['average_max_drawdown']}, 任务ID: {task.id}")
-                                    backtest_info["max_drawdown"] = round(float(file_result["summary"]["average_max_drawdown"]), 2)
-                            
-                            # 检查是否需要从metrics或currencies部分提取指标
-                            if not backtest_info.get("total_return") or not backtest_info.get("max_drawdown"):
-                                if "metrics" in file_result:
-                                    logger.info(f"回测结果包含metrics字段，任务ID: {task.id}")
-                                    # 单个货币对回测结果
-                                    for metric in file_result["metrics"]:
+                        # 优先从数据库获取回测结果
+                        db_result_found = False
+                        if task.status == "completed" and task.result_id:
+                            logger.debug(f"尝试从数据库获取回测结果，任务ID: {task.id}, result_id: {task.result_id}")
+                            result = db.query(BacktestResult).filter_by(id=task.result_id).first()
+                            if result and result.metrics:
+                                logger.debug(f"数据库加载成功，任务ID: {task.id}")
+                                db_result_found = True
+                                try:
+                                    metrics = json.loads(result.metrics)
+                                    for metric in metrics:
                                         # 同时检查指标的key和name字段，确保在不同语言设置下都能找到正确的指标
                                         metric_key = metric.get("key", metric.get("name", ""))
                                         metric_name = metric.get("name", "")
                                         
-                                        if not backtest_info.get("total_return") and (metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率"):
-                                            logger.info(f"找到Return [%]指标: {metric['value']}, 任务ID: {task.id}")
+                                        if metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率":
+                                            logger.debug(f"找到Return [%]指标: {metric['value']}, 任务ID: {task.id}")
                                             backtest_info["total_return"] = round(float(metric["value"]), 2)
-                                        elif not backtest_info.get("max_drawdown") and (metric_key == "Max. Drawdown [%]" or metric_name == "Max. Drawdown [%]" or metric_name == "最大回撤"):
-                                            logger.info(f"找到Max. Drawdown [%]指标: {metric['value']}, 任务ID: {task.id}")
+                                        elif metric_key == "Max. Drawdown [%]" or metric_name == "Max. Drawdown [%]" or metric_name == "最大回撤":
+                                            logger.debug(f"找到Max. Drawdown [%]指标: {metric['value']}, 任务ID: {task.id}")
                                             backtest_info["max_drawdown"] = round(float(metric["value"]), 2)
-                                        
-                                        # 如果已经找到total_return和max_drawdown，就跳出循环
-                                        if backtest_info.get("total_return") and backtest_info.get("max_drawdown"):
-                                            break
-                                elif "currencies" in file_result:
-                                    logger.info(f"回测结果包含currencies字段，任务ID: {task.id}")
-                                    # 从currencies部分的回测结果中提取指标
-                                    for symbol, currency_result in file_result["currencies"].items():
-                                        if currency_result.get("status") == "success" and "metrics" in currency_result:
-                                            logger.info(f"尝试从货币对 {symbol} 的回测结果中提取指标，任务ID: {task.id}")
-                                            for metric in currency_result["metrics"]:
-                                                # 同时检查指标的key和name字段，确保在不同语言设置下都能找到正确的指标
-                                                metric_key = metric.get("key", metric.get("name", ""))
-                                                metric_name = metric.get("name", "")
-                                                
-                                                if not backtest_info.get("total_return") and (metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率"):
-                                                    logger.info(f"找到Return [%]指标: {metric['value']}, 任务ID: {task.id}")
-                                                    backtest_info["total_return"] = round(float(metric["value"]), 2)
-                                                elif not backtest_info.get("max_drawdown") and (metric_key == "Max. Drawdown [%]" or metric_name == "Max. Drawdown [%]" or metric_name == "最大回撤"):
-                                                    logger.info(f"找到Max. Drawdown [%]指标: {metric['value']}, 任务ID: {task.id}")
-                                                    backtest_info["max_drawdown"] = round(float(metric["value"]), 2)
-                                                
-                                                # 如果已经找到total_return和max_drawdown，就跳出循环
-                                                if backtest_info.get("total_return") and backtest_info.get("max_drawdown"):
-                                                    break
-                                            
-                                            # 如果已经找到total_return和max_drawdown，就跳出循环
-                                            if backtest_info.get("total_return") and backtest_info.get("max_drawdown"):
-                                                break
-                        else:
-                            logger.warning(f"文件系统加载失败，任务ID: {task.id}")
-                            # 如果文件系统加载失败，尝试从数据库获取
-                            if task.status == "completed" and task.result_id:
-                                logger.info(f"尝试从数据库获取回测结果，任务ID: {task.id}, result_id: {task.result_id}")
-                                from collector.db.models import BacktestResult
-                                result = db.query(BacktestResult).filter_by(id=task.result_id).first()
-                                if result and result.metrics:
-                                    logger.info(f"数据库加载成功，任务ID: {task.id}")
-                                    try:
-                                        metrics = json.loads(result.metrics)
-                                        for metric in metrics:
+                                except Exception as e:
+                                    logger.warning(f"解析数据库回测结果指标失败: {task.id}, 错误: {e}")
+                        
+                        # 如果数据库中没有找到结果，才尝试从文件系统加载
+                        if not db_result_found:
+                            logger.debug(f"数据库中未找到回测结果，尝试从文件系统加载，任务ID: {task.id}")
+                            file_result = self.load_backtest_result(task.id)
+                            if file_result:
+                                logger.debug(f"文件系统加载成功，任务ID: {task.id}")
+                                # 从合并结果中提取指标
+                                if "summary" in file_result:
+                                    logger.debug(f"回测结果包含summary字段，任务ID: {task.id}")
+                                    # 多货币对回测结果
+                                    if "total_return" in file_result["summary"]:
+                                        logger.debug(f"summary中包含total_return: {file_result['summary']['total_return']}, 任务ID: {task.id}")
+                                        # 只有当total_return不是-100.0时才使用它
+                                        if float(file_result["summary"]["total_return"]) != -100.0:
+                                            backtest_info["total_return"] = round(float(file_result["summary"]["total_return"]), 2)
+                                    if "average_max_drawdown" in file_result["summary"]:
+                                        logger.debug(f"summary中包含average_max_drawdown: {file_result['summary']['average_max_drawdown']}, 任务ID: {task.id}")
+                                        backtest_info["max_drawdown"] = round(float(file_result["summary"]["average_max_drawdown"]), 2)
+                                
+                                # 检查是否需要从metrics或currencies部分提取指标
+                                if not backtest_info.get("total_return") or not backtest_info.get("max_drawdown"):
+                                    if "metrics" in file_result:
+                                        logger.debug(f"回测结果包含metrics字段，任务ID: {task.id}")
+                                        # 单个货币对回测结果
+                                        for metric in file_result["metrics"]:
                                             # 同时检查指标的key和name字段，确保在不同语言设置下都能找到正确的指标
                                             metric_key = metric.get("key", metric.get("name", ""))
                                             metric_name = metric.get("name", "")
                                             
-                                            if metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率":
-                                                logger.info(f"找到Return [%]指标: {metric['value']}, 任务ID: {task.id}")
+                                            if not backtest_info.get("total_return") and (metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率"):
+                                                logger.debug(f"找到Return [%]指标: {metric['value']}, 任务ID: {task.id}")
                                                 backtest_info["total_return"] = round(float(metric["value"]), 2)
-                                            elif metric_key == "Max. Drawdown [%]" or metric_name == "Max. Drawdown [%]" or metric_name == "最大回撤":
-                                                logger.info(f"找到Max. Drawdown [%]指标: {metric['value']}, 任务ID: {task.id}")
+                                            elif not backtest_info.get("max_drawdown") and (metric_key == "Max. Drawdown [%]" or metric_name == "Max. Drawdown [%]" or metric_name == "最大回撤"):
+                                                logger.debug(f"找到Max. Drawdown [%]指标: {metric['value']}, 任务ID: {task.id}")
                                                 backtest_info["max_drawdown"] = round(float(metric["value"]), 2)
-                                    except Exception as e:
-                                        logger.warning(f"解析回测结果指标失败: {task.id}, 错误: {e}")
-                                else:
-                                    logger.warning(f"数据库中未找到回测结果，任务ID: {task.id}")
+                                            
+                                            # 如果已经找到total_return和max_drawdown，就跳出循环
+                                            if backtest_info.get("total_return") and backtest_info.get("max_drawdown"):
+                                                break
+                                    elif "currencies" in file_result:
+                                        logger.debug(f"回测结果包含currencies字段，任务ID: {task.id}")
+                                        # 从currencies部分的回测结果中提取指标
+                                        for symbol, currency_result in file_result["currencies"].items():
+                                            if currency_result.get("status") == "success" and "metrics" in currency_result:
+                                                logger.debug(f"尝试从货币对 {symbol} 的回测结果中提取指标，任务ID: {task.id}")
+                                                for metric in currency_result["metrics"]:
+                                                    # 同时检查指标的key和name字段，确保在不同语言设置下都能找到正确的指标
+                                                    metric_key = metric.get("key", metric.get("name", ""))
+                                                    metric_name = metric.get("name", "")
+                                                    
+                                                    if not backtest_info.get("total_return") and (metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率"):
+                                                        logger.debug(f"找到Return [%]指标: {metric['value']}, 任务ID: {task.id}")
+                                                        backtest_info["total_return"] = round(float(metric["value"]), 2)
+                                                    elif not backtest_info.get("max_drawdown") and (metric_key == "Max. Drawdown [%]" or metric_name == "Max. Drawdown [%]" or metric_name == "最大回撤"):
+                                                        logger.debug(f"找到Max. Drawdown [%]指标: {metric['value']}, 任务ID: {task.id}")
+                                                        backtest_info["max_drawdown"] = round(float(metric["value"]), 2)
+                                                    
+                                                    # 如果已经找到total_return和max_drawdown，就跳出循环
+                                                    if backtest_info.get("total_return") and backtest_info.get("max_drawdown"):
+                                                        break
+                                                
+                                                # 如果已经找到total_return和max_drawdown，就跳出循环
+                                                if backtest_info.get("total_return") and backtest_info.get("max_drawdown"):
+                                                    break
+                            else:
+                                logger.debug(f"文件系统中也未找到回测结果，任务ID: {task.id}")
 
                         backtest_list.append(backtest_info)
                     except Exception as e:
