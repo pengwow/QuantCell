@@ -26,6 +26,7 @@ import PageContainer from '@/components/PageContainer';
 import { dataApi } from '@/api/dataApi';
 import { wsService } from '@/services/websocketService';
 import type { Task } from '@/types/data';
+import { setPageTitle } from '@/router';
 
 const { Text } = Typography;
 
@@ -39,6 +40,11 @@ const SYSTEM_CONFIG = {
 const DataCollectionPage = () => {
   const { t } = useTranslation();
   const [collectionForm] = Form.useForm();
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('data_collection') || '数据采集');
+  }, [t]);
 
   // 任务状态管理
   const [tasks, setTasks] = useState<Task[]>([]);

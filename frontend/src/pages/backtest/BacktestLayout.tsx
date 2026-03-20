@@ -2,6 +2,8 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Button, Typography, Space } from 'antd';
 import { IconArrowLeft } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
+import { useEffect } from 'react';
+import { setPageTitle } from '@/router';
 
 const { Title } = Typography;
 
@@ -13,6 +15,11 @@ const BacktestLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('strategy_backtest'));
+  }, [t]);
 
   // 判断是否在列表页（列表页不需要返回按钮）- 回测首页已删除，所有页面都显示返回按钮
   const isListPage = false;

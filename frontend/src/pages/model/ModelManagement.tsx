@@ -1,7 +1,7 @@
 /**
  * 模型管理页面
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Card,
@@ -19,6 +19,7 @@ import {
 import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import PageContainer from '@/components/PageContainer';
+import { setPageTitle } from '@/router';
 
 const { Option } = Select;
 
@@ -36,6 +37,12 @@ interface Model {
 
 const ModelManagement = () => {
   const { t } = useTranslation();
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('model_management'));
+  }, [t]);
+
   const [models, setModels] = useState<Model[]>([
     { id: '1', name: 'LSTM价格预测', type: 'LSTM', status: 'trained', accuracy: 0.85, mse: 0.02, mae: 0.12, r2: 0.78, createdAt: '2024-01-15' },
     { id: '2', name: '随机森林分类', type: 'RandomForest', status: 'trained', accuracy: 0.82, mse: 0.03, mae: 0.15, r2: 0.75, createdAt: '2024-01-10' },

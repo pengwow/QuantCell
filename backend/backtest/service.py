@@ -1950,26 +1950,45 @@ class BacktestService:
                         # 优先从数据库获取回测结果
                         db_result_found = False
                         if task.status == "completed" and task.result_id:
-                            logger.debug(f"尝试从数据库获取回测结果，任务ID: {task.id}, result_id: {task.result_id}")
+                            logger.info(f"尝试从数据库获取回测结果，任务ID: {task.id}, result_id: {task.result_id}")
                             result = db.query(BacktestResult).filter_by(id=task.result_id).first()
                             if result and result.metrics:
-                                logger.debug(f"数据库加载成功，任务ID: {task.id}")
+                                logger.info(f"数据库加载成功，任务ID: {task.id}")
                                 db_result_found = True
                                 try:
                                     metrics = json.loads(result.metrics)
-                                    for metric in metrics:
-                                        # 同时检查指标的key和name字段，确保在不同语言设置下都能找到正确的指标
-                                        metric_key = metric.get("key", metric.get("name", ""))
-                                        metric_name = metric.get("name", "")
-                                        
-                                        if metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率":
-                                            logger.debug(f"找到Return [%]指标: {metric['value']}, 任务ID: {task.id}")
-                                            backtest_info["total_return"] = round(float(metric["value"]), 2)
-                                        elif metric_key == "Max. Drawdown [%]" or metric_name == "Max. Drawdown [%]" or metric_name == "最大回撤":
-                                            logger.debug(f"找到Max. Drawdown [%]指标: {metric['value']}, 任务ID: {task.id}")
-                                            backtest_info["max_drawdown"] = round(float(metric["value"]), 2)
+                                    logger.info(f"解析到的metrics: {metrics}, 任务ID: {task.id}")
+                                    
+                                    # 处理数组格式的metrics
+                                    if isinstance(metrics, list):
+                                        for metric in metrics:
+                                            # 同时检查指标的key和name字段，确保在不同语言设置下都能找到正确的指标
+                                            metric_key = metric.get("key", "")
+                                            metric_name = metric.get("name", "")
+                                            metric_value = metric.get("value", 0)
+                                            
+                                            logger.debug(f"检查指标 - key: {metric_key}, name: {metric_name}, value: {metric_value}, 任务ID: {task.id}")
+                                            
+                                            if metric_key == "Return [%]" or metric_name == "Return [%]" or metric_name == "总收益率":
+                                                logger.info(f"找到Return [%]指标: {metric_value}, 任务ID: {task.id}")
+                                                backtest_info["total_return"] = round(float(metric_value), 2)
+                                            elif metric_key == "Max. Drawdown [%]" or metric_name == "Max. Drawdown [%]" or metric_name == "最大回撤":
+                                                logger.info(f"找到Max. Drawdown [%]指标: {metric_value}, 任务ID: {task.id}")
+                                                backtest_info["max_drawdown"] = round(float(metric_value), 2)
+                                    # 处理对象格式的metrics（兼容旧数据）
+                                    elif isinstance(metrics, dict):
+                                        logger.info(f"metrics为对象格式，任务ID: {task.id}")
+                                        if "total_return" in metrics:
+                                            backtest_info["total_return"] = round(float(metrics["total_return"]), 2)
+                                        if "max_drawdown" in metrics:
+                                            backtest_info["max_drawdown"] = round(float(metrics["max_drawdown"]), 2)
+                                    
+                                    logger.info(f"从数据库提取的指标 - total_return: {backtest_info.get('total_return')}, max_drawdown: {backtest_info.get('max_drawdown')}, 任务ID: {task.id}")
                                 except Exception as e:
                                     logger.warning(f"解析数据库回测结果指标失败: {task.id}, 错误: {e}")
+                                    logger.exception(e)
+                            else:
+                                logger.info(f"数据库中未找到回测结果或metrics为空，任务ID: {task.id}, result: {result}, metrics: {result.metrics if result else None}")
                         
                         # 如果数据库中没有找到结果，才尝试从文件系统加载
                         if not db_result_found:

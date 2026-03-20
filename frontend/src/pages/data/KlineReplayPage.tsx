@@ -36,6 +36,8 @@ import { init, dispose } from 'klinecharts';
 import dayjs from 'dayjs';
 import { dataApi } from '@/api/dataApi';
 import PageContainer from '@/components/PageContainer';
+import { setPageTitle } from '@/router';
+import { useTranslation } from 'react-i18next';
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
@@ -119,6 +121,12 @@ interface KlineReplayPageProps {
 const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('kline_replay') || 'K线回放');
+  }, [t]);
 
   // 从查询参数中获取货币对
   const queryParams = new URLSearchParams(location.search);

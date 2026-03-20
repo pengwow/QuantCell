@@ -28,6 +28,8 @@ import TradeTable from '../../components/TradeTable';
 import EquityChart from '../../components/EquityChart';
 import DrawdownChart from '../../components/DrawdownChart';
 import PageContainer from '@/components/PageContainer';
+import { setPageTitle } from '@/router';
+import { useTranslation } from 'react-i18next';
 
 // 后端返回的数据类型定义
 interface BacktestMetrics {
@@ -84,12 +86,18 @@ interface BacktestResponse {
 const BacktestDetail = () => {
   const { backtestId } = useParams<{ backtestId: string }>();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const [loading, setLoading] = useState(true);
   const [backtestData, setBacktestData] = useState<BacktestResponse | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('');
   const [symbols, setSymbols] = useState<string[]>([]);
   const [exporting, setExporting] = useState(false);
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('backtest_detail') || '回测详情');
+  }, [t]);
 
   // 加载回测详情数据
   useEffect(() => {
@@ -103,10 +111,10 @@ const BacktestDetail = () => {
       try {
         setLoading(true);
         const response = await backtestApi.getBacktestDetail(backtestId);
-        
+
         if (response && response.status === 'success') {
           setBacktestData(response as BacktestResponse);
-          
+
           // 设置交易标的列表
           const symbolKeys = Object.keys(response.symbols || {});
           setSymbols(symbolKeys);

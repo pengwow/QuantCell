@@ -10,6 +10,7 @@ import { IconArrowRight, IconLock, IconUser, IconUserCircle } from "@tabler/icon
 import { Button, Card, Form, Input, Space, Typography, message, Divider, Tag } from "antd";
 import { saveToken } from "../../utils/tokenManager";
 import { configApi } from "../../api";
+import { setPageTitle } from "@/router";
 
 const { Title, Text } = Typography;
 
@@ -84,6 +85,11 @@ const LoginPage = () => {
   useEffect(() => {
     loadThemeConfig();
   }, []);
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('login') || '登录');
+  }, [t]);
 
   // 背景样式 - 参考 certimate 的网格背景
   const bgStyle = useMemo<React.CSSProperties>(() => {

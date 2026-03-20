@@ -32,6 +32,7 @@ import { backtestApi } from '../../api';
 import type { ReplayData, MergeSummary, SymbolInfo, BacktestSymbols } from '../../types/backtest';
 import './backtest.css';
 import PageContainer from '@/components/PageContainer';
+import { setPageTitle } from '@/router';
 
 const { Option } = Select;
 
@@ -110,6 +111,11 @@ const parseInterval = (interval: string): { span: number; type: any } => {
 const BacktestReplay = () => {
   const { backtestId } = useParams<{ backtestId: string }>();
   const { t } = useTranslation();
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('backtest_replay') || '回测回放');
+  }, [t]);
 
   // 回放数据
   const [replayData, setReplayData] = useState<ReplayData | null>(null);
