@@ -35,6 +35,7 @@ import ReactECharts from 'echarts-for-react';
 import { useWorkerStore } from '../../store';
 import { WorkerStatusTagColor, WorkerStatusDisplayText, type WorkerWithPerformance } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
+import { setPageTitle } from '@/router';
 import './Worker.css';
 
 const { useBreakpoint } = Grid;
@@ -54,6 +55,11 @@ const Worker = () => {
   } = useWorkerStore();
 
   const [tradePagination, setTradePagination] = useState({ current: 1, pageSize: 10 });
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('strategy_task'));
+  }, [t]);
 
   // 初始加载
   useEffect(() => {

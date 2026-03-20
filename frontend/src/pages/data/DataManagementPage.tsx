@@ -69,6 +69,7 @@ import { dataApi } from '@/api/dataApi';
 import { wsService } from '@/services/websocketService';
 import { useConfigStore } from '@/store';
 import type { Task, TaskStatus } from '@/types/data';
+import { setPageTitle } from '@/router';
 
 const { Text } = Typography;
 const { TabPane } = Tabs;
@@ -337,6 +338,11 @@ const DataManagementPage = () => {
     console.log('[DataManagement] 获取到的默认分页大小:', defaultPageSize);
     setPageSize(defaultPageSize);
   }, [getDefaultPageSize]);
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('data_management'));
+  }, [t]);
 
   // 页面加载时输出全局配置（用于调试）
   useEffect(() => {

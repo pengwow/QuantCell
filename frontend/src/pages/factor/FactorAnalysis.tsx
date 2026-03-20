@@ -1,7 +1,7 @@
 /**
  * 因子分析页面
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Card,
@@ -19,6 +19,7 @@ import {
 import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import PageContainer from '@/components/PageContainer';
+import { setPageTitle } from '@/router';
 
 const { Option } = Select;
 const { TabPane } = Tabs;
@@ -34,6 +35,12 @@ interface Factor {
 
 const FactorAnalysis = () => {
   const { t } = useTranslation();
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('factor_analysis'));
+  }, [t]);
+
   const [factors, setFactors] = useState<Factor[]>([
     { id: '1', name: 'PE', expression: 'close / eps', description: '市盈率', category: '估值', status: 'active' },
     { id: '2', name: 'PB', expression: 'close / bps', description: '市净率', category: '估值', status: 'active' },

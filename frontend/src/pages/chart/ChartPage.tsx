@@ -12,6 +12,7 @@ import TokenDisplay from '../../components/TokenDisplay';
 import type { Indicator, ActiveIndicator } from '../../hooks/useIndicators';
 // 导入自定义绘图工具扩展
 import overlays from '../../extension/index';
+import { setPageTitle } from '@/router';
 import './ChartPage.css';
 
 // 周期配置
@@ -101,6 +102,12 @@ registerLocale('zh-HK', {
 
 const ChartPage = () => {
   const { t } = useTranslation();
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('chart'));
+  }, [t]);
+
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<Nullable<KLineChartInstance>>(null);
 

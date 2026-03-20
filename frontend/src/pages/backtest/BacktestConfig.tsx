@@ -32,6 +32,7 @@ import type { StepStatusState, ProgressData } from '../../components/BacktestPro
 import type { Strategy, StrategyParam, BacktestProgressData } from '../../types/backtest';
 import { pollBacktestProgress } from '../../api/backtest';
 import PageContainer from '@/components/PageContainer';
+import { setPageTitle } from '@/router';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -47,6 +48,12 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const { t } = useTranslation();
   const location = useLocation();
   const [form] = Form.useForm();
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('backtest_config') || '回测配置');
+  }, [t]);
+
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [loading, setLoading] = useState<boolean>(false);

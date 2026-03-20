@@ -1,10 +1,17 @@
 import { useTranslation } from 'react-i18next';
+import { useEffect } from 'react';
 import { Card, Button, Table } from 'antd';
 import { IconPlus } from '@tabler/icons-react';
 import PageContainer from '@/components/PageContainer';
+import { setPageTitle } from '@/router';
 
 const DataPoolPage = () => {
   const { t } = useTranslation();
+
+  // 设置页面标题
+  useEffect(() => {
+    setPageTitle(t('data_pool_management') || '数据池管理');
+  }, [t]);
 
   const columns = [
     {
