@@ -35,6 +35,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from common.schemas import ApiResponse
 from strategy.schemas import StrategyUploadRequest
 from utils.auth import jwt_auth_required_sync
+from utils.rbac import require_permission_sync, Permission, is_guest_user
 
 from .schemas import (
     ApiResponse,
@@ -243,10 +244,25 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                     )
                     
                     logger.info(f"[任务 {task_id}] 回测执行完成，状态: {result.get('status')}")
-                    if result.get('status') == 'success':
-                        logger.info(f"[任务 {task_id}] 回测成功完成")
+                    # 回测成功状态可能是 'success' 或 'completed'
+                    if result.get('status') in ('success', 'completed'):
+                        logger.info(f"[任务 {task_id}] 回测成功完成: {result.get('message')}")
+                        # 如果有失败的货币对，记录警告日志
+                        failed_currencies = result.get('failed_currencies', [])
+                        if failed_currencies:
+                            logger.warning(f"[任务 {task_id}] 部分货币对回测失败: {failed_currencies}")
                     else:
-                        logger.error(f"[任务 {task_id}] 回测失败: {result.get('message')}")
+                        # 增强失败日志，显示更多详细信息
+                        failed_currencies = result.get('failed_currencies', [])
+                        successful_currencies = result.get('successful_currencies', [])
+                        error_details = result.get('results', {}).get('errors', [])
+                        logger.error(
+                            f"[任务 {task_id}] 回测失败: {result.get('message')}, "
+                            f"成功: {len(successful_currencies)}个, "
+                            f"失败: {len(failed_currencies)}个, "
+                            f"失败货币对: {failed_currencies}, "
+                            f"错误详情: {error_details}"
+                        )
                 except Exception as e:
                     logger.error(f"[任务 {task_id}] 回测执行发生异常: {e}")
                     logger.exception(e)
@@ -407,6 +423,18 @@ def delete_backtest(request: Request, backtest_id: str) -> ApiResponse:
     try:
         logger.info(f"删除回测结果请求，回测ID: {backtest_id}")
 
+        # 检查是否为访客用户
+        if is_guest_user(request):
+            logger.warning(f"访客用户尝试删除回测结果，回测ID: {backtest_id}")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": 403,
+                    "message": "访客用户无法删除回测记录，请使用普通用户账号登录",
+                    "data": {"is_guest": True}
+                }
+            )
+
         # 删除回测结果
         result = backtest_service.delete_backtest_result(backtest_id)
 
@@ -424,6 +452,8 @@ def delete_backtest(request: Request, backtest_id: str) -> ApiResponse:
                 message="回测结果删除失败",
                 data={"backtest_id": backtest_id, "result": result}
             )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"回测结果删除失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -6,12 +6,7 @@
 import { apiRequest } from './index';
 import { BacktestProgressData } from '../types/backtest';
 
-// API 响应类型
-interface ApiResponse<T> {
-  code: number;
-  message: string;
-  data: T;
-}
+
 
 /**
  * 获取回测任务进度
