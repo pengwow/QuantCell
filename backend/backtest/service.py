@@ -1807,22 +1807,28 @@ class BacktestService:
                 "message": str(e)
             }
     
-    def save_backtest_result(self, backtest_id, result):
+    def save_backtest_result(self, backtest_id, result, save_to_file: bool = False):
         """
         保存回测结果
-        
+
         :param backtest_id: 回测ID
         :param result: 回测结果
+        :param save_to_file: 是否保存到本地文件系统，默认False（只保存到数据库）
         :return: 是否保存成功
         """
         try:
-            # 保存回测结果文件
-            result_path = self.backtest_result_dir / f"{backtest_id}.json"
-            
-            with open(result_path, "w") as f:
-                json.dump(result, f, indent=4, default=str, ensure_ascii=False)
-            
-            logger.info(f"回测结果保存成功，回测路径: {result_path}")
+            # 默认只保存到数据库，不写入本地文件
+            if save_to_file:
+                # 保存回测结果文件
+                result_path = self.backtest_result_dir / f"{backtest_id}.json"
+
+                with open(result_path, "w") as f:
+                    json.dump(result, f, indent=4, default=str, ensure_ascii=False)
+
+                logger.info(f"回测结果保存成功，回测路径: {result_path}")
+            else:
+                logger.info(f"回测结果已保存到数据库，未写入本地文件，回测ID: {backtest_id}")
+
             return True
         except Exception as e:
             logger.error(f"回测结果保存失败: {e}")

@@ -301,6 +301,74 @@ const StrategyManagement = () => {
     navigate(`/backtest/detail/${backtestId}?returnUrl=${returnUrl}`);
   };
 
+  // 删除单条回测记录
+  const handleDeleteBacktest = (backtestId: string) => {
+    // 访客用户无法删除
+    if (isGuest) {
+      message.warning(t('guest_delete_restricted') || '访客用户无法删除回测记录');
+      return;
+    }
+
+    confirm({
+      title: t('confirm_delete_backtest') || '确认删除回测记录',
+      content: t('delete_backtest_confirm_msg') || '确定要删除这条回测记录吗？此操作不可恢复。',
+      okText: t('delete') || '删除',
+      okType: 'danger',
+      cancelText: t('cancel') || '取消',
+      onOk: async () => {
+        try {
+          await backtestApi.deleteBacktest(backtestId);
+          message.success(t('backtest_delete_success') || '回测记录删除成功');
+          loadBacktests();
+          // 如果删除的是已选中的，清空选择
+          if (backtestSelectedRowKeys.includes(backtestId)) {
+            setBacktestSelectedRowKeys([]);
+          }
+        } catch (error) {
+          console.error('删除回测记录失败:', error);
+          message.error(t('backtest_delete_failed') || '删除回测记录失败');
+        }
+      },
+    });
+  };
+
+  // 批量删除回测记录
+  const handleBatchDeleteBacktests = () => {
+    // 访客用户无法删除
+    if (isGuest) {
+      message.warning(t('guest_batch_delete_restricted') || '访客用户无法批量删除回测记录');
+      return;
+    }
+
+    if (backtestSelectedRowKeys.length === 0) {
+      message.warning(t('please_select_backtest') || '请先选择要删除的回测记录');
+      return;
+    }
+
+    confirm({
+      title: t('confirm_batch_delete_backtest') || '确认批量删除回测记录',
+      content: t('batch_delete_backtest_confirm_msg', { count: backtestSelectedRowKeys.length }) ||
+        `确定要删除选中的 ${backtestSelectedRowKeys.length} 条回测记录吗？此操作不可恢复。`,
+      okText: t('delete') || '删除',
+      okType: 'danger',
+      cancelText: t('cancel') || '取消',
+      onOk: async () => {
+        try {
+          // 并行删除所有选中的回测记录
+          await Promise.all(
+            backtestSelectedRowKeys.map((id) => backtestApi.deleteBacktest(id as string))
+          );
+          message.success(t('batch_backtest_delete_success') || '批量删除回测记录成功');
+          setBacktestSelectedRowKeys([]);
+          loadBacktests();
+        } catch (error) {
+          console.error('批量删除回测记录失败:', error);
+          message.error(t('batch_backtest_delete_failed') || '批量删除回测记录失败');
+        }
+      },
+    });
+  };
+
   // 创建新策略
   const handleCreateStrategy = () => {
     navigate('/strategy-editor');
@@ -908,7 +976,7 @@ const StrategyManagement = () => {
     {
       title: t('action') || '操作',
       key: 'action',
-      width: 120,
+      width: 150,
       fixed: 'right',
       render: (_: any, record: BacktestTask) => (
         <Space size="small">
@@ -926,6 +994,16 @@ const StrategyManagement = () => {
               size="small"
               icon={<PlayCircleOutlined />}
               onClick={() => handleReplay(record.id)}
+            />
+          </Tooltip>
+          <Tooltip title={isGuest ? (t('guest_delete_restricted') || '访客用户无法删除回测记录') : (t('delete') || '删除')}>
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeleteBacktest(record.id)}
+              disabled={isGuest}
             />
           </Tooltip>
         </Space>
@@ -1049,6 +1127,19 @@ const StrategyManagement = () => {
                     >
                       {t('replay') || '回放'}
                     </Button>
+                    <Button
+                      type="link"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      disabled={isGuest}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteBacktest(task.id);
+                      }}
+                    >
+                      {t('delete') || '删除'}
+                    </Button>
                   </div>
                 </div>
               </Card>
@@ -1159,7 +1250,7 @@ const StrategyManagement = () => {
         {/* 操作按钮 - 右侧 */}
         <Col xs={24} md={8} lg={10}>
           <Row gutter={[8, 8]}>
-            <Col xs={12}>
+            <Col xs={backtestSelectedRowKeys.length > 0 ? 8 : 12}>
               <Button
                 icon={<ReloadOutlined />}
                 onClick={handleResetBacktestFilters}
@@ -1168,7 +1259,7 @@ const StrategyManagement = () => {
                 {t('reset') || '重置'}
               </Button>
             </Col>
-            <Col xs={12}>
+            <Col xs={backtestSelectedRowKeys.length > 0 ? 8 : 12}>
               <Button
                 type="primary"
                 icon={<ReloadOutlined />}
@@ -1179,6 +1270,19 @@ const StrategyManagement = () => {
                 {t('refresh') || '刷新'}
               </Button>
             </Col>
+            {backtestSelectedRowKeys.length > 0 && (
+              <Col xs={8}>
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={handleBatchDeleteBacktests}
+                  disabled={isGuest}
+                  style={{ width: '100%' }}
+                >
+                  {t('delete')} ({backtestSelectedRowKeys.length})
+                </Button>
+              </Col>
+            )}
           </Row>
         </Col>
       </Row>

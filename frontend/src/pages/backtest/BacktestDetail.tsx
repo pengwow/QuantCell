@@ -1,7 +1,7 @@
 /**
  * 回测详情页面
  * 功能：显示单个回测任务的详细信息，包括配置、指标、图表和交易记录
- * 适配后端返回格式：{ status, message, symbols: {...}, portfolio: {...}, account: {...}, _meta: {...} }
+ * 适配后端返回格式：{ id, strategy_name, backtest_config, metrics, trades, equity_curve, ... }
  */
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -10,13 +10,11 @@ import {
   Button,
   Row,
   Col,
-  Space,
   Select,
   Spin,
   message,
   Empty,
   Descriptions,
-  Divider,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -26,22 +24,17 @@ import { backtestApi } from '../../api';
 import MetricCard from '../../components/MetricCard';
 import TradeTable from '../../components/TradeTable';
 import EquityChart from '../../components/EquityChart';
-import DrawdownChart from '../../components/DrawdownChart';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/router';
 import { useTranslation } from 'react-i18next';
 
 // 后端返回的数据类型定义
 interface BacktestMetrics {
-  total_return: number;
-  win_rate: number;
-  profit_factor: number;
-  total_trades: number;
-  winning_trades: number;
-  losing_trades: number;
-  total_pnl: number;
-  sharpe_ratio: number;
-  max_drawdown: number;
+  name: string;
+  key: string;
+  value: number;
+  description: string;
+  type: string;
 }
 
 interface BacktestTrade {
@@ -57,30 +50,31 @@ interface BacktestTrade {
   status: string;
 }
 
-interface SymbolData {
-  symbol: string;
-  timeframe: string;
-  metrics: BacktestMetrics;
-  trades: BacktestTrade[];
+interface EquityCurvePoint {
+  timestamp: number;
+  formatted_time: string;
+  equity: number;
+  balance: number;
 }
 
+// 后端实际返回的数据结构
 interface BacktestResponse {
+  id: string;
+  strategy_name: string;
+  backtest_config: {
+    symbols: string[];
+    interval: string;
+    start_time: string;
+    end_time: string;
+    initial_cash?: number;
+    [key: string]: any;
+  };
+  strategy_config: Record<string, any>;
+  metrics: BacktestMetrics[];
+  trades: BacktestTrade[];
+  equity_curve: EquityCurvePoint[];
   status: string;
-  message: string;
-  symbols: Record<string, SymbolData>;
-  portfolio?: {
-    metrics: BacktestMetrics;
-    equity_curve: Array<{ timestamp: number; equity: number }>;
-  };
-  account?: {
-    initial_balance: number;
-    final_balance: number;
-    balance: number;
-  };
-  _meta?: {
-    strategy: string;
-    formatted_time: string;
-  };
+  created_at: string;
 }
 
 const BacktestDetail = () => {
@@ -112,11 +106,12 @@ const BacktestDetail = () => {
         setLoading(true);
         const response = await backtestApi.getBacktestDetail(backtestId);
 
-        if (response && response.status === 'success') {
+        // apiRequest 拦截器已经处理了 ApiResponse，直接返回 data 字段
+        if (response && response.id) {
           setBacktestData(response as BacktestResponse);
 
-          // 设置交易标的列表
-          const symbolKeys = Object.keys(response.symbols || {});
+          // 从 backtest_config 中获取交易标的列表
+          const symbolKeys = response.backtest_config?.symbols || [];
           setSymbols(symbolKeys);
           if (symbolKeys.length > 0) {
             setSelectedSymbol(symbolKeys[0]);
@@ -135,35 +130,30 @@ const BacktestDetail = () => {
     fetchDetail();
   }, [backtestId, navigate]);
 
-  // 获取当前选中的交易标的数据
-  const getCurrentSymbolData = (): SymbolData | null => {
-    if (!backtestData?.symbols || !selectedSymbol) return null;
-    return backtestData.symbols[selectedSymbol] || null;
-  };
-
-  // 获取指标值（优先从当前symbol获取，否则从portfolio获取）
-  const getMetricValue = (key: keyof BacktestMetrics): number => {
-    const symbolData = getCurrentSymbolData();
-    const metrics = symbolData?.metrics || backtestData?.portfolio?.metrics;
-    if (!metrics) return 0;
-    return metrics[key] || 0;
+  // 从指标数组中获取指定key的指标值
+  const getMetricValue = (key: string): number => {
+    if (!backtestData?.metrics) return 0;
+    const metric = backtestData.metrics.find(m => m.key === key);
+    return metric?.value || 0;
   };
 
   // 获取交易列表
   const getTrades = (): BacktestTrade[] => {
-    const symbolData = getCurrentSymbolData();
-    return symbolData?.trades || [];
+    return backtestData?.trades || [];
   };
 
-  // 获取权益曲线数据
-  const getEquityCurve = (): Array<{ timestamp: number; equity: number }> => {
-    return backtestData?.portfolio?.equity_curve || [];
+  // 获取权益曲线数据，转换为 EquityChart 组件期望的格式
+  const getEquityCurve = (): Array<{ datetime: string; Equity: number }> => {
+    return (backtestData?.equity_curve || []).map(point => ({
+      datetime: point.formatted_time || new Date(point.timestamp * 1000).toISOString(),
+      Equity: point.equity,
+    }));
   };
 
   // 格式化百分比
   const formatPercent = (value: number): string => {
     if (typeof value === 'number') {
-      return `${value.toFixed(2)}%`;
+      return `${(value * 100).toFixed(2)}%`;
     }
     return String(value);
   };
@@ -232,72 +222,72 @@ const BacktestDetail = () => {
     );
   }
 
-  const currentSymbolData = getCurrentSymbolData();
-  const strategyName = backtestData._meta?.strategy || 'Unknown';
+  const strategyName = backtestData.strategy_name || 'Unknown';
+  const backtestConfig = backtestData.backtest_config || {};
 
   return (
     <PageContainer title={`${strategyName} - 回测详情`}>
       <div className="space-y-6">
         {/* 页面操作按钮 */}
-        <div className="flex justify-end">
-          <Space>
-            {symbols.length > 0 && (
-              <Select
-                value={selectedSymbol}
-                onChange={setSelectedSymbol}
-                style={{ width: 200 }}
-                placeholder="选择交易标的"
-              >
-                {symbols.map((symbol) => (
-                  <Select.Option key={symbol} value={symbol}>
-                    {backtestData.symbols[symbol]?.symbol || symbol} ({backtestData.symbols[symbol]?.timeframe || ''})
-                  </Select.Option>
-                ))}
-              </Select>
-            )}
-            <Button
-              icon={<PlayCircleOutlined />}
-              onClick={handleReplay}
-              type="primary"
+        <div className="flex flex-wrap justify-start sm:justify-end gap-2">
+          {symbols.length > 0 && (
+            <Select
+              value={selectedSymbol}
+              onChange={setSelectedSymbol}
+              style={{ width: 200 }}
+              placeholder="选择交易标的"
             >
-              回放
-            </Button>
-            <Button
-              icon={<DownloadOutlined />}
-              onClick={handleExport}
-              loading={exporting}
-            >
-              导出报告
-            </Button>
-          </Space>
+              {symbols.map((symbol) => (
+                <Select.Option key={symbol} value={symbol}>
+                  {symbol}
+                </Select.Option>
+              ))}
+            </Select>
+          )}
+          <Button
+            icon={<PlayCircleOutlined />}
+            onClick={handleReplay}
+            type="primary"
+          >
+            回放
+          </Button>
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={handleExport}
+            loading={exporting}
+          >
+            导出报告
+          </Button>
         </div>
 
         {/* 配置信息 */}
-        <Card title="配置信息">
+        <Card title="配置信息" className="mb-6">
           <Descriptions bordered column={{ xs: 1, sm: 2, md: 3, lg: 4 }}>
             <Descriptions.Item label="策略名称">
               {strategyName}
             </Descriptions.Item>
             <Descriptions.Item label="交易标的">
-              {currentSymbolData?.symbol || selectedSymbol}
+              {selectedSymbol || symbols.join(', ')}
             </Descriptions.Item>
             <Descriptions.Item label="时间周期">
-              {currentSymbolData?.timeframe || '-'}
+              {backtestConfig.interval || '-'}
             </Descriptions.Item>
             <Descriptions.Item label="回测时间">
-              {backtestData._meta?.formatted_time || '-'}
+              {backtestConfig.start_time && backtestConfig.end_time
+                ? `${backtestConfig.start_time} 至 ${backtestConfig.end_time}`
+                : '-'}
             </Descriptions.Item>
             <Descriptions.Item label="初始资金">
-              {formatNumber(backtestData.account?.initial_balance || 0)}
+              {formatNumber(backtestConfig.initial_cash || 0)}
             </Descriptions.Item>
-            <Descriptions.Item label="最终资金">
-              {formatNumber(backtestData.account?.final_balance || 0)}
+            <Descriptions.Item label="状态">
+              {backtestData.status}
             </Descriptions.Item>
           </Descriptions>
         </Card>
 
         {/* 回测概览指标 */}
-        <Card title="回测概览">
+        <Card title="回测概览" className="mb-6">
           <Row gutter={[16, 16]}>
             <Col xs={12} sm={8} md={6} lg={4}>
               <MetricCard
@@ -341,7 +331,7 @@ const BacktestDetail = () => {
         </Card>
 
         {/* 绩效分析图表 */}
-        <Card title="权益曲线">
+        <Card title="权益曲线" className="mb-6">
           {getEquityCurve().length > 0 ? (
             <EquityChart data={getEquityCurve()} />
           ) : (
@@ -352,8 +342,8 @@ const BacktestDetail = () => {
         {/* 风险分析和交易详情 */}
         <Row gutter={24}>
           <Col xs={24} lg={12}>
-            <Card title="风险分析">
-              <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            <Card title="风险分析" className="mb-6">
+              <Row gutter={[16, 16]}>
                 <Col span={12}>
                   <MetricCard
                     label="盈利交易"
@@ -377,17 +367,16 @@ const BacktestDetail = () => {
                 </Col>
                 <Col span={12}>
                   <MetricCard
-                    label="当前标的回撤"
+                    label="最大回撤"
                     value={formatPercent(getMetricValue('max_drawdown'))}
                     type="negative"
                   />
                 </Col>
               </Row>
-              <DrawdownChart value={getMetricValue('max_drawdown')} />
             </Card>
           </Col>
           <Col xs={24} lg={12}>
-            <Card title="交易详情">
+            <Card title="交易详情" className="mb-6">
               {getTrades().length > 0 ? (
                 <TradeTable data={getTrades()} />
               ) : (
