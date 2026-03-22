@@ -251,15 +251,23 @@ class StandaloneDataDownloader:
                 # 批量保存（使用INSERT OR IGNORE避免重复）
                 if records:
                     from sqlalchemy.dialects.sqlite import insert
-                    
+
                     # 构建INSERT语句
                     stmt = insert(Model).values(records)
                     # 添加ON CONFLICT DO NOTHING子句
                     stmt = stmt.on_conflict_do_nothing(index_elements=['unique_kline'])
-                    
-                    db.execute(stmt)
+
+                    result = db.execute(stmt)
                     db.commit()
-                    logger.debug(f"保存 {len(records)} 条记录到数据库")
+                    logger.info(f"[_save_to_database] 保存 {len(records)} 条记录到数据库: {symbol} {interval}, 影响行数: {result.rowcount}")
+
+                    # 验证数据是否真的写入
+                    verify_count = db.query(Model).filter(
+                        Model.symbol == symbol,
+                        Model.interval == interval
+                    ).count()
+                    logger.info(f"[_save_to_database] 验证: 数据库中 {symbol} {interval} 共有 {verify_count} 条记录")
+
                     return True
                 
                 return False
