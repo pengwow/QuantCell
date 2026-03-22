@@ -567,7 +567,7 @@ const BacktestDetail = () => {
         >
           {/* 高级筛选区域 */}
           {showAdvancedFilter && (
-            <div style={{ marginBottom: 16, padding: 16, backgroundColor: '#f5f5f5', borderRadius: 8 }}>
+            <div style={{ marginBottom: 16, padding: 16, backgroundColor: 'transparent', border: '1px solid var(--ant-color-border)', borderRadius: 8 }}>
               <Row gutter={[16, 16]} align="middle">
                 <Col xs={24} sm={12} md={6}>
                   <div style={{ marginBottom: 8 }}>交易标的</div>
