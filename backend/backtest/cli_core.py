@@ -338,10 +338,10 @@ class CLICore:
         
         try:
             conn = get_db_connection()
-            
+
             # 标准化symbol格式（去除/）
             normalized_symbol = symbol.replace('/', '')
-            
+
             # 选择数据表
             if trading_mode == 'spot':
                 KlineModel = CryptoSpotKline
@@ -349,7 +349,7 @@ class CLICore:
                 KlineModel = CryptoFutureKline
             else:
                 raise ValueError(f"不支持的交易模式: {trading_mode}")
-            
+
             # 构建查询条件
             conditions = f"symbol = '{normalized_symbol}' AND interval = '{timeframe}'"
             if start_date:
@@ -358,7 +358,7 @@ class CLICore:
             if end_date:
                 end_timestamp = datetime_to_timestamp(end_date)
                 conditions += f" AND CAST(timestamp AS INTEGER) <= {end_timestamp}"
-            
+
             # 生成SQL
             query = f"""
                 SELECT timestamp, open, high, low, close, volume
@@ -366,12 +366,19 @@ class CLICore:
                 WHERE {conditions}
                 ORDER BY timestamp ASC
             """
-            
+
+            # 添加诊断日志
+            logger.info(f"[_load_klines_from_db] 查询参数: symbol={symbol}, normalized={normalized_symbol}, interval={timeframe}")
+            logger.info(f"[_load_klines_from_db] 时间范围: start={start_date}, end={end_date}")
+            logger.info(f"[_load_klines_from_db] SQL: {query}")
+
             # 执行查询
             cursor = conn.cursor()
             cursor.execute(query)
             klines = cursor.fetchall()
-            
+
+            logger.info(f"[_load_klines_from_db] 查询结果: 返回 {len(klines)} 条数据")
+
             # 转换为DataFrame
             if klines:
                 df = pd.DataFrame(
