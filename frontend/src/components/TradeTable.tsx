@@ -13,15 +13,18 @@ export interface Trade {
   venue_order_id?: string;
   position_id?: string;
   instrument_id?: string;
-  side: string;
-  direction: string;
+  side?: string;
+  Side?: string;
+  direction?: string;
+  Direction?: string;
   quantity: number;
   price: number;
   volume: number;
   commission: string;
   timestamp: number;
   formatted_time: string;
-  status: string;
+  status?: string;
+  Status?: string;
 }
 
 // 组件属性接口
@@ -121,9 +124,9 @@ const TradeTable = ({ data, loading = false, pagination = true }: TradeTableProp
       },
     },
     {
-      title: '交易ID',
-      dataIndex: 'trade_id',
-      key: 'trade_id',
+      title: '交易标的',
+      dataIndex: 'instrument_id',
+      key: 'instrument_id',
       render: (value: string) => value || '-',
       ellipsis: true,
     },

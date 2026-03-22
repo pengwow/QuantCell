@@ -66,7 +66,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
   const strategy = locationStrategy || propStrategy;
   const [defaultInterval, setDefaultInterval] = useState<string>('15m');
   const [defaultCommission, setDefaultCommission] = useState<number>(0.001);
-  const [defaultInitialCash, setDefaultInitialCash] = useState<number>(1000000);
+  const [defaultInitialCash, setDefaultInitialCash] = useState<number>(1000);
 
   const [createModalVisible, setCreateModalVisible] = useState<boolean>(false);
   const [createForm] = Form.useForm();
