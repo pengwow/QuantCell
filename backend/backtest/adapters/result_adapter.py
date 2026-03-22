@@ -292,6 +292,14 @@ def _convert_single_trade(trade_data: Union[pd.Series, Dict[str, Any]]) -> Optio
             'Side': 'Side',
             'direction': 'Direction',
             'Direction': 'Direction',
+
+            # 交易品种
+            'symbol': 'Symbol',
+            'Symbol': 'Symbol',
+            'instrument_id': 'Symbol',
+            'instrument': 'Symbol',
+            'trading_pair': 'Symbol',
+            'pair': 'Symbol',
         }
 
         # 构建内部格式的交易记录

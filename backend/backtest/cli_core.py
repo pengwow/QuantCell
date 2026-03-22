@@ -351,12 +351,13 @@ class CLICore:
                 raise ValueError(f"不支持的交易模式: {trading_mode}")
 
             # 构建查询条件
+            # 注意：数据库存储的是16位时间戳（微秒级），需要将13位毫秒时间戳转换为16位
             conditions = f"symbol = '{normalized_symbol}' AND interval = '{timeframe}'"
             if start_date:
-                start_timestamp = datetime_to_timestamp(start_date)
+                start_timestamp = datetime_to_timestamp(start_date) * 1000  # 13位转16位
                 conditions += f" AND CAST(timestamp AS INTEGER) >= {start_timestamp}"
             if end_date:
-                end_timestamp = datetime_to_timestamp(end_date)
+                end_timestamp = datetime_to_timestamp(end_date) * 1000  # 13位转16位
                 conditions += f" AND CAST(timestamp AS INTEGER) <= {end_timestamp}"
 
             # 生成SQL
@@ -382,11 +383,11 @@ class CLICore:
             # 转换为DataFrame
             if klines:
                 df = pd.DataFrame(
-                    klines, 
+                    klines,
                     columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume']
                 )
-                # 时间戳转换
-                df['timestamp'] = pd.to_datetime(df['timestamp'].astype(float) / 1000, unit='s')
+                # 时间戳转换 - 数据库是16位微秒时间戳，直接转为datetime保持精度
+                df['timestamp'] = pd.to_datetime(df['timestamp'].astype(float), unit='us')
                 df.set_index('timestamp', inplace=True)
                 return df
             else:

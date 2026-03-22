@@ -128,12 +128,13 @@ class StandaloneDataDownloader:
             end_date = end_time.strftime('%Y-%m-%d')
             date_range = get_date_range(start_date, end_date)
             progress.total_dates = len(date_range)
-            
+
             logger.info(f"开始下载 {normalized_symbol} {interval} 数据，"
                        f"日期范围: {start_date} ~ {end_date}，共 {len(date_range)} 天")
-            
+
             # 逐日下载
             success_count = 0
+            skipped_count = 0
             for idx, date in enumerate(date_range):
                 try:
                     progress.current_date = date
@@ -145,10 +146,17 @@ class StandaloneDataDownloader:
                     if progress_callback:
                         progress.progress = (idx / len(date_range)) * 100
                         progress_callback(progress)
-                    
+
+                    # 检查数据库中是否已有该日期的数据
+                    if self._check_data_exists(normalized_symbol, interval, date, crypto_type):
+                        logger.info(f"✓ {date} 数据已存在，跳过下载")
+                        skipped_count += 1
+                        success_count += 1  # 已存在也算成功
+                        continue
+
                     # 下载单日数据
                     df = await downloader.get_daily_klines(normalized_symbol, interval, date)
-                    
+
                     if df is not None and not df.empty:
                         # 直接保存到数据库
                         self._save_to_database(df, normalized_symbol, interval, crypto_type)
@@ -156,7 +164,7 @@ class StandaloneDataDownloader:
                         logger.info(f"✓ {date} 数据下载成功: {len(df)} 条")
                     else:
                         logger.warning(f"⚠ {date} 无数据")
-                    
+
                 except Exception as e:
                     logger.error(f"✗ {date} 下载失败: {e}")
                     continue
@@ -165,14 +173,14 @@ class StandaloneDataDownloader:
             progress.update(
                 status="completed" if success_count > 0 else "failed",
                 progress=100.0,
-                message=f"下载完成，成功 {success_count}/{len(date_range)} 天"
+                message=f"下载完成，成功 {success_count}/{len(date_range)} 天 (跳过 {skipped_count} 天)"
             )
             if progress_callback:
                 progress_callback(progress)
-            
+
             logger.info(f"下载完成: {normalized_symbol} {interval}，"
-                       f"成功 {success_count}/{len(date_range)} 天")
-            
+                       f"成功 {success_count}/{len(date_range)} 天 (跳过 {skipped_count} 天已存在的数据)")
+
             return success_count > 0
             
         except Exception as e:
@@ -184,7 +192,69 @@ class StandaloneDataDownloader:
             if progress_callback:
                 progress_callback(progress)
             return False
-    
+
+    def _check_data_exists(
+        self,
+        symbol: str,
+        interval: str,
+        date: str,
+        crypto_type: str
+    ) -> bool:
+        """
+        检查指定日期的数据是否已存在于数据库中
+
+        参数：
+            symbol: 交易对
+            interval: 时间周期
+            date: 日期字符串 (YYYY-MM-DD)
+            crypto_type: 交易类型
+
+        返回：
+            bool: 数据是否已存在
+        """
+        from collector.db.database import SessionLocal, init_database_config
+        from collector.db.models import CryptoSpotKline, CryptoFutureKline
+        from datetime import datetime, timedelta
+
+        try:
+            # 初始化数据库配置
+            init_database_config()
+
+            # 重新导入引擎
+            from collector.db.database import engine as db_engine
+
+            if db_engine is None:
+                return False
+
+            # 创建会话
+            db = SessionLocal(bind=db_engine)
+
+            try:
+                # 选择模型
+                Model = CryptoSpotKline if crypto_type == 'spot' else CryptoFutureKline
+
+                # 计算日期的时间戳范围（毫秒）
+                date_dt = datetime.strptime(date, '%Y-%m-%d')
+                start_ts = int(date_dt.timestamp() * 1000)
+                end_ts = int((date_dt + timedelta(days=1)).timestamp() * 1000)
+
+                # 查询该日期是否有数据
+                count = db.query(Model).filter(
+                    Model.symbol == symbol,
+                    Model.interval == interval,
+                    Model.timestamp >= str(start_ts),
+                    Model.timestamp < str(end_ts)
+                ).count()
+
+                return count > 0
+
+            finally:
+                db.close()
+
+        except Exception as e:
+            logger.error(f"检查数据存在性失败: {e}")
+            return False
+
     def _save_to_database(
         self,
         df: pd.DataFrame,

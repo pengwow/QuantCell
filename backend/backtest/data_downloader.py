@@ -180,8 +180,8 @@ class BacktestDataDownloader:
         max_wait_time: int
     ) -> bool:
         """
-        下载缺失数据
-        
+        下载缺失数据 - 按缺失范围逐段下载，实现真正的增量下载
+
         Args:
             symbol: 交易对符号
             interval: 时间周期
@@ -189,37 +189,55 @@ class BacktestDataDownloader:
             market_type: 市场类型
             crypto_type: 加密货币类型
             max_wait_time: 最大等待时间
-            
+
         Returns:
             bool: 是否下载成功
         """
-        # 合并所有缺失时间段
-        earliest_start = min(r[0] for r in missing_ranges)
-        latest_end = max(r[1] for r in missing_ranges)
-        
-        # 添加缓冲时间
-        earliest_start = earliest_start - timedelta(days=1)
-        latest_end = latest_end + timedelta(days=1)
-        
-        if self.standalone_mode:
-            # 使用独立下载器
-            return self._download_with_standalone(
-                symbol=symbol,
-                interval=interval,
-                earliest_start=earliest_start,
-                latest_end=latest_end,
-                crypto_type=crypto_type
-            )
-        else:
-            # 使用任务管理器方式（需要FastAPI服务）
-            return self._download_with_task_manager(
-                symbol=symbol,
-                interval=interval,
-                earliest_start=earliest_start,
-                latest_end=latest_end,
-                crypto_type=crypto_type,
-                max_wait_time=max_wait_time
-            )
+        if not missing_ranges:
+            logger.info(f"没有缺失数据需要下载: {symbol} {interval}")
+            return True
+
+        logger.info(f"开始增量下载: {symbol} {interval}, 共 {len(missing_ranges)} 个缺失时间段")
+
+        # 按缺失范围逐段下载
+        total_success = 0
+        for idx, (start_time, end_time) in enumerate(missing_ranges):
+            logger.info(f"下载缺失段 {idx + 1}/{len(missing_ranges)}: {start_time} ~ {end_time}")
+
+            # 添加少量缓冲时间
+            download_start = start_time - timedelta(hours=1)
+            download_end = end_time + timedelta(hours=1)
+
+            if self.standalone_mode:
+                # 使用独立下载器
+                success = self._download_with_standalone(
+                    symbol=symbol,
+                    interval=interval,
+                    earliest_start=download_start,
+                    latest_end=download_end,
+                    crypto_type=crypto_type
+                )
+            else:
+                # 使用任务管理器方式（需要FastAPI服务）
+                success = self._download_with_task_manager(
+                    symbol=symbol,
+                    interval=interval,
+                    earliest_start=download_start,
+                    latest_end=download_end,
+                    crypto_type=crypto_type,
+                    max_wait_time=max_wait_time
+                )
+
+            if success:
+                total_success += 1
+                logger.info(f"✓ 缺失段 {idx + 1} 下载成功")
+            else:
+                logger.warning(f"✗ 缺失段 {idx + 1} 下载失败")
+
+        # 只要有一个段下载成功就认为整体成功
+        success_rate = total_success / len(missing_ranges) if missing_ranges else 0
+        logger.info(f"增量下载完成: {symbol} {interval}, 成功率 {success_rate * 100:.1f}% ({total_success}/{len(missing_ranges)})")
+        return total_success > 0
     
     def _download_with_standalone(
         self,

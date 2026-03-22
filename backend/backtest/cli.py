@@ -1497,6 +1497,169 @@ def _calculate_portfolio_metrics(
         # 目前返回空字典，表示相关性数据需要更详细的实现
         correlations = {symbol: {} for symbol in symbols_list}
 
+    # 计算权益峰值
+    equity_peak = max(equities) if equities else account.get('initial_balance', 0)
+
+    # 计算平均回撤
+    avg_drawdown = 0.0
+    if equities and len(equities) > 1:
+        drawdowns = []
+        peak = equities[0]
+        for equity in equities:
+            if equity > peak:
+                peak = equity
+            dd = (peak - equity) / peak if peak > 0 else 0
+            drawdowns.append(dd)
+        avg_drawdown = np.mean(drawdowns) * 100 if drawdowns else 0.0
+
+    # 计算年化波动率
+    volatility = 0.0
+    if len(returns) > 1:
+        volatility = np.std(returns, ddof=1) * np.sqrt(periods_per_year) * 100
+
+    # 计算索提诺比率（只考虑下行波动）
+    sortino_ratio = 0.0
+    if len(returns) > 1:
+        downside_returns = [r for r in returns if r < 0]
+        if downside_returns:
+            downside_std = np.std(downside_returns, ddof=1)
+            if downside_std > 0:
+                sortino_ratio = (np.mean(returns) / downside_std) * np.sqrt(periods_per_year)
+
+    # 计算卡尔马比率（收益/最大回撤）
+    calmar_ratio = 0.0
+    if max_drawdown > 0:
+        # 假设回测周期为1年，年化收益 = 总收益
+        calmar_ratio = total_return / max_drawdown
+
+    # 计算期望收益、平均交易、最佳/最差交易
+    expectancy = 0.0
+    avg_trade = 0.0
+    best_trade = 0.0
+    worst_trade = 0.0
+    if pnls:
+        avg_trade = np.mean(pnls)
+        best_trade = max(pnls)
+        worst_trade = min(pnls)
+        # 期望收益 = 胜率 * 平均盈利 - 败率 * 平均亏损
+        win_pct = winning_trades / len(pnls) if pnls else 0
+        loss_pct = 1 - win_pct
+        avg_win = np.mean([p for p in pnls if p > 0]) if any(p > 0 for p in pnls) else 0
+        avg_loss = abs(np.mean([p for p in pnls if p < 0])) if any(p < 0 for p in pnls) else 0
+        expectancy = (win_pct * avg_win) - (loss_pct * avg_loss)
+
+    # 计算总手续费
+    total_commission = sum([t.get('commission', 0) for t in all_trades if isinstance(t.get('commission'), (int, float))])
+
+    # 计算阿尔法和贝塔（简化计算，假设基准收益为0）
+    alpha = 0.0
+    beta = 0.0
+    if len(returns) > 1:
+        # 简化：Alpha = 实际收益 - 预期收益（假设预期为0）
+        alpha = np.mean(returns) * periods_per_year * 100
+        # 简化：Beta = 1（假设完全相关）
+        beta = 1.0
+
+    # 计算SQN（系统质量指数）
+    sqn = 0.0
+    if len(pnls) > 1:
+        pnl_std = np.std(pnls, ddof=1)
+        if pnl_std > 0:
+            sqn = (np.sqrt(len(pnls)) * np.mean(pnls)) / pnl_std
+
+    # 计算凯利准则（最优仓位比例）
+    kelly_criterion = 0.0
+    if pnls:
+        win_pct = winning_trades / len(pnls) if pnls else 0
+        loss_pct = 1 - win_pct
+        avg_win = np.mean([p for p in pnls if p > 0]) if any(p > 0 for p in pnls) else 0
+        avg_loss = abs(np.mean([p for p in pnls if p < 0])) if any(p < 0 for p in pnls) else 0
+        if avg_loss > 0:
+            kelly_criterion = (win_pct / avg_loss) - (loss_pct / avg_win) if avg_win > 0 else 0
+            kelly_criterion = max(0, min(1, kelly_criterion))  # 限制在0-1之间
+
+    # 计算暴露时间（有持仓的时间占比）
+    exposure_time = 0.0
+    if all_positions and len(equity_curve) > 0:
+        # 简化：假设每个position代表一段时间
+        exposure_time = (len(all_positions) / len(equity_curve)) * 100 if equity_curve else 0.0
+
+    # 计算时间指标
+    from datetime import datetime
+    start_time = None
+    end_time = None
+    duration_days = 0
+    avg_trade_duration_hours = 0.0
+    max_trade_duration_hours = 0.0
+
+    # 从权益曲线获取回测时间范围
+    if equity_curve and len(equity_curve) > 0:
+        first_point = equity_curve[0]
+        last_point = equity_curve[-1]
+
+        # 尝试获取时间戳
+        time_keys = ['timestamp', 'time', 'datetime', 'date']
+        for key in time_keys:
+            if key in first_point and key in last_point:
+                try:
+                    start_time = first_point[key]
+                    end_time = last_point[key]
+                    break
+                except:
+                    pass
+
+    # 从交易数据计算持仓时间
+    if all_trades:
+        trade_durations = []
+        for trade in all_trades:
+            entry_time = None
+            exit_time = None
+
+            # 尝试获取入场和出场时间
+            for key in ['entry_time', 'EntryTime', 'open_time', 'timestamp']:
+                if key in trade:
+                    entry_time = trade[key]
+                    break
+
+            for key in ['exit_time', 'ExitTime', 'close_time']:
+                if key in trade:
+                    exit_time = trade[key]
+                    break
+
+            if entry_time and exit_time:
+                try:
+                    # 解析时间并计算持续时间
+                    if isinstance(entry_time, str) and isinstance(exit_time, str):
+                        # 尝试解析ISO格式时间
+                        entry_dt = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
+                        exit_dt = datetime.fromisoformat(exit_time.replace('Z', '+00:00'))
+                        duration_hours = (exit_dt - entry_dt).total_seconds() / 3600
+                        trade_durations.append(duration_hours)
+                except:
+                    pass
+
+        if trade_durations:
+            avg_trade_duration_hours = np.mean(trade_durations)
+            max_trade_duration_hours = max(trade_durations)
+
+    # 计算回测持续天数
+    if start_time and end_time:
+        try:
+            if isinstance(start_time, str) and isinstance(end_time, str):
+                start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                duration_days = (end_dt - start_dt).days
+        except:
+            pass
+
+    # 计算年化收益率 (CAGR)
+    cagr = 0.0
+    if duration_days > 0 and equities and len(equities) > 1 and equities[0] > 0:
+        # CAGR = (期末价值/期初价值)^(365/天数) - 1
+        years = duration_days / 365.0
+        if years > 0:
+            cagr = ((equities[-1] / equities[0]) ** (1 / years) - 1) * 100
+
     return {
         'total_return': round(total_return, 2),
         'sharpe_ratio': round(sharpe_ratio, 2),
@@ -1507,8 +1670,27 @@ def _calculate_portfolio_metrics(
         'winning_trades': winning_trades,
         'losing_trades': len(pnls) - winning_trades if pnls else 0,
         'total_pnl': round(total_pnl, 2),
-        'initial_equity': account.get('initial_balance', account.get('balance', 0)),
-        'final_equity': account.get('final_balance', account.get('equity', 0)),
+        'initial_equity': round(account.get('initial_balance', account.get('balance', 0)), 2),
+        'final_equity': round(account.get('final_balance', account.get('equity', 0)), 2),
+        'equity_peak': round(equity_peak, 2),
+        'sortino_ratio': round(sortino_ratio, 2),
+        'calmar_ratio': round(calmar_ratio, 2),
+        'avg_drawdown': round(avg_drawdown, 2),
+        'volatility': round(volatility, 2),
+        'expectancy': round(expectancy, 2),
+        'avg_trade': round(avg_trade, 2),
+        'best_trade': round(best_trade, 2),
+        'worst_trade': round(worst_trade, 2),
+        'total_commission': round(total_commission, 2),
+        'alpha': round(alpha, 2),
+        'beta': round(beta, 2),
+        'sqn': round(sqn, 2),
+        'kelly_criterion': round(kelly_criterion, 2),
+        'exposure_time': round(exposure_time, 2),
+        'duration_days': duration_days,
+        'avg_trade_duration_hours': round(avg_trade_duration_hours, 2),
+        'max_trade_duration_hours': round(max_trade_duration_hours, 2),
+        'cagr': round(cagr, 2),
         'correlations': correlations,
     }
 

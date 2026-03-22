@@ -161,16 +161,21 @@ class DataIntegrityChecker:
                 result.quality_issues = self._check_data_quality(existing_data)
             
             # 6. 判断是否完整
+            # 当覆盖率达到100%且没有缺失数据时，认为数据完整（即使有轻微质量问题）
             result.is_complete = (
-                result.missing_count == 0 and 
-                len(result.quality_issues) == 0
+                result.missing_count == 0 and
+                result.coverage_percent >= 100.0
             )
-            
+
             logger.info(
                 f"数据完整性检查完成: {symbol} {interval}, "
                 f"覆盖率: {result.coverage_percent:.2f}%, "
-                f"缺失: {result.missing_count} 条"
+                f"缺失: {result.missing_count} 条, "
+                f"质量问题: {len(result.quality_issues)} 个, "
+                f"是否完整: {result.is_complete}"
             )
+            if result.quality_issues:
+                logger.info(f"质量问题详情: {result.quality_issues}")
             
         except Exception as e:
             logger.error(f"数据完整性检查失败: {e}")
@@ -199,10 +204,10 @@ class DataIntegrityChecker:
             
             # 标准化symbol格式（去除/）
             normalized_symbol = symbol.replace('/', '')
-            
-            # 转换时间戳为毫秒字符串（与数据库格式一致）
-            start_timestamp = int(start_time.timestamp() * 1000)
-            end_timestamp = int(end_time.timestamp() * 1000)
+
+            # 转换时间戳为微秒字符串（与数据库16位时间戳格式一致）
+            start_timestamp = int(start_time.timestamp() * 1000 * 1000)  # 13位毫秒转16位微秒
+            end_timestamp = int(end_time.timestamp() * 1000 * 1000)  # 13位毫秒转16位微秒
             
             if market_type == 'crypto':
                 if crypto_type == 'spot':
