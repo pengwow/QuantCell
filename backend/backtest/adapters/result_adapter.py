@@ -17,6 +17,7 @@ import pandas as pd
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from utils.logger import get_logger, LogType
+from utils.data_utils import sanitize_for_json
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -632,40 +633,5 @@ def _convert_strategy_data(advanced_result: Any) -> List[Dict[str, Any]]:
     return strategy_data
 
 
-def sanitize_for_json(data: Any) -> Any:
-    """
-    递归清理数据，使其可以被 JSON 序列化
-
-    处理 NaT, NaN, Infinity, Timestamp 等
-
-    :param data: 需要清理的数据
-    :return: 清理后的数据
-    """
-    import numpy as np
-
-    if isinstance(data, dict):
-        return {k: sanitize_for_json(v) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [sanitize_for_json(item) for item in data]
-    elif isinstance(data, (pd.Timestamp, datetime)):
-        if pd.isna(data):
-            return None
-        return data.strftime('%Y-%m-%d %H:%M:%S')
-    elif isinstance(data, pd.Timedelta):
-        if pd.isna(data):
-            return None
-        return str(data)
-    elif pd.isna(data):
-        return None
-    elif isinstance(data, float):
-        if np.isinf(data):
-            return None
-        return data
-    elif isinstance(data, (np.integer, np.int64, np.int32)):
-        return int(data)
-    elif isinstance(data, (np.floating, np.float64, np.float32)):
-        if np.isnan(data) or np.isinf(data):
-            return None
-        return float(data)
-
-    return data
+# 注意：sanitize_for_json 函数已移至 utils.data_utils 模块
+# 请使用 from utils.data_utils import sanitize_for_json 导入

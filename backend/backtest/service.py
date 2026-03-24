@@ -43,6 +43,7 @@ from strategy.service import StrategyService
 from i18n.utils import load_translations
 from utils.config_manager import config_manager
 from utils.timezone import format_datetime
+from utils.data_utils import sanitize_for_json, DataSanitizer
 
 # 导入回测引擎
 from backtest.engines import Engine, LegacyEngine, BacktestEngineBase
@@ -577,40 +578,6 @@ class BacktestService:
         """
         return self._engine
 
-    def _sanitize_for_json(self, data):
-        """
-        递归清理数据，使其可以被JSON序列化
-        处理 NaT, NaN, Infinity, Timestamp 等
-        """
-        import numpy as np
-        if isinstance(data, dict):
-            return {k: self._sanitize_for_json(v) for k, v in data.items()}
-        elif isinstance(data, list):
-            return [self._sanitize_for_json(item) for item in data]
-        elif isinstance(data, (pd.Timestamp, datetime)):
-            if pd.isna(data):
-                return None
-            return data.strftime('%Y-%m-%d %H:%M:%S')
-        elif isinstance(data, pd.Timedelta):
-            if pd.isna(data):
-                return None
-            return str(data)
-        elif pd.isna(data):  # Checks for NaN, NaT, None
-            return None
-        elif isinstance(data, float):
-            if np.isinf(data):
-                return None
-            return data
-        # Handle numpy types if necessary
-        if isinstance(data, (np.integer, np.int64, np.int32)):
-            return int(data)
-        if isinstance(data, (np.floating, np.float64, np.float32)):
-            if np.isnan(data) or np.isinf(data):
-                return None
-            return float(data)
-            
-        return data
-    
     def get_strategy_list(self):
         """
         获取所有支持的策略类型列表
@@ -1017,10 +984,10 @@ class BacktestService:
                 "message": "回测完成",
                 "strategy_name": strategy_name,
                 "backtest_config": backtest_config,
-                "metrics": self._sanitize_for_json(translated_metrics),
-                "trades": self._sanitize_for_json(trades),
-                "equity_curve": self._sanitize_for_json(equity_curve_data),
-                "strategy_data": self._sanitize_for_json(strategy_data)
+                "metrics": sanitize_for_json(translated_metrics),
+                "trades": sanitize_for_json(trades),
+                "equity_curve": sanitize_for_json(equity_curve_data),
+                "strategy_data": sanitize_for_json(strategy_data)
             }
             
             logger.info(f"回测完成，策略: {strategy_name}, 货币对: {symbol}, 回测ID: {backtest_id}, task_id: {task_id}")
@@ -1682,46 +1649,9 @@ class BacktestService:
         """
         # 获取当前语言设置
         language = config_manager.get_config_item("general", "language", "zh-CN")
-        # 加载翻译
-        trans = load_translations(language)
-        
-        translated_metrics = []
-        for key, value in stats.items():
-            if key in ['_strategy', '_equity_curve', '_trade_list', '_trades']:
-                continue
-            
-            # 获取翻译
-            name = trans.get(key, key)
-            desc = trans.get(f"{key}.desc", name)
-            
-            # 处理特殊类型的值
-            metric_type = 'string'  # 默认类型
-            if isinstance(value, pd.Timestamp):
-                value = value.strftime('%Y-%m-%d %H:%M:%S')
-                metric_type = 'datetime'
-            elif isinstance(value, pd.Timedelta):
-                value = str(value)
-                metric_type = 'duration'
-            elif isinstance(value, (pd.Series, pd.DataFrame)):
-                continue  # 跳过复杂数据结构
-            elif isinstance(value, (int, float)):
-                # 根据指标名称判断是否为百分比
-                if '[%]' in key:
-                    metric_type = 'percentage'
-                elif '[$]' in key:
-                    metric_type = 'currency'
-                else:
-                    metric_type = 'number'
-            
-            translated_metrics.append({
-                'name': name,
-                'key': key,  # 添加原始key用于前端识别
-                'value': value,
-                'description': desc,
-                'type': metric_type  # 添加类型字段
-            })
-        
-        return translated_metrics
+        # 使用 DataSanitizer 进行指标翻译
+        data_sanitizer = DataSanitizer()
+        return data_sanitizer.translate_metrics(stats, language)
     
     def analyze_backtest(self, backtest_id):
         """
