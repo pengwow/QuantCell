@@ -19,12 +19,18 @@ import {
   Spin,
   Alert,
   message,
+  Divider,
+  Tooltip,
 } from 'antd';
 import {
   CaretRightOutlined,
   PauseOutlined,
   FastForwardOutlined,
   StopOutlined,
+  StepForwardOutlined,
+  RetweetOutlined,
+  ClockCircleOutlined,
+  StockOutlined,
 } from '@ant-design/icons';
 import { init, dispose, registerLocale, registerOverlay } from 'klinecharts';
 import jsonAnnotation from '../../utils/klineAnnotations';
@@ -38,6 +44,7 @@ const { Option } = Select;
 
 // 播放速度选项
 const SPEED_OPTIONS = [
+  { label: '0.5x', value: 0.5 },
   { label: '1x', value: 1 },
   { label: '2x', value: 2 },
   { label: '4x', value: 4 },
@@ -79,6 +86,15 @@ const formatTimestamp = (timestamp: number | string): string => {
     minute: '2-digit',
     second: '2-digit',
   });
+};
+
+/**
+ * 格式化时间为 mm:ss
+ */
+const formatTime = (seconds: number): string => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
 /**
@@ -135,11 +151,13 @@ const BacktestReplay = () => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [playSpeed, setPlaySpeed] = useState<number>(1);
+  const [elapsedTime, setElapsedTime] = useState<number>(0);
 
   // 图表引用
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<any>(null);
   const playTimerRef = useRef<number | null>(null);
+  const elapsedTimerRef = useRef<number | null>(null);
 
   // 注册语言包
   useEffect(() => {
@@ -438,6 +456,8 @@ const BacktestReplay = () => {
     if (!replayData || !replayData.klines || replayData.klines.length === 0) return;
 
     setIsPlaying(true);
+    
+    // 播放进度定时器
     playTimerRef.current = window.setInterval(() => {
       setCurrentIndex((prev) => {
         const maxIndex = replayData.klines?.length || 0;
@@ -448,6 +468,11 @@ const BacktestReplay = () => {
         return prev + 1;
       });
     }, 1000 / playSpeed);
+
+    // 计时器
+    elapsedTimerRef.current = window.setInterval(() => {
+      setElapsedTime((prev) => prev + 1);
+    }, 1000);
   };
 
   /**
@@ -458,6 +483,10 @@ const BacktestReplay = () => {
     if (playTimerRef.current) {
       window.clearInterval(playTimerRef.current);
       playTimerRef.current = null;
+    }
+    if (elapsedTimerRef.current) {
+      window.clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
     }
   };
 
@@ -474,11 +503,24 @@ const BacktestReplay = () => {
   };
 
   /**
+   * 单步前进
+   */
+  const handleStepForward = () => {
+    if (!replayData || !replayData.klines || replayData.klines.length === 0) return;
+    
+    setCurrentIndex((prev) => {
+      const maxIndex = replayData.klines?.length || 0;
+      return Math.min(prev + 1, maxIndex - 1);
+    });
+  };
+
+  /**
    * 停止播放并重置
    */
   const handleStop = () => {
     handlePause();
     setCurrentIndex(0);
+    setElapsedTime(0);
   };
 
   /**
@@ -510,6 +552,9 @@ const BacktestReplay = () => {
       if (playTimerRef.current) {
         window.clearInterval(playTimerRef.current);
       }
+      if (elapsedTimerRef.current) {
+        window.clearInterval(elapsedTimerRef.current);
+      }
       if (chartRef.current) {
         dispose(chartRef.current);
       }
@@ -540,7 +585,7 @@ const BacktestReplay = () => {
   // 渲染加载状态
   if (loading) {
     return (
-      <PageContainer title={t('backtest_replay')}>
+      <PageContainer title={t('backtest_replay') || '回测回放'}>
         <div className="flex justify-center items-center py-24">
           <Spin size="large" />
         </div>
@@ -551,7 +596,7 @@ const BacktestReplay = () => {
   // 渲染错误状态
   if (error) {
     return (
-      <PageContainer title={t('backtest_replay')}>
+      <PageContainer title={t('backtest_replay') || '回测回放'}>
         <Alert
           message="错误"
           description={error}
@@ -562,22 +607,30 @@ const BacktestReplay = () => {
     );
   }
 
+  const progressPercent = replayData?.klines?.length 
+    ? Math.round((currentIndex / (replayData.klines.length - 1)) * 100) 
+    : 0;
+
   return (
-    <PageContainer title={t('backtest_replay')}>
+    <PageContainer title={t('backtest_replay') || '回测回放'}>
       <div className="space-y-6">
-        {/* 控制栏 */}
-        <Card size="small">
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <Row align="middle" gutter={16}>
-            <Col>
-              <Space>
-                <span>货币对:</span>
+        {/* 控制栏 - 重新设计 */}
+        <Card size="small" className="replay-control-card">
+          {/* 第一行：货币对选择和播放控制 */}
+          <Row align="middle" justify="space-between" gutter={[16, 16]}>
+            {/* 左侧：货币对选择 */}
+            <Col flex="none">
+              <Space align="center">
+                <StockOutlined style={{ fontSize: 18, color: '#1890ff' }} />
+                <span style={{ fontWeight: 500 }}>货币对</span>
                 <Select
                   value={selectedSymbol}
                   onChange={handleSymbolChange}
-                  style={{ width: 150 }}
+                  style={{ width: 140 }}
                   disabled={loadingSymbols || symbols.length === 0}
                   loading={loadingSymbols}
+                  placeholder="选择货币对"
+                  suffixIcon={<StockOutlined />}
                 >
                   {symbols.map((symbol) => (
                     <Option key={symbol.symbol} value={symbol.symbol}>
@@ -587,61 +640,121 @@ const BacktestReplay = () => {
                 </Select>
               </Space>
             </Col>
-            <Col>
-              <Button
-                type="primary"
-                icon={isPlaying ? <PauseOutlined /> : <CaretRightOutlined />}
-                onClick={isPlaying ? handlePause : handlePlay}
-                disabled={!replayData}
-              >
-                {isPlaying ? '暂停' : '播放'}
-              </Button>
-            </Col>
-            <Col>
-              <Button
-                icon={<FastForwardOutlined />}
-                onClick={handleFastForward}
-                disabled={!replayData || currentIndex >= (replayData?.klines?.length || 0) - 1}
-              >
-                快进
-              </Button>
-            </Col>
-            <Col>
-              <Button
-                icon={<StopOutlined />}
-                onClick={handleStop}
-                disabled={currentIndex === 0 || !replayData}
-              >
-                停止
-              </Button>
-            </Col>
-            <Col>
-              <Space>
-                <span>播放速度:</span>
-                <Select
-                  value={playSpeed}
-                  onChange={handleSpeedChange}
-                  style={{ width: 80 }}
+
+            {/* 中间：播放控制按钮组 */}
+            <Col flex="auto" style={{ textAlign: 'center' }}>
+              <Space size="small" align="center">
+                {/* 停止按钮 */}
+                <Tooltip title="停止并重置">
+                  <Button
+                    type="text"
+                    shape="circle"
+                    icon={<StopOutlined />}
+                    onClick={handleStop}
+                    disabled={currentIndex === 0 || !replayData}
+                    style={{ 
+                      color: currentIndex === 0 ? undefined : '#ff4d4f',
+                      fontSize: 18 
+                    }}
+                  />
+                </Tooltip>
+
+                <Divider type="vertical" style={{ margin: '0 8px' }} />
+
+                {/* 播放/暂停按钮 - 主按钮 */}
+                <Button
+                  type="primary"
+                  shape="circle"
+                  size="large"
+                  icon={isPlaying ? <PauseOutlined /> : <CaretRightOutlined />}
+                  onClick={isPlaying ? handlePause : handlePlay}
                   disabled={!replayData}
-                >
-                  {SPEED_OPTIONS.map((option) => (
-                    <Option key={option.value} value={option.value}>
-                      {option.label}
-                    </Option>
-                  ))}
-                </Select>
+                  style={{ 
+                    width: 48, 
+                    height: 48, 
+                    fontSize: 20,
+                    boxShadow: '0 2px 8px rgba(24, 144, 255, 0.35)'
+                  }}
+                />
+
+                {/* 单步前进 */}
+                <Tooltip title="单步前进">
+                  <Button
+                    type="text"
+                    shape="circle"
+                    icon={<StepForwardOutlined />}
+                    onClick={handleStepForward}
+                    disabled={!replayData || currentIndex >= (replayData?.klines?.length || 0) - 1}
+                    style={{ fontSize: 16 }}
+                  />
+                </Tooltip>
+
+                {/* 快进 */}
+                <Tooltip title="快进10步">
+                  <Button
+                    type="text"
+                    shape="circle"
+                    icon={<FastForwardOutlined />}
+                    onClick={handleFastForward}
+                    disabled={!replayData || currentIndex >= (replayData?.klines?.length || 0) - 1}
+                    style={{ fontSize: 16 }}
+                  />
+                </Tooltip>
+
+                <Divider type="vertical" style={{ margin: '0 8px' }} />
+
+                {/* 播放速度 */}
+                <Tooltip title="播放速度">
+                  <Space align="center" style={{ marginLeft: 8 }}>
+                    <ClockCircleOutlined style={{ color: '#8c8c8c' }} />
+                    <Select
+                      value={playSpeed}
+                      onChange={handleSpeedChange}
+                      style={{ width: 70 }}
+                      disabled={!replayData}
+                      bordered={false}
+                      dropdownMatchSelectWidth={false}
+                    >
+                      {SPEED_OPTIONS.map((option) => (
+                        <Option key={option.value} value={option.value}>
+                          {option.label}
+                        </Option>
+                      ))}
+                    </Select>
+                  </Space>
+                </Tooltip>
+              </Space>
+            </Col>
+
+            {/* 右侧：时间显示 */}
+            <Col flex="none">
+              <Space align="center" style={{ 
+                background: 'transparent', 
+                padding: '4px 12px', 
+                borderRadius: 4,
+                fontFamily: 'monospace',
+                border: '1px solid var(--ant-color-border)'
+              }}>
+                <ClockCircleOutlined style={{ color: 'var(--ant-color-text-secondary)' }} />
+                <span style={{ color: 'var(--ant-color-text)' }}>{formatTime(elapsedTime)}</span>
               </Space>
             </Col>
           </Row>
 
-          {/* 进度条 */}
-          <Row align="middle">
+          <Divider style={{ margin: '12px 0' }} />
+
+          {/* 第二行：进度条 */}
+          <Row align="middle" gutter={[16, 0]}>
             <Col flex="none">
-              <span className="text-sm text-gray-500 mr-4">
-                {currentIndex + 1} / {replayData?.klines?.length || 0}
+              <span style={{ 
+                fontSize: 12, 
+                color: '#8c8c8c',
+                fontFamily: 'monospace'
+              }}>
+                {currentIndex + 1}
               </span>
             </Col>
-            <Col flex="auto" style={{ padding: '0 16px' }}>
+            <Col flex="auto" style={{ padding: '0 8px' }}>
               <Slider
                 min={0}
                 max={(replayData?.klines?.length || 1) - 1}
@@ -649,135 +762,163 @@ const BacktestReplay = () => {
                 onChange={handleProgressChange}
                 disabled={!replayData}
                 tooltip={{
-                  formatter: (value) => `${value! + 1} / ${replayData?.klines?.length || 0}`,
+                  formatter: (value) => (
+                    <div>
+                      <div>第 {value! + 1} / {replayData?.klines?.length || 0} 根K线</div>
+                      <div style={{ fontSize: 12, opacity: 0.8 }}>
+                        {formatTimestamp(
+                          replayData?.klines?.[value!]?.time || replayData?.klines?.[value!]?.timestamp || ''
+                        )}
+                      </div>
+                    </div>
+                  ),
                 }}
               />
             </Col>
             <Col flex="none">
-              <span className="text-sm text-gray-500 ml-4">
-                {formatTimestamp(
-                  replayData?.klines?.[currentIndex]?.time || replayData?.klines?.[currentIndex]?.timestamp || ''
-                )}
+              <span style={{ 
+                fontSize: 12, 
+                color: '#8c8c8c',
+                fontFamily: 'monospace'
+              }}>
+                {replayData?.klines?.length || 0}
               </span>
             </Col>
           </Row>
-        </Space>
-      </Card>
 
-      {/* 合并结果显示区域 */}
-      {mergeSummary && showMergeSummary && (
-        <Card
-          size="small"
-          title="合并结果摘要"
-          extra={
-            <Button type="text" onClick={() => setShowMergeSummary(false)}>
-              收起
-            </Button>
-          }
-        >
-          <Row gutter={[16, 16]}>
-            <Col span={6}>
-              <Statistic title="总货币对数量" value={mergeSummary.total_currencies} />
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="成功货币对"
-                value={mergeSummary.successful_currencies}
-                valueStyle={{ color: '#52c41a' }}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="失败货币对"
-                value={mergeSummary.failed_currencies}
-                valueStyle={{ color: '#f5222d' }}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic title="总交易次数" value={mergeSummary.total_trades} />
-            </Col>
-            <Col span={6}>
-              <Statistic title="平均每货币对交易次数" value={mergeSummary.average_trades_per_currency} />
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="总收益率"
-                value={`${mergeSummary.total_return}%`}
-                valueStyle={{ color: mergeSummary.total_return >= 0 ? '#52c41a' : '#f5222d' }}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="平均收益率"
-                value={`${mergeSummary.average_return}%`}
-                valueStyle={{ color: mergeSummary.average_return >= 0 ? '#52c41a' : '#f5222d' }}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic title="平均最大回撤" value={`${mergeSummary.average_max_drawdown}%`} />
-            </Col>
-            <Col span={6}>
-              <Statistic title="平均夏普比率" value={mergeSummary.average_sharpe_ratio} />
-            </Col>
-            <Col span={6}>
-              <Statistic title="平均索提诺比率" value={mergeSummary.average_sortino_ratio} />
-            </Col>
-            <Col span={6}>
-              <Statistic title="平均卡尔玛比率" value={mergeSummary.average_calmar_ratio} />
-            </Col>
-            <Col span={6}>
-              <Statistic title="平均胜率" value={`${mergeSummary.average_win_rate}%`} />
+          {/* 第三行：时间戳和进度百分比 */}
+          <Row justify="center" style={{ marginTop: 4 }}>
+            <Col>
+              <span style={{ 
+                fontSize: 13, 
+                color: '#595959',
+                fontWeight: 500
+              }}>
+                {formatTimestamp(
+                  replayData?.klines?.[currentIndex]?.time || replayData?.klines?.[currentIndex]?.timestamp || ''
+                )}
+                <span style={{ marginLeft: 12, color: '#1890ff' }}>
+                  {progressPercent}%
+                </span>
+              </span>
             </Col>
           </Row>
         </Card>
-      )}
 
-      {mergeSummary && !showMergeSummary && (
-        <div className="text-right">
-          <Button type="link" onClick={() => setShowMergeSummary(true)}>
-            显示合并结果摘要
-          </Button>
-        </div>
-      )}
-
-      {/* 图表区域 */}
-      <Card>
-        <div
-          ref={chartRef}
-          style={{ width: '100%', height: '600px', minHeight: '400px' }}
-        />
-      </Card>
-
-      {/* 交易详情表格 */}
-      {replayData && (
-        <Card size="small" title="交易详情">
-          <Table
-            columns={TRADE_TABLE_COLUMNS}
-            dataSource={
-              replayData.trades?.filter((trade) => {
-                const currentKline = replayData.klines?.[currentIndex];
-                if (!currentKline) return false;
-                const currentTime = currentKline.timestamp || currentKline.time;
-                const entryTime = new Date(trade.EntryTime).getTime();
-                return entryTime <= currentTime;
-              }) || []
-            }
-            rowKey="trade_id"
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: true,
-              showTotal: (total) => `共 ${total} 条交易`,
-              pageSizeOptions: ['5', '10', '20', '50'],
-              defaultPageSize: 10,
-              size: 'small',
-            }}
-            scroll={{ x: 800, y: 300 }}
-            bordered
+        {/* 合并结果显示区域 */}
+        {mergeSummary && showMergeSummary && (
+          <Card
             size="small"
+            title="合并结果摘要"
+            extra={
+              <Button type="text" onClick={() => setShowMergeSummary(false)}>
+                收起
+              </Button>
+            }
+          >
+            <Row gutter={[16, 16]}>
+              <Col span={6}>
+                <Statistic title="总货币对数量" value={mergeSummary.total_currencies} />
+              </Col>
+              <Col span={6}>
+                <Statistic
+                  title="成功货币对"
+                  value={mergeSummary.successful_currencies}
+                  valueStyle={{ color: '#52c41a' }}
+                />
+              </Col>
+              <Col span={6}>
+                <Statistic
+                  title="失败货币对"
+                  value={mergeSummary.failed_currencies}
+                  valueStyle={{ color: '#f5222d' }}
+                />
+              </Col>
+              <Col span={6}>
+                <Statistic title="总交易次数" value={mergeSummary.total_trades} />
+              </Col>
+              <Col span={6}>
+                <Statistic title="平均每货币对交易次数" value={mergeSummary.average_trades_per_currency} />
+              </Col>
+              <Col span={6}>
+                <Statistic
+                  title="总收益率"
+                  value={`${mergeSummary.total_return}%`}
+                  valueStyle={{ color: mergeSummary.total_return >= 0 ? '#52c41a' : '#f5222d' }}
+                />
+              </Col>
+              <Col span={6}>
+                <Statistic
+                  title="平均收益率"
+                  value={`${mergeSummary.average_return}%`}
+                  valueStyle={{ color: mergeSummary.average_return >= 0 ? '#52c41a' : '#f5222d' }}
+                />
+              </Col>
+              <Col span={6}>
+                <Statistic title="平均最大回撤" value={`${mergeSummary.average_max_drawdown}%`} />
+              </Col>
+              <Col span={6}>
+                <Statistic title="平均夏普比率" value={mergeSummary.average_sharpe_ratio} />
+              </Col>
+              <Col span={6}>
+                <Statistic title="平均索提诺比率" value={mergeSummary.average_sortino_ratio} />
+              </Col>
+              <Col span={6}>
+                <Statistic title="平均卡尔玛比率" value={mergeSummary.average_calmar_ratio} />
+              </Col>
+              <Col span={6}>
+                <Statistic title="平均胜率" value={`${mergeSummary.average_win_rate}%`} />
+              </Col>
+            </Row>
+          </Card>
+        )}
+
+        {mergeSummary && !showMergeSummary && (
+          <div className="text-right">
+            <Button type="link" onClick={() => setShowMergeSummary(true)}>
+              显示合并结果摘要
+            </Button>
+          </div>
+        )}
+
+        {/* 图表区域 */}
+        <Card style={{ marginTop: 24 }}>
+          <div
+            ref={chartRef}
+            style={{ width: '100%', height: '600px', minHeight: '400px' }}
           />
         </Card>
-      )}
-    </div>
+
+        {/* 交易详情表格 */}
+        {replayData && (
+          <Card size="small" title="交易详情">
+            <Table
+              columns={TRADE_TABLE_COLUMNS}
+              dataSource={
+                replayData.trades?.filter((trade) => {
+                  const currentKline = replayData.klines?.[currentIndex];
+                  if (!currentKline) return false;
+                  const currentTime = currentKline.timestamp || currentKline.time;
+                  const entryTime = new Date(trade.EntryTime).getTime();
+                  return entryTime <= currentTime;
+                }) || []
+              }
+              rowKey="trade_id"
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                showTotal: (total) => `共 ${total} 条交易`,
+                pageSizeOptions: ['5', '10', '20', '50'],
+                defaultPageSize: 10,
+                size: 'small',
+              }}
+              scroll={{ x: 800, y: 300 }}
+              bordered
+              size="small"
+            />
+          </Card>
+        )}
+      </div>
     </PageContainer>
   );
 };

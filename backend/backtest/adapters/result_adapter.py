@@ -136,15 +136,33 @@ def _convert_equity_curve(advanced_result: Any) -> List[Dict[str, Any]]:
                 else:
                     record['datetime'] = str(time_val)
 
-            # 处理权益字段
-            if 'Equity' in row:
-                record['Equity'] = float(row['Equity']) if pd.notna(row['Equity']) else 0.0
-            elif 'equity' in row:
+            # 处理权益字段 (equity/total - 账户总权益)
+            if 'equity' in row:
                 record['Equity'] = float(row['equity']) if pd.notna(row['equity']) else 0.0
+            elif 'total' in row:
+                record['Equity'] = float(row['total']) if pd.notna(row['total']) else 0.0
+            elif 'Equity' in row:
+                record['Equity'] = float(row['Equity']) if pd.notna(row['Equity']) else 0.0
+
+            # 处理结余字段 (balance/free - 可用余额)
+            if 'balance' in row:
+                record['Balance'] = float(row['balance']) if pd.notna(row['balance']) else 0.0
+            elif 'free' in row:
+                record['Balance'] = float(row['free']) if pd.notna(row['free']) else 0.0
+            elif 'Balance' in row:
+                record['Balance'] = float(row['Balance']) if pd.notna(row['Balance']) else 0.0
+
+            # 处理保证金字段 (margin/locked - 冻结保证金)
+            if 'margin' in row:
+                record['Margin'] = float(row['margin']) if pd.notna(row['margin']) else 0.0
+            elif 'locked' in row:
+                record['Margin'] = float(row['locked']) if pd.notna(row['locked']) else 0.0
+            elif 'Margin' in row:
+                record['Margin'] = float(row['Margin']) if pd.notna(row['Margin']) else 0.0
 
             # 添加其他可能的字段
             for col in df_copy.columns:
-                if col not in record and col not in ['datetime', 'Equity', 'equity']:
+                if col not in record and col not in ['datetime', 'equity', 'Equity', 'balance', 'Balance', 'free', 'total', 'margin', 'locked']:
                     val = row[col]
                     if isinstance(val, (datetime, pd.Timestamp)):
                         record[col] = val.strftime('%Y-%m-%d %H:%M:%S')
