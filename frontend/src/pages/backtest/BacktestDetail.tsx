@@ -29,6 +29,7 @@ import EquityChart from '../../components/EquityChart';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/router';
 import { useTranslation } from 'react-i18next';
+import { useTheme } from 'ahooks';
 
 // 后端返回的数据类型定义
 interface BacktestMetrics {
@@ -64,6 +65,7 @@ interface EquityCurvePoint {
   formatted_time: string;
   equity: number;
   balance: number;
+  margin?: number;
 }
 
 // 后端实际返回的数据结构
@@ -90,6 +92,8 @@ const BacktestDetail = () => {
   const { backtestId } = useParams<{ backtestId: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { theme } = useTheme({ localStorageKey: "quantcell-ui-theme" });
+  const isDark = theme === 'dark';
 
   const [loading, setLoading] = useState(true);
   const [backtestData, setBacktestData] = useState<BacktestResponse | null>(null);
@@ -212,10 +216,13 @@ const BacktestDetail = () => {
   };
 
   // 获取权益曲线数据，转换为 EquityChart 组件期望的格式
-  const getEquityCurve = (): Array<{ datetime: string; Equity: number }> => {
+  // 包含结余(balance)和净值(equity)两条线
+  const getEquityCurve = (): Array<{ datetime: string; equity: number; balance: number; margin?: number }> => {
     return (backtestData?.equity_curve || []).map(point => ({
       datetime: point.formatted_time || new Date(point.timestamp * 1000).toISOString(),
-      Equity: point.equity,
+      equity: point.equity,
+      balance: point.balance,
+      margin: point.margin,
     }));
   };
 
@@ -544,7 +551,7 @@ const BacktestDetail = () => {
         {/* 绩效分析图表 */}
         <Card title="权益曲线" className="mb-6">
           {getEquityCurve().length > 0 ? (
-            <EquityChart data={getEquityCurve()} />
+            <EquityChart data={getEquityCurve()} isDark={isDark} />
           ) : (
             <Empty description="暂无权益曲线数据" />
           )}
