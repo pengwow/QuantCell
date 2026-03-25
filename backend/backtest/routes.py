@@ -580,14 +580,11 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
 
             # 解析回测配置
             backtest_config = {}
-            strategy_config = {}
             try:
                 if task.backtest_config:
                     backtest_config = json.loads(task.backtest_config)
-                if task.strategy_config:
-                    strategy_config = json.loads(task.strategy_config)
             except Exception as e:
-                logger.warning(f"解析配置失败: {e}")
+                logger.warning(f"解析回测配置失败: {e}")
 
             # 获取回测结果
             result_record = db.query(BacktestResult).filter_by(task_id=backtest_id).first()
@@ -612,7 +609,6 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
                 "id": task.id,
                 "strategy_name": task.strategy_name,
                 "backtest_config": backtest_config,
-                "strategy_config": strategy_config,
                 "metrics": metrics,
                 "equity_curve": equity_curve,
                 "trades": trades,

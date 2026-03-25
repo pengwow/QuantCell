@@ -123,8 +123,9 @@ export interface SymbolInfo {
 }
 
 // 回测货币对列表数据类型
+// 后端返回数据结构: { symbols: ["ETH/USDT", "BTC/USDT"], total: 2 }
 export interface BacktestSymbols {
-  symbols: SymbolInfo[];
+  symbols: string[];
   total: number;
 }
 

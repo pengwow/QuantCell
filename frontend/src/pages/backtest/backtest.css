@@ -1029,6 +1029,74 @@
   background-color: var(--bg-tertiary) !important;
 }
 
+/* ========================================
+   K线图卡片优化样式
+   ======================================== */
+
+/* K线图卡片容器 */
+.replay-chart-card {
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.replay-chart-card .ant-card-body {
+  width: 100%;
+  height: 600px;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+/* K线图容器 */
+.replay-kline-chart {
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+  position: relative;
+}
+
+/* 确保klinecharts正确填充 */
+.replay-kline-chart > div {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.replay-kline-chart canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* 响应式高度调整 */
+@media (max-width: 1200px) {
+  .replay-chart-card .ant-card-body {
+    height: 500px;
+  }
+  
+  .replay-kline-chart {
+    min-height: 350px;
+  }
+}
+
+@media (max-width: 768px) {
+  .replay-chart-card .ant-card-body {
+    height: 400px;
+  }
+  
+  .replay-kline-chart {
+    min-height: 300px;
+  }
+}
+
+@media (max-width: 480px) {
+  .replay-chart-card .ant-card-body {
+    height: 350px;
+  }
+  
+  .replay-kline-chart {
+    min-height: 250px;
+  }
+}
+
 /* 货币对选择器 */
 .symbol-selector {
   display: flex;
