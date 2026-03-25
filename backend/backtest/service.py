@@ -55,7 +55,94 @@ class BacktestService:
     """
     回测服务类，用于执行策略回测和分析回测结果
     """
-    
+
+    def _get_kline_data_from_db(self, symbol: str, interval: str, start_time: str, end_time: str, db) -> list:
+        """
+        从数据库K线表获取K线数据
+
+        :param symbol: 货币对，如 "BTCUSDT" 或 "BTC/USDT"
+        :param interval: 时间周期，如 "15m"
+        :param start_time: 开始时间，ISO格式字符串
+        :param end_time: 结束时间，ISO格式字符串
+        :param db: 数据库会话
+        :return: K线数据列表
+        """
+        logger.info(f"[_get_kline_data_from_db] 开始获取K线数据: symbol={symbol}, interval={interval}, start_time={start_time}, end_time={end_time}")
+
+        try:
+            from collector.db.models import CryptoSpotKline
+            from datetime import datetime
+
+            # 解析时间字符串
+            logger.info(f"[_get_kline_data_from_db] 解析时间字符串: start_time={start_time}, end_time={end_time}")
+            start_dt = datetime.fromisoformat(start_time.replace(' ', 'T'))
+            end_dt = datetime.fromisoformat(end_time.replace(' ', 'T'))
+
+            # 转换为微秒级时间戳（数据库中存储的是微秒时间戳）
+            start_timestamp_us = int(start_dt.timestamp() * 1000000)
+            end_timestamp_us = int(end_dt.timestamp() * 1000000)
+            logger.info(f"[_get_kline_data_from_db] 时间解析结果: start_timestamp_us={start_timestamp_us}, end_timestamp_us={end_timestamp_us}")
+
+            # 处理symbol格式，支持 BTCUSDT 和 BTC/USDT 两种格式
+            symbol_variants = [symbol]
+            if '/' in symbol:
+                # BTC/USDT -> BTCUSDT
+                symbol_variants.append(symbol.replace('/', ''))
+            else:
+                # BTCUSDT -> BTC/USDT
+                symbol_variants.append(f"{symbol[:-4]}/{symbol[-4:]}" if len(symbol) > 4 else symbol)
+
+            logger.info(f"[_get_kline_data_from_db] symbol变体: {symbol_variants}")
+
+            # 查询K线数据 - 使用微秒时间戳作为字符串查询
+            logger.info(f"[_get_kline_data_from_db] 执行数据库查询: interval={interval}")
+            kline_records = db.query(CryptoSpotKline).filter(
+                CryptoSpotKline.symbol.in_(symbol_variants),
+                CryptoSpotKline.interval == interval,
+                CryptoSpotKline.timestamp >= str(start_timestamp_us),
+                CryptoSpotKline.timestamp <= str(end_timestamp_us)
+            ).order_by(CryptoSpotKline.timestamp).all()
+
+            logger.info(f"[_get_kline_data_from_db] 数据库查询完成，获取到 {len(kline_records)} 条原始记录")
+
+            # 转换为字典列表
+            kline_data = []
+            for idx, record in enumerate(kline_records):
+                try:
+                    # 数据库中存储的是微秒级时间戳(16位)
+                    ts_int = int(record.timestamp)
+                    # 微秒转毫秒
+                    timestamp_ms = ts_int // 1000
+                    # 微秒转秒用于datetime
+                    dt = datetime.fromtimestamp(ts_int / 1000000)
+                    datetime_str = dt.isoformat()
+
+                    kline_item = {
+                        "timestamp": timestamp_ms,
+                        "datetime": datetime_str,
+                        "open": float(record.open),
+                        "close": float(record.close),
+                        "high": float(record.high),
+                        "low": float(record.low),
+                        "volume": float(record.volume),
+                        "turnover": 0.0
+                    }
+                    kline_data.append(kline_item)
+
+                    # 只记录前3条和后3条的解析情况
+                    if idx < 3 or idx >= len(kline_records) - 3:
+                        logger.info(f"[_get_kline_data_from_db] 解析记录[{idx}]: timestamp={record.timestamp} -> {timestamp_ms}ms, open={record.open}, close={record.close}")
+                except Exception as e:
+                    logger.warning(f"[_get_kline_data_from_db] 解析K线记录[{idx}]失败: {e}, timestamp={record.timestamp}")
+                    continue
+
+            logger.info(f"[_get_kline_data_from_db] 从数据库获取K线数据完成: {symbol} {interval}, 共 {len(kline_data)} 条")
+            return kline_data
+        except Exception as e:
+            logger.error(f"[_get_kline_data_from_db] 从数据库获取K线数据失败: {e}")
+            logger.exception(e)
+            return []
+
     def _run_event_backtest(
         self,
         strategy_config,
@@ -424,6 +511,18 @@ class BacktestService:
                     'type': 'number'
                 })
             
+            # 从数据库获取K线数据作为strategy_data
+            strategy_data_list = []
+            for symbol in symbols_list:
+                symbol_kline_data = self._get_kline_data_from_db(
+                    symbol=symbol,
+                    interval=timeframes_list[0],
+                    start_time=start_time,
+                    end_time=end_time,
+                    db=db
+                )
+                strategy_data_list.extend(symbol_kline_data)
+
             backtest_result = BacktestResult(
                 id=result_id,
                 task_id=task_id,
@@ -432,7 +531,7 @@ class BacktestService:
                 metrics=json.dumps(metrics_list, default=str, ensure_ascii=False),
                 trades=json.dumps(trades, default=str, ensure_ascii=False),
                 equity_curve=json.dumps(equity_curve, default=str, ensure_ascii=False),
-                strategy_data=json.dumps([], default=str, ensure_ascii=False)
+                strategy_data=json.dumps(strategy_data_list, default=str, ensure_ascii=False)
             )
             db.add(backtest_result)
             
@@ -936,6 +1035,22 @@ class BacktestService:
                     except Exception as e:
                         logger.warning(f"Failed to extract strategy data: {e}")
                         logger.exception(e)
+
+            # 如果策略数据为空，从数据库获取K线数据
+            logger.info(f"[run_single_backtest] 检查策略数据: len(strategy_data)={len(strategy_data)}, type={type(strategy_data)}")
+            if not strategy_data:
+                logger.info(f"[run_single_backtest] 策略数据为空，准备从数据库获取K线数据: symbol={symbol}, interval={interval}, start_time={start_time}, end_time={end_time}")
+                logger.info(f"[run_single_backtest] 数据库会话状态: db={db}, type={type(db)}")
+                strategy_data = self._get_kline_data_from_db(
+                    symbol=symbol,
+                    interval=interval,
+                    start_time=start_time,
+                    end_time=end_time,
+                    db=db
+                )
+                logger.info(f"[run_single_backtest] 从数据库获取K线数据完成: len(strategy_data)={len(strategy_data)}")
+            else:
+                logger.info(f"[run_single_backtest] 策略数据不为空，跳过数据库查询: len(strategy_data)={len(strategy_data)}")
 
             # 获取交易记录
             trades = []
@@ -1494,6 +1609,9 @@ class BacktestService:
             for symbol, result in results.items():
                 if result.get('status') == 'success':
                     successful_results.append(symbol)
+                    # 记录 strategy_data 信息
+                    strategy_data_len = len(result.get('strategy_data', [])) if isinstance(result.get('strategy_data'), list) else 0
+                    logger.info(f"[run_backtest] 保存回测结果: symbol={symbol}, strategy_data长度={strategy_data_len}")
                     # 创建回测结果记录
                     backtest_result = BacktestResult(
                         id=result['id'],
@@ -2092,122 +2210,208 @@ class BacktestService:
     def get_replay_data(self, backtest_id, symbol=None):
         """
         获取回放数据
+        新数据格式：与回测详情接口一致，返回 trades, backtest_config, equity_curve, metrics 等
         
         :param backtest_id: 回测ID
         :param symbol: 可选，指定货币对，用于多货币对回测结果
         :return: 回放数据
         """
         try:
-            # 加载回测结果
-            result = self.load_backtest_result(backtest_id)
-            if not result:
-                return {
-                    "status": "failed",
-                    "message": f"回测结果不存在: {backtest_id}"
-                }
+            logger.info(f"开始获取回放数据，回测ID: {backtest_id}, 货币对: {symbol}")
             
-            # 处理多货币对回测结果
-            target_result = result
-            if symbol and "currencies" in result:
-                # 多货币对回测结果，根据symbol选择对应的结果
-                if symbol in result["currencies"]:
-                    target_result = result["currencies"][symbol]
-                else:
+            # 从数据库获取回测任务和结果（与回测详情接口一致）
+            from collector.db.database import SessionLocal, init_database_config
+            from collector.db.models import BacktestTask, BacktestResult
+            import json
+            
+            init_database_config()
+            db = SessionLocal()
+            
+            try:
+                # 获取回测任务
+                task = db.query(BacktestTask).filter_by(id=backtest_id).first()
+                
+                if not task:
+                    logger.error(f"回测任务不存在，回测ID: {backtest_id}")
                     return {
                         "status": "failed",
-                        "message": f"货币对 {symbol} 不存在于回测结果中"
+                        "message": f"回测任务不存在: {backtest_id}"
                     }
-            
-            # 准备回放数据
-            replay_data = {
-                "kline_data": [],
-                "trade_signals": [],
-                "equity_data": [],
-                "metadata": {
-                    "symbol": target_result.get("backtest_config", {}).get("symbol", "BTCUSDT"),
-                    "interval": target_result.get("backtest_config", {}).get("interval", "15m"),
-                    "strategy_name": target_result.get("strategy_name", "未知策略")
-                }
-            }
-            
-            # 从策略数据中提取K线数据
-            if "strategy_data" in target_result:
-                for data in target_result["strategy_data"]:
-                    # 尝试多种时间字段名
-                    time_value = None
-                    
-                    # 检查常见的时间字段
-                    for time_field in ["datetime", "Open_time", "open_time", "timestamp", "time", "date"]:
-                        if time_field in data and data[time_field]:
-                            time_value = data[time_field]
-                            break
-                    
-                    # 如果没有找到时间字段，跳过该数据项
-                    if not time_value:
-                        logger.warning(f"策略数据中缺失时间字段: {list(data.keys())}")
-                        continue
-                    
-                    # 转换为毫秒级时间戳
-                    timestamp = None
-                    if isinstance(time_value, (int, float)):
-                        # 如果是数值类型，假设已经是时间戳
-                        # 判断是秒级还是毫秒级
-                        if time_value > 10000000000:  # 毫秒级时间戳（大于2001年）
-                            timestamp = int(time_value)
-                        else:  # 秒级时间戳
-                            timestamp = int(time_value * 1000)
-                    else:
-                        # 如果是字符串或datetime类型，转换为毫秒级时间戳
-                        from datetime import datetime
-                        try:
-                            if isinstance(time_value, str):
-                                dt = datetime.fromisoformat(time_value.replace(' ', 'T'))
-                            else:
-                                dt = time_value
-                            timestamp = int(dt.timestamp() * 1000)
-                        except Exception as e:
-                            logger.warning(f"无法转换时间字段: {time_value}, 错误: {e}")
+                
+                # 解析回测配置
+                backtest_config = {}
+                try:
+                    if task.backtest_config:
+                        backtest_config = json.loads(task.backtest_config)
+                except Exception as e:
+                    logger.warning(f"解析回测配置失败: {e}")
+                
+                # 获取回测结果
+                result_record = db.query(BacktestResult).filter_by(task_id=backtest_id).first()
+                
+                metrics = []
+                trades = []
+                equity_curve = []
+                strategy_data = []
+                
+                if result_record:
+                    try:
+                        if result_record.metrics:
+                            metrics = json.loads(result_record.metrics)
+                        if result_record.trades:
+                            trades = json.loads(result_record.trades)
+                        if result_record.equity_curve:
+                            equity_curve = json.loads(result_record.equity_curve)
+                        if result_record.strategy_data:
+                            strategy_data = json.loads(result_record.strategy_data)
+                    except Exception as e:
+                        logger.warning(f"解析结果数据失败: {e}")
+                
+                # 构建K线数据（从strategy_data中提取）
+                kline_data = []
+                if strategy_data:
+                    logger.info(f"从strategy_data构建K线数据，数据条数: {len(strategy_data)}")
+                    for data in strategy_data:
+                        # 尝试多种时间字段名
+                        time_value = None
+                        for time_field in ["datetime", "Open_time", "open_time", "timestamp", "time", "date"]:
+                            if time_field in data and data[time_field]:
+                                time_value = data[time_field]
+                                break
+                        
+                        if not time_value:
                             continue
-                    
-                    # 构建K线数据项（与collector的klines接口格式保持一致）
-                    kline_item = {
-                        "timestamp": timestamp,
-                        "open": float(data.get("Open", 0)),
-                        "close": float(data.get("Close", 0)),
-                        "high": float(data.get("High", 0)),
-                        "low": float(data.get("Low", 0)),
-                        "volume": float(data.get("Volume", 0)),
-                        "turnover": 0.0  # 回测数据中没有成交额信息，保持为0
-                    }
-                    replay_data["kline_data"].append(kline_item)
-            
-            # 从交易记录中提取交易信号
-            if "trades" in target_result:
-                for trade in target_result["trades"]:
-                    signal_item = {
-                        "time": trade.get("EntryTime", ""),
-                        "type": "buy" if trade.get("Direction") == "多单" else "sell",
-                        "price": trade.get("EntryPrice", 0),
-                        "size": abs(trade.get("Size", 0)),
-                        "trade_id": trade.get("ID", "")
-                    }
-                    replay_data["trade_signals"].append(signal_item)
-            
-            # 从资金曲线中提取权益数据
-            if "equity_curve" in target_result:
-                for equity in target_result["equity_curve"]:
+                        
+                        # 转换为毫秒级时间戳
+                        timestamp = None
+                        if isinstance(time_value, (int, float)):
+                            if time_value > 10000000000:
+                                timestamp = int(time_value)
+                            else:
+                                timestamp = int(time_value * 1000)
+                        else:
+                            from datetime import datetime
+                            try:
+                                if isinstance(time_value, str):
+                                    dt = datetime.fromisoformat(time_value.replace(' ', 'T'))
+                                else:
+                                    dt = time_value
+                                timestamp = int(dt.timestamp() * 1000)
+                            except Exception:
+                                continue
+                        
+                        # 支持大小写字段名
+                        open_price = float(data.get("open", data.get("Open", 0)))
+                        close_price = float(data.get("close", data.get("Close", 0)))
+                        high_price = float(data.get("high", data.get("High", 0)))
+                        low_price = float(data.get("low", data.get("Low", 0)))
+                        volume = float(data.get("volume", data.get("Volume", 0)))
+
+                        kline_item = {
+                            "timestamp": timestamp,
+                            "open": open_price,
+                            "close": close_price,
+                            "high": high_price,
+                            "low": low_price,
+                            "volume": volume,
+                            "turnover": 0.0
+                        }
+                        kline_data.append(kline_item)
+                    logger.info(f"构建K线数据完成，共 {len(kline_data)} 条")
+                else:
+                    logger.warning(f"strategy_data 为空，尝试从数据库K线表获取数据，回测ID: {backtest_id}")
+                    # 尝试从数据库K线表获取数据
+                    try:
+                        from collector.db.models import CryptoSpotKline
+                        from datetime import datetime
+                        
+                        symbol = backtest_config.get("symbol", "BTCUSDT")
+                        interval = backtest_config.get("interval", "15m")
+                        start_time_str = backtest_config.get("start_time")
+                        end_time_str = backtest_config.get("end_time")
+                        
+                        if start_time_str and end_time_str:
+                            # 解析时间字符串
+                            try:
+                                start_dt = datetime.fromisoformat(start_time_str.replace(' ', 'T'))
+                                end_dt = datetime.fromisoformat(end_time_str.replace(' ', 'T'))
+                                
+                                # 从数据库查询K线数据
+                                kline_records = db.query(CryptoSpotKline).filter(
+                                    CryptoSpotKline.symbol == symbol,
+                                    CryptoSpotKline.interval == interval,
+                                    CryptoSpotKline.timestamp >= start_dt.isoformat(),
+                                    CryptoSpotKline.timestamp <= end_dt.isoformat()
+                                ).order_by(CryptoSpotKline.timestamp).all()
+                                
+                                logger.info(f"从数据库获取到 {len(kline_records)} 条K线数据")
+                                
+                                for record in kline_records:
+                                    try:
+                                        # 解析时间戳
+                                        dt = datetime.fromisoformat(record.timestamp)
+                                        timestamp_ms = int(dt.timestamp() * 1000)
+                                        
+                                        kline_item = {
+                                            "timestamp": timestamp_ms,
+                                            "open": float(record.open),
+                                            "close": float(record.close),
+                                            "high": float(record.high),
+                                            "low": float(record.low),
+                                            "volume": float(record.volume),
+                                            "turnover": 0.0
+                                        }
+                                        kline_data.append(kline_item)
+                                    except Exception as e:
+                                        logger.warning(f"解析K线记录失败: {e}")
+                                        continue
+                                
+                                logger.info(f"从数据库K线表构建完成，共 {len(kline_data)} 条")
+                            except Exception as e:
+                                logger.warning(f"解析时间范围失败: {e}")
+                    except Exception as e:
+                        logger.warning(f"从数据库获取K线数据失败: {e}")
+                
+                
+                # 构建权益数据（从equity_curve中提取）
+                equity_data = []
+                for equity in equity_curve:
                     equity_item = {
-                        "time": equity.get("datetime", ""),
-                        "equity": equity.get("Equity", 0)
+                        "time": equity.get("datetime", equity.get("formatted_time", "")),
+                        "equity": equity.get("Equity", equity.get("equity", 0)),
+                        "balance": equity.get("Balance", equity.get("balance", 0))
                     }
-                    replay_data["equity_data"].append(equity_item)
-            
-            logger.info(f"获取回放数据成功，回测ID: {backtest_id}")
-            return {
-                "status": "success",
-                "message": "获取回放数据成功",
-                "data": replay_data
-            }
+                    equity_data.append(equity_item)
+                
+                # 构建前端期望的新格式响应（与回测详情接口一致）
+                replay_data = {
+                    "id": task.id,
+                    "strategy_name": task.strategy_name,
+                    "backtest_config": backtest_config,
+                    "metrics": metrics,
+                    "equity_curve": equity_curve,
+                    "trades": trades,
+                    "kline_data": kline_data,
+                    "equity_data": equity_data,
+                    "status": task.status,
+                    "created_at": task.created_at.isoformat() if task.created_at else None,
+                    "metadata": {
+                        "symbol": backtest_config.get("symbol", symbol or "BTCUSDT"),
+                        "interval": backtest_config.get("interval", "15m"),
+                        "strategy_name": task.strategy_name
+                    }
+                }
+                
+                logger.info(f"获取回放数据成功，回测ID: {backtest_id}, K线数量: {len(kline_data)}, 交易数量: {len(trades)}")
+                return {
+                    "status": "success",
+                    "message": "获取回放数据成功",
+                    "data": replay_data
+                }
+                
+            finally:
+                db.close()
+                
         except Exception as e:
             logger.error(f"获取回放数据失败: {e}")
             logger.exception(e)
@@ -2226,59 +2430,51 @@ class BacktestService:
         try:
             logger.info(f"开始获取回测货币对列表，回测ID: {backtest_id}")
             
-            # 首先尝试从文件系统加载回测结果（优先获取合并后的多货币对结果）
-            result = self.load_backtest_result(backtest_id)
-            
-            # 如果文件系统中没有找到，再尝试从数据库加载
-            if not result:
-                logger.warning(f"回测结果在文件系统中不存在，尝试从数据库加载，回测ID: {backtest_id}")
+            # 优先从数据库查询回测结果
+            try:
                 from collector.db.database import SessionLocal, init_database_config
                 from collector.db.models import BacktestResult
-                import json
                 
                 # 初始化数据库配置
                 init_database_config()
                 db = SessionLocal()
                 
                 try:
-                    # 从数据库中获取回测结果
-                    result_record = db.query(BacktestResult).filter_by(id=backtest_id).first()
+                    # 首先通过 task_id 查询回测结果
+                    result_record = db.query(BacktestResult).filter_by(task_id=backtest_id).first()
                     
+                    # 如果通过 task_id 没找到，再尝试通过 id 查询
                     if not result_record:
+                        result_record = db.query(BacktestResult).filter_by(id=backtest_id).first()
+                    
+                    if result_record:
+                        logger.info(f"从数据库找到回测结果，回测ID: {backtest_id}, 货币对: {result_record.symbol}")
+                        
+                        # 将逗号分隔的货币对字符串拆分成数组
+                        symbol_list = [s.strip() for s in result_record.symbol.split(',') if s.strip()]
+                        
                         return {
-                            "status": "failed",
-                            "message": f"回测结果不存在: {backtest_id}"
+                            "status": "success",
+                            "message": "获取回测货币对列表成功",
+                            "data": {
+                                "symbols": symbol_list,
+                                "total": len(symbol_list)
+                            }
                         }
                     else:
-                        # 从数据库中获取回测结果
-                        result = {
-                            "task_id": result_record.id,
-                            "status": "success",
-                            "message": "回测完成",
-                            "strategy_name": result_record.strategy_name,
-                            "backtest_config": {},  # 从回测任务中获取
-                            "metrics": json.loads(result_record.metrics),
-                            "trades": json.loads(result_record.trades),
-                            "equity_curve": json.loads(result_record.equity_curve),
-                            "strategy_data": json.loads(result_record.strategy_data)
-                        }
-                        
-                        # 获取回测配置
-                        from collector.db.models import BacktestTask
-                        task = db.query(BacktestTask).filter_by(id=result_record.task_id).first()
-                        if task:
-                            result["backtest_config"] = json.loads(task.backtest_config)
-                except Exception as db_e:
-                    logger.error(f"从数据库获取回测结果失败: {db_e}")
-                    logger.exception(db_e)
-                    return {
-                        "status": "failed",
-                        "message": f"从数据库获取回测结果失败: {str(db_e)}"
-                    }
+                        logger.warning(f"数据库中未找到回测结果，回测ID: {backtest_id}")
                 finally:
                     db.close()
+                    
+            except Exception as db_e:
+                logger.warning(f"从数据库获取回测结果失败: {db_e}")
+            
+            # 如果数据库中没有找到，尝试从文件系统加载
+            logger.info(f"尝试从文件系统加载回测结果，回测ID: {backtest_id}")
+            result = self.load_backtest_result(backtest_id)
             
             if not result:
+                logger.error(f"回测结果不存在（数据库和文件系统都未找到），回测ID: {backtest_id}")
                 return {
                     "status": "failed",
                     "message": f"回测结果不存在: {backtest_id}"

@@ -34,7 +34,7 @@ import {
 import { init, dispose, registerLocale, registerOverlay } from 'klinecharts';
 import jsonAnnotation from '../../utils/klineAnnotations';
 import { backtestApi } from '../../api';
-import type { ReplayData, MergeSummary, SymbolInfo, BacktestSymbols } from '../../types/backtest';
+import type { ReplayData, MergeSummary, SymbolInfo } from '../../types/backtest';
 import './backtest.css';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/router';
@@ -181,6 +181,8 @@ const BacktestReplay = () => {
 
   /**
    * 加载货币对列表
+   * 后端返回数据结构: { symbols: ["ETH/USDT", "BTC/USDT"], total: 2 }
+   * 注意：apiRequest 已经通过响应拦截器返回 data 字段，不需要再访问 .data
    */
   const loadSymbols = async () => {
     if (!backtestId) return;
@@ -189,11 +191,21 @@ const BacktestReplay = () => {
     setError(null);
 
     try {
-      const data: BacktestSymbols = await backtestApi.getBacktestSymbols(backtestId);
-      setSymbols(data.symbols || []);
+      const data = await backtestApi.getBacktestSymbols(backtestId);
+      // 适配新的数据结构：后端返回字符串数组
+      const symbolList: string[] = data?.symbols || [];
+      
+      // 将字符串数组转换为 SymbolInfo 数组用于下拉列表显示
+      const formattedSymbols: SymbolInfo[] = symbolList.map((symbol: string) => ({
+        symbol,
+        status: 'success',
+        message: '回测成功'
+      }));
+      
+      setSymbols(formattedSymbols);
 
-      if (data.symbols && data.symbols.length > 0) {
-        setSelectedSymbol(data.symbols[0].symbol);
+      if (formattedSymbols.length > 0) {
+        setSelectedSymbol(formattedSymbols[0].symbol);
       }
     } catch (err) {
       console.error('加载货币对列表失败:', err);
@@ -205,6 +217,7 @@ const BacktestReplay = () => {
 
   /**
    * 加载回放数据
+   * 后端新格式：data 中包含 kline_data, trades, equity_curve, metrics, backtest_config 等
    */
   const loadReplayData = async (symbol?: string) => {
     if (!backtestId) return;
@@ -213,24 +226,28 @@ const BacktestReplay = () => {
     setError(null);
 
     try {
-      const data = await backtestApi.getReplayData(backtestId, symbol);
+      const response = await backtestApi.getReplayData(backtestId, symbol);
+      
+      // 后端返回的新格式：response 直接是 data 内容
+      // 包含：id, strategy_name, backtest_config, metrics, equity_curve, trades, kline_data, equity_data, status, created_at, metadata
+      const data = response;
 
       const mappedData = {
         klines: data.kline_data || [],
-        trades: (data.trade_signals || []).map((trade: any, index: number) => ({
-          EntryTime: trade.time || '',
-          ExitTime: '',
-          Direction: trade.type === 'buy' ? '多单' : '空单',
-          EntryPrice: trade.price || 0,
-          ExitPrice: 0,
-          PnL: 0,
-          trade_id: trade.trade_id || `trade-${index}`,
+        trades: (data.trades || []).map((trade: any, index: number) => ({
+          EntryTime: trade.EntryTime || trade.entry_time || '',
+          ExitTime: trade.ExitTime || trade.exit_time || '',
+          Direction: trade.Direction || trade.direction || '多单',
+          EntryPrice: trade.EntryPrice || trade.entry_price || 0,
+          ExitPrice: trade.ExitPrice || trade.exit_price || 0,
+          PnL: trade.PnL || trade.pnl || 0,
+          trade_id: trade.ID || trade.id || trade.trade_id || `trade-${index}`,
         })),
-        equity_curve: data.equity_data || [],
-        strategy_name: data.metadata?.strategy_name || '',
+        equity_curve: data.equity_curve || [],
+        strategy_name: data.strategy_name || '',
         backtest_config: data.backtest_config || {},
-        symbol: data.metadata?.symbol || 'BTCUSDT',
-        interval: data.metadata?.interval || '15m',
+        symbol: data.backtest_config?.symbol || symbol || 'BTCUSDT',
+        interval: data.backtest_config?.interval || '15m',
       };
 
       setReplayData(mappedData);
@@ -880,17 +897,21 @@ const BacktestReplay = () => {
           </div>
         )}
 
-        {/* 图表区域 */}
-        <Card style={{ marginTop: 24 }}>
+        {/* 图表区域 - 优化布局 */}
+        <Card 
+          style={{ marginTop: 24 }}
+          bodyStyle={{ padding: 0, height: '600px' }}
+          className="replay-chart-card"
+        >
           <div
             ref={chartRef}
-            style={{ width: '100%', height: '600px', minHeight: '400px' }}
+            className="replay-kline-chart"
           />
         </Card>
 
         {/* 交易详情表格 */}
         {replayData && (
-          <Card size="small" title="交易详情">
+          <Card size="small" title="交易详情" style={{ marginTop: 24 }}>
             <Table
               columns={TRADE_TABLE_COLUMNS}
               dataSource={
