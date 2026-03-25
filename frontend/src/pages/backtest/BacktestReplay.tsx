@@ -28,7 +28,6 @@ import {
   FastForwardOutlined,
   StopOutlined,
   StepForwardOutlined,
-  RetweetOutlined,
   ClockCircleOutlined,
   StockOutlined,
 } from '@ant-design/icons';

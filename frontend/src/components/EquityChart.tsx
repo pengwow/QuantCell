@@ -27,7 +27,7 @@ export interface EquityChartProps {
   isDark?: boolean; // 是否为暗色主题
 }
 
-const EquityChart = ({ data, height = '400px', title = '权益曲线', isDark = false }: EquityChartProps) => {
+const EquityChart = ({ data, height = '400px', isDark = false }: EquityChartProps) => {
   if (!data || data.length === 0) {
     return <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>暂无数据</div>;
   }
