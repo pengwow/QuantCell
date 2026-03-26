@@ -11,8 +11,6 @@ import {
   Select,
   Slider,
   Space,
-  Table,
-  Tag,
   Row,
   Col,
   Statistic,
@@ -22,6 +20,7 @@ import {
   Divider,
   Tooltip,
 } from 'antd';
+import TradeTable from '../../components/TradeTable';
 import {
   CaretRightOutlined,
   PauseOutlined,
@@ -48,23 +47,6 @@ const SPEED_OPTIONS = [
   { label: '2x', value: 2 },
   { label: '4x', value: 4 },
   { label: '8x', value: 8 },
-];
-
-// 交易详情表格列配置
-const TRADE_TABLE_COLUMNS = [
-  { title: '交易ID', dataIndex: 'trade_id', key: 'trade_id', width: 120 },
-  { title: '入场时间', dataIndex: 'EntryTime', key: 'EntryTime' },
-  { title: '方向', dataIndex: 'Direction', key: 'Direction', width: 80, render: (text: string) => (
-    <Tag color={text === '多单' ? 'green' : 'red'}>{text}</Tag>
-  )},
-  { title: '入场价格', dataIndex: 'EntryPrice', key: 'EntryPrice', width: 120 },
-  { title: '出场时间', dataIndex: 'ExitTime', key: 'ExitTime' },
-  { title: '出场价格', dataIndex: 'ExitPrice', key: 'ExitPrice', width: 120 },
-  { title: '盈亏', dataIndex: 'PnL', key: 'PnL', width: 100, render: (value: number) => (
-    <span style={{ color: value >= 0 ? '#52c41a' : '#f5222d' }}>
-      {value >= 0 ? `+${value.toFixed(2)}` : value.toFixed(2)}
-    </span>
-  )},
 ];
 
 /**
@@ -227,28 +209,69 @@ const BacktestReplay = () => {
 
     try {
       const response = await backtestApi.getReplayData(backtestId, symbol);
-      
+
       // 后端返回的新格式：response 直接是 data 内容
       // 包含：id, strategy_name, backtest_config, metrics, equity_curve, trades, kline_data, equity_data, status, created_at, metadata
       const data = response;
 
+      // 调试日志
+      console.log('[BacktestReplay] 获取回放数据:', {
+        kline_data_length: data.kline_data?.length || 0,
+        trades_length: data.trades?.length || 0,
+        equity_curve_length: data.equity_curve?.length || 0,
+        strategy_name: data.strategy_name,
+        symbol: data.backtest_config?.symbol || symbol,
+        interval: data.backtest_config?.interval,
+      });
+
+      // 调试第一条交易的原始字段
+      if (data.trades && data.trades.length > 0) {
+        console.log('[BacktestReplay] 第一条交易原始数据:', data.trades[0]);
+        console.log('[BacktestReplay] 第一条交易所有字段:', Object.keys(data.trades[0]));
+      }
+
       const mappedData = {
         klines: data.kline_data || [],
-        trades: (data.trades || []).map((trade: any, index: number) => ({
-          EntryTime: trade.EntryTime || trade.entry_time || '',
-          ExitTime: trade.ExitTime || trade.exit_time || '',
-          Direction: trade.Direction || trade.direction || '多单',
-          EntryPrice: trade.EntryPrice || trade.entry_price || 0,
-          ExitPrice: trade.ExitPrice || trade.exit_price || 0,
-          PnL: trade.PnL || trade.pnl || 0,
-          trade_id: trade.ID || trade.id || trade.trade_id || `trade-${index}`,
-        })),
+        trades: (data.trades || []).map((trade: any, index: number) => {
+          // nautilus 引擎返回的字段名: trade_id, side, direction, quantity, price, timestamp, formatted_time
+          // 需要映射到前端期望的字段名: EntryTime, ExitTime, EntryPrice, ExitPrice, PnL, Direction
+
+          // 时间字段 - nautilus 使用 timestamp (秒级) 或 formatted_time
+          // 交易ID
+          const tradeId = trade.trade_id || `trade-${index}`;
+
+          return {
+            // TradeTable 组件需要的字段
+            trade_id: tradeId,
+            timestamp: trade.timestamp,
+            formatted_time: trade.formatted_time,
+            side: trade.side,
+            direction: trade.direction,
+            price: trade.price,
+            quantity: trade.quantity,
+            volume: trade.volume,
+            commission: trade.commission,
+            status: trade.status,
+            instrument_id: trade.instrument_id,
+            // 保留原始字段供后续处理
+            _side: trade.side,
+            _direction: trade.direction,
+            _quantity: trade.quantity,
+            _volume: trade.volume,
+            _timestamp: trade.timestamp,
+          };
+        }),
         equity_curve: data.equity_curve || [],
         strategy_name: data.strategy_name || '',
         backtest_config: data.backtest_config || {},
         symbol: data.backtest_config?.symbol || symbol || 'BTCUSDT',
         interval: data.backtest_config?.interval || '15m',
       };
+
+      console.log('[BacktestReplay] 映射后的数据:', {
+        klines_length: mappedData.klines.length,
+        trades_length: mappedData.trades.length,
+      });
 
       setReplayData(mappedData);
     } catch (err) {
@@ -395,6 +418,13 @@ const BacktestReplay = () => {
     const currentTime = formattedKline.timestamp;
     if (!currentTime || !replayData.trades) return;
 
+    console.log('[addTradeMarkers] 开始添加交易标记:', {
+      currentTime,
+      visibleStartTime,
+      visibleEndTime,
+      totalTrades: replayData.trades.length,
+    });
+
     if (typeof chart.removeOverlay === 'function') {
       const tradeOverlays = chart.getOverlays({ name: 'jsonAnnotation' }) || [];
       tradeOverlays.forEach((overlay: any) => {
@@ -402,60 +432,49 @@ const BacktestReplay = () => {
       });
     }
 
+    // 调试第一条交易和K线的时间格式
+    if (replayData.trades.length > 0) {
+      const firstTrade = replayData.trades[0];
+      const firstKline = replayData.klines[0];
+      console.log('[addTradeMarkers] 时间格式调试:', {
+        firstTrade_timestamp: firstTrade.timestamp,
+        firstTrade_timestamp_parsed: firstTrade.timestamp ? firstTrade.timestamp * 1000 : 0,
+        firstKline_timestamp: firstKline?.timestamp,
+        visibleStartTime,
+        visibleEndTime,
+      });
+    }
+
     const visibleTrades = replayData.trades.filter((trade) => {
-      const entryTime = new Date(trade.EntryTime).getTime();
-      return entryTime >= visibleStartTime && entryTime <= visibleEndTime;
+      // nautilus 数据使用秒级 timestamp，需要转换为毫秒
+      const entryTime = trade.timestamp ? trade.timestamp * 1000 : 0;
+      const isVisible = entryTime >= visibleStartTime && entryTime <= visibleEndTime;
+      return isVisible;
     });
 
+    console.log('[addTradeMarkers] 可见范围内的交易:', visibleTrades.length);
+
     visibleTrades.forEach((trade) => {
-      const entryTime = new Date(trade.EntryTime).getTime();
-      const exitTime = trade.ExitTime ? new Date(trade.ExitTime).getTime() : null;
+      // nautilus 数据使用秒级 timestamp，需要转换为毫秒
+      const entryTime = trade.timestamp ? trade.timestamp * 1000 : 0;
 
       if (typeof chart.createOverlay === 'function') {
         try {
           if (entryTime >= visibleStartTime && entryTime <= visibleEndTime) {
+            // 判断方向
+            const isBuy = trade.side?.toUpperCase() === 'BUY' || trade.direction?.includes('买入');
+            const directionText = isBuy ? '买入' : '卖出';
+            const color = isBuy ? '#26a69a' : '#ef5350';
+
             chart.createOverlay({
               name: 'jsonAnnotation',
               extendData: JSON.stringify({
-                lines: [`${trade.Direction}`, `ID: ${trade.trade_id}`],
-                colors: [trade.Direction === '多单' ? '#26a69a' : '#ef5350', '#000000ff'],
+                lines: [`${directionText}`, `ID: ${trade.trade_id?.slice(-6)}`],
+                colors: [color, '#000000ff'],
                 fontSize: 12,
                 align: 'left',
               }),
-              points: [{ timestamp: entryTime, value: trade.EntryPrice }],
-            });
-          }
-
-          if (exitTime && exitTime <= currentTime && exitTime >= visibleStartTime && exitTime <= visibleEndTime) {
-            chart.createOverlay({
-              name: 'jsonAnnotation',
-              extendData: JSON.stringify({
-                lines: [`${trade.Direction}`, `ID: ${trade.trade_id}`, `盈亏: ${trade.PnL.toFixed(2)}`],
-                colors: [
-                  trade.PnL >= 0 ? '#4a6cf7' : '#ff9800',
-                  '#ffffff',
-                  '#ffffff',
-                  trade.PnL >= 0 ? '#4a6cf7' : '#ff9800',
-                ],
-                fontSize: 12,
-                align: 'left',
-              }),
-              points: [{ timestamp: exitTime, value: trade.ExitPrice }],
-            });
-
-            chart.createOverlay({
-              name: 'line',
-              points: [
-                { timestamp: entryTime, value: trade.EntryPrice },
-                { timestamp: exitTime, value: trade.ExitPrice },
-              ],
-              styles: {
-                line: {
-                  color: trade.PnL >= 0 ? '#26a69a' : '#ef5350',
-                  width: 2,
-                  type: 'dashed',
-                },
-              },
+              points: [{ timestamp: entryTime, value: trade.price }],
             });
           }
         } catch (err) {
@@ -909,33 +928,35 @@ const BacktestReplay = () => {
           />
         </Card>
 
-        {/* 交易详情表格 */}
+        {/* 交易详情表格 - 使用 TradeTable 组件，根据播放进度动态显示 */}
         {replayData && (
           <Card size="small" title="交易详情" style={{ marginTop: 24 }}>
-            <Table
-              columns={TRADE_TABLE_COLUMNS}
-              dataSource={
-                replayData.trades?.filter((trade) => {
-                  const currentKline = replayData.klines?.[currentIndex];
-                  if (!currentKline) return false;
-                  const currentTime = currentKline.timestamp || currentKline.time;
-                  const entryTime = new Date(trade.EntryTime).getTime();
-                  return entryTime <= currentTime;
-                }) || []
-              }
-              rowKey="trade_id"
-              pagination={{
-                pageSize: 10,
-                showSizeChanger: true,
-                showTotal: (total) => `共 ${total} 条交易`,
-                pageSizeOptions: ['5', '10', '20', '50'],
-                defaultPageSize: 10,
-                size: 'small',
-              }}
-              scroll={{ x: 800, y: 300 }}
-              bordered
-              size="small"
-            />
+            {(() => {
+              // 根据当前播放进度过滤交易
+              const currentKline = replayData.klines?.[currentIndex];
+              const currentTime = currentKline?.timestamp || 0;
+              
+              const visibleTrades = replayData.trades?.filter((trade: any) => {
+                // nautilus 数据使用 timestamp (秒级)，需要转换为毫秒
+                const tradeTime = trade.timestamp ? trade.timestamp * 1000 : 0;
+                return tradeTime <= currentTime;
+              }) || [];
+              
+              return (
+                <>
+                  <div style={{ marginBottom: 16 }}>
+                    <span style={{ color: '#8c8c8c' }}>
+                      共 {visibleTrades.length} 条记录 (总 {replayData.trades?.length || 0} 条)
+                    </span>
+                  </div>
+                  <TradeTable
+                    data={visibleTrades}
+                    loading={loading}
+                    pagination={true}
+                  />
+                </>
+              );
+            })()}
           </Card>
         )}
       </div>
