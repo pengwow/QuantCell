@@ -5,6 +5,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useTheme } from 'ahooks';
 import {
   Card,
   Button,
@@ -108,6 +109,10 @@ const parseInterval = (interval: string): { span: number; type: any } => {
 const BacktestReplay = () => {
   const { backtestId } = useParams<{ backtestId: string }>();
   const { t } = useTranslation();
+
+  // 获取主题
+  const { theme } = useTheme({ localStorageKey: "quantcell-ui-theme" });
+  const isDark = theme === 'dark';
 
   // 设置页面标题
   useEffect(() => {
@@ -466,11 +471,18 @@ const BacktestReplay = () => {
             const directionText = isBuy ? '买入' : '卖出';
             const color = isBuy ? '#26a69a' : '#ef5350';
 
+            // 格式化数量和金额
+            const quantity = trade.quantity ? trade.quantity.toFixed(4) : '0';
+            const volume = trade.volume ? trade.volume.toFixed(2) : '0';
+
+            // 根据主题设置标签颜色
+            const labelColor = isDark ? '#ffffff' : '#333333';
+
             chart.createOverlay({
               name: 'jsonAnnotation',
               extendData: JSON.stringify({
-                lines: [`${directionText}`, `ID: ${trade.trade_id?.slice(-6)}`],
-                colors: [color, '#000000ff'],
+                lines: [`${directionText}`, `数量: ${quantity}`, `金额: ${volume}`],
+                colors: [color, labelColor, labelColor],
                 fontSize: 12,
                 align: 'left',
               }),
