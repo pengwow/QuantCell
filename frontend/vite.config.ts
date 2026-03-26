@@ -60,23 +60,27 @@ export default defineConfig({
     },
   },
   build: {
-    // 代码分割配置
+    // 代码分割配置 - 减少内存使用
     rollupOptions: {
       output: {
-        // 手动代码分割策略
-        manualChunks: {
-          // React 核心库
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          // UI 组件库
-          'ui-vendor': ['antd', '@ant-design/icons'],
-          // 图表库
-          'chart-vendor': ['echarts', 'echarts-for-react', 'klinecharts'],
-          // 工具库
-          'utils-vendor': ['lodash', 'dayjs', 'axios'],
-          // 状态管理
-          'state-vendor': ['zustand', 'immer'],
-          // 国际化
-          'i18n-vendor': ['i18next', 'react-i18next', 'i18next-browser-languagedetector'],
+        // 简化代码分割策略，减少并行处理和内存使用
+        manualChunks: (id) => {
+          // 只将大型依赖分割到单独的 chunk
+          if (id.includes('node_modules')) {
+            // React 相关
+            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
+              return 'react-vendor'
+            }
+            // Ant Design 相关
+            if (id.includes('antd') || id.includes('@ant-design')) {
+              return 'ui-vendor'
+            }
+            // 图表库
+            if (id.includes('echarts') || id.includes('klinecharts')) {
+              return 'chart-vendor'
+            }
+            // 其他依赖不单独分割，避免循环依赖
+          }
         },
         // 入口文件命名
         entryFileNames: 'assets/[name]-[hash].js',
@@ -99,25 +103,20 @@ export default defineConfig({
       },
     },
     // 代码分割大小限制
-    chunkSizeWarningLimit: 500,
-    // 压缩配置
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        drop_debugger: true,
-      },
-    },
+    chunkSizeWarningLimit: 1000,
+    // 压缩配置 - 使用 esbuild 减少内存使用
+    minify: 'esbuild',
+    // esbuild 的 drop 选项在 Vite 中通过 rollup 插件配置
     // CSS 代码分割
     cssCodeSplit: true,
-    // 预加载配置
-    modulePreload: {
-      polyfill: true,
-    },
+    // 禁用预加载减少内存使用
+    modulePreload: false,
     // 资源内联限制
     assetsInlineLimit: 4096,
     // 源码映射
     sourcemap: false,
+    // 限制并发数，减少内存使用
+    reportCompressedSize: false,
   },
   // 优化依赖预构建
   optimizeDeps: {
