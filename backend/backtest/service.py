@@ -49,6 +49,7 @@ from utils.data_utils import sanitize_for_json, DataSanitizer
 from backtest.engines import Engine, LegacyEngine, BacktestEngineBase
 from backtest.config import EngineType
 from backtest.progress_tracker import get_progress_tracker, StageStatus
+from backtest.adapters.result_adapter import _convert_trades
 
 
 class BacktestService:
@@ -1052,21 +1053,14 @@ class BacktestService:
             else:
                 logger.info(f"[run_single_backtest] 策略数据不为空，跳过数据库查询: len(strategy_data)={len(strategy_data)}")
 
-            # 获取交易记录
+            # 获取交易记录 - 使用 _convert_trades 转换格式
             trades = []
             if '_trades' in stats:
-                trades = stats['_trades'].to_dict('records')
-                for trade in trades:
-                    for key, value in trade.items():
-                        if isinstance(value, pd.Timestamp):
-                            trade[key] = value.strftime('%Y-%m-%d %H:%M:%S')
-                        elif isinstance(value, pd.Timedelta):
-                            trade[key] = str(value)
-                    # 添加交易方向
-                    if trade.get('Size', 0) > 0:
-                        trade['Direction'] = '多单'
-                    else:
-                        trade['Direction'] = '空单'
+                trades = _convert_trades(stats)
+                logger.info(f"[run_single_backtest] 转换后获取到 {len(trades)} 条交易记录")
+                if trades:
+                    logger.info(f"[run_single_backtest] 第一条交易字段: {list(trades[0].keys())}")
+                    logger.info(f"[run_single_backtest] 第一条交易数据: {trades[0]}")
             
             # 翻译回测结果
             translated_metrics = self.translate_backtest_results(stats)
@@ -2260,6 +2254,12 @@ class BacktestService:
                             metrics = json.loads(result_record.metrics)
                         if result_record.trades:
                             trades = json.loads(result_record.trades)
+                            logger.info(f"[get_replay_data] 从数据库读取 trades: {len(trades)} 条")
+                            if trades:
+                                logger.info(f"[get_replay_data] 第一条交易字段: {list(trades[0].keys())}")
+                                logger.info(f"[get_replay_data] 第一条交易数据: {trades[0]}")
+                        else:
+                            logger.warning(f"[get_replay_data] result_record.trades 为空")
                         if result_record.equity_curve:
                             equity_curve = json.loads(result_record.equity_curve)
                         if result_record.strategy_data:
