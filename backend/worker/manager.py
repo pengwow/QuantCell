@@ -549,3 +549,339 @@ class WorkerManager:
             "max_workers": self.max_workers,
             "data_broker_stats": self.data_broker.get_stats(),
         }
+
+
+# =============================================================================
+# TradingNode Worker 管理器（支持 Nautilus Trader）
+# =============================================================================
+
+class TradingNodeWorkerManager(WorkerManager):
+    """
+    TradingNode Worker 管理器
+
+    专门管理 TradingNodeWorkerProcess，提供 TradingNode 特定的功能：
+    - 启动和停止 TradingNode Worker
+    - 配置交易所适配器
+    - 获取 TradingNode 状态
+    """
+
+    def __init__(
+        self,
+        max_workers: int = 10,
+        comm_host: str = "127.0.0.1",
+        data_port: int = 5555,
+        control_port: int = 5556,
+        status_port: int = 5557,
+        enable_monitoring: bool = True,
+    ):
+        """
+        初始化 TradingNode Worker 管理器
+
+        Args:
+            max_workers: 最大 Worker 数量
+            comm_host: 通信主机地址
+            data_port: 数据端口
+            control_port: 控制端口
+            status_port: 状态端口
+            enable_monitoring: 是否启用监控
+        """
+        super().__init__(
+            max_workers=max_workers,
+            comm_host=comm_host,
+            data_port=data_port,
+            control_port=control_port,
+            status_port=status_port,
+        )
+
+        # TradingNode 特定配置
+        self.trading_config: Dict[str, Any] = {}
+        self.exchange_adapters: Dict[str, Any] = {}
+
+        # 监控配置
+        self.enable_monitoring = enable_monitoring
+
+        # TradingNode Worker 记录
+        self._trading_workers: Dict[str, Any] = {}
+
+    async def start_trading_worker(
+        self,
+        strategy_path: str,
+        config: Dict[str, Any],
+        worker_id: Optional[str] = None,
+        exchange_config: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """
+        启动 TradingNode Worker
+
+        Args:
+            strategy_path: 策略文件路径
+            config: 策略配置
+            worker_id: 可选的 Worker ID
+            exchange_config: 交易所配置
+
+        Returns:
+            Worker ID 或 None（如果启动失败）
+        """
+        try:
+            # 检查 Worker 数量限制
+            if len(self._workers) >= self.max_workers:
+                logger.error(f"Worker 数量已达上限: {self.max_workers}")
+                return None
+
+            # 生成 Worker ID
+            if worker_id is None:
+                worker_id = f"trading-{uuid.uuid4().hex[:8]}"
+
+            # 检查 Worker ID 是否已存在
+            if worker_id in self._workers:
+                logger.error(f"Worker ID 已存在: {worker_id}")
+                return None
+
+            # 合并配置
+            merged_config = self._merge_config(config, exchange_config)
+
+            # 导入 TradingNodeWorkerProcess
+            from .worker_process import TradingNodeWorkerProcess
+
+            # 创建 TradingNode Worker 进程
+            worker = TradingNodeWorkerProcess(
+                worker_id=worker_id,
+                strategy_path=strategy_path,
+                config=merged_config,
+                comm_host=self.comm_host,
+                data_port=self.data_port,
+                control_port=self.control_port,
+                status_port=self.status_port,
+            )
+
+            # 启动 Worker
+            worker.start()
+
+            # 记录 Worker
+            self._workers[worker_id] = worker
+            self._trading_workers[worker_id] = worker
+            self._worker_status[worker_id] = worker.status
+
+            # 订阅数据
+            symbols = merged_config.get("symbols", [])
+            data_types = merged_config.get("data_types", ["kline"])
+            if symbols:
+                self.data_broker.subscribe(worker_id, symbols, data_types)
+
+            logger.info(f"TradingNode Worker 已启动: {worker_id}, 策略: {strategy_path}")
+            return worker_id
+
+        except Exception as e:
+            logger.error(f"启动 TradingNode Worker 失败: {e}")
+            return None
+
+    async def stop_trading_worker(self, worker_id: str, timeout: float = 30.0) -> bool:
+        """
+        停止 TradingNode Worker
+
+        Args:
+            worker_id: Worker ID
+            timeout: 超时时间（秒）
+
+        Returns:
+            是否停止成功
+        """
+        try:
+            if worker_id not in self._workers:
+                logger.warning(f"Worker 不存在: {worker_id}")
+                return True
+
+            worker = self._workers[worker_id]
+
+            # 发送停止命令
+            await self.comm_manager.send_control(
+                worker_id,
+                Message.create_control(MessageType.STOP, worker_id),
+            )
+
+            # 等待 Worker 停止
+            worker.join(timeout=timeout)
+
+            # 如果 Worker 仍在运行，强制终止
+            if worker.is_alive():
+                logger.warning(f"Worker {worker_id} 未能在 {timeout} 秒内停止，强制终止")
+                worker.terminate()
+                worker.join(timeout=5.0)
+
+            # 清理
+            del self._workers[worker_id]
+            if worker_id in self._trading_workers:
+                del self._trading_workers[worker_id]
+            if worker_id in self._worker_status:
+                del self._worker_status[worker_id]
+
+            # 取消数据订阅
+            self.data_broker.unsubscribe_all(worker_id)
+
+            logger.info(f"TradingNode Worker 已停止: {worker_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"停止 TradingNode Worker {worker_id} 失败: {e}")
+            return False
+
+    def get_trading_worker_status(self, worker_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取 TradingNode Worker 状态
+
+        包含 TradingNode 状态和性能指标
+
+        Args:
+            worker_id: Worker ID
+
+        Returns:
+            状态字典或 None
+        """
+        if worker_id not in self._trading_workers:
+            return None
+
+        worker = self._trading_workers[worker_id]
+        base_status = self._worker_status.get(worker_id)
+
+        status = {
+            "worker_id": worker_id,
+            "base_status": base_status.to_dict() if base_status else None,
+            "process_alive": worker.is_alive(),
+        }
+
+        # 获取 TradingNode 状态
+        if hasattr(worker, 'trading_node') and worker.trading_node:
+            trading_node_status = self._get_trading_node_status(worker.trading_node)
+            status["trading_node"] = trading_node_status
+
+        # 获取策略状态
+        if hasattr(worker, 'trading_strategy') and worker.trading_strategy:
+            status["strategy"] = {
+                "name": type(worker.trading_strategy).__name__,
+                "has_trading_node": worker.trading_node is not None,
+            }
+
+        return status
+
+    def get_all_trading_workers(self) -> Dict[str, Any]:
+        """
+        获取所有 TradingNode Worker
+
+        Returns:
+            TradingNode Worker 字典
+        """
+        return self._trading_workers.copy()
+
+    def get_trading_worker_count(self) -> int:
+        """
+        获取 TradingNode Worker 数量
+
+        Returns:
+            Worker 数量
+        """
+        return len(self._trading_workers)
+
+    def set_trading_config(self, config: Dict[str, Any]) -> None:
+        """
+        设置 TradingNode 全局配置
+
+        Args:
+            config: TradingNode 配置
+        """
+        self.trading_config.update(config)
+        logger.info("TradingNode 全局配置已更新")
+
+    def register_exchange_adapter(self, exchange_name: str, adapter_config: Dict[str, Any]) -> None:
+        """
+        注册交易所适配器
+
+        Args:
+            exchange_name: 交易所名称
+            adapter_config: 适配器配置
+        """
+        self.exchange_adapters[exchange_name] = adapter_config
+        logger.info(f"交易所适配器已注册: {exchange_name}")
+
+    def _merge_config(
+        self,
+        config: Dict[str, Any],
+        exchange_config: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        合并配置
+
+        Args:
+            config: 基础配置
+            exchange_config: 交易所配置
+
+        Returns:
+            合并后的配置
+        """
+        merged = config.copy()
+
+        # 添加 TradingNode 全局配置
+        if self.trading_config:
+            merged["trading"] = {**self.trading_config, **merged.get("trading", {})}
+
+        # 添加交易所配置
+        if exchange_config:
+            merged["exchange"] = exchange_config
+
+            # 更新 TradingNode 配置中的客户端配置
+            if "trading" not in merged:
+                merged["trading"] = {}
+
+            # 配置数据客户端
+            if "data_clients" not in merged["trading"]:
+                merged["trading"]["data_clients"] = {}
+
+            # 配置执行客户端
+            if "exec_clients" not in merged["trading"]:
+                merged["trading"]["exec_clients"] = {}
+
+            exchange_name = exchange_config.get("name", "binance")
+            merged["trading"]["data_clients"][exchange_name] = exchange_config
+            merged["trading"]["exec_clients"][exchange_name] = exchange_config
+
+        return merged
+
+    def _get_trading_node_status(self, trading_node) -> Dict[str, Any]:
+        """
+        获取 TradingNode 状态
+
+        Args:
+            trading_node: TradingNode 实例
+
+        Returns:
+            状态字典
+        """
+        status = {
+            "initialized": trading_node is not None,
+        }
+
+        try:
+            # 检查是否运行
+            if hasattr(trading_node, 'is_running'):
+                status["is_running"] = trading_node.is_running
+
+            # 获取策略数量
+            if hasattr(trading_node, 'strategies'):
+                status["strategy_count"] = len(trading_node.strategies)
+
+            # 获取组合信息
+            if hasattr(trading_node, 'portfolio'):
+                portfolio = trading_node.portfolio
+                status["portfolio"] = {
+                    "positions_count": len(portfolio.positions) if hasattr(portfolio, 'positions') else 0,
+                }
+
+            # 获取时钟信息
+            if hasattr(trading_node, 'clock'):
+                clock = trading_node.clock
+                if hasattr(clock, 'timestamp_ns'):
+                    status["clock_timestamp_ns"] = clock.timestamp_ns
+
+        except Exception as e:
+            logger.debug(f"获取 TradingNode 状态失败: {e}")
+
+        return status
