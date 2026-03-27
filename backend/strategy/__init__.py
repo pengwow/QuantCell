@@ -101,6 +101,26 @@ from .adapters import VectorBacktestAdapter
 # 新架构 - 交易组件
 from .trading_modules import PerpetualContract, CryptoUtils
 
+# 实盘交易适配器（可选导入）
+try:
+    from .trading_adapter import (
+        TradingStrategyAdapter,
+        TradingAdapterError,
+        StrategyLoadError,
+        DataConversionError,
+        StrategyAdapterConfigError,
+        convert_bar_to_qc,
+        convert_tick_to_qc,
+        convert_order_to_trading,
+        convert_position_to_qc,
+        load_quantcell_strategy,
+        create_trading_strategy_adapter,
+        adapt_strategy,
+    )
+    TRADING_ADAPTER_AVAILABLE = True
+except ImportError:
+    TRADING_ADAPTER_AVAILABLE = False
+
 __all__ = [
     # 服务
     "StrategyService",
@@ -151,4 +171,17 @@ __all__ = [
     # 新架构 - 交易组件
     "PerpetualContract",
     "CryptoUtils",
+    # 实盘交易适配器
+    "TradingStrategyAdapter",
+    "TradingAdapterError",
+    "StrategyLoadError",
+    "DataConversionError",
+    "StrategyAdapterConfigError",
+    "convert_bar_to_qc",
+    "convert_tick_to_qc",
+    "convert_order_to_trading",
+    "convert_position_to_qc",
+    "load_quantcell_strategy",
+    "create_trading_strategy_adapter",
+    "adapt_strategy",
 ]

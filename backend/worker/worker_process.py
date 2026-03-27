@@ -8,7 +8,7 @@ import multiprocessing
 import asyncio
 import signal
 import os
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, List
 from datetime import datetime
 from utils.logger import get_logger, LogType
 
@@ -441,3 +441,338 @@ class WorkerProcess(multiprocessing.Process):
             是否已暂停
         """
         return self._pause_event.is_set()
+
+
+# =============================================================================
+# TradingNode Worker 进程（支持 Nautilus Trader）
+# =============================================================================
+
+# 尝试导入 Nautilus 相关类
+try:
+    from nautilus_trader.live.node import TradingNode
+    NAUTILUS_AVAILABLE = True
+except ImportError:
+    NAUTILUS_AVAILABLE = False
+    TradingNode = None
+
+
+class TradingNodeWorkerProcess(WorkerProcess):
+    """
+    TradingNode Worker 进程
+
+    在完全隔离的 Python 进程中运行基于 TradingNode 的策略，
+    通过进程间通信与主进程进行交互。
+
+    这是 WorkerProcess 的扩展，专门用于支持 Nautilus Trader 框架。
+    """
+
+    def __init__(
+        self,
+        worker_id: str,
+        strategy_path: str,
+        config: Dict[str, Any],
+        comm_host: str = "127.0.0.1",
+        data_port: int = 5555,
+        control_port: int = 5556,
+        status_port: int = 5557,
+    ):
+        super().__init__(
+            worker_id=worker_id,
+            strategy_path=strategy_path,
+            config=config,
+            comm_host=comm_host,
+            data_port=data_port,
+            control_port=control_port,
+            status_port=status_port,
+        )
+
+        # TradingNode 相关属性
+        self.trading_node: Optional[Any] = None
+        self.trading_strategy: Optional[Any] = None
+        self.event_handler: Optional[Any] = None
+        self.trading_config: Dict[str, Any] = {}
+
+        # 从配置中提取 TradingNode 特定配置
+        self._extract_trading_config()
+
+    def _extract_trading_config(self):
+        """从配置中提取 TradingNode 特定配置"""
+        self.trading_config = self.config.get("trading", self.config.get("nautilus", {}))
+        logger.debug(f"Worker {self.worker_id} TradingNode 配置: {self.trading_config}")
+
+    async def _main_loop(self):
+        """
+        主事件循环 - 重写以支持 TradingNode
+        """
+        if not NAUTILUS_AVAILABLE:
+            logger.warning("Nautilus Trader 未安装，使用标准 Worker 模式")
+            await super()._main_loop()
+            return
+
+        try:
+            # 1. 初始化通信连接
+            await self._init_comm()
+
+            # 2. 初始化 TradingNode
+            self.trading_node = await self._init_trading_node()
+            if self.trading_node is None:
+                raise RuntimeError("无法初始化 TradingNode")
+
+            # 3. 加载策略
+            await self._load_trading_strategy()
+
+            # 4. 启动 TradingNode
+            await self._handle_start()
+
+            logger.info(f"Worker {self.worker_id} TradingNode 启动完成，开始运行")
+
+            # 5. 主循环 - 等待关闭信号
+            while not self._shutdown_event.is_set():
+                if self._pause_event.is_set():
+                    await asyncio.sleep(0.1)
+                    continue
+
+                # 发送心跳
+                await self._send_heartbeat()
+
+                # 等待一段时间
+                await asyncio.sleep(5)
+
+        except Exception as e:
+            logger.error(f"Worker {self.worker_id} 主循环异常: {e}")
+            self.status.update_state(WorkerState.ERROR)
+            self.status.record_error(str(e))
+            await self._send_status(MessageType.ERROR)
+            raise
+
+    async def _init_trading_node(self) -> Optional[Any]:
+        """初始化 TradingNode"""
+        if not NAUTILUS_AVAILABLE:
+            return None
+
+        try:
+            logger.info(f"Worker {self.worker_id} 开始初始化 TradingNode")
+
+            # 导入配置构建器
+            from .config import build_trading_node_config
+
+            # 构建配置
+            node_config = build_trading_node_config(self.trading_config)
+
+            # 创建 TradingNode 实例
+            trading_node = TradingNode(config=node_config)
+
+            logger.info(f"Worker {self.worker_id} TradingNode 初始化完成")
+            return trading_node
+
+        except Exception as e:
+            logger.error(f"Worker {self.worker_id} 初始化 TradingNode 失败: {e}")
+            self.status.record_error(f"初始化失败: {str(e)}")
+            return None
+
+    async def _load_trading_strategy(self):
+        """加载策略"""
+        try:
+            import importlib.util
+            import sys
+
+            # 动态加载策略模块
+            module_name = f"trading_strategy_{self.worker_id}"
+            spec = importlib.util.spec_from_file_location(
+                module_name, self.strategy_path
+            )
+            if spec is None or spec.loader is None:
+                raise ImportError(f"无法加载策略文件: {self.strategy_path}")
+
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+
+            # 获取策略类
+            strategy_class_name = self.config.get("strategy_class", "Strategy")
+            strategy_class = getattr(module, strategy_class_name, None)
+            if strategy_class is None:
+                # 尝试查找第一个类
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
+                    if isinstance(attr, type) and attr_name not in ["Strategy", "object"]:
+                        strategy_class = attr
+                        break
+
+            if strategy_class is None:
+                raise ImportError(f"在 {self.strategy_path} 中未找到策略类")
+
+            # 实例化策略
+            strategy_params = self.config.get("params", {})
+            self.trading_strategy = strategy_class(**strategy_params)
+
+            # 将策略添加到 TradingNode
+            if self.trading_node:
+                self.trading_node.add_strategy(self.trading_strategy)
+
+            # 更新状态信息
+            self.status.strategy_name = strategy_class.__name__
+
+            logger.info(f"Worker {self.worker_id} 策略加载完成: {strategy_class.__name__}")
+
+        except Exception as e:
+            logger.error(f"Worker {self.worker_id} 加载策略失败: {e}")
+            raise
+
+    async def _handle_start(self):
+        """处理启动命令"""
+        logger.info(f"Worker {self.worker_id} 收到启动命令，启动 TradingNode")
+
+        try:
+            if self.trading_node is None:
+                raise RuntimeError("TradingNode 未初始化")
+
+            # 启动 TradingNode
+            await self.trading_node.start()
+
+            # 更新状态为 RUNNING
+            self.status.update_state(WorkerState.RUNNING)
+
+            # 发送状态更新
+            await self._send_status(MessageType.STATUS_UPDATE)
+
+            logger.info(f"Worker {self.worker_id} TradingNode 启动成功")
+
+        except Exception as e:
+            logger.error(f"Worker {self.worker_id} 启动 TradingNode 失败: {e}")
+            self.status.update_state(WorkerState.ERROR)
+            self.status.record_error(f"启动失败: {str(e)}")
+            await self._send_status(MessageType.ERROR)
+            raise
+
+    async def _handle_pause(self):
+        """处理暂停命令"""
+        logger.info(f"Worker {self.worker_id} 收到暂停命令，暂停策略执行")
+
+        try:
+            # 暂停策略执行
+            if self.trading_strategy and hasattr(self.trading_strategy, 'pause'):
+                await self._call_strategy_method('pause')
+
+            # 停止接收新数据
+            self._pause_event.set()
+
+            # 更新状态为 PAUSED
+            self.status.update_state(WorkerState.PAUSED)
+
+            # 发送状态更新
+            await self._send_status(MessageType.STATUS_UPDATE)
+
+            logger.info(f"Worker {self.worker_id} 策略已暂停")
+
+        except Exception as e:
+            logger.error(f"Worker {self.worker_id} 暂停策略失败: {e}")
+            self.status.record_error(f"暂停失败: {str(e)}")
+
+    async def _handle_resume(self):
+        """处理恢复命令"""
+        logger.info(f"Worker {self.worker_id} 收到恢复命令，恢复策略执行")
+
+        try:
+            # 恢复策略执行
+            if self.trading_strategy and hasattr(self.trading_strategy, 'resume'):
+                await self._call_strategy_method('resume')
+
+            # 恢复数据接收
+            self._pause_event.clear()
+
+            # 更新状态为 RUNNING
+            self.status.update_state(WorkerState.RUNNING)
+
+            # 发送状态更新
+            await self._send_status(MessageType.STATUS_UPDATE)
+
+            logger.info(f"Worker {self.worker_id} 策略已恢复")
+
+        except Exception as e:
+            logger.error(f"Worker {self.worker_id} 恢复策略失败: {e}")
+            self.status.record_error(f"恢复失败: {str(e)}")
+
+    async def _handle_stop(self):
+        """处理停止命令"""
+        logger.info(f"Worker {self.worker_id} 收到停止命令，优雅停止 TradingNode")
+
+        try:
+            # 更新状态为 STOPPING
+            self.status.update_state(WorkerState.STOPPING)
+            await self._send_status(MessageType.STATUS_UPDATE)
+
+            # 取消所有未成交订单（可选）
+            if self.trading_node and hasattr(self.trading_node, 'cancel_all_orders'):
+                try:
+                    await self.trading_node.cancel_all_orders()
+                    logger.info(f"Worker {self.worker_id} 已取消所有未成交订单")
+                except Exception as e:
+                    logger.warning(f"Worker {self.worker_id} 取消订单时出错: {e}")
+
+            # 关闭交易所连接
+            if self.trading_node:
+                await self.trading_node.stop()
+                logger.info(f"Worker {self.worker_id} TradingNode 已停止")
+
+            # 设置关闭事件标志
+            self._shutdown_event.set()
+
+        except Exception as e:
+            logger.error(f"Worker {self.worker_id} 停止 TradingNode 失败: {e}")
+            self.status.record_error(f"停止失败: {str(e)}")
+            raise
+
+    async def _cleanup(self):
+        """清理资源"""
+        logger.info(f"Worker {self.worker_id} 开始清理 TradingNode 资源")
+
+        try:
+            # 停止 TradingNode
+            if self.trading_node:
+                try:
+                    await self.trading_node.stop()
+                    logger.info(f"Worker {self.worker_id} TradingNode 已停止")
+                except Exception as e:
+                    logger.error(f"Worker {self.worker_id} 停止 TradingNode 时出错: {e}")
+
+            # 释放策略资源
+            if self.trading_strategy and hasattr(self.trading_strategy, 'on_stop'):
+                try:
+                    await self._call_strategy_method('on_stop')
+                except Exception as e:
+                    logger.error(f"Worker {self.worker_id} 策略清理错误: {e}")
+
+            # 调用父类清理
+            await super()._cleanup()
+
+            # 清理引用
+            self.trading_node = None
+            self.trading_strategy = None
+
+            logger.info(f"Worker {self.worker_id} TradingNode 资源清理完成")
+
+        except Exception as e:
+            logger.error(f"Worker {self.worker_id} 清理资源时出错: {e}")
+            raise
+
+    async def _call_strategy_method(self, method_name: str, *args, **kwargs):
+        """安全调用策略方法"""
+        if not self.trading_strategy:
+            return
+
+        try:
+            method = getattr(self.trading_strategy, method_name, None)
+            if method is None:
+                return
+
+            # 检查是否是协程函数
+            if asyncio.iscoroutinefunction(method):
+                return await method(*args, **kwargs)
+            else:
+                return method(*args, **kwargs)
+
+        except Exception as e:
+            logger.error(f"策略方法 {method_name} 执行错误: {e}")
+            self.status.record_error(f"{method_name}: {str(e)}")
+            # 不抛出异常，防止 Worker 崩溃
