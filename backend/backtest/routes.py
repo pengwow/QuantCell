@@ -560,7 +560,7 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
 
         # 从数据库获取回测任务和结果
         from collector.db.database import SessionLocal, init_database_config
-        from collector.db.models import BacktestTask, BacktestResult
+        from collector.db.models import BacktestTask, BacktestResult, Strategy
         import json
 
         init_database_config()
@@ -604,6 +604,15 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
                 except Exception as e:
                     logger.warning(f"解析结果数据失败: {e}")
 
+            # 获取策略代码
+            strategy_code = None
+            try:
+                strategy = db.query(Strategy).filter_by(name=task.strategy_name).first()
+                if strategy:
+                    strategy_code = strategy.content
+            except Exception as e:
+                logger.warning(f"获取策略代码失败: {e}")
+
             # 构建前端期望的响应格式
             detail_data = {
                 "id": task.id,
@@ -614,6 +623,7 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
                 "trades": trades,
                 "status": task.status,
                 "created_at": task.created_at.isoformat() if task.created_at else None,
+                "code": strategy_code,
             }
 
             logger.info(f"成功获取回测结果详情，回测ID: {backtest_id}")

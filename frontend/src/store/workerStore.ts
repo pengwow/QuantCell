@@ -1,274 +1,508 @@
 /**
- * Worker Store
+ * Worker Store - Zustand Store
  *
- * 管理Worker相关的状态和业务逻辑
+ * 管理策略任务Worker的状态，包括：
+ * - Worker列表数据
+ * - 选中Worker的详细信息
+ * - 性能指标数据
+ * - 交易记录
+ * - 日志数据
+ * - WebSocket连接
+ *
+ * 使用真实API与后端交互
  */
 
 import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
+import { message } from 'antd';
 import type {
-  WorkerWithPerformance,
-  WorkerPerformanceMetrics,
-  WorkerTradeRecord,
-  ReturnRateDataPoint,
+  Worker,
   WorkerStatus,
+  WorkerPerformance,
+  WorkerTrade,
+  WorkerLog,
+  ReturnRateDataPoint,
+  CreateWorkerRequest,
+  UpdateWorkerRequest,
+  WorkerFilterParams,
+  TradeQueryParams,
+  LogQueryParams,
 } from '../types/worker';
+import { workerApi, WorkerLogStream } from '../api/workerApi';
 
-// Worker状态接口
+// ============================================
+// Store State Interface
+// ============================================
+
 export interface WorkerState {
-  // 状态
-  workers: WorkerWithPerformance[];
-  selectedWorker: WorkerWithPerformance | null;
-  loading: boolean;
-  error: string | null;
+  // 数据
+  workers: Worker[];
+  selectedWorker: Worker | null;
+  performance: WorkerPerformance | null;
+  trades: WorkerTrade[];
+  logs: WorkerLog[];
+  returnRateData: ReturnRateDataPoint[];
 
-  // Actions
-  fetchWorkers: () => Promise<void>;
-  selectWorker: (worker: WorkerWithPerformance) => void;
-  clearSelection: () => void;
-  startWorker: (id: number) => Promise<void>;
-  stopWorker: (id: number) => Promise<void>;
-  pauseWorker: (id: number) => Promise<void>;
-  fetchWorkerPerformance: (id: number) => Promise<void>;
-  fetchWorkerTrades: (id: number) => Promise<void>;
-  fetchWorkerReturnRate: (id: number) => Promise<void>;
+  // 分页
+  total: number;
+  page: number;
+  pageSize: number;
+
+  // 加载状态
+  loading: boolean;
+  loadingDetail: boolean;
+  loadingPerformance: boolean;
+  loadingTrades: boolean;
+  loadingLogs: boolean;
+
+  // 错误状态
+  error: string | null;
+  detailError: string | null;
+  performanceError: string | null;
+  tradesError: string | null;
+  logsError: string | null;
+
+  // WebSocket
+  logStream: WorkerLogStream | null;
+  isLogStreamConnected: boolean;
 }
 
-// Mock数据生成器 - 用于开发测试
-const generateMockWorkers = (): WorkerWithPerformance[] => {
-  const statuses: WorkerStatus[] = ['running', 'stopped', 'paused', 'error'];
-  const now = new Date();
+// ============================================
+// Store Actions Interface
+// ============================================
 
-  return Array.from({ length: 5 }, (_, i) => {
-    const id = i + 1;
-    const status = statuses[i % statuses.length];
-    const totalReturn = (Math.random() * 40 - 10); // -10% to 30%
-    const currentReturn = (Math.random() * 10 - 5); // -5% to 5%
+interface WorkerActions {
+  // 数据获取
+  fetchWorkers: (params?: WorkerFilterParams) => Promise<void>;
+  fetchWorkerDetail: (workerId: number) => Promise<void>;
+  fetchPerformance: (workerId: number, days?: number) => Promise<void>;
+  fetchTrades: (workerId: number, params?: TradeQueryParams) => Promise<void>;
+  fetchLogs: (workerId: number, params?: LogQueryParams) => Promise<void>;
+  fetchReturnRateData: (workerId: number, days?: number) => Promise<void>;
 
-    return {
-      id,
-      name: `策略任务 ${id}`,
-      description: `这是一个自动化交易策略任务，使用机器学习算法进行交易决策。`,
-      status,
-      strategy_id: id,
-      exchange: 'binance',
-      symbol: 'BTCUSDT',
-      timeframe: '1h',
-      market_type: 'spot',
-      trading_mode: 'paper',
-      cpu_limit: 50,
-      memory_limit: 512,
-      created_at: new Date(now.getTime() - 86400000 * 30).toISOString(),
-      updated_at: now.toISOString(),
-      started_at: status === 'running' ? new Date(now.getTime() - 3600000).toISOString() : undefined,
-      totalReturn,
-      currentReturn,
-      startTime: new Date(now.getTime() - 86400000 * 7).toISOString(),
-      lastTradeTime: new Date(now.getTime() - 1800000).toISOString(),
-      performance: {
-        winRate: 55 + Math.random() * 20,
-        profitLossRatio: 1.5 + Math.random(),
-        maxDrawdown: 5 + Math.random() * 10,
-        sharpeRatio: 1.2 + Math.random(),
-        totalTrades: Math.floor(50 + Math.random() * 200),
-        winningTrades: Math.floor(30 + Math.random() * 100),
-        losingTrades: Math.floor(20 + Math.random() * 80),
-        totalProfit: 1000 + Math.random() * 5000,
-        totalLoss: 200 + Math.random() * 1000,
-      },
-      tradeRecords: [],
-      returnRateData: [],
-    };
-  });
-};
+  // CRUD 操作
+  createWorker: (data: CreateWorkerRequest) => Promise<Worker | null>;
+  updateWorker: (workerId: number, data: UpdateWorkerRequest) => Promise<Worker | null>;
+  deleteWorker: (workerId: number) => Promise<boolean>;
+  cloneWorker: (workerId: number, newName: string) => Promise<Worker | null>;
 
-// 生成Mock绩效数据
-const generateMockPerformance = (): WorkerPerformanceMetrics => ({
-  winRate: 55 + Math.random() * 20,
-  profitLossRatio: 1.5 + Math.random(),
-  maxDrawdown: 5 + Math.random() * 10,
-  sharpeRatio: 1.2 + Math.random(),
-  totalTrades: Math.floor(50 + Math.random() * 200),
-  winningTrades: Math.floor(30 + Math.random() * 100),
-  losingTrades: Math.floor(20 + Math.random() * 80),
-  totalProfit: 1000 + Math.random() * 5000,
-  totalLoss: 200 + Math.random() * 1000,
-});
+  // 生命周期控制
+  startWorker: (workerId: number) => Promise<boolean>;
+  stopWorker: (workerId: number) => Promise<boolean>;
+  pauseWorker: (workerId: number) => Promise<boolean>;
+  resumeWorker: (workerId: number) => Promise<boolean>;
+  restartWorker: (workerId: number) => Promise<boolean>;
 
-// 生成Mock交易记录
-const generateMockTrades = (count: number = 10): WorkerTradeRecord[] => {
-  const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'];
-  const now = new Date();
+  // WebSocket
+  connectLogStream: (workerId: number) => void;
+  disconnectLogStream: () => void;
+  clearLogs: () => void;
 
-  return Array.from({ length: count }, (_, i) => {
-    const isBuy = Math.random() > 0.5;
-    const price = 40000 + Math.random() * 10000;
-    const quantity = 0.1 + Math.random() * 0.5;
+  // 状态管理
+  setSelectedWorker: (worker: Worker | null) => void;
+  updateWorkerStatus: (workerId: number, status: WorkerStatus) => void;
+  clearErrors: () => void;
+  reset: () => void;
+}
 
-    return {
-      id: `trade_${Date.now()}_${i}`,
-      timestamp: new Date(now.getTime() - i * 3600000).toISOString(),
-      symbol: symbols[i % symbols.length],
-      action: isBuy ? 'buy' : 'sell',
-      price: parseFloat(price.toFixed(2)),
-      quantity: parseFloat(quantity.toFixed(4)),
-      amount: parseFloat((price * quantity).toFixed(2)),
-      status: Math.random() > 0.2 ? 'filled' : 'pending',
-    };
-  });
-};
+// ============================================
+// Initial State
+// ============================================
 
-// 生成Mock收益率数据
-const generateMockReturnRateData = (days: number = 30): ReturnRateDataPoint[] => {
-  const data: ReturnRateDataPoint[] = [];
-  const now = new Date();
-  let value = 0;
-
-  for (let i = days; i >= 0; i--) {
-    const date = new Date(now.getTime() - i * 86400000);
-    value += (Math.random() - 0.45) * 2; // 略微偏向上涨
-    data.push({
-      timestamp: date.toISOString().split('T')[0],
-      value: parseFloat(value.toFixed(2)),
-    });
-  }
-
-  return data;
-};
-
-// 创建Store
-export const useWorkerStore = create<WorkerState>((set, get) => ({
-  // 初始状态
+const initialState: WorkerState = {
   workers: [],
   selectedWorker: null,
+  performance: null,
+  trades: [],
+  logs: [],
+  returnRateData: [],
+
+  total: 0,
+  page: 1,
+  pageSize: 20,
+
   loading: false,
+  loadingDetail: false,
+  loadingPerformance: false,
+  loadingTrades: false,
+  loadingLogs: false,
+
   error: null,
+  detailError: null,
+  performanceError: null,
+  tradesError: null,
+  logsError: null,
 
-  // 获取Worker列表
-  fetchWorkers: async () => {
-    set({ loading: true, error: null });
-    try {
-      // 使用Mock数据
-      const mockWorkers = generateMockWorkers();
-      set({ workers: mockWorkers, loading: false });
-    } catch (error: any) {
-      set({ error: error.message || '获取策略任务列表失败', loading: false });
-    }
-  },
+  logStream: null,
+  isLogStreamConnected: false,
+};
 
-  // 选择Worker
-  selectWorker: (worker: WorkerWithPerformance) => {
-    set({ selectedWorker: worker });
-    // 加载选中Worker的详细数据
-    const { fetchWorkerPerformance, fetchWorkerTrades, fetchWorkerReturnRate } = get();
-    fetchWorkerPerformance(worker.id);
-    fetchWorkerTrades(worker.id);
-    fetchWorkerReturnRate(worker.id);
-  },
+// ============================================
+// Store Creation
+// ============================================
 
-  // 清除选择
-  clearSelection: () => {
-    set({ selectedWorker: null });
-  },
+export const useWorkerStore = create<WorkerState & WorkerActions>()(
+  devtools(
+    (set, get) => ({
+      ...initialState,
 
-  // 启动Worker
-  startWorker: async (id: number) => {
-    try {
-      // 使用Mock数据
-      set(state => ({
-        workers: state.workers.map(worker =>
-          worker.id === id
-            ? { ...worker, status: 'running' as WorkerStatus, started_at: new Date().toISOString() }
-            : worker
-        ),
-        selectedWorker: state.selectedWorker?.id === id
-          ? { ...state.selectedWorker, status: 'running' as WorkerStatus, started_at: new Date().toISOString() }
-          : state.selectedWorker,
-      }));
-    } catch (error: any) {
-      set({ error: error.message || '启动策略任务失败' });
-    }
-  },
+      // ============================================
+      // 数据获取操作
+      // ============================================
 
-  // 停止Worker
-  stopWorker: async (id: number) => {
-    try {
-      // 使用Mock数据
-      set(state => ({
-        workers: state.workers.map(worker =>
-          worker.id === id
-            ? { ...worker, status: 'stopped' as WorkerStatus, stopped_at: new Date().toISOString() }
-            : worker
-        ),
-        selectedWorker: state.selectedWorker?.id === id
-          ? { ...state.selectedWorker, status: 'stopped' as WorkerStatus, stopped_at: new Date().toISOString() }
-          : state.selectedWorker,
-      }));
-    } catch (error: any) {
-      set({ error: error.message || '停止策略任务失败' });
-    }
-  },
+      fetchWorkers: async (params) => {
+        set({ loading: true, error: null });
+        try {
+          const response = await workerApi.getWorkers({
+            page: get().page,
+            page_size: get().pageSize,
+            ...params,
+          });
+          set({
+            workers: response.items,
+            total: response.total,
+            page: response.page,
+            pageSize: response.page_size,
+            loading: false,
+          });
+        } catch (error: any) {
+          set({
+            error: error.message || '获取Worker列表失败',
+            loading: false,
+          });
+          message.error(error.message || '获取Worker列表失败');
+        }
+      },
 
-  // 暂停Worker
-  pauseWorker: async (id: number) => {
-    try {
-      // 使用Mock数据
-      set(state => ({
-        workers: state.workers.map(worker =>
-          worker.id === id
-            ? { ...worker, status: 'paused' as WorkerStatus }
-            : worker
-        ),
-        selectedWorker: state.selectedWorker?.id === id
-          ? { ...state.selectedWorker, status: 'paused' as WorkerStatus }
-          : state.selectedWorker,
-      }));
-    } catch (error: any) {
-      set({ error: error.message || '暂停策略任务失败' });
-    }
-  },
+      fetchWorkerDetail: async (workerId) => {
+        set({ loadingDetail: true, detailError: null });
+        try {
+          const worker = await workerApi.getWorker(workerId);
+          set({
+            selectedWorker: worker,
+            loadingDetail: false,
+          });
+        } catch (error: any) {
+          set({
+            detailError: error.message || '获取Worker详情失败',
+            loadingDetail: false,
+          });
+          message.error(error.message || '获取Worker详情失败');
+        }
+      },
 
-  // 获取Worker绩效
-  fetchWorkerPerformance: async (id: number) => {
-    try {
-      // 使用Mock数据
-      const performance = generateMockPerformance();
-      set(state => ({
-        selectedWorker: state.selectedWorker?.id === id
-          ? { ...state.selectedWorker, performance }
-          : state.selectedWorker,
-      }));
-    } catch (error: any) {
-      console.error('获取策略任务绩效失败:', error);
-    }
-  },
+      fetchPerformance: async (workerId, days = 30) => {
+        set({ loadingPerformance: true, performanceError: null });
+        try {
+          const performance = await workerApi.getWorkerPerformance(workerId, days);
+          // 取最新的绩效数据
+          const latestPerformance = performance[performance.length - 1] || null;
+          set({
+            performance: latestPerformance,
+            loadingPerformance: false,
+          });
+        } catch (error: any) {
+          set({
+            performanceError: error.message || '获取绩效数据失败',
+            loadingPerformance: false,
+          });
+          message.error(error.message || '获取绩效数据失败');
+        }
+      },
 
-  // 获取Worker交易记录
-  fetchWorkerTrades: async (id: number) => {
-    try {
-      // 使用Mock数据
-      const trades = generateMockTrades(15);
-      set(state => ({
-        selectedWorker: state.selectedWorker?.id === id
-          ? { ...state.selectedWorker, tradeRecords: trades }
-          : state.selectedWorker,
-      }));
-    } catch (error: any) {
-      console.error('获取策略任务交易记录失败:', error);
-    }
-  },
+      fetchTrades: async (workerId, params) => {
+        set({ loadingTrades: true, tradesError: null });
+        try {
+          const response = await workerApi.getWorkerTrades(workerId, {
+            page: 1,
+            page_size: 50,
+            ...params,
+          });
+          set({
+            trades: response.items,
+            loadingTrades: false,
+          });
+        } catch (error: any) {
+          set({
+            tradesError: error.message || '获取交易记录失败',
+            loadingTrades: false,
+          });
+          message.error(error.message || '获取交易记录失败');
+        }
+      },
 
-  // 获取Worker收益率数据
-  fetchWorkerReturnRate: async (id: number) => {
-    try {
-      // 使用Mock数据
-      const returnRateData = generateMockReturnRateData(30);
-      set(state => ({
-        selectedWorker: state.selectedWorker?.id === id
-          ? { ...state.selectedWorker, returnRateData }
-          : state.selectedWorker,
-      }));
-    } catch (error: any) {
-      console.error('获取策略任务收益率数据失败:', error);
-    }
-  },
-}));
+      fetchLogs: async (workerId, params) => {
+        set({ loadingLogs: true, logsError: null });
+        try {
+          const logs = await workerApi.getWorkerLogs(workerId, {
+            page_size: 100,
+            ...params,
+          });
+          set({
+            logs: logs,
+            loadingLogs: false,
+          });
+        } catch (error: any) {
+          set({
+            logsError: error.message || '获取日志失败',
+            loadingLogs: false,
+          });
+          message.error(error.message || '获取日志失败');
+        }
+      },
+
+      fetchReturnRateData: async (workerId, days = 30) => {
+        try {
+          const performance = await workerApi.getWorkerPerformance(workerId, days);
+          // 将绩效数据转换为收益率曲线数据
+          const returnRateData: ReturnRateDataPoint[] = performance.map((p, index) => ({
+            timestamp: p.date,
+            value: index === 0 ? 0 : ((p.net_profit / (p.total_trades || 1)) * 100),
+          }));
+          set({ returnRateData });
+        } catch (error: any) {
+          console.error('获取收益率数据失败:', error);
+        }
+      },
+
+      // ============================================
+      // CRUD 操作
+      // ============================================
+
+      createWorker: async (data) => {
+        try {
+          const worker = await workerApi.createWorker(data);
+          message.success('Worker创建成功');
+          // 刷新列表
+          get().fetchWorkers();
+          return worker;
+        } catch (error: any) {
+          message.error(error.message || '创建Worker失败');
+          return null;
+        }
+      },
+
+      updateWorker: async (workerId, data) => {
+        try {
+          const worker = await workerApi.updateWorker(workerId, data);
+          message.success('Worker更新成功');
+          // 更新选中状态
+          if (get().selectedWorker?.id === workerId) {
+            set({ selectedWorker: worker });
+          }
+          // 刷新列表
+          get().fetchWorkers();
+          return worker;
+        } catch (error: any) {
+          message.error(error.message || '更新Worker失败');
+          return null;
+        }
+      },
+
+      deleteWorker: async (workerId) => {
+        try {
+          await workerApi.deleteWorker(workerId);
+          message.success('Worker删除成功');
+          // 如果删除的是当前选中的，清除选中状态
+          if (get().selectedWorker?.id === workerId) {
+            set({ selectedWorker: null });
+          }
+          // 刷新列表
+          get().fetchWorkers();
+          return true;
+        } catch (error: any) {
+          message.error(error.message || '删除Worker失败');
+          return false;
+        }
+      },
+
+      cloneWorker: async (workerId, newName) => {
+        try {
+          const worker = await workerApi.cloneWorker(workerId, {
+            new_name: newName,
+            copy_config: true,
+            copy_parameters: true,
+          });
+          message.success('Worker克隆成功');
+          // 刷新列表
+          get().fetchWorkers();
+          return worker;
+        } catch (error: any) {
+          message.error(error.message || '克隆Worker失败');
+          return null;
+        }
+      },
+
+      // ============================================
+      // 生命周期控制
+      // ============================================
+
+      startWorker: async (workerId) => {
+        try {
+          await workerApi.startWorker(workerId);
+          message.success('Worker启动中');
+          // 乐观更新状态
+          get().updateWorkerStatus(workerId, 'starting');
+          // 延迟刷新获取最新状态
+          setTimeout(() => get().fetchWorkers(), 2000);
+          return true;
+        } catch (error: any) {
+          message.error(error.message || '启动Worker失败');
+          return false;
+        }
+      },
+
+      stopWorker: async (workerId) => {
+        try {
+          await workerApi.stopWorker(workerId);
+          message.success('Worker停止成功');
+          // 乐观更新状态
+          get().updateWorkerStatus(workerId, 'stopped');
+          // 延迟刷新获取最新状态
+          setTimeout(() => get().fetchWorkers(), 1000);
+          return true;
+        } catch (error: any) {
+          message.error(error.message || '停止Worker失败');
+          return false;
+        }
+      },
+
+      pauseWorker: async (workerId) => {
+        try {
+          await workerApi.pauseWorker(workerId);
+          message.success('Worker已暂停');
+          // 乐观更新状态
+          get().updateWorkerStatus(workerId, 'paused');
+          // 延迟刷新获取最新状态
+          setTimeout(() => get().fetchWorkers(), 1000);
+          return true;
+        } catch (error: any) {
+          message.error(error.message || '暂停Worker失败');
+          return false;
+        }
+      },
+
+      resumeWorker: async (workerId) => {
+        try {
+          await workerApi.resumeWorker(workerId);
+          message.success('Worker已恢复');
+          // 乐观更新状态
+          get().updateWorkerStatus(workerId, 'running');
+          // 延迟刷新获取最新状态
+          setTimeout(() => get().fetchWorkers(), 1000);
+          return true;
+        } catch (error: any) {
+          message.error(error.message || '恢复Worker失败');
+          return false;
+        }
+      },
+
+      restartWorker: async (workerId) => {
+        try {
+          await workerApi.restartWorker(workerId);
+          message.success('Worker重启中');
+          // 乐观更新状态
+          get().updateWorkerStatus(workerId, 'starting');
+          // 延迟刷新获取最新状态
+          setTimeout(() => get().fetchWorkers(), 3000);
+          return true;
+        } catch (error: any) {
+          message.error(error.message || '重启Worker失败');
+          return false;
+        }
+      },
+
+      // ============================================
+      // WebSocket 日志流
+      // ============================================
+
+      connectLogStream: (workerId) => {
+        // 先断开现有连接
+        get().disconnectLogStream();
+
+        const stream = new WorkerLogStream(workerId);
+
+        stream.onMessage((log) => {
+          set((state) => ({
+            logs: [log, ...state.logs].slice(0, 1000), // 限制最多1000条
+          }));
+        });
+
+        stream.onError((error) => {
+          console.error('Log stream error:', error);
+          set({ isLogStreamConnected: false });
+        });
+
+        stream.onClose(() => {
+          set({ isLogStreamConnected: false });
+        });
+
+        stream.connect();
+
+        set({
+          logStream: stream,
+          isLogStreamConnected: true,
+        });
+      },
+
+      disconnectLogStream: () => {
+        const { logStream } = get();
+        if (logStream) {
+          logStream.disconnect();
+          set({
+            logStream: null,
+            isLogStreamConnected: false,
+          });
+        }
+      },
+
+      clearLogs: () => {
+        set({ logs: [] });
+      },
+
+      // ============================================
+      // 状态管理
+      // ============================================
+
+      setSelectedWorker: (worker) => {
+        set({ selectedWorker: worker });
+        // 如果选中了worker，连接日志流
+        if (worker) {
+          get().connectLogStream(worker.id);
+        } else {
+          get().disconnectLogStream();
+        }
+      },
+
+      updateWorkerStatus: (workerId, status) => {
+        set((state) => ({
+          workers: state.workers.map((w) =>
+            w.id === workerId ? { ...w, status } : w
+          ),
+          selectedWorker:
+            state.selectedWorker?.id === workerId
+              ? { ...state.selectedWorker, status }
+              : state.selectedWorker,
+        }));
+      },
+
+      clearErrors: () => {
+        set({
+          error: null,
+          detailError: null,
+          performanceError: null,
+          tradesError: null,
+          logsError: null,
+        });
+      },
+
+      reset: () => {
+        get().disconnectLogStream();
+        set(initialState);
+      },
+    }),
+    { name: 'worker-store' }
+  )
+);
+
+export default useWorkerStore;
