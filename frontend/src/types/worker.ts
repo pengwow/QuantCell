@@ -45,7 +45,7 @@ export interface Worker {
   status: WorkerStatus;
   strategy_id: number;
   exchange: string;
-  symbol: string;
+  symbols: string[];
   timeframe: string;
   market_type: string;
   trading_mode: string;
@@ -73,7 +73,7 @@ export interface CreateWorkerRequest {
   description?: string;
   strategy_id: number;
   exchange?: string;
-  symbol?: string;
+  symbols?: string[];
   timeframe?: string;
   market_type?: string;
   trading_mode?: string;
@@ -88,7 +88,7 @@ export interface UpdateWorkerRequest {
   name?: string;
   description?: string;
   exchange?: string;
-  symbol?: string;
+  symbols?: string[];
   timeframe?: string;
   trading_mode?: string;
   cpu_limit?: number;
@@ -295,6 +295,120 @@ export interface TradingSignal {
   order_type?: string;
   params?: Record<string, any>;
 }
+
+// ============================================
+// WebSocket 消息类型
+// ============================================
+
+// WebSocket 日志消息
+export interface WebSocketLogMessage {
+  type: 'log';
+  data: WorkerLog;
+}
+
+// WebSocket 状态更新消息
+export interface WebSocketStatusMessage {
+  type: 'status';
+  data: {
+    worker_id: number;
+    status: WorkerStatus;
+    timestamp: string;
+  };
+}
+
+// WebSocket 指标更新消息
+export interface WebSocketMetricsMessage {
+  type: 'metrics';
+  data: WorkerMetrics;
+}
+
+// WebSocket 错误消息
+export interface WebSocketErrorMessage {
+  type: 'error';
+  data: {
+    message: string;
+    code?: string;
+    timestamp: string;
+  };
+}
+
+// WebSocket 消息联合类型
+export type WebSocketMessage =
+  | WebSocketLogMessage
+  | WebSocketStatusMessage
+  | WebSocketMetricsMessage
+  | WebSocketErrorMessage;
+
+// ============================================
+// Store 状态类型
+// ============================================
+
+// Worker Store 状态
+export interface WorkerStoreState {
+  // 数据
+  workers: Worker[];
+  selectedWorker: Worker | null;
+  performance: WorkerPerformance | null;
+  trades: WorkerTrade[];
+  logs: WorkerLog[];
+  returnRateData: ReturnRateDataPoint[];
+
+  // 分页
+  total: number;
+  page: number;
+  pageSize: number;
+
+  // 加载状态
+  loading: boolean;
+  loadingDetail: boolean;
+  loadingPerformance: boolean;
+  loadingTrades: boolean;
+  loadingLogs: boolean;
+
+  // 错误状态
+  error: string | null;
+  detailError: string | null;
+  performanceError: string | null;
+  tradesError: string | null;
+  logsError: string | null;
+
+  // WebSocket
+  logStream: WorkerLogStreamType | null;
+  isLogStreamConnected: boolean;
+}
+
+// Worker Store 操作
+export interface WorkerStoreActions {
+  // 数据获取
+  fetchWorkers: (params?: WorkerFilterParams) => Promise<void>;
+  fetchWorkerDetail: (workerId: number) => Promise<void>;
+  fetchPerformance: (workerId: number, days?: number) => Promise<void>;
+  fetchTrades: (workerId: number, params?: TradeQueryParams) => Promise<void>;
+  fetchLogs: (workerId: number, params?: LogQueryParams) => Promise<void>;
+
+  // CRUD 操作
+  createWorker: (data: CreateWorkerRequest) => Promise<Worker>;
+  updateWorker: (workerId: number, data: UpdateWorkerRequest) => Promise<Worker>;
+  deleteWorker: (workerId: number) => Promise<void>;
+
+  // 生命周期控制
+  startWorker: (workerId: number) => Promise<void>;
+  stopWorker: (workerId: number) => Promise<void>;
+  pauseWorker: (workerId: number) => Promise<void>;
+  resumeWorker: (workerId: number) => Promise<void>;
+
+  // WebSocket
+  connectLogStream: (workerId: number) => void;
+  disconnectLogStream: () => void;
+
+  // 状态管理
+  setSelectedWorker: (worker: Worker | null) => void;
+  clearErrors: () => void;
+}
+
+// WorkerLogStream 类型占位（避免循环依赖）
+// 实际类型在 workerApi.ts 中定义，这里使用 any 作为占位
+type WorkerLogStreamType = any;
 
 // ==================== UI展示扩展类型 ====================
 

@@ -380,6 +380,7 @@ class StrategyService:
                                     params = []
 
                             db_strategies_list.append({
+                            "id": strategy.id,
                             "name": strategy.name,
                             "file_name": strategy.filename,
                             "file_path": str(self.strategy_dir / strategy.filename),
