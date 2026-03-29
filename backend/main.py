@@ -9,6 +9,11 @@ QuantCell 主入口文件
 - utils/: 工具模块
 """
 
+# 首先导入策略模型和回测模型以确保正确的表结构被使用
+# 这必须在导入 collector.db.models 之前完成
+import strategy.models  # noqa: F401
+import backtest.models  # noqa: F401
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -162,6 +167,11 @@ def parse_args():
         default=8000,
         help="服务器监听端口 (默认: 8000)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="启用调试模式 (设置日志级别为 DEBUG)",
+    )
     return parser.parse_args()
 
 
@@ -181,7 +191,11 @@ if __name__ == "__main__":
     init_db()
 
     # 获取日志级别配置
-    log_level = get_uvicorn_log_level()
+    if args.debug:
+        log_level = "DEBUG"
+        print("调试模式已启用")
+    else:
+        log_level = get_uvicorn_log_level()
     print(f"Uvicorn日志级别设置为: {log_level}")
     print(f"服务器将在 {args.host}:{args.port} 启动")
 

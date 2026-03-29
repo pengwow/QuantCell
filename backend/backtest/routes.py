@@ -163,7 +163,7 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
     import uuid
     from datetime import datetime, timezone
     from collector.db.database import SessionLocal, init_database_config
-    from collector.db.models import BacktestTask
+    from backtest.models import BacktestTask
     import json
     from utils.validation import validate_time_range, parse_time_range
 
@@ -560,7 +560,8 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
 
         # 从数据库获取回测任务和结果
         from collector.db.database import SessionLocal, init_database_config
-        from collector.db.models import BacktestTask, BacktestResult, Strategy
+        from backtest.models import BacktestTask, BacktestResult
+        from strategy.models import Strategy
         import json
 
         init_database_config()

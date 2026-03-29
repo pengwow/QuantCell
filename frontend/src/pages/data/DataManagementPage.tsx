@@ -841,11 +841,12 @@ const DataManagementPage = () => {
           color: values.color || '#1890ff',
           tags: [],
         });
-        if (response.code === 0) {
+        // 拦截器只返回 data 字段，判断 pool_id 是否存在表示成功
+        if (response && response.pool_id) {
           message.success('自选组已创建');
           await fetchFavoriteGroups(); // 刷新列表
         } else {
-          message.error(response.message || '创建失败');
+          message.error('创建失败');
         }
       }
       

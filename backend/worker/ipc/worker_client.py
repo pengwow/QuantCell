@@ -195,12 +195,18 @@ class WorkerCommClient:
         """
         try:
             if self._status_sender and self._connected:
+                # 调试：记录发送前的 worker_id
+                logger.info(f"[send_status] 发送前: message.worker_id={message.worker_id}, self.worker_id={self.worker_id}")
                 message.worker_id = self.worker_id
                 data = serialize_message(message)
+                logger.info(f"[send_status] 序列化后: data={data[:200]}...")
                 await self._status_sender.send(data)
+                logger.info(f"[send_status] 消息已发送")
                 return True
         except Exception as e:
             logger.error(f"发送状态消息失败: {e}")
+            import traceback
+            traceback.print_exc()
         return False
 
     async def send_control_response(self, message: Message) -> bool:
@@ -278,15 +284,22 @@ class WorkerCommClient:
                 if self._control_client:
                     data = await self._control_client.recv()
                     message = deserialize_message(data)
+                    logger.info(f"[WorkerClient] Worker {self.worker_id} 收到控制消息: {message.msg_type.value}")
 
                     # 调用所有控制处理器
                     for handler in self._control_handlers:
                         try:
-                            handler(message)
+                            # 检查 handler 是否是协程函数
+                            import inspect
+                            if inspect.iscoroutinefunction(handler):
+                                await handler(message)
+                            else:
+                                handler(message)
                         except Exception as e:
-                            logger.error(f"控制处理器错误: {e}")
+                            logger.error(f"[WorkerClient] 控制处理器错误: {e}", exc_info=True)
             except asyncio.CancelledError:
+                logger.info(f"[WorkerClient] Worker {self.worker_id} 控制循环被取消")
                 break
             except Exception as e:
-                logger.error(f"接收控制命令错误: {e}")
+                logger.error(f"[WorkerClient] 接收控制命令错误: {e}")
                 await asyncio.sleep(0.1)

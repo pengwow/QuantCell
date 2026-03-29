@@ -5,24 +5,46 @@ Worker API数据模型定义
 """
 
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from pydantic import BaseModel, Field
+
+
+class SymbolsConfig(BaseModel):
+    """交易标的配置"""
+    type: str = Field(default="symbols", description="配置类型: symbols-直接货币对, pool-自选组")
+    symbols: List[str] = Field(default_factory=list, description="货币对列表")
+    pool_id: Optional[int] = Field(None, description="自选组ID")
+    pool_name: Optional[str] = Field(None, description="自选组名称")
+
+
+class TradingConfig(BaseModel):
+    """交易配置"""
+    exchange: str = Field(default="binance", description="交易所")
+    symbols_config: SymbolsConfig = Field(default_factory=lambda: SymbolsConfig(type="symbols", symbols=[], pool_id=None, pool_name=None), description="交易标的配置")
+    timeframe: str = Field(default="1h", description="时间周期")
+    market_type: str = Field(default="spot", description="市场类型: spot/future")
+    trading_mode: str = Field(default="paper", description="交易模式: paper/live")
 
 
 class WorkerBase(BaseModel):
     """Worker基础模型"""
     name: str = Field(..., description="Worker名称", min_length=1, max_length=100)
     description: Optional[str] = Field(None, description="Worker描述")
-    strategy_id: int = Field(..., description="关联策略ID")
-    exchange: str = Field(default="binance", description="交易所")
-    symbol: str = Field(default="BTCUSDT", description="交易对")
-    timeframe: str = Field(default="1h", description="时间周期")
-    market_type: str = Field(default="spot", description="市场类型: spot/future")
-    trading_mode: str = Field(default="paper", description="交易模式: paper/live")
+    strategy_id: Optional[int] = Field(default=None, description="关联策略ID")
 
 
 class WorkerCreate(WorkerBase):
     """创建Worker请求模型"""
+    # 交易配置（新格式）
+    trading_config: Optional[TradingConfig] = Field(None, description="交易配置")
+    # 兼容旧版本的字段
+    exchange: Optional[str] = Field(default="binance", description="交易所")
+    symbols: Optional[List[str]] = Field(default=None, description="交易对列表")
+    symbol: Optional[str] = Field(default=None, description="交易对（单数形式，兼容前端）")  # 前端发送的是单数形式
+    timeframe: Optional[str] = Field(default="1h", description="时间周期")
+    market_type: Optional[str] = Field(default="spot", description="市场类型: spot/future")
+    trading_mode: Optional[str] = Field(default="paper", description="交易模式: paper/live")
+    # 其他配置
     cpu_limit: int = Field(default=1, ge=1, le=8, description="CPU核心数限制")
     memory_limit: int = Field(default=512, ge=128, le=8192, description="内存限制(MB)")
     env_vars: Optional[Dict[str, str]] = Field(default=None, description="环境变量")
@@ -33,8 +55,11 @@ class WorkerUpdate(BaseModel):
     """更新Worker请求模型"""
     name: Optional[str] = Field(None, description="Worker名称")
     description: Optional[str] = Field(None, description="Worker描述")
+    # 交易配置（新格式）
+    trading_config: Optional[TradingConfig] = Field(None, description="交易配置")
+    # 兼容旧版本的字段
     exchange: Optional[str] = Field(None, description="交易所")
-    symbol: Optional[str] = Field(None, description="交易对")
+    symbols: Optional[List[str]] = Field(None, description="交易对列表")
     timeframe: Optional[str] = Field(None, description="时间周期")
     trading_mode: Optional[str] = Field(None, description="交易模式")
     cpu_limit: Optional[int] = Field(None, ge=1, le=8, description="CPU核心数限制")
@@ -52,10 +77,22 @@ class WorkerResponse(WorkerBase):
     id: int = Field(..., description="Worker ID")
     status: str = Field(..., description="Worker状态")
     pid: Optional[int] = Field(None, description="进程ID")
+    # 交易配置（新格式）
+    trading_config: Optional[TradingConfig] = Field(None, description="交易配置")
+    # 兼容旧版本字段
+    exchange: Optional[str] = Field(None, description="交易所")
+    symbols: Optional[List[str]] = Field(None, description="交易对列表")
+    timeframe: Optional[str] = Field(None, description="时间周期")
+    market_type: Optional[str] = Field(None, description="市场类型")
+    trading_mode: Optional[str] = Field(None, description="交易模式")
+    cpu_limit: Optional[int] = Field(None, description="CPU核心数限制")
+    memory_limit: Optional[int] = Field(None, description="内存限制(MB)")
+    config: Optional[Dict[str, Any]] = Field(None, description="Worker配置")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
     started_at: Optional[datetime] = Field(None, description="启动时间")
     stopped_at: Optional[datetime] = Field(None, description="停止时间")
+    total_profit: Optional[float] = Field(None, description="总收益")
 
     class Config:
         from_attributes = True

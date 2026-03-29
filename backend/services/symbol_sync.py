@@ -11,7 +11,7 @@
 import asyncio
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -90,6 +90,7 @@ class SymbolSyncManager:
             "username": username,
             "password": password
         }
+        logger.info(f"代理配置已设置: enabled={enabled}, url={url}")
 
     def _pause_scheduled_sync(self) -> bool:
         """暂停即将执行的定时同步任务
@@ -105,7 +106,9 @@ class SymbolSyncManager:
             job = self._scheduler.get_job("sync_crypto_symbols")
             if job and job.next_run_time:
                 # 计算距离下次执行的时间
-                time_until_next = (job.next_run_time - datetime.now()).total_seconds()
+                # 使用带时区的当前时间进行比较
+                now_aware = datetime.now(timezone.utc)
+                time_until_next = (job.next_run_time - now_aware).total_seconds()
                 # 如果下次执行在5分钟内，暂停该任务
                 if time_until_next < 300:
                     logger.info(f"暂停定时同步任务，距离下次执行还有 {time_until_next:.0f} 秒")
@@ -226,6 +229,7 @@ class SymbolSyncManager:
         for attempt in range(1, self._max_retries + 1):
             try:
                 logger.info(f"开始第 {attempt}/{self._max_retries} 次同步尝试")
+                logger.info(f"当前代理配置: enabled={self._proxy_config['enabled']}, url={self._proxy_config['url']}")
 
                 result = sync_crypto_symbols(
                     exchange=exchange,

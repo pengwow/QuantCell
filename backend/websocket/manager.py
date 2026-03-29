@@ -104,28 +104,54 @@ class ConnectionManager:
             logger.error(f"[ZMQ] 服务启动失败: {e}")
     
     async def process_messages(self):
-        """处理消息队列中的消息"""
+        """处理消息队列中的消息（优化版：批量处理）"""
         logger.info("消息处理循环已启动")
         while True:
             try:
                 # 从队列获取消息
                 if self.message_queue:
                     message = await self.message_queue.get()
-                    
-                    # 处理消息
-                    topic = message.get("topic")
-                    if topic:
-                        await self.broadcast(message, topic)
-                    
-                    # 标记消息为已处理
-                    self.message_queue.task_done()
+
+                    # 批量收集消息
+                    messages_batch = [message]
+                    # 尝试获取更多消息（非阻塞）
+                    for _ in range(self.batch_size - 1):
+                        try:
+                            msg = self.message_queue.get_nowait()
+                            messages_batch.append(msg)
+                        except asyncio.QueueEmpty:
+                            break
+
+                    # 按主题分组批量处理
+                    topic_messages = {}
+                    for msg in messages_batch:
+                        topic = msg.get("topic")
+                        if topic:
+                            if topic not in topic_messages:
+                                topic_messages[topic] = []
+                            topic_messages[topic].append(msg)
+
+                    # 并发处理不同主题的消息
+                    tasks = []
+                    for topic, msgs in topic_messages.items():
+                        # 对于同一主题的消息，只发送最新的一条（K线数据只需要最新值）
+                        if msgs:
+                            latest_msg = msgs[-1]  # 取最新的一条
+                            tasks.append(self.broadcast(latest_msg, topic))
+
+                    if tasks:
+                        await asyncio.gather(*tasks, return_exceptions=True)
+
+                    # 标记所有消息为已处理
+                    for _ in messages_batch:
+                        self.message_queue.task_done()
                 else:
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.01)  # 减少等待时间
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"处理消息时出错: {e}")
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.01)
     
     async def queue_message(self, message: Dict[str, Any], topic: Optional[str] = None):
         """将消息加入队列
@@ -375,34 +401,35 @@ class ConnectionManager:
                 await self.disconnect(client_id)
     
     async def broadcast(self, message: Dict[str, Any], topic: Optional[str] = None):
-        """广播消息
+        """广播消息（优化版：使用并发发送）
 
         Args:
             message: 消息内容
             topic: 主题名称，为None时广播给所有客户端
         """
-        logger.debug(f"广播消息: type={message.get('type')}, topic={topic}")
-        logger.debug(f"当前订阅状态: {dict((k, list(v)) for k, v in self.subscriptions.items())}")
-        logger.debug(f"当前活跃连接: {list(self.active_connections.keys())}")
-        
         if topic and topic in self.subscriptions:
             # 只广播给订阅了该主题的客户端
             client_ids = list(self.subscriptions[topic])
             if len(client_ids) > 0:
-                logger.debug(f"广播给订阅了 {topic} 的客户端: {client_ids}")
-                for client_id in client_ids:
-                    await self.send_personal_message(message, client_id)
-            else:
-                logger.warning(f"主题 {topic} 没有客户端订阅，消息未发送")
+                # 使用 asyncio.gather 并发发送消息
+                tasks = [
+                    self.send_personal_message(message, client_id)
+                    for client_id in client_ids
+                ]
+                await asyncio.gather(*tasks, return_exceptions=True)
         elif topic:
             # 有主题但没有客户端订阅
-            logger.warning(f"主题 {topic} 没有客户端订阅，消息未发送")
+            logger.debug(f"主题 {topic} 没有客户端订阅，消息未发送")
         else:
             # 广播给所有客户端
             client_ids = list(self.active_connections.keys())
-            logger.info(f"广播给所有客户端: {client_ids}")
-            for client_id in client_ids:
-                await self.send_personal_message(message, client_id)
+            if client_ids:
+                # 使用 asyncio.gather 并发发送消息
+                tasks = [
+                    self.send_personal_message(message, client_id)
+                    for client_id in client_ids
+                ]
+                await asyncio.gather(*tasks, return_exceptions=True)
 
 
 # 创建全局连接管理器实例

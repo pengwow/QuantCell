@@ -108,44 +108,67 @@ class BinanceWebSocketClient(AbstractExchangeClient):
     async def disconnect(self) -> bool:
         """
         断开WebSocket连接
-        
+
         Returns:
             bool: 断开是否成功
         """
         try:
             self._connected = False
-            
+
             # 取消接收任务
             if self._receive_task:
-                self._receive_task.cancel()
                 try:
-                    await self._receive_task
+                    self._receive_task.cancel()
+                    # 等待任务取消，设置超时
+                    await asyncio.wait_for(
+                        asyncio.shield(self._receive_task),
+                        timeout=2.0
+                    )
                 except asyncio.CancelledError:
                     pass
-                self._receive_task = None
-            
+                except asyncio.TimeoutError:
+                    logger.warning("接收任务取消超时")
+                except Exception as e:
+                    logger.warning(f"等待接收任务取消时出错: {e}")
+                finally:
+                    self._receive_task = None
+
             # 关闭所有活跃的socket
+            close_tasks = []
             for channel, socket in list(self._active_sockets.items()):
                 try:
                     if hasattr(socket, 'close'):
-                        await socket.close()
+                        close_tasks.append(socket.close())
                 except Exception as e:
-                    logger.warning(f"Error closing socket {channel}: {e}")
+                    logger.warning(f"准备关闭socket {channel} 时出错: {e}")
+
+            if close_tasks:
+                try:
+                    await asyncio.gather(*close_tasks, return_exceptions=True)
+                except Exception as e:
+                    logger.warning(f"关闭socket时出错: {e}")
+
             self._active_sockets.clear()
-            
+
             # 关闭客户端连接
             if self._client:
                 try:
-                    await self._client.close_connection()
+                    await asyncio.wait_for(
+                        self._client.close_connection(),
+                        timeout=3.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("关闭客户端连接超时")
                 except Exception as e:
-                    logger.warning(f"Error closing client connection: {e}")
-                self._client = None
-            
+                    logger.warning(f"关闭客户端连接时出错: {e}")
+                finally:
+                    self._client = None
+
             self._socket_manager = None
-            
+
             logger.info("Binance WebSocket client disconnected")
             return True
-            
+
         except Exception as e:
             logger.error(f"Error disconnecting Binance WebSocket: {e}")
             return False
@@ -304,12 +327,47 @@ class BinanceWebSocketClient(AbstractExchangeClient):
     
     async def _receive_messages(self):
         """
-        后台任务：接收所有活跃socket的消息
+        后台任务：接收所有活跃socket的消息（优化版：并发接收）
         包含连接断开检测和自动重连逻辑
         """
         consecutive_errors = 0
         max_consecutive_errors = 5
-        
+
+        async def receive_from_socket(channel: str, socket):
+            """从单个socket接收消息"""
+            try:
+                # 检查socket是否已关闭
+                if hasattr(socket, '_conn') and socket._conn is None:
+                    logger.warning(f"Socket {channel} connection is None, removing")
+                    return {'type': 'socket_closed', 'channel': channel}
+
+                # 使用asyncio.wait_for设置超时
+                msg = await asyncio.wait_for(socket.recv(), timeout=0.1)
+
+                if msg:
+                    # 解析消息
+                    data = json.loads(msg) if isinstance(msg, str) else msg
+                    # 添加频道信息
+                    data['channel'] = channel
+                    return {'type': 'message', 'data': data}
+
+            except asyncio.TimeoutError:
+                # 超时是正常的
+                return None
+            except Exception as e:
+                error_msg = str(e).lower()
+                # 检查是否是连接关闭的错误
+                if 'read loop has been closed' in error_msg or \
+                   'websocket connection is closed' in error_msg or \
+                   'connection reset' in error_msg:
+                    logger.warning(f"Socket {channel} connection closed: {e}")
+                    return {'type': 'socket_closed', 'channel': channel}
+                else:
+                    logger.error(f"Error receiving message from {channel}: {e}")
+                    return {'type': 'error', 'channel': channel, 'error': e}
+
+            return None
+
         try:
             while self._connected:
                 try:
@@ -318,57 +376,52 @@ class BinanceWebSocketClient(AbstractExchangeClient):
                     if current_time - self._last_ping_time > self._ping_interval:
                         # 更新ping时间
                         self._last_ping_time = current_time
-                    
-                    # 遍历所有活跃的socket
-                    for channel, socket in list(self._active_sockets.items()):
-                        try:
-                            # 检查socket是否已关闭
-                            if hasattr(socket, '_conn') and socket._conn is None:
-                                logger.warning(f"Socket {channel} connection is None, removing")
-                                self._active_sockets.pop(channel, None)
-                                continue
-                            
-                            # 使用asyncio.wait_for设置超时
-                            msg = await asyncio.wait_for(socket.recv(), timeout=1.0)
-                            
-                            if msg:
-                                # 重置连续错误计数
-                                consecutive_errors = 0
-                                
-                                # 解析消息
-                                data = json.loads(msg) if isinstance(msg, str) else msg
-                                
-                                # 添加频道信息
-                                data['channel'] = channel
 
-                                # 调用回调
+                    # 并发从所有socket接收消息
+                    if self._active_sockets:
+                        tasks = [
+                            receive_from_socket(channel, socket)
+                            for channel, socket in self._active_sockets.items()
+                        ]
+
+                        # 等待所有任务完成，设置整体超时
+                        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                        # 处理结果
+                        has_message = False
+                        for result in results:
+                            if isinstance(result, Exception):
+                                consecutive_errors += 1
+                                continue
+
+                            if result is None:
+                                continue
+
+                            if result['type'] == 'message':
+                                has_message = True
+                                consecutive_errors = 0
+                                data = result['data']
+
+                                # 调用回调（使用create_task避免阻塞）
                                 for callback in self._callbacks:
                                     try:
                                         callback(data)
                                     except Exception as e:
                                         logger.error(f"[KlinePush] 回调函数执行失败: {e}")
-                                
-                        except asyncio.TimeoutError:
-                            # 超时是正常的，继续下一个
-                            continue
-                        except Exception as e:
-                            error_msg = str(e).lower()
-                            # 检查是否是连接关闭的错误
-                            if 'read loop has been closed' in error_msg or \
-                               'websocket connection is closed' in error_msg or \
-                               'connection reset' in error_msg:
-                                logger.warning(f"Socket {channel} connection closed: {e}")
+
+                            elif result['type'] == 'socket_closed':
+                                channel = result['channel']
                                 self._active_sockets.pop(channel, None)
                                 consecutive_errors += 1
-                            else:
-                                logger.error(f"Error receiving message from {channel}: {e}")
+
+                            elif result['type'] == 'error':
                                 consecutive_errors += 1
-                    
+
                     # 如果没有活跃的socket，退出循环
                     if not self._active_sockets and self.subscribed_channels:
                         logger.warning("No active sockets but channels still subscribed")
                         consecutive_errors += 1
-                    
+
                     # 如果连续错误过多，尝试重连
                     if consecutive_errors >= max_consecutive_errors:
                         logger.warning(f"Too many consecutive errors ({consecutive_errors}), attempting reconnect")
@@ -377,15 +430,15 @@ class BinanceWebSocketClient(AbstractExchangeClient):
                         else:
                             logger.error("Reconnection failed")
                             break
-                    
-                    # 短暂休眠避免CPU占用过高
-                    await asyncio.sleep(0.01)
-                    
+
+                    # 短暂休眠避免CPU占用过高（如果没有消息，减少CPU使用）
+                    await asyncio.sleep(0.001 if has_message else 0.01)
+
                 except Exception as e:
                     logger.error(f"Error in message receive loop: {e}")
                     consecutive_errors += 1
                     await asyncio.sleep(1.0)
-                
+
         except asyncio.CancelledError:
             logger.info("Message receive task cancelled")
         except Exception as e:

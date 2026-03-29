@@ -66,9 +66,6 @@ class RealtimeEngine:
 
             data_type = message.get('data_type', 'unknown')
 
-            # 记录总消息数
-            self.monitor.record_message(data_type, False)
-
             # 处理消息
             processed_message = self.data_processor.process_message(message)
 
@@ -86,8 +83,8 @@ class RealtimeEngine:
                 self.data_distributor.distribute(processed_message)
             else:
                 # 记录处理失败的消息
-                logger.warning(f"[KlinePush] 消息处理失败，processed_message 为 None")
-                self.monitor.record_message(message.get('data_type', 'unknown'), False)
+                logger.warning(f"[KlinePush] 消息处理失败，processed_message 为 None，原始消息类型: {data_type}")
+                self.monitor.record_message(data_type, False)
 
         except Exception as e:
             logger.error(f"[KlinePush] 处理消息失败: {e}")
@@ -265,6 +262,11 @@ class RealtimeEngine:
             logger.info("交易所连接已断开")
             return True
 
+        except asyncio.CancelledError:
+            # 正常取消，不记录错误
+            logger.info("断开交易所连接时被取消")
+            self.connected = False
+            return True
         except Exception as e:
             logger.error(f"断开交易所连接失败: {e}")
             logger.exception(e)
@@ -310,10 +312,18 @@ class RealtimeEngine:
 
         try:
             # 断开交易所连接
-            await self.disconnect_exchange()
+            try:
+                await self.disconnect_exchange()
+            except Exception as e:
+                logger.error(f"断开交易所连接时出错: {e}")
+                logger.exception(e)
 
             # 停止监控器
-            self.monitor.stop()
+            try:
+                self.monitor.stop()
+            except Exception as e:
+                logger.error(f"停止监控器时出错: {e}")
+                logger.exception(e)
 
             # 清理客户端
             for exchange_name in self.ws_manager.get_all_clients():
@@ -392,8 +402,8 @@ class RealtimeEngine:
             bool: 取消订阅是否成功
         """
         if not self.running:
-            logger.error("实时引擎未运行")
-            return False
+            logger.warning("实时引擎未运行，无需取消订阅")
+            return True
 
         if not self.connected:
             logger.warning("交易所未连接，无需取消订阅")

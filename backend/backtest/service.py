@@ -181,7 +181,7 @@ class BacktestService:
             from backend.backtest.cli_core import CLICore, get_system_config
         
         from utils.validation import parse_symbols, parse_timeframes
-        from collector.db.models import BacktestTask, BacktestResult
+        from backtest.models import BacktestTask, BacktestResult
         
         try:
             # 更新数据准备阶段进度
@@ -1359,7 +1359,7 @@ class BacktestService:
 
         try:
             from collector.db.database import SessionLocal, init_database_config
-            from collector.db.models import BacktestTask, BacktestResult
+            from backtest.models import BacktestTask, BacktestResult
             import json
 
             # 初始化数据库连接
@@ -1703,7 +1703,7 @@ class BacktestService:
         """
         try:
             from collector.db.database import SessionLocal, init_database_config
-            from collector.db.models import BacktestTask
+            from backtest.models import BacktestTask
             import json
             from datetime import datetime, timezone
             
@@ -1774,7 +1774,7 @@ class BacktestService:
         """
         try:
             from collector.db.database import SessionLocal, init_database_config
-            from collector.db.models import BacktestResult
+            from backtest.models import BacktestResult
             import json
             
             logger.info(f"开始分析回测结果，回测ID: {backtest_id}")
@@ -1821,7 +1821,7 @@ class BacktestService:
                 }
                 
                 # 获取回测配置
-                from collector.db.models import BacktestTask
+                from backtest.models import BacktestTask
                 task = db.query(BacktestTask).filter_by(id=result_record.task_id).first()
                 if task:
                     result["backtest_config"] = json.loads(task.backtest_config)
@@ -1910,7 +1910,7 @@ class BacktestService:
         """
         try:
             from collector.db.database import SessionLocal, init_database_config
-            from collector.db.models import BacktestTask, BacktestResult
+            from backtest.models import BacktestTask, BacktestResult
             
             success = False
             
@@ -1973,7 +1973,7 @@ class BacktestService:
         """
         try:
             from collector.db.database import SessionLocal, init_database_config
-            from collector.db.models import BacktestTask, BacktestResult
+            from backtest.models import BacktestTask, BacktestResult
             import json
             
             # 初始化数据库配置
@@ -2215,7 +2215,7 @@ class BacktestService:
             
             # 从数据库获取回测任务和结果（与回测详情接口一致）
             from collector.db.database import SessionLocal, init_database_config
-            from collector.db.models import BacktestTask, BacktestResult
+            from backtest.models import BacktestTask, BacktestResult
             import json
             
             init_database_config()
@@ -2433,7 +2433,7 @@ class BacktestService:
             # 优先从数据库查询回测结果
             try:
                 from collector.db.database import SessionLocal, init_database_config
-                from collector.db.models import BacktestResult
+                from backtest.models import BacktestResult
                 
                 # 初始化数据库配置
                 init_database_config()

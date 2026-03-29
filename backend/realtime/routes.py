@@ -343,7 +343,22 @@ async def unsubscribe_channels(channels: List[str]):
                 "code": 1,
                 "message": "实时引擎未初始化",
                 "data": {
-                    "success": False
+                    "success": False,
+                    "engine_status": "not_initialized"
+                }
+            }
+
+        # 检查引擎运行状态
+        status = realtime_engine.get_status()
+        if status.get("status") != "running":
+            logger.warning(f"取消订阅时实时引擎未运行，当前状态: {status.get('status')}")
+            return {
+                "code": 1,
+                "message": "实时引擎未运行",
+                "data": {
+                    "success": False,
+                    "engine_status": status.get("status", "unknown"),
+                    "connected": status.get("connected", False)
                 }
             }
 

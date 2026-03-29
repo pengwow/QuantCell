@@ -30,10 +30,37 @@ engine = None
 # 所有SQLAlchemy模型都将继承自这个类
 Base = declarative_base()
 
+# 注意：策略模型定义在 strategy/models.py 中，使用相同的 Base
+# 确保在创建表之前导入 strategy.models
+
 # 创建会话工厂
 # autocommit=False: 不自动提交事务
 # autoflush=False: 不自动刷新会话
 SessionLocal = sessionmaker(autocommit=False, autoflush=False)
+
+
+def _import_all_models():
+    """导入所有模型模块，确保 SQLAlchemy 关系正确解析
+
+    这个函数在 init_database_config 中被调用，确保所有模型类
+    在 SQLAlchemy 配置 mapper 之前被加载。
+    """
+    # 导入所有模型模块
+    # 顺序很重要：先导入不依赖其他模型的，再导入依赖的
+    try:
+        from strategy import models as strategy_models  # noqa: F401
+    except ImportError:
+        pass
+
+    try:
+        from worker import models as worker_models  # noqa: F401
+    except ImportError:
+        pass
+
+    try:
+        from collector.db import models as collector_models  # noqa: F401
+    except ImportError:
+        pass
 
 # 初始化数据库配置
 
@@ -64,17 +91,20 @@ def fix_duckdb_serial_type(conn, cursor, statement, parameters, context, execute
 
 def init_database_config():
     """初始化数据库配置
-    
+
     延迟加载配置，避免循环导入问题
     支持从环境变量或默认配置读取数据库类型
     """
     # 声明global变量
     global db_type, db_url, engine
-    
+
     # 只初始化一次
     if engine is not None:
         return
-    
+
+    # 首先导入所有模型，确保 SQLAlchemy 关系正确解析
+    _import_all_models()
+
     # 从环境变量读取数据库类型和文件路径，支持配置文件覆盖
     # 避免调用get_config()，防止循环导入
 

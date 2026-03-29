@@ -591,7 +591,7 @@ class CLICore:
         """
         try:
             from collector.db.database import init_database_config, SessionLocal
-            from collector.db.models import BacktestTask, BacktestResult
+            from backtest.models import BacktestTask, BacktestResult
             from sqlalchemy import func
             
             # 初始化数据库

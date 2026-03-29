@@ -164,25 +164,45 @@ class WebSocketManager:
     async def disconnect_all(self) -> bool:
         """
         断开所有注册的客户端连接
-        
+
         Returns:
             bool: 所有客户端是否都断开成功
         """
         logger.info(f"正在断开所有交易所客户端连接，共 {len(self.clients)} 个")
-        
-        tasks = [client.disconnect() for client in self.clients.values()]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        success_count = 0
-        for i, result in enumerate(results):
-            if isinstance(result, bool) and result:
-                success_count += 1
-            else:
-                exchange_name = list(self.clients.keys())[i]
-                logger.error(f"断开交易所客户端连接失败: {exchange_name}, 错误: {result}")
-        
-        logger.info(f"断开连接完成，成功 {success_count} 个，失败 {len(results) - success_count} 个")
-        return success_count == len(results)
+
+        if not self.clients:
+            return True
+
+        tasks = []
+        for exchange_name, client in self.clients.items():
+            try:
+                tasks.append(client.disconnect())
+            except Exception as e:
+                logger.error(f"准备断开客户端 {exchange_name} 时出错: {e}")
+
+        if not tasks:
+            return True
+
+        try:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            success_count = 0
+            client_names = list(self.clients.keys())
+            for i, result in enumerate(results):
+                if i < len(client_names):
+                    exchange_name = client_names[i]
+                    if isinstance(result, bool) and result:
+                        success_count += 1
+                    elif isinstance(result, Exception):
+                        logger.error(f"断开交易所客户端连接失败: {exchange_name}, 错误: {result}")
+                    else:
+                        logger.error(f"断开交易所客户端连接失败: {exchange_name}, 结果: {result}")
+
+            logger.info(f"断开连接完成，成功 {success_count} 个，失败 {len(results) - success_count} 个")
+            return success_count == len(results)
+        except Exception as e:
+            logger.error(f"断开所有客户端连接时发生异常: {e}")
+            return False
     
     async def _process_messages(self) -> None:
         """
@@ -270,21 +290,42 @@ class WebSocketManager:
         # 设置运行标志为False
         self.running = False
         
-        # 等待任务完成
-        if self.task:
-            await asyncio.wait_for(self.task, timeout=5)
-            self.task = None
-        
-        if self.reconnect_task:
-            await asyncio.wait_for(self.reconnect_task, timeout=5)
-            self.reconnect_task = None
-        
-        # 断开所有客户端连接
-        await self.disconnect_all()
-        
-        logger.info("WebSocket连接管理器停止成功")
-        return True
-    
+        try:
+            # 等待任务完成
+            if self.task:
+                try:
+                    await asyncio.wait_for(self.task, timeout=5)
+                except asyncio.CancelledError:
+                    logger.debug("消息处理任务已取消")
+                except asyncio.TimeoutError:
+                    logger.warning("消息处理任务超时，强制取消")
+                    self.task.cancel()
+                finally:
+                    self.task = None
+
+            if self.reconnect_task:
+                try:
+                    await asyncio.wait_for(self.reconnect_task, timeout=5)
+                except asyncio.CancelledError:
+                    logger.debug("重连任务已取消")
+                except asyncio.TimeoutError:
+                    logger.warning("重连任务超时，强制取消")
+                    self.reconnect_task.cancel()
+                finally:
+                    self.reconnect_task = None
+
+            # 断开所有客户端连接
+            try:
+                await self.disconnect_all()
+            except Exception as e:
+                logger.error(f"断开客户端连接时出错: {e}")
+
+            logger.info("WebSocket连接管理器停止成功")
+            return True
+        except Exception as e:
+            logger.error(f"停止WebSocket连接管理器时出错: {e}")
+            return False
+
     async def restart(self) -> bool:
         """
         重启WebSocket连接管理器

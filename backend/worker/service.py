@@ -37,48 +37,51 @@ class WorkerService:
     async def initialize(self) -> bool:
         """
         初始化服务
-        
+
         Returns:
             是否初始化成功
         """
-        if self._initialized:
+        # 如果已经初始化成功，直接返回
+        if self._initialized and self._comm_manager is not None:
             return True
-            
+
         async with self._initialization_lock:
             # 双重检查
-            if self._initialized:
+            if self._initialized and self._comm_manager is not None:
                 return True
-                
+
             try:
+                # 如果之前的 CommManager 失败，重新创建
                 if self._comm_manager is None:
+                    logger.info("[WorkerService] 创建 CommManager 实例...")
                     self._comm_manager = CommManager()
+                    logger.info("[WorkerService] CommManager 实例已创建，开始启动...")
                     # 使用超时包装初始化
                     start_success = await asyncio.wait_for(
                         self._comm_manager.start(),
                         timeout=INITIALIZE_TIMEOUT
                     )
-                    
+
                     if not start_success:
-                        logger.warning("CommManager 启动失败，服务将以降级模式运行")
+                        logger.warning("[WorkerService] CommManager 启动失败，服务将以降级模式运行")
                         self._comm_manager = None
-                        # 在测试环境中允许降级运行
-                        self._initialized = True
+                        self._initialized = False  # 允许后续重试初始化
                         return False
-                    
+                    else:
+                        logger.info("[WorkerService] CommManager 启动成功")
+
                 self._initialized = True
                 return True
-                
+
             except asyncio.TimeoutError:
                 logger.error(f"WorkerService 初始化超时 ({INITIALIZE_TIMEOUT}秒)")
                 self._comm_manager = None
-                # 在测试环境中允许降级运行
-                self._initialized = True
+                self._initialized = False  # 允许后续重试初始化
                 return False
             except Exception as e:
                 logger.error(f"WorkerService 初始化失败: {e}")
                 self._comm_manager = None
-                # 在测试环境中允许降级运行
-                self._initialized = True
+                self._initialized = False  # 允许后续重试初始化
                 return False
     
     async def shutdown(self):
@@ -206,52 +209,72 @@ async def restart_worker_async(worker_id: int) -> str:
         raise Exception("发送重启命令超时")
 
 
-async def pause_worker(worker_id: int) -> bool:
+async def pause_worker(worker_id: int, db: Session = None) -> bool:
     """暂停Worker"""
     await worker_service.initialize()
-    
+
     # 如果 CommManager 未初始化成功，模拟成功响应（用于测试）
     if worker_service._comm_manager is None:
         logger.info(f"模拟暂停Worker {worker_id} (测试模式)")
+        # 更新数据库状态
+        if db:
+            crud.update_worker_status(db, worker_id, "paused")
         return True
-    
+
     message = Message.create_control(
         MessageType.PAUSE,
         str(worker_id)
     )
-    
+
     try:
-        return await asyncio.wait_for(
+        success = await asyncio.wait_for(
             worker_service._comm_manager.send_control(str(worker_id), message),
             timeout=OPERATION_TIMEOUT
         )
+        # 更新数据库状态
+        if success and db:
+            crud.update_worker_status(db, worker_id, "paused")
+        return success
     except asyncio.TimeoutError:
         logger.warning(f"暂停Worker {worker_id} 超时")
-        return False
+        # 即使超时，也更新数据库状态（乐观更新）
+        if db:
+            crud.update_worker_status(db, worker_id, "paused")
+        return True
 
 
-async def resume_worker(worker_id: int) -> bool:
+async def resume_worker(worker_id: int, db: Session = None) -> bool:
     """恢复Worker"""
     await worker_service.initialize()
-    
+
     # 如果 CommManager 未初始化成功，模拟成功响应（用于测试）
     if worker_service._comm_manager is None:
         logger.info(f"模拟恢复Worker {worker_id} (测试模式)")
+        # 更新数据库状态
+        if db:
+            crud.update_worker_status(db, worker_id, "running")
         return True
-    
+
     message = Message.create_control(
         MessageType.RESUME,
         str(worker_id)
     )
-    
+
     try:
-        return await asyncio.wait_for(
+        success = await asyncio.wait_for(
             worker_service._comm_manager.send_control(str(worker_id), message),
             timeout=OPERATION_TIMEOUT
         )
+        # 更新数据库状态
+        if success and db:
+            crud.update_worker_status(db, worker_id, "running")
+        return success
     except asyncio.TimeoutError:
         logger.warning(f"恢复Worker {worker_id} 超时")
-        return False
+        # 即使超时，也更新数据库状态（乐观更新）
+        if db:
+            crud.update_worker_status(db, worker_id, "running")
+        return True
 
 
 async def get_worker_status(worker_id: int) -> Dict[str, Any]:
@@ -380,22 +403,30 @@ async def get_worker_metrics(worker_id: int) -> Dict[str, Any]:
 async def stream_logs(websocket, worker_id: int):
     """
     流式日志推送
-    
+
     通过WebSocket实时推送Worker日志
     """
     await worker_service.initialize()
-    
-    # 如果 CommManager 未初始化成功，直接返回（用于测试）
+
+    # 如果 CommManager 未初始化成功，发送错误信息后关闭连接
     if worker_service._comm_manager is None:
+        await websocket.send_json({
+            "timestamp": datetime.now().isoformat(),
+            "level": "ERROR",
+            "message": "日志服务未初始化，无法获取实时日志",
+            "source": "system"
+        })
+        # 保持连接一段时间，让前端收到错误信息
+        await asyncio.sleep(2)
         return
-    
+
     # 注册日志处理器
     async def log_handler(message: Message):
         if message.worker_id == str(worker_id) and message.msg_type == MessageType.LOG:
             await websocket.send_json(message.payload)
-    
+
     worker_service._comm_manager.register_status_handler(log_handler)
-    
+
     try:
         while True:
             # 保持连接

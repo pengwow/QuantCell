@@ -16,17 +16,36 @@ from . import schemas
 def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
     """创建Worker"""
     import json
+
+    # 处理交易标的：优先使用 symbols 列表，如果没有则使用 symbol 单数
+    if worker_data.symbols and len(worker_data.symbols) > 0:
+        symbols = worker_data.symbols
+    elif worker_data.symbol:
+        symbols = [worker_data.symbol]
+    else:
+        symbols = ["BTCUSDT"]
+
+    # 构建交易配置
+    trading_config = {
+        "exchange": worker_data.exchange or "binance",
+        "symbols_config": {
+            "type": "symbols",  # 默认为直接货币对模式
+            "symbols": symbols,
+            "pool_id": None,
+            "pool_name": None
+        },
+        "timeframe": worker_data.timeframe or "1h",
+        "market_type": worker_data.market_type or "spot",
+        "trading_mode": worker_data.trading_mode or "paper"
+    }
+
     db_worker = Worker(
         name=worker_data.name,
         description=worker_data.description,
         strategy_id=worker_data.strategy_id,
-        exchange=worker_data.exchange,
-        symbol=worker_data.symbol,
-        timeframe=worker_data.timeframe,
-        market_type=worker_data.market_type,
-        trading_mode=worker_data.trading_mode,
-        cpu_limit=worker_data.cpu_limit,
-        memory_limit=worker_data.memory_limit,
+        trading_config=json.dumps(trading_config),
+        cpu_limit=worker_data.cpu_limit or 1,
+        memory_limit=worker_data.memory_limit or 512,
         env_vars=json.dumps(worker_data.env_vars) if worker_data.env_vars else '{}',
         config=json.dumps(worker_data.config) if worker_data.config else '{}',
         status="stopped",
@@ -112,16 +131,12 @@ def clone_worker(db: Session, worker_id: int, request: schemas.WorkerCloneReques
     source_worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not source_worker:
         raise ValueError("源Worker不存在")
-    
+
     new_worker = Worker(
         name=request.new_name,
         description=source_worker.description,
         strategy_id=source_worker.strategy_id,
-        exchange=source_worker.exchange,
-        symbol=source_worker.symbol,
-        timeframe=source_worker.timeframe,
-        market_type=source_worker.market_type,
-        trading_mode=source_worker.trading_mode,
+        trading_config=source_worker.trading_config if request.copy_config else '{}',
         cpu_limit=source_worker.cpu_limit,
         memory_limit=source_worker.memory_limit,
         env_vars=source_worker.env_vars if request.copy_config else '{}',
@@ -133,7 +148,7 @@ def clone_worker(db: Session, worker_id: int, request: schemas.WorkerCloneReques
     db.add(new_worker)
     db.commit()
     db.refresh(new_worker)
-    
+
     # 复制参数
     if request.copy_parameters:
         params = db.query(WorkerParameter).filter(WorkerParameter.worker_id == worker_id).all()
@@ -147,7 +162,7 @@ def clone_worker(db: Session, worker_id: int, request: schemas.WorkerCloneReques
             )
             db.add(new_param)
         db.commit()
-    
+
     return new_worker
 
 
@@ -174,14 +189,14 @@ def update_worker_status(db: Session, worker_id: int, status: str, pid: Optional
 
 # Worker日志操作
 
-def create_worker_log(db: Session, worker_id: int, level: str, message: str, source: str = "worker") -> WorkerLog:
+def create_worker_log(db: Session, worker_id: int, level: str, message: str, source: str = "worker", timestamp: Optional[datetime] = None) -> WorkerLog:
     """创建Worker日志"""
     log = WorkerLog(
         worker_id=worker_id,
         level=level,
         message=message,
         source=source,
-        timestamp=datetime.now()
+        timestamp=timestamp if timestamp else datetime.now()
     )
     db.add(log)
     db.commit()

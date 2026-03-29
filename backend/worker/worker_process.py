@@ -8,6 +8,7 @@ import multiprocessing
 import asyncio
 import signal
 import os
+import logging
 from typing import Dict, Any, Optional, Callable, List
 from datetime import datetime
 from utils.logger import get_logger, LogType
@@ -16,6 +17,7 @@ from utils.logger import get_logger, LogType
 logger = get_logger(__name__, LogType.APPLICATION)
 from .ipc import WorkerCommClient, Message, MessageType
 from .state import WorkerState, WorkerStatus
+from .log_handler import WorkerLogHandler, WorkerLoguruInterceptor
 
 
 class WorkerProcess(multiprocessing.Process):
@@ -63,12 +65,18 @@ class WorkerProcess(multiprocessing.Process):
         self._messages_processed = 0
         self._orders_placed = 0
 
+        # 日志处理器
+        self._log_handler: Optional[WorkerLogHandler] = None
+
     def run(self):
         """
         进程主入口
 
         这是进程启动时调用的方法，设置进程环境并启动主循环
         """
+        # 调试：记录子进程中的 worker_id
+        logger.info(f"[WorkerProcess.run] 子进程启动，worker_id={self.worker_id}, pid={os.getpid()}")
+
         # 设置进程标题
         try:
             import setproctitle
@@ -103,22 +111,39 @@ class WorkerProcess(multiprocessing.Process):
         初始化并运行 Worker 的主要逻辑
         """
         try:
+            logger.info(f"[_main_loop] Worker {self.worker_id} 开始执行 _main_loop")
+
             # 1. 初始化通信连接
+            logger.info(f"[_main_loop] Worker {self.worker_id} 开始 _init_comm")
             await self._init_comm()
+            logger.info(f"[_main_loop] Worker {self.worker_id} _init_comm 完成")
 
             # 2. 加载策略（在进程内部加载，确保隔离）
+            logger.info(f"[_main_loop] Worker {self.worker_id} 开始 _load_strategy")
             await self._load_strategy()
+            logger.info(f"[_main_loop] Worker {self.worker_id} _load_strategy 完成")
 
             # 3. 订阅数据
+            logger.info(f"[_main_loop] Worker {self.worker_id} 开始 _subscribe_data")
             await self._subscribe_data()
+            logger.info(f"[_main_loop] Worker {self.worker_id} _subscribe_data 完成")
 
             # 4. 启动完成，发送状态更新
-            self.status.update_state(WorkerState.RUNNING)
-            await self._send_status(MessageType.STATUS_UPDATE)
+            # 状态流转: INITIALIZED -> STARTING -> RUNNING
+            logger.info(f"[_main_loop] Worker {self.worker_id} 准备更新状态为 STARTING")
+            self.status.update_state(WorkerState.STARTING)
+            logger.info(f"[_main_loop] Worker {self.worker_id} 状态已更新为 STARTING")
 
-            logger.info(f"Worker {self.worker_id} 启动完成，开始运行")
+            logger.info(f"[_main_loop] Worker {self.worker_id} 准备更新状态为 RUNNING")
+            self.status.update_state(WorkerState.RUNNING)
+            logger.info(f"[_main_loop] Worker {self.worker_id} 状态已更新为 RUNNING，准备发送状态消息")
+            send_result = await self._send_status(MessageType.STATUS_UPDATE)
+            logger.info(f"[_main_loop] Worker {self.worker_id} 状态消息发送结果: {send_result}")
+
+            logger.info(f"[_main_loop] Worker {self.worker_id} 启动完成，开始运行")
 
             # 5. 主循环 - 等待关闭信号
+            logger.info(f"[WorkerProcess] Worker {self.worker_id} 进入主循环，等待 _shutdown_event...")
             while not self._shutdown_event.is_set():
                 if self._pause_event.is_set():
                     # 暂停状态
@@ -130,9 +155,11 @@ class WorkerProcess(multiprocessing.Process):
 
                 # 等待一段时间
                 await asyncio.sleep(5)
+            
+            logger.info(f"[WorkerProcess] Worker {self.worker_id} 主循环退出，_shutdown_event 已设置")
 
         except Exception as e:
-            logger.error(f"Worker {self.worker_id} 主循环异常: {e}")
+            logger.error(f"[WorkerProcess] Worker {self.worker_id} 主循环异常: {e}")
             self.status.update_state(WorkerState.ERROR)
             self.status.record_error(str(e))
             await self._send_status(MessageType.ERROR)
@@ -159,51 +186,228 @@ class WorkerProcess(multiprocessing.Process):
         if not success:
             raise RuntimeError("无法连接到通信服务")
 
+        # 初始化日志处理器
+        self._init_log_handler()
+
         self.status.update_state(WorkerState.INITIALIZED)
         logger.info(f"Worker {self.worker_id} 通信连接已建立")
+
+    def _init_log_handler(self):
+        """初始化日志处理器"""
+        try:
+            # 创建日志处理器
+            self._log_handler = WorkerLogHandler(
+                worker_id=self.worker_id,
+                comm_client=self.comm_client,
+                level=logging.INFO
+            )
+            # 设置格式
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            self._log_handler.setFormatter(formatter)
+
+            # 添加到根日志器
+            root_logger = logging.getLogger()
+            root_logger.addHandler(self._log_handler)
+
+            # 添加 loguru 拦截器
+            # 注意：需要在 UnifiedLogger 初始化后添加，因为它会调用 remove()
+            from loguru import logger as loguru_logger
+            self._loguru_interceptor = WorkerLoguruInterceptor(self._log_handler)
+            # 使用 sink 参数指定拦截器，并设置 enqueue=False 避免线程问题
+            loguru_logger.add(
+                self._loguru_interceptor, 
+                level="INFO",
+                enqueue=False,  # 禁用内部队列，直接使用我们的队列
+                format="{message}",  # 简化格式
+            )
+
+            logger.info(f"Worker {self.worker_id} 日志处理器已初始化")
+        except Exception as e:
+            logger.error(f"初始化日志处理器失败: {e}")
 
     async def _load_strategy(self):
         """
         动态加载策略
 
-        在进程内部动态加载策略模块，确保策略代码的隔离性
+        在进程内部动态加载策略模块，确保策略代码的隔离性。
+        优先从数据库加载策略代码，如果数据库中没有则从文件系统加载。
         """
         try:
             import importlib.util
             import sys
+            import types
 
-            # 动态加载策略模块
+            # 优先使用从 config 传递的策略代码
+            strategy_code: Optional[str] = self.config.get("strategy_code")
+            strategy_name: Optional[str] = None
+
+            if strategy_code:
+                logger.info(f"Worker {self.worker_id} 使用从配置传递的策略代码")
+            else:
+                # 尝试从数据库加载策略代码
+                try:
+                    # 导入数据库相关模块
+                    from collector.db.database import init_database_config, SessionLocal
+                    from strategy.models import Strategy
+
+                    # 初始化数据库配置
+                    init_database_config()
+
+                    # 从数据库获取策略代码
+                    db = SessionLocal()
+                    try:
+                        strategy_id = self.config.get("strategy_id")
+                        if strategy_id:
+                            strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+                            if strategy is not None:
+                                code = getattr(strategy, 'code', None)
+                                name = getattr(strategy, 'name', None)
+                                if code:
+                                    strategy_code = str(code)
+                                    strategy_name = str(name) if name else None
+                                    logger.info(f"Worker {self.worker_id} 从数据库加载策略: {name}")
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.warning(f"从数据库加载策略失败，尝试从文件加载: {e}")
+
+                # 如果从数据库加载失败，尝试从文件加载
+                if not strategy_code:
+                    if not self.strategy_path or not os.path.exists(self.strategy_path):
+                        raise ImportError(f"策略文件不存在: {self.strategy_path}")
+
+                    with open(self.strategy_path, 'r', encoding='utf-8') as f:
+                        strategy_code = f.read()
+                    logger.info(f"Worker {self.worker_id} 从文件加载策略: {self.strategy_path}")
+
+            # 动态创建模块
             module_name = f"strategy_{self.worker_id}"
-            spec = importlib.util.spec_from_file_location(
-                module_name, self.strategy_path
-            )
-            if spec is None or spec.loader is None:
-                raise ImportError(f"无法加载策略文件: {self.strategy_path}")
-
-            module = importlib.util.module_from_spec(spec)
+            module = types.ModuleType(module_name)
             sys.modules[module_name] = module
-            spec.loader.exec_module(module)
+
+            # 执行策略代码
+            if strategy_code:
+                exec(strategy_code, module.__dict__)
+            else:
+                raise ImportError("策略代码为空")
 
             # 获取策略类
             strategy_class_name = self.config.get("strategy_class", "Strategy")
+            logger.info(f"[_load_strategy] 尝试获取策略类: {strategy_class_name}")
             strategy_class = getattr(module, strategy_class_name, None)
+            logger.info(f"[_load_strategy] getattr 结果: {strategy_class}")
+
+            # 检查获取的类是否有效（不能是基类）
+            from strategy.core import StrategyBase
+            if strategy_class is not None:
+                is_valid = True
+                # 排除基类名称
+                if strategy_class_name in ["StrategyBase", "Strategy"]:
+                    is_valid = False
+                    logger.info(f"[_load_strategy] 策略类名 {strategy_class_name} 是基类名称，需要重新查找")
+                # 排除抽象基类
+                elif isinstance(strategy_class, type):
+                    try:
+                        if issubclass(strategy_class, StrategyBase) and strategy_class is StrategyBase:
+                            is_valid = False
+                            logger.info(f"[_load_strategy] 策略类 {strategy_class_name} 是 StrategyBase 基类，需要重新查找")
+                    except TypeError:
+                        pass
+
+                if not is_valid:
+                    strategy_class = None
+
             if strategy_class is None:
-                # 尝试查找第一个类
+                # 尝试查找策略类（优先查找继承自 StrategyBase 的类）
+                import typing
+                logger.info(f"[_load_strategy] 开始遍历模块查找策略类")
+
+                # 第一轮：查找继承自 StrategyBase 的具体策略类
                 for attr_name in dir(module):
                     attr = getattr(module, attr_name)
-                    if isinstance(attr, type) and attr_name not in ["StrategyBase"]:
+                    is_type = isinstance(attr, type)
+                    not_excluded_name = attr_name not in ["StrategyBase", "Strategy", "object"]
+                    not_private = not attr_name.startswith("_")
+                    not_typing = (attr is not typing.Any and
+                                 attr is not typing.Dict and
+                                 attr is not typing.List and
+                                 attr is not typing.Optional and
+                                 not hasattr(typing, attr_name))
+
+                    # 检查是否是 StrategyBase 的子类（但不是 StrategyBase 本身）
+                    is_strategy_subclass = False
+                    if is_type and not_excluded_name and not_private and not_typing:
+                        try:
+                            is_strategy_subclass = (issubclass(attr, StrategyBase) and attr is not StrategyBase)
+                        except TypeError:
+                            pass
+
+                    logger.info(f"[_load_strategy] 第一轮检查类 {attr_name}: is_type={is_type}, is_strategy_subclass={is_strategy_subclass}")
+
+                    if is_strategy_subclass:
                         strategy_class = attr
+                        logger.info(f"[_load_strategy] 第一轮找到策略类: {attr_name} -> {attr}")
                         break
 
+                # 第二轮：如果没有找到，查找其他有效的类
+                if strategy_class is None:
+                    logger.info(f"[_load_strategy] 第二轮：查找其他有效的类")
+                    for attr_name in dir(module):
+                        attr = getattr(module, attr_name)
+                        is_type = isinstance(attr, type)
+                        not_excluded_name = attr_name not in ["StrategyBase", "Strategy", "object"]
+                        not_private = not attr_name.startswith("_")
+                        not_typing = (attr is not typing.Any and
+                                     attr is not typing.Dict and
+                                     attr is not typing.List and
+                                     attr is not typing.Optional and
+                                     not hasattr(typing, attr_name))
+                        # 排除 StrategyBase 本身
+                        is_strategy_base_itself = False
+                        if is_type:
+                            try:
+                                is_strategy_base_itself = (issubclass(attr, StrategyBase) and attr is StrategyBase)
+                            except TypeError:
+                                pass
+                        not_strategy_base_itself = not is_strategy_base_itself
+
+                        logger.info(f"[_load_strategy] 第二轮检查类 {attr_name}: is_type={is_type}, not_excluded_name={not_excluded_name}, not_private={not_private}, not_typing={not_typing}, not_strategy_base_itself={not_strategy_base_itself}")
+
+                        if (is_type and
+                            not_excluded_name and
+                            not_private and
+                            not_typing and
+                            not_strategy_base_itself):
+                            strategy_class = attr
+                            logger.info(f"[_load_strategy] 第二轮找到策略类: {attr_name} -> {attr}")
+                            break
+
             if strategy_class is None:
-                raise ImportError(f"在 {self.strategy_path} 中未找到策略类")
+                raise ImportError(f"在策略代码中未找到策略类")
 
             # 实例化策略
-            strategy_params = self.config.get("params", {})
-            self.strategy = strategy_class(strategy_params)
+            # 检查是否是 Nautilus 格式的策略（继承自 StrategyBase）
+            from strategy.core import StrategyBase
+            is_nautilus_strategy = False
+            try:
+                is_nautilus_strategy = issubclass(strategy_class, StrategyBase)
+            except TypeError:
+                pass  # strategy_class 不是类
+
+            logger.info(f"[_load_strategy] 策略类 {strategy_class.__name__} 是 Nautilus 策略: {is_nautilus_strategy}")
+
+            if is_nautilus_strategy:
+                # Nautilus 格式策略 - 需要创建配置对象
+                self.strategy = self._create_nautilus_strategy(strategy_class, module)
+            else:
+                # 旧格式策略 - 使用字典参数
+                strategy_params = self.config.get("params", {})
+                self.strategy = strategy_class(strategy_params)
 
             # 更新状态信息
-            self.status.strategy_name = strategy_class.__name__
+            self.status.strategy_name = strategy_name or strategy_class.__name__
 
             # 调用策略初始化
             if hasattr(self.strategy, "on_init"):
@@ -214,6 +418,100 @@ class WorkerProcess(multiprocessing.Process):
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 加载策略失败: {e}")
             raise
+
+    def _create_nautilus_strategy(self, strategy_class, module):
+        """
+        创建 Nautilus 格式的策略实例
+
+        Nautilus 策略需要配置对象作为构造函数参数
+        """
+        from strategy.core import StrategyConfig, InstrumentId
+        from decimal import Decimal
+
+        # 获取配置类
+        config_class = None
+        config_class_name = strategy_class.__name__ + "Config"
+        if hasattr(module, config_class_name):
+            config_class = getattr(module, config_class_name)
+        else:
+            # 使用默认的 StrategyConfig
+            config_class = StrategyConfig
+
+        # 从配置中获取交易品种
+        symbols = self.config.get("symbols", ["BTCUSDT"])
+        exchange = self.config.get("exchange", "binance")
+        timeframe = self.config.get("timeframe", "1h")
+
+        # 创建 InstrumentId 列表
+        instrument_ids = [
+            InstrumentId(symbol, exchange.upper())
+            for symbol in symbols
+        ]
+
+        # 转换时间周期格式 (e.g., "1h" -> "1-HOUR")
+        bar_type = self._convert_timeframe_to_bar_type(timeframe)
+        bar_types = [bar_type] * len(instrument_ids)
+
+        # 获取策略参数
+        params = self.config.get("params", {})
+
+        # 创建配置对象
+        try:
+            # 尝试使用策略特定的配置类
+            if config_class != StrategyConfig:
+                config = config_class(
+                    instrument_ids=instrument_ids,
+                    bar_types=bar_types,
+                    **params
+                )
+            else:
+                # 使用默认配置
+                config = StrategyConfig(
+                    instrument_ids=instrument_ids,
+                    bar_types=bar_types,
+                    trade_size=Decimal("0.1"),
+                    log_level="INFO"
+                )
+        except Exception as e:
+            logger.warning(f"创建配置对象失败，使用默认配置: {e}")
+            config = StrategyConfig(
+                instrument_ids=instrument_ids,
+                bar_types=bar_types,
+                trade_size=Decimal("0.1"),
+                log_level="INFO"
+            )
+
+        # 创建策略实例
+        strategy = strategy_class(config)
+        logger.info(f"创建 Nautilus 策略实例: {strategy_class.__name__}，品种: {symbols}")
+        return strategy
+
+    def _convert_timeframe_to_bar_type(self, timeframe: str) -> str:
+        """
+        将时间周期转换为 Nautilus bar type 格式
+
+        e.g., "1m" -> "1-MINUTE", "1h" -> "1-HOUR"
+        """
+        unit_map = {
+            "m": "MINUTE",
+            "h": "HOUR",
+            "d": "DAY",
+            "w": "WEEK",
+            "M": "MONTH",
+        }
+
+        if not timeframe:
+            return "1-HOUR"
+
+        # 解析时间周期 (e.g., "1h", "15m")
+        import re
+        match = re.match(r"(\d+)([mhdwM])", timeframe)
+        if match:
+            value, unit = match.groups()
+            bar_type = f"{value}-{unit_map.get(unit, 'HOUR')}"
+            return bar_type
+
+        return "1-HOUR"
 
     async def _subscribe_data(self):
         """
@@ -292,10 +590,12 @@ class WorkerProcess(multiprocessing.Process):
 
     async def _handle_stop(self):
         """处理停止命令"""
-        logger.info(f"Worker {self.worker_id} 收到停止命令")
+        logger.info(f"[WorkerProcess] Worker {self.worker_id} 收到停止命令，准备停止...")
         self.status.update_state(WorkerState.STOPPING)
         await self._send_status(MessageType.STATUS_UPDATE)
+        logger.info(f"[WorkerProcess] Worker {self.worker_id} 设置 _shutdown_event")
         self._shutdown_event.set()
+        logger.info(f"[WorkerProcess] Worker {self.worker_id} _shutdown_event 已设置")
 
     async def _handle_pause(self):
         """处理暂停命令"""
@@ -358,20 +658,35 @@ class WorkerProcess(multiprocessing.Process):
         self.status.update_heartbeat()
         await self._send_status(MessageType.HEARTBEAT)
 
-    async def _send_status(self, msg_type: MessageType):
+    async def _send_status(self, msg_type: MessageType) -> bool:
         """
         发送状态消息
 
         Args:
             msg_type: 消息类型
+
+        Returns:
+            是否发送成功
         """
         if self.comm_client:
+            # 调试：记录消息创建时的详细信息
+            status_dict = self.status.to_dict()
+            logger.info(f"[_send_status] 创建消息: worker_id={self.worker_id}, msg_type={msg_type}, state={self.status.state.name}")
+            logger.info(f"[_send_status] status_dict: {status_dict}")
+
             message = Message(
                 msg_type=msg_type,
                 worker_id=self.worker_id,
-                payload=self.status.to_dict(),
+                payload=status_dict,
             )
-            await self.comm_client.send_status(message)
+            logger.info(f"[_send_status] 消息对象: worker_id={message.worker_id}, msg_type={message.msg_type}")
+
+            result = await self.comm_client.send_status(message)
+            logger.info(f"[_send_status] Worker {self.worker_id} 状态消息发送结果: {result}")
+            return result
+        else:
+            logger.warning(f"[_send_status] Worker {self.worker_id} comm_client 为 None，无法发送状态")
+            return False
 
     def _handle_signal(self, signum, frame):
         """
@@ -391,20 +706,53 @@ class WorkerProcess(multiprocessing.Process):
         logger.info(f"Worker {self.worker_id} 开始清理资源")
 
         # 调用策略清理方法
+        logger.info(f"[WorkerProcess] Worker {self.worker_id} 开始清理策略...")
         if self.strategy and hasattr(self.strategy, "on_stop"):
             try:
+                logger.info(f"[WorkerProcess] Worker {self.worker_id} 调用策略 on_stop...")
                 await self._call_strategy_method("on_stop")
+                logger.info(f"[WorkerProcess] Worker {self.worker_id} 策略 on_stop 完成")
             except Exception as e:
-                logger.error(f"策略清理错误: {e}")
+                logger.error(f"[WorkerProcess] Worker {self.worker_id} 策略清理错误: {e}")
+        else:
+            logger.info(f"[WorkerProcess] Worker {self.worker_id} 策略无需清理或无 on_stop 方法")
 
-        # 断开通信连接
+        # 停止日志处理器
+        logger.info(f"[WorkerProcess] Worker {self.worker_id} 开始停止日志处理器...")
+        if self._log_handler:
+            try:
+                logger.info(f"[WorkerProcess] Worker {self.worker_id} 调用 _log_handler.stop()...")
+                self._log_handler.stop()
+                logger.info(f"[WorkerProcess] Worker {self.worker_id} _log_handler.stop() 返回")
+                root_logger = logging.getLogger()
+                root_logger.removeHandler(self._log_handler)
+                logger.info(f"[WorkerProcess] Worker {self.worker_id} 日志处理器已从 root_logger 移除")
+            except Exception as e:
+                logger.error(f"[WorkerProcess] Worker {self.worker_id} 停止日志处理器错误: {e}")
+        else:
+            logger.info(f"[WorkerProcess] Worker {self.worker_id} 无日志处理器需要停止")
+
+        # 断开通信连接（使用超时避免阻塞）
+        logger.info(f"[WorkerProcess] Worker {self.worker_id} 开始断开通信连接...")
         if self.comm_client:
-            await self.comm_client.disconnect()
+            try:
+                # 使用 asyncio.wait_for 设置超时
+                import asyncio
+                logger.info(f"[WorkerProcess] Worker {self.worker_id} 调用 comm_client.disconnect()...")
+                await asyncio.wait_for(self.comm_client.disconnect(), timeout=5.0)
+                logger.info(f"[WorkerProcess] Worker {self.worker_id} 通信连接已断开")
+            except asyncio.TimeoutError:
+                logger.warning(f"[WorkerProcess] Worker {self.worker_id} 断开通信连接超时")
+            except Exception as e:
+                logger.error(f"[WorkerProcess] Worker {self.worker_id} 断开通信连接错误: {e}")
+        else:
+            logger.info(f"[WorkerProcess] Worker {self.worker_id} 无通信客户端需要断开")
 
         # 更新状态
+        logger.info(f"[WorkerProcess] Worker {self.worker_id} 更新状态为 STOPPED...")
         self.status.update_state(WorkerState.STOPPED)
 
-        logger.info(f"Worker {self.worker_id} 资源清理完成")
+        logger.info(f"[WorkerProcess] Worker {self.worker_id} 资源清理完成，进程即将退出")
 
     def stop(self):
         """

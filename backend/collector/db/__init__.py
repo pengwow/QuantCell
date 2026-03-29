@@ -3,7 +3,7 @@
 from .connection import get_db_connection, init_db
 from .models import (
     DataPool, DataPoolBusiness, SystemConfig,
-    SystemConfigBusiness, BacktestTask, BacktestResult, Strategy
+    SystemConfigBusiness
 )
 
 __all__ = [
@@ -12,8 +12,5 @@ __all__ = [
     "SystemConfig",
     "SystemConfigBusiness",
     "DataPool",
-    "DataPoolBusiness",
-    "BacktestTask",
-    "BacktestResult",
-    "Strategy"
+    "DataPoolBusiness"
 ]

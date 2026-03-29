@@ -6,7 +6,7 @@ from utils.logger import get_logger, LogType
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.database import SessionLocal, init_database_config
-from collector.db.models import BacktestResult, BacktestTask
+from backtest.models import BacktestResult, BacktestTask
 from strategy.service import StrategyService
 
 class DemoService:
