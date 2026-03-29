@@ -30,7 +30,7 @@ import {
   StarFilled,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import type { CreateWorkerRequest } from '../../types/worker';
+
 import { useWorkerStore } from '../../store/workerStore';
 import { strategyApi, dataApi, configApi } from '../../api';
 
@@ -102,13 +102,28 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const fetchStrategies = async () => {
     setLoadingStrategies(true);
     try {
-      const response = await strategyApi.getStrategies() as { strategies: any[] };
-      // 参考 StrategyManagement.tsx 的处理方式
-      if (response && response.strategies) {
-        setStrategies(response.strategies);
-      } else {
-        setStrategies([]);
+      const response = await strategyApi.getStrategies() as any;
+      console.log('策略列表响应:', response);
+
+      // 处理多种可能的响应格式
+      let strategyList: any[] = [];
+
+      if (Array.isArray(response)) {
+        // 格式: [...]
+        strategyList = response;
+      } else if (response?.strategies) {
+        // 格式: { strategies: [...] }
+        strategyList = response.strategies;
+      } else if (response?.data?.strategies) {
+        // 格式: { data: { strategies: [...] } }
+        strategyList = response.data.strategies;
+      } else if (response?.data?.strategies?.[0]) {
+        // 格式: { data: { strategies: [[...]] } } - 嵌套数组
+        strategyList = response.data.strategies[0];
       }
+
+      console.log('解析后的策略列表:', strategyList);
+      setStrategies(strategyList);
     } catch (error) {
       console.error('获取策略列表失败:', error);
       message.error('获取策略列表失败');
@@ -265,27 +280,27 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
       const values = await form.validateFields();
       setLoading(true);
 
-      // 处理交易标的：将数据池展开为内部的所有货币对
-      const processedSymbols: string[] = [];
-      values.symbols?.forEach((s: string) => {
-        if (s.startsWith('pool_')) {
-          // 如果是数据池，找到对应的数据池并展开其中的货币对
-          const pool = symbolOptions.find((opt) => opt.value === s);
-          if (pool && pool.symbols) {
-            processedSymbols.push(...pool.symbols);
-          }
-        } else {
-          // 直接交易标的
-          processedSymbols.push(s);
+      // 处理交易标的：后端期望单个 symbol 字符串
+      let selectedSymbol = values.symbol || '';
+      if (selectedSymbol.startsWith('pool_')) {
+        // 如果是数据池，找到对应的数据池并取第一个货币对
+        const pool = symbolOptions.find((opt) => opt.value === selectedSymbol);
+        if (pool && pool.symbols && pool.symbols.length > 0) {
+          selectedSymbol = pool.symbols[0];
         }
-      });
+      }
 
-      const requestData: CreateWorkerRequest = {
+      // 确保 strategy_id 是数字类型
+      const strategyId = typeof values.strategy_id === 'string'
+        ? parseInt(values.strategy_id, 10)
+        : values.strategy_id;
+
+      const requestData = {
         name: values.name,
         description: values.description,
-        strategy_id: values.strategy_id,
+        strategy_id: strategyId,
         exchange: values.exchange,
-        symbols: processedSymbols.map((s: string) => s.toUpperCase()),
+        symbol: selectedSymbol.toUpperCase(),
         timeframe: values.timeframe,
         market_type: values.market_type,
         trading_mode: values.trading_mode,
@@ -401,12 +416,26 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                 notFoundContent={loadingStrategies ? <Spin size="small" /> : '暂无策略'}
               >
                 {strategies
-                  .filter((strategy) => strategy.id !== undefined && strategy.id !== null)
-                  .map((strategy) => (
-                    <Option key={strategy.id} value={strategy.id}>
-                      {strategy.name}
-                    </Option>
-                  ))}
+                  .filter((strategy) => {
+                    // 策略必须有 name 字段才能被选择
+                    const hasName = strategy.name !== undefined && strategy.name !== null && strategy.name !== '';
+                    console.log('策略:', strategy.name, 'id:', strategy.id, 'hasName:', hasName);
+                    return hasName;
+                  })
+                  .map((strategy) => {
+                    // 如果没有 id，使用 name 的 hash 作为 id（与后端逻辑一致）
+                    const strategyId = strategy.id !== undefined && strategy.id !== null
+                      ? strategy.id
+                      : Math.abs(strategy.name.split('').reduce((a: number, b: string) => {
+                          a = ((a << 5) - a) + b.charCodeAt(0);
+                          return a & a;
+                        }, 0)) % 2147483647 + 1;
+                    return (
+                      <Option key={strategyId} value={strategyId}>
+                        {strategy.name}
+                      </Option>
+                    );
+                  })}
               </Select>
             </Form.Item>
           </Col>
@@ -449,7 +478,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
           </Col>
           <Col span={12}>
             <Form.Item
-              name="symbols"
+              name="symbol"
               label={
                 <Space>
                   {t('trading_target')}
@@ -458,10 +487,9 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                   </Tooltip>
                 </Space>
               }
-              rules={[{ required: true, message: t('please_select_trading_target'), type: 'array' }]}
+              rules={[{ required: true, message: t('please_select_trading_target') }]}
             >
               <Select
-                mode="multiple"
                 placeholder={t('select_trading_target')}
                 loading={loadingSymbols}
                 showSearch
@@ -478,25 +506,6 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                   );
                 }}
                 notFoundContent={loadingSymbols ? <Spin size="small" /> : t('no_trading_target')}
-                maxTagCount={3}
-                tagRender={(props) => {
-                  const { value, closable, onClose } = props;
-                  const option = symbolOptions.find((opt) => opt.value === value);
-                  const label = option?.poolName || value;
-                  return (
-                    <span className="ant-select-selection-item">
-                      <span className="ant-select-selection-item-content">{label}</span>
-                      {closable && (
-                        <span
-                          className="ant-select-selection-item-remove"
-                          onClick={onClose}
-                        >
-                          ×
-                        </span>
-                      )}
-                    </span>
-                  );
-                }}
               >
                 {symbolOptions.map((option) => (
                   <Option key={option.value} value={option.value}>

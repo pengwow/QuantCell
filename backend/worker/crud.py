@@ -9,8 +9,8 @@ from sqlalchemy import desc, and_
 from typing import List, Optional, Tuple, Dict, Any
 from datetime import datetime, timedelta
 
-from . import schemas
 from .models import Worker, WorkerLog, WorkerMetric, WorkerPerformance, WorkerParameter, WorkerTrade
+from . import schemas
 
 
 def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:

@@ -303,6 +303,11 @@ class StrategyService:
             if strategy_info:
                 # 添加来源字段
                 strategy_info["source"] = "files"
+                # 为文件系统策略生成一个基于名称的ID（使用名称的哈希值）
+                import hashlib
+                name_hash = int(hashlib.md5(strategy_info["name"].encode()).hexdigest(), 16)
+                # 确保是正整数且在合理范围内
+                strategy_info["id"] = (name_hash % 2147483647) + 1
             return strategy_info
         except Exception as e:
             logger.error(f"解析策略文件失败: {file_path}, 错误: {e}")
