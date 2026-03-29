@@ -31,6 +31,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import type { Worker, UpdateWorkerRequest } from '../../types/worker';
 import { useWorkerStore } from '../../store/workerStore';
+import { dataApi } from '../../api';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -72,6 +73,39 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
 
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('basic');
+  const [symbolOptions, setSymbolOptions] = useState<any[]>([]);
+  const [loadingSymbols, setLoadingSymbols] = useState(false);
+
+  // 获取交易对列表
+  const fetchSymbols = async () => {
+    setLoadingSymbols(true);
+    try {
+      const response = await dataApi.getCryptoSymbols({
+        limit: 2000,
+        offset: 0,
+      });
+
+      // API 已经通过拦截器解包，response 直接是 data 字段的内容
+      // 结构为: { symbols: [...], total: ..., offset: ..., limit: ..., exchange: ... }
+      const symbolList = response?.symbols || [];
+
+      if (Array.isArray(symbolList)) {
+        const options = symbolList.map((item: any) => {
+          const symbolValue = typeof item === 'string' ? item : (item.symbol || item.name || String(item));
+          return {
+            label: symbolValue,
+            value: symbolValue,
+          };
+        });
+        setSymbolOptions(options);
+      }
+    } catch (error) {
+      console.error('获取交易对失败:', error);
+      setSymbolOptions([]);
+    } finally {
+      setLoadingSymbols(false);
+    }
+  };
 
   // 当worker变化时，设置表单值
   useEffect(() => {
@@ -88,6 +122,8 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         max_position_size: worker.config?.max_position_size || 0.1,
         leverage: worker.config?.leverage || 1,
       });
+      // 加载交易对列表
+      fetchSymbols();
     }
   }, [visible, worker, form]);
 
@@ -221,7 +257,19 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                     placeholder={t('select_trading_target')}
                     allowClear
                     maxTagCount={3}
-                  />
+                    loading={loadingSymbols}
+                    showSearch
+                    filterOption={(input, option) => {
+                      const value = option?.value as string;
+                      return value?.toLowerCase().includes(input.toLowerCase());
+                    }}
+                  >
+                    {symbolOptions.map((option) => (
+                      <Option key={option.value} value={option.value}>
+                        {option.label}
+                      </Option>
+                    ))}
+                  </Select>
                 </Form.Item>
               </Col>
               <Col span={12}>

@@ -12,6 +12,10 @@ from datetime import datetime, timedelta
 from .. import schemas, crud, service
 from ..dependencies import get_db, get_current_user
 from collector.db.database import get_db as get_db_session
+from utils.logger import get_logger, LogType
+
+# 获取模块日志器
+logger = get_logger(__name__, LogType.APPLICATION)
 
 router = APIRouter(
     prefix="/api/workers",
@@ -198,6 +202,50 @@ async def batch_operation(
 
 # ==================== 生命周期管理模块 ====================
 
+# 全局 WorkerManager 实例（单例模式）
+_worker_manager = None
+
+def _on_worker_exit(worker_id: str, worker_status):
+    """
+    Worker 退出回调函数
+    
+    当 Worker 进程异常退出时，更新数据库状态
+    """
+    try:
+        # 创建数据库会话
+        from collector.db.database import SessionLocal
+        db = SessionLocal()
+        try:
+            # 获取 Worker 记录
+            from .. import crud
+            worker = crud.get_worker(db, int(worker_id))
+            if worker and worker.status == "running":
+                # 更新状态为 stopped
+                worker.status = "stopped"
+                worker.pid = None
+                worker.started_at = None
+                worker.stopped_at = datetime.now()
+                db.commit()
+                logger.info(f"Worker {worker_id} 异常退出，数据库状态已更新为 stopped")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Worker 退出回调处理失败: {e}")
+
+async def get_worker_manager():
+    """获取 WorkerManager 实例（懒加载）"""
+    global _worker_manager
+    if _worker_manager is None:
+        from ..manager import WorkerManager
+        _worker_manager = WorkerManager()
+        # 注册 Worker 退出回调
+        _worker_manager.register_worker_exit_callback(_on_worker_exit)
+        # 启动 WorkerManager
+        await _worker_manager.start()
+        logger.info("WorkerManager 初始化并启动完成，已注册退出回调")
+    return _worker_manager
+
+
 @router.post("/{worker_id}/lifecycle/start", response_model=schemas.ApiResponse)
 async def start_worker(
     worker_id: int,
@@ -208,25 +256,187 @@ async def start_worker(
     """
     启动Worker
     
-    异步启动Worker进程，通过ZeroMQ发送启动命令
+    创建并启动Worker进程，通过ZeroMQ进行进程间通信
     """
     try:
         worker = crud.get_worker(db, worker_id)
         if not worker:
             raise HTTPException(status_code=404, detail="Worker不存在")
         
-        # 异步启动Worker
-        task_id = await service.start_worker_async(worker_id)
+        # 检查 Worker 是否已在运行
+        if worker.status == "running":
+            return schemas.ApiResponse(
+                code=0,
+                message="Worker已在运行中",
+                data={"worker_id": worker_id, "status": "running"}
+            )
+        
+        # 获取 WorkerManager 实例
+        manager = await get_worker_manager()
+        
+        # 获取策略信息（优先使用数据库中的 code 字段）
+        strategy_path = None
+        strategy_code = None
+        if worker.strategy_id:
+            # 从策略表中获取策略信息
+            from strategy.models import Strategy
+            strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
+            if strategy:
+                # 优先使用数据库中的 code 字段
+                if strategy.code:
+                    strategy_code = strategy.code
+                    logger.info(f"使用数据库策略代码 (策略: {strategy.name}, ID: {strategy.id})")
+                # 如果没有 code，尝试使用 file_name 构建路径
+                elif strategy.file_name:
+                    strategy_path = f"strategies/{strategy.file_name}"
+                    logger.info(f"使用策略路径: {strategy_path} (策略: {strategy.name})")
+                else:
+                    # 回退：使用策略ID作为文件名
+                    strategy_path = f"strategies/{worker.strategy_id}.py"
+                    logger.warning(f"策略代码和文件均未找到，使用默认路径: {strategy_path}")
+            else:
+                # 回退：使用策略ID作为文件名
+                strategy_path = f"strategies/{worker.strategy_id}.py"
+                logger.warning(f"策略未找到，使用默认路径: {strategy_path}")
+
+        # 记录实际使用的策略路径
+        if strategy_path:
+            logger.info(f"Worker {worker_id} 使用策略路径: {strategy_path}")
+        if strategy_code:
+            logger.info(f"Worker {worker_id} 使用数据库策略代码")
+
+        # 从 trading_config 获取交易配置
+        trading_config = worker.get_trading_config_dict()
+        symbols_config = trading_config.get('symbols_config', {})
+        symbols = symbols_config.get('symbols', ['BTCUSDT'])
+        
+        # 准备策略配置
+        config = {
+            "strategy_id": worker.strategy_id,
+            "exchange": trading_config.get('exchange', 'binance'),
+            "symbol": symbols[0] if symbols else 'BTCUSDT',  # 兼容旧版本，使用第一个货币对
+            "symbols": symbols,  # 传递所有货币对
+            "timeframe": trading_config.get('timeframe', '1h'),
+            "market_type": trading_config.get('market_type', 'spot'),
+            "trading_mode": trading_config.get('trading_mode', 'paper'),
+            "cpu_limit": worker.cpu_limit,
+            "memory_limit": worker.memory_limit,
+            "config": worker.get_config_dict(),
+            "strategy_code": strategy_code,  # 传递策略代码
+        }
+        
+        # 先更新状态为 starting，表示正在启动中
+        logger.info(f"[start_worker] Worker {worker_id} 状态变更: {worker.status} -> starting")
+        worker.status = "starting"
+        worker.started_at = datetime.now()
+        db.commit()
+        logger.info(f"[start_worker] Worker {worker_id} 已更新为 starting 状态")
+
+        # 真正创建并启动 Worker 进程
+        logger.info(f"[start_worker] Worker {worker_id} 开始调用 manager.start_strategy()")
+        result_worker_id = await manager.start_strategy(
+            strategy_path=strategy_path,
+            config=config,
+            worker_id=str(worker_id)
+        )
+        logger.info(f"[start_worker] Worker {worker_id} manager.start_strategy() 返回: {result_worker_id}")
+
+        if not result_worker_id:
+            # 启动失败，更新状态为 error
+            logger.error(f"[start_worker] Worker {worker_id} start_strategy 返回 None，更新状态为 error")
+            worker.status = "error"
+            worker.pid = None
+            db.commit()
+            raise HTTPException(status_code=500, detail="Worker启动失败")
+
+        # 等待 Worker 真正启动成功（最多等待10秒）
+        import asyncio
+
+        # 先等待一段时间，让 WorkerManager 启动并准备接收状态
+        logger.info(f"[start_worker] Worker {worker_id} 等待 WorkerManager 启动...")
+        await asyncio.sleep(1)
+
+        start_time = datetime.now()
+        max_wait = 10  # 最大等待10秒
+        check_interval = 0.5  # 每0.5秒检查一次
+
+        worker_started = False
+        check_count = 0
+        logger.info(f"[start_worker] Worker {worker_id} 开始等待 Worker 启动成功，最多等待 {max_wait} 秒")
+        while (datetime.now() - start_time).total_seconds() < max_wait:
+            check_count += 1
+            # 检查 Worker 进程是否还在运行
+            pid = manager.get_worker_pid(str(worker_id))
+            logger.info(f"[start_worker] Worker {worker_id} 第 {check_count} 次检查，pid={pid}")
+            if pid is None:
+                # 进程已经退出，启动失败
+                logger.warning(f"[start_worker] Worker {worker_id} 进程已退出 (pid=None)")
+                break
+
+            # 检查 Worker 是否已发送运行状态
+            worker_id_str = str(worker_id)
+            worker_status = manager.get_worker_status(worker_id_str)
+            logger.info(f"[start_worker] Worker {worker_id} 检查状态: worker_id_str={worker_id_str}, worker_status={worker_status}")
+            if worker_status:
+                logger.info(f"[start_worker] Worker {worker_id} 当前状态: {worker_status.state.name}, 值: {worker_status.state.value}")
+                if worker_status.state.name == "RUNNING":
+                    worker_started = True
+                    logger.info(f"[start_worker] Worker {worker_id} 状态为 RUNNING，启动成功")
+                    break
+            else:
+                logger.warning(f"[start_worker] Worker {worker_id} worker_status 为 None，_worker_status keys: {list(manager._worker_status.keys())}")
+
+            await asyncio.sleep(check_interval)
+
+        logger.info(f"[start_worker] Worker {worker_id} 等待结束，worker_started={worker_started}, 检查次数={check_count}")
+
+        if not worker_started:
+            # Worker 未能在规定时间内进入 RUNNING 状态，启动失败
+            pid = manager.get_worker_pid(str(worker_id))
+            logger.error(f"[start_worker] Worker {worker_id} 未能在规定时间内启动成功，当前 pid={pid}")
+
+            # 无论进程是否还在，都视为启动失败
+            # 如果进程还在，需要停止它
+            if pid is not None:
+                logger.warning(f"[start_worker] Worker {worker_id} 进程仍在运行但未能进入 RUNNING 状态，尝试停止进程")
+                try:
+                    import os
+                    import signal
+                    os.kill(pid, signal.SIGTERM)
+                    logger.info(f"[start_worker] Worker {worker_id} 已发送停止信号")
+                except Exception as e:
+                    logger.error(f"[start_worker] Worker {worker_id} 停止进程失败: {e}")
+
+            # 更新状态为 error
+            logger.error(f"[start_worker] Worker {worker_id} 更新状态为 error")
+            worker.status = "error"
+            worker.pid = None
+            db.commit()
+
+            # 正常返回，但标记为失败（不抛出 500 错误）
+            return schemas.ApiResponse(
+                code=1,
+                message="Worker启动失败：未能在规定时间内进入运行状态",
+                data={"worker_id": worker_id, "status": "error", "pid": None}
+            )
+
+        # Worker 启动成功，更新状态为 running
+        logger.info(f"[start_worker] Worker {worker_id} 启动成功，更新状态为 running")
+        worker.status = "running"
+        worker.pid = manager.get_worker_pid(str(worker_id))
+        db.commit()
+        logger.info(f"[start_worker] Worker {worker_id} 已更新为 running 状态，pid={worker.pid}")
+
         return schemas.ApiResponse(
             code=0,
-            message="Worker启动中",
-            data={"task_id": task_id, "status": "starting"}
+            message="Worker启动成功",
+            data={"worker_id": worker_id, "status": "running", "pid": worker.pid}
         )
+            
     except HTTPException:
-        # 重新抛出 HTTPException 以保持原始状态码
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"启动Worker失败: {str(e)}")
 
 
 @router.post("/{worker_id}/lifecycle/stop", response_model=schemas.ApiResponse)
@@ -238,23 +448,44 @@ async def stop_worker(
     """
     停止Worker
     
-    通过ZeroMQ发送停止命令
+    停止Worker进程并更新数据库状态
     """
     try:
         worker = crud.get_worker(db, worker_id)
         if not worker:
             raise HTTPException(status_code=404, detail="Worker不存在")
         
-        success = await service.stop_worker(worker_id)
-        if success:
+        # 检查 Worker 是否已停止
+        if worker.status == "stopped":
             return schemas.ApiResponse(
                 code=0,
-                message="Worker停止成功"
+                message="Worker已处于停止状态",
+                data={"worker_id": worker_id, "status": "stopped"}
+            )
+        
+        # 获取 WorkerManager 实例并停止 Worker 进程
+        manager = await get_worker_manager()
+        success = await manager.stop_worker(str(worker_id))
+        
+        if success:
+            # 更新 Worker 状态为 stopped
+            worker.status = "stopped"
+            worker.pid = None
+            worker.started_at = None  # 清空启动时间，这样运行时长就不会继续计算
+            worker.stopped_at = datetime.now()
+            db.commit()
+            
+            return schemas.ApiResponse(
+                code=0,
+                message="Worker停止成功",
+                data={"worker_id": worker_id, "status": "stopped"}
             )
         else:
             raise HTTPException(status_code=500, detail="Worker停止失败")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"停止Worker失败: {str(e)}")
 
 
 @router.post("/{worker_id}/lifecycle/restart", response_model=schemas.ApiResponse)
@@ -288,7 +519,7 @@ async def pause_worker(
 ):
     """暂停Worker"""
     try:
-        success = await service.pause_worker(worker_id)
+        success = await service.pause_worker(worker_id, db)
         if success:
             return schemas.ApiResponse(
                 code=0,
@@ -308,7 +539,7 @@ async def resume_worker(
 ):
     """恢复Worker"""
     try:
-        success = await service.resume_worker(worker_id)
+        success = await service.resume_worker(worker_id, db)
         if success:
             return schemas.ApiResponse(
                 code=0,

@@ -243,8 +243,13 @@ export class WorkerLogStream {
    * 连接 WebSocket
    */
   connect(): void {
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/workers/${this.workerId}/monitoring/logs/stream`;
+    // 使用与 API 相同的基础 URL，确保在开发环境中也能正确连接
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '';
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = apiBaseUrl ? apiBaseUrl.replace(/^https?:/, '') : `//${window.location.host}`;
+    const wsUrl = `${wsProtocol}${wsHost}/api/workers/${this.workerId}/monitoring/logs/stream`;
 
+    console.log(`Connecting to WebSocket: ${wsUrl}`);
     this.websocket = new WebSocket(wsUrl);
 
     this.websocket.onopen = () => {

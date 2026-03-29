@@ -98,8 +98,9 @@ def get_strategy_list(source: Optional[str] = None) -> StrategyListResponse:
 
         logger.info(f"成功获取策略列表，共 {len(strategies)} 个策略")
 
+        from .schemas import StrategyListData
         return StrategyListResponse(
-            code=0, message="获取策略列表成功", data={"strategies": strategies}
+            code=0, message="获取策略列表成功", data=StrategyListData(strategies=strategies)
         )
     except HTTPException:
         raise

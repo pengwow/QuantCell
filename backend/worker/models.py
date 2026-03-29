@@ -19,53 +19,60 @@ from collector.db.database import Base
 class Worker(Base):
     """Worker基础模型"""
     __tablename__ = "workers"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, index=True)
     description = Column(Text, nullable=True)
-    
+
     # Worker状态: stopped, running, paused, error, starting, stopping
     status = Column(String(20), default='stopped', index=True)
-    
+
     # 策略关联 - 使用backref避免循环引用问题
+    # 注意：Strategy模型中的workers关系在strategy/models.py中定义
     strategy_id = Column(Integer, ForeignKey('strategies.id'), nullable=True)
     strategy = relationship("Strategy", backref="workers", lazy="joined")
-    
-    # 交易配置
-    exchange = Column(String(50), nullable=False, default='binance')
-    symbol = Column(String(50), nullable=False, default='BTCUSDT')
-    timeframe = Column(String(10), nullable=False, default='1h')
-    market_type = Column(String(20), default='spot')  # spot, future
-    
-    # 交易模式: paper(模拟), live(实盘)
-    trading_mode = Column(String(10), default='paper')
-    
+
+    # 交易配置 (JSON格式，支持复杂配置)
+    # {
+    #   "exchange": "binance",
+    #   "symbols_config": {
+    #     "type": "symbols",  # "symbols" | "pool"
+    #     "symbols": ["BTCUSDT", "ETHUSDT"],
+    #     "pool_id": null,
+    #     "pool_name": null
+    #   },
+    #   "timeframe": "1h",
+    #   "market_type": "spot",
+    #   "trading_mode": "paper"
+    # }
+    trading_config = Column(Text, default='{}')
+
     # 资源配置
     cpu_limit = Column(Integer, default=1)  # CPU核心数
     memory_limit = Column(Integer, default=512)  # 内存限制(MB)
-    
+
     # 运行环境变量(JSON格式)
     env_vars = Column(Text, default='{}')
-    
-    # Worker配置(JSON格式)
+
+    # Worker配置(JSON格式) - 用于存储策略参数等
     config = Column(Text, default='{}')
-    
+
     # 进程信息
     pid = Column(Integer, nullable=True)
-    
+
     # 时间戳
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     started_at = Column(DateTime, nullable=True)
     stopped_at = Column(DateTime, nullable=True)
-    
+
     # 关联关系
     logs = relationship("WorkerLog", back_populates="worker", cascade="all, delete-orphan")
     performance = relationship("WorkerPerformance", back_populates="worker", cascade="all, delete-orphan")
     risk_config = relationship("WorkerRiskControl", back_populates="worker", uselist=False, cascade="all, delete-orphan")
     capital_config = relationship("WorkerCapital", back_populates="worker", uselist=False, cascade="all, delete-orphan")
     parameters = relationship("WorkerParameter", back_populates="worker", cascade="all, delete-orphan")
-    
+
     __table_args__ = (
         UniqueConstraint('name', name='unique_worker_name'),
         Index('idx_worker_status', 'status'),
@@ -74,39 +81,96 @@ class Worker(Base):
     
     def get_env_vars_dict(self) -> Dict[str, str]:
         """获取环境变量字典"""
+        env_vars_value = self.env_vars
         try:
-            return json.loads(self.env_vars) if self.env_vars else {}
+            if env_vars_value and isinstance(env_vars_value, str):
+                return json.loads(env_vars_value)
+            return {}
         except json.JSONDecodeError:
             return {}
-    
+
     def set_env_vars_dict(self, env_vars: Dict[str, str]):
         """设置环境变量字典"""
         self.env_vars = json.dumps(env_vars)
-    
+
     def get_config_dict(self) -> Dict[str, Any]:
         """获取配置字典"""
+        config_value = self.config
         try:
-            return json.loads(self.config) if self.config else {}
+            if config_value and isinstance(config_value, str):
+                return json.loads(config_value)
+            return {}
         except json.JSONDecodeError:
             return {}
-    
+
     def set_config_dict(self, config: Dict[str, Any]):
         """设置配置字典"""
         self.config = json.dumps(config)
-    
+
+    def get_trading_config_dict(self) -> Dict[str, Any]:
+        """获取交易配置字典"""
+        trading_config_value = self.trading_config
+        try:
+            if trading_config_value and isinstance(trading_config_value, str):
+                return json.loads(trading_config_value)
+            return {}
+        except json.JSONDecodeError:
+            return {}
+
+    def set_trading_config_dict(self, trading_config: Dict[str, Any]):
+        """设置交易配置字典"""
+        self.trading_config = json.dumps(trading_config)
+
+    def get_symbols(self) -> list:
+        """获取交易标的列表（兼容旧版本）"""
+        trading_config = self.get_trading_config_dict()
+        symbols_config = trading_config.get('symbols_config', {})
+
+        if symbols_config.get('type') == 'pool':
+            # 如果是自选组，返回空列表（需要从数据池获取）
+            return []
+        else:
+            # 直接返回货币对列表
+            return symbols_config.get('symbols', [])
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
+        # 获取最新绩效数据
+        latest_performance = None
+        if self.performance:
+            # 按日期排序，获取最新的绩效记录
+            sorted_performance = sorted(
+                self.performance,
+                key=lambda x: x.date if x.date else datetime.min,
+                reverse=True
+            )
+            if sorted_performance:
+                latest_performance = sorted_performance[0]
+
+        # 获取交易配置
+        trading_config = self.get_trading_config_dict()
+        symbols_config = trading_config.get('symbols_config', {})
+
+        # 兼容旧版本：从 trading_config 中提取字段
+        exchange = trading_config.get('exchange', 'binance')
+        timeframe = trading_config.get('timeframe', '1h')
+        market_type = trading_config.get('market_type', 'spot')
+        trading_mode = trading_config.get('trading_mode', 'paper')
+
         return {
             'id': self.id,
             'name': self.name,
             'description': self.description,
             'status': self.status,
             'strategy_id': self.strategy_id,
-            'exchange': self.exchange,
-            'symbol': self.symbol,
-            'timeframe': self.timeframe,
-            'market_type': self.market_type,
-            'trading_mode': self.trading_mode,
+            # 交易配置（新格式）
+            'trading_config': trading_config,
+            # 兼容旧版本字段
+            'exchange': exchange,
+            'symbols': symbols_config.get('symbols', []),
+            'timeframe': timeframe,
+            'market_type': market_type,
+            'trading_mode': trading_mode,
             'cpu_limit': self.cpu_limit,
             'memory_limit': self.memory_limit,
             'pid': self.pid,
@@ -115,6 +179,7 @@ class Worker(Base):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'started_at': self.started_at.isoformat() if self.started_at else None,
             'stopped_at': self.stopped_at.isoformat() if self.stopped_at else None,
+            'total_profit': latest_performance.net_profit if latest_performance else 0.0,
         }
 
 

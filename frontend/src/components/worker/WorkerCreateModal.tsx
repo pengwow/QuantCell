@@ -242,9 +242,9 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
           });
           console.log('getCryptoSymbols response:', cryptoResponse);
 
-          // 处理响应格式 { data: { total, symbols } } 或 { symbols }
-          const responseData = cryptoResponse?.data || cryptoResponse;
-          const symbolList = responseData?.symbols || responseData?.items || responseData;
+          // API 已经通过拦截器解包，response 直接是 data 字段的内容
+          // 结构为: { symbols: [...], total: ..., offset: ..., limit: ..., exchange: ... }
+          const symbolList = cryptoResponse?.symbols || [];
 
           if (Array.isArray(symbolList)) {
             directSymbolOptions = symbolList.map((item: any) => {

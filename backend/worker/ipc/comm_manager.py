@@ -9,6 +9,7 @@ import zmq
 import zmq.asyncio
 from typing import Dict, Optional, Callable, Any, List, Set
 import asyncio
+from datetime import datetime
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器
@@ -326,6 +327,14 @@ class CommManager:
                         data = await self._status_collector.recv()
                         message = deserialize_message(data)
 
+                        # 只记录非 LOG 类型的消息（减少日志量）
+                        if message.msg_type != MessageType.LOG:
+                            logger.debug(f"[_status_loop] 收到消息: worker_id={message.worker_id}, msg_type={message.msg_type}")
+
+                        # 处理日志消息
+                        if message.msg_type == MessageType.LOG:
+                            await self._handle_log_message(message)
+
                         # 调用所有状态处理器
                         for handler in self._status_handlers:
                             try:
@@ -340,6 +349,55 @@ class CommManager:
             except Exception as e:
                 logger.error(f"接收状态消息错误: {e}")
                 await asyncio.sleep(0.1)
+
+    async def _handle_log_message(self, message: Message):
+        """
+        处理日志消息，写入数据库
+
+        Args:
+            message: 日志消息
+        """
+        try:
+            from collector.db.database import SessionLocal
+            from worker.crud import create_worker_log
+
+            # 获取日志数据 (从 payload 字段)
+            log_data = message.payload
+            if not log_data:
+                return
+
+            # Worker ID 从消息中获取，而不是 payload
+            worker_id = message.worker_id or "unknown"
+            level = log_data.get("level", "INFO")
+            log_message = log_data.get("message", "")
+            source = log_data.get("source", "worker")
+            timestamp_float = log_data.get("timestamp")
+
+            # 解析时间戳
+            if timestamp_float:
+                try:
+                    timestamp = datetime.fromtimestamp(timestamp_float)
+                except:
+                    timestamp = datetime.now()
+            else:
+                timestamp = datetime.now()
+
+            # 写入数据库
+            db = SessionLocal()
+            try:
+                create_worker_log(
+                    db=db,
+                    worker_id=worker_id,
+                    level=level,
+                    message=log_message,
+                    source=source,
+                    timestamp=timestamp,
+                )
+            finally:
+                db.close()
+
+        except Exception as e:
+            logger.error(f"处理日志消息错误: {e}")
 
     async def _control_loop(self):
         """控制响应接收循环"""

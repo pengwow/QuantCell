@@ -349,56 +349,39 @@ class StrategyService:
                 try:
                     # 从数据库表中获取策略列表
                     from collector.db.database import SessionLocal, init_database_config
-                    from collector.db.models import Strategy
+                    from strategy.models import Strategy
                     import json
-                    
+
                     init_database_config()
                     db = SessionLocal()
                     try:
                         # 查询所有策略
                         db_strategies = db.query(Strategy).all()
-                        
+
                         # 构建策略列表
                         db_strategies_list = []
                         for strategy in db_strategies:
                             # 安全解析tags
-                            tags = []
-                            if strategy.tags:
-                                try:
-                                    tags = json.loads(strategy.tags)
-                                except json.JSONDecodeError:
-                                    # 如果解析失败，可能是直接存储的字符串
-                                    # 检查是否是 'demo' 这种非JSON格式的字符串
-                                    logger.warning(f"解析策略标签失败: {strategy.tags}，尝试作为单个标签处理")
-                                    tags = [str(strategy.tags)]
-                                except Exception as e:
-                                    logger.error(f"解析策略标签异常: {strategy.name}, {e}")
-                                    tags = []
+                            tags = strategy.get_tags_list()
 
                             # 安全解析params
-                            params = []
-                            if strategy.parameters:
-                                try:
-                                    params = json.loads(strategy.parameters)
-                                except Exception as e:
-                                    logger.error(f"解析策略参数异常: {strategy.name}, {e}")
-                                    params = []
+                            params = strategy.get_parameters_list()
 
                             db_strategies_list.append({
-                            "id": strategy.id,
-                            "name": strategy.name,
-                            "file_name": strategy.filename,
-                            "file_path": str(self.strategy_dir / strategy.filename),
-                            "description": strategy.description or "",
-                            "version": strategy.version or "1.0.0",
-                            "tags": tags,
-                            "params": params,
-                            "created_at": strategy.created_at,
-                            "updated_at": strategy.updated_at,
-                            "source": "db",
-                            "code": strategy.content or ""
-                        })
-                        
+                                "id": strategy.id,
+                                "name": strategy.name,
+                                "file_name": strategy.file_name or strategy.filename,
+                                "file_path": strategy.file_path or str(self.strategy_dir / strategy.filename) if strategy.filename else "",
+                                "description": strategy.description or "",
+                                "version": strategy.version or "1.0.0",
+                                "tags": tags,
+                                "params": params,
+                                "created_at": strategy.created_at,
+                                "updated_at": strategy.updated_at,
+                                "source": "db",
+                                "code": strategy.content or ""
+                            })
+
                         strategies.extend(db_strategies_list)
                         logger.info(f"从数据库获取策略列表成功，共 {len(db_strategies_list)} 个策略")
                     finally:
@@ -447,7 +430,7 @@ class StrategyService:
             # 1. 首先尝试从数据库获取
             try:
                 from collector.db.database import SessionLocal, init_database_config
-                from collector.db.models import Strategy
+                from strategy.models import Strategy
                 import json
 
                 init_database_config()
@@ -467,11 +450,11 @@ class StrategyService:
                             logger.info(f"数据库中已有策略信息，直接使用: {strategy_name}, has_description={bool(has_description)}, has_params={bool(has_params)}")
                             return {
                                 "name": strategy.name,
-                                "file_name": strategy.filename,
-                                "file_path": str(self.strategy_dir / strategy.filename),
+                                "file_name": strategy.file_name or strategy.filename,
+                                "file_path": strategy.file_path or str(self.strategy_dir / strategy.filename) if strategy.filename else "",
                                 "description": strategy.description or "",
                                 "version": strategy.version or "1.0.0",
-                                "params": json.loads(strategy.parameters) if strategy.parameters else [],
+                                "params": strategy.get_parameters_list(),
                                 "created_at": strategy.created_at,
                                 "updated_at": strategy.updated_at,
                                 "code": strategy.content or "",
@@ -496,11 +479,11 @@ class StrategyService:
                         logger.info(f"构建基本策略信息: {strategy_name}")
                         return {
                             "name": strategy.name,
-                            "file_name": strategy.filename,
-                            "file_path": str(self.strategy_dir / strategy.filename),
+                            "file_name": strategy.file_name or strategy.filename,
+                            "file_path": strategy.file_path or str(self.strategy_dir / strategy.filename) if strategy.filename else "",
                             "description": strategy.description or "",
                             "version": strategy.version or "1.0.0",
-                            "params": json.loads(strategy.parameters) if strategy.parameters else [],
+                            "params": strategy.get_parameters_list(),
                             "created_at": strategy.created_at,
                             "updated_at": strategy.updated_at,
                             "code": strategy.content or "",
@@ -800,7 +783,7 @@ class StrategyService:
                 logger.info(f"尝试从数据库获取策略内容: {strategy_name}")
                 try:
                     from collector.db.database import SessionLocal, init_database_config
-                    from collector.db.models import Strategy as StrategyModel
+                    from strategy.models import Strategy as StrategyModel
 
                     init_database_config()
                     db = SessionLocal()
@@ -1117,10 +1100,10 @@ class StrategyService:
             
             # 将策略信息保存到数据库
             from collector.db.database import SessionLocal, init_database_config
-            from collector.db.models import Strategy
+            from strategy.models import Strategy
             import json
             from datetime import datetime
-            
+
             init_database_config()
             db = SessionLocal()
             try:
@@ -1134,7 +1117,7 @@ class StrategyService:
                     # 否则根据策略名称查询
                     existing_strategy = db.query(Strategy).filter_by(name=strategy_name).first()
                 logger.info(f"现有策略: {existing_strategy}")
-                
+
                 # 初始化基本策略信息
                 strategy_info = {
                     "name": strategy_name,
@@ -1258,8 +1241,8 @@ class StrategyService:
             # 2. 从数据库中删除策略记录
             try:
                 from collector.db.database import SessionLocal, init_database_config
-                from collector.db.models import Strategy
-                
+                from strategy.models import Strategy
+
                 init_database_config()
                 db = SessionLocal()
                 try:
@@ -1271,7 +1254,7 @@ class StrategyService:
                     else:
                         # 否则使用策略名称查询
                         query = query.filter_by(name=strategy_name)
-                    
+
                     # 执行删除
                     deleted_count = query.delete()
                     

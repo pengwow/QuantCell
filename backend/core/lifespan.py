@@ -59,11 +59,40 @@ async def lifespan(app: FastAPI):
     app.state.configs = await asyncio.to_thread(load_system_configs)
 
     # 从配置中提取代理信息
-    proxy_enabled = app.state.configs.get("proxy_enabled", "0")
-    proxy_url = app.state.configs.get("proxy_url", "")
-    proxy_username = app.state.configs.get("proxy_username", "")
-    proxy_password = app.state.configs.get("proxy_password", "")
-    logger.info(f"代理配置: enabled={proxy_enabled}, url={proxy_url}")
+    # 首先查找启用的默认交易所
+    default_exchange = None
+    for key, value in app.state.configs.items():
+        if key.endswith(".is_default") and value in ("1", "true", "True", True):
+            exchange_id = key.replace(".is_default", "").replace("exchange.", "")
+            is_enabled_key = f"exchange.{exchange_id}.is_enabled"
+            is_enabled = app.state.configs.get(is_enabled_key) in ("1", "true", "True", True)
+            if is_enabled:
+                default_exchange = exchange_id
+                logger.info(f"找到默认启用的交易所: {exchange_id}")
+                break
+    
+    # 如果没有找到默认交易所，使用 binance 作为后备
+    if not default_exchange:
+        default_exchange = "binance"
+        logger.info("未找到默认启用的交易所，使用 binance 作为默认")
+    
+    # 读取该交易所的代理配置
+    proxy_enabled = app.state.configs.get(f"exchange.{default_exchange}.proxy_enabled", "0")
+    proxy_url = app.state.configs.get(f"exchange.{default_exchange}.proxy_url", "")
+    proxy_username = app.state.configs.get(f"exchange.{default_exchange}.proxy_username", "")
+    proxy_password = app.state.configs.get(f"exchange.{default_exchange}.proxy_password", "")
+    
+    # 如果带前缀的配置不存在，尝试读取旧格式（向后兼容）
+    if not proxy_enabled or proxy_enabled == "0":
+        proxy_enabled = app.state.configs.get("proxy_enabled", "0")
+    if not proxy_url:
+        proxy_url = app.state.configs.get("proxy_url", "")
+    if not proxy_username:
+        proxy_username = app.state.configs.get("proxy_username", "")
+    if not proxy_password:
+        proxy_password = app.state.configs.get("proxy_password", "")
+    
+    logger.info(f"交易所 {default_exchange} 代理配置: enabled={proxy_enabled}, url={proxy_url}")
 
     # 转换proxy_enabled为布尔值
     proxy_enabled_bool = str(proxy_enabled).strip().lower() in ["1", "true", "yes"]
@@ -88,21 +117,33 @@ async def lifespan(app: FastAPI):
     # 将调度器设置到同步管理器
     symbol_sync_manager.set_scheduler(traditional_scheduler)
 
-    # 检查货币对数据是否存在，如果不存在则触发主动同步
-    logger.info("检查货币对数据完整性...")
-    if not symbol_sync_manager.check_symbols_exist():
-        logger.warning("未检测到有效的货币对数据，触发主动同步...")
-        sync_result = await symbol_sync_manager.async_perform_sync(exchange='binance')
-        if sync_result.get("success"):
-            logger.info(f"主动同步成功: {sync_result.get('message')}")
-        else:
-            logger.error(f"主动同步失败: {sync_result.get('message')}")
-            # 同步失败但不阻塞启动，让定时同步稍后重试
-    else:
-        logger.info("货币对数据检查通过")
-
     # 将同步管理器保存到应用状态
     app.state.symbol_sync_manager = symbol_sync_manager
+
+    # 延迟执行货币对数据同步，避免阻塞启动流程
+    async def delayed_symbol_sync():
+        """延迟同步货币对数据，确保系统配置已完全加载"""
+        try:
+            # 延迟30秒，等待系统完全启动
+            await asyncio.sleep(30)
+            logger.info("开始延迟同步货币对数据...")
+
+            if not symbol_sync_manager.check_symbols_exist():
+                logger.warning("未检测到有效的货币对数据，触发主动同步...")
+                sync_result = await symbol_sync_manager.async_perform_sync(exchange='binance')
+                if sync_result.get("success"):
+                    logger.info(f"货币对数据同步成功: {sync_result.get('message')}")
+                else:
+                    logger.error(f"货币对数据同步失败: {sync_result.get('message')}")
+            else:
+                logger.info("货币对数据检查通过，无需同步")
+        except Exception as e:
+            logger.error(f"延迟同步货币对数据时发生错误: {e}")
+
+    # 启动后台任务执行同步，不阻塞主流程
+    symbol_sync_task = asyncio.create_task(delayed_symbol_sync())
+    app.state.symbol_sync_task = symbol_sync_task
+    logger.info("货币对数据同步将在30秒后异步执行")
 
     # 异步启动新的定时任务管理器
     await asyncio.to_thread(scheduled_task_manager.start)
@@ -132,7 +173,7 @@ async def lifespan(app: FastAPI):
 
         # 注册WebSocket数据推送消费者
         def websocket_kline_consumer(data: dict):
-            """将K线数据推送到WebSocket"""
+            """将K线数据推送到WebSocket（优化版：直接推送到队列，避免事件循环开销）"""
             try:
                 if data.get('data_type') == 'kline':
                     # 构建K线消息 - 保持原始数据格式
@@ -143,10 +184,22 @@ async def lifespan(app: FastAPI):
                         "data": data  # 保持原始数据结构
                     }
 
-                    # 广播到所有订阅了kline主题的客户端
-                    asyncio.create_task(
-                        manager.broadcast(kline_message, topic="kline")
-                    )
+                    # 直接推送到消息队列，避免创建asyncio任务的开销
+                    if manager.message_queue:
+                        # 使用非阻塞方式放入队列
+                        try:
+                            manager.message_queue.put_nowait({
+                                "type": "kline",
+                                "topic": "kline",
+                                **kline_message
+                            })
+                        except asyncio.QueueFull:
+                            logger.warning("[KlinePush] 消息队列已满，丢弃消息")
+                    else:
+                        # 队列未初始化时，回退到asyncio.create_task
+                        asyncio.create_task(
+                            manager.broadcast(kline_message, topic="kline")
+                        )
             except Exception as e:
                 logger.error(f"[KlinePush] WebSocket K线数据推送失败: {e}")
 
@@ -200,6 +253,14 @@ async def lifespan(app: FastAPI):
         logger.info("WebSocket连接管理器已停止")
     except Exception as e:
         logger.error(f"停止WebSocket连接管理器失败: {e}")
+
+    # 取消货币对同步后台任务
+    try:
+        if hasattr(app.state, "symbol_sync_task") and not app.state.symbol_sync_task.done():
+            app.state.symbol_sync_task.cancel()
+            logger.info("已取消货币对同步任务")
+    except Exception as e:
+        logger.error(f"取消货币对同步任务失败: {e}")
 
     # 异步关闭传统调度器，确保清理完成后再退出
     await asyncio.to_thread(traditional_scheduler.shutdown)

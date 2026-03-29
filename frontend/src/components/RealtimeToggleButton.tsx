@@ -217,6 +217,26 @@ export function RealtimeToggleButton({
         console.log('[RealtimeToggleButton] 取消订阅K线频道:', klineChannel);
         const unsubscribeResult = await realtimeApi.unsubscribeKlineChannels([klineChannel]);
         console.log('[RealtimeToggleButton] 取消订阅结果:', unsubscribeResult);
+
+        // 检查引擎状态，如果引擎未运行，更新按钮状态为未开启
+        if (unsubscribeResult.data?.engine_status && unsubscribeResult.data.engine_status !== 'running') {
+          console.log('[RealtimeToggleButton] 引擎未运行，更新按钮状态为未开启');
+          setIsRealtime(false);
+          setIsSubscribed(false);
+          saveState(false);
+
+          // 移除WebSocket监听器
+          wsService.off('kline', handleWebSocketMessage);
+          wsService.off('kline:update', handleWebSocketMessage);
+
+          message.info('实时引擎已停止，按钮状态已重置');
+
+          // 通知父组件
+          if (onStatusChange) {
+            onStatusChange(false);
+          }
+          return;
+        }
       }
 
       // 2. 移除WebSocket监听器

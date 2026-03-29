@@ -200,7 +200,7 @@ app = typer.Typer(
 @app.command()
 def create(
     name: Annotated[str, typer.Option("--name", "-n", help="Worker 名称")],
-    strategy_id: Annotated[int, typer.Option("--strategy-id", "-s", help="关联策略ID")],
+    strategy_id: Annotated[int, typer.Option("--strategy-id", "-s", help="策略ID(使用 'strategies' 命令查看可用策略)")],
     exchange: Annotated[str, typer.Option("--exchange", "-e", help="交易所")] = "binance",
     symbol: Annotated[str, typer.Option("--symbol", help="交易对")] = "BTCUSDT",
     timeframe: Annotated[str, typer.Option("--timeframe", "-t", help="时间周期")] = "1h",
@@ -932,6 +932,87 @@ def clone(
         typer.echo(f"  源 Worker ID: {worker_id}")
         typer.echo(f"  复制配置: {copy_config}")
         typer.echo(f"  复制参数: {copy_parameters}")
+
+    except Exception as e:
+        typer.echo(f"错误: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command()
+def strategies(
+    format: Annotated[OutputFormat, typer.Option("--format", "-f", help="输出格式")] = OutputFormat.TABLE,
+):
+    """
+    列出所有可用的策略
+
+    查询策略列表，用于创建 Worker 时选择策略 ID。
+
+    示例:
+      python worker_cli.py strategies
+      python worker_cli.py strategies --format json
+    """
+    try:
+        # 策略 API 端点
+        strategy_api_prefix = "/api/strategy/list"
+        url = urljoin(_config.base_url, strategy_api_prefix)
+
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+        except requests.exceptions.ConnectionError:
+            typer.echo(f"错误: 无法连接到 API 服务器 ({_config.base_url})", err=True)
+            raise typer.Exit(1)
+        except requests.exceptions.HTTPError as e:
+            typer.echo(f"API 错误: {e}", err=True)
+            raise typer.Exit(1)
+
+        # 提取策略列表
+        # 处理 ApiResponse 格式
+        if isinstance(result, dict) and "code" in result and "data" in result:
+            if result.get("code") != 0:
+                typer.echo(f"API 错误: {result.get('message', '未知错误')}", err=True)
+                raise typer.Exit(1)
+            strategies_data = result.get("data")
+        else:
+            strategies_data = result
+        
+        # 检查是否是列表类型（使用 __iter__ 避免 list 类型被覆盖的问题）
+        if not hasattr(strategies_data, '__iter__') or isinstance(strategies_data, str):
+            strategies_data = []
+        elif isinstance(strategies_data, dict):
+            # 尝试从 data.strategies 获取（策略API格式）
+            if "strategies" in strategies_data:
+                strategies_data = strategies_data["strategies"]
+            # 尝试从 data.items 获取（通用格式）
+            elif "items" in strategies_data:
+                strategies_data = strategies_data["items"]
+            else:
+                strategies_data = []
+
+        if not strategies_data:
+            typer.echo("没有可用的策略")
+            raise typer.Exit(0)
+
+        if format == OutputFormat.JSON:
+            typer.echo(json.dumps(strategies_data, indent=2, ensure_ascii=False, default=str))
+        else:
+            typer.echo(f"\n总计: {len(strategies_data)} 个策略\n")
+            typer.echo(f"{'ID':<8} {'名称':<25} {'文件':<20} {'描述':<30}")
+            typer.echo("-" * 90)
+
+            for strategy in strategies_data:
+                strategy_id = str(strategy.get("id", "N/A"))[:6]
+                name = strategy.get("name", "N/A")[:23]
+                file_name = strategy.get("file_name", "N/A")[:18]
+                description = strategy.get("description", "")[:28]
+                # 只取描述的第一行
+                description = description.split('\n')[0]
+
+                typer.echo(f"{strategy_id:<8} {name:<25} {file_name:<20} {description:<30}")
+
+            typer.echo("\n提示: 使用策略ID创建 Worker")
+            typer.echo("  例如: python worker_cli.py create --name worker_001 --strategy-id 1")
 
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)

@@ -352,63 +352,8 @@ class ScheduledTask(TimezoneAwareBase):
     )
 
 
-class BacktestTask(TimezoneAwareBase):
-    """回测任务SQLAlchemy模型
-    
-    对应backtest_tasks表的SQLAlchemy模型定义，用于存储回测任务信息
-    """
-    __tablename__ = "backtest_tasks"
-    
-    id = Column(String, primary_key=True, index=True)  # 任务唯一标识
-    strategy_name = Column(String, nullable=False, index=True)  # 策略名称
-    backtest_config = Column(Text, nullable=False)  # JSON格式，回测配置
-    status = Column(String, nullable=False, default="pending", index=True)  # 任务状态: pending/running/completed/failed
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)  # 创建时间
-    started_at = Column(DateTime(timezone=True), nullable=True)  # 开始执行时间
-    completed_at = Column(DateTime(timezone=True), nullable=True)  # 完成时间
-    result_id = Column(String, nullable=True)  # 关联的回测结果ID
-
-
-class BacktestResult(TimezoneAwareBase):
-    """回测结果SQLAlchemy模型
-    
-    对应backtest_results表的SQLAlchemy模型定义，用于存储回测结果信息
-    """
-    __tablename__ = "backtest_results"
-    
-    id = Column(String, primary_key=True, index=True)  # 结果唯一标识
-    task_id = Column(String, nullable=False, index=True)  # 关联的回测任务ID
-    strategy_name = Column(String, nullable=False, index=True)  # 策略名称
-    symbol = Column(String, nullable=False, index=True)  # 货币对标识
-    metrics = Column(Text, nullable=False)  # JSON格式，包含翻译后的指标
-    trades = Column(Text, nullable=False)  # JSON格式，交易记录
-    equity_curve = Column(Text, nullable=False)  # JSON格式，资金曲线
-    strategy_data = Column(Text, nullable=False)  # JSON格式，策略数据
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)  # 创建时间
-    
-    # 添加外键约束
-    __table_args__ = (
-        sqlalchemy.ForeignKeyConstraint(['task_id'], ['backtest_tasks.id']),
-    )
-
-
-class Strategy(TimezoneAwareBase):
-    """策略SQLAlchemy模型
-    
-    对应strategies表的SQLAlchemy模型定义，用于存储策略信息
-    """
-    __tablename__ = "strategies"
-    
-    id = Column(Integer, primary_key=True, autoincrement=True, index=True)  # 主键ID
-    name = Column(String, unique=True, index=True)  # 策略名称，唯一
-    filename = Column(String, nullable=False)  # 策略文件名
-    content = Column(Text, nullable=True)  # 策略内容，存储策略的实际代码
-    description = Column(Text, nullable=True)  # 策略描述
-    parameters = Column(Text, nullable=True)  # JSON格式，策略参数定义
-    version = Column(String, nullable=True, default="1.0.0")  # 策略版本
-    tags = Column(Text, nullable=True)  # JSON格式，策略标签
-    created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())  # 更新时间
+# 注意：BacktestTask 和 BacktestResult 模型已迁移到 backtest.models
+# 请使用 from backtest.models import BacktestTask, BacktestResult
 
 
 class AIModel(TimezoneAwareBase):

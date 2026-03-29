@@ -56,10 +56,11 @@ def sync_crypto_symbols(
 
         # 创建交易所实例
         exchange_instance = getattr(ccxt, exchange)()
-        exchange_instance.timeout = 30000  # 增加超时时间到30秒
+        exchange_instance.timeout = 60000  # 增加超时时间到60秒
         exchange_instance.enableRateLimit = True  # 启用速率限制
 
         # 配置代理
+        proxy_configured = False
         if proxy_enabled and proxy_url:
             logger.info(f"启用代理: {proxy_url}")
             parsed_url = urlparse(proxy_url)
@@ -67,12 +68,14 @@ def sync_crypto_symbols(
             if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
                 # SOCKS代理使用proxy属性
                 exchange_instance.proxy = proxy_url
+                proxy_configured = True
             else:
                 # HTTP/HTTPS代理使用proxies字典
                 exchange_instance.proxies = {
                     'http': proxy_url,
                     'https': proxy_url
                 }
+                proxy_configured = True
             if proxy_username and proxy_password:
                 exchange_instance.proxy_auth = (proxy_username, proxy_password)
         else:
@@ -85,12 +88,17 @@ def sync_crypto_symbols(
                 if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
                     # SOCKS代理使用proxy属性
                     exchange_instance.proxy = env_proxy
+                    proxy_configured = True
                 else:
                     # HTTP/HTTPS代理使用proxies字典
                     exchange_instance.proxies = {
                         'http': env_proxy,
                         'https': env_proxy
                     }
+                    proxy_configured = True
+
+        if not proxy_configured:
+            logger.warning("未配置代理，直接访问交易所API可能会失败")
 
         # 获取市场数据
         markets = exchange_instance.load_markets()
@@ -220,13 +228,17 @@ def sync_crypto_symbols(
                     raise
 
     except Exception as e:
-        logger.error(f"同步加密货币对失败: {e}")
+        error_msg = str(e)
+        logger.error(f"同步加密货币对失败: {error_msg}")
+        logger.error(f"交易所: {exchange}, 代理启用: {proxy_enabled}, 代理URL: {proxy_url}")
         import traceback
-        traceback.print_exc()
+        logger.error(f"详细错误堆栈:\n{traceback.format_exc()}")
         return {
             'success': False,
-            'message': f"同步失败: {str(e)}",
+            'message': f"同步失败: {error_msg}",
             'exchange': exchange,
+            'proxy_enabled': proxy_enabled,
+            'proxy_url': proxy_url,
             'timestamp': datetime.now().isoformat()
         }
 

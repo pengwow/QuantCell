@@ -172,10 +172,15 @@ def init_db():
     try:
         logger.info("开始初始化数据库...")
         
+        # 首先导入策略模型和回测模型以确保正确的表结构
+        # 这必须在导入 collector.db.models 之前完成
+        import strategy.models  # noqa: F401
+        import backtest.models  # noqa: F401
+
         # 先初始化数据库配置和引擎
         from .database import init_database_config
         init_database_config()
-        
+
         # 然后再导入engine变量，确保它已经被初始化
         from .database import Base, engine
         # 显式导入所有模型，确保它们被注册到Base.metadata中
@@ -189,10 +194,7 @@ def init_db():
             CryptoSpotKline,
             CryptoFutureKline,
             StockKline,
-            ScheduledTask,
-            BacktestTask,
-            BacktestResult,
-            Strategy
+            ScheduledTask
         )
         
         logger.info("使用SQLAlchemy创建数据库表...")

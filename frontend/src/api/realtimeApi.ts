@@ -9,6 +9,8 @@ import { apiRequest } from './index';
 // 实时引擎控制响应（API返回的data字段）
 export interface RealtimeControlResponse {
   success: boolean;
+  engine_status?: string;
+  connected?: boolean;
 }
 
 // 实时引擎配置

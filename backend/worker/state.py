@@ -76,6 +76,8 @@ class WorkerState(Enum):
         valid_transitions = {
             WorkerState.INITIALIZING: [
                 WorkerState.INITIALIZED,
+                WorkerState.STARTING,
+                WorkerState.RUNNING,  # 允许直接跳转到 RUNNING（简化状态流转）
                 WorkerState.ERROR,
             ],
             WorkerState.INITIALIZED: [

@@ -37,6 +37,23 @@ export const WorkerStatusColor: Record<WorkerStatus, string> = {
   [WorkerStatus.STOPPING]: 'cyan'
 };
 
+// 交易标的配置
+export interface SymbolsConfig {
+  type: 'symbols' | 'pool';  // symbols-直接货币对, pool-自选组
+  symbols: string[];  // 货币对列表
+  pool_id?: number;  // 自选组ID
+  pool_name?: string;  // 自选组名称
+}
+
+// 交易配置
+export interface TradingConfig {
+  exchange: string;
+  symbols_config: SymbolsConfig;
+  timeframe: string;
+  market_type: string;
+  trading_mode: string;
+}
+
 // Worker基础信息
 export interface Worker {
   id: number;
@@ -44,6 +61,9 @@ export interface Worker {
   description?: string;
   status: WorkerStatus;
   strategy_id: number;
+  // 交易配置（新格式）
+  trading_config?: TradingConfig;
+  // 兼容旧版本字段
   exchange: string;
   symbols: string[];
   timeframe: string;
@@ -57,6 +77,7 @@ export interface Worker {
   updated_at: string;
   started_at?: string;
   stopped_at?: string;
+  total_profit?: number;
 }
 
 // Worker列表响应
@@ -72,6 +93,9 @@ export interface CreateWorkerRequest {
   name: string;
   description?: string;
   strategy_id: number;
+  // 交易配置（新格式）
+  trading_config?: TradingConfig;
+  // 兼容旧版本字段
   exchange?: string;
   symbols?: string[];
   timeframe?: string;
@@ -87,6 +111,9 @@ export interface CreateWorkerRequest {
 export interface UpdateWorkerRequest {
   name?: string;
   description?: string;
+  // 交易配置（新格式）
+  trading_config?: TradingConfig;
+  // 兼容旧版本字段
   exchange?: string;
   symbols?: string[];
   timeframe?: string;

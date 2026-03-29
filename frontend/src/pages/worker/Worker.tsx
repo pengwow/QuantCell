@@ -19,6 +19,7 @@ import {
   Alert,
   Input,
   Select,
+  Modal,
 } from 'antd';
 import {
   PlusOutlined,
@@ -34,15 +35,17 @@ import {
   PoweroffOutlined,
   CaretRightOutlined,
   FileTextOutlined,
+  AppstoreOutlined,
+  UnorderedListOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { useWorkerStore } from '../../store/workerStore';
-import { WorkerCreateModal, WorkerEditModal } from '../../components/worker';
+import { WorkerCreateModal, WorkerEditModal, WorkerLogsPanel } from '../../components/worker';
 import type { Worker as WorkerType } from '../../types/worker';
 import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
 import { setPageTitle } from '@/router';
-import './Worker.css';
 
 const { Option } = Select;
 const { Search } = Input;
@@ -82,6 +85,13 @@ const Worker = () => {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [tradePagination, setTradePagination] = useState({ current: 1, pageSize: 10 });
+  
+  // 视图类型状态 - 卡片/列表
+  const [viewType, setViewType] = useState<'card' | 'list'>('card');
+  
+  // 日志面板状态
+  const [logsPanelVisible, setLogsPanelVisible] = useState(false);
+  const [logsWorkerId, setLogsWorkerId] = useState<number | null>(null);
 
   // Set page title
   useEffect(() => {
@@ -327,6 +337,19 @@ const Worker = () => {
     }
   }, [fetchWorkers, fetchPerformance, selectedWorker, workerToEdit]);
 
+  // 查看日志
+  const handleViewLogs = useCallback((worker: WorkerType, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLogsWorkerId(worker.id);
+    setLogsPanelVisible(true);
+  }, []);
+
+  // 关闭日志面板
+  const handleCloseLogsPanel = useCallback(() => {
+    setLogsPanelVisible(false);
+    setLogsWorkerId(null);
+  }, []);
+
   // Render statistics cards
   const renderStatistics = () => (
     <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -474,6 +497,23 @@ const Worker = () => {
                   <Option value="stopped">{t('stopped')}</Option>
                   <Option value="error">{t('error')}</Option>
                 </Select>
+                {/* 视图切换 */}
+                <Button.Group>
+                  <Button
+                    type={viewType === 'card' ? 'primary' : 'default'}
+                    icon={<AppstoreOutlined />}
+                    onClick={() => setViewType('card')}
+                  >
+                    {t('card_view') || '卡片'}
+                  </Button>
+                  <Button
+                    type={viewType === 'list' ? 'primary' : 'default'}
+                    icon={<UnorderedListOutlined />}
+                    onClick={() => setViewType('list')}
+                  >
+                    {t('list_view') || '列表'}
+                  </Button>
+                </Button.Group>
               </Space>
             </Col>
           </Row>
@@ -490,114 +530,318 @@ const Worker = () => {
                     <Badge count={filteredWorkers.length} style={{ backgroundColor: '#1890ff' }} />
                   </Space>
                 }
-                bodyStyle={{ padding: 0, maxHeight: 'calc(100vh - 400px)', overflow: 'auto' }}
+                bodyStyle={{ padding: 0 }}
               >
                 {filteredWorkers.length === 0 ? (
                   <Empty description={t('no_workers')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                ) : (
-                  <div className="worker-list">
+                ) : viewType === 'card' ? (
+                  // 卡片视图 - 参考策略管理页面样式
+                  // 响应式布局：大屏幕(lg以上)一行一个，中等屏幕一行两个，小屏幕一行一个
+                  <Row gutter={[16, 16]} style={{ margin: 0, padding: 16 }}>
                     {filteredWorkers.map((worker) => (
-                      <div
-                        key={worker.id}
-                        className={`worker-item ${selectedWorker?.id === worker.id ? 'active' : ''}`}
-                        onClick={() => setSelectedWorker(worker)}
-                      >
-                        <div className="worker-header">
-                          <span className="worker-name">{worker.name}</span>
-                          <Tag color={WorkerStatusColor[worker.status]}>
-                            {WorkerStatusText[worker.status]}
-                          </Tag>
-                        </div>
-                        <div className="worker-info">
-                          <span>{worker.exchange} | {worker.symbols?.join(', ')} | {worker.timeframe}</span>
-                        </div>
-                        <div className="worker-actions">
-                          {worker.status === 'stopped' && (
-                            <Tooltip title={t('start')}>
+                      <Col xs={24} sm={12} md={12} lg={24} xl={24} key={worker.id}>
+                        <Card
+                          size="small"
+                          hoverable
+                          onClick={() => setSelectedWorker(worker)}
+                          style={{
+                            boxShadow: selectedWorker?.id === worker.id ? '0 0 0 2px #1890ff' : '0 2px 8px rgba(0, 0, 0, 0.1)',
+                            borderColor: selectedWorker?.id === worker.id ? '#1890ff' : undefined,
+                          }}
+                          extra={
+                            <Space size={4}>
+                              <Tooltip title={t('edit')}>
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  icon={<EditOutlined />}
+                                  onClick={(e) => { e.stopPropagation(); handleEdit(worker, e); }}
+                                />
+                              </Tooltip>
+                              <Popconfirm
+                                title={t('confirm_delete_worker')}
+                                onConfirm={(e) => handleDelete(worker, e as React.MouseEvent)}
+                                okText={t('yes')}
+                                cancelText={t('no')}
+                              >
+                                <Tooltip title={t('delete')}>
+                                  <Button
+                                    type="text"
+                                    size="small"
+                                    danger
+                                    icon={<DeleteOutlined />}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </Tooltip>
+                              </Popconfirm>
+                            </Space>
+                          }
+                        >
+                          {/* 头部：名称和状态 */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                            <span style={{ fontWeight: 500, fontSize: 16 }}>{worker.name}</span>
+                            <Tag color={WorkerStatusColor[worker.status]}>
+                              {WorkerStatusText[worker.status]}
+                            </Tag>
+                          </div>
+
+                          {/* 信息区域 */}
+                          <div style={{ marginBottom: 12 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                              <span style={{ color: '#666', fontSize: 13 }}>{t('exchange') || '交易所'}</span>
+                              <Tag size="small">{worker.exchange}</Tag>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                              <span style={{ color: '#666', fontSize: 13 }}>{t('timeframe') || '周期'}</span>
+                              <Tag size="small" color="blue">{worker.timeframe}</Tag>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#666', fontSize: 13 }}>{t('total_profit') || '总收益'}</span>
+                              <span style={{
+                                fontSize: 13,
+                                fontWeight: 500,
+                                color: (worker.total_profit || 0) >= 0 ? '#52c41a' : '#ff4d4f'
+                              }}>
+                                {(worker.total_profit || 0) >= 0 ? '+' : ''}
+                                ${(worker.total_profit || 0).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* 分割线 */}
+                          <div style={{ borderTop: '1px solid #f0f0f0', margin: '12px 0' }} />
+
+                          {/* 操作按钮区域 */}
+                          <Row gutter={[8, 8]}>
+                            <Col span={12}>
+                              {worker.status === 'stopped' ? (
+                                <Button
+                                  type="primary"
+                                  size="small"
+                                  icon={<CaretRightOutlined />}
+                                  onClick={(e) => { e.stopPropagation(); handleStart(worker, e); }}
+                                  style={{ width: '100%' }}
+                                >
+                                  {t('start')}
+                                </Button>
+                              ) : worker.status === 'running' ? (
+                                <Button
+                                  type="primary"
+                                  danger
+                                  size="small"
+                                  icon={<PauseCircleOutlined />}
+                                  onClick={(e) => { e.stopPropagation(); handlePause(worker, e); }}
+                                  style={{ width: '100%' }}
+                                >
+                                  {t('pause')}
+                                </Button>
+                              ) : (
+                                <Button
+                                  type="primary"
+                                  size="small"
+                                  icon={<PlayCircleOutlined />}
+                                  onClick={(e) => { e.stopPropagation(); handleResume(worker, e); }}
+                                  style={{ width: '100%' }}
+                                >
+                                  {t('resume')}
+                                </Button>
+                              )}
+                            </Col>
+                            <Col span={12}>
                               <Button
-                                type="text"
                                 size="small"
-                                icon={<CaretRightOutlined style={{ color: '#52c41a' }} />}
-                                onClick={(e) => handleStart(worker, e)}
-                              />
-                            </Tooltip>
-                          )}
-                          {worker.status === 'running' && (
-                            <>
-                              <Tooltip title={t('pause')}>
+                                icon={<EyeOutlined />}
+                                onClick={(e) => { e.stopPropagation(); handleViewLogs(worker, e); }}
+                                style={{ width: '100%' }}
+                              >
+                                {t('view_logs') || '日志'}
+                              </Button>
+                            </Col>
+                            {worker.status !== 'stopped' && (
+                              <Col span={12}>
                                 <Button
-                                  type="text"
+                                  danger
                                   size="small"
-                                  icon={<PauseCircleOutlined style={{ color: '#faad14' }} />}
-                                  onClick={(e) => handlePause(worker, e)}
-                                />
-                              </Tooltip>
-                              <Tooltip title={t('stop')}>
+                                  icon={<StopOutlined />}
+                                  onClick={(e) => { e.stopPropagation(); handleStop(worker, e); }}
+                                  style={{ width: '100%' }}
+                                >
+                                  {t('stop')}
+                                </Button>
+                              </Col>
+                            )}
+                            <Col span={worker.status !== 'stopped' ? 12 : 24}>
+                              <Tooltip title={t('restart')}>
                                 <Button
-                                  type="text"
                                   size="small"
-                                  icon={<StopOutlined style={{ color: '#ff4d4f' }} />}
-                                  onClick={(e) => handleStop(worker, e)}
-                                />
+                                  icon={<ReloadOutlined />}
+                                  onClick={(e) => { e.stopPropagation(); handleRestart(worker, e); }}
+                                  style={{ width: '100%' }}
+                                >
+                                  {t('restart')}
+                                </Button>
                               </Tooltip>
-                            </>
-                          )}
-                          {worker.status === 'paused' && (
-                            <>
-                              <Tooltip title={t('resume')}>
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  icon={<PlayCircleOutlined style={{ color: '#52c41a' }} />}
-                                  onClick={(e) => handleResume(worker, e)}
-                                />
-                              </Tooltip>
-                              <Tooltip title={t('stop')}>
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  icon={<StopOutlined style={{ color: '#ff4d4f' }} />}
-                                  onClick={(e) => handleStop(worker, e)}
-                                />
-                              </Tooltip>
-                            </>
-                          )}
-                          <Tooltip title={t('restart')}>
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<ReloadOutlined />}
-                              onClick={(e) => handleRestart(worker, e)}
-                            />
-                          </Tooltip>
-                          <Tooltip title={t('edit')}>
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<EditOutlined />}
-                              onClick={(e) => handleEdit(worker, e)}
-                            />
-                          </Tooltip>
-                          <Popconfirm
-                            title={t('confirm_delete_worker')}
-                            onConfirm={(e) => handleDelete(worker, e as React.MouseEvent)}
-                            okText={t('yes')}
-                            cancelText={t('no')}
-                          >
-                            <Tooltip title={t('delete')}>
-                              <Button
-                                type="text"
-                                size="small"
-                                danger
-                                icon={<DeleteOutlined />}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            </Tooltip>
-                          </Popconfirm>
-                        </div>
-                      </div>
+                            </Col>
+                          </Row>
+                        </Card>
+                      </Col>
                     ))}
-                  </div>
+                  </Row>
+                ) : (
+                  // 列表视图 - 使用 Table 组件
+                  <Table
+                    dataSource={filteredWorkers}
+                    rowKey="id"
+                    size="small"
+                    pagination={false}
+                    onRow={(worker) => ({
+                      onClick: () => setSelectedWorker(worker),
+                      style: { cursor: 'pointer', backgroundColor: selectedWorker?.id === worker.id ? '#e6f7ff' : undefined }
+                    })}
+                    columns={[
+                      {
+                        title: t('worker_name') || '任务名称',
+                        dataIndex: 'name',
+                        key: 'name',
+                        ellipsis: true,
+                        render: (text: string, worker: WorkerType) => (
+                          <Space>
+                            <span>{text}</span>
+                            <Tag color={WorkerStatusColor[worker.status]} size="small">
+                              {WorkerStatusText[worker.status]}
+                            </Tag>
+                          </Space>
+                        ),
+                      },
+                      {
+                        title: t('exchange') || '交易所',
+                        dataIndex: 'exchange',
+                        key: 'exchange',
+                        width: 100,
+                      },
+                      {
+                        title: t('timeframe') || '周期',
+                        dataIndex: 'timeframe',
+                        key: 'timeframe',
+                        width: 80,
+                      },
+                      {
+                        title: t('total_profit') || '总收益',
+                        dataIndex: 'total_profit',
+                        key: 'total_profit',
+                        width: 100,
+                        render: (profit: number) => (
+                          <span style={{
+                            fontWeight: 500,
+                            color: (profit || 0) >= 0 ? '#52c41a' : '#ff4d4f'
+                          }}>
+                            {(profit || 0) >= 0 ? '+' : ''}
+                            ${(profit || 0).toFixed(2)}
+                          </span>
+                        ),
+                      },
+                      {
+                        title: t('action') || '操作',
+                        key: 'action',
+                        width: 200,
+                        fixed: 'right',
+                        render: (_: any, worker: WorkerType) => (
+                          <Space size="small">
+                            {worker.status === 'stopped' && (
+                              <Tooltip title={t('start')}>
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  icon={<CaretRightOutlined style={{ color: '#52c41a' }} />}
+                                  onClick={(e) => handleStart(worker, e as React.MouseEvent)}
+                                />
+                              </Tooltip>
+                            )}
+                            {worker.status === 'running' && (
+                              <>
+                                <Tooltip title={t('pause')}>
+                                  <Button
+                                    type="text"
+                                    size="small"
+                                    icon={<PauseCircleOutlined style={{ color: '#faad14' }} />}
+                                    onClick={(e) => handlePause(worker, e as React.MouseEvent)}
+                                  />
+                                </Tooltip>
+                                <Tooltip title={t('stop')}>
+                                  <Button
+                                    type="text"
+                                    size="small"
+                                    icon={<StopOutlined style={{ color: '#ff4d4f' }} />}
+                                    onClick={(e) => handleStop(worker, e as React.MouseEvent)}
+                                  />
+                                </Tooltip>
+                              </>
+                            )}
+                            {worker.status === 'paused' && (
+                              <>
+                                <Tooltip title={t('resume')}>
+                                  <Button
+                                    type="text"
+                                    size="small"
+                                    icon={<PlayCircleOutlined style={{ color: '#52c41a' }} />}
+                                    onClick={(e) => handleResume(worker, e as React.MouseEvent)}
+                                  />
+                                </Tooltip>
+                                <Tooltip title={t('stop')}>
+                                  <Button
+                                    type="text"
+                                    size="small"
+                                    icon={<StopOutlined style={{ color: '#ff4d4f' }} />}
+                                    onClick={(e) => handleStop(worker, e as React.MouseEvent)}
+                                  />
+                                </Tooltip>
+                              </>
+                            )}
+                            <Tooltip title={t('restart')}>
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<ReloadOutlined />}
+                                onClick={(e) => handleRestart(worker, e as React.MouseEvent)}
+                              />
+                            </Tooltip>
+                            <Tooltip title={t('view_logs') || '查看日志'}>
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<EyeOutlined style={{ color: '#1890ff' }} />}
+                                onClick={(e) => handleViewLogs(worker, e as React.MouseEvent)}
+                              />
+                            </Tooltip>
+                            <Tooltip title={t('edit')}>
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<EditOutlined />}
+                                onClick={(e) => handleEdit(worker, e as React.MouseEvent)}
+                              />
+                            </Tooltip>
+                            <Popconfirm
+                              title={t('confirm_delete_worker')}
+                              onConfirm={(e) => handleDelete(worker, e as React.MouseEvent)}
+                              okText={t('yes')}
+                              cancelText={t('no')}
+                            >
+                              <Tooltip title={t('delete')}>
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  danger
+                                  icon={<DeleteOutlined />}
+                                  onClick={(e) => { e.stopPropagation(); }}
+                                />
+                              </Tooltip>
+                            </Popconfirm>
+                          </Space>
+                        ),
+                      },
+                    ]}
+                  />
                 )}
               </Card>
             </Col>
@@ -673,6 +917,20 @@ const Worker = () => {
         }}
         onSuccess={handleEditSuccess}
       />
+
+      {/* Logs Panel Modal */}
+      {logsWorkerId && (
+        <Modal
+          title={t('worker_logs') || 'Worker 日志'}
+          open={logsPanelVisible}
+          onCancel={handleCloseLogsPanel}
+          footer={null}
+          width={900}
+          destroyOnClose
+        >
+          <WorkerLogsPanel workerId={logsWorkerId} maxHeight={500} />
+        </Modal>
+      )}
     </PageContainer>
   );
 };

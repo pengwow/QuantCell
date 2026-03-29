@@ -68,6 +68,9 @@ class WorkerManager:
         # 状态处理器
         self._status_handlers: List[Callable[[WorkerStatus], None]] = []
 
+        # Worker 退出回调
+        self._worker_exit_callbacks: List[Callable[[str, WorkerStatus], None]] = []
+
         # 运行状态
         self._running = False
         self._monitor_task: Optional[asyncio.Task] = None
@@ -127,6 +130,33 @@ class WorkerManager:
 
         logger.info("Worker 管理器已停止")
         return True
+
+    def register_worker_exit_callback(
+        self, callback: Callable[[str, WorkerStatus], None]
+    ) -> None:
+        """
+        注册 Worker 退出回调函数
+
+        当 Worker 进程异常退出时，会调用此回调函数
+
+        Args:
+            callback: 回调函数，接收 worker_id 和 worker_status 参数
+        """
+        self._worker_exit_callbacks.append(callback)
+        logger.debug(f"注册 Worker 退出回调: {callback.__name__}")
+
+    def unregister_worker_exit_callback(
+        self, callback: Callable[[str, WorkerStatus], None]
+    ) -> None:
+        """
+        注销 Worker 退出回调函数
+
+        Args:
+            callback: 要注销的回调函数
+        """
+        if callback in self._worker_exit_callbacks:
+            self._worker_exit_callbacks.remove(callback)
+            logger.debug(f"注销 Worker 退出回调: {callback.__name__}")
 
     async def start_strategy(
         self,
@@ -215,29 +245,70 @@ class WorkerManager:
                 Message.create_control(MessageType.STOP, worker_id),
             )
 
-            # 等待 Worker 停止
-            worker.join(timeout=timeout)
+            # 在后台等待 Worker 停止，不阻塞 API 响应
+            import asyncio
+            asyncio.create_task(self._wait_worker_stop(worker_id, worker, timeout))
 
-            # 如果 Worker 仍在运行，强制终止
-            if worker.is_alive():
-                logger.warning(f"Worker {worker_id} 未能在 {timeout} 秒内停止，强制终止")
-                worker.terminate()
-                worker.join(timeout=5.0)
-
-            # 清理
-            del self._workers[worker_id]
-            if worker_id in self._worker_status:
-                del self._worker_status[worker_id]
-
-            # 取消数据订阅
-            self.data_broker.unsubscribe_all(worker_id)
-
-            logger.info(f"Worker 已停止: {worker_id}")
+            logger.info(f"Worker {worker_id} 停止命令已发送")
             return True
 
         except Exception as e:
             logger.error(f"停止 Worker {worker_id} 失败: {e}")
             return False
+
+    async def _wait_worker_stop(self, worker_id: str, worker, timeout: float):
+        """后台等待 Worker 停止并清理资源"""
+        logger.info(f"[Manager] 开始等待 Worker {worker_id} 停止，超时时间: {timeout}秒")
+        try:
+            # 等待 Worker 停止
+            logger.info(f"[Manager] Worker {worker_id} 调用 join() 等待...")
+            worker.join(timeout=timeout)
+
+            # 检查 Worker 是否仍在运行
+            is_alive = worker.is_alive()
+            logger.info(f"[Manager] Worker {worker_id} join() 返回，is_alive={is_alive}")
+
+            # 如果 Worker 仍在运行，强制终止
+            if is_alive:
+                logger.warning(f"[Manager] Worker {worker_id} 未能在 {timeout} 秒内停止，准备强制终止")
+                worker.terminate()
+                logger.info(f"[Manager] Worker {worker_id} terminate() 已调用，等待 5 秒...")
+                worker.join(timeout=5.0)
+                logger.info(f"[Manager] Worker {worker_id} 强制终止后 is_alive={worker.is_alive()}")
+            else:
+                logger.info(f"[Manager] Worker {worker_id} 已正常停止")
+
+            # 清理
+            logger.info(f"[Manager] 开始清理 Worker {worker_id} 资源...")
+            if worker_id in self._workers:
+                del self._workers[worker_id]
+                logger.info(f"[Manager] Worker {worker_id} 已从 _workers 中移除")
+            if worker_id in self._worker_status:
+                del self._worker_status[worker_id]
+                logger.info(f"[Manager] Worker {worker_id} 已从 _worker_status 中移除")
+
+            # 取消数据订阅
+            logger.info(f"[Manager] 取消 Worker {worker_id} 的数据订阅...")
+            self.data_broker.unsubscribe_all(worker_id)
+
+            logger.info(f"[Manager] Worker {worker_id} 停止流程完成")
+        except Exception as e:
+            logger.error(f"[Manager] 等待 Worker {worker_id} 停止时出错: {e}", exc_info=True)
+
+    def get_worker_pid(self, worker_id: str) -> Optional[int]:
+        """
+        获取 Worker 进程的 PID
+
+        Args:
+            worker_id: Worker ID
+
+        Returns:
+            Worker 进程 PID，如果 Worker 不存在则返回 None
+        """
+        if worker_id in self._workers:
+            worker = self._workers[worker_id]
+            return worker.pid
+        return None
 
     async def stop_all_workers(self) -> bool:
         """
@@ -449,7 +520,12 @@ class WorkerManager:
         try:
             worker_id = message.worker_id
             if not worker_id:
+                logger.warning("[_handle_status_message] worker_id 为空，忽略消息")
                 return
+
+            # 只记录非 LOG 类型的消息（减少日志量）
+            if message.msg_type != MessageType.LOG:
+                logger.debug(f"[_handle_status_message] 收到状态消息: worker_id={worker_id}, msg_type={message.msg_type}")
 
             # 更新状态
             if worker_id in self._worker_status:
@@ -461,9 +537,18 @@ class WorkerManager:
                     state_value = payload["state"]
                     try:
                         new_state = WorkerState(state_value)
-                        status.update_state(new_state)
-                    except ValueError:
-                        pass
+                        old_state = status.state
+                        # 如果状态相同，跳过更新
+                        if old_state == new_state:
+                            pass  # 状态相同，不需要更新
+                        else:
+                            update_success = status.update_state(new_state)
+                            if update_success:
+                                logger.info(f"[_handle_status_message] Worker {worker_id} 状态更新: {old_state.name} -> {new_state.name}")
+                            else:
+                                logger.warning(f"[_handle_status_message] Worker {worker_id} 状态转换被拒绝: {old_state.name} -> {new_state.name}")
+                    except ValueError as e:
+                        logger.error(f"[_handle_status_message] 状态值无效: {state_value}, error: {e}")
 
                 # 更新心跳
                 status.update_heartbeat()
@@ -475,6 +560,8 @@ class WorkerManager:
                     status.orders_placed = payload["orders_placed"]
                 if "errors_count" in payload:
                     status.errors_count = payload["errors_count"]
+            else:
+                logger.warning(f"[_handle_status_message] Worker {worker_id} 不在 _worker_status 中，已知 workers: {list(self._worker_status.keys())}")
 
             # 调用状态处理器
             if worker_id in self._worker_status:
@@ -499,11 +586,17 @@ class WorkerManager:
                 for worker_id, worker in list(self._workers.items()):
                     if not worker.is_alive():
                         logger.warning(f"Worker {worker_id} 已退出")
+                        # 获取 Worker 状态
+                        worker_status = self._worker_status.get(worker_id)
+                        if worker_status:
+                            worker_status.update_state(WorkerState.STOPPED)
+                            # 调用退出回调
+                            for callback in self._worker_exit_callbacks:
+                                try:
+                                    callback(worker_id, worker_status)
+                                except Exception as e:
+                                    logger.error(f"Worker 退出回调执行失败: {e}")
                         # 清理
-                        if worker_id in self._worker_status:
-                            self._worker_status[worker_id].update_state(
-                                WorkerState.STOPPED
-                            )
                         del self._workers[worker_id]
                         self.data_broker.unsubscribe_all(worker_id)
 

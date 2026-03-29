@@ -58,6 +58,7 @@ class StrategyInfo(BaseSchema):
     策略信息模型
 
     Attributes:
+        id: 策略ID
         name: 策略名称
         file_name: 策略文件名
         file_path: 策略文件路径
@@ -70,6 +71,14 @@ class StrategyInfo(BaseSchema):
         source: 策略来源
     """
 
+    model_config = {
+        "from_attributes": False,  # 禁用从属性读取，使用字典键
+        "json_encoders": {
+            datetime: lambda v: v.isoformat() if v else None,
+        }
+    }
+
+    id: Optional[int] = Field(default=None, description="策略ID")
     name: str = Field(..., min_length=1, description="策略名称")
     file_name: str = Field(..., description="策略文件名")
     file_path: str = Field(..., description="策略文件路径")
@@ -83,6 +92,11 @@ class StrategyInfo(BaseSchema):
     source: str = Field(default="files", description="策略来源")
 
 
+class StrategyListData(BaseModel):
+    """策略列表数据包装器"""
+    strategies: List[StrategyInfo] = Field(default_factory=list, description="策略列表")
+
+
 class StrategyListResponse(ApiResponse):
     """
     策略列表响应模型
@@ -91,7 +105,7 @@ class StrategyListResponse(ApiResponse):
         data: 响应数据，包含策略列表
     """
 
-    data: Optional[Dict[str, List[StrategyInfo]]] = Field(
+    data: Optional[StrategyListData] = Field(
         default=None,
         description="响应数据，包含策略列表",
     )
