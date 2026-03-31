@@ -11,6 +11,7 @@ import os
 import logging
 from typing import Dict, Any, Optional, Callable, List
 from datetime import datetime
+from decimal import Decimal
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器
@@ -795,6 +796,202 @@ class WorkerProcess(multiprocessing.Process):
 
 
 # =============================================================================
+# 余额检查器
+# =============================================================================
+
+class BalanceChecker:
+    """
+    余额检查器
+
+    检查账户余额是否充足，并在余额不足时提供自动调整功能。
+    """
+
+    def __init__(
+        self,
+        trader: Any,
+        min_balance_buffer: float = 1.1,  # 10% 缓冲
+        auto_adjust: bool = False,
+    ):
+        """
+        初始化余额检查器
+
+        Parameters
+        ----------
+        trader : Any
+            Nautilus Trader 实例
+        min_balance_buffer : float
+            最小余额缓冲系数（默认 1.1 = 10% 缓冲）
+        auto_adjust : bool
+            是否自动调整订单数量
+        """
+        self.trader = trader
+        self.min_balance_buffer = min_balance_buffer
+        self.auto_adjust = auto_adjust
+
+    def check_balance(
+        self,
+        instrument_id: Any,
+        order_qty: Decimal,
+        price: float | None = None,
+    ) -> tuple[bool, str, Decimal | None]:
+        """
+        检查账户余额是否充足
+
+        Parameters
+        ----------
+        instrument_id : Any
+            交易品种标识符
+        order_qty : Decimal
+            订单数量
+        price : float | None
+            当前价格（如果为 None，则尝试从缓存获取）
+
+        Returns
+        -------
+        tuple[bool, str, Decimal | None]
+            (是否充足, 消息, 调整后数量)
+            - 如果余额充足，返回 (True, "余额充足", None)
+            - 如果余额不足且 auto_adjust=False，返回 (False, 错误消息, None)
+            - 如果余额不足且 auto_adjust=True，返回 (True, 警告消息, 调整后数量)
+        """
+        try:
+            # 获取账户
+            account = self.trader.portfolio.account(instrument_id.venue)
+            if account is None:
+                return True, "无法获取账户信息，跳过余额检查", None
+
+            # 获取当前价格
+            if price is None:
+                price = self._get_current_price(instrument_id)
+                if price is None:
+                    return True, "无法获取当前价格，跳过余额检查", None
+
+            # 计算所需余额
+            required_balance = float(order_qty) * price * self.min_balance_buffer
+
+            # 获取可用余额
+            free_balance = self._get_free_balance(account, instrument_id)
+
+            if free_balance < required_balance:
+                shortfall = required_balance - free_balance
+                error_msg = (
+                    f"余额不足！缺少 {shortfall:.4f} USDT\n"
+                    f"可用: {free_balance:.4f} USDT\n"
+                    f"所需: {required_balance:.4f} USDT\n"
+                    f"当前价格: {price:.2f}"
+                )
+
+                if self.auto_adjust:
+                    # 自动调整订单数量
+                    new_qty = self._calculate_adjusted_qty(
+                        free_balance, price, instrument_id
+                    )
+                    if new_qty is not None and new_qty > 0:
+                        warning_msg = (
+                            f"{error_msg}\n"
+                            f"已自动调整订单数量: {order_qty} -> {new_qty}"
+                        )
+                        return True, warning_msg, new_qty
+                    else:
+                        error_msg += "\n即使调整后数量仍不足，无法下单"
+                        return False, error_msg, None
+                else:
+                    error_msg += "\n建议：1) 给账户充值 2) 减小订单数量 3) 启用自动调整"
+                    return False, error_msg, None
+
+            return True, f"余额充足 - 可用: {free_balance:.4f} USDT, 所需: {required_balance:.4f} USDT", None
+
+        except Exception as e:
+            return True, f"余额检查出错: {e}，默认继续", None
+
+    def _get_current_price(self, instrument_id: Any) -> float | None:
+        """获取当前价格"""
+        try:
+            # 尝试从缓存获取报价
+            quote = self.trader.cache.quote_tick(instrument_id)
+            if quote:
+                return float(quote.ask_price)
+
+            # 尝试从缓存获取最新价格
+            bar = self.trader.cache.bar(instrument_id)
+            if bar:
+                return float(bar.close)
+
+            return None
+        except Exception:
+            return None
+
+    def _get_free_balance(self, account, instrument_id: Any) -> float:
+        """获取可用余额"""
+        try:
+            balances = account.balances()
+            free_balance = 0.0
+
+            for balance in balances:
+                currency_code = balance.currency.code
+                # 尝试找到计价货币（如 USDT）的余额
+                if currency_code in ("USDT", "USD", "BUSD", "USDC"):
+                    free_balance = float(balance.free)
+                    break
+
+            return free_balance
+        except Exception:
+            return 0.0
+
+    def _calculate_adjusted_qty(
+        self,
+        free_balance: float,
+        price: float,
+        instrument_id: Any,
+    ) -> Decimal | None:
+        """计算调整后的订单数量"""
+        try:
+            # 计算最大可下单数量（留 10% 缓冲）
+            max_qty = free_balance / price / self.min_balance_buffer
+
+            # 获取交易品种信息以检查最小交易量
+            instrument = self.trader.cache.instrument(instrument_id)
+            if instrument:
+                min_qty = float(instrument.min_quantity)
+                # 确保不小于最小交易量
+                if max_qty < min_qty:
+                    return None
+
+            return Decimal(str(max_qty))
+        except Exception:
+            return None
+
+
+def check_balance_before_trade(
+    trader: Any,
+    instrument_id: Any,
+    order_qty: Decimal,
+    auto_adjust: bool = False,
+) -> tuple[bool, str, Decimal | None]:
+    """
+    交易前检查余额的便捷函数
+
+    Parameters
+    ----------
+    trader : Any
+        Nautilus Trader 实例
+    instrument_id : Any
+        交易品种标识符
+    order_qty : Decimal
+        订单数量
+    auto_adjust : bool
+        是否自动调整订单数量
+
+    Returns
+    -------
+    tuple[bool, str, Decimal | None]
+        (是否充足, 消息, 调整后数量)
+    """
+    checker = BalanceChecker(trader, auto_adjust=auto_adjust)
+    return checker.check_balance(instrument_id, order_qty)
+
+
+# =============================================================================
 # TradingNode Worker 进程（支持 Nautilus Trader）
 # =============================================================================
 
@@ -914,13 +1111,56 @@ class TradingNodeWorkerProcess(WorkerProcess):
             logger.info(f"Worker {self.worker_id} 开始初始化 TradingNode")
 
             # 导入配置构建器
-            from .config import build_trading_node_config
+            from .config import (
+                build_trading_node_config,
+                validate_config,
+            )
+
+            # 从配置中提取参数
+            exchange = self.trading_config.get("exchange", "binance")
+            account_type = self.trading_config.get("account_type", "spot")
+            trading_mode = self.trading_config.get("trading_mode", "demo")
+            proxy_url = self.trading_config.get("proxy_url")
+            api_key = self.trading_config.get("api_key")
+            api_secret = self.trading_config.get("api_secret")
+            api_passphrase = self.trading_config.get("api_passphrase")
+            log_level = self.trading_config.get("log_level", "INFO")
+
+            # 验证配置
+            is_valid, error_msg = validate_config(
+                exchange=exchange,
+                trading_mode=trading_mode,
+                api_key=api_key,
+                api_secret=api_secret,
+                api_passphrase=api_passphrase,
+            )
+            if not is_valid:
+                logger.error(f"Worker {self.worker_id} 配置验证失败: {error_msg}")
+                self.status.record_error(f"配置验证失败: {error_msg}")
+                return None
 
             # 构建配置
-            node_config = build_trading_node_config(self.trading_config)
+            node_config, (data_factory, exec_factory, venue) = build_trading_node_config(
+                exchange=exchange,
+                account_type=account_type,
+                trading_mode=trading_mode,
+                trader_id=f"WORKER-{self.worker_id}",
+                log_level=log_level,
+                proxy_url=proxy_url,
+                api_key=api_key,
+                api_secret=api_secret,
+                api_passphrase=api_passphrase,
+            )
 
             # 创建 TradingNode 实例
             trading_node = TradingNode(config=node_config)
+
+            # 注册客户端工厂
+            trading_node.add_data_client_factory(venue, data_factory)
+            trading_node.add_exec_client_factory(venue, exec_factory)
+
+            # 构建节点
+            trading_node.build()
 
             logger.info(f"Worker {self.worker_id} TradingNode 初始化完成")
             return trading_node
