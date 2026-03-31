@@ -181,4 +181,171 @@ class EventHandler:
 __all__ = [
     "EventHandler",
     "EventBufferConfig",
+    "NautilusEventHandler",
+    "create_event_handler",
 ]
+
+
+# ============================================================================
+# Nautilus 事件处理器
+# ============================================================================
+
+class NautilusEventHandler:
+    """
+    Nautilus 事件处理器
+
+    订阅 Nautilus 事件并通过回调函数发送到主进程。
+    """
+
+    def __init__(
+        self,
+        trader: Any,
+        event_callback: Callable[[str, dict], None],
+    ):
+        """
+        初始化事件处理器
+
+        Parameters
+        ----------
+        trader : Any
+            Nautilus Trader 实例
+        event_callback : Callable[[str, dict], None]
+            事件回调函数，接收 (event_type, event_data)
+        """
+        self.trader = trader
+        self.event_callback = event_callback
+        self._subscribed = False
+
+    def subscribe_events(self) -> None:
+        """订阅 Nautilus 事件"""
+        if self._subscribed:
+            return
+
+        # 获取消息总线
+        msg_bus = self.trader.msg_bus
+
+        # 订阅订单事件
+        msg_bus.subscribe(
+            topic="OrderEvent",
+            handler=self._handle_order_event,
+        )
+
+        # 订阅成交事件
+        msg_bus.subscribe(
+            topic="FillEvent",
+            handler=self._handle_fill_event,
+        )
+
+        # 订阅持仓事件
+        msg_bus.subscribe(
+            topic="PositionEvent",
+            handler=self._handle_position_event,
+        )
+
+        self._subscribed = True
+
+    def unsubscribe_events(self) -> None:
+        """取消订阅 Nautilus 事件"""
+        if not self._subscribed:
+            return
+
+        msg_bus = self.trader.msg_bus
+
+        msg_bus.unsubscribe(
+            topic="OrderEvent",
+            handler=self._handle_order_event,
+        )
+        msg_bus.unsubscribe(
+            topic="FillEvent",
+            handler=self._handle_fill_event,
+        )
+        msg_bus.unsubscribe(
+            topic="PositionEvent",
+            handler=self._handle_position_event,
+        )
+
+        self._subscribed = False
+
+    def _handle_order_event(self, event: Any) -> None:
+        """处理订单事件"""
+        try:
+            event_data = self._convert_order_event(event)
+            self.event_callback("order", event_data)
+        except Exception as e:
+            logger.error(f"处理订单事件出错: {e}")
+
+    def _handle_fill_event(self, event: Any) -> None:
+        """处理成交事件"""
+        try:
+            event_data = self._convert_fill_event(event)
+            self.event_callback("fill", event_data)
+        except Exception as e:
+            logger.error(f"处理成交事件出错: {e}")
+
+    def _handle_position_event(self, event: Any) -> None:
+        """处理持仓事件"""
+        try:
+            event_data = self._convert_position_event(event)
+            self.event_callback("position", event_data)
+        except Exception as e:
+            logger.error(f"处理持仓事件出错: {e}")
+
+    def _convert_order_event(self, event: Any) -> dict:
+        """转换订单事件为字典"""
+        return {
+            "type": "order",
+            "order_id": str(getattr(event, "order_id", "")),
+            "instrument_id": str(getattr(event, "instrument_id", "")),
+            "side": str(getattr(event, "side", "")),
+            "quantity": str(getattr(event, "quantity", "0")),
+            "price": str(getattr(event, "price", "0")),
+            "status": str(getattr(event, "status", "")),
+            "timestamp": str(getattr(event, "timestamp", "")),
+        }
+
+    def _convert_fill_event(self, event: Any) -> dict:
+        """转换成交事件为字典"""
+        return {
+            "type": "fill",
+            "order_id": str(getattr(event, "order_id", "")),
+            "instrument_id": str(getattr(event, "instrument_id", "")),
+            "side": str(getattr(event, "side", "")),
+            "quantity": str(getattr(event, "quantity", "0")),
+            "price": str(getattr(event, "price", "0")),
+            "commission": str(getattr(event, "commission", "0")),
+            "timestamp": str(getattr(event, "timestamp", "")),
+        }
+
+    def _convert_position_event(self, event: Any) -> dict:
+        """转换持仓事件为字典"""
+        return {
+            "type": "position",
+            "instrument_id": str(getattr(event, "instrument_id", "")),
+            "side": str(getattr(event, "side", "")),
+            "quantity": str(getattr(event, "quantity", "0")),
+            "avg_price": str(getattr(event, "avg_price", "0")),
+            "unrealized_pnl": str(getattr(event, "unrealized_pnl", "0")),
+            "timestamp": str(getattr(event, "timestamp", "")),
+        }
+
+
+def create_event_handler(
+    trader: Any,
+    send_event_func: Callable[[str, dict], None],
+) -> NautilusEventHandler:
+    """
+    创建事件处理器的便捷函数
+
+    Parameters
+    ----------
+    trader : Any
+        Nautilus Trader 实例
+    send_event_func : Callable[[str, dict], None]
+        发送事件的函数
+
+    Returns
+    -------
+    NautilusEventHandler
+        事件处理器实例
+    """
+    return NautilusEventHandler(trader, send_event_func)
