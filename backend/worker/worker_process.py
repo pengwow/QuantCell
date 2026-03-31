@@ -74,6 +74,9 @@ class WorkerProcess(multiprocessing.Process):
 
         这是进程启动时调用的方法，设置进程环境并启动主循环
         """
+        # 设置环境变量，标识这是 Worker 进程
+        os.environ['WORKER_ID'] = str(self.worker_id)
+
         # 调试：记录子进程中的 worker_id
         logger.info(f"[WorkerProcess.run] 子进程启动，worker_id={self.worker_id}, pid={os.getpid()}")
 
@@ -669,20 +672,20 @@ class WorkerProcess(multiprocessing.Process):
             是否发送成功
         """
         if self.comm_client:
-            # 调试：记录消息创建时的详细信息
+            # 调试：记录消息创建时的详细信息（仅debug级别）
             status_dict = self.status.to_dict()
-            logger.info(f"[_send_status] 创建消息: worker_id={self.worker_id}, msg_type={msg_type}, state={self.status.state.name}")
-            logger.info(f"[_send_status] status_dict: {status_dict}")
+            logger.debug(f"[_send_status] 创建消息: worker_id={self.worker_id}, msg_type={msg_type}, state={self.status.state.name}")
+            logger.debug(f"[_send_status] status_dict: {status_dict}")
 
             message = Message(
                 msg_type=msg_type,
                 worker_id=self.worker_id,
                 payload=status_dict,
             )
-            logger.info(f"[_send_status] 消息对象: worker_id={message.worker_id}, msg_type={message.msg_type}")
+            logger.debug(f"[_send_status] 消息对象: worker_id={message.worker_id}, msg_type={message.msg_type}")
 
             result = await self.comm_client.send_status(message)
-            logger.info(f"[_send_status] Worker {self.worker_id} 状态消息发送结果: {result}")
+            logger.debug(f"[_send_status] Worker {self.worker_id} 状态消息发送结果: {result}")
             return result
         else:
             logger.warning(f"[_send_status] Worker {self.worker_id} comm_client 为 None，无法发送状态")
@@ -875,16 +878,25 @@ class TradingNodeWorkerProcess(WorkerProcess):
             logger.info(f"Worker {self.worker_id} TradingNode 启动完成，开始运行")
 
             # 5. 主循环 - 等待关闭信号
+            check_count = 0
             while not self._shutdown_event.is_set():
                 if self._pause_event.is_set():
                     await asyncio.sleep(0.1)
                     continue
 
+                # 每5秒检查一次 Nautilus 状态
+                check_count += 1
+                if check_count % 5 == 0:
+                    is_healthy = await self._check_nautilus_health()
+                    if not is_healthy:
+                        logger.warning(f"Worker {self.worker_id} Nautilus 健康检查失败")
+                        # 可以选择在这里尝试重启或报告错误
+
                 # 发送心跳
                 await self._send_heartbeat()
 
                 # 等待一段时间
-                await asyncio.sleep(5)
+                await asyncio.sleep(1)
 
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 主循环异常: {e}")
@@ -1103,6 +1115,53 @@ class TradingNodeWorkerProcess(WorkerProcess):
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 清理资源时出错: {e}")
             raise
+
+    async def _check_nautilus_health(self) -> bool:
+        """
+        检查 Nautilus 是否正常运行
+
+        Returns:
+            bool: Nautilus 是否健康
+        """
+        if not NAUTILUS_AVAILABLE or self.trading_node is None:
+            return False
+
+        try:
+            # 检查 TradingNode 是否正在运行
+            # 通过检查 kernel 是否存在且正在运行来判断
+            if hasattr(self.trading_node, '_kernel'):
+                kernel = self.trading_node._kernel
+                if kernel is None:
+                    logger.debug(f"Worker {self.worker_id} Nautilus kernel 为 None")
+                    return False
+
+                # 检查 kernel 是否正在运行
+                if hasattr(kernel, 'is_running'):
+                    is_running = kernel.is_running()
+                    if not is_running:
+                        logger.debug(f"Worker {self.worker_id} Nautilus kernel 未在运行")
+                    return is_running
+
+                # 如果无法直接检查 is_running，检查是否有 executor
+                if hasattr(kernel, '_executor'):
+                    executor = kernel._executor
+                    if executor is None:
+                        logger.debug(f"Worker {self.worker_id} Nautilus executor 为 None")
+                        return False
+
+                return True
+            else:
+                # 如果没有 _kernel 属性，尝试其他方式检查
+                # 检查 trading_node 是否有 is_running 方法
+                if hasattr(self.trading_node, 'is_running'):
+                    return self.trading_node.is_running()
+
+                # 默认认为正在运行（因为 trading_node 存在）
+                return True
+
+        except Exception as e:
+            logger.debug(f"Worker {self.worker_id} 检查 Nautilus 健康状态失败: {e}")
+            return False
 
     async def _call_strategy_method(self, method_name: str, *args, **kwargs):
         """安全调用策略方法"""

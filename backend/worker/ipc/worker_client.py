@@ -195,13 +195,13 @@ class WorkerCommClient:
         """
         try:
             if self._status_sender and self._connected:
-                # 调试：记录发送前的 worker_id
-                logger.info(f"[send_status] 发送前: message.worker_id={message.worker_id}, self.worker_id={self.worker_id}")
+                # 调试：记录发送前的 worker_id（仅debug级别）
+                logger.debug(f"[send_status] 发送前: message.worker_id={message.worker_id}, self.worker_id={self.worker_id}")
                 message.worker_id = self.worker_id
                 data = serialize_message(message)
-                logger.info(f"[send_status] 序列化后: data={data[:200]}...")
+                logger.debug(f"[send_status] 序列化后: data={data[:200]}...")
                 await self._status_sender.send(data)
-                logger.info(f"[send_status] 消息已发送")
+                logger.debug(f"[send_status] 消息已发送")
                 return True
         except Exception as e:
             logger.error(f"发送状态消息失败: {e}")
@@ -283,7 +283,20 @@ class WorkerCommClient:
             try:
                 if self._control_client:
                     data = await self._control_client.recv()
-                    message = deserialize_message(data)
+
+                    # 检查数据是否为空
+                    if not data or len(data) == 0:
+                        logger.debug(f"[WorkerClient] Worker {self.worker_id} 接收到空数据，跳过")
+                        await asyncio.sleep(0.01)
+                        continue
+
+                    try:
+                        message = deserialize_message(data)
+                    except ValueError as e:
+                        logger.debug(f"[WorkerClient] Worker {self.worker_id} 消息解析失败: {e}")
+                        await asyncio.sleep(0.01)
+                        continue
+
                     logger.info(f"[WorkerClient] Worker {self.worker_id} 收到控制消息: {message.msg_type.value}")
 
                     # 调用所有控制处理器

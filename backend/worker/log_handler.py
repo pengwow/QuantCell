@@ -64,7 +64,6 @@ class WorkerLogHandler(logging.Handler):
             # 连接到状态端口
             status_port = 5557  # 默认状态端口
             self._zmq_socket.connect(f"tcp://127.0.0.1:{status_port}")
-            print(f"[WorkerLogHandler] ZMQ 套接字已连接到端口 {status_port}", flush=True)
             return True
         except Exception as e:
             print(f"[WorkerLogHandler] 初始化 ZMQ 套接字失败: {e}", flush=True)
@@ -102,12 +101,9 @@ class WorkerLogHandler(logging.Handler):
         self._running = True
         self._flush_thread = threading.Thread(target=self._flush_loop, daemon=True)
         self._flush_thread.start()
-        print(f"[WorkerLogHandler] 日志发送线程已启动 for {self.worker_id}", flush=True)
 
     def _flush_loop(self):
         """后台发送循环"""
-        print(f"[WorkerLogHandler] 发送循环开始 for {self.worker_id}", flush=True)
-        
         # 初始化 ZMQ 套接字
         if not self._init_zmq_socket():
             print(f"[WorkerLogHandler] ZMQ 初始化失败，无法发送日志", flush=True)
@@ -139,10 +135,12 @@ class WorkerLogHandler(logging.Handler):
 
                 # 发送日志
                 if logs and self._zmq_socket:
-                    print(f"[WorkerLogHandler] 准备发送 {len(logs)} 条日志", flush=True)
+                    # 只在批量发送多条日志时输出简要信息
+                    if len(logs) > 1:
+                        print(f"[WorkerLogHandler] 批量发送 {len(logs)} 条日志", flush=True)
+
                     for log in logs:
                         try:
-                            print(f"[WorkerLogHandler] 创建日志消息: {log['message'][:50]}...", flush=True)
                             message = Message.create_log(
                                 worker_id=self.worker_id,
                                 level=log["level"],
@@ -152,15 +150,11 @@ class WorkerLogHandler(logging.Handler):
                             # 使用 ZMQ 直接发送
                             data = serialize_message(message)
                             self._zmq_socket.send(data, flags=zmq.NOBLOCK)
-                            print(f"[WorkerLogHandler] 日志发送成功: {log['message'][:50]}...", flush=True)
                         except zmq.Again:
                             print(f"[WorkerLogHandler] 发送日志失败: ZMQ 发送缓冲区满", flush=True)
                         except Exception as e:
-                            import traceback
                             print(f"[WorkerLogHandler] 发送日志失败: {e}", flush=True)
-                            print(f"[WorkerLogHandler] 错误详情: {traceback.format_exc()}", flush=True)
-                else:
-                    print(f"[WorkerLogHandler] 无法发送日志: logs={len(logs)}, socket={self._zmq_socket is not None}", flush=True)
+                # 静默处理无法发送的情况，减少日志噪音
 
             except Exception as e:
                 print(f"[WorkerLogHandler] 发送循环错误: {e}", flush=True)
@@ -177,20 +171,16 @@ class WorkerLogHandler(logging.Handler):
                 self._zmq_context.term()
             except:
                 pass
-        
-        print(f"[WorkerLogHandler] 发送循环结束 for {self.worker_id}", flush=True)
-
     def stop(self):
         """停止日志处理器"""
-        print(f"[WorkerLogHandler] 停止日志处理器 for {self.worker_id}", flush=True)
         self._running = False
-        
+
         # 向队列发送一个空消息，唤醒等待的线程
         self._queue.put(None)
-        
+
         if self._flush_thread:
             self._flush_thread.join(timeout=3)
-        
+
         # 关闭 ZMQ 套接字
         if self._zmq_socket:
             try:
@@ -204,8 +194,6 @@ class WorkerLogHandler(logging.Handler):
                 self._zmq_context = None
             except:
                 pass
-        
-        print(f"[WorkerLogHandler] 日志处理器已停止 for {self.worker_id}", flush=True)
 
     def flush(self):
         """刷新日志队列"""
@@ -218,7 +206,6 @@ class WorkerLogHandler(logging.Handler):
             pass
 
         if logs and self._zmq_socket:
-            print(f"[WorkerLogHandler] 刷新 {len(logs)} 条日志", flush=True)
             for log in logs:
                 try:
                     message = Message.create_log(

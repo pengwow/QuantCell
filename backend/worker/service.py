@@ -420,19 +420,52 @@ async def stream_logs(websocket, worker_id: int):
         await asyncio.sleep(2)
         return
 
-    # 注册日志处理器
-    async def log_handler(message: Message):
+    # 创建日志队列
+    log_queue: asyncio.Queue = asyncio.Queue()
+
+    # 注册日志处理器（同步函数，将日志放入队列）
+    def log_handler(message: Message):
         if message.worker_id == str(worker_id) and message.msg_type == MessageType.LOG:
-            await websocket.send_json(message.payload)
+            # 使用 asyncio.run_coroutine_threadsafe 在同步上下文中安全地放入队列
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(log_queue.put(message.payload))
+            except Exception:
+                pass
 
     worker_service._comm_manager.register_status_handler(log_handler)
 
     try:
+        # 先发送历史日志
+        from collector.db.database import SessionLocal
+        from worker.crud import get_worker_logs
+        db = SessionLocal()
+        try:
+            logs = get_worker_logs(db, worker_id, limit=50)
+            for log in logs:
+                await websocket.send_json({
+                    "timestamp": log.timestamp.isoformat() if log.timestamp else datetime.now().isoformat(),
+                    "level": log.level,
+                    "message": log.message,
+                    "source": log.source
+                })
+        finally:
+            db.close()
+
+        # 实时推送新日志
         while True:
-            # 保持连接
-            await asyncio.sleep(1)
-    except Exception:
-        pass
+            try:
+                # 等待新日志，带超时以便检查连接状态
+                log_data = await asyncio.wait_for(log_queue.get(), timeout=1.0)
+                await websocket.send_json(log_data)
+            except asyncio.TimeoutError:
+                # 超时继续循环，检查连接状态
+                continue
+            except Exception:
+                break
+    except Exception as e:
+        logger.error(f"日志流异常: {e}")
     finally:
         worker_service._comm_manager.unregister_status_handler(log_handler)
 

@@ -349,77 +349,6 @@ async def start_worker(
             db.commit()
             raise HTTPException(status_code=500, detail="Worker启动失败")
 
-        # 等待 Worker 真正启动成功（最多等待10秒）
-        import asyncio
-
-        # 先等待一段时间，让 WorkerManager 启动并准备接收状态
-        logger.info(f"[start_worker] Worker {worker_id} 等待 WorkerManager 启动...")
-        await asyncio.sleep(1)
-
-        start_time = datetime.now()
-        max_wait = 10  # 最大等待10秒
-        check_interval = 0.5  # 每0.5秒检查一次
-
-        worker_started = False
-        check_count = 0
-        logger.info(f"[start_worker] Worker {worker_id} 开始等待 Worker 启动成功，最多等待 {max_wait} 秒")
-        while (datetime.now() - start_time).total_seconds() < max_wait:
-            check_count += 1
-            # 检查 Worker 进程是否还在运行
-            pid = manager.get_worker_pid(str(worker_id))
-            logger.info(f"[start_worker] Worker {worker_id} 第 {check_count} 次检查，pid={pid}")
-            if pid is None:
-                # 进程已经退出，启动失败
-                logger.warning(f"[start_worker] Worker {worker_id} 进程已退出 (pid=None)")
-                break
-
-            # 检查 Worker 是否已发送运行状态
-            worker_id_str = str(worker_id)
-            worker_status = manager.get_worker_status(worker_id_str)
-            logger.info(f"[start_worker] Worker {worker_id} 检查状态: worker_id_str={worker_id_str}, worker_status={worker_status}")
-            if worker_status:
-                logger.info(f"[start_worker] Worker {worker_id} 当前状态: {worker_status.state.name}, 值: {worker_status.state.value}")
-                if worker_status.state.name == "RUNNING":
-                    worker_started = True
-                    logger.info(f"[start_worker] Worker {worker_id} 状态为 RUNNING，启动成功")
-                    break
-            else:
-                logger.warning(f"[start_worker] Worker {worker_id} worker_status 为 None，_worker_status keys: {list(manager._worker_status.keys())}")
-
-            await asyncio.sleep(check_interval)
-
-        logger.info(f"[start_worker] Worker {worker_id} 等待结束，worker_started={worker_started}, 检查次数={check_count}")
-
-        if not worker_started:
-            # Worker 未能在规定时间内进入 RUNNING 状态，启动失败
-            pid = manager.get_worker_pid(str(worker_id))
-            logger.error(f"[start_worker] Worker {worker_id} 未能在规定时间内启动成功，当前 pid={pid}")
-
-            # 无论进程是否还在，都视为启动失败
-            # 如果进程还在，需要停止它
-            if pid is not None:
-                logger.warning(f"[start_worker] Worker {worker_id} 进程仍在运行但未能进入 RUNNING 状态，尝试停止进程")
-                try:
-                    import os
-                    import signal
-                    os.kill(pid, signal.SIGTERM)
-                    logger.info(f"[start_worker] Worker {worker_id} 已发送停止信号")
-                except Exception as e:
-                    logger.error(f"[start_worker] Worker {worker_id} 停止进程失败: {e}")
-
-            # 更新状态为 error
-            logger.error(f"[start_worker] Worker {worker_id} 更新状态为 error")
-            worker.status = "error"
-            worker.pid = None
-            db.commit()
-
-            # 正常返回，但标记为失败（不抛出 500 错误）
-            return schemas.ApiResponse(
-                code=1,
-                message="Worker启动失败：未能在规定时间内进入运行状态",
-                data={"worker_id": worker_id, "status": "error", "pid": None}
-            )
-
         # Worker 启动成功，更新状态为 running
         logger.info(f"[start_worker] Worker {worker_id} 启动成功，更新状态为 running")
         worker.status = "running"
@@ -658,11 +587,30 @@ async def get_worker_logs(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/{worker_id}/monitoring/logs", response_model=schemas.ApiResponse)
+async def clear_worker_logs(
+    worker_id: int,
+    before_days: Optional[int] = Query(None, description="清理多少天前的日志，不指定则清理所有"),
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user)
+):
+    """清理Worker日志"""
+    try:
+        deleted_count = crud.clear_worker_logs(db, worker_id, before_days)
+        return schemas.ApiResponse(
+            code=0,
+            message="success",
+            data={"deleted_count": deleted_count}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.websocket("/{worker_id}/monitoring/logs/stream")
 async def log_stream(websocket: WebSocket, worker_id: int):
     """
     WebSocket实时日志流
-    
+
     通过WebSocket实时推送Worker日志
     """
     await websocket.accept()

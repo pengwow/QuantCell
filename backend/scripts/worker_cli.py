@@ -150,14 +150,15 @@ def _get_state_color(state: str) -> str:
 def _print_worker_table(workers: List[Dict[str, Any]], show_header: bool = True):
     """打印 Worker 表格"""
     if show_header:
-        typer.echo(f"{'ID':<8} {'名称':<20} {'状态':<12} {'交易对':<15} {'运行时长':<15}")
-        typer.echo("-" * 75)
+        typer.echo(f"{'ID':<8} {'名称':<20} {'状态':<12} {'PID':<10} {'运行时长':<15}")
+        typer.echo("-" * 70)
 
     for worker in workers:
         worker_id = str(worker.get("id", "N/A"))[:6]
         name = worker.get("name", "N/A")[:18]
         state = worker.get("status", "unknown")
-        symbol = worker.get("symbol", "N/A")[:13]
+        pid = str(worker.get("pid")) if worker.get("pid") else "N/A"
+        pid = pid[:8]
         started_at = worker.get("started_at")
         uptime = _format_uptime(started_at)
 
@@ -165,7 +166,7 @@ def _print_worker_table(workers: List[Dict[str, Any]], show_header: bool = True)
 
         typer.echo(f"{worker_id:<8} {name:<20} ", nl=False)
         typer.secho(f"{state:<12}", fg=state_color, nl=False)
-        typer.echo(f" {symbol:<15} {uptime:<15}")
+        typer.echo(f" {pid:<10} {uptime:<15}")
 
 
 # 创建 Typer 应用
@@ -291,11 +292,27 @@ def start(
       python worker_cli.py start 1
     """
     try:
+        # 先检查 Worker 当前状态
+        try:
+            worker = _make_request("GET", str(worker_id))
+            current_status = worker.get('status', 'unknown')
+
+            if current_status == 'running':
+                typer.secho(f"⚠ Worker {worker_id} 已经在运行中", fg=typer.colors.YELLOW)
+                typer.echo(f"  Worker ID: {worker_id}")
+                typer.echo(f"  状态: {current_status}")
+                typer.echo(f"  PID: {worker.get('pid')}")
+                return
+        except Exception:
+            # 如果获取状态失败，继续尝试启动
+            pass
+
         result = _make_request("POST", f"{worker_id}/lifecycle/start")
 
-        typer.echo(f"✓ Worker {worker_id} 启动中")
-        typer.echo(f"  任务ID: {result.get('task_id')}")
+        typer.secho(f"✓ Worker {worker_id} 启动成功", fg=typer.colors.GREEN)
+        typer.echo(f"  Worker ID: {result.get('worker_id')}")
         typer.echo(f"  状态: {result.get('status')}")
+        typer.echo(f"  PID: {result.get('pid')}")
 
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
@@ -467,16 +484,30 @@ def _show_status(worker_id: Optional[int] = None):
         # 显示单个 Worker 状态
         worker = _make_request("GET", str(worker_id))
 
+        # 从 trading_config 解析交易配置
+        trading_config = worker.get('trading_config', '{}')
+        if isinstance(trading_config, str):
+            try:
+                import json
+                trading_config = json.loads(trading_config)
+            except:
+                trading_config = {}
+
+        symbols_config = trading_config.get('symbols_config', {})
+        symbols = symbols_config.get('symbols', [])
+        # 显示交易对，多个用逗号分隔
+        symbols_str = ', '.join(symbols) if symbols else 'N/A'
+
         typer.echo(f"Worker ID: {worker.get('id')}")
         typer.echo(f"名称: {worker.get('name')}")
         typer.echo(f"状态: ", nl=False)
         typer.secho(f"{worker.get('status')}", fg=_get_state_color(worker.get('status', '')))
         typer.echo(f"策略ID: {worker.get('strategy_id')}")
-        typer.echo(f"交易所: {worker.get('exchange')}")
-        typer.echo(f"交易对: {worker.get('symbol')}")
-        typer.echo(f"时间周期: {worker.get('timeframe')}")
-        typer.echo(f"市场类型: {worker.get('market_type')}")
-        typer.echo(f"交易模式: {worker.get('trading_mode')}")
+        typer.echo(f"交易所: {trading_config.get('exchange', 'N/A')}")
+        typer.echo(f"交易对: {symbols_str}")
+        typer.echo(f"时间周期: {trading_config.get('timeframe', 'N/A')}")
+        typer.echo(f"市场类型: {trading_config.get('market_type', 'N/A')}")
+        typer.echo(f"交易模式: {trading_config.get('trading_mode', 'N/A')}")
         typer.echo(f"PID: {worker.get('pid') or 'N/A'}")
         typer.echo(f"运行时长: {_format_uptime(worker.get('started_at'))}")
 
@@ -600,7 +631,9 @@ def stats(
                 typer.echo(f"\n运行中的 Worker:")
                 for w in workers:
                     if w.get("status") == "running":
-                        typer.echo(f"  - {w.get('name')} (ID: {w.get('id')}, 运行时长: {_format_uptime(w.get('started_at'))})")
+                        pid = w.get('pid')
+                        pid_str = f", PID: {pid}" if pid else ""
+                        typer.echo(f"  - {w.get('name')} (ID: {w.get('id')}{pid_str}, 运行时长: {_format_uptime(w.get('started_at'))})")
 
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
@@ -725,15 +758,41 @@ def logs(
     worker_id: Annotated[int, typer.Argument(help="Worker ID")],
     level: Annotated[Optional[str], typer.Option("--level", "-l", help="日志级别筛选")] = None,
     lines: Annotated[int, typer.Option("--lines", "-n", help="显示行数")] = 50,
+    clear: Annotated[bool, typer.Option("--clear", "-c", help="清理日志")] = False,
+    before_days: Annotated[Optional[int], typer.Option("--before-days", help="清理多少天前的日志")] = None,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="确认清理，不提示")] = False,
 ):
     """
-    查看 Worker 日志
+    查看或清理 Worker 日志
 
     示例:
-      python worker_cli.py logs 1
+      python worker_cli.py logs 1                    # 查看日志
       python worker_cli.py logs 1 --level ERROR --lines 100
+      python worker_cli.py logs 1 --clear            # 清理所有日志
+      python worker_cli.py logs 1 --clear --before-days 7  # 清理7天前的日志
     """
     try:
+        # 清理日志模式
+        if clear:
+            if not yes:
+                if before_days:
+                    confirm_msg = f"确定要清理 Worker {worker_id} {before_days} 天前的日志吗?"
+                else:
+                    confirm_msg = f"确定要清理 Worker {worker_id} 的所有日志吗?"
+                if not typer.confirm(confirm_msg):
+                    typer.echo("已取消")
+                    raise typer.Exit(0)
+
+            params = {}
+            if before_days:
+                params["before_days"] = before_days
+
+            result = _make_request("DELETE", f"{worker_id}/monitoring/logs", params=params)
+            deleted_count = result.get("deleted_count", 0)
+            typer.echo(f"✓ 已清理 {deleted_count} 条日志")
+            return
+
+        # 查看日志模式
         params = {"limit": lines}
         if level:
             params["level"] = level
@@ -1037,8 +1096,8 @@ def diagnose(
         typer.echo("Worker 系统诊断报告")
         typer.echo("=" * 60)
 
-        # 1. 检查 API 连接
-        typer.echo("\n[1/5] 检查 API 连接...")
+        # 1. 检查 API 连接和幽灵 Worker
+        typer.echo("\n[1/6] 检查 API 连接...")
         try:
             result = _make_request("GET")
             typer.secho("  ✓ API 连接正常", fg=typer.colors.GREEN)
@@ -1046,9 +1105,68 @@ def diagnose(
             typer.secho(f"  ✗ API 连接失败: {e}", fg=typer.colors.RED)
             raise typer.Exit(1)
 
-        # 2. 检查 Worker 基本信息
+        # 检查幽灵 Worker 进程
+        typer.echo("\n[2/6] 检查幽灵 Worker 进程...")
+        try:
+            import subprocess
+            ps_result = subprocess.run(
+                ["ps", "aux"],
+                capture_output=True,
+                text=True
+            )
+
+            ghost_workers = []
+            for line in ps_result.stdout.split("\n"):
+                if "quantcell-worker" in line and "grep" not in line:
+                    parts = line.split()
+                    if len(parts) > 1:
+                        pid = parts[1]
+                        # 提取 worker_id 从进程标题
+                        for part in parts:
+                            if part.startswith("quantcell-worker:"):
+                                try:
+                                    ghost_worker_id = part.split(":")[1]
+                                    ghost_workers.append({
+                                        "pid": pid,
+                                        "worker_id": ghost_worker_id,
+                                        "cmd": " ".join(parts[10:]) if len(parts) > 10 else ""
+                                    })
+                                except:
+                                    pass
+                                break
+
+            if ghost_workers:
+                typer.secho(f"  ⚠ 发现 {len(ghost_workers)} 个 Worker 进程", fg=typer.colors.YELLOW)
+                for ghost in ghost_workers:
+                    typer.echo(f"    - Worker {ghost['worker_id']}: PID={ghost['pid']}")
+
+                # 检查数据库中的 Worker 状态
+                workers = result.get("items", [])
+                db_worker_ids = {str(w.get("id")) for w in workers}
+                ghost_ids = {g["worker_id"] for g in ghost_workers}
+
+                orphaned = ghost_ids - db_worker_ids
+                if orphaned:
+                    typer.secho(f"\n  ⚠ 发现 {len(orphaned)} 个幽灵 Worker (数据库中不存在):", fg=typer.colors.RED)
+                    for ghost in ghost_workers:
+                        if ghost["worker_id"] in orphaned:
+                            typer.echo(f"    - Worker {ghost['worker_id']}: PID={ghost['pid']} (数据库中不存在)")
+                    typer.echo("\n  建议操作:")
+                    typer.echo("    运行以下命令终止幽灵进程:")
+                    for ghost in ghost_workers:
+                        if ghost["worker_id"] in orphaned:
+                            typer.echo(f"      kill -9 {ghost['pid']}")
+                else:
+                    typer.secho("  ✓ 所有 Worker 进程都在数据库中有记录", fg=typer.colors.GREEN)
+            else:
+                typer.secho("  ✓ 没有发现 Worker 进程", fg=typer.colors.GREEN)
+
+        except Exception as e:
+            typer.secho(f"  ⚠ 检查 Worker 进程失败: {e}", fg=typer.colors.YELLOW)
+
+        # 3. 检查 Worker 基本信息
         if worker_id:
-            typer.echo(f"\n[2/5] 检查 Worker {worker_id} 基本信息...")
+            typer.echo(f"\n[3/6] 检查 Worker {worker_id} 基本信息...")
             try:
                 worker = _make_request("GET", str(worker_id))
                 typer.secho(f"  ✓ Worker 存在", fg=typer.colors.GREEN)
@@ -1060,8 +1178,8 @@ def diagnose(
                 typer.secho(f"  ✗ 获取 Worker 信息失败: {e}", fg=typer.colors.RED)
                 return
 
-            # 3. 检查生命周期状态
-            typer.echo(f"\n[3/5] 检查 Worker {worker_id} 生命周期状态...")
+            # 4. 检查生命周期状态
+            typer.echo(f"\n[4/6] 检查 Worker {worker_id} 生命周期状态...")
             try:
                 lifecycle = _make_request("GET", f"{worker_id}/lifecycle/status")
                 typer.secho("  ✓ 生命周期接口正常", fg=typer.colors.GREEN)
@@ -1071,8 +1189,8 @@ def diagnose(
                 typer.secho(f"  ✗ 生命周期接口调用失败: {e}", fg=typer.colors.RED)
                 typer.echo("    提示: Worker 可能未真正启动或通信组件未初始化")
 
-            # 4. 检查性能指标
-            typer.echo(f"\n[4/5] 检查 Worker {worker_id} 性能指标...")
+            # 5. 检查性能指标
+            typer.echo(f"\n[5/6] 检查 Worker {worker_id} 性能指标...")
             try:
                 metrics = _make_request("GET", f"{worker_id}/monitoring/metrics")
                 typer.secho("  ✓ 性能指标接口正常", fg=typer.colors.GREEN)
@@ -1092,8 +1210,8 @@ def diagnose(
             except Exception as e:
                 typer.secho(f"  ✗ 性能指标接口调用失败: {e}", fg=typer.colors.RED)
 
-            # 5. 检查日志
-            typer.echo(f"\n[5/5] 检查 Worker {worker_id} 日志...")
+            # 6. 检查日志
+            typer.echo(f"\n[6/6] 检查 Worker {worker_id} 日志...")
             try:
                 logs = _make_request("GET", f"{worker_id}/monitoring/logs", params={"limit": 5})
                 if logs and len(logs) > 0:
@@ -1130,15 +1248,17 @@ def diagnose(
         else:
             # 系统级诊断
             workers = result.get("items", [])
-            typer.echo(f"\n[2/5] 系统概览")
+            typer.echo(f"\n[3/6] 系统概览")
             typer.echo(f"  - 总 Worker 数: {len(workers)}")
 
             running = sum(1 for w in workers if w.get('status') == 'running')
             stopped = sum(1 for w in workers if w.get('status') == 'stopped')
+            error = sum(1 for w in workers if w.get('status') == 'error')
             typer.echo(f"  - 运行中: {running}")
             typer.echo(f"  - 已停止: {stopped}")
+            typer.echo(f"  - 错误: {error}")
 
-            typer.echo("\n[3/5] 检查系统健康状态...")
+            typer.echo("\n[4/6] 检查系统健康状态...")
             try:
                 # 尝试获取第一个 Worker 的指标来检查系统状态
                 if workers:
@@ -1152,6 +1272,46 @@ def diagnose(
                         typer.secho("  ✓ 系统运行正常", fg=typer.colors.GREEN)
             except Exception as e:
                 typer.secho(f"  ✗ 系统检查失败: {e}", fg=typer.colors.RED)
+
+            typer.echo("\n[5/6] 检查 ZMQ 端口...")
+            try:
+                import subprocess
+                ports = [5555, 5556, 5557, 5558]
+                occupied_by_others = []
+
+                for port in ports:
+                    port_check = subprocess.run(
+                        ["lsof", "-i", f":{port}"],
+                        capture_output=True,
+                        text=True
+                    )
+                    if port_check.returncode == 0 and port_check.stdout.strip():
+                        # 检查占用端口的进程是否是 Worker 进程
+                        lines = port_check.stdout.strip().split("\n")[1:]  # 跳过标题行
+                        for line in lines:
+                            if line and "quantcell-worker" not in line and "Python" not in line:
+                                # 被非 Worker 进程占用
+                                occupied_by_others.append(port)
+                                break
+
+                if occupied_by_others:
+                    typer.secho(f"  ⚠ 发现 {len(occupied_by_others)} 个 ZMQ 端口被其他进程占用: {occupied_by_others}", fg=typer.colors.YELLOW)
+                    typer.echo("    建议: 终止占用端口的进程或更换端口配置")
+                else:
+                    if running > 0:
+                        typer.secho(f"  ✓ ZMQ 端口正常占用（{running} 个 Worker 正在运行）", fg=typer.colors.GREEN)
+                    else:
+                        typer.secho("  ✓ ZMQ 端口空闲", fg=typer.colors.GREEN)
+            except Exception as e:
+                typer.secho(f"  ⚠ 检查 ZMQ 端口失败: {e}", fg=typer.colors.YELLOW)
+
+            typer.echo("\n[6/6] 诊断建议...")
+            if running == 0 and len(workers) > 0:
+                typer.secho("  ⚠ 有 Worker 但未运行", fg=typer.colors.YELLOW)
+                typer.echo("    建议: 尝试启动 Worker")
+                typer.echo(f"      python worker_cli.py start {workers[0].get('id')}")
+            elif running > 0:
+                typer.secho(f"  ✓ 有 {running} 个 Worker 正在运行", fg=typer.colors.GREEN)
 
             typer.echo("\n" + "=" * 60)
             typer.echo("建议: 如需诊断具体 Worker，请指定 Worker ID")
