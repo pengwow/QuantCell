@@ -214,15 +214,39 @@ def get_worker_logs(
 ) -> List[WorkerLog]:
     """获取Worker日志"""
     query = db.query(WorkerLog).filter(WorkerLog.worker_id == worker_id)
-    
+
     if level:
         query = query.filter(WorkerLog.level == level)
     if start_time:
         query = query.filter(WorkerLog.timestamp >= start_time)
     if end_time:
         query = query.filter(WorkerLog.timestamp <= end_time)
-    
+
     return query.order_by(desc(WorkerLog.timestamp)).limit(limit).all()
+
+
+def clear_worker_logs(db: Session, worker_id: int, before_days: Optional[int] = None) -> int:
+    """清理Worker日志
+
+    Args:
+        db: 数据库会话
+        worker_id: Worker ID
+        before_days: 清理多少天前的日志，None表示清理所有
+
+    Returns:
+        删除的日志条数
+    """
+    query = db.query(WorkerLog).filter(WorkerLog.worker_id == worker_id)
+
+    if before_days is not None:
+        cutoff_time = datetime.now() - timedelta(days=before_days)
+        query = query.filter(WorkerLog.timestamp < cutoff_time)
+
+    deleted_count = query.count()
+    query.delete(synchronize_session=False)
+    db.commit()
+
+    return deleted_count
 
 
 # Worker指标操作

@@ -296,8 +296,16 @@ class UnifiedLogger:
 
     def _setup_logger(self) -> None:
         """配置基础日志器"""
-        # 移除默认处理器
-        _loguru_logger.remove()
+        # 检查是否在 Worker 进程中（通过环境变量判断）
+        is_worker_process = os.environ.get('WORKER_ID') is not None
+
+        if is_worker_process:
+            # 在 Worker 进程中，不移除已有的处理器（保留 WorkerLogHandler）
+            # 只添加控制台和文件处理器
+            pass
+        else:
+            # 在主进程中，移除默认处理器
+            _loguru_logger.remove()
 
         # 获取日志级别
         level = os.environ.get("LOG_LEVEL", "INFO").upper()

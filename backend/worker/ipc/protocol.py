@@ -279,5 +279,15 @@ def deserialize_message(data: bytes) -> Message:
 
     Returns:
         消息对象
+
+    Raises:
+        ValueError: 如果数据为空或格式无效
     """
-    return Message.from_json(data.decode("utf-8"))
+    if not data or len(data) == 0:
+        raise ValueError("接收到的数据为空")
+
+    json_str = data.decode("utf-8")
+    if not json_str or len(json_str.strip()) == 0:
+        raise ValueError("解码后的JSON字符串为空")
+
+    return Message.from_json(json_str)
