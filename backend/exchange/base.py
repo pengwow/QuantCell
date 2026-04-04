@@ -206,7 +206,17 @@ class BaseCollector(abc.ABC):
                 else:
                     return []
 
-            existing_datetimes = pd.to_datetime(existing_timestamps, unit='ms', errors='coerce')
+            # 根据时间戳长度判断精度并转换为datetime
+            def ts_to_datetime(ts):
+                ts_str = str(int(ts))
+                if len(ts_str) > 18:  # 纳秒级
+                    return pd.to_datetime(ts, unit='ns', errors='coerce')
+                elif len(ts_str) > 15:  # 微秒级
+                    return pd.to_datetime(ts, unit='us', errors='coerce')
+                else:  # 毫秒级
+                    return pd.to_datetime(ts, unit='ms', errors='coerce')
+            
+            existing_datetimes = pd.Series([ts_to_datetime(ts) for ts in existing_timestamps])
             existing_datetimes = existing_datetimes.dropna()
 
             if existing_datetimes.empty:

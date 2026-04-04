@@ -1,6 +1,7 @@
 # 数据处理器
 from typing import Dict, Any, Optional
 from utils.logger import get_logger, LogType
+from utils.timestamp_utils import normalize_to_nanoseconds
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -95,9 +96,9 @@ class DataProcessor:
         Returns:
             Dict[str, Any]: 处理后的消息
         """
-        # 添加处理时间戳
+        # 添加处理时间戳 (统一使用纳秒级)
         import time
-        message['processed_timestamp'] = int(time.time() * 1000)
+        message['processed_timestamp'] = int(time.time() * 1_000_000_000)
         
         return message
     
@@ -124,13 +125,14 @@ class DataProcessor:
         # 币安字段: t=open_time, T=close_time, o=open, h=high, l=low, c=close, v=volume
         #           q=quote_volume, n=trades, i=interval, x=is_final
         #           V=taker_buy_base_volume, Q=taker_buy_quote_volume
+        # 币安返回的是毫秒级时间戳，统一转换为纳秒级
         kline_data = {
             'exchange': processed['exchange'],
             'symbol': k.get('s', processed.get('s', '')),
             'data_type': 'kline',
-            'open_time': k.get('t'),
-            'close_time': k.get('T'),
-            'timestamp': k.get('t'),
+            'open_time': normalize_to_nanoseconds(k.get('t'), input_precision='ms') if k.get('t') else None,
+            'close_time': normalize_to_nanoseconds(k.get('T'), input_precision='ms') if k.get('T') else None,
+            'timestamp': normalize_to_nanoseconds(k.get('t'), input_precision='ms') if k.get('t') else None,
             'open': k.get('o'),
             'high': k.get('h'),
             'low': k.get('l'),

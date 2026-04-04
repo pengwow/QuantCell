@@ -104,6 +104,8 @@ def build_trading_node_config(
     cache_config: Any | None = None,
     exec_engine_config: Any | None = None,
     data_engine_config: Any | None = None,
+    log_directory: str | None = None,
+    log_file_name: str | None = None,
 ) -> Tuple[TradingNodeConfig, ClientFactories]:
     """
     构建 TradingNodeConfig
@@ -134,6 +136,10 @@ def build_trading_node_config(
         执行引擎配置
     data_engine_config : Any | None
         数据引擎配置
+    log_directory : str | None
+        日志输出目录，默认为None（输出到控制台）
+    log_file_name : str | None
+        日志文件名，默认为None（使用默认名称）
 
     Returns
     -------
@@ -191,14 +197,23 @@ def build_trading_node_config(
             flush_on_start=False,
         )
 
+    # 配置日志
+    logging_config = LoggingConfig(
+        log_level=log_level,
+        log_colors=True,
+        use_pyo3=True,
+    )
+
+    # 如果指定了日志目录，配置文件日志
+    if log_directory:
+        logging_config.log_directory = log_directory
+        logging_config.log_file_name = log_file_name or f"{trader_id}.log"
+        logging_config.log_level_file = log_level
+
     # 创建 TradingNodeConfig
     config = TradingNodeConfig(
         trader_id=TraderId(trader_id),
-        logging=LoggingConfig(
-            log_level=log_level,
-            log_colors=True,
-            use_pyo3=True,
-        ),
+        logging=logging_config,
         data_engine=data_engine_config,
         exec_engine=exec_engine_config,
         cache=cache_config,

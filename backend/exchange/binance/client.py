@@ -13,6 +13,7 @@ import time
 from binance import Client, AsyncClient
 from binance.exceptions import BinanceAPIException, BinanceRequestException
 from utils.logger import get_logger, LogType
+from utils.timestamp_utils import normalize_to_nanoseconds
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -261,17 +262,17 @@ class BinanceClient:
                 limit=limit,
             )
             
-            # 转换为字典格式
+            # 转换为字典格式 (时间戳统一转换为纳秒级)
             result = []
             for k in klines:
                 result.append({
-                    "open_time": k[0],
+                    "open_time": normalize_to_nanoseconds(k[0], input_precision='ms'),
                     "open": float(k[1]),
                     "high": float(k[2]),
                     "low": float(k[3]),
                     "close": float(k[4]),
                     "volume": float(k[5]),
-                    "close_time": k[6],
+                    "close_time": normalize_to_nanoseconds(k[6], input_precision='ms'),
                     "quote_volume": float(k[7]),
                     "trades": k[8],
                     "taker_buy_base": float(k[9]),

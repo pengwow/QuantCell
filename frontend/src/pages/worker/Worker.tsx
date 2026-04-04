@@ -589,11 +589,11 @@ const Worker = () => {
                           <div style={{ marginBottom: 12 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                               <span style={{ color: '#666', fontSize: 13 }}>{t('exchange') || '交易所'}</span>
-                              <Tag size="small">{worker.exchange}</Tag>
+                              <Tag>{worker.exchange}</Tag>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                               <span style={{ color: '#666', fontSize: 13 }}>{t('timeframe') || '周期'}</span>
-                              <Tag size="small" color="blue">{worker.timeframe}</Tag>
+                              <Tag color="blue">{worker.timeframe}</Tag>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                               <span style={{ color: '#666', fontSize: 13 }}>{t('total_profit') || '总收益'}</span>
@@ -707,7 +707,7 @@ const Worker = () => {
                         render: (text: string, worker: WorkerType) => (
                           <Space>
                             <span>{text}</span>
-                            <Tag color={WorkerStatusColor[worker.status]} size="small">
+                            <Tag color={WorkerStatusColor[worker.status]}>
                               {WorkerStatusText[worker.status]}
                             </Tag>
                           </Space>

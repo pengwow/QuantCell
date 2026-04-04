@@ -323,12 +323,12 @@ class KlineSubscriptionManager:
                 logger.debug(f"No clients subscribed to {symbol}@{interval}")
                 return result
 
-            # 构建消息
+            # 构建消息 (时间戳统一使用纳秒级)
             topic = self.build_topic(symbol, interval)
             message = {
                 "type": "kline",
-                "id": f"kline_{int(time.time() * 1000)}",
-                "timestamp": int(time.time() * 1000),
+                "id": f"kline_{int(time.time() * 1_000_000_000)}",
+                "timestamp": int(time.time() * 1_000_000_000),
                 "topic": topic,
                 "data": kline_data
             }

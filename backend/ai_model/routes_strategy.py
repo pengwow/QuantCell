@@ -1459,8 +1459,22 @@ async def preload_thinking_chain(
             data=chain,
         )
     except Exception as e:
-        logger.error(f"预加载思维链失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = str(e)
+        logger.error(f"预加载思维链失败: {error_msg}")
+        
+        # 提供更友好的错误信息
+        if "no such table" in error_msg.lower():
+            friendly_msg = "数据库表不存在，请先运行初始化脚本: cd backend && uv run python scripts/init_ai_model.py"
+        elif "operationalerror" in error_msg.lower():
+            friendly_msg = "数据库操作错误，请检查数据库配置或运行初始化脚本"
+        else:
+            friendly_msg = f"系统错误: {error_msg}"
+        
+        return ApiResponse(
+            code=500,
+            message=friendly_msg,
+            data={"error_detail": error_msg},
+        )
 
 
 @router.get("/thinking-chains", response_model=ApiResponse)

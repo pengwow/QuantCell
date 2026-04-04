@@ -14,8 +14,10 @@ QuantCell 主入口文件
 import strategy.models  # noqa: F401
 import backtest.models  # noqa: F401
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 # 导入核心模块
 from core import lifespan
@@ -81,6 +83,72 @@ app.include_router(notification_router)
 
 # 插件路由注册会在应用启动时通过lifespan函数完成
 # 这里不需要提前注册，插件会在应用启动时动态加载和注册
+
+
+# 全局 422 验证错误处理器
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """处理请求验证错误，返回友好的错误信息
+
+    Args:
+        request: 请求对象
+        exc: 验证错误异常
+
+    Returns:
+        JSONResponse: 包含友好错误信息的 JSON 响应
+    """
+    errors = exc.errors()
+    error_messages = []
+    serializable_errors = []
+
+    for error in errors:
+        loc = error.get("loc", [])
+        msg = error.get("msg", "")
+        error_type = error.get("type", "")
+        input_value = error.get("input", "")
+
+        # 构建字段路径
+        field_path = ".".join(str(x) for x in loc if x != "body")
+
+        # 根据错误类型提供友好的错误信息
+        if "missing" in error_type:
+            friendly_msg = f"缺少必填字段: {field_path}"
+        elif "type_error" in error_type or "value_error" in error_type:
+            friendly_msg = f"字段 '{field_path}' 的值无效: {msg}"
+        elif "min_length" in error_type:
+            friendly_msg = f"字段 '{field_path}' 的值太短: {msg}"
+        elif "max_length" in error_type:
+            friendly_msg = f"字段 '{field_path}' 的值太长: {msg}"
+        else:
+            friendly_msg = f"字段 '{field_path}': {msg}"
+
+        error_messages.append(friendly_msg)
+
+        # 构建可序列化的错误信息
+        serializable_error = {
+            "type": error_type,
+            "loc": [str(x) for x in loc],
+            "msg": msg,
+            "input": str(input_value) if input_value is not None else None,
+        }
+        serializable_errors.append(serializable_error)
+
+    # 构建完整的错误信息
+    if error_messages:
+        detail_message = "; ".join(error_messages)
+    else:
+        detail_message = "请求参数验证失败"
+
+    logger.warning(f"请求验证失败: {detail_message}")
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "code": 422,
+            "message": detail_message,
+            "data": {"errors": serializable_errors},
+        },
+    )
 
 
 @app.get("/")
