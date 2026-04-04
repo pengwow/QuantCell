@@ -305,6 +305,21 @@ api.interceptors.response.use(
       return Promise.reject(new ApiError(401, error.response.data.message || '登录已过期，请重新登录'));
     }
 
+    // 处理HTTP 422验证错误
+    if (error.response?.status === 422) {
+      const errorData = error.response?.data;
+      const errorMessage = errorData?.message || errorData?.detail || '请求参数验证失败';
+      return Promise.reject(new ApiError(422, errorMessage));
+    }
+
+    // 处理后端返回的其他业务错误
+    if (error.response?.data?.message) {
+      return Promise.reject(new ApiError(
+        error.response?.data?.code || error.response?.status || 500,
+        error.response.data.message
+      ));
+    }
+
     // 其他网络错误
     console.error('网络错误:', error);
     return Promise.reject(error);
@@ -825,7 +840,19 @@ export const aiModelApi = {
         }
 
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          // 尝试读取错误响应体
+          let errorMessage = `HTTP error! status: ${response.status}`;
+          try {
+            const errorData = await response.json();
+            if (errorData.message) {
+              errorMessage = errorData.message;
+            } else if (errorData.detail) {
+              errorMessage = errorData.detail;
+            }
+          } catch (e) {
+            // 如果无法解析JSON，使用默认错误信息
+          }
+          throw new Error(errorMessage);
         }
 
         const reader = response.body?.getReader();

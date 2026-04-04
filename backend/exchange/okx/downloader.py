@@ -5,6 +5,7 @@ from typing import Optional, Union
 import pandas as pd
 import requests
 from utils.logger import get_logger, LogType
+from utils.timestamp_utils import normalize_to_nanoseconds
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -115,6 +116,11 @@ class OKXDownloader(BaseCollector):
             df['volume'] = pd.to_numeric(df['volume'])
 
             df = df.sort_values('open_time')
+
+            # 统一转换为纳秒级时间戳 (OKX返回的是毫秒级)
+            df['open_time'] = df['open_time'].apply(
+                lambda x: normalize_to_nanoseconds(x, input_precision='ms')
+            )
 
             return df
 

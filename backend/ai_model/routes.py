@@ -607,8 +607,22 @@ def get_default_provider_models(
             },
         )
     except Exception as e:
-        logger.error(f"获取默认提供商模型失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = str(e)
+        logger.error(f"获取默认提供商模型失败: {error_msg}")
+        
+        # 提供更友好的错误信息
+        if "no such table" in error_msg.lower():
+            friendly_msg = "数据库表不存在，请先运行初始化脚本: cd backend && uv run python scripts/init_ai_model.py"
+        elif "operationalerror" in error_msg.lower():
+            friendly_msg = "数据库操作错误，请检查数据库配置或运行初始化脚本"
+        else:
+            friendly_msg = f"获取 AI 模型配置失败: {error_msg}"
+        
+        return ApiResponse(
+            code=500,
+            message=friendly_msg,
+            data={"error_detail": error_msg},
+        )
 
 
 @router.get("/{model_id}/models", response_model=ApiResponse)

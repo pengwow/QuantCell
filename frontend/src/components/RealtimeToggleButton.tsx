@@ -219,7 +219,7 @@ export function RealtimeToggleButton({
         console.log('[RealtimeToggleButton] 取消订阅结果:', unsubscribeResult);
 
         // 检查引擎状态，如果引擎未运行，更新按钮状态为未开启
-        if (unsubscribeResult.data?.engine_status && unsubscribeResult.data.engine_status !== 'running') {
+        if (unsubscribeResult.engine_status && unsubscribeResult.engine_status !== 'running') {
           console.log('[RealtimeToggleButton] 引擎未运行，更新按钮状态为未开启');
           setIsRealtime(false);
           setIsSubscribed(false);

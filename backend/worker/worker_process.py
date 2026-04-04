@@ -1040,6 +1040,9 @@ class TradingNodeWorkerProcess(WorkerProcess):
         self.event_handler: Optional[Any] = None
         self.trading_config: Dict[str, Any] = {}
 
+        # Nautilus 日志文件监听器
+        self._nautilus_log_monitor: Optional[Any] = None
+
         # 从配置中提取 TradingNode 特定配置
         self._extract_trading_config()
 
@@ -1126,6 +1129,14 @@ class TradingNodeWorkerProcess(WorkerProcess):
             api_passphrase = self.trading_config.get("api_passphrase")
             log_level = self.trading_config.get("log_level", "INFO")
 
+            # 配置日志目录
+            import tempfile
+            log_directory = self.trading_config.get("log_directory")
+            if not log_directory:
+                # 使用临时目录作为默认日志目录
+                log_directory = tempfile.gettempdir()
+            log_file_name = self.trading_config.get("log_file_name", f"worker_{self.worker_id}.log")
+
             # 验证配置
             is_valid, error_msg = validate_config(
                 exchange=exchange,
@@ -1150,6 +1161,8 @@ class TradingNodeWorkerProcess(WorkerProcess):
                 api_key=api_key,
                 api_secret=api_secret,
                 api_passphrase=api_passphrase,
+                log_directory=log_directory,
+                log_file_name=log_file_name,
             )
 
             # 创建 TradingNode 实例
@@ -1162,6 +1175,9 @@ class TradingNodeWorkerProcess(WorkerProcess):
             # 构建节点
             trading_node.build()
 
+            # 配置 Nautilus 日志文件监听器（监听日志文件并发送到主进程）
+            self._setup_nautilus_log_file_monitor(log_directory, log_file_name)
+
             logger.info(f"Worker {self.worker_id} TradingNode 初始化完成")
             return trading_node
 
@@ -1169,6 +1185,45 @@ class TradingNodeWorkerProcess(WorkerProcess):
             logger.error(f"Worker {self.worker_id} 初始化 TradingNode 失败: {e}")
             self.status.record_error(f"初始化失败: {str(e)}")
             return None
+
+    def _setup_nautilus_log_file_monitor(self, log_directory: str, log_file_name: str) -> None:
+        """
+        设置 Nautilus 日志文件监听器
+
+        监听 Nautilus 日志文件的变化，将新日志通过 ZMQ 发布到主进程。
+        替代 stdout 捕获方案，更安全可靠。
+
+        Parameters
+        ----------
+        log_directory : str
+            日志目录
+        log_file_name : str
+            日志文件名
+        """
+        try:
+            from .log_file_monitor import create_log_monitor
+
+            # 构建日志文件完整路径
+            log_file_path = os.path.join(log_directory, log_file_name)
+
+            # 创建日志监听器
+            self._nautilus_log_monitor = create_log_monitor(
+                worker_id=self.worker_id,
+                log_file_path=log_file_path,
+                base_port=5560,
+            )
+
+            # 启动监听器
+            if self._nautilus_log_monitor.start():
+                logger.info(
+                    f"Worker {self.worker_id} Nautilus 日志文件监听器已启动 "
+                    f"(日志文件: {log_file_path}, 端口: {self._nautilus_log_monitor.pub_port})"
+                )
+            else:
+                logger.warning(f"Worker {self.worker_id} Nautilus 日志文件监听器启动失败")
+
+        except Exception as e:
+            logger.warning(f"Worker {self.worker_id} 设置 Nautilus 日志文件监听器失败: {e}")
 
     async def _load_trading_strategy(self):
         """加载策略"""
@@ -1342,6 +1397,14 @@ class TradingNodeWorkerProcess(WorkerProcess):
                     await self._call_strategy_method('on_stop')
                 except Exception as e:
                     logger.error(f"Worker {self.worker_id} 策略清理错误: {e}")
+
+            # 停止 Nautilus 日志文件监听器
+            try:
+                if self._nautilus_log_monitor:
+                    self._nautilus_log_monitor.stop()
+                    logger.info(f"Worker {self.worker_id} Nautilus 日志文件监听器已停止")
+            except Exception as e:
+                logger.warning(f"Worker {self.worker_id} 停止 Nautilus 日志文件监听器时出错: {e}")
 
             # 调用父类清理
             await super()._cleanup()

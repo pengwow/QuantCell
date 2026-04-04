@@ -57,9 +57,9 @@ class StrategyGenerateRequest(BaseModel):
     def validate_requirement(cls, v: str) -> str:
         """验证需求描述不为空且长度合理"""
         if not v or not v.strip():
-            raise ValueError("策略需求描述不能为空")
+            raise ValueError("策略需求描述不能为空，请详细描述您想要的策略功能")
         if len(v.strip()) < 10:
-            raise ValueError("策略需求描述至少需要10个字符")
+            raise ValueError(f"策略需求描述至少需要10个字符，当前只有{len(v.strip())}个字符。请详细描述您的策略需求，例如：'创建一个双均线策略，当短期均线上穿长期均线时买入'")
         return v.strip()
 
 

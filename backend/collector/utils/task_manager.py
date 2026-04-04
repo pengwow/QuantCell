@@ -279,21 +279,26 @@ class TaskManager:
     
     def complete_task(self, task_id: str) -> bool:
         """完成任务
-        
+
         Args:
             task_id: 任务ID
-            
+
         Returns:
             bool: 成功返回True，失败返回False
         """
         if task_id not in self._tasks:
             logger.error(f"任务不存在: {task_id}")
             return False
-        
+
         # 更新内存中的任务状态
         self._tasks[task_id]["status"] = TaskStatus.COMPLETED
         self._tasks[task_id]["end_time"] = datetime.now()
-        
+
+        # 计算总体统计信息
+        total_completed = 0
+        total_failed = 0
+        total_tasks = 0
+
         # 将所有子任务进度更新为100%
         try:
             if "symbols_progress" in self._tasks[task_id]:
@@ -301,7 +306,12 @@ class TaskManager:
                     # 更新内存中的进度
                     self._tasks[task_id]["symbols_progress"][task_key]["percentage"] = 100.0
                     self._tasks[task_id]["symbols_progress"][task_key]["status"] = "completed"
-                    
+
+                    # 累加统计信息
+                    total_completed += progress_info.get("completed", 0)
+                    total_failed += progress_info.get("failed", 0)
+                    total_tasks += progress_info.get("total", 0)
+
                     # 更新数据库中的进度
                     from ..db.models import TaskDetailBusiness
                     TaskDetailBusiness.upsert(
@@ -314,7 +324,7 @@ class TaskManager:
                         failed=progress_info.get("failed", 0),
                         status_text="completed"
                     )
-                    
+
                     # 推送每个子任务的完成进度
                     progress_info = {
                         "symbol": progress_info["symbol"],
@@ -349,11 +359,19 @@ class TaskManager:
                         context.term()
                     except Exception as e:
                         logger.warning(f"推送子任务完成进度失败: {e}")
-                        
+
                 logger.info(f"已将所有子任务进度更新为100%: task_id={task_id}, 子任务数={len(self._tasks[task_id]['symbols_progress'])}")
+
+                # 更新总体进度统计
+                if "progress" not in self._tasks[task_id]:
+                    self._tasks[task_id]["progress"] = {}
+                self._tasks[task_id]["progress"]["completed"] = total_completed
+                self._tasks[task_id]["progress"]["failed"] = total_failed
+                self._tasks[task_id]["progress"]["total"] = total_tasks
+
         except Exception as e:
             logger.error(f"更新子任务进度失败: task_id={task_id}, error={e}")
-        
+
         # 更新数据库中的任务状态
         try:
             from ..db.models import TaskBusiness

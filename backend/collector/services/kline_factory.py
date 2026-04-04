@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from utils.logger import get_logger, LogType
+from utils.timestamp_utils import normalize_to_nanoseconds, nanoseconds_to_datetime
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -85,11 +86,12 @@ class BaseKlineFetcher(KlineDataFetcher):
             updated_count = 0
 
             for kline in kline_data:
-                # 转换timestamp为字符串，保持毫秒级
-                timestamp_str = str(kline.get("timestamp"))
+                # 转换timestamp为纳秒级字符串 (ccxt返回的是毫秒级)
+                timestamp_ms = kline.get("timestamp")
+                timestamp_ns = normalize_to_nanoseconds(timestamp_ms, input_precision='ms')
 
-                # 生成unique_kline字段
-                unique_kline = f"{symbol}_{interval}_{timestamp_str}"
+                # 生成unique_kline字段 (使用纳秒级时间戳)
+                unique_kline = f"{symbol}_{interval}_{timestamp_ns}"
 
                 # 检查是否已存在
                 existing = db.query(self.kline_model).filter(
@@ -106,11 +108,11 @@ class BaseKlineFetcher(KlineDataFetcher):
                     existing.data_source = 'ccxt_binance'
                     updated_count += 1
                 else:
-                    # 创建新记录
+                    # 创建新记录 (使用纳秒级时间戳)
                     kline_instance = self.kline_model(
                         symbol=symbol,
                         interval=interval,
-                        timestamp=timestamp_str,
+                        timestamp=timestamp_ns,  # 统一为纳秒级
                         open=str(kline.get("open")),
                         high=str(kline.get("high")),
                         low=str(kline.get("low")),
@@ -263,18 +265,20 @@ class BaseKlineFetcher(KlineDataFetcher):
             self.kline_model.interval == interval
         )
         
-        # 处理时间过滤
+        # 处理时间过滤 (使用纳秒级时间戳)
         if start_time:
             try:
                 start_dt = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
-                query = query.filter(self.kline_model.timestamp >= start_dt)
+                start_ts_ns = datetime_to_nanoseconds(start_dt)
+                query = query.filter(self.kline_model.timestamp >= str(start_ts_ns))
             except ValueError:
                 logger.warning(f"无效的开始时间格式: {start_time}，忽略该过滤条件")
-        
+
         if end_time:
             try:
                 end_dt = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
-                query = query.filter(self.kline_model.timestamp <= end_dt)
+                end_ts_ns = datetime_to_nanoseconds(end_dt)
+                query = query.filter(self.kline_model.timestamp <= str(end_ts_ns))
             except ValueError:
                 logger.warning(f"无效的结束时间格式: {end_time}，忽略该过滤条件")
         

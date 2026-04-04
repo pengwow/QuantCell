@@ -11,9 +11,19 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import time
 
+# 添加后端目录到路径（必须在导入项目模块之前）
+backend_path = Path(__file__).resolve().parent.parent
+if str(backend_path) not in sys.path:
+    sys.path.insert(0, str(backend_path))
+
 import typer
 from typing_extensions import Annotated
 from utils.logger import get_logger, LogType
+from utils.timestamp_utils import (
+    to_nanoseconds, normalize_to_nanoseconds, format_nanoseconds,
+    nanoseconds_to_milliseconds, detect_precision, datetime_to_nanoseconds,
+    from_nanoseconds
+)
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -28,19 +38,6 @@ except ImportError:
     HAS_RELATIVEDELTA = False
     logger.warning("python-dateutil 未安装，使用 timedelta 替代月份计算")
 
-# 添加后端目录到路径
-backend_path = Path(__file__).resolve().parent.parent
-if str(backend_path) not in sys.path:
-    sys.path.insert(0, str(backend_path))
-
-# 配置日志
-logger.remove()
-logger.add(
-    sys.stderr,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    level="INFO"
-)
-
 # 导入项目内部模块
 try:
     from collector.scripts.get_data import GetData
@@ -53,7 +50,11 @@ try:
     from backtest.cli_core import get_symbols_from_data_pool
 except ImportError as e:
     logger.error(f"导入模块失败: {e}")
+    logger.error(f"当前 sys.path: {sys.path}")
+    logger.error(f"backend_path: {backend_path}")
     logger.error("请确保在正确的目录下运行此脚本")
+    import traceback
+    traceback.print_exc()
     sys.exit(1)
 
 
@@ -139,16 +140,48 @@ def export_csv(
     candle_type: Annotated[str, typer.Option("--candle-type", help="蜡烛图类型(spot/future)")] = "spot",
     start: Annotated[Optional[str], typer.Option("--start", help="开始时间(格式: YYYYMMDD)")] = None,
     end: Annotated[Optional[str], typer.Option("--end", help="结束时间(格式: YYYYMMDD)")] = None,
+    limit: Annotated[Optional[int], typer.Option("--limit", "-l", help="限制导出记录数量")] = None,
+    delimiter: Annotated[str, typer.Option("--delimiter", help="CSV分隔符")] = ",",
+    no_header: Annotated[bool, typer.Option("--no-header", help="不包含CSV表头")] = False,
+    compress: Annotated[bool, typer.Option("--compress", "-z", help="使用gzip压缩输出文件(.csv.gz)")] = False,
+    format_timestamp: Annotated[bool, typer.Option("--format-timestamp", "-t", help="将时间戳格式化为可读日期")] = False,
+    columns: Annotated[Optional[str], typer.Option("--columns", "-c", help="指定导出的列(逗号分隔，如:timestamp,open,high,low,close,volume)")] = None,
+    sort_desc: Annotated[bool, typer.Option("--sort-desc", help="按时间倒序排列")] = False,
+    ts_precision: Annotated[str, typer.Option("--ts-precision", help="时间戳精度统一(s:秒, ms:毫秒, us:微秒, ns:纳秒, auto:自动)")] = "auto",
 ):
     """
     导出K线数据到CSV格式文件
-    
+
     示例:
       # 导出BTCUSDT的1小时数据
       python data_cli.py export csv -s BTCUSDT -i 1h -o btc_1h.csv
-      
+
       # 导出指定时间范围的数据
       python data_cli.py export csv -s BTCUSDT -i 1d --start 20240101 --end 20241231 -o btc_2024.csv
+
+      # 导出前1000条记录，并格式化时间戳
+      python data_cli.py export csv -s BTCUSDT -i 1h -o btc.csv -l 1000 -t
+
+      # 导出并压缩
+      python data_cli.py export csv -s BTCUSDT -i 1h -o btc.csv.gz -z
+
+      # 只导出指定列
+      python data_cli.py export csv -s BTCUSDT -i 1h -o btc.csv -c timestamp,open,high,low,close
+
+      # 使用分号分隔符
+      python data_cli.py export csv -s BTCUSDT -i 1h -o btc.csv --delimiter ";"
+
+      # 统一时间戳精度为纳秒(默认)
+      python data_cli.py export csv -s BTCUSDT -i 1h -o btc.csv --ts-precision ns
+
+      # 统一时间戳精度为微秒
+      python data_cli.py export csv -s BTCUSDT -i 1h -o btc.csv --ts-precision us
+
+      # 统一时间戳精度为毫秒
+      python data_cli.py export csv -s BTCUSDT -i 1h -o btc.csv --ts-precision ms
+
+      # 统一时间戳精度为秒
+      python data_cli.py export csv -s BTCUSDT -i 1h -o btc.csv --ts-precision s
     """
     try:
         init_db()
@@ -174,61 +207,152 @@ def export_csv(
             if data_source:
                 query = query.filter(KlineModel.data_source == data_source.lower())
             
-            # 筛选时间范围
+            # 筛选时间范围 (统一使用纳秒级时间戳)
             if start:
                 try:
-                    start_ts = int(datetime.strptime(start, "%Y%m%d").timestamp() * 1000)
-                    query = query.filter(KlineModel.timestamp >= str(start_ts))
+                    # 转换为纳秒级时间戳
+                    start_dt = datetime.strptime(start, "%Y%m%d")
+                    start_ts_ns = datetime_to_nanoseconds(start_dt)
+                    query = query.filter(KlineModel.timestamp >= str(start_ts_ns))
                 except ValueError:
                     typer.echo("错误: 开始时间格式不正确，请使用 YYYYMMDD 格式", err=True)
                     raise typer.Exit(1)
-            
+
             if end:
                 try:
-                    end_ts = int(datetime.strptime(end, "%Y%m%d").timestamp() * 1000)
-                    query = query.filter(KlineModel.timestamp <= str(end_ts))
+                    # 转换为纳秒级时间戳，并设置为当天23:59:59
+                    end_dt = datetime.strptime(end, "%Y%m%d").replace(hour=23, minute=59, second=59)
+                    end_ts_ns = datetime_to_nanoseconds(end_dt)
+                    query = query.filter(KlineModel.timestamp <= str(end_ts_ns))
                 except ValueError:
                     typer.echo("错误: 结束时间格式不正确，请使用 YYYYMMDD 格式", err=True)
                     raise typer.Exit(1)
             
             # 按时间戳排序
-            query = query.order_by(KlineModel.timestamp)
-            
+            if sort_desc:
+                query = query.order_by(KlineModel.timestamp.desc())
+            else:
+                query = query.order_by(KlineModel.timestamp)
+
+            # 限制记录数量
+            if limit and limit > 0:
+                query = query.limit(limit)
+
             # 执行查询
             records = query.all()
-            
+
             if not records:
                 typer.echo(f"未找到符合条件的数据")
                 return
-            
+
+            # 定义所有可用列
+            all_columns = {
+                'symbol': lambda r: r.symbol,
+                'interval': lambda r: r.interval,
+                'timestamp': lambda r: r.timestamp,
+                'open': lambda r: r.open,
+                'high': lambda r: r.high,
+                'low': lambda r: r.low,
+                'close': lambda r: r.close,
+                'volume': lambda r: r.volume,
+                'data_source': lambda r: r.data_source,
+            }
+
+            # 解析用户指定的列
+            if columns:
+                selected_columns = [col.strip() for col in columns.split(',')]
+                # 验证列名
+                invalid_cols = [col for col in selected_columns if col not in all_columns]
+                if invalid_cols:
+                    typer.echo(f"错误: 无效的列名: {', '.join(invalid_cols)}", err=True)
+                    typer.echo(f"可用列: {', '.join(all_columns.keys())}", err=True)
+                    raise typer.Exit(1)
+            else:
+                selected_columns = list(all_columns.keys())
+
+            # 时间戳格式化函数（用于可读日期格式）
+            def format_ts_readable(ts_str):
+                """将纳秒级时间戳格式化为可读日期"""
+                try:
+                    return format_nanoseconds(ts_str, "%Y-%m-%d %H:%M:%S")
+                except:
+                    return ts_str
+
+            # 验证时间戳精度参数
+            valid_precisions = ['s', 'ms', 'us', 'ns', 'auto']
+            if ts_precision not in valid_precisions:
+                typer.echo(f"错误: 无效的时间戳精度: {ts_precision}", err=True)
+                typer.echo(f"可用选项: {', '.join(valid_precisions)} (s:秒, ms:毫秒, us:微秒, ns:纳秒, auto:自动)", err=True)
+                raise typer.Exit(1)
+
             # 转换为DataFrame
             data = []
             for record in records:
-                data.append({
-                    'symbol': record.symbol,
-                    'interval': record.interval,
-                    'timestamp': record.timestamp,
-                    'open': record.open,
-                    'high': record.high,
-                    'low': record.low,
-                    'close': record.close,
-                    'volume': record.volume,
-                    'data_source': record.data_source,
-                })
-            
+                row = {}
+                for col in selected_columns:
+                    value = all_columns[col](record)
+                    # 处理时间戳字段
+                    if col == 'timestamp':
+                        if format_timestamp:
+                            # 格式化为可读日期
+                            value = format_ts_readable(value)
+                        elif ts_precision != 'auto':
+                            # 统一时间戳精度 (数据库中已是纳秒，按用户指定精度输出)
+                            from typing import cast
+                            from utils.timestamp_utils import Precision
+                            precision = cast(Precision, ts_precision)
+                            value = from_nanoseconds(value, precision)
+                    row[col] = value
+                data.append(row)
+
             df = pd.DataFrame(data)
-            
+
             # 保存到CSV
             output_path = Path(output)
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            df.to_csv(output_path, index=False)
-            
+
+            # 构建to_csv参数
+            csv_kwargs = {
+                'index': False,
+                'header': not no_header,
+                'sep': delimiter,
+            }
+
+            if compress or str(output).endswith('.gz'):
+                # 确保文件名以.csv.gz结尾
+                if not str(output).endswith('.csv.gz'):
+                    output_path = output_path.with_suffix('.csv.gz')
+                csv_kwargs['compression'] = 'gzip'
+
+            df.to_csv(output_path, **csv_kwargs)
+
+            # 计算文件大小
+            file_size = output_path.stat().st_size
+            if file_size > 1024 * 1024:
+                size_str = f"{file_size / (1024 * 1024):.2f} MB"
+            elif file_size > 1024:
+                size_str = f"{file_size / 1024:.2f} KB"
+            else:
+                size_str = f"{file_size} B"
+
             typer.echo(f"✓ 成功导出 {len(df)} 条数据到 {output_path}")
+            typer.echo(f"  文件大小: {size_str}")
             typer.echo(f"  交易对: {symbol}")
             typer.echo(f"  时间周期: {interval}")
             typer.echo(f"  数据源: {data_source or '全部'}")
             if start or end:
                 typer.echo(f"  时间范围: {start or '无限制'} ~ {end or '无限制'}")
+            if limit:
+                typer.echo(f"  限制数量: {limit}")
+            if columns:
+                typer.echo(f"  导出列: {columns}")
+            if format_timestamp:
+                typer.echo(f"  时间戳格式: 已格式化")
+            elif ts_precision != 'auto':
+                precision_names = {'s': '秒', 'ms': '毫秒', 'us': '微秒'}
+                typer.echo(f"  时间戳精度: {precision_names.get(ts_precision, ts_precision)}")
+            if compress:
+                typer.echo(f"  压缩: 已启用")
                 
         finally:
             db.close()
@@ -323,25 +447,27 @@ def import_csv(
         # 准备数据
         kline_list = []
         for _, row in df.iterrows():
-            # 处理timestamp，确保为整数字符串
+            # 处理timestamp，统一转换为纳秒级
             try:
-                timestamp = int(float(row['timestamp']))
-            except (ValueError, TypeError):
-                logger.warning(f"无效的timestamp值: {row['timestamp']}，跳过该行")
+                ts_value = str(row['timestamp'])
+                # 使用工具函数统一转换为纳秒级
+                timestamp_ns = normalize_to_nanoseconds(ts_value, input_precision='auto')
+            except (ValueError, TypeError) as e:
+                logger.warning(f"无效的timestamp值: {row['timestamp']}，跳过该行，错误: {e}")
                 continue
-            
+
             symbol = str(row['symbol']).upper()
             # 使用命令行传入的interval参数，data_source固定为"import"
             interval_value = interval
             data_source_value = "import"
-            
-            # 生成unique_kline
-            unique_kline = f"{symbol}_{interval_value}_{timestamp}"
-            
+
+            # 生成unique_kline (使用纳秒级时间戳)
+            unique_kline = f"{symbol}_{interval_value}_{timestamp_ns}"
+
             kline_list.append({
                 'symbol': symbol,
                 'interval': interval_value,
-                'timestamp': str(timestamp),
+                'timestamp': timestamp_ns,  # 统一为纳秒级
                 'open': str(row['open']),
                 'high': str(row['high']),
                 'low': str(row['low']),
@@ -696,9 +822,15 @@ def download(
         if task_info and task_info.get("status") == "completed":
             typer.echo("")
             typer.echo("✓ 下载完成!")
-            typer.echo(f"  已完成: {task_info.get('completed', 0)}")
-            typer.echo(f"  失败: {task_info.get('failed', 0)}")
-            typer.echo(f"  总任务数: {task_info.get('total', 0)}")
+            # 从 progress 子字典中获取统计信息，如果没有则使用默认值
+            progress = task_info.get("progress", {})
+            # 尝试从多个位置获取统计信息
+            completed = progress.get('completed', task_info.get('completed', 0))
+            failed = progress.get('failed', task_info.get('failed', 0))
+            total = progress.get('total', task_info.get('total', 0))
+            typer.echo(f"  已完成: {completed}")
+            typer.echo(f"  失败: {failed}")
+            typer.echo(f"  总任务数: {total}")
         else:
             typer.echo("")
             typer.echo("✗ 下载可能未完成，请使用 status 命令查询任务状态")
@@ -1068,11 +1200,26 @@ def list_local_data(
                                 # 格式化时间戳
                                 min_time = stats.min_time
                                 max_time = stats.max_time
-                                
+
                                 # 尝试将时间戳转换为可读格式
+                                # 支持多种时间戳格式：秒(10位)、毫秒(13位)、微秒(16位)
+                                def format_timestamp(ts_str: str) -> str:
+                                    try:
+                                        ts = int(ts_str)
+                                        # 根据位数判断时间戳精度并转换为秒
+                                        if ts > 10**15:  # 微秒级 (16位+)
+                                            ts_sec = ts / 1_000_000
+                                        elif ts > 10**12:  # 毫秒级 (13-15位)
+                                            ts_sec = ts / 1_000
+                                        else:  # 秒级 (10位)
+                                            ts_sec = ts
+                                        return datetime.fromtimestamp(ts_sec).strftime("%Y-%m-%d %H:%M:%S")
+                                    except:
+                                        return str(ts_str)
+
                                 try:
-                                    min_dt = datetime.fromtimestamp(int(min_time) / 1000).strftime("%Y-%m-%d %H:%M")
-                                    max_dt = datetime.fromtimestamp(int(max_time) / 1000).strftime("%Y-%m-%d %H:%M")
+                                    min_dt = format_timestamp(min_time)
+                                    max_dt = format_timestamp(max_time)
                                     time_range = f"{min_dt} ~ {max_dt}"
                                 except:
                                     time_range = f"{min_time} ~ {max_time}"

@@ -11,6 +11,7 @@ import certifi
 import pandas as pd
 import requests
 from utils.logger import get_logger, LogType
+from utils.timestamp_utils import normalize_to_nanoseconds
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -328,20 +329,26 @@ class BinanceDownloader(BaseCollector):
             filtered_df = df.loc[:, ['open_time', 'open', 'high', 'low', 'close', 'volume']]
             filtered_df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
 
+            # 统一转换为纳秒级时间戳
             if not filtered_df.empty:
-                first_timestamp = filtered_df['timestamp'].iloc[0]
-                timestamp_length = len(str(int(first_timestamp)))
+                # 根据时间戳长度判断精度并转换为纳秒级
+                def convert_to_nanoseconds(ts):
+                    ts_str = str(int(ts))
+                    if len(ts_str) > 18:  # 已经是纳秒级
+                        return int(ts)
+                    elif len(ts_str) > 15:  # 微秒级
+                        return int(ts) * 1_000
+                    elif len(ts_str) > 12:  # 毫秒级
+                        return int(ts) * 1_000_000
+                    else:  # 秒级
+                        return int(ts) * 1_000_000_000
+                
+                filtered_df['timestamp'] = filtered_df['timestamp'].apply(convert_to_nanoseconds)
 
-                if timestamp_length == 16:
-                    filtered_df['timestamp'] = filtered_df['timestamp'] // 1000
-                elif timestamp_length == 19:
-                    filtered_df['timestamp'] = filtered_df['timestamp'] // 1000000
-                elif timestamp_length == 10:
-                    filtered_df['timestamp'] = filtered_df['timestamp'] * 1000
-
-            start_timestamp = int(start_datetime.timestamp() * 1000)
-            end_timestamp = int(end_datetime.timestamp() * 1000)
-            filtered_df = filtered_df[(filtered_df['timestamp'] >= start_timestamp) & (filtered_df['timestamp'] <= end_timestamp)]
+            # 时间范围筛选使用纳秒级时间戳
+            start_ts_ns = int(start_datetime.timestamp() * 1_000_000_000)
+            end_ts_ns = int(end_datetime.timestamp() * 1_000_000_000)
+            filtered_df = filtered_df[(filtered_df['timestamp'] >= start_ts_ns) & (filtered_df['timestamp'] <= end_ts_ns)]
 
             logger.info(f"成功下载 {symbol} {interval} 数据，共 {len(filtered_df)} 条")
 
