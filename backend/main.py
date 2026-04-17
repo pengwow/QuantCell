@@ -41,6 +41,7 @@ from realtime.routes import realtime_router
 from worker import router as worker_router
 from utils.log_routes import router as log_router
 from common.notifications.routes import router as notification_router
+from agent.api.routes import router as agent_router
 
 
 # 创建FastAPI应用实例
@@ -80,6 +81,7 @@ app.include_router(websocket_router)
 app.include_router(worker_router)
 app.include_router(log_router)
 app.include_router(notification_router)
+app.include_router(agent_router)
 
 # 插件路由注册会在应用启动时通过lifespan函数完成
 # 这里不需要提前注册，插件会在应用启动时动态加载和注册
