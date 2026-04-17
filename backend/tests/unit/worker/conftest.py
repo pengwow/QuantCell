@@ -138,7 +138,10 @@ def db_engine():
     """延迟创建测试数据库引擎"""
     from sqlalchemy import create_engine
     from sqlalchemy.pool import StaticPool
-    from collector.db.database import Base
+    from collector.db.database import Base, _import_all_models
+    
+    # 首先导入所有模型，确保 SQLAlchemy 关系正确解析
+    _import_all_models()
     
     engine = create_engine(
         "sqlite:///:memory:",
