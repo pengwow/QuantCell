@@ -20,9 +20,11 @@ class OpenAIProvider(LLMProvider):
     def client(self) -> AsyncOpenAI:
         """懒加载客户端"""
         if self._client is None:
+            from openai import Timeout
             self._client = AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
+                timeout=Timeout(connect=10.0, read=120.0, write=30.0, pool=5.0),
             )
         return self._client
 

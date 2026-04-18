@@ -1,5 +1,6 @@
 """Agent API 路由"""
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,111 @@ from ..tools.trading.strategy import ListStrategiesTool, GetStrategyDetailTool, 
 from ..tools.trading.news import GetNewsTool, GetMarketSentimentTool
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
+def get_ai_config() -> dict[str, Any] | None:
+    """从系统配置获取AI模型配置
+
+    直接实现配置读取，避免通过 ai_model.config_utils 导入导致的循环导入问题。
+    参考策略模块的配置读取方式，但使用更安全的导入策略。
+    """
+    try:
+        # 直接读取数据库配置，避免导入 settings.models 导致的循环导入
+        from collector.db.database import SessionLocal, init_database_config
+        from sqlalchemy import text
+
+        init_database_config()
+        db = SessionLocal()
+
+        try:
+            result = db.execute(text("SELECT key, value FROM system_config WHERE key LIKE 'ai_model.%'")).fetchall()
+
+            if not result:
+                return None
+
+            all_configs = {row[0]: {"value": row[1]} for row in result}
+
+            if not all_configs:
+                return None
+
+            providers = {}
+            for key, config in all_configs.items():
+                value = config.get("value")
+                if not isinstance(value, str):
+                    continue
+
+                if key.startswith("ai_model."):
+                    parts = key.split(".")
+                    if len(parts) >= 3:
+                        provider_id = parts[1]
+                        field = ".".join(parts[2:])
+
+                        if provider_id not in providers:
+                            providers[provider_id] = {"id": provider_id}
+
+                        if field == "models" and value:
+                            try:
+                                providers[provider_id][field] = json.loads(value)
+                            except json.JSONDecodeError:
+                                providers[provider_id][field] = []
+                        elif field in ["is_default", "proxy_enabled"]:
+                            providers[provider_id][field] = value in ("true", "1", True)
+                        elif field == "is_enabled":
+                            providers[provider_id][field] = value if value else None
+                        else:
+                            providers[provider_id][field] = value
+
+            provider_list = list(providers.values())
+
+            default_provider = None
+            for provider in provider_list:
+                if provider.get("is_default", False):
+                    default_provider = provider
+                    break
+
+            if not default_provider:
+                for provider in provider_list:
+                    if provider.get("is_enabled"):
+                        default_provider = provider
+                        break
+
+            if not default_provider:
+                return None
+
+            enabled_models_raw = default_provider.get("models", [])
+            enabled_models = [
+                {
+                    "id": m.get("id"),
+                    "name": m.get("name"),
+                    "model_name": m.get("model_name"),
+                }
+                for m in enabled_models_raw
+                if isinstance(m, dict)
+            ]
+
+            result = {
+                "provider": {
+                    "id": default_provider.get("id"),
+                    "name": default_provider.get("name", ""),
+                    "provider": default_provider.get("provider", ""),
+                    "api_key": default_provider.get("api_key", ""),
+                    "api_host": default_provider.get("api_host", ""),
+                },
+                "enabled_models": enabled_models,
+            }
+
+            logger.info(f"从系统配置加载AI模型: {result['provider']['name']}")
+            return result
+
+        finally:
+            db.close()
+
+    except ImportError as e:
+        logger.debug(f"无法导入数据库模块: {e}")
+        return None
+    except Exception as e:
+        logger.debug(f"获取系统AI配置失败: {e}")
+        return None
 
 router = APIRouter(
     prefix="/api/agent",
@@ -50,20 +156,47 @@ class ToolInfo(BaseModel):
 def get_agent() -> AgentLoop:
     """获取或创建 Agent 实例"""
     global _agent_instance
-    
+
     if _agent_instance is None:
         # 创建工作空间目录
         workspace = Path(__file__).parent.parent.parent.parent / "agent_workspace"
         workspace.mkdir(parents=True, exist_ok=True)
-        
-        # 创建提供者
-        provider = OpenAIProvider()
-        
+
+        # 从系统配置获取AI模型配置
+        ai_config = get_ai_config()
+
+        if ai_config:
+            # 使用系统配置中的模型设置
+            provider_config = ai_config["provider"]
+            enabled_models = ai_config.get("enabled_models", [])
+
+            # 获取启用的模型信息
+            if enabled_models:
+                model_info = enabled_models[0]
+                # 使用 name 进行API调用（与策略生成接口保持一致），如果没有则使用 id
+                model_id = model_info.get("name") or model_info.get("id")
+                logger.info(f"Agent使用模型: id={model_info.get('id')}, name={model_info.get('name')}")
+            else:
+                model_id = None
+
+            # 创建提供者（使用系统配置的API密钥和主机）
+            provider = OpenAIProvider(
+                api_key=provider_config.get("api_key"),
+                base_url=provider_config.get("api_host") or None,
+            )
+
+            logger.info(f"Agent使用系统配置: 提供商={provider_config['name']}, 模型={model_id}")
+        else:
+            # 使用环境变量配置
+            provider = OpenAIProvider()
+            model_id = None
+            logger.info("Agent使用环境变量配置")
+
         # 创建 Agent
         _agent_instance = AgentLoop(
             provider=provider,
             workspace=workspace,
-            model=None,  # 使用默认模型
+            model=model_id,  # 使用系统配置中的模型
             max_iterations=40,
             temperature=0.1,
             max_tokens=4096,
@@ -167,4 +300,141 @@ async def get_session_history(session_id: str, limit: int = 50):
         }
     except Exception as e:
         logger.error(f"获取会话历史失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """删除指定会话（包括消息记录）"""
+    try:
+        agent = get_agent()
+        success = agent.sessions.delete(session_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"会话 {session_id} 已删除",
+                "warning": "该会话的历史消息已永久删除，但已整合的长期记忆仍保留在 MEMORY.md 中"
+            }
+        else:
+            raise HTTPException(status_code=404, detail="会话不存在")
+    except Exception as e:
+        logger.error(f"删除会话失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sessions")
+async def list_sessions():
+    """获取所有会话列表"""
+    try:
+        agent = get_agent()
+        sessions = []
+        
+        # 从工作空间读取所有会话
+        sessions_dir = agent.workspace / "sessions"
+        if sessions_dir.exists():
+            for session_file in sessions_dir.glob("*.json"):
+                try:
+                    import json
+                    with open(session_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        sessions.append({
+                            "id": data.get("id", session_file.stem),
+                            "name": data.get("name", "未命名"),
+                            "createdAt": data.get("createdAt", ""),
+                            "updatedAt": data.get("updatedAt", ""),
+                        })
+                except Exception as e:
+                    logger.debug(f"读取会话文件失败 {session_file}: {e}")
+        
+        # 按更新时间排序
+        sessions.sort(key=lambda x: x.get("updatedAt", ""), reverse=True)
+        
+        return {"success": True, "sessions": sessions}
+    except Exception as e:
+        logger.error(f"获取会话列表失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CreateSessionRequest(BaseModel):
+    """创建会话请求"""
+    name: str | None = None
+
+
+@router.post("/sessions")
+async def create_session(request: CreateSessionRequest):
+    """创建新会话"""
+    try:
+        agent = get_agent()
+        
+        # 生成会话ID
+        import uuid
+        from datetime import datetime
+        
+        session_id = str(uuid.uuid4())[:8]
+        
+        # 创建会话
+        session = agent.sessions.get_or_create(session_id)
+        
+        # 保存会话（name 存储在 metadata 中）
+        name = request.name or f"会话 {datetime.now().strftime('%Y/%m/%d %H:%M:%S')}"
+        
+        # 将会话保存到文件时添加 name 字段
+        session_data = session.to_dict()
+        session_data["id"] = session.key
+        session_data["name"] = name
+        
+        # 保存到文件
+        sessions_dir = agent.workspace / "sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        session_file = sessions_dir / f"{session.key}.json"
+        
+        with open(session_file, "w", encoding="utf-8") as f:
+            json.dump(session_data, f, ensure_ascii=False, indent=2)
+        
+        return {
+            "success": True,
+            "session": {
+                "id": session.key,
+                "name": name,
+                "createdAt": session_data.get("created_at", ""),
+                "updatedAt": session_data.get("updated_at", ""),
+            }
+        }
+    except Exception as e:
+        logger.error(f"创建会话失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sessions/{session_id}")
+async def get_session(session_id: str):
+    """获取会话详情"""
+    try:
+        agent = get_agent()
+        session = agent.sessions.get_or_create(session_id)
+        
+        # 尝试从文件读取 name
+        name = session_id
+        sessions_dir = agent.workspace / "sessions"
+        session_file = sessions_dir / f"{session_id}.json"
+        if session_file.exists():
+            try:
+                with open(session_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    name = data.get("name", session_id)
+            except:
+                pass
+        
+        return {
+            "success": True,
+            "session": {
+                "id": session.key,
+                "name": name,
+                "createdAt": session.created_at.isoformat() if hasattr(session.created_at, 'isoformat') else str(session.created_at),
+                "updatedAt": session.updated_at.isoformat() if hasattr(session.updated_at, 'isoformat') else str(session.updated_at),
+                "messageCount": len(session.messages),
+            }
+        }
+    except Exception as e:
+        logger.error(f"获取会话详情失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -98,6 +98,7 @@ def get_default_provider_and_models() -> Optional[Dict[str, Any]]:
         ...     print(f"启用模型数: {len(result['enabled_models'])}")
     """
     try:
+        # 延迟导入以避免循环导入问题
         from settings.models import SystemConfigBusiness as SystemConfig
 
         all_configs = SystemConfig.get_all_with_details()
@@ -149,6 +150,7 @@ def get_default_provider_and_models() -> Optional[Dict[str, Any]]:
             {
                 "id": model.get("id"),
                 "name": model.get("name"),
+                "model_name": model.get("model_name"),  # 用于API调用的实际模型名称
             }
             for model in models
             if isinstance(model, dict) and model.get("id") == enabled_model_id

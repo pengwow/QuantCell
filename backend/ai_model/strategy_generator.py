@@ -540,6 +540,9 @@ class StrategyGenerator:
 
             for chunk in stream:
                 chunk_count += 1
+                # 检查 choices 是否为空，避免 IndexError
+                if not chunk.choices:
+                    continue
                 delta = chunk.choices[0].delta.content
                 if delta:
                     full_content += delta
