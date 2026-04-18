@@ -15,6 +15,7 @@ import ModelManagement from '@/pages/model/ModelManagement';
 import DataManagementPage from '@/pages/data/DataManagementPage';
 import KlineReplayPage from '@/pages/data/KlineReplayPage';
 import Setting from '@/pages/setting/Setting';
+import Agent from '@/pages/agent/Agent';
 
 // 导入回测模块
 import BacktestLayout from '@/pages/backtest/BacktestLayout';
@@ -82,6 +83,10 @@ const baseRoutes: RouteObject[] = [
             element: <BacktestReplay />,
           },
         ],
+      },
+      {
+        path: '/agent',
+        element: <Agent />,
       },
       {
         path: '/factor-analysis',

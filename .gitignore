@@ -58,3 +58,4 @@ QuantCell.code-workspace
 backend/config.toml
 backend/tmp/*
 
+agent_workspace/sessions/*.json

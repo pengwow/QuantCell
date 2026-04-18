@@ -367,7 +367,7 @@ const Worker = () => {
           <Statistic
             title={t('running')}
             value={statusStats.running}
-            valueStyle={{ color: '#52c41a' }}
+            styles={{ content: { color: '#52c41a' } }}
             prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
           />
         </Card>
@@ -377,7 +377,7 @@ const Worker = () => {
           <Statistic
             title={t('paused')}
             value={statusStats.paused}
-            valueStyle={{ color: '#faad14' }}
+            styles={{ content: { color: '#faad14' } }}
             prefix={<PauseOutlined style={{ color: '#faad14' }} />}
           />
         </Card>
@@ -387,7 +387,7 @@ const Worker = () => {
           <Statistic
             title={t('stopped')}
             value={statusStats.stopped}
-            valueStyle={{ color: '#999' }}
+            styles={{ content: { color: '#999' } }}
             prefix={<PoweroffOutlined style={{ color: '#999' }} />}
           />
         </Card>
@@ -498,7 +498,7 @@ const Worker = () => {
                   <Option value="error">{t('error')}</Option>
                 </Select>
                 {/* 视图切换 */}
-                <Button.Group>
+                <Space.Compact>
                   <Button
                     type={viewType === 'card' ? 'primary' : 'default'}
                     icon={<AppstoreOutlined />}
@@ -513,7 +513,7 @@ const Worker = () => {
                   >
                     {t('list_view') || '列表'}
                   </Button>
-                </Button.Group>
+                </Space.Compact>
               </Space>
             </Col>
           </Row>
@@ -530,7 +530,7 @@ const Worker = () => {
                     <Badge count={filteredWorkers.length} style={{ backgroundColor: '#1890ff' }} />
                   </Space>
                 }
-                bodyStyle={{ padding: 0 }}
+                styles={{ body: { padding: 0 } }}
               >
                 {filteredWorkers.length === 0 ? (
                   <Empty description={t('no_workers')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
