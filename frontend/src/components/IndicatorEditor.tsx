@@ -353,7 +353,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
           {/* 验证结果提示 */}
           {verifyResult && (
             <Alert
-              message={verifyResult.valid ? t('indicator.verifySuccess', '代码验证通过') : t('indicator.verifyFailed', '代码验证失败')}
+              title={verifyResult.valid ? t('indicator.verifySuccess', '代码验证通过') : t('indicator.verifyFailed', '代码验证失败')}
               description={!verifyResult.valid ? verifyResult.message : undefined}
               type={verifyResult.valid ? 'success' : 'error'}
               showIcon
@@ -394,7 +394,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       children: (
         <div className="ai-generate-container">
           <Alert
-            message={t('indicator.aiTip', '使用AI智能生成指标代码')}
+            title={t('indicator.aiTip', '使用AI智能生成指标代码')}
             description={t('indicator.aiDescription', '描述您想要的指标功能，AI将为您生成相应的Python代码。例如："创建一个基于RSI超买卖信号的双线指标"')}
             type="info"
             showIcon

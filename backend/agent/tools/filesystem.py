@@ -21,6 +21,17 @@ class ReadFileTool(Tool):
         "required": ["path"],
     }
 
+    param_template = {
+        "default_limit": {
+            "type": "integer",
+            "required": False,
+            "default": 200,
+            "env_key": None,
+            "description": "默认读取行数",
+            "validation": {"min": 1, "max": 500}
+        }
+    }
+
     def __init__(self, workspace: Path, allowed_dir: Path | None = None):
         self.workspace = workspace
         self.allowed_dir = allowed_dir or workspace
@@ -78,6 +89,8 @@ class WriteFileTool(Tool):
         "required": ["path", "content"],
     }
 
+    param_template = {}
+
     def __init__(self, workspace: Path, allowed_dir: Path | None = None):
         self.workspace = workspace
         self.allowed_dir = allowed_dir or workspace
@@ -113,6 +126,8 @@ class ListDirTool(Tool):
         },
         "required": [],
     }
+
+    param_template = {}
 
     def __init__(self, workspace: Path, allowed_dir: Path | None = None):
         self.workspace = workspace

@@ -305,7 +305,7 @@ const LoginPage = () => {
                   size="large"
                   loading={loading}
                   icon={<IconArrowRight size="1.25em" />}
-                  iconPosition="end"
+                  iconPlacement="end"
                 >
                   {t("login") || "登录"}
                 </Button>

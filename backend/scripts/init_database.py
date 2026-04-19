@@ -11,6 +11,7 @@ from pathlib import Path
 import logging
 import traceback
 import json
+from datetime import datetime
 from typing import Optional, List
 
 # 添加项目根目录到Python路径（必须在导入utils之前）
@@ -440,6 +441,256 @@ def init_database():
         logger.error(traceback.format_exc())
         return False
 
+# ==================== Agent 工具参数初始化 ====================
+
+# 工具参数模板定义（与 agent/config/templates.py 中的 param_template 保持一致）
+AGENT_TOOL_PARAMS_TEMPLATES = {
+    "web_search": {
+        "api_key": {
+            "type": "string",
+            "required": True,
+            "sensitive": True,
+            "default": "",
+            "env_key": "BRAVE_API_KEY",
+            "description": "Brave Search API 密钥"
+        },
+        "max_results": {
+            "type": "integer",
+            "required": False,
+            "default": 5,
+            "env_key": None,
+            "description": "最大搜索结果数量 (1-10)",
+            "validation": {"min": 1, "max": 10}
+        },
+        "proxy": {
+            "type": "string",
+            "required": False,
+            "default": None,
+            "env_key": None,
+            "description": "HTTP/SOCKS5代理地址 (如 http://127.0.0.1:7890)"
+        }
+    },
+    "web_fetch": {
+        "max_chars": {
+            "type": "integer",
+            "required": False,
+            "default": 50000,
+            "env_key": None,
+            "description": "最大提取字符数"
+        },
+        "proxy": {
+            "type": "string",
+            "required": False,
+            "default": None,
+            "env_key": None,
+            "description": "HTTP/SOCKS5代理地址 (如 http://127.0.0.1:7890)"
+        }
+    },
+    "exec": {
+        "timeout": {
+            "type": "integer",
+            "required": False,
+            "default": 60,
+            "env_key": None,
+            "description": "命令执行超时时间（秒）",
+            "validation": {"min": 1, "max": 300}
+        },
+        "path_append": {
+            "type": "string",
+            "required": False,
+            "default": "",
+            "env_key": None,
+            "description": "附加到PATH环境变量的路径"
+        }
+    },
+    "read_file": {
+        "default_limit": {
+            "type": "integer",
+            "required": False,
+            "default": 200,
+            "env_key": None,
+            "description": "默认读取行数",
+            "validation": {"min": 1, "max": 500}
+        }
+    }
+}
+
+
+def init_agent_tool_params(
+    force_update: bool = False
+) -> bool:
+    """
+    初始化Agent工具参数配置
+    
+    将工具参数默认值写入数据库system_config表，
+    用户可以通过Web界面或CLI进行修改。
+    
+    Args:
+        force_update: 是否强制更新已有参数
+        
+    Returns:
+        bool: 是否成功
+    """
+    try:
+        logger.info("开始初始化Agent工具参数...")
+        
+        # 确保数据库配置已初始化（即使跳过表创建）
+        init_database_config()
+        
+        # 使用engine直接操作（避免Session绑定问题）
+        from collector.db.database import engine
+        from sqlalchemy import text as sa_text
+        
+        if engine is None:
+            logger.error("数据库引擎未初始化，请先运行 --init-db 初始化数据库")
+            return False
+        
+        imported_count = 0
+        skipped_count = 0
+        error_count = 0
+            
+        for tool_name, params in AGENT_TOOL_PARAMS_TEMPLATES.items():
+            for param_name, param_def in params.items():
+                try:
+                    db_key = f"agent.tools.{tool_name}.{param_name}"
+                    
+                    # 检查是否已存在
+                    with engine.connect() as conn:
+                        result = conn.execute(
+                            sa_text("SELECT value FROM system_config WHERE key = :key"),
+                            {"key": db_key}
+                        )
+                        existing_row = result.fetchone()
+                        
+                        if existing_row and not force_update:
+                            skipped_count += 1
+                            continue
+                        
+                        # 获取默认值（优先使用环境变量）
+                        default_value = param_def.get("default")
+                        env_key = param_def.get("env_key")
+                        
+                        if env_key and os.environ.get(env_key):
+                            value = str(os.environ.get(env_key))
+                            source = f"环境变量 ({env_key})"
+                        elif default_value is not None:
+                            value = str(default_value)
+                            source = "默认值"
+                        else:
+                            value = ""
+                            source = "空值"
+                        
+                        is_sensitive = 1 if param_def.get("sensitive") else 0
+                        description = param_def.get("description", "")
+                        
+                        if existing_row and force_update:
+                            # 更新现有记录
+                            conn.execute(
+                                sa_text("""
+                                    UPDATE system_config
+                                    SET value = :value,
+                                        description = :desc,
+                                        plugin = 'agent',
+                                        name = :tool_name,
+                                        is_sensitive = :sensitive,
+                                        updated_at = CURRENT_TIMESTAMP
+                                    WHERE key = :key
+                                """),
+                                {
+                                    "value": value,
+                                    "desc": description,
+                                    "tool_name": tool_name,
+                                    "sensitive": is_sensitive,
+                                    "key": db_key
+                                }
+                            )
+                            logger.info(f"更新参数: {db_key} = {source}")
+                        else:
+                            # 创建新记录
+                            conn.execute(
+                                sa_text("""
+                                    INSERT INTO system_config
+                                    (key, value, description, plugin, name, is_sensitive, created_at, updated_at)
+                                    VALUES (:key, :value, :desc, :plugin, :name, :sensitive, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                """),
+                                {
+                                    "key": db_key,
+                                    "value": value,
+                                    "desc": description,
+                                    "plugin": "agent",
+                                    "name": tool_name,
+                                    "sensitive": is_sensitive
+                                }
+                            )
+                            logger.info(f"创建参数: {db_key} = {source}")
+                        
+                        conn.commit()
+                        imported_count += 1
+                        
+                except Exception as e:
+                    logger.error(f"处理参数失败 {tool_name}.{param_name}: {e}")
+                    error_count += 1
+            
+            logger.info("Agent工具参数初始化完成:")
+            logger.info(f"  - 导入/更新: {imported_count}")
+            logger.info(f"  - 跳过: {skipped_count}")
+            logger.info(f"  - 错误: {error_count}")
+            
+            return error_count == 0
+            
+    except Exception as e:
+        logger.error(f"Agent工具参数初始化失败: {e}")
+        logger.error(traceback.format_exc())
+        return False
+
+
+def check_agent_tool_params() -> dict:
+    """
+    检查数据库中已有的工具参数状态
+    
+    Returns:
+        dict: 统计信息
+    """
+    try:
+        from collector.db.database import SessionLocal
+        from collector.db.models import SystemConfig
+        
+        init_database_config()
+        db = SessionLocal()
+        
+        configs = db.query(SystemConfig).filter(
+            SystemConfig.key.like('agent.tools.%')
+        ).all()
+        
+        result = {
+            "total_params": len(configs),
+            "tools_with_params": set(),
+            "configured_params": 0,
+            "details": []
+        }
+        
+        for c in configs:
+            tool_name = c.name or "unknown"
+            result["tools_with_params"].add(tool_name)
+            if c.value and c.value.strip():  # 非空值视为已配置
+                result["configured_params"] += 1
+            
+            result["details"].append({
+                "key": c.key,
+                "has_value": bool(c.value and c.value.strip()),
+                "is_sensitive": c.is_sensitive,
+                "tool": tool_name
+            })
+        
+        db.close()
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"检查工具参数状态失败: {e}")
+        return {"error": str(e)}
+
+
 # 创建 Typer 应用
 app = typer.Typer(
     name="init-database",
@@ -468,19 +719,25 @@ def main(
     )] = None,
     force_update: Annotated[bool, typer.Option(
         "--force-update/--no-force-update",
-        help="强制更新已存在的策略",
+        help="强制更新已存在的策略或参数",
         show_default=True,
     )] = False,
+    init_agent_params: Annotated[bool, typer.Option(
+        "--init-agent-params/--no-init-agent-params",
+        help="是否初始化Agent工具参数（将默认参数写入数据库）",
+        show_default=True,
+    )] = True,
 ):
     """数据库初始化脚本
     
     用于在程序安装过程中执行全量数据库表初始化操作，支持SQLite和DuckDB数据库。
-    可选导入策略文件到策略表。
+    可选导入策略文件到策略表、初始化Agent工具参数配置。
     
     示例:
-        python init_database.py                    # 仅初始化数据库
-        python init_database.py --init-strategy    # 初始化数据库并导入策略
-        python init_database.py --init-strategy --force-update  # 强制更新策略
+        python init_database.py                              # 初始化全部（数据库+策略+工具参数）
+        python init_database.py --no-init-strategy              # 仅初始化数据库和工具参数
+        python init_database.py --init-strategy --force-update   # 强制更新策略
+        python init_database.py --force-update --init-agent-params  # 强制更新所有配置
     """
     setup_logging()
     
@@ -493,9 +750,10 @@ def main(
     logger.info(f"脚本路径: {Path(__file__).absolute()}")
     logger.info(f"初始化数据库: {init_db}")
     logger.info(f"初始化策略: {init_strategy}")
+    logger.info(f"初始化工具参数: {init_agent_params}")
     if strategies_dir:
         logger.info(f"策略目录: {strategies_dir}")
-    logger.info(f"强制更新策略: {force_update}")
+    logger.info(f"强制更新: {force_update}")
     
     success = True
     
@@ -506,6 +764,19 @@ def main(
     # 初始化策略
     if init_strategy and success:
         success = init_strategies(strategies_dir, force_update) and success
+    
+    # 初始化Agent工具参数
+    if init_agent_params and success:
+        success = init_agent_tool_params(force_update) and success
+        
+        # 显示初始化后的状态统计
+        if success:
+            stats = check_agent_tool_params()
+            if "error" not in stats:
+                logger.info("Agent工具参数状态:")
+                logger.info(f"  - 总参数数: {stats.get('total_params', 0)}")
+                logger.info(f"  - 涉及工具数: {len(stats.get('tools_with_params', []))}")
+                logger.info(f"  - 已配置数: {stats.get('configured_params', 0)}")
     
     if success:
         logger.info("=====================================")

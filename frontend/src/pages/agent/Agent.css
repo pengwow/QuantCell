@@ -347,3 +347,161 @@
     width: 100% !important;
   }
 }
+
+/* ==================== 工具列表（集成参数配置）样式 ==================== */
+.tool-list-config-drawer .ant-drawer-body {
+  padding: 12px;
+  background: #fafafa;
+}
+
+.tool-list-with-config {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 工具项容器 */
+.tool-item-wrapper {
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #f0f0f0;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.tool-item-wrapper:hover {
+  border-color: #d9d9d9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.tool-item-wrapper.expanded {
+  border-color: #1890ff;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1);
+}
+
+/* 工具项头部 */
+.tool-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.tool-item-header:hover {
+  background: #fafafa;
+}
+
+.tool-item-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 工具描述 */
+.tool-list-with-config .tool-description {
+  margin: 0;
+  padding: 0 12px 8px;
+  font-size: 12px;
+  color: #8c8c8c;
+  line-height: 1.4;
+}
+
+/* 参数面板 */
+.tool-params-panel {
+  padding: 0 12px 12px;
+  border-top: 1px solid #f5f5f5;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.params-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 单个参数行 */
+.param-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 8px 10px;
+  background: #fafafa;
+  border-radius: 6px;
+  gap: 12px;
+  border-left: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.param-row:hover {
+  background: #f0f5ff;
+  border-left-color: #1890ff;
+}
+
+/* 敏感参数特殊样式 */
+.param-row:has(.anticon-lock-unfilled) {
+  border-left-color: #faad14;
+  background: #fffbe6;
+}
+
+/* 参数信息区 */
+.param-info {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 参数操作区 */
+.param-action {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* 加载状态 */
+.tool-params-panel .ant-spin-container {
+  padding: 16px 0;
+}
+
+/* 空状态 */
+.tool-params-panel .ant-empty {
+  padding: 12px 0;
+}
+
+/* 响应式适配 */
+@media (max-width: 480px) {
+  .param-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .param-action {
+    width: 100%;
+  }
+
+  .param-action .ant-space {
+    width: 100%;
+  }
+
+  .param-action input,
+  .param-action .ant-input-number,
+  .param-action .ant-btn {
+    flex: 1;
+  }
+
+  .tool-list-config-drawer {
+    width: 100% !important;
+  }
+}
+
