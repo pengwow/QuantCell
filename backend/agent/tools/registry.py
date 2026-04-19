@@ -35,7 +35,7 @@ class ToolRegistry:
         """获取所有工具定义（OpenAI 格式）"""
         return [tool.to_schema() for tool in self._tools.values()]
 
-    async def execute(self, name: str, params: dict[str, Any]) -> str:
+    async def execute(self, name: str, params: dict[str, Any] | str) -> str:
         """执行指定工具"""
         _HINT = "\n\n[分析上述错误并尝试不同的方法。]"
 
@@ -44,6 +44,17 @@ class ToolRegistry:
             return f"错误: 工具 '{name}' 不存在。可用工具: {', '.join(self.tool_names)}"
 
         try:
+            # 处理参数：如果是字符串则解析为字典
+            if isinstance(params, str):
+                import json
+                try:
+                    params = json.loads(params)
+                except json.JSONDecodeError:
+                    params = {}
+
+            if not isinstance(params, dict):
+                params = {}
+
             errors = tool.validate_params(params)
             if errors:
                 return f"错误: 工具 '{name}' 参数无效: " + "; ".join(errors) + _HINT

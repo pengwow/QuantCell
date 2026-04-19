@@ -447,7 +447,7 @@ const Worker = () => {
         {/* Error Alert */}
         {error && (
           <Alert
-            message={error}
+            title={error}
             type="error"
             showIcon
             closable

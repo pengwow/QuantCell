@@ -10,12 +10,6 @@ from pydantic import BaseModel
 from utils.logger import get_logger, LogType
 from ..core.loop import AgentLoop
 from ..providers.openai_provider import OpenAIProvider
-from ..tools.filesystem import ListDirTool, ReadFileTool, WriteFileTool
-from ..tools.shell import ExecTool
-from ..tools.web import WebFetchTool, WebSearchTool
-from ..tools.trading.market_data import GetKlinesTool, GetTickerTool
-from ..tools.trading.strategy import ListStrategiesTool, GetStrategyDetailTool, RunBacktestTool
-from ..tools.trading.news import GetNewsTool, GetMarketSentimentTool
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -89,16 +83,25 @@ def get_ai_config() -> dict[str, Any] | None:
             if not default_provider:
                 return None
 
-            enabled_models_raw = default_provider.get("models", [])
-            enabled_models = [
-                {
-                    "id": m.get("id"),
-                    "name": m.get("name"),
-                    "model_name": m.get("model_name"),
-                }
-                for m in enabled_models_raw
-                if isinstance(m, dict)
-            ]
+            # is_enabled 存储的是启用的模型ID，需要在 models 列表中找到对应模型
+            enabled_model_id = default_provider.get("is_enabled")
+            all_models = default_provider.get("models", [])
+
+            # 根据 is_enabled 查找启用的模型
+            enabled_model = None
+            if enabled_model_id:
+                for m in all_models:
+                    if isinstance(m, dict) and m.get("id") == enabled_model_id:
+                        enabled_model = m
+                        break
+
+            # 如果没找到，使用第一个模型
+            if not enabled_model and all_models:
+                enabled_model = all_models[0] if isinstance(all_models[0], dict) else None
+
+            if not enabled_model:
+                logger.warning(f"提供商 {default_provider.get('id')} 没有可用的模型")
+                return None
 
             result = {
                 "provider": {
@@ -108,10 +111,14 @@ def get_ai_config() -> dict[str, Any] | None:
                     "api_key": default_provider.get("api_key", ""),
                     "api_host": default_provider.get("api_host", ""),
                 },
-                "enabled_models": enabled_models,
+                "enabled_model": {
+                    "id": enabled_model.get("id"),
+                    "name": enabled_model.get("name"),
+                    "model_name": enabled_model.get("model_name"),
+                },
             }
 
-            logger.info(f"从系统配置加载AI模型: {result['provider']['name']}")
+            logger.info(f"从系统配置加载AI模型: {result['provider']['name']}, 模型: {result['enabled_model']['name']} (ID: {result['enabled_model']['id']})")
             return result
 
         finally:
@@ -168,14 +175,13 @@ def get_agent() -> AgentLoop:
         if ai_config:
             # 使用系统配置中的模型设置
             provider_config = ai_config["provider"]
-            enabled_models = ai_config.get("enabled_models", [])
+            enabled_model = ai_config.get("enabled_model", {})
 
             # 获取启用的模型信息
-            if enabled_models:
-                model_info = enabled_models[0]
+            if enabled_model:
                 # 使用 name 进行API调用（与策略生成接口保持一致），如果没有则使用 id
-                model_id = model_info.get("name") or model_info.get("id")
-                logger.info(f"Agent使用模型: id={model_info.get('id')}, name={model_info.get('name')}")
+                model_id = enabled_model.get("name") or enabled_model.get("id")
+                logger.info(f"Agent使用模型: id={enabled_model.get('id')}, name={enabled_model.get('name')}")
             else:
                 model_id = None
 
@@ -203,25 +209,13 @@ def get_agent() -> AgentLoop:
             memory_window=100,
         )
         
-        # 注册基础工具
-        _agent_instance.register_tool(ReadFileTool(workspace))
-        _agent_instance.register_tool(WriteFileTool(workspace))
-        _agent_instance.register_tool(ListDirTool(workspace))
-        _agent_instance.register_tool(ExecTool(
-            working_dir=str(workspace),
-            timeout=60,
-        ))
-        _agent_instance.register_tool(WebSearchTool())
-        _agent_instance.register_tool(WebFetchTool())
+        # 使用统一的工具注册机制（自动发现并注册所有工具）
+        from agent.tools import create_registry
+        tools_registry = create_registry(workspace)
         
-        # 注册量化交易工具
-        _agent_instance.register_tool(GetKlinesTool())
-        _agent_instance.register_tool(GetTickerTool())
-        _agent_instance.register_tool(ListStrategiesTool())
-        _agent_instance.register_tool(GetStrategyDetailTool())
-        _agent_instance.register_tool(RunBacktestTool())
-        _agent_instance.register_tool(GetNewsTool())
-        _agent_instance.register_tool(GetMarketSentimentTool())
+        # 将工具注册到 Agent 实例
+        for tool in tools_registry._tools.values():
+            _agent_instance.register_tool(tool)
         
         logger.info("Agent 实例已初始化")
     
@@ -437,4 +431,165 @@ async def get_session(session_id: str):
         }
     except Exception as e:
         logger.error(f"获取会话详情失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 工具参数管理 API ====================
+
+from datetime import datetime
+from typing import Optional
+from fastapi import Query
+
+from agent.config.manager import ToolParamManager, mask_sensitive_value
+from agent.config.schemas import (
+    BatchUpdateRequest,
+    ImportConfigRequest,
+    SetValueRequest,
+)
+
+
+@router.get("/tools/params/tools")
+async def get_registered_tools():
+    """获取所有已注册的工具列表及其参数状态"""
+    try:
+        tools = ToolParamManager.get_registered_tools()
+        return {"code": 200, "data": tools}
+    except Exception as e:
+        logger.error(f"获取工具列表失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tools/params/{tool_name}")
+async def get_tool_params(
+    tool_name: str,
+    include_sensitive: bool = Query(False, description="是否包含敏感参数真实值")
+):
+    """获取指定工具的参数配置"""
+    try:
+        params = ToolParamManager.get_tool_params(
+            tool_name, 
+            include_sensitive=include_sensitive
+        )
+        return {
+            "code": 200,
+            "data": {
+                "tool_name": tool_name,
+                "params": params
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"获取工具参数失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/tools/params/{tool_name}/{param_name}")
+async def set_tool_param(
+    tool_name: str,
+    param_name: str,
+    request: SetValueRequest
+):
+    """设置工具参数"""
+    try:
+        success = ToolParamManager.set_tool_param(
+            tool_name, param_name, request.value
+        )
+        
+        if success:
+            return {
+                "code": 200,
+                "message": "参数更新成功",
+                "data": {
+                    "param_name": param_name,
+                    "value_masked": mask_sensitive_value(str(request.value)) if ToolParamManager.get_tool_params(tool_name, include_sensitive=False).get(param_name, {}).get("sensitive") else str(request.value),
+                    "updated_at": datetime.now().isoformat()
+                }
+            }
+        else:
+            raise HTTPException(status_code=500, detail="保存失败")
+            
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"设置工具参数失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tools/params/{tool_name}/batch")
+async def batch_update_params(
+    tool_name: str,
+    request: BatchUpdateRequest
+):
+    """批量更新工具参数"""
+    try:
+        result = ToolParamManager.batch_update(
+            tool_name,
+            request.params,
+            overwrite=request.overwrite
+        )
+        
+        return {
+            "code": 200,
+            "message": f"成功更新 {len(result['updated'])} 个参数",
+            "data": result
+        }
+        
+    except Exception as e:
+        logger.error(f"批量更新参数失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/tools/params/{tool_name}/{param_name}")
+async def delete_tool_param(tool_name: str, param_name: str):
+    """删除工具参数"""
+    try:
+        success = ToolParamManager.delete_tool_param(tool_name, param_name)
+        
+        if success:
+            return {
+                "code": 200,
+                "message": "参数已删除，将使用默认值或环境变量"
+            }
+        else:
+            raise HTTPException(status_code=404, detail="参数不存在")
+            
+    except Exception as e:
+        logger.error(f"删除工具参数失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tools/params/export")
+async def export_config(
+    tool_name: Optional[str] = Query(None, description="工具名称，不传则导出全部")
+):
+    """导出配置"""
+    try:
+        config = ToolParamManager.export_config(tool_name)
+        return {"code": 200, "data": config}
+    except Exception as e:
+        logger.error(f"导出配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tools/params/import")
+async def import_config(request: ImportConfigRequest):
+    """导入配置"""
+    try:
+        imported, skipped, errors = ToolParamManager.import_config(
+            request.config,
+            overwrite=request.overwrite
+        )
+        
+        return {
+            "code": 200,
+            "data": {
+                "imported": imported,
+                "skipped": skipped,
+                "errors": errors
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"导入配置失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -373,17 +373,10 @@ def tool_list(
 
 
 def _get_tools_from_registry() -> List[Dict]:
-    """从工具注册表获取工具列表"""
+    """从工具注册表获取工具列表（使用统一的自动发现机制）"""
     try:
-        from agent.tools.registry import ToolRegistry
-        registry = ToolRegistry()
-        return [
-            {
-                "name": name,
-                "description": tool.description,
-            }
-            for name, tool in registry._tools.items()
-        ]
+        from agent.tools import get_tool_list
+        return get_tool_list()
     except Exception as e:
         logger.debug(f"获取工具列表失败: {e}")
         return []
@@ -395,26 +388,127 @@ def tool_info(
 ):
     """查看工具详情"""
     try:
-        from agent.tools.registry import ToolRegistry
-        registry = ToolRegistry()
+        from agent.tools import create_registry
+        registry = create_registry()
         tool = registry.get(tool_name)
 
         if not tool:
             logger.error(f"工具 {tool_name} 不存在")
+            print(f"错误: 工具 '{tool_name}' 不存在")
+            print(f"可用工具: {', '.join(registry.tool_names)}")
             raise typer.Exit(1)
 
         print(f"工具名称: {tool_name}")
         print(f"描述: {tool.description}")
-        print(f"参数:")
+        print(f"类名: {tool.__class__.__name__}")
+        print(f"模块: {tool.__class__.__module__}")
+        
+        # 显示构造参数信息
+        print(f"配置:")
+        workspace = getattr(tool, 'workspace', None)
+        if workspace:
+            print(f"  workspace: {workspace}")
+        allowed_dir = getattr(tool, 'allowed_dir', None)
+        if allowed_dir:
+            is_restricted = allowed_dir != workspace
+            restriction = "⚠️ 已限制" if is_restricted else "✅ 允许所有"
+            print(f"  allowed_dir: {allowed_dir} ({restriction})")
+        
+        # 显示执行参数
+        print(f"执行参数:")
         if hasattr(tool, 'parameters') and tool.parameters:
-            for param_name, param_info in tool.parameters.items():
-                required = "必填" if param_info.get("required") else "可选"
-                print(f"  - {param_name}: {param_info.get('description', '')} ({required})")
+            params_schema = tool.parameters
+            if isinstance(params_schema, dict):
+                props = params_schema.get("properties", {})
+                if props:
+                    for param_name, param_info in props.items():
+                        required = "必填" if param_name in params_schema.get("required", []) else "可选"
+                        desc = param_info.get("description", "")
+                        param_type = param_info.get("type", "unknown")
+                        print(f"  - {param_name} [{param_type}]: {desc} ({required})")
+                else:
+                    print("  (无属性)")
+            else:
+                print(f"  {params_schema}")
         else:
             print("  (无参数)")
     except Exception as e:
         logger.error(f"获取工具信息失败: {e}")
         raise typer.Exit(1)
+
+
+@tool_app.command("run", help="直接执行工具")
+def tool_run(
+    tool_name: Annotated[str, typer.Argument(help="工具名称")],
+    params_str: Annotated[
+        Optional[str],
+        typer.Option("--params", "-p", help="工具参数 (JSON 格式)"),
+    ] = None,
+    allow_all: Annotated[
+        bool,
+        typer.Option("--allow-all", "-a", help="允许访问所有路径（绕过安全限制）"),
+    ] = False,
+):
+    """直接执行指定工具并显示结果"""
+    import asyncio
+    import json
+    from pathlib import Path
+
+    async def _run():
+        try:
+            from agent.tools import create_registry
+            
+            # 如果 allow_all，设置 allowed_dir 为根目录
+            if allow_all:
+                registry = create_registry(allowed_dir=Path("/"))
+            else:
+                registry = create_registry()
+        except Exception as e:
+            print(f"错误: 无法初始化工具注册表 - {e}")
+            raise typer.Exit(1)
+
+        tool = registry.get(tool_name)
+        if not tool:
+            print(f"错误: 工具 '{tool_name}' 不存在")
+            print(f"可用工具: {', '.join(registry.tool_names)}")
+            raise typer.Exit(1)
+
+        # 解析参数
+        params = {}
+        if params_str:
+            try:
+                params = json.loads(params_str)
+                if not isinstance(params, dict):
+                    print("错误: 参数必须是 JSON 对象")
+                    raise typer.Exit(1)
+            except json.JSONDecodeError as e:
+                print(f"错误: JSON 解析失败 - {e}")
+                raise typer.Exit(1)
+
+        if allow_all:
+            print(f"执行工具: {tool_name} [⚠️ 路径限制已禁用]")
+        else:
+            print(f"执行工具: {tool_name}")
+        print("-" * 50)
+
+        try:
+            result = await registry.execute(tool_name, params)
+
+            if isinstance(result, str) and result.startswith("错误"):
+                print(f"\n执行失败")
+                print(result)
+            else:
+                print(f"\n执行成功")
+                print(result)
+
+        except asyncio.CancelledError:
+            print("\n操作已取消")
+        except Exception as e:
+            logger.error(f"执行工具失败: {e}")
+            print(f"\n错误: {e}")
+            raise typer.Exit(1)
+
+    asyncio.run(_run())
 
 
 # 对话交互命令
@@ -423,43 +517,50 @@ def chat_send(
     message: Annotated[str, typer.Argument(help="消息内容")],
     session: Annotated[
         Optional[str],
-        typer.Option("--session", "-s", help="会话 ID，默认使用当前会话")
+        typer.Option("--session", "-s", help="会话 ID")
     ] = None,
 ):
-    """发送消息给 Agent 并获取响应（直接调用，实时显示进度）"""
+    """发送消息给 Agent（process_direct 方式）"""
     import asyncio
 
     session_id = session or "default"
 
     async def _run():
-        # 在异步函数内部导入以避免循环导入
+        # 延迟导入避免循环导入
         try:
             from agent.api.routes import get_agent
             agent = get_agent()
-        except ImportError as e:
-            logger.error(f"导入 Agent 失败: {e}")
-            print("错误: 无法初始化 Agent，请确保后端服务已启动")
+        except Exception as e:
+            print(f"错误: 无法初始化 Agent - {e}")
             raise typer.Exit(1)
 
         print(f"发送消息到会话 {session_id}...")
         print("-" * 50)
 
-        # 实时进度回调
-        async def on_progress(content: str):
-            print(f"  → {content}")
+        # 进度回调 - 参考 nanobot 的 _cli_progress
+        async def on_progress(content: str, *, tool_hint: bool = False):
+            prefix = "  ↳ " if tool_hint else "  → "
+            print(f"{prefix}{content}")
 
         try:
-            response = await agent.process_message(
+            # 使用 process_direct - 专门为 CLI/Cron 设计的接口
+            response = await agent.process_direct(
                 content=message,
                 session_key=session_id,
                 on_progress=on_progress,
             )
 
             print("-" * 50)
-            print(f"\nAgent 响应:\n{response}")
+            if response:
+                print(f"\nAgent 响应:\n{response}")
+            else:
+                print("\nAgent 无响应")
 
+        except asyncio.CancelledError:
+            print("\n操作已取消")
         except Exception as e:
             logger.error(f"处理消息失败: {e}")
+            print(f"\n错误: {e}")
             raise typer.Exit(1)
 
     asyncio.run(_run())
@@ -469,31 +570,40 @@ def chat_send(
 def chat_interactive(
     session: Annotated[
         Optional[str],
-        typer.Option("--session", "-s", help="会话 ID，默认使用当前会话")
+        typer.Option("--session", "-s", help="会话 ID")
     ] = None,
 ):
-    """进入交互式对话模式（直接调用，实时显示进度）"""
+    """进入交互式对话模式（process_direct 方式）"""
     import asyncio
+    import signal
 
     session_id = session or "default"
 
     async def _run():
-        # 在异步函数内部导入以避免循环导入
+        # 延迟导入避免循环导入
         try:
             from agent.api.routes import get_agent
             agent = get_agent()
-        except ImportError as e:
-            logger.error(f"导入 Agent 失败: {e}")
-            print("错误: 无法初始化 Agent，请确保后端服务已启动")
+        except Exception as e:
+            print(f"错误: 无法初始化 Agent - {e}")
             raise typer.Exit(1)
 
         print(f"进入交互式对话模式 (会话: {session_id})")
-        print("输入 'exit' 或 'quit' 退出对话")
+        print("输入 'exit' 或 'quit' 退出对话，Ctrl+C 中断")
         print("-" * 50)
 
-        # 实时进度回调
-        async def on_progress(content: str):
-            print(f"  → {content}")
+        # 进度回调 - _cli_progress
+        async def on_progress(content: str, *, tool_hint: bool = False):
+            prefix = "  ↳ " if tool_hint else "  → "
+            print(f"{prefix}{content}")
+
+        # 信号处理 - 优雅退出
+        def handle_signal(signum, frame):
+            print("\n\n收到中断信号，再见！")
+            raise KeyboardInterrupt()
+
+        signal.signal(signal.SIGINT, handle_signal)
+        signal.signal(signal.SIGTERM, handle_signal)
 
         while True:
             try:
@@ -511,17 +621,27 @@ def chat_interactive(
 
             try:
                 print("-" * 50)
-                response = await agent.process_message(
+                # 使用 process_direct - 专门为 CLI/Cron 设计的接口
+                response = await agent.process_direct(
                     content=user_input,
                     session_key=session_id,
                     on_progress=on_progress,
                 )
                 print("-" * 50)
-                print(f"\nAgent: {response}")
+                if response:
+                    print(f"\nAgent: {response}")
+                else:
+                    print("\nAgent 无响应")
 
+            except asyncio.CancelledError:
+                print("\n操作已取消")
+                break
+            except KeyboardInterrupt:
+                print("\n再见！")
+                break
             except Exception as e:
                 logger.error(f"请求失败: {e}")
-                print("发送失败，请重试")
+                print(f"错误: {e}，请重试")
 
     asyncio.run(_run())
 
@@ -584,15 +704,20 @@ def workspace_list(
         raise typer.Exit(1)
 
     try:
+        import asyncio
         from agent.tools.filesystem import ListDirTool
-        tool = ListDirTool()
-        result = tool.execute(str(target_path))
+        tool = ListDirTool(workspace=_config.workspace)
+        
+        # 同步执行
+        result = asyncio.get_event_loop().run_until_complete(
+            tool.execute(path=str(target_path))
+        )
 
-        if result.is_error:
-            logger.error(f"列出文件失败: {result.content}")
+        if isinstance(result, str) and result.startswith("错误"):
+            logger.error(f"列出文件失败: {result}")
             raise typer.Exit(1)
 
-        data = json.loads(result.content)
+        data = json.loads(result) if isinstance(result, str) else {}
         files = data.get("files", [])
         directories = data.get("directories", [])
 
@@ -636,15 +761,19 @@ def workspace_cat(
         raise typer.Exit(1)
 
     try:
+        import asyncio
         from agent.tools.filesystem import ReadFileTool
-        tool = ReadFileTool()
-        result = tool.execute(str(target_path))
+        tool = ReadFileTool(workspace=_config.workspace)
+        
+        result = asyncio.get_event_loop().run_until_complete(
+            tool.execute(path=str(target_path))
+        )
 
-        if result.is_error:
-            logger.error(f"读取文件失败: {result.content}")
+        if isinstance(result, str) and result.startswith("错误"):
+            logger.error(f"读取文件失败: {result}")
             raise typer.Exit(1)
 
-        print(result.content)
+        print(result)
 
     except Exception as e:
         logger.error(f"读取文件失败: {e}")
@@ -688,6 +817,214 @@ def workspace_clean(
     except Exception as e:
         logger.error(f"清理工作空间失败: {e}")
         raise typer.Exit(1)
+
+
+# ==================== 工具参数管理命令 ====================
+params_app = typer.Typer(help="工具参数管理")
+app.add_typer(params_app, name="params")
+
+
+@params_app.command("tools", help="查看所有已注册的工具")
+def params_tools():
+    """显示所有工具及其参数配置状态"""
+    from agent.config.manager import ToolParamManager
+
+    tools = ToolParamManager.get_registered_tools()
+
+    print("\n📋 已注册的工具:")
+    print("=" * 60)
+
+    for tool in tools:
+        status_icon = "✅" if tool["has_required_params"] else "⚠️"
+        print(f"\n{status_icon} {tool['name']}")
+        print(f"   参数: {tool['configured_count']}/{tool['param_count']} 已配置")
+
+    print()
+
+
+@params_app.command("show", help="查看工具参数详情")
+def params_show(
+    tool_name: Annotated[str, typer.Argument(help="工具名称")],
+    show_sensitive: Annotated[
+        bool,
+        typer.Option("--sensitive", "-s", help="显示敏感参数真实值")
+    ] = False
+):
+    """显示工具的详细参数配置"""
+    from agent.config.manager import ToolParamManager
+
+    try:
+        params = ToolParamManager.get_tool_params(
+            tool_name,
+            include_sensitive=show_sensitive
+        )
+
+        print(f"\n🔧 工具: {tool_name}")
+        print("=" * 60)
+
+        for param_name, info in params.items():
+            sensitive_marker = "🔒" if info["sensitive"] else "  "
+            source_icon = {
+                "database": "💾",
+                "environment": "🌍",
+                "default": "⚙️"
+            }.get(info["source"], "❓")
+
+            print(f"\n{sensitive_marker} {param_name}")
+            print(f"   值: {info['value']}")
+            print(f"   来源: {source_icon} {info['source']}")
+            print(f"   类型: {info['type']}")
+            if info['description']:
+                print(f"   说明: {info['description']}")
+
+        print()
+
+    except ValueError as e:
+        print(f"❌ 错误: {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        logger.error(f"获取工具参数失败: {e}")
+        print(f"❌ 错误: {e}")
+        raise typer.Exit(1)
+
+
+@params_app.command("set", help="设置工具参数")
+def params_set(
+    tool_name: Annotated[str, typer.Argument(help="工具名称")],
+    param_name: Annotated[str, typer.Argument(help="参数名称")],
+    value: Annotated[str, typer.Argument(help="参数值")]
+):
+    """设置工具参数"""
+    from agent.config.manager import ToolParamManager
+
+    try:
+        success = ToolParamManager.set_tool_param(tool_name, param_name, value)
+
+        if success:
+            print(f"✅ 参数 {tool_name}.{param_name} 已更新")
+        else:
+            print("❌ 更新失败")
+            raise typer.Exit(1)
+
+    except ValueError as e:
+        print(f"❌ 错误: {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        logger.error(f"设置参数失败: {e}")
+        print(f"❌ 错误: {e}")
+        raise typer.Exit(1)
+
+
+@params_app.command("delete", help="删除工具参数")
+def params_delete(
+    tool_name: Annotated[str, typer.Argument(help="工具名称")],
+    param_name: Annotated[str, typer.Argument(help="参数名称")]
+):
+    """删除工具参数（恢复使用默认值或环境变量）"""
+    from agent.config.manager import ToolParamManager
+
+    success = ToolParamManager.delete_tool_param(tool_name, param_name)
+
+    if success:
+        print(f"✅ 参数 {tool_name}.{param_name} 已删除")
+        print("   将使用环境变量或默认值")
+    else:
+        print("❌ 参数不存在")
+        raise typer.Exit(1)
+
+
+@params_app.command("import", help="从JSON文件导入配置")
+def params_import(
+    file_path: Annotated[str, typer.Argument(help="JSON文件路径")],
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", "-o", help="覆盖已有值")
+    ] = False
+):
+    """从JSON文件导入配置"""
+    import os.path
+    from agent.config.manager import ToolParamManager
+
+    if not os.path.exists(file_path):
+        print(f"❌ 文件不存在: {file_path}")
+        raise typer.Exit(1)
+
+    with open(file_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+
+    imported, skipped, errors = ToolParamManager.import_config(
+        config, overwrite=overwrite
+    )
+
+    print(f"\n📦 导入完成:")
+    print(f"   ✅ 成功: {imported} 个参数")
+    print(f"   ⏭️  跳过: {skipped} 个参数")
+
+    if errors:
+        print(f"   ❌ 错误: {len(errors)} 个")
+        for err in errors[:5]:
+            print(f"      - {err}")
+
+
+@params_app.command("export", help="导出配置到JSON文件")
+def params_export(
+    output: Annotated[
+        Optional[str],
+        typer.Option("--output", "-o", help="输出文件路径")
+    ] = None,
+    tool_name: Annotated[
+        Optional[str],
+        typer.Option("--tool", "-t", help="指定工具名称")
+    ] = None
+):
+    """导出配置到JSON文件（敏感值自动脱敏）"""
+    from agent.config.manager import ToolParamManager
+
+    config = ToolParamManager.export_config(tool_name)
+
+    output_path = output or f"tool_params_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
+    print(f"✅ 配置已导出到: {output_path}")
+    print("   注意: 敏感参数值已脱敏处理")
+
+
+@params_app.command("validate", help="验证工具参数配置")
+def params_validate(
+    tool_name: Annotated[str, typer.Argument(help="工具名称")]
+):
+    """验证工具的必需参数是否都已配置"""
+    from agent.config.templates import get_tool_template
+    from agent.config.tool_params import ToolParamResolver
+
+    template = get_tool_template(tool_name)
+
+    if not template:
+        print(f"❌ 未知工具: {tool_name}")
+        raise typer.Exit(1)
+
+    print(f"\n🔍 验证工具: {tool_name}")
+    print("=" * 60)
+
+    all_valid = True
+    for param_name, meta in template.items():
+        value = ToolParamResolver.resolve(tool_name, param_name)
+
+        if meta.get("required") and not value:
+            print(f"❌ {param_name}: 未配置 (必填)")
+            all_valid = False
+        elif value:
+            print(f"✅ {param_name}: 已配置")
+        else:
+            print(f"⚪ {param_name}: 使用默认值")
+
+    print()
+    if all_valid:
+        print("✅ 所有必要参数已正确配置")
+    else:
+        print("⚠️  存在未配置的必要参数，工具可能无法正常工作")
 
 
 # 主入口

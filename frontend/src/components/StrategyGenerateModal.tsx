@@ -273,7 +273,7 @@ const StrategyGenerateModal: React.FC<StrategyGenerateModalProps> = ({
     return (
       <Alert
         type={validationResult.valid ? 'success' : 'error'}
-        message={validationResult.valid ? '代码验证通过' : '代码验证失败'}
+        title={validationResult.valid ? '代码验证通过' : '代码验证失败'}
         description={
           <div className="mt-2">
             {validationResult.errors.length > 0 && (

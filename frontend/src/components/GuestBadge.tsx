@@ -50,7 +50,7 @@ export const GuestRestrictionAlert = ({ featureName }: { featureName?: string })
       type="warning"
       showIcon
       icon={<IconLock size={18} />}
-      message={featureName ? `${featureName}功能受限` : "功能受限"}
+      title={featureName ? `${featureName}功能受限` : "功能受限"}
       description={
         <div>
           <p>{getRestrictedFeatureMessage()}</p>

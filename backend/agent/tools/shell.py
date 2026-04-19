@@ -21,6 +21,24 @@ class ExecTool(Tool):
         "required": ["command"],
     }
 
+    param_template = {
+        "timeout": {
+            "type": "integer",
+            "required": False,
+            "default": 60,
+            "env_key": None,
+            "description": "命令执行超时时间（秒）",
+            "validation": {"min": 1, "max": 300}
+        },
+        "path_append": {
+            "type": "string",
+            "required": False,
+            "default": "",
+            "env_key": None,
+            "description": "附加到PATH环境变量的路径"
+        }
+    }
+
     def __init__(
         self,
         working_dir: str,

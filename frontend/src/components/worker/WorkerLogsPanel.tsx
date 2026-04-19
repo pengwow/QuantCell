@@ -217,7 +217,7 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
       {/* 连接状态提示 */}
       {!isLogStreamConnected && !isPaused && (
         <Alert
-          message={t('log_stream_disconnected')}
+          title={t('log_stream_disconnected')}
           type="warning"
           showIcon
           banner

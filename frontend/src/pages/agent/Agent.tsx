@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Layout,
   Input,
+  InputNumber,
   Button,
   Avatar,
   Spin,
@@ -13,6 +14,9 @@ import {
   Modal,
   Dropdown,
   App,
+  Switch,
+  Space,
+  Typography,
 } from 'antd';
 import {
   SendOutlined,
@@ -27,13 +31,29 @@ import {
   MoreOutlined,
   ExclamationCircleOutlined,
   MessageOutlined,
+  SettingOutlined,
+  CheckCircleOutlined,
+  LockOutlined,
+  DatabaseOutlined,
+  GlobalOutlined,
+  EyeOutlined,
+  SaveOutlined,
+  ReloadOutlined,
+  DownOutlined,
+  UpOutlined,
 } from '@ant-design/icons';
 import { useAgentStore } from './store/agentStore';
 import type { Message, Tool } from './store/agentStore';
+import {
+  toolParamApi,
+  ToolParamsResponse,
+  ToolParamValue,
+} from '../../api/agentApi';
 import './Agent.css';
 
 const { Content } = Layout;
 const { TextArea } = Input;
+const { Text } = Typography;
 
 // 错误详情弹窗组件
 const ErrorDetailModal = ({
@@ -130,8 +150,8 @@ const ChatMessage = ({ message }: { message: Message }) => {
   );
 };
 
-// 工具列表抽屉
-const ToolListDrawer = ({
+// 工具列表抽屉（集成参数配置功能）
+const ToolListDrawerWithConfig = ({
   visible,
   onClose,
   tools,
@@ -139,24 +159,362 @@ const ToolListDrawer = ({
   visible: boolean;
   onClose: () => void;
   tools: Tool[];
-}) => (
-  <Drawer
-    title="可用工具"
-    placement="right"
-    onClose={onClose}
-    open={visible}
-    size="default"
-  >
-    <div className="tool-list">
-      {tools.map(tool => (
-        <div key={tool.name} className="tool-list-item">
-          <Tag color="blue">{tool.name}</Tag>
-          <p className="tool-description">{tool.description}</p>
-        </div>
-      ))}
-    </div>
-  </Drawer>
-);
+}) => {
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  const [toolsParams, setToolsParams] = useState<Record<string, ToolParamsResponse>>({});
+  const [loadingParams, setLoadingParams] = useState<Set<string>>(new Set());
+  const [editingValues, setEditingValues] = useState<Record<string, Record<string, any>>>({});
+  const [showSensitive, setShowSensitive] = useState<Record<string, Record<string, boolean>>>({});
+  const { message } = App.useApp();
+
+  // 切换工具展开/折叠
+  const toggleExpand = async (toolName: string) => {
+    const newExpanded = new Set(expandedTools);
+    if (newExpanded.has(toolName)) {
+      newExpanded.delete(toolName);
+    } else {
+      newExpanded.add(toolName);
+      // 加载参数
+      if (!toolsParams[toolName]) {
+        await loadToolParams(toolName);
+      }
+    }
+    setExpandedTools(newExpanded);
+  };
+
+  // 加载工具参数
+  const loadToolParams = async (toolName: string) => {
+    setLoadingParams(prev => new Set(prev).add(toolName));
+    try {
+      const data = await toolParamApi.getToolParams(toolName, false);
+      setToolsParams(prev => ({ ...prev, [toolName]: data }));
+      
+      // 初始化编辑值（仅当有参数时）
+      if (data.params && Object.keys(data.params).length > 0) {
+        const initialValues: Record<string, any> = {};
+        Object.entries(data.params).forEach(([key, param]) => {
+          initialValues[key] = param.value;
+        });
+        setEditingValues(prev => ({ ...prev, [toolName]: initialValues }));
+      }
+    } catch (error: any) {
+      // 404 表示工具无参数模板，这不是错误
+      if (error?.response?.status === 404) {
+        setToolsParams(prev => ({ 
+          ...prev, 
+          [toolName]: { tool_name: toolName, params: {} } 
+        }));
+      } else {
+        message.error(`加载 ${toolName} 参数失败`);
+      }
+    } finally {
+        setLoadingParams(prev => {
+          const next = new Set(prev);
+          next.delete(toolName);
+          return next;
+        });
+    }
+  };
+
+  // 切换敏感参数显示
+  const toggleSensitive = async (toolName: string, paramName: string) => {
+    if (!showSensitive[toolName]?.[paramName]) {
+      try {
+        const data = await toolParamApi.getToolParams(toolName, true);
+        setToolsParams(prev => ({ ...prev, [toolName]: data }));
+        setEditingValues(prev => ({
+          ...prev,
+          [toolName]: {
+            ...prev[toolName],
+            [paramName]: data.params[paramName].value,
+          },
+        }));
+        setShowSensitive(prev => ({
+          ...prev,
+          [toolName]: { ...prev[toolName], [paramName]: true },
+        }));
+      } catch (error) {
+        message.error('获取敏感参数值失败');
+      }
+    } else {
+      // 重新加载脱敏版本
+      await loadToolParams(toolName);
+      setShowSensitive(prev => ({
+        ...prev,
+        [toolName]: { ...prev[toolName], [paramName]: false },
+      }));
+    }
+  };
+
+  // 更新参数
+  const handleUpdateParam = async (toolName: string, paramName: string, value: any) => {
+    try {
+      await toolParamApi.setToolParam(toolName, paramName, value);
+      message.success(`${paramName} 已更新`);
+      await loadToolParams(toolName); // 刷新参数
+    } catch (error: any) {
+      message.error(`更新失败: ${error.message || '未知错误'}`);
+    }
+  };
+
+  // 渲染来源标签
+  const renderSourceTag = (source: string) => {
+    const config: Record<string, { color: string; icon: React.ReactNode; text: string }> = {
+      database: { color: 'blue', icon: <DatabaseOutlined />, text: '数据库' },
+      environment: { color: 'green', icon: <GlobalOutlined />, text: '环境变量' },
+      default: { color: 'default', icon: <SettingOutlined />, text: '默认值' },
+    };
+    const c = config[source] || config.default;
+    return <Tag color={c.color} icon={c.icon}>{c.text}</Tag>;
+  };
+
+  // 渲染参数输入控件
+  const renderParamInput = (
+    toolName: string,
+    paramName: string,
+    param: ToolParamValue
+  ) => {
+    if (param.sensitive && !showSensitive[toolName]?.[paramName]) {
+      return (
+        <Space>
+          <Input.Password
+            value="••••••••"
+            disabled
+            style={{ width: 160 }}
+            size="small"
+          />
+          <Button
+            type="link"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => toggleSensitive(toolName, paramName)}
+          >
+            显示
+          </Button>
+        </Space>
+      );
+    }
+
+    switch (param.type) {
+      case 'integer':
+        return (
+          <InputNumber
+            size="small"
+            value={editingValues[toolName]?.[paramName]}
+            onChange={(value) =>
+              setEditingValues(prev => ({
+                ...prev,
+                [toolName]: { ...prev[toolName], [paramName]: value },
+              }))
+            }
+            style={{ width: 120 }}
+            onPressEnter={(e: any) =>
+              handleUpdateParam(toolName, paramName, e.target.value)
+            }
+          />
+        );
+      case 'float':
+        return (
+          <InputNumber
+            size="small"
+            value={editingValues[toolName]?.[paramName]}
+            onChange={(value) =>
+              setEditingValues(prev => ({
+                ...prev,
+                [toolName]: { ...prev[toolName], [paramName]: value },
+              }))
+            }
+            step={0.1}
+            style={{ width: 120 }}
+          />
+        );
+      case 'boolean':
+        return (
+          <Switch
+            size="small"
+            checked={editingValues[toolName]?.[paramName]}
+            onChange={(checked) => {
+              setEditingValues(prev => ({
+                ...prev,
+                [toolName]: { ...prev[toolName], [paramName]: checked },
+              }));
+              handleUpdateParam(toolName, paramName, checked);
+            }}
+          />
+        );
+      default:
+        return (
+          <Input
+            size="small"
+            value={editingValues[toolName]?.[paramName]}
+            onChange={(e) =>
+              setEditingValues(prev => ({
+                ...prev,
+                [toolName]: { ...prev[toolName], [paramName]: e.target.value },
+              }))
+            }
+            onPressEnter={(e) =>
+              handleUpdateParam(toolName, paramName, e.currentTarget.value)
+            }
+            style={{ width: 160 }}
+          />
+        );
+    }
+  };
+
+  return (
+    <Drawer
+      title={
+        <Space>
+          <ToolOutlined />
+          <span>可用工具</span>
+          <Button
+            type="text"
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => {
+              setToolsParams({});
+              tools.forEach(t => loadToolParams(t.name));
+            }}
+          >
+            刷新配置
+          </Button>
+        </Space>
+      }
+      placement="right"
+      onClose={onClose}
+      open={visible}
+      size="large"
+      className="tool-list-config-drawer"
+    >
+      <div className="tool-list-with-config">
+        {tools.map(tool => {
+          const isExpanded = expandedTools.has(tool.name);
+          const params = toolsParams[tool.name];
+          const isLoading = loadingParams.has(tool.name);
+
+          return (
+            <div key={tool.name} className={`tool-item-wrapper ${isExpanded ? 'expanded' : ''}`}>
+              {/* 工具项头部 */}
+              <div
+                className="tool-item-header"
+                onClick={() => toggleExpand(tool.name)}
+              >
+                <div className="tool-item-info">
+                  <Space>
+                    <Tag color="blue">{tool.name}</Tag>
+                    {params && (
+                      params.params && Object.values(params.params).some(p => p.configured) ? (
+                        <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                      ) : null
+                    )}
+                  </Space>
+                </div>
+                <Space>
+                  <Tooltip title={isExpanded ? '收起参数' : '展开参数'}>
+                    {isExpanded ? <UpOutlined /> : <DownOutlined />}
+                  </Tooltip>
+                </Space>
+              </div>
+
+              {/* 工具描述 */}
+              <p className="tool-description">{tool.description}</p>
+
+              {/* 展开的参数面板 */}
+              {isExpanded && (
+                <div className="tool-params-panel">
+                  {isLoading ? (
+                    <Spin size="small" tip="加载中..." />
+                  ) : params && params.params && Object.keys(params.params).length > 0 ? (
+                    <div className="params-container">
+                      {Object.entries(params.params).map(
+                        ([paramName, param]) => (
+                          <div key={paramName} className="param-row">
+                            <div className="param-info">
+                              <Space size={4}>
+                                {param.sensitive ? (
+                                  <LockOutlined
+                                    style={{
+                                      fontSize: 12,
+                                      color: '#faad14',
+                                    }}
+                                  />
+                                ) : null}
+                                <Text
+                                  strong
+                                  style={{ fontSize: 12 }}
+                                >
+                                  {paramName}
+                                </Text>
+                                {renderSourceTag(param.source)}
+                              </Space>
+                              {param.description && (
+                                <Text
+                                  type="secondary"
+                                  style={{
+                                    fontSize: 11,
+                                    display: 'block',
+                                    marginTop: 2,
+                                  }}
+                                >
+                                  {param.description}
+                                </Text>
+                              )}
+                            </div>
+
+                            <div className="param-action">
+                              <Space size={4}>
+                                {renderParamInput(
+                                  tool.name,
+                                  paramName,
+                                  param
+                                )}
+                                {(editingValues[tool.name]?.[paramName] !==
+                                  param.value ||
+                                  !param.configured) && (
+                                  <Button
+                                    type="primary"
+                                    size="small"
+                                    icon={<SaveOutlined />}
+                                    onClick={() =>
+                                      handleUpdateParam(
+                                        tool.name,
+                                        paramName,
+                                        editingValues[tool.name]?.[
+                                          paramName
+                                        ]
+                                      )
+                                    }
+                                  >
+                                    保存
+                                  </Button>
+                                )}
+                              </Space>
+                            </div>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  ) : (
+                    // 工具存在但无参数或已加载完成无参数
+                    <Empty
+                      description={
+                        <span style={{ fontSize: 11 }}>
+                          该工具无需配置参数
+                        </span>
+                      }
+                      styles={{ image: { height: 35 } }}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Drawer>
+  );
+};
 
 // 会话列表抽屉组件
 const SessionListDrawer = ({
@@ -454,8 +812,8 @@ const Agent = () => {
         onDeleteSession={showDeleteConfirm}
       />
 
-      {/* 工具列表抽屉 */}
-      <ToolListDrawer
+      {/* 工具列表抽屉（集成参数配置） */}
+      <ToolListDrawerWithConfig
         visible={toolDrawerVisible}
         onClose={() => setToolDrawerVisible(false)}
         tools={tools}

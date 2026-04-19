@@ -142,7 +142,7 @@ const BacktestProgressModal = ({
           )}
           {stepStatus.dataPrep === 'error' && (
             <Alert
-              message={t('preparation_failed') || '数据准备失败'}
+              title={t('preparation_failed') || '数据准备失败'}
               description={errorMessage || (t('data_integrity_check_failed') || '数据完整性检查或下载失败')}
               type="error"
               showIcon
@@ -178,7 +178,7 @@ const BacktestProgressModal = ({
           )}
           {stepStatus.execution === 'error' && (
             <Alert
-              message={t('backtest_execute_failed') || '回测执行失败'}
+              title={t('backtest_execute_failed') || '回测执行失败'}
               description={errorMessage || (t('backtest_execute_error') || '回测过程中发生错误')}
               type="error"
               showIcon
@@ -211,7 +211,7 @@ const BacktestProgressModal = ({
           )}
           {stepStatus.analysis === 'error' && (
             <Alert
-              message={t('statistics_failed') || '结果统计失败'}
+              title={t('statistics_failed') || '结果统计失败'}
               description={errorMessage || (t('generate_report_error') || '生成统计报告时发生错误')}
               type="error"
               showIcon

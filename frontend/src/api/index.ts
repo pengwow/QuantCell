@@ -285,12 +285,14 @@ api.interceptors.response.use(
     }
 
     const { code, message, data } = response.data;
-    if (code === 0) {
+    // 兼容两种成功响应码：code=0（标准业务码）和 code=200（HTTP风格）
+    if (code === 0 || code === 200) {
       return data;
     } else {
-      console.error('API 错误:', message);
-      return Promise.reject(new ApiError(code, message));
-    }
+        const errorMsg = message || (response.data as any)?.detail || '未知错误';
+        console.error('API 错误:', errorMsg);
+        return Promise.reject(new ApiError(code, errorMsg));
+      }
   },
   (error) => {
     // 处理HTTP 401未授权错误
@@ -310,6 +312,14 @@ api.interceptors.response.use(
       const errorData = error.response?.data;
       const errorMessage = errorData?.message || errorData?.detail || '请求参数验证失败';
       return Promise.reject(new ApiError(422, errorMessage));
+    }
+
+    // 处理HTTP 404等错误（兼容FastAPI默认格式 {"detail": "..."}）
+    if (error.response?.data?.detail && !error.response?.data?.message) {
+      return Promise.reject(new ApiError(
+        error.response?.status || 404,
+        error.response.data.detail
+      ));
     }
 
     // 处理后端返回的其他业务错误

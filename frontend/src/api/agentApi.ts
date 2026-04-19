@@ -502,4 +502,150 @@ export const agentApi = {
   createLogWebSocket
 };
 
+// ==================== 工具参数管理API ====================
+
+/**
+ * 工具参数类型定义
+ */
+export interface ToolParamTemplate {
+  name: string;
+  type: 'string' | 'integer' | 'float' | 'boolean';
+  required: boolean;
+  sensitive: boolean;
+  default?: any;
+  env_key?: string;
+  description: string;
+  validation?: {
+    min?: number;
+    max?: number;
+  };
+}
+
+export interface ToolParamValue {
+  value: any;
+  configured: boolean;
+  source: 'database' | 'environment' | 'default';
+  sensitive: boolean;
+  type: string;
+  description: string;
+}
+
+export interface ToolInfo {
+  name: string;
+  param_count: number;
+  configured_count: number;
+  has_required_params: boolean;
+}
+
+export interface ToolParamsResponse {
+  tool_name: string;
+  params: Record<string, ToolParamValue>;
+}
+
+export interface BatchUpdateResult {
+  updated: string[];
+  skipped: string[];
+  errors: string[];
+}
+
+export interface ExportConfigResponse {
+  export_time: string;
+  version: string;
+  tools: Record<string, Record<string, any>>;
+}
+
+export interface ImportExportResult {
+  imported: number;
+  skipped: number;
+  errors: string[];
+}
+
+/**
+ * 获取所有已注册的工具列表
+ */
+export const getRegisteredTools = async (): Promise<ToolInfo[]> => {
+  return apiRequest.get<ToolInfo[]>('/agent/tools/params/tools');
+};
+
+/**
+ * 获取指定工具的参数配置
+ */
+export const getToolParams = async (
+  toolName: string,
+  includeSensitive: boolean = false
+): Promise<ToolParamsResponse> => {
+  return apiRequest.get<ToolParamsResponse>(`/agent/tools/params/${toolName}`, {
+    include_sensitive: includeSensitive
+  });
+};
+
+/**
+ * 设置工具参数
+ */
+export const setToolParam = async (
+  toolName: string,
+  paramName: string,
+  value: any
+): Promise<{ param_name: string; value_masked: string; updated_at: string }> => {
+  return apiRequest.put(`/agent/tools/params/${toolName}/${paramName}`, { value });
+};
+
+/**
+ * 批量更新工具参数
+ */
+export const batchUpdateToolParams = async (
+  toolName: string,
+  params: Record<string, any>,
+  overwrite: boolean = false
+): Promise<BatchUpdateResult> => {
+  return apiRequest.post<BatchUpdateResult>(`/agent/tools/params/${toolName}/batch`, {
+    params,
+    overwrite
+  });
+};
+
+/**
+ * 删除工具参数（恢复默认值或环境变量）
+ */
+export const deleteToolParam = async (
+  toolName: string,
+  paramName: string
+): Promise<{ message: string }> => {
+  return apiRequest.delete(`/agent/tools/params/${toolName}/${paramName}`);
+};
+
+/**
+ * 导出工具配置
+ */
+export const exportToolConfig = async (
+  toolName?: string
+): Promise<ExportConfigResponse> => {
+  const params = toolName ? { tool_name: toolName } : {};
+  return apiRequest.get<ExportConfigResponse>('/agent/tools/params/export', params);
+};
+
+/**
+ * 导入工具配置
+ */
+export const importToolConfig = async (
+  config: ExportConfigResponse,
+  overwrite: boolean = false
+): Promise<ImportExportResult> => {
+  return apiRequest.post<ImportExportResult>('/agent/tools/params/import', {
+    config,
+    overwrite
+  });
+};
+
+// 工具参数管理API导出
+export const toolParamApi = {
+  getRegisteredTools,
+  getToolParams,
+  setToolParam,
+  batchUpdateToolParams,
+  deleteToolParam,
+  exportToolConfig,
+  importToolConfig
+};
+
 export default agentApi;
