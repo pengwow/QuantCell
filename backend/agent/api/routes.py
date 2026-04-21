@@ -1,10 +1,14 @@
 """Agent API 路由"""
 
+import asyncio
 import json
+import os
+import time
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from utils.logger import get_logger, LogType
@@ -199,6 +203,16 @@ def get_agent() -> AgentLoop:
             logger.info("Agent使用环境变量配置")
 
         # 创建 Agent
+        max_history_env = os.getenv("AGENT_MAX_HISTORY", "200")
+        try:
+            max_history = int(max_history_env)
+            if max_history < 10 or max_history > 1000:
+                logger.warning(f"AGENT_MAX_HISTORY 值 {max_history} 不在有效范围内(10-1000)，使用默认值 200")
+                max_history = 200
+        except ValueError:
+            logger.warning(f"AGENT_MAX_HISTORY 值 '{max_history_env}' 无效，使用默认值 200")
+            max_history = 200
+
         _agent_instance = AgentLoop(
             provider=provider,
             workspace=workspace,
@@ -207,6 +221,7 @@ def get_agent() -> AgentLoop:
             temperature=0.1,
             max_tokens=4096,
             memory_window=100,
+            max_history=max_history,
         )
         
         # 使用统一的工具注册机制（自动发现并注册所有工具）
@@ -245,6 +260,74 @@ async def chat(request: ChatRequest):
     except Exception as e:
         logger.error(f"Agent 处理消息失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """
+    流式对话端点 (SSE - Server-Sent Events)
+
+    返回 Server-Sent Events 格式的流式响应，实时推送 Agent 处理过程
+
+    事件类型:
+    - start: 开始处理
+    - content: 文本内容增量（实时显示）
+    - reasoning: 推理过程（DeepSeek-R1 等模型）
+    - tool_calls: LLM 返回工具调用
+    - tool_start: 开始执行工具
+    - tool_result: 工具执行完成
+    - complete: 全部处理完成
+    - error: 错误信息
+
+    使用示例:
+        fetch('/api/agent/chat/stream', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: '你好'})
+        }).then(response => {
+            const reader = response.body.getReader();
+            // 解析 SSE 事件...
+        });
+    """
+    agent = get_agent()
+
+    async def event_generator():
+        """SSE 事件生成器"""
+        try:
+            async for event in agent.process_message_stream(
+                content=request.message,
+                session_key=request.session_id,
+            ):
+                # 格式化为 SSE 事件
+                event_data = json.dumps({
+                    "type": event.event_type,
+                    "data": event.data,
+                    "timestamp": event.timestamp,
+                }, ensure_ascii=False)
+
+                yield f"event: {event.event_type}\ndata: {event_data}\n\n"
+
+                # 确保缓冲区刷新，让客户端能及时收到数据
+                await asyncio.sleep(0)
+
+        except Exception as e:
+            # 发送错误事件
+            error_data = json.dumps({
+                "type": "error",
+                "data": {"error": str(e), "timestamp": time.time()},
+            }, ensure_ascii=False)
+            yield f"event: error\ndata: {error_data}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲，确保实时传输
+            "Access-Control-Allow-Origin": "*",  # 允许跨域访问
+        }
+    )
 
 
 @router.get("/tools", response_model=list[ToolInfo])

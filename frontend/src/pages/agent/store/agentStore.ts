@@ -64,7 +64,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     // 添加用户消息
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       role: 'user',
       content,
       timestamp: new Date().toISOString(),
@@ -99,7 +99,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
       if (data.success) {
         const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
+          id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
           role: 'assistant',
           content: data.message,
           timestamp: new Date().toISOString(),
@@ -115,7 +115,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         const errorMessage = data.message || data.error || '请求处理失败';
         const errorDetail = data.detail || data.stack || JSON.stringify(data, null, 2);
         const errorMessageObj: Message = {
-          id: (Date.now() + 1).toString(),
+          id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
           role: 'assistant',
           content: errorMessage,
           timestamp: new Date().toISOString(),
@@ -143,7 +143,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
 
       const errorMessageObj: Message = {
-        id: (Date.now() + 1).toString(),
+        id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
         role: 'assistant',
         content: errorMsg,
         timestamp: new Date().toISOString(),
