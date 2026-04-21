@@ -21,8 +21,34 @@ class Session:
     last_consolidated: int = 0  # 上次整合的消息索引
 
     def get_history(self, max_messages: int = 100) -> list[dict[str, Any]]:
-        """获取历史消息（限制数量）"""
-        return self.messages[-max_messages:] if self.messages else []
+        """获取历史消息（限制数量，支持智能过滤）"""
+        if not self.messages:
+            return []
+
+        messages = self.messages[-max_messages:]
+
+        # 智能过滤：移除过短的测试消息（如 "test", "hello", "hi" 等）
+        filtered = []
+        test_patterns = {"test", "hello", "hi", "hey", "ok", "yes", "no", "1", "123", "abc"}
+
+        for msg in messages:
+            content = str(msg.get("content", "")).strip().lower()
+            role = msg.get("role", "")
+
+            # 保留系统消息和工具消息
+            if role in ("system", "tool"):
+                filtered.append(msg)
+                continue
+
+            # 过滤掉明显的测试消息（仅针对 user 角色的短消息）
+            if role == "user" and len(content) <= 10 and content in test_patterns:
+                logger.debug(f"过滤测试消息: {content}")
+                continue
+
+            filtered.append(msg)
+
+        logger.info(f"历史消息: 原始={len(messages)}, 过滤后={len(filtered)}")
+        return filtered
 
     def clear(self) -> None:
         """清空会话"""

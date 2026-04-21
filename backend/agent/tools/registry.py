@@ -1,8 +1,12 @@
 """工具注册表 - 管理所有可用工具"""
 
+import time
 from typing import Any
 
 from .base import Tool
+from utils.logger import get_logger, LogType
+
+logger = get_logger(__name__, LogType.APPLICATION)
 
 
 class ToolRegistry:
@@ -58,11 +62,20 @@ class ToolRegistry:
             errors = tool.validate_params(params)
             if errors:
                 return f"错误: 工具 '{name}' 参数无效: " + "; ".join(errors) + _HINT
+            
+            logger.debug(f"[ToolRegistry] 执行工具 {name}, 参数: {params}")
+            start_time = time.time()
+            
             result = await tool.execute(**params)
+            
+            elapsed = time.time() - start_time
+            logger.info(f"[ToolRegistry] 工具 {name} 执行完成, 耗时: {elapsed:.2f}s")
+            
             if isinstance(result, str) and result.startswith("错误"):
                 return result + _HINT
             return result
         except Exception as e:
+            logger.error(f"[ToolRegistry] 工具 {name} 执行异常: {type(e).__name__}: {e}")
             return f"执行 {name} 时出错: {str(e)}" + _HINT
 
     @property

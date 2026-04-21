@@ -519,8 +519,12 @@ def chat_send(
         Optional[str],
         typer.Option("--session", "-s", help="会话 ID")
     ] = None,
+    stream: Annotated[
+        bool,
+        typer.Option("--stream/--no-stream", help="启用/禁用流式输出 (默认: 启用)")
+    ] = True,
 ):
-    """发送消息给 Agent（process_direct 方式）"""
+    """发送消息给 Agent（支持流式输出）"""
     import asyncio
 
     session_id = session or "default"
@@ -529,26 +533,129 @@ def chat_send(
         # 延迟导入避免循环导入
         try:
             from agent.api.routes import get_agent
+            logger.info("正在初始化 Agent...")
             agent = get_agent()
+            logger.info(f"Agent 初始化完成: model={agent.model}, provider={agent.provider}")
         except Exception as e:
             print(f"错误: 无法初始化 Agent - {e}")
             raise typer.Exit(1)
 
-        print(f"发送消息到会话 {session_id}...")
-        print("-" * 50)
+        print(f"\n💬 您: {message}")
+        print(f"🤖 Agent: ", end="", flush=True)
+        logger.info(f"[CLI] 发送消息到会话 {session_id}: {message[:100]}...")
 
-        # 进度回调 - 参考 nanobot 的 _cli_progress
+        if stream:
+            # 流式输出模式
+            await _stream_mode(agent, message, session_id)
+        else:
+            # 传统模式（一次性返回）
+            await _normal_mode(agent, message, session_id)
+
+    async def _stream_mode(agent, message, session_id):
+        """流式输出模式"""
+        import time
+        start_time = time.time()
+        logger.info("[CLI] 开始调用 agent.process_message_stream()...")
+
+        try:
+            # 使用回调方式接收流式事件
+            await agent.process_message_stream(
+                content=message,
+                session_key=session_id,
+                on_stream=_handle_stream_event,
+            )
+
+            elapsed = time.time() - start_time
+            logger.info(f"[CLI] 流式处理完成, 耗时: {elapsed:.2f}s")
+            print("\n")  # 结束换行
+            print("-" * 50)
+
+        except asyncio.CancelledError:
+            print("\n\n⚠️ 操作已取消")
+        except Exception as e:
+            logger.error(f"[CLI] 流式处理失败: {type(e).__name__}: {e}")
+            print(f"\n❌ 错误: {e}")
+            raise typer.Exit(1)
+
+    async def _handle_stream_event(event):
+        """处理流式事件并实时显示"""
+        event_type = event.event_type
+        data = event.data
+
+        if event_type == "start":
+            print("⏳ ", end="", flush=True)
+
+        elif event_type == "content":
+            # 实时打印文本增量
+            content = data.get("delta", "") or data.get("content", "")
+            print(content, end="", flush=True)
+
+        elif event_type == "reasoning":
+            # 推理过程（可选显示）
+            reasoning = data.get("content", "")
+            if reasoning:
+                print(f"\n🤔 [推理中] {reasoning}", end="", flush=True)
+
+        elif event_type == "tool_calls":
+            # LLM 决定调用工具
+            tools = data.get("tools", [])
+            tool_names = [t.get("name", "") for t in tools]
+            print(f"\n\n🔧 准备执行工具: {', '.join(tool_names)}")
+
+        elif event_type == "tool_start":
+            # 开始执行工具
+            name = data.get("name", "")
+            args = data.get("args", {})
+            args_preview = str(args)[:100]
+            print(f"\n  ▶️ 执行: {name}({args_preview})...", end="", flush=True)
+
+        elif event_type == "tool_result":
+            # 工具执行完成
+            name = data.get("name", "")
+            elapsed = data.get("elapsed", 0)
+            print(f" ✅ ({elapsed:.2f}s)", flush=True)
+
+        elif event_type == "complete":
+            # 全部完成
+            content = data.get("content", "")
+            iteration = data.get("iteration", 0)
+            max_reached = data.get("max_reached", False)
+            if max_reached:
+                print(f"\n\n⚠️ 达到最大迭代次数", flush=True)
+
+        elif event_type == "error":
+            # 错误
+            error = data.get("error", "")
+            print(f"\n❌ 错误: {error}", flush=True)
+
+        elif event_type == "iteration_start":
+            # 新一轮迭代开始
+            iteration = data.get("iteration", 1)
+            max_iterations = data.get("max_iterations", 40)
+            if iteration > 1:
+                print(f"\n🔄 第 {iteration}/{max_iterations} 轮迭代...", flush=True)
+
+    async def _normal_mode(agent, message, session_id):
+        """传统非流式模式"""
+        import time
+
+        # 进度回调
         async def on_progress(content: str, *, tool_hint: bool = False):
             prefix = "  ↳ " if tool_hint else "  → "
             print(f"{prefix}{content}")
 
         try:
-            # 使用 process_direct - 专门为 CLI/Cron 设计的接口
+            start_time = time.time()
+            logger.info("[CLI] 开始调用 agent.process_direct()...")
+
             response = await agent.process_direct(
                 content=message,
                 session_key=session_id,
                 on_progress=on_progress,
             )
+
+            elapsed = time.time() - start_time
+            logger.info(f"[CLI] agent.process_direct() 完成, 耗时: {elapsed:.2f}s")
 
             print("-" * 50)
             if response:
@@ -559,7 +666,7 @@ def chat_send(
         except asyncio.CancelledError:
             print("\n操作已取消")
         except Exception as e:
-            logger.error(f"处理消息失败: {e}")
+            logger.error(f"[CLI] 处理消息失败: {type(e).__name__}: {e}")
             print(f"\n错误: {e}")
             raise typer.Exit(1)
 
