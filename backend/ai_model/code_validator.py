@@ -5,8 +5,7 @@
 """
 
 import ast
-import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from utils.logger import get_logger, LogType

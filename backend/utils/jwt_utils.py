@@ -24,27 +24,22 @@ JWT_ALGORITHM = "HS256"  # 加密算法
 
 class JWTError(Exception):
     """JWT相关错误的基础类"""
-    pass
 
 
 class TokenExpiredError(JWTError):
     """令牌过期错误"""
-    pass
 
 
 class TokenInvalidError(JWTError):
     """令牌无效错误"""
-    pass
 
 
 class TokenDecodeError(JWTError):
     """令牌解码错误"""
-    pass
 
 
 class TokenRefreshError(JWTError):
     """令牌刷新错误"""
-    pass
 
 
 def create_jwt_token(

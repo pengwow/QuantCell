@@ -24,7 +24,6 @@ import sys
 import os
 import json
 import threading
-import asyncio
 import queue
 from pathlib import Path
 from typing import Optional, Dict, Any, List

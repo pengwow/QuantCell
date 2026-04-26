@@ -7,7 +7,7 @@ K线数据健康检查服务
 """
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 from utils.logger import get_logger, LogType

@@ -23,7 +23,7 @@ import threading
 import time
 from datetime import datetime
 from queue import Empty, Queue
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 import zmq
 import zmq.asyncio

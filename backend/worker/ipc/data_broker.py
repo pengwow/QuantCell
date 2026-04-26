@@ -4,13 +4,13 @@
 管理数据订阅和分发，使用 ZeroMQ PUB/SUB 模式实现高效数据分发
 """
 
-from typing import Dict, List, Optional, Callable, Any, Set
+from typing import Dict, List, Optional, Callable, Set
 from dataclasses import dataclass, field
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from .protocol import Message, MessageType, MessageTopic
+from .protocol import Message, MessageTopic
 from .comm_manager import CommManager
 
 

@@ -7,7 +7,7 @@
 
 import numpy as np
 import pandas as pd
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from utils.logger import get_logger, LogType

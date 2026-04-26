@@ -1,6 +1,6 @@
 # 数据相关API路由
 
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 import pandas as pd
 from fastapi import (APIRouter, BackgroundTasks, Depends, HTTPException, Path,
@@ -13,13 +13,8 @@ from sqlalchemy.orm import Session
 
 from ..db.database import get_db
 from ..schemas import ApiResponse
-from ..schemas.data import (CalendarInfoResponse, DataInfoResponse,
-                            DataResponse, DownloadCryptoRequest,
-                            ExportCryptoRequest, ExportCryptoResponse,
-                            FeatureInfoResponse, InstrumentInfoResponse,
-                            LoadDataRequest, SymbolFeaturesResponse,
-                            TaskProgressResponse, TaskResponse,
-                            TaskStatusResponse)
+from ..schemas.data import (DownloadCryptoRequest, ExportCryptoRequest,
+                            LoadDataRequest)
 from ..services import DataService
 from ..db.models import CryptoSpotKline, CryptoFutureKline, StockKline
 
@@ -260,7 +255,6 @@ async def resolve_kline_duplicates(
     用于处理K线数据中的重复记录，支持多种处理策略
     """
     # 导入健康检查服务
-    from backend.collector.services.kline_health_service import KlineHealthChecker
     
     # 验证处理策略
     valid_strategies = ["keep_first", "keep_last", "keep_max_volume", "keep_min_volume"]

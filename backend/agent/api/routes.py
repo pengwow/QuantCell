@@ -2,12 +2,11 @@
 
 import asyncio
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -203,16 +202,6 @@ def get_agent() -> AgentLoop:
             logger.info("Agent使用环境变量配置")
 
         # 创建 Agent
-        max_history_env = os.getenv("AGENT_MAX_HISTORY", "200")
-        try:
-            max_history = int(max_history_env)
-            if max_history < 10 or max_history > 1000:
-                logger.warning(f"AGENT_MAX_HISTORY 值 {max_history} 不在有效范围内(10-1000)，使用默认值 200")
-                max_history = 200
-        except ValueError:
-            logger.warning(f"AGENT_MAX_HISTORY 值 '{max_history_env}' 无效，使用默认值 200")
-            max_history = 200
-
         _agent_instance = AgentLoop(
             provider=provider,
             workspace=workspace,
@@ -221,7 +210,6 @@ def get_agent() -> AgentLoop:
             temperature=0.1,
             max_tokens=4096,
             memory_window=100,
-            max_history=max_history,
         )
         
         # 使用统一的工具注册机制（自动发现并注册所有工具）

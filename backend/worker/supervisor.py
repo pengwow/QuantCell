@@ -5,7 +5,7 @@ Worker 监控器模块
 """
 
 import asyncio
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from utils.logger import get_logger, LogType

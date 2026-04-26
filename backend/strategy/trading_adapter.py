@@ -17,11 +17,10 @@ from __future__ import annotations
 import importlib
 import inspect
 import sys
-from abc import ABC
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, Dict, Optional
 
 # 使用项目日志系统
 from utils.logger import get_logger, LogType
@@ -66,10 +65,6 @@ except ImportError:
 # QuantCell 内部导入
 from strategy.core.data_types import (
     Bar as QCBar,
-    QuoteTick as QCQuoteTick,
-    TradeTick as QCTradeTick,
-    Order as QCOrder,
-    Position as QCPosition,
     InstrumentId as QCInstrumentId,
     OrderSide,
     OrderType,
@@ -86,22 +81,18 @@ from strategy.core.strategy import StrategyBase as QCStrategyBase
 
 class TradingAdapterError(Exception):
     """交易适配器异常基类"""
-    pass
 
 
 class StrategyLoadError(TradingAdapterError):
     """策略加载异常"""
-    pass
 
 
 class DataConversionError(TradingAdapterError):
     """数据转换异常"""
-    pass
 
 
 class StrategyAdapterConfigError(TradingAdapterError):
     """适配器配置异常"""
-    pass
 
 
 # =============================================================================

@@ -6,11 +6,10 @@
 
 from typing import Optional
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from collector.services.exchange_connection_service import (
-    exchange_connection_service,
-    ConnectionTestResult
+    exchange_connection_service
 )
 from collector.schemas import ApiResponse
 

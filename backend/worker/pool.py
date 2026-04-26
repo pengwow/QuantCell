@@ -5,7 +5,7 @@
 """
 
 import asyncio
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 from utils.logger import get_logger, LogType
@@ -13,7 +13,6 @@ from utils.logger import get_logger, LogType
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from .worker_process import WorkerProcess
-from .state import WorkerState, WorkerStatus
 
 
 @dataclass

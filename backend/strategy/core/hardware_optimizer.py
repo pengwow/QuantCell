@@ -13,7 +13,7 @@ import logging
 import threading
 import time
 from typing import Dict, List, Optional, Set, Any
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import hashlib
 
 logger = logging.getLogger(__name__)

@@ -1,7 +1,7 @@
 # Numba JIT 编译的性能函数
 
 import numpy as np
-from numba import njit, prange
+from numba import njit
 from typing import Tuple
 
 

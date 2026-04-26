@@ -1,8 +1,8 @@
 # 加密货币支持模块
 # 支持现货和永续合约
 
-from decimal import Decimal, getcontext, ROUND_DOWN, ROUND_UP
-from typing import Dict, Any, Optional
+from decimal import Decimal, getcontext, ROUND_DOWN
+from typing import Any
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器

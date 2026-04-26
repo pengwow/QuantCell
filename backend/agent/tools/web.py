@@ -2,7 +2,6 @@
 
 import html
 import json
-import os
 import re
 from typing import Any
 from urllib.parse import urlparse

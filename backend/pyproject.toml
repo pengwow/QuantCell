@@ -114,3 +114,10 @@ fail_under = 90
 
 [tool.coverage.html]
 directory = "htmlcov"
+
+[dependency-groups]
+dev = [
+    "autoflake>=2.3.3",
+    "dead>=2.1.0",
+    "vulture>=2.16",
+]

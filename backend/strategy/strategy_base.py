@@ -2,11 +2,10 @@
 # 定义统一的策略接口，确保所有策略遵循一致的开发规范
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 import pandas as pd
-import numpy as np
 
 
 class StrategyParam(BaseModel):
@@ -168,7 +167,6 @@ class StrategyBase(ABC):
         """
         子类实现的初始化方法
         """
-        pass
     
     def on_data(self, data: pd.DataFrame):
         """
@@ -211,7 +209,6 @@ class StrategyBase(ABC):
         
         :param data: 输入数据
         """
-        pass
     
     def generate_signals(self, data: pd.DataFrame) -> List[StrategySignal]:
         """
@@ -232,7 +229,6 @@ class StrategyBase(ABC):
         :param data: 输入数据
         :return: 交易信号列表
         """
-        pass
     
     def execute_orders(self, signals: List[StrategySignal]) -> List[Order]:
         """
@@ -253,7 +249,6 @@ class StrategyBase(ABC):
         :param signals: 交易信号列表
         :return: 生成的订单列表
         """
-        pass
     
     def risk_control(self, signals: List[StrategySignal]) -> List[StrategySignal]:
         """
@@ -273,7 +268,6 @@ class StrategyBase(ABC):
         :param signals: 原始交易信号列表
         :return: 过滤后的交易信号列表
         """
-        pass
     
     def update_performance(self):
         """
@@ -286,7 +280,6 @@ class StrategyBase(ABC):
         """
         子类实现的绩效更新方法
         """
-        pass
     
     def evaluate_performance(self) -> Dict[str, Any]:
         """
@@ -303,7 +296,6 @@ class StrategyBase(ABC):
         
         :return: 绩效评估结果
         """
-        pass
     
     def stop(self):
         """
@@ -317,7 +309,6 @@ class StrategyBase(ABC):
         """
         子类实现的停止方法
         """
-        pass
     
     def get_metadata(self) -> StrategyMetadata:
         """
@@ -447,7 +438,6 @@ class BacktestStrategyBase(StrategyBase):
         
         :return: 回测结果
         """
-        pass
 
 
 class LiveStrategyBase(StrategyBase):
@@ -491,7 +481,6 @@ class LiveStrategyBase(StrategyBase):
         
         :return: 连接是否成功
         """
-        pass
     
     def disconnect(self):
         """
@@ -506,7 +495,6 @@ class LiveStrategyBase(StrategyBase):
         
         :return: 断开连接是否成功
         """
-        pass
     
     def get_account_balance(self) -> Dict[str, Any]:
         """
@@ -523,7 +511,6 @@ class LiveStrategyBase(StrategyBase):
         
         :return: 账户余额信息
         """
-        pass
     
     def place_order(self, order: Order) -> Dict[str, Any]:
         """
@@ -542,7 +529,6 @@ class LiveStrategyBase(StrategyBase):
         :param order: 订单信息
         :return: 下单结果
         """
-        pass
     
     def cancel_order(self, order_id: str) -> Dict[str, Any]:
         """
@@ -561,7 +547,6 @@ class LiveStrategyBase(StrategyBase):
         :param order_id: 订单ID
         :return: 取消结果
         """
-        pass
     
     def get_order_status(self, order_id: str) -> Dict[str, Any]:
         """
@@ -580,4 +565,3 @@ class LiveStrategyBase(StrategyBase):
         :param order_id: 订单ID
         :return: 订单状态
         """
-        pass

@@ -5,7 +5,7 @@ import time
 import asyncio
 from datetime import datetime
 from typing import Any, Dict, Optional, List
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 import psutil

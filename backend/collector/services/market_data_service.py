@@ -2,8 +2,7 @@
 
 基于工厂模式的市场数据获取服务，支持多交易所和代理配置
 """
-import json
-from typing import List, Dict, Optional
+from typing import List, Dict
 from datetime import datetime, timedelta
 from utils.logger import get_logger, LogType
 
@@ -11,7 +10,6 @@ from utils.logger import get_logger, LogType
 logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.database import get_db
 from collector.db.models import MarketData
-from settings.models import SystemConfigBusiness as SystemConfig
 from .market_data_factory import market_data_fetcher_factory
 
 

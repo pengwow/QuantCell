@@ -63,7 +63,6 @@ class ValidationCase(ABC):
         Returns:
             Dict[str, Any]: 期望结果
         """
-        pass
 
     @abstractmethod
     def generate_actual_results(self) -> Dict[str, Any]:
@@ -73,7 +72,6 @@ class ValidationCase(ABC):
         Returns:
             Dict[str, Any]: 实际结果
         """
-        pass
 
     @abstractmethod
     def get_validation_config(self) -> Dict[str, Any]:
@@ -83,19 +81,16 @@ class ValidationCase(ABC):
         Returns:
             Dict[str, Any]: 验证配置
         """
-        pass
 
     def setup(self):
         """
         设置案例环境
         """
-        pass
 
     def teardown(self):
         """
         清理案例环境
         """
-        pass
 
     def run(self, validator) -> CaseResult:
         """

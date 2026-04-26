@@ -5,11 +5,11 @@ Worker数据库模型定义
 
 import json
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 from sqlalchemy import (
     Column, Integer, String, Text, Float, Boolean, DateTime, 
-    ForeignKey, Enum, Index, UniqueConstraint, func
+    ForeignKey, Index, UniqueConstraint, func
 )
 from sqlalchemy.orm import relationship
 

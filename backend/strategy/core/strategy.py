@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional
 
 from utils.logger import get_logger, LogType
 
@@ -25,11 +25,9 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from .data_types import (
     Bar,
     InstrumentId,
-    OrderSide,
     OrderType,
     TimeInForce,
     Position,
-    PositionSide,
 )
 
 
@@ -218,7 +216,6 @@ class StrategyBase(ABC):
         ...     # 初始化指标计算
         ...     self.prices = {}
         """
-        pass
 
     @abstractmethod
     def on_bar(self, bar: Bar) -> None:
@@ -241,7 +238,6 @@ class StrategyBase(ABC):
         ...     if self.should_buy(sma, bar.close):
         ...         self.buy(bar.instrument_id, self.config.trade_size)
         """
-        pass
 
     @abstractmethod
     def on_stop(self) -> None:
@@ -262,7 +258,6 @@ class StrategyBase(ABC):
         ...         if not self.is_flat(inst_id):
         ...             self.close_position(inst_id)
         """
-        pass
 
     # ==================== 交易接口 ====================
     # 注意：以下方法由执行环境（回测引擎或实盘交易引擎）提供实现

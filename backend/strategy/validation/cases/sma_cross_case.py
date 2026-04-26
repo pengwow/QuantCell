@@ -3,9 +3,8 @@ SMA交叉策略验证案例
 用于验证SMA交叉策略的回测结果
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 import numpy as np
-import pandas as pd
 
 from .base_case import ValidationCase, generate_sample_data
 from ..runner import BacktestValidator

@@ -1,5 +1,5 @@
 # 数据分发器
-from typing import Dict, Any, List, Callable, Optional
+from typing import Dict, Any, List, Callable
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器

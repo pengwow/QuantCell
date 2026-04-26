@@ -1,6 +1,6 @@
 # 实时引擎核心类
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器

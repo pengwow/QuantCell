@@ -137,3 +137,23 @@ class SessionManager:
             except Exception as e:
                 logger.error(f"删除会话 {key} 失败: {e}")
         return False
+
+    def list_sessions(self) -> list[dict[str, Any]]:
+        """列出所有会话的基本信息"""
+        sessions_info = []
+        
+        # 遍历 sessions 目录中的所有文件
+        for session_file in self.sessions_dir.glob("*.json"):
+            try:
+                data = json.loads(session_file.read_text(encoding="utf-8"))
+                sessions_info.append({
+                    "key": data.get("key", session_file.stem),
+                    "messages_count": len(data.get("messages", [])),
+                    "created_at": data.get("created_at"),
+                    "updated_at": data.get("updated_at"),
+                    "last_consolidated": data.get("last_consolidated", 0),
+                })
+            except Exception as e:
+                logger.warning(f"读取会话信息失败 {session_file}: {e}")
+        
+        return sessions_info

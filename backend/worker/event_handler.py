@@ -17,9 +17,9 @@ Worker 事件处理器模块
 
 import asyncio
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, Optional, Callable
 
 from utils.logger import get_logger, LogType
 

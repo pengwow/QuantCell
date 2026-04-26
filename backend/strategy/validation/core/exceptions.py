@@ -52,7 +52,6 @@ class ValidationSuiteError(ValidationError):
     验证套件错误
     """
 
-    pass
 
 
 class ValidatorNotFoundError(ValidationError):
@@ -60,7 +59,6 @@ class ValidatorNotFoundError(ValidationError):
     验证器未找到错误
     """
 
-    pass
 
 
 class DataFormatError(ValidationError):
@@ -68,4 +66,3 @@ class DataFormatError(ValidationError):
     数据格式错误
     """
 
-    pass

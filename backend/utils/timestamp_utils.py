@@ -327,17 +327,4 @@ def validate_nanoseconds(timestamp: Union[str, int],
         )
 
 
-# 向后兼容的别名 (已废弃，请使用新函数名)
-to_microseconds = to_nanoseconds
-from_microseconds = from_nanoseconds
-normalize_to_microseconds = normalize_to_nanoseconds
-microseconds_to_datetime = nanoseconds_to_datetime
-datetime_to_microseconds = datetime_to_nanoseconds
-format_microseconds = format_nanoseconds
-parse_to_microseconds = parse_to_nanoseconds
-milliseconds_to_microseconds = milliseconds_to_nanoseconds
-microseconds_to_milliseconds = nanoseconds_to_milliseconds
-batch_to_microseconds = batch_to_nanoseconds
-batch_normalize_to_microseconds = batch_normalize_to_nanoseconds
-is_valid_microseconds = is_valid_nanoseconds
-validate_microseconds = validate_nanoseconds
+

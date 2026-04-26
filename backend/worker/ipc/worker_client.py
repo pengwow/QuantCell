@@ -6,13 +6,13 @@ Worker进程使用的ZeroMQ客户端
 
 import zmq
 import zmq.asyncio
-from typing import Dict, Optional, Callable, Any, List, Set
+from typing import Optional, Callable, List, Set
 import asyncio
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from .protocol import Message, MessageType, serialize_message, deserialize_message
+from .protocol import Message, serialize_message, deserialize_message
 
 
 class WorkerCommClient:

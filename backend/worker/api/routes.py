@@ -6,11 +6,11 @@ Worker API路由定义
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, WebSocket
 from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
+from datetime import datetime
 
 from .. import schemas, crud, service
-from ..dependencies import get_db, get_current_user
+from ..dependencies import get_current_user
 from collector.db.database import get_db as get_db_session
 from utils.logger import get_logger, LogType
 

@@ -203,7 +203,6 @@ class StrategyCore(ABC):
         Returns:
             Dict[str, Any]: 计算得到的指标字典
         """
-        pass
 
     @abstractmethod
     def generate_signals(self, indicators: Dict[str, Any]) -> Dict[str, pd.Series]:
@@ -216,7 +215,6 @@ class StrategyCore(ABC):
         Returns:
             Dict[str, pd.Series]: 交易信号字典，包含entries和exits等信号
         """
-        pass
 
     def generate_stop_loss_take_profit(self, data: pd.DataFrame, signals: Dict[str, pd.Series], indicators: Dict[str, Any]) -> Dict[str, pd.Series]:
         """
@@ -449,7 +447,6 @@ class StrategyAdapter(ABC):
         Returns:
             Any: 回测结果
         """
-        pass
 
 
 class NativeVectorAdapter(StrategyAdapter):
