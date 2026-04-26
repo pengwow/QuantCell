@@ -4,7 +4,7 @@ Worker 状态机定义
 定义 Worker 进程的生命周期状态
 """
 
-from enum import Enum, auto
+from enum import Enum
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 from datetime import datetime

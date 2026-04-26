@@ -191,7 +191,6 @@ class BaseValidator(ABC):
         Returns:
             ValidationResult: 验证结果
         """
-        pass
 
     def calculate_difference(
         self, expected: Union[float, np.ndarray], actual: Union[float, np.ndarray]

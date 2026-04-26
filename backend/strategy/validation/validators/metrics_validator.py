@@ -4,7 +4,6 @@
 """
 
 from typing import Any, Dict, Optional
-import numpy as np
 
 from ..core.base import BaseValidator, ValidationResult, ValidationSeverity
 from ..core.registry import register_validator

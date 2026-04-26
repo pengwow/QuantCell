@@ -1,7 +1,7 @@
 # 商品列表工厂类，实现基于工厂模式的统一商品列表获取接口
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器
@@ -41,7 +41,6 @@ class ProductListFetcher(ABC):
                     "products": List[Dict[str, Any]]
                 }
         """
-        pass
 
 
 class BaseProductListFetcher(ProductListFetcher):

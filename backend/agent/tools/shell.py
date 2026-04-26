@@ -1,7 +1,6 @@
 """Shell 命令执行工具"""
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
 from .base import Tool

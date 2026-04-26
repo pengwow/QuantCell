@@ -1,5 +1,5 @@
 # 配置管理
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器

@@ -10,13 +10,9 @@
 
 import threading
 import logging
-from typing import Dict, List, Callable, Any, Optional, TypeVar, Generic, Set, Union
-from dataclasses import dataclass, field
+from typing import Dict, List, Any, Optional, TypeVar, Generic, Union
 from collections import deque
-import weakref
 import numpy as np
-from multiprocessing import shared_memory
-import struct
 
 logger = logging.getLogger(__name__)
 

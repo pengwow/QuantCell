@@ -7,7 +7,7 @@
 from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from collector.schemas import ApiResponse
 from collector.services.system_service import SystemService

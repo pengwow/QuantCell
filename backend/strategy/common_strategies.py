@@ -2,7 +2,6 @@
 # 包括 RSI、MACD、Bollinger Bands 等策略
 
 import pandas as pd
-import numpy as np
 from .core import StrategyCore
 
 

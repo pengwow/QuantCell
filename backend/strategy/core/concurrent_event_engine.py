@@ -16,7 +16,6 @@ from queue import Queue, Empty
 from typing import Dict, List, Callable, Any, Optional, Set
 from dataclasses import dataclass, field
 from enum import IntEnum
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 
 logger = logging.getLogger(__name__)

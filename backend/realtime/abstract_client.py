@@ -25,7 +25,6 @@ class AbstractExchangeClient(ABC):
         Returns:
             bool: 连接是否成功
         """
-        pass
     
     @abstractmethod
     async def disconnect(self) -> bool:
@@ -35,7 +34,6 @@ class AbstractExchangeClient(ABC):
         Returns:
             bool: 断开是否成功
         """
-        pass
     
     @abstractmethod
     async def subscribe(self, channels: List[str]) -> bool:
@@ -48,7 +46,6 @@ class AbstractExchangeClient(ABC):
         Returns:
             bool: 订阅是否成功
         """
-        pass
     
     @abstractmethod
     async def unsubscribe(self, channels: List[str]) -> bool:
@@ -61,7 +58,6 @@ class AbstractExchangeClient(ABC):
         Returns:
             bool: 取消订阅是否成功
         """
-        pass
     
     @abstractmethod
     async def receive_message(self) -> Optional[Dict[str, Any]]:
@@ -71,7 +67,6 @@ class AbstractExchangeClient(ABC):
         Returns:
             Optional[Dict[str, Any]]: 处理后的消息，None表示无消息或连接已关闭
         """
-        pass
     
     @abstractmethod
     def get_data_parser(self):
@@ -81,7 +76,6 @@ class AbstractExchangeClient(ABC):
         Returns:
             Any: 数据解析器实例
         """
-        pass
     
     @abstractmethod
     def get_available_channels(self) -> List[str]:
@@ -91,7 +85,6 @@ class AbstractExchangeClient(ABC):
         Returns:
             List[str]: 支持的频道列表
         """
-        pass
     
     @property
     @abstractmethod
@@ -102,7 +95,6 @@ class AbstractExchangeClient(ABC):
         Returns:
             str: 交易所名称
         """
-        pass
     
     @property
     def is_connected(self) -> bool:

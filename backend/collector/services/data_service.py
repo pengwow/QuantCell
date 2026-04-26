@@ -1,10 +1,6 @@
 # 数据服务类，处理数据相关的业务逻辑
-import os
-from pathlib import Path
 import json
-from datetime import datetime
-from math import log
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import pandas as pd
 from utils.logger import get_logger, LogType
@@ -16,13 +12,8 @@ from sqlalchemy.orm import Session
 # from ..data_loader import data_loader
 from settings.models import SystemConfigBusiness as SystemConfig
 from ..db import crud
-from ..schemas.data import (CalendarInfoResponse, DataInfoResponse,
-                            DataResponse, DownloadCryptoRequest,
-                            ExportCryptoRequest, ExportCryptoResponse,
-                            FeatureInfoResponse, InstrumentInfoResponse,
-                            LoadDataRequest, SymbolFeaturesResponse,
-                            TaskProgressResponse, TaskResponse,
-                            TaskStatusResponse)
+from ..schemas.data import (DownloadCryptoRequest, ExportCryptoRequest,
+                            LoadDataRequest)
 from ..scripts.export_data import ExportData
 from ..utils.task_manager import task_manager
 
@@ -1115,8 +1106,7 @@ class DataService:
                             data_dir = project_root / default_dir / interval
                     logger.info(f"数据目录: {data_dir}")
                     # 导入数据库相关模块
-                    from sqlalchemy import func, insert
-                    from sqlalchemy.orm import Session
+                    from sqlalchemy import func
 
                     from collector.db.database import (
                         SessionLocal, init_database_config)

@@ -18,7 +18,6 @@ logger.remove()
 logger.add(sys.stderr, level="INFO", format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")
 
 # 现在可以安全地导入其他模块
-from .runner import BacktestValidator, quick_validate
 
 
 def setup_logging(verbose: bool = False):

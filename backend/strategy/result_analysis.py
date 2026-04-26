@@ -2,7 +2,6 @@
 # 用于统一不同回测引擎的结果格式，进行比较和可视化
 
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 from typing import Dict, Any, Optional
 

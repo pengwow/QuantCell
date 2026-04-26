@@ -50,7 +50,6 @@ class MarketDataFetcher(ABC):
         Returns:
             List[Dict]: 市场数据列表
         """
-        pass
 
     @abstractmethod
     async def fetch_all_tickers(self) -> List[Dict[str, Any]]:
@@ -59,7 +58,6 @@ class MarketDataFetcher(ABC):
         Returns:
             List[Dict]: 市场数据列表
         """
-        pass
 
     def _get_proxy_config(self) -> Optional[Dict[str, str]]:
         """获取代理配置

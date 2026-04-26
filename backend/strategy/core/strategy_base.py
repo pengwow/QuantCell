@@ -2,11 +2,9 @@
 # 支持回测和实盘两种模式
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 from datetime import datetime, timedelta
-import numpy as np
-import pandas as pd
-from decimal import Decimal, getcontext, ROUND_DOWN, ROUND_UP, ROUND_HALF_UP
+from decimal import Decimal, getcontext, ROUND_DOWN, ROUND_HALF_UP
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器
@@ -86,7 +84,6 @@ class StrategyBase(ABC):
         """
         策略初始化回调
         """
-        pass
     
     @abstractmethod
     def on_bar(self, bar: Dict[str, Any]):
@@ -96,7 +93,6 @@ class StrategyBase(ABC):
         参数：
         - bar: K线数据字典，包含 Open, High, Low, Close, Volume 等
         """
-        pass
     
     def on_tick(self, tick: Dict[str, Any]):
         """
@@ -105,7 +101,6 @@ class StrategyBase(ABC):
         参数：
         - tick: Tick 数据字典
         """
-        pass
     
     def on_stop(self, bar: Dict[str, Any]):
         """
@@ -116,7 +111,6 @@ class StrategyBase(ABC):
         参数：
         - bar: 最后一根K线数据
         """
-        pass
     
     def on_order(self, order: Dict[str, Any]):
         """
@@ -125,7 +119,6 @@ class StrategyBase(ABC):
         参数：
         - order: 订单数据字典
         """
-        pass
     
     def on_trade(self, trade: Dict[str, Any]):
         """
@@ -134,7 +127,6 @@ class StrategyBase(ABC):
         参数：
         - trade: 交易数据字典
         """
-        pass
     
     def on_funding_rate(self, funding_rate: float, mark_price: float):
         """
@@ -144,7 +136,6 @@ class StrategyBase(ABC):
         - funding_rate: 资金费率
         - mark_price: 标记价格
         """
-        pass
     
     def buy(self, symbol: str, price: float, volume: float) -> str:
         """
@@ -313,7 +304,6 @@ class StrategyBase(ABC):
         - float: 可用资金
         """
         # 由子类实现
-        pass
     
     def get_portfolio_value(self) -> float:
         """

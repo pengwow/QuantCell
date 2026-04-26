@@ -30,7 +30,7 @@
 import json
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -41,7 +41,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from common.schemas import ApiResponse
 from utils.auth import jwt_auth_required
 
-from .prompts import PromptCategory, PromptManager
+from .prompts import PromptCategory
 from .config_utils import get_default_provider_and_models
 from .schemas_strategy import (
     CodeValidationRequest,
@@ -50,9 +50,7 @@ from .schemas_strategy import (
     StrategyGenerateFromTemplateRequest,
     StrategyGenerateRequest,
     StrategyGenerateResponse,
-    StrategyHistoryCreate,
     StrategyHistoryResponse,
-    StrategyHistoryUpdate,
     StrategyTemplateResponse,
     StrategyValidateRequest,
     StrategyValidateResponse,
@@ -68,8 +66,6 @@ from .strategy_generator import (
 from .thinking_chain import ThinkingChainManager
 from .thinking_chain_schemas import (
     ThinkingChainCreate,
-    ThinkingChainListResponse,
-    ThinkingChainResponse,
     ThinkingChainUpdate,
 )
 

@@ -7,12 +7,11 @@ Worker业务服务层
 import asyncio
 import uuid
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlalchemy.orm import Session
 
 from . import schemas, crud
 from .ipc import CommManager, Message, MessageType
-from .models import Worker
 
 # 超时配置常量
 INITIALIZE_TIMEOUT = 10.0  # 初始化超时时间（秒）

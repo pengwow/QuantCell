@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 import uuid
 import pandas as pd
-import numpy as np
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器
@@ -15,9 +14,7 @@ from .strategy_base import (
     StrategyBase,
     BacktestStrategyBase,
     LiveStrategyBase,
-    Order,
-    Position,
-    StrategySignal
+    Order
 )
 
 
@@ -81,14 +78,12 @@ class ExecutionEngine(ABC):
         """
         执行前的准备工作
         """
-        pass
     
     @abstractmethod
     def execute(self):
         """
         执行策略的核心逻辑
         """
-        pass
     
     def stop(self):
         """
@@ -104,7 +99,6 @@ class ExecutionEngine(ABC):
         """
         执行后的清理工作
         """
-        pass
     
     def get_status(self) -> Dict[str, Any]:
         """
@@ -209,7 +203,6 @@ class BacktestExecutionEngine(ExecutionEngine):
         """
         # TODO: 实现绩效指标计算
         # 包括收益率、夏普比率、最大回撤、胜率、盈亏比等
-        pass
     
     def on_stop(self):
         """

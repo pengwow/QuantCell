@@ -3,7 +3,7 @@
 用于验证回测结果中的持仓变化准确性
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union
 import numpy as np
 import pandas as pd
 

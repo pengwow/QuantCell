@@ -135,65 +135,26 @@ def check_permission(user_role: UserRole, required_permission: Permission) -> bo
     return required_permission in user_permissions
 
 
-def require_permission(permission: Permission):
-    """权限检查装饰器
-
-    用于保护需要特定权限的API接口
+def is_guest_user(request: Request) -> bool:
+    """检查当前用户是否为访客
 
     Args:
-        permission: 需要的权限
+        request: FastAPI请求对象
 
     Returns:
-        decorator: 装饰器函数
+        bool: 是否为访客
     """
-    def decorator(func):
-        @wraps(func)
-        async def wrapper(request: Request, *args, **kwargs):
-            # 从请求头中提取token
-            auth_header = request.headers.get("Authorization", "")
+    auth_header = request.headers.get("Authorization", "")
 
-            if not auth_header:
-                raise HTTPException(
-                    status_code=401,
-                    detail={"code": 401, "message": "未提供认证令牌", "data": None}
-                )
+    if not auth_header:
+        return True  # 无token视为访客
 
-            # 提取token
-            try:
-                token = auth_header.split(" ")[1]
-            except IndexError:
-                raise HTTPException(
-                    status_code=401,
-                    detail={"code": 401, "message": "无效的认证令牌格式", "data": None}
-                )
-
-            # 获取用户角色
-            user_role = get_user_role_from_token(token)
-
-            # 检查权限
-            if not check_permission(user_role, permission):
-                logger.warning(f"权限不足: 角色={user_role.value}, 需要权限={permission.value}")
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "code": 403,
-                        "message": "权限不足",
-                        "data": {
-                            "required_permission": permission.value,
-                            "current_role": user_role.value,
-                            "is_guest": user_role == UserRole.GUEST
-                        }
-                    }
-                )
-
-            # 记录访问日志
-            logger.info(f"权限检查通过: 角色={user_role.value}, 权限={permission.value}")
-
-            # 调用原始函数
-            return await func(request, *args, **kwargs)
-
-        return wrapper
-    return decorator
+    try:
+        token = auth_header.split(" ")[1]
+        user_role = get_user_role_from_token(token)
+        return user_role == UserRole.GUEST
+    except (IndexError, JWTError):
+        return True  # token无效视为访客
 
 
 def require_permission_sync(permission: Permission):
@@ -255,28 +216,6 @@ def require_permission_sync(permission: Permission):
     return decorator
 
 
-def is_guest_user(request: Request) -> bool:
-    """检查当前用户是否为访客
-
-    Args:
-        request: FastAPI请求对象
-
-    Returns:
-        bool: 是否为访客
-    """
-    auth_header = request.headers.get("Authorization", "")
-
-    if not auth_header:
-        return True  # 无token视为访客
-
-    try:
-        token = auth_header.split(" ")[1]
-        user_role = get_user_role_from_token(token)
-        return user_role == UserRole.GUEST
-    except (IndexError, JWTError):
-        return True  # token无效视为访客
-
-
 def get_current_user_info(request: Request) -> Dict:
     """获取当前用户信息
 
@@ -303,3 +242,4 @@ def get_current_user_info(request: Request) -> Dict:
         }
     except (IndexError, JWTError):
         return {"role": UserRole.GUEST.value, "is_guest": True}
+

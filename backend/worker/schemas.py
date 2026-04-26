@@ -5,7 +5,7 @@ Worker API数据模型定义
 """
 
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 
 

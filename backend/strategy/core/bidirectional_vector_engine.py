@@ -5,7 +5,7 @@
 """
 
 import numpy as np
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 from utils.logger import get_logger, LogType

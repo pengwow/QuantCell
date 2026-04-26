@@ -2,7 +2,6 @@
 # 对比 Numba、Cython 和 Python 实现的性能
 
 import numpy as np
-import pandas as pd
 import time
 from typing import Dict, Any
 from utils.logger import get_logger, LogType

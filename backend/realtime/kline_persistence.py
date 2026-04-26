@@ -5,8 +5,7 @@ K线数据持久化模块
 当收到完结的K线数据(is_final=True)时，自动保存到数据库
 """
 
-from typing import Dict, Any, Optional
-from datetime import datetime
+from typing import Dict, Any
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器

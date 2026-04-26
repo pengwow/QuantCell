@@ -2,8 +2,8 @@
 
 提供货币对列表和市场行情数据的API接口
 """
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from collector.services.market_data_service import market_data_service

@@ -12,7 +12,7 @@ import threading
 import time
 import logging
 from typing import Dict, List, Callable, Any, Optional, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import IntEnum
 from queue import Queue, Empty
 from collections import deque

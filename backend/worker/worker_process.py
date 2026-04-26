@@ -9,8 +9,7 @@ import asyncio
 import signal
 import os
 import logging
-from typing import Dict, Any, Optional, Callable, List
-from datetime import datetime
+from typing import Dict, Any, Optional
 from decimal import Decimal
 from utils.logger import get_logger, LogType
 
@@ -239,7 +238,6 @@ class WorkerProcess(multiprocessing.Process):
         优先从数据库加载策略代码，如果数据库中没有则从文件系统加载。
         """
         try:
-            import importlib.util
             import sys
             import types
 

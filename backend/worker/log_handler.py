@@ -5,19 +5,15 @@ Worker 日志处理器
 """
 
 import logging
-import asyncio
-from typing import Optional, Dict, Any
-from datetime import datetime
+from typing import Optional
 from queue import Queue, Empty
 import threading
 import time
-import sys
 import zmq
 
-from .ipc.protocol import Message, MessageType, serialize_message
+from .ipc.protocol import Message, serialize_message
 
 # 尝试导入 loguru
-from loguru import logger as loguru_logger
 
 
 class WorkerLogHandler(logging.Handler):

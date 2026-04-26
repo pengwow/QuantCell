@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 
 from fastapi import APIRouter, Query, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from collector.db.models import SystemLogBusiness
 from utils.logger import get_logger, LogType

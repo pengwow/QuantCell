@@ -7,12 +7,12 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from utils.logger import get_logger, LogType
 
 from .context import ContextBuilder
-from .memory import MemoryStore
+from .memory import MemoryStore, Consolidator, AutoCompact, Dream
 from ..session.manager import Session, SessionManager
 from ..tools.registry import ToolRegistry
 
@@ -45,8 +45,8 @@ class AgentLoop:
         temperature: float = 0.1,
         max_tokens: int = 4096,
         memory_window: int = 100,
-        max_history: int = 200,
         reasoning_effort: str | None = None,
+        context_window_tokens: int = 128000,  # 默认上下文窗口（可根据模型调整）
     ):
         self.provider = provider
         self.workspace = workspace
@@ -55,12 +55,35 @@ class AgentLoop:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.memory_window = memory_window
-        self.max_history = max_history
         self.reasoning_effort = reasoning_effort
+        self.context_window_tokens = context_window_tokens
 
         self.context = ContextBuilder(workspace)
         self.sessions = SessionManager(workspace)
         self.tools = ToolRegistry()
+
+        # 初始化记忆管理系统
+        self.memory_store = MemoryStore(workspace)
+        self.consolidator = Consolidator(
+            store=self.memory_store,
+            provider=provider,
+            model=self.model,
+            sessions=self.sessions,
+            context_window_tokens=context_window_tokens,
+            build_messages=self.context.build_messages,
+            get_tool_definitions=lambda: self.tools.get_definitions(),
+            max_completion_tokens=max_tokens,
+        )
+        self.auto_compact = AutoCompact(
+            sessions=self.sessions,
+            consolidator=self.consolidator,
+            session_ttl_minutes=60,  # 1小时过期
+        )
+        self.dream = Dream(
+            store=self.memory_store,
+            provider=provider,
+            model=self.model,
+        )
 
         self._running = False
         self._consolidating: set[str] = set()
@@ -444,10 +467,7 @@ class AgentLoop:
             async def _consolidate_and_unlock():
                 try:
                     async with self._consolidation_locks[session_key]:
-                        await MemoryStore(self.workspace).consolidate(
-                            session, self.provider, self.model,
-                            memory_window=self.memory_window,
-                        )
+                        await self.consolidator.maybe_consolidate_by_tokens(session)
                 finally:
                     self._consolidating.discard(session_key)
 
@@ -513,12 +533,6 @@ class AgentLoop:
             entry.setdefault("timestamp", datetime.now().isoformat())
             session.messages.append(entry)
 
-        # 限制最大历史条数，防止无限增长
-        if len(session.messages) > self.max_history:
-            removed = len(session.messages) - self.max_history
-            session.messages = session.messages[-self.max_history:]
-            logger.info(f"历史消息超出限制({self.max_history})，移除了 {removed} 条旧消息")
-
         session.updated_at = datetime.now()
 
     async def process_message_stream(
@@ -564,10 +578,7 @@ class AgentLoop:
             async def _consolidate_and_unlock():
                 try:
                     async with self._consolidation_locks[session_key]:
-                        await MemoryStore(self.workspace).consolidate(
-                            session, self.provider, self.model,
-                            memory_window=self.memory_window,
-                        )
+                        await self.consolidator.maybe_consolidate_by_tokens(session)
                 finally:
                     self._consolidating.discard(session_key)
 
