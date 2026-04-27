@@ -62,6 +62,11 @@ def _import_all_models():
     except ImportError:
         pass
 
+    try:
+        from indicators import models as indicators_models  # noqa: F401
+    except ImportError:
+        pass
+
 # 初始化数据库配置
 
 

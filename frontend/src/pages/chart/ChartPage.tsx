@@ -198,6 +198,74 @@ const ChartPage = () => {
       registerOverlay(overlay);
     });
 
+    // 注册信号标注overlay（一次性注册）
+    try {
+      registerOverlay({
+        name: 'signalTag',
+        totalStep: 2,
+        lock: true,
+        needDefaultPointFigure: true,
+        needDefaultXAxisFigure: true,
+        needDefaultYAxisFigure: true,
+        createPointFigures: ({ coordinates }: any) => {
+          const { extendData = {} } = coordinates[1] || {};
+          const text = extendData.text || '';
+          const color = extendData.color || '#1890ff';
+          const side = extendData.side || 'buy';
+          
+          return [
+            {
+              title: text,
+              type: 'rect',
+              attrs: {
+                x: (coordinates[0].x ?? 0) - 18,
+                y: (coordinates[0].y ?? 0) - (side === 'buy' ? 22 : 2),
+                width: 36,
+                height: 20,
+                fill: color,
+                borderRadius: 3,
+              },
+            },
+            {
+              type: 'text',
+              attrs: {
+                x: coordinates[0].x ?? 0,
+                y: (coordinates[0].y ?? 0) + (side === 'buy' ? -10 : 14),
+                text: String(text),
+                fill: '#FFFFFF',
+                fontSize: 11,
+                textAlign: 'center',
+                textBaseline: 'middle',
+              },
+            },
+            {
+              type: 'circle',
+              attrs: {
+                x: coordinates[0].x ?? 0,
+                y: coordinates[0].y ?? 0,
+                r: 4,
+                fill: color,
+              },
+            },
+            {
+              type: 'line',
+              attrs: {
+                x1: coordinates[0].x ?? 0,
+                y1: coordinates[0].y ?? 0,
+                x2: coordinates[1]?.x ?? coordinates[0].x ?? 0,
+                y2: coordinates[1]?.y ?? coordinates[0].y ?? 0,
+                stroke: color,
+                strokeWidth: 1,
+                size: 1,
+              },
+            },
+          ];
+        },
+      });
+    } catch (e) {
+      console.warn('[Chart] 注册signalTag overlay失败:', e);
+    }
+
     if (chartRef.current && !chartInstanceRef.current) {
       const chart = init('language-k-line', {
         locale: 'zh-CN',
@@ -421,31 +489,127 @@ const ChartPage = () => {
     saveUserPreferences(symbol.code, currentPeriod);
   };
 
-  // 注册自定义指标到KLineCharts
-  const registerCustomIndicator = (indicator: Indicator, data: any) => {
-    const indicatorName = `custom_${indicator.id}`;
+  // 默认指标颜色序列
+const DEFAULT_PLOT_COLORS = [
+    '#1890ff', '#f5222d', '#52c41a', '#faad14', '#722ed1',
+    '#13c2c2', '#eb2f96', '#fa8c16', '#a0d911', '#2f54eb',
+  ];
 
-    registerIndicator({
-      name: indicatorName,
-      shortName: indicator.name,
-      calc: (kLineDataList: any[]) => {
-        return kLineDataList.map((kLine) => {
-          const indicatorData = data?.find((d: any) => d.timestamp === kLine.timestamp);
-          return {
-            ...kLine,
-            [indicatorName]: indicatorData?.value || null
-          };
-        });
-      },
-      figures: [
-        {
-          key: indicatorName,
-          type: 'line'
-        }
-      ]
-    });
+  // 安全的figure key（避免klinecharts特殊字符）
+  const sanitizeFigureKey = (name: string): string => {
+      return name.replace(/[^a-zA-Z0-9_]/g, '_').substring(0, 30);
+  };
 
-    return indicatorName;
+  // 注册自定义指标到KLineCharts（支持多plots + 多figures）
+  const registerCustomIndicator = (indicator: Indicator, executeResult: any): string | null => {
+      if (!executeResult || !executeResult.plots || !Array.isArray(executeResult.plots)) {
+          console.error('[Indicator] 无效的执行结果格式');
+          return null;
+      }
+
+      const indicatorName = `custom_${indicator.id}`;
+      const plots = executeResult.plots;
+
+      if (plots.length === 0) {
+          console.warn('[Indicator] 指标无plots数据，跳过注册');
+          return null;
+      }
+
+      // 构建plot数据映射：{ figureKey -> number[] }
+      const plotDataMap: Record<string, (number | null)[]> = {};
+      plots.forEach((plot: any, idx: number) => {
+          const key = sanitizeFigureKey(plot.name || `plot_${idx}`);
+          plotDataMap[key] = plot.data || [];
+      });
+
+      // 构建figures配置
+      const figures = plots.map((plot: any, idx: number) => ({
+          key: sanitizeFigureKey(plot.name || `plot_${idx}`),
+          title: plot.name || `Plot${idx + 1}`,
+          type: plot.type || 'line' as const,
+          color: plot.color || DEFAULT_PLOT_COLORS[idx % DEFAULT_PLOT_COLORS.length],
+      }));
+
+      try {
+              registerIndicator({
+                  name: indicatorName,
+                  shortName: indicator.name || 'Custom',
+                  calc: (kLineDataList: any[]) => {
+                      return kLineDataList.map((_kLine, i) => {
+                          const point: Record<string, any> = {};
+                          for (const figKey in plotDataMap) {
+                              const dataArray = plotDataMap[figKey];
+                              point[figKey] = i < dataArray.length ? dataArray[i] : null;
+                          }
+                          return point;
+                      });
+                  },
+                  figures,
+              });
+
+              // 渲染信号overlay
+              if (executeResult.signals && Array.isArray(executeResult.signals) && chartInstanceRef.current) {
+                  renderSignalOverlays(executeResult.signals, klineDataRef.current);
+              }
+
+              return indicatorName;
+          } catch (err) {
+              console.error('[Indicator] 注册失败:', err);
+              return null;
+          }
+  };
+
+  // 解析信号数据为overlay点位
+  const parseSignalData = (signal: any, klineData: any[]): any[] => {
+      const points: any[] = [];
+      if (!signal.data || !Array.isArray(signal.data)) return points;
+
+      const isBuy = signal.type === 'buy';
+      for (let i = 0; i < Math.min(signal.data.length, klineData.length); i++) {
+          const val = signal.data[i];
+          if (val === null || val === undefined || isNaN(val)) continue;
+
+          const bar = klineData[i];
+          if (!bar) continue;
+
+          points.push({
+              timestamp: bar.timestamp,
+              price: val,
+              anchorPrice: isBuy ? bar.low : bar.high,
+              side: isBuy ? 'buy' : 'sell',
+              color: signal.color || (isBuy ? '#00E676' : '#FF5252'),
+              text: signal.text || (isBuy ? 'B' : 'S'),
+          });
+      }
+      return points;
+  };
+
+  // 渲染信号overlay到图表上
+  const renderSignalOverlays = (signals: any[], klineData: any[]) => {
+      if (!chartInstanceRef.current) return;
+
+      signals.forEach((signal) => {
+          const points = parseSignalData(signal, klineData);
+          points.forEach((point) => {
+              try {
+                  chartInstanceRef.current?.createOverlay({
+                      name: 'signalTag',
+                      points: [
+                          { timestamp: point.timestamp, value: point.price },
+                          { timestamp: point.timestamp, value: point.anchorPrice },
+                      ],
+                      extendData: {
+                          text: point.text,
+                          color: point.color,
+                          side: point.side,
+                      },
+                      lock: true,
+                  });
+              } catch (e) {
+                  console.warn('[Signal] 创建overlay失败:', e);
+              }
+          });
+      });
   };
 
   // 切换指标
@@ -490,7 +654,9 @@ const ChartPage = () => {
 
           if (result.success && result.data) {
             const customIndicatorName = registerCustomIndicator(indicator, result.data);
-            chartInstanceRef.current.createIndicator(customIndicatorName, true);
+            if (customIndicatorName) {
+              chartInstanceRef.current.createIndicator(customIndicatorName, true);
+            }
           } else {
             console.error('获取指标数据失败:', result.message);
           }
