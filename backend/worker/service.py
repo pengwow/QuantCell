@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from . import schemas, crud
 from .ipc import CommManager, Message, MessageType
+from .log_file_reader import get_log_file_manager
 
 # 超时配置常量
 INITIALIZE_TIMEOUT = 10.0  # 初始化超时时间（秒）

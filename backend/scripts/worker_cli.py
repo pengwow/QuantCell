@@ -758,9 +758,15 @@ def logs(
     worker_id: Annotated[int, typer.Argument(help="Worker ID")],
     level: Annotated[Optional[str], typer.Option("--level", "-l", help="日志级别筛选")] = None,
     lines: Annotated[int, typer.Option("--lines", "-n", help="显示行数")] = 50,
+    offset: Annotated[int, typer.Option("--offset", "-o", help="偏移量（分页）")] = 0,
+    keyword: Annotated[Optional[str], typer.Option("--keyword", "-k", help="关键词搜索")] = None,
+    start_time: Annotated[Optional[str], typer.Option("--start", help="开始时间 (ISO 8601)")] = None,
+    end_time: Annotated[Optional[str], typer.Option("--end", help="结束时间 (ISO 8601)")] = None,
     clear: Annotated[bool, typer.Option("--clear", "-c", help="清理日志")] = False,
     before_days: Annotated[Optional[int], typer.Option("--before-days", help="清理多少天前的日志")] = None,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="确认清理，不提示")] = False,
+    show_path: Annotated[bool, typer.Option("--show-path", help="显示日志文件路径")] = False,
+    stats: Annotated[bool, typer.Option("--stats", "-s", help="显示日志统计信息")] = False,
 ):
     """
     查看或清理 Worker 日志
@@ -768,10 +774,42 @@ def logs(
     示例:
       python worker_cli.py logs 1                    # 查看日志
       python worker_cli.py logs 1 --level ERROR --lines 100
+      python worker_cli.py logs 1 --keyword timeout     # 搜索关键词
       python worker_cli.py logs 1 --clear            # 清理所有日志
       python worker_cli.py logs 1 --clear --before-days 7  # 清理7天前的日志
+      python worker_cli.py logs 1 --show-path         # 显示日志文件路径
+      python worker_cli.py logs 1 --stats             # 显示统计信息
     """
+    from pathlib import Path
+
     try:
+        # 显示日志文件路径
+        if show_path:
+            script_dir = Path(__file__).parent
+            log_dir = script_dir.parent / "logs"
+            log_file = log_dir / f"worker_{worker_id}.log"
+            typer.echo(f"日志文件路径: {log_file.absolute()}")
+            if log_file.exists():
+                size = log_file.stat().st_size
+                typer.echo(f"文件大小: {size / 1024:.2f} KB")
+                mtime = datetime.fromtimestamp(log_file.stat().st_mtime)
+                typer.echo(f"最后修改: {mtime.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                typer.echo("文件尚未创建（Worker 可能未启动或无日志输出）")
+            return
+
+        # 显示日志统计信息
+        if stats:
+            stats_result = _make_request("GET", f"{worker_id}/monitoring/logs/stats")
+            typer.echo(f"\nWorker {worker_id} 日志统计:")
+            typer.echo(f"{'='*50}")
+            typer.echo(f"总文件数: {len(stats_result.get('files', []))}")
+            typer.echo(f"总大小: {stats_result.get('total_size_human', '0 B')}")
+            typer.echo(f"总行数: {stats_result.get('total_lines', 0)}")
+            for fi in stats_result.get('files', []):
+                typer.echo(f"  - {Path(fi['path']).name}: {fi['size_human']} ({fi['lines']} 行)")
+            return
+
         # 清理日志模式
         if clear:
             if not yes:
@@ -783,31 +821,45 @@ def logs(
                     typer.echo("已取消")
                     raise typer.Exit(0)
 
-            params = {}
+            params = {"confirm": True}
             if before_days:
                 params["before_days"] = before_days
 
             result = _make_request("DELETE", f"{worker_id}/monitoring/logs", params=params)
             deleted_count = result.get("deleted_count", 0)
-            typer.echo(f"✓ 已清理 {deleted_count} 条日志")
+            typer.echo(f"✓ 已清理 {deleted_count} 个日志文件")
             return
 
         # 查看日志模式
-        params = {"limit": lines}
+        params = {
+            "limit": lines,
+            "offset": offset,
+        }
         if level:
             params["level"] = level
+        if keyword:
+            params["keyword"] = keyword
+        if start_time:
+            params["start_time"] = start_time
+        if end_time:
+            params["end_time"] = end_time
 
-        logs = _make_request("GET", f"{worker_id}/monitoring/logs", params=params)
+        result = _make_request("GET", f"{worker_id}/monitoring/logs", params=params)
 
-        # 确保 logs 是列表
-        if not hasattr(logs, '__iter__') or isinstance(logs, str):
-            logs = []
+        # 适配新的分页响应格式（文件存储方案）
+        if isinstance(result, dict) and "items" in result:
+            logs = result.get("items", [])
+            total = result.get("total", 0)
+        else:
+            # 兼容旧格式（直接返回列表）
+            logs = result if isinstance(result, list) else []
+            total = len(logs)
 
         if not logs:
             typer.echo("暂无日志")
             return
 
-        typer.echo(f"显示 {len(logs)} 条日志:\n")
+        typer.echo(f"显示 {len(logs)} / {total} 条日志:\n")
         for log in logs:
             timestamp = log.get("timestamp", "N/A")
             if timestamp != "N/A":
@@ -826,9 +878,12 @@ def logs(
                 "CRITICAL": typer.colors.RED,
             }.get(log_level, typer.colors.WHITE)
 
+            source = log.get("source", "")
+            source_str = f"[{source}] " if source else ""
+
             typer.echo(f"[{timestamp}] ", nl=False)
             typer.secho(f"{log_level:<8}", fg=level_color, nl=False)
-            typer.echo(f" {log.get('message', '')}")
+            typer.echo(f" {source_str}{log.get('message', '')}")
 
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
@@ -1213,12 +1268,17 @@ def diagnose(
             # 6. 检查日志
             typer.echo(f"\n[6/6] 检查 Worker {worker_id} 日志...")
             try:
-                logs = _make_request("GET", f"{worker_id}/monitoring/logs", params={"limit": 5})
+                result = _make_request("GET", f"{worker_id}/monitoring/logs", params={"limit": 5})
+                # 适配新的分页响应格式（文件存储方案）
+                if isinstance(result, dict) and "items" in result:
+                    logs = result.get("items", [])
+                else:
+                    logs = result if isinstance(result, list) else []
                 if logs and len(logs) > 0:
                     typer.secho(f"  ✓ 发现 {len(logs)} 条日志", fg=typer.colors.GREEN)
                 else:
                     typer.secho("  ⚠ 暂无日志", fg=typer.colors.YELLOW)
-                    typer.echo("    原因: Worker 进程可能未真正运行或日志未配置")
+                    typer.echo("    原因: Worker 进程可能未真正运行或日志文件不存在")
             except Exception as e:
                 typer.secho(f"  ✗ 日志接口调用失败: {e}", fg=typer.colors.RED)
 
@@ -1321,6 +1381,114 @@ def diagnose(
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
+
+
+@app.command()
+def tail(
+    worker_id: Annotated[int, typer.Argument(help="Worker ID")],
+    lines: Annotated[int, typer.Option("--lines", "-n", help="初始显示行数")] = 20,
+    level: Annotated[Optional[str], typer.Option("--level", "-l", help="日志级别筛选")] = None,
+):
+    """
+    实时跟踪 Worker 日志（类似 tail -f）
+
+    通过 WebSocket 连接实时接收日志更新。
+    按 Ctrl+C 停止监控。
+
+    示例:
+      python worker_cli.py tail 1                    # 实时跟踪
+      python worker_cli.py tail 1 --lines 50         # 显示前50行再跟踪
+      python worker_cli.py tail 1 --level ERROR      # 只跟踪错误日志
+    """
+    try:
+        import websocket
+
+        ws_url = f"ws://localhost:8000/api/workers/{worker_id}/monitoring/logs/stream"
+
+        typer.echo(f"🔍 开始实时跟踪 Worker {worker_id} 日志...")
+        typer.echo("按 Ctrl+C 停止监控\n")
+
+        # 显示历史日志
+        if lines > 0:
+            params = {"limit": lines}
+            if level:
+                params["level"] = level
+
+            result = _make_request("GET", f"{worker_id}/monitoring/logs", params=params)
+            history = result.get("items", []) if isinstance(result, dict) else (result or [])
+
+            for log in history:
+                _print_log_entry(log)
+
+            if history:
+                typer.echo("--- 以上为历史日志，以下是实时更新 ---\n")
+
+        # WebSocket 实时接收
+        def on_message(ws, message):
+            import json as _json
+            data = _json.loads(message)
+            msg_type = data.get("type")
+
+            if msg_type == "log":
+                log = data.get("data", {})
+                if not level or log.get("level") == level.upper():
+                    _print_log_entry(log)
+            elif msg_type == "error":
+                typer.secho(f"❌ 错误: {data.get('message')}", fg=typer.colors.RED)
+
+        def on_error(ws, error):
+            typer.secho(f"⚠ WebSocket 错误: {error}", fg=typer.colors.RED)
+
+        def on_close(ws, close_status_code, close_msg):
+            typer.echo("\n✓ 连接已关闭")
+
+        ws = websocket.WebSocketApp(
+            ws_url,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close
+        )
+
+        try:
+            ws.run_forever()
+        except KeyboardInterrupt:
+            ws.close()
+            typer.echo("\n✓ 监控已停止")
+
+    except ImportError:
+        typer.echo("❌ 需要安装 websocket-client:", err=True)
+        typer.echo("   pip install websocket-client", err=True)
+        raise typer.Exit(1)
+    except Exception as e:
+        typer.echo(f"❌ 错误: {e}", err=True)
+        raise typer.Exit(1)
+
+
+def _print_log_entry(log: dict):
+    """打印单条日志条目（统一格式）"""
+    timestamp = log.get("timestamp", "N/A")
+    if timestamp != "N/A":
+        try:
+            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            timestamp = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        except Exception:
+            pass
+
+    log_level = log.get("level", "INFO")
+    level_color = {
+        "DEBUG": typer.colors.WHITE,
+        "INFO": typer.colors.GREEN,
+        "WARNING": typer.colors.YELLOW,
+        "ERROR": typer.colors.RED,
+        "CRITICAL": typer.colors.RED,
+    }.get(log_level, typer.colors.WHITE)
+
+    source = log.get("source", "")
+    source_str = f"[{source}] " if source else ""
+
+    typer.echo(f"[{timestamp}] ", nl=False)
+    typer.secho(f"{log_level:<8}", fg=level_color, nl=False)
+    typer.echo(f" {source_str}{log.get('message', '')}")
 
 
 if __name__ == "__main__":
