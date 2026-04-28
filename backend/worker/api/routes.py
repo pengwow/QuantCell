@@ -583,7 +583,7 @@ async def get_worker_logs(
     - 无数据库压力
     """
     try:
-        from .service import get_log_file_manager
+        from ..service import get_log_file_manager
 
         # 使用 LogFileReader 查询日志
         log_mgr = get_log_file_manager()
@@ -630,7 +630,7 @@ async def clear_worker_logs(
     - 记录操作审计日志
     """
     try:
-        from .service import get_log_file_manager
+        from ..service import get_log_file_manager
 
         # 安全检查：如果清理全部日志，需要明确确认
         if before_days is None and not confirm:
