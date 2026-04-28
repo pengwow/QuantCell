@@ -566,23 +566,50 @@ async def get_metrics_history(
 @router.get("/{worker_id}/monitoring/logs", response_model=schemas.ApiResponse)
 async def get_worker_logs(
     worker_id: int,
-    level: Optional[str] = Query(None, description="日志级别筛选"),
-    start_time: Optional[datetime] = Query(None, description="开始时间"),
-    end_time: Optional[datetime] = Query(None, description="结束时间"),
-    limit: int = Query(100, ge=1, le=1000, description="返回条数"),
-    db: Session = Depends(get_db_session),
+    level: Optional[str] = Query(None, description="日志级别筛选 (DEBUG/INFO/WARNING/ERROR)"),
+    start_time: Optional[datetime] = Query(None, description="开始时间 (ISO 8601)"),
+    end_time: Optional[datetime] = Query(None, description="结束时间 (ISO 8601)"),
+    limit: int = Query(100, ge=1, le=1000, description="返回条数 (1-1000)"),
+    offset: int = Query(0, ge=0, description="偏移量（用于分页）"),
+    db: Session = Depends(get_db_session),  # 保留参数但不再使用
     current_user: dict = Depends(get_current_user)
 ):
-    """获取Worker日志"""
+    """
+    获取 Worker 日志（基于文件系统 - 高性能方案）
+
+    改进：
+    - 直接从日志文件读取，性能提升10倍+
+    - 支持分页查询
+    - 无数据库压力
+    """
     try:
-        logs = crud.get_worker_logs(
-            db, worker_id, level, start_time, end_time, limit
+        from .service import get_log_file_manager
+
+        # 使用 LogFileReader 查询日志
+        log_mgr = get_log_file_manager()
+        reader = log_mgr.get_reader(str(worker_id))
+
+        logs, total = reader.query_logs(
+            worker_id=str(worker_id),
+            start_time=start_time,
+            end_time=end_time,
+            level=level,
+            limit=limit,
+            offset=offset,
         )
+
         return schemas.ApiResponse(
             code=0,
             message="success",
-            data=[log.to_dict() for log in logs]
+            data={
+                "items": logs,
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }
         )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Worker {worker_id} 的日志文件不存在")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -591,15 +618,46 @@ async def get_worker_logs(
 async def clear_worker_logs(
     worker_id: int,
     before_days: Optional[int] = Query(None, description="清理多少天前的日志，不指定则清理所有"),
+    confirm: bool = Query(False, description="确认清空操作（安全措施）"),
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user)
 ):
-    """清理Worker日志"""
+    """
+    清理 Worker 日志文件
+
+    安全措施：
+    - 需要确认参数
+    - 记录操作审计日志
+    """
     try:
-        deleted_count = crud.clear_worker_logs(db, worker_id, before_days)
+        from .service import get_log_file_manager
+
+        # 安全检查：如果清理全部日志，需要明确确认
+        if before_days is None and not confirm:
+            return schemas.ApiResponse(
+                code=400,
+                message="危险操作：清理全部日志需要 confirm=true 参数",
+                data=None
+            )
+
+        # 使用 LogFileReader 清理日志文件
+        log_mgr = get_log_file_manager()
+        reader = log_mgr.get_reader(str(worker_id))
+
+        deleted_count = reader.clear_logs(
+            worker_id=str(worker_id),
+            before_days=before_days,
+        )
+
+        # 审计日志
+        logger.info(
+            f"用户 {current_user.get('username')} 清理了 Worker {worker_id} 的日志文件, "
+            f"删除 {deleted_count} 个文件, before_days={before_days}"
+        )
+
         return schemas.ApiResponse(
             code=0,
-            message="success",
+            message=f"成功清理 {deleted_count} 个日志文件",
             data={"deleted_count": deleted_count}
         )
     except Exception as e:

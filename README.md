@@ -1,6 +1,6 @@
 # QuantCell - 量化交易系统
 
-![QuantCell Logo](frontend/public/logo.svg)
+demo地址:[https://demo.quantcell.top/](https://demo.quantcell.top/chart)
 
 ## 项目简介
 
@@ -238,7 +238,7 @@ backtest_config = {
 ## 联系方式
 
 - 项目维护者：QuantCell Team
-- 邮箱：[pengwow@hotmail.com](mailto:pengwow@hotmail.com)
+- 邮箱：<pengwow@hotmail.com>
 - 网站：[https://quantcell.top](https://quantcell.io)
 
 ***
