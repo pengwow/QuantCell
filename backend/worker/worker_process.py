@@ -17,7 +17,9 @@ from utils.logger import get_logger, LogType
 logger = get_logger(__name__, LogType.APPLICATION)
 from .ipc import WorkerCommClient, Message, MessageType
 from .state import WorkerState, WorkerStatus
-from .log_handler import WorkerLogHandler, WorkerLoguruInterceptor
+
+# 统一文件日志器（替代旧的 ZMQ 日志传输方案）
+from .unified_file_logger import create_unified_logger
 
 
 class WorkerProcess(multiprocessing.Process):
@@ -65,8 +67,8 @@ class WorkerProcess(multiprocessing.Process):
         self._messages_processed = 0
         self._orders_placed = 0
 
-        # 日志处理器
-        self._log_handler: Optional[WorkerLogHandler] = None
+        # 统一日志器（纯文件存储方案）
+        self._unified_logger: Optional[Any] = None
 
     def run(self):
         """
@@ -196,39 +198,27 @@ class WorkerProcess(multiprocessing.Process):
         logger.info(f"Worker {self.worker_id} 通信连接已建立")
 
     def _init_log_handler(self):
-        """初始化日志处理器"""
+        """初始化统一文件日志器（替代旧的 ZMQ 日志处理器）"""
         try:
-            # 创建日志处理器
-            self._log_handler = WorkerLogHandler(
+            self._unified_logger = create_unified_logger(
                 worker_id=self.worker_id,
-                comm_client=self.comm_client,
-                level=logging.INFO
-            )
-            # 设置格式
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            self._log_handler.setFormatter(formatter)
-
-            # 添加到根日志器
-            root_logger = logging.getLogger()
-            root_logger.addHandler(self._log_handler)
-
-            # 添加 loguru 拦截器
-            # 注意：需要在 UnifiedLogger 初始化后添加，因为它会调用 remove()
-            from loguru import logger as loguru_logger
-            self._loguru_interceptor = WorkerLoguruInterceptor(self._log_handler)
-            # 使用 sink 参数指定拦截器，并设置 enqueue=False 避免线程问题
-            loguru_logger.add(
-                self._loguru_interceptor, 
-                level="INFO",
-                enqueue=False,  # 禁用内部队列，直接使用我们的队列
-                format="{message}",  # 简化格式
             )
 
-            logger.info(f"Worker {self.worker_id} 日志处理器已初始化")
+            # 安装 stdout 捕获（Tee 模式）
+            self._unified_logger.install_stdout_capture()
+
+            # 安装 logging Handler
+            self._unified_logger.install_logging_handler()
+
+            # 安装 loguru sink（如果可用）
+            self._unified_logger.install_loguru_sink()
+
+            logger.info(
+                f"Worker {self.worker_id} 统一文件日志器已初始化 "
+                f"(日志文件: {self._unified_logger.get_log_file_path()})"
+            )
         except Exception as e:
-            logger.error(f"初始化日志处理器失败: {e}")
+            logger.error(f"初始化统一日志器失败: {e}")
 
     async def _load_strategy(self):
         """
@@ -719,20 +709,17 @@ class WorkerProcess(multiprocessing.Process):
         else:
             logger.info(f"[WorkerProcess] Worker {self.worker_id} 策略无需清理或无 on_stop 方法")
 
-        # 停止日志处理器
-        logger.info(f"[WorkerProcess] Worker {self.worker_id} 开始停止日志处理器...")
-        if self._log_handler:
+        # 关闭统一文件日志器
+        logger.info(f"[WorkerProcess] Worker {self.worker_id} 开始关闭统一日志器...")
+        if self._unified_logger:
             try:
-                logger.info(f"[WorkerProcess] Worker {self.worker_id} 调用 _log_handler.stop()...")
-                self._log_handler.stop()
-                logger.info(f"[WorkerProcess] Worker {self.worker_id} _log_handler.stop() 返回")
-                root_logger = logging.getLogger()
-                root_logger.removeHandler(self._log_handler)
-                logger.info(f"[WorkerProcess] Worker {self.worker_id} 日志处理器已从 root_logger 移除")
+                logger.info(f"[WorkerProcess] Worker {self.worker_id} 调用 _unified_logger.close()...")
+                self._unified_logger.close()
+                logger.info(f"[WorkerProcess] Worker {self.worker_id} 统一日志器已关闭")
             except Exception as e:
-                logger.error(f"[WorkerProcess] Worker {self.worker_id} 停止日志处理器错误: {e}")
+                logger.error(f"[WorkerProcess] Worker {self.worker_id} 关闭统一日志器错误: {e}")
         else:
-            logger.info(f"[WorkerProcess] Worker {self.worker_id} 无日志处理器需要停止")
+            logger.info(f"[WorkerProcess] Worker {self.worker_id} 无统一日志器需要关闭")
 
         # 断开通信连接（使用超时避免阻塞）
         logger.info(f"[WorkerProcess] Worker {self.worker_id} 开始断开通信连接...")
@@ -1038,8 +1025,8 @@ class TradingNodeWorkerProcess(WorkerProcess):
         self.event_handler: Optional[Any] = None
         self.trading_config: Dict[str, Any] = {}
 
-        # Nautilus 日志文件监听器
-        self._nautilus_log_monitor: Optional[Any] = None
+        # Nautilus 统一日志器
+        self._nautilus_unified_logger: Optional[Any] = None
 
         # 从配置中提取 TradingNode 特定配置
         self._extract_trading_config()
@@ -1186,10 +1173,9 @@ class TradingNodeWorkerProcess(WorkerProcess):
 
     def _setup_nautilus_log_file_monitor(self, log_directory: str, log_file_name: str) -> None:
         """
-        设置 Nautilus 日志文件监听器
+        设置统一文件日志器（替代旧的 ZMQ 日志文件监听器）
 
-        监听 Nautilus 日志文件的变化，将新日志通过 ZMQ 发布到主进程。
-        替代 stdout 捕获方案，更安全可靠。
+        使用纯文件存储方案，捕获所有 Nautilus 日志并写入轮转日志文件。
 
         Parameters
         ----------
@@ -1199,29 +1185,30 @@ class TradingNodeWorkerProcess(WorkerProcess):
             日志文件名
         """
         try:
-            from .log_file_monitor import create_log_monitor
-
-            # 构建日志文件完整路径
-            log_file_path = os.path.join(log_directory, log_file_name)
-
-            # 创建日志监听器
-            self._nautilus_log_monitor = create_log_monitor(
+            # 创建统一文件日志器（专门用于 Nautilus Trader）
+            self._nautilus_unified_logger = create_unified_logger(
                 worker_id=self.worker_id,
-                log_file_path=log_file_path,
-                base_port=5560,
+                log_directory=log_directory,
+                max_bytes=100 * 1024 * 1024,  # 100MB
+                backup_count=10,
             )
 
-            # 启动监听器
-            if self._nautilus_log_monitor.start():
-                logger.info(
-                    f"Worker {self.worker_id} Nautilus 日志文件监听器已启动 "
-                    f"(日志文件: {log_file_path}, 端口: {self._nautilus_log_monitor.pub_port})"
-                )
-            else:
-                logger.warning(f"Worker {self.worker_id} Nautilus 日志文件监听器启动失败")
+            # 安装 stdout 捕获（捕获 Nautilus 的 print 输出）
+            self._nautilus_unified_logger.install_stdout_capture()
+
+            # 安装 logging Handler（捕获 logging 模块日志）
+            self._nautilus_unified_logger.install_logging_handler()
+
+            # 安装 loguru sink（如果 Nautilus 使用 loguru）
+            self._nautilus_unified_logger.install_loguru_sink()
+
+            logger.info(
+                f"Worker {self.worker_id} 统一日志器已启动 "
+                f"(日志文件: {self._nautilus_unified_logger.get_log_file_path()})"
+            )
 
         except Exception as e:
-            logger.warning(f"Worker {self.worker_id} 设置 Nautilus 日志文件监听器失败: {e}")
+            logger.warning(f"Worker {self.worker_id} 设置统一日志器失败: {e}")
 
     async def _load_trading_strategy(self):
         """加载策略"""
@@ -1396,13 +1383,13 @@ class TradingNodeWorkerProcess(WorkerProcess):
                 except Exception as e:
                     logger.error(f"Worker {self.worker_id} 策略清理错误: {e}")
 
-            # 停止 Nautilus 日志文件监听器
+            # 关闭 Nautilus 统一日志器
             try:
-                if self._nautilus_log_monitor:
-                    self._nautilus_log_monitor.stop()
-                    logger.info(f"Worker {self.worker_id} Nautilus 日志文件监听器已停止")
+                if self._nautilus_unified_logger:
+                    self._nautilus_unified_logger.close()
+                    logger.info(f"Worker {self.worker_id} Nautilus 统一日志器已关闭")
             except Exception as e:
-                logger.warning(f"Worker {self.worker_id} 停止 Nautilus 日志文件监听器时出错: {e}")
+                logger.warning(f"Worker {self.worker_id} 关闭 Nautilus 统一日志器时出错: {e}")
 
             # 调用父类清理
             await super()._cleanup()

@@ -61,9 +61,6 @@ class CommManager:
         self._status_handlers: List[Callable[[Message], None]] = []
         self._control_handlers: List[Callable[[str, Message], None]] = []
 
-        # Nautilus 日志订阅器管理器
-        self._log_subscriber_manager: Optional[Any] = None
-
     async def start(self) -> bool:
         """
         启动通信服务
@@ -86,9 +83,6 @@ class CommManager:
             # 启动后台任务
             self._tasks.append(asyncio.create_task(self._status_loop()))
             self._tasks.append(asyncio.create_task(self._control_loop()))
-
-            # 启动 Nautilus 日志订阅器管理器
-            await self._start_log_subscriber_manager()
 
             logger.info("通信管理器已启动")
             return True
@@ -208,9 +202,6 @@ class CommManager:
         # 关闭通信端点
         await self._cleanup_sockets()
 
-        # 停止 Nautilus 日志订阅器管理器
-        await self._stop_log_subscriber_manager()
-
         # 终止上下文
         if self._context:
             try:
@@ -221,110 +212,6 @@ class CommManager:
 
         logger.info("通信管理器已停止")
         return True
-
-    async def _start_log_subscriber_manager(self) -> None:
-        """启动 Nautilus 日志订阅器管理器"""
-        try:
-            from ..log_subscriber import NautilusLogSubscriberManager
-
-            self._log_subscriber_manager = NautilusLogSubscriberManager(
-                base_port=5560,
-            )
-
-            # 设置日志处理器
-            self._log_subscriber_manager.set_log_handler(
-                self._handle_nautilus_log
-            )
-
-            logger.info("Nautilus 日志订阅器管理器已启动")
-
-        except Exception as e:
-            logger.warning(f"启动 Nautilus 日志订阅器管理器失败: {e}")
-
-    async def _stop_log_subscriber_manager(self) -> None:
-        """停止 Nautilus 日志订阅器管理器"""
-        if self._log_subscriber_manager:
-            try:
-                await self._log_subscriber_manager.stop_all()
-                self._log_subscriber_manager = None
-                logger.info("Nautilus 日志订阅器管理器已停止")
-            except Exception as e:
-                logger.warning(f"停止 Nautilus 日志订阅器管理器失败: {e}")
-
-    async def _handle_nautilus_log(self, log_entry: dict) -> None:
-        """
-        处理 Nautilus 日志
-
-        Parameters
-        ----------
-        log_entry : dict
-            日志条目
-        """
-        try:
-            from collector.db.database import SessionLocal
-            from worker.crud import create_worker_log
-
-            worker_id = log_entry.get("worker_id", "unknown")
-            level = log_entry.get("level", "INFO")
-            message = log_entry.get("message", "")
-            component = log_entry.get("component", "nautilus")
-            timestamp_str = log_entry.get("timestamp")
-
-            # 解析时间戳
-            if timestamp_str:
-                try:
-                    timestamp = datetime.fromisoformat(timestamp_str)
-                except:
-                    timestamp = datetime.now()
-            else:
-                timestamp = datetime.now()
-
-            # 写入数据库
-            db = SessionLocal()
-            try:
-                create_worker_log(
-                    db=db,
-                    worker_id=worker_id,
-                    level=level,
-                    message=f"[{component}] {message}",
-                    source="nautilus",
-                    timestamp=timestamp,
-                )
-            finally:
-                db.close()
-
-        except Exception as e:
-            logger.error(f"处理 Nautilus 日志错误: {e}")
-
-    async def add_worker_log_subscription(self, worker_id: str) -> bool:
-        """
-        添加 Worker 日志订阅
-
-        Parameters
-        ----------
-        worker_id : str
-            Worker ID
-
-        Returns
-        -------
-        bool
-            是否添加成功
-        """
-        if self._log_subscriber_manager:
-            return await self._log_subscriber_manager.add_worker(worker_id)
-        return False
-
-    async def remove_worker_log_subscription(self, worker_id: str) -> None:
-        """
-        移除 Worker 日志订阅
-
-        Parameters
-        ----------
-        worker_id : str
-            Worker ID
-        """
-        if self._log_subscriber_manager:
-            await self._log_subscriber_manager.remove_worker(worker_id)
 
     async def publish_data(self, topic: str, message: Message) -> bool:
         """
@@ -444,11 +331,7 @@ class CommManager:
                         if message.msg_type != MessageType.LOG:
                             logger.debug(f"[_status_loop] 收到消息: worker_id={message.worker_id}, msg_type={message.msg_type}")
 
-                        # 处理日志消息
-                        if message.msg_type == MessageType.LOG:
-                            await self._handle_log_message(message)
-
-                        # 调用所有状态处理器
+                        # 调用所有状态处理器（包括 LOG 类型，但不再写入数据库）
                         for handler in self._status_handlers:
                             try:
                                 handler(message)
@@ -462,55 +345,6 @@ class CommManager:
             except Exception as e:
                 logger.error(f"接收状态消息错误: {e}")
                 await asyncio.sleep(0.1)
-
-    async def _handle_log_message(self, message: Message):
-        """
-        处理日志消息，写入数据库
-
-        Args:
-            message: 日志消息
-        """
-        try:
-            from collector.db.database import SessionLocal
-            from worker.crud import create_worker_log
-
-            # 获取日志数据 (从 payload 字段)
-            log_data = message.payload
-            if not log_data:
-                return
-
-            # Worker ID 从消息中获取，而不是 payload
-            worker_id = message.worker_id or "unknown"
-            level = log_data.get("level", "INFO")
-            log_message = log_data.get("message", "")
-            source = log_data.get("source", "worker")
-            timestamp_float = log_data.get("timestamp")
-
-            # 解析时间戳
-            if timestamp_float:
-                try:
-                    timestamp = datetime.fromtimestamp(timestamp_float)
-                except:
-                    timestamp = datetime.now()
-            else:
-                timestamp = datetime.now()
-
-            # 写入数据库
-            db = SessionLocal()
-            try:
-                create_worker_log(
-                    db=db,
-                    worker_id=worker_id,
-                    level=level,
-                    message=log_message,
-                    source=source,
-                    timestamp=timestamp,
-                )
-            finally:
-                db.close()
-
-        except Exception as e:
-            logger.error(f"处理日志消息错误: {e}")
 
     async def _control_loop(self):
         """控制响应接收循环"""
