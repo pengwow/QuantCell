@@ -2,6 +2,7 @@
 系统管理API路由
 
 提供系统指标和日志查询功能
+日志查询基于文件日志系统实现。
 """
 
 from typing import Optional
@@ -11,7 +12,7 @@ from fastapi import APIRouter, Query
 
 from collector.schemas import ApiResponse
 from collector.services.system_service import SystemService
-from collector.db.models import SystemLogBusiness
+from utils.log_query_engine import get_log_query_engine
 
 
 router = APIRouter(prefix="/system", tags=["system"])
@@ -117,6 +118,7 @@ async def get_system_logs(
     获取系统日志
 
     查询系统日志记录，支持按级别、时间范围和来源过滤
+    基于文件日志系统实现高性能查询。
 
     - **level**: 日志级别过滤 (DEBUG, INFO, WARNING, ERROR)
     - **start_time**: 开始时间 (ISO格式)
@@ -129,21 +131,22 @@ async def get_system_logs(
         # 解析时间参数
         parsed_start_time = None
         parsed_end_time = None
-        
+
         if start_time:
             try:
                 parsed_start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
             except ValueError:
                 pass
-        
+
         if end_time:
             try:
                 parsed_end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
             except ValueError:
                 pass
-        
-        # 从数据库查询日志
-        result = SystemLogBusiness.query_logs(
+
+        # 使用文件日志查询引擎查询日志
+        query_engine = get_log_query_engine()
+        result = query_engine.query_logs(
             level=level if level else None,
             log_type=source if source else None,
             start_time=parsed_start_time,
@@ -151,10 +154,10 @@ async def get_system_logs(
             page=page,
             page_size=page_size
         )
-        
+
         # 转换日志数据
         logs = []
-        for log in result.get("logs", []):
+        for log in result.logs:
             logs.append(LogEntry(
                 id=log.get("id", 0),
                 timestamp=log.get("timestamp", ""),
@@ -170,9 +173,9 @@ async def get_system_logs(
                 trace_id=log.get("trace_id"),
                 created_at=log.get("created_at")
             ))
-        
+
         # 计算是否有更多数据
-        pagination = result.get("pagination", {})
+        pagination = result.pagination
         total = pagination.get("total", 0)
         current_page = pagination.get("page", page)
         pages = pagination.get("pages", 1)

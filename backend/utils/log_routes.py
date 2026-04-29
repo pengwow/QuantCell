@@ -3,6 +3,7 @@
 日志管理API路由
 
 提供日志查询、统计和管理功能
+基于文件日志系统实现，替代原数据库日志方案。
 """
 
 from datetime import datetime, timedelta
@@ -11,7 +12,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
-from collector.db.models import SystemLogBusiness
+from utils.log_query_engine import get_log_query_engine
 from utils.logger import get_logger, LogType
 
 # 获取日志器
@@ -87,9 +88,11 @@ async def query_logs(
     查询日志记录
 
     支持多种过滤条件，包括日志级别、类型、模块、时间范围等
+    基于文件日志系统实现高性能查询。
     """
     try:
-        result = SystemLogBusiness.query_logs(
+        query_engine = get_log_query_engine()
+        result = query_engine.query_logs(
             level=level,
             log_type=log_type,
             module=module,
@@ -102,13 +105,13 @@ async def query_logs(
         )
 
         # 转换为响应模型
-        logs = [LogResponse(**log) for log in result["logs"]]
+        logs = [LogResponse(**log) for log in result.logs]
 
-        logger.info(f"查询日志: level={level}, type={log_type}, page={page}, total={result['pagination']['total']}")
+        logger.info(f"查询日志: level={level}, type={log_type}, page={page}, total={result.pagination.get('total', 0)}")
 
         return LogListResponse(
             logs=logs,
-            pagination=result["pagination"]
+            pagination=result.pagination
         )
     except Exception as e:
         logger.error(f"查询日志失败: {e}", exception=e)
@@ -124,9 +127,11 @@ async def get_log_statistics(
     获取日志统计信息
 
     返回日志总数、按级别统计、按类型统计等信息
+    基于文件日志系统聚合计算。
     """
     try:
-        stats = SystemLogBusiness.get_log_statistics(
+        query_engine = get_log_query_engine()
+        stats = query_engine.get_statistics(
             start_time=start_time,
             end_time=end_time,
         )
@@ -149,24 +154,26 @@ async def get_recent_logs(
     获取最近的日志
 
     用于实时监控和快速查看最近的日志记录
+    基于文件日志系统高效读取。
     """
     try:
-        end_time = datetime.utcnow()
-        start_time = end_time - timedelta(minutes=minutes)
-
-        result = SystemLogBusiness.query_logs(
+        query_engine = get_log_query_engine()
+        logs_data = query_engine.get_recent_logs(
+            minutes=minutes,
+            limit=limit,
             level=level,
-            start_time=start_time,
-            end_time=end_time,
-            page=1,
-            page_size=limit,
         )
 
-        logs = [LogResponse(**log) for log in result["logs"]]
+        logs = [LogResponse(**log) for log in logs_data]
 
         return LogListResponse(
             logs=logs,
-            pagination=result["pagination"]
+            pagination={
+                'page': 1,
+                'page_size': limit,
+                'total': len(logs),
+                'pages': 1,
+            }
         )
     except Exception as e:
         logger.error(f"获取最近日志失败: {e}", exception=e)
@@ -183,21 +190,23 @@ async def get_logs_by_trace_id(
     根据跟踪ID获取相关日志
 
     用于追踪一个请求或操作的完整日志链路
+    基于文件日志系统搜索。
     """
     try:
-        result = SystemLogBusiness.query_logs(
+        query_engine = get_log_query_engine()
+        result = query_engine.get_logs_by_trace_id(
             trace_id=trace_id,
             page=page,
             page_size=page_size,
         )
 
-        logs = [LogResponse(**log) for log in result["logs"]]
+        logs = [LogResponse(**log) for log in result.logs]
 
         logger.info(f"查询跟踪ID日志: trace_id={trace_id}, count={len(logs)}")
 
         return LogListResponse(
             logs=logs,
-            pagination=result["pagination"]
+            pagination=result.pagination
         )
     except Exception as e:
         logger.error(f"查询跟踪ID日志失败: {e}", exception=e)
@@ -211,18 +220,16 @@ async def cleanup_old_logs(
     """
     清理旧日志
 
-    删除指定天数之前的日志记录，释放存储空间
+    删除指定天数之前的日志文件，释放存储空间
+    基于文件日志系统直接删除过期文件。
     """
     try:
-        deleted_count = SystemLogBusiness.delete_old_logs(days=days)
+        query_engine = get_log_query_engine()
+        result = query_engine.cleanup_old_logs(days=days)
 
-        logger.info(f"清理旧日志: 保留{days}天, 删除{deleted_count}条记录")
+        logger.info(f"清理旧日志: 保留{days}天, 删除{result.get('deleted_count', 0)}条记录")
 
-        return {
-            "success": True,
-            "deleted_count": deleted_count,
-            "retention_days": days,
-        }
+        return result
     except Exception as e:
         logger.error(f"清理旧日志失败: {e}", exception=e)
         raise HTTPException(status_code=500, detail=f"清理旧日志失败: {str(e)}")
@@ -270,46 +277,19 @@ async def get_log_dashboard(
     获取日志仪表板数据
 
     返回用于仪表板展示的综合统计数据
+    基于文件日志系统聚合计算。
     """
     try:
-        end_time = datetime.utcnow()
-        start_time = end_time - timedelta(hours=hours)
-
-        # 获取统计数据
-        stats = SystemLogBusiness.get_log_statistics(
-            start_time=start_time,
-            end_time=end_time,
-        )
-
-        # 获取错误日志
-        error_result = SystemLogBusiness.query_logs(
-            level="ERROR",
-            start_time=start_time,
-            end_time=end_time,
-            page=1,
-            page_size=10,
-        )
-
-        # 获取警告日志
-        warning_result = SystemLogBusiness.query_logs(
-            level="WARNING",
-            start_time=start_time,
-            end_time=end_time,
-            page=1,
-            page_size=10,
-        )
+        query_engine = get_log_query_engine()
+        dashboard_data = query_engine.get_dashboard_data(hours=hours)
 
         logger.info(f"获取日志仪表板数据: 最近{hours}小时")
 
         return {
-            "time_range": {
-                "start": start_time.isoformat(),
-                "end": end_time.isoformat(),
-                "hours": hours,
-            },
-            "statistics": stats,
-            "recent_errors": [LogResponse(**log) for log in error_result["logs"]],
-            "recent_warnings": [LogResponse(**log) for log in warning_result["logs"]],
+            "time_range": dashboard_data["time_range"],
+            "statistics": dashboard_data["statistics"],
+            "recent_errors": [LogResponse(**log) for log in dashboard_data["recent_errors"]],
+            "recent_warnings": [LogResponse(**log) for log in dashboard_data["recent_warnings"]],
         }
     except Exception as e:
         logger.error(f"获取日志仪表板失败: {e}", exception=e)
