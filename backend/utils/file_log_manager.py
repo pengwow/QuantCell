@@ -569,6 +569,270 @@ class FileLogManager:
 
             self._file_handles.clear()
 
+    def get_directory_tree(self) -> Dict[str, Any]:
+        """
+        获取日志目录的树形结构
+
+        Returns:
+            dict: 包含目录树、文件列表和统计信息的字典
+        """
+        tree = {
+            'name': 'logs',
+            'path': str(self.base_log_dir),
+            'type': 'root',
+            'children': [],
+            'files': [],
+            'total_size': 0,
+            'file_count': 0,
+        }
+
+        try:
+            if not self.base_log_dir.exists():
+                return tree
+
+            for type_dir in sorted(self.base_log_dir.iterdir()):
+                if not type_dir.is_dir():
+                    continue
+
+                type_node = {
+                    'name': type_dir.name,
+                    'path': str(type_dir),
+                    'type': 'directory',
+                    'children': [],
+                    'files': [],
+                    'total_size': 0,
+                    'file_count': 0,
+                }
+
+                for log_file in sorted(type_dir.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True):
+                    if not log_file.suffix == '.log':
+                        continue
+
+                    try:
+                        stat = log_file.stat()
+                        file_info = {
+                            'name': log_file.name,
+                            'path': str(log_file),
+                            'type': 'file',
+                            'size': stat.st_size,
+                            'size_formatted': self._format_size(stat.st_size),
+                            'modified_time': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            'created_time': datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                            'line_count': None,
+                            'log_type': type_dir.name,
+                            'date': self._extract_date_from_filename(log_file.name),
+                        }
+
+                        type_node['files'].append(file_info)
+                        type_node['total_size'] += stat.st_size
+                        type_node['file_count'] += 1
+                        tree['total_size'] += stat.st_size
+                        tree['file_count'] += 1
+
+                    except Exception as e:
+                        print(f"[FileLogManager] 获取文件信息失败 {log_file}: {e}",
+                              file=__import__('sys').stderr)
+                        continue
+
+                tree['children'].append(type_node)
+
+        except Exception as e:
+            print(f"[FileLogManager] 获取目录树失败: {e}",
+                  file=__import__('sys').stderr)
+
+        return tree
+
+    def get_file_info(self, file_path: Path) -> Optional[Dict[str, Any]]:
+        """
+        获取单个文件的详细信息
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            Optional[Dict]: 文件信息字典，不存在返回None
+        """
+        try:
+            if not file_path.exists() or not file_path.is_file():
+                return None
+
+            stat = file_path.stat()
+
+            # 计算行数（快速估算）
+            line_count = None
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    line_count = sum(1 for _ in f)
+            except Exception:
+                pass
+
+            return {
+                'name': file_path.name,
+                'path': str(file_path),
+                'type': 'file',
+                'size': stat.st_size,
+                'size_formatted': self._format_size(stat.st_size),
+                'modified_time': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                'created_time': datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                'line_count': line_count,
+                'log_type': file_path.parent.name if file_path.parent != self.base_log_dir else None,
+                'date': self._extract_date_from_filename(file_path.name),
+            }
+
+        except Exception as e:
+            print(f"[FileLogManager] 获取文件信息失败 {file_path}: {e}",
+                  file=__import__('sys').stderr)
+            return None
+
+    def delete_file(self, file_path: Path) -> bool:
+        """
+        安全删除单个日志文件
+
+        Args:
+            file_path: 要删除的文件路径
+
+        Returns:
+            bool: 删除成功返回True
+        """
+        try:
+            if not file_path.exists():
+                print(f"[FileLogManager] 文件不存在: {file_path}",
+                      file=__import__('sys').stderr)
+                return False
+
+            # 安全检查：确保在日志目录内
+            if not str(file_path.resolve()).startswith(str(self.base_log_dir.resolve())):
+                print(f"[FileLogManager] 不允许删除此路径: {file_path}",
+                      file=__import__('sys').stderr)
+                return False
+
+            file_path.unlink()
+            print(f"[FileLogManager] 成功删除文件: {file_path}")
+            return True
+
+        except Exception as e:
+            print(f"[FileLogManager] 删除文件失败 {file_path}: {e}",
+                  file=__import__('sys').stderr)
+            return False
+
+    def delete_files_batch(self, file_paths: List[Path]) -> Dict[str, Any]:
+        """
+        批量删除多个日志文件
+
+        Args:
+            file_paths: 要删除的文件路径列表
+
+        Returns:
+            Dict: 包含删除结果的字典
+        """
+        result = {
+            'success': True,
+            'deleted_files': [],
+            'deleted_count': 0,
+            'freed_space': 0,
+            'errors': [],
+        }
+
+        for file_path in file_paths:
+            try:
+                if self.delete_file(file_path):
+                    result['deleted_files'].append(str(file_path))
+                    result['deleted_count'] += 1
+                    result['freed_space'] += file_path.stat().st_size if file_path.exists() else 0
+                else:
+                    result['success'] = False
+                    result['errors'].append({
+                        'file': str(file_path),
+                        'error': '删除失败或权限不足',
+                    })
+            except Exception as e:
+                result['success'] = False
+                result['errors'].append({
+                    'file': str(file_path),
+                    'error': str(e),
+                })
+
+        return result
+
+    def get_disk_usage(self) -> Dict[str, Any]:
+        """
+        获取磁盘使用统计信息
+
+        Returns:
+            Dict: 磁盘使用情况
+        """
+        import shutil
+
+        total_size = 0
+        log_types_stats = {}
+
+        try:
+            total, used, free = shutil.disk_usage(self.base_log_dir)
+
+            if self.base_log_dir.exists():
+                for type_dir in self.base_log_dir.iterdir():
+                    if not type_dir.is_dir():
+                        continue
+
+                    type_size = 0
+                    type_count = 0
+
+                    for log_file in type_dir.rglob('*.log'):
+                        if log_file.is_file():
+                            type_size += log_file.stat().st_size
+                            type_count += 1
+
+                    log_types_stats[type_dir.name] = {
+                        'count': type_count,
+                        'total_size': type_size,
+                    }
+                    total_size += type_size
+
+            usage_percent = (total_size / used * 100) if used > 0 else 0
+
+            return {
+                'total_space': total,
+                'used_space': used,
+                'free_space': free,
+                'usage_percent': round(usage_percent, 2),
+                'log_types': log_types_stats,
+                'logs_total_size': total_size,
+            }
+
+        except Exception as e:
+            print(f"[FileLogManager] 获取磁盘使用情况失败: {e}",
+                  file=__import__('sys').stderr)
+            return {
+                'total_space': 0,
+                'used_space': 0,
+                'free_space': 0,
+                'usage_percent': 0,
+                'log_types': {},
+                'logs_total_size': 0,
+            }
+
+    @staticmethod
+    def _format_size(size_bytes: int) -> str:
+        """格式化文件大小"""
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if abs(size_bytes) < 1024.0:
+                return f"{size_bytes:.2f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.2f} PB"
+
+    @staticmethod
+    def _extract_date_from_filename(filename: str) -> Optional[str]:
+        """从文件名提取日期（YYYYMMDD格式）"""
+        try:
+            parts = filename.replace('.log', '').split('_')
+            if len(parts) >= 2:
+                date_str = parts[-1]
+                if len(date_str) == 8 and date_str.isdigit():
+                    return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+        except (ValueError, IndexError):
+            pass
+        return None
+
 
 # 全局实例缓存
 _file_log_manager_instance: Optional[FileLogManager] = None
