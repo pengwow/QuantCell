@@ -2,9 +2,11 @@
  * 系统信息模块
  * 功能：显示系统日志、系统信息（版本+状态）等信息
  */
-import { Card, Descriptions, Tag } from 'antd';
+import { useState } from 'react';
+import { Card, Descriptions, Tag, Drawer } from 'antd';
 import { useSettings } from './SettingsContext';
 import SystemLogs from './SystemLogs';
+import LogSettingsPanel from './LogSettingsPanel';
 import type { SystemInfo as SystemInfoType } from './types';
 
 interface SystemInfoProps {
@@ -13,6 +15,7 @@ interface SystemInfoProps {
 
 const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
   const { systemMetrics } = useSettings();
+  const [showLogSettings, setShowLogSettings] = useState(false);
 
   // 获取状态标签颜色
   const getStatusColor = (status: string) => {
@@ -41,7 +44,7 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
   return (
     <div className="space-y-6">
       {/* 系统日志 - 放在最上方 */}
-      <SystemLogs />
+      <SystemLogs onLogSettingsClick={() => setShowLogSettings(true)} />
 
       {/* 系统信息 - 合并版本信息和系统状态 */}
       <div>
@@ -126,6 +129,18 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
           </Descriptions>
         </Card>
       </div>
+
+      {/* 日志设置面板 - 右侧抽屉 */}
+      <Drawer
+        title="日志设置"
+        placement="right"
+        size="large"
+        onClose={() => setShowLogSettings(false)}
+        open={showLogSettings}
+        destroyOnClose
+      >
+        <LogSettingsPanel onClose={() => setShowLogSettings(false)} />
+      </Drawer>
     </div>
   );
 };

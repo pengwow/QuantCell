@@ -149,3 +149,68 @@ export interface LogQueryResponse {
   pageSize: number;
   hasMore: boolean;
 }
+
+// ============ 日志文件管理相关类型 ============
+
+/** 日志文件信息 */
+export interface LogFileInfo {
+  name: string;
+  path: string;
+  type: 'directory' | 'file';
+  size: number;                // 字节数
+  size_formatted: string;       // 格式化后的字符串
+  modified_time: string;        // ISO格式
+  created_time?: string;
+  line_count?: number;          // 日志行数（仅文件）
+  log_type?: string;             // application/system/api等
+  date?: string;                // 文件名中的日期
+}
+
+/** 目录树节点 */
+export interface LogDirectoryNode {
+  name: string;
+  path: string;
+  type: 'root' | 'directory';
+  children: LogDirectoryNode[];
+  files: LogFileInfo[];
+  total_size: number;
+  file_count: number;
+}
+
+/** 磁盘使用情况 */
+export interface LogDiskUsage {
+  total_space: number;          // 字节
+  used_space: number;
+  free_space: number;
+  usage_percent: number;
+  log_types: {
+    [type: string]: {
+      count: number;
+      total_size: number;
+    };
+  };
+  logs_total_size?: number;      // 日志总大小
+}
+
+/** 自动清理配置 */
+export interface LogAutoCleanupConfig {
+  enabled: boolean;
+  retention_days: number;
+  max_size_gb: number;             // 0表示不限制
+  cleanup_schedule: 'daily' | 'weekly';
+  last_cleanup_time: string | null;
+  next_cleanup_time: string | null;
+  space_used: number;             // MB
+}
+
+/** 清理操作结果 */
+export interface CleanupResult {
+  success: boolean;
+  deleted_files: string[];
+  deleted_count: number;
+  freed_space: number;            // 字节
+  errors: Array<{
+    file: string;
+    error: string;
+  }>;
+}

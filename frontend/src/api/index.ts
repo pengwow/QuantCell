@@ -1,6 +1,15 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import { getAccessToken, updateAccessToken, removeToken } from '../utils/tokenManager';
-import type { LogQueryParams, LogQueryResponse, SystemMetrics } from '../pages/setting/types';
+import type {
+  LogQueryParams,
+  LogQueryResponse,
+  SystemMetrics,
+  LogDirectoryNode,
+  LogFileInfo,
+  LogDiskUsage,
+  LogAutoCleanupConfig,
+  CleanupResult,
+} from '../pages/setting/types';
 
 // ============================================
 // 全局401错误处理配置
@@ -681,6 +690,48 @@ export const systemApi = {
    */
   getSystemMetrics: (): Promise<SystemMetrics> => {
     return apiRequest.get<SystemMetrics>('/system/metrics');
+  },
+
+  // ============ 日志文件管理 API（新增）============
+
+  /** 获取日志目录树结构 */
+  getLogDirectory: (): Promise<LogDirectoryNode> => {
+    return apiRequest.get<LogDirectoryNode>('/logs/files');
+  },
+
+  /** 获取单个文件详细信息 */
+  getLogFileDetail: (filePath: string): Promise<LogFileInfo> => {
+    return apiRequest.get<LogFileInfo>(`/logs/files/${encodeURIComponent(filePath)}`);
+  },
+
+  /** 删除单个日志文件 */
+  deleteLogFile: (filePath: string): Promise<CleanupResult> => {
+    return apiRequest.delete<CleanupResult>(`/logs/files/${encodeURIComponent(filePath)}`);
+  },
+
+  /** 批量删除日志文件 */
+  deleteLogFilesBatch: (filePaths: string[]): Promise<CleanupResult> => {
+    return apiRequest.delete<CleanupResult>('/logs/files/batch', { data: { filePaths } });
+  },
+
+  /** 获取磁盘使用情况 */
+  getLogDiskUsage: (): Promise<LogDiskUsage> => {
+    return apiRequest.get<LogDiskUsage>('/logs/disk-usage');
+  },
+
+  /** 获取自动清理配置 */
+  getAutoCleanupConfig: (): Promise<LogAutoCleanupConfig> => {
+    return apiRequest.get<LogAutoCleanupConfig>('/logs/auto-cleanup/config');
+  },
+
+  /** 更新自动清理配置 */
+  updateAutoCleanupConfig: (config: Partial<LogAutoCleanupConfig>): Promise<{ success: boolean; message: string; config: LogAutoCleanupConfig }> => {
+    return apiRequest.put('/logs/auto-cleanup/config', config);
+  },
+
+  /** 手动执行一次清理 */
+  executeCleanup: (): Promise<{ success: boolean; message: string; deletedCount?: number }> => {
+    return apiRequest.post('/logs/cleanup/execute');
   },
 };
 

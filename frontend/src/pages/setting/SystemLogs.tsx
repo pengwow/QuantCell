@@ -3,12 +3,17 @@
  * 功能：显示系统日志，支持刷新和加载更多
  */
 import { useState, useEffect, useCallback } from 'react';
-import { Tag, Collapse, Divider } from 'antd';
+import { Tag, Collapse, Divider, Button } from 'antd';
 import { DownOutlined } from '@ant-design/icons';
+import { IconSettings } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
 import { systemApi } from '../../api';
 import type { LogRecord, LogLevel, LogQueryResponse } from './types';
+
+interface SystemLogsProps {
+  onLogSettingsClick?: () => void;
+}
 
 const { Panel } = Collapse;
 
@@ -52,7 +57,7 @@ const getLevelLabel = (level: LogLevel): string => {
   }
 };
 
-const SystemLogs = () => {
+const SystemLogs = ({ onLogSettingsClick }: SystemLogsProps) => {
   const { t } = useTranslation();
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -125,8 +130,20 @@ const SystemLogs = () => {
 
   return (
     <div>
-      {/* 标题 */}
-      <h3 className="text-lg font-medium mb-4">{t('system_logs') || '系统日志'}</h3>
+      {/* 标题栏 - 包含日志设置按钮 */}
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-medium">{t('system_logs') || '系统日志'}</h3>
+        {onLogSettingsClick && (
+          <Button
+            type="default"
+            size="small"
+            icon={<IconSettings size={14} />}
+            onClick={onLogSettingsClick}
+          >
+            日志设置
+          </Button>
+        )}
+      </div>
 
       {/* 终端风格日志容器 - 纯黑色背景 */}
       <div className="rounded-md bg-black text-stone-200 overflow-hidden">
@@ -213,7 +230,7 @@ const SystemLogs = () => {
                     {t('refresh_logs') || '刷新日志'}
                   </a>
                   {/* 始终显示加载更多链接，如果 hasMore 为 false 则显示为禁用状态 */}
-                  <Divider type="vertical" className="bg-stone-600 mx-2" />
+                  <Divider orientation="vertical" className="bg-stone-600 mx-2" />
                   {hasMore ? (
                     <a
                       onClick={handleLoadMore}
@@ -232,13 +249,6 @@ const SystemLogs = () => {
           </div>
         </div>
       </div>
-
-      {/* 日志统计 */}
-      {logs.length > 0 && (
-        <div className="text-center text-xs text-gray-400 mt-2">
-          {t('total_logs', { count: total }) || `共 ${total} 条日志`}
-        </div>
-      )}
     </div>
   );
 };
