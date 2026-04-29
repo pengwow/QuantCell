@@ -5,7 +5,7 @@
 提供全项目统一的日志功能，包括：
 - 多种日志级别配置（DEBUG、INFO、WARNING、ERROR、CRITICAL）
 - 控制台和文件输出
-- 数据库持久化存储
+- 文件持久化存储（基于 JSON Lines 格式）
 - 异步写入以提高性能
 - 结构化日志数据
 
@@ -102,9 +102,13 @@ class LogRecord:
 
 class DatabaseLogHandler:
     """
-    数据库日志处理器
+    数据库日志处理器（已弃用）
 
-    将日志异步写入数据库，确保高性能和可靠性
+    .. deprecated:: 2.0
+        此处理器已被文件日志系统替代，保留仅为向后兼容。
+        新代码应使用 utils.file_log_manager.FileLogManager。
+
+    将日志异步写入数据库，确保高性能和可靠性。
     """
 
     def __init__(self, batch_size: int = 100, flush_interval: float = 5.0):
@@ -114,6 +118,9 @@ class DatabaseLogHandler:
         参数：
             batch_size: 批量写入大小
             flush_interval: 自动刷新间隔（秒）
+
+        .. warning::
+            此类已弃用，不会实际执行任何操作。
         """
         self.batch_size = batch_size
         self.flush_interval = flush_interval
@@ -253,26 +260,30 @@ class LoggerConfig:
     # 日志文件轮转大小
     ROTATION_SIZE = "50 MB"
 
-    # 是否启用数据库日志
-    ENABLE_DATABASE_LOG = True
+    # 是否启用数据库日志（已迁移到文件日志系统，默认禁用）
+    ENABLE_DATABASE_LOG = False
 
-    # 数据库日志批量大小
+    # 数据库日志批量大小（已弃用，保留仅为兼容）
     DATABASE_BATCH_SIZE = 100
 
-    # 数据库日志刷新间隔（秒）
+    # 数据库日志刷新间隔（秒）（已弃用，保留仅为兼容）
     DATABASE_FLUSH_INTERVAL = 5.0
+
+    # 是否启用文件日志（新的日志存储方式）
+    ENABLE_FILE_LOG = True
 
 
 class UnifiedLogger:
     """
     统一日志器
 
-    封装loguru并提供统一的日志接口，支持数据库持久化
+    封装loguru并提供统一的日志接口，支持文件持久化
     """
 
     _instance: Optional["UnifiedLogger"] = None
     _lock = threading.Lock()
-    _db_handler: Optional[DatabaseLogHandler] = None
+    _db_handler: Optional["DatabaseLogHandler"] = None  # 保留字段兼容性
+    _file_log_manager = None  # 文件日志管理器
 
     # 上下文变量：跟踪ID
     _trace_id: ContextVar[Optional[str]] = ContextVar("trace_id", default=None)
@@ -339,13 +350,15 @@ class UnifiedLogger:
                 diagnose=True,
             )
 
-        # 初始化数据库日志处理器
-        if LoggerConfig.ENABLE_DATABASE_LOG:
-            self._db_handler = DatabaseLogHandler(
-                batch_size=LoggerConfig.DATABASE_BATCH_SIZE,
-                flush_interval=LoggerConfig.DATABASE_FLUSH_INTERVAL,
-            )
-            self._db_handler.start()
+        # 初始化文件日志管理器（用于结构化日志存储和查询）
+        if LoggerConfig.ENABLE_FILE_LOG:
+            try:
+                from utils.file_log_manager import get_file_log_manager
+                self._file_log_manager = get_file_log_manager()
+            except Exception as e:
+                print(f"[UnifiedLogger] 初始化文件日志管理器失败: {e}", file=sys.stderr)
+                self._file_log_manager = None
+
 
     def _get_default_log_file(self) -> Optional[str]:
         """获取默认日志文件路径"""
@@ -373,10 +386,13 @@ class UnifiedLogger:
             self._loggers[cache_key] = LoggerWrapper(name, log_type, self)
         return self._loggers[cache_key]
 
-    def _emit_to_database(self, record: LogRecord) -> None:
-        """发送日志到数据库"""
-        if self._db_handler:
-            self._db_handler.emit(record)
+    def _emit_to_file(self, record: LogRecord) -> None:
+        """发送日志到文件存储"""
+        if self._file_log_manager:
+            try:
+                self._file_log_manager.write_log(record)
+            except Exception as e:
+                print(f"[UnifiedLogger] 写入文件日志失败: {e}", file=sys.stderr)
 
     @classmethod
     def set_trace_id(cls, trace_id: str) -> None:
@@ -395,15 +411,29 @@ class UnifiedLogger:
 
     def shutdown(self) -> None:
         """关闭日志器，刷新所有待写入的日志"""
+        # 关闭文件日志管理器
+        if self._file_log_manager:
+            try:
+                from utils.file_log_manager import shutdown_file_log_manager
+                shutdown_file_log_manager()
+            except Exception as e:
+                print(f"[UnifiedLogger] 关闭文件日志管理器失败: {e}", file=sys.stderr)
+            self._file_log_manager = None
+
+        # 保留兼容性：如果仍有数据库处理器，也关闭它
         if self._db_handler:
-            self._db_handler.stop()
+            try:
+                self._db_handler.stop()
+            except Exception:
+                pass
+            self._db_handler = None
 
 
 class LoggerWrapper:
     """
     日志包装器
 
-    封装loguru的logger，提供统一的接口并支持数据库持久化
+    封装loguru的logger，提供统一的接口并支持文件持久化
     """
 
     def __init__(self, name: str, log_type: LogType, unified_logger: UnifiedLogger):
@@ -453,9 +483,9 @@ class LoggerWrapper:
         else:
             log_method(message)
 
-        # 异步写入数据库
-        if LoggerConfig.ENABLE_DATABASE_LOG:
-            self._unified_logger._emit_to_database(record)
+        # 异步写入文件（替代原数据库写入）
+        if LoggerConfig.ENABLE_FILE_LOG:
+            self._unified_logger._emit_to_file(record)
 
     def debug(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
         """记录DEBUG级别日志"""
