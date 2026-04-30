@@ -462,7 +462,51 @@
   color: #ff4d4f;
 }
 
-/* ==================== 响应式设计 ==================== */
+.delete-confirm-modal .ant-modal-body {
+  color: var(--text-primary);
+  transition: color 0.3s ease;
+}
+
+/* 删除警告框 */
+.delete-warning-box {
+  background: var(--message-error-bg);
+  border: 1px solid var(--message-error-border);
+  border-radius: 4px;
+  padding: 12px;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+}
+
+.delete-warning-box .delete-warning-title {
+  margin: 0 0 8px 0;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.delete-warning-box .delete-warning-list {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text-primary);
+}
+
+.delete-warning-box .delete-warning-note {
+  margin: 8px 0 0 0;
+  color: var(--text-muted);
+  transition: color 0.3s ease;
+}
+
+/* 删除确认提示 */
+.delete-confirm-hint {
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  transition: color 0.3s ease;
+}
+
+.delete-confirm-highlight {
+  color: #ff4d4f;
+}
+
+/* 响应式适配 */
 @media (max-width: 768px) {
   .message-content {
     max-width: 90%;

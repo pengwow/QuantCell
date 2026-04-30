@@ -822,7 +822,7 @@ const Agent = () => {
       {/* 删除确认 Modal */}
       <Modal
         title={
-          <span style={{ color: '#ff4d4f' }}>
+          <span className="delete-modal-title">
             <ExclamationCircleOutlined style={{ marginRight: 8 }} />
             确认删除会话
           </span>
@@ -840,30 +840,25 @@ const Agent = () => {
           danger: true,
           disabled: confirmText !== '确认删除',
         }}
+        className="delete-confirm-modal"
       >
         <div style={{ marginBottom: 16 }}>
           <p><strong>您即将删除此会话，该操作不可恢复。</strong></p>
 
-          <div style={{
-            background: '#fff2f0',
-            border: '1px solid #ffccc7',
-            borderRadius: 4,
-            padding: 12,
-            marginBottom: 16
-          }}>
-            <p style={{ margin: '0 0 8px 0', fontWeight: 500 }}>删除将影响以下内容：</p>
-            <ul style={{ margin: 0, paddingLeft: 20 }}>
+          <div className="delete-warning-box">
+            <p className="delete-warning-title">删除将影响以下内容：</p>
+            <ul className="delete-warning-list">
               <li>该会话的所有历史消息将被永久删除</li>
               <li>无法再通过此会话ID追溯对话记录</li>
               <li>未整合到长期记忆的近期对话细节将丢失</li>
             </ul>
-            <p style={{ margin: '8px 0 0 0', color: '#666' }}>
+            <p className="delete-warning-note">
               <strong>注意：</strong>已整合的长期记忆（MEMORY.md）不受影响
             </p>
           </div>
 
-          <p style={{ marginBottom: 8 }}>
-            请输入 <strong style={{ color: '#ff4d4f' }}>确认删除</strong> 以继续：
+          <p className="delete-confirm-hint">
+            请输入 <strong className="delete-confirm-highlight">确认删除</strong> 以继续：
           </p>
           <Input
             value={confirmText}

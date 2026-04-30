@@ -297,10 +297,17 @@ const BacktestReplay = () => {
     try {
       const response = await fetch(`/backtest/${backtestId}/results`);
       if (response.ok) {
-        const data = await response.json();
-        if (data.status === 'success' && data.summary) {
-          setMergeSummary(data.summary);
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const data = await response.json();
+          if (data.status === 'success' && data.summary) {
+            setMergeSummary(data.summary);
+          }
+        } else {
+          console.warn('加载合并结果: 返回内容不是JSON格式');
         }
+      } else {
+        console.warn(`加载合并结果: HTTP ${response.status}`);
       }
     } catch (err) {
       console.error('加载合并结果失败:', err);
@@ -706,7 +713,7 @@ const BacktestReplay = () => {
                   />
                 </Tooltip>
 
-                <Divider type="vertical" style={{ margin: '0 8px' }} />
+                <Divider orientation="vertical" style={{ margin: '0 8px' }} />
 
                 {/* 播放/暂停按钮 - 主按钮 */}
                 <Button
@@ -759,8 +766,8 @@ const BacktestReplay = () => {
                       onChange={handleSpeedChange}
                       style={{ width: 70 }}
                       disabled={!replayData}
-                      bordered={false}
-                      dropdownMatchSelectWidth={false}
+                      variant="borderless"
+                      popupMatchSelectWidth={false}
                     >
                       {SPEED_OPTIONS.map((option) => (
                         <Option key={option.value} value={option.value}>
