@@ -117,7 +117,7 @@ const LogFileBrowser: React.FC = () => {
     },
     {
       title: '大小',
-      dataIndex: 'sizeFormatted',
+      dataIndex: 'size_formatted',
       key: 'size',
       sorter: true,
       sortOrder,
@@ -128,8 +128,8 @@ const LogFileBrowser: React.FC = () => {
     },
     {
       title: '修改时间',
-      dataIndex: 'modifiedTime',
-      key: 'modifiedTime',
+      dataIndex: 'modified_time',
+      key: 'modified_time',
       width: 180,
       render: (text: string) => (
         <span className="text-xs text-gray-600">
@@ -211,7 +211,7 @@ const LogFileBrowser: React.FC = () => {
             checked={currentDir === directoryTree.path}
             onChange={() => setCurrentDir(directoryTree.path)}
           >
-            📁 全部 ({directoryTree.fileCount} 个文件)
+            📁 全部 ({directoryTree.file_count} 个文件)
           </Tag.CheckableTag>
           {directoryTree.children.map(child => (
             <Tag.CheckableTag
@@ -219,7 +219,7 @@ const LogFileBrowser: React.FC = () => {
               checked={currentDir === child.path}
               onChange={() => setCurrentDir(child.path)}
             >
-              📂 {child.name} ({child.fileCount})
+              📂 {child.name} ({child.file_count})
             </Tag.CheckableTag>
           ))}
         </div>
@@ -272,23 +272,23 @@ const LogFileBrowser: React.FC = () => {
                   </span>
                 </Descriptions.Item>
                 <Descriptions.Item label="文件大小">
-                  <Tag color="blue">{selectedFiles[0].sizeFormatted}</Tag>
+                  <Tag color="blue">{selectedFiles[0].size_formatted}</Tag>
                 </Descriptions.Item>
                 <Descriptions.Item label="创建时间">
-                  {selectedFiles[0].createdTime ?
-                    new Date(selectedFiles[0].createdTime).toLocaleString('zh-CN') :
+                  {selectedFiles[0].created_time ?
+                    new Date(selectedFiles[0].created_time).toLocaleString('zh-CN') :
                     '-'
                   }
                 </Descriptions.Item>
                 <Descriptions.Item label="修改时间">
-                  {new Date(selectedFiles[0].modifiedTime).toLocaleString('zh-CN')}
+                  {new Date(selectedFiles[0].modified_time).toLocaleString('zh-CN')}
                 </Descriptions.Item>
                 <Descriptions.Item label="日志类型">
-                  <Tag>{selectedFiles[0].logType || '-'}</Tag>
+                  <Tag>{selectedFiles[0].log_type || '-'}</Tag>
                 </Descriptions.Item>
                 <Descriptions.Item label="日志条数">
-                  {selectedFiles[0].lineCount ?
-                    `${selectedFiles[0].lineCount.toLocaleString()} 条` :
+                  {selectedFiles[0].line_count ?
+                    `${selectedFiles[0].line_count.toLocaleString()} 条` :
                     '-'
                   }
                 </Descriptions.Item>

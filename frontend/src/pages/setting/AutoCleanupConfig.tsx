@@ -18,6 +18,7 @@ import {
   Spin,
   Alert,
   Progress,
+  Tag,
 } from 'antd';
 import {
   IconSettings,
@@ -35,12 +36,12 @@ const AutoCleanupConfig: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<LogAutoCleanupConfig>({
     enabled: false,
-    retentionDays: 30,
-    maxSizeGB: 10,
-    cleanupSchedule: 'weekly',
-    lastCleanupTime: null,
-    nextCleanupTime: null,
-    spaceUsed: 0,
+    retention_days: 30,
+    max_size_gb: 10,
+    cleanup_schedule: 'weekly',
+    last_cleanup_time: null,
+    next_cleanup_time: null,
+    space_used: 0,
   });
   const [diskUsage, setDiskUsage] = useState<LogDiskUsage | null>(null);
   const [originalConfig, setOriginalConfig] = useState<LogAutoCleanupConfig | null>(null);
@@ -110,8 +111,8 @@ const AutoCleanupConfig: React.FC = () => {
 
   // 计算空间使用百分比
   const getSpacePercent = (): number => {
-    if (!config.maxSizeGB || config.maxSizeGB === 0) return 0;
-    return Math.min((config.spaceUsed / (config.maxSizeGB * 1024)) * 100, 100);
+    if (!config.max_size_gb || config.max_size_gb === 0) return 0;
+    return Math.min((config.space_used / (config.max_size_gb * 1024)) * 100, 100);
   };
 
   if (loading) {
@@ -167,11 +168,11 @@ const AutoCleanupConfig: React.FC = () => {
                 <InputNumber
                   min={1}
                   max={365}
-                  value={config.retentionDays}
+                  value={config.retention_days}
                   onChange={(value) =>
                     setConfig(prev => ({
                       ...prev,
-                      retentionDays: value || 30,
+                      retention_days: value || 30,
                     }))
                   }
                   style={{ width: '100%' }}
@@ -192,11 +193,11 @@ const AutoCleanupConfig: React.FC = () => {
                 <InputNumber
                   min={0}
                   max={1000}
-                  value={config.maxSizeGB}
+                  value={config.max_size_gb}
                   onChange={(value) =>
                     setConfig(prev => ({
                       ...prev,
-                      maxSizeGB: value || 0,
+                      max_size_gb: value || 0,
                     }))
                   }
                   style={{ width: '100%' }}
@@ -215,11 +216,11 @@ const AutoCleanupConfig: React.FC = () => {
                   清理频率
                 </label>
                 <Radio.Group
-                  value={config.cleanupSchedule}
+                  value={config.cleanup_schedule}
                   onChange={(e) =>
                     setConfig(prev => ({
                       ...prev,
-                      cleanupSchedule: e.target.value,
+                      cleanup_schedule: e.target.value,
                     }))
                   }
                   optionType="button"
@@ -271,14 +272,14 @@ const AutoCleanupConfig: React.FC = () => {
           <Col span={12}>
             <Statistic
               title="占用空间"
-              value={config.spaceUsed}
+              value={config.space_used}
               suffix="MB"
               precision={2}
               valueStyle={{
-                color: config.spaceUsed > config.maxSizeGB * 1024 / 2 ? '#cf1322' : '#3f8600',
+                color: config.space_used > config.max_size_gb * 1024 / 2 ? '#cf1322' : '#3f8600',
               }}
             />
-            {config.maxSizeGB > 0 && (
+            {config.max_size_gb > 0 && (
               <Progress
                 percent={getSpacePercent()}
                 status={getSpacePercent() > 80 ? 'exception' : 'active'}
@@ -293,8 +294,8 @@ const AutoCleanupConfig: React.FC = () => {
             <Statistic
               title="上次清理"
               value={
-                config.lastCleanupTime ?
-                  new Date(config.lastCleanupTime).toLocaleString('zh-CN') :
+                config.last_cleanup_time ?
+                  new Date(config.last_cleanup_time).toLocaleString('zh-CN') :
                   '-'
               }
               valueStyle={{ fontSize: 14 }}
@@ -306,8 +307,8 @@ const AutoCleanupConfig: React.FC = () => {
             <Statistic
               title="下次清理"
               value={
-                config.nextCleanupTime ?
-                  new Date(config.nextCleanupTime).toLocaleString('zh-CN') :
+                config.next_cleanup_time ?
+                  new Date(config.next_cleanup_time).toLocaleString('zh-CN') :
                   '-'
               }
               valueStyle={{ fontSize: 14 }}
@@ -319,7 +320,7 @@ const AutoCleanupConfig: React.FC = () => {
             <Statistic
               title="日志文件数"
               value={diskUsage ?
-                Object.values(diskUsage.logTypes).reduce((sum, t) => sum + t.count, 0) :
+                Object.values(diskUsage.log_types).reduce((sum, t) => sum + t.count, 0) :
                 0
             }
             />
@@ -328,19 +329,19 @@ const AutoCleanupConfig: React.FC = () => {
       </Card>
 
       {/* 磁盘使用详情 */}
-      {diskUsage && Object.keys(diskUsage.logTypes).length > 0 && (
+      {diskUsage && Object.keys(diskUsage.log_types).length > 0 && (
         <Card
           title="各类型占用情况"
           size="small"
           className="shadow-sm"
         >
           <Row gutter={[16, 8]}>
-            {Object.entries(diskUsage.logTypes).map(([type, info]) => (
+            {Object.entries(diskUsage.log_types).map(([type, info]) => (
               <Col key={type} span={12}>
                 <div className="flex justify-between items-center p-2 bg-gray-50 rounded">
                   <Tag color="blue">{type}</Tag>
                   <span className="font-mono text-sm">
-                    {info.count} 个文件 / {(info.totalSize / 1024 / 1024).toFixed(2)} MB
+                    {info.count} 个文件 / {((info as any).totalSize / 1024 / 1024).toFixed(2)} MB
                   </span>
                 </div>
               </Col>

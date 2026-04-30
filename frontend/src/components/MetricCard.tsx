@@ -39,8 +39,10 @@ const MetricCard = ({ label, value, type = 'neutral' }: MetricCardProps) => {
         textAlign: 'center',
         borderRadius: '8px',
       }}
-      bodyStyle={{
-        padding: '16px 12px',
+      styles={{
+        body: {
+          padding: '16px 12px',
+        },
       }}
     >
       <Text

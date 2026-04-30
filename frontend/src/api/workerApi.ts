@@ -243,45 +243,91 @@ export class WorkerLogStream {
    * 连接 WebSocket
    */
   connect(): void {
+    // 防止重复连接
+    if (this.websocket && (this.websocket.readyState === WebSocket.CONNECTING || this.websocket.readyState === WebSocket.OPEN)) {
+      console.log(`⚠️  [WebSocket] Worker ${this.workerId} 已有活跃连接，跳过`);
+      return;
+    }
+
     // 使用与 API 相同的基础 URL，确保在开发环境中也能正确连接
     const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '';
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = apiBaseUrl ? apiBaseUrl.replace(/^https?:/, '') : `//${window.location.host}`;
-    const wsUrl = `${wsProtocol}${wsHost}/api/workers/${this.workerId}/monitoring/logs/stream`;
+    let wsUrl = `${wsProtocol}${wsHost}/api/workers/${this.workerId}/monitoring/logs/stream`;
 
-    console.log(`Connecting to WebSocket: ${wsUrl}`);
-    this.websocket = new WebSocket(wsUrl);
+    console.log(`[WebSocket] 准备连接 Worker ${this.workerId}...`);
+    console.log(`[WebSocket] 连接 URL: ${wsUrl}`);
+    console.log(`[WebSocket] 协议: ${wsProtocol}, 主机: ${wsHost}`);
+    console.log(`[WebSocket] 环境变量 VITE_API_BASE_URL:`, apiBaseUrl || '(未设置)');
+    console.log(`[WebSocket] 当前页面 host:`, window.location.host);
 
-    this.websocket.onopen = () => {
-      console.log(`Worker ${this.workerId} log stream connected`);
+    // 创建 WebSocket 实例（先保存到局部变量，避免 this 上下文问题）
+    const ws = new WebSocket(wsUrl);
+
+    // 立即保存到实例属性
+    this.websocket = ws;
+
+    console.log(`[WebSocket] WebSocket 对象已创建, readyState: ${ws.readyState} (CONNECTING=0)`);
+
+    ws.onopen = () => {
+      console.log(`✅ [WebSocket] Worker ${this.workerId} 日志流连接成功！`);
+      console.log(`✅ [WebSocket] 就绪状态: ${ws.readyState} (OPEN=1)`);
       this.reconnectAttempts = 0;
     };
 
-    this.websocket.onmessage = (event) => {
+    ws.onmessage = (event) => {
       try {
-        const log: WorkerLog = JSON.parse(event.data);
-        this.onMessageCallback?.(log);
+        const message = JSON.parse(event.data);
+
+        // 后端返回的日志消息格式：{ type: "history"|"log"|"heartbeat", data: {...} }
+        // 需要提取 data 字段作为实际的日志对象
+        if (message && message.type && message.data) {
+          const log: WorkerLog = message.data;
+          this.onMessageCallback?.(log);
+        } else if (message && message.timestamp) {
+          // 兼容旧格式：直接返回的日志对象
+          const log: WorkerLog = message;
+          this.onMessageCallback?.(log);
+        }
+        // 忽略其他类型的消息（如 heartbeat）
       } catch (error) {
-        console.error('Failed to parse log message:', error);
+        console.error('❌ [WebSocket] 解析日志消息失败:', error, '\n原始数据:', event.data);
       }
     };
 
-    this.websocket.onerror = (error) => {
-      console.error(`Worker ${this.workerId} log stream error:`, error);
+    ws.onerror = (error) => {
+      console.error('❌ [WebSocket] Worker', this.workerId, '日志流连接错误:');
+      console.error('  - 错误对象:', error);
+      console.error('  - WebSocket 状态:', ws?.readyState, `(使用局部变量)`);
+      console.error('  - this.websocket 状态:', this.websocket?.readyState, `(使用实例属性)`);
+      console.error('  - 状态说明:', this._getReadyStateDescription(ws?.readyState));
+      console.error('  - 连接 URL:', wsUrl);
+      console.error('  - 可能原因:');
+      console.error('    1. Vite 开发服务器未重启 (vite.config.ts 中 ws: true 未生效)');
+      console.error('    2. 后端服务未运行 (端口 8000)');
+      console.error('    3. 防火墙或网络问题');
+      console.error('');
+      console.error('💡 解决方案:');
+      console.error('   请在终端执行: cd frontend && ./restart-dev-server.sh');
       this.onErrorCallback?.(error);
     };
 
-    this.websocket.onclose = () => {
-      console.log(`Worker ${this.workerId} log stream closed`);
+    ws.onclose = (event) => {
+      console.log(`⚠️  [WebSocket] Worker ${this.workerId} 日志流连接关闭:`);
+      console.log(`  - 关闭代码: ${event.code}`);
+      console.log(`  - 关闭原因: ${event.reason || '(无)'}`);
+      console.log(`  - 是否干净关闭: ${event.wasClean}`);
       this.onCloseCallback?.();
 
       // 自动重连
       if (this.reconnectAttempts < this.maxReconnectAttempts) {
         this.reconnectAttempts++;
         setTimeout(() => {
-          console.log(`Reconnecting... attempt ${this.reconnectAttempts}`);
+          console.log(`🔄 [WebSocket] 尝试重新连接... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
           this.connect();
         }, this.reconnectDelay);
+      } else {
+        console.error(`❌ [WebSocket] 达到最大重连次数 (${this.maxReconnectAttempts}), 停止重连`);
       }
     };
   }
@@ -294,6 +340,20 @@ export class WorkerLogStream {
       this.websocket.close();
       this.websocket = null;
     }
+  }
+
+  /**
+   * 获取 WebSocket 就绪状态的描述
+   */
+  private _getReadyStateDescription(state: number | undefined): string {
+    if (state === undefined) return 'undefined (WebSocket 未创建)';
+    const states: Record<number, string> = {
+      0: 'CONNECTING - 连接中',
+      1: 'OPEN - 已连接',
+      2: 'CLOSING - 关闭中',
+      3: 'CLOSED - 已关闭',
+    };
+    return `${states[state] || '未知状态'} (${state})`;
   }
 
   /**

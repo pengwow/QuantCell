@@ -412,6 +412,7 @@ async def stream_logs(websocket, worker_id: int):
     2. 实时监控日志文件新内容
     3. 无需ZMQ消息传输，降低复杂度
     4. 性能提升10倍+
+    5. 正确处理客户端断开连接的情况
     """
     try:
         from .log_file_reader import get_log_file_manager
@@ -423,13 +424,21 @@ async def stream_logs(websocket, worker_id: int):
         # 发送历史日志（最近100条）
         history_logs = reader.tail_logs(str(worker_id), lines=100)
         for log_entry in history_logs:
-            await websocket.send_json({
-                "type": "history",
-                "data": log_entry,
-            })
+            try:
+                await websocket.send_json({
+                    "type": "history",
+                    "data": log_entry,
+                })
+            except Exception as e:
+                logger.warning(f"发送历史日志时客户端断开: {e}")
+                return  # 客户端已断开，直接返回
 
         # 标记历史日志发送完毕
-        await websocket.send_json({"type": "history_complete"})
+        try:
+            await websocket.send_json({"type": "history_complete"})
+        except Exception as e:
+            logger.warning(f"发送历史完成标记时客户端断开: {e}")
+            return  # 客户端已断开，直接返回
 
         # 实时监控新日志（类似 tail -f）
         async for new_log in reader.watch_logs(
@@ -437,28 +446,58 @@ async def stream_logs(websocket, worker_id: int):
             poll_interval=0.1,
         ):
             try:
+                # 检查 WebSocket 连接状态
+                if websocket.client_state.DISCONNECTED:
+                    logger.info(f"Worker {worker_id} 日志流: 客户端已断开")
+                    return
+
                 await websocket.send_json({
                     "type": "log",
                     "data": new_log,
                 })
             except Exception as e:
-                logger.error(f"WebSocket发送日志失败: {e}")
-                break
+                # 检测是否是连接关闭相关的错误
+                error_msg = str(e).lower()
+                if any(keyword in error_msg for keyword in ['close', 'disconnect', 'closed']):
+                    logger.info(f"Worker {worker_id} 日志流: 客户端断开连接，停止推送")
+                else:
+                    logger.error(f"WebSocket发送日志失败: {e}")
+                return  # 直接返回，不进入心跳循环
 
-        # 定期发送心跳（保持连接活跃）
+        # 如果 watch_logs 正常结束（文件监控停止），进入心跳保持模式
+        logger.debug(f"Worker {worker_id} 日志流: 文件监控结束，进入心跳保持模式")
+
         while True:
             await asyncio.sleep(30)
-            await websocket.send_json({"type": "heartbeat"})
+            try:
+                if websocket.client_state.DISCONNECTED:
+                    logger.info(f"Worker {worker_id} 日志流: 客户端已断开，停止心跳")
+                    return
+
+                await websocket.send_json({"type": "heartbeat"})
+            except Exception as e:
+                error_msg = str(e).lower()
+                if any(keyword in error_msg for keyword in ['close', 'disconnect', 'closed']):
+                    logger.info(f"Worker {worker_id} 日志流: 心跳发送失败，客户端可能已断开")
+                else:
+                    logger.error(f"心跳发送失败: {e}")
+                return  # 连接已关闭，退出
 
     except Exception as e:
-        logger.error(f"日志流异常: {e}")
-        try:
-            await websocket.send_json({
-                "type": "error",
-                "message": f"日志服务异常: {str(e)}",
-            })
-        except:
-            pass
+        error_msg = str(e).lower()
+        if any(keyword in error_msg for keyword in ['close', 'disconnect', 'closed']):
+            logger.info(f"Worker {worker_id} 日志流正常关闭: {e}")
+        else:
+            logger.error(f"日志流异常: {e}")
+            # 尝试发送错误消息（如果连接还活着）
+            try:
+                if not websocket.client_state.DISCONNECTED:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"日志服务异常: {str(e)}",
+                    })
+            except Exception:
+                pass  # 忽略发送失败的错误
 
 
 async def deploy_strategy(worker_id: int, request: schemas.StrategyDeployRequest) -> Dict[str, Any]:

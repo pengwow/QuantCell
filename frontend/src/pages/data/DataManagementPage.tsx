@@ -1197,7 +1197,7 @@ const DataManagementPage = () => {
             />
           </Tooltip>
         }
-        bodyStyle={{ padding: '8px 0' }}
+        styles={{ body: { padding: '8px 0' } }}
       >
         <Menu
           mode="inline"
@@ -1395,7 +1395,7 @@ const DataManagementPage = () => {
         width={800}
         okText="确认添加"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ marginBottom: 16 }}>
           <Text type="secondary">

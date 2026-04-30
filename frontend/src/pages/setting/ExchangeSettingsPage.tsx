@@ -342,7 +342,7 @@ const ExchangeSettingsPage = () => {
           {/* 左侧交易所列表 */}
           <div className="w-full lg:w-64 flex-shrink-0">
             <div className="text-base font-medium mb-4 leading-8 h-8">{t("exchange_list") || "交易所列表"}</div>
-            <Card className="shadow-sm" bodyStyle={{ padding: 8 }}>
+            <Card className="shadow-sm" styles={{ body: { padding: 8 } }}>
               {/* 小屏幕：水平排列自动换行；大屏幕：垂直列表 */}
               <div className="flex flex-wrap gap-2 lg:flex-col lg:gap-1">
                 {exchanges.map((exchange) => (
