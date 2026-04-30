@@ -5,16 +5,19 @@
 提供不依赖 FastAPI 服务的数据下载功能，包括：
 - 直接从币安/OKX 下载数据
 - 直接保存到数据库
+- 本地 Parquet 格式存储（可选）
 - 实时进度更新
 - 失败重试机制
 """
 
 import asyncio
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
 from utils.logger import get_logger, LogType
+from utils.parquet_utils import save_to_parquet, append_to_parquet
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -52,13 +55,24 @@ class StandaloneDownloadProgress:
 class StandaloneDataDownloader:
     """独立数据下载器，不依赖 FastAPI 服务"""
     
-    def __init__(self):
-        """初始化独立下载器"""
+    def __init__(self, save_local: bool = True):
+        """
+        初始化独立下载器
+
+        Args:
+            save_local: 是否同时保存到本地 Parquet 文件（默认 True）
+        """
         # 使用临时目录作为保存路径（数据实际直接保存到数据库）
-        from pathlib import Path
         self.temp_dir = Path(__file__).parent.parent / "data" / "temp"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        # 新增：初始化本地存储路径
+        self.save_local = save_local
+        self.local_storage_dir = Path.home() / ".quantcell" / "data" / "kline"
+        if save_local:
+            self.local_storage_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"本地存储目录: {self.local_storage_dir}")
+
         # 延迟初始化下载器，避免在初始化时调用API获取交易对列表
         self._spot_downloader = None
         self._futures_downloader = None
@@ -160,6 +174,11 @@ class StandaloneDataDownloader:
                     if df is not None and not df.empty:
                         # 直接保存到数据库
                         self._save_to_database(df, normalized_symbol, interval, crypto_type)
+
+                        # 新增：同时保存到本地 Parquet 文件（可选）
+                        if self.save_local:
+                            self._save_to_local_file(df, normalized_symbol, interval, date, crypto_type)
+
                         success_count += 1
                         logger.info(f"✓ {date} 数据下载成功: {len(df)} 条")
                     else:
@@ -352,7 +371,50 @@ class StandaloneDataDownloader:
         except Exception as e:
             logger.error(f"数据库操作失败: {e}")
             return False
-    
+
+    def _save_to_local_file(
+        self,
+        df: pd.DataFrame,
+        symbol: str,
+        interval: str,
+        date: str,
+        crypto_type: str
+    ) -> bool:
+        """
+        保存数据到本地 Parquet 文件
+
+        按日期分片存储，支持增量更新。
+
+        Args:
+            df: K线数据DataFrame
+            symbol: 交易对
+            interval: 时间周期
+            date: 日期字符串 (YYYY-MM-DD)
+            crypto_type: 交易类型
+
+        Returns:
+            bool: 是否保存成功
+        """
+        try:
+            # 构建存储路径：{base_dir}/{crypto_type}/{symbol}/{interval}/{date}.parquet
+            storage_type = 'spot' if crypto_type == 'spot' else 'futures'
+            file_dir = self.local_storage_dir / storage_type / symbol / interval
+            file_path = file_dir / f"{date}.parquet"
+
+            # 使用 append_to_parquet 支持增量更新（读取-合并-重写）
+            success = append_to_parquet(df, file_path)
+
+            if success:
+                logger.info(f"已保存到本地文件: {file_path} ({len(df)} 行)")
+                return True
+            else:
+                logger.error(f"保存到本地文件失败: {file_path}")
+                return False
+
+        except Exception as e:
+            logger.error(f"保存本地文件异常: {e}")
+            return False
+
     def download_sync(
         self,
         symbol: str,

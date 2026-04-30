@@ -1,4 +1,9 @@
-# 币安数据下载器和收集器
+# -*- coding: utf-8 -*-
+"""
+币安数据下载器和收集器
+
+支持 Parquet 格式本地存储，提供更高的压缩率和查询性能。
+"""
 import asyncio
 import ssl
 import zipfile
@@ -12,6 +17,7 @@ import pandas as pd
 import requests
 from utils.logger import get_logger, LogType
 from utils.timestamp_utils import normalize_to_nanoseconds
+from utils.parquet_utils import save_to_parquet, append_to_parquet
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -227,16 +233,23 @@ class BinanceDownloader(BaseCollector):
 
     def save_data(self, df, save_path):
         """
-        保存K线数据到文件
+        保存K线数据到文件（Parquet格式）
 
         :param df: K线数据DataFrame
-        :param save_path: 保存路径
+        :param save_path: 保存路径（会自动转换为 .parquet 后缀）
         """
         if df is not None and not df.empty:
             save_path = Path(save_path)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            df.to_csv(save_path, index=False)
-            logger.info(f"数据已保存到 {save_path}")
+            # 自动转换为 .parquet 后缀
+            if save_path.suffix == '.csv':
+                save_path = save_path.with_suffix('.parquet')
+            
+            # 使用 append_to_parquet 支持增量更新
+            success = append_to_parquet(df, save_path)
+            if success:
+                logger.info(f"数据已保存到 {save_path} (Parquet 格式)")
+            else:
+                logger.error(f"保存数据失败: {save_path}")
         else:
             logger.warning(f"数据为空，未保存到 {save_path}")
 
@@ -370,7 +383,8 @@ class BinanceDownloader(BaseCollector):
         """
         df = self.download(symbol, timeframe, start_date, end_date)
         if not df.empty:
-            save_path = self.save_dir / f"{symbol}.csv"
+            # 使用 .parquet 后缀保存
+            save_path = self.save_dir / f"{symbol}.parquet"
             self.save_data(df, save_path)
             return len(df)
         return 0
