@@ -59,3 +59,4 @@ backend/config.toml
 backend/tmp/*
 
 agent_workspace/sessions/*.json
+frontend/tsconfig.tsbuildinfo
