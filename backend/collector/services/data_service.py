@@ -1,9 +1,13 @@
 # 数据服务类，处理数据相关的业务逻辑
+# 支持 Parquet 格式本地存储，提供更高的压缩率和查询性能。
+
 import json
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import pandas as pd
 from utils.logger import get_logger, LogType
+from utils.parquet_utils import load_from_parquet, load_kline_data_auto, list_parquet_files
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -1114,162 +1118,46 @@ class DataService:
 
                     # 初始化数据库配置
                     init_database_config()
-                    
-                    # 获取所有CSV文件
-                    csv_files = list(data_dir.glob("*.csv"))
-                    logger.info(f"找到 {len(csv_files)} 个CSV文件")
-                    
-                    # 过滤文件（只处理当前下载的交易对）
-                    if request.symbols:
-                        symbol_set = set(symbol.replace("/", "") for symbol in request.symbols)
-                        csv_files = [f for f in csv_files if f.stem in symbol_set]
-                        logger.info(f"过滤后找到 {len(csv_files)} 个CSV文件")
-                    
-                    # 处理每个CSV文件
-                    for csv_file in csv_files:
-                        symbol = csv_file.stem
-                        logger.info(f"开始处理文件: {csv_file}")
-                        
-                        # 读取CSV文件
-                        df = pd.read_csv(csv_file)
-                        if df is None or df.empty:
-                            logger.warning(f"{symbol} 数据为空，跳过写入数据库")
-                            continue
-                        
-                        # 准备数据，确保只包含需要的列
-                        kline_list = []
-                        for _, row in df.iterrows():
-                            # 跳过无效行 - 使用pandas Series的isna()方法检查相关字段
-                            if row[['timestamp', 'open', 'high', 'low', 'close', 'volume']].isna().any(axis=None):
+
+                    # 优先查找 Parquet 文件，兼容旧版 CSV 文件
+                    parquet_files = list_parquet_files(data_dir)
+                    if not parquet_files:
+                        # 如果没有 Parquet 文件，尝试查找 CSV 文件（向后兼容）
+                        csv_files = list(data_dir.glob("*.csv"))
+                        logger.info(f"未找到 Parquet 文件，找到 {len(csv_files)} 个 CSV 文件（旧格式）")
+
+                        for csv_file in csv_files:
+                            symbol = csv_file.stem
+                            logger.info(f"开始处理CSV文件: {csv_file}")
+
+                            df = pd.read_csv(csv_file)
+                            if df is None or df.empty:
+                                logger.warning(f"{symbol} 数据为空，跳过写入数据库")
                                 continue
-                            
-                            # 将timestamp转换为整数，去除小数点
-                            try:
-                                timestamp = int(float(row['timestamp']))
-                            except (ValueError, TypeError):
-                                logger.warning(f"无效的timestamp值: {row['timestamp']}，跳过该行")
+
+                            self._process_dataframe_for_db(df, symbol, interval, request)
+                    else:
+                        logger.info(f"找到 {len(parquet_files)} 个 Parquet 文件")
+
+                        # 过滤文件（只处理当前下载的交易对）
+                        if request.symbols:
+                            symbol_set = set(symbol.replace("/", "") for symbol in request.symbols)
+                            parquet_files = [f for f in parquet_files if f.stem in symbol_set]
+                            logger.info(f"过滤后找到 {len(parquet_files)} 个 Parquet 文件")
+
+                        # 处理每个 Parquet 文件
+                        for parquet_file in parquet_files:
+                            symbol = parquet_file.stem
+                            logger.info(f"开始处理Parquet文件: {parquet_file}")
+
+                            # 使用 load_from_parquet 读取数据
+                            df = load_from_parquet(parquet_file)
+
+                            if df is None or df.empty:
+                                logger.warning(f"{symbol} 数据为空，跳过写入数据库")
                                 continue
-                            
-                            # 使用整数timestamp生成unique_kline值
-                            unique_kline = f"{symbol}_{interval}_{timestamp}"
-                            
-                            kline_list.append({
-                                'symbol': symbol,
-                                'interval': interval,
-                                'timestamp': str(timestamp),  # 转换为字符串存储
-                                'open': row['open'],
-                                'high': row['high'],
-                                'low': row['low'],
-                                'close': row['close'],
-                                'volume': row['volume'],
-                                'unique_kline': unique_kline,
-                                'data_source': request.exchange  # 添加data_source字段
-                            })
-                        
-                        if not kline_list:
-                            logger.warning(f"没有有效数据可以写入数据库: {symbol}")
-                            continue
-                        
-                        # 根据candle_type选择对应的K线模型
-                        kline_model = CryptoSpotKline if request.candle_type == "spot" else CryptoFutureKline
-                        logger.info(f"使用K线模型: {kline_model.__tablename__}, candle_type: {request.candle_type}")
-                        
-                        # 创建数据库会话
-                        db = SessionLocal()
-                        try:
-                            # 实现跨数据库兼容的UPSERT逻辑
-                            from collector.db.database import db_type
-                            
-                            if db_type == "sqlite":
-                                # SQLite使用更简单的冲突处理方式
-                                from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-                                
-                                # 使用较小的批次查询已存在的记录，避免SQL变量限制
-                                existing_set = set()
-                                check_batch_size = 500  # SQLite默认限制999，使用500安全
-                                total_records = len(kline_list)
-                                
-                                for i in range(0, total_records, check_batch_size):
-                                    check_batch = kline_list[i:i+check_batch_size]
-                                    check_unique_klines = [k['unique_kline'] for k in check_batch]
-                                    
-                                    existing_batch = db.query(kline_model.unique_kline).filter(
-                                        kline_model.unique_kline.in_(check_unique_klines)
-                                    ).all()
-                                    existing_set.update({uk[0] for uk in existing_batch})
-                                
-                                # 分离新记录和需要更新的记录
-                                new_records = [k for k in kline_list if k['unique_kline'] not in existing_set]
-                                update_records = [k for k in kline_list if k['unique_kline'] in existing_set]
-                                
-                                logger.info(f"{symbol}: 新记录 {len(new_records)} 条，需更新记录 {len(update_records)} 条")
-                                
-                                # 批量插入新记录
-                                if new_records:
-                                    insert_batch_size = 100
-                                    total_rows = len(new_records)
-                                    for i in range(0, total_rows, insert_batch_size):
-                                        batch = new_records[i:i+insert_batch_size]
-                                        stmt = sqlite_insert(kline_model).values(batch)
-                                        db.execute(stmt)
-                                        if i % 500 == 0:
-                                            logger.info(f"{symbol}: 已插入 {i}/{total_rows} 条新记录")
-                                
-                                # 批量更新已存在的记录
-                                if update_records:
-                                    update_batch_size = 100
-                                    total_updates = len(update_records)
-                                    for i in range(0, total_updates, update_batch_size):
-                                        batch = update_records[i:i+update_batch_size]
-                                        for record in batch:
-                                            db.query(kline_model).filter(
-                                                kline_model.unique_kline == record['unique_kline']
-                                            ).update({
-                                                'open': record['open'],
-                                                'high': record['high'],
-                                                'low': record['low'],
-                                                'close': record['close'],
-                                                'volume': record['volume'],
-                                                'updated_at': func.now()
-                                            })
-                                        if i % 500 == 0:
-                                            logger.info(f"{symbol}: 已更新 {i}/{total_updates} 条记录")
-                            elif db_type == "duckdb":
-                                # DuckDB使用PostgreSQL兼容的ON CONFLICT语法
-                                from sqlalchemy.dialects.postgresql import \
-                                    insert as pg_insert
-                                # 分批处理，避免SQL变量限制
-                                batch_size = 500
-                                total_records = len(kline_list)
-                                for i in range(0, total_records, batch_size):
-                                    batch = kline_list[i:i+batch_size]
-                                    stmt = pg_insert(kline_model).values(batch)
-                                    stmt = stmt.on_conflict_do_update(
-                                        index_elements=['unique_kline'],
-                                        set_={
-                                            'open': stmt.excluded.open,
-                                            'high': stmt.excluded.high,
-                                            'low': stmt.excluded.low,
-                                            'close': stmt.excluded.close,
-                                            'volume': stmt.excluded.volume,
-                                            'updated_at': func.now()
-                                        }
-                                    )
-                                    db.execute(stmt)
-                                    if i % 1000 == 0:
-                                        logger.info(f"{symbol}: 已处理 {i}/{total_records} 条记录")
-                            else:
-                                # 其他数据库类型，使用BULK INSERT + 错误处理
-                                raise ValueError(f"不支持的数据库类型: {db_type}")
-                        
-                            db.commit()
-                            logger.info(f"成功将 {len(kline_list)} 条 {symbol} 数据写入 {kline_model.__tablename__} 表")
-                        except Exception as e:
-                            logger.error(f"写入数据库失败: {e}")
-                            logger.exception(e)
-                            db.rollback()
-                        finally:
-                            db.close()
+
+                            self._process_dataframe_for_db(df, symbol, interval, request)
                 except Exception as e:
                     logger.error(f"处理数据库写入时发生异常: {e}")
                     logger.exception(e)
@@ -1284,7 +1172,111 @@ class DataService:
             
             # 更新任务状态为失败
             task_manager.fail_task(task_id, error_message=str(e))
-    
+
+    def _process_dataframe_for_db(self, df, symbol, interval, request):
+        """
+        处理 DataFrame 并写入数据库
+
+        Args:
+            df: K线数据DataFrame
+            symbol: 交易对符号
+            interval: 时间间隔
+            request: 下载请求对象
+        """
+        try:
+            from sqlalchemy import func
+            from collector.db.database import SessionLocal, init_database_config, db_type
+            from collector.db.models import CryptoSpotKline, CryptoFutureKline
+
+            # 准备数据，确保只包含需要的列
+            kline_list = []
+            for _, row in df.iterrows():
+                # 跳过无效行 - 使用pandas Series的isna()方法检查相关字段
+                if row[['timestamp', 'open', 'high', 'low', 'close', 'volume']].isna().any(axis=None):
+                    continue
+
+                # 将timestamp转换为整数，去除小数点
+                try:
+                    timestamp = int(float(row['timestamp']))
+                except (ValueError, TypeError):
+                    logger.warning(f"无效的timestamp值: {row['timestamp']}，跳过该行")
+                    continue
+
+                # 使用整数timestamp生成unique_kline值
+                unique_kline = f"{symbol}_{interval}_{timestamp}"
+
+                kline_list.append({
+                    'symbol': symbol,
+                    'interval': interval,
+                    'timestamp': str(timestamp),  # 转换为字符串存储
+                    'open': row['open'],
+                    'high': row['high'],
+                    'low': row['low'],
+                    'close': row['close'],
+                    'volume': row['volume'],
+                    'unique_kline': unique_kline,
+                    'data_source': request.exchange  # 添加data_source字段
+                })
+
+            if not kline_list:
+                logger.warning(f"没有有效数据可以写入数据库: {symbol}")
+                return
+
+            # 根据candle_type选择对应的K线模型
+            kline_model = CryptoSpotKline if request.candle_type == "spot" else CryptoFutureKline
+            logger.info(f"使用K线模型: {kline_model.__tablename__}, candle_type: {request.candle_type}")
+
+            # 创建数据库会话
+            db = SessionLocal()
+            try:
+                # 实现跨数据库兼容的UPSERT逻辑
+
+                if db_type == "sqlite":
+                    # SQLite使用更简单的冲突处理方式
+                    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+                    # 分批插入数据，避免SQL变量限制
+                    batch_size = 100
+                    total_rows = len(kline_list)
+                    for i in range(0, total_rows, batch_size):
+                        batch = kline_list[i:i+batch_size]
+                        stmt = sqlite_insert(kline_model).values(batch)
+                        db.execute(stmt)
+                        if i % 500 == 0:
+                            logger.info(f"{symbol}: 已插入 {i}/{total_rows} 条新记录")
+
+                elif db_type == "duckdb":
+                    # DuckDB使用PostgreSQL兼容的ON CONFLICT语法
+                    from sqlalchemy.dialects.postgresql import insert as pg_insert
+                    stmt = pg_insert(kline_model).values(kline_list)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=['unique_kline'],
+                        set_={
+                            'open': stmt.excluded.open,
+                            'high': stmt.excluded.high,
+                            'low': stmt.excluded.low,
+                            'close': stmt.excluded.close,
+                            'volume': stmt.excluded.volume,
+                            'updated_at': func.now()
+                        }
+                    )
+                    db.execute(stmt)
+                else:
+                    # 其他数据库类型，使用BULK INSERT + 错误处理
+                    raise ValueError(f"不支持的数据库类型: {db_type}")
+
+                db.commit()
+                logger.info(f"成功将 {len(kline_list)} 条 {symbol} 数据写入 {kline_model.__tablename__} 表")
+            except Exception as e:
+                logger.error(f"写入数据库失败: {e}")
+                logger.exception(e)
+                db.rollback()
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"处理DataFrame失败: {e}")
+            logger.exception(e)
+
     def export_crypto_data(self, request: ExportCryptoRequest) -> Dict[str, Any]:
         """导出加密货币数据
         

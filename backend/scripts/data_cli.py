@@ -2,6 +2,7 @@
 """
 数据管理命令行工具
 支持K线数据下载、任务管理和本地数据查询
+支持数据导出到 CSV 和 Parquet 格式（Parquet 提供更高的压缩率和查询性能）
 """
 
 import sys
@@ -24,6 +25,7 @@ from utils.timestamp_utils import (
     nanoseconds_to_milliseconds, detect_precision, datetime_to_nanoseconds,
     from_nanoseconds
 )
+from utils.parquet_utils import save_to_parquet, get_parquet_info, load_from_parquet
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -47,7 +49,14 @@ try:
     from collector.db.database import init_database_config, SessionLocal
     from collector.db.models import CryptoSpotKline, CryptoFutureKline, CryptoSymbol
     from settings.models import SystemConfigBusiness as SystemConfig
-    from backtest.cli_core import get_symbols_from_data_pool
+    # 可选导入回测CLI核心模块（用于 list_symbols 等功能）
+    try:
+        from backtest.cli_core import get_symbols_from_data_pool
+        _cli_core_available = True
+    except ImportError:
+        get_symbols_from_data_pool = None
+        _cli_core_available = False
+        logger.warning("backtest.cli_core 模块不可用，部分功能可能受限")
 except ImportError as e:
     logger.error(f"导入模块失败: {e}")
     logger.error(f"当前 sys.path: {sys.path}")
@@ -59,7 +68,7 @@ except ImportError as e:
 
 
 # 创建导入导出子命令
-export_app = typer.Typer(help="导出数据到文件")
+export_app = typer.Typer(help="导出数据到文件（支持 CSV 和 Parquet 格式，Parquet 提供更高压缩率和性能）")
 import_app = typer.Typer(help="从文件导入数据到数据库")
 
 
@@ -127,6 +136,234 @@ def _get_default_date_range(end_date: Optional[datetime] = None) -> tuple[str, s
 
     logger.debug(f"默认日期范围: {start_str} 至 {end_str}")
     return start_str, end_str
+
+
+def _query_kline_data_from_db(
+    symbol: str,
+    interval: str,
+    candle_type: str = "spot",
+    data_source: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: Optional[int] = None,
+    columns: Optional[List[str]] = None,
+    sort_desc: bool = False,
+) -> pd.DataFrame:
+    """
+    从数据库查询 K线 数据（共享查询逻辑，供 CSV 和 Parquet 导出使用）
+
+    Args:
+        symbol: 交易对符号
+        interval: 时间周期
+        candle_type: 蜡烛图类型 (spot/future)
+        data_source: 数据源过滤
+        start: 开始时间 (YYYYMMDD)
+        end: 结束时间 (YYYYMMDD)
+        limit: 记录数限制
+        columns: 指定返回的列（逗号分隔的字符串）
+        sort_desc: 是否倒序排列
+
+    Returns:
+        pd.DataFrame: 查询结果
+
+    Raises:
+        ValueError: 参数无效时抛出
+        Exception: 数据库查询失败时抛出
+    """
+    db = SessionLocal()
+    try:
+        # 选择数据表
+        if candle_type.lower() == "spot":
+            KlineModel = CryptoSpotKline
+        elif candle_type.lower() in ["future", "futures"]:
+            KlineModel = CryptoFutureKline
+        else:
+            raise ValueError(f"不支持的蜡烛图类型: {candle_type}")
+
+        # 构建查询
+        query = db.query(KlineModel).filter(
+            KlineModel.symbol == symbol.upper(),
+            KlineModel.interval == interval
+        )
+
+        # 筛选数据源
+        if data_source:
+            query = query.filter(KlineModel.data_source == data_source.lower())
+
+        # 筛选时间范围 (统一使用纳秒级时间戳)
+        if start:
+            try:
+                # 转换为纳秒级时间戳
+                start_dt = datetime.strptime(start, "%Y%m%d")
+                start_ts_ns = datetime_to_nanoseconds(start_dt)
+                query = query.filter(KlineModel.timestamp >= str(start_ts_ns))
+            except ValueError:
+                raise ValueError(f"开始时间格式不正确: {start}，请使用 YYYYMMDD 格式")
+
+        if end:
+            try:
+                # 转换为纳秒级时间戳，并设置为当天23:59:59
+                end_dt = datetime.strptime(end, "%Y%m%d").replace(hour=23, minute=59, second=59)
+                end_ts_ns = datetime_to_nanoseconds(end_dt)
+                query = query.filter(KlineModel.timestamp <= str(end_ts_ns))
+            except ValueError:
+                raise ValueError(f"结束时间格式不正确: {end}，请使用 YYYYMMDD 格式")
+
+        # 按时间戳排序
+        if sort_desc:
+            query = query.order_by(KlineModel.timestamp.desc())
+        else:
+            query = query.order_by(KlineModel.timestamp)
+
+        # 限制记录数量
+        if limit and limit > 0:
+            query = query.limit(limit)
+
+        # 执行查询
+        records = query.all()
+
+        if not records:
+            return pd.DataFrame()
+
+        # 定义所有可用列
+        all_columns = {
+            'symbol': lambda r: r.symbol,
+            'interval': lambda r: r.interval,
+            'timestamp': lambda r: r.timestamp,
+            'open': lambda r: r.open,
+            'high': lambda r: r.high,
+            'low': lambda r: r.low,
+            'close': lambda r: r.close,
+            'volume': lambda r: r.volume,
+            'data_source': lambda r: r.data_source,
+        }
+
+        # 解析用户指定的列
+        if columns:
+            selected_columns = [col.strip() for col in columns]
+            # 验证列名
+            invalid_cols = [col for col in selected_columns if col not in all_columns]
+            if invalid_cols:
+                raise ValueError(f"无效的列名: {', '.join(invalid_cols)}\n可用列: {', '.join(all_columns.keys())}")
+        else:
+            selected_columns = list(all_columns.keys())
+
+        # 转换为DataFrame
+        data = []
+        for record in records:
+            row = {}
+            for col in selected_columns:
+                value = all_columns[col](record)
+                row[col] = value
+            data.append(row)
+
+        df = pd.DataFrame(data)
+        return df
+
+    finally:
+        db.close()
+
+
+def _validate_parquet_export(
+    output_path: Path,
+    original_df: pd.DataFrame,
+    verbose: bool = False
+) -> bool:
+    """
+    验证导出的 Parquet 文件完整性
+
+    检查项：
+    1. 文件是否存在且大小 > 0
+    2. 能否成功读取
+    3. 行数是否一致
+    4. 列名是否一致
+    5. 数据类型检查
+
+    Args:
+        output_path: 导出的文件路径
+        original_df: 原始 DataFrame（用于对比）
+        verbose: 是否显示详细信息
+
+    Returns:
+        bool: 验证是否通过
+    """
+    validation_passed = True
+
+    # 检查 1: 文件存在性
+    if not output_path.exists():
+        typer.echo(f"❌ 验证失败: 文件不存在 - {output_path}", err=True)
+        return False
+
+    # 检查 2: 文件大小非零
+    file_size = output_path.stat().st_size
+    if file_size == 0:
+        typer.echo(f"❌ 验证失败: 文件大小为零 - {output_path}", err=True)
+        return False
+
+    if verbose:
+        typer.echo(f"✓ 文件存在且大小正常: {file_size:,} bytes")
+
+    # 检查 3: 可读性检查
+    try:
+        loaded_df = load_from_parquet(output_path)
+        if loaded_df.empty and not original_df.empty:
+            typer.echo("❌ 验证失败: 无法读取文件内容或文件为空", err=True)
+            return False
+
+        if verbose:
+            typer.echo(f"✓ 文件可成功读取")
+    except Exception as e:
+        typer.echo(f"❌ 验证失败: 读取文件时出错 - {e}", err=True)
+        return False
+
+    # 检查 4: 行数一致性
+    if len(loaded_df) != len(original_df):
+        typer.echo(f"❌ 验证失败: 行数不一致 - 原始 {len(original_df)} 行, 导出 {len(loaded_df)} 行", err=True)
+        validation_passed = False
+    elif verbose:
+        typer.echo(f"✓ 行数一致: {len(loaded_df):,} 行")
+
+    # 检查 5: 列名一致性
+    original_cols = set(original_df.columns)
+    loaded_cols = set(loaded_df.columns)
+    if original_cols != loaded_cols:
+        missing = original_cols - loaded_cols
+        extra = loaded_cols - original_cols
+        typer.echo(f"❌ 验证失败: 列名不一致", err=True)
+        if missing:
+            typer.echo(f"   缺少列: {', '.join(missing)}", err=True)
+        if extra:
+            typer.echo(f"   多余列: {', '.join(extra)}", err=True)
+        validation_passed = False
+    elif verbose:
+        typer.echo(f"✓ 列名一致: {', '.join(sorted(loaded_cols))}")
+
+    # 检查 6: 数据类型检查（抽样）
+    if validation_passed and not loaded_df.empty:
+        type_checks_passed = True
+
+        # 检查 timestamp 是否为整数类型
+        if 'timestamp' in loaded_df.columns:
+            if not pd.api.types.is_integer_dtype(loaded_df['timestamp']):
+                if verbose:
+                    typer.echo(f"⚠️ timestamp 类型: {loaded_df['timestamp'].dtype} (建议使用整数类型)")
+            elif verbose:
+                typer.echo(f"✓ timestamp 类型正确: {loaded_df['timestamp'].dtype}")
+
+        # 检查数值列
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+        for col in numeric_cols:
+            if col in loaded_df.columns:
+                if not pd.api.types.is_numeric_dtype(loaded_df[col]):
+                    typer.echo(f"⚠️ {col} 类型: {loaded_df[col].dtype} (建议使用数值类型)")
+                    type_checks_passed = False
+                elif verbose:
+                    typer.echo(f"✓ {col} 类型正确: {loaded_df[col].dtype}")
+
+        if not type_checks_passed:
+            validation_passed = False
+
+    return validation_passed
 
 
 # ========== 导出子命令 ==========
@@ -359,6 +596,247 @@ def export_csv(
             
     except Exception as e:
         logger.exception(f"导出数据时发生错误: {e}")
+        typer.echo(f"错误: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@export_app.command("parquet")
+def export_parquet(
+    symbol: Annotated[str, typer.Option("--symbol", "-s", help="交易对，如BTCUSDT")],
+    interval: Annotated[str, typer.Option("--interval", "-i", help="时间周期，如1m, 5m, 1h, 1d")],
+    output: Annotated[Optional[str], typer.Option("--output", "-o", help="输出文件路径(.parquet)，默认保存到 backend/data/{table_name}/ 目录下")] = None,
+    data_source: Annotated[Optional[str], typer.Option("--data-source", "-d", help="数据源(如binance, okx)")] = None,
+    candle_type: Annotated[str, typer.Option("--candle-type", help="蜡烛图类型(spot/future)")] = "spot",
+    start: Annotated[Optional[str], typer.Option("--start", help="开始时间(格式: YYYYMMDD)")] = None,
+    end: Annotated[Optional[str], typer.Option("--end", help="结束时间(格式: YYYYMMDD)")] = None,
+    limit: Annotated[Optional[int], typer.Option("--limit", "-l", help="限制导出记录数量")] = None,
+    columns: Annotated[Optional[str], typer.Option("--columns", "-c", help="指定导出的列(逗号分隔，如:timestamp,open,high,low,close,volume)")] = None,
+    sort_desc: Annotated[bool, typer.Option("--sort-desc", help="按时间倒序排列")] = False,
+    compression: Annotated[str, typer.Option("--compression", help="压缩算法(snappy/gzip/zstd)，默认snappy")] = "snappy",
+    ts_precision: Annotated[str, typer.Option("--ts-precision", help="时间戳精度统一(s:秒, ms:毫秒, us:微秒, ns:纳秒, auto:自动)")] = "auto",
+    format_timestamp: Annotated[bool, typer.Option("--format-timestamp", "-t", help="将时间戳格式化为可读日期")] = False,
+    validate: Annotated[bool, typer.Option("--validate", help="导出后验证文件完整性")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="显示详细日志")] = False,
+):
+    """
+    导出K线数据到Parquet格式文件
+
+    Parquet 格式相比 CSV 具有：
+    - 更高的压缩率（通常 70-90% 空间节省）
+    - 更快的查询速度（特别是列式读取）
+    - 类型安全（保持原始数据类型，数值不转为字符串）
+
+    默认保存路径: backend/data/{table_name}/{symbol}_{interval}.parquet
+      - 现货数据: backend/data/crypto_spot_klines/BTCUSDT_1h.parquet
+      - 合约数据: backend/data/crypto_future_klines/BTCUSDT_1h.parquet
+
+    示例:
+      # 基本用法 - 导出BTCUSDT的1小时数据（使用默认路径）
+      python data_cli.py export parquet -s BTCUSDT -i 1h
+
+      # 指定输出路径
+      python data_cli.py export parquet -s BTCUSDT -i 1h -o /tmp/btc.parquet
+
+      # 指定时间范围的数据
+      python data_cli.py export parquet -s BTCUSDT -i 1d --start 20240101 --end 20241231
+
+      # 使用 gzip 压缩以获得更高压缩率
+      python data_cli.py export parquet -s BTCUSDT -i 1h --compression gzip
+
+      # 只导出价格列（利用列式存储优势，减少文件大小）
+      python data_cli.py export parquet -s BTCUSDT -i 1h -c timestamp,open,high,low,close
+
+      # 导出前1000条记录，并格式化时间戳为可读日期
+      python data_cli.py export parquet -s BTCUSDT -i 1h -l 1000 -t
+
+      # 导出并验证文件完整性
+      python data_cli.py export parquet -s BTCUSDT -i 1h --validate --verbose
+
+      # 使用 zstd 压缩算法（最佳压缩率，适合归档）
+      python data_cli.py export parquet -s BTCUSDT -i 1m --start 20240101 --end 20240131 --compression zstd
+
+      # 导出合约数据（默认保存到 crypto_future_klines/ 目录）
+      python data_cli.py export parquet -s BTCUSDT -i 1h --candle-type future
+
+      # 统一时间戳精度为毫秒
+      python data_cli.py export parquet -s BTCUSDT -i 1h --ts-precision ms
+
+    性能对比 (Parquet vs CSV):
+      ┌─────────────────┬──────────┬───────────┬──────────────┐
+      │ 指标            │ CSV      │ Parquet   │ 提升         │
+      ├─────────────────┼──────────┼───────────┼──────────────┤
+      │ 存储空间        │ 100%     │ 10-30%    │ 70-90% 节省  │
+      │ 全量加载速度    │ 基准     │ 3-5x 更快 │ 显著提升     │
+      │ 单列查询速度    │ 基准     │ 10-25x更快│ 极大提升     │
+      │ 类型安全        │ ❌       │ ✅         │ 避免类型错误  │
+      │ 压缩支持        │ gzip     │ 多种算法  │ 灵活选择     │
+      └─────────────────┴──────────┴───────────┴──────────────┘
+    """
+    try:
+        if verbose:
+            logger.remove()
+            logger.add(sys.stderr, level="DEBUG")
+
+        # 初始化数据库
+        init_db()
+
+        # 生成输出路径（如果未指定）
+        if output:
+            output_path = Path(output)
+        else:
+            # 根据表名确定子目录
+            if candle_type.lower() in ["future", "futures"]:
+                table_name = "crypto_future_klines"
+            else:
+                table_name = "crypto_spot_klines"
+
+            # 默认保存到 backend/data/{table_name}/ 目录下
+            data_dir = backend_path / "data" / table_name
+            output_path = data_dir / f"{symbol.upper()}_{interval}.parquet"
+
+            if verbose:
+                typer.echo(f"使用默认输出路径: {output_path}")
+
+        # 验证压缩算法参数
+        valid_compressions = ['snappy', 'gzip', 'zstd']
+        if compression not in valid_compressions:
+            typer.echo(f"错误: 不支持的压缩算法: {compression}", err=True)
+            typer.echo(f"可用选项: {', '.join(valid_compressions)}", err=True)
+            typer.echo("推荐: snappy(平衡速度与压缩率), gzip(高压缩率), zstd(最佳压缩率)", err=True)
+            raise typer.Exit(1)
+
+        # 验证时间戳精度参数
+        valid_precisions = ['s', 'ms', 'us', 'ns', 'auto']
+        if ts_precision not in valid_precisions:
+            typer.echo(f"错误: 无效的时间戳精度: {ts_precision}", err=True)
+            typer.echo(f"可用选项: {', '.join(valid_precisions)} (s:秒, ms:毫秒, us:微秒, ns:纳秒, auto:自动)", err=True)
+            raise typer.Exit(1)
+
+        # 调用共享查询函数获取数据
+        try:
+            df = _query_kline_data_from_db(
+                symbol=symbol,
+                interval=interval,
+                candle_type=candle_type,
+                data_source=data_source,
+                start=start,
+                end=end,
+                limit=limit,
+                columns=columns.split(',') if columns else None,
+                sort_desc=sort_desc
+            )
+        except ValueError as e:
+            typer.echo(f"错误: {e}", err=True)
+            raise typer.Exit(1)
+        except Exception as e:
+            logger.exception(f"查询数据时发生错误: {e}")
+            typer.echo(f"错误: 数据库查询失败 - {e}", err=True)
+            raise typer.Exit(1)
+
+        # 检查数据是否为空
+        if df.empty:
+            typer.echo(f"⚠️ 未找到符合条件的数据")
+            typer.echo("提示: 请检查筛选条件或尝试扩大时间范围", err=False)
+            return
+
+        # 处理时间戳字段
+        if 'timestamp' in df.columns and not format_timestamp:
+            if ts_precision != 'auto':
+                try:
+                    from typing import cast
+                    from utils.timestamp_utils import Precision
+                    precision = cast(Precision, ts_precision)
+                    df['timestamp'] = df['timestamp'].apply(lambda x: from_nanoseconds(x, precision))
+                    if verbose:
+                        typer.echo(f"已统一时间戳精度为: {ts_precision}")
+                except Exception as e:
+                    logger.warning(f"时间戳精度转换失败，保持原值: {e}")
+
+        elif 'timestamp' in df.columns and format_timestamp:
+            def format_ts_readable(ts_str):
+                try:
+                    return format_nanoseconds(ts_str, "%Y-%m-%d %H:%M:%S")
+                except:
+                    return ts_str
+
+            df['timestamp'] = df['timestamp'].apply(format_ts_readable)
+            if verbose:
+                typer.echo("已将时间戳格式化为可读日期")
+
+        # 确保输出目录存在
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+            typer.echo(f"❌ 错误: 无写入权限 - {output_path.parent}", err=True)
+            typer.echo("提示: 请检查目录权限或使用其他路径", err=True)
+            raise typer.Exit(1)
+        except Exception as e:
+            typer.echo(f"❌ 错误: 无法创建目录 - {e}", err=True)
+            raise typer.Exit(1)
+
+        # 保存到 Parquet 文件
+        success = save_to_parquet(df, output_path, compression=compression)
+
+        if not success:
+            typer.echo(f"❌ 错误: 保存 Parquet 文件失败", err=True)
+            raise typer.Exit(1)
+
+        # 获取文件信息
+        file_size = output_path.stat().st_size
+        if file_size > 1024 * 1024:
+            size_str = f"{file_size / (1024 * 1024):.2f} MB"
+        elif file_size > 1024:
+            size_str = f"{file_size / 1024:.2f} KB"
+        else:
+            size_str = f"{file_size} B"
+
+        # 输出成功信息
+        typer.echo(f"✓ 成功导出 {len(df):,} 条数据到 {output_path}")
+        typer.echo(f"  格式: Parquet (.parquet)")
+        typer.echo(f"  压缩算法: {compression}")
+        typer.echo(f"  文件大小: {size_str}")
+        typer.echo(f"  交易对: {symbol}")
+        typer.echo(f"  时间周期: {interval}")
+        typer.echo(f"  数据类型: {'合约' if candle_type.lower() in ['future', 'futures'] else '现货'}")
+        typer.echo(f"  数据源: {data_source or '全部'}")
+
+        if start or end:
+            typer.echo(f"  时间范围: {start or '无限制'} ~ {end or '无限制'}")
+        if limit:
+            typer.echo(f"  限制数量: {limit:,}")
+        if columns:
+            typer.echo(f"  导出列: {columns}")
+        if format_timestamp:
+            typer.echo(f"  时间戳格式: 已格式化为可读日期")
+        elif ts_precision != 'auto':
+            precision_names = {'s': '秒', 'ms': '毫秒', 'us': '微秒', 'ns': '纳秒'}
+            typer.echo(f"  时间戳精度: {precision_names.get(ts_precision, ts_precision)}")
+
+        # 可选：验证导出的文件
+        if validate:
+            typer.echo("")
+            typer.echo("正在验证导出的文件...")
+            validation_passed = _validate_parquet_export(output_path, df, verbose=verbose)
+
+            if validation_passed:
+                typer.echo(f"✓ 验证通过: 文件完整性检查正常")
+            else:
+                typer.echo(f"⚠️ 验证未完全通过: 建议检查文件内容", err=True)
+
+        # 显示额外信息（verbose模式）
+        if verbose:
+            typer.echo("")
+            typer.echo("详细统计:")
+            parquet_info = get_parquet_info(output_path)
+            if parquet_info:
+                typer.echo(f"  行数: {parquet_info.get('num_rows', 'N/A'):,}")
+                typer.echo(f"  列数: {parquet_info.get('num_columns', 'N/A')}")
+                typer.echo(f"  Schema: {parquet_info.get('schema', 'N/A')}")
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        logger.exception(f"导出 Parquet 数据时发生错误: {e}")
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
 
@@ -600,20 +1078,38 @@ def import_csv(
 # 创建主Typer应用
 app = typer.Typer(
     name="data-cli",
-    help="数据管理命令行工具",
+    help="数据管理命令行工具（支持 CSV 和 Parquet 格式导出）",
     epilog="""
 示例:
   # 下载BTCUSDT的日线数据
   python data_cli.py download -s BTCUSDT -i 1d --start 20240101 --end 20241231
 
-  # 导出数据到CSV
+  # 导出数据到CSV（传统格式）
   python data_cli.py export csv -s BTCUSDT -i 1h -o btc_1h.csv
+
+  # 导出数据到Parquet（推荐，更高压缩率和性能）
+  python data_cli.py export parquet -s BTCUSDT -i 1h -o btc_1h.parquet
+
+  # 使用高压缩率算法并验证文件
+  python data_cli.py export parquet -s BTCUSDT -i 1d --compression zstd --validate -o btc_daily.parquet
 
   # 从CSV导入数据
   python data_cli.py import csv data.csv
 
   # 查看本地数据
   python data_cli.py list-local-data
+
+常用参数:
+  -s, --symbol:     交易对符号 (如 BTCUSDT)
+  -i, --interval:   时间周期 (如 1m, 5m, 15m, 30m, 1h, 4h, 1d)
+  --start:          开始时间 (YYYYMMDD 格式)
+  --end:            结束时间 (YYYYMMDD 格式)
+  -o, --output:     输出文件路径
+  --candle-type:    蜡烛图类型 (spot/future)
+
+Parquet vs CSV:
+  Parquet 格式提供 70-90% 的存储空间节省和 3-25 倍的查询速度提升，
+  特别适合大数据量场景和需要高性能读取的应用。
     """
 )
 
