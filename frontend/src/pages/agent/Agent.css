@@ -1,11 +1,106 @@
-/* AI Agent 页面样式 */
+/* AI Agent 页面样式 - 支持亮色/暗色主题 */
 
-.ai-agent-layout {
-  height: 100vh;
-  background: #f5f5f5;
+/* ==================== 主题变量定义 ==================== */
+:root {
+  /* 亮色模式 - Agent 页面专用变量 */
+  --agent-bg: #f5f5f5;
+  --agent-header-bg: #ffffff;
+  --agent-header-border: #e8e8e8;
+  --agent-input-bg: #ffffff;
+  --agent-input-border: #e8e8e8;
+  
+  /* 消息气泡 */
+  --message-bg: #ffffff;
+  --message-user-bg: #1890ff;
+  --message-user-color: #ffffff;
+  --message-tool-bg: #f6ffed;
+  --message-tool-border: #b7eb8f;
+  --message-error-bg: #fff2f0;
+  --message-error-border: #ffccc7;
+  
+  /* 文字颜色 */
+  --text-primary: #141414;
+  --text-secondary: #999999;
+  --text-muted: #666666;
+  --text-hint: #8c8c8c;
+  
+  /* 边框和分隔线 */
+  --border-color: #e8e8e8;
+  --border-light: #f0f0f0;
+  --border-lighter: #f5f5f5;
+  
+  /* 交互状态 */
+  --hover-bg: #f5f5f5;
+  --active-bg: #e6f7ff;
+  --active-color: #1890ff;
+  
+  /* 工具面板 */
+  --tool-panel-bg: #fafafa;
+  --tool-item-bg: #ffffff;
+  --tool-item-border: #f0f0f0;
+  --tool-item-hover-border: #d9d9d9;
+  --param-row-bg: #fafafa;
+  --param-row-hover-bg: #f0f5ff;
+  
+  /* 会话列表 */
+  --session-hover-bg: #f5f5f5;
+  --session-active-bg: #e6f7ff;
 }
 
-/* 会话列表抽屉 */
+.dark {
+  /* 暗色模式 - Agent 页面专用变量 */
+  --agent-bg: #0f1115;
+  --agent-header-bg: #1a1d23;
+  --agent-header-border: #2d3748;
+  --agent-input-bg: #1a1d23;
+  --agent-input-border: #2d3748;
+  
+  /* 消息气泡 */
+  --message-bg: #252a34;
+  --message-user-bg: #1890ff;
+  --message-user-color: #ffffff;
+  --message-tool-bg: #1a2e1a;
+  --message-tool-border: #3d6b3d;
+  --message-error-bg: #2d1f1c;
+  --message-error-border: #5c3d36;
+  
+  /* 文字颜色 */
+  --text-primary: #fafaf9;
+  --text-secondary: #9ca3af;
+  --text-muted: #9ca3af;
+  --text-hint: #6b7280;
+  
+  /* 边框和分隔线 */
+  --border-color: #2d3748;
+  --border-light: #374151;
+  --border-lighter: #1f2937;
+  
+  /* 交互状态 */
+  --hover-bg: #252a34;
+  --active-bg: #1e3a5f;
+  --active-color: #60a5fa;
+  
+  /* 工具面板 */
+  --tool-panel-bg: #17191c;
+  --tool-item-bg: #1e2228;
+  --tool-item-border: #2d3748;
+  --tool-item-hover-border: #374151;
+  --param-row-bg: #1e2228;
+  --param-row-hover-bg: #1e293b;
+  
+  /* 会话列表 */
+  --session-hover-bg: #252a34;
+  --session-active-bg: #1e3a5f;
+}
+
+/* ==================== 布局容器 ==================== */
+.ai-agent-layout {
+  height: 100vh;
+  background: var(--agent-bg);
+  transition: background-color 0.3s ease;
+}
+
+/* ==================== 会话列表抽屉 ==================== */
 .session-drawer .ant-drawer-body {
   padding: 0;
 }
@@ -23,14 +118,16 @@
   cursor: pointer;
   transition: all 0.2s;
   margin-bottom: 2px;
+  color: var(--text-primary);
 }
 
 .session-item:hover {
-  background: #f5f5f5;
+  background: var(--session-hover-bg);
 }
 
 .session-item.active {
-  background: #e6f7ff;
+  background: var(--session-active-bg);
+  color: var(--active-color);
 }
 
 .session-name-text {
@@ -47,29 +144,28 @@
   transition: opacity 0.2s;
 }
 
-.session-item:hover .session-more-btn {
-  opacity: 1;
-}
-
+.session-item:hover .session-more-btn,
 .session-item.active .session-more-btn {
   opacity: 1;
 }
 
-/* 主内容区 */
+/* ==================== 主内容区 ==================== */
 .agent-content-layout {
   display: flex;
   flex-direction: column;
   height: 100vh;
 }
 
-/* 头部 */
+/* ==================== 头部区域 ==================== */
 .agent-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 12px 24px;
-  background: #fff;
-  border-bottom: 1px solid #e8e8e8;
+  background: var(--agent-header-bg);
+  border-bottom: 1px solid var(--agent-header-border);
+  transition: all 0.3s ease;
+  color: var(--text-primary);
 }
 
 .header-left {
@@ -81,6 +177,7 @@
 .session-name {
   font-weight: 500;
   font-size: 16px;
+  color: inherit;
 }
 
 .header-right {
@@ -90,11 +187,11 @@
 
 /* 按钮激活状态 */
 .agent-header .ant-btn.active {
-  color: #1890ff;
-  background: #e6f7ff;
+  color: var(--active-color);
+  background: var(--active-bg);
 }
 
-/* 消息区域 */
+/* ==================== 消息区域 ==================== */
 .agent-content {
   flex: 1;
   overflow-y: auto;
@@ -106,7 +203,7 @@
   margin: 0 auto;
 }
 
-/* 消息气泡 */
+/* ==================== 消息气泡 ==================== */
 .chat-message {
   display: flex;
   gap: 12px;
@@ -149,7 +246,8 @@
   gap: 8px;
   margin-bottom: 4px;
   font-size: 12px;
-  color: #999;
+  color: var(--text-secondary);
+  transition: color 0.3s ease;
 }
 
 .message-role {
@@ -157,29 +255,37 @@
 }
 
 .message-body {
-  background: #fff;
+  background: var(--message-bg);
   padding: 12px 16px;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  color: var(--text-primary);
+  transition: all 0.3s ease;
+}
+
+.dark .message-body {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .chat-message.user .message-body {
-  background: #1890ff;
-  color: #fff;
+  background: var(--message-user-bg);
+  color: var(--message-user-color);
 }
 
 .chat-message.tool .message-body {
-  background: #f6ffed;
-  border: 1px solid #b7eb8f;
+  background: var(--message-tool-bg);
+  border: 1px solid var(--message-tool-border);
+  color: var(--text-primary);
 }
 
 .chat-message.error .message-body {
-  background: #fff2f0;
-  border: 1px solid #ffccc7;
+  background: var(--message-error-bg);
+  border: 1px solid var(--message-error-border);
+  color: var(--text-primary);
 }
 
 .chat-message.error .message-body.error-body {
-  background: #fff2f0;
+  background: var(--message-error-bg);
 }
 
 .error-icon-btn {
@@ -196,9 +302,11 @@
 .error-detail-content {
   max-height: 400px;
   overflow: auto;
-  background: #f5f5f5;
+  background: var(--border-lighter);
   padding: 16px;
   border-radius: 8px;
+  color: var(--text-primary);
+  transition: background-color 0.3s ease;
 }
 
 .error-detail-content pre {
@@ -206,12 +314,13 @@
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-all;
-  color: #333;
+  color: inherit;
 }
 
 .message-text {
   line-height: 1.6;
   white-space: pre-wrap;
+  color: inherit;
 }
 
 .tool-calls {
@@ -221,8 +330,9 @@
 .tool-result {
   margin-top: 8px;
   padding: 8px;
-  background: #f5f5f5;
+  background: var(--border-lighter);
   border-radius: 4px;
+  transition: background-color 0.3s ease;
 }
 
 .tool-result pre {
@@ -230,16 +340,18 @@
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-all;
+  color: var(--text-muted);
 }
 
-/* 加载指示器 */
+/* ==================== 加载指示器 ==================== */
 .loading-indicator {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 12px;
-  color: #999;
+  color: var(--text-secondary);
   font-size: 14px;
+  transition: color 0.3s ease;
 }
 
 /* 错误指示器 */
@@ -249,17 +361,20 @@
   gap: 8px;
   padding: 12px;
   font-size: 14px;
-  background: #fff2f0;
-  border: 1px solid #ffccc7;
+  background: var(--message-error-bg);
+  border: 1px solid var(--message-error-border);
   border-radius: 8px;
   margin: 8px 0;
+  color: var(--text-primary);
+  transition: all 0.3s ease;
 }
 
-/* 输入区 */
+/* ==================== 输入区域 ==================== */
 .agent-input-area {
   padding: 16px 24px;
-  background: #fff;
-  border-top: 1px solid #e8e8e8;
+  background: var(--agent-input-bg);
+  border-top: 1px solid var(--agent-input-border);
+  transition: all 0.3s ease;
 }
 
 .input-wrapper {
@@ -273,6 +388,19 @@
   flex: 1;
   border-radius: 20px;
   padding: 12px 20px;
+  background: var(--message-bg);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+  transition: all 0.3s ease;
+}
+
+.input-wrapper .ant-input::placeholder {
+  color: var(--text-hint);
+}
+
+.input-wrapper .ant-input:focus {
+  border-color: var(--active-color);
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
 }
 
 .input-wrapper .ant-btn {
@@ -285,17 +413,20 @@
   text-align: center;
   margin-top: 8px;
   font-size: 12px;
-  color: #999;
+  color: var(--text-hint);
+  transition: color 0.3s ease;
 }
 
-/* 工具列表 */
+/* ==================== 工具列表 ==================== */
 .tool-list {
   padding: 8px 0;
 }
 
 .tool-list-item {
   padding: 12px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-primary);
+  transition: border-color 0.3s ease;
 }
 
 .tool-list-item:last-child {
@@ -304,8 +435,9 @@
 
 .tool-description {
   margin: 8px 0 0 0;
-  color: #666;
+  color: var(--text-muted);
   font-size: 14px;
+  transition: color 0.3s ease;
 }
 
 /* 更多操作下拉菜单 */
@@ -317,16 +449,20 @@
   background: #fff1f0;
 }
 
+.dark .session-actions-dropdown .ant-dropdown-menu-item-danger:hover {
+  background: #3d2020;
+}
+
 /* 删除确认 Modal */
 .delete-confirm-modal .ant-modal-header {
-  border-bottom: 1px solid #ffccc7;
+  border-bottom: 1px solid var(--message-error-border);
 }
 
 .delete-confirm-modal .ant-modal-title {
   color: #ff4d4f;
 }
 
-/* 响应式 */
+/* ==================== 响应式设计 ==================== */
 @media (max-width: 768px) {
   .message-content {
     max-width: 90%;
@@ -338,6 +474,14 @@
 
   .session-name {
     font-size: 14px;
+  }
+
+  .agent-content {
+    padding: 16px;
+  }
+
+  .agent-input-area {
+    padding: 12px 16px;
   }
 }
 
@@ -351,7 +495,8 @@
 /* ==================== 工具列表（集成参数配置）样式 ==================== */
 .tool-list-config-drawer .ant-drawer-body {
   padding: 12px;
-  background: #fafafa;
+  background: var(--tool-panel-bg);
+  transition: background-color 0.3s ease;
 }
 
 .tool-list-with-config {
@@ -362,21 +507,30 @@
 
 /* 工具项容器 */
 .tool-item-wrapper {
-  background: #fff;
+  background: var(--tool-item-bg);
   border-radius: 8px;
-  border: 1px solid #f0f0f0;
+  border: 1px solid var(--tool-item-border);
   transition: all 0.3s ease;
   overflow: hidden;
+  color: var(--text-primary);
 }
 
 .tool-item-wrapper:hover {
-  border-color: #d9d9d9;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border-color: var(--tool-item-hover-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.dark .tool-item-wrapper:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .tool-item-wrapper.expanded {
-  border-color: #1890ff;
+  border-color: var(--active-color);
   box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1);
+}
+
+.dark .tool-item-wrapper.expanded {
+  box-shadow: 0 2px 8px rgba(96, 165, 250, 0.15);
 }
 
 /* 工具项头部 */
@@ -390,7 +544,7 @@
 }
 
 .tool-item-header:hover {
-  background: #fafafa;
+  background: var(--hover-bg);
 }
 
 .tool-item-info {
@@ -404,14 +558,14 @@
   margin: 0;
   padding: 0 12px 8px;
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--text-hint);
   line-height: 1.4;
 }
 
 /* 参数面板 */
 .tool-params-panel {
   padding: 0 12px 12px;
-  border-top: 1px solid #f5f5f5;
+  border-top: 1px solid var(--border-lighter);
   animation: slideDown 0.2s ease-out;
 }
 
@@ -438,22 +592,27 @@
   justify-content: space-between;
   align-items: flex-start;
   padding: 8px 10px;
-  background: #fafafa;
+  background: var(--param-row-bg);
   border-radius: 6px;
   gap: 12px;
   border-left: 2px solid transparent;
   transition: all 0.2s;
+  color: var(--text-primary);
 }
 
 .param-row:hover {
-  background: #f0f5ff;
-  border-left-color: #1890ff;
+  background: var(--param-row-hover-bg);
+  border-left-color: var(--active-color);
 }
 
 /* 敏感参数特殊样式 */
 .param-row:has(.anticon-lock-unfilled) {
   border-left-color: #faad14;
   background: #fffbe6;
+}
+
+.dark .param-row:has(.anticon-lock-unfilled) {
+  background: #3d3020;
 }
 
 /* 参数信息区 */
@@ -477,6 +636,7 @@
 /* 空状态 */
 .tool-params-panel .ant-empty {
   padding: 12px 0;
+  color: var(--text-hint);
 }
 
 /* 响应式适配 */
@@ -504,4 +664,3 @@
     width: 100% !important;
   }
 }
-
