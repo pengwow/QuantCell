@@ -534,7 +534,7 @@ def _show_status(worker_id: Optional[int] = None):
 
 
 @app.command()
-def list(
+def list_workers(
     status: Annotated[Optional[str], typer.Option("--status", "-s", help="按状态筛选")] = None,
     strategy_id: Annotated[Optional[int], typer.Option("--strategy-id", help="按策略ID筛选")] = None,
     page: Annotated[int, typer.Option("--page", "-p", help="页码")] = 1,
@@ -545,9 +545,9 @@ def list(
     列出所有 Worker
 
     示例:
-      python worker_cli.py list
-      python worker_cli.py list --status running
-      python worker_cli.py list --format json
+      python worker_cli.py list_workers
+      python worker_cli.py list_workers --status running
+      python worker_cli.py list_workers --format json
     """
     try:
         params = {
@@ -642,6 +642,88 @@ def stats(
 
 # ========== 配置管理命令 ==========
 
+def _get_strategy_name(strategy_id: int) -> str:
+    """
+    根据策略ID获取策略名称
+
+    Args:
+        strategy_id: 策略ID
+
+    Returns:
+        str: 策略名称，如果查询失败返回默认值
+    """
+    if not strategy_id:
+        return "N/A"
+
+    try:
+        strategy_api_prefix = "/api/strategy/list"
+        url = urljoin(_config.base_url, strategy_api_prefix)
+        response = requests.get(url, timeout=10)
+
+        if response.ok:
+            result = response.json()
+            strategies_data = []
+
+            # 处理不同的响应格式
+            if isinstance(result, dict) and "data" in result:
+                strategies_data = result.get("data", [])
+                # 如果 data 是字典，尝试提取列表
+                if isinstance(strategies_data, dict):
+                    strategies_data = strategies_data.get("strategies", strategies_data.get("items", []))
+            elif isinstance(result, list):
+                strategies_data = result
+
+            # 确保是列表类型
+            if not isinstance(strategies_data, list):
+                strategies_data = []
+
+            # 查找匹配的策略
+            for strategy in strategies_data:
+                if isinstance(strategy, dict) and strategy.get("id") == strategy_id:
+                    return strategy.get("name", f"策略#{strategy_id}")
+
+    except Exception as e:
+        typer.echo(f"获取策略名称失败: {e}", err=True)
+
+    return f"策略#{strategy_id}"
+
+
+def _format_symbols(worker_data: Dict) -> str:
+    """
+    格式化交易对显示
+
+    从 trading_config 中正确提取 symbols 列表并格式化显示
+
+    Args:
+        worker_data: Worker 数据字典
+
+    Returns:
+        str: 格式化后的交易对字符串
+    """
+    # 优先从 trading_config.symbols_config.symbols 获取
+    trading_config = worker_data.get("trading_config", {})
+    if isinstance(trading_config, str):
+        try:
+            trading_config = json.loads(trading_config)
+        except (json.JSONDecodeError, TypeError):
+            trading_config = {}
+
+    symbols_config = trading_config.get("symbols_config", {})
+    symbols = symbols_config.get("symbols", [])
+
+    # 如果是列表且非空，格式化显示
+    if isinstance(symbols, list) and symbols:
+        return ", ".join(symbols)
+
+    # 兼容旧字段 symbol（单个字符串）
+    symbol = worker_data.get("symbol")
+    if symbol:
+        return str(symbol)
+
+    return "N/A"
+
+
+
 @app.command()
 def config(
     worker_id: Annotated[int, typer.Argument(help="Worker ID")],
@@ -682,14 +764,22 @@ def config(
 
         else:
             # 显示配置
+            # 获取策略名称
+            strategy_id = worker.get('strategy_id')
+            strategy_name = _get_strategy_name(strategy_id) if strategy_id else "N/A"
+
+            # 格式化交易对显示
+            symbols_str = _format_symbols(worker)
+
             typer.echo(f"Worker {worker_id} 配置:")
             typer.echo(f"{'='*50}")
             typer.echo(f"ID: {worker.get('id')}")
             typer.echo(f"名称: {worker.get('name')}")
             typer.echo(f"描述: {worker.get('description') or '无'}")
-            typer.echo(f"策略ID: {worker.get('strategy_id')}")
+            typer.echo(f"策略ID: {strategy_id}")
+            typer.echo(f"策略名称: {strategy_name}")
             typer.echo(f"交易所: {worker.get('exchange')}")
-            typer.echo(f"交易对: {worker.get('symbol')}")
+            typer.echo(f"交易对: {symbols_str}")
             typer.echo(f"时间周期: {worker.get('timeframe')}")
             typer.echo(f"市场类型: {worker.get('market_type')}")
             typer.echo(f"交易模式: {worker.get('trading_mode')}")
