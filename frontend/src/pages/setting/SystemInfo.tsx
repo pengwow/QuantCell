@@ -137,7 +137,7 @@ const SystemInfo = ({ systemInfo }: SystemInfoProps) => {
         size="large"
         onClose={() => setShowLogSettings(false)}
         open={showLogSettings}
-        destroyOnClose
+        destroyOnHidden
       >
         <LogSettingsPanel onClose={() => setShowLogSettings(false)} />
       </Drawer>

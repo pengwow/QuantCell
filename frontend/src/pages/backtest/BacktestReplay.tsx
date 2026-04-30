@@ -931,7 +931,7 @@ const BacktestReplay = () => {
         {/* 图表区域 - 优化布局 */}
         <Card 
           style={{ marginTop: 24 }}
-          bodyStyle={{ padding: 0, height: '600px' }}
+          styles={{ body: { padding: 0, height: '600px' } }}
           className="replay-chart-card"
         >
           <div

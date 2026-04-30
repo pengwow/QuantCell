@@ -695,7 +695,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
         )}
 
         {/* 图表区域 */}
-        <Card bodyStyle={{ padding: 0 }}>
+        <Card styles={{ body: { padding: 0 } }}>
           <div
             ref={chartRef}
             style={{

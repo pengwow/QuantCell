@@ -515,7 +515,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 }
                 className="shadow-sm"
               >
-                <Descriptions column={{ xs: 1, sm: 2 }} size="small" bordered>
+                <Descriptions column={2} size="small" bordered>
                   <Descriptions.Item label="大小">
                     <Tag color="blue">{formatSize(selectedFile.size)}</Tag>
                   </Descriptions.Item>
@@ -731,7 +731,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                       <div key={type}>
                         <div className="flex justify-between items-center mb-1">
                           <span className="text-sm">
-                            <Tag size="small" color={colors[type] || 'default'}>{type}</Tag>
+                            <Tag color={colors[type] || 'default'}>{type}</Tag>
                           </span>
                           <span className="text-xs text-gray-500">
                             {(totalBytes / 1024 / 1024).toFixed(2)} MB · {info?.count || 0} 个
@@ -845,7 +845,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                 .map(file => (
                   <div key={file.path} className="flex justify-between py-1 px-2 hover:bg-gray-100 rounded text-sm">
                     <span className="truncate max-w-[240px] font-mono">{file.name}</span>
-                    <Tag size="small" color="red">{formatSize(file.size)}</Tag>
+                    <Tag color="red">{formatSize(file.size)}</Tag>
                   </div>
                 ))}
             </div>

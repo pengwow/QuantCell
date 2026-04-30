@@ -127,10 +127,10 @@ const LogCleanupManager: React.FC = () => {
         setRiskConfirmed(false);
 
         if (result.success && result.errors.length === 0) {
-          antMessage.success(`成功删除 ${result.deletedCount} 个文件，释放 ${formatSize(result.freedSpace)}`);
+          antMessage.success(`成功删除 ${result.deleted_count} 个文件，释放 ${formatSize(result.freed_space)}`);
         } else if (result.success) {
           antMessage.warning(
-            `删除完成：${result.deletedCount} 成功，${result.errors.length} 失败`
+            `删除完成：${result.deleted_count} 成功，${result.errors.length} 失败`
           );
         } else {
           antMessage.error('删除过程中出现错误');
@@ -170,8 +170,8 @@ const LogCleanupManager: React.FC = () => {
     },
     {
       title: '类型',
-      dataIndex: 'logType',
-      key: 'logType',
+      dataIndex: 'log_type',
+      key: 'log_type',
       width: 120,
       render: (type: string) => (
         <Tag color="geekblue">{type || '-'}</Tag>
@@ -179,7 +179,7 @@ const LogCleanupManager: React.FC = () => {
     },
     {
       title: '大小',
-      dataIndex: 'sizeFormatted',
+      dataIndex: 'size_formatted',
       key: 'size',
       width: 120,
       sorter: (a, b) => a.size - b.size,
@@ -191,8 +191,8 @@ const LogCleanupManager: React.FC = () => {
     },
     {
       title: '修改时间',
-      dataIndex: 'modifiedTime',
-      key: 'modifiedTime',
+      dataIndex: 'modified_time',
+      key: 'modified_time',
       width: 180,
       render: (time: string) => (
         <span className="text-xs text-gray-600">
@@ -215,8 +215,8 @@ const LogCleanupManager: React.FC = () => {
           onClose={() => setLastResult(null)}
           message={
             lastResult.errors.length === 0 ?
-              `✅ 上次操作：成功删除 ${lastResult.deletedCount} 个文件，释放 ${formatSize(lastResult.freedSpace)}` :
-              `⚠️ 上次操作：${lastResult.deletedCount} 成功，${lastResult.errors.length} 失败`
+              `✅ 上次操作：成功删除 ${lastResult.deleted_count} 个文件，释放 ${formatSize(lastResult.freed_space)}` :
+              `⚠️ 上次操作：${lastResult.deleted_count} 成功，${lastResult.errors.length} 失败`
           }
           className="mb-4"
         />
@@ -337,7 +337,7 @@ const LogCleanupManager: React.FC = () => {
               return file ? (
                 <div key={path} className="flex justify-between text-sm">
                   <span className="truncate mr-4">{file.name}</span>
-                  <Tag color="red" className="ml-2">{file.sizeFormatted}</Tag>
+                  <Tag color="red" className="ml-2">{file.size_formatted}</Tag>
                 </div>
               ) : null;
             })}

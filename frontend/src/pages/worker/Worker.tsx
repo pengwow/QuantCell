@@ -926,7 +926,7 @@ const Worker = () => {
           onCancel={handleCloseLogsPanel}
           footer={null}
           width={900}
-          destroyOnClose
+          destroyOnHidden
         >
           <WorkerLogsPanel workerId={logsWorkerId} maxHeight={500} />
         </Modal>

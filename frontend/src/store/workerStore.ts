@@ -424,7 +424,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
 
         stream.onMessage((log) => {
           set((state) => ({
-            logs: [log, ...state.logs].slice(0, 1000), // 限制最多1000条
+            logs: [...state.logs, log].slice(-1000), // 新日志追加到末尾（正序：旧→新），限制最多1000条
           }));
         });
 

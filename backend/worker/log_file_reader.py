@@ -240,7 +240,7 @@ class LogFileReader:
             except Exception as e:
                 logger.error(f"读取日志文件失败 {log_file}: {e}")
 
-        all_entries.sort(key=lambda x: x.timestamp, reverse=True)
+        all_entries.sort(key=lambda x: x.timestamp)  # 正序排列（旧→新，终端风格）
 
         total = len(all_entries)
         paginated_entries = all_entries[offset : offset + limit]

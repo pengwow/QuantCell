@@ -506,7 +506,7 @@ const ModelSettingsPage = () => {
         {/* 左侧厂商列表 */}
         <div className="w-full lg:w-64 flex-shrink-0">
           <div className="text-base font-medium mb-4 leading-8 h-8">{t("model_provider") || "模型提供商"}</div>
-          <Card className="shadow-sm" bodyStyle={{ padding: 8 }}>
+          <Card className="shadow-sm" styles={{ body: { padding: 8 } }}>
             {/* 小屏幕：水平排列自动换行；大屏幕：垂直列表 */}
             <div className="flex flex-wrap gap-2 lg:flex-col lg:gap-1">
               {providers.map((provider) => (
