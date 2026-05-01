@@ -848,7 +848,7 @@ def logs(
     worker_id: Annotated[int, typer.Argument(help="Worker ID")],
     level: Annotated[Optional[str], typer.Option("--level", "-l", help="日志级别筛选")] = None,
     lines: Annotated[int, typer.Option("--lines", "-n", help="显示行数")] = 50,
-    offset: Annotated[int, typer.Option("--offset", "-o", help="偏移量（分页）")] = 0,
+    offset: Annotated[Optional[int], typer.Option("--offset", "-o", help="偏移量（分页，默认尾行模式显示最后N条）")] = None,
     keyword: Annotated[Optional[str], typer.Option("--keyword", "-k", help="关键词搜索")] = None,
     start_time: Annotated[Optional[str], typer.Option("--start", help="开始时间 (ISO 8601)")] = None,
     end_time: Annotated[Optional[str], typer.Option("--end", help="结束时间 (ISO 8601)")] = None,
@@ -921,9 +921,28 @@ def logs(
             return
 
         # 查看日志模式
+        # 默认 tail 模式：offset 未指定时，先获取总数再计算偏移量，始终显示最后 N 条
+        actual_offset = offset
+        if offset is None:
+            count_params = {"limit": 1, "offset": 0}
+            if level:
+                count_params["level"] = level
+            if keyword:
+                count_params["keyword"] = keyword
+            if start_time:
+                count_params["start_time"] = start_time
+            if end_time:
+                count_params["end_time"] = end_time
+            count_result = _make_request("GET", f"{worker_id}/monitoring/logs", params=count_params)
+            if isinstance(count_result, dict) and "items" in count_result:
+                total_for_calc = count_result.get("total", 0)
+            else:
+                total_for_calc = len(count_result) if isinstance(count_result, list) else 0
+            actual_offset = max(0, total_for_calc - lines)
+
         params = {
             "limit": lines,
-            "offset": offset,
+            "offset": actual_offset,
         }
         if level:
             params["level"] = level

@@ -1078,13 +1078,22 @@ class TradingNodeWorkerProcess(WorkerProcess):
                     is_healthy = await self._check_nautilus_health()
                     if not is_healthy:
                         logger.warning(f"Worker {self.worker_id} Nautilus 健康检查失败")
-                        # 可以选择在这里尝试重启或报告错误
 
                 # 发送心跳
                 await self._send_heartbeat()
 
                 # 等待一段时间
                 await asyncio.sleep(1)
+
+            # 6. 主循环结束，停止 Nautilus 运行任务
+            if hasattr(self, '_nautilus_run_task') and self._nautilus_run_task:
+                logger.info(f"Worker {self.worker_id} 正在停止 Nautilus 运行任务...")
+                self._nautilus_run_task.cancel()
+                try:
+                    await asyncio.wait_for(self._nautilus_run_task, timeout=10.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
+                logger.info(f"Worker {self.worker_id} Nautilus 运行任务已停止")
 
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 主循环异常: {e}")
@@ -1115,13 +1124,14 @@ class TradingNodeWorkerProcess(WorkerProcess):
             api_key = self.trading_config.get("api_key")
             api_secret = self.trading_config.get("api_secret")
             api_passphrase = self.trading_config.get("api_passphrase")
-            log_level = self.trading_config.get("log_level", "INFO")
+            
+            # 默认使用 DEBUG 级别以便调试 NautilusTrader 日志问题
+            log_level = self.trading_config.get("log_level", "DEBUG")
 
             # 配置日志目录
             import tempfile
             log_directory = self.trading_config.get("log_directory")
             if not log_directory:
-                # 使用临时目录作为默认日志目录
                 log_directory = tempfile.gettempdir()
             log_file_name = self.trading_config.get("log_file_name", f"worker_{self.worker_id}.log")
 
@@ -1138,46 +1148,7 @@ class TradingNodeWorkerProcess(WorkerProcess):
                 self.status.record_error(f"配置验证失败: {error_msg}")
                 return None
 
-            # ========== 关键修复：初始化 NautilusTrader 日志系统 ==========
-            # 让 NautilusTrader 的 self.log 输出到 stdout，
-            # 这样就能被 UnifiedFileLogger 的 stdout 捕获器捕获
-            try:
-                from nautilus_trader.common.component import init_logging, LogLevel
-                from nautilus_trader.model.identifiers import TraderId
-
-                # 将字符串日志级别转换为 NautilusTrader 的 LogLevel 枚举
-                level_map = {
-                    "DEBUG": LogLevel.DEBUG,
-                    "INFO": LogLevel.INFO,
-                    "WARNING": LogLevel.WARNING,
-                    "ERROR": LogLevel.ERROR,
-                    "CRITICAL": LogLevel.CRITICAL,
-                }
-                nautilus_log_level = level_map.get(log_level.upper(), LogLevel.DEBUG)
-
-                # 初始化 NautilusTrader 日志系统
-                # - level_stdout: 输出到 stdout（被 UnifiedFileLogger 捕获）
-                # - level_file: OFF（不写入独立文件，避免重复）
-                self._nautilus_log_guard = init_logging(
-                    trader_id=TraderId(f"WORKER-{self.worker_id}"),
-                    level_stdout=nautilus_log_level,
-                    level_file=LogLevel.OFF,
-                    bypass=False,
-                    colors=False,
-                )
-
-                logger.info(
-                    f"Worker {self.worker_id} NautilusTrader 日志系统已初始化 "
-                    f"(级别: {log_level}, 输出: stdout)"
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Worker {self.worker_id} 初始化 NautilusTrader 日志系统失败: {e}"
-                )
-                # 不影响主流程，继续执行
-            # ========== 修复结束 ==========
-
-            # 构建配置
+            # 构建配置（LoggingConfig 由 build_trading_node_config 内部创建）
             node_config, (data_factory, exec_factory, venue) = build_trading_node_config(
                 exchange=exchange,
                 account_type=account_type,
@@ -1199,10 +1170,11 @@ class TradingNodeWorkerProcess(WorkerProcess):
             trading_node.add_data_client_factory(venue, data_factory)
             trading_node.add_exec_client_factory(venue, exec_factory)
 
-            # 构建节点
+            # 构建节点（此时 TradingNodeConfig 中的 LoggingConfig 会自动初始化日志系统）
+            logger.info(f"Worker {self.worker_id} 正在构建 TradingNode（日志系统将在此步骤初始化）...")
             trading_node.build()
 
-            # 配置统一文件日志器（替代旧的 ZMQ 日志文件监听器）
+            # 配置统一文件日志器
             self._setup_nautilus_unified_logger()
 
             logger.info(f"Worker {self.worker_id} TradingNode 初始化完成")
@@ -1329,8 +1301,28 @@ class TradingNodeWorkerProcess(WorkerProcess):
             if self.trading_node is None:
                 raise RuntimeError("TradingNode 未初始化")
 
-            # 启动 TradingNode
-            await self.trading_node.start()
+            # 使用 run_async() 启动 TradingNode（在后台任务中运行）
+            # 注意：TradingNode 没有 start() 方法，只有 run() 和 run_async()
+            # run_async() 是一个长时间运行的协程，会处理所有 Nautilus 事件循环
+            logger.info(f"Worker {self.worker_id} 正在创建 Nautilus 运行任务...")
+            
+            # 创建后台任务运行 TradingNode 的事件循环
+            self._nautilus_run_task = asyncio.create_task(
+                self._run_nautilus_loop(),
+                name=f"nautilus-run-{self.worker_id}"
+            )
+
+            # 等待一小段时间让 TradingNode 初始化完成
+            await asyncio.sleep(0.5)
+
+            # 检查任务是否还在运行
+            if self._nautilus_run_task.done():
+                # 如果任务已经结束，说明启动失败
+                exc = self._nautilus_run_task.exception()
+                if exc:
+                    raise RuntimeError(f"Nautilus 启动失败: {exc}")
+                else:
+                    raise RuntimeError("Nautilus 任务意外退出")
 
             # 更新状态为 RUNNING
             self.status.update_state(WorkerState.RUNNING)
@@ -1338,13 +1330,49 @@ class TradingNodeWorkerProcess(WorkerProcess):
             # 发送状态更新
             await self._send_status(MessageType.STATUS_UPDATE)
 
-            logger.info(f"Worker {self.worker_id} TradingNode 启动成功")
+            logger.info(f"Worker {self.worker_id} TradingNode 启动成功（后台运行）")
 
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 启动 TradingNode 失败: {e}")
             self.status.update_state(WorkerState.ERROR)
             self.status.record_error(f"启动失败: {str(e)}")
             await self._send_status(MessageType.ERROR)
+            raise
+
+    async def _run_nautilus_loop(self):
+        """运行 Nautilus TradingNode 的事件循环
+        
+        此方法包装了 TradingNode.run_async() 调用，
+        在后台任务中持续运行直到被取消。
+        
+        TradingNode.run_async() 内部会：
+        - 启动 kernel
+        - 处理数据引擎队列（接收市场数据）
+        - 处理执行引擎队列（发送/取消订单）
+        - 处理风险引擎队列
+        """
+        try:
+            logger.info(f"Worker {self.worker_id} Nautilus 事件循环开始运行")
+            
+            # 调用 TradingNode 的 run_async() 方法
+            # 这将阻塞在此处，直到：
+            # 1. TradingNode 被停止（调用 stop 或 dispose）
+            # 2. 发生异常
+            # 3. 任务被外部取消
+            await self.trading_node.run_async()
+            
+            logger.info(f"Worker {self.worker_id} Nautilus 事件循环正常退出")
+            
+        except asyncio.CancelledError:
+            logger.info(f"Worker {self.worker_id} Nautilus 循环被取消")
+            raise
+            
+        except Exception as e:
+            logger.error(f"Worker {self.worker_id} Nautilus 循环异常: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            self.status.update_state(WorkerState.ERROR)
+            self.status.record_error(str(e))
             raise
 
     async def _handle_pause(self):
@@ -1404,18 +1432,40 @@ class TradingNodeWorkerProcess(WorkerProcess):
             self.status.update_state(WorkerState.STOPPING)
             await self._send_status(MessageType.STATUS_UPDATE)
 
-            # 取消所有未成交订单（可选）
-            if self.trading_node and hasattr(self.trading_node, 'cancel_all_orders'):
+            # 1. 停止 Nautilus 运行任务（如果存在）
+            if hasattr(self, '_nautilus_run_task') and self._nautilus_run_task:
+                logger.info(f"Worker {self.worker_id} 正在停止 Nautilus 运行任务...")
+                self._nautilus_run_task.cancel()
                 try:
-                    await self.trading_node.cancel_all_orders()
-                    logger.info(f"Worker {self.worker_id} 已取消所有未成交订单")
+                    await asyncio.wait_for(self._nautilus_run_task, timeout=10.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
+                self._nautilus_run_task = None
+                logger.info(f"Worker {self.worker_id} Nautilus 运行任务已停止")
+
+            # 2. 取消所有未成交订单（可选）
+            if self.trading_node:
+                try:
+                    if hasattr(self.trading_node, 'cancel_all_orders'):
+                        await self.trading_node.cancel_all_orders()
+                        logger.info(f"Worker {self.worker_id} 已取消所有未成交订单")
                 except Exception as e:
                     logger.warning(f"Worker {self.worker_id} 取消订单时出错: {e}")
 
-            # 关闭交易所连接
+            # 3. 停止 TradingNode
             if self.trading_node:
-                await self.trading_node.stop()
-                logger.info(f"Worker {self.worker_id} TradingNode 已停止")
+                try:
+                    # 尝试调用 dispose 或 stop 方法
+                    if hasattr(self.trading_node, 'dispose'):
+                        self.trading_node.dispose()
+                        logger.info(f"Worker {self.worker_id} TradingNode 已 dispose")
+                    elif hasattr(self.trading_node, 'stop'):
+                        await self.trading_node.stop()
+                        logger.info(f"Worker {self.worker_id} TradingNode 已 stop")
+                    else:
+                        logger.warning(f"Worker {self.worker_id} TradingNode 没有 dispose/stop 方法")
+                except Exception as e:
+                    logger.warning(f"Worker {self.worker_id} 停止 TradingNode 时出错: {e}")
 
             # 设置关闭事件标志
             self._shutdown_event.set()
