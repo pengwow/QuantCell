@@ -198,10 +198,11 @@ def build_trading_node_config(
         )
 
     # 配置日志
+    # 使用 Python 原生日志系统（use_pyo3=False），确保日志能被 UnifiedFileLogger 捕获
     logging_config = LoggingConfig(
         log_level=log_level,
-        log_colors=True,
-        use_pyo3=True,
+        log_colors=False,      # Worker 进程中关闭 ANSI 颜色码
+        use_pyo3=False,       # 使用 Python logging 模块而非 Rust pyo3 后端
     )
 
     # 如果指定了日志目录，配置文件日志
