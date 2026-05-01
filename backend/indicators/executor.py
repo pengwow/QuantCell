@@ -374,6 +374,10 @@ class IndicatorExecutor:
     
     def _create_safe_exec_env(self, df: pd.DataFrame, params: Dict[str, Any]) -> Dict[str, Any]:
         """构建受限的安全执行环境"""
+
+        def _blocked_import(name, *args, **kwargs):
+            raise ImportError(f"{name}")
+
         safe_builtins = {
             "abs": abs, "all": all, "any": any, "bool": bool,
             "dict": dict, "enumerate": enumerate, "filter": filter,
@@ -391,6 +395,7 @@ class IndicatorExecutor:
             "TypeError": TypeError, "KeyError": KeyError,
             "IndexError": IndexError, "AttributeError": AttributeError,
             "RuntimeError": RuntimeError, "StopIteration": StopIteration,
+            "__import__": _blocked_import,
         }
         
         return {
@@ -414,8 +419,9 @@ class IndicatorExecutor:
                 detail=f"{e.text}",
             )
         except ImportError as e:
+            module_name = getattr(e, 'name', None) or str(e) or '未知模块'
             raise IndicatorExecutionError(
-                f"禁止导入模块: {e.name}",
+                f"禁止导入模块: {module_name}",
                 error_type="security",
                 detail="不允许导入外部模块，请直接使用已提供的pd和np",
             )
