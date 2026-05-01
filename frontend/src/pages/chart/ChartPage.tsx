@@ -538,7 +538,7 @@ const DEFAULT_PLOT_COLORS = [
 
       try {
               // 确保 figures 中的 key 和 plotDataMap 一致
-              const validFigures = figures.filter(fig => plotDataMap[fig.key] && plotDataMap[fig.key].length > 0);
+              const validFigures = figures.filter((fig: any) => plotDataMap[fig.key] && plotDataMap[fig.key].length > 0);
 
               if (validFigures.length === 0) {
                   console.warn('[Indicator] 无有效figures数据');
