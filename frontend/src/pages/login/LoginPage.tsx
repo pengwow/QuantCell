@@ -7,7 +7,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { IconArrowRight, IconLock, IconUser, IconUserCircle } from "@tabler/icons-react";
-import { Button, Card, Form, Input, Space, Typography, message, Divider, Tag } from "antd";
+import { Button, Card, Form, Input, Space, Typography, Divider, Tag, App } from "antd";
 import { saveToken } from "../../utils/tokenManager";
 import { configApi } from "../../api";
 import { setPageTitle } from "@/router";
@@ -80,6 +80,7 @@ const LoginPage = () => {
   const { t } = useTranslation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const { message } = App.useApp();
 
   // 加载主题配置
   useEffect(() => {

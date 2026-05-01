@@ -47,13 +47,12 @@ export const builtInIndicators = [
 
 // 默认指标代码模板
 export const defaultIndicatorCode = `# 指标代码示例
-import pandas as pd
-import numpy as np
+# 注意: pd, np, math, df 已预置在执行环境中，无需 import
 
 my_indicator_name = "双均线交叉"
 my_indicator_description = "基于5日和20日均线交叉产生买卖信号"
 
-# 计算均线
+# 计算均线 (可直接使用 pd 和 np)
 sma_short = df["close"].rolling(5).mean()
 sma_long = df["close"].rolling(20).mean()
 

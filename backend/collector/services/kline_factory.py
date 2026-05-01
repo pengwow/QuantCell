@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from utils.logger import get_logger, LogType
-from utils.timestamp_utils import normalize_to_nanoseconds
+from utils.timestamp_utils import normalize_to_nanoseconds, from_nanoseconds
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -337,11 +337,12 @@ class BaseKlineFetcher(KlineDataFetcher):
         # 转换为指定格式
         kline_data = []
         for kline in klines:
-            # 转换时间戳为整数
-            timestamp = int(kline.timestamp)
-            
+            # 转换时间戳：纳秒 -> 毫秒（klinecharts 需要毫秒级时间戳）
+            timestamp_ns = int(kline.timestamp)
+            timestamp_ms = from_nanoseconds(timestamp_ns, 'ms')
+
             kline_data.append({
-                "timestamp": timestamp,
+                "timestamp": timestamp_ms,
                 "open": float(kline.open),
                 "close": float(kline.close),
                 "high": float(kline.high),

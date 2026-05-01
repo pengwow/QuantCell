@@ -17,12 +17,12 @@ import {
   Modal,
   Input,
   Button,
-  message,
   Tabs,
   Alert,
   Spin,
   Space,
   Tooltip,
+  App,
 } from 'antd';
 import { useTranslation } from 'react-i18next';
 import Editor from '@monaco-editor/react';
@@ -55,6 +55,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
   const { t } = useTranslation();
   const { createIndicator, updateIndicator, verifyCode } = useIndicators();
   const { isGuest } = useGuestRestriction();
+  const { message } = App.useApp();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -453,7 +454,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
         >
           {t('indicator.verify', '验证代码')}
         </Button>,
-        <Tooltip title={isGuest ? '访客用户无法保存指标，请使用普通用户账号登录' : ''}>
+        <Tooltip key="save-tooltip" title={isGuest ? '访客用户无法保存指标，请使用普通用户账号登录' : ''}>
           <Button
             key="save"
             type="primary"

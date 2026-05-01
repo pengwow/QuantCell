@@ -1028,6 +1028,9 @@ class TradingNodeWorkerProcess(WorkerProcess):
         # Nautilus 统一日志器
         self._nautilus_unified_logger: Optional[Any] = None
 
+        # NautilusTrader 日志系统的 LogGuard（防止被垃圾回收）
+        self._nautilus_log_guard: Optional[Any] = None
+
         # 从配置中提取 TradingNode 特定配置
         self._extract_trading_config()
 
@@ -1135,6 +1138,45 @@ class TradingNodeWorkerProcess(WorkerProcess):
                 self.status.record_error(f"配置验证失败: {error_msg}")
                 return None
 
+            # ========== 关键修复：初始化 NautilusTrader 日志系统 ==========
+            # 让 NautilusTrader 的 self.log 输出到 stdout，
+            # 这样就能被 UnifiedFileLogger 的 stdout 捕获器捕获
+            try:
+                from nautilus_trader.common.component import init_logging, LogLevel
+                from nautilus_trader.model.identifiers import TraderId
+
+                # 将字符串日志级别转换为 NautilusTrader 的 LogLevel 枚举
+                level_map = {
+                    "DEBUG": LogLevel.DEBUG,
+                    "INFO": LogLevel.INFO,
+                    "WARNING": LogLevel.WARNING,
+                    "ERROR": LogLevel.ERROR,
+                    "CRITICAL": LogLevel.CRITICAL,
+                }
+                nautilus_log_level = level_map.get(log_level.upper(), LogLevel.DEBUG)
+
+                # 初始化 NautilusTrader 日志系统
+                # - level_stdout: 输出到 stdout（被 UnifiedFileLogger 捕获）
+                # - level_file: OFF（不写入独立文件，避免重复）
+                self._nautilus_log_guard = init_logging(
+                    trader_id=TraderId(f"WORKER-{self.worker_id}"),
+                    level_stdout=nautilus_log_level,
+                    level_file=LogLevel.OFF,
+                    bypass=False,
+                    colors=False,
+                )
+
+                logger.info(
+                    f"Worker {self.worker_id} NautilusTrader 日志系统已初始化 "
+                    f"(级别: {log_level}, 输出: stdout)"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Worker {self.worker_id} 初始化 NautilusTrader 日志系统失败: {e}"
+                )
+                # 不影响主流程，继续执行
+            # ========== 修复结束 ==========
+
             # 构建配置
             node_config, (data_factory, exec_factory, venue) = build_trading_node_config(
                 exchange=exchange,
@@ -1160,8 +1202,8 @@ class TradingNodeWorkerProcess(WorkerProcess):
             # 构建节点
             trading_node.build()
 
-            # 配置 Nautilus 日志文件监听器（监听日志文件并发送到主进程）
-            self._setup_nautilus_log_file_monitor(log_directory, log_file_name)
+            # 配置统一文件日志器（替代旧的 ZMQ 日志文件监听器）
+            self._setup_nautilus_unified_logger()
 
             logger.info(f"Worker {self.worker_id} TradingNode 初始化完成")
             return trading_node
@@ -1170,6 +1212,26 @@ class TradingNodeWorkerProcess(WorkerProcess):
             logger.error(f"Worker {self.worker_id} 初始化 TradingNode 失败: {e}")
             self.status.record_error(f"初始化失败: {str(e)}")
             return None
+
+    def _setup_nautilus_unified_logger(self) -> None:
+        """
+        设置统一文件日志器（用于捕获 NautilusTrader 的 stdout 输出）
+
+        在初始化 NautilusTrader 日志系统后调用，
+        确保 UnifiedFileLogger 已安装 stdout 捕获器来接收 NautilusTrader 的日志。
+        """
+        try:
+            # 如果还没有初始化统一日志器，现在初始化
+            if self._unified_logger is None:
+                self._init_log_handler()
+
+            logger.info(
+                f"Worker {self.worker_id} 统一日志器已配置完成 "
+                f"(日志文件: {self._unified_logger.get_log_file_path()})"
+            )
+
+        except Exception as e:
+            logger.warning(f"Worker {self.worker_id} 设置统一日志器失败: {e}")
 
     def _setup_nautilus_log_file_monitor(self, log_directory: str, log_file_name: str) -> None:
         """
@@ -1390,6 +1452,16 @@ class TradingNodeWorkerProcess(WorkerProcess):
                     logger.info(f"Worker {self.worker_id} Nautilus 统一日志器已关闭")
             except Exception as e:
                 logger.warning(f"Worker {self.worker_id} 关闭 Nautilus 统一日志器时出错: {e}")
+
+            # 释放 NautilusTrader 日志系统的 LogGuard
+            if self._nautilus_log_guard:
+                try:
+                    # LogGuard 会在析构时自动清理日志系统
+                    del self._nautilus_log_guard
+                    self._nautilus_log_guard = None
+                    logger.info(f"Worker {self.worker_id} NautilusTrader LogGuard 已释放")
+                except Exception as e:
+                    logger.warning(f"Worker {self.worker_id} 释放 LogGuard 时出错: {e}")
 
             # 调用父类清理
             await super()._cleanup()

@@ -515,11 +515,17 @@ const DEFAULT_PLOT_COLORS = [
           return null;
       }
 
-      // 构建plot数据映射：{ figureKey -> number[] }
+      // 构建plot数据映射：{ figureKey -> number[] }，过滤无效值
       const plotDataMap: Record<string, (number | null)[]> = {};
       plots.forEach((plot: any, idx: number) => {
           const key = sanitizeFigureKey(plot.name || `plot_${idx}`);
-          plotDataMap[key] = plot.data || [];
+          // 过滤 NaN、undefined、Infinity 等无效值
+          const data = (plot.data || []).map((v: any) => {
+              if (v === null || v === undefined) return null;
+              if (typeof v === 'number' && !isFinite(v)) return null;
+              return v;
+          });
+          plotDataMap[key] = data;
       });
 
       // 构建figures配置
@@ -531,20 +537,34 @@ const DEFAULT_PLOT_COLORS = [
       }));
 
       try {
+              // 确保 figures 中的 key 和 plotDataMap 一致
+              const validFigures = figures.filter(fig => plotDataMap[fig.key] && plotDataMap[fig.key].length > 0);
+
+              if (validFigures.length === 0) {
+                  console.warn('[Indicator] 无有效figures数据');
+                  return null;
+              }
+
               registerIndicator({
                   name: indicatorName,
                   shortName: indicator.name || 'Custom',
                   calc: (kLineDataList: any[]) => {
+                      if (!kLineDataList || !Array.isArray(kLineDataList)) {
+                          return [];
+                      }
                       return kLineDataList.map((_kLine, i) => {
                           const point: Record<string, any> = {};
                           for (const figKey in plotDataMap) {
                               const dataArray = plotDataMap[figKey];
-                              point[figKey] = i < dataArray.length ? dataArray[i] : null;
+                              // 确保返回有效数值或 null（不能返回 undefined）
+                              point[figKey] = (i < dataArray.length && dataArray[i] !== undefined)
+                                  ? dataArray[i]
+                                  : null;
                           }
                           return point;
                       });
                   },
-                  figures,
+                  figures: validFigures,
               });
 
               // 渲染信号overlay
@@ -570,10 +590,16 @@ const DEFAULT_PLOT_COLORS = [
           if (val === null || val === undefined || isNaN(val)) continue;
 
           const bar = klineData[i];
-          if (!bar) continue;
+          if (!bar || !bar.timestamp) continue;
+
+          // 确保时间戳是有效数值
+          const timestamp = typeof bar.timestamp === 'number' && isFinite(bar.timestamp)
+              ? bar.timestamp
+              : bar.timestamp;
+          if (!timestamp && timestamp !== 0) continue;
 
           points.push({
-              timestamp: bar.timestamp,
+              timestamp,
               price: val,
               anchorPrice: isBuy ? bar.low : bar.high,
               side: isBuy ? 'buy' : 'sell',
@@ -652,7 +678,7 @@ const DEFAULT_PLOT_COLORS = [
 
           const result = await response.json();
 
-          if (result.success && result.data) {
+          if ((result.code === 0 || result.success) && result.data) {
             const customIndicatorName = registerCustomIndicator(indicator, result.data);
             if (customIndicatorName) {
               chartInstanceRef.current.createIndicator(customIndicatorName, true);
