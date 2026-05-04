@@ -80,19 +80,38 @@ class TimezoneAwareBase(Base):
                 result[column.name] = value
         return result
 
+class User(TimezoneAwareBase):
+    """用户SQLAlchemy模型
+    
+    对应users表的SQLAlchemy模型定义，用于存储注册用户信息
+    """
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    username = Column(String(50), unique=True, nullable=False, index=True)
+    password_hash = Column(String(128), nullable=False)
+    nickname = Column(String(100), nullable=True)
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_login = Column(DateTime(timezone=True), nullable=True)
+
+
 class SystemConfig(TimezoneAwareBase):
     """系统配置SQLAlchemy模型
     
     对应system_config表的SQLAlchemy模型定义
+    支持按user_id隔离用户配置，user_id为null时为系统级配置
+    主键为(key, user_id)联合主键，确保同一用户下配置key唯一
     """
     __tablename__ = "system_config"
     
     key = Column(String, primary_key=True, index=True)
     value = Column(String, nullable=False)
     description = Column(Text, nullable=True)
-    name = Column(String, nullable=True, index=True)  # 配置名称，用于区分系统配置页面的子菜单名称
-    plugin = Column(String, nullable=True, index=True)  # 插件名称，用于区分是插件配置还是基础配置
-    is_sensitive = Column(Boolean, default=False)  # 是否敏感配置，敏感配置API不返回真实值
+    name = Column(String, nullable=True, index=True)
+    plugin = Column(String, nullable=True, index=True)
+    is_sensitive = Column(Boolean, default=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True, primary_key=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
@@ -425,6 +444,124 @@ class ExchangeConfig(TimezoneAwareBase):
 
 # 业务逻辑类
 
+class UserBusiness:
+    """用户模型类
+    
+    用于操作users表，提供CRUD操作方法
+    兼容SQLite和DuckDB
+    """
+    
+    @staticmethod
+    def create(username: str, password: str, nickname: str = None) -> Optional[Dict[str, Any]]:
+        """创建新用户
+        
+        Args:
+            username: 用户名（唯一）
+            password: 明文密码（将自动加密）
+            nickname: 昵称
+            
+        Returns:
+            Optional[Dict]: 创建成功返回用户信息字典，用户名已存在返回None
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            existing = db.query(User).filter_by(username=username).first()
+            if existing:
+                logger.warning(f"用户已存在: {username}")
+                return None
+            
+            from settings.routes import hash_password
+            user = User(
+                username=username,
+                password_hash=hash_password(password),
+                nickname=nickname or username,
+                is_active=True,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            
+            logger.info(f"用户注册成功: {username}, id={user.id}")
+            return {
+                "id": user.id,
+                "username": user.username,
+                "nickname": user.nickname,
+                "is_active": user.is_active,
+                "created_at": format_datetime(user.created_at),
+            }
+        except Exception as e:
+            db.rollback()
+            logger.error(f"用户注册失败: {username}, error={e}")
+            return None
+        finally:
+            db.close()
+    
+    @staticmethod
+    def authenticate(username: str, password: str) -> Optional[Dict[str, Any]]:
+        """验证用户凭据
+        
+        Args:
+            username: 用户名
+            password: 明文密码
+            
+        Returns:
+            Optional[Dict]: 验证成功返回用户信息，失败返回None
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            from settings.routes import verify_password
+            user = db.query(User).filter_by(username=username, is_active=True).first()
+            if not user:
+                return None
+            if not verify_password(password, user.password_hash):
+                return None
+            
+            from datetime import datetime
+            user.last_login = datetime.now()
+            db.commit()
+            
+            return {
+                "id": user.id,
+                "username": user.username,
+                "nickname": user.nickname,
+                "is_active": user.is_active,
+            }
+        finally:
+            db.close()
+    
+    @staticmethod
+    def get_by_id(user_id: int) -> Optional[Dict[str, Any]]:
+        """根据ID获取用户信息
+        
+        Args:
+            user_id: 用户ID
+            
+        Returns:
+            Optional[Dict]: 用户信息或None
+        """
+        from .database import SessionLocal, init_database_config
+        init_database_config()
+        db: Session = SessionLocal()
+        try:
+            user = db.query(User).filter_by(id=user_id).first()
+            if not user:
+                return None
+            return {
+                "id": user.id,
+                "username": user.username,
+                "nickname": user.nickname,
+                "is_active": user.is_active,
+                "created_at": format_datetime(user.created_at),
+                "last_login": format_datetime(user.last_login),
+            }
+        finally:
+            db.close()
+
+
 class SystemConfigBusiness:
     """系统配置模型类
     
@@ -433,12 +570,13 @@ class SystemConfigBusiness:
     """
     
     @staticmethod
-    def get(key: str, default: Any = None) -> Any:
+    def get(key: str, default: Any = None, user_id: int = None) -> Any:
         """获取配置项的值
         
         Args:
             key: 配置项键名
             default: 默认值，如果配置项不存在则返回默认值
+            user_id: 用户ID，用于用户隔离。为None时获取系统级配置
             
         Returns:
             Any: 配置项的值或默认值
@@ -447,12 +585,15 @@ class SystemConfigBusiness:
         init_database_config()
         db: Session = SessionLocal()
         try:
-            config = db.query(SystemConfig).filter_by(key=key).first()
+            query = db.query(SystemConfig).filter_by(key=key)
+            if user_id is not None:
+                query = query.filter_by(user_id=user_id)
+            config = query.first()
             if config:
                 return config.value
             return default
         except Exception as e:
-            logger.error(f"获取配置失败: key={key}, error={e}")
+            logger.error(f"获取配置失败: key={key}, user_id={user_id}, error={e}")
             return default
         finally:
             db.close()
@@ -485,7 +626,7 @@ class MarketData(TimezoneAwareBase):
     
     @staticmethod
     def set(key: str, value: str, description: str = "", plugin: str = None, name: str = None,
-            is_sensitive: bool = False) -> bool:
+            is_sensitive: bool = False, user_id: int = None) -> bool:
         """设置配置项的值
 
         Args:
@@ -495,6 +636,7 @@ class MarketData(TimezoneAwareBase):
             plugin: 插件名称，用于区分是插件配置还是基础配置
             name: 配置名称，用于区分系统配置页面的子菜单名称
             is_sensitive: 是否为敏感配置，敏感配置API不返回真实值
+            user_id: 用户ID，用于用户隔离。为None时设置系统级配置
 
         Returns:
             bool: 设置成功返回True，失败返回False
@@ -503,10 +645,11 @@ class MarketData(TimezoneAwareBase):
         init_database_config()
         db: Session = SessionLocal()
         try:
-            # 检查配置是否已存在
-            config = db.query(SystemConfig).filter_by(key=key).first()
+            query = db.query(SystemConfig).filter_by(key=key)
+            if user_id is not None:
+                query = query.filter_by(user_id=user_id)
+            config = query.first()
             if config:
-                # 更新现有配置
                 config.value = value
                 if description:
                     config.description = description
@@ -516,19 +659,19 @@ class MarketData(TimezoneAwareBase):
                     config.name = name
                 config.is_sensitive = is_sensitive
             else:
-                # 创建新配置
                 config = SystemConfig(
                     key=key,
                     value=value,
                     description=description,
                     plugin=plugin,
                     name=name,
-                    is_sensitive=is_sensitive
+                    is_sensitive=is_sensitive,
+                    user_id=user_id
                 )
                 db.add(config)
             db.commit()
             logger.info(f"配置已更新: key={key}, value={value}, plugin={plugin}, name={name}, "
-                       f"is_sensitive={is_sensitive}")
+                       f"is_sensitive={is_sensitive}, user_id={user_id}")
             return True
         except Exception as e:
             db.rollback()
@@ -538,11 +681,12 @@ class MarketData(TimezoneAwareBase):
             db.close()
     
     @staticmethod
-    def delete(key: str) -> bool:
+    def delete(key: str, user_id: int = None) -> bool:
         """删除配置项
         
         Args:
             key: 配置项键名
+            user_id: 用户ID，用于用户隔离。为None时删除系统级配置
             
         Returns:
             bool: 删除成功返回True，失败返回False
@@ -551,11 +695,14 @@ class MarketData(TimezoneAwareBase):
         init_database_config()
         db: Session = SessionLocal()
         try:
-            config = db.query(SystemConfig).filter_by(key=key).first()
+            query = db.query(SystemConfig).filter_by(key=key)
+            if user_id is not None:
+                query = query.filter_by(user_id=user_id)
+            config = query.first()
             if config:
                 db.delete(config)
                 db.commit()
-                logger.info(f"配置已删除: key={key}")
+                logger.info(f"配置已删除: key={key}, user_id={user_id}")
             return True
         except Exception as e:
             db.rollback()
@@ -565,9 +712,12 @@ class MarketData(TimezoneAwareBase):
             db.close()
     
     @staticmethod
-    def get_all() -> Dict[str, str]:
+    def get_all(user_id: int = None) -> Dict[str, str]:
         """获取所有配置项
         
+        Args:
+            user_id: 用户ID，用于用户隔离。为None时获取所有系统级配置
+            
         Returns:
             Dict[str, str]: 所有配置项，键为配置项键名，值为配置项值
         """
@@ -575,7 +725,10 @@ class MarketData(TimezoneAwareBase):
         init_database_config()
         db: Session = SessionLocal()
         try:
-            configs = db.query(SystemConfig).all()
+            query = db.query(SystemConfig)
+            if user_id is not None:
+                query = query.filter_by(user_id=user_id)
+            configs = query.all()
             return {config.key: config.value for config in configs}  # pyright: ignore[reportReturnType]
         except Exception as e:
             logger.error(f"获取所有配置失败: error={e}")
@@ -584,11 +737,12 @@ class MarketData(TimezoneAwareBase):
             db.close()
     
     @staticmethod
-    def get_with_details(key: str) -> Optional[Dict[str, Any]]:
+    def get_with_details(key: str, user_id: int = None) -> Optional[Dict[str, Any]]:
         """获取配置项的详细信息
         
         Args:
             key: 配置项键名
+            user_id: 用户ID，用于用户隔离。为None时获取系统级配置
             
         Returns:
             Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、插件、名称、是否敏感、创建时间和更新时间
@@ -597,7 +751,10 @@ class MarketData(TimezoneAwareBase):
         init_database_config()
         db: Session = SessionLocal()
         try:
-            config = db.query(SystemConfig).filter_by(key=key).first()
+            query = db.query(SystemConfig).filter_by(key=key)
+            if user_id is not None:
+                query = query.filter_by(user_id=user_id)
+            config = query.first()
             if config:
                 result = {
                     "key": config.key,
@@ -606,6 +763,7 @@ class MarketData(TimezoneAwareBase):
                     "plugin": config.plugin,
                     "name": config.name,
                     "is_sensitive": config.is_sensitive,
+                    "user_id": config.user_id,
                     "created_at": format_datetime(config.created_at),
                     "updated_at": format_datetime(config.updated_at)
                 }
@@ -618,9 +776,12 @@ class MarketData(TimezoneAwareBase):
             db.close()
     
     @staticmethod
-    def get_all_with_details() -> Dict[str, Dict[str, Any]]:
+    def get_all_with_details(user_id: int = None) -> Dict[str, Dict[str, Any]]:
         """获取所有配置项的详细信息
         
+        Args:
+            user_id: 用户ID，用于用户隔离。为None时获取所有系统级配置
+            
         Returns:
             Dict[str, Dict[str, Any]]: 所有配置项的详细信息，键为配置项键名
         """
@@ -628,7 +789,10 @@ class MarketData(TimezoneAwareBase):
         init_database_config()
         db: Session = SessionLocal()
         try:
-            configs = db.query(SystemConfig).all()
+            query = db.query(SystemConfig)
+            if user_id is not None:
+                query = query.filter_by(user_id=user_id)
+            configs = query.all()
             result = {}
             
             for config in configs:

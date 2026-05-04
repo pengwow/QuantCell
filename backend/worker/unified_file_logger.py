@@ -37,11 +37,12 @@ from utils.logger import get_logger, LogType
 logger = get_logger(__name__, LogType.SYSTEM)
 
 
-class StdoutCapture(io.TextIOWrapper):
+class StdoutCapture:
     """
     Stdout 捕获器（Tee 模式）
 
     包装原始 stdout，将所有输出同时写入终端和日志文件。
+    不继承 io.TextIOWrapper，避免 GC 时关闭底层 buffer 导致原始 stdout 失效。
     """
 
     def __init__(
@@ -51,29 +52,65 @@ class StdoutCapture(io.TextIOWrapper):
     ):
         self._original_stdout = original_stdout
         self._unified_logger = unified_logger
-        super().__init__(original_stdout.buffer, encoding="utf-8", errors="replace")
+        self._closed = False
 
     def write(self, data: str) -> int:
         """写入数据到原始 stdout 和日志文件"""
-        original_write = self._original_stdout.write(data)
-        
+        if self._closed:
+            return 0
+        try:
+            result = self._original_stdout.write(data)
+        except (ValueError, OSError):
+            self._closed = True
+            return 0
+
         if data and self._unified_logger:
             try:
-                if "\n" in data or "\r" in data or len(data) > 0:
-                    self._unified_logger.write_raw(data)
-            except Exception as e:
+                self._unified_logger.write_raw(data)
+            except Exception:
                 pass
-        
-        return original_write
+
+        return result
 
     def flush(self):
         """刷新缓冲区"""
+        if self._closed:
+            return
         try:
             self._original_stdout.flush()
-            if self._unified_logger:
+        except (ValueError, OSError):
+            self._closed = True
+        if self._unified_logger:
+            try:
                 self._unified_logger.flush()
-        except Exception:
-            pass
+            except Exception:
+                pass
+
+    def close(self):
+        """关闭捕获器（不关闭底层 stdout）"""
+        self._closed = True
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def fileno(self):
+        return self._original_stdout.fileno()
+
+    def isatty(self) -> bool:
+        return self._original_stdout.isatty()
+
+    @property
+    def encoding(self) -> str:
+        return self._original_stdout.encoding
+
+    @property
+    def errors(self) -> str:
+        return self._original_stdout.errors
+
+    @property
+    def buffer(self):
+        return self._original_stdout.buffer
 
 
 class UnifiedFileLogger:
@@ -136,6 +173,8 @@ class UnifiedFileLogger:
 
         self._original_stdout = sys.stdout
         self._installed: bool = False
+        self._closed: bool = False
+        self._loguru_sink_id: Optional[int] = None
 
         self._setup_file_handler()
 
@@ -196,10 +235,14 @@ class UnifiedFileLogger:
 
     def install_loguru_sink(self):
         """安装 loguru sink"""
+        if self._loguru_sink_id is not None:
+            return
         try:
             from loguru import logger as loguru_logger
 
             def loguru_sink(message):
+                if self._closed:
+                    return
                 record = message.record
                 timestamp_str = record["time"].strftime("%Y-%m-%dT%H:%M:%S.%f")
                 log_line = (
@@ -210,7 +253,7 @@ class UnifiedFileLogger:
                 )
                 self._write_to_buffer(log_line)
 
-            loguru_logger.add(
+            self._loguru_sink_id = loguru_logger.add(
                 loguru_sink,
                 level="DEBUG",
                 format="{message}",
@@ -242,6 +285,9 @@ class UnifiedFileLogger:
         timestamp : Optional[datetime]
             时间戳，默认为当前 UTC 时间
         """
+        if self._closed:
+            return
+
         if timestamp is None:
             timestamp = datetime.now(timezone.utc)
 
@@ -262,10 +308,14 @@ class UnifiedFileLogger:
         data : str
             原始文本数据
         """
+        if self._closed:
+            return
         self._write_to_buffer(data)
 
     def _write_to_buffer(self, data: str):
         """写入缓冲区（带批量刷新优化）"""
+        if self._closed:
+            return
         with self._lock:
             self._buffer.append(data)
             self._buffer_size += len(data.encode("utf-8"))
@@ -275,7 +325,7 @@ class UnifiedFileLogger:
 
     def _flush_buffer(self):
         """强制刷新缓冲区到文件"""
-        if not self._buffer:
+        if self._closed or not self._buffer:
             return
 
         data = "".join(self._buffer)
@@ -330,11 +380,34 @@ class UnifiedFileLogger:
         """手动刷新缓冲区"""
         self._flush_buffer()
 
+    def uninstall_loguru_sink(self):
+        """卸载 loguru sink"""
+        if self._loguru_sink_id is not None:
+            try:
+                from loguru import logger as loguru_logger
+                loguru_logger.remove(self._loguru_sink_id)
+            except Exception:
+                pass
+            self._loguru_sink_id = None
+
     def close(self):
-        """关闭日志器并释放资源"""
+        """关闭日志器并释放资源
+
+        关闭顺序很重要：
+        1. 先标记 _closed，阻止后续写入
+        2. 刷新缓冲区，确保数据落盘
+        3. 移除 loguru sink（避免关闭后仍被回调）
+        4. 移除 logging handler
+        5. 关闭文件 handler
+        6. 最后卸载 stdout 捕获（恢复原始 stdout）
+        """
+        if self._closed:
+            return
+        self._closed = True
+
         self.flush()
 
-        self.uninstall_stdout_capture()
+        self.uninstall_loguru_sink()
         self.uninstall_logging_handler()
 
         if self._file_handler:
@@ -344,7 +417,7 @@ class UnifiedFileLogger:
                 pass
             self._file_handler = None
 
-        logger.info(f"[UnifiedFileLogger] 已关闭: {self.worker_id}")
+        self.uninstall_stdout_capture()
 
 
 def create_unified_logger(

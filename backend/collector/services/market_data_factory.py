@@ -14,7 +14,6 @@ from utils.logger import get_logger, LogType
 logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.database import get_db
 from collector.db.models import MarketData
-from settings.models import SystemConfigBusiness as SystemConfig
 
 
 class MarketDataFetcher(ABC):
@@ -315,6 +314,7 @@ class MarketDataFetcherFactory:
         Returns:
             Optional[Dict[str, Any]]: 交易所配置字典，如果未找到则返回None
         """
+        from settings.models import SystemConfigBusiness as SystemConfig
         config = {}
         prefix = f"exchange.{exchange_id}."
         
@@ -348,6 +348,7 @@ class MarketDataFetcherFactory:
         Returns:
             Optional[MarketDataFetcher]: 市场数据获取器实例，如果不支持则返回None
         """
+        from settings.models import SystemConfigBusiness as SystemConfig
         # 检查缓存
         if exchange_id in cls._fetchers:
             return cls._fetchers[exchange_id]
@@ -409,6 +410,7 @@ class MarketDataFetcherFactory:
         Returns:
             Optional[MarketDataFetcher]: 默认市场数据获取器实例
         """
+        from settings.models import SystemConfigBusiness as SystemConfig
         # 从系统配置获取默认交易所
         default_exchange = SystemConfig.get("default_exchange", "binance")
         return cls.get_fetcher(default_exchange)

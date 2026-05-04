@@ -31,6 +31,19 @@ import NotificationsPage from '@/pages/setting/NotificationsPage';
 import ModelSettingsPage from '@/pages/setting/ModelSettingsPage';
 import SystemInfoPage from '@/pages/setting/SystemInfoPage';
 
+const isAuthenticated = (): boolean => {
+  const token = localStorage.getItem('access_token');
+  return !!token && token !== 'null' && token !== 'undefined';
+};
+
+const AuthGuard = ({ children }: { children: React.ReactNode }) => {
+  if (!isAuthenticated()) {
+    sessionStorage.setItem('redirect_after_login', window.location.pathname);
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+};
+
 // 基础路由配置
 const baseRoutes: RouteObject[] = [
   {
@@ -39,7 +52,11 @@ const baseRoutes: RouteObject[] = [
   },
   {
     path: '/',
-    element: <ConsoleLayout />,
+    element: (
+      <AuthGuard>
+        <ConsoleLayout />
+      </AuthGuard>
+    ),
     children: [
       {
         path: '/chart',

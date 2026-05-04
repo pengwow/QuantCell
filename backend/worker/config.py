@@ -197,19 +197,22 @@ def build_trading_node_config(
             flush_on_start=False,
         )
 
-    # 配置日志
-    # 使用 Python 原生日志系统（use_pyo3=False），确保日志能被 UnifiedFileLogger 捕获
-    logging_config = LoggingConfig(
-        log_level=log_level,
-        log_colors=False,      # Worker 进程中关闭 ANSI 颜色码
-        use_pyo3=False,       # 使用 Python logging 模块而非 Rust pyo3 后端
-    )
+    # 配置日志（一次性传入所有参数，因为 LoggingConfig 是 frozen 不可变类型）
+    logging_config_kwargs = {
+        "log_level": log_level,
+        "log_colors": False,      # Worker 进程中关闭 ANSI 颜色码
+        "use_pyo3": False,       # 使用 Python logging 模块而非 Rust pyo3 后端
+    }
 
-    # 如果指定了日志目录，配置文件日志
+    # 如果指定了日志目录，配置文件日志（必须在创建时传入，不能后续修改）
     if log_directory:
-        logging_config.log_directory = log_directory
-        logging_config.log_file_name = log_file_name or f"{trader_id}.log"
-        logging_config.log_level_file = log_level
+        logging_config_kwargs.update({
+            "log_directory": log_directory,
+            "log_file_name": log_file_name or f"{trader_id}.log",
+            "log_level_file": log_level,
+        })
+
+    logging_config = LoggingConfig(**logging_config_kwargs)
 
     # 创建 TradingNodeConfig
     config = TradingNodeConfig(

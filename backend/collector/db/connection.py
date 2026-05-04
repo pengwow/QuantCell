@@ -185,6 +185,7 @@ def init_db():
         from .database import Base, engine
         # 显式导入所有模型，确保它们被注册到Base.metadata中
         from .models import (
+            User,
             SystemConfig,
             Task,
             Feature,

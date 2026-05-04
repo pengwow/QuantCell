@@ -14,6 +14,13 @@ class TradingMode(str, Enum):
     MARGIN = "margin"
 
 
+class TradingEnvironment(str, Enum):
+    """交易环境类型"""
+    LIVE = "live"           # 实盘环境：使用真实交易所API和真实资金
+    TESTNET = "testnet"     # 模拟盘环境：使用交易所测试网，独立认证
+    PAPER = "paper"         # 纸上交易环境：本地模拟执行，不提交实际订单
+
+
 class OrderType(str, Enum):
     """订单类型"""
     MARKET = "MARKET"

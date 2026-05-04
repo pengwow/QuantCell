@@ -1,20 +1,17 @@
 /**
- * 登录页面
- * 参考 certimate 项目登录页面设计
- * 支持普通用户登录和访客登录
+ * 登录/注册页面
+ * 支持用户注册和登录，不再支持访客模式
  */
 import { useMemo, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { IconArrowRight, IconLock, IconUser, IconUserCircle } from "@tabler/icons-react";
-import { Button, Card, Form, Input, Space, Typography, Divider, Tag, App } from "antd";
+import { IconArrowRight, IconLock, IconUser, IconUserPlus } from "@tabler/icons-react";
+import { Button, Card, Form, Input, Space, Typography, Divider, Tabs, App } from "antd";
 import { saveToken } from "../../utils/tokenManager";
-import { configApi } from "../../api";
 import { setPageTitle } from "@/router";
 
 const { Title, Text } = Typography;
 
-// 应用主题函数
 const applyTheme = (theme: 'light' | 'dark' | 'auto') => {
   const root = document.documentElement;
   let effectiveTheme: 'light' | 'dark';
@@ -26,35 +23,27 @@ const applyTheme = (theme: 'light' | 'dark' | 'auto') => {
     effectiveTheme = theme;
   }
 
-  // 设置 data-theme 属性（用于 CSS 变量选择）
   root.setAttribute('data-theme', effectiveTheme);
-
-  // 同时设置/移除 dark class（用于 App.tsx 中的主题监听和 Tailwind 暗色模式）
   if (effectiveTheme === 'dark') {
     root.classList.add('dark');
   } else {
     root.classList.remove('dark');
   }
-
-  // 同步到 localStorage（用于 useBrowserTheme hook）
   localStorage.setItem('quantcell-ui-theme', effectiveTheme);
 };
 
-// 加载主题配置
 const loadThemeConfig = async () => {
   try {
-    // 先尝试从 localStorage 获取
     const savedTheme = localStorage.getItem('quantcell-ui-theme');
     if (savedTheme) {
       applyTheme(savedTheme as 'light' | 'dark' | 'auto');
       return;
     }
 
-    // 如果没有，从后端获取
-    const response = await configApi.getConfig();
-    const groupedConfig = response?.data || response;
+    const response = await fetch("/api/config");
+    const result = await response.json();
+    const groupedConfig = result?.data || result;
 
-    // 将分组配置扁平化
     const flattenConfig: Record<string, any> = {};
     if (groupedConfig && typeof groupedConfig === 'object') {
       Object.entries(groupedConfig).forEach(([, groupValues]) => {
@@ -70,7 +59,6 @@ const loadThemeConfig = async () => {
     applyTheme(theme as 'light' | 'dark' | 'auto');
   } catch (error) {
     console.error('加载主题配置失败:', error);
-    // 默认使用浅色主题
     applyTheme('light');
   }
 };
@@ -78,82 +66,68 @@ const loadThemeConfig = async () => {
 const LoginPage = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const [form] = Form.useForm();
+  const [loginForm] = Form.useForm();
+  const [registerForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   const { message } = App.useApp();
 
-  // 加载主题配置
   useEffect(() => {
     loadThemeConfig();
   }, []);
 
-  // 设置页面标题
   useEffect(() => {
     setPageTitle(t('login') || '登录');
   }, [t]);
 
-  // 背景样式 - 参考 certimate 的网格背景
   const bgStyle = useMemo<React.CSSProperties>(() => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none" stroke="rgb(100 100 100 / 0.08)"><path d="M0 .5H31.5V32"/></svg>`;
-
     return {
       backgroundImage: `url('data:image/svg+xml;base64,${btoa(svg)}')`,
       maskImage: `linear-gradient(to bottom right, transparent, black, transparent)`,
     };
   }, []);
 
-  /**
-   * 获取登录后跳转的目标路径
-   * 优先使用sessionStorage中保存的redirect_after_login
-   */
   const getRedirectPath = (): string => {
     const savedPath = sessionStorage.getItem('redirect_after_login');
     if (savedPath && savedPath !== '/login') {
-      // 清除保存的路径，避免重复跳转
       sessionStorage.removeItem('redirect_after_login');
       return savedPath;
     }
-    return '/';
+    return '/chart';
   };
 
-  // 处理登录
+  const saveUserInfo = (data: any) => {
+    saveToken({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token || "",
+      token_type: data.token_type || "Bearer",
+    });
+    localStorage.setItem('access_token', data.access_token);
+    localStorage.setItem('refresh_token', data.refresh_token || '');
+    localStorage.setItem('user_role', data.role || 'user');
+    localStorage.setItem('is_guest', 'false');
+    localStorage.setItem('username', data.username || '');
+    localStorage.setItem('user_id', String(data.user_id || ''));
+    localStorage.setItem('nickname', data.nickname || '');
+  };
+
+  // 登录处理
   const handleLogin = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
-      // 调用后端登录 API 获取 JWT token
       const response = await fetch("/api/auth/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
       });
-
-      if (!response.ok) {
-        throw new Error("登录失败");
-      }
 
       const data = await response.json();
 
       if (data.code === 0 && data.data?.access_token) {
-        // 保存 token 使用 tokenManager
-        saveToken({
-          access_token: data.data.access_token,
-          refresh_token: data.data.refresh_token || "",
-          token_type: data.data.token_type || "Bearer",
-        });
-        // 保存用户角色信息到 localStorage
-        localStorage.setItem('user_role', data.data.role || 'user');
-        localStorage.setItem('is_guest', String(data.data.is_guest || false));
-        localStorage.setItem('username', data.data.username || '访客');
-
-        const loginMessage = data.data.is_guest
-          ? (t("guest_login_success") || "访客登录成功")
-          : (t("login_success") || "登录成功");
-        message.success(loginMessage);
-        // 跳转到之前保存的页面或首页
-        const redirectPath = getRedirectPath();
-        navigate(redirectPath);
+        saveUserInfo(data.data);
+        message.success(t("login_success") || "登录成功");
+        navigate(getRedirectPath());
       } else {
         message.error(data.message || t("login_failed") || "登录失败");
       }
@@ -165,184 +139,162 @@ const LoginPage = () => {
     }
   };
 
-  // 处理访客登录
-  const handleGuestLogin = async () => {
+  // 注册处理
+  const handleRegister = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
-      // 调用后端登录 API，不传递用户名和密码
-      const response = await fetch("/api/auth/login", {
+      const response = await fetch("/api/auth/register", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ username: "", password: "" }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
       });
-
-      if (!response.ok) {
-        throw new Error("访客登录失败");
-      }
 
       const data = await response.json();
 
-      if (data.code === 0 && data.data?.access_token) {
-        // 保存 token 使用 tokenManager
-        saveToken({
-          access_token: data.data.access_token,
-          refresh_token: data.data.refresh_token || "",
-          token_type: data.data.token_type || "Bearer",
-        });
-        // 保存用户角色信息到 localStorage
-        localStorage.setItem('user_role', data.data.role || 'guest');
-        localStorage.setItem('is_guest', 'true');
-        localStorage.setItem('username', '访客');
-
-        message.success(t("guest_login_success") || "访客登录成功");
-        // 跳转到之前保存的页面或首页
-        const redirectPath = getRedirectPath();
-        navigate(redirectPath);
+      if (data.code === 0) {
+        message.success(t("register_success") || "注册成功，请使用新账号登录");
+        setActiveTab('login');
+        loginForm.setFieldsValue({ username: values.username, password: '' });
       } else {
-        message.error(data.message || t("guest_login_failed") || "访客登录失败");
+        message.error(data.message || t("register_failed") || "注册失败");
       }
     } catch (error) {
-      console.error("访客登录错误:", error);
-      message.error(t("guest_login_failed") || "访客登录失败");
+      console.error("注册错误:", error);
+      message.error(t("register_failed") || "注册失败");
     } finally {
       setLoading(false);
     }
   };
 
+  const tabItems = [
+    {
+      key: 'login',
+      label: (
+        <span className="flex items-center gap-1">
+          <IconUser size="1em" />
+          {t("login_tab") || "登录"}
+        </span>
+      ),
+      children: (
+        <Form
+          form={loginForm}
+          layout="vertical"
+          onFinish={handleLogin}
+          autoComplete="off"
+          className="pt-2"
+        >
+          <Form.Item
+            name="username"
+            label={<span className="dark:text-gray-300">{t("username") || "用户名"}</span>}
+            rules={[{ required: true, message: t("username_required") || "请输入用户名" }]}
+            validateTrigger="onSubmit"
+          >
+            <Space.Compact block className="h-10">
+              <Button icon={<IconUser size="1.25em" />} disabled className="h-10 flex items-center justify-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" />
+              <Input placeholder={t("enter_username") || "请输入用户名"} className="h-10 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400" autoFocus />
+            </Space.Compact>
+          </Form.Item>
+
+          <Form.Item
+            name="password"
+            label={<span className="dark:text-gray-300">{t("password") || "密码"}</span>}
+            rules={[{ required: true, message: t("password_required") || "请输入密码" }]}
+            validateTrigger="onSubmit"
+          >
+            <Space.Compact block className="h-10">
+              <Button icon={<IconLock size="1.25em" />} disabled className="h-10 flex items-center justify-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" />
+              <Input.Password placeholder={t("enter_password") || "请输入密码"} className="h-10 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400" />
+            </Space.Compact>
+          </Form.Item>
+
+          <Form.Item className="mb-0 mt-8">
+            <Button type="primary" htmlType="submit" block size="large" loading={loading} icon={<IconArrowRight size="1.25em" />} iconPlacement="end">
+              {t("login") || "登录"}
+            </Button>
+          </Form.Item>
+        </Form>
+      ),
+    },
+    {
+      key: 'register',
+      label: (
+        <span className="flex items-center gap-1">
+          <IconUserPlus size="1em" />
+          {t("register_tab") || "注册"}
+        </span>
+      ),
+      children: (
+        <Form
+          form={registerForm}
+          layout="vertical"
+          onFinish={handleRegister}
+          autoComplete="off"
+          className="pt-2"
+        >
+          <Form.Item
+            name="username"
+            label={<span className="dark:text-gray-300">{t("username") || "用户名"}</span>}
+            rules={[
+              { required: true, message: t("username_required") || "请输入用户名" },
+              { min: 2, message: t("username_min_length") || "用户名至少2个字符" },
+              { max: 50, message: t("username_max_length") || "用户名不超过50个字符" },
+            ]}
+            validateTrigger="onSubmit"
+          >
+            <Space.Compact block className="h-10">
+              <Button icon={<IconUser size="1.25em" />} disabled className="h-10 flex items-center justify-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" />
+              <Input placeholder={t("enter_username") || "请输入用户名"} className="h-10 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400" autoFocus />
+            </Space.Compact>
+          </Form.Item>
+
+          <Form.Item
+            name="password"
+            label={<span className="dark:text-gray-300">{t("password") || "密码"}</span>}
+            rules={[
+              { required: true, message: t("password_required") || "请输入密码" },
+              { min: 6, message: t("password_min_length") || "密码至少6个字符" },
+            ]}
+            validateTrigger="onSubmit"
+          >
+            <Space.Compact block className="h-10">
+              <Button icon={<IconLock size="1.25em" />} disabled className="h-10 flex items-center justify-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" />
+              <Input.Password placeholder={t("enter_password") || "请输入密码（至少6位）"} className="h-10 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400" />
+            </Space.Compact>
+          </Form.Item>
+
+          <Form.Item className="mb-0 mt-8">
+            <Button type="primary" htmlType="submit" block size="large" loading={loading} icon={<IconUserPlus size="1.25em" />} iconPlacement="end">
+              {t("register_btn") || "立即注册"}
+            </Button>
+          </Form.Item>
+        </Form>
+      ),
+    },
+  ];
+
   return (
     <div className="relative min-h-screen w-full bg-background text-foreground">
-      {/* 背景 */}
-      <div
-        className="pointer-events-none fixed inset-0"
-        style={bgStyle}
-      />
+      <div className="pointer-events-none fixed inset-0" style={bgStyle} />
 
-      {/* 登录卡片 */}
       <div className="flex h-screen w-full items-center justify-center px-4">
         <Card className="w-full max-w-md rounded-lg shadow-lg bg-white dark:bg-gray-800 dark:border-gray-700">
           <div className="px-6 py-8">
             {/* Logo */}
             <div className="mb-8 flex flex-col items-center justify-center">
-              <img
-                src="/logo.svg"
-                alt="QuantCell"
-                className="mb-4 h-16 w-16"
-                onError={(e) => {
-                  // 如果 logo 加载失败，显示文字
-                  (e.target as HTMLImageElement).style.display = "none";
-                }}
-              />
-              <Title level={3} className="m-0 dark:text-white">
-                QuantCell
-              </Title>
-              <Text type="secondary" className="dark:text-gray-400">
-                {t("login_subtitle") || "量化交易平台"}
-              </Text>
+              <img src="/logo.svg" alt="QuantCell" className="mb-4 h-16 w-16" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+              <Title level={3} className="m-0 dark:text-white">QuantCell</Title>
+              <Text type="secondary" className="dark:text-gray-400">{t("login_subtitle") || "量化交易平台"}</Text>
             </div>
 
-            {/* 登录表单 */}
-            <Form
-              form={form}
-              layout="vertical"
-              onFinish={handleLogin}
-              autoComplete="off"
-            >
-              <Form.Item
-                name="username"
-                label={<span className="dark:text-gray-300">{t("username") || "用户名"}</span>}
-                rules={[
-                  {
-                    required: true,
-                    message: t("username_required") || "请输入用户名",
-                  },
-                ]}
-                validateTrigger="onSubmit"
-              >
-                <Space.Compact block className="h-10">
-                  <Button
-                    icon={<IconUser size="1.25em" />}
-                    disabled
-                    className="h-10 flex items-center justify-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
-                  />
-                  <Input
-                    placeholder={t("enter_username") || "请输入用户名"}
-                    className="h-10 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
-                    autoFocus
-                  />
-                </Space.Compact>
-              </Form.Item>
-
-              <Form.Item
-                name="password"
-                label={<span className="dark:text-gray-300">{t("password") || "密码"}</span>}
-                rules={[
-                  {
-                    required: true,
-                    message: t("password_required") || "请输入密码",
-                  },
-                ]}
-                validateTrigger="onSubmit"
-              >
-                <Space.Compact block className="h-10">
-                  <Button
-                    icon={<IconLock size="1.25em" />}
-                    disabled
-                    className="h-10 flex items-center justify-center dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
-                  />
-                  <Input.Password
-                    placeholder={t("enter_password") || "请输入密码"}
-                    className="h-10 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
-                  />
-                </Space.Compact>
-              </Form.Item>
-
-              <Form.Item className="mb-0 mt-8">
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  block
-                  size="large"
-                  loading={loading}
-                  icon={<IconArrowRight size="1.25em" />}
-                  iconPlacement="end"
-                >
-                  {t("login") || "登录"}
-                </Button>
-              </Form.Item>
-            </Form>
-
-            {/* 提示信息 */}
-            <div className="mt-6 text-center">
-              <Text type="secondary" className="text-sm dark:text-gray-400">
-                {t("login_hint") || "请输入用户名和密码进行登录"}
-              </Text>
-            </div>
-
-            {/* 访客登录选项 */}
-            <Divider className="dark:border-gray-600">
-              <Text type="secondary" className="text-xs dark:text-gray-400">
-                {t("or") || "或"}
-              </Text>
-            </Divider>
-
-            <Button
-              type="default"
-              block
-              size="large"
-              loading={loading}
-              icon={<IconUserCircle size="1.25em" />}
-              onClick={handleGuestLogin}
-              className="dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
-            >
-              {t("guest_login") || "访客登录"}
-            </Button>
+            {/* 登录/注册 Tab 切换 */}
+            <Tabs activeKey={activeTab} onChange={(key) => setActiveTab(key as 'login' | 'register')} centered items={tabItems} className="dark:[&_.ant-tabs-nav]:mb-4" />
 
             <div className="mt-4 text-center">
-              <Tag color="orange" className="dark:bg-orange-900 dark:text-orange-200">
-                {t("guest_hint") || "访客：仅可浏览，部分功能受限"}
-              </Tag>
+              <Text type="secondary" className="text-xs dark:text-gray-500">
+                {activeTab === 'login'
+                  ? (t("login_hint") || "已有账号？请输入用户名和密码登录")
+                  : (t("register_hint") || "创建账号后即可使用完整功能")}
+              </Text>
             </div>
           </div>
         </Card>
