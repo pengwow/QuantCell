@@ -2,6 +2,7 @@
 
 from .connection import get_db_connection, init_db
 from .models import (
+    User, UserBusiness,
     DataPool, DataPoolBusiness, SystemConfig,
     SystemConfigBusiness
 )
@@ -9,6 +10,8 @@ from .models import (
 __all__ = [
     "get_db_connection",
     "init_db",
+    "User",
+    "UserBusiness",
     "SystemConfig",
     "SystemConfigBusiness",
     "DataPool",

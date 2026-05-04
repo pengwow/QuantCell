@@ -3,6 +3,7 @@
 .trae/
 .shared/*
 .DS_Store
+.vscode/
 *.pyc
 *.log
 *.so

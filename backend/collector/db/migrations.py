@@ -486,6 +486,190 @@ def update_kline_tables(session: Session, db_type: str) -> None:
     logger.info("K线表结构更新完成")
 
 
+def create_users_table(session: Session, db_type: str) -> None:
+    """创建users表（如果不存在）
+
+    Args:
+        session: SQLAlchemy会话对象
+        db_type: 数据库类型（sqlite或duckdb）
+    """
+    logger.info("检查users表是否存在...")
+
+    try:
+        if db_type == "sqlite":
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+            ).fetchone()
+        elif db_type == "duckdb":
+            table_exists = session.execute(
+                text("SELECT table_name FROM information_schema.tables WHERE table_name='users'")
+            ).fetchone()
+        else:
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+            ).fetchone()
+    except Exception as e:
+        logger.error(f"检查users表是否存在失败: {e}")
+        return
+
+    if table_exists:
+        logger.info("users表已存在，跳过创建")
+        return
+
+    logger.info("创建users表...")
+    try:
+        if db_type == "sqlite":
+            session.execute(text("""
+                CREATE TABLE users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username VARCHAR(50) NOT NULL UNIQUE,
+                    password_hash VARCHAR(128) NOT NULL,
+                    nickname VARCHAR(100),
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_login DATETIME
+                )
+            """))
+            session.execute(text("CREATE INDEX ix_users_id ON users(id)"))
+            session.execute(text("CREATE INDEX ix_users_username ON users(username)"))
+            session.execute(text("CREATE INDEX ix_users_is_active ON users(is_active)"))
+        elif db_type == "duckdb":
+            session.execute(text("""
+                CREATE TABLE users (
+                    id INTEGER PRIMARY KEY,
+                    username VARCHAR(50) NOT NULL UNIQUE,
+                    password_hash VARCHAR(128) NOT NULL,
+                    nickname VARCHAR(100),
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP
+                )
+            """))
+        logger.info("users表创建成功")
+    except Exception as e:
+        logger.error(f"创建users表失败: {e}")
+
+
+def update_system_config_add_user_id(session: Session, db_type: str) -> None:
+    """更新system_config表，添加user_id列并重建主键约束
+
+    由于SQLite不支持ALTER TABLE修改主键，需要通过创建新表的方式完成迁移
+
+    Args:
+        session: SQLAlchemy会话对象
+        db_type: 数据库类型（sqlite或duckdb）
+    """
+    logger.info("开始更新system_config表，添加user_id列...")
+
+    # 检查表是否存在
+    try:
+        if db_type == "sqlite":
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='system_config'")
+            ).fetchone()
+        elif db_type == "duckdb":
+            table_exists = session.execute(
+                text("SELECT table_name FROM information_schema.tables WHERE table_name='system_config'")
+            ).fetchone()
+        else:
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='system_config'")
+            ).fetchone()
+    except Exception as e:
+        logger.error(f"检查system_config表是否存在失败: {e}")
+        return
+
+    if not table_exists:
+        logger.info("system_config表不存在，跳过更新")
+        return
+
+    # 检查user_id列是否已存在
+    try:
+        if db_type == "sqlite":
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('system_config') WHERE name='user_id'")
+            ).fetchone()
+        elif db_type == "duckdb":
+            column_exists = session.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name='system_config' AND column_name='user_id'")
+            ).fetchone()
+        else:
+            column_exists = session.execute(
+                text("SELECT name FROM pragma_table_info('system_config') WHERE name='user_id'")
+            ).fetchone()
+
+        if column_exists:
+            logger.info("user_id列已存在，跳过")
+            return
+    except Exception as e:
+        logger.error(f"检查user_id列是否存在失败: {e}")
+        return
+
+    logger.info("添加user_id列到system_config表...")
+    try:
+        if db_type == "sqlite":
+            # SQLite不支持修改主键，需要重建表
+            # 0. 清理可能残留的临时表
+            session.execute(text("DROP TABLE IF EXISTS system_config_new"))
+
+            # 1. 创建新表，使用(key, user_id)联合作为主键
+            session.execute(text("""
+                CREATE TABLE system_config_new (
+                    key VARCHAR NOT NULL,
+                    value VARCHAR NOT NULL,
+                    description TEXT,
+                    name VARCHAR,
+                    plugin VARCHAR,
+                    is_sensitive BOOLEAN DEFAULT 0,
+                    user_id INTEGER,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (key, user_id),
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            """))
+
+            # 2. 复制旧表数据到新表，user_id设为NULL（系统级配置）
+            try:
+                session.execute(text("""
+                    INSERT INTO system_config_new (key, value, description, name, plugin, is_sensitive, created_at, updated_at)
+                    SELECT key, value, description, name, plugin, is_sensitive, created_at, updated_at
+                    FROM system_config
+                """))
+            except Exception as copy_e:
+                logger.warning(f"复制数据时出错，尝试兼容旧表结构: {copy_e}")
+                # 兼容没有name、plugin、is_sensitive列的旧表
+                try:
+                    session.execute(text("""
+                        INSERT INTO system_config_new (key, value, description, created_at, updated_at)
+                        SELECT key, value, description, created_at, updated_at
+                        FROM system_config
+                    """))
+                except Exception as copy_e2:
+                    logger.error(f"复制数据失败: {copy_e2}")
+                    session.execute(text("DROP TABLE IF EXISTS system_config_new"))
+                    return
+
+            # 3. 删除旧表
+            session.execute(text("DROP TABLE system_config"))
+
+            # 4. 重命名新表
+            session.execute(text("ALTER TABLE system_config_new RENAME TO system_config"))
+
+            # 5. 创建索引
+            session.execute(text("CREATE INDEX IF NOT EXISTS ix_system_config_key ON system_config(key)"))
+            session.execute(text("CREATE INDEX IF NOT EXISTS ix_system_config_user_id ON system_config(user_id)"))
+
+            logger.info("system_config表重建成功，已添加user_id列")
+
+        elif db_type == "duckdb":
+            session.execute(text("ALTER TABLE system_config ADD COLUMN user_id INTEGER"))
+            logger.info("DuckDB: user_id列添加成功")
+
+    except Exception as e:
+        logger.error(f"更新system_config表失败: {e}")
+
+
 def run_migrations() -> None:
     """运行所有迁移脚本
     
@@ -508,6 +692,12 @@ def run_migrations() -> None:
         
         # 使用Session执行迁移
         with SessionLocal() as session:
+            # 创建users表（如果不存在）
+            create_users_table(session, db_type)
+
+            # 更新system_config表，添加user_id列
+            update_system_config_add_user_id(session, db_type)
+
             # 更新data_pools表结构
             update_data_pools_table(session, db_type)
             

@@ -694,54 +694,40 @@ class WorkerProcess(multiprocessing.Process):
     async def _cleanup(self):
         """
         清理资源
+
+        注意：统一日志器必须最后关闭，否则后续日志写入会导致
+        "I/O operation on closed file" 错误。
         """
         logger.info(f"Worker {self.worker_id} 开始清理资源")
 
         # 调用策略清理方法
-        logger.info(f"[WorkerProcess] Worker {self.worker_id} 开始清理策略...")
         if self.strategy and hasattr(self.strategy, "on_stop"):
             try:
-                logger.info(f"[WorkerProcess] Worker {self.worker_id} 调用策略 on_stop...")
                 await self._call_strategy_method("on_stop")
-                logger.info(f"[WorkerProcess] Worker {self.worker_id} 策略 on_stop 完成")
             except Exception as e:
-                logger.error(f"[WorkerProcess] Worker {self.worker_id} 策略清理错误: {e}")
-        else:
-            logger.info(f"[WorkerProcess] Worker {self.worker_id} 策略无需清理或无 on_stop 方法")
-
-        # 关闭统一文件日志器
-        logger.info(f"[WorkerProcess] Worker {self.worker_id} 开始关闭统一日志器...")
-        if self._unified_logger:
-            try:
-                logger.info(f"[WorkerProcess] Worker {self.worker_id} 调用 _unified_logger.close()...")
-                self._unified_logger.close()
-                logger.info(f"[WorkerProcess] Worker {self.worker_id} 统一日志器已关闭")
-            except Exception as e:
-                logger.error(f"[WorkerProcess] Worker {self.worker_id} 关闭统一日志器错误: {e}")
-        else:
-            logger.info(f"[WorkerProcess] Worker {self.worker_id} 无统一日志器需要关闭")
+                logger.error(f"Worker {self.worker_id} 策略清理错误: {e}")
 
         # 断开通信连接（使用超时避免阻塞）
-        logger.info(f"[WorkerProcess] Worker {self.worker_id} 开始断开通信连接...")
         if self.comm_client:
             try:
-                # 使用 asyncio.wait_for 设置超时
                 import asyncio
-                logger.info(f"[WorkerProcess] Worker {self.worker_id} 调用 comm_client.disconnect()...")
                 await asyncio.wait_for(self.comm_client.disconnect(), timeout=5.0)
-                logger.info(f"[WorkerProcess] Worker {self.worker_id} 通信连接已断开")
             except asyncio.TimeoutError:
-                logger.warning(f"[WorkerProcess] Worker {self.worker_id} 断开通信连接超时")
+                logger.warning(f"Worker {self.worker_id} 断开通信连接超时")
             except Exception as e:
-                logger.error(f"[WorkerProcess] Worker {self.worker_id} 断开通信连接错误: {e}")
-        else:
-            logger.info(f"[WorkerProcess] Worker {self.worker_id} 无通信客户端需要断开")
+                logger.error(f"Worker {self.worker_id} 断开通信连接错误: {e}")
 
         # 更新状态
-        logger.info(f"[WorkerProcess] Worker {self.worker_id} 更新状态为 STOPPED...")
         self.status.update_state(WorkerState.STOPPED)
+        logger.info(f"Worker {self.worker_id} 资源清理完成，进程即将退出")
 
-        logger.info(f"[WorkerProcess] Worker {self.worker_id} 资源清理完成，进程即将退出")
+        # 统一日志器必须最后关闭
+        if self._unified_logger:
+            try:
+                self._unified_logger.close()
+            except Exception:
+                pass
+            self._unified_logger = None
 
     def stop(self):
         """
@@ -1499,28 +1485,25 @@ class TradingNodeWorkerProcess(WorkerProcess):
             try:
                 if self._nautilus_unified_logger:
                     self._nautilus_unified_logger.close()
-                    logger.info(f"Worker {self.worker_id} Nautilus 统一日志器已关闭")
             except Exception as e:
                 logger.warning(f"Worker {self.worker_id} 关闭 Nautilus 统一日志器时出错: {e}")
 
             # 释放 NautilusTrader 日志系统的 LogGuard
             if self._nautilus_log_guard:
                 try:
-                    # LogGuard 会在析构时自动清理日志系统
                     del self._nautilus_log_guard
                     self._nautilus_log_guard = None
-                    logger.info(f"Worker {self.worker_id} NautilusTrader LogGuard 已释放")
                 except Exception as e:
                     logger.warning(f"Worker {self.worker_id} 释放 LogGuard 时出错: {e}")
-
-            # 调用父类清理
-            await super()._cleanup()
 
             # 清理引用
             self.trading_node = None
             self.trading_strategy = None
 
             logger.info(f"Worker {self.worker_id} TradingNode 资源清理完成")
+
+            # 调用父类清理（统一日志器在父类中最后关闭）
+            await super()._cleanup()
 
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 清理资源时出错: {e}")

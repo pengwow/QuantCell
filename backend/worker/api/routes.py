@@ -233,16 +233,21 @@ def _on_worker_exit(worker_id: str, worker_status):
         logger.error(f"Worker 退出回调处理失败: {e}")
 
 async def get_worker_manager():
-    """获取 WorkerManager 实例（懒加载）"""
+    """
+    获取 TradingNodeWorkerManager 实例（懒加载）
+
+    使用 TradingNodeWorkerManager 以支持 Nautilus Trader 框架集成，
+    确保策略运行时能正确初始化 TradingNode 并输出完整日志。
+    """
     global _worker_manager
     if _worker_manager is None:
-        from ..manager import WorkerManager
-        _worker_manager = WorkerManager()
+        from ..manager import TradingNodeWorkerManager
+        _worker_manager = TradingNodeWorkerManager()
         # 注册 Worker 退出回调
         _worker_manager.register_worker_exit_callback(_on_worker_exit)
         # 启动 WorkerManager
         await _worker_manager.start()
-        logger.info("WorkerManager 初始化并启动完成，已注册退出回调")
+        logger.info("TradingNodeWorkerManager 初始化并启动完成，已注册退出回调")
     return _worker_manager
 
 
@@ -309,20 +314,122 @@ async def start_worker(
         trading_config = worker.get_trading_config_dict()
         symbols_config = trading_config.get('symbols_config', {})
         symbols = symbols_config.get('symbols', ['BTCUSDT'])
-        
-        # 准备策略配置
+
+        # 确定交易模式和账户类型
+        # 支持多种市场类型: spot(现货), usdt_futures(U本位合约), coin_futures(币本位合约)
+        market_type = trading_config.get('market_type', 'spot')
+        account_type_map = {
+            'spot': 'spot',
+            'usdt_futures': 'usdt_futures',
+            'coin_futures': 'coin_futures',
+            'futures': 'usdt_futures',  # 兼容旧版本
+        }
+        account_type = account_type_map.get(market_type, 'spot')
+
+        # 交易模式映射: live(实盘), testnet(模拟盘/测试网), paper(纸上交易)
+        trading_mode = trading_config.get('trading_environment', trading_config.get('trading_mode', 'live'))
+
+        # 从 SystemConfig 补充交易所 API 密钥（根据环境类型选择对应配置）
+        exchange_id = trading_config.get('exchange', 'binance')
+
+        # 根据环境类型确定 API 密钥字段名
+        if trading_mode == 'testnet':
+            api_key_field = 'testnet_api_key'
+            api_secret_field = 'testnet_api_secret'
+        elif trading_mode == 'paper':
+            api_key_field = None  # 纸上交易不需要真实 API 密钥
+            api_secret_field = None
+        else:
+            api_key_field = 'live_api_key'  # 优先使用 live_api_key
+            api_secret_field = 'live_api_secret'
+
+        exchange_api_key = trading_config.get('api_key')
+        exchange_api_secret = trading_config.get('api_secret')
+        exchange_api_passphrase = trading_config.get('api_passphrase')
+        proxy_url = trading_config.get('proxy_url')
+
+        if not exchange_api_key or not exchange_api_secret:
+            from collector.db.models import SystemConfig as SystemConfigModel
+            exchange_cfg_prefix = f"exchange.{exchange_id}."
+            cfg_rows = db.query(SystemConfigModel).filter(
+                SystemConfigModel.key.like(f"{exchange_cfg_prefix}%")
+            ).all()
+            cfg_map = {}
+            for row in cfg_rows:
+                field = row.key[len(exchange_cfg_prefix):]
+                cfg_map[field] = row.value
+
+            # 根据环境类型读取对应的 API 密钥
+            if trading_mode == 'testnet':
+                if not exchange_api_key:
+                    exchange_api_key = cfg_map.get('testnet_api_key')
+                if not exchange_api_secret:
+                    exchange_api_secret = cfg_map.get('testnet_api_secret')
+            elif trading_mode != 'paper':
+                # live 环境：优先使用 live_api_key，回退到 api_key（兼容旧配置）
+                if not exchange_api_key:
+                    exchange_api_key = cfg_map.get('live_api_key') or cfg_map.get('api_key')
+                if not exchange_api_secret:
+                    exchange_api_secret = cfg_map.get('live_api_secret') or cfg_map.get('api_secret')
+
+            if not exchange_api_passphrase:
+                exchange_api_passphrase = cfg_map.get('api_passphrase')
+            if not proxy_url and cfg_map.get('proxy_enabled') in (True, '1', 'true'):
+                proxy_url = cfg_map.get('proxy_url')
+
+            logger.info(
+                f"Worker {worker_id} 从 SystemConfig 补充交易所密钥: "
+                f"exchange={exchange_id}, "
+                f"environment={trading_mode}, "
+                f"api_key={'已配置' if exchange_api_key else '未配置'}, "
+                f"api_secret={'已配置' if exchange_api_secret else '未配置'}"
+            )
+
+        # 准备策略配置（包含完整的 Nautilus Trader 集成配置）
         config = {
+            # 基础配置
             "strategy_id": worker.strategy_id,
-            "exchange": trading_config.get('exchange', 'binance'),
-            "symbol": symbols[0] if symbols else 'BTCUSDT',  # 兼容旧版本，使用第一个货币对
-            "symbols": symbols,  # 传递所有货币对
+            "exchange": exchange_id,
+            "symbol": symbols[0] if symbols else 'BTCUSDT',
+            "symbols": symbols,
             "timeframe": trading_config.get('timeframe', '1h'),
-            "market_type": trading_config.get('market_type', 'spot'),
-            "trading_mode": trading_config.get('trading_mode', 'paper'),
+            "market_type": market_type,
+
+            # Nautilus Trader 标识和核心配置
+            "worker_type": "nautilus",  # 标识使用 TradingNodeWorkerProcess
+
+            # Nautilus 特定配置（传递给 TradingNode 初始化）
+            "trading": {
+                "exchange": exchange_id,
+                "account_type": account_type,
+                "trading_mode": trading_mode,  # live/demo/paper
+
+                # API 密钥（优先从 worker trading_config 读取，其次从 SystemConfig 补充）
+                "api_key": exchange_api_key,
+                "api_secret": exchange_api_secret,
+                "api_passphrase": exchange_api_passphrase,  # OKX需要
+
+                # 代理配置
+                "proxy_url": proxy_url,
+
+                # 日志配置
+                "log_level": "DEBUG",  # 使用 DEBUG 级别以便调试 NautilusTrader 日志问题
+                # "log_directory": None,  # 使用默认临时目录
+                # "log_file_name": f"worker_{worker_id}.log",
+            },
+
+            # 资源限制
             "cpu_limit": worker.cpu_limit,
             "memory_limit": worker.memory_limit,
+
+            # 自定义配置
             "config": worker.get_config_dict(),
-            "strategy_code": strategy_code,  # 传递策略代码
+
+            # 策略代码（优先使用数据库中的代码）
+            "strategy_code": strategy_code,
+
+            # 策略参数（传递给策略构造函数）
+            "params": trading_config.get('strategy_params', {}),
         }
         
         # 先更新状态为 starting，表示正在启动中
@@ -332,22 +439,24 @@ async def start_worker(
         db.commit()
         logger.info(f"[start_worker] Worker {worker_id} 已更新为 starting 状态")
 
-        # 真正创建并启动 Worker 进程
-        logger.info(f"[start_worker] Worker {worker_id} 开始调用 manager.start_strategy()")
-        result_worker_id = await manager.start_strategy(
+        # 真正创建并启动 TradingNode Worker 进程
+        # 使用 start_trading_worker() 而非 start_strategy()，确保正确初始化 Nautilus Trader
+        logger.info(f"[start_worker] Worker {worker_id} 开始调用 manager.start_trading_worker()")
+        result_worker_id = await manager.start_trading_worker(
             strategy_path=strategy_path,
             config=config,
-            worker_id=str(worker_id)
+            worker_id=str(worker_id),
+            exchange_config=config.get('trading'),  # 传递交易所配置
         )
-        logger.info(f"[start_worker] Worker {worker_id} manager.start_strategy() 返回: {result_worker_id}")
+        logger.info(f"[start_worker] Worker {worker_id} manager.start_trading_worker() 返回: {result_worker_id}")
 
         if not result_worker_id:
             # 启动失败，更新状态为 error
-            logger.error(f"[start_worker] Worker {worker_id} start_strategy 返回 None，更新状态为 error")
+            logger.error(f"[start_worker] Worker {worker_id} start_trading_worker 返回 None，更新状态为 error")
             worker.status = "error"
             worker.pid = None
             db.commit()
-            raise HTTPException(status_code=500, detail="Worker启动失败")
+            raise HTTPException(status_code=500, detail="Worker启动失败（Nautilus Trader 初始化失败）")
 
         # Worker 启动成功，更新状态为 running
         logger.info(f"[start_worker] Worker {worker_id} 启动成功，更新状态为 running")

@@ -14,7 +14,6 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from sqlalchemy.orm import Session
 
 # from ..data_loader import data_loader
-from settings.models import SystemConfigBusiness as SystemConfig
 from ..db import crud
 from ..schemas.data import (DownloadCryptoRequest, ExportCryptoRequest,
                             LoadDataRequest)
@@ -35,15 +34,16 @@ class DataService:
     
     def load_data(self, request: LoadDataRequest) -> Dict[str, Any]:
         """加载QLib数据
-        
+
         从系统配置表中获取qlib_dir配置，加载QLib格式的数据
-        
+
         Args:
             request: 加载数据请求
-            
+
         Returns:
             Dict[str, Any]: 包含加载结果的数据
         """
+        from settings.models import SystemConfigBusiness as SystemConfig
         logger.info("开始加载QLib数据")
         
         # 从系统配置表中获取qlib_dir配置
@@ -380,10 +380,11 @@ class DataService:
     
     def reload_qlib(self) -> Dict[str, Any]:
         """重新加载QLib
-        
+
         Returns:
             Dict[str, Any]: 包含重新加载结果的数据
         """
+        from settings.models import SystemConfigBusiness as SystemConfig
         logger.info("开始重新加载QLib")
         
         # 从系统配置获取qlib_data_dir
@@ -417,13 +418,14 @@ class DataService:
     
     def create_download_task(self, request: DownloadCryptoRequest) -> Dict[str, Any]:
         """创建加密货币数据下载任务
-        
+
         Args:
             request: 下载加密货币数据请求
-            
+
         Returns:
             Dict[str, Any]: 包含任务ID的数据
         """
+        from settings.models import SystemConfigBusiness as SystemConfig
         logger.info(f"收到加密货币数据下载请求，参数: {request.model_dump()}")
         
         # 如果没有接收到save_dir，则从数据库中读取

@@ -106,29 +106,20 @@
   height: 8px;
   border-radius: 50%;
   display: inline-block;
+  background-color: var(--status-color, var(--tw-color-border));
+  box-shadow: 0 0 4px color-mix(in srgb, var(--status-color, var(--tw-color-border)) 60%, transparent);
 }
 
-.status-indicator.connected {
-  background-color: #4CAF50;
-  box-shadow: 0 0 4px rgba(76, 175, 80, 0.6);
+.status-indicator[data-status="connected"],
+.status-indicator[data-status="normal"] {
+  --status-color: #4CAF50;
 }
 
-.status-indicator.disconnected {
-  background-color: #F44336;
-  box-shadow: 0 0 4px rgba(244, 67, 54, 0.6);
+.status-indicator[data-status="disconnected"],
+.status-indicator[data-status="critical"] {
+  --status-color: #F44336;
 }
 
-.status-indicator.normal {
-  background-color: #4CAF50;
-  box-shadow: 0 0 4px rgba(76, 175, 80, 0.6);
-}
-
-.status-indicator.warning {
-  background-color: #FFC107;
-  box-shadow: 0 0 4px rgba(255, 193, 7, 0.6);
-}
-
-.status-indicator.critical {
-  background-color: #F44336;
-  box-shadow: 0 0 4px rgba(244, 67, 54, 0.6);
+.status-indicator[data-status="warning"] {
+  --status-color: #FFC107;
 }

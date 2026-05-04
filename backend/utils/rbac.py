@@ -4,7 +4,7 @@ RBAC (Role-Based Access Control) 权限控制模块
 """
 
 from enum import Enum
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 from functools import wraps
 from fastapi import HTTPException, Request
 
@@ -136,25 +136,54 @@ def check_permission(user_role: UserRole, required_permission: Permission) -> bo
 
 
 def is_guest_user(request: Request) -> bool:
-    """检查当前用户是否为访客
+    """检查当前用户是否为未认证用户（无有效token）
 
     Args:
         request: FastAPI请求对象
 
     Returns:
-        bool: 是否为访客
+        bool: 是否未认证
     """
     auth_header = request.headers.get("Authorization", "")
 
     if not auth_header:
-        return True  # 无token视为访客
+        return True
 
     try:
         token = auth_header.split(" ")[1]
-        user_role = get_user_role_from_token(token)
-        return user_role == UserRole.GUEST
+        payload = decode_jwt_token(token)
+        role_str = payload.get("role", "guest")
+        return role_str == "guest"
     except (IndexError, JWTError):
-        return True  # token无效视为访客
+        return True
+
+
+def get_current_user_id(request: Request) -> Optional[int]:
+    """从JWT token中提取当前用户的user_id
+
+    Args:
+        request: FastAPI请求对象
+
+    Returns:
+        Optional[int]: 用户ID，未认证时返回None
+    """
+    auth_header = request.headers.get("Authorization", "")
+
+    if not auth_header:
+        return None
+
+    try:
+        token = auth_header.split(" ")[1]
+        payload = decode_jwt_token(token)
+        sub = payload.get("sub")
+        if sub:
+            try:
+                return int(sub)
+            except (ValueError, TypeError):
+                return None
+        return None
+    except (IndexError, JWTError):
+        return None
 
 
 def require_permission_sync(permission: Permission):
