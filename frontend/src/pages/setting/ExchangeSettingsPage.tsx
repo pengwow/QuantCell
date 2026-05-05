@@ -13,12 +13,11 @@ import {
   Select,
   Space,
   Typography,
-  message,
+  App,
   Divider,
   Form,
   InputNumber,
   Spin,
-  Modal,
   Segmented,
   Tooltip,
 } from "antd";
@@ -160,6 +159,7 @@ const getEnvApiKeys = (exchange: ExchangeConfig) => {
 
 const ExchangeSettingsPage = () => {
   const { t } = useTranslation();
+  const { message, modal } = App.useApp();
   const { isGuest } = useGuestRestriction();
   const [exchanges, setExchanges] = useState<ExchangeConfig[]>([]);
   const [selectedExchangeId, setSelectedExchangeId] = useState<string>("");
@@ -314,7 +314,7 @@ const ExchangeSettingsPage = () => {
   const handleEnvironmentChange = async (exchangeId: string, newEnv: string) => {
     if (newEnv === 'live') {
       // 实盘交易风险警告
-      Modal.confirm({
+      modal.confirm({
         title: t('live_mode_warning_title') || '实盘交易确认',
         content: (
           <div className="py-2">
@@ -354,6 +354,12 @@ const ExchangeSettingsPage = () => {
 
   // 保存配置（使用批量更新接口，对象数组格式）
   const handleSave = async () => {
+    // 访客权限检查（双重保护：按钮禁用 + 函数内检查）
+    if (isGuest) {
+      message.warning(t('guest_save_restricted') || '访客用户无法保存交易所配置，请使用普通用户账号登录');
+      return;
+    }
+    
     setSaving(true);
     try {
       // 构建批量更新的配置数组，格式与 general 页面一致
@@ -404,9 +410,19 @@ const ExchangeSettingsPage = () => {
       await configApi.updateConfig(batchConfigs);
 
       message.success(t("config_saved") || "配置已保存");
-    } catch (error) {
+    } catch (error: any) {
       console.error("保存配置失败:", error);
-      message.error(t("save_failed") || "保存失败");
+      
+      // 特殊处理 401 认证错误
+      if (error?.code === 401 || error?.message === '请先登录') {
+        message.error(t('auth_required') || '请先登录后再保存配置');
+        // 延迟跳转到登录页
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 1500);
+      } else {
+        message.error(t("save_failed") || "保存失败");
+      }
     } finally {
       setSaving(false);
     }
@@ -677,19 +693,22 @@ const ExchangeSettingsPage = () => {
                         label={t("paper_initial_balance") || "初始资金"}
                         extra={t("paper_initial_balance_hint") || "设置纸上交易账户的初始虚拟资金"}
                       >
-                        <InputNumber
-                          value={selectedExchange.paperInitialBalance || 10000}
-                          onChange={(value) =>
-                            updateExchange(selectedExchange.id, { paperInitialBalance: value || 10000 })
-                          }
-                          min={100}
-                          max={100000000}
-                          step={1000}
-                          formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                          parser={(value) => Number(value?.replace(/(,*)/g, ''))}
-                          className="w-full"
-                          addonBefore="$"
-                        />
+                        <Space.Compact className="w-full">
+                          <span className="inline-flex items-center px-3 bg-gray-100 dark:bg-gray-700 border border-r-0 border-gray-300 dark:border-gray-600 rounded-l-md text-sm">$</span>
+                          <InputNumber
+                            value={selectedExchange.paperInitialBalance}
+                            onChange={(value) =>
+                              updateExchange(selectedExchange.id, { paperInitialBalance: value || 10000 })
+                            }
+                            min={100}
+                            max={100000000}
+                            step={1000}
+                            formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                            parser={(value) => Number(value?.replace(/(,*)/g, ''))}
+                            className="flex-1"
+                            style={{ width: '100%' }}
+                          />
+                        </Space.Compact>
                       </Form.Item>
                     )}
 
@@ -774,25 +793,34 @@ const ExchangeSettingsPage = () => {
                             <span className={testResult.success ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}>
                               {testResult.message}
                             </span>
-                            {testResult.response_time_ms && (
-                              <span className="text-xs text-gray-500">({testResult.response_time_ms}ms)</span>
+                            {testResult.response_time_ms != null && (
+                              <span className="text-xs text-gray-500">({Number(testResult.response_time_ms).toFixed(0)}ms)</span>
                             )}
                           </div>
                           {testResult.details?.tests && (
                             <div className="text-xs space-y-1 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                              {/* 网络连接 */}
                               <div className="flex justify-between items-center">
                                 <span className="text-gray-500">{t("network") || "网络连接"}:</span>
                                 <div className="flex items-center gap-1">
-                                  <span className={testResult.details.tests.ping?.success ? 'text-green-600' : 'text-red-600'}>
-                                    {testResult.details.tests.ping?.success ? (t("passed") || "通过") : (t("failed") || "失败")}
+                                  <span className={testResult.details.tests.ping?.success ?? testResult.details.tests.server_time?.success ? 'text-green-600' : 'text-red-600'}>
+                                    {(testResult.details.tests.ping ?? testResult.details.tests.server_time)?.success
+                                      ? (t("passed") || "通过")
+                                      : (t("failed") || "失败")}
                                   </span>
-                                  {testResult.details.tests.ping?.error && (
-                                    <Tooltip title={testResult.details.tests.ping.error}>
-                                      <span className="cursor-help text-red-400 text-[10px]">⚠</span>
+                                  {(testResult.details.tests.ping?.error || testResult.details.tests.server_time?.error) && (
+                                    <Tooltip title={testResult.details.tests.ping?.error || testResult.details.tests.server_time?.error}>
+                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
+                                    </Tooltip>
+                                  )}
+                                  {!(testResult.details.tests.ping?.success ?? testResult.details.tests.server_time?.success) && !testResult.details.tests.ping?.error && !testResult.details.tests.server_time?.error && (
+                                    <Tooltip title={testResult.message || (t("network_error_detail") || "网络连接异常，请检查代理或防火墙设置")}>
+                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
                                     </Tooltip>
                                   )}
                                 </div>
                               </div>
+                              {/* 市场数据 */}
                               <div className="flex justify-between items-center">
                                 <span className="text-gray-500">{t("market_data") || "市场数据"}:</span>
                                 <div className="flex items-center gap-1">
@@ -801,11 +829,17 @@ const ExchangeSettingsPage = () => {
                                   </span>
                                   {testResult.details.tests.market_data?.error && (
                                     <Tooltip title={testResult.details.tests.market_data.error}>
-                                      <span className="cursor-help text-red-400 text-[10px]">⚠</span>
+                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
+                                    </Tooltip>
+                                  )}
+                                  {!testResult.details.tests.market_data?.success && !testResult.details.tests.market_data?.error && (
+                                    <Tooltip title={testResult.message || (t("market_data_error_detail") || "无法加载市场数据，请检查交易所状态")}>
+                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
                                     </Tooltip>
                                   )}
                                 </div>
                               </div>
+                              {/* WebSocket */}
                               <div className="flex justify-between items-center">
                                 <span className="text-gray-500">{t("websocket_status") || "WebSocket"}:</span>
                                 <div className="flex items-center gap-1">
@@ -824,35 +858,50 @@ const ExchangeSettingsPage = () => {
                                   </span>
                                   {testResult.details.tests.websocket?.error && (
                                     <Tooltip title={testResult.details.tests.websocket.error}>
-                                      <span className="cursor-help text-red-400 text-[10px]">⚠</span>
+                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
+                                    </Tooltip>
+                                  )}
+                                  {!testResult.details.tests.websocket?.skipped && !testResult.details.tests.websocket?.success && !testResult.details.tests.websocket?.error && (
+                                    <Tooltip title={testResult.message || (t("websocket_error_detail") || "WebSocket 连接失败，可能被防火墙拦截")}>
+                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
                                     </Tooltip>
                                   )}
                                 </div>
                               </div>
+                              {/* API认证 */}
                               <div className="flex justify-between items-center">
                                 <span className="text-gray-500">{t("api_auth") || "API认证"}:</span>
                                 <div className="flex items-center gap-1">
                                   <span className={
                                     testResult.details.tests.authentication?.skipped
                                       ? 'text-gray-500'
-                                      : testResult.details.tests.authentication?.success
+                                      : testResult.details.tests.authentication?.success === true
                                         ? 'text-green-600'
-                                        : 'text-red-600'
+                                      : testResult.details.tests.authentication?.success === false
+                                        ? 'text-red-600'
+                                        : 'text-gray-500'
                                   }>
                                     {testResult.details.tests.authentication?.skipped
                                       ? (t("not_tested") || "未测试")
-                                      : testResult.details.tests.authentication?.success
+                                      : testResult.details.tests.authentication?.success === true
                                         ? (t("passed") || "通过")
-                                        : (t("failed") || "失败")}
+                                      : testResult.details.tests.authentication?.success === false
+                                        ? (t("failed") || "失败")
+                                      : (t("not_tested") || "未测试")}
                                   </span>
                                   {testResult.details.tests.authentication?.error && (
                                     <Tooltip title={testResult.details.tests.authentication.error}>
-                                      <span className="cursor-help text-red-400 text-[10px]">⚠</span>
+                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
                                     </Tooltip>
                                   )}
                                   {testResult.details.tests.authentication?.reason && !testResult.details.tests.authentication?.success && (
                                     <Tooltip title={testResult.details.tests.authentication.reason}>
                                       <span className="cursor-help text-gray-400 text-[10px]">ℹ</span>
+                                    </Tooltip>
+                                  )}
+                                  {testResult.details.tests.authentication?.success === false && !testResult.details.tests.authentication?.error && (
+                                    <Tooltip title={testResult.message || (t("auth_error_detail") || "API Key 认证失败，请检查密钥是否正确或是否有足够权限")}>
+                                      <span className="cursor-help text-red-400 text-[10px]">!</span>
                                     </Tooltip>
                                   )}
                                 </div>

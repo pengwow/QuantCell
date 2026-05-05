@@ -306,3 +306,24 @@ OHLCVList = List[OHLCV]
 OrderList = List[Order]
 TradeList = List[Trade]
 PositionList = List[Position]
+
+
+class ConnectionStatus(Enum):
+    """连接状态枚举"""
+    SUCCESS = "success"
+    NETWORK_ERROR = "network_error"
+    AUTH_ERROR = "auth_error"
+    PERMISSION_ERROR = "permission_error"
+    PROXY_ERROR = "proxy_error"
+    TIMEOUT_ERROR = "timeout_error"
+    UNKNOWN_ERROR = "unknown_error"
+
+
+@dataclass
+class ConnectionTestResult:
+    """连接测试结果数据类"""
+    success: bool
+    status: ConnectionStatus
+    message: str
+    details: Dict[str, Any] = field(default_factory=dict)
+    response_time_ms: Optional[float] = None

@@ -45,6 +45,7 @@ from exchange.types import (
     SubAccount,
     TradingMode,
     MarginMode,
+    ConnectionTestResult,
 )
 from exchange.exceptions import (
     ConnectionError,
@@ -588,6 +589,15 @@ class BaseExchange(ABC):
             return self.health_check()
         except Exception:
             return False
+
+    def test_connection(self) -> ConnectionTestResult:
+        """
+        测试交易所连通性（含网络、认证、权限等多维度检测）
+        
+        Returns:
+            ConnectionTestResult: 连接测试结果
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement test_connection()")
 
     def get_ticker(self, symbol: str) -> Ticker:
         """

@@ -1,12 +1,12 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import {
   Button,
   Card,
   Tag,
   Table,
   Spin,
-  message,
   Tooltip,
   Popconfirm,
   Row,
@@ -20,6 +20,7 @@ import {
   Input,
   Select,
   Modal,
+  App,
 } from 'antd';
 import {
   PlusOutlined,
@@ -52,6 +53,8 @@ const { Search } = Input;
 
 const Worker = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { message: apiMessage } = App.useApp();
 
   // Store state and actions
   const {
@@ -265,7 +268,7 @@ const Worker = () => {
     e.stopPropagation();
     const success = await startWorker(worker.id);
     if (success) {
-      message.success(t('worker_start_success'));
+      apiMessage.success(t('worker_start_success'));
     }
   }, [startWorker, t]);
 
@@ -273,7 +276,7 @@ const Worker = () => {
     e.stopPropagation();
     const success = await stopWorker(worker.id);
     if (success) {
-      message.success(t('worker_stop_success'));
+      apiMessage.success(t('worker_stop_success'));
     }
   }, [stopWorker, t]);
 
@@ -281,7 +284,7 @@ const Worker = () => {
     e.stopPropagation();
     const success = await pauseWorker(worker.id);
     if (success) {
-      message.success(t('worker_pause_success'));
+      apiMessage.success(t('worker_pause_success'));
     }
   }, [pauseWorker, t]);
 
@@ -289,7 +292,7 @@ const Worker = () => {
     e.stopPropagation();
     const success = await resumeWorker(worker.id);
     if (success) {
-      message.success(t('worker_resume_success'));
+      apiMessage.success(t('worker_resume_success'));
     }
   }, [resumeWorker, t]);
 
@@ -297,7 +300,7 @@ const Worker = () => {
     e.stopPropagation();
     const success = await restartWorker(worker.id);
     if (success) {
-      message.success(t('worker_restart_success'));
+      apiMessage.success(t('worker_restart_success'));
     }
   }, [restartWorker, t]);
 
@@ -305,7 +308,7 @@ const Worker = () => {
     e.stopPropagation();
     const success = await deleteWorker(worker.id);
     if (success) {
-      message.success(t('worker_delete_success'));
+      apiMessage.success(t('worker_delete_success'));
       if (selectedWorker?.id === worker.id) {
         setSelectedWorker(null);
       }
@@ -320,7 +323,7 @@ const Worker = () => {
 
   const handleRefresh = useCallback(() => {
     fetchWorkers();
-    message.success(t('refresh_success'));
+    apiMessage.success(t('refresh_success'));
   }, [fetchWorkers, t]);
 
   const handleCreateSuccess = useCallback(() => {
@@ -651,10 +654,13 @@ const Worker = () => {
                               <Button
                                 size="small"
                                 icon={<EyeOutlined />}
-                                onClick={(e) => { e.stopPropagation(); handleViewLogs(worker, e); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/strategy-worker/${worker.id}`);
+                                }}
                                 style={{ width: '100%' }}
                               >
-                                {t('view_logs') || '日志'}
+                                {t('detail') || '详情'}
                               </Button>
                             </Col>
                             {worker.status !== 'stopped' && (
@@ -805,12 +811,15 @@ const Worker = () => {
                                 onClick={(e) => handleRestart(worker, e as React.MouseEvent)}
                               />
                             </Tooltip>
-                            <Tooltip title={t('view_logs') || '查看日志'}>
+                            <Tooltip title={t('detail') || '详情'}>
                               <Button
                                 type="text"
                                 size="small"
                                 icon={<EyeOutlined style={{ color: '#1890ff' }} />}
-                                onClick={(e) => handleViewLogs(worker, e as React.MouseEvent)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/strategy-worker/${worker.id}`);
+                                }}
                               />
                             </Tooltip>
                             <Tooltip title={t('edit')}>

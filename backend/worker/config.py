@@ -17,7 +17,7 @@ Worker 配置模块
     config, factories = build_trading_node_config(
         exchange="binance",
         account_type="spot",
-        trading_mode="demo",
+        trading_mode="testnet",
         api_key="your_api_key",
         api_secret="your_api_secret",
     )
@@ -88,13 +88,64 @@ ClientFactories = Tuple[Type, Type, str]
 
 
 # =============================================================================
+# 系统配置表读取工具函数
+# =============================================================================
+
+def get_exchange_config_from_db(
+    exchange: str,
+    trading_mode: str,
+) -> tuple[str | None, str | None]:
+    """
+    从系统配置表读取交易所 API 密钥
+
+    Parameters
+    ----------
+    exchange : str
+        交易所名称（binance/okx）
+    trading_mode : str
+        交易模式（live/testnet/paper）
+
+    Returns
+    -------
+    tuple[str | None, str | None]
+        (api_key, api_secret)，如果未找到则返回 (None, None)
+    """
+    try:
+        from settings.models import SystemConfigBusiness
+
+        prefix = f"exchange.{exchange}"
+        is_testnet = trading_mode == "testnet"
+
+        if is_testnet:
+            key_key = f"{prefix}.testnet_api_key"
+            secret_key = f"{prefix}.testnet_api_secret"
+        else:
+            key_key = f"{prefix}.live_api_key"
+            secret_key = f"{prefix}.live_api_secret"
+
+        api_key = SystemConfigBusiness.get(key_key)
+        api_secret = SystemConfigBusiness.get(secret_key)
+
+        if api_key and api_secret:
+            logger.info(f"从系统配置表成功读取 {exchange} API 配置（模式: {trading_mode}）")
+            return api_key, api_secret
+
+        logger.warning(f"系统配置表中未找到 {exchange} API 配置（模式: {trading_mode}），尝试回退到环境变量")
+        return None, None
+
+    except Exception as e:
+        logger.warning(f"从系统配置表读取 {exchange} 配置失败: {e}，回退到环境变量")
+        return None, None
+
+
+# =============================================================================
 # 新的配置构建器 API（推荐）
 # =============================================================================
 
 def build_trading_node_config(
     exchange: Literal["binance", "okx"],
     account_type: Literal["spot", "usdt_futures", "coin_futures"] = "spot",
-    trading_mode: Literal["live", "demo", "paper"] = "demo",
+    trading_mode: Literal["live", "testnet", "paper"] = "testnet",
     trader_id: str = "WORKER-001",
     log_level: str = "INFO",
     proxy_url: str | None = None,
@@ -116,8 +167,8 @@ def build_trading_node_config(
         交易所名称
     account_type : Literal["spot", "usdt_futures", "coin_futures"]
         账户类型，默认为 "spot"
-    trading_mode : Literal["live", "demo", "paper"]
-        交易模式：live=实盘, demo=模拟盘, paper=纸上交易
+    trading_mode : Literal["live", "testnet", "paper"]
+        交易模式：live=实盘, testnet=测试网, paper=本地模拟
     trader_id : str
         交易者ID
     log_level : str
@@ -235,7 +286,7 @@ def build_trading_node_config(
 
 def _setup_binance(
     account_type: Literal["spot", "usdt_futures", "coin_futures"],
-    trading_mode: Literal["live", "demo", "paper"],
+    trading_mode: Literal["live", "testnet", "paper"],
     proxy_url: str | None,
     api_key: str | None,
     api_secret: str | None,
@@ -247,7 +298,7 @@ def _setup_binance(
     ----------
     account_type : Literal["spot", "usdt_futures", "coin_futures"]
         账户类型
-    trading_mode : Literal["live", "demo", "paper"]
+    trading_mode : Literal["live", "testnet", "paper"]
         交易模式
     proxy_url : str | None
         代理URL
@@ -262,13 +313,33 @@ def _setup_binance(
         (data_clients, exec_clients, data_factory, exec_factory, venue)
     """
     # 确定是否使用测试网
-    testnet = trading_mode == "demo"
+    testnet = trading_mode == "testnet"
 
-    # 如果没有提供 API 密钥，从环境变量读取
+    # 优先级：1. 参数传入 > 2. 系统配置表 > 3. 环境变量
+    if api_key is None or api_secret is None:
+        db_key, db_secret = get_exchange_config_from_db("binance", trading_mode)
+        if api_key is None:
+            api_key = db_key
+        if api_secret is None:
+            api_secret = db_secret
+
+    # 如果仍然没有提供 API 密钥，从环境变量读取（向后兼容）
     if api_key is None:
         api_key = os.environ.get("BINANCE_TESTNET_API_KEY") if testnet else os.environ.get("BINANCE_API_KEY")
     if api_secret is None:
         api_secret = os.environ.get("BINANCE_TESTNET_API_SECRET") if testnet else os.environ.get("BINANCE_API_SECRET")
+
+    # paper（本地模拟）模式不需要 API 密钥
+    if trading_mode == "paper":
+        logger.info("本地模拟模式：使用虚拟 API 密钥")
+        api_key = api_key or "paper_trading_no_api_required"
+        api_secret = api_secret or "paper_trading_no_api_required"
+    elif not api_key or not api_secret:
+        raise ValueError(
+            f"未找到 Binance API 密钥（模式: {trading_mode}）。"
+            f"请通过系统设置页面配置交易所凭证，或设置环境变量 "
+            f"{'BINANCE_TESTNET_API_KEY/SECRET' if testnet else 'BINANCE_API_KEY/SECRET'}"
+        )
 
     # 映射账户类型字符串到枚举
     account_type_map = {
@@ -312,7 +383,7 @@ def _setup_binance(
 
 
 def _setup_okx(
-    trading_mode: Literal["live", "demo", "paper"],
+    trading_mode: Literal["live", "testnet", "paper"],
     proxy_url: str | None,
     api_key: str | None,
     api_secret: str | None,
@@ -323,7 +394,7 @@ def _setup_okx(
 
     Parameters
     ----------
-    trading_mode : Literal["live", "demo", "paper"]
+    trading_mode : Literal["live", "testnet", "paper"]
         交易模式
     proxy_url : str | None
         代理URL
@@ -339,16 +410,36 @@ def _setup_okx(
     Tuple[ExchangeConfig, ExchangeConfig, Type, Type, str]
         (data_clients, exec_clients, data_factory, exec_factory, venue)
     """
-    # 确定是否使用模拟盘
-    is_demo = trading_mode == "demo"
+    # 确定是否使用测试网
+    is_testnet = trading_mode == "testnet"
 
-    # 如果没有提供 API 密钥，从环境变量读取
+    # 优先级：1. 参数传入 > 2. 系统配置表 > 3. 环境变量
+    if api_key is None or api_secret is None or api_passphrase is None:
+        db_key, db_secret = get_exchange_config_from_db("okx", trading_mode)
+        if api_key is None:
+            api_key = db_key
+        if api_secret is None:
+            api_secret = db_secret
+
+    # 如果仍然没有提供 API 密钥，从环境变量读取（向后兼容）
     if api_key is None:
         api_key = os.environ.get("OKX_API_KEY")
     if api_secret is None:
         api_secret = os.environ.get("OKX_API_SECRET")
     if api_passphrase is None:
         api_passphrase = os.environ.get("OKX_PASSPHRASE")
+
+    # paper（本地模拟）模式不需要 API 密钥
+    if trading_mode == "paper":
+        logger.info("本地模拟模式：使用虚拟 API 密钥")
+        api_key = api_key or "paper_trading_no_api_required"
+        api_secret = api_secret or "paper_trading_no_api_required"
+        api_passphrase = api_passphrase or "paper_trading_no_api_required"
+    elif not api_key or not api_secret:
+        raise ValueError(
+            f"未找到 OKX API 密钥（模式: {trading_mode}）。"
+            f"请通过系统设置页面配置交易所凭证，或设置环境变量 OKX_API_KEY/SECRET"
+        )
 
     # 构建数据客户端配置
     data_clients = {
@@ -357,7 +448,7 @@ def _setup_okx(
             api_secret=api_secret,
             api_passphrase=api_passphrase,
             instrument_types=(OKXInstrumentType.SPOT,),
-            is_demo=is_demo,
+            is_demo=is_testnet,
             http_proxy_url=proxy_url,
         ),
     }
@@ -369,7 +460,7 @@ def _setup_okx(
             api_secret=api_secret,
             api_passphrase=api_passphrase,
             instrument_types=(OKXInstrumentType.SPOT,),
-            is_demo=is_demo,
+            is_demo=is_testnet,
             http_proxy_url=proxy_url,
             max_retries=3,
         ),
@@ -411,7 +502,7 @@ def validate_config(
         return False, f"不支持的交易所: {exchange}"
 
     # 验证交易模式
-    if trading_mode not in ["live", "demo", "paper"]:
+    if trading_mode not in ["live", "testnet", "paper"]:
         return False, f"不支持的交易模式: {trading_mode}"
 
     # 验证 API 密钥

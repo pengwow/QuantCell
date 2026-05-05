@@ -8,6 +8,7 @@ import ConsoleLayout from '@/layouts/ConsoleLayout';
 import LoginPage from '@/pages/login/LoginPage';
 import ChartPage from '@/pages/chart/ChartPage';
 import Worker from '@/pages/worker/Worker';
+import WorkerDetail from '@/pages/worker/WorkerDetail';
 import StrategyManagement from '@/pages/strategy/StrategyManagement';
 import StrategyEditor from '@/pages/strategy/StrategyEditor';
 import FactorAnalysis from '@/pages/factor/FactorAnalysis';
@@ -65,6 +66,10 @@ const baseRoutes: RouteObject[] = [
       {
         path: '/strategy-worker',
         element: <Worker />,
+      },
+      {
+        path: '/strategy-worker/:workerId',
+        element: <WorkerDetail />,
       },
       {
         path: '/strategy-management',

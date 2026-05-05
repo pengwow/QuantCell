@@ -88,12 +88,12 @@ const ConsoleLayout = () => {
             <SiderMenu collapsed={siderCollapsed} />
           </div>
           <div className="w-full px-2 pb-2">
-            <Dropdown 
-                    menu={{ items: userMenuItems }} 
-                    placement="bottomLeft" 
-                    trigger={['click']} 
+            <Dropdown
+                    menu={{ items: userMenuItems }}
+                    placement="bottomLeft"
+                    trigger={['click']}
                     className="w-full"
-                    overlayStyle={{ marginLeft: '60px' }}
+                    styles={{ root: { marginLeft: '60px' } }}
                   >
                     <div className={`flex cursor-pointer items-center rounded-md py-[10px] transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 ${siderCollapsed ? 'justify-center -mx-2' : 'gap-3 pl-[20px]'}`} style={{marginLeft: "-10", marginRight: "unset"}}>
                 <span className="anticon scale-125" role="img">

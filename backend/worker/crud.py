@@ -85,14 +85,28 @@ def get_workers(
 
 def update_worker(db: Session, worker_id: int, worker_data: schemas.WorkerUpdate) -> Optional[Worker]:
     """更新Worker"""
+    import json
+
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not worker:
         return None
-    
+
     update_data = worker_data.model_dump(exclude_unset=True)
+
+    # 特殊处理 trading_mode：需要合并到 trading_config JSON 中
+    if 'trading_mode' in update_data:
+        trading_mode = update_data.pop('trading_mode')
+        current_trading_config = worker.get_trading_config_dict()
+        current_trading_config['trading_mode'] = trading_mode
+        worker.trading_config = json.dumps(current_trading_config)
+
     for field, value in update_data.items():
-        setattr(worker, field, value)
-    
+        # 特殊处理 config 和 trading_config 字段（需要 JSON 序列化）
+        if field in ('config', 'trading_config') and isinstance(value, dict):
+            setattr(worker, field, json.dumps(value))
+        else:
+            setattr(worker, field, value)
+
     worker.updated_at = datetime.now()
     db.commit()
     db.refresh(worker)

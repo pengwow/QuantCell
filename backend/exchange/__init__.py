@@ -34,6 +34,7 @@ from exchange.types import (
     TradingMode,
     MarginMode,
     KlineInterval,
+    ConnectionStatus,
     # 数据类
     Ticker,
     OHLCV,
@@ -47,6 +48,7 @@ from exchange.types import (
     FundingRate,
     StakingProduct,
     SubAccount,
+    ConnectionTestResult,
     # 类型别名
     ExchangeFeatures,
     Tickers,
@@ -82,6 +84,11 @@ from exchange.decorators import (
 )
 from exchange.binance.downloader import BinanceDownloader, BinanceCollector
 from exchange.okx.downloader import OKXDownloader, OKXCollector
+from exchange.connection import (
+    test_exchange_connection,
+    test_exchange_connection_sync,
+    SUPPORTED_EXCHANGES,
+)
 
 
 def _get_binance_exchange():
@@ -138,6 +145,10 @@ __all__ = [
     'BinanceCollector',
     'OKXDownloader',
     'OKXCollector',
+    # 连通性测试
+    'test_exchange_connection',
+    'test_exchange_connection_sync',
+    'SUPPORTED_EXCHANGES',
     # 枚举类型
     'OrderSide',
     'OrderType',
@@ -146,6 +157,7 @@ __all__ = [
     'TradingMode',
     'MarginMode',
     'KlineInterval',
+    'ConnectionStatus',
     # 数据类
     'Ticker',
     'OHLCV',
@@ -159,6 +171,7 @@ __all__ = [
     'FundingRate',
     'StakingProduct',
     'SubAccount',
+    'ConnectionTestResult',
     # 类型别名
     'ExchangeFeatures',
     'Tickers',

@@ -3,6 +3,7 @@ import { RouterProvider } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { router } from './router';
 import { useConfigStore } from './store';
+import { useWorkerStore } from './store/workerStore';
 import { wsService } from './services/websocketService';
 import './i18n/config';
 import './global.css';
@@ -11,6 +12,7 @@ import './index.css';
 function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const loadConfig = useConfigStore((state) => state.loadConfig);
+  const setMessageApi = useWorkerStore((state) => state.setMessageApi);
 
   useEffect(() => {
     // 加载系统配置
@@ -93,10 +95,25 @@ function App() {
       }}
     >
       <AntdApp>
+        <AppInjector setMessageApi={setMessageApi} />
         <RouterProvider router={router} />
       </AntdApp>
     </ConfigProvider>
   );
+}
+
+// 注入 Ant Design App 的 message API 到 store
+function AppInjector({ setMessageApi }: { setMessageApi: (api: any) => void }) {
+  const { message: apiMessage } = AntdApp.useApp();
+
+  useEffect(() => {
+    if (setMessageApi && apiMessage) {
+      setMessageApi(apiMessage);
+      console.log('[App] Message API 已注入到 WorkerStore');
+    }
+  }, [setMessageApi, apiMessage]);
+
+  return null;
 }
 
 export default App;
