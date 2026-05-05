@@ -14,7 +14,6 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { message } from 'antd';
 import type {
   Worker,
   WorkerStatus,
@@ -65,6 +64,9 @@ export interface WorkerState {
   // WebSocket
   logStream: WorkerLogStream | null;
   isLogStreamConnected: boolean;
+
+  // Message API (由 App.useApp() 注入)
+  messageApi: any;
 }
 
 // ============================================
@@ -103,6 +105,9 @@ interface WorkerActions {
   updateWorkerStatus: (workerId: number, status: WorkerStatus) => void;
   clearErrors: () => void;
   reset: () => void;
+
+  // Message API 注入
+  setMessageApi: (api: any) => void;
 }
 
 // ============================================
@@ -135,6 +140,8 @@ const initialState: WorkerState = {
 
   logStream: null,
   isLogStreamConnected: false,
+
+  messageApi: null,
 };
 
 // ============================================
@@ -145,6 +152,14 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
   devtools(
     (set, get) => ({
       ...initialState,
+
+      // ============================================
+      // Message API 注入
+      // ============================================
+
+      setMessageApi: (api: any) => {
+        set({ messageApi: api });
+      },
 
       // ============================================
       // 数据获取操作
@@ -170,7 +185,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             error: error.message || '获取Worker列表失败',
             loading: false,
           });
-          message.error(error.message || '获取Worker列表失败');
+          get().messageApi?.error(error.message || '获取Worker列表失败');
         }
       },
 
@@ -187,7 +202,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             detailError: error.message || '获取Worker详情失败',
             loadingDetail: false,
           });
-          message.error(error.message || '获取Worker详情失败');
+          get().messageApi?.error(error.message || '获取Worker详情失败');
         }
       },
 
@@ -206,7 +221,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             performanceError: error.message || '获取绩效数据失败',
             loadingPerformance: false,
           });
-          message.error(error.message || '获取绩效数据失败');
+          get().messageApi?.error(error.message || '获取绩效数据失败');
         }
       },
 
@@ -227,7 +242,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             tradesError: error.message || '获取交易记录失败',
             loadingTrades: false,
           });
-          message.error(error.message || '获取交易记录失败');
+          get().messageApi?.error(error.message || '获取交易记录失败');
         }
       },
 
@@ -247,7 +262,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             logsError: error.message || '获取日志失败',
             loadingLogs: false,
           });
-          message.error(error.message || '获取日志失败');
+          get().messageApi?.error(error.message || '获取日志失败');
         }
       },
 
@@ -272,12 +287,12 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       createWorker: async (data) => {
         try {
           const worker = await workerApi.createWorker(data);
-          message.success('Worker创建成功');
+          get().messageApi?.success('Worker创建成功');
           // 刷新列表
           get().fetchWorkers();
           return worker;
         } catch (error: any) {
-          message.error(error.message || '创建Worker失败');
+          get().messageApi?.error(error.message || '创建Worker失败');
           return null;
         }
       },
@@ -285,7 +300,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       updateWorker: async (workerId, data) => {
         try {
           const worker = await workerApi.updateWorker(workerId, data);
-          message.success('Worker更新成功');
+          get().messageApi?.success('Worker更新成功');
           // 更新选中状态
           if (get().selectedWorker?.id === workerId) {
             set({ selectedWorker: worker });
@@ -294,7 +309,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           get().fetchWorkers();
           return worker;
         } catch (error: any) {
-          message.error(error.message || '更新Worker失败');
+          get().messageApi?.error(error.message || '更新Worker失败');
           return null;
         }
       },
@@ -302,7 +317,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       deleteWorker: async (workerId) => {
         try {
           await workerApi.deleteWorker(workerId);
-          message.success('Worker删除成功');
+          get().messageApi?.success('Worker删除成功');
           // 如果删除的是当前选中的，清除选中状态
           if (get().selectedWorker?.id === workerId) {
             set({ selectedWorker: null });
@@ -311,7 +326,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           get().fetchWorkers();
           return true;
         } catch (error: any) {
-          message.error(error.message || '删除Worker失败');
+          get().messageApi?.error(error.message || '删除Worker失败');
           return false;
         }
       },
@@ -323,12 +338,12 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             copy_config: true,
             copy_parameters: true,
           });
-          message.success('Worker克隆成功');
+          get().messageApi?.success('Worker克隆成功');
           // 刷新列表
           get().fetchWorkers();
           return worker;
         } catch (error: any) {
-          message.error(error.message || '克隆Worker失败');
+          get().messageApi?.error(error.message || '克隆Worker失败');
           return null;
         }
       },
@@ -340,14 +355,14 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       startWorker: async (workerId) => {
         try {
           await workerApi.startWorker(workerId);
-          message.success('Worker启动中');
+          get().messageApi?.success('Worker启动中');
           // 乐观更新状态
           get().updateWorkerStatus(workerId, 'starting');
           // 延迟刷新获取最新状态
           setTimeout(() => get().fetchWorkers(), 2000);
           return true;
         } catch (error: any) {
-          message.error(error.message || '启动Worker失败');
+          get().messageApi?.error(error.message || '启动Worker失败');
           return false;
         }
       },
@@ -355,14 +370,14 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       stopWorker: async (workerId) => {
         try {
           await workerApi.stopWorker(workerId);
-          message.success('Worker停止成功');
+          get().messageApi?.success('Worker停止成功');
           // 乐观更新状态
           get().updateWorkerStatus(workerId, 'stopped');
           // 延迟刷新获取最新状态
           setTimeout(() => get().fetchWorkers(), 1000);
           return true;
         } catch (error: any) {
-          message.error(error.message || '停止Worker失败');
+          get().messageApi?.error(error.message || '停止Worker失败');
           return false;
         }
       },
@@ -370,14 +385,14 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       pauseWorker: async (workerId) => {
         try {
           await workerApi.pauseWorker(workerId);
-          message.success('Worker已暂停');
+          get().messageApi?.success('Worker已暂停');
           // 乐观更新状态
           get().updateWorkerStatus(workerId, 'paused');
           // 延迟刷新获取最新状态
           setTimeout(() => get().fetchWorkers(), 1000);
           return true;
         } catch (error: any) {
-          message.error(error.message || '暂停Worker失败');
+          get().messageApi?.error(error.message || '暂停Worker失败');
           return false;
         }
       },
@@ -385,14 +400,14 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       resumeWorker: async (workerId) => {
         try {
           await workerApi.resumeWorker(workerId);
-          message.success('Worker已恢复');
+          get().messageApi?.success('Worker已恢复');
           // 乐观更新状态
           get().updateWorkerStatus(workerId, 'running');
           // 延迟刷新获取最新状态
           setTimeout(() => get().fetchWorkers(), 1000);
           return true;
         } catch (error: any) {
-          message.error(error.message || '恢复Worker失败');
+          get().messageApi?.error(error.message || '恢复Worker失败');
           return false;
         }
       },
@@ -400,14 +415,14 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       restartWorker: async (workerId) => {
         try {
           await workerApi.restartWorker(workerId);
-          message.success('Worker重启中');
+          get().messageApi?.success('Worker重启中');
           // 乐观更新状态
           get().updateWorkerStatus(workerId, 'starting');
           // 延迟刷新获取最新状态
           setTimeout(() => get().fetchWorkers(), 3000);
           return true;
         } catch (error: any) {
-          message.error(error.message || '重启Worker失败');
+          get().messageApi?.error(error.message || '重启Worker失败');
           return false;
         }
       },

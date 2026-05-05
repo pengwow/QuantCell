@@ -55,10 +55,11 @@ const MARKET_TYPES = [
   { value: 'margin', label: '杠杆' },
 ];
 
-// 交易模式
+// 交易模式（与后端 worker/config.py 保持一致：live/testnet/paper）
 const TRADING_MODES = [
-  { value: 'paper', label: '模拟交易' },
   { value: 'live', label: '实盘交易' },
+  { value: 'testnet', label: '测试网' },
+  { value: 'paper', label: '本地模拟' },
 ];
 
 interface WorkerCreateModalProps {

@@ -157,8 +157,8 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
 
   return (
     <div>
-      {/* 标题栏 */}
-      <div className="flex items-center justify-between mb-4">
+      {/* 标题栏 - 第一行 */}
+      <div className="mb-3">
         <div className="flex items-center gap-2">
           <FileTextOutlined />
           <span className="text-lg font-medium">{t('real_time_logs') || '实时日志'}</span>
@@ -168,27 +168,30 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
           />
           {isPaused && <Tag color="orange">{t('paused') || '已暂停'}</Tag>}
         </div>
+      </div>
 
-        {/* 控制按钮组 */}
+      {/* 控制按钮组 - 第二行 */}
+      <div className="flex items-center justify-between mb-4">
+        {/* 左侧：日志级别过滤下拉列表 */}
+        <Select
+          mode="multiple"
+          placeholder={t('filter_by_level') || '按级别过滤'}
+          value={selectedLevels}
+          onChange={setSelectedLevels}
+          style={{ width: 360 }}
+          size="small"
+          maxTagCount='responsive'
+          popupMatchSelectWidth={false}
+        >
+          {LOG_LEVELS.map((level) => (
+            <Option key={level.value} value={level.value}>
+              <Tag color={level.color} style={{ margin: 0 }}>{level.label}</Tag>
+            </Option>
+          ))}
+        </Select>
+
+        {/* 右侧：操作按钮组 */}
         <div className="flex items-center gap-2">
-          {/* 日志级别过滤 */}
-          <Select
-            mode="multiple"
-            placeholder={t('filter_by_level') || '按级别过滤'}
-            value={selectedLevels}
-            onChange={setSelectedLevels}
-            style={{ width: 180 }}
-            size="small"
-            maxTagCount={2}
-            popupMatchSelectWidth={false}
-          >
-            {LOG_LEVELS.map((level) => (
-              <Option key={level.value} value={level.value}>
-                <Tag color={level.color} style={{ margin: 0 }}>{level.label}</Tag>
-              </Option>
-            ))}
-          </Select>
-
           {/* 智能滚动状态指示 */}
           <Tooltip title={autoScroll ? (t('auto_tracking') || '自动跟踪最新日志') : (t('manual_scroll') || '手动浏览历史日志')}>
             <Badge status={autoScroll ? 'success' : 'default'} />

@@ -18,7 +18,7 @@ import {
   Col,
   InputNumber,
   Tooltip,
-  message,
+  App,
   Tabs,
   Card,
 } from 'antd';
@@ -35,7 +35,6 @@ import { dataApi } from '../../api';
 
 const { Option } = Select;
 const { TextArea } = Input;
-const { TabPane } = Tabs;
 
 // 时间周期列表
 const TIMEFRAMES = [
@@ -48,10 +47,11 @@ const TIMEFRAMES = [
   { value: '1d', label: '1天' },
 ];
 
-// 交易模式
+// 交易模式（与后端 worker/config.py 保持一致：live/testnet/paper）
 const TRADING_MODES = [
-  { value: 'paper', label: '模拟交易' },
   { value: 'live', label: '实盘交易' },
+  { value: 'testnet', label: '测试网' },
+  { value: 'paper', label: '本地模拟' },
 ];
 
 interface WorkerEditModalProps {
@@ -68,6 +68,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   onSuccess,
 }) => {
   const { t } = useTranslation();
+  const { message: apiMessage } = App.useApp();
   const [form] = Form.useForm();
   const { updateWorker } = useWorkerStore();
 
@@ -110,17 +111,26 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   // 当worker变化时，设置表单值
   useEffect(() => {
     if (visible && worker) {
+      // 从 trading_config JSON 中提取 trading_mode
+      const tradingConfig = typeof worker.trading_config === 'string'
+        ? JSON.parse(worker.trading_config || '{}')
+        : (worker.trading_config || {});
+
+      const config = typeof worker.config === 'string'
+        ? JSON.parse(worker.config || '{}')
+        : (worker.config || {});
+
       form.setFieldsValue({
         name: worker.name,
         description: worker.description,
         symbols: worker.symbols,
         timeframe: worker.timeframe,
-        trading_mode: worker.trading_mode,
+        trading_mode: tradingConfig.trading_mode || 'paper',
         cpu_limit: worker.cpu_limit,
         memory_limit: worker.memory_limit,
-        initial_capital: worker.config?.initial_capital || 10000,
-        max_position_size: worker.config?.max_position_size || 0.1,
-        leverage: worker.config?.leverage || 1,
+        initial_capital: config.initial_capital || 10000,
+        max_position_size: config.max_position_size || 0.1,
+        leverage: config.leverage || 1,
       });
       // 加载交易对列表
       fetchSymbols();
@@ -153,13 +163,13 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
       const result = await updateWorker(worker.id, requestData);
 
       if (result) {
-        message.success('Worker更新成功');
+        apiMessage.success('Worker更新成功');
         onSuccess?.();
         onCancel();
       }
     } catch (error: any) {
       console.error('更新Worker失败:', error);
-      message.error(error.message || '更新Worker失败');
+      apiMessage.error(error.message || '更新Worker失败');
     } finally {
       setLoading(false);
     }
@@ -199,235 +209,240 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         </Space>
       }
     >
-      <Tabs activeKey={activeTab} onChange={setActiveTab}>
-        <TabPane
-          tab={
-            <span>
-              <SettingOutlined />
-              {t('basic_config')}
-            </span>
-          }
-          key="basic"
-        >
-          <Form form={form} layout="vertical">
-            {/* 基本信息 */}
-            <Divider>{t('basic_info')}</Divider>
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[
+          {
+            key: 'basic',
+            label: (
+              <span>
+                <SettingOutlined />
+                {t('basic_config')}
+              </span>
+            ),
+            children: (
+              <Form form={form} layout="vertical">
+                {/* 基本信息 */}
+                <Divider>{t('basic_info')}</Divider>
 
-            <Row gutter={16}>
-              <Col span={24}>
-                <Form.Item
-                  name="name"
-                  label={t('worker_name')}
-                  rules={[
-                    { required: true, message: '请输入Worker名称' },
-                    { max: 50, message: '名称不能超过50个字符' },
-                  ]}
-                >
-                  <Input placeholder="Worker名称" />
-                </Form.Item>
-              </Col>
-            </Row>
+                <Row gutter={16}>
+                  <Col span={24}>
+                    <Form.Item
+                      name="name"
+                      label={t('worker_name')}
+                      rules={[
+                        { required: true, message: '请输入Worker名称' },
+                        { max: 50, message: '名称不能超过50个字符' },
+                      ]}
+                    >
+                      <Input placeholder="Worker名称" />
+                    </Form.Item>
+                  </Col>
+                </Row>
 
-            <Form.Item
-              name="description"
-              label={t('description')}
-            >
-              <TextArea
-                rows={3}
-                placeholder="描述这个Worker的用途..."
-                maxLength={200}
-                showCount
-              />
-            </Form.Item>
-
-            {/* 交易配置 */}
-            <Divider>{t('trading_config')}</Divider>
-
-            <Row gutter={16}>
-              <Col span={12}>
                 <Form.Item
-                  name="symbols"
-                  label={t('trading_target')}
-                  rules={[
-                    { required: true, message: t('please_select_trading_target'), type: 'array' },
-                  ]}
+                  name="description"
+                  label={t('description')}
                 >
-                  <Select
-                    mode="multiple"
-                    placeholder={t('select_trading_target')}
-                    allowClear
-                    maxTagCount={3}
-                    loading={loadingSymbols}
-                    showSearch
-                    filterOption={(input, option) => {
-                      const value = option?.value as string;
-                      return value?.toLowerCase().includes(input.toLowerCase());
-                    }}
-                  >
-                    {symbolOptions.map((option) => (
-                      <Option key={option.value} value={option.value}>
-                        {option.label}
-                      </Option>
-                    ))}
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item
-                  name="timeframe"
-                  label={t('timeframe')}
-                  rules={[{ required: true, message: '请选择时间周期' }]}
-                >
-                  <Select placeholder="选择时间周期">
-                    {TIMEFRAMES.map((tf) => (
-                      <Option key={tf.value} value={tf.value}>
-                        {tf.label}
-                      </Option>
-                    ))}
-                  </Select>
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item
-                  name="trading_mode"
-                  label={
-                    <Space>
-                      {t('trading_mode')}
-                      <Tooltip title="切换交易模式需要重启Worker才能生效">
-                        <QuestionCircleOutlined />
-                      </Tooltip>
-                    </Space>
-                  }
-                  rules={[{ required: true, message: '请选择交易模式' }]}
-                >
-                  <Select placeholder="选择交易模式">
-                    {TRADING_MODES.map((mode) => (
-                      <Option key={mode.value} value={mode.value}>
-                        {mode.label}
-                      </Option>
-                    ))}
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item
-                  name="leverage"
-                  label={t('leverage')}
-                >
-                  <InputNumber
-                    min={1}
-                    max={125}
-                    style={{ width: '100%' }}
-                    placeholder="杠杆倍数"
+                  <TextArea
+                    rows={3}
+                    placeholder="描述这个Worker的用途..."
+                    maxLength={200}
+                    showCount
                   />
                 </Form.Item>
-              </Col>
-            </Row>
-          </Form>
-        </TabPane>
 
-        <TabPane
-          tab={
-            <span>
-              <SlidersOutlined />
-              {t('resource_config')}
-            </span>
-          }
-          key="resource"
-        >
-          <Form form={form} layout="vertical">
-            <Card title={t('resource_limits')} bordered={false}>
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Form.Item
-                    name="cpu_limit"
-                    label={
-                      <Space>
-                        {t('cpu_limit')}
-                        <Tooltip title="CPU使用限制百分比">
-                          <QuestionCircleOutlined />
-                        </Tooltip>
-                      </Space>
-                    }
-                  >
-                    <InputNumber
-                      min={10}
-                      max={100}
-                      formatter={(value) => `${value}%`}
-                      parser={(value) => value?.replace('%', '') as any}
-                      style={{ width: '100%' }}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item
-                    name="memory_limit"
-                    label={
-                      <Space>
-                        {t('memory_limit')}
-                        <Tooltip title="内存使用限制(MB)">
-                          <QuestionCircleOutlined />
-                        </Tooltip>
-                      </Space>
-                    }
-                  >
-                    <InputNumber
-                      min={128}
-                      max={4096}
-                      step={128}
-                      formatter={(value) => `${value}MB`}
-                      parser={(value) => value?.replace('MB', '') as any}
-                      style={{ width: '100%' }}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
-            </Card>
+                {/* 交易配置 */}
+                <Divider>{t('trading_config')}</Divider>
 
-            <Card title={t('capital_config')} bordered={false} style={{ marginTop: 16 }}>
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Form.Item
-                    name="initial_capital"
-                    label={t('initial_capital')}
-                  >
-                    <InputNumber
-                      min={100}
-                      step={1000}
-                      style={{ width: '100%' }}
-                      formatter={(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                      parser={(value) => value?.replace(/\$\s?|(,*)/g, '') as any}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item
-                    name="max_position_size"
-                    label={
-                      <Space>
-                        {t('max_position_size')}
-                        <Tooltip title="最大仓位比例(0-1)">
-                          <QuestionCircleOutlined />
-                        </Tooltip>
-                      </Space>
-                    }
-                  >
-                    <InputNumber
-                      min={0.01}
-                      max={1}
-                      step={0.01}
-                      style={{ width: '100%' }}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
-            </Card>
-          </Form>
-        </TabPane>
-      </Tabs>
+                <Row gutter={16}>
+                  <Col span={12}>
+                    <Form.Item
+                      name="symbols"
+                      label={t('trading_target')}
+                      rules={[
+                        { required: true, message: t('please_select_trading_target'), type: 'array' },
+                      ]}
+                    >
+                      <Select
+                        mode="multiple"
+                        placeholder={t('select_trading_target')}
+                        allowClear
+                        maxTagCount={3}
+                        loading={loadingSymbols}
+                        showSearch
+                        filterOption={(input, option) => {
+                          const value = option?.value as string;
+                          return value?.toLowerCase().includes(input.toLowerCase());
+                        }}
+                      >
+                        {symbolOptions.map((option) => (
+                          <Option key={option.value} value={option.value}>
+                            {option.label}
+                          </Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item
+                      name="timeframe"
+                      label={t('timeframe')}
+                      rules={[{ required: true, message: '请选择时间周期' }]}
+                    >
+                      <Select placeholder="选择时间周期">
+                        {TIMEFRAMES.map((tf) => (
+                          <Option key={tf.value} value={tf.value}>
+                            {tf.label}
+                          </Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                <Row gutter={16}>
+                  <Col span={12}>
+                    <Form.Item
+                      name="trading_mode"
+                      label={
+                        <Space>
+                          {t('trading_mode')}
+                          <Tooltip title="切换交易模式需要重启Worker才能生效">
+                            <QuestionCircleOutlined />
+                          </Tooltip>
+                        </Space>
+                      }
+                      rules={[{ required: true, message: '请选择交易模式' }]}
+                    >
+                      <Select placeholder="选择交易模式">
+                        {TRADING_MODES.map((mode) => (
+                          <Option key={mode.value} value={mode.value}>
+                            {mode.label}
+                          </Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item
+                      name="leverage"
+                      label={t('leverage')}
+                    >
+                      <InputNumber
+                        min={1}
+                        max={125}
+                        style={{ width: '100%' }}
+                        placeholder="杠杆倍数"
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </Form>
+            ),
+          },
+          {
+            key: 'resource',
+            label: (
+              <span>
+                <SlidersOutlined />
+                {t('resource_config')}
+              </span>
+            ),
+            children: (
+              <Form form={form} layout="vertical">
+                <Card title={t('resource_limits')} bordered={false}>
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item
+                        name="cpu_limit"
+                        label={
+                          <Space>
+                            {t('cpu_limit')}
+                            <Tooltip title="CPU使用限制百分比">
+                              <QuestionCircleOutlined />
+                            </Tooltip>
+                          </Space>
+                        }
+                      >
+                        <InputNumber
+                          min={10}
+                          max={100}
+                          formatter={(value) => `${value}%`}
+                          parser={(value) => value?.replace('%', '') as any}
+                          style={{ width: '100%' }}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item
+                        name="memory_limit"
+                        label={
+                          <Space>
+                            {t('memory_limit')}
+                            <Tooltip title="内存使用限制(MB)">
+                              <QuestionCircleOutlined />
+                            </Tooltip>
+                          </Space>
+                        }
+                      >
+                        <InputNumber
+                          min={128}
+                          max={4096}
+                          step={128}
+                          formatter={(value) => `${value}MB`}
+                          parser={(value) => value?.replace('MB', '') as any}
+                          style={{ width: '100%' }}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </Card>
+
+                <Card title={t('capital_config')} bordered={false} style={{ marginTop: 16 }}>
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item
+                        name="initial_capital"
+                        label={t('initial_capital')}
+                      >
+                        <InputNumber
+                          min={100}
+                          step={1000}
+                          style={{ width: '100%' }}
+                          formatter={(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                          parser={(value) => value?.replace(/\$\s?|(,*)/g, '') as any}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item
+                        name="max_position_size"
+                        label={
+                          <Space>
+                            {t('max_position_size')}
+                            <Tooltip title="最大仓位比例(0-1)">
+                              <QuestionCircleOutlined />
+                            </Tooltip>
+                          </Space>
+                        }
+                      >
+                        <InputNumber
+                          min={0.01}
+                          max={1}
+                          step={0.01}
+                          style={{ width: '100%' }}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </Card>
+              </Form>
+            ),
+          },
+        ]}
+      />
     </Modal>
   );
 };
