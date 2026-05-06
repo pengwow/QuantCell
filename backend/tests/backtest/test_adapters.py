@@ -125,7 +125,7 @@ def sample_default_result():
 @pytest.fixture
 def mock_strategy_base():
     """创建模拟的 StrategyBase 子类"""
-    from strategy.core.strategy_base import StrategyBase
+    from strategy.core import StrategyBase
 
     class MockLegacyStrategy(StrategyBase):
         """模拟的 Legacy 策略"""
@@ -815,7 +815,7 @@ class TestStrategy(Strategy):
         @patch('backtest.adapters.strategy_adapter.issubclass')
         def test_detect_legacy(self, mock_issubclass):
             """测试检测 Legacy 策略"""
-            from strategy.core.strategy_base import StrategyBase
+            from strategy.core import StrategyBase
 
             mock_issubclass.side_effect = lambda cls, base: base == StrategyBase
 

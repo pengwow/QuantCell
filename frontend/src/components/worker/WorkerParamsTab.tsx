@@ -8,6 +8,7 @@ import {
   Space,
 } from 'antd';
 import type { Worker as WorkerType } from '../../types/worker';
+import { CodeOutlined, TagOutlined } from '@ant-design/icons';
 
 interface WorkerParamsTabProps {
   worker: WorkerType;
@@ -21,6 +22,59 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
 
   return (
     <div>
+      {/* 策略信息 */}
+      {worker.strategy_info && (
+        <Card
+          title={
+            <Space>
+              <CodeOutlined />
+              <span>{t('strategy_info') || '策略信息'}</span>
+            </Space>
+          }
+          style={{ marginBottom: 16 }}
+        >
+          <Row gutter={[24, 16]}>
+            <Col xs={24} sm={12} md={8}>
+              <Descriptions column={1} size="small" labelStyle={{ color: '#666' }}>
+                <Descriptions.Item label={t('strategy_name') || '策略名称'}>
+                  <Tag color="blue">{worker.strategy_info.name}</Tag>
+                </Descriptions.Item>
+              </Descriptions>
+            </Col>
+
+            <Col xs={24} sm={12} md={8}>
+              <Descriptions column={1} size="small" labelStyle={{ color: '#666' }}>
+                <Descriptions.Item label={t('strategy_type') || '策略类型'}>
+                  <Tag icon={<TagOutlined />} color={worker.strategy_info.strategy_type === 'default' ? 'green' : 'purple'}>
+                    {worker.strategy_info.strategy_type === 'default'
+                      ? (t('default_strategy') || '默认策略')
+                      : (t('legacy_strategy') || '旧版策略')}
+                  </Tag>
+                </Descriptions.Item>
+              </Descriptions>
+            </Col>
+
+            <Col xs={24} sm={12} md={8}>
+              <Descriptions column={1} size="small" labelStyle={{ color: '#666' }}>
+                <Descriptions.Item label={t('strategy_version') || '策略版本'}>
+                  <span style={{ fontWeight: 500 }}>v{worker.strategy_info.version}</span>
+                </Descriptions.Item>
+              </Descriptions>
+            </Col>
+
+            {worker.strategy_info.description && (
+              <Col span={24}>
+                <Descriptions column={1} size="small" labelStyle={{ color: '#666' }}>
+                  <Descriptions.Item label={t('strategy_description') || '策略描述'}>
+                    <span>{worker.strategy_info.description}</span>
+                  </Descriptions.Item>
+                </Descriptions>
+              </Col>
+            )}
+          </Row>
+        </Card>
+      )}
+
       {/* 基础配置 */}
       <Card
         title={

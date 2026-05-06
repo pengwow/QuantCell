@@ -19,7 +19,6 @@ from .strategy import (
 )
 
 # 核心引擎模块
-from .strategy import Strategy as LegacyStrategy, StrategyConfig as LegacyStrategyConfig, StrategyBase as LegacyStrategyBase
 from .event_engine import EventEngine, EventType
 from .vector_engine import VectorEngine
 from .numba_functions import (
@@ -132,9 +131,6 @@ __all__ = [
     "Strategy",
 
     # 基础组件
-    "LegacyStrategy",
-    "LegacyStrategyConfig",
-    "LegacyStrategyBase",
     "EventEngine",
     "EventType",
     "VectorEngine",

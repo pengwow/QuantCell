@@ -21,12 +21,15 @@ import {
   App,
   Tabs,
   Card,
+  Tag,
 } from 'antd';
 import {
   EditOutlined,
   QuestionCircleOutlined,
   SettingOutlined,
   SlidersOutlined,
+  CodeOutlined,
+  TagOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { Worker, UpdateWorkerRequest } from '../../types/worker';
@@ -209,6 +212,34 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         </Space>
       }
     >
+      {/* 策略信息（只读展示） */}
+      {worker.strategy_info && (
+        <Card
+          size="small"
+          style={{ marginBottom: 16, background: '#fafafa' }}
+        >
+          <Row gutter={16} align="middle">
+            <Col>
+              <CodeOutlined style={{ color: '#1890ff', marginRight: 8 }} />
+              <span style={{ fontWeight: 600 }}>{worker.strategy_info.name}</span>
+            </Col>
+            <Col>
+              <Tag icon={<TagOutlined />} color={worker.strategy_info.strategy_type === 'default' ? 'green' : 'purple'}>
+                {worker.strategy_info.strategy_type === 'default' ? '默认策略' : '旧版策略'}
+              </Tag>
+            </Col>
+            <Col>
+              <span style={{ color: '#999' }}>v{worker.strategy_info.version}</span>
+            </Col>
+            {worker.strategy_info.description && (
+              <Col flex="auto" style={{ textAlign: 'right' }}>
+                <span style={{ color: '#666', fontSize: 13 }}>{worker.strategy_info.description}</span>
+              </Col>
+            )}
+          </Row>
+        </Card>
+      )}
+
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
@@ -352,7 +383,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
             ),
             children: (
               <Form form={form} layout="vertical">
-                <Card title={t('resource_limits')} bordered={false}>
+                <Card title={t('resource_limits')} variant="borderless">
                   <Row gutter={16}>
                     <Col span={12}>
                       <Form.Item
@@ -400,7 +431,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                   </Row>
                 </Card>
 
-                <Card title={t('capital_config')} bordered={false} style={{ marginTop: 16 }}>
+                <Card title={t('capital_config')} variant="borderless" style={{ marginTop: 16 }}>
                   <Row gutter={16}>
                     <Col span={12}>
                       <Form.Item

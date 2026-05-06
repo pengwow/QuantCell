@@ -186,7 +186,7 @@ const WorkerPerformanceTab: React.FC = () => {
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         {metrics.map((metric) => (
           <Col xs={12} sm={12} md={6} key={metric.label}>
-            <Card size="small" bordered={false} style={{ background: '#fafafa' }}>
+            <Card size="small" variant="borderless" style={{ background: '#fafafa' }}>
               <Statistic
                 title={<span style={{ fontSize: 13, color: '#666' }}>{metric.label}</span>}
                 value={metric.value}

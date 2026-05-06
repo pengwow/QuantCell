@@ -1231,33 +1231,118 @@ class TradingNodeWorkerProcess(WorkerProcess):
             logger.warning(f"Worker {self.worker_id} 设置统一日志器失败: {e}")
 
     async def _load_trading_strategy(self):
-        """加载策略"""
+        """加载策略
+
+        支持三种方式加载策略（与基类 _load_strategy 保持一致）：
+        1. config 中的 strategy_code（优先）
+        2. 数据库中的策略代码（回退）
+        3. 文件路径加载（最后回退）
+        """
         try:
             import importlib.util
             import sys
+            import types
 
-            # 动态加载策略模块
+            strategy_code: Optional[str] = None
+            strategy_name: Optional[str] = None
+            module = None
+
+            # 方式1: 优先从 config 获取策略代码
+            strategy_code = self.config.get("strategy_code")
+            if strategy_code:
+                logger.info(f"Worker {self.worker_id} 使用从配置传递的策略代码")
+
+            # 方式2: 从数据库加载策略代码
+            if not strategy_code:
+                try:
+                    from collector.db.database import init_database_config, SessionLocal
+                    from strategy.models import Strategy
+
+                    init_database_config()
+                    db = SessionLocal()
+                    try:
+                        strategy_id = self.config.get("strategy_id")
+                        if strategy_id:
+                            strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+                            if strategy is not None:
+                                code = getattr(strategy, 'code', None)
+                                name = getattr(strategy, 'name', None)
+                                if code:
+                                    strategy_code = str(code)
+                                    strategy_name = str(name) if name else None
+                                    logger.info(f"Worker {self.worker_id} 从数据库加载策略: {name}")
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.warning(f"Worker {self.worker_id} 从数据库加载策略失败: {e}")
+
+            # 方式3: 从文件路径加载
+            if not strategy_code and self.strategy_path:
+                if os.path.exists(self.strategy_path):
+                    with open(self.strategy_path, 'r', encoding='utf-8') as f:
+                        strategy_code = f.read()
+                    logger.info(f"Worker {self.worker_id} 从文件加载策略: {self.strategy_path}")
+                else:
+                    raise ImportError(f"策略文件不存在: {self.strategy_path}")
+
+            if not strategy_code:
+                raise ImportError("策略代码为空（strategy_code=None 且无可用文件路径）")
+
+            # 动态创建模块并执行策略代码
             module_name = f"trading_strategy_{self.worker_id}"
-            spec = importlib.util.spec_from_file_location(
-                module_name, self.strategy_path
-            )
-            if spec is None or spec.loader is None:
-                raise ImportError(f"无法加载策略文件: {self.strategy_path}")
-
-            module = importlib.util.module_from_spec(spec)
+            module = types.ModuleType(module_name)
             sys.modules[module_name] = module
-            spec.loader.exec_module(module)
+            exec(strategy_code, module.__dict__)
 
-            # 获取策略类
+            # 获取策略类（排除抽象基类，自动发现具体子类）
+            from strategy.core import StrategyBase
+
             strategy_class_name = self.config.get("strategy_class", "Strategy")
             strategy_class = getattr(module, strategy_class_name, None)
+
+            # 验证获取的类是否为有效的具体策略类（非抽象基类）
+            if strategy_class is not None:
+                is_valid = True
+                if isinstance(strategy_class, type):
+                    try:
+                        # 显式排除 StrategyBase 自身（无论是否通过别名引用）
+                        if strategy_class is StrategyBase:
+                            is_valid = False
+                            logger.info(
+                                f"Worker {self.worker_id} 策略类 {strategy_class_name} "
+                                f"是 StrategyBase 基类本身，自动查找具体子类..."
+                            )
+                        # 排除有未实现抽象方法的子类
+                        elif (issubclass(strategy_class, StrategyBase)
+                              and getattr(strategy_class, '__abstractmethods__', None)):
+                            is_valid = False
+                            logger.info(
+                                f"Worker {self.worker_id} 策略类 {strategy_class_name} "
+                                f"是抽象子类，自动查找具体子类..."
+                            )
+                    except TypeError:
+                        pass
+                if not is_valid:
+                    strategy_class = None
+
             if strategy_class is None:
-                # 尝试查找第一个类
                 for attr_name in dir(module):
                     attr = getattr(module, attr_name)
-                    if isinstance(attr, type) and attr_name not in ["Strategy", "object"]:
-                        strategy_class = attr
-                        break
+                    if isinstance(attr, type):
+                        try:
+                            is_concrete = (
+                                issubclass(attr, StrategyBase)
+                                and attr is not StrategyBase
+                                and not getattr(attr, '__abstractmethods__', None)
+                            )
+                            if is_concrete:
+                                strategy_class = attr
+                                logger.info(
+                                    f"Worker {self.worker_id} 自动发现策略类: {attr.__name__}"
+                                )
+                                break
+                        except TypeError:
+                            pass
 
             if strategy_class is None:
                 raise ImportError(f"在 {self.strategy_path} 中未找到策略类")
@@ -1441,12 +1526,14 @@ class TradingNodeWorkerProcess(WorkerProcess):
             # 3. 停止 TradingNode
             if self.trading_node:
                 try:
-                    # 尝试调用 dispose 或 stop 方法
+                    # 尝试调用 dispose 或 stop 方法（兼容同步/异步）
                     if hasattr(self.trading_node, 'dispose'):
                         self.trading_node.dispose()
                         logger.info(f"Worker {self.worker_id} TradingNode 已 dispose")
                     elif hasattr(self.trading_node, 'stop'):
-                        await self.trading_node.stop()
+                        stop_result = self.trading_node.stop()
+                        if asyncio.iscoroutine(stop_result):
+                            await stop_result
                         logger.info(f"Worker {self.worker_id} TradingNode 已 stop")
                     else:
                         logger.warning(f"Worker {self.worker_id} TradingNode 没有 dispose/stop 方法")
@@ -1466,10 +1553,12 @@ class TradingNodeWorkerProcess(WorkerProcess):
         logger.info(f"Worker {self.worker_id} 开始清理 TradingNode 资源")
 
         try:
-            # 停止 TradingNode
+            # 停止 TradingNode（兼容同步/异步 stop 方法）
             if self.trading_node:
                 try:
-                    await self.trading_node.stop()
+                    stop_result = self.trading_node.stop()
+                    if asyncio.iscoroutine(stop_result):
+                        await stop_result
                     logger.info(f"Worker {self.worker_id} TradingNode 已停止")
                 except Exception as e:
                     logger.error(f"Worker {self.worker_id} 停止 TradingNode 时出错: {e}")

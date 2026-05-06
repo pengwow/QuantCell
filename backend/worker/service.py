@@ -483,6 +483,8 @@ async def stream_logs(websocket, worker_id: int):
                     logger.error(f"心跳发送失败: {e}")
                 return  # 连接已关闭，退出
 
+    except asyncio.CancelledError:
+        logger.info(f"Worker {worker_id} 日志流: 连接被取消（应用关闭）")
     except Exception as e:
         error_msg = str(e).lower()
         if any(keyword in error_msg for keyword in ['close', 'disconnect', 'closed']):

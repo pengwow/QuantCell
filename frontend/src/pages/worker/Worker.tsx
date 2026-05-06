@@ -434,7 +434,7 @@ const Worker = () => {
       <Row gutter={[16, 16]}>
         {metrics.map((metric) => (
           <Col span={12} key={metric.label}>
-            <Card size="small" bordered={false} style={{ background: '#f5f5f5' }}>
+            <Card size="small" variant="borderless" style={{ background: '#f5f5f5' }}>
               <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{metric.label}</div>
               <div style={{ fontSize: 20, fontWeight: 'bold', color: metric.color }}>{metric.value}</div>
             </Card>

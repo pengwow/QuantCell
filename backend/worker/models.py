@@ -157,12 +157,24 @@ class Worker(Base):
         market_type = trading_config.get('market_type', 'spot')
         trading_mode = trading_config.get('trading_mode', 'paper')
 
+        # 策略信息（从关联的 Strategy 模型获取）
+        strategy_info = None
+        if self.strategy:
+            strategy_info = {
+                'id': self.strategy.id,
+                'name': self.strategy.name,
+                'description': self.strategy.description,
+                'strategy_type': self.strategy.strategy_type,
+                'version': self.strategy.version,
+            }
+
         return {
             'id': self.id,
             'name': self.name,
             'description': self.description,
             'status': self.status,
             'strategy_id': self.strategy_id,
+            'strategy_info': strategy_info,
             # 交易配置（新格式）
             'trading_config': trading_config,
             # 兼容旧版本字段

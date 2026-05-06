@@ -10,12 +10,12 @@ from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from .strategy_base import (
-    StrategyBase,
-    BacktestStrategyBase,
-    LiveStrategyBase,
-    Order
-)
+from .core import StrategyBase
+from .core.data_types import Order
+
+# 向后兼容别名（旧版 BacktestStrategyBase/LiveStrategyBase 统一使用 StrategyBase）
+BacktestStrategyBase = StrategyBase
+LiveStrategyBase = StrategyBase
 
 
 class ExecutionEngine(ABC):
