@@ -253,6 +253,7 @@ def build_trading_node_config(
         "log_level": log_level,
         "log_colors": False,      # Worker 进程中关闭 ANSI 颜色码
         "use_pyo3": False,       # 使用 Python logging 模块而非 Rust pyo3 后端
+        "bypass_logging": False,  # 确保使用 Python logging（不跳过），让 Worker 日志也能写入文件
     }
 
     # 如果指定了日志目录，配置文件日志（必须在创建时传入，不能后续修改）
@@ -367,6 +368,8 @@ def _setup_binance(
     }
 
     # 构建执行客户端配置
+    # 注意: Binance Hedge Mode（usdt_futures/coin_futures）不支持 reduce_only 参数
+    is_futures = account_type in ("usdt_futures", "coin_futures")
     exec_clients = {
         BINANCE: BinanceExecClientConfig(
             api_key=api_key,
@@ -376,6 +379,7 @@ def _setup_binance(
             proxy_url=proxy_url,
             instrument_provider=instrument_provider_config,
             max_retries=3,
+            use_reduce_only=False if is_futures else True,
         ),
     }
 

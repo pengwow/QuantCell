@@ -13,10 +13,6 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from .core import StrategyBase
 from .core.data_types import Order
 
-# 向后兼容别名（旧版 BacktestStrategyBase/LiveStrategyBase 统一使用 StrategyBase）
-BacktestStrategyBase = StrategyBase
-LiveStrategyBase = StrategyBase
-
 
 class ExecutionEngine(ABC):
     """
@@ -168,8 +164,8 @@ class BacktestExecutionEngine(ExecutionEngine):
         if self.backtest_data is None:
             raise ValueError("回测数据未设置")
         
-        if not isinstance(self.strategy, BacktestStrategyBase):
-            raise ValueError("策略实例必须是BacktestStrategyBase的子类")
+        if not isinstance(self.strategy, StrategyBase):
+            raise ValueError("策略实例必须是StrategyBase的子类")
         
         # 设置回测参数
         self.strategy.set_backtest_params(
@@ -283,8 +279,8 @@ class LiveExecutionEngine(ExecutionEngine):
         """
         实盘前的准备工作
         """
-        if not isinstance(self.strategy, LiveStrategyBase):
-            raise ValueError("策略实例必须是LiveStrategyBase的子类")
+        if not isinstance(self.strategy, StrategyBase):
+            raise ValueError("策略实例必须是StrategyBase的子类")
         
         if self.exchange is None or self.api_key is None or self.api_secret is None:
             raise ValueError("交易所参数未设置")

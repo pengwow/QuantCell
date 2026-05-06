@@ -127,8 +127,8 @@ def mock_strategy_base():
     """创建模拟的 StrategyBase 子类"""
     from strategy.core import StrategyBase
 
-    class MockLegacyStrategy(StrategyBase):
-        """模拟的 Legacy 策略"""
+    class MockStrategy(StrategyBase):
+        """模拟的策略"""
 
         def on_init(self):
             pass
