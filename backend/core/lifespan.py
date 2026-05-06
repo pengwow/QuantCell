@@ -234,27 +234,72 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # 停止实时引擎
-    if realtime_engine:
-        logger.info("正在停止实时引擎")
-        await realtime_engine.stop()
+    # ========== 应用关闭阶段（必须保证执行完毕） ==========
+    # 使用 try/finally + CancelledError 保护，确保 Ctrl+C 时关键资源也能清理
+    logger.info("========== 应用开始关闭 ==========")
 
-    # 停止系统状态推送服务
+    # 步骤 1: 停止所有 Worker 进程（最高优先级，防止孤儿进程）
+    try:
+        from worker.api.routes import shutdown_worker_manager
+        await asyncio.wait_for(shutdown_worker_manager(), timeout=60.0)
+        logger.info("所有 Worker 进程已停止")
+    except asyncio.CancelledError:
+        logger.warning("停止 Worker 进程时被中断（CancelledError），尝试快速终止...")
+        try:
+            from worker.api.routes import _worker_manager
+            if _worker_manager is not None:
+                for wid, w in list(_worker_manager._workers.items()):
+                    if w.is_alive():
+                        w.terminate()
+                _worker_manager._workers.clear()
+                logger.info("Worker 进程已强制终止")
+        except Exception as e2:
+            logger.error(f"强制终止 Worker 失败: {e2}")
+        raise
+    except Exception as e:
+        logger.error(f"停止 Worker 进程失败: {e}")
+
+    # 步骤 2: 停止 WorkerService（清理 ZMQ 通信资源）
+    try:
+        from worker.service import worker_service
+        await asyncio.wait_for(worker_service.shutdown(), timeout=10.0)
+        logger.info("WorkerService 已停止")
+    except asyncio.CancelledError:
+        logger.warning("WorkerService 停止被中断")
+        raise
+    except Exception as e:
+        logger.error(f"停止 WorkerService 失败: {e}")
+
+    # 步骤 3: 停止实时引擎
+    if realtime_engine:
+        try:
+            await realtime_engine.stop()
+            logger.info("实时引擎已停止")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"停止实时引擎失败: {e}")
+
+    # 步骤 4: 停止系统状态推送服务
     try:
         if hasattr(app.state, "system_service"):
             await app.state.system_service.stop_system_status_push()
             logger.info("系统状态推送服务已停止")
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         logger.error(f"停止系统状态推送服务失败: {e}")
 
-    # 停止WebSocket连接管理器
+    # 步骤 5: 停止 WebSocket 连接管理器
     try:
         await manager.stop()
         logger.info("WebSocket连接管理器已停止")
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
-        logger.error(f"停止WebSocket连接管理器失败: {e}")
+        logger.error(f"停止 WebSocket 连接管理器失败: {e}")
 
-    # 取消货币对同步后台任务
+    # 步骤 6: 取消后台任务
     try:
         if hasattr(app.state, "symbol_sync_task") and not app.state.symbol_sync_task.done():
             app.state.symbol_sync_task.cancel()
@@ -262,12 +307,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"取消货币对同步任务失败: {e}")
 
-    # 异步关闭传统调度器，确保清理完成后再退出
-    await asyncio.to_thread(traditional_scheduler.shutdown)
-    # 异步关闭新的定时任务管理器
-    await asyncio.to_thread(scheduled_task_manager.shutdown)
-    # 停止所有插件
-    await asyncio.to_thread(plugin_manager.stop_all_plugins)
+    # 步骤 7: 关闭调度器和插件
+    try:
+        await asyncio.to_thread(traditional_scheduler.shutdown)
+        await asyncio.to_thread(scheduled_task_manager.shutdown)
+        await asyncio.to_thread(plugin_manager.stop_all_plugins)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.error(f"关闭调度器或插件失败: {e}")
+
+    logger.info("========== 应用关闭完成 ==========")
 
 
 def init_database():

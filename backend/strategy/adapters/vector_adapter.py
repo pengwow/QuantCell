@@ -9,7 +9,7 @@ from utils.logger import get_logger, LogType
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from strategy.core.vector_engine import VectorEngine
-from strategy.core.strategy_base import StrategyBase
+from strategy.core import StrategyBase
 
 
 class VectorBacktestAdapter:

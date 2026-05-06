@@ -72,6 +72,15 @@ class WorkerConfigUpdate(BaseModel):
     config: Dict[str, Any] = Field(..., description="更新的配置项")
 
 
+class StrategyInfo(BaseModel):
+    """策略信息"""
+    id: int = Field(..., description="策略ID")
+    name: str = Field(..., description="策略名称")
+    description: Optional[str] = Field(None, description="策略描述")
+    strategy_type: str = Field(default="default", description="策略类型: default/legacy")
+    version: str = Field(default="1.0.0", description="策略版本")
+
+
 class WorkerResponse(WorkerBase):
     """Worker响应模型"""
     id: int = Field(..., description="Worker ID")
@@ -93,6 +102,7 @@ class WorkerResponse(WorkerBase):
     started_at: Optional[datetime] = Field(None, description="启动时间")
     stopped_at: Optional[datetime] = Field(None, description="停止时间")
     total_profit: Optional[float] = Field(None, description="总收益")
+    strategy_info: Optional[StrategyInfo] = Field(None, description="关联策略信息")
 
     class Config:
         from_attributes = True

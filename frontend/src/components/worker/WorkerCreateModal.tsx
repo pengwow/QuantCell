@@ -648,7 +648,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         </Row>
 
         {enableResourceConfig && (
-          <Card size="small" bordered={false} style={{ background: '#fafafa', marginBottom: 16 }}>
+          <Card size="small" variant="borderless" style={{ background: '#fafafa', marginBottom: 16 }}>
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item

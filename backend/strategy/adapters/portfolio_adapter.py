@@ -19,7 +19,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from datetime import datetime
 
 from strategy.core.vector_engine import VectorEngine
-from strategy.core.strategy_base import StrategyBase
+from strategy.core import StrategyBase
 
 
 @dataclass

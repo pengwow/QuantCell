@@ -4,6 +4,7 @@ Worker API路由定义
 整合所有Worker相关的API端点
 """
 
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, WebSocket
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
@@ -231,6 +232,31 @@ def _on_worker_exit(worker_id: str, worker_status):
             db.close()
     except Exception as e:
         logger.error(f"Worker 退出回调处理失败: {e}")
+
+async def shutdown_worker_manager():
+    """停止 WorkerManager，清理所有 Worker 进程
+    
+    在应用关闭时调用，确保所有 Worker 进程被优雅停止：
+    1. 发送 STOP 命令给所有 Worker
+    2. 等待 Worker 正常退出（超时 30 秒）
+    3. 强制终止未退出的 Worker
+    4. 清理通信资源（ZMQ socket、端口等）
+    """
+    global _worker_manager
+    if _worker_manager is not None:
+        try:
+            logger.info("正在停止 WorkerManager，清理所有 Worker 进程...")
+            await asyncio.wait_for(_worker_manager.stop(), timeout=60.0)
+            logger.info("WorkerManager 已成功停止")
+        except asyncio.TimeoutError:
+            logger.warning("WorkerManager 停止超时，强制终止")
+        except Exception as e:
+            logger.error(f"停止 WorkerManager 失败: {e}")
+        finally:
+            _worker_manager = None
+    else:
+        logger.info("WorkerManager 未初始化，无需停止")
+
 
 async def get_worker_manager():
     """

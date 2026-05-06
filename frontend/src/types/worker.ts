@@ -54,6 +54,15 @@ export interface TradingConfig {
   trading_mode: string;
 }
 
+// 策略信息
+export interface StrategyInfo {
+  id: number;
+  name: string;
+  description?: string;
+  strategy_type: string;  // default/legacy
+  version: string;
+}
+
 // Worker基础信息
 export interface Worker {
   id: number;
@@ -61,6 +70,7 @@ export interface Worker {
   description?: string;
   status: WorkerStatus;
   strategy_id: number;
+  strategy_info?: StrategyInfo;
   // 交易配置（新格式）
   trading_config?: TradingConfig;
   // 兼容旧版本字段

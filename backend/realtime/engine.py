@@ -305,7 +305,6 @@ class RealtimeEngine:
             bool: 停止是否成功
         """
         if not self.running:
-            logger.warning("实时引擎未在运行")
             return False
 
         logger.info("正在停止实时引擎")

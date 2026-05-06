@@ -510,7 +510,7 @@ class QuantCellAdapter(BaseBacktestAdapter):
                 return True, ""
             
             # 检查是否是StrategyBase子类
-            from strategy.core.strategy_base import StrategyBase
+            from strategy.core import StrategyBase
             if issubclass(strategy_class, StrategyBase):
                 return True, ""
             

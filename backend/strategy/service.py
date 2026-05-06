@@ -32,8 +32,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Type
 from enum import Enum
 
-# 导入策略基类
-from .strategy_base import StrategyBase
+# 导入策略基类（从 strategy.core 统一导入）
+from .core import StrategyBase
 
 # 尝试导入 trading engine 的 Strategy 类
 try:

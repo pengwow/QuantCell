@@ -113,8 +113,8 @@ class WorkerManager:
         """
         self._running = False
 
-        # 停止所有 Worker
-        await self.stop_all_workers()
+        # 停止所有 Worker（等待每个 Worker 真正退出）
+        await self._force_stop_all_workers()
 
         # 取消监控任务
         if self._monitor_task:
@@ -129,6 +129,40 @@ class WorkerManager:
 
         logger.info("Worker 管理器已停止")
         return True
+
+    async def _force_stop_all_workers(self):
+        """强制停止所有 Worker（在 shutdown 时调用，等待每个 Worker 真正退出）"""
+        worker_ids = list(self._workers.keys())
+        if not worker_ids:
+            return
+
+        logger.info(f"正在停止 {len(worker_ids)} 个 Worker 进程...")
+        for worker_id in worker_ids:
+            try:
+                if worker_id not in self._workers:
+                    continue
+                worker = self._workers[worker_id]
+                # 发送停止命令
+                await self.comm_manager.send_control(
+                    worker_id,
+                    Message.create_control(MessageType.STOP, worker_id),
+                )
+                # 在后台线程中等待 Worker 停止，避免阻塞事件循环
+                await asyncio.to_thread(worker.join, timeout=10.0)
+                if worker.is_alive():
+                    logger.warning(f"Worker {worker_id} 未在 10 秒内停止，强制终止")
+                    worker.terminate()
+                    await asyncio.to_thread(worker.join, timeout=3.0)
+                # 清理
+                if worker_id in self._workers:
+                    del self._workers[worker_id]
+                if worker_id in self._worker_status:
+                    del self._worker_status[worker_id]
+                self.data_broker.unsubscribe_all(worker_id)
+                logger.info(f"Worker {worker_id} 已停止并清理")
+            except Exception as e:
+                logger.error(f"强制停止 Worker {worker_id} 失败: {e}")
+        logger.info("所有 Worker 进程已停止")
 
     def register_worker_exit_callback(
         self, callback: Callable[[str, WorkerStatus], None]

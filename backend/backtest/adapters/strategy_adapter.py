@@ -25,7 +25,7 @@ from nautilus_trader.trading.strategy import Strategy, StrategyConfig
 from nautilus_trader.config import ImportableStrategyConfig
 
 # QuantCell 内部导入
-from strategy.core.strategy_base import StrategyBase
+from strategy.core import StrategyBase
 
 
 class StrategyAdapterError(Exception):
