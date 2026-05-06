@@ -18,9 +18,6 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from .ipc import WorkerCommClient, Message, MessageType
 from .state import WorkerState, WorkerStatus
 
-# 统一文件日志器（替代旧的 ZMQ 日志传输方案）
-from .unified_file_logger import create_unified_logger
-
 
 class WorkerProcess(multiprocessing.Process):
     """
@@ -66,9 +63,6 @@ class WorkerProcess(multiprocessing.Process):
         # 统计信息
         self._messages_processed = 0
         self._orders_placed = 0
-
-        # 统一日志器（纯文件存储方案）
-        self._unified_logger: Optional[Any] = None
 
     def run(self):
         """
@@ -191,34 +185,8 @@ class WorkerProcess(multiprocessing.Process):
         if not success:
             raise RuntimeError("无法连接到通信服务")
 
-        # 初始化日志处理器
-        self._init_log_handler()
-
         self.status.update_state(WorkerState.INITIALIZED)
         logger.info(f"Worker {self.worker_id} 通信连接已建立")
-
-    def _init_log_handler(self):
-        """初始化统一文件日志器（替代旧的 ZMQ 日志处理器）"""
-        try:
-            self._unified_logger = create_unified_logger(
-                worker_id=self.worker_id,
-            )
-
-            # 安装 stdout 捕获（Tee 模式）
-            self._unified_logger.install_stdout_capture()
-
-            # 安装 logging Handler
-            self._unified_logger.install_logging_handler()
-
-            # 安装 loguru sink（如果可用）
-            self._unified_logger.install_loguru_sink()
-
-            logger.info(
-                f"Worker {self.worker_id} 统一文件日志器已初始化 "
-                f"(日志文件: {self._unified_logger.get_log_file_path()})"
-            )
-        except Exception as e:
-            logger.error(f"初始化统一日志器失败: {e}")
 
     async def _load_strategy(self):
         """
@@ -695,8 +663,10 @@ class WorkerProcess(multiprocessing.Process):
         """
         清理资源
 
-        注意：统一日志器必须最后关闭，否则后续日志写入会导致
-        "I/O operation on closed file" 错误。
+        清理顺序：
+        1. 调用策略 on_stop()
+        2. 断开通信连接
+        3. 更新状态为 STOPPED
         """
         logger.info(f"Worker {self.worker_id} 开始清理资源")
 
@@ -720,14 +690,6 @@ class WorkerProcess(multiprocessing.Process):
         # 更新状态
         self.status.update_state(WorkerState.STOPPED)
         logger.info(f"Worker {self.worker_id} 资源清理完成，进程即将退出")
-
-        # 统一日志器必须最后关闭
-        if self._unified_logger:
-            try:
-                self._unified_logger.close()
-            except Exception:
-                pass
-            self._unified_logger = None
 
     def stop(self):
         """
@@ -1011,9 +973,6 @@ class TradingNodeWorkerProcess(WorkerProcess):
         self.event_handler: Optional[Any] = None
         self.trading_config: Dict[str, Any] = {}
 
-        # Nautilus 统一日志器
-        self._nautilus_unified_logger: Optional[Any] = None
-
         # NautilusTrader 日志系统的 LogGuard（防止被垃圾回收）
         self._nautilus_log_guard: Optional[Any] = None
 
@@ -1114,11 +1073,11 @@ class TradingNodeWorkerProcess(WorkerProcess):
             # 默认使用 DEBUG 级别以便调试 NautilusTrader 日志问题
             log_level = self.trading_config.get("log_level", "DEBUG")
 
-            # 配置日志目录
-            import tempfile
+            # 配置日志目录 — 让 NautilusTrader 日志直接写到 backend/logs/
+            from pathlib import Path
             log_directory = self.trading_config.get("log_directory")
             if not log_directory:
-                log_directory = tempfile.gettempdir()
+                log_directory = str(Path(__file__).parent.parent / "logs")
             log_file_name = self.trading_config.get("log_file_name", f"worker_{self.worker_id}.log")
 
             # 验证配置
@@ -1160,8 +1119,8 @@ class TradingNodeWorkerProcess(WorkerProcess):
             logger.info(f"Worker {self.worker_id} 正在构建 TradingNode（日志系统将在此步骤初始化）...")
             trading_node.build()
 
-            # 配置统一文件日志器
-            self._setup_nautilus_unified_logger()
+            # 验证日志配置
+            self._verify_logging_config()
 
             logger.info(f"Worker {self.worker_id} TradingNode 初始化完成")
             return trading_node
@@ -1171,64 +1130,37 @@ class TradingNodeWorkerProcess(WorkerProcess):
             self.status.record_error(f"初始化失败: {str(e)}")
             return None
 
-    def _setup_nautilus_unified_logger(self) -> None:
-        """
-        设置统一文件日志器（用于捕获 NautilusTrader 的 stdout 输出）
+    def _verify_logging_config(self) -> None:
+        """验证 NautilusTrader 日志系统配置
 
-        在初始化 NautilusTrader 日志系统后调用，
-        确保 UnifiedFileLogger 已安装 stdout 捕获器来接收 NautilusTrader 的日志。
-        """
-        try:
-            # 如果还没有初始化统一日志器，现在初始化
-            if self._unified_logger is None:
-                self._init_log_handler()
-
-            logger.info(
-                f"Worker {self.worker_id} 统一日志器已配置完成 "
-                f"(日志文件: {self._unified_logger.get_log_file_path()})"
-            )
-
-        except Exception as e:
-            logger.warning(f"Worker {self.worker_id} 设置统一日志器失败: {e}")
-
-    def _setup_nautilus_log_file_monitor(self, log_directory: str, log_file_name: str) -> None:
-        """
-        设置统一文件日志器（替代旧的 ZMQ 日志文件监听器）
-
-        使用纯文件存储方案，捕获所有 Nautilus 日志并写入轮转日志文件。
-
-        Parameters
-        ----------
-        log_directory : str
-            日志目录
-        log_file_name : str
-            日志文件名
+        在 TradingNode.build() 完成后调用，
+        验证日志文件路径并输出详细的配置信息用于调试。
         """
         try:
-            # 创建统一文件日志器（专门用于 Nautilus Trader）
-            self._nautilus_unified_logger = create_unified_logger(
-                worker_id=self.worker_id,
-                log_directory=log_directory,
-                max_bytes=100 * 1024 * 1024,  # 100MB
-                backup_count=10,
-            )
+            from pathlib import Path
 
-            # 安装 stdout 捕获（捕获 Nautilus 的 print 输出）
-            self._nautilus_unified_logger.install_stdout_capture()
-
-            # 安装 logging Handler（捕获 logging 模块日志）
-            self._nautilus_unified_logger.install_logging_handler()
-
-            # 安装 loguru sink（如果 Nautilus 使用 loguru）
-            self._nautilus_unified_logger.install_loguru_sink()
+            log_path = Path(__file__).parent.parent / "logs" / f"worker_{self.worker_id}.log"
 
             logger.info(
-                f"Worker {self.worker_id} 统一日志器已启动 "
-                f"(日志文件: {self._nautilus_unified_logger.get_log_file_path()})"
+                f"Worker {self.worker_id} NautilusTrader 日志配置:\n"
+                f"  - 日志文件: {log_path}\n"
+                f"  - 日志目录: {self.trading_config.get('log_directory')}\n"
+                f"  - 文件名: {self.trading_config.get('log_file_name')}\n"
+                f"  - 日志级别: {self.trading_config.get('log_level')}"
             )
 
+            if log_path.exists():
+                file_size = log_path.stat().st_size
+                logger.info(
+                    f"Worker {self.worker_id} 日志文件已存在 (大小: {file_size} bytes)"
+                )
+            else:
+                logger.info(
+                    f"Worker {self.worker_id} 日志文件将在 TradingNode 启动时创建"
+                )
+
         except Exception as e:
-            logger.warning(f"Worker {self.worker_id} 设置统一日志器失败: {e}")
+            logger.warning(f"Worker {self.worker_id} 验证日志配置失败: {e}")
 
     async def _load_trading_strategy(self):
         """加载策略
@@ -1347,13 +1279,70 @@ class TradingNodeWorkerProcess(WorkerProcess):
             if strategy_class is None:
                 raise ImportError(f"在 {self.strategy_path} 中未找到策略类")
 
-            # 实例化策略
-            strategy_params = self.config.get("params", {})
-            self.trading_strategy = strategy_class(**strategy_params)
+            # 实例化策略（支持两种初始化模式）
+            import inspect
 
-            # 将策略添加到 TradingNode
-            if self.trading_node:
-                self.trading_node.add_strategy(self.trading_strategy)
+            sig = inspect.signature(strategy_class)
+            init_params = list(sig.parameters.keys())
+
+            if ('config' in init_params or 'strategy_config' in init_params) and strategy_class is not StrategyBase:
+                # 模式 A: NautilusTrader 风格 — 需要 StrategyConfig 对象
+                # 从 self.config 构建 InstrumentId 列表和 bar_types
+                symbols = self.config.get("symbols", [])
+                timeframe = self.config.get("timeframe", "1h")
+                trade_size = self.config.get("trade_size", Decimal("0.1"))
+
+                instrument_ids = []
+                for symbol in symbols:
+                    try:
+                        from strategy.core.data_types import InstrumentId
+                        instrument_ids.append(InstrumentId(symbol, "BINANCE"))
+                    except Exception:
+                        pass
+
+                if not instrument_ids:
+                    logger.warning(f"Worker {self.worker_id} 无法解析交易对，使用默认 BTCUSDT")
+                    from strategy.core.data_types import InstrumentId
+                    instrument_ids = [InstrumentId("BTCUSDT", "BINANCE")]
+
+                bar_types = [timeframe.upper().replace('M', '-MINUTE').replace('H', '-HOUR')
+                              .replace('D', '-DAY').replace('W', '-WEEK')] * len(instrument_ids)
+
+                # 尝试查找策略专用的 Config 类（如 SmaCrossSimpleConfig）
+                strategy_config = None
+                config_class_name = f"{strategy_class.__name__}Config"
+                if hasattr(module, config_class_name):
+                    config_cls = getattr(module, config_class_name)
+                    try:
+                        extra_params = {}
+                        for attr in ['fast_period', 'slow_period', 'n1', 'n2', 'period']:
+                            val = self.config.get(attr)
+                            if val is not None:
+                                extra_params[attr] = val
+                        strategy_config = config_cls(
+                            instrument_ids=instrument_ids,
+                            bar_types=bar_types,
+                            trade_size=trade_size,
+                            **extra_params,
+                        )
+                        logger.info(f"Worker {self.worker_id} 使用 {config_class_name} 实例化策略")
+                    except Exception as e:
+                        logger.warning(f"Worker {self.worker_id} {config_class_name} 构建失败: {e}，回退到基础 StrategyConfig")
+
+                if strategy_config is None:
+                    from strategy.core import StrategyConfig
+                    strategy_config = StrategyConfig(
+                        instrument_ids=instrument_ids,
+                        bar_types=bar_types,
+                        trade_size=trade_size,
+                    )
+
+                self.trading_strategy = strategy_class(strategy_config)
+
+            else:
+                # 模式 B: 旧版 Dict 参数风格 — 直接 **kwargs 解包
+                strategy_params = self.config.get("params", {})
+                self.trading_strategy = strategy_class(**strategy_params)
 
             # 更新状态信息
             self.status.strategy_name = strategy_class.__name__
@@ -1569,13 +1558,6 @@ class TradingNodeWorkerProcess(WorkerProcess):
                     await self._call_strategy_method('on_stop')
                 except Exception as e:
                     logger.error(f"Worker {self.worker_id} 策略清理错误: {e}")
-
-            # 关闭 Nautilus 统一日志器
-            try:
-                if self._nautilus_unified_logger:
-                    self._nautilus_unified_logger.close()
-            except Exception as e:
-                logger.warning(f"Worker {self.worker_id} 关闭 Nautilus 统一日志器时出错: {e}")
 
             # 释放 NautilusTrader 日志系统的 LogGuard
             if self._nautilus_log_guard:
