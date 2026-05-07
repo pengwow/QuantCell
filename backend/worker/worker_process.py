@@ -58,7 +58,6 @@ class WorkerProcess(multiprocessing.Process):
 
         # 运行控制
         self._shutdown_event = multiprocessing.Event()
-        self._pause_event = multiprocessing.Event()
 
         # 统计信息
         self._messages_processed = 0
@@ -159,11 +158,6 @@ class WorkerProcess(multiprocessing.Process):
             # 5. 主循环 - 等待关闭信号
             logger.info(f"[WorkerProcess] Worker {self.worker_id} 进入主循环，等待 _shutdown_event...")
             while not self._shutdown_event.is_set():
-                if self._pause_event.is_set():
-                    # 暂停状态
-                    await asyncio.sleep(0.1)
-                    continue
-
                 # 发送心跳
                 await self._send_heartbeat()
 
@@ -550,10 +544,6 @@ class WorkerProcess(multiprocessing.Process):
 
             if message.msg_type == MessageType.STOP:
                 await self._handle_stop()
-            elif message.msg_type == MessageType.PAUSE:
-                await self._handle_pause()
-            elif message.msg_type == MessageType.RESUME:
-                await self._handle_resume()
             elif message.msg_type == MessageType.RELOAD_CONFIG:
                 await self._handle_reload_config(message.payload)
             elif message.msg_type == MessageType.UPDATE_PARAMS:
@@ -573,20 +563,6 @@ class WorkerProcess(multiprocessing.Process):
         logger.info(f"[WorkerProcess] Worker {self.worker_id} 设置 _shutdown_event")
         self._shutdown_event.set()
         logger.info(f"[WorkerProcess] Worker {self.worker_id} _shutdown_event 已设置")
-
-    async def _handle_pause(self):
-        """处理暂停命令"""
-        logger.info(f"Worker {self.worker_id} 收到暂停命令")
-        self._pause_event.set()
-        self.status.update_state(WorkerState.PAUSED)
-        await self._send_status(MessageType.STATUS_UPDATE)
-
-    async def _handle_resume(self):
-        """处理恢复命令"""
-        logger.info(f"Worker {self.worker_id} 收到恢复命令")
-        self._pause_event.clear()
-        self.status.update_state(WorkerState.RUNNING)
-        await self._send_status(MessageType.STATUS_UPDATE)
 
     async def _handle_reload_config(self, config: Dict[str, Any]):
         """处理重载配置命令"""
@@ -714,18 +690,6 @@ class WorkerProcess(multiprocessing.Process):
         """
         self._shutdown_event.set()
 
-    def pause(self):
-        """
-        请求暂停 Worker（在主进程中调用）
-        """
-        self._pause_event.set()
-
-    def resume(self):
-        """
-        请求恢复 Worker（在主进程中调用）
-        """
-        self._pause_event.clear()
-
     def is_running(self) -> bool:
         """
         检查 Worker 是否正在运行
@@ -734,15 +698,6 @@ class WorkerProcess(multiprocessing.Process):
             是否正在运行
         """
         return self.is_alive() and not self._shutdown_event.is_set()
-
-    def is_paused(self) -> bool:
-        """
-        检查 Worker 是否已暂停
-
-        Returns:
-            是否已暂停
-        """
-        return self._pause_event.is_set()
 
 
 # =============================================================================
@@ -1030,10 +985,6 @@ class TradingNodeWorkerProcess(WorkerProcess):
             # 5. 主循环 - 等待关闭信号
             check_count = 0
             while not self._shutdown_event.is_set():
-                if self._pause_event.is_set():
-                    await asyncio.sleep(0.1)
-                    continue
-
                 # 每5秒检查一次 Nautilus 状态
                 check_count += 1
                 if check_count % 5 == 0:
@@ -1453,54 +1404,6 @@ class TradingNodeWorkerProcess(WorkerProcess):
             self.status.update_state(WorkerState.ERROR)
             self.status.record_error(str(e))
             raise
-
-    async def _handle_pause(self):
-        """处理暂停命令"""
-        logger.info(f"Worker {self.worker_id} 收到暂停命令，暂停策略执行")
-
-        try:
-            # 暂停策略执行
-            if self.trading_strategy and hasattr(self.trading_strategy, 'pause'):
-                await self._call_strategy_method('pause')
-
-            # 停止接收新数据
-            self._pause_event.set()
-
-            # 更新状态为 PAUSED
-            self.status.update_state(WorkerState.PAUSED)
-
-            # 发送状态更新
-            await self._send_status(MessageType.STATUS_UPDATE)
-
-            logger.info(f"Worker {self.worker_id} 策略已暂停")
-
-        except Exception as e:
-            logger.error(f"Worker {self.worker_id} 暂停策略失败: {e}")
-            self.status.record_error(f"暂停失败: {str(e)}")
-
-    async def _handle_resume(self):
-        """处理恢复命令"""
-        logger.info(f"Worker {self.worker_id} 收到恢复命令，恢复策略执行")
-
-        try:
-            # 恢复策略执行
-            if self.trading_strategy and hasattr(self.trading_strategy, 'resume'):
-                await self._call_strategy_method('resume')
-
-            # 恢复数据接收
-            self._pause_event.clear()
-
-            # 更新状态为 RUNNING
-            self.status.update_state(WorkerState.RUNNING)
-
-            # 发送状态更新
-            await self._send_status(MessageType.STATUS_UPDATE)
-
-            logger.info(f"Worker {self.worker_id} 策略已恢复")
-
-        except Exception as e:
-            logger.error(f"Worker {self.worker_id} 恢复策略失败: {e}")
-            self.status.record_error(f"恢复失败: {str(e)}")
 
     async def _handle_stop(self):
         """处理停止命令"""

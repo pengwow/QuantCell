@@ -382,36 +382,6 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
         }
       },
 
-      pauseWorker: async (workerId) => {
-        try {
-          await workerApi.pauseWorker(workerId);
-          get().messageApi?.success('Worker已暂停');
-          // 乐观更新状态
-          get().updateWorkerStatus(workerId, 'paused');
-          // 延迟刷新获取最新状态
-          setTimeout(() => get().fetchWorkers(), 1000);
-          return true;
-        } catch (error: any) {
-          get().messageApi?.error(error.message || '暂停Worker失败');
-          return false;
-        }
-      },
-
-      resumeWorker: async (workerId) => {
-        try {
-          await workerApi.resumeWorker(workerId);
-          get().messageApi?.success('Worker已恢复');
-          // 乐观更新状态
-          get().updateWorkerStatus(workerId, 'running');
-          // 延迟刷新获取最新状态
-          setTimeout(() => get().fetchWorkers(), 1000);
-          return true;
-        } catch (error: any) {
-          get().messageApi?.error(error.message || '恢复Worker失败');
-          return false;
-        }
-      },
-
       restartWorker: async (workerId) => {
         try {
           await workerApi.restartWorker(workerId);
@@ -437,9 +407,14 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
 
         const stream = new WorkerLogStream(workerId);
 
+        stream.onOpen(() => {
+          console.log(`✅ [WorkerStore] WebSocket 连接已建立, 设置 isLogStreamConnected = true`);
+          set({ isLogStreamConnected: true });
+        });
+
         stream.onMessage((log) => {
           set((state) => ({
-            logs: [...state.logs, log].slice(-1000), // 新日志追加到末尾（正序：旧→新），限制最多1000条
+            logs: [...state.logs, log].slice(-1000),
           }));
         });
 
@@ -456,7 +431,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
 
         set({
           logStream: stream,
-          isLogStreamConnected: true,
+          // 注意：isLogStreamConnected 在 onOpen 回调中设置为 true
         });
       },
 

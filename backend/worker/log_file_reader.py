@@ -39,12 +39,18 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Callable, AsyncIterator
 
 from utils.logger import get_logger, LogType
+from worker.log_timezone_parser import LogTimezoneParser
 
 logger = get_logger(__name__, LogType.SYSTEM)
 
-
+# NautilusTrader 标准日志格式：timestamp [level] trader_id.component: message
 LOG_PATTERN = re.compile(
-    r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.(\d+)Z)\s+\[(\w+)\]\s+\[([^\]]+)\]\s+(.*)$"
+    r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,9}Z)\s+\[(\w+)\]\s+(\S+?):\s+(.*)$"
+)
+
+# 尝试从任意行中提取时间戳的模式
+RAW_TIMESTAMP_PATTERN = re.compile(
+    r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})?)"
 )
 
 
@@ -103,6 +109,7 @@ class LogFileReader:
             log_directory = os.path.join(project_root, "logs")
 
         self.log_directory = log_directory
+        self.tz_parser = LogTimezoneParser()
         os.makedirs(log_directory, exist_ok=True)
 
     def _get_log_files(self, worker_id: str) -> List[str]:
@@ -137,7 +144,7 @@ class LogFileReader:
         return files
 
     @staticmethod
-    def _parse_line(line: str) -> Optional[LogEntry]:
+    def _parse_line(line: str, tz_parser: Optional[LogTimezoneParser] = None) -> Optional[LogEntry]:
         """
         解析单行日志文本
 
@@ -145,6 +152,8 @@ class LogFileReader:
         ----------
         line : str
             原始日志行
+        tz_parser : Optional[LogTimezoneParser]
+            时区解析器实例，用于时间戳解析
 
         Returns
         -------
@@ -155,13 +164,17 @@ class LogFileReader:
         if not line:
             return None
 
+        if tz_parser is None:
+            tz_parser = LogTimezoneParser()
+
+        # 尝试匹配 NautilusTrader 标准格式
         match = LOG_PATTERN.match(line)
         if match:
-            timestamp_str, microseconds, level, source, message = match.groups()
+            timestamp_str, level, source, message = match.groups()
 
             try:
-                timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-            except (ValueError, AttributeError):
+                timestamp = tz_parser.parse_timestamp(timestamp_str)
+            except ValueError:
                 timestamp = datetime.now(timezone.utc)
 
             return LogEntry(
@@ -171,14 +184,50 @@ class LogFileReader:
                 message=message,
                 raw_line=line,
             )
-        else:
-            return LogEntry(
-                timestamp=datetime.now(timezone.utc),
-                level="INFO",
-                source="raw",
-                message=line,
-                raw_line=line,
-            )
+
+        # 非标准格式（raw），尝试从行中提取时间戳
+        extracted_level = "INFO"
+        level_match = re.search(r'\b(DEBUG|INFO|WARNING|ERROR|CRITICAL)\b', line)
+        if level_match:
+            extracted_level = level_match.group(1)
+
+        # 尝试从行内容中提取时间戳
+        timestamp = datetime.now(timezone.utc)
+        ts_match = RAW_TIMESTAMP_PATTERN.search(line)
+        if ts_match:
+            try:
+                timestamp = tz_parser.parse_timestamp(ts_match.group(1))
+            except ValueError:
+                pass
+
+        return LogEntry(
+            timestamp=timestamp,
+            level=extracted_level,
+            source="raw",
+            message=line,
+            raw_line=line,
+        )
+
+    def _detect_timezone(self, worker_id: str) -> None:
+        """
+        从日志文件中检测时区
+
+        Parameters
+        ----------
+        worker_id : str
+            Worker ID
+        """
+        log_files = self._get_log_files(worker_id)
+        if not log_files:
+            return
+
+        try:
+            with open(log_files[0], "r", encoding="utf-8", errors="ignore") as f:
+                lines = [f.readline() for _ in range(20)]
+                lines = [l for l in lines if l.strip()]
+                self.tz_parser.detect_timezone_from_lines(lines)
+        except Exception as e:
+            logger.warning(f"检测时区失败: {e}")
 
     def query_logs(
         self,
@@ -218,11 +267,14 @@ class LogFileReader:
         log_files = self._get_log_files(worker_id)
         all_entries: List[LogEntry] = []
 
+        # 先检测时区
+        self._detect_timezone(worker_id)
+
         for log_file in reversed(log_files):
             try:
                 with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
                     for line in f:
-                        entry = self._parse_line(line)
+                        entry = self._parse_line(line, self.tz_parser)
                         if entry is None:
                             continue
 
@@ -271,6 +323,9 @@ class LogFileReader:
         if not os.path.exists(main_log_file):
             return []
 
+        # 先检测时区
+        self._detect_timezone(worker_id)
+
         entries: List[Dict] = []
 
         try:
@@ -295,7 +350,7 @@ class LogFileReader:
                 content = f.read().decode("utf-8", errors="ignore")
 
                 for line_content in content.splitlines():
-                    entry = self._parse_line(line_content)
+                    entry = self._parse_line(line_content, self.tz_parser)
                     if entry:
                         entries.append(entry.to_dict())
 
@@ -331,6 +386,9 @@ class LogFileReader:
         """
         main_log_file = os.path.join(self.log_directory, f"worker_{worker_id}.log")
 
+        # 先检测时区
+        self._detect_timezone(worker_id)
+
         if os.path.exists(main_log_file):
             file_position = os.path.getsize(main_log_file)
         else:
@@ -353,7 +411,7 @@ class LogFileReader:
                             file_position = f.tell()
 
                             for line in new_content.splitlines():
-                                entry = self._parse_line(line)
+                                entry = self._parse_line(line, self.tz_parser)
                                 if entry:
                                     entry_dict = entry.to_dict()
 

@@ -970,11 +970,20 @@ def logs(
 
         typer.echo(f"显示 {len(logs)} / {total} 条日志:\n")
         for log in logs:
+            source = log.get("source", "")
+
+            if source == "raw":
+                # 原始行（未匹配标准格式的行），直接输出 message，不添加额外前缀
+                typer.echo(log.get('message', ''))
+                continue
+
             timestamp = log.get("timestamp", "N/A")
             if timestamp != "N/A":
                 try:
                     dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                    timestamp = dt.strftime("%Y-%m-%d %H:%M:%S")
+                    # UTC → 本地时区（如 Asia/Shanghai, UTC+8）
+                    dt_local = dt.astimezone()
+                    timestamp = dt_local.strftime("%Y-%m-%d %H:%M:%S")
                 except:
                     pass
 
@@ -987,7 +996,6 @@ def logs(
                 "CRITICAL": typer.colors.RED,
             }.get(log_level, typer.colors.WHITE)
 
-            source = log.get("source", "")
             source_str = f"[{source}] " if source else ""
 
             typer.echo(f"[{timestamp}] ", nl=False)

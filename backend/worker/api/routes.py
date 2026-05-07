@@ -575,46 +575,6 @@ async def restart_worker(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{worker_id}/lifecycle/pause", response_model=schemas.ApiResponse)
-async def pause_worker(
-    worker_id: int,
-    db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
-):
-    """暂停Worker"""
-    try:
-        success = await service.pause_worker(worker_id, db)
-        if success:
-            return schemas.ApiResponse(
-                code=0,
-                message="Worker已暂停"
-            )
-        else:
-            raise HTTPException(status_code=500, detail="暂停失败")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{worker_id}/lifecycle/resume", response_model=schemas.ApiResponse)
-async def resume_worker(
-    worker_id: int,
-    db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
-):
-    """恢复Worker"""
-    try:
-        success = await service.resume_worker(worker_id, db)
-        if success:
-            return schemas.ApiResponse(
-                code=0,
-                message="Worker已恢复"
-            )
-        else:
-            raise HTTPException(status_code=500, detail="恢复失败")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/{worker_id}/lifecycle/status", response_model=schemas.ApiResponse)
 async def get_worker_status(
     worker_id: int,
