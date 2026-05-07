@@ -96,10 +96,25 @@ class WorkerProcess(multiprocessing.Process):
 
         try:
             loop.run_until_complete(self._main_loop())
+        except asyncio.CancelledError:
+            logger.info(f"Worker {self.worker_id} 收到取消信号，正在优雅退出")
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 主循环异常: {e}")
             self.status.record_error(str(e))
         finally:
+            # 清理所有未完成的 pending tasks（避免 "Task was destroyed but it is pending" 警告）
+            try:
+                pending = asyncio.all_tasks(loop)
+                if pending:
+                    logger.debug(f"Worker {self.worker_id} 正在清理 {len(pending)} 个 pending tasks...")
+                    for task in pending:
+                        if not task.done():
+                            task.cancel()
+                    if pending:
+                        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception as e:
+                logger.warning(f"Worker {self.worker_id} 清理 pending tasks 时出错: {e}")
+
             loop.run_until_complete(self._cleanup())
             loop.close()
 
@@ -157,6 +172,8 @@ class WorkerProcess(multiprocessing.Process):
             
             logger.info(f"[WorkerProcess] Worker {self.worker_id} 主循环退出，_shutdown_event 已设置")
 
+        except asyncio.CancelledError:
+            logger.info(f"Worker {self.worker_id} 控制循环被取消，正在优雅退出")
         except Exception as e:
             logger.error(f"[WorkerProcess] Worker {self.worker_id} 主循环异常: {e}")
             self.status.update_state(WorkerState.ERROR)
@@ -1040,6 +1057,8 @@ class TradingNodeWorkerProcess(WorkerProcess):
                     pass
                 logger.info(f"Worker {self.worker_id} Nautilus 运行任务已停止")
 
+        except asyncio.CancelledError:
+            logger.info(f"Worker {self.worker_id} 控制循环被取消，正在优雅退出")
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 主循环异常: {e}")
             self.status.update_state(WorkerState.ERROR)
