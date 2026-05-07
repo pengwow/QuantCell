@@ -17,14 +17,14 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 # 导入QLib相关模块
-from qlib.data import D
-from qlib.data.dataset import DatasetH
-from qlib.data.dataset.handler import DataHandlerLP
-from qlib.model.base import Model
-from qlib.model.trainer import TrainerR
-from qlib.utils import init_instance_by_config
-from qlib.workflow import R
-from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
+# from qlib.data import D
+# from qlib.data.dataset import DatasetH
+# from qlib.data.dataset.handler import DataHandlerLP
+# from qlib.model.base import Model
+# from qlib.model.trainer import TrainerR
+# from qlib.utils import init_instance_by_config
+# from qlib.workflow import R
+# from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
 
 
 class ModelService:

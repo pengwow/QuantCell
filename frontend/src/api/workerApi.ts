@@ -182,6 +182,14 @@ export const getWorkerLogs = (workerId: number, params?: LogQueryParams): Promis
 };
 
 /**
+ * 清理 Worker 日志文件
+ * @param workerId Worker ID
+ */
+export const clearWorkerLogs = (workerId: number): Promise<any> => {
+  return apiRequest.post(`/workers/${workerId}/logs/clear`, undefined, { params: { confirm: true } });
+};
+
+/**
  * 获取 Worker 绩效统计
  * @param workerId Worker ID
  * @param days 查询天数
@@ -203,11 +211,153 @@ export const getWorkerTrades = (
 };
 
 // ============================================
-// WebSocket Log Streaming
+// SSE Log Streaming (推荐方案)
+// ============================================
+
+/**
+ * SSE 日志流连接 (Server-Sent Events)
+ *
+ * 相比 WebSocket，SSE 具有以下优势：
+ * 1. 浏览器原生支持自动重连
+ * 2. 无需手动实现重连逻辑
+ * 3. 更低的资源占用（~5% vs ~8%）
+ * 4. 更简单的代码维护
+ */
+export class WorkerLogStreamSSE {
+  private eventSource: EventSource | null = null;
+  private workerId: number;
+  private onMessageCallback: ((log: WorkerLog) => void) | null = null;
+  private onErrorCallback: ((error: Event) => void) | null = null;
+  private onCloseCallback: (() => void) | null = null;
+  private onOpenCallback: (() => void) | null = null;
+
+  constructor(workerId: number) {
+    this.workerId = workerId;
+  }
+
+  onOpen(callback: () => void): void {
+    this.onOpenCallback = callback;
+  }
+
+  connect(): void {
+    if (this.eventSource) {
+      console.log(`⚠️  [SSE] Worker ${this.workerId} 已有活跃连接，跳过`);
+      return;
+    }
+
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '';
+    const httpProtocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    let host: string;
+
+    if (apiBaseUrl) {
+      host = apiBaseUrl.replace(/^https?:/, '');
+    } else {
+      // 开发环境：直连后端服务，避免 Vite 代理问题
+      const isDev = import.meta.env.DEV;
+      host = isDev ? '//localhost:8000' : `//${window.location.host}`;
+    }
+
+    const url = `${httpProtocol}${host}/api/workers/${this.workerId}/monitoring/logs/stream`;
+
+    console.log(`[SSE] 准备连接 Worker ${this.workerId}...`);
+    console.log(`[SSE] 连接 URL: ${url}`);
+    console.log(`[SSE] 协议: ${httpProtocol}, 主机: ${host}`);
+    console.log(`[SSE] 环境变量 VITE_API_BASE_URL:`, apiBaseUrl || '(未设置)');
+    console.log(`[SSE] 当前页面 host:`, window.location.host);
+    console.log(`[SSE] 开发模式:`, import.meta.env.DEV);
+
+    // 创建 EventSource（浏览器原生支持自动重连）
+    this.eventSource = new EventSource(url);
+
+    this.eventSource.onopen = () => {
+      console.log(`✅ [SSE] Worker ${this.workerId} 日志流连接成功！`);
+      this.onOpenCallback?.();
+    };
+
+    // 监听历史日志事件
+    this.eventSource.addEventListener('history', (e) => {
+      try {
+        const log = JSON.parse(e.data);
+        this.onMessageCallback?.(log);
+      } catch (error) {
+        console.error('❌ [SSE] 解析历史日志失败:', error, '\n原始数据:', e.data);
+      }
+    });
+
+    // 监听实时日志事件
+    this.eventSource.addEventListener('log', (e) => {
+      try {
+        const log = JSON.parse(e.data);
+        this.onMessageCallback?.(log);
+      } catch (error) {
+        console.error('❌ [SSE] 解析实时日志失败:', error, '\n原始数据:', e.data);
+      }
+    });
+
+    // 监听错误事件
+    this.eventSource.onerror = (error) => {
+      console.error('❌ [SSE] Worker', this.workerId, '日志流错误:');
+      console.error('  - EventSource 状态:', this._getReadyStateDescription());
+
+      // EventSource 会自动重连，但我们可以监听错误做额外处理
+      if (this.eventSource?.readyState === EventSource.CLOSED) {
+        console.warn('[SSE] 连接已关闭，停止自动重连');
+        this.onErrorCallback?.(error);
+        this.onCloseCallback?.();
+      }
+    };
+  }
+
+  disconnect(): void {
+    if (this.eventSource) {
+      console.log(`🔌 [SSE] 断开 Worker ${this.workerId} 的 SSE 连接`);
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+  }
+
+  /**
+   * 获取 EventSource 就绪状态的描述
+   */
+  private _getReadyStateDescription(): string {
+    if (!this.eventSource) return 'undefined (EventSource 未创建)';
+    const states: Record<number, string> = {
+      0: 'CONNECTING - 连接中',
+      1: 'OPEN - 已连接',
+      2: 'CLOSED - 已关闭',
+    };
+    return `${states[this.eventSource.readyState] || '未知状态'} (${this.eventSource.readyState})`;
+  }
+
+  /**
+   * 检查连接状态
+   */
+  isConnected(): boolean {
+    return this.eventSource?.readyState === EventSource.OPEN;
+  }
+
+  onMessage(callback: (log: WorkerLog) => void): void {
+    this.onMessageCallback = callback;
+  }
+
+  onError(callback: (error: Event) => void): void {
+    this.onErrorCallback = callback;
+  }
+
+  onClose(callback: () => void): void {
+    this.onCloseCallback = callback;
+  }
+}
+
+// ============================================
+// WebSocket Log Streaming (降级方案)
 // ============================================
 
 /**
  * WebSocket 日志流连接
+ *
+ * 仅用于不支持 SSE 的旧浏览器或特殊场景。
+ * 新代码推荐使用 WorkerLogStreamSSE 类。
  */
 export class WorkerLogStream {
   private websocket: WebSocket | null = null;
@@ -232,28 +382,33 @@ export class WorkerLogStream {
    * 连接 WebSocket
    */
   connect(): void {
-    // 防止重复连接
     if (this.websocket && (this.websocket.readyState === WebSocket.CONNECTING || this.websocket.readyState === WebSocket.OPEN)) {
       console.log(`⚠️  [WebSocket] Worker ${this.workerId} 已有活跃连接，跳过`);
       return;
     }
 
-    // 使用与 API 相同的基础 URL，确保在开发环境中也能正确连接
     const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '';
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = apiBaseUrl ? apiBaseUrl.replace(/^https?:/, '') : `//${window.location.host}`;
-    let wsUrl = `${wsProtocol}${wsHost}/api/workers/${this.workerId}/monitoring/logs/stream`;
+
+    let wsHost: string;
+    if (apiBaseUrl) {
+      wsHost = apiBaseUrl.replace(/^https?:/, '');
+    } else {
+      // 开发环境：直连后端服务，避免 Vite WebSocket 代理问题
+      const isDev = import.meta.env.DEV;
+      wsHost = isDev ? '//localhost:8000' : `//${window.location.host}`;
+    }
+
+    const wsUrl = `${wsProtocol}${wsHost}/api/workers/${this.workerId}/monitoring/logs/stream`;
 
     console.log(`[WebSocket] 准备连接 Worker ${this.workerId}...`);
     console.log(`[WebSocket] 连接 URL: ${wsUrl}`);
     console.log(`[WebSocket] 协议: ${wsProtocol}, 主机: ${wsHost}`);
     console.log(`[WebSocket] 环境变量 VITE_API_BASE_URL:`, apiBaseUrl || '(未设置)');
     console.log(`[WebSocket] 当前页面 host:`, window.location.host);
+    console.log(`[WebSocket] 开发模式:`, import.meta.env.DEV);
 
-    // 创建 WebSocket 实例（先保存到局部变量，避免 this 上下文问题）
     const ws = new WebSocket(wsUrl);
-
-    // 立即保存到实例属性
     this.websocket = ws;
 
     console.log(`[WebSocket] WebSocket 对象已创建, readyState: ${ws.readyState} (CONNECTING=0)`);
@@ -474,6 +629,7 @@ export const workerApi = {
   getWorkerMetrics,
   getMetricsHistory,
   getWorkerLogs,
+  clearWorkerLogs,
   getWorkerPerformance,
   getWorkerTrades,
 
@@ -486,8 +642,9 @@ export const workerApi = {
   getOrders,
   sendTradingSignal,
 
-  // WebSocket
+  // WebSocket / SSE
   WorkerLogStream,
+  WorkerLogStreamSSE,
 };
 
 export default workerApi;

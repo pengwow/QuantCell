@@ -108,6 +108,41 @@ def get_strategy_list(source: Optional[str] = None) -> StrategyListResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get(
+    "/parameters/{strategy_id}",
+    response_model=ApiResponse,
+    summary="获取策略参数",
+    description="根据策略ID获取该策略的参数列表（用于创建Worker时预加载）",
+)
+def get_strategy_params_by_id(
+    strategy_id: int = Path(..., description="策略ID"),
+) -> ApiResponse:
+    """
+    根据策略ID获取策略参数（用于创建Worker时预加载）
+
+    Args:
+        strategy_id: 策略的数据库主键ID
+
+    Returns:
+        ApiResponse: 策略参数列表
+    """
+    try:
+        logger.info(f"获取策略参数请求，策略ID: {strategy_id}")
+
+        params = get_strategy_service().get_strategy_parameters(strategy_id)
+
+        logger.info(f"成功获取策略参数，共 {len(params)} 个")
+
+        return ApiResponse(
+            code=0,
+            message="success",
+            data=params
+        )
+    except Exception as e:
+        logger.error(f"获取策略参数失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post(
     "/detail",
     response_model=ApiResponse,

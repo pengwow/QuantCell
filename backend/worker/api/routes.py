@@ -5,7 +5,7 @@ Worker API路由定义
 """
 
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, WebSocket
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, WebSocket, Request
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -246,12 +246,14 @@ async def shutdown_worker_manager():
     if _worker_manager is not None:
         try:
             logger.info("正在停止 WorkerManager，清理所有 Worker 进程...")
-            await asyncio.wait_for(_worker_manager.stop(), timeout=60.0)
+            await _worker_manager.stop()
             logger.info("WorkerManager 已成功停止")
-        except asyncio.TimeoutError:
-            logger.warning("WorkerManager 停止超时，强制终止")
         except Exception as e:
-            logger.error(f"停止 WorkerManager 失败: {e}")
+            error_type = type(e).__name__
+            if 'attached to a different loop' in str(e) or 'different loop' in str(e):
+                logger.info(f"WorkerManager 停止中（事件循环已关闭）")
+            else:
+                logger.error(f"停止 WorkerManager 失败 ({error_type}): {e}")
         finally:
             _worker_manager = None
     else:
@@ -759,12 +761,90 @@ async def clear_worker_logs(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.websocket("/{worker_id}/monitoring/logs/stream")
+@router.get("/{worker_id}/monitoring/logs/stream")
+async def log_stream_sse(
+    worker_id: int,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    SSE 实时日志流 (推荐方案)
+
+    通过 Server-Sent Events 实时推送 Worker 日志。
+    使用 FastAPI 0.136.1+ 内置的 EventSourceResponse，无需额外依赖。
+
+    相比 WebSocket，SSE 具有以下优势：
+    1. 浏览器原生支持自动重连
+    2. 无需特殊代理配置
+    3. 自动处理断点续传（Last-Event-ID）
+    4. 更低的资源占用
+    """
+    from fastapi.responses import EventSourceResponse
+    from fastapi.sse import format_sse_event, KEEPALIVE_COMMENT
+    import json as json_module
+    from ..log_file_reader import get_log_file_manager
+
+    log_mgr = get_log_file_manager()
+    reader = log_mgr.get_reader(str(worker_id))
+
+    async def event_generator():
+        logger.info(f"Worker {worker_id} SSE 日志流: 开始生成事件流")
+        try:
+            history_logs = reader.tail_logs(str(worker_id), lines=100)
+            logger.info(f"SSE 日志流: tail_logs 返回 {len(history_logs)} 条历史日志, 类型={type(history_logs).__name__}")
+            for idx, log_entry in enumerate(history_logs):
+                if await request.is_disconnected():
+                    logger.info(f"SSE 日志流: 客户端已断开 (history #{idx})")
+                    break
+                logger.debug(f"SSE 日志流: yield history #{idx}, type={type(log_entry).__name__}")
+                yield format_sse_event(
+                    data_str=json_module.dumps(log_entry, ensure_ascii=False),
+                    event="history",
+                    id=f"history-{idx}",
+                )
+
+            if await request.is_disconnected():
+                return
+
+            logger.info(f"SSE 日志流: 发送 history_complete 信号")
+            yield format_sse_event(event="history_complete", data_str='{"status": "complete"}')
+
+            event_id = 1000
+            logger.info(f"SSE 日志流: 开始监控实时日志 (poll_interval=0.2s)")
+            async for new_log in reader.watch_logs(
+                worker_id=str(worker_id),
+                poll_interval=0.2,
+            ):
+                if await request.is_disconnected():
+                    logger.info(f"SSE 日志流: 客户端已断开 (log #{event_id})")
+                    break
+
+                event_id += 1
+                logger.debug(f"SSE 日志流: yield log #{event_id}, type={type(new_log).__name__}")
+                yield format_sse_event(
+                    data_str=json_module.dumps(new_log, ensure_ascii=False),
+                    event="log",
+                    id=str(event_id),
+                )
+        except Exception as e:
+            import traceback
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['close', 'disconnect', 'cancelled']):
+                logger.info(f"Worker {worker_id} SSE 日志流: 客户端断开连接")
+            else:
+                logger.error(f"SSE 日志流异常: {e}\n{traceback.format_exc()}")
+            yield format_sse_event(event="error", data_str=json_module.dumps({"error": str(e)}))
+
+    return EventSourceResponse(event_generator())
+
+
+@router.websocket("/{worker_id}/monitoring/logs/stream/ws")
 async def log_stream(websocket: WebSocket, worker_id: int):
     """
-    WebSocket实时日志流
+    WebSocket实时日志流 (降级方案)
 
-    通过WebSocket实时推送Worker日志
+    仅用于不支持 SSE 的旧浏览器或特殊场景。
+    新代码推荐使用 SSE 端点：GET /api/workers/{worker_id}/monitoring/logs/stream
     """
     await websocket.accept()
     try:

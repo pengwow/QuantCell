@@ -19,7 +19,6 @@ import {
   InputNumber,
   Tooltip,
   message,
-  Switch,
   Card,
   Spin,
 } from 'antd';
@@ -33,9 +32,57 @@ import { useTranslation } from 'react-i18next';
 
 import { useWorkerStore } from '../../store/workerStore';
 import { strategyApi, dataApi, configApi } from '../../api';
+import type { StrategyParameter } from '../../types/worker';
 
 const { Option } = Select;
 const { TextArea } = Input;
+
+// 根据参数类型渲染不同的输入控件
+const renderParamInput = (param: StrategyParameter) => {
+  const { param_type, min_value, max_value } = param;
+
+  switch (param_type) {
+    case 'int':
+      return (
+        <InputNumber
+          min={min_value}
+          max={max_value}
+          style={{ width: '100%' }}
+          placeholder={`整数 (${min_value ?? '-'} ~ ${max_value ?? '-'})`}
+        />
+      );
+    case 'float':
+      return (
+        <InputNumber
+          min={min_value}
+          max={max_value}
+          step={0.01}
+          precision={2}
+          style={{ width: '100%' }}
+          placeholder={`浮点数 (${min_value ?? '-'} ~ ${max_value ?? '-'})`}
+        />
+      );
+    case 'bool':
+      return (
+        <Select placeholder="选择">
+          <Option value={true}>是</Option>
+          <Option value={false}>否</Option>
+        </Select>
+      );
+    case 'json':
+      return (
+        <TextArea
+          rows={2}
+          placeholder='JSON 格式，如: {"key": "value"}'
+        />
+      );
+    case 'string':
+    default:
+      return (
+        <Input placeholder={param.description || '请输入值'} />
+      );
+  }
+};
 
 // 时间周期列表
 const TIMEFRAMES = [
@@ -80,8 +127,6 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [strategies, setStrategies] = useState<any[]>([]);
   const [loadingStrategies, setLoadingStrategies] = useState(false);
-  const [enableResourceConfig, setEnableResourceConfig] = useState(false);
-
   // 交易所相关
   const [exchanges, setExchanges] = useState<any[]>([]);
   const [loadingExchanges, setLoadingExchanges] = useState(false);
@@ -89,6 +134,11 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   // 交易相关
   const [symbolOptions, setSymbolOptions] = useState<any[]>([]);
   const [loadingSymbols, setLoadingSymbols] = useState(false);
+
+  // 策略参数
+  const [strategyParams, setStrategyParams] = useState<StrategyParameter[]>([]);
+  const [loadingParams, setLoadingParams] = useState(false);
+  const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
 
   // 获取所有数据
   useEffect(() => {
@@ -131,6 +181,44 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
       setStrategies([]);
     } finally {
       setLoadingStrategies(false);
+    }
+  };
+
+  // 根据策略ID获取策略参数
+  const fetchStrategyParams = async (strategyId: number) => {
+    if (!strategyId) {
+      setStrategyParams([]);
+      return;
+    }
+
+    setLoadingParams(true);
+    try {
+      const response = await strategyApi.getStrategyParams(strategyId) as any;
+      let params: StrategyParameter[] = [];
+
+      if (Array.isArray(response)) {
+        params = response;
+      } else if (response?.data && Array.isArray(response.data)) {
+        params = response.data;
+      } else if (response?.data?.parameters && Array.isArray(response.data.parameters)) {
+        params = response.data.parameters;
+      }
+
+      console.log('策略参数:', params);
+      setStrategyParams(params);
+
+      // 将参数默认值设置到表单中
+      const paramsFormValue: Record<string, any> = {};
+      params.forEach((p) => {
+        const key = `param_${p.param_name}`;
+        paramsFormValue[key] = p.default_value ?? p.param_value ?? '';
+      });
+      form.setFieldsValue(paramsFormValue);
+    } catch (error) {
+      console.error('获取策略参数失败:', error);
+      setStrategyParams([]);
+    } finally {
+      setLoadingParams(false);
     }
   };
 
@@ -305,11 +393,19 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         timeframe: values.timeframe,
         market_type: values.market_type,
         trading_mode: values.trading_mode,
-        // 只有在启用资源配置时才包含这些字段
-        ...(enableResourceConfig && {
-          cpu_limit: values.cpu_limit,
-          memory_limit: values.memory_limit,
-        }),
+
+        // 策略参数
+        strategy_params: strategyParams.reduce((acc, param) => {
+          const fieldValue = values[`param_${param.param_name}`];
+          if (fieldValue !== undefined && fieldValue !== null && fieldValue !== '') {
+            acc[param.param_name] = fieldValue;
+          } else if (param.default_value !== undefined && param.default_value !== null) {
+            acc[param.param_name] = param.default_value;
+          }
+          return acc;
+        }, {} as Record<string, any>),
+
+  
         config: {
           initial_capital: values.initial_capital || 10000,
           max_position_size: values.max_position_size || 0.1,
@@ -322,7 +418,8 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
       if (result) {
         message.success('Worker创建成功');
         form.resetFields();
-        setEnableResourceConfig(false);
+        setStrategyParams([]);
+        setSelectedStrategyId(null);
         onSuccess?.();
         onCancel();
       }
@@ -337,7 +434,8 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   // 处理取消
   const handleCancel = () => {
     form.resetFields();
-    setEnableResourceConfig(false);
+    setStrategyParams([]);
+    setSelectedStrategyId(null);
     onCancel();
   };
 
@@ -415,6 +513,10 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
                 showSearch
                 optionFilterProp="children"
                 notFoundContent={loadingStrategies ? <Spin size="small" /> : '暂无策略'}
+                onChange={(value: number) => {
+                  setSelectedStrategyId(value);
+                  fetchStrategyParams(value);
+                }}
               >
                 {strategies
                   .filter((strategy) => {
@@ -453,6 +555,43 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
             showCount
           />
         </Form.Item>
+
+        {/* 策略参数 */}
+        {strategyParams.length > 0 && (
+          <>
+            <Divider>
+              <Space>
+                策略参数
+                {loadingParams && <Spin size="small" />}
+              </Space>
+            </Divider>
+            <Card size="small" variant="borderless" style={{ background: '#fafafa', marginBottom: 16 }}>
+              <Row gutter={[12, 12]}>
+                {strategyParams.map((param) => (
+                  <Col span={12} key={param.param_name}>
+                    <Form.Item
+                      name={`param_${param.param_name}`}
+                      label={
+                        <Space>
+                          <span>{param.param_name}</span>
+                          {param.description && (
+                            <Tooltip title={param.description}>
+                              <QuestionCircleOutlined style={{ color: '#999' }} />
+                            </Tooltip>
+                          )}
+                        </Space>
+                      }
+                      tooltip={param.description}
+                      rules={param.required ? [{ required: true, message: `请输入 ${param.param_name}` }] : []}
+                    >
+                      {renderParamInput(param)}
+                    </Form.Item>
+                  </Col>
+                ))}
+              </Row>
+            </Card>
+          </>
+        )}
 
         {/* 交易配置 */}
         <Divider>{t('trading_config')}</Divider>
@@ -629,75 +768,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
           </Col>
         </Row>
 
-        {/* 资源配置 */}
-        <Row align="middle" style={{ marginBottom: 16 }}>
-          <Col flex="auto">
-            <Divider style={{ margin: 0 }}>
-              {t('resource_config')}
-            </Divider>
-          </Col>
-          <Col>
-            <Switch
-              size="small"
-              checked={enableResourceConfig}
-              onChange={setEnableResourceConfig}
-              checkedChildren={t('enabled')}
-              unCheckedChildren={t('disabled')}
-            />
-          </Col>
-        </Row>
 
-        {enableResourceConfig && (
-          <Card size="small" variant="borderless" style={{ background: '#fafafa', marginBottom: 16 }}>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item
-                  name="cpu_limit"
-                  label={
-                    <Space>
-                      {t('cpu_limit')}
-                      <Tooltip title="CPU使用限制百分比">
-                        <QuestionCircleOutlined />
-                      </Tooltip>
-                    </Space>
-                  }
-                  initialValue={50}
-                >
-                  <InputNumber
-                    min={10}
-                    max={100}
-                    formatter={(value) => `${value}%`}
-                    parser={(value) => value?.replace('%', '') as any}
-                    style={{ width: '100%' }}
-                  />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item
-                  name="memory_limit"
-                  label={
-                    <Space>
-                      {t('memory_limit')}
-                      <Tooltip title="内存使用限制(MB)">
-                        <QuestionCircleOutlined />
-                      </Tooltip>
-                    </Space>
-                  }
-                  initialValue={512}
-                >
-                  <InputNumber
-                    min={128}
-                    max={4096}
-                    step={128}
-                    formatter={(value) => `${value}MB`}
-                    parser={(value) => value?.replace('MB', '') as any}
-                    style={{ width: '100%' }}
-                  />
-                </Form.Item>
-              </Col>
-            </Row>
-          </Card>
-        )}
       </Form>
     </Modal>
   );

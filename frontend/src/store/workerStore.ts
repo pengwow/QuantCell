@@ -7,7 +7,7 @@
  * - 性能指标数据
  * - 交易记录
  * - 日志数据
- * - WebSocket连接
+ * - SSE日志流连接（推荐）或 WebSocket 连接（降级）
  *
  * 使用真实API与后端交互
  */
@@ -27,7 +27,7 @@ import type {
   TradeQueryParams,
   LogQueryParams,
 } from '../types/worker';
-import { workerApi, WorkerLogStream } from '../api/workerApi';
+import { workerApi, WorkerLogStreamSSE, WorkerLogStream } from '../api/workerApi';
 
 // ============================================
 // Store State Interface
@@ -61,8 +61,8 @@ export interface WorkerState {
   tradesError: string | null;
   logsError: string | null;
 
-  // WebSocket
-  logStream: WorkerLogStream | null;
+  // 日志流连接（SSE 或 WebSocket）
+  logStream: WorkerLogStreamSSE | WorkerLogStream | null;
   isLogStreamConnected: boolean;
 
   // Message API (由 App.useApp() 注入)
@@ -98,7 +98,7 @@ interface WorkerActions {
   // WebSocket
   connectLogStream: (workerId: number) => void;
   disconnectLogStream: () => void;
-  clearLogs: () => void;
+  clearLogs: () => Promise<void>;
 
   // 状态管理
   setSelectedWorker: (worker: Worker | null) => void;
@@ -398,24 +398,40 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       },
 
       // ============================================
-      // WebSocket 日志流
+      // SSE 日志流（推荐方案）
       // ============================================
 
       connectLogStream: (workerId) => {
-        // 先断开现有连接
         get().disconnectLogStream();
 
-        const stream = new WorkerLogStream(workerId);
+        // 优先使用 SSE，如果浏览器不支持则降级到 WebSocket
+        const useSSE = typeof EventSource !== 'undefined';
+        const stream = useSSE ? new WorkerLogStreamSSE(workerId) : new WorkerLogStream(workerId);
+
+        let logBuffer: WorkerLog[] = [];
+        let rafId: number | null = null;
+
+        const flushLogs = () => {
+          if (logBuffer.length > 0) {
+            const batch = logBuffer;
+            logBuffer = [];
+            rafId = null;
+            set((state) => ({
+              logs: [...state.logs, ...batch].slice(-1000),
+            }));
+          }
+        };
 
         stream.onOpen(() => {
-          console.log(`✅ [WorkerStore] WebSocket 连接已建立, 设置 isLogStreamConnected = true`);
+          console.log(`✅ [WorkerStore] ${useSSE ? 'SSE' : 'WebSocket'} 连接已建立, 设置 isLogStreamConnected = true`);
           set({ isLogStreamConnected: true });
         });
 
         stream.onMessage((log) => {
-          set((state) => ({
-            logs: [...state.logs, log].slice(-1000),
-          }));
+          logBuffer.push(log);
+          if (!rafId) {
+            rafId = requestAnimationFrame(flushLogs);
+          }
         });
 
         stream.onError((error) => {
@@ -431,7 +447,6 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
 
         set({
           logStream: stream,
-          // 注意：isLogStreamConnected 在 onOpen 回调中设置为 true
         });
       },
 
@@ -446,7 +461,15 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
         }
       },
 
-      clearLogs: () => {
+      clearLogs: async () => {
+        const { selectedWorker } = get();
+        if (selectedWorker) {
+          try {
+            await workerApi.clearWorkerLogs(selectedWorker.id);
+          } catch (error) {
+            console.error('清理日志文件失败:', error);
+          }
+        }
         set({ logs: [] });
       },
 

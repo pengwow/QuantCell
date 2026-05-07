@@ -123,9 +123,15 @@ class WorkerManager:
                 await self._monitor_task
             except asyncio.CancelledError:
                 pass
+            except RuntimeError as e:
+                if 'different loop' not in str(e):
+                    raise
 
         # 停止通信管理器
-        await self.comm_manager.stop()
+        try:
+            await self.comm_manager.stop()
+        except (asyncio.CancelledError, RuntimeError):
+            pass
 
         logger.info("Worker 管理器已停止")
         return True
