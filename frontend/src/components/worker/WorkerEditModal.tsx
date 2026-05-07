@@ -22,6 +22,7 @@ import {
   Tabs,
   Card,
   Tag,
+  Spin,
 } from 'antd';
 import {
   EditOutlined,
@@ -33,11 +34,59 @@ import {
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { Worker, UpdateWorkerRequest } from '../../types/worker';
+import type { StrategyParameter } from '../../types/worker';
 import { useWorkerStore } from '../../store/workerStore';
-import { dataApi } from '../../api';
+import { dataApi, strategyApi } from '../../api';
 
 const { Option } = Select;
 const { TextArea } = Input;
+
+// 根据参数类型渲染不同的输入控件
+const renderParamInput = (param: StrategyParameter) => {
+  const { param_type, min_value, max_value } = param;
+
+  switch (param_type) {
+    case 'int':
+      return (
+        <InputNumber
+          min={min_value}
+          max={max_value}
+          style={{ width: '100%' }}
+          placeholder={`整数 (${min_value ?? '-'} ~ ${max_value ?? '-'})`}
+        />
+      );
+    case 'float':
+      return (
+        <InputNumber
+          min={min_value}
+          max={max_value}
+          step={0.01}
+          precision={2}
+          style={{ width: '100%' }}
+          placeholder={`浮点数 (${min_value ?? '-'} ~ ${max_value ?? '-'})`}
+        />
+      );
+    case 'bool':
+      return (
+        <Select placeholder="选择">
+          <Option value={true}>是</Option>
+          <Option value={false}>否</Option>
+        </Select>
+      );
+    case 'json':
+      return (
+        <TextArea
+          rows={2}
+          placeholder='JSON 格式，如: {"key": "value"}'
+        />
+      );
+    case 'string':
+    default:
+      return (
+        <Input placeholder={param.description || '请输入值'} />
+      );
+  }
+};
 
 // 时间周期列表
 const TIMEFRAMES = [
@@ -80,6 +129,10 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   const [symbolOptions, setSymbolOptions] = useState<any[]>([]);
   const [loadingSymbols, setLoadingSymbols] = useState(false);
 
+  // 策略参数
+  const [strategyParams, setStrategyParams] = useState<StrategyParameter[]>([]);
+  const [loadingParams, setLoadingParams] = useState(false);
+
   // 获取交易对列表
   const fetchSymbols = async () => {
     setLoadingSymbols(true);
@@ -111,6 +164,44 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
     }
   };
 
+  // 根据策略ID获取策略参数
+  const fetchStrategyParams = async (strategyId: number) => {
+    if (!strategyId) {
+      setStrategyParams([]);
+      return;
+    }
+
+    setLoadingParams(true);
+    try {
+      const response = await strategyApi.getStrategyParams(strategyId) as any;
+      let params: StrategyParameter[] = [];
+
+      if (Array.isArray(response)) {
+        params = response;
+      } else if (response?.data && Array.isArray(response.data)) {
+        params = response.data;
+      } else if (response?.data?.parameters && Array.isArray(response.data.parameters)) {
+        params = response.data.parameters;
+      }
+
+      console.log('编辑页策略参数:', params);
+      setStrategyParams(params);
+
+      // 将参数默认值设置到表单中（首次加载时）
+      const paramsFormValue: Record<string, any> = {};
+      params.forEach((p) => {
+        const key = `param_${p.param_name}`;
+        paramsFormValue[key] = p.default_value ?? p.param_value ?? '';
+      });
+      form.setFieldsValue(paramsFormValue);
+    } catch (error) {
+      console.error('获取策略参数失败:', error);
+      setStrategyParams([]);
+    } finally {
+      setLoadingParams(false);
+    }
+  };
+
   // 当worker变化时，设置表单值
   useEffect(() => {
     if (visible && worker) {
@@ -129,14 +220,16 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         symbols: worker.symbols,
         timeframe: worker.timeframe,
         trading_mode: tradingConfig.trading_mode || 'paper',
-        cpu_limit: worker.cpu_limit,
-        memory_limit: worker.memory_limit,
         initial_capital: config.initial_capital || 10000,
         max_position_size: config.max_position_size || 0.1,
         leverage: config.leverage || 1,
       });
       // 加载交易对列表
       fetchSymbols();
+      // 加载策略参数（从 strategy_info 获取 strategy_id）
+      if (worker.strategy_info?.id) {
+        fetchStrategyParams(worker.strategy_info.id);
+      }
     }
   }, [visible, worker, form]);
 
@@ -154,8 +247,18 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         symbols: values.symbols?.map((s: string) => s.toUpperCase()),
         timeframe: values.timeframe,
         trading_mode: values.trading_mode,
-        cpu_limit: values.cpu_limit,
-        memory_limit: values.memory_limit,
+
+        // 策略参数
+        strategy_params: strategyParams.reduce((acc, param) => {
+          const fieldValue = values[`param_${param.param_name}`];
+          if (fieldValue !== undefined && fieldValue !== null && fieldValue !== '') {
+            acc[param.param_name] = fieldValue;
+          } else if (param.default_value !== undefined && param.default_value !== null) {
+            acc[param.param_name] = param.default_value;
+          }
+          return acc;
+        }, {} as Record<string, any>),
+
         config: {
           initial_capital: values.initial_capital,
           max_position_size: values.max_position_size,
@@ -370,105 +473,94 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                     </Form.Item>
                   </Col>
                 </Row>
+
+                {/* 资金配置 */}
+                <Divider>{t('capital_config')}</Divider>
+
+                <Row gutter={16}>
+                  <Col span={12}>
+                    <Form.Item
+                      name="initial_capital"
+                      label={t('initial_capital')}
+                    >
+                      <InputNumber
+                        min={100}
+                        step={1000}
+                        style={{ width: '100%' }}
+                        formatter={(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                        parser={(value) => value?.replace(/\$\s?|(,*)/g, '') as any}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item
+                      name="max_position_size"
+                      label={
+                        <Space>
+                          {t('max_position_size')}
+                          <Tooltip title="最大仓位比例(0-1)">
+                            <QuestionCircleOutlined />
+                          </Tooltip>
+                        </Space>
+                      }
+                    >
+                      <InputNumber
+                        min={0.01}
+                        max={1}
+                        step={0.01}
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
               </Form>
             ),
           },
           {
-            key: 'resource',
+            key: 'params',
             label: (
               <span>
                 <SlidersOutlined />
-                {t('resource_config')}
+                策略参数
               </span>
             ),
             children: (
               <Form form={form} layout="vertical">
-                <Card title={t('resource_limits')} variant="borderless">
-                  <Row gutter={16}>
-                    <Col span={12}>
-                      <Form.Item
-                        name="cpu_limit"
-                        label={
-                          <Space>
-                            {t('cpu_limit')}
-                            <Tooltip title="CPU使用限制百分比">
-                              <QuestionCircleOutlined />
-                            </Tooltip>
-                          </Space>
-                        }
-                      >
-                        <InputNumber
-                          min={10}
-                          max={100}
-                          formatter={(value) => `${value}%`}
-                          parser={(value) => value?.replace('%', '') as any}
-                          style={{ width: '100%' }}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col span={12}>
-                      <Form.Item
-                        name="memory_limit"
-                        label={
-                          <Space>
-                            {t('memory_limit')}
-                            <Tooltip title="内存使用限制(MB)">
-                              <QuestionCircleOutlined />
-                            </Tooltip>
-                          </Space>
-                        }
-                      >
-                        <InputNumber
-                          min={128}
-                          max={4096}
-                          step={128}
-                          formatter={(value) => `${value}MB`}
-                          parser={(value) => value?.replace('MB', '') as any}
-                          style={{ width: '100%' }}
-                        />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                </Card>
-
-                <Card title={t('capital_config')} variant="borderless" style={{ marginTop: 16 }}>
-                  <Row gutter={16}>
-                    <Col span={12}>
-                      <Form.Item
-                        name="initial_capital"
-                        label={t('initial_capital')}
-                      >
-                        <InputNumber
-                          min={100}
-                          step={1000}
-                          style={{ width: '100%' }}
-                          formatter={(value) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                          parser={(value) => value?.replace(/\$\s?|(,*)/g, '') as any}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col span={12}>
-                      <Form.Item
-                        name="max_position_size"
-                        label={
-                          <Space>
-                            {t('max_position_size')}
-                            <Tooltip title="最大仓位比例(0-1)">
-                              <QuestionCircleOutlined />
-                            </Tooltip>
-                          </Space>
-                        }
-                      >
-                        <InputNumber
-                          min={0.01}
-                          max={1}
-                          step={0.01}
-                          style={{ width: '100%' }}
-                        />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                </Card>
+                {strategyParams.length > 0 ? (
+                  <Card size="small" variant="borderless" style={{ background: '#fafafa' }}>
+                    <Row gutter={[12, 12]}>
+                      {strategyParams.map((param) => (
+                        <Col span={12} key={param.param_name}>
+                          <Form.Item
+                            name={`param_${param.param_name}`}
+                            label={
+                              <Space>
+                                <span>{param.param_name}</span>
+                                {param.description && (
+                                  <Tooltip title={param.description}>
+                                    <QuestionCircleOutlined style={{ color: '#999' }} />
+                                  </Tooltip>
+                                )}
+                              </Space>
+                            }
+                            tooltip={param.description}
+                            rules={param.required ? [{ required: true, message: `请输入 ${param.param_name}` }] : []}
+                          >
+                            {renderParamInput(param)}
+                          </Form.Item>
+                        </Col>
+                      ))}
+                    </Row>
+                  </Card>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                    {loadingParams ? (
+                      <Spin />
+                    ) : (
+                      <span>该策略无可编辑参数</span>
+                    )}
+                  </div>
+                )}
               </Form>
             ),
           },

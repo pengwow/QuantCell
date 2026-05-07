@@ -312,6 +312,63 @@ class StrategyService:
             logger.exception(e)
             return None
     
+    def get_strategy_parameters(self, strategy_id: int) -> List[Dict[str, Any]]:
+        """根据策略ID获取参数列表（优先查库，无数据则从策略文件AST解析）"""
+        from collector.db.database import SessionLocal, init_database_config
+        from .models import StrategyParameter, Strategy
+
+        # 1. 先查询 strategy_parameters 表
+        try:
+            init_database_config()
+            db = SessionLocal()
+            try:
+                params = db.query(StrategyParameter).filter(
+                    StrategyParameter.strategy_id == strategy_id
+                ).all()
+
+                if params:
+                    result = [p.to_dict() for p in params]
+                    logger.info(f"根据策略ID {strategy_id} 从 parameters 表获取到 {len(result)} 个参数")
+                    return result
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"查询 strategy_parameters 表失败: {e}")
+
+        # 2. 表无数据，回退到 AST 解析策略文件
+        logger.info(f"strategy_parameters 表无数据 (id={strategy_id})，回退到 AST 解析")
+        try:
+            init_database_config()
+            db = SessionLocal()
+            try:
+                strategy = db.query(Strategy).filter_by(id=strategy_id).first()
+                if not strategy or not strategy.content:
+                    logger.warning(f"策略 ID={strategy_id} 不存在或内容为空")
+                    return []
+
+                detail = self._parse_strategy_content(strategy.content, strategy.name)
+                if not detail or not detail.get("params"):
+                    logger.info(f"策略 {strategy.name} 未解析到参数")
+                    return []
+
+                raw_params = detail["params"]
+                result = []
+                for rp in raw_params:
+                    result.append({
+                        "param_name": rp.get("name", ""),
+                        "param_type": rp.get("type", "string"),
+                        "default_value": rp.get("default"),
+                        "description": rp.get("description", ""),
+                        "required": rp.get("required", False),
+                    })
+                logger.info(f"AST 解析策略 {strategy.name} 获取到 {len(result)} 个参数")
+                return result
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"AST 解析策略参数失败 (strategy_id={strategy_id}): {e}")
+            return []
+
     def get_strategy_list(self, source=None):
         """
         获取所有支持的策略列表

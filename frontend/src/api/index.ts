@@ -378,6 +378,10 @@ export const strategyApi = {
     return apiRequest.get('/strategy/list');
   },
 
+  getStrategyParams: (strategyId: number): Promise<ApiResponse> => {
+    return apiRequest.get(`/strategy/parameters/${strategyId}`);
+  },
+
   createStrategy: (data: any) => {
     return apiRequest.post('/strategy/create', data);
   },

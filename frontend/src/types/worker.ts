@@ -125,8 +125,7 @@ export interface UpdateWorkerRequest {
   symbols?: string[];
   timeframe?: string;
   trading_mode?: string;
-  cpu_limit?: number;
-  memory_limit?: number;
+  strategy_params?: Record<string, any>;
   config?: Record<string, any>;
 }
 
@@ -241,13 +240,17 @@ export interface StrategyDeployRequest {
 
 // 策略参数
 export interface StrategyParameter {
+  id?: number;
+  strategy_id?: number;
   param_name: string;
-  param_value: any;
   param_type: string;
+  default_value?: any;
+  param_value?: any;
   description?: string;
   min_value?: number;
   max_value?: number;
-  editable: boolean;
+  required?: boolean;
+  editable?: boolean;
 }
 
 // 更新策略参数请求
