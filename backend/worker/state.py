@@ -24,7 +24,6 @@ class WorkerState(Enum):
     # 运行状态
     STARTING = "starting"  # 正在启动
     RUNNING = "running"  # 正常运行
-    PAUSED = "paused"  # 已暂停
 
     # 停止状态
     STOPPING = "stopping"  # 正在停止
@@ -47,7 +46,6 @@ class WorkerState(Enum):
         """
         return self in [
             WorkerState.RUNNING,
-            WorkerState.PAUSED,
         ]
 
     def is_terminal(self) -> bool:
@@ -90,14 +88,8 @@ class WorkerState(Enum):
                 WorkerState.ERROR,
             ],
             WorkerState.RUNNING: [
-                WorkerState.PAUSED,
                 WorkerState.STOPPING,
                 WorkerState.RELOADING,
-                WorkerState.ERROR,
-            ],
-            WorkerState.PAUSED: [
-                WorkerState.RUNNING,
-                WorkerState.STOPPING,
                 WorkerState.ERROR,
             ],
             WorkerState.STOPPING: [

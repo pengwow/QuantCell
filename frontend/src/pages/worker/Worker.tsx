@@ -75,8 +75,6 @@ const Worker = () => {
     deleteWorker,
     startWorker,
     stopWorker,
-    pauseWorker,
-    resumeWorker,
     restartWorker,
     clearErrors,
   } = useWorkerStore();
@@ -137,7 +135,6 @@ const Worker = () => {
       total: workers.length,
       running: workers.filter(w => w.status === 'running').length,
       stopped: workers.filter(w => w.status === 'stopped').length,
-      paused: workers.filter(w => w.status === 'paused').length,
       error: workers.filter(w => w.status === 'error').length,
     };
   }, [workers]);
@@ -280,22 +277,6 @@ const Worker = () => {
     }
   }, [stopWorker, t]);
 
-  const handlePause = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const success = await pauseWorker(worker.id);
-    if (success) {
-      apiMessage.success(t('worker_pause_success'));
-    }
-  }, [pauseWorker, t]);
-
-  const handleResume = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const success = await resumeWorker(worker.id);
-    if (success) {
-      apiMessage.success(t('worker_resume_success'));
-    }
-  }, [resumeWorker, t]);
-
   const handleRestart = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
     e.stopPropagation();
     const success = await restartWorker(worker.id);
@@ -372,16 +353,6 @@ const Worker = () => {
             value={statusStats.running}
             styles={{ content: { color: '#52c41a' } }}
             prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
-          />
-        </Card>
-      </Col>
-      <Col xs={12} sm={6}>
-        <Card size="small">
-          <Statistic
-            title={t('paused')}
-            value={statusStats.paused}
-            styles={{ content: { color: '#faad14' } }}
-            prefix={<PauseOutlined style={{ color: '#faad14' }} />}
           />
         </Card>
       </Col>
@@ -496,7 +467,6 @@ const Worker = () => {
                   onChange={setStatusFilter}
                 >
                   <Option value="running">{t('running')}</Option>
-                  <Option value="paused">{t('paused')}</Option>
                   <Option value="stopped">{t('stopped')}</Option>
                   <Option value="error">{t('error')}</Option>
                 </Select>
@@ -627,27 +597,24 @@ const Worker = () => {
                                 >
                                   {t('start')}
                                 </Button>
-                              ) : worker.status === 'running' ? (
-                                <Button
-                                  type="primary"
-                                  danger
-                                  size="small"
-                                  icon={<PauseCircleOutlined />}
-                                  onClick={(e) => { e.stopPropagation(); handlePause(worker, e); }}
-                                  style={{ width: '100%' }}
-                                >
-                                  {t('pause')}
-                                </Button>
                               ) : (
-                                <Button
-                                  type="primary"
-                                  size="small"
-                                  icon={<PlayCircleOutlined />}
-                                  onClick={(e) => { e.stopPropagation(); handleResume(worker, e); }}
-                                  style={{ width: '100%' }}
+                                <Popconfirm
+                                  title={t('confirm_stop_worker') || '确定停止此 Worker？'}
+                                  onConfirm={(e) => handleStop(worker, e as React.MouseEvent)}
+                                  okText={t('yes')}
+                                  cancelText={t('no')}
                                 >
-                                  {t('resume')}
-                                </Button>
+                                  <Button
+                                    type="primary"
+                                    danger
+                                    size="small"
+                                    icon={<StopOutlined />}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{ width: '100%' }}
+                                  >
+                                    {t('stop')}
+                                  </Button>
+                                </Popconfirm>
                               )}
                             </Col>
                             <Col span={12}>
@@ -664,30 +631,47 @@ const Worker = () => {
                               </Button>
                             </Col>
                             {worker.status !== 'stopped' && (
-                              <Col span={12}>
-                                <Button
-                                  danger
-                                  size="small"
-                                  icon={<StopOutlined />}
-                                  onClick={(e) => { e.stopPropagation(); handleStop(worker, e); }}
-                                  style={{ width: '100%' }}
-                                >
-                                  {t('stop')}
-                                </Button>
+                              <>
+                                <Col span={12}>
+                                  <Tooltip title={t('restart')}>
+                                    <Button
+                                      size="small"
+                                      icon={<ReloadOutlined />}
+                                      onClick={(e) => { e.stopPropagation(); handleRestart(worker, e); }}
+                                      style={{ width: '100%' }}
+                                    >
+                                      {t('restart')}
+                                    </Button>
+                                  </Tooltip>
+                                </Col>
+                                <Col span={12}>
+                                  <Tooltip title={t('logs') || '日志'}>
+                                    <Button
+                                      size="small"
+                                      icon={<FileTextOutlined />}
+                                      onClick={(e) => { e.stopPropagation(); handleViewLogs(worker, e); }}
+                                      style={{ width: '100%' }}
+                                    >
+                                      {t('logs') || '日志'}
+                                    </Button>
+                                  </Tooltip>
+                                </Col>
+                              </>
+                            )}
+                            {worker.status === 'stopped' && (
+                              <Col span={24}>
+                                <Tooltip title={t('restart')}>
+                                  <Button
+                                    size="small"
+                                    icon={<ReloadOutlined />}
+                                    onClick={(e) => { e.stopPropagation(); handleRestart(worker, e); }}
+                                    style={{ width: '100%' }}
+                                  >
+                                    {t('restart')}
+                                  </Button>
+                                </Tooltip>
                               </Col>
                             )}
-                            <Col span={worker.status !== 'stopped' ? 12 : 24}>
-                              <Tooltip title={t('restart')}>
-                                <Button
-                                  size="small"
-                                  icon={<ReloadOutlined />}
-                                  onClick={(e) => { e.stopPropagation(); handleRestart(worker, e); }}
-                                  style={{ width: '100%' }}
-                                >
-                                  {t('restart')}
-                                </Button>
-                              </Tooltip>
-                            </Col>
                           </Row>
                         </Card>
                       </Col>
@@ -764,44 +748,14 @@ const Worker = () => {
                               </Tooltip>
                             )}
                             {worker.status === 'running' && (
-                              <>
-                                <Tooltip title={t('pause')}>
-                                  <Button
-                                    type="text"
-                                    size="small"
-                                    icon={<PauseCircleOutlined style={{ color: '#faad14' }} />}
-                                    onClick={(e) => handlePause(worker, e as React.MouseEvent)}
-                                  />
-                                </Tooltip>
-                                <Tooltip title={t('stop')}>
-                                  <Button
-                                    type="text"
-                                    size="small"
-                                    icon={<StopOutlined style={{ color: '#ff4d4f' }} />}
-                                    onClick={(e) => handleStop(worker, e as React.MouseEvent)}
-                                  />
-                                </Tooltip>
-                              </>
-                            )}
-                            {worker.status === 'paused' && (
-                              <>
-                                <Tooltip title={t('resume')}>
-                                  <Button
-                                    type="text"
-                                    size="small"
-                                    icon={<PlayCircleOutlined style={{ color: '#52c41a' }} />}
-                                    onClick={(e) => handleResume(worker, e as React.MouseEvent)}
-                                  />
-                                </Tooltip>
-                                <Tooltip title={t('stop')}>
-                                  <Button
-                                    type="text"
-                                    size="small"
-                                    icon={<StopOutlined style={{ color: '#ff4d4f' }} />}
-                                    onClick={(e) => handleStop(worker, e as React.MouseEvent)}
-                                  />
-                                </Tooltip>
-                              </>
+                              <Tooltip title={t('stop')}>
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  icon={<StopOutlined style={{ color: '#ff4d4f' }} />}
+                                  onClick={(e) => handleStop(worker, e as React.MouseEvent)}
+                                />
+                              </Tooltip>
                             )}
                             <Tooltip title={t('restart')}>
                               <Button

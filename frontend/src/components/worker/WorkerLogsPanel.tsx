@@ -68,6 +68,12 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
 
   const [selectedLevels, setSelectedLevels] = useState<string[]>(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']);
   const [isPaused, setIsPaused] = useState(false);
+
+  // 使用 ref 存储 connectLogStream/disconnectLogStream 避免引用变化触发无限循环
+  const connectLogStreamRef = useRef(connectLogStream);
+  const disconnectLogStreamRef = useRef(disconnectLogStream);
+  connectLogStreamRef.current = connectLogStream;
+  disconnectLogStreamRef.current = disconnectLogStream;
   // 智能滚动状态
   const [autoScroll, setAutoScroll] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
@@ -79,7 +85,7 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
   useEffect(() => {
     if (!isPaused && workerId) {
       console.log(`🔗 [WorkerLogs] 自动连接 Worker ${workerId} 日志流`);
-      connectLogStream(workerId);
+      connectLogStreamRef.current(workerId);
     } else if (isPaused) {
       console.log(`⏸️ [WorkerLogs] 已暂停，不自动连接`);
     }
@@ -87,10 +93,10 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
     return () => {
       if (!isPaused) {
         console.log(`🔌 [WorkerLogs] 清理: 断开 Worker ${workerId} 日志流`);
-        disconnectLogStream();
+        disconnectLogStreamRef.current();
       }
     };
-  }, [workerId, connectLogStream, disconnectLogStream, isPaused]);
+  }, [workerId, isPaused]);
 
   // 智能自动滚动逻辑
   useEffect(() => {
@@ -130,26 +136,25 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
 
   // 处理暂停/恢复 - 使用函数式更新避免竞态条件
   const handleTogglePause = useCallback(() => {
-    const newPausedState = !isPaused;  // 先计算新状态
+    const newPausedState = !isPaused;
 
-    setIsPaused(newPausedState);       // 更新状态
+    setIsPaused(newPausedState);
 
-    // 根据新状态立即执行操作（不依赖异步更新的状态）
     if (newPausedState) {
-      // 即将暂停 → 立即断开 WebSocket
       console.log('⏸️ [WorkerLogs] 暂停日志流');
-      disconnectLogStream();
+      disconnectLogStreamRef.current();
     } else {
-      // 即将恢复 → 立即重新连接 WebSocket
       console.log('▶️ [WorkerLogs] 恢复日志流');
-      connectLogStream(workerId);
+      connectLogStreamRef.current(workerId);
     }
-  }, [isPaused, workerId, connectLogStream, disconnectLogStream]);
+  }, [isPaused, workerId]);
 
-  // 格式化时间戳
+  // 格式化时间戳（UTC → 本地时区）
   const formatTimestamp = (timestamp: string) => {
     try {
-      return dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss');
+      const date = new Date(timestamp);
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
     } catch {
       return timestamp;
     }
@@ -252,24 +257,28 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
             <div className="flex w-full flex-col">
               {filteredLogs.map((log, index) => (
                 <div key={`${log.timestamp}-${index}`} className="text-xs leading-relaxed mb-1">
-                  <div className="flex items-start gap-2">
-                    {/* 时间戳 - 终端风格 */}
-                    <span className="font-mono whitespace-nowrap text-stone-400 shrink-0">
-                      [{formatTimestamp(log.timestamp)}]
-                    </span>
+                  {log.source === 'raw' ? (
+                    <span className="font-mono break-all text-stone-300">{log.message}</span>
+                  ) : (
+                    <div className="flex items-start gap-2">
+                      {/* 时间戳 - 终端风格 */}
+                      <span className="font-mono whitespace-nowrap text-stone-400 shrink-0">
+                        [{formatTimestamp(log.timestamp)}]
+                      </span>
 
-                    {/* 日志级别标签 - 紧凑样式 */}
-                    <Tag
-                      color={getLevelColor(log.level)}
-                      className="shrink-0 m-0"
-                      style={{ fontSize: '10px', padding: '0 4px', lineHeight: '16px' }}
-                    >
-                      {log.level}
-                    </Tag>
+                      {/* 日志级别标签 - 紧凑样式 */}
+                      <Tag
+                        color={getLevelColor(log.level)}
+                        className="shrink-0 m-0"
+                        style={{ fontSize: '10px', padding: '0 4px', lineHeight: '16px' }}
+                      >
+                        {log.level}
+                      </Tag>
 
-                    {/* 消息内容 */}
-                    <span className="break-all">{log.message}</span>
-                  </div>
+                      {/* 消息内容 */}
+                      <span className="break-all">{log.message}</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

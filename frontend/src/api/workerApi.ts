@@ -133,22 +133,6 @@ export const restartWorker = (workerId: number): Promise<{ task_id: string; stat
 };
 
 /**
- * 暂停 Worker
- * @param workerId Worker ID
- */
-export const pauseWorker = (workerId: number): Promise<void> => {
-  return apiRequest.post(`/workers/${workerId}/lifecycle/pause`);
-};
-
-/**
- * 恢复 Worker
- * @param workerId Worker ID
- */
-export const resumeWorker = (workerId: number): Promise<void> => {
-  return apiRequest.post(`/workers/${workerId}/lifecycle/resume`);
-};
-
-/**
  * 获取 Worker 实时状态
  * @param workerId Worker ID
  */
@@ -231,12 +215,17 @@ export class WorkerLogStream {
   private onMessageCallback: ((log: WorkerLog) => void) | null = null;
   private onErrorCallback: ((error: Event) => void) | null = null;
   private onCloseCallback: (() => void) | null = null;
+  private onOpenCallback: (() => void) | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 3000;
 
   constructor(workerId: number) {
     this.workerId = workerId;
+  }
+
+  onOpen(callback: () => void): void {
+    this.onOpenCallback = callback;
   }
 
   /**
@@ -273,6 +262,7 @@ export class WorkerLogStream {
       console.log(`✅ [WebSocket] Worker ${this.workerId} 日志流连接成功！`);
       console.log(`✅ [WebSocket] 就绪状态: ${ws.readyState} (OPEN=1)`);
       this.reconnectAttempts = 0;
+      this.onOpenCallback?.();
     };
 
     ws.onmessage = (event) => {
@@ -477,8 +467,6 @@ export const workerApi = {
   startWorker,
   stopWorker,
   restartWorker,
-  pauseWorker,
-  resumeWorker,
   getWorkerStatus,
   healthCheck,
 

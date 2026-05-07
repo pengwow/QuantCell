@@ -8,7 +8,6 @@
 export const WorkerStatus = {
   STOPPED: 'stopped',
   RUNNING: 'running',
-  PAUSED: 'paused',
   ERROR: 'error',
   STARTING: 'starting',
   STOPPING: 'stopping'
@@ -21,7 +20,6 @@ export type WorkerStatus = typeof WorkerStatus[keyof typeof WorkerStatus];
 export const WorkerStatusText: Record<WorkerStatus, string> = {
   [WorkerStatus.STOPPED]: '已停止',
   [WorkerStatus.RUNNING]: '运行中',
-  [WorkerStatus.PAUSED]: '已暂停',
   [WorkerStatus.ERROR]: '错误',
   [WorkerStatus.STARTING]: '启动中',
   [WorkerStatus.STOPPING]: '停止中'
@@ -31,7 +29,6 @@ export const WorkerStatusText: Record<WorkerStatus, string> = {
 export const WorkerStatusColor: Record<WorkerStatus, string> = {
   [WorkerStatus.STOPPED]: 'gray',
   [WorkerStatus.RUNNING]: 'green',
-  [WorkerStatus.PAUSED]: 'orange',
   [WorkerStatus.ERROR]: 'red',
   [WorkerStatus.STARTING]: 'blue',
   [WorkerStatus.STOPPING]: 'cyan'
@@ -431,8 +428,6 @@ export interface WorkerStoreActions {
   // 生命周期控制
   startWorker: (workerId: number) => Promise<void>;
   stopWorker: (workerId: number) => Promise<void>;
-  pauseWorker: (workerId: number) => Promise<void>;
-  resumeWorker: (workerId: number) => Promise<void>;
 
   // WebSocket
   connectLogStream: (workerId: number) => void;
@@ -495,7 +490,6 @@ export interface WorkerWithPerformance extends Worker {
 export const WorkerStatusDisplayText: Record<WorkerStatus, string> = {
   [WorkerStatus.STOPPED]: '已停止',
   [WorkerStatus.RUNNING]: '运行中',
-  [WorkerStatus.PAUSED]: '已暂停',
   [WorkerStatus.ERROR]: '错误',
   [WorkerStatus.STARTING]: '启动中',
   [WorkerStatus.STOPPING]: '停止中'
@@ -505,7 +499,6 @@ export const WorkerStatusDisplayText: Record<WorkerStatus, string> = {
 export const WorkerStatusTagColor: Record<WorkerStatus, string> = {
   [WorkerStatus.STOPPED]: 'default',
   [WorkerStatus.RUNNING]: 'success',
-  [WorkerStatus.PAUSED]: 'warning',
   [WorkerStatus.ERROR]: 'error',
   [WorkerStatus.STARTING]: 'processing',
   [WorkerStatus.STOPPING]: 'cyan'
