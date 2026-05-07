@@ -131,7 +131,15 @@ class WorkerManager:
         return True
 
     async def _force_stop_all_workers(self):
-        """强制停止所有 Worker（在 shutdown 时调用，等待每个 Worker 真正退出）"""
+        """强制停止所有 Worker（在 shutdown 时调用，等待每个 Worker 真正退出）
+
+        关闭流程：
+        1. 发送 STOP 命令给 Worker
+        2. 等待 Worker 正常退出（超时 10 秒）
+        3. 如果未退出则 terminate() 强制终止
+        4. 调用退出回调更新数据库状态为 stopped
+        5. 清理内存字典
+        """
         worker_ids = list(self._workers.keys())
         if not worker_ids:
             return
@@ -142,24 +150,43 @@ class WorkerManager:
                 if worker_id not in self._workers:
                     continue
                 worker = self._workers[worker_id]
+
                 # 发送停止命令
                 await self.comm_manager.send_control(
                     worker_id,
                     Message.create_control(MessageType.STOP, worker_id),
                 )
-                # 在后台线程中等待 Worker 停止，避免阻塞事件循环
+
+                # 等待 Worker 停止
                 await asyncio.to_thread(worker.join, timeout=10.0)
+
+                # 获取当前状态用于回调
+                worker_status = self._worker_status.get(worker_id)
+                if worker_status is None:
+                    worker_status = WorkerStatus(worker_id=worker_id)
+                    worker_status.update_state(WorkerState.STOPPED)
+
                 if worker.is_alive():
                     logger.warning(f"Worker {worker_id} 未在 10 秒内停止，强制终止")
                     worker.terminate()
                     await asyncio.to_thread(worker.join, timeout=3.0)
-                # 清理
+
+                # 更新状态并调用退出回调（关键：确保数据库状态同步更新）
+                worker_status.update_state(WorkerState.STOPPED)
+                for callback in self._worker_exit_callbacks:
+                    try:
+                        callback(worker_id, worker_status)
+                    except Exception as e:
+                        logger.error(f"Worker {worker_id} 退出回调执行失败: {e}")
+
+                # 清理内存字典
                 if worker_id in self._workers:
                     del self._workers[worker_id]
                 if worker_id in self._worker_status:
                     del self._worker_status[worker_id]
                 self.data_broker.unsubscribe_all(worker_id)
-                logger.info(f"Worker {worker_id} 已停止并清理")
+
+                logger.info(f"Worker {worker_id} 已停止，数据库状态已更新")
             except Exception as e:
                 logger.error(f"强制停止 Worker {worker_id} 失败: {e}")
         logger.info("所有 Worker 进程已停止")

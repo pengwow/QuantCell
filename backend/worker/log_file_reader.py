@@ -160,8 +160,7 @@ class LogFileReader:
             timestamp_str, microseconds, level, source, message = match.groups()
 
             try:
-                base_timestamp = timestamp_str.rsplit(".", 1)[0]
-                timestamp = datetime.fromisoformat(base_timestamp.replace("Z", "+00:00"))
+                timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
             except (ValueError, AttributeError):
                 timestamp = datetime.now(timezone.utc)
 
