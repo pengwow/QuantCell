@@ -187,7 +187,7 @@ class LogFileReader:
 
         # 非标准格式（raw），尝试从行中提取时间戳
         extracted_level = "INFO"
-        level_match = re.search(r'\b(DEBUG|INFO|WARNING|ERROR|CRITICAL)\b', line)
+        level_match = re.search(r'\b(DEBUG|INFO|WARN|ERROR)\b', line)
         if level_match:
             extracted_level = level_match.group(1)
 

@@ -27,20 +27,19 @@ import { useWorkerStore } from '../../store/workerStore';
 // WorkerLog 类型定义（避免循环依赖）
 interface WorkerLog {
   timestamp: string;
-  level: 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
+  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
   source: string;
   message: string;
 }
 
 const { Option } = Select;
 
-// 日志级别配置（与系统日志保持一致的颜色方案）
+// 日志级别配置（与 NautilusTrader 实际输出保持一致）
 const LOG_LEVELS = [
   { value: 'DEBUG', label: 'DEBUG', color: 'default' },
   { value: 'INFO', label: 'INFO', color: 'blue' },
-  { value: 'WARNING', label: 'WARNING', color: 'orange' },
+  { value: 'WARN', label: 'WARN', color: 'orange' },
   { value: 'ERROR', label: 'ERROR', color: 'red' },
-  { value: 'CRITICAL', label: 'CRITICAL', color: 'purple' },
 ];
 
 interface WorkerLogsPanelProps {
@@ -66,7 +65,7 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
     clearLogs,
   } = useWorkerStore();
 
-  const [selectedLevels, setSelectedLevels] = useState<string[]>(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']);
+  const [selectedLevels, setSelectedLevels] = useState<string[]>(['DEBUG', 'INFO', 'WARN', 'ERROR']);
   const [isPaused, setIsPaused] = useState(false);
 
   // 使用 ref 存储 connectLogStream/disconnectLogStream 避免引用变化触发无限循环
