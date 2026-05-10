@@ -190,10 +190,12 @@ const WorkerPerformanceTab: React.FC = () => {
               <Statistic
                 title={<span style={{ fontSize: 13, color: '#666' }}>{metric.label}</span>}
                 value={metric.value}
-                valueStyle={{
-                  fontSize: 22,
-                  fontWeight: 'bold',
-                  color: metric.color,
+                styles={{
+                  content: {
+                    fontSize: 22,
+                    fontWeight: 'bold',
+                    color: metric.color,
+                  },
                 }}
               />
             </Card>
@@ -209,7 +211,7 @@ const WorkerPerformanceTab: React.FC = () => {
               <Statistic
                 title={t('total_trades') || '交易次数'}
                 value={performance.total_trades || 0}
-                valueStyle={{ color: '#1890ff' }}
+                styles={{ content: { color: '#1890ff' } }}
               />
             </Card>
           </Col>
@@ -218,7 +220,7 @@ const WorkerPerformanceTab: React.FC = () => {
               <Statistic
                 title={t('total_profit') || '总盈利'}
                 value={`$${(performance.total_profit || 0).toFixed(2)}`}
-                valueStyle={{ color: '#52c41a' }}
+                styles={{ content: { color: '#52c41a' } }}
               />
             </Card>
           </Col>
@@ -227,7 +229,7 @@ const WorkerPerformanceTab: React.FC = () => {
               <Statistic
                 title={t('total_loss') || '总亏损'}
                 value={`$${Math.abs(performance.total_loss || 0).toFixed(2)}`}
-                valueStyle={{ color: '#ff4d4f' }}
+                styles={{ content: { color: '#ff4d4f' } }}
               />
             </Card>
           </Col>

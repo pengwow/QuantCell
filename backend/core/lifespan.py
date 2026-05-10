@@ -232,6 +232,36 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"WebSocket连接管理器或系统信息推送服务启动失败: {e}")
 
+    # 🆅 启动DataCollector服务（Worker数据实时同步）
+    try:
+        from worker.ipc.data_collector import DataCollector
+        from worker.service import worker_service
+        
+        data_collector = DataCollector(
+            host="127.0.0.1",
+            data_port=5560,
+            db_path="data/worker_data.db"
+        )
+        
+        collector_started = await data_collector.start()
+        if collector_started:
+            worker_service._data_collector = data_collector
+            app.state.data_collector = data_collector
+            logger.info("✅ DataCollector已启动 - 实时数据同步就绪 (端口:5560)")
+        else:
+            logger.warning("❌ DataCollector启动失败 - 将使用降级模式")
+            logger.warning("  可能原因: ZMQ端口绑定失败或SQLite初始化异常")
+            logger.warning("  建议: 检查端口5560是否被占用，或查看上方详细错误")
+            worker_service._data_collector = None
+    except Exception as e:
+        import traceback
+        logger.error(f"❌ DataCollector启动异常: {e}")
+        logger.error(f"  详细错误: {traceback.format_exc()}")
+        logger.error("  影响: Worker数据查询将使用模拟数据(降级模式)")
+        logger.error("  解决: 1)检查ZMQ端口5560是否可用 2)检查data/目录权限 3)重启服务")
+        # 不影响主应用启动，仅记录错误
+        worker_service._data_collector = None if 'worker_service' in dir() else None
+
     yield
 
     # ========== 应用关闭阶段（必须保证执行完毕） ==========
@@ -264,11 +294,21 @@ async def lifespan(app: FastAPI):
         from worker.service import worker_service
         await asyncio.wait_for(worker_service.shutdown(), timeout=10.0)
         logger.info("WorkerService 已停止")
-    except asyncio.CancelledError:
+    except CancelledError:
         logger.warning("WorkerService 停止被中断")
         raise
     except Exception as e:
         logger.error(f"停止 WorkerService 失败: {e}")
+
+    # 🆅 停止DataCollector服务
+    try:
+        if hasattr(app.state, "data_collector") and app.state.data_collector:
+            await app.state.data_collector.stop()
+            logger.info("DataCollector已停止 - 数据同步服务关闭")
+    except CancelledError:
+        raise
+    except Exception as e:
+        logger.error(f"停止 DataCollector 失败: {e}")
 
     # 步骤 3: 停止实时引擎
     if realtime_engine:

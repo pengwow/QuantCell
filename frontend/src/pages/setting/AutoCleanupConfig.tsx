@@ -275,8 +275,10 @@ const AutoCleanupConfig: React.FC = () => {
               value={config.space_used}
               suffix="MB"
               precision={2}
-              valueStyle={{
-                color: config.space_used > config.max_size_gb * 1024 / 2 ? '#cf1322' : '#3f8600',
+              styles={{
+                content: {
+                  color: config.space_used > config.max_size_gb * 1024 / 2 ? '#cf1322' : '#3f8600',
+                },
               }}
             />
             {config.max_size_gb > 0 && (
@@ -298,7 +300,7 @@ const AutoCleanupConfig: React.FC = () => {
                   new Date(config.last_cleanup_time).toLocaleString('zh-CN') :
                   '-'
               }
-              valueStyle={{ fontSize: 14 }}
+              styles={{ content: { fontSize: 14 } }}
             />
           </Col>
 
@@ -311,7 +313,7 @@ const AutoCleanupConfig: React.FC = () => {
                   new Date(config.next_cleanup_time).toLocaleString('zh-CN') :
                   '-'
               }
-              valueStyle={{ fontSize: 14 }}
+              styles={{ content: { fontSize: 14 } }}
             />
           </Col>
 

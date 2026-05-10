@@ -676,7 +676,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
                   title="最高价"
                   value={stats.highestPrice}
                   precision={2}
-                  valueStyle={{ color: '#52c41a' }}
+                  styles={{ content: { color: '#52c41a' } }}
                 />
               </Col>
               <Col xs={12} sm={6} md={4}>
@@ -684,7 +684,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
                   title="最低价"
                   value={stats.lowestPrice}
                   precision={2}
-                  valueStyle={{ color: '#f5222d' }}
+                  styles={{ content: { color: '#f5222d' } }}
                 />
               </Col>
               <Col xs={12} sm={6} md={2}>

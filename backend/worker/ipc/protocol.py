@@ -43,6 +43,12 @@ class MessageType(Enum):
     POSITION_UPDATE = "position_update"
     BALANCE_UPDATE = "balance_update"
 
+    # 🆕 数据同步消息（用于实时数据推送）
+    TRADE_FILLED = "trade_filled"           # 成交记录
+    ORDER_EVENT = "order_event"             # 订单事件
+    DATA_SYNC_REQUEST = "data_sync_request"  # 数据同步请求
+    DATA_SYNC_RESPONSE = "data_sync_response" # 数据同步响应
+
     # 系统消息
     METRICS = "metrics"
     LOG = "log"

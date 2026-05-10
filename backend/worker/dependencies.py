@@ -18,23 +18,25 @@ security = HTTPBearer(auto_error=False)
 
 async def get_current_user(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    token: Optional[str] = None
 ) -> dict:
     """
     获取当前用户
-    
-    从请求头中提取并验证JWT令牌
+
+    支持两种认证方式：
+    1. 从请求头 Authorization 中提取 JWT token（标准方式）
+    2. 从 query 参数中提取 JWT token（用于 SSE 等无法发送自定义头的场景）
     """
-    if not credentials:
+    # 优先使用 query 参数中的 token（用于 EventSource 等场景）
+    jwt_token = token or (credentials.credentials if credentials else None)
+
+    if not jwt_token:
         # 开发环境允许匿名访问
         return {"user_id": "anonymous", "user_name": "Anonymous"}
-    
-    token = credentials.credentials
-    if not token:
-        raise HTTPException(status_code=401, detail="未提供认证令牌")
-    
+
     try:
-        payload = decode_jwt_token(token)
+        payload = decode_jwt_token(jwt_token)
         return {
             "user_id": payload.get("user_id"),
             "user_name": payload.get("user_name"),
