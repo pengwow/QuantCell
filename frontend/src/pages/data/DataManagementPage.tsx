@@ -2256,21 +2256,21 @@ const DataManagementPage = () => {
                 <Statistic
                   title="良好"
                   value={symbols.filter((s) => s.dataQuality === 'good').length}
-                  valueStyle={{ color: '#52c41a' }}
+                  styles={{ content: { color: '#52c41a' } }}
                 />
               </Col>
               <Col span={12}>
                 <Statistic
                   title="警告"
                   value={symbols.filter((s) => s.dataQuality === 'warning').length}
-                  valueStyle={{ color: '#faad14' }}
+                  styles={{ content: { color: '#faad14' } }}
                 />
               </Col>
               <Col span={12}>
                 <Statistic
                   title="异常"
                   value={symbols.filter((s) => s.dataQuality === 'bad').length}
-                  valueStyle={{ color: '#ff4d4f' }}
+                  styles={{ content: { color: '#ff4d4f' } }}
                 />
               </Col>
             </Row>
@@ -2346,8 +2346,10 @@ const DataManagementPage = () => {
                     <Statistic
                       title="总体状态"
                       value={qualityDetail.overall_status === 'pass' ? '通过' : '失败'}
-                      valueStyle={{
-                        color: qualityDetail.overall_status === 'pass' ? '#52c41a' : '#ff4d4f',
+                      styles={{
+                        content: {
+                          color: qualityDetail.overall_status === 'pass' ? '#52c41a' : '#ff4d4f',
+                        },
                       }}
                     />
                   </Card>

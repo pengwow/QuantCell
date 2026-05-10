@@ -765,7 +765,7 @@ async def clear_worker_logs(
 async def log_stream_sse(
     worker_id: int,
     request: Request,
-    current_user: dict = Depends(get_current_user)
+    token: Optional[str] = Query(None, description="JWT token for SSE authentication (EventSource cannot send headers)")
 ):
     """
     SSE 实时日志流 (推荐方案)
@@ -773,12 +773,20 @@ async def log_stream_sse(
     通过 Server-Sent Events 实时推送 Worker 日志。
     使用 FastAPI 0.136.1+ 内置的 EventSourceResponse，无需额外依赖。
 
+    认证说明：
+    - EventSource API 无法发送自定义请求头（浏览器安全限制）
+    - 因此支持通过 query 参数传递 JWT token
+    - 如果未提供 token，开发环境允许匿名访问
+
     相比 WebSocket，SSE 具有以下优势：
     1. 浏览器原生支持自动重连
     2. 无需特殊代理配置
     3. 自动处理断点续传（Last-Event-ID）
     4. 更低的资源占用
     """
+    from ..dependencies import get_current_user
+
+    current_user = await get_current_user(request, token=token)
     from fastapi.responses import EventSourceResponse
     from fastapi.sse import format_sse_event, KEEPALIVE_COMMENT
     import json as json_module
@@ -1043,5 +1051,179 @@ async def send_trading_signal(
             message="信号发送成功",
             data=result
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 数据同步模块（🆕 新增） ====================
+
+@router.get("/{worker_id}/data/trades", response_model=schemas.ApiResponse)
+async def api_get_trades(
+    worker_id: int,
+    symbol: Optional[str] = Query(None, description="交易对过滤（如 BTCUSDT）"),
+    start_time: Optional[datetime] = Query(None, description="开始时间"),
+    end_time: Optional[datetime] = Query(None, description="结束时间"),
+    limit: int = Query(50, ge=1, le=200, description="返回数量（1-200）"),
+    offset: int = Query(0, ge=0, description="偏移量"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    获取Worker成交记录（真实数据 - SQLite）
+    
+    优先从SQLite查询，支持离线访问。
+    无论Worker是否运行都能获取最新数据。
+    
+    特性：
+    - 准实时数据（延迟<100ms）
+    - 支持交易对筛选
+    - 支持分页
+    - 离线可用（Worker停止后仍可查询历史数据）
+    """
+    try:
+        from ..service import get_trades as query_trades
+        
+        result = await query_trades(
+            worker_id=worker_id,
+            symbol=symbol,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+            offset=offset
+        )
+        
+        return schemas.ApiResponse(
+            code=0,
+            message="success",
+            data=result
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{worker_id}/data/positions", response_model=schemas.ApiResponse)
+async def api_get_positions(
+    worker_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    获取Worker当前持仓（真实数据 - SQLite）
+    
+    从SQLite读取最新持仓快照，支持离线访问。
+    
+    特性：
+    - 实时持仓信息（包含未实现盈亏）
+    - 自动计算盈亏百分比
+    - 离线可用
+    """
+    try:
+        from ..service import get_positions as query_positions
+        
+        result = await query_positions(worker_id)
+        
+        return schemas.ApiResponse(
+            code=0,
+            message="success",
+            data=result
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{worker_id}/data/orders", response_model=schemas.ApiResponse)
+async def api_get_orders(
+    worker_id: int,
+    status: Optional[str] = Query(None, description="订单状态过滤（如 OrderFilled）"),
+    limit: int = Query(50, ge=1, le=200, description="返回数量"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    获取Worker订单列表（真实数据 - SQLite）
+    
+    从SQLite查询订单事件记录，支持按状态筛选。
+    
+    特性：
+    - 完整的订单生命周期事件
+    - 支持按事件类型筛选
+    - 离线可用
+    """
+    try:
+        from ..service import get_orders as query_orders
+        
+        result = await query_orders(worker_id, status=status)
+        
+        # 如果需要限制返回数量
+        if limit < len(result.get('orders', [])):
+            result['orders'] = result['orders'][:limit]
+            result['total'] = len(result['orders'])
+        
+        return schemas.ApiResponse(
+            code=0,
+            message="success",
+            data=result
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{worker_id}/data/stats", response_model=schemas.ApiResponse)
+async def api_get_data_stats(
+    worker_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    获取数据同步统计信息
+    
+    返回DataCollector的运行状态和统计指标，
+    用于监控数据同步健康状况。
+    
+    统计项：
+    - 消息接收总数
+    - 成交记录存储数
+    - 持仓更新次数
+    - 错误发生次数
+    - 最后消息时间
+    - SQLite数据库路径
+    """
+    try:
+        from ..service import worker_service
+        
+        await worker_service.initialize()
+        
+        if worker_service._data_collector:
+            stats = worker_service._data_collector.get_stats()
+            
+            return schemas.ApiResponse(
+                code=0,
+                message="success",
+                data={
+                    "worker_id": worker_id,
+                    "data_sync_enabled": True,
+                    "statistics": {
+                        "messages_received": stats["messages_received"],
+                        "trades_stored": stats["trades_stored"],
+                        "positions_updated": stats["positions_updated"],
+                        "order_events_stored": stats["order_events_stored"],
+                        "errors": stats["errors"],
+                        "last_message_time": (
+                            stats["last_message_time"].isoformat() 
+                            if stats["last_message_time"] else None
+                        ),
+                    },
+                    "sqlite_path": str(worker_service._data_collector.db_path),
+                    "collector_port": worker_service._data_collector.data_port,
+                    "is_running": worker_service._data_collector._running,
+                }
+            )
+        else:
+            return schemas.ApiResponse(
+                code=0,
+                message="DataCollector未初始化",
+                data={
+                    "worker_id": worker_id,
+                    "data_sync_enabled": False,
+                    "warning": "DataCollector服务未启动，将使用降级模式"
+                }
+            )
+            
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

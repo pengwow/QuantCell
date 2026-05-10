@@ -878,14 +878,14 @@ const BacktestReplay = () => {
                 <Statistic
                   title="成功货币对"
                   value={mergeSummary.successful_currencies}
-                  valueStyle={{ color: '#52c41a' }}
+                  styles={{ content: { color: '#52c41a' } }}
                 />
               </Col>
               <Col span={6}>
                 <Statistic
                   title="失败货币对"
                   value={mergeSummary.failed_currencies}
-                  valueStyle={{ color: '#f5222d' }}
+                  styles={{ content: { color: '#f5222d' } }}
                 />
               </Col>
               <Col span={6}>
@@ -898,14 +898,14 @@ const BacktestReplay = () => {
                 <Statistic
                   title="总收益率"
                   value={`${mergeSummary.total_return}%`}
-                  valueStyle={{ color: mergeSummary.total_return >= 0 ? '#52c41a' : '#f5222d' }}
+                  styles={{ content: { color: mergeSummary.total_return >= 0 ? '#52c41a' : '#f5222d' } }}
                 />
               </Col>
               <Col span={6}>
                 <Statistic
                   title="平均收益率"
                   value={`${mergeSummary.average_return}%`}
-                  valueStyle={{ color: mergeSummary.average_return >= 0 ? '#52c41a' : '#f5222d' }}
+                  styles={{ content: { color: mergeSummary.average_return >= 0 ? '#52c41a' : '#f5222d' } }}
                 />
               </Col>
               <Col span={6}>

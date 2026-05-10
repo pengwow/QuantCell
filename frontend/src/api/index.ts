@@ -538,7 +538,7 @@ export const dataPoolApi = {
   },
 
   deleteDataPool: (id: string, type: string) => {
-    return apiRequest.delete(`/data-pools/${id}`, { params: { type } });
+    return apiRequest.delete(`/data-pools/${id}`, { type });
   },
 
   getDataPoolDetail: (id: string, type: string) => {

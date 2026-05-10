@@ -186,7 +186,7 @@ export const getWorkerLogs = (workerId: number, params?: LogQueryParams): Promis
  * @param workerId Worker ID
  */
 export const clearWorkerLogs = (workerId: number): Promise<any> => {
-  return apiRequest.post(`/workers/${workerId}/logs/clear`, undefined, { params: { confirm: true } });
+  return apiRequest.delete(`/workers/${workerId}/monitoring/logs`, { confirm: true });
 };
 
 /**
@@ -259,15 +259,20 @@ export class WorkerLogStreamSSE {
 
     const url = `${httpProtocol}${host}/api/workers/${this.workerId}/monitoring/logs/stream`;
 
+    // 获取 JWT token 并作为 query 参数传递（EventSource 无法发送自定义请求头）
+    const authToken = localStorage.getItem('access_token') || localStorage.getItem('quantcell_jwt_token');
+    const urlWithToken = authToken ? `${url}?token=${encodeURIComponent(authToken)}` : url;
+
     console.log(`[SSE] 准备连接 Worker ${this.workerId}...`);
-    console.log(`[SSE] 连接 URL: ${url}`);
+    console.log(`[SSE] 连接 URL: ${urlWithToken}`);
     console.log(`[SSE] 协议: ${httpProtocol}, 主机: ${host}`);
     console.log(`[SSE] 环境变量 VITE_API_BASE_URL:`, apiBaseUrl || '(未设置)');
     console.log(`[SSE] 当前页面 host:`, window.location.host);
     console.log(`[SSE] 开发模式:`, import.meta.env.DEV);
+    console.log(`[SSE] 是否附带 Token:`, !!authToken);
 
     // 创建 EventSource（浏览器原生支持自动重连）
-    this.eventSource = new EventSource(url);
+    this.eventSource = new EventSource(urlWithToken);
 
     this.eventSource.onopen = () => {
       console.log(`✅ [SSE] Worker ${this.workerId} 日志流连接成功！`);
@@ -296,12 +301,18 @@ export class WorkerLogStreamSSE {
 
     // 监听错误事件
     this.eventSource.onerror = (error) => {
-      console.error('❌ [SSE] Worker', this.workerId, '日志流错误:');
-      console.error('  - EventSource 状态:', this._getReadyStateDescription());
-
-      // EventSource 会自动重连，但我们可以监听错误做额外处理
-      if (this.eventSource?.readyState === EventSource.CLOSED) {
-        console.warn('[SSE] 连接已关闭，停止自动重连');
+      const state = this.eventSource?.readyState;
+      if (state === EventSource.CLOSED) {
+        // 正常关闭（页面刷新、组件卸载等），静默处理
+        console.log(`🔌 [SSE] Worker ${this.workerId} 连接已关闭`);
+        this.onCloseCallback?.();
+      } else if (state === EventSource.CONNECTING) {
+        // 连接中失败（网络问题），EventSource 会自动重连
+        console.warn(`⚠️ [SSE] Worker ${this.workerId} 连接中断，自动重连中...`);
+        this.onErrorCallback?.(error);
+      } else {
+        // 其他异常
+        console.error('❌ [SSE] Worker', this.workerId, '日志流异常:', error);
         this.onErrorCallback?.(error);
         this.onCloseCallback?.();
       }

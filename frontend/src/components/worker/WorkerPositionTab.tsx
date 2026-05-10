@@ -155,7 +155,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId }) => {
               value={totalPositionValue}
               precision={2}
               prefix="$"
-              valueStyle={{ color: '#1890ff' }}
+              styles={{ content: { color: '#1890ff' } }}
             />
           </Card>
         </Col>
@@ -166,7 +166,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId }) => {
               value={totalUnrealizedPnL}
               precision={2}
               prefix="$"
-              valueStyle={{ color: totalUnrealizedPnL >= 0 ? '#52c41a' : '#ff4d4f' }}
+              styles={{ content: { color: totalUnrealizedPnL >= 0 ? '#52c41a' : '#ff4d4f' } }}
             />
           </Card>
         </Col>
@@ -177,7 +177,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId }) => {
               value={totalMarginUsed}
               precision={2}
               prefix="$"
-              valueStyle={{ color: '#faad14' }}
+              styles={{ content: { color: '#faad14' } }}
             />
           </Card>
         </Col>

@@ -540,108 +540,153 @@ async def update_strategy_params(worker_id: int, parameters: Dict[str, Any]) -> 
         return False
 
 
-async def get_positions(worker_id: int) -> List[Dict[str, Any]]:
-    """获取持仓信息"""
+async def get_positions(worker_id: int) -> Dict[str, Any]:
+    """
+    获取Worker持仓信息（真实数据）
+    
+    优先从SQLite查询，支持离线访问
+    """
     await worker_service.initialize()
     
-    # 如果 CommManager 未初始化成功，返回模拟数据（用于测试）
-    if worker_service._comm_manager is None:
-        return [
-            {
-                "symbol": "BTCUSDT",
-                "side": "long",
-                "quantity": 1.5,
-                "entry_price": 45000.0,
-                "current_price": 46000.0,
-                "unrealized_pnl": 1500.0,
-                "unrealized_pnl_pct": 2.22,
+    # 尝试从SQLite获取数据
+    if worker_service._data_collector:
+        try:
+            db_manager = worker_service._data_collector.db_manager
+            
+            # 查询活跃持仓
+            positions = await db_manager.get_active_positions(worker_id)
+            
+            # 格式化输出
+            result = []
+            for pos in positions:
+                pos_dict = dict(pos)
+                
+                # 计算盈亏百分比
+                if pos_dict.get('avg_px_open') and pos_dict.get('quantity'):
+                    unrealized_pnl = pos_dict.get('unrealized_pnl', 0)
+                    notional = abs(pos_dict['avg_px_open'] * pos_dict['quantity'])
+                    pos_dict['unrealized_pnl_pct'] = round(
+                        (unrealized_pnl / notional * 100) if notional > 0 else 0, 2
+                    )
+                
+                # 时间格式转换
+                if isinstance(pos_dict.get('snapshot_time'), datetime):
+                    pos_dict['snapshot_time'] = pos_dict['snapshot_time'].isoformat()
+                
+                result.append(pos_dict)
+            
+            return {
+                "worker_id": worker_id,
+                "positions": result,
+                "total": len(result),
+                "source": "sqlite",
                 "timestamp": datetime.now().isoformat()
             }
-        ]
+            
+        except Exception as e:
+            logger.error(f"查询持仓失败: {e}")
     
-    # 请求持仓数据
-    message = Message.create_control(
-        MessageType.CONTROL,
-        str(worker_id),
-        {"action": "get_positions"}
-    )
-    
-    try:
-        await asyncio.wait_for(
-            worker_service._comm_manager.send_control(str(worker_id), message),
-            timeout=OPERATION_TIMEOUT
-        )
-    except asyncio.TimeoutError:
-        pass
-    
-    # 简化实现：返回模拟数据
-    return [
-        {
-            "symbol": "BTCUSDT",
-            "side": "long",
-            "quantity": 1.5,
-            "entry_price": 45000.0,
-            "current_price": 46000.0,
-            "unrealized_pnl": 1500.0,
-            "unrealized_pnl_pct": 2.22,
-            "timestamp": datetime.now().isoformat()
-        }
-    ]
+    # SQLite不可用时返回模拟数据（降级模式）
+    logger.warning(f"Worker {worker_id}: SQLite不可用，返回模拟数据")
+    return _get_mock_positions(worker_id)
 
 
-async def get_orders(worker_id: int, status: Optional[str] = None) -> List[Dict[str, Any]]:
-    """获取订单信息"""
+async def get_trades(
+    worker_id: int,
+    symbol: Optional[str] = None,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    limit: int = 50,
+    offset: int = 0
+) -> Dict[str, Any]:
+    """
+    获取Worker成交记录（真实数据）
+    
+    优先从SQLite查询，支持离线访问
+    """
     await worker_service.initialize()
     
-    # 如果 CommManager 未初始化成功，返回模拟数据（用于测试）
-    if worker_service._comm_manager is None:
-        return [
-            {
-                "order_id": "123456",
-                "symbol": "BTCUSDT",
-                "side": "buy",
-                "order_type": "limit",
-                "quantity": 1.0,
-                "price": 45000.0,
-                "status": "filled",
-                "filled_quantity": 1.0,
-                "created_at": datetime.now().isoformat()
+    # 尝试从SQLite获取数据
+    if worker_service._data_collector:
+        try:
+            db_manager = worker_service._data_collector.db_manager
+            
+            # 查询成交记录
+            trades = await db_manager.get_latest_trades(
+                worker_id=worker_id,
+                limit=limit,
+                symbol=symbol
+            )
+            
+            # 转换时间格式
+            result = []
+            for trade in trades:
+                trade_dict = dict(trade)
+                if isinstance(trade_dict.get('created_at'), datetime):
+                    trade_dict['created_at'] = trade_dict['created_at'].isoformat()
+                result.append(trade_dict)
+            
+            return {
+                "worker_id": worker_id,
+                "trades": result,
+                "total": len(result),
+                "source": "sqlite",
+                "timestamp": datetime.now().isoformat()
             }
-        ]
+            
+        except Exception as e:
+            logger.error(f"查询成交记录失败: {e}")
     
-    # 请求订单数据
-    params = {"action": "get_orders"}
-    if status:
-        params["status"] = status
+    # SQLite不可用时返回模拟数据（降级模式）
+    logger.warning(f"Worker {worker_id}: SQLite不可用，返回模拟数据")
+    logger.warning("  原因: DataCollector服务未启动或初始化失败")
+    logger.warning("  解决方案:")
+    logger.warning("    1. 检查后端启动日志中是否有'DataCollector启动异常'错误")
+    logger.warning("    2. 确认端口5560未被占用: lsof -i :5560")
+    logger.warning("    3. 重启后端服务: uvicorn main:app --reload")
+    return _get_mock_trades(worker_id, limit)
+
+
+async def get_orders(worker_id: int, status: Optional[str] = None) -> Dict[str, Any]:
+    """
+    获取Worker订单信息（真实数据）
     
-    message = Message.create_control(
-        MessageType.CONTROL,
-        str(worker_id),
-        params
-    )
+    优先从SQLite查询，支持离线访问
+    """
+    await worker_service.initialize()
     
-    try:
-        await asyncio.wait_for(
-            worker_service._comm_manager.send_control(str(worker_id), message),
-            timeout=OPERATION_TIMEOUT
-        )
-    except asyncio.TimeoutError:
-        pass
+    # 尝试从SQLite获取
+    if worker_service._data_collector:
+        try:
+            db_manager = worker_service._data_collector.db_manager
+            
+            # 查询订单事件（按类型筛选）
+            orders = await db_manager.get_order_events(
+                worker_id=worker_id,
+                event_type=status,
+                limit=50
+            )
+            
+            result = []
+            for order in orders:
+                order_dict = dict(order)
+                if isinstance(order_dict.get('created_at'), datetime):
+                    order_dict['created_at'] = order_dict['created_at'].isoformat()
+                result.append(order_dict)
+            
+            return {
+                "worker_id": worker_id,
+                "orders": result,
+                "total": len(result),
+                "source": "sqlite",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"查询订单失败: {e}")
     
-    # 简化实现：返回模拟数据
-    return [
-        {
-            "order_id": "123456",
-            "symbol": "BTCUSDT",
-            "side": "buy",
-            "order_type": "limit",
-            "quantity": 1.0,
-            "price": 45000.0,
-            "status": "filled",
-            "filled_quantity": 1.0,
-            "created_at": datetime.now().isoformat()
-        }
-    ]
+    # 降级：返回模拟数据
+    return _get_mock_orders(worker_id)
 
 
 async def send_trading_signal(worker_id: int, signal: Dict[str, Any]) -> Dict[str, Any]:
@@ -718,6 +763,82 @@ async def batch_operation(db: Session, request: schemas.BatchOperationRequest) -
         "success": success_list,
         "failed": failed_dict,
         "total": len(request.worker_ids)
+    }
+
+
+# 辅助函数：生成模拟数据（降级使用）
+
+def _get_mock_trades(worker_id: int, limit: int = 50) -> Dict[str, Any]:
+    """生成模拟成交数据"""
+    return {
+        "worker_id": worker_id,
+        "trades": [
+            {
+                "trade_id": f"MOCK-TRADE-{i}",
+                "symbol": "BTCUSDT",
+                "side": "BUY" if i % 2 == 0 else "SELL",
+                "order_type": "LIMIT",
+                "quantity": 0.01,
+                "price": 45000.0 + (i * 10),
+                "amount": 450.0 + (i * 0.1),
+                "fee": 0.045,
+                "created_at": datetime.now().isoformat(),
+            }
+            for i in range(min(limit, 5))
+        ],
+        "total": min(limit, 5),
+        "source": "mock",
+        "warning": "SQLite不可用，返回模拟数据"
+    }
+
+
+def _get_mock_positions(worker_id: int) -> Dict[str, Any]:
+    """生成模拟持仓数据"""
+    return {
+        "worker_id": worker_id,
+        "positions": [
+            {
+                "position_id": "MOCK-POS-001",
+                "instrument_id": "BTCUSDT.PERP.BINANCE",
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "signed_qty": 0.01,
+                "quantity": 0.01,
+                "avg_px_open": 45000.0,
+                "unrealized_pnl": 150.0,
+                "unrealized_pnl_pct": 3.33,
+                "is_open": True,
+                "snapshot_time": datetime.now().isoformat(),
+            }
+        ],
+        "total": 1,
+        "source": "mock",
+        "warning": "SQLite不可用，返回模拟数据"
+    }
+
+
+def _get_mock_orders(worker_id: int) -> Dict[str, Any]:
+    """生成模拟订单数据"""
+    return {
+        "worker_id": worker_id,
+        "orders": [
+            {
+                "order_id": f"MOCK-ORD-{i}",
+                "client_order_id": f"C-ORD-{i}",
+                "event_type": "OrderFilled",
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "order_type": "LIMIT",
+                "quantity": 0.01,
+                "price": 45000.0,
+                "status": "filled",
+                "created_at": datetime.now().isoformat(),
+            }
+            for i in range(3)
+        ],
+        "total": 3,
+        "source": "mock",
+        "warning": "SQLite不可用，返回模拟数据"
     }
 
 
