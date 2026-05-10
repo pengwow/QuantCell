@@ -47,7 +47,7 @@ def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
         cpu_limit=worker_data.cpu_limit or 1,
         memory_limit=worker_data.memory_limit or 512,
         env_vars=json.dumps(worker_data.env_vars) if worker_data.env_vars else '{}',
-        config=json.dumps(worker_data.config) if worker_data.config else '{}',
+        config=json.dumps({**(worker_data.config or {}), 'strategy_file_name': worker_data.strategy_file_name}) if (worker_data.config or worker_data.strategy_file_name) else '{}',
         status="stopped",
         created_at=datetime.now(),
         updated_at=datetime.now()

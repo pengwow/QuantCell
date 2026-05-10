@@ -35,6 +35,12 @@ class WorkerBase(BaseModel):
 
 class WorkerCreate(WorkerBase):
     """创建Worker请求模型"""
+    # 策略相关字段
+    strategy_file_name: Optional[str] = Field(
+        default=None,
+        description="策略文件名称（如 grid_order_validation.py），当 strategy_id 在数据库中找不到时使用"
+    )
+
     # 交易配置（新格式）
     trading_config: Optional[TradingConfig] = Field(None, description="交易配置")
     # 兼容旧版本的字段

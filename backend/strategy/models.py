@@ -48,7 +48,7 @@ class Strategy(Base):
 
     # 关联关系
     parameters = relationship("StrategyParameter", back_populates="strategy", cascade="all, delete-orphan")
-    # workers 关系由 Worker 模型中的 relationship 使用 backref 自动创建
+    workers = relationship("Worker", back_populates="strategy", lazy="dynamic")
 
     __table_args__ = (
         Index('idx_strategy_name', 'name'),
