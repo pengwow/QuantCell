@@ -307,30 +307,99 @@ async def start_worker(
         # 获取 WorkerManager 实例
         manager = await get_worker_manager()
         
-        # 获取策略信息（优先使用数据库中的 code 字段）
+        # 获取策略信息（三层回退机制）
         strategy_path = None
         strategy_code = None
-        if worker.strategy_id:
-            # 从策略表中获取策略信息
-            from strategy.models import Strategy
-            strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
-            if strategy:
-                # 优先使用数据库中的 code 字段
-                if strategy.code:
-                    strategy_code = strategy.code
-                    logger.info(f"使用数据库策略代码 (策略: {strategy.name}, ID: {strategy.id})")
-                # 如果没有 code，尝试使用 file_name 构建路径
-                elif strategy.file_name:
-                    strategy_path = f"strategies/{strategy.file_name}"
-                    logger.info(f"使用策略路径: {strategy_path} (策略: {strategy.name})")
+        strategy_found = False
+
+        import json as json_lib
+        worker_config = {}
+        if worker.config:
+            try:
+                worker_config = json_lib.loads(worker.config) if isinstance(worker.config, str) else worker_config
+            except Exception:
+                pass
+
+        strategy_file_name_from_config = worker_config.get('strategy_file_name')
+
+        if worker.strategy_id or strategy_file_name_from_config:
+            # Layer 1: 从数据库查询（最优先）
+            if worker.strategy_id:
+                from strategy.models import Strategy
+                strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
+
+                if strategy:
+                    strategy_found = True
+                    if strategy.code:
+                        strategy_code = strategy.code
+                        logger.info(f"[策略加载] 使用数据库策略代码 (策略: {strategy.name}, ID: {strategy.id})")
+                    elif strategy.file_name:
+                        strategy_path = f"strategies/{strategy.file_name}"
+                        logger.info(f"[策略加载] 使用策略文件名 (策略: {strategy.name}, 文件: {strategy.file_name})")
+                    else:
+                        logger.warning(f"[策略加载] 数据库策略缺少 code 和 file_name (ID: {strategy.id})")
+
+            # Layer 2: 通过 strategy_file_name 参数查找（新增）
+            if not strategy_found and strategy_file_name_from_config:
+                file_name = strategy_file_name_from_config
+                full_path = f"strategies/{file_name}"
+
+                import os
+                if os.path.exists(full_path):
+                    strategy_path = full_path
+                    strategy_found = True
+                    logger.info(f"[策略加载] 通过文件名找到策略文件: {full_path}")
                 else:
-                    # 回退：使用策略ID作为文件名
-                    strategy_path = f"strategies/{worker.strategy_id}.py"
-                    logger.warning(f"策略代码和文件均未找到，使用默认路径: {strategy_path}")
-            else:
-                # 回退：使用策略ID作为文件名
-                strategy_path = f"strategies/{worker.strategy_id}.py"
-                logger.warning(f"策略未找到，使用默认路径: {strategy_path}")
+                    logger.warning(f"[策略加载] 策略文件不存在: {full_path}")
+
+            # Layer 3: 文件系统扫描（兜底）
+            if not strategy_found:
+                logger.info("[策略加载] 数据库和精确文件名均未找到，开始文件系统扫描...")
+
+                from pathlib import Path
+                strategies_dir = Path("strategies")
+
+                if strategies_dir.exists():
+                    candidates = []
+
+                    if worker.strategy_id:
+                        candidates.append(f"{worker.strategy_id}.py")
+
+                    if strategy_file_name_from_config:
+                        candidates.append(strategy_file_name_from_config)
+
+                    candidates.append(f"{worker.name.lower().replace(' ', '_')}.py")
+
+                    for candidate in candidates:
+                        candidate_path = strategies_dir / candidate
+                        if candidate_path.exists():
+                            strategy_path = str(candidate_path)
+                            strategy_found = True
+                            logger.info(f"[策略加载] 文件系统扫描找到策略: {candidate_path}")
+                            break
+
+                    if not strategy_found:
+                        available_files = list(strategies_dir.glob("*.py"))
+                        available_names = [f.stem for f in available_files if f.stem != "__init__"]
+                        logger.error(
+                            f"[策略加载] 策略文件未找到！\n"
+                            f"   - strategy_id: {worker.strategy_id}\n"
+                            f"   - strategy_file_name: {strategy_file_name_from_config}\n"
+                            f"   - 可用策略文件: {available_names}"
+                        )
+                else:
+                    logger.error(f"[策略加载] 策略目录不存在: {strategies_dir.absolute()}")
+
+        # 最终检查
+        if not strategy_code and not strategy_path:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"无法加载策略文件。"
+                    f"strategy_id={worker.strategy_id}, "
+                    f"请确认策略已正确配置或在数据库中存在。"
+                )
+            )
 
         # 记录实际使用的策略路径
         if strategy_path:

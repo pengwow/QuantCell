@@ -9,8 +9,10 @@ import asyncio
 import signal
 import os
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from decimal import Decimal
+from datetime import datetime
+import json
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器
@@ -62,6 +64,11 @@ class WorkerProcess(multiprocessing.Process):
         # 统计信息
         self._messages_processed = 0
         self._orders_placed = 0
+
+        # 交易记录缓存（用于采集 NautilusTrader 的成交数据）
+        self._trade_records: List[Dict[str, Any]] = []
+        self._max_trade_records: int = 1000
+        self._last_save_time: float = 0.0
 
     def run(self):
         """
@@ -359,29 +366,53 @@ class WorkerProcess(multiprocessing.Process):
                 raise ImportError(f"在策略代码中未找到策略类")
 
             # 实例化策略
-            # 检查是否是 Nautilus 格式的策略（继承自 StrategyBase）
-            from strategy.core import StrategyBase
+            # 检查是否是 Nautilus 格式的策略
             is_nautilus_strategy = False
+
             try:
-                is_nautilus_strategy = issubclass(strategy_class, StrategyBase)
+                from strategy.core import StrategyBase as QuantCellStrategyBase
+
+                # 检查 1: QuantCell 旧基类的子类
+                if issubclass(strategy_class, QuantCellStrategyBase):
+                    is_nautilus_strategy = True
+                    logger.info(f"[_load_strategy] 策略是 QuantCell StrategyBase 子类")
             except TypeError:
                 pass  # strategy_class 不是类
+
+            try:
+                # 检查 2: NautilusTrader 原生 Strategy 的子类（Cython 编译）
+                from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
+
+                if not is_nautilus_strategy and issubclass(strategy_class, NautilusStrategy):
+                    is_nautilus_strategy = True
+                    logger.info(f"[_load_strategy] 策略是 NautilusTrader 原生 Strategy 子类")
+            except (TypeError, ImportError) as e:
+                logger.debug(f"[_load_strategy] 检查 NautilusStrategy 失败: {e}")
+                pass  # 导入失败或不是类
+
+            # 检查 3: 通过属性特征判断（兜底）
+            if not is_nautilus_strategy:
+                nautilus_attrs = ['order_factory', 'portfolio', 'cache', 'submit_order', 'cancel_order']
+                has_nautilus_attrs = all(hasattr(strategy_class, attr) for attr in nautilus_attrs)
+                if has_nautilus_attrs:
+                    is_nautilus_strategy = True
+                    logger.info(f"[_load_strategy] 通过属性检测识别为 Nautilus 策略")
 
             logger.info(f"[_load_strategy] 策略类 {strategy_class.__name__} 是 Nautilus 策略: {is_nautilus_strategy}")
 
             if is_nautilus_strategy:
                 # Nautilus 格式策略 - 需要创建配置对象
-                self.strategy = self._create_nautilus_strategy(strategy_class, module)
+                self.trading_strategy = self._create_nautilus_strategy(strategy_class, module)
             else:
                 # 旧格式策略 - 使用字典参数
                 strategy_params = self.config.get("params", {})
-                self.strategy = strategy_class(strategy_params)
+                self.trading_strategy = strategy_class(strategy_params)
 
             # 更新状态信息
             self.status.strategy_name = strategy_name or strategy_class.__name__
 
             # 调用策略初始化
-            if hasattr(self.strategy, "on_init"):
+            if hasattr(self.trading_strategy, "on_init"):
                 await self._call_strategy_method("on_init")
 
             logger.info(f"Worker {self.worker_id} 策略加载完成: {strategy_class.__name__}")
@@ -392,70 +423,311 @@ class WorkerProcess(multiprocessing.Process):
 
     def _create_nautilus_strategy(self, strategy_class, module):
         """
-        创建 Nautilus 格式的策略实例
+        创建 NautilusTrader 原生格式的策略实例
 
-        Nautilus 策略需要配置对象作为构造函数参数
+        支持两种 Config 来源：
+        1. 策略文件中的自定义 Config 类（优先）- 如 EMACrossConfig
+        2. 动态构建通用 Config（兜底）- 当没有专用 Config 时
+
+        关键改进：
+        - 使用原生 nautilus_trader.config.StrategyConfig
+        - 正确处理 instrument_id (单值) 和 bar_type (BarType 对象)
+        - 自动检测并转换字段类型
         """
-        from strategy.core import StrategyConfig, InstrumentId
-        from decimal import Decimal
+        import inspect
 
-        # 获取配置类
+        logger.info(f"[_create_nautilus] 开始创建策略: {strategy_class.__name__}")
+
+        # ====== Step 1: 获取或创建 Config 类 ======
         config_class = None
-        config_class_name = strategy_class.__name__ + "Config"
-        if hasattr(module, config_class_name):
-            config_class = getattr(module, config_class_name)
-        else:
-            # 使用默认的 StrategyConfig
-            config_class = StrategyConfig
-
-        # 从配置中获取交易品种
-        symbols = self.config.get("symbols", ["BTCUSDT"])
-        exchange = self.config.get("exchange", "binance")
-        timeframe = self.config.get("timeframe", "1h")
-
-        # 创建 InstrumentId 列表
-        instrument_ids = [
-            InstrumentId(symbol, exchange.upper())
-            for symbol in symbols
+        
+        # 尝试多种可能的 Config 类名（按优先级排序）
+        possible_config_names = [
+            f"{strategy_class.__name__}Config",                    # 策略全名 + Config (如 EMACrossStrategyConfig)
+            strategy_class.__name__.replace("Strategy", "") + "Config",  # 去掉 Strategy 后缀 (如 GridOrderValidationConfig)
+            f"{strategy_class.__name__.split('Strategy')[0]}Config",   # 只取第一部分 + Config
         ]
-
-        # 转换时间周期格式 (e.g., "1h" -> "1-HOUR")
-        bar_type = self._convert_timeframe_to_bar_type(timeframe)
-        bar_types = [bar_type] * len(instrument_ids)
-
-        # 获取策略参数
-        params = self.config.get("params", {})
-
-        # 创建配置对象
-        try:
-            # 尝试使用策略特定的配置类
-            if config_class != StrategyConfig:
-                config = config_class(
-                    instrument_ids=instrument_ids,
-                    bar_types=bar_types,
-                    **params
-                )
+        
+        logger.info(f"[_create_nautilus] 开始查找策略专用 Config 类...")
+        
+        for config_class_name in possible_config_names:
+            logger.info(f"[_create_nautilus] 尝试查找: {config_class_name}")
+            
+            if hasattr(module, config_class_name):
+                config_class = getattr(module, config_class_name)
+                logger.info(f"[_create_nautilus] ✅ 找到策略专用 Config 类: {config_class_name}")
+                break
             else:
-                # 使用默认配置
-                config = StrategyConfig(
-                    instrument_ids=instrument_ids,
-                    bar_types=bar_types,
-                    trade_size=Decimal("0.1"),
-                    log_level="INFO"
-                )
-        except Exception as e:
-            logger.warning(f"创建配置对象失败，使用默认配置: {e}")
-            config = StrategyConfig(
-                instrument_ids=instrument_ids,
-                bar_types=bar_types,
-                trade_size=Decimal("0.1"),
-                log_level="INFO"
+                logger.debug(f"[_create_nautilus] 未找到: {config_class_name}")
+        
+        if config_class is None:
+            # 列出模块中所有包含 "Config" 的类作为参考
+            all_classes_in_module = [
+                name for name in dir(module)
+                if not name.startswith('_') and isinstance(getattr(module, name), type) and 'Config' in name
+            ]
+            logger.error(
+                f"[_create_nautilus] ❌ 未找到任何匹配的 Config 类\n"
+                f"[_create_nautilus] 尝试过的名称: {possible_config_names}\n"
+                f"[_create_nautilus] 模块中包含'Config'的类: {all_classes_in_module}"
             )
 
-        # 创建策略实例
-        strategy = strategy_class(config)
-        logger.info(f"创建 Nautilus 策略实例: {strategy_class.__name__}，品种: {symbols}")
-        return strategy
+        # ====== Step 2: 从 Worker 配置提取参数 ======
+        symbols = self.config.get("symbols", ["BTCUSDT"])
+        exchange_raw = self.config.get("exchange", "binance")
+        timeframe = self.config.get("timeframe", "1m")
+        params = self.config.get("params", {})
+
+        # 处理 exchange 参数（可能是字典或字符串）
+        if isinstance(exchange_raw, dict):
+            exchange_name = exchange_raw.get("exchange", "binance")
+            logger.debug(f"[_create_nautilus] exchange 参数是字典，提取名称: {exchange_name}")
+        else:
+            exchange_name = str(exchange_raw) if exchange_raw else "binance"
+
+        logger.info(
+            f"[_create_nautilus] 提取配置参数: "
+            f"symbols={symbols}, exchange={exchange_name}, timeframe={timeframe}"
+        )
+
+        # ====== Step 3: 构造 Config 参数 ======
+        try:
+            if config_class is not None:
+                # 使用策略专用的 Config 类（如 EMACrossConfig, GridOrderValidationConfig）
+                config = self._build_native_config(
+                    config_class, symbols, exchange_name, timeframe, params
+                )
+            else:
+                # 没有找到专用 Config 类
+                # 原生 NautilusTrader 策略必须有自己的 Config 子类
+                # 如果没有，说明这不是一个标准的原生策略，应该使用旧版 Dict 模式
+                logger.error(
+                    f"[_create_nautilus] 策略 {strategy_class.__name__} "
+                    f"没有找到专用的 Config 类 (期望: {strategy_class.__name__}Config)"
+                )
+                raise TypeError(
+                    f"原生 NautilusTrader 策略 {strategy_class.__name__} "
+                    f"必须定义专用的 Config 子类 (继承自 StrategyConfig)，"
+                    f"包含 instrument_id 和 bar_type 字段"
+                )
+
+            # ====== Step 4: 创建策略实例 ======
+            logger.info(f"[_create_nautilus] 正在实例化策略...")
+            strategy = strategy_class(config)
+
+            logger.info(
+                f"[_create_nautilus] 成功创建策略实例: "
+                f"{strategy_class.__name__}, 品种: {symbols}"
+            )
+            return strategy
+
+        except Exception as e:
+            logger.error(f"[_create_nautilus] 创建策略失败: {e}")
+            import traceback
+            logger.error(f"[_create_nautilus] 异常堆栈:\n{traceback.format_exc()}")
+            raise
+
+    def _build_native_config(self, config_class, symbols, exchange, timeframe, params):
+        """
+        使用策略专用的 Config 类构建配置对象
+
+        处理字段映射和类型转换：
+        - Worker 配置中的 symbols (list[str]) → instrument_id (InstrumentId)
+        - Worker 配置中的 timeframe (str) → bar_type (BarType)
+        - 其他 params 直接传递给 Config
+
+        Parameters
+        ----------
+        config_class : type
+            策略专用的 Config 类（如 EMACrossConfig）
+        symbols : list[str]
+            交易品种列表（从 Worker 配置获取）
+        exchange : str
+            交易所标识（如 "binance"）
+        timeframe : str
+            时间周期（如 "1m", "1h"）
+        params : dict
+            用户传入的额外策略参数
+
+        Returns
+        -------
+        config : StrategyConfig
+            构建完成的配置对象
+        """
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.data import BarType
+        from nautilus_trader.model.enums import PriceType, AggregationSource
+
+        # 构造 instrument_id（取第一个品种，因为原生策略通常只支持单品种）
+        symbol = symbols[0] if symbols else "BTCUSDT"
+        
+        # 清理品种名称：移除 "/" 等特殊字符（如 "ETH/USDT" → "ETHUSDT"）
+        clean_symbol = symbol.replace("/", "").replace("-", "")
+        
+        # 根据 account_type/market_type 决定品种格式
+        # 参考 NautilusTrader 的 BinanceSymbol.parse_as_nautilus() 实现:
+        # - 现货 (spot): ETHUSDT → "ETHUSDT"
+        # - 永续合约 (usdt_futures/futures): ETHUSDT → "ETHUSDT-PERP"
+        # - 交割合约 (coin_futures): BTCUSD240628 → "BTCUSD240628" (保持原样)
+        exchange_raw = self.config.get("exchange", {})
+        
+        # 获取账户类型（支持多种字段名）
+        account_type = None
+        if isinstance(exchange_raw, dict):
+            # 尝试多个可能的字段名
+            for key in ["account_type", "market_type", "trading_mode"]:
+                if exchange_raw.get(key):
+                    account_type = str(exchange_raw[key]).lower()
+                    logger.info(f"[_build_native_config] 从 '{key}' 获取到交易类型: {account_type}")
+                    break
+            
+            if not account_type:
+                account_type = "spot"  # 默认现货
+                logger.warning(f"[_build_native_config] 未找到交易类型字段，默认使用: spot")
+        else:
+            account_type = str(exchange_raw).lower() if exchange_raw else "spot"
+        
+        logger.info(f"[_build_native_config] 最终使用的交易类型: {account_type}")
+        
+        # 判断是否是合约模式（更宽松的匹配）
+        is_futures = any(keyword in account_type for keyword in [
+            "futures", "perp", "swap", "contract", "usdt", "coin"
+        ])
+        
+        # 判断是否是永续合约
+        is_perp = any(keyword in account_type for keyword in [
+            "_perp", "perpetual", "swap", "usdt_futures", "usdt_perpetual"
+        ])
+        
+        if is_futures and is_perp:
+            nautilus_symbol = f"{clean_symbol}-PERP"  # 永续合约: ETHUSDT-PERP
+            logger.info(f"[_build_native_config] ✅ 使用永续合约格式: {nautilus_symbol}")
+        elif is_futures:
+            nautilus_symbol = clean_symbol  # 其他合约
+            logger.info(f"[_build_native_config] ✅ 使用合约格式: {nautilus_symbol}")
+        else:
+            nautilus_symbol = clean_symbol  # 现货
+            logger.info(f"[_build_native_config] 使用现货格式: {nautilus_symbol}")
+        
+        instrument_id = InstrumentId.from_str(f"{nautilus_symbol}.{exchange.upper()}")
+
+        # 构造 bar_type（从时间周期字符串转换，使用完整格式）
+        # BarType 完整格式: {SYMBOL}.{EXCHANGE}-{TIMEFRAME}-{PRICE_TYPE}-{AGGREGATION_SOURCE}
+        # 例如: ETHUSDT-PERP.BINANCE-1-HOUR-LAST-EXTERNAL
+        bar_spec = self._convert_timeframe_to_bar_type(timeframe)
+        full_bar_type_str = f"{nautilus_symbol}.{exchange.upper()}-{bar_spec}-LAST-{AggregationSource.EXTERNAL.name}"
+        bar_type = BarType.from_str(full_bar_type_str)
+
+        # 基础必需参数
+        config_kwargs = {
+            'instrument_id': instrument_id,
+            'bar_type': bar_type,
+        }
+
+        # 合并用户传入的额外参数（如 trade_size, fast_ema_period 等）
+        # 注意：需要过滤掉无效的参数名
+        valid_extra_params = {}
+        for key, value in params.items():
+            # 过滤掉 Worker 特有的参数，只保留策略参数
+            if key not in ['symbols', 'exchange', 'timeframe', 'instrument_ids', 'bar_types',
+                          'strategy_code', 'strategy_id', 'strategy_class']:
+                valid_extra_params[key] = value
+
+        config_kwargs.update(valid_extra_params)
+
+        logger.info(
+            f"[_build_native_config] 构建 {config_class.__name__}:\n"
+            f"  - instrument_id: {instrument_id}\n"
+            f"  - bar_type: {bar_type}\n"
+            f"  - 额外参数: {list(valid_extra_params.keys())}"
+        )
+
+        # 创建 Config 实例
+        return config_class(**config_kwargs)
+
+    def _build_generic_config(self, strategy_class, symbols, exchange, timeframe, params):
+        """
+        当策略没有专用 Config 类时，动态构建兼容的 Config 对象
+
+        通过检查策略 __init__ 签名推断所需参数，
+        并使用原生 StrategyConfig 作为基类。
+
+        Parameters
+        ----------
+        strategy_class : type
+            策略类
+        symbols : list[str]
+            交易品种列表
+        exchange : str
+            交易所标识
+        timeframe : str
+            时间周期
+        params : dict
+            额外策略参数
+
+        Returns
+        -------
+        config : StrategyConfig
+            通用配置对象
+        """
+        from decimal import Decimal
+        import inspect
+        from nautilus_trader.model.identifiers import InstrumentId
+        from nautilus_trader.model.data import BarType
+        from nautilus_trader.config import StrategyConfig as NativeStrategyConfig
+
+        # 构造基础参数
+        symbol = symbols[0] if symbols else "BTCUSDT"
+        # 清理品种名称：移除 "/" 等特殊字符（如 "ETH/USDT" → "ETHUSDT"）
+        clean_symbol = symbol.replace("/", "").replace("-", "")
+        instrument_id = InstrumentId.from_str(f"{clean_symbol}.{exchange.upper()}")
+
+        # 构造 bar_type（从时间周期字符串转换，使用完整格式）
+        # BarType 完整格式: {SYMBOL}.{EXCHANGE}-{TIMEFRAME}-{PRICE_TYPE}-{AGGREGATION_SOURCE}
+        from nautilus_trader.model.enums import PriceType, AggregationSource
+        bar_spec = self._convert_timeframe_to_bar_type(timeframe)
+        full_bar_type_str = f"{clean_symbol}.{exchange.upper()}-{bar_spec}-LAST-{AggregationSource.EXTERNAL.name}"
+        bar_type = BarType.from_str(full_bar_type_str)
+
+        # 检查策略 __init__ 需要哪些参数（除了 self 和 config）
+        # 注意：Cython 编译的类可能无法获取签名
+        init_params = []
+        try:
+            init_signature = inspect.signature(strategy_class.__init__)
+            init_params = [
+                name for name in init_signature.parameters.keys()
+                if name not in ('self', 'config')
+            ]
+        except (ValueError, TypeError) as e:
+            logger.warning(
+                f"[_build_generic_config] 无法获取 {strategy_class.__name__} 的 __init__ 签名: {e}\n"
+                f"将只使用基础配置参数（instrument_id, bar_type）和用户传入的额外参数"
+            )
+
+        logger.info(f"[_build_generic_config] 策略 __init__ 额外参数: {init_params}")
+
+        # 构建配置字典
+        config_dict = {
+            'instrument_id': instrument_id,
+            'bar_type': bar_type,
+        }
+
+        # 如果策略需要 trade_size
+        if 'trade_size' in init_params or 'order_size' in init_params:
+            size_key = 'trade_size' if 'trade_size' in init_params else 'order_size'
+            size_value = params.get('order_size', params.get('trade_size', '0.001'))
+            config_dict[size_key] = Decimal(str(size_value))
+
+        # 传递其他可能的参数
+        for key, value in params.items():
+            if key not in ['instrument_id', 'bar_type', 'trade_size', 'order_size',
+                         'symbols', 'exchange', 'timeframe']:
+                if key in init_params:
+                    config_dict[key] = value
+
+        logger.info(f"[_build_generic_config] 最终配置字典: {list(config_dict.keys())}")
+
+        return NativeStrategyConfig(**config_dict)
 
     def _convert_timeframe_to_bar_type(self, timeframe: str) -> str:
         """
@@ -523,9 +795,9 @@ class WorkerProcess(multiprocessing.Process):
                 return
 
             # 调用策略回调
-            if data_type == "kline" and hasattr(self.strategy, "on_bar"):
+            if data_type == "kline" and hasattr(self.trading_strategy, "on_bar"):
                 await self._call_strategy_method("on_bar", data)
-            elif data_type == "tick" and hasattr(self.strategy, "on_tick"):
+            elif data_type == "tick" and hasattr(self.trading_strategy, "on_tick"):
                 await self._call_strategy_method("on_tick", data)
 
         except Exception as e:
@@ -577,7 +849,7 @@ class WorkerProcess(multiprocessing.Process):
     async def _handle_update_params(self, params: Dict[str, Any]):
         """处理更新参数命令"""
         logger.info(f"Worker {self.worker_id} 收到更新参数命令")
-        if self.strategy and hasattr(self.strategy, "update_params"):
+        if self.trading_strategy and hasattr(self.trading_strategy, "update_params"):
             await self._call_strategy_method("update_params", params)
         await self._send_status(MessageType.STATUS_UPDATE)
 
@@ -587,11 +859,11 @@ class WorkerProcess(multiprocessing.Process):
 
         包装策略方法调用，捕获异常防止策略错误导致 Worker 崩溃
         """
-        if not self.strategy:
+        if not self.trading_strategy:
             return
 
         try:
-            method = getattr(self.strategy, method_name, None)
+            method = getattr(self.trading_strategy, method_name, None)
             if method is None:
                 return
 
@@ -664,7 +936,7 @@ class WorkerProcess(multiprocessing.Process):
         logger.info(f"Worker {self.worker_id} 开始清理资源")
 
         # 调用策略清理方法
-        if self.strategy and hasattr(self.strategy, "on_stop"):
+        if self.trading_strategy and hasattr(self.trading_strategy, "on_stop"):
             try:
                 await self._call_strategy_method("on_stop")
             except Exception as e:
@@ -977,13 +1249,37 @@ class TradingNodeWorkerProcess(WorkerProcess):
             # 3. 加载策略
             await self._load_trading_strategy()
 
+            # 3.5 将策略注册到 TradingNode（通过 Trader 对象）
+            if self.trading_strategy is not None:
+                logger.info(f"Worker {self.worker_id} 将策略注册到 TradingNode...")
+                try:
+                    # ✅ 正确：通过 trader 属性访问 add_strategy 方法
+                    # 参考 NautilusTrader 官方示例: node.trader.add_strategy(strategy)
+                    self.trading_node.trader.add_strategy(self.trading_strategy)
+                    logger.info(
+                        f"Worker {self.worker_id} 策略已成功注册到 TradingNode: "
+                        f"{type(self.trading_strategy).__name__}"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Worker {self.worker_id} 注册策略到 TradingNode 失败: {e}"
+                    )
+                    raise
+            else:
+                logger.error(f"Worker {self.worker_id} 策略加载失败，trading_strategy 为 None!")
+                raise RuntimeError("策略加载失败")
+
             # 4. 启动 TradingNode
             await self._handle_start()
 
             logger.info(f"Worker {self.worker_id} TradingNode 启动完成，开始运行")
 
+            # 4.5 注册交易事件监听器
+            self._setup_trade_event_handlers()
+
             # 5. 主循环 - 等待关闭信号
             check_count = 0
+            save_interval_counter = 0
             while not self._shutdown_event.is_set():
                 # 每5秒检查一次 Nautilus 状态
                 check_count += 1
@@ -992,13 +1288,23 @@ class TradingNodeWorkerProcess(WorkerProcess):
                     if not is_healthy:
                         logger.warning(f"Worker {self.worker_id} Nautilus 健康检查失败")
 
+                # 每30秒触发一次数据持久化（备份机制）
+                save_interval_counter += 1
+                if save_interval_counter >= 30:
+                    await self._save_pending_trades_to_db()
+                    save_interval_counter = 0
+
                 # 发送心跳
                 await self._send_heartbeat()
 
                 # 等待一段时间
                 await asyncio.sleep(1)
 
-            # 6. 主循环结束，停止 Nautilus 运行任务
+            # 6. 主循环结束，保存剩余交易记录
+            logger.info(f"[{self.worker_id}] 正在保存最后的交易记录...")
+            await self._save_pending_trades_to_db()
+
+            # 7. 停止 Nautilus 运行任务
             if hasattr(self, '_nautilus_run_task') and self._nautilus_run_task:
                 logger.info(f"Worker {self.worker_id} 正在停止 Nautilus 运行任务...")
                 self._nautilus_run_task.cancel()
@@ -1010,8 +1316,13 @@ class TradingNodeWorkerProcess(WorkerProcess):
 
         except asyncio.CancelledError:
             logger.info(f"Worker {self.worker_id} 控制循环被取消，正在优雅退出")
+            await self._save_pending_trades_to_db()
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 主循环异常: {e}")
+            try:
+                await self._save_pending_trades_to_db()
+            except:
+                pass
             self.status.update_state(WorkerState.ERROR)
             self.status.record_error(str(e))
             await self._send_status(MessageType.ERROR)
@@ -1132,6 +1443,219 @@ class TradingNodeWorkerProcess(WorkerProcess):
         except Exception as e:
             logger.warning(f"Worker {self.worker_id} 验证日志配置失败: {e}")
 
+    def _setup_trade_event_handlers(self):
+        """
+        注册 NautilusTrader 事件处理器以捕获交易数据
+
+        订阅 MessageBus 的订单事件，将 OrderFilled 转换为内部格式
+        """
+        if not hasattr(self, 'trading_node') or not self.trading_node:
+            logger.warning(f"[{self.worker_id}] TradingNode 未初始化，跳过事件注册")
+            return
+
+        try:
+            kernel = self.trading_node.kernel
+            msgbus = kernel.msgbus
+
+            msgbus.subscribe(
+                topic="events.order.*",
+                handler=self._on_nautilus_order_event,
+                priority=20
+            )
+
+            logger.info(f"[{self.worker_id}] 已成功注册 NautilusTrader 事件监听器")
+
+        except Exception as e:
+            logger.error(f"[{self.worker_id}] 注册事件监听器失败: {e}")
+
+    def _on_nautilus_order_event(self, event):
+        """
+        处理来自 NautilusTrader 的订单事件
+
+        Parameters
+        ----------
+        event : OrderEvent
+            NautilusTrader 的订单事件对象
+        """
+        try:
+            event_type_name = type(event).__name__
+
+            if event_type_name == "OrderFilled":
+                self._process_order_filled_event(event)
+            else:
+                logger.debug(
+                    f"[{self.worker_id}] 收到订单事件: {event_type_name}, "
+                    f"order_id={getattr(event, 'client_order_id', 'N/A')}"
+                )
+
+        except Exception as e:
+            logger.error(f"[{self.worker_id}] 处理订单事件异常: {e}", exc_info=True)
+
+    def _process_order_filled_event(self, event):
+        """
+        处理 OrderFilled 事件 - 核心数据提取逻辑
+
+        将 NautilusTrader 的 OrderFilled 对象转换为标准字典格式，
+        并存储到内存缓存中供后续持久化使用。
+        """
+        try:
+            from nautilus_trader.model.enums import order_side_to_str, order_type_to_str
+
+            def safe_str(attr):
+                if attr is None:
+                    return None
+                return str(attr)
+
+            def safe_float(attr):
+                if attr is None:
+                    return 0.0
+                try:
+                    return float(attr)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            trade_record = {
+                "trade_id": safe_str(getattr(event, 'trade_id', None)),
+                "client_order_id": safe_str(getattr(event, 'client_order_id', None)),
+                "venue_order_id": safe_str(getattr(event, 'venue_order_id', None)),
+                "instrument_id": safe_str(getattr(event, 'instrument_id', None)),
+                "symbol": self._extract_symbol_from_instrument_id(
+                    safe_str(getattr(event, 'instrument_id', None))
+                ),
+                "order_side": order_side_to_str(getattr(event, 'order_side', None)).upper(),
+                "order_type": order_type_to_str(getattr(event, 'order_type', None)).lower(),
+                "quantity": safe_float(getattr(event, 'last_qty', None)),
+                "price": safe_float(getattr(event, 'last_px', None)),
+                "amount": safe_float(getattr(event, 'last_qty', None)) * safe_float(getattr(event, 'last_px', None)),
+                "commission": safe_float(getattr(event, 'commission', None)),
+                "currency": safe_str(getattr(event, 'currency', None)) or "USDT",
+                "liquidity_side": safe_str(getattr(event, 'liquidity_side', None)),
+                "account_id": safe_str(getattr(event, 'account_id', None)),
+                "strategy_id": safe_str(getattr(event, 'strategy_id', None)),
+                "position_id": safe_str(getattr(event, 'position_id', None)),
+                "ts_event": getattr(event, 'ts_event', 0),
+                "ts_init": getattr(event, 'ts_init', 0),
+                "created_at": datetime.utcnow().isoformat(),
+                "source": "nautilus_live",
+                "worker_id": str(self.worker_id),
+            }
+
+            self._trade_records.append(trade_record)
+
+            if len(self._trade_records) > self._max_trade_records:
+                self._trade_records = self._trade_records[-self._max_trade_records:]
+
+            logger.info(
+                f"[{self.worker_id}] 捕获成交记录: "
+                f"{trade_record['order_side']} {trade_record['quantity']} {trade['symbol']} "
+                f"@ {trade_record['price']} {trade_record['currency']}"
+            )
+
+            self._trigger_trade_persistence()
+
+        except Exception as e:
+            logger.error(f"[{self.worker_id}] 处理 OrderFilled 事件失败: {e}", exc_info=True)
+
+    def _extract_symbol_from_instrument_id(self, instrument_id: str) -> str:
+        """
+        从 InstrumentId 中提取交易对符号
+
+        Example:
+            "ETHUSDT-PERP.BINANCE" -> "ETHUSDT"
+            "BTCUSDT.BINANCE" -> "BTCUSDT"
+        """
+        if not instrument_id:
+            return "UNKNOWN"
+
+        parts = instrument_id.split('.')
+        base = parts[0] if parts else instrument_id
+
+        symbol = base.split('-')[0]
+
+        return symbol
+
+    def _trigger_trade_persistence(self):
+        """
+        触发交易记录持久化（带节流控制）
+
+        避免频繁写入数据库，采用以下策略：
+        - 首次立即保存
+        - 后续每30秒批量保存一次
+        - 进程退出时强制保存
+        """
+        import time
+        current_time = time.time()
+
+        if current_time - self._last_save_time >= 30 or self._last_save_time == 0.0:
+            asyncio.create_task(self._save_pending_trades_to_db())
+            self._last_save_time = current_time
+
+    async def _save_pending_trades_to_db(self):
+        """
+        将待保存的交易记录批量写入数据库
+
+        使用异步操作避免阻塞主循环
+        """
+        if not hasattr(self, '_trade_records') or not self._trade_records:
+            return
+
+        try:
+            from worker.models import WorkerTrade
+            from collector.db.database import SessionLocal
+
+            records_to_save = [r.copy() for r in self._trade_records]
+
+            if not records_to_save:
+                return
+
+            db = SessionLocal()
+            try:
+                saved_count = 0
+
+                for record in records_to_save:
+                    existing = db.query(WorkerTrade).filter(
+                        WorkerTrade.trade_id == record.get('trade_id')
+                    ).first()
+
+                    if existing:
+                        continue
+
+                    trade = WorkerTrade(
+                        worker_id=int(self.worker_id),
+                        trade_id=record.get('trade_id') or f"GEN-{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}",
+                        symbol=record.get('symbol', 'UNKNOWN'),
+                        side=record.get('order_side', 'buy').lower(),
+                        order_type=record.get('order_type', 'limit'),
+                        quantity=record.get('quantity', 0.0),
+                        price=record.get('price', 0.0),
+                        amount=record.get('amount', 0.0),
+                        fee=record.get('commission', 0.0),
+                        fee_currency=record.get('currency', 'USDT'),
+                        created_at=datetime.fromisoformat(record['created_at']) if record.get('created_at') else datetime.utcnow(),
+                        raw_data=json.dumps(record, ensure_ascii=False, default=str),
+                    )
+
+                    db.add(trade)
+                    saved_count += 1
+
+                db.commit()
+
+                if saved_count > 0:
+                    logger.info(
+                        f"[{self.worker_id}] 已成功保存 {saved_count} 条交易记录到数据库"
+                    )
+
+            except Exception as e:
+                db.rollback()
+                logger.error(f"[{self.worker_id}] 保存交易记录到数据库失败: {e}", exc_info=True)
+            finally:
+                db.close()
+
+        except ImportError as e:
+            logger.warning(f"[{self.worker_id}] 无法导入数据库模块: {e}")
+        except Exception as e:
+            logger.error(f"[{self.worker_id}] 持久化任务异常: {e}", exc_info=True)
+
     async def _load_trading_strategy(self):
         """加载策略
 
@@ -1199,21 +1723,36 @@ class TradingNodeWorkerProcess(WorkerProcess):
             # 获取策略类（排除抽象基类，自动发现具体子类）
             from strategy.core import StrategyBase
 
-            strategy_class_name = self.config.get("strategy_class", "Strategy")
-            strategy_class = getattr(module, strategy_class_name, None)
+            strategy_class_name = self.config.get("strategy_class")
+            strategy_class = None
 
-            # 验证获取的类是否为有效的具体策略类（非抽象基类）
-            if strategy_class is not None:
-                is_valid = True
-                if isinstance(strategy_class, type):
+            # 如果明确指定了策略类名，尝试获取
+            if strategy_class_name:
+                strategy_class = getattr(module, strategy_class_name, None)
+                
+                # 验证获取的类是否为有效的具体策略类（非抽象基类）
+                if strategy_class is not None and isinstance(strategy_class, type):
+                    is_valid = True
                     try:
-                        # 显式排除 StrategyBase 自身（无论是否通过别名引用）
+                        # 排除 StrategyBase 自身
                         if strategy_class is StrategyBase:
                             is_valid = False
                             logger.info(
                                 f"Worker {self.worker_id} 策略类 {strategy_class_name} "
                                 f"是 StrategyBase 基类本身，自动查找具体子类..."
                             )
+                        # 排除 NautilusTrader 的 Strategy 基类
+                        elif strategy_class_name == "Strategy":
+                            try:
+                                from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
+                                if strategy_class is NautilusStrategy:
+                                    is_valid = False
+                                    logger.info(
+                                        f"Worker {self.worker_id} 策略类 {strategy_class_name} "
+                                        f"是 NautilusTrader Strategy 基类，自动查找具体子类..."
+                                    )
+                            except ImportError:
+                                pass
                         # 排除有未实现抽象方法的子类
                         elif (issubclass(strategy_class, StrategyBase)
                               and getattr(strategy_class, '__abstractmethods__', None)):
@@ -1224,27 +1763,72 @@ class TradingNodeWorkerProcess(WorkerProcess):
                             )
                     except TypeError:
                         pass
-                if not is_valid:
-                    strategy_class = None
+                    
+                    if not is_valid:
+                        strategy_class = None
 
+            # 如果没有找到或未指定，自动发现策略类
             if strategy_class is None:
+                # 导入基类用于类型检查
+                from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
+                
+                logger.info(f"Worker {self.worker_id} 开始自动发现策略类...")
+                
                 for attr_name in dir(module):
+                    # 跳过私有属性和特殊属性
+                    if attr_name.startswith('_'):
+                        continue
+                    
                     attr = getattr(module, attr_name)
                     if isinstance(attr, type):
                         try:
+                            # 检查是否是具体策略类（非抽象、非基类）
+                            is_strategy_base_subclass = False
+                            is_nautilus_strategy_subclass = False
+                            
+                            # 检查1: QuantCell StrategyBase 的子类
+                            try:
+                                is_strategy_base_subclass = (
+                                    issubclass(attr, StrategyBase)
+                                    and attr is not StrategyBase
+                                )
+                            except TypeError:
+                                pass
+                            
+                            # 检查2: NautilusTrader Strategy 的子类
+                            try:
+                                is_nautilus_strategy_subclass = (
+                                    issubclass(attr, NautilusStrategy)
+                                    and attr is not NautilusStrategy
+                                )
+                            except TypeError:
+                                pass
+                            
+                            # 排除抽象类
+                            has_abstract_methods = bool(getattr(attr, '__abstractmethods__', None))
+                            
+                            # 判断是否为有效的具体策略类
                             is_concrete = (
-                                issubclass(attr, StrategyBase)
-                                and attr is not StrategyBase
-                                and not getattr(attr, '__abstractmethods__', None)
+                                (is_strategy_base_subclass or is_nautilus_strategy_subclass)
+                                and not has_abstract_methods
                             )
+                            
                             if is_concrete:
                                 strategy_class = attr
                                 logger.info(
                                     f"Worker {self.worker_id} 自动发现策略类: {attr.__name__}"
+                                    f" (类型: {'Nautilus' if is_nautilus_strategy_subclass else 'QuantCell'})"
                                 )
                                 break
+                                
                         except TypeError:
                             pass
+
+                if strategy_class is None:
+                    logger.error(
+                        f"Worker {self.worker_id} 自动发现策略类失败，"
+                        f"模块中的类列表: {[a for a in dir(module) if not a.startswith('_') and isinstance(getattr(module, a), type)]}"
+                    )
 
             if strategy_class is None:
                 raise ImportError(f"在 {self.strategy_path} 中未找到策略类")
@@ -1252,63 +1836,35 @@ class TradingNodeWorkerProcess(WorkerProcess):
             # 实例化策略（支持两种初始化模式）
             import inspect
 
-            sig = inspect.signature(strategy_class)
-            init_params = list(sig.parameters.keys())
+            # 尝试获取策略 __init__ 签名（用于判断初始化模式）
+            # 注意：Cython 编译的类（如原生 Nautilus Strategy）可能无法获取签名
+            is_nautilus_native = False
+            try:
+                sig = inspect.signature(strategy_class)
+                init_params = list(sig.parameters.keys())
 
-            if ('config' in init_params or 'strategy_config' in init_params) and strategy_class is not StrategyBase:
-                # 模式 A: NautilusTrader 风格 — 需要 StrategyConfig 对象
-                # 从 self.config 构建 InstrumentId 列表和 bar_types
-                symbols = self.config.get("symbols", [])
-                timeframe = self.config.get("timeframe", "1h")
-                trade_size = self.config.get("trade_size", Decimal("0.1"))
+                # 检查是否是 NautilusTrader 原生风格（接收 config 参数）
+                if ('config' in init_params or 'strategy_config' in init_params) and strategy_class is not StrategyBase:
+                    is_nautilus_native = True
+            except (ValueError, TypeError) as e:
+                # Cython 编译的类无法获取签名，通过继承关系判断
+                logger.debug(f"[_load_trading_strategy] 无法获取 {strategy_class.__name__} 的签名: {e}")
+                try:
+                    from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
+                    if strategy_class is not NautilusStrategy and isinstance(strategy_class, type):
+                        try:
+                            if issubclass(strategy_class, NautilusStrategy):
+                                is_nautilus_native = True
+                                logger.info(f"[_load_trading_strategy] 通过继承关系识别为原生 Nautilus 策略")
+                        except TypeError:
+                            pass
+                except ImportError:
+                    pass
 
-                instrument_ids = []
-                for symbol in symbols:
-                    try:
-                        from strategy.core.data_types import InstrumentId
-                        instrument_ids.append(InstrumentId(symbol, "BINANCE"))
-                    except Exception:
-                        pass
-
-                if not instrument_ids:
-                    logger.warning(f"Worker {self.worker_id} 无法解析交易对，使用默认 BTCUSDT")
-                    from strategy.core.data_types import InstrumentId
-                    instrument_ids = [InstrumentId("BTCUSDT", "BINANCE")]
-
-                bar_types = [timeframe.upper().replace('M', '-MINUTE').replace('H', '-HOUR')
-                              .replace('D', '-DAY').replace('W', '-WEEK')] * len(instrument_ids)
-
-                # 尝试查找策略专用的 Config 类（如 SmaCrossSimpleConfig）
-                strategy_config = None
-                config_class_name = f"{strategy_class.__name__}Config"
-                if hasattr(module, config_class_name):
-                    config_cls = getattr(module, config_class_name)
-                    try:
-                        extra_params = {}
-                        for attr in ['fast_period', 'slow_period', 'n1', 'n2', 'period']:
-                            val = self.config.get(attr)
-                            if val is not None:
-                                extra_params[attr] = val
-                        strategy_config = config_cls(
-                            instrument_ids=instrument_ids,
-                            bar_types=bar_types,
-                            trade_size=trade_size,
-                            **extra_params,
-                        )
-                        logger.info(f"Worker {self.worker_id} 使用 {config_class_name} 实例化策略")
-                    except Exception as e:
-                        logger.warning(f"Worker {self.worker_id} {config_class_name} 构建失败: {e}，回退到基础 StrategyConfig")
-
-                if strategy_config is None:
-                    from strategy.core import StrategyConfig
-                    strategy_config = StrategyConfig(
-                        instrument_ids=instrument_ids,
-                        bar_types=bar_types,
-                        trade_size=trade_size,
-                    )
-
-                self.trading_strategy = strategy_class(strategy_config)
-
+            # 根据检测结果选择实例化方式
+            if is_nautilus_native:
+                # === 新增：调用统一的原生策略创建方法 ===
+                self.trading_strategy = self._create_nautilus_strategy(strategy_class, module)
             else:
                 # 模式 B: 旧版 Dict 参数风格 — 直接 **kwargs 解包
                 strategy_params = self.config.get("params", {})
@@ -1414,6 +1970,12 @@ class TradingNodeWorkerProcess(WorkerProcess):
             self.status.update_state(WorkerState.STOPPING)
             await self._send_status(MessageType.STATUS_UPDATE)
 
+            # 关键修复：先设置关闭事件标志，让主循环立即退出
+            # 这样可以避免主循环在 Nautilus 停止后仍执行健康检查输出失败日志
+            logger.info(f"[Stop] Worker {self.worker_id} 设置 _shutdown_event (优先)")
+            self._shutdown_event.set()
+            logger.info(f"[Stop] Worker {self.worker_id} _shutdown_event 已设置")
+
             # 1. 停止 Nautilus 运行任务（如果存在）
             if hasattr(self, '_nautilus_run_task') and self._nautilus_run_task:
                 logger.info(f"Worker {self.worker_id} 正在停止 Nautilus 运行任务...")
@@ -1437,7 +1999,6 @@ class TradingNodeWorkerProcess(WorkerProcess):
             # 3. 停止 TradingNode
             if self.trading_node:
                 try:
-                    # 尝试调用 dispose 或 stop 方法（兼容同步/异步）
                     if hasattr(self.trading_node, 'dispose'):
                         self.trading_node.dispose()
                         logger.info(f"Worker {self.worker_id} TradingNode 已 dispose")
@@ -1450,9 +2011,6 @@ class TradingNodeWorkerProcess(WorkerProcess):
                         logger.warning(f"Worker {self.worker_id} TradingNode 没有 dispose/stop 方法")
                 except Exception as e:
                     logger.warning(f"Worker {self.worker_id} 停止 TradingNode 时出错: {e}")
-
-            # 设置关闭事件标志
-            self._shutdown_event.set()
 
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 停止 TradingNode 失败: {e}")

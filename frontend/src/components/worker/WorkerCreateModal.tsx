@@ -384,10 +384,24 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         ? parseInt(values.strategy_id, 10)
         : values.strategy_id;
 
+      // 获取策略文件名（用于三层回退机制）
+      const selectedStrategy = strategies.find(
+        (s) => s.id === strategyId || s.name === values.strategy_id
+      );
+      const strategyFileName = selectedStrategy?.file_name || null;
+
+      console.log('[CreateWorker] 策略信息:', {
+        strategy_id: strategyId,
+        strategy_file_name: strategyFileName,
+        strategy_source: selectedStrategy?.source,
+        strategy_name: selectedStrategy?.name,
+      });
+
       const requestData = {
         name: values.name,
         description: values.description,
         strategy_id: strategyId,
+        strategy_file_name: strategyFileName,  // 新增：传递策略文件名
         exchange: values.exchange,
         symbol: selectedSymbol.toUpperCase(),
         timeframe: values.timeframe,

@@ -27,10 +27,9 @@ class Worker(Base):
     # Worker状态: stopped, running, paused, error, starting, stopping
     status = Column(String(20), default='stopped', index=True)
 
-    # 策略关联 - 使用backref避免循环引用问题
-    # 注意：Strategy模型中的workers关系在strategy/models.py中定义
+    # 策略关联 - 使用 back_populates 保持双向关系同步
     strategy_id = Column(Integer, ForeignKey('strategies.id'), nullable=True)
-    strategy = relationship("Strategy", backref="workers", lazy="joined")
+    strategy = relationship("Strategy", back_populates="workers", lazy="selectin")
 
     # 交易配置 (JSON格式，支持复杂配置)
     # {
@@ -583,7 +582,10 @@ class WorkerTrade(Base):
     entry_time = Column(DateTime, nullable=True)
     exit_time = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=func.now())
-    
+
+    # 原始数据（存储完整的 NautilusTrader 事件数据）
+    raw_data = Column(Text, nullable=True)
+
     __table_args__ = (
         Index('idx_worker_trade_symbol', 'worker_id', 'symbol'),
         Index('idx_worker_trade_time', 'worker_id', 'created_at'),

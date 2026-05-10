@@ -45,27 +45,56 @@ def _import_all_models():
     这个函数在 init_database_config 中被调用，确保所有模型类
     在 SQLAlchemy 配置 mapper 之前被加载。
     """
+    from sqlalchemy.orm import configure_mappers
+    import importlib
+    import sys
+
+    # 确保 backend 目录在 Python 路径的最前面
+    # 这对于从命令行运行脚本时正确导入模块是必需的
+    # default_db_path 是 backend/data，所以 parent 是 backend
+    backend_dir = str(default_db_path.parent)
+    # 移除已存在的路径（如果有），然后添加到最前面
+    if backend_dir in sys.path:
+        sys.path.remove(backend_dir)
+    sys.path.insert(0, backend_dir)
+    logger.debug(f"已将 backend 目录添加到 Python 路径最前面: {backend_dir}")
+
+    logger.debug(f"当前 Python 路径: {sys.path[:5]}")
+
     # 导入所有模型模块
     # 顺序很重要：先导入不依赖其他模型的，再导入依赖的
-    try:
-        from strategy import models as strategy_models  # noqa: F401
-    except ImportError:
-        pass
+    # 使用 importlib.import_module 确保模块被正确加载到 sys.modules
+    modules_to_import = [
+        'strategy.models',
+        'worker.models',
+        'collector.db.models',
+        'indicators.models',
+    ]
 
-    try:
-        from worker import models as worker_models  # noqa: F401
-    except ImportError:
-        pass
+    imported_modules = []
+    for module_name in modules_to_import:
+        try:
+            module = importlib.import_module(module_name)
+            imported_modules.append(module)
+            logger.debug(f"成功导入模型模块: {module_name}")
+        except ImportError as e:
+            logger.warning(f"无法导入模型模块 {module_name}: {e}")
+            logger.debug(f"ImportError 详情: {type(e).__name__}: {e}")
+        except Exception as e:
+            logger.warning(f"导入模型模块 {module_name} 时出错: {e}")
+            logger.debug(f"Exception 详情: {type(e).__name__}: {e}")
 
-    try:
-        from collector.db import models as collector_models  # noqa: F401
-    except ImportError:
-        pass
+    logger.debug(f"成功导入的模块数量: {len(imported_modules)}")
 
-    try:
-        from indicators import models as indicators_models  # noqa: F401
-    except ImportError:
-        pass
+    # 在所有模型都导入后，调用 configure_mappers() 确保所有关系正确解析
+    # 这对于处理循环引用（如 Worker <-> Strategy）是必需的
+    if imported_modules:
+        try:
+            configure_mappers()
+            logger.debug("SQLAlchemy mappers 配置成功")
+        except Exception as e:
+            # 记录警告但不让应用崩溃
+            logger.warning(f"配置 SQLAlchemy mappers 时出现警告: {e}")
 
 # 初始化数据库配置
 
