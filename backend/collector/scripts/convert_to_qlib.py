@@ -234,7 +234,7 @@ def convert_data_to_qlib(
 
 
 if __name__ == "__main__":
-    import fire
+    import typer
 
     # 配置日志
     logger.add(
@@ -245,9 +245,103 @@ if __name__ == "__main__":
         retention="1 month",
     )
     
-    # 使用fire库创建命令行界面
-    fire.Fire({
-        "convert": convert_data_to_qlib,
-        "convert_crypto": convert_crypto_to_qlib,
-        "convert_stock": convert_stock_to_qlib
-    })
+    # 创建 typer 应用实例
+    app = typer.Typer(help="数据转换为QLib格式工具")
+    
+    @app.command("convert")
+    def convert(
+        data_type: str = typer.Argument(..., help="数据类型 (crypto/stock)"),
+        csv_dir: Path = typer.Argument(..., help="CSV数据目录"),
+        qlib_dir: Path = typer.Argument(..., help="QLib数据保存目录"),
+        freq: str = typer.Option("day", help="交易频率 (day/1min等)"),
+        date_field_name: str = typer.Option("date", help="CSV中的日期字段名称"),
+        file_suffix: str = typer.Option(".csv", help="CSV文件后缀"),
+        symbol_field_name: str = typer.Option("symbol", help="CSV中的交易对字段名称"),
+        include_fields: str = typer.Option("date,open,high,low,close,volume", help="要转换的字段列表，逗号分隔"),
+        max_workers: int = typer.Option(16, help="最大工作线程数"),
+        limit_nums: int = typer.Option(None, help="限制转换的文件数量"),
+        backup_dir: Path = typer.Option(None, help="备份目录"),
+    ):
+        """将数据转换为QLib格式的通用函数"""
+        
+        result = convert_data_to_qlib(
+            data_type=data_type,
+            csv_dir=str(csv_dir),
+            qlib_dir=str(qlib_dir),
+            freq=freq,
+            date_field_name=date_field_name,
+            file_suffix=file_suffix,
+            symbol_field_name=symbol_field_name,
+            include_fields=include_fields,
+            max_workers=max_workers,
+            limit_nums=limit_nums,
+            backup_dir=str(backup_dir) if backup_dir else None
+        )
+        
+        if not result:
+            raise typer.Exit(code=1)
+    
+    @app.command("convert_crypto")
+    def convert_crypto(
+        csv_dir: Path = typer.Argument(..., help="CSV数据目录"),
+        qlib_dir: Path = typer.Argument(..., help="QLib数据保存目录"),
+        freq: str = typer.Option("day", help="交易频率 (day/1min等)"),
+        date_field_name: str = typer.Option("date", help="CSV中的日期字段名称"),
+        file_suffix: str = typer.Option(".csv", help="CSV文件后缀"),
+        symbol_field_name: str = typer.Option("symbol", help="CSV中的交易对字段名称"),
+        include_fields: str = typer.Option("date,open,high,low,close,volume", help="要转换的字段列表，逗号分隔"),
+        max_workers: int = typer.Option(16, help="最大工作线程数"),
+        limit_nums: int = typer.Option(None, help="限制转换的文件数量"),
+        backup_dir: Path = typer.Option(None, help="备份目录"),
+    ):
+        """将加密货币CSV数据转换为QLib格式"""
+        
+        result = convert_crypto_to_qlib(
+            csv_dir=str(csv_dir),
+            qlib_dir=str(qlib_dir),
+            freq=freq,
+            date_field_name=date_field_name,
+            file_suffix=file_suffix,
+            symbol_field_name=symbol_field_name,
+            include_fields=include_fields,
+            max_workers=max_workers,
+            limit_nums=limit_nums,
+            backup_dir=str(backup_dir) if backup_dir else None
+        )
+        
+        if not result:
+            raise typer.Exit(code=1)
+    
+    @app.command("convert_stock")
+    def convert_stock_cmd(
+        csv_dir: Path = typer.Argument(..., help="CSV数据目录"),
+        qlib_dir: Path = typer.Argument(..., help="QLib数据保存目录"),
+        freq: str = typer.Option("day", help="交易频率 (day/1min等)"),
+        date_field_name: str = typer.Option("date", help="CSV中的日期字段名称"),
+        file_suffix: str = typer.Option(".csv", help="CSV文件后缀"),
+        symbol_field_name: str = typer.Option("symbol", help="CSV中的股票代码字段名称"),
+        include_fields: str = typer.Option("date,open,high,low,close,volume", help="要转换的字段列表，逗号分隔"),
+        max_workers: int = typer.Option(16, help="最大工作线程数"),
+        limit_nums: int = typer.Option(None, help="限制转换的文件数量"),
+        backup_dir: Path = typer.Option(None, help="备份目录"),
+    ):
+        """将股票CSV数据转换为QLib格式"""
+        
+        result = convert_stock_to_qlib(
+            csv_dir=str(csv_dir),
+            qlib_dir=str(qlib_dir),
+            freq=freq,
+            date_field_name=date_field_name,
+            file_suffix=file_suffix,
+            symbol_field_name=symbol_field_name,
+            include_fields=include_fields,
+            max_workers=max_workers,
+            limit_nums=limit_nums,
+            backup_dir=str(backup_dir) if backup_dir else None
+        )
+        
+        if not result:
+            raise typer.Exit(code=1)
+    
+    # 使用typer运行应用
+    app()
