@@ -31,7 +31,7 @@ class KlineHealthChecker:
     def __init__(self):
         """初始化健康检查器"""
         # 确保数据库配置已初始化
-        from backend.collector.db.database import init_database_config
+        from collector.db.database import SessionLocal, init_database_config
         init_database_config()
         # 初始化数据库会话
         self.db: Session = SessionLocal()

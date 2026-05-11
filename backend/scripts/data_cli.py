@@ -42,7 +42,7 @@ except ImportError:
 
 # 导入项目内部模块
 try:
-    from collector.services.data_tools import GetData
+    from collector.services.data_service import GetData
     from collector.services.data_service import DataService
     from collector.schemas.data import DownloadCryptoRequest
     from collector.utils.task_manager import task_manager

@@ -33,8 +33,7 @@
         - export_kline.py: K线导出
         - get_data.py: 数据获取
     - services/: 业务服务层
-        - crypto_symbol_service.py: 币种服务
-        - data_service.py: 数据服务
+        - data_service.py: 数据服务（含符号同步/下载/导出工具）
         - kline_factory.py: K线工厂
         - kline_health_service.py: 数据健康检查
         - product_factory.py: 产品工厂

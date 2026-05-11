@@ -14,7 +14,7 @@ from utils.logger import get_logger, LogType
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.models import ScheduledTaskBusiness
-from collector.services.data_tools import GetData
+from collector.services.data_service import GetData
 
 
 class ScheduledTaskManager:

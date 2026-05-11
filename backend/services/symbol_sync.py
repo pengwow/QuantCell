@@ -22,7 +22,7 @@ from utils.logger import get_logger, LogType
 logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.database import SessionLocal, init_database_config
 from collector.db.models import CryptoSymbol
-from collector.services.crypto_symbol_service import sync_crypto_symbols
+from collector.services.data_service import sync_crypto_symbols
 
 
 class SyncStatus(Enum):

@@ -6,6 +6,9 @@
 服务列表:
     - DataService: 数据服务
     - CryptoSymbolService: 加密货币币种服务
+    - sync_crypto_symbols: 加密货币对同步函数
+    - GetData: 数据下载工具
+    - ExportData: 数据导出工具
     - KlineDataFactory: K线数据工厂
     - KlineHealthChecker: K线数据健康检查服务
     - ProductListFactory: 产品列表工厂
@@ -14,8 +17,7 @@
     - MarketDataFetcherFactory: 市场数据获取器工厂
 """
 
-from .crypto_symbol_service import CryptoSymbolService
-from .data_service import DataService
+from .data_service import DataService, CryptoSymbolService, sync_crypto_symbols, GetData, ExportData
 from .kline_factory import KlineDataFactory
 from .kline_health_service import KlineHealthChecker
 from .product_factory import ProductListFactory

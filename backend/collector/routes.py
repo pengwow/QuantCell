@@ -17,7 +17,7 @@ from .api.system import router as system_router
 from .db.models import Task
 from .schemas import ApiResponse, DataConvertRequest, DataDownloadRequest
 # from .scripts.convert_to_qlib import convert_crypto_to_qlib
-from collector.services.data_tools import GetData
+from collector.services.data_service import GetData
 
 # 创建API路由实例
 router = APIRouter(prefix="/api")
