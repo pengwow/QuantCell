@@ -499,7 +499,13 @@ install_bun() {
 # ==================== 后端环境配置 ====================
 
 setup_backend() {
-    log_step "配置后端环境"
+    local use_minimal="${1:-false}"
+    
+    if [ "$use_minimal" = "true" ]; then
+        log_step "配置后端环境（最小化模式）"
+    else
+        log_step "配置后端环境"
+    fi
 
     # 检查后端目录
     if [ ! -d "$BACKEND_DIR" ]; then
@@ -512,6 +518,11 @@ setup_backend() {
         return 1
     }
 
+    # 最小化模式：切换到最小化配置
+    if [ "$use_minimal" = "true" ]; then
+        switch_to_minimal_config
+    fi
+
     # 安装 Python 依赖
     log_info "安装 Python 依赖..."
     if [ -f "pyproject.toml" ]; then
@@ -520,6 +531,12 @@ setup_backend() {
             return 1
         }
         log_success "Python 依赖安装完成"
+        
+        # 最小化模式：显示已安装的核心包
+        if [ "$use_minimal" = "true" ]; then
+            log_info "已安装的核心依赖:"
+            uv pip list | grep -E "(fastapi|uvicorn|sqlalchemy|pandas|aiohttp|loguru|ccxt|openai)" || true
+        fi
     elif [ -f "requirements.txt" ]; then
         uv pip install -r requirements.txt || {
             log_error "Python 依赖安装失败"
@@ -542,6 +559,66 @@ setup_backend() {
     fi
 
     cd "$PROJECT_ROOT" || true
+    return 0
+}
+
+# 切换到最小化配置
+switch_to_minimal_config() {
+    log_info "切换到最小化依赖配置..."
+    
+    if [ -f "pyproject-minimal.toml" ]; then
+        # 备份原始配置
+        if [ -f "pyproject.toml" ] && [ ! -f "pyproject-full.toml.bak" ]; then
+            cp pyproject.toml pyproject-full.toml.bak
+            log_info "已备份原始配置到 pyproject-full.toml.bak"
+        fi
+        
+        # 使用最小化配置
+        cp pyproject-minimal.toml pyproject.toml
+        log_success "已切换到最小化配置"
+    else
+        log_warning "未找到 pyproject-minimal.toml，使用默认配置"
+    fi
+}
+
+# 切换到完整配置
+switch_to_full_config() {
+    log_info "切换到完整依赖配置..."
+    
+    if [ -f "pyproject-full.toml.bak" ]; then
+        cp pyproject-full.toml.bak pyproject.toml
+        log_success "已恢复原始配置"
+    else
+        log_warning "未找到完整配置备份文件"
+    fi
+}
+
+# 安装额外依赖
+install_extra_deps() {
+    local extras=("$@")
+    
+    if [ ${#extras[@]} -eq 0 ]; then
+        log_warning "未指定额外依赖"
+        return 0
+    fi
+    
+    log_info "安装额外依赖: ${extras[*]}"
+    
+    cd "$BACKEND_DIR" || return 1
+    
+    local extra_args=""
+    for extra in "${extras[@]}"; do
+        extra_args="$extra_args --extra $extra"
+    done
+    
+    uv sync $extra_args || {
+        log_error "额外依赖安装失败"
+        cd "$PROJECT_ROOT"
+        return 1
+    }
+    
+    log_success "额外依赖安装完成"
+    cd "$PROJECT_ROOT"
     return 0
 }
 
@@ -761,14 +838,17 @@ show_usage() {
     echo "使用方法: $0 [选项]"
     echo ""
     echo "选项:"
-    echo "  --install       仅安装环境和依赖（不启动服务）"
-    echo "  --start         仅启动服务（跳过安装）"
-    echo "  --stop          停止所有服务"
-    echo "  --status        查看服务状态"
-    echo "  --restart       重启所有服务"
-    echo "  --update        更新工具链（uv, bun）"
-    echo "  --check         仅检查必要命令（不执行其他操作）"
-    echo "  --help          显示帮助信息"
+    echo "  --install           仅安装环境和依赖（不启动服务）"
+    echo "  --start             仅启动服务（跳过安装）"
+    echo "  --stop              停止所有服务"
+    echo "  --status            查看服务状态"
+    echo "  --restart           重启所有服务"
+    echo "  --update            更新工具链（uv, bun）"
+    echo "  --check             仅检查必要命令（不执行其他操作）"
+    echo "  --minimal           使用最小化依赖安装（不包含机器学习等大型包）"
+    echo "  --full              切换回完整依赖配置"
+    echo "  --extra <pkg>       安装额外的可选依赖组（ml/exchanges/backtesting/devtools）"
+    echo "  --help              显示帮助信息"
     echo ""
     echo "说明:"
     echo "  脚本会自动检查以下必要命令是否已安装:"
@@ -777,17 +857,24 @@ show_usage() {
     echo "  - 推荐命令: curl/wget (至少一个), unzip, tar, python3/python"
     echo ""
     echo "示例:"
-    echo "  $0              # 完整安装并启动（包含命令检查）"
-    echo "  $0 --install    # 仅安装"
-    echo "  $0 --start      # 仅启动"
-    echo "  $0 --stop       # 停止服务"
-    echo "  $0 --status     # 查看状态"
-    echo "  $0 --check      # 仅检查命令环境"
+    echo "  $0                  # 完整安装并启动（包含命令检查）"
+    echo "  $0 --minimal        # 最小化安装并启动（推荐快速开始）"
+    echo "  $0 --install        # 仅安装"
+    echo "  $0 --install --minimal  # 仅最小化安装"
+    echo "  $0 --start          # 仅启动"
+    echo "  $0 --stop           # 停止服务"
+    echo "  $0 --status         # 查看状态"
+    echo "  $0 --check          # 仅检查命令环境"
+    echo "  $0 --full           # 切换回完整依赖"
+    echo "  $0 --extra ml       # 安装机器学习依赖"
+    echo "  $0 --extra exchanges --extra ml  # 安装多个依赖组"
 }
 
 parse_args() {
     ACTION="full"
     AUTO_UPDATE="false"
+    USE_MINIMAL="false"
+    EXTRAS=()
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -814,6 +901,22 @@ parse_args() {
             --check)
                 ACTION="check"
                 shift
+                ;;
+            --minimal)
+                USE_MINIMAL="true"
+                shift
+                ;;
+            --full)
+                ACTION="switch_full"
+                shift
+                ;;
+            --extra)
+                if [ -z "$2" ] || [[ "$2" == --* ]]; then
+                    log_error "--extra 需要指定依赖组名称 (ml/exchanges/backtesting/devtools)"
+                    exit 1
+                fi
+                EXTRAS+=("$2")
+                shift 2
                 ;;
             --update)
                 AUTO_UPDATE="true"
@@ -856,9 +959,30 @@ main() {
             log_success "命令环境检查完成，所有必要命令已就绪"
             ;;
 
+        switch_full)
+            # 切换回完整配置
+            log_step "切换到完整依赖配置"
+            cd "$BACKEND_DIR" || exit 1
+            switch_to_full_config
+            uv sync
+            log_success "已切换到完整依赖配置"
+            cd "$PROJECT_ROOT"
+            ;;
+
         install)
             log_step "执行安装流程"
-            install_uv && install_bun && setup_backend && setup_frontend
+            if [ "$USE_MINIMAL" = "true" ]; then
+                log_info "使用最小化模式安装..."
+                install_uv && install_bun && setup_backend "true" && setup_frontend
+            else
+                install_uv && install_bun && setup_backend && setup_frontend
+            fi
+            
+            # 安装额外依赖
+            if [ ${#EXTRAS[@]} -gt 0 ]; then
+                install_extra_deps "${EXTRAS[@]}"
+            fi
+            
             log_success "安装完成！"
             echo ""
             echo -e "${GREEN}提示: 运行 '$0 --start' 启动服务${NC}"
@@ -910,7 +1034,11 @@ main() {
             ;;
 
         full)
-            log_step "执行完整安装与启动流程"
+            if [ "$USE_MINIMAL" = "true" ]; then
+                log_step "执行最小化安装与启动流程"
+            else
+                log_step "执行完整安装与启动流程"
+            fi
 
             # 1. 安装工具链
             log_info "步骤 1/4: 安装工具链..."
@@ -926,9 +1054,18 @@ main() {
 
             # 2. 配置后端环境
             log_info "步骤 2/4: 配置后端环境..."
-            if ! setup_backend; then
+            if ! setup_backend "$USE_MINIMAL"; then
                 log_error "后端环境配置失败，终止安装"
                 exit 1
+            fi
+
+            # 安装额外依赖
+            if [ ${#EXTRAS[@]} -gt 0 ]; then
+                log_info "安装额外依赖..."
+                if ! install_extra_deps "${EXTRAS[@]}"; then
+                    log_error "额外依赖安装失败"
+                    exit 1
+                fi
             fi
 
             # 3. 配置前端环境
@@ -953,9 +1090,17 @@ main() {
 
             # 显示启动信息
             echo ""
-            echo -e "${GREEN}========================================${NC}"
-            echo -e "${GREEN}  🎉 安装与启动完成！${NC}"
-            echo -e "${GREEN}========================================${NC}"
+            if [ "$USE_MINIMAL" = "true" ]; then
+                echo -e "${GREEN}========================================${NC}"
+                echo -e "${GREEN}  🎉 最小化安装与启动完成！${NC}"
+                echo -e "${GREEN}========================================${NC}"
+                echo ""
+                echo -e "  ℹ️  已安装核心运行依赖（不含机器学习等大型包）"
+            else
+                echo -e "${GREEN}========================================${NC}"
+                echo -e "${GREEN}  🎉 安装与启动完成！${NC}"
+                echo -e "${GREEN}========================================${NC}"
+            fi
             echo ""
             echo -e "  ✅ 后端 API: ${BLUE}http://localhost:$BACKEND_PORT${NC}"
             echo -e "  ✅ 前端界面: ${BLUE}http://localhost:$FRONTEND_PORT${NC}"
@@ -969,6 +1114,14 @@ main() {
             echo -e "     - 按 ${YELLOW}Ctrl+C${NC} 停止所有服务"
             echo -e "     - 运行 '${YELLOW}$0 --status${NC}' 查看服务状态"
             echo -e "     - 运行 '${YELLOW}$0 --restart${NC}' 重启服务"
+            
+            if [ "$USE_MINIMAL" = "true" ]; then
+                echo ""
+                echo -e "  📦 安装额外依赖（如需要）:${NC}"
+                echo -e "     - 机器学习: ${YELLOW}$0 --extra ml${NC}"
+                echo -e "     - 交易所SDK: ${YELLOW}$0 --extra exchanges${NC}"
+                echo -e "     - 切换到完整环境: ${YELLOW}$0 --full${NC}"
+            fi
             echo ""
 
             # 保持脚本运行，等待 Ctrl+C
