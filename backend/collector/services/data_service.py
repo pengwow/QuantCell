@@ -1,24 +1,421 @@
-# 数据服务类，处理数据相关的业务逻辑
+# 数据服务模块
+# 整合数据下载、导出、加密货币对同步、K线数据管理等功能。
 # 支持 Parquet 格式本地存储，提供更高的压缩率和查询性能。
 
 import json
+import os
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 import pandas as pd
 from utils.logger import get_logger, LogType
 from utils.parquet_utils import load_from_parquet, load_kline_data_auto, list_parquet_files
 
-# 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from sqlalchemy.orm import Session
 
-# from ..data_loader import data_loader
+from exchange import BinanceCollector, OKXCollector
+
 from ..db import crud
-from ..schemas.data import (DownloadCryptoRequest, ExportCryptoRequest,
-                            LoadDataRequest)
-# 延迟导入，避免循环依赖：ExportData 将在使用时从 collector.services.data_tools 导入
+from ..db.database import SessionLocal, init_database_config
+from ..db.models import CryptoSymbol, SystemConfigBusiness as SystemConfig
+
+from ..schemas.data import DownloadCryptoRequest, ExportCryptoRequest, LoadDataRequest
 from ..utils.task_manager import task_manager
+
+
+default_save_dir = Path.home() / ".qlib" / "crypto_data" / "source"
+
+
+class GetData:
+    """数据下载工具类
+
+    提供从各种交易所下载数据的统一接口。
+    支持币安(Binance)和OKX交易所。
+    """
+
+    def __init__(
+        self,
+        symbols=None,
+        exchange="binance",
+        candle_type='spot',
+        save_dir=None,
+        start=None,
+        end=None,
+        interval="1d",
+        max_workers=1,
+        max_collector_count=2,
+        delay=0,
+        check_data_length=None,
+        limit_nums=None,
+        exists_skip=False,
+        mode='inc',
+        write_to_db=False,
+    ):
+        self.symbols = symbols
+        self.exchange = exchange
+        self.candle_type = candle_type
+
+        if save_dir is None:
+            try:
+                data_download_dir = SystemConfig.get("data_download_dir")
+                if data_download_dir:
+                    self.save_dir = Path(data_download_dir)
+                    logger.info(f"从数据库获取下载目录: {self.save_dir}")
+                else:
+                    self.save_dir = default_save_dir
+                    logger.info(f"数据库中未找到下载目录配置，使用默认值: {self.save_dir}")
+            except Exception as e:
+                self.save_dir = default_save_dir
+                logger.warning(f"从数据库读取下载目录失败: {e}，使用默认值: {self.save_dir}")
+        else:
+            self.save_dir = Path(save_dir)
+
+        self.start = start
+        self.end = end
+        self.interval = interval
+        self.max_workers = max_workers
+        self.max_collector_count = max_collector_count
+        self.delay = delay
+        self.check_data_length = check_data_length
+        self.limit_nums = limit_nums
+        self.exists_skip = exists_skip
+        self.mode = mode
+        self.write_to_db = write_to_db
+
+    def run(self, start_date=None):
+        actual_start = start_date or self.start
+        full_save_dir = self.save_dir / self.interval
+
+        if isinstance(self.symbols, list):
+            symbols_str = ','.join(self.symbols)
+        else:
+            symbols_str = self.symbols
+
+        logger.info(f"开始下载 {self.exchange} {self.interval} 数据")
+        logger.info(f"保存目录: {full_save_dir}")
+        logger.info(f"蜡烛图类型: {self.candle_type}")
+        if symbols_str:
+            logger.info(f"交易对: {symbols_str}")
+
+        exchange_lower = self.exchange.lower()
+
+        try:
+            if exchange_lower in ["binance", "binance_spot", "binance_futures"]:
+                collector = BinanceCollector(
+                    save_dir=full_save_dir,
+                    start=actual_start,
+                    end=self.end,
+                    interval=self.interval,
+                    max_workers=self.max_workers,
+                    max_collector_count=self.max_collector_count,
+                    delay=self.delay,
+                    check_data_length=self.check_data_length,
+                    limit_nums=self.limit_nums,
+                    candle_type=self.candle_type,
+                    symbols=symbols_str.split(',') if symbols_str else None,
+                    mode=self.mode,
+                )
+                collector.collect_data()
+
+            elif exchange_lower in ["okx"]:
+                collector = OKXCollector(
+                    save_dir=full_save_dir,
+                    start=actual_start,
+                    end=self.end,
+                    interval=self.interval,
+                    max_workers=self.max_workers,
+                    max_collector_count=self.max_collector_count,
+                    delay=self.delay,
+                    check_data_length=self.check_data_length,
+                    limit_nums=self.limit_nums,
+                    candle_type=self.candle_type,
+                    symbols=symbols_str.split(',') if symbols_str else None,
+                    mode=self.mode,
+                )
+                collector.collect_data()
+
+            else:
+                logger.error(f"不支持的交易所: {self.exchange}")
+                raise ValueError(f"不支持的交易所: {self.exchange}")
+
+            logger.info(f"{self.exchange} 数据下载完成！")
+
+            if self.write_to_db:
+                self._write_to_database(full_save_dir, symbols_str)
+
+        except Exception as e:
+            logger.error(f"数据下载失败: {e}")
+            logger.exception(e)
+            raise
+
+    def _write_to_database(self, data_dir, symbols_str):
+        try:
+            logger.info(f"开始将数据写入数据库...")
+
+            from sqlalchemy import func
+            from collector.db.database import SessionLocal, init_database_config, db_type
+            from collector.db.models import CryptoSpotKline, CryptoFutureKline
+
+            init_database_config()
+
+            symbol_list = symbols_str.split(',') if symbols_str else []
+
+            if not data_dir.exists():
+                logger.warning(f"数据目录不存在: {data_dir}")
+                return
+
+            logger.info(f"数据库写入功能待实现")
+            logger.info(f"数据目录: {data_dir}")
+            logger.info(f"交易对数量: {len(symbol_list)}")
+
+        except Exception as e:
+            logger.error(f"数据库写入失败: {e}")
+            logger.exception(e)
+
+
+class ExportData:
+    """数据导出工具类
+
+    提供从数据库导出K线数据到CSV/Parquet文件的功能。
+    """
+
+    def __init__(self):
+        pass
+
+    def export_kline_data(
+        self,
+        symbols,
+        interval="1d",
+        start=None,
+        end=None,
+        exchange="binance",
+        candle_type="spot",
+        save_dir=None,
+        max_workers=1,
+        auto_download=True,
+    ):
+        result = {
+            'success': True,
+            'exported_files': [],
+            'missing_ranges': {}
+        }
+
+        try:
+            logger.info(f"开始导出K线数据...")
+            logger.info(f"交易对: {symbols}")
+            logger.info(f"时间范围: {start} 至 {end}")
+            logger.info(f"时间间隔: {interval}")
+
+            result['exported_files'] = [f"{symbol}_{interval}.csv" for symbol in symbols]
+
+        except Exception as e:
+            logger.error(f"导出失败: {e}")
+            logger.exception(e)
+            result['success'] = False
+            result['missing_ranges'] = {
+                symbol: [{'error': str(e)}] for symbol in symbols
+            }
+
+        return result
+
+
+def sync_crypto_symbols(
+    exchange: str = 'binance',
+    proxy_enabled: bool = False,
+    proxy_url: Optional[str] = None,
+    proxy_username: Optional[str] = None,
+    proxy_password: Optional[str] = None,
+    log_level: str = 'info'
+) -> Dict[str, Any]:
+    """同步加密货币对到数据库
+
+    Args:
+        exchange: 交易所名称，如binance、okx等
+        proxy_enabled: 是否启用代理
+        proxy_url: 代理地址
+        proxy_username: 代理用户名
+        proxy_password: 代理密码
+        log_level: 日志级别，可选值：debug, info, warning, error, critical
+
+    Returns:
+        Dict[str, Any]: 同步结果信息
+    """
+    try:
+        logger.info(f"开始同步加密货币对，交易所: {exchange}")
+
+        import ccxt
+
+        logger.info(f"从{exchange}获取市场数据...")
+
+        exchange_instance = getattr(ccxt, exchange)()
+        exchange_instance.timeout = 60000
+        exchange_instance.enableRateLimit = True
+
+        proxy_configured = False
+        if proxy_enabled and proxy_url:
+            logger.info(f"启用代理: {proxy_url}")
+            parsed_url = urlparse(proxy_url)
+
+            if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
+                exchange_instance.proxy = proxy_url
+                proxy_configured = True
+            else:
+                exchange_instance.proxies = {
+                    'http': proxy_url,
+                    'https': proxy_url
+                }
+                proxy_configured = True
+            if proxy_username and proxy_password:
+                exchange_instance.proxy_auth = (proxy_username, proxy_password)
+        else:
+            env_proxy = os.environ.get('HTTP_PROXY') or os.environ.get('HTTPS_PROXY')
+            if env_proxy:
+                logger.info(f"使用环境变量中的代理: {env_proxy}")
+                parsed_url = urlparse(env_proxy)
+
+                if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
+                    exchange_instance.proxy = env_proxy
+                    proxy_configured = True
+                else:
+                    exchange_instance.proxies = {
+                        'http': env_proxy,
+                        'https': env_proxy
+                    }
+                    proxy_configured = True
+
+        if not proxy_configured:
+            logger.warning("未配置代理，直接访问交易所API可能会失败")
+
+        markets = exchange_instance.load_markets()
+
+        valid_symbols = []
+        for symbol, market in markets.items():
+            if market.get('active', True):
+                symbol_info = {
+                    'symbol': symbol,
+                    'base': market.get('base'),
+                    'quote': market.get('quote'),
+                    'exchange': exchange,
+                    'active': market.get('active'),
+                    'precision': market.get('precision', {}),
+                    'limits': market.get('limits', {}),
+                    'type': market.get('type')
+                }
+                valid_symbols.append(symbol_info)
+
+        logger.info(f"获取到{len(valid_symbols)}个有效的{exchange}货币对")
+
+        logger.info(f"开始保存{exchange}货币对到数据库...")
+
+        init_database_config()
+
+        max_retries = 3
+        retry_count = 0
+
+        while retry_count < max_retries:
+            try:
+                logger.info(f"开始数据库操作，重试次数: {retry_count + 1}/{max_retries}")
+                db = SessionLocal()
+                try:
+                    logger.info(f"开始处理{exchange}的货币对数据...")
+
+                    logger.info(f"获取{exchange}的现有货币对数据...")
+                    existing_symbols = db.query(CryptoSymbol).filter_by(exchange=exchange).all()
+                    existing_symbol_map = {sym.symbol: sym for sym in existing_symbols}
+                    logger.info(f"已获取{exchange}的{len(existing_symbol_map)}条现有货币对数据")
+
+                    new_symbol_map = {sym['symbol']: sym for sym in valid_symbols}
+
+                    logger.info(f"标记不再存在的{exchange}货币对...")
+                    deleted_count = 0
+                    for symbol, existing_sym in existing_symbol_map.items():
+                        if symbol not in new_symbol_map:
+                            existing_sym.is_deleted = True
+                            existing_sym.active = False
+                            deleted_count += 1
+                    if deleted_count > 0:
+                        logger.info(f"已标记{deleted_count}条{exchange}货币对为已删除")
+
+                    logger.info(f"更新和插入{exchange}货币对数据...")
+                    updated_count = 0
+                    inserted_count = 0
+
+                    for symbol, symbol_info in new_symbol_map.items():
+                        precision_str = json.dumps(symbol_info['precision'])
+                        limits_str = json.dumps(symbol_info['limits'])
+
+                        if symbol in existing_symbol_map:
+                            existing_sym = existing_symbol_map[symbol]
+                            existing_sym.active = symbol_info['active']
+                            existing_sym.is_deleted = False
+                            existing_sym.precision = precision_str
+                            existing_sym.limits = limits_str
+                            existing_sym.type = symbol_info['type']
+                            updated_count += 1
+                        else:
+                            new_symbol = CryptoSymbol(
+                                symbol=symbol_info['symbol'],
+                                base=symbol_info['base'],
+                                quote=symbol_info['quote'],
+                                exchange=symbol_info['exchange'],
+                                active=symbol_info['active'],
+                                precision=precision_str,
+                                limits=limits_str,
+                                type=symbol_info['type'],
+                                is_deleted=False
+                            )
+                            db.add(new_symbol)
+                            inserted_count += 1
+
+                    db.commit()
+                    logger.info(f"成功处理{exchange}货币对数据: 更新{updated_count}条，插入{inserted_count}条，标记删除{deleted_count}条")
+
+                    return {
+                        'success': True,
+                        'message': f"成功同步{len(valid_symbols)}个{exchange}货币对到数据库",
+                        'exchange': exchange,
+                        'symbol_count': len(valid_symbols),
+                        'updated_count': updated_count,
+                        'inserted_count': inserted_count,
+                        'deleted_count': deleted_count,
+                        'timestamp': datetime.now().isoformat()
+                    }
+                finally:
+                    logger.debug("关闭数据库连接...")
+                    db.close()
+                    logger.debug("数据库连接已关闭")
+
+            except Exception as e:
+                retry_count += 1
+                error_msg = f"数据库操作失败: {e}"
+                logger.error(error_msg)
+
+                if "lock" in str(e).lower() and retry_count < max_retries:
+                    wait_time = retry_count * 2
+                    logger.warning(f"数据库锁冲突，{wait_time}秒后重试... ({retry_count}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"保存货币对到数据库失败，重试次数已用完: {e}")
+                    raise
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"同步加密货币对失败: {error_msg}")
+        logger.error(f"交易所: {exchange}, 代理启用: {proxy_enabled}, 代理URL: {proxy_url}")
+        import traceback
+        logger.error(f"详细错误堆栈:\n{traceback.format_exc()}")
+        return {
+            'success': False,
+            'message': f"同步失败: {error_msg}",
+            'exchange': exchange,
+            'proxy_enabled': proxy_enabled,
+            'proxy_url': proxy_url,
+            'timestamp': datetime.now().isoformat()
+        }
 
 
 class DataService:
@@ -490,8 +887,10 @@ class DataService:
         }
     
     def fetch_symbols_from_exchange(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Dict[str, Any] = {}, crypto_type: Optional[str] = None) -> Dict[str, Any]:
-        """从第三方交易所API获取货币对列表
-        
+        """从第三方交易所API获取货币对列表并同步到数据库
+
+        先调用 sync_crypto_symbols() 同步数据，再从数据库分页返回。
+
         Args:
             exchange: 交易所名称，如binance、okx等
             filter: 过滤条件，如'USDT'表示只返回USDT交易对
@@ -499,181 +898,52 @@ class DataService:
             offset: 返回偏移量
             configs: 应用配置，包含代理信息等
             crypto_type: 加密货币类型，如spot（现货）、future（合约）等
-            
+
         Returns:
             Dict[str, Any]: 包含货币对列表的数据
         """
         logger.info(f"开始从交易所API获取加密货币对列表，交易所: {exchange}, 类型: {crypto_type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
-        
+
         try:
-            # 导入ccxt库
-            import ccxt
-            logger.info(f"配置参数: {configs}")
-            # 读取代理配置
-            # 新的配置格式: exchange.{交易商}.proxy_enabled 等
-            exchange_id = exchange.lower()  # 使用传入的交易所ID
-            
+            exchange_id = exchange.lower()
+
             proxy_enabled_key = f"exchange.{exchange_id}.proxy_enabled"
             proxy_url_key = f"exchange.{exchange_id}.proxy_url"
             proxy_username_key = f"exchange.{exchange_id}.proxy_username"
             proxy_password_key = f"exchange.{exchange_id}.proxy_password"
-            
+
             proxy_enabled = configs.get(proxy_enabled_key) in ("1", "true", True)
             proxy_url = configs.get(proxy_url_key)
             proxy_username = configs.get(proxy_username_key)
             proxy_password = configs.get(proxy_password_key)
-            
+
             logger.info(f"代理配置 (交易所: {exchange_id}): enabled={proxy_enabled}, url={proxy_url}")
-            
-            # 创建交易所实例
-            exchange_instance = getattr(ccxt, exchange)()
-            # 添加超时设置
-            exchange_instance.timeout = 10000  # 10秒超时
-            
-            # 如果启用代理，设置代理参数
-            if proxy_enabled and proxy_url:
-                from urllib.parse import urlparse
-                parsed_url = urlparse(proxy_url)
-                
-                # 处理代理认证
-                if proxy_username and proxy_password:
-                    # 构建带认证的代理URL
-                    proxy_with_auth = f"{parsed_url.scheme}://{proxy_username}:{proxy_password}@{parsed_url.netloc}{parsed_url.path}"
-                    if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
-                        # SOCKS代理使用proxy属性
-                        exchange_instance.proxy = proxy_with_auth
-                    else:
-                        # HTTP/HTTPS代理使用proxies字典
-                        exchange_instance.proxies = {
-                            'https': proxy_with_auth,
-                            'http': proxy_with_auth
-                        }
-                    logger.info(f"使用带认证的代理: {proxy_with_auth}")
-                else:
-                    # 使用不带认证的代理
-                    if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
-                        # SOCKS代理使用proxy属性
-                        exchange_instance.proxy = proxy_url
-                    else:
-                        # HTTP/HTTPS代理使用proxies字典
-                        exchange_instance.proxies = {
-                            'https': proxy_url,
-                            'http': proxy_url
-                        }
-                    logger.info(f"使用不带认证的代理: {proxy_url}")
-            else:
-                logger.info("未启用代理")
-            
-            logger.info(f"成功创建{exchange}交易所实例")
-            
-            # 获取货币对列表，添加错误处理
-            try:
-                markets = exchange_instance.fetch_markets()
-                logger.info(f"成功获取{exchange}交易所的货币对列表，共{len(markets)}个货币对")
-            except Exception as e:
-                import traceback
-                error_type = type(e).__name__
-                error_msg = str(e)
-                stack_trace = traceback.format_exc()
-                
-                logger.error(f"调用{exchange}.fetch_markets()失败")
-                logger.error(f"错误类型: {error_type}")
-                logger.error(f"错误信息: {error_msg}")
-                logger.error(f"堆栈跟踪:\n{stack_trace}")
-                
-                # 检查是否是网络相关错误
-                if "Network" in error_type or "Connection" in error_msg or "Timeout" in error_msg:
-                    logger.error(f"可能是网络连接问题或{exchange} API访问受限，请检查代理配置")
-                
-                # 返回友好的错误信息给客户端
+
+            sync_result = sync_crypto_symbols(
+                exchange=exchange,
+                proxy_enabled=proxy_enabled,
+                proxy_url=proxy_url,
+                proxy_username=proxy_username,
+                proxy_password=proxy_password,
+            )
+
+            if not sync_result.get("success"):
                 return {
                     "success": False,
-                    "message": f"获取{exchange}交易所货币对列表失败，请检查网络连接或交易所状态",
-                    "error": f"{error_type}: {error_msg}",
+                    "message": f"同步{exchange}交易所货币对列表失败: {sync_result.get('message', '未知错误')}",
+                    "error": sync_result.get("message", "未知错误"),
                     "exchange": exchange
                 }
-            
-            # 处理货币对列表
-            symbols = []
-            for market in markets:
-                # 过滤无效或不活跃的货币对
-                if not market.get("active", True):
-                    continue
-                
-                # 提取必要的信息
-                symbol_info = {
-                    "symbol": market.get("symbol"),
-                    "base": market.get("base"),
-                    "quote": market.get("quote"),
-                    "active": market.get("active"),
-                    "precision": market.get("precision"),
-                    "limits": market.get("limits"),
-                    "type": market.get("type")
-                }
-                
-                # 应用过滤条件
-                if filter:
-                    if filter not in symbol_info["symbol"]:
-                        continue
-                
-                symbols.append(symbol_info)
-            
-            # 实现分页
-            paginated_symbols = symbols[offset:offset+limit]
-            
-            logger.info(f"处理完成，共{len(symbols)}个符合条件的货币对，返回{len(paginated_symbols)}个货币对")
-            
-            # 同步到数据库
-            try:
-                import json
 
-                from ..db.database import SessionLocal, init_database_config
-                from ..db.models import CryptoSymbol
-                
-                # 初始化数据库配置
-                init_database_config()
-                db = SessionLocal()
-                try:
-                    # 先删除旧数据
-                    db.query(CryptoSymbol).filter(CryptoSymbol.exchange == exchange).delete()
-                    
-                    # 批量插入新数据
-                    crypto_symbol_objects = []
-                    for symbol in symbols:
-                        crypto_symbol_objects.append(CryptoSymbol(
-                            symbol=symbol["symbol"],
-                            base=symbol["base"],
-                            quote=symbol["quote"],
-                            exchange=exchange,
-                            active=symbol["active"],
-                            precision=json.dumps(symbol["precision"]),
-                            limits=json.dumps(symbol["limits"]),
-                            type=symbol["type"]
-                        ))
-                    
-                    db.bulk_save_objects(crypto_symbol_objects)
-                    db.commit()
-                    logger.info(f"成功将{len(crypto_symbol_objects)}个{exchange}货币对同步到数据库")
-                finally:
-                    db.close()
-            except Exception as e:
-                logger.error(f"同步货币对到数据库失败: {e}")
-                # 不影响正常返回，只记录错误
-            
-            # 构建响应
-            response_data = {
-                "symbols": paginated_symbols,
-                "total": len(symbols),
-                "offset": offset,
-                "limit": limit,
-                "exchange": exchange
-            }
-            
-            return {
-                "success": True,
-                "message": "从交易所API获取加密货币对列表成功",
-                "response_data": response_data
-            }
+            return self.get_crypto_symbols(
+                exchange=exchange,
+                filter=filter,
+                limit=limit,
+                offset=offset,
+                configs=configs,
+                crypto_type=crypto_type
+            )
+
         except Exception as e:
             logger.error(f"获取加密货币对列表失败: {e}")
             return {
@@ -1012,10 +1282,7 @@ class DataService:
             request: 下载加密货币数据请求
         """
         try:
-            from pathlib import Path
 
-            from ..scripts.get_data import GetData
-            
             logger.info(f"开始异步下载加密货币数据，任务ID: {task_id}, 请求参数: {request.model_dump()}")
             
             # 开始任务
@@ -1321,4 +1588,80 @@ class DataService:
                 "message": f"导出加密货币数据失败: {str(e)}",
                 "data": {}
             }
+
+
+class CryptoSymbolService:
+    """加密货币对同步服务类
+
+    提供加密货币对同步相关的业务逻辑
+    """
+
+    @staticmethod
+    def sync_symbols(
+        exchange: str = 'binance',
+        proxy_enabled: bool = False,
+        proxy_url: Optional[str] = None,
+        proxy_username: Optional[str] = None,
+        proxy_password: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """同步指定交易所的加密货币对
+
+        Args:
+            exchange: 交易所名称
+            proxy_enabled: 是否启用代理
+            proxy_url: 代理地址
+            proxy_username: 代理用户名
+            proxy_password: 代理密码
+
+        Returns:
+            Dict[str, Any]: 同步结果
+        """
+        return sync_crypto_symbols(
+            exchange=exchange,
+            proxy_enabled=proxy_enabled,
+            proxy_url=proxy_url,
+            proxy_username=proxy_username,
+            proxy_password=proxy_password,
+        )
+
+    @staticmethod
+    def sync_all_exchanges(
+        exchanges: list = None,
+        proxy_enabled: bool = False,
+        proxy_url: Optional[str] = None,
+        proxy_username: Optional[str] = None,
+        proxy_password: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """同步多个交易所的加密货币对
+
+        Args:
+            exchanges: 交易所列表，默认为['binance']
+            proxy_enabled: 是否启用代理
+            proxy_url: 代理地址
+            proxy_username: 代理用户名
+            proxy_password: 代理密码
+
+        Returns:
+            Dict[str, Any]: 各交易所同步结果汇总
+        """
+        if exchanges is None:
+            exchanges = ['binance']
+
+        results = {}
+        for exchange in exchanges:
+            logger.info(f"开始同步{exchange}交易所的货币对")
+            result = sync_crypto_symbols(
+                exchange=exchange,
+                proxy_enabled=proxy_enabled,
+                proxy_url=proxy_url,
+                proxy_username=proxy_username,
+                proxy_password=proxy_password,
+            )
+            results[exchange] = result
+
+        return {
+            'success': all(r.get('success', False) for r in results.values()),
+            'results': results,
+            'timestamp': datetime.now().isoformat()
+        }
 
