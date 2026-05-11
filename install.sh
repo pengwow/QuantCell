@@ -119,9 +119,7 @@ get_command_desc() {
 }
 
 check_required_commands() {
-    log_step "检查必要系统命令"
-
-    local has_error=false
+    log_step "检查系统命令"
 
     # 必要命令列表
     local required_cmds=(
@@ -144,86 +142,69 @@ check_required_commands() {
     )
 
     # 检查必要命令
-    log_info "检查必须存在的命令..."
     for cmd in "${required_cmds[@]}"; do
-        if command_exists "$cmd"; then
-            log_success "✓ $cmd - $(get_command_desc $cmd)"
-        else
-            log_error "✗ $cmd - $(get_command_desc $cmd)"
+        if ! command_exists "$cmd"; then
             MISSING_REQUIRED+=("$cmd")
-            has_error=true
         fi
     done
 
-    # 检查可选命令（分组检查）
-    echo ""
-    log_info "检查推荐命令..."
-
-    # curl 和 wget 至少需要一个
-    if command_exists "curl" || command_exists "wget"; then
-        if command_exists "curl"; then
-            log_success "✓ curl - $(get_command_desc curl)"
-        fi
-        if command_exists "wget"; then
-            log_success "✓ wget - $(get_command_desc wget)"
-        fi
-    else
-        log_warning "✗ 缺少下载工具: 需要安装 curl 或 wget 其中之一"
+    # 检查推荐命令（至少需要 curl 或 wget）
+    if ! command_exists "curl" && ! command_exists "wget"; then
         MISSING_OPTIONAL+=("curl或wget")
-        has_error=true
     fi
 
-    # 检查其他可选命令
-    for cmd in "unzip" "tar"; do
-        if command_exists "$cmd"; then
-            log_success "✓ $cmd - $(get_command_desc $cmd)"
+    # 检查其他推荐命令
+    for cmd in "unzip" "tar" "python3" "python"; do
+        if [ "$cmd" = "python3" ] || [ "$cmd" = "python" ]; then
+            # python3 和 python 至少需要一个
+            if ! command_exists "python3" && ! command_exists "python"; then
+                MISSING_OPTIONAL+=("python")
+            fi
         else
-            log_warning "⚠ $cmd - $(get_command_desc $cmd) (建议安装)"
-            MISSING_OPTIONAL+=("$cmd")
+            if ! command_exists "$cmd"; then
+                MISSING_OPTIONAL+=("$cmd")
+            fi
         fi
     done
 
-    # python3 和 python 至少需要一个
-    if command_exists "python3" || command_exists "python"; then
-        if command_exists "python3"; then
-            PYTHON_VERSION=$(python3 --version 2>&1 | head -1)
-            log_success "✓ python3 - $PYTHON_VERSION"
-        elif command_exists "python"; then
-            PYTHON_VERSION=$(python --version 2>&1 | head -1)
-            log_success "✓ python - $PYTHON_VERSION"
+    # 检查结果：只要缺少任何命令就报错退出
+    if [ ${#MISSING_REQUIRED[@]} -gt 0 ] || [ ${#MISSING_OPTIONAL[@]} -gt 0 ]; then
+        log_error "========================================"
+        log_error "命令环境检查未通过"
+        log_error "========================================"
+        
+        if [ ${#MISSING_REQUIRED[@]} -gt 0 ]; then
+            echo ""
+            log_error "缺少以下必要命令 (${#MISSING_REQUIRED[@]} 个):"
+            for cmd in "${MISSING_REQUIRED[@]}"; do
+                log_error "  ✗ $cmd - $(get_command_desc $cmd)"
+            done
         fi
-    else
-        log_warning "⚠ python3/python - $(get_command_desc python3) (后端服务需要 Python 环境)"
-        MISSING_OPTIONAL+=("python")
-    fi
-
-    # 检查结果汇总
-    echo ""
-    if [ ${#MISSING_REQUIRED[@]} -gt 0 ]; then
-        log_error "========================================"
-        log_error "缺少以下必要命令 (${#MISSING_REQUIRED[@]} 个):"
-        log_error "========================================"
-        for cmd in "${MISSING_REQUIRED[@]}"; do
-            log_error "  - $cmd: $(get_command_desc $cmd)"
-        done
+        
+        if [ ${#MISSING_OPTIONAL[@]} -gt 0 ]; then
+            echo ""
+            log_error "缺少以下推荐命令 (${#MISSING_OPTIONAL[@]} 个):"
+            for cmd in "${MISSING_OPTIONAL[@]}"; do
+                case $cmd in
+                    "curl或wget")
+                        log_error "  ✗ curl/wget - 下载工具 (至少需要一个)"
+                        ;;
+                    "python")
+                        log_error "  ✗ python3/python - Python 运行时 (后端服务必需)"
+                        ;;
+                    *)
+                        log_error "  ✗ $cmd - $(get_command_desc $cmd)"
+                        ;;
+                esac
+            done
+        fi
+        
         echo ""
-        show_install_guide "${MISSING_REQUIRED[@]}"
+        show_install_guide "${MISSING_REQUIRED[@]}" "${MISSING_OPTIONAL[@]}"
         return 1
     fi
 
-    if [ ${#MISSING_OPTIONAL[@]} -gt 0 ]; then
-        log_warning "========================================"
-        log_warning "缺少以下推荐命令 (${#MISSING_OPTIONAL[@]} 个):"
-        log_warning "========================================"
-        for cmd in "${MISSING_OPTIONAL[@]}"; do
-            log_warning "  - $cmd"
-        done
-        echo ""
-        show_optional_install_guide "${MISSING_OPTIONAL[@]}"
-        log_warning "缺少这些命令可能导致部分功能无法使用"
-    fi
-
-    log_success "必要命令检查完成"
+    log_success "所有必要命令已就绪"
     return 0
 }
 
