@@ -295,9 +295,6 @@ async def get_worker_metrics(worker_id: int) -> Dict[str, Any]:
     if worker_service._comm_manager is None:
         return {
             "worker_id": worker_id,
-            "cpu_usage": 15.5,
-            "memory_usage": 45.2,
-            "memory_used_mb": 256.0,
             "network_in": 1024000,
             "network_out": 512000,
             "active_tasks": 3,
@@ -322,9 +319,6 @@ async def get_worker_metrics(worker_id: int) -> Dict[str, Any]:
     # 简化实现：返回模拟数据
     return {
         "worker_id": worker_id,
-        "cpu_usage": 15.5,
-        "memory_usage": 45.2,
-        "memory_used_mb": 256.0,
         "network_in": 1024000,
         "network_out": 512000,
         "active_tasks": 3,
@@ -542,53 +536,19 @@ async def update_strategy_params(worker_id: int, parameters: Dict[str, Any]) -> 
 
 async def get_positions(worker_id: int) -> Dict[str, Any]:
     """
-    获取Worker持仓信息（真实数据）
+    获取Worker持仓信息（从SQLAlchemy主库查询）
     
-    优先从SQLite查询，支持离线访问
+    当前主库无独立positions表，返回空列表。
+    持仓信息可通过 /monitoring/performance 端点获取。
     """
-    await worker_service.initialize()
-    
-    # 尝试从SQLite获取数据
-    if worker_service._data_collector:
-        try:
-            db_manager = worker_service._data_collector.db_manager
-            
-            # 查询活跃持仓
-            positions = await db_manager.get_active_positions(worker_id)
-            
-            # 格式化输出
-            result = []
-            for pos in positions:
-                pos_dict = dict(pos)
-                
-                # 计算盈亏百分比
-                if pos_dict.get('avg_px_open') and pos_dict.get('quantity'):
-                    unrealized_pnl = pos_dict.get('unrealized_pnl', 0)
-                    notional = abs(pos_dict['avg_px_open'] * pos_dict['quantity'])
-                    pos_dict['unrealized_pnl_pct'] = round(
-                        (unrealized_pnl / notional * 100) if notional > 0 else 0, 2
-                    )
-                
-                # 时间格式转换
-                if isinstance(pos_dict.get('snapshot_time'), datetime):
-                    pos_dict['snapshot_time'] = pos_dict['snapshot_time'].isoformat()
-                
-                result.append(pos_dict)
-            
-            return {
-                "worker_id": worker_id,
-                "positions": result,
-                "total": len(result),
-                "source": "sqlite",
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"查询持仓失败: {e}")
-    
-    # SQLite不可用时返回模拟数据（降级模式）
-    logger.warning(f"Worker {worker_id}: SQLite不可用，返回模拟数据")
-    return _get_mock_positions(worker_id)
+    return {
+        "worker_id": worker_id,
+        "positions": [],
+        "total": 0,
+        "source": "sqlalchemy",
+        "note": "持仓数据暂未独立存储，请通过 performance 接口查看",
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 async def get_trades(
@@ -600,93 +560,91 @@ async def get_trades(
     offset: int = 0
 ) -> Dict[str, Any]:
     """
-    获取Worker成交记录（真实数据）
-    
-    优先从SQLite查询，支持离线访问
+    获取Worker成交记录（从SQLAlchemy主库查询）
     """
-    await worker_service.initialize()
-    
-    # 尝试从SQLite获取数据
-    if worker_service._data_collector:
-        try:
-            db_manager = worker_service._data_collector.db_manager
-            
-            # 查询成交记录
-            trades = await db_manager.get_latest_trades(
-                worker_id=worker_id,
-                limit=limit,
-                symbol=symbol
-            )
-            
-            # 转换时间格式
-            result = []
-            for trade in trades:
-                trade_dict = dict(trade)
-                if isinstance(trade_dict.get('created_at'), datetime):
-                    trade_dict['created_at'] = trade_dict['created_at'].isoformat()
-                result.append(trade_dict)
-            
-            return {
-                "worker_id": worker_id,
-                "trades": result,
-                "total": len(result),
-                "source": "sqlite",
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"查询成交记录失败: {e}")
-    
-    # SQLite不可用时返回模拟数据（降级模式）
-    logger.warning(f"Worker {worker_id}: SQLite不可用，返回模拟数据")
-    logger.warning("  原因: DataCollector服务未启动或初始化失败")
-    logger.warning("  解决方案:")
-    logger.warning("    1. 检查后端启动日志中是否有'DataCollector启动异常'错误")
-    logger.warning("    2. 确认端口5560未被占用: lsof -i :5560")
-    logger.warning("    3. 重启后端服务: uvicorn main:app --reload")
-    return _get_mock_trades(worker_id, limit)
+    from .crud import get_worker_trades
+    from collector.db.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        trades, total = get_worker_trades(
+            db, worker_id, symbol=symbol,
+            start_time=start_time, end_time=end_time,
+            skip=offset, limit=limit
+        )
+
+        result = []
+        for t in trades:
+            trade_dict = t.to_dict()
+            result.append(trade_dict)
+
+        return {
+            "worker_id": worker_id,
+            "trades": result,
+            "total": total,
+            "source": "sqlalchemy",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"查询成交记录失败: {e}")
+        return _get_mock_trades(worker_id, limit)
+    finally:
+        db.close()
 
 
 async def get_orders(worker_id: int, status: Optional[str] = None) -> Dict[str, Any]:
     """
-    获取Worker订单信息（真实数据）
-    
-    优先从SQLite查询，支持离线访问
+    获取Worker订单信息（从SQLAlchemy主库 worker_trades 表查询）
+
+    将 WorkerTrade 记录转换为订单事件格式返回。
     """
-    await worker_service.initialize()
-    
-    # 尝试从SQLite获取
-    if worker_service._data_collector:
-        try:
-            db_manager = worker_service._data_collector.db_manager
-            
-            # 查询订单事件（按类型筛选）
-            orders = await db_manager.get_order_events(
-                worker_id=worker_id,
-                event_type=status,
-                limit=50
-            )
-            
-            result = []
-            for order in orders:
-                order_dict = dict(order)
-                if isinstance(order_dict.get('created_at'), datetime):
-                    order_dict['created_at'] = order_dict['created_at'].isoformat()
-                result.append(order_dict)
-            
-            return {
-                "worker_id": worker_id,
-                "orders": result,
-                "total": len(result),
-                "source": "sqlite",
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"查询订单失败: {e}")
-    
-    # 降级：返回模拟数据
-    return _get_mock_orders(worker_id)
+    import json
+    from .crud import get_worker_trades
+    from collector.db.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        trades, total = get_worker_trades(db, worker_id, limit=50)
+
+        orders = []
+        for t in trades:
+            raw_data = {}
+            if t.raw_data:
+                try:
+                    raw_data = json.loads(t.raw_data)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            orders.append({
+                "order_id": t.trade_id,
+                "client_order_id": raw_data.get("client_order_id", t.trade_id),
+                "venue_order_id": raw_data.get("venue_order_id", ""),
+                "event_type": "OrderFilled",
+                "instrument_id": raw_data.get("instrument_id", f"{t.symbol}.BINANCE"),
+                "symbol": t.symbol,
+                "side": t.side,
+                "order_type": t.order_type,
+                "quantity": t.quantity,
+                "price": t.price,
+                "last_qty": t.quantity,
+                "last_px": t.price,
+                "commission": t.fee,
+                "commission_currency": t.fee_currency or "USDT",
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            })
+
+        return {
+            "worker_id": worker_id,
+            "orders": orders,
+            "total": len(orders),
+            "source": "sqlalchemy",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"查询订单失败: {e}")
+        return _get_mock_orders(worker_id)
+    finally:
+        db.close()
 
 
 async def send_trading_signal(worker_id: int, signal: Dict[str, Any]) -> Dict[str, Any]:

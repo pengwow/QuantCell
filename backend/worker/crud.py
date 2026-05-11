@@ -44,8 +44,6 @@ def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
         description=worker_data.description,
         strategy_id=worker_data.strategy_id,
         trading_config=json.dumps(trading_config),
-        cpu_limit=worker_data.cpu_limit or 1,
-        memory_limit=worker_data.memory_limit or 512,
         env_vars=json.dumps(worker_data.env_vars) if worker_data.env_vars else '{}',
         config=json.dumps({**(worker_data.config or {}), 'strategy_file_name': worker_data.strategy_file_name}) if (worker_data.config or worker_data.strategy_file_name) else '{}',
         status="stopped",
@@ -151,8 +149,6 @@ def clone_worker(db: Session, worker_id: int, request: schemas.WorkerCloneReques
         description=source_worker.description,
         strategy_id=source_worker.strategy_id,
         trading_config=source_worker.trading_config if request.copy_config else '{}',
-        cpu_limit=source_worker.cpu_limit,
-        memory_limit=source_worker.memory_limit,
         env_vars=source_worker.env_vars if request.copy_config else '{}',
         config=source_worker.config if request.copy_config else '{}',
         status="stopped",
@@ -269,9 +265,6 @@ def create_worker_metric(db: Session, worker_id: int, metrics: Dict[str, Any]) -
     """创建Worker指标记录"""
     metric = WorkerMetric(
         worker_id=worker_id,
-        cpu_usage=metrics.get("cpu_usage", 0),
-        memory_usage=metrics.get("memory_usage", 0),
-        memory_used_mb=metrics.get("memory_used_mb", 0),
         network_in=metrics.get("network_in", 0),
         network_out=metrics.get("network_out", 0),
         active_tasks=metrics.get("active_tasks", 0),

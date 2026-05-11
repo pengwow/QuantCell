@@ -1489,7 +1489,7 @@ class TradingNodeWorkerProcess(WorkerProcess):
                 )
 
         except Exception as e:
-            logger.error(f"[{self.worker_id}] 处理订单事件异常: {e}", exc_info=True)
+            logger.error(f"[{self.worker_id}] 处理订单事件异常: {e}", exception=e)
 
     def _process_order_filled_event(self, event):
         """
@@ -1547,14 +1547,14 @@ class TradingNodeWorkerProcess(WorkerProcess):
 
             logger.info(
                 f"[{self.worker_id}] 捕获成交记录: "
-                f"{trade_record['order_side']} {trade_record['quantity']} {trade['symbol']} "
+                f"{trade_record['order_side']} {trade_record['quantity']} {trade_record['symbol']} "
                 f"@ {trade_record['price']} {trade_record['currency']}"
             )
 
             self._trigger_trade_persistence()
 
         except Exception as e:
-            logger.error(f"[{self.worker_id}] 处理 OrderFilled 事件失败: {e}", exc_info=True)
+            logger.error(f"[{self.worker_id}] 处理 OrderFilled 事件失败: {e}", exception=e)
 
     def _extract_symbol_from_instrument_id(self, instrument_id: str) -> str:
         """
@@ -1647,14 +1647,14 @@ class TradingNodeWorkerProcess(WorkerProcess):
 
             except Exception as e:
                 db.rollback()
-                logger.error(f"[{self.worker_id}] 保存交易记录到数据库失败: {e}", exc_info=True)
+                logger.error(f"[{self.worker_id}] 保存交易记录到数据库失败: {e}", exception=e)
             finally:
                 db.close()
 
         except ImportError as e:
             logger.warning(f"[{self.worker_id}] 无法导入数据库模块: {e}")
         except Exception as e:
-            logger.error(f"[{self.worker_id}] 持久化任务异常: {e}", exc_info=True)
+            logger.error(f"[{self.worker_id}] 持久化任务异常: {e}", exception=e)
 
     async def _load_trading_strategy(self):
         """加载策略

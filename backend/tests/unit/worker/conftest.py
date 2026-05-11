@@ -87,8 +87,9 @@ _mock_service_module.health_check = AsyncMock(return_value={
 })
 _mock_service_module.get_worker_metrics = AsyncMock(return_value={
     "worker_id": 1,
-    "cpu_usage": 15.5,
-    "memory_usage": 45.2
+    "network_in": 1024000,
+    "network_out": 512000,
+    "active_tasks": 3
 })
 _mock_service_module.deploy_strategy = AsyncMock(return_value={
     "deployed": True,
@@ -249,8 +250,6 @@ def sample_worker_create_request():
         "timeframe": "1h",
         "market_type": "spot",
         "trading_mode": "paper",
-        "cpu_limit": 2,
-        "memory_limit": 1024,
         "env_vars": {"API_KEY": "test_key"},
         "config": {"risk_level": "low"}
     }

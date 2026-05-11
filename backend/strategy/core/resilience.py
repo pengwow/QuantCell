@@ -567,7 +567,6 @@ class ExceptionIsolation:
                 logger.error(
                     f"处理器执行异常: event_type={event_type}, "
                     f"handler={stats['handler_name']}, error={e}",
-                    exc_info=True
                 )
                 
                 # 记录到熔断器

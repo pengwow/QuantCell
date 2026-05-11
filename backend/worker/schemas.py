@@ -51,8 +51,6 @@ class WorkerCreate(WorkerBase):
     market_type: Optional[str] = Field(default="spot", description="市场类型: spot/future")
     trading_mode: Optional[str] = Field(default="paper", description="交易模式: paper/live")
     # 其他配置
-    cpu_limit: int = Field(default=1, ge=1, le=8, description="CPU核心数限制")
-    memory_limit: int = Field(default=512, ge=128, le=8192, description="内存限制(MB)")
     env_vars: Optional[Dict[str, str]] = Field(default=None, description="环境变量")
     config: Optional[Dict[str, Any]] = Field(default=None, description="Worker配置")
 
@@ -68,8 +66,6 @@ class WorkerUpdate(BaseModel):
     symbols: Optional[List[str]] = Field(None, description="交易对列表")
     timeframe: Optional[str] = Field(None, description="时间周期")
     trading_mode: Optional[str] = Field(None, description="交易模式")
-    cpu_limit: Optional[int] = Field(None, ge=1, le=8, description="CPU核心数限制")
-    memory_limit: Optional[int] = Field(None, ge=128, le=8192, description="内存限制(MB)")
     config: Optional[Dict[str, Any]] = Field(None, description="Worker配置")
 
 
@@ -100,8 +96,6 @@ class WorkerResponse(WorkerBase):
     timeframe: Optional[str] = Field(None, description="时间周期")
     market_type: Optional[str] = Field(None, description="市场类型")
     trading_mode: Optional[str] = Field(None, description="交易模式")
-    cpu_limit: Optional[int] = Field(None, description="CPU核心数限制")
-    memory_limit: Optional[int] = Field(None, description="内存限制(MB)")
     config: Optional[Dict[str, Any]] = Field(None, description="Worker配置")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
@@ -141,9 +135,6 @@ class WorkerStatusResponse(BaseModel):
 class WorkerMetrics(BaseModel):
     """Worker性能指标"""
     worker_id: int = Field(..., description="Worker ID")
-    cpu_usage: float = Field(..., description="CPU使用率(%)")
-    memory_usage: float = Field(..., description="内存使用率(%)")
-    memory_used_mb: float = Field(..., description="已用内存(MB)")
     network_in: int = Field(..., description="网络流入字节数")
     network_out: int = Field(..., description="网络流出字节数")
     active_tasks: int = Field(..., description="活跃任务数")
