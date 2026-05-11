@@ -36,8 +36,6 @@ class TestWorkerModels:
             name="Test Worker",
             description="Test Description",
             status="stopped",
-            cpu_limit=2,
-            memory_limit=1024
         )
         db_session.add(worker)
         db_session.commit()
@@ -47,8 +45,6 @@ class TestWorkerModels:
         assert worker.name == "Test Worker"
         assert worker.description == "Test Description"
         assert worker.status == "stopped"
-        assert worker.cpu_limit == 2
-        assert worker.memory_limit == 1024
 
     def test_worker_config_dict(self, db_session):
         """测试 Worker 配置字典操作"""
@@ -119,8 +115,6 @@ class TestWorkerModels:
         worker = Worker(
             name="Dict Test Worker",
             status="running",
-            cpu_limit=4,
-            memory_limit=2048
         )
         db_session.add(worker)
         db_session.commit()
@@ -128,8 +122,6 @@ class TestWorkerModels:
         worker_dict = worker.to_dict()
         assert worker_dict["name"] == "Dict Test Worker"
         assert worker_dict["status"] == "running"
-        assert worker_dict["cpu_limit"] == 4
-        assert worker_dict["memory_limit"] == 2048
         assert "id" in worker_dict
 
     def test_worker_log_creation(self, db_session):
@@ -199,8 +191,6 @@ class TestWorkerCRUD:
             timeframe="1h",
             market_type="spot",
             trading_mode="paper",
-            cpu_limit=2,
-            memory_limit=1024
         )
 
         worker = create_worker(db_session, worker_data)
@@ -408,8 +398,6 @@ class TestWorkerAPI:
             "timeframe": "1h",
             "market_type": "spot",
             "trading_mode": "paper",
-            "cpu_limit": 2,
-            "memory_limit": 1024
         })
 
         assert response.status_code == 200
@@ -874,8 +862,7 @@ class TestWorkerMonitoring:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
-        assert "cpu_usage" in data["data"]
-        assert "memory_usage" in data["data"]
+        assert "network_in" in data["data"]
 
     async def test_get_worker_logs_api(self, client):
         """测试获取 Worker 日志 API"""
@@ -999,8 +986,7 @@ class TestWorkerService:
         metrics = await get_worker_metrics(1)
 
         assert metrics is not None
-        assert "cpu_usage" in metrics
-        assert "memory_usage" in metrics
+        assert "network_in" in metrics
 
 
 # =============================================================================
@@ -1067,12 +1053,10 @@ class TestWorkerSchemas:
             exchange="binance",
             symbols=["BTCUSDT"],
             timeframe="1h",
-            cpu_limit=2,
-            memory_limit=1024
         )
 
         assert worker.name == "Schema Test Worker"
-        assert worker.cpu_limit == 2
+        assert worker.exchange == "binance"
 
     def test_worker_update_schema(self):
         """测试 Worker 更新模型"""

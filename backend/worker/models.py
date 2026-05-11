@@ -46,10 +46,6 @@ class Worker(Base):
     # }
     trading_config = Column(Text, default='{}')
 
-    # 资源配置
-    cpu_limit = Column(Integer, default=1)  # CPU核心数
-    memory_limit = Column(Integer, default=512)  # 内存限制(MB)
-
     # 运行环境变量(JSON格式)
     env_vars = Column(Text, default='{}')
 
@@ -182,8 +178,6 @@ class Worker(Base):
             'timeframe': timeframe,
             'market_type': market_type,
             'trading_mode': trading_mode,
-            'cpu_limit': self.cpu_limit,
-            'memory_limit': self.memory_limit,
             'pid': self.pid,
             'config': self.get_config_dict(),
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -511,12 +505,6 @@ class WorkerMetric(Base):
     id = Column(Integer, primary_key=True, index=True)
     worker_id = Column(Integer, ForeignKey('workers.id'), nullable=False, index=True)
     
-    # CPU和内存指标
-    cpu_usage = Column(Float, default=0.0)  # CPU使用率(%)
-    memory_usage = Column(Float, default=0.0)  # 内存使用率(%)
-    memory_used_mb = Column(Float, default=0.0)  # 已用内存(MB)
-    memory_total_mb = Column(Float, default=0.0)  # 总内存(MB)
-    
     # 网络指标
     network_in = Column(Integer, default=0)  # 网络流入字节数
     network_out = Column(Integer, default=0)  # 网络流出字节数
@@ -538,10 +526,6 @@ class WorkerMetric(Base):
         return {
             'id': self.id,
             'worker_id': self.worker_id,
-            'cpu_usage': self.cpu_usage,
-            'memory_usage': self.memory_usage,
-            'memory_used_mb': self.memory_used_mb,
-            'memory_total_mb': self.memory_total_mb,
             'network_in': self.network_in,
             'network_out': self.network_out,
             'active_tasks': self.active_tasks,

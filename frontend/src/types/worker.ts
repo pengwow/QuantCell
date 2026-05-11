@@ -76,8 +76,6 @@ export interface Worker {
   timeframe: string;
   market_type: string;
   trading_mode: string;
-  cpu_limit: number;
-  memory_limit: number;
   pid?: number;
   config?: Record<string, any>;
   created_at: string;
@@ -108,8 +106,6 @@ export interface CreateWorkerRequest {
   timeframe?: string;
   market_type?: string;
   trading_mode?: string;
-  cpu_limit?: number;
-  memory_limit?: number;
   env_vars?: Record<string, string>;
   config?: Record<string, any>;
 }
@@ -177,9 +173,6 @@ export interface HealthCheckResponse {
 // Worker指标
 export interface WorkerMetrics {
   worker_id: number;
-  cpu_usage: number;
-  memory_usage: number;
-  memory_used_mb: number;
   network_in: number;
   network_out: number;
   active_tasks: number;

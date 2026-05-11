@@ -207,8 +207,6 @@ def create(
     timeframe: Annotated[str, typer.Option("--timeframe", "-t", help="时间周期")] = "1h",
     market_type: Annotated[str, typer.Option("--market-type", help="市场类型(spot/future)")] = "spot",
     trading_mode: Annotated[str, typer.Option("--trading-mode", help="交易模式(paper/live)")] = "paper",
-    cpu_limit: Annotated[int, typer.Option("--cpu-limit", help="CPU核心数限制")] = 1,
-    memory_limit: Annotated[int, typer.Option("--memory-limit", help="内存限制(MB)")] = 512,
     description: Annotated[Optional[str], typer.Option("--description", "-d", help="Worker 描述")] = None,
 ):
     """
@@ -227,8 +225,6 @@ def create(
             "timeframe": timeframe,
             "market_type": market_type,
             "trading_mode": trading_mode,
-            "cpu_limit": cpu_limit,
-            "memory_limit": memory_limit,
         }
 
         result = _make_request("POST", json=worker_data)
@@ -604,9 +600,6 @@ def stats(
             try:
                 metrics = _make_request("GET", f"{worker_id}/monitoring/metrics")
                 typer.echo(f"\n性能指标:")
-                typer.echo(f"  CPU使用率: {metrics.get('cpu_usage', 0):.1f}%")
-                typer.echo(f"  内存使用率: {metrics.get('memory_usage', 0):.1f}%")
-                typer.echo(f"  已用内存: {metrics.get('memory_used_mb', 0):.1f} MB")
                 typer.echo(f"  活跃任务: {metrics.get('active_tasks', 0)}")
             except:
                 pass
@@ -783,8 +776,6 @@ def config(
             typer.echo(f"时间周期: {worker.get('timeframe')}")
             typer.echo(f"市场类型: {worker.get('market_type')}")
             typer.echo(f"交易模式: {worker.get('trading_mode')}")
-            typer.echo(f"CPU限制: {worker.get('cpu_limit')} 核")
-            typer.echo(f"内存限制: {worker.get('memory_limit')} MB")
             typer.echo(f"配置: {json.dumps(worker.get('config', {}), indent=2)}")
             typer.echo(f"创建时间: {worker.get('created_at')}")
             typer.echo(f"更新时间: {worker.get('updated_at')}")
@@ -1368,17 +1359,11 @@ def diagnose(
                 typer.secho("  ✓ 性能指标接口正常", fg=typer.colors.GREEN)
 
                 # 检查是否是模拟数据
-                is_mock = metrics.get('timestamp') is None or (
-                    metrics.get('cpu_usage') == 15.5 and
-                    metrics.get('memory_usage') == 45.2
-                )
+                is_mock = metrics.get('timestamp') is None
                 if is_mock:
                     typer.secho("  ⚠ 警告: 性能指标可能是模拟数据", fg=typer.colors.YELLOW)
                     typer.echo("    原因: CommManager (ZeroMQ) 可能未正确初始化")
                     typer.echo("    建议: 检查后端服务日志，确认通信组件配置")
-                else:
-                    typer.echo(f"    - CPU使用率: {metrics.get('cpu_usage', 0):.1f}%")
-                    typer.echo(f"    - 内存使用率: {metrics.get('memory_usage', 0):.1f}%")
             except Exception as e:
                 typer.secho(f"  ✗ 性能指标接口调用失败: {e}", fg=typer.colors.RED)
 
@@ -1442,11 +1427,7 @@ def diagnose(
                     test_worker = workers[0]
                     metrics = _make_request("GET", f"{test_worker.get('id')}/monitoring/metrics")
                     # 检查是否是模拟数据
-                    if metrics.get('cpu_usage') == 15.5 and metrics.get('memory_usage') == 45.2:
-                        typer.secho("  ⚠ 系统可能运行在模拟/测试模式", fg=typer.colors.YELLOW)
-                        typer.echo("    原因: CommManager 未初始化，返回模拟数据")
-                    else:
-                        typer.secho("  ✓ 系统运行正常", fg=typer.colors.GREEN)
+                    typer.secho("  ✓ 系统运行正常", fg=typer.colors.GREEN)
             except Exception as e:
                 typer.secho(f"  ✗ 系统检查失败: {e}", fg=typer.colors.RED)
 
@@ -1618,16 +1599,10 @@ def trades(
     format: Annotated[OutputFormat, typer.Option("--format", "-f", help="输出格式")] = OutputFormat.TABLE,
 ):
     """
-    查询Worker成交记录（真实数据 - SQLite）
+    查询Worker成交记录（真实数据 - SQLAlchemy主库）
 
-    从本地SQLite数据库查询Worker的成交记录，支持离线访问。
-    无论Worker是否运行都能获取最新数据。
-
-    特性：
-    - 准实时数据（延迟<100ms）
-    - 支持交易对筛选
-    - 离线可用（Worker停止后仍可查询历史数据）
-    - 显示数据来源（sqlite/mock）
+    从主数据库查询Worker的成交记录。
+    数据来源：NautilusTrader OrderFilled 事件 → worker_trades 表。
 
     示例:
       python worker_cli.py trades 1                    # 查询最近50条成交记录
@@ -1636,33 +1611,26 @@ def trades(
       python worker_cli.py trades 1 --format json       # JSON格式输出
     """
     try:
-        params = {"limit": limit}
+        params = {"limit": limit, "page_size": limit, "page": 1}
         if symbol:
             params["symbol"] = symbol
 
-        result = _make_request("GET", f"{worker_id}/data/trades", params=params)
+        result = _make_request("GET", f"{worker_id}/monitoring/trades", params=params)
         
-        trades_list = result.get("trades", [])
-        total = result.get("total", 0)
-        source = result.get("source", "unknown")
+        data = result.get("data", {})
+        trades_list = data.get("items", [])
+        total = data.get("total", 0)
         
         if not trades_list:
-            if source == "mock":
-                typer.secho(f"⚠ 暂无成交记录（返回模拟数据 - SQLite不可用）", fg=typer.colors.YELLOW)
-                typer.echo("  原因: DataCollector服务可能未启动")
-                typer.echo("  建议: 检查后端服务日志或运行 'python worker_cli.py data-sync {worker_id}'")
-            else:
-                typer.echo("暂无成交记录")
+            typer.echo("暂无成交记录")
             return
         
         if format == OutputFormat.JSON:
             typer.echo(json.dumps(result, indent=2, ensure_ascii=False, default=str))
         else:
-            data_source_color = typer.colors.GREEN if source == "sqlite" else typer.colors.YELLOW
-            
             typer.echo(f"\nWorker {worker_id} 成交记录:")
             typer.echo(f"{'='*80}")
-            typer.secho(f"数据来源: {source}", fg=data_source_color)
+            typer.secho(f"数据来源: SQLAlchemy 主库 (worker_trades)", fg=typer.colors.GREEN)
             typer.echo(f"总计: {total} 条 (显示前 {len(trades_list)} 条)")
             
             if symbol:
@@ -1698,89 +1666,18 @@ def positions(
     format: Annotated[OutputFormat, typer.Option("--format", "-f", help="输出格式")] = OutputFormat.TABLE,
 ):
     """
-    查询Worker当前持仓（真实数据 - SQLite）
+    查询Worker当前持仓
 
-    从SQLite读取最新持仓快照，包含未实现盈亏等信息。
-    支持离线访问，Worker停止后仍可查询最后保存的持仓状态。
-
-    特性：
-    - 实时持仓信息（包含未实现盈亏和百分比）
-    - 自动计算盈亏统计
-    - 离线可用
-    - 显示数据来源（sqlite/mock）
-
-    示例:
-      python worker_cli.py positions 1               # 查看当前持仓
-      python worker_cli.py positions 1 --format json   # JSON格式输出
+    当前持仓数据未独立存储，可通过 performance 接口查看相关指标。
     """
     try:
-        result = _make_request("GET", f"{worker_id}/data/positions")
+        result = _make_request("GET", f"{worker_id}/monitoring/performance", params={"days": 30})
         
-        positions_list = result.get("positions", [])
-        total = result.get("total", 0)
-        source = result.get("source", "unknown")
-        
-        if not positions_list:
-            if source == "mock":
-                typer.secho(f"⚠ 暂无持仓数据（返回模拟数据 - SQLite不可用）", fg=typer.colors.YELLOW)
-                typer.echo("  原因: DataCollector服务可能未启动或Worker尚未产生持仓")
-                typer.echo("  建议: 运行 'python worker_cli.py data-sync {worker_id}' 检查同步状态")
-            else:
-                typer.echo("暂无持仓记录")
-            return
-        
-        if format == OutputFormat.JSON:
-            typer.echo(json.dumps(result, indent=2, ensure_ascii=False, default=str))
-        else:
-            data_source_color = typer.colors.GREEN if source == "sqlite" else typer.colors.YELLOW
-            
-            typer.echo(f"\nWorker {worker_id} 当前持仓:")
-            typer.echo(f"{'='*90}")
-            typer.secho(f"数据来源: {source}", fg=data_source_color)
-            typer.echo(f"总持仓数: {total} 个\n")
-            
-            total_pnl = 0.0
-            total_notional = 0.0
-            
-            typer.echo(f"{'交易对':<15} {'方向':<8} {'数量':>10} {'开仓均价':>12} {'未实现盈亏':>12} {'盈亏%':>8} {'快照时间':<22}")
-            typer.echo("-" * 95)
-            
-            for pos in positions_list:
-                symbol = pos.get('symbol', 'N/A')[:13]
-                side = pos.get('side', 'N/A')
-                quantity = pos.get('quantity', 0)
-                avg_px_open = pos.get('avg_px_open', 0)
-                unrealized_pnl = pos.get('unrealized_pnl', 0)
-                unrealized_pnl_pct = pos.get('unrealized_pnl_pct', 0)
-                snapshot_time = pos.get('snapshot_time', 'N/A')
-                
-                # 方向颜色
-                side_color = typer.colors.GREEN if side in ['LONG', 'BUY'] else (
-                    typer.colors.RED if side in ['SHORT', 'SELL'] else typer.colors.WHITE
-                )
-                
-                # 盈亏颜色
-                pnl_color = typer.colors.GREEN if unrealized_pnl >= 0 else typer.colors.RED
-                
-                typer.echo(f"{symbol:<15} ", nl=False)
-                typer.secho(f"{side:<8}", fg=side_color, nl=False)
-                typer.echo(f" {quantity:>10.4f} {avg_px_open:>12.2f} ", nl=False)
-                typer.secho(f"{unrealized_pnl:>12.2f}", fg=pnl_color, nl=False)
-                typer.secho(f" {unrealized_pnl_pct:>7.2f}%", fg=pnl_color, nl=False)
-                typer.echo(f" {snapshot_time:<22}")
-                
-                # 统计总盈亏
-                total_pnl += unrealized_pnl
-                total_notional += abs(avg_px_open * quantity) if avg_px_open and quantity else 0
-            
-            # 显示汇总
-            if total > 0 and total_notional > 0:
-                overall_pct = (total_pnl / total_notional * 100)
-                pnl_color = typer.colors.GREEN if total_pnl >= 0 else typer.colors.RED
-                typer.echo("-" * 95)
-                typer.echo(f"{'合计':<15} {'':<8} {'':>10} {'':>12} ", nl=False)
-                typer.secho(f"{total_pnl:>12.2f}", fg=pnl_color, nl=False)
-                typer.secho(f" {overall_pct:>7.2f}%", fg=pnl_color)
+        typer.echo(f"\nWorker {worker_id} 持仓信息:")
+        typer.echo(f"{'='*60}")
+        typer.secho("当前版本暂无独立持仓表，请通过以下方式查看:", fg=typer.colors.YELLOW)
+        typer.echo("  - 前端 Worker 详情页 → Performance 标签")
+        typer.echo("  - CLI: python worker_cli.py performance {worker_id}")
 
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
@@ -1795,54 +1692,34 @@ def orders(
     format: Annotated[OutputFormat, typer.Option("--format", "-f", help="输出格式")] = OutputFormat.TABLE,
 ):
     """
-    查询Worker订单列表（真实数据 - SQLite）
+    查询Worker订单列表（SQLAlchemy主库）
 
-    从SQLite查询订单事件记录，支持按事件类型筛选。
-    包含完整的订单生命周期：提交、接受、拒绝、成交、取消等。
-
-    特性：
-    - 完整的订单生命周期事件
-    - 支持按事件类型筛选
-    - 离线可用
-    - 显示数据来源（sqlite/mock）
+    从主数据库 worker_trades 表查询订单成交记录。
+    数据来源：NautilusTrader OrderFilled 事件。
 
     示例:
-      python worker_cli.py orders 1                     # 查询最近订单事件
-      python worker_cli.py orders 1 --status OrderFilled  # 只显示成交事件
+      python worker_cli.py orders 1                     # 查询最近订单
       python worker_cli.py orders 1 --limit 20           # 只显示20条
       python worker_cli.py orders 1 --format json        # JSON格式输出
     """
     try:
-        params = {"limit": limit}
-        if status:
-            params["status"] = status
+        result = _make_request("GET", f"{worker_id}/monitoring/trades", params={"page_size": limit, "page": 1})
 
-        result = _make_request("GET", f"{worker_id}/data/orders", params=params)
-        
-        orders_list = result.get("orders", [])
-        total = result.get("total", 0)
-        source = result.get("source", "unknown")
-        
+        data = result.get("data", {})
+        orders_list = data.get("items", [])
+        total = data.get("total", 0)
+
         if not orders_list:
-            if source == "mock":
-                typer.secho(f"⚠ 暂无订单记录（返回模拟数据 - SQLite不可用）", fg=typer.colors.YELLOW)
-                typer.echo("  原因: DataCollector服务可能未启动或Worker尚未产生订单")
-            else:
-                typer.echo("暂无订单记录")
+            typer.echo("暂无订单记录")
             return
-        
+
         if format == OutputFormat.JSON:
             typer.echo(json.dumps(result, indent=2, ensure_ascii=False, default=str))
         else:
-            data_source_color = typer.colors.GREEN if source == "sqlite" else typer.colors.YELLOW
-            
             typer.echo(f"\nWorker {worker_id} 订单列表:")
             typer.echo(f"{'='*85}")
-            typer.secho(f"数据来源: {source}", fg=data_source_color)
+            typer.secho(f"数据来源: SQLAlchemy 主库 (worker_trades)", fg=typer.colors.GREEN)
             typer.echo(f"总计: {total} 条 (显示前 {len(orders_list)} 条)")
-            
-            if status:
-                typer.echo(f"事件类型: {status}")
             
             typer.echo(f"\n{'时间':<22} {'订单ID':<25} {'事件类型':<18} {'方向':<6} {'数量':>10} {'价格':>12}")
             typer.echo("-" * 105)
@@ -1884,138 +1761,35 @@ def data_sync(
     worker_id: Annotated[Optional[int], typer.Argument(help="Worker ID，不指定则查看全局状态")] = None,
 ):
     """
-    查看数据同步状态和健康检查
+    查看数据存储状态
 
-    查看DataCollector服务的运行状态、消息处理统计、
-    数据库路径等信息，用于诊断数据同步问题。
+    查看主数据库中的交易记录统计信息。
+    数据直接存储在 SQLAlchemy 主库中，无需 DataCollector 中间层。
 
     示例:
-      python worker_cli.py data-sync              # 查看全局数据同步状态
-      python worker_cli.py data-sync 1            # 查看指定Worker的数据同步状态
+      python worker_cli.py data-sync              # 查看全局状态
+      python worker_cli.py data-sync 1            # 查看指定Worker
     """
     try:
         if worker_id:
-            # 查看单个Worker的数据同步状态
-            stats = _make_request("GET", f"{worker_id}/data/stats")
-            
-            typer.echo(f"\nWorker {worker_id} 数据同步状态:")
+            typer.echo(f"\nWorker {worker_id} 数据状态:")
             typer.echo(f"{'='*60}")
-            
-            enabled = stats.get("data_sync_enabled", False)
-            enabled_color = typer.colors.GREEN if enabled else typer.colors.RED
-            typer.secho(f"数据同步: {'启用' if enabled else '禁用'}", fg=enabled_color)
-            
-            if enabled:
-                statistics = stats.get("statistics", {})
-                
-                typer.echo(f"\n📊 消息统计:")
-                typer.echo(f"  接收消息总数: {statistics.get('messages_received', 0):,}")
-                typer.echo(f"  成交记录存储: {statistics.get('trades_stored', 0):,}")
-                typer.echo(f"  持仓更新次数: {statistics.get('positions_updated', 0):,}")
-                typer.echo(f"  订单事件存储: {statistics.get('order_events_stored', 0):,}")
-                typer.echo(f"  错误发生次数: {statistics.get('errors', 0):,}")
-                
-                last_msg = statistics.get("last_message_time")
-                if last_msg:
-                    typer.echo(f"\n⏰ 最后消息时间: {last_msg}")
-                    
-                    # 计算距离现在的时间差
-                    try:
-                        from datetime import timezone
-                        last_dt = datetime.fromisoformat(last_msg.replace("Z", "+00:00"))
-                        now = datetime.now(timezone.utc)
-                        diff = now - last_dt
-                        
-                        if diff.total_seconds() < 60:
-                            time_str = f"{int(diff.total_seconds())} 秒前"
-                            time_color = typer.colors.GREEN
-                        elif diff.total_seconds() < 3600:
-                            time_str = f"{int(diff.total_seconds() // 60)} 分钟前"
-                            time_color = typer.colors.YELLOW
-                        else:
-                            hours = int(diff.total_seconds() // 3600)
-                            minutes = int((diff.total_seconds() % 3600) // 60)
-                            time_str = f"{hours} 小时 {minutes} 分钟前"
-                            time_color = typer.colors.RED
-                        
-                        typer.echo(f"  距今: ", nl=False)
-                        typer.secho(time_str, fg=time_color)
-                    except Exception:
-                        pass
-                else:
-                    typer.secho(f"\n⚠ 尚未收到任何消息", fg=typer.colors.YELLOW)
-                
-                typer.echo(f"\n💾 存储配置:")
-                typer.echo(f"  SQLite路径: {stats.get('sqlite_path', 'N/A')}")
-                typer.echo(f"  收集器端口: {stats.get('collector_port', 'N/A')}")
-                typer.echo(f"  运行状态: {'运行中' if stats.get('is_running') else '已停止'}")
-                
-                # 快速验证数据可用性
-                typer.echo(f"\n🔍 数据可用性检查:")
-                
-                try:
-                    trades_check = _make_request("GET", f"{worker_id}/data/trades", params={"limit": 1})
-                    trades_source = trades_check.get("source", "unknown")
-                    trades_count = len(trades_check.get("trades", []))
-                    trades_color = typer.colors.GREEN if trades_source == "sqlite" else typer.colors.YELLOW
-                    
-                    typer.echo(f"  成交记录: ", nl=False)
-                    typer.secho(f"{trades_count} 条 ({trades_source})", fg=trades_color)
-                except Exception as e:
-                    typer.secho(f"  成交记录: ❌ 查询失败 ({e})", fg=typer.colors.RED)
-                
-                try:
-                    pos_check = _make_request("GET", f"{worker_id}/data/positions")
-                    pos_source = pos_check.get("source", "unknown")
-                    pos_count = len(pos_check.get("positions", []))
-                    pos_color = typer.colors.GREEN if pos_source == "sqlite" else typer.colors.YELLOW
-                    
-                    typer.echo(f"  持仓信息: ", nl=False)
-                    typer.secho(f"{pos_count} 个 ({pos_source})", fg=pos_color)
-                except Exception as e:
-                    typer.secho(f"  持仓信息: ❌ 查询失败 ({e})", fg=typer.colors.RED)
-                
-            else:
-                typer.secho("\n⚠ DataCollector服务未初始化", fg=typer.colors.YELLOW)
-                typer.echo("  影响: 将使用模拟数据（降级模式）")
-                typer.echo("  建议:")
-                typer.echo("    1. 检查后端服务是否正常启动")
-                typer.echo("    2. 查看 lifespan.py 日志确认DataCollector初始化情况")
-                typer.echo("    3. 重启后端服务")
+            typer.secho(f"数据源: SQLAlchemy 主库 (quantcell_sqlite.db)", fg=typer.colors.GREEN)
+            typer.echo(f"  表名: worker_trades")
+
+            trades_check = _make_request("GET", f"{worker_id}/monitoring/trades", params={"page_size": 1, "page": 1})
+            data = trades_check.get("data", {})
+            total = data.get("total", 0)
+
+            typer.secho(f"  记录总数: {total}", fg=typer.colors.GREEN if total > 0 else typer.colors.YELLOW)
         else:
-            # 全局概览
-            typer.echo("\n全局数据同步状态:")
+            typer.echo("\n全局数据状态:")
             typer.echo(f"{'='*60}")
-            
-            # 尝试获取任意一个Worker的状态来推断系统状态
-            try:
-                result = _make_request("GET")
-                workers = result.get("items", [])
-                
-                if workers:
-                    test_worker = workers[0]
-                    test_worker_id = test_worker.get("id")
-                    
-                    if test_worker_id:
-                        stats = _make_request("GET", f"{test_worker_id}/data/stats")
-                        
-                        if stats.get("data_sync_enabled"):
-                            typer.secho("✓ DataCollector服务已启用", fg=typer.colors.GREEN)
-                            
-                            statistics = stats.get("statistics", {})
-                            typer.echo(f"\n系统统计:")
-                            typer.echo(f"  消息接收总数: {statistics.get('messages_received', 0):,}")
-                            typer.echo(f"  成交记录存储: {statistics.get('trades_stored', 0):,}")
-                            typer.echo(f"  持仓更新次数: {statistics.get('positions_updated', 0):,}")
-                            typer.echo(f"  SQLite路径: {stats.get('sqlite_path', 'N/A')}")
-                        else:
-                            typer.secho("⚠ DataCollector服务未初始化", fg=typer.colors.YELLOW)
-                            typer.echo("  所有数据查询将使用降级模式（模拟数据）")
-                else:
-                    typer.echo("暂无Worker，无法检测数据同步状态")
-                    
-            except Exception as e:
-                typer.secho(f"⚠ 无法获取数据同步状态: {e}", fg=typer.colors.YELLOW)
+            typer.secho(f"数据源: SQLAlchemy 主库 (quantcell_sqlite.db)", fg=typer.colors.GREEN)
+            typer.echo("\n说明:")
+            typer.echo("  - 交易记录: 直接写入 worker_trades 表")
+            typer.echo("  - 无需 ZMQ/DataCollector 中间件")
+            typer.echo("  - 使用 'orders' 或 'trades' 命令查看具体数据")
 
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)

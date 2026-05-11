@@ -309,10 +309,10 @@ class WorkerCommClient:
                             else:
                                 handler(message)
                         except Exception as e:
-                            logger.error(f"[WorkerClient] 控制处理器错误: {e}", exc_info=True)
+                            logger.error(f"[WorkerClient] 控制处理器错误: {e}", exception=e)
             except asyncio.CancelledError:
                 logger.info(f"[WorkerClient] Worker {self.worker_id} 控制循环被取消")
                 break
             except Exception as e:
-                logger.error(f"[WorkerClient] 接收控制命令错误: {e}")
+                logger.error(f"[WorkerClient] 接收控制命令错误: {e}", exception=e)
                 await asyncio.sleep(0.1)
