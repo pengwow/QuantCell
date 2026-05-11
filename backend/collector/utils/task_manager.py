@@ -271,9 +271,9 @@ class TaskManager:
                         loop.run_until_complete(manager.broadcast(message, topic="task:progress"))
                 except Exception as e2:
                     logger.error(f"直接广播也失败: {e2}")
-                except Exception as e:
-            logger.error(f"WebSocket推送失败: {e}", exception=e)
-        
+        except Exception as e:
+            logger.error(f"WebSocket推送进度失败: {e}")
+
         logger.debug(f"更新任务进度: {task_id}, 当前: {current}, 进度: {percentage}%, 状态: {status}")
         return True
     

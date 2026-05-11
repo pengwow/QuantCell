@@ -17,9 +17,9 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
-from backend.collector.db.database import SessionLocal
+from collector.db.database import SessionLocal
 # 数据库连接和模型
-from backend.collector.db.models import CryptoSpotKline, CryptoFutureKline, StockKline
+from collector.db.models import CryptoSpotKline, CryptoFutureKline, StockKline
 
 
 class KlineHealthChecker:
