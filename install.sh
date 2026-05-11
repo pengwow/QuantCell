@@ -83,6 +83,265 @@ setup_log_dir() {
     log_info "日志目录已创建: $LOG_DIR"
 }
 
+# ==================== 必要命令检查 ====================
+
+# 存储缺失的命令
+MISSING_REQUIRED=()
+MISSING_OPTIONAL=()
+
+# 获取命令描述
+get_command_desc() {
+    case "$1" in
+        bash)   echo "Bash shell 运行环境" ;;
+        mkdir)  echo "创建目录" ;;
+        cd)     echo "切换工作目录" ;;
+        echo)   echo "输出文本" ;;
+        tee)    echo "同时输出到屏幕和文件" ;;
+        date)   echo "获取当前时间" ;;
+        command) echo "检查命令是否存在" ;;
+        cat)    echo "读取文件内容" ;;
+        kill)   echo "终止进程" ;;
+        sleep)  echo "暂停执行" ;;
+        wait)   echo "等待后台进程" ;;
+        grep)   echo "文本搜索" ;;
+        touch)  echo "创建空文件" ;;
+        rm)     echo "删除文件" ;;
+        nohup)  echo "忽略挂断信号运行命令" ;;
+        lsof)   echo "查看端口占用情况 (macOS/Linux)" ;;
+        curl)   echo "下载文件 (curl/wget 至少需要其一)" ;;
+        wget)   echo "下载文件 (curl/wget 至少需要其一)" ;;
+        unzip)  echo "解压 ZIP 文件 (部分依赖包可能需要)" ;;
+        tar)    echo "解压 tar.gz 文件 (部分依赖包可能需要)" ;;
+        python3) echo "Python 3 运行时 (后端服务必需)" ;;
+        python) echo "Python 运行时 (兼容旧系统)" ;;
+        *)      echo "系统工具" ;;
+    esac
+}
+
+check_required_commands() {
+    log_step "检查必要系统命令"
+
+    local has_error=false
+
+    # 必要命令列表
+    local required_cmds=(
+        "bash"
+        "mkdir"
+        "cd"
+        "echo"
+        "tee"
+        "date"
+        "command"
+        "cat"
+        "kill"
+        "sleep"
+        "wait"
+        "grep"
+        "touch"
+        "rm"
+        "nohup"
+        "lsof"
+    )
+
+    # 检查必要命令
+    log_info "检查必须存在的命令..."
+    for cmd in "${required_cmds[@]}"; do
+        if command_exists "$cmd"; then
+            log_success "✓ $cmd - $(get_command_desc $cmd)"
+        else
+            log_error "✗ $cmd - $(get_command_desc $cmd)"
+            MISSING_REQUIRED+=("$cmd")
+            has_error=true
+        fi
+    done
+
+    # 检查可选命令（分组检查）
+    echo ""
+    log_info "检查推荐命令..."
+
+    # curl 和 wget 至少需要一个
+    if command_exists "curl" || command_exists "wget"; then
+        if command_exists "curl"; then
+            log_success "✓ curl - $(get_command_desc curl)"
+        fi
+        if command_exists "wget"; then
+            log_success "✓ wget - $(get_command_desc wget)"
+        fi
+    else
+        log_warning "✗ 缺少下载工具: 需要安装 curl 或 wget 其中之一"
+        MISSING_OPTIONAL+=("curl或wget")
+        has_error=true
+    fi
+
+    # 检查其他可选命令
+    for cmd in "unzip" "tar"; do
+        if command_exists "$cmd"; then
+            log_success "✓ $cmd - $(get_command_desc $cmd)"
+        else
+            log_warning "⚠ $cmd - $(get_command_desc $cmd) (建议安装)"
+            MISSING_OPTIONAL+=("$cmd")
+        fi
+    done
+
+    # python3 和 python 至少需要一个
+    if command_exists "python3" || command_exists "python"; then
+        if command_exists "python3"; then
+            PYTHON_VERSION=$(python3 --version 2>&1 | head -1)
+            log_success "✓ python3 - $PYTHON_VERSION"
+        elif command_exists "python"; then
+            PYTHON_VERSION=$(python --version 2>&1 | head -1)
+            log_success "✓ python - $PYTHON_VERSION"
+        fi
+    else
+        log_warning "⚠ python3/python - $(get_command_desc python3) (后端服务需要 Python 环境)"
+        MISSING_OPTIONAL+=("python")
+    fi
+
+    # 检查结果汇总
+    echo ""
+    if [ ${#MISSING_REQUIRED[@]} -gt 0 ]; then
+        log_error "========================================"
+        log_error "缺少以下必要命令 (${#MISSING_REQUIRED[@]} 个):"
+        log_error "========================================"
+        for cmd in "${MISSING_REQUIRED[@]}"; do
+            log_error "  - $cmd: $(get_command_desc $cmd)"
+        done
+        echo ""
+        show_install_guide "${MISSING_REQUIRED[@]}"
+        return 1
+    fi
+
+    if [ ${#MISSING_OPTIONAL[@]} -gt 0 ]; then
+        log_warning "========================================"
+        log_warning "缺少以下推荐命令 (${#MISSING_OPTIONAL[@]} 个):"
+        log_warning "========================================"
+        for cmd in "${MISSING_OPTIONAL[@]}"; do
+            log_warning "  - $cmd"
+        done
+        echo ""
+        show_optional_install_guide "${MISSING_OPTIONAL[@]}"
+        log_warning "缺少这些命令可能导致部分功能无法使用"
+    fi
+
+    log_success "必要命令检查完成"
+    return 0
+}
+
+show_install_guide() {
+    log_info "根据您的操作系统，请使用以下命令安装缺失的工具："
+    echo ""
+    
+    case "$OS_TYPE" in
+        macos)
+            echo -e "  ${YELLOW}macOS 安装方法:${NC}"
+            echo "  # 使用 Homebrew (推荐)"
+            echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+            echo ""
+            echo "  # 然后安装缺失的工具:"
+            for cmd in "$@"; do
+                case $cmd in
+                    lsof)   echo "  brew install lsof" ;;
+                    grep)   echo "  brew install grep" ;;
+                    *)      echo "  brew install $cmd" ;;
+                esac
+            done
+            ;;
+        linux)
+            echo -e "  ${YELLOW}Linux 安装方法:${NC}"
+            
+            # 检测包管理器
+            if command_exists apt-get; then
+                echo "  # Debian/Ubuntu:"
+                echo "  sudo apt-get update"
+                CMD_LIST=""
+                for cmd in "$@"; do
+                    case $cmd in
+                        lsof)   CMD_LIST="$CMD_LIST lsof" ;;
+                        nohup)  CMD_LIST="$CMD_LIST coreutils" ;;
+                        *)      CMD_LIST="$CMD_LIST $cmd" ;;
+                    esac
+                done
+                echo "  sudo apt-get install$CMD_LIST"
+            elif command_exists yum; then
+                echo "  # CentOS/RHEL/Fedora:"
+                CMD_LIST=""
+                for cmd in "$@"; do
+                    case $cmd in
+                        lsof)   CMD_LIST="$CMD_LIST lsof" ;;
+                        nohup)  CMD_LIST="$CMD_LIST coreutils" ;;
+                        *)      CMD_LIST="$CMD_LIST $cmd" ;;
+                    esac
+                done
+                echo "  sudo yum install$CMD_LIST"
+            elif command_exists dnf; then
+                echo "  # Fedora (新版):"
+                CMD_LIST=""
+                for cmd in "$@"; do
+                    CMD_LIST="$CMD_LIST $cmd"
+                done
+                echo "  sudo dnf install$CMD_LIST"
+            elif command_exists pacman; then
+                echo "  # Arch Linux:"
+                CMD_LIST=""
+                for cmd in "$@"; do
+                    CMD_LIST="$CMD_LIST $cmd"
+                done
+                echo "  sudo pacman -S$CMD_LIST"
+            else
+                echo "  # 请根据您的发行版选择合适的包管理器"
+                echo "  # 常见工具名: $(echo "$@" | tr ' ' ', ')"
+            fi
+            ;;
+        windows)
+            echo -e "  ${YELLOW}Windows 安装方法:${NC}"
+            echo "  # 请通过 Git Bash 或 WSL 安装所需工具"
+            echo "  # 或访问: https://git-scm.com/downloads"
+            echo ""
+            echo "  # 推荐使用 Chocolatey:"
+            echo "  # 安装 Chocolatey: https://chocolatey.org/install"
+            CMD_LIST=""
+            for cmd in "$@"; do
+                CMD_LIST="$CMD_LIST $cmd"
+            done
+            echo "  choco install$CMD_LIST -y"
+            ;;
+        *)
+            echo "  # 请手动安装以下命令: $@"
+            ;;
+    esac
+    
+    echo ""
+}
+
+show_optional_install_guide() {
+    log_info "可选命令安装建议（按需安装）："
+    echo ""
+    
+    case "$OS_TYPE" in
+        macos)
+            echo -e "  ${YELLOW}macOS:${NC}"
+            echo "  brew install unzip tar python3"
+            ;;
+        linux)
+            if command_exists apt-get; then
+                echo -e "  ${YELLOW}Debian/Ubuntu:${NC}"
+                echo "  sudo apt-get install unzip tar python3"
+            elif command_exists yum; then
+                echo -e "  ${YELLOW}CentOS/RHEL:${NC}"
+                echo "  sudo yum install unzip tar python3"
+            elif command_exists dnf; then
+                echo -e "  ${YELLOW}Fedora:${NC}"
+                echo "  sudo dnf install unzip tar python3"
+            fi
+            ;;
+        *)
+            echo "  # 请根据操作系统安装: unzip, tar, python3"
+            ;;
+    esac
+    
+    echo ""
+}
+
 # ==================== 系统环境检测 ====================
 
 detect_os() {
@@ -527,14 +786,22 @@ show_usage() {
     echo "  --status        查看服务状态"
     echo "  --restart       重启所有服务"
     echo "  --update        更新工具链（uv, bun）"
+    echo "  --check         仅检查必要命令（不执行其他操作）"
     echo "  --help          显示帮助信息"
     echo ""
+    echo "说明:"
+    echo "  脚本会自动检查以下必要命令是否已安装:"
+    echo "  - 必需命令: bash, mkdir, cd, echo, tee, date, command, cat,"
+    echo "              kill, sleep, wait, grep, touch, rm, nohup, lsof"
+    echo "  - 推荐命令: curl/wget (至少一个), unzip, tar, python3/python"
+    echo ""
     echo "示例:"
-    echo "  $0              # 完整安装并启动"
+    echo "  $0              # 完整安装并启动（包含命令检查）"
     echo "  $0 --install    # 仅安装"
     echo "  $0 --start      # 仅启动"
     echo "  $0 --stop       # 停止服务"
     echo "  $0 --status     # 查看状态"
+    echo "  $0 --check      # 仅检查命令环境"
 }
 
 parse_args() {
@@ -563,6 +830,10 @@ parse_args() {
                 ACTION="restart"
                 shift
                 ;;
+            --check)
+                ACTION="check"
+                shift
+                ;;
             --update)
                 AUTO_UPDATE="true"
                 shift
@@ -587,7 +858,23 @@ main() {
     setup_log_dir
     detect_os
 
+    # 检查必要命令（除了 --stop 和 --status 操作）
+    if [[ "$ACTION" != "stop" && "$ACTION" != "status" ]]; then
+        if ! check_required_commands; then
+            log_error "必要命令检查未通过，请先安装缺失的命令后重试"
+            exit 1
+        fi
+    fi
+
     case "$ACTION" in
+        check)
+            # 仅检查命令环境，不执行其他操作
+            if ! check_required_commands; then
+                exit 1
+            fi
+            log_success "命令环境检查完成，所有必要命令已就绪"
+            ;;
+
         install)
             log_step "执行安装流程"
             install_uv && install_bun && setup_backend && setup_frontend
