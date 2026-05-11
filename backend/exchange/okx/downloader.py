@@ -264,42 +264,18 @@ class OKXDownloader(BaseCollector):
     def convert_to_qlib(self, csv_dir, qlib_dir, interval=None):
         """
         将下载的CSV数据转换为QLib格式
+        
+        注意：此功能已弃用，QLib转换不再支持。
+        如需数据格式转换，请使用 scripts/data_cli.py 的导出功能。
 
         :param csv_dir: CSV数据目录
         :param qlib_dir: QLib数据保存目录
         :param interval: 时间间隔，如'1m', '1h', '1d'等，如果为None则使用当前收集器的interval
-        :return: 转换结果
+        :return: False (功能已禁用)
         """
-        try:
-            from collector.scripts.convert_to_qlib import convert_crypto_to_qlib
-
-            logger.info(f"开始将CSV数据转换为QLib格式...")
-
-            if interval is None:
-                interval = self.interval
-
-            qlib_freq = "day" if interval == "1d" else interval
-
-            result = convert_crypto_to_qlib(
-                csv_dir=csv_dir,
-                qlib_dir=qlib_dir,
-                freq=qlib_freq,
-                date_field_name="timestamp",
-                file_suffix=".csv",
-                symbol_field_name="symbol",
-                include_fields="timestamp,open,high,low,close,volume",
-                max_workers=self.max_workers
-            )
-
-            if result:
-                logger.info("数据转换完成！")
-            else:
-                logger.error("数据转换失败！")
-
-            return result
-        except Exception as e:
-            logger.error(f"数据转换失败: {e}")
-            return False
+        logger.warning("QLib格式转换功能已移除")
+        logger.info(f"如需数据导出，请使用: python scripts/data_cli.py export csv/parquet ...")
+        return False
 
     def collect_data(self, progress_callback=None):
         """

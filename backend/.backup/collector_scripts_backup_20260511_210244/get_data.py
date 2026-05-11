@@ -501,6 +501,143 @@ def stock(
     logger.warning("股票数据下载功能暂未实现")
 
 
+# ==================== 兼容层：保留旧的 GetData 类接口 ====================
+# 为了向后兼容，保留 GetData 类供其他模块（如 scheduled_task_manager, export_data）使用
+
+class GetData:
+    """
+    数据下载工具类（兼容旧接口）
+    
+    注意：此类已迁移到 typer 命令行工具，此处的类仅作为兼容层存在。
+    新代码建议直接调用命令行函数或使用 typer 接口。
+    """
+    
+    def __init__(
+        self,
+        symbols=None,
+        exchange="binance",
+        candle_type='spot',
+        save_dir=None,
+        start=None,
+        end=None,
+        interval="1d",
+        max_workers=1,
+        max_collector_count=2,
+        delay=0,
+        check_data_length=None,
+        limit_nums=None,
+        exists_skip=False,
+        mode='inc',
+        write_to_db=False,
+    ):
+        """
+        初始化数据下载工具
+        
+        Args:
+            symbols: 交易对列表或逗号分隔的字符串
+            exchange: 交易所名称 (binance/okx)
+            candle_type: 蜡烛图类型 (spot/futures)
+            save_dir: 保存目录
+            start: 开始时间
+            end: 结束时间
+            interval: 时间间隔
+            max_workers: 最大工作线程数
+            max_collector_count: 最大收集次数
+            delay: 请求延迟时间
+            check_data_length: 数据长度检查阈值
+            limit_nums: 限制标的数量
+            exists_skip: 是否跳过已存在的文件
+            mode: 下载模式 (inc/full)
+            write_to_db: 是否写入数据库
+        """
+        self.symbols = symbols
+        self.exchange = exchange
+        self.candle_type = candle_type
+        self.save_dir = save_dir or default_save_dir
+        self.start = start
+        self.end = end
+        self.interval = interval
+        self.max_workers = max_workers
+        self.max_collector_count = max_collector_count
+        self.delay = delay
+        self.check_data_length = check_data_length
+        self.limit_nums = limit_nums
+        self.exists_skip = exists_skip
+        self.mode = mode
+        self.write_to_db = write_to_db
+    
+    def run(self, start_date=None):
+        """
+        执行数据下载
+        
+        Args:
+            start_date: 开始日期（用于增量下载），如果为None则使用初始化时的start参数
+        """
+        # 使用提供的 start_date 或默认值
+        actual_start = start_date or self.start
+        
+        # 处理 symbols 参数格式
+        if isinstance(self.symbols, list):
+            symbols_str = ','.join(self.symbols)
+        else:
+            symbols_str = self.symbols
+        
+        # 根据交易所类型调用对应的下载函数
+        if self.exchange.lower() in ["binance", "binance_spot", "binance_futures"]:
+            crypto_binance(
+                save_dir=self.save_dir,
+                start=actual_start,
+                end=self.end,
+                interval=self.interval,
+                max_workers=self.max_workers,
+                max_collector_count=self.max_collector_count,
+                delay=self.delay,
+                check_data_length=self.check_data_length,
+                limit_nums=self.limit_nums,
+                candle_type=self.candle_type,
+                symbols=symbols_str,
+                exists_skip=self.exists_skip,
+                mode=self.mode,
+                write_to_db=self.write_to_db,
+            )
+        elif self.exchange.lower() in ["okx"]:
+            crypto_okx(
+                save_dir=self.save_dir,
+                start=actual_start,
+                end=self.end,
+                interval=self.interval,
+                max_workers=self.max_workers,
+                max_collector_count=self.max_collector_count,
+                delay=self.delay,
+                check_data_length=self.check_data_length,
+                limit_nums=self.limit_nums,
+                candle_type=self.candle_type,
+                symbols=symbols_str,
+                exists_skip=self.exists_skip,
+                mode=self.mode,
+                write_to_db=self.write_to_db,
+            )
+        else:
+            # 使用通用的 crypto 函数
+            crypto(
+                exchange=self.exchange,
+                save_dir=self.save_dir,
+                start=actual_start,
+                end=self.end,
+                interval=self.interval,
+                max_workers=self.max_workers,
+                max_collector_count=self.max_collector_count,
+                delay=self.delay,
+                check_data_length=self.check_data_length,
+                limit_nums=self.limit_nums,
+                candle_type=self.candle_type,
+                symbols=symbols_str,
+                exists_skip=self.exists_skip,
+                mode=self.mode,
+                write_to_db=self.write_to_db,
+            )
+
+
 if __name__ == "__main__":
     # 配置日志格式
     logger.add(
