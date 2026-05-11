@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from ..db import crud
 from ..schemas.data import (DownloadCryptoRequest, ExportCryptoRequest,
                             LoadDataRequest)
-from ..scripts.export_data import ExportData
+# 延迟导入，避免循环依赖：ExportData 将在使用时从 collector.services.data_tools 导入
 from ..utils.task_manager import task_manager
 
 
