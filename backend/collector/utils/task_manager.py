@@ -215,6 +215,10 @@ class TaskManager:
 
         # 通过WebSocket推送进度更新 - 使用与 complete_task 相同的方式
         try:
+            # 检查消息队列是否已初始化（命令行模式下可能未初始化）
+            if not manager.message_queue:
+                logger.debug(f"WebSocket未连接，跳过进度推送: task_id={task_id}, 进度={percentage}%")
+                return True
 
             # 推送进度更新
             message = {
@@ -298,23 +302,26 @@ class TaskManager:
                         "percentage": 100.0,
                         "status": "completed",
                     }
-                    message = {
-                        "type": "task:progress",
-                        "id": f"progress_{task_id}_{int(time.time() * 1000)}",
-                        "timestamp": int(time.time() * 1000),
-                        "data": {
-                            "task_id": task_id,
-                            "progress": progress_info
+                    
+                    # 检查消息队列是否已初始化（命令行模式下可能未初始化）
+                    if manager.message_queue:
+                        message = {
+                            "type": "task:progress",
+                            "id": f"progress_{task_id}_{int(time.time() * 1000)}",
+                            "timestamp": int(time.time() * 1000),
+                            "data": {
+                                "task_id": task_id,
+                                "progress": progress_info
+                            }
                         }
-                    }
-                    try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            loop.create_task(manager.queue_message(message, topic="task:progress"))
-                        else:
-                            loop.run_until_complete(manager.queue_message(message, topic="task:progress"))
-                    except Exception as e:
-                        logger.warning(f"推送子任务完成进度失败: {e}")
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                loop.create_task(manager.queue_message(message, topic="task:progress"))
+                            else:
+                                loop.run_until_complete(manager.queue_message(message, topic="task:progress"))
+                        except Exception as e:
+                            logger.warning(f"推送子任务完成进度失败: {e}")
 
                 logger.info(f"已将所有子任务进度更新为100%: task_id={task_id}, 子任务数={len(self._tasks[task_id]['symbols_progress'])}")
 
@@ -337,7 +344,11 @@ class TaskManager:
         
         # 通过WebSocket推送状态更新
         try:
-            
+            # 检查消息队列是否已初始化（命令行模式下可能未初始化）
+            if not manager.message_queue:
+                logger.debug(f"WebSocket未连接，跳过状态推送: task_id={task_id}, 状态=completed")
+                return True
+
             # 推送状态更新
             message = {
                 "type": "task:status",
@@ -398,7 +409,11 @@ class TaskManager:
         
         # 通过WebSocket推送状态更新
         try:
-            
+            # 检查消息队列是否已初始化（命令行模式下可能未初始化）
+            if not manager.message_queue:
+                logger.debug(f"WebSocket未连接，跳过状态推送: task_id={task_id}, 状态=failed")
+                return True
+
             # 推送状态更新
             message = {
                 "type": "task:status",
