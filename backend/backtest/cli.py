@@ -1062,6 +1062,10 @@ def _load_event_strategy_multi(
                 EventDrivenStrategy = Strategy
                 EventDrivenStrategyConfig = None
 
+        # 导入 NautilusTrader 基础类用于直接继承检测
+        from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
+        from nautilus_trader.trading.config import StrategyConfig as NautilusStrategyConfig
+
         for name in dir(module):
             obj = getattr(module, name)
             if isinstance(obj, type):
@@ -1075,6 +1079,11 @@ def _load_event_strategy_multi(
                     strategy_class = obj
                     is_core_strategy = False
                     logger.info(f"找到策略类: {name}")
+                # 直接检查是否继承自 nautilus_trader.trading.strategy.Strategy
+                elif issubclass(obj, NautilusStrategy) and obj != NautilusStrategy:
+                    strategy_class = obj
+                    is_core_strategy = False
+                    logger.info(f"找到策略类 (直接继承NautilusStrategy): {name}")
 
                 # 查找配置类（优先配置类）
                 if StrategyConfig and issubclass(obj, StrategyConfig) and obj != StrategyConfig:
@@ -1083,6 +1092,10 @@ def _load_event_strategy_multi(
                 elif EventDrivenStrategyConfig and issubclass(obj, EventDrivenStrategyConfig) and obj != EventDrivenStrategyConfig:
                     config_class = obj
                     logger.info(f"找到配置类: {name}")
+                # 直接检查是否继承自 nautilus_trader.trading.config.StrategyConfig
+                elif issubclass(obj, NautilusStrategyConfig) and obj != NautilusStrategyConfig:
+                    config_class = obj
+                    logger.info(f"找到配置类 (直接继承NautilusStrategyConfig): {name}")
 
         if strategy_class is None:
             logger.info(f"在模块 {strategy_name} 中找不到策略类")
@@ -1090,14 +1103,10 @@ def _load_event_strategy_multi(
 
         # 准备品种ID列表和K线类型列表（统一使用列表形式）
         # 将 NautilusTrader InstrumentId 转换为InstrumentId
-        from strategy.core import InstrumentId as InstrumentId
         instrument_ids_list = []
         for inst in instruments.values():
-            # 从 NautilusTrader InstrumentId 提取 symbol 和 venue
-            symbol = str(inst.id.symbol)
-            venue = str(inst.id.venue)
-            unified_id = InstrumentId(symbol=symbol, venue=venue)
-            instrument_ids_list.append(unified_id)
+            # 直接使用 NautilusTrader InstrumentId
+            instrument_ids_list.append(inst.id)
         bar_types_list = list(bar_types.values())
 
         # 创建策略实例
@@ -1105,15 +1114,66 @@ def _load_event_strategy_multi(
         if config_class:
             # 使用配置类创建策略
             config_params = strategy_params.copy()
-            config_params['instrument_ids'] = instrument_ids_list
-            config_params['bar_types'] = bar_types_list
+            
+            # 自动检测配置类需要的参数名称
+            # 优先使用 Pydantic 模型的字段检测，然后是 msgspec，最后是 inspect
+            config_param_names = []
+            if hasattr(config_class, 'model_fields'):
+                config_param_names = list(config_class.model_fields.keys())
+            elif hasattr(config_class, '__fields__'):
+                config_param_names = list(config_class.__fields__.keys())
+            elif hasattr(config_class, '__annotations__'):
+                config_param_names = list(config_class.__annotations__.keys())
+            else:
+                import inspect
+                config_sig = inspect.signature(config_class.__init__)
+                config_param_names = list(config_sig.parameters.keys())
+            
+            # 处理 instrument_ids/instrument_id 参数
+            if 'instrument_ids' in config_param_names:
+                config_params['instrument_ids'] = instrument_ids_list
+            elif 'instrument_id' in config_param_names:
+                # 如果配置类期望单个 instrument_id，取第一个
+                config_params['instrument_id'] = instrument_ids_list[0] if instrument_ids_list else None
+            
+            # 处理 bar_types/bar_type 参数
+            if 'bar_types' in config_param_names:
+                config_params['bar_types'] = bar_types_list
+            elif 'bar_type' in config_param_names:
+                # 如果配置类期望单个 bar_type，取第一个
+                config_params['bar_type'] = bar_types_list[0] if bar_types_list else None
+            
             config = config_class(**config_params)
             user_strategy = strategy_class(config)
         else:
             # 直接使用参数创建策略
             strategy_params_copy = strategy_params.copy()
-            strategy_params_copy['instrument_ids'] = instrument_ids_list
-            strategy_params_copy['bar_types'] = bar_types_list
+            
+            # 自动检测策略类需要的参数名称
+            strategy_param_names = []
+            if hasattr(strategy_class, 'model_fields'):
+                strategy_param_names = list(strategy_class.model_fields.keys())
+            elif hasattr(strategy_class, '__fields__'):
+                strategy_param_names = list(strategy_class.__fields__.keys())
+            elif hasattr(strategy_class, '__annotations__'):
+                strategy_param_names = list(strategy_class.__annotations__.keys())
+            else:
+                import inspect
+                strategy_sig = inspect.signature(strategy_class.__init__)
+                strategy_param_names = list(strategy_sig.parameters.keys())
+            
+            # 处理 instrument_ids/instrument_id 参数
+            if 'instrument_ids' in strategy_param_names:
+                strategy_params_copy['instrument_ids'] = instrument_ids_list
+            elif 'instrument_id' in strategy_param_names:
+                strategy_params_copy['instrument_id'] = instrument_ids_list[0] if instrument_ids_list else None
+            
+            # 处理 bar_types/bar_type 参数
+            if 'bar_types' in strategy_param_names:
+                strategy_params_copy['bar_types'] = bar_types_list
+            elif 'bar_type' in strategy_param_names:
+                strategy_params_copy['bar_type'] = bar_types_list[0] if bar_types_list else None
+            
             user_strategy = strategy_class(**strategy_params_copy)
 
         # 如果是策略接口，需要使用 StrategyAdapter 包装

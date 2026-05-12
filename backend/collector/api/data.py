@@ -936,7 +936,7 @@ def download_crypto(request: DownloadCryptoRequest, background_tasks: Background
         
         if result["success"]:
             # 将下载任务添加到后台任务
-            background_tasks.add_task(DataService.async_download_crypto, result["task_id"], request)
+            background_tasks.add_task(data_service.async_download_crypto, result["task_id"], request)
             
             return ApiResponse(
                 code=0,

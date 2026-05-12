@@ -26,8 +26,8 @@ from ..db.models import CryptoSymbol, SystemConfigBusiness as SystemConfig
 from ..schemas.data import DownloadCryptoRequest, ExportCryptoRequest, LoadDataRequest
 from ..utils.task_manager import task_manager
 
-
-default_save_dir = Path.home() / ".qlib" / "crypto_data" / "source"
+# 固定下载目录：项目后端根目录的 data 目录
+default_save_dir = Path(__file__).parent.parent.parent / "data"
 
 
 class GetData:
@@ -59,20 +59,9 @@ class GetData:
         self.exchange = exchange
         self.candle_type = candle_type
 
-        if save_dir is None:
-            try:
-                data_download_dir = SystemConfig.get("data_download_dir")
-                if data_download_dir:
-                    self.save_dir = Path(data_download_dir)
-                    logger.info(f"从数据库获取下载目录: {self.save_dir}")
-                else:
-                    self.save_dir = default_save_dir
-                    logger.info(f"数据库中未找到下载目录配置，使用默认值: {self.save_dir}")
-            except Exception as e:
-                self.save_dir = default_save_dir
-                logger.warning(f"从数据库读取下载目录失败: {e}，使用默认值: {self.save_dir}")
-        else:
-            self.save_dir = Path(save_dir)
+        # 使用固定目录或传入的自定义目录
+        self.save_dir = Path(save_dir) if save_dir else default_save_dir
+        logger.info(f"下载目录: {self.save_dir}")
 
         self.start = start
         self.end = end
@@ -86,7 +75,7 @@ class GetData:
         self.mode = mode
         self.write_to_db = write_to_db
 
-    def run(self, start_date=None):
+    def run(self, start_date=None, progress_callback=None):
         actual_start = start_date or self.start
         full_save_dir = self.save_dir / self.interval
 
@@ -119,7 +108,7 @@ class GetData:
                     symbols=symbols_str.split(',') if symbols_str else None,
                     mode=self.mode,
                 )
-                collector.collect_data()
+                collector.collect_data(progress_callback=progress_callback)
 
             elif exchange_lower in ["okx"]:
                 collector = OKXCollector(
@@ -136,7 +125,7 @@ class GetData:
                     symbols=symbols_str.split(',') if symbols_str else None,
                     mode=self.mode,
                 )
-                collector.collect_data()
+                collector.collect_data(progress_callback=progress_callback)
 
             else:
                 logger.error(f"不支持的交易所: {self.exchange}")
@@ -822,20 +811,9 @@ class DataService:
         Returns:
             Dict[str, Any]: 包含任务ID的数据
         """
-        from settings.models import SystemConfigBusiness as SystemConfig
         logger.info(f"收到加密货币数据下载请求，参数: {request.model_dump()}")
-        
-        # 如果没有接收到save_dir，则从数据库中读取
-        if not request.save_dir:
-            logger.info("没有接收到save_dir，从数据库中读取data_download_dir")
-            data_download_dir = SystemConfig.get("data_download_dir")
-            if data_download_dir:
-                logger.info(f"从数据库中读取到data_download_dir: {data_download_dir}")
-                request.save_dir = data_download_dir
-            else:
-                logger.warning("数据库中未找到data_download_dir配置")
-        
-        # 创建下载任务
+
+        # 创建下载任务（使用固定下载目录，忽略 request.save_dir）
         task_id = task_manager.create_task(
             task_type="download_crypto",
             exchange=request.exchange,
@@ -1273,10 +1251,10 @@ class DataService:
                 "total": 0
             }
     
-    @staticmethod
-    def async_download_crypto(task_id: str, request: DownloadCryptoRequest):
+
+    def async_download_crypto(self, task_id: str, request: DownloadCryptoRequest):
         """异步下载加密货币数据
-        
+
         Args:
             task_id: 任务ID
             request: 下载加密货币数据请求
@@ -1284,78 +1262,75 @@ class DataService:
         try:
 
             logger.info(f"开始异步下载加密货币数据，任务ID: {task_id}, 请求参数: {request.model_dump()}")
-            
+
             # 开始任务
             task_manager.start_task(task_id)
-            
-            # 实例化GetData类
-            get_data = GetData()
-            
-            # 定义进度回调函数
-            def progress_callback(symbol, completed, total, failed, status=None):
-                """进度回调函数 - 为每个货币对推送独立进度
 
-                Args:
-                    symbol: 当前处理的货币对名称（如 "BTC/USDT"）
-                    completed: 已完成的项目数
-                    total: 总项目数
-                    failed: 失败的项目数
-                    status: 详细的状态描述，例如"Downloaded 2025-11-01"
-                """
-                # 计算当前货币对的进度百分比
-                progress = 0
-                if total > 0:
-                    progress = (completed / total) * 100
+            # 计算总任务数（时间周期数 × 货币对数）
+            total_intervals = len(request.interval)
+            total_symbols = len(request.symbols)
+            total_tasks = total_intervals * total_symbols
+            completed_tasks = 0
 
-                # 更新任务进度，传递货币对标识和时间周期
-                task_manager.update_progress(
-                    task_id,
-                    symbol,  # 货币对名称
-                    completed,
-                    total,
-                    failed,
-                    status,
-                    symbol_progress=progress,  # 该货币对的独立进度
-                    is_per_symbol=True,  # 标记为按货币对进度
-                    interval=interval  # 当前时间周期
-                )
-            
-            # 处理保存目录：根据接口类型拼接路径
-            save_dir = request.save_dir
-            if save_dir:
-                # 使用Path对象处理路径，拼接crypto类型
-                save_dir = Path(save_dir) / "crypto"
-                logger.info(f"拼接后的保存目录: {save_dir}")
-            
-            # # 从数据库中读取qlib_data_dir配置
-            # qlib_dir = SystemConfig.get("qlib_data_dir")
-            # if not qlib_dir:
-            #     qlib_dir = "data/crypto_data"
-            #     logger.warning(f"未找到qlib_data_dir配置，使用默认值: {qlib_dir}")
-            # else:
-            #     logger.info(f"从数据库中读取到qlib_data_dir: {qlib_dir}")
-            
             # 遍历所有时间周期
-            for interval in request.interval:
-                logger.info(f"开始处理时间周期: {interval}")
-                
-                # 调用crypto方法下载数据
-                get_data.crypto(
+            for interval_idx, interval in enumerate(request.interval):
+                logger.info(f"开始处理时间周期: {interval} ({interval_idx + 1}/{total_intervals})")
+
+                # 更新进度：开始处理当前时间周期
+                task_manager.update_progress(
+                    task_id=task_id,
+                    current=f"{interval}",
+                    completed=completed_tasks,
+                    total=total_tasks,
+                    status=f"正在下载 {interval} 数据 ({', '.join(request.symbols)})...",
+                    interval=interval
+                )
+
+                # 实例化GetData类并传入所有参数（支持多货币对批量下载）
+                get_data = GetData(
+                    symbols=",".join(request.symbols),  # 多个货币对用逗号连接
                     exchange=request.exchange,
-                    save_dir=str(save_dir) if save_dir else None,  # 传递拼接后的save_dir参数，GetData会自动在后面添加时间周期目录
+                    candle_type=request.candle_type,
                     start=request.start,
                     end=request.end,
-                    interval=interval,  # 使用当前时间周期
-                    max_workers=request.max_workers,
-                    candle_type=request.candle_type,
-                    symbols=",".join(request.symbols),
-                    # convert_to_qlib=True,  # 移除convert_to_qlib参数，该功能已移除
-                    # qlib_dir=qlib_dir,  # 传递从数据库读取的qlib_data_dir作为转换地址
-                    progress_callback=progress_callback,
+                    interval=interval,
+                    max_workers=1,  # 强制使用单进程，避免 pickle 序列化错误
                     mode=request.mode
                 )
-                
-                logger.info(f"时间周期 {interval} 数据下载成功")
+
+                # 创建实时进度回调函数（推送下载过程中的细粒度进度）
+                def download_progress_callback(symbol, current, total_count, failed_count, status="downloading"):
+                    """下载过程中的实时进度回调"""
+                    try:
+                        progress_pct = (current / total_count * 100) if total_count > 0 else 0
+
+                        task_manager.update_progress(
+                            task_id=task_id,
+                            current=symbol,
+                            completed=completed_tasks + (progress_pct / 100),
+                            total=total_tasks,
+                            status=f"正在下载 {symbol} {interval}: {status}",
+                            symbol_progress=round(progress_pct, 1),
+                            interval=interval
+                        )
+                    except Exception as e:
+                        logger.warning(f"推送下载进度失败: {e}")
+
+                # 调用run方法下载数据（传入进度回调以实现实时更新）
+                get_data.run(progress_callback=download_progress_callback)
+
+                # 更新进度：当前时间周期的所有货币对完成
+                completed_tasks += total_symbols
+                task_manager.update_progress(
+                    task_id=task_id,
+                    current=f"{interval}",
+                    completed=completed_tasks,
+                    total=total_tasks,
+                    status=f"{interval} 数据下载完成",
+                    symbol_progress=100.0,
+                    interval=interval
+                )
+                logger.info(f"时间周期 {interval} 所有数据下载成功")
                 
                 # 添加数据库写入功能
                 try:
@@ -1364,19 +1339,10 @@ class DataService:
                     project_root = Path(__file__).parent.parent.parent
                     logger.info(f"当前项目根目录: {project_root}")
 
-                    # 构建数据目录路径
-                    if save_dir:
-                        data_dir = Path(save_dir) / interval
-                        # 检查是否为绝对路径
-                        if not data_dir.is_absolute():
-                            data_dir = project_root / data_dir
-                    else:
-                        # 使用默认保存目录，确保是相对路径
-                        default_dir = Path(get_data.default_save_dir)
-                        if default_dir.is_absolute():
-                            data_dir = default_dir / interval
-                        else:
-                            data_dir = project_root / default_dir / interval
+                    # 构建数据目录路径（使用固定下载目录）
+                    data_dir = get_data.save_dir / interval
+                    if not data_dir.is_absolute():
+                        data_dir = project_root / data_dir
                     logger.info(f"数据目录: {data_dir}")
                     # 导入数据库相关模块
                     from sqlalchemy import func
@@ -1442,9 +1408,9 @@ class DataService:
             # 更新任务状态为失败
             task_manager.fail_task(task_id, error_message=str(e))
 
-    def _process_dataframe_for_db(self, df, symbol, interval, request):
+    def _process_dataframe_to_file(self, df, symbol, interval, request):
         """
-        处理 DataFrame 并写入数据库
+        处理 DataFrame 并写入Parquet文件（替代数据库存储）
 
         Args:
             df: K线数据DataFrame
@@ -1453,98 +1419,64 @@ class DataService:
             request: 下载请求对象
         """
         try:
-            from sqlalchemy import func
-            from collector.db.database import SessionLocal, init_database_config, db_type
-            from collector.db.models import CryptoSpotKline, CryptoFutureKline
+            from utils.kline_file_manager import get_kline_file_manager
 
             # 准备数据，确保只包含需要的列
-            kline_list = []
-            for _, row in df.iterrows():
-                # 跳过无效行 - 使用pandas Series的isna()方法检查相关字段
-                if row[['timestamp', 'open', 'high', 'low', 'close', 'volume']].isna().any(axis=None):
-                    continue
-
-                # 将timestamp转换为整数，去除小数点
-                try:
-                    timestamp = int(float(row['timestamp']))
-                except (ValueError, TypeError):
-                    logger.warning(f"无效的timestamp值: {row['timestamp']}，跳过该行")
-                    continue
-
-                # 使用整数timestamp生成unique_kline值
-                unique_kline = f"{symbol}_{interval}_{timestamp}"
-
-                kline_list.append({
-                    'symbol': symbol,
-                    'interval': interval,
-                    'timestamp': str(timestamp),  # 转换为字符串存储
-                    'open': row['open'],
-                    'high': row['high'],
-                    'low': row['low'],
-                    'close': row['close'],
-                    'volume': row['volume'],
-                    'unique_kline': unique_kline,
-                    'data_source': request.exchange  # 添加data_source字段
-                })
-
-            if not kline_list:
-                logger.warning(f"没有有效数据可以写入数据库: {symbol}")
+            df_clean = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']].copy()
+            
+            # 清理无效数据
+            df_clean = df_clean.dropna(subset=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            
+            # 确保timestamp为整数
+            df_clean['timestamp'] = pd.to_numeric(df_clean['timestamp'], errors='coerce').astype('int64')
+            
+            # 再次清理转换后的无效数据
+            df_clean = df_clean.dropna()
+            
+            if df_clean.empty:
+                logger.warning(f"没有有效数据可以保存到文件: {symbol} {interval}")
                 return
 
-            # 根据candle_type选择对应的K线模型
-            kline_model = CryptoSpotKline if request.candle_type == "spot" else CryptoFutureKline
-            logger.info(f"使用K线模型: {kline_model.__tablename__}, candle_type: {request.candle_type}")
-
-            # 创建数据库会话
-            db = SessionLocal()
-            try:
-                # 实现跨数据库兼容的UPSERT逻辑
-
-                if db_type == "sqlite":
-                    # SQLite使用更简单的冲突处理方式
-                    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-
-                    # 分批插入数据，避免SQL变量限制
-                    batch_size = 100
-                    total_rows = len(kline_list)
-                    for i in range(0, total_rows, batch_size):
-                        batch = kline_list[i:i+batch_size]
-                        stmt = sqlite_insert(kline_model).values(batch)
-                        db.execute(stmt)
-                        if i % 500 == 0:
-                            logger.info(f"{symbol}: 已插入 {i}/{total_rows} 条新记录")
-
-                elif db_type == "duckdb":
-                    # DuckDB使用PostgreSQL兼容的ON CONFLICT语法
-                    from sqlalchemy.dialects.postgresql import insert as pg_insert
-                    stmt = pg_insert(kline_model).values(kline_list)
-                    stmt = stmt.on_conflict_do_update(
-                        index_elements=['unique_kline'],
-                        set_={
-                            'open': stmt.excluded.open,
-                            'high': stmt.excluded.high,
-                            'low': stmt.excluded.low,
-                            'close': stmt.excluded.close,
-                            'volume': stmt.excluded.volume,
-                            'updated_at': func.now()
-                        }
-                    )
-                    db.execute(stmt)
-                else:
-                    # 其他数据库类型，使用BULK INSERT + 错误处理
-                    raise ValueError(f"不支持的数据库类型: {db_type}")
-
-                db.commit()
-                logger.info(f"成功将 {len(kline_list)} 条 {symbol} 数据写入 {kline_model.__tablename__} 表")
-            except Exception as e:
-                logger.error(f"写入数据库失败: {e}")
-                logger.exception(e)
-                db.rollback()
-            finally:
-                db.close()
+            # 确定市场类型
+            market_type = 'spot' if request.candle_type == "spot" else 'future'
+            
+            logger.info(f"保存K线数据到Parquet文件: {symbol} {interval}, 市场类型: {market_type}")
+            
+            # 使用文件管理器保存
+            manager = get_kline_file_manager()
+            
+            success = manager.save_klines(
+                df=df_clean,
+                symbol=symbol,
+                interval=interval,
+                market_type=market_type
+            )
+            
+            if success:
+                logger.info(f"成功将 {len(df_clean)} 条 {symbol} 数据保存到Parquet文件")
+            else:
+                logger.error(f"保存 {symbol} 数据到文件失败")
+                
         except Exception as e:
-            logger.error(f"处理DataFrame失败: {e}")
-            logger.exception(e)
+            logger.error(f"处理DataFrame并保存到文件失败: {e}")
+            import traceback
+            logger.exception(traceback.format_exc())
+
+    def _process_dataframe_for_db(self, df, symbol, interval, request):
+        """
+        [已废弃] 处理 DataFrame 并写入数据库
+        
+        此方法已被 _process_dataframe_to_file 替代，
+        保留仅用于向后兼容。
+        
+        Args:
+            df: K线数据DataFrame
+            symbol: 交易对符号
+            interval: 时间间隔
+            request: 下载请求对象
+        """
+        logger.warning("[DataService] _process_dataframe_for_db 已废弃，使用 _process_dataframe_to_file 替代")
+        self._process_dataframe_to_file(df, symbol, interval, request)
 
     def export_crypto_data(self, request: ExportCryptoRequest) -> Dict[str, Any]:
         """导出加密货币数据

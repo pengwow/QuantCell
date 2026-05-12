@@ -1240,25 +1240,11 @@ def download(
     try:
         # 初始化数据库
         init_db()
-        
-        # 获取项目根目录（backend目录的父目录）
-        project_root = Path(__file__).parent.parent
-        
-        # 如果没有指定保存目录，从系统配置读取
+
+        # 使用固定下载目录：项目后端根目录的 data 目录
         if not save_dir:
-            save_dir = SystemConfig.get("data_download_dir")
-            if save_dir:
-                logger.info(f"从系统配置读取到保存目录: {save_dir}")
-            else:
-                save_dir = "data/download"
-                logger.warning(f"未找到系统配置，使用默认保存目录: {save_dir}")
-        
-        # 将相对路径转换为绝对路径（基于项目根目录）
-        save_dir_path = Path(save_dir)
-        if not save_dir_path.is_absolute():
-            save_dir_path = project_root / save_dir_path
-            save_dir = str(save_dir_path)
-            logger.info(f"转换为绝对路径: {save_dir}")
+            save_dir = str(Path(__file__).parent.parent / "data")
+            logger.info(f"使用固定下载目录: {save_dir}")
         
         # 创建下载请求 - 使用格式化后的日期
         request = DownloadCryptoRequest(
@@ -1310,7 +1296,7 @@ def download(
                         progress.label = f"下载进度 - {status}"
             
             # 执行异步下载
-            DataService.async_download_crypto(task_id, request)
+            data_service.async_download_crypto(task_id, request)
         
         # 获取最终任务状态
         task_info = task_manager.get_task(task_id)

@@ -18,12 +18,12 @@ import {
   Row,
   Col,
   Spin,
-  message,
-  Modal,
   Upload,
   Tabs,
   Switch,
   Tooltip,
+  App,
+  Modal,
 } from 'antd';
 import { PlusOutlined, UploadOutlined, InfoCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import { backtestApi, configApi, strategyApi, dataApi } from '../../api';
@@ -47,6 +47,7 @@ interface BacktestConfigProps {
 const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy: propStrategy }) => {
   const { t } = useTranslation();
   const location = useLocation();
+  const { message } = App.useApp();
   const [form] = Form.useForm();
 
   // 设置页面标题

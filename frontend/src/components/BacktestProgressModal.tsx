@@ -111,8 +111,8 @@ const BacktestProgressModal = ({
     {
       title: t('data_preparation') || '数据准备',
       icon: getStepIcon(stepStatus.dataPrep, <DatabaseOutlined />),
-      description: (
-        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+      content: (
+        <Space orientation="vertical" size="small" style={{ width: '100%' }}>
           {(stepStatus.dataPrep === 'process' || stepStatus.dataPrep === 'wait') && progressData.dataPrep && (
             <>
               {progressData.dataPrep.downloading ? (
@@ -159,8 +159,8 @@ const BacktestProgressModal = ({
     {
       title: t('executing_backtest') || '执行回测',
       icon: getStepIcon(stepStatus.execution, <PlayCircleOutlined />),
-      description: (
-        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+      content: (
+        <Space orientation="vertical" size="small" style={{ width: '100%' }}>
           {(stepStatus.execution === 'process' || stepStatus.execution === 'wait') && progressData.execution && (
             <>
               <Text type="secondary">
@@ -195,8 +195,8 @@ const BacktestProgressModal = ({
     {
       title: t('result_statistics') || '结果统计',
       icon: getStepIcon(stepStatus.analysis, <BarChartOutlined />),
-      description: (
-        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+      content: (
+        <Space orientation="vertical" size="small" style={{ width: '100%' }}>
           {(stepStatus.analysis === 'process' || stepStatus.analysis === 'wait') && (
             <>
               <Text type="secondary">{progressData.analysis?.message || (t('generating_report') || '正在生成统计报告...')}</Text>
@@ -211,7 +211,8 @@ const BacktestProgressModal = ({
           )}
           {stepStatus.analysis === 'error' && (
             <Alert
-              title={t('statistics_failed') || '结果统计失败'}
+              title={t('statistics_failed') || '结果统计失败'
+              }
               description={errorMessage || (t('generate_report_error') || '生成统计报告时发生错误')}
               type="error"
               showIcon
@@ -260,11 +261,11 @@ const BacktestProgressModal = ({
       footer={null}
       width={600}
       closable={true}
-      maskClosable={false}
+      mask={{ closable: false }}
       destroyOnHidden
     >
       <Steps
-        direction="vertical"
+        orientation="vertical"
         current={currentStep}
         items={steps}
         style={{ marginTop: '16px' }}
@@ -279,7 +280,7 @@ const BacktestProgressModal = ({
           borderColor: isError ? '#ffccc7' : isFinished ? '#b7eb8f' : '#91d5ff',
         }}
       >
-        <Space direction="vertical" style={{ width: '100%' }}>
+        <Space orientation="vertical" style={{ width: '100%' }}>
           <Text strong>
             {isError ? (isStopped ? t('backtest_terminated') || '回测已终止' : t('error') || '回测失败') : isFinished ? t('backtest_completed') || '回测完成' : t('overall_progress') || '总体进度'}
           </Text>
