@@ -293,6 +293,11 @@ api.interceptors.response.use(
       updateAccessToken(refreshedToken);
     }
 
+    // 如果是blob响应（如文件下载），直接返回
+    if (response.config.responseType === 'blob') {
+      return response.data;
+    }
+
     const { code, message, data } = response.data;
     // 兼容两种成功响应码：code=0（标准业务码）和 code=200（HTTP风格）
     if (code === 0 || code === 200) {
@@ -715,7 +720,12 @@ export const systemApi = {
 
   /** 批量删除日志文件 */
   deleteLogFilesBatch: (filePaths: string[]): Promise<CleanupResult> => {
-    return apiRequest.delete<CleanupResult>('/logs/files/batch', { data: { filePaths } });
+    return apiRequest.post<CleanupResult>('/logs/files/batch', { filePaths });
+  },
+
+  /** 批量下载日志文件为ZIP */
+  downloadLogFilesBatch: (filePaths: string[]): Promise<Blob> => {
+    return apiRequest.post('/logs/files/batch-download', { filePaths }, { responseType: 'blob' });
   },
 
   /** 获取磁盘使用情况 */

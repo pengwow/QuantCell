@@ -20,8 +20,9 @@ import {
   Descriptions,
   Tooltip,
   Spin,
-  message as antMessage,
+  App,
   Divider,
+  Select,
 } from 'antd';
 import {
   IconSearch,
@@ -46,6 +47,7 @@ interface LogSettingsUnifiedProps {
 }
 
 function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
+  const { message } = App.useApp();
   // ========== 状态定义 ==========
   const [directoryTree, setDirectoryTree] = useState<LogDirectoryNode | null>(null);
   const [diskUsage, setDiskUsage] = useState<any>(null);
@@ -81,6 +83,10 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
   // 详情抽屉展开状态
   const [detailExpanded, setDetailExpanded] = useState(false);
 
+  // 分页状态
+  const [pageSize, setPageSize] = useState(8);
+  const [selectAllPages, setSelectAllPages] = useState(false);
+
   // ========== 数据加载 ==========
   const loadAllData = useCallback(async () => {
     try {
@@ -105,7 +111,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
         setCurrentDir(dirData.path);
       }
     } catch (error) {
-      antMessage.error('加载数据失败');
+      message.error('加载数据失败');
       console.error('加载日志数据失败:', error);
     } finally {
       setLoading(false);
@@ -189,9 +195,9 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       setSaving(true);
       await systemApi.updateAutoCleanupConfig(config);
       setOriginalConfig({ ...config });
-      antMessage.success('配置已保存');
+      message.success('配置已保存');
     } catch (error) {
-      antMessage.error('保存配置失败');
+      message.error('保存配置失败');
     } finally {
       setSaving(false);
     }
@@ -206,7 +212,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       onOk: () => {
         if (originalConfig) {
           setConfig({ ...originalConfig });
-          antMessage.info('已恢复为上次保存的配置');
+          message.info('已恢复为上次保存的配置');
         }
       },
     });
@@ -225,7 +231,42 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
     a.download = `log-config-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    antMessage.success('配置已导出');
+    message.success('配置已导出');
+  };
+
+  // 导出选中日志文件为ZIP
+  const handleExportLogs = async () => {
+    if (selectedKeys.size === 0) {
+      message.warning('请先勾选需要导出的日志文件');
+      return;
+    }
+
+    try {
+      const filePaths = Array.from(selectedKeys);
+      const blob = await systemApi.downloadLogFilesBatch(filePaths);
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `log_files_${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      message.success(`成功导出 ${filePaths.length} 个日志文件`);
+    } catch (error) {
+      console.error('导出日志文件失败:', error);
+      message.error('导出日志文件失败，请重试');
+    }
+  };
+
+  // 全选/取消全选（跨页）
+  const handleSelectAllPages = (checked: boolean) => {
+    setSelectAllPages(checked);
+    if (checked) {
+      setSelectedKeys(new Set(currentFiles.map(f => f.path)));
+    } else {
+      setSelectedKeys(new Set());
+    }
   };
 
   const handleDeleteSelected = async () => {
@@ -248,12 +289,12 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
       await loadAllData();
 
       if (result.errors.length === 0) {
-        antMessage.success(`成功删除 ${result.deleted_count} 个文件`);
+        message.success(`成功删除 ${result.deleted_count} 个文件`);
       } else {
-        antMessage.warning(`删除完成：${result.deleted_count} 成功，${result.errors.length} 失败`);
+        message.warning(`删除完成：${result.deleted_count} 成功，${result.errors.length} 失败`);
       }
     } catch (error) {
-      antMessage.error('删除操作失败');
+      message.error('删除操作失败');
     } finally {
       setDeleting(false);
     }
@@ -411,10 +452,11 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                   >
                     刷新
                   </Button>
-                  <Tooltip title="导出当前配置为JSON文件">
+                  <Tooltip title="导出选中日志文件为ZIP">
                     <Button
                       icon={<IconDownload size={16} />}
-                      onClick={handleExportConfig}
+                      onClick={handleExportLogs}
+                      disabled={selectedKeys.size === 0}
                     >
                       导出
                     </Button>
@@ -472,15 +514,38 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
             {/* 文件列表表格 */}
             <Spin spinning={loading}>
               <Card size="small" className="shadow-sm" styles={{ body: { padding: 0 } }}>
+                <div className="flex items-center gap-2 p-2 bg-gray-50 border-b flex-wrap">
+                  <span className="text-sm text-gray-600">全选:</span>
+                  <Switch
+                    size="small"
+                    checked={selectAllPages}
+                    onChange={handleSelectAllPages}
+                    checkedChildren="全部"
+                    unCheckedChildren="无"
+                  />
+                  {selectedKeys.size > 0 && (
+                    <span className="text-xs text-blue-600">
+                      已选 {selectedKeys.size}/{currentFiles.length} 个
+                    </span>
+                  )}
+                </div>
                 <Table
                   columns={columns}
                   dataSource={currentFiles}
                   rowKey="path"
+                  scroll={{ x: 'max-content' }}
                   pagination={{
-                    pageSize: 8,
+                    pageSize,
                     showTotal: (total) => `共 ${total} 个文件`,
                     size: 'small',
                     showSizeChanger: false,
+                    showQuickJumper: false,
+                    itemRender: (current, type, originalElement) => {
+                      if (type === 'page' || type === 'prev' || type === 'next') {
+                        return originalElement;
+                      }
+                      return null;
+                    },
                   }}
                   size="small"
                   rowSelection={{
@@ -493,6 +558,29 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
                     style: { cursor: 'pointer' },
                   })}
                   rowClassName={(record) => (selectedKeys.has(record.path) ? 'bg-blue-50' : '')}
+                  footer={() => (
+                    <div className="flex items-center justify-between px-4 py-2 border-t bg-gray-50">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-600">每页:</span>
+                        <Select
+                          size="small"
+                          value={pageSize}
+                          onChange={(value: number) => {
+                            setPageSize(value);
+                            setSelectAllPages(false);
+                          }}
+                          style={{ width: 70 }}
+                          options={[
+                            { value: 8, label: '8 条' },
+                            { value: 15, label: '15 条' },
+                            { value: 25, label: '25 条' },
+                            { value: 50, label: '50 条' },
+                            { value: 100, label: '100 条' },
+                          ]}
+                        />
+                      </div>
+                    </div>
+                  )}
                 />
               </Card>
             </Spin>
@@ -835,7 +923,7 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
         width={480}
       >
         <div className="space-y-4">
-          <Alert type="warning" showIcon message="此操作不可撤销" description="删除的文件将无法恢复，请谨慎操作。" />
+          <Alert type="warning" showIcon title="此操作不可撤销" description="删除的文件将无法恢复，请谨慎操作。" />
 
           <div>
             <p className="font-medium mb-2">待删除文件列表：</p>

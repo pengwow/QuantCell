@@ -213,64 +213,29 @@ class TaskManager:
         except Exception as e:
             logger.error(f"更新数据库任务进度失败: task_id={task_id}, error={e}")
 
-        # 通过WebSocket推送进度更新 - 只推送单个任务进度
+        # 通过WebSocket推送进度更新 - 使用与 complete_task 相同的方式
         try:
+
+            # 推送进度更新
             message = {
                 "type": "task:progress",
                 "id": f"progress_{task_id}_{int(time.time() * 1000)}",
                 "timestamp": int(time.time() * 1000),
                 "data": {
                     "task_id": task_id,
-                    "progress": progress_info  # 只包含单个任务进度
+                    "progress": progress_info
                 }
             }
-            
-            # 使用 ZMQ 发送消息给主进程广播
+
+            # 在任何线程中执行异步操作（与 complete_task/fail_task 相同的方式）
             try:
-                logger.info(f"[ZMQ] 开始发送任务进度消息: task_id={task_id}, type={message['type']}")
-                import zmq
-                
-                # 创建同步 ZMQ socket 发送消息 - 使用 REQ 模式（简单请求-响应）
-                context = zmq.Context()
-                socket = context.socket(zmq.REQ)
-                socket.setsockopt(zmq.LINGER, 0)
-                socket.setsockopt(zmq.SNDTIMEO, 2000)  # 2秒发送超时
-                socket.setsockopt(zmq.RCVTIMEO, 2000)  # 2秒接收超时
-                
-                logger.info(f"[ZMQ] 连接到 tcp://127.0.0.1:5558")
-                socket.connect("tcp://127.0.0.1:5558")
-                
-                # 发送消息（同步）
-                data = {
-                    "message": message,
-                    "topic": "task:progress"
-                }
-                logger.info(f"[ZMQ] 发送数据: {data}")
-                socket.send_json(data)
-                logger.info(f"[ZMQ] 数据已发送，等待确认...")
-                
-                # 等待响应（防止内存泄漏）
-                try:
-                    response = socket.recv_json()
-                    logger.info(f"[ZMQ] 收到响应: {response}")
-                except zmq.Again:
-                    logger.warning(f"[ZMQ] 等待响应超时")
-                
-                socket.close()
-                context.term()
-                
-                logger.info(f"[ZMQ] 任务进度消息发送完成: task_id={task_id}")
-            except Exception as e:
-                logger.warning(f"ZMQ 发送失败，尝试直接广播: {e}")
-                # 回退到直接广播（仅在主进程中有效）
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        loop.create_task(manager.broadcast(message, topic="task:progress"))
-                    else:
-                        loop.run_until_complete(manager.broadcast(message, topic="task:progress"))
-                except Exception as e2:
-                    logger.error(f"直接广播也失败: {e2}")
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(manager.queue_message(message, topic="task:progress"))
+                else:
+                    loop.run_until_complete(manager.queue_message(message, topic="task:progress"))
+            except RuntimeError:
+                asyncio.run(manager.queue_message(message, topic="task:progress"))
         except Exception as e:
             logger.error(f"WebSocket推送进度失败: {e}")
 
@@ -343,20 +308,11 @@ class TaskManager:
                         }
                     }
                     try:
-                        import zmq
-                        context = zmq.Context()
-                        socket = context.socket(zmq.REQ)
-                        socket.setsockopt(zmq.LINGER, 0)
-                        socket.setsockopt(zmq.SNDTIMEO, 2000)
-                        socket.setsockopt(zmq.RCVTIMEO, 2000)
-                        socket.connect("tcp://127.0.0.1:5558")
-                        socket.send_json({"message": message, "topic": "task:progress"})
-                        try:
-                            socket.recv_json()
-                        except zmq.Again:
-                            pass
-                        socket.close()
-                        context.term()
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            loop.create_task(manager.queue_message(message, topic="task:progress"))
+                        else:
+                            loop.run_until_complete(manager.queue_message(message, topic="task:progress"))
                     except Exception as e:
                         logger.warning(f"推送子任务完成进度失败: {e}")
 

@@ -21,6 +21,7 @@ import {
   Select,
   Modal,
   App,
+  Dropdown,
 } from 'antd';
 import {
   PlusOutlined,
@@ -39,6 +40,7 @@ import {
   AppstoreOutlined,
   UnorderedListOutlined,
   EyeOutlined,
+  MoreOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { useWorkerStore } from '../../store/workerStore';
@@ -54,7 +56,7 @@ const { Search } = Input;
 const Worker = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { message: apiMessage } = App.useApp();
+  const { message: apiMessage, modal } = App.useApp();
 
   // Store state and actions
   const {
@@ -131,11 +133,13 @@ const Worker = () => {
 
   // Status statistics
   const statusStats = useMemo(() => {
+    const totalProfit = workers.reduce((sum, w) => sum + (w.total_profit || 0), 0);
     return {
       total: workers.length,
       running: workers.filter(w => w.status === 'running').length,
       stopped: workers.filter(w => w.status === 'stopped').length,
       error: workers.filter(w => w.status === 'error').length,
+      totalProfit,
     };
   }, [workers]);
 
@@ -363,6 +367,18 @@ const Worker = () => {
             value={statusStats.stopped}
             styles={{ content: { color: '#999' } }}
             prefix={<PoweroffOutlined style={{ color: '#999' }} />}
+          />
+        </Card>
+      </Col>
+      <Col xs={12} sm={6}>
+        <Card size="small">
+          <Statistic
+            title={t('total_profit') || '总盈利'}
+            value={statusStats.totalProfit}
+            precision={2}
+            prefix={'$'}
+            styles={{ content: { color: statusStats.totalProfit >= 0 ? '#52c41a' : '#ff4d4f' } }}
+            valueStyle={{ color: statusStats.totalProfit >= 0 ? '#52c41a' : '#ff4d4f' }}
           />
         </Card>
       </Col>
@@ -684,6 +700,7 @@ const Worker = () => {
                     rowKey="id"
                     size="small"
                     pagination={false}
+                    scroll={{ x: 800 }}
                     onRow={(worker) => ({
                       onClick: () => setSelectedWorker(worker),
                       style: { cursor: 'pointer', backgroundColor: selectedWorker?.id === worker.id ? '#e6f7ff' : undefined }
@@ -693,6 +710,7 @@ const Worker = () => {
                         title: t('worker_name') || '任务名称',
                         dataIndex: 'name',
                         key: 'name',
+                        width: 180,
                         ellipsis: true,
                         render: (text: string, worker: WorkerType) => (
                           <Space>
@@ -707,13 +725,13 @@ const Worker = () => {
                         title: t('exchange') || '交易所',
                         dataIndex: 'exchange',
                         key: 'exchange',
-                        width: 100,
+                        width: 90,
                       },
                       {
                         title: t('timeframe') || '周期',
                         dataIndex: 'timeframe',
                         key: 'timeframe',
-                        width: 80,
+                        width: 70,
                       },
                       {
                         title: t('total_profit') || '总收益',
@@ -733,38 +751,10 @@ const Worker = () => {
                       {
                         title: t('action') || '操作',
                         key: 'action',
-                        width: 200,
+                        width: 100,
                         fixed: 'right',
                         render: (_: any, worker: WorkerType) => (
                           <Space size="small">
-                            {worker.status === 'stopped' && (
-                              <Tooltip title={t('start')}>
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  icon={<CaretRightOutlined style={{ color: '#52c41a' }} />}
-                                  onClick={(e) => handleStart(worker, e as React.MouseEvent)}
-                                />
-                              </Tooltip>
-                            )}
-                            {worker.status === 'running' && (
-                              <Tooltip title={t('stop')}>
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  icon={<StopOutlined style={{ color: '#ff4d4f' }} />}
-                                  onClick={(e) => handleStop(worker, e as React.MouseEvent)}
-                                />
-                              </Tooltip>
-                            )}
-                            <Tooltip title={t('restart')}>
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<ReloadOutlined />}
-                                onClick={(e) => handleRestart(worker, e as React.MouseEvent)}
-                              />
-                            </Tooltip>
                             <Tooltip title={t('detail') || '详情'}>
                               <Button
                                 type="text"
@@ -776,30 +766,61 @@ const Worker = () => {
                                 }}
                               />
                             </Tooltip>
-                            <Tooltip title={t('edit')}>
+                            <Dropdown
+                              menu={{
+                                items: [
+                                  ...(worker.status === 'stopped' ? [{
+                                    key: 'start',
+                                    label: t('start'),
+                                    icon: <CaretRightOutlined />,
+                                    onClick: (e: any) => { e.domEvent.stopPropagation(); handleStart(worker, e.domEvent); },
+                                  }] : []),
+                                  ...(worker.status === 'running' ? [{
+                                    key: 'stop',
+                                    label: t('stop'),
+                                    icon: <StopOutlined />,
+                                    onClick: (e: any) => { e.domEvent.stopPropagation(); handleStop(worker, e.domEvent); },
+                                  }] : []),
+                                  {
+                                    key: 'restart',
+                                    label: t('restart'),
+                                    icon: <ReloadOutlined />,
+                                    onClick: (e: any) => { e.domEvent.stopPropagation(); handleRestart(worker, e.domEvent); },
+                                  },
+                                  {
+                                    key: 'edit',
+                                    label: t('edit'),
+                                    icon: <EditOutlined />,
+                                    onClick: (e: any) => { e.domEvent.stopPropagation(); handleEdit(worker, e.domEvent); },
+                                  },
+                                  {
+                                    key: 'delete',
+                                    label: t('delete'),
+                                    icon: <DeleteOutlined />,
+                                    danger: true,
+                                  },
+                                ],
+                                onClick: ({ key }) => {
+                                  if (key === 'delete') {
+                                    modal.confirm({
+                                      title: t('confirm_delete_worker'),
+                                      okText: t('yes'),
+                                      cancelText: t('no'),
+                                      okType: 'danger',
+                                      onOk: () => handleDelete(worker, {} as React.MouseEvent),
+                                    });
+                                  }
+                                },
+                              }}
+                              trigger={['click']}
+                            >
                               <Button
                                 type="text"
                                 size="small"
-                                icon={<EditOutlined />}
-                                onClick={(e) => handleEdit(worker, e as React.MouseEvent)}
+                                icon={<MoreOutlined />}
+                                onClick={(e) => e.stopPropagation()}
                               />
-                            </Tooltip>
-                            <Popconfirm
-                              title={t('confirm_delete_worker')}
-                              onConfirm={(e) => handleDelete(worker, e as React.MouseEvent)}
-                              okText={t('yes')}
-                              cancelText={t('no')}
-                            >
-                              <Tooltip title={t('delete')}>
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  danger
-                                  icon={<DeleteOutlined />}
-                                  onClick={(e) => { e.stopPropagation(); }}
-                                />
-                              </Tooltip>
-                            </Popconfirm>
+                            </Dropdown>
                           </Space>
                         ),
                       },

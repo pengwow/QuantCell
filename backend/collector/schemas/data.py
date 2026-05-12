@@ -123,7 +123,7 @@ class DownloadCryptoRequest(BaseModel):
     exchange: str = Field(default="binance", description="交易所")
     max_workers: int = Field(default=1, description="最大工作线程数")
     candle_type: str = Field(default="spot", description="蜡烛图类型")
-    save_dir: Optional[str] = Field(None, description="保存目录，如果不提供则从系统配置中读取data_download_dir")
+    save_dir: Optional[str] = Field(None, description="保存目录（已弃用，现在使用固定目录 backend/data）")
     mode: str = Field(default="inc", description="下载模式，可选'inc'（增量）或'full'（全量）")
 
 

@@ -57,92 +57,101 @@ class BacktestService:
     回测服务类，用于执行策略回测和分析回测结果
     """
 
-    def _get_kline_data_from_db(self, symbol: str, interval: str, start_time: str, end_time: str, db) -> list:
+    def _get_kline_data_from_parquet(
+        self,
+        symbol: str,
+        interval: str,
+        start_time: str,
+        end_time: str
+    ) -> list:
         """
-        从数据库K线表获取K线数据
+        从Parquet文件加载K线数据（替代数据库查询）
 
-        :param symbol: 货币对，如 "BTCUSDT" 或 "BTC/USDT"
-        :param interval: 时间周期，如 "15m"
-        :param start_time: 开始时间，ISO格式字符串
-        :param end_time: 结束时间，ISO格式字符串
-        :param db: 数据库会话
+        :param symbol: 货币对 (如 "BTCUSDT")
+        :param interval: 时间周期 (如 "15m", "1h")
+        :param start_time: 开始时间 (ISO格式)
+        :param end_time: 结束时间 (ISO格式)
         :return: K线数据列表
         """
-        logger.info(f"[_get_kline_data_from_db] 开始获取K线数据: symbol={symbol}, interval={interval}, start_time={start_time}, end_time={end_time}")
+        logger.info(f"[_get_kline_data_from_parquet] 开始加载: {symbol} {interval}")
 
         try:
-            from collector.db.models import CryptoSpotKline
-            from datetime import datetime
+            from utils.kline_file_manager import get_kline_file_manager
 
-            # 解析时间字符串
-            logger.info(f"[_get_kline_data_from_db] 解析时间字符串: start_time={start_time}, end_time={end_time}")
-            start_dt = datetime.fromisoformat(start_time.replace(' ', 'T'))
-            end_dt = datetime.fromisoformat(end_time.replace(' ', 'T'))
+            manager = get_kline_file_manager()
+            df = manager.load_klines(
+                symbol=symbol,
+                interval=interval,
+                start_time=start_time,
+                end_time=end_time,
+                market_type='spot'
+            )
 
-            # 转换为微秒级时间戳（数据库中存储的是微秒时间戳）
-            start_timestamp_us = int(start_dt.timestamp() * 1000000)
-            end_timestamp_us = int(end_dt.timestamp() * 1000000)
-            logger.info(f"[_get_kline_data_from_db] 时间解析结果: start_timestamp_us={start_timestamp_us}, end_timestamp_us={end_timestamp_us}")
+            if df.empty:
+                logger.warning(f"[_get_kline_data_from_parquet] 未找到数据: {symbol} {interval}")
+                return []
 
-            # 处理symbol格式，支持 BTCUSDT 和 BTC/USDT 两种格式
-            symbol_variants = [symbol]
-            if '/' in symbol:
-                # BTC/USDT -> BTCUSDT
-                symbol_variants.append(symbol.replace('/', ''))
-            else:
-                # BTCUSDT -> BTC/USDT
-                symbol_variants.append(f"{symbol[:-4]}/{symbol[-4:]}" if len(symbol) > 4 else symbol)
-
-            logger.info(f"[_get_kline_data_from_db] symbol变体: {symbol_variants}")
-
-            # 查询K线数据 - 使用微秒时间戳作为字符串查询
-            logger.info(f"[_get_kline_data_from_db] 执行数据库查询: interval={interval}")
-            kline_records = db.query(CryptoSpotKline).filter(
-                CryptoSpotKline.symbol.in_(symbol_variants),
-                CryptoSpotKline.interval == interval,
-                CryptoSpotKline.timestamp >= str(start_timestamp_us),
-                CryptoSpotKline.timestamp <= str(end_timestamp_us)
-            ).order_by(CryptoSpotKline.timestamp).all()
-
-            logger.info(f"[_get_kline_data_from_db] 数据库查询完成，获取到 {len(kline_records)} 条原始记录")
-
-            # 转换为字典列表
+            # 转换为字典列表（保持与原接口兼容）
             kline_data = []
-            for idx, record in enumerate(kline_records):
+            for _, row in df.iterrows():
                 try:
-                    # 数据库中存储的是微秒级时间戳(16位)
-                    ts_int = int(record.timestamp)
-                    # 微秒转毫秒
-                    timestamp_ms = ts_int // 1000
-                    # 微秒转秒用于datetime
-                    dt = datetime.fromtimestamp(ts_int / 1000000)
-                    datetime_str = dt.isoformat()
+                    timestamp_ms = int(row['timestamp'])
+                    
+                    # 生成datetime字符串
+                    from datetime import datetime as dt_class
+                    if 'datetime' in row and pd.notna(row['datetime']):
+                        datetime_str = str(row['datetime'])
+                    else:
+                        try:
+                            dt_obj = dt_class.fromtimestamp(timestamp_ms / 1000)
+                            datetime_str = dt_obj.isoformat()
+                        except:
+                            datetime_str = ''
 
                     kline_item = {
-                        "timestamp": timestamp_ms,
-                        "datetime": datetime_str,
-                        "open": float(record.open),
-                        "close": float(record.close),
-                        "high": float(record.high),
-                        "low": float(record.low),
-                        "volume": float(record.volume),
-                        "turnover": 0.0
+                        'timestamp': timestamp_ms,
+                        'datetime': datetime_str,
+                        'open': float(row['open']),
+                        'close': float(row['close']),
+                        'high': float(row['high']),
+                        'low': float(row['low']),
+                        'volume': float(row['volume']),
+                        'turnover': 0.0
                     }
                     kline_data.append(kline_item)
 
-                    # 只记录前3条和后3条的解析情况
-                    if idx < 3 or idx >= len(kline_records) - 3:
-                        logger.info(f"[_get_kline_data_from_db] 解析记录[{idx}]: timestamp={record.timestamp} -> {timestamp_ms}ms, open={record.open}, close={record.close}")
                 except Exception as e:
-                    logger.warning(f"[_get_kline_data_from_db] 解析K线记录[{idx}]失败: {e}, timestamp={record.timestamp}")
+                    logger.warning(f"[_get_kline_data_from_parquet] 解析记录失败: {e}")
                     continue
 
-            logger.info(f"[_get_kline_data_from_db] 从数据库获取K线数据完成: {symbol} {interval}, 共 {len(kline_data)} 条")
+            logger.info(
+                f"[_get_kline_data_from_parquet] 加载完成: {symbol} {interval}, "
+                f"共{len(kline_data)}条"
+            )
             return kline_data
+
         except Exception as e:
-            logger.error(f"[_get_kline_data_from_db] 从数据库获取K线数据失败: {e}")
-            logger.exception(e)
+            logger.error(f"[_get_kline_data_from_parquet] 加载失败: {e}")
+            import traceback
+            logger.exception(traceback.format_exc())
             return []
+
+    def _get_kline_data_from_db(self, symbol: str, interval: str, start_time: str, end_time: str, db) -> list:
+        """
+        [已废弃] 从数据库K线表获取K线数据
+        
+        此方法已被 _get_kline_data_from_parquet 替代，
+        保留仅用于向后兼容。
+        
+        :param symbol: 货币对，如 "BTCUSDT"
+        :param interval: 时间周期，如 "15m"
+        :param start_time: 开始时间
+        :param end_time: 结束时间
+        :param db: 数据库会话
+        :return: K线数据列表
+        """
+        logger.warning("[BacktestService] _get_kline_data_from_db 已废弃，使用 _get_kline_data_from_parquet 替代")
+        return self._get_kline_data_from_parquet(symbol, interval, start_time, end_time)
 
     def _run_event_backtest(
         self,

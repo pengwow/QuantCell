@@ -9,7 +9,7 @@
 from datetime import datetime, timedelta
 from typing import Optional, List
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Request
 from pydantic import BaseModel
 
 from utils.log_query_engine import get_log_query_engine
@@ -455,16 +455,23 @@ async def delete_log_file(file_path: str):
         raise HTTPException(status_code=500, detail=f"删除日志文件失败: {str(e)}")
 
 
-@router.delete("/files/batch")
-async def delete_log_files_batch(file_paths: List[str]):
+@router.post("/files/batch")
+async def delete_log_files_batch(request: Request):
     """
     批量删除多个日志文件
 
     支持一次删除多个文件，返回每个文件的删除结果。
+    通过 JSON body 传递文件路径列表。
     """
     try:
         from pathlib import Path
         from utils.file_log_manager import get_file_log_manager
+
+        body = await request.json()
+        file_paths = body.get("filePaths", [])
+
+        if not file_paths:
+            raise HTTPException(status_code=400, detail="未提供要删除的文件路径列表")
 
         file_manager = get_file_log_manager()
 
@@ -492,6 +499,59 @@ async def delete_log_files_batch(file_paths: List[str]):
     except Exception as e:
         logger.error(f"批量删除日志文件失败: {e}", exception=e)
         raise HTTPException(status_code=500, detail=f"批量删除日志文件失败: {str(e)}")
+
+
+@router.post("/files/batch-download")
+async def batch_download_log_files(request: Request):
+    """
+    批量下载日志文件为ZIP压缩包
+
+    通过JSON body传递文件路径列表，返回包含所有文件的ZIP下载。
+    """
+    import zipfile
+    import io
+    from pathlib import Path
+
+    try:
+        from utils.file_log_manager import get_file_log_manager
+
+        body = await request.json()
+        file_paths = body.get("filePaths", [])
+
+        if not file_paths:
+            raise HTTPException(status_code=400, detail="未提供要下载的文件路径列表")
+
+        file_manager = get_file_log_manager()
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file_path in file_paths:
+                path_obj = Path(file_path)
+                base_dir_str = str(file_manager.base_log_dir)
+
+                if not str(path_obj).startswith(base_dir_str):
+                    continue
+                if not path_obj.exists():
+                    continue
+
+                arcname = str(path_obj.relative_to(file_manager.base_log_dir))
+                zf.write(path_obj, arcname)
+
+        zip_buffer.seek(0)
+
+        from fastapi.responses import Response
+        return Response(
+            content=zip_buffer.getvalue(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename=log_files_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"批量下载日志文件失败: {e}", exception=e)
+        raise HTTPException(status_code=500, detail=f"批量下载日志文件失败: {str(e)}")
 
 
 @router.get("/disk-usage")
