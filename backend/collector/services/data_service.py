@@ -53,7 +53,6 @@ class GetData:
         limit_nums=None,
         exists_skip=False,
         mode='inc',
-        write_to_db=False,
     ):
         self.symbols = symbols
         self.exchange = exchange
@@ -73,7 +72,6 @@ class GetData:
         self.limit_nums = limit_nums
         self.exists_skip = exists_skip
         self.mode = mode
-        self.write_to_db = write_to_db
 
     def run(self, start_date=None, progress_callback=None):
         actual_start = start_date or self.start
@@ -133,37 +131,10 @@ class GetData:
 
             logger.info(f"{self.exchange} 数据下载完成！")
 
-            if self.write_to_db:
-                self._write_to_database(full_save_dir, symbols_str)
-
         except Exception as e:
             logger.error(f"数据下载失败: {e}")
             logger.exception(e)
             raise
-
-    def _write_to_database(self, data_dir, symbols_str):
-        try:
-            logger.info(f"开始将数据写入数据库...")
-
-            from sqlalchemy import func
-            from collector.db.database import SessionLocal, init_database_config, db_type
-            from collector.db.models import CryptoSpotKline, CryptoFutureKline
-
-            init_database_config()
-
-            symbol_list = symbols_str.split(',') if symbols_str else []
-
-            if not data_dir.exists():
-                logger.warning(f"数据目录不存在: {data_dir}")
-                return
-
-            logger.info(f"数据库写入功能待实现")
-            logger.info(f"数据目录: {data_dir}")
-            logger.info(f"交易对数量: {len(symbol_list)}")
-
-        except Exception as e:
-            logger.error(f"数据库写入失败: {e}")
-            logger.exception(e)
 
 
 class ExportData:
@@ -1331,72 +1302,7 @@ class DataService:
                     interval=interval
                 )
                 logger.info(f"时间周期 {interval} 所有数据下载成功")
-                
-                # 添加数据库写入功能
-                try:
-                    logger.info(f"开始将 {interval} 数据写入数据库")
-                    # 获取当前项目根目录
-                    project_root = Path(__file__).parent.parent.parent
-                    logger.info(f"当前项目根目录: {project_root}")
 
-                    # 构建数据目录路径（使用固定下载目录）
-                    data_dir = get_data.save_dir / interval
-                    if not data_dir.is_absolute():
-                        data_dir = project_root / data_dir
-                    logger.info(f"数据目录: {data_dir}")
-                    # 导入数据库相关模块
-                    from sqlalchemy import func
-
-                    from collector.db.database import (
-                        SessionLocal, init_database_config)
-                    from collector.db.models import CryptoSpotKline, CryptoFutureKline
-
-                    # 初始化数据库配置
-                    init_database_config()
-
-                    # 优先查找 Parquet 文件，兼容旧版 CSV 文件
-                    parquet_files = list_parquet_files(data_dir)
-                    if not parquet_files:
-                        # 如果没有 Parquet 文件，尝试查找 CSV 文件（向后兼容）
-                        csv_files = list(data_dir.glob("*.csv"))
-                        logger.info(f"未找到 Parquet 文件，找到 {len(csv_files)} 个 CSV 文件（旧格式）")
-
-                        for csv_file in csv_files:
-                            symbol = csv_file.stem
-                            logger.info(f"开始处理CSV文件: {csv_file}")
-
-                            df = pd.read_csv(csv_file)
-                            if df is None or df.empty:
-                                logger.warning(f"{symbol} 数据为空，跳过写入数据库")
-                                continue
-
-                            self._process_dataframe_for_db(df, symbol, interval, request)
-                    else:
-                        logger.info(f"找到 {len(parquet_files)} 个 Parquet 文件")
-
-                        # 过滤文件（只处理当前下载的交易对）
-                        if request.symbols:
-                            symbol_set = set(symbol.replace("/", "") for symbol in request.symbols)
-                            parquet_files = [f for f in parquet_files if f.stem in symbol_set]
-                            logger.info(f"过滤后找到 {len(parquet_files)} 个 Parquet 文件")
-
-                        # 处理每个 Parquet 文件
-                        for parquet_file in parquet_files:
-                            symbol = parquet_file.stem
-                            logger.info(f"开始处理Parquet文件: {parquet_file}")
-
-                            # 使用 load_from_parquet 读取数据
-                            df = load_from_parquet(parquet_file)
-
-                            if df is None or df.empty:
-                                logger.warning(f"{symbol} 数据为空，跳过写入数据库")
-                                continue
-
-                            self._process_dataframe_for_db(df, symbol, interval, request)
-                except Exception as e:
-                    logger.error(f"处理数据库写入时发生异常: {e}")
-                    logger.exception(e)
-            
             logger.info(f"所有时间周期数据下载成功，任务ID: {task_id}")
             
             # 更新任务状态为已完成
@@ -1407,76 +1313,6 @@ class DataService:
             
             # 更新任务状态为失败
             task_manager.fail_task(task_id, error_message=str(e))
-
-    def _process_dataframe_to_file(self, df, symbol, interval, request):
-        """
-        处理 DataFrame 并写入Parquet文件（替代数据库存储）
-
-        Args:
-            df: K线数据DataFrame
-            symbol: 交易对符号
-            interval: 时间间隔
-            request: 下载请求对象
-        """
-        try:
-            from utils.kline_file_manager import get_kline_file_manager
-
-            # 准备数据，确保只包含需要的列
-            df_clean = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']].copy()
-            
-            # 清理无效数据
-            df_clean = df_clean.dropna(subset=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            
-            # 确保timestamp为整数
-            df_clean['timestamp'] = pd.to_numeric(df_clean['timestamp'], errors='coerce').astype('int64')
-            
-            # 再次清理转换后的无效数据
-            df_clean = df_clean.dropna()
-            
-            if df_clean.empty:
-                logger.warning(f"没有有效数据可以保存到文件: {symbol} {interval}")
-                return
-
-            # 确定市场类型
-            market_type = 'spot' if request.candle_type == "spot" else 'future'
-            
-            logger.info(f"保存K线数据到Parquet文件: {symbol} {interval}, 市场类型: {market_type}")
-            
-            # 使用文件管理器保存
-            manager = get_kline_file_manager()
-            
-            success = manager.save_klines(
-                df=df_clean,
-                symbol=symbol,
-                interval=interval,
-                market_type=market_type
-            )
-            
-            if success:
-                logger.info(f"成功将 {len(df_clean)} 条 {symbol} 数据保存到Parquet文件")
-            else:
-                logger.error(f"保存 {symbol} 数据到文件失败")
-                
-        except Exception as e:
-            logger.error(f"处理DataFrame并保存到文件失败: {e}")
-            import traceback
-            logger.exception(traceback.format_exc())
-
-    def _process_dataframe_for_db(self, df, symbol, interval, request):
-        """
-        [已废弃] 处理 DataFrame 并写入数据库
-        
-        此方法已被 _process_dataframe_to_file 替代，
-        保留仅用于向后兼容。
-        
-        Args:
-            df: K线数据DataFrame
-            symbol: 交易对符号
-            interval: 时间间隔
-            request: 下载请求对象
-        """
-        logger.warning("[DataService] _process_dataframe_for_db 已废弃，使用 _process_dataframe_to_file 替代")
-        self._process_dataframe_to_file(df, symbol, interval, request)
 
     def export_crypto_data(self, request: ExportCryptoRequest) -> Dict[str, Any]:
         """导出加密货币数据

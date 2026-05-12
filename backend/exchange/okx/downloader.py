@@ -146,7 +146,7 @@ class OKXDownloader(BaseCollector):
             # 自动转换为 .parquet 后缀
             if save_path.suffix == '.csv':
                 save_path = save_path.with_suffix('.parquet')
-            
+
             # 使用 append_to_parquet 支持增量更新
             success = append_to_parquet(df, save_path)
             if success:
@@ -155,6 +155,93 @@ class OKXDownloader(BaseCollector):
                 logger.error(f"保存数据失败: {save_path}")
         except Exception as e:
             logger.error(f"保存数据失败: {e}")
+
+    def _simple_collector(self, symbol: str, progress_callback=None):
+        """简单收集器，使用 Parquet 格式保存"""
+        self.sleep()
+
+        normalized_symbol = self.normalize_symbol(symbol)
+        # 使用 .parquet 后缀
+        instrument_path = self.save_dir.joinpath(f"{normalized_symbol}.parquet")
+
+        existing_timestamps = pd.Series([], dtype='int64')
+        if self.mode == 'inc' and instrument_path.exists():
+            try:
+                _old_df = pd.read_parquet(instrument_path)
+                if not _old_df.empty:
+                    if 'date' in _old_df.columns and 'timestamp' not in _old_df.columns:
+                        _old_df = _old_df.rename(columns={'date': 'timestamp'})
+                    _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
+                    existing_timestamps = _old_df['timestamp'].dropna()
+                    logger.info(f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_timestamps)} 条有效记录")
+            except Exception as e:
+                logger.error(f"[增量模式] 读取 {symbol} 历史数据失败: {e}")
+                logger.exception(e)
+
+        missing_ranges = self._calculate_missing_ranges(existing_timestamps)
+
+        if not missing_ranges:
+            logger.info(f"[增量模式] {symbol} 在指定时间范围内数据完整，无需下载")
+            return self.NORMAL_FLAG
+
+        all_df = pd.DataFrame()
+        for i, (range_start, range_end) in enumerate(missing_ranges):
+            logger.info(f"[增量模式] {symbol} 缺失数据范围 {i+1}/{len(missing_ranges)}: {range_start} 至 {range_end}")
+            df = self.download(symbol, self.interval, range_start.strftime("%Y-%m-%d"), range_end.strftime("%Y-%m-%d"), progress_callback)
+            if df is not None and not df.empty:
+                all_df = pd.concat([all_df, df], ignore_index=True)
+
+        if all_df.empty:
+            logger.warning(f"{symbol} 下载数据为空")
+            return self.NORMAL_FLAG
+
+        result = self.cache_small_data(symbol, all_df)
+        if result != self.NORMAL_FLAG:
+            return result
+
+        self.save_instrument(symbol, all_df)
+
+        return self.NORMAL_FLAG
+
+    def save_instrument(self, symbol, df: pd.DataFrame):
+        """保存标的数据到 Parquet 文件"""
+        if df is None or df.empty:
+            logger.warning(f"{symbol} 数据为空")
+            return
+
+        symbol = self.normalize_symbol(symbol)
+        # 使用 .parquet 后缀
+        instrument_path = self.save_dir.joinpath(f"{symbol}.parquet")
+        df["symbol"] = symbol
+
+        # 统一列名：确保存在 timestamp 列（兼容 date 列名）
+        if 'date' in df.columns and 'timestamp' not in df.columns:
+            df = df.rename(columns={'date': 'timestamp'})
+        if 'timestamp' not in df.columns:
+            logger.error(f"{symbol} 数据缺少 timestamp/date 列，可用列: {list(df.columns)}")
+            return
+        df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
+        df = df.dropna(subset=['timestamp'])
+        df = df.drop_duplicates(subset=['timestamp'], keep='last')
+        df = df.sort_values('timestamp')
+
+        if self.mode != 'full' and instrument_path.exists():
+            try:
+                _old_df = pd.read_parquet(instrument_path)
+                if 'date' in _old_df.columns and 'timestamp' not in _old_df.columns:
+                    _old_df = _old_df.rename(columns={'date': 'timestamp'})
+                _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
+                df = pd.concat([_old_df, df], sort=False)
+                df = df.drop_duplicates(subset=['timestamp'], keep='last')
+                df = df.sort_values('timestamp')
+            except Exception as e:
+                logger.warning(f"读取现有 parquet 文件失败，将覆盖: {e}")
+
+        # 使用 append_to_parquet 保存
+        self.save_data(df, instrument_path)
+
+        mode_label = "[全量模式]" if self.mode == "full" else "[增量模式]"
+        logger.info(f"{mode_label} 成功将 {symbol} 数据保存到文件: {instrument_path}")
 
     @deco_retry(max_retry=3, delay=1.0)
     def get_all_symbols(self):
