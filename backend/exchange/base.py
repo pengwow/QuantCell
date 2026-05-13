@@ -175,8 +175,8 @@ class BaseCollector(abc.ABC):
             '5m': '5min',
             '15m': '15min',
             '30m': '30min',
-            '1h': 'H',
-            '4h': '4H',
+            '1h': 'h',
+            '4h': '4h',
             '1d': 'D'
         }
         return interval_map.get(self.interval, 'D')

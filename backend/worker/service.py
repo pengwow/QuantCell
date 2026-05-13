@@ -110,38 +110,74 @@ class WorkerService:
         cls._initialization_lock = None
 
 
+def handle_test_mode(default_return_value=None, default_return_factory=None):
+    """
+    测试模式处理装饰器
+
+    当 CommManager 未初始化时，返回模拟数据用于测试
+
+    Args:
+        default_return_value: 固定的默认返回值
+        default_return_factory: 动态生成返回值的工厂函数，接收 worker_id 参数
+
+    Example:
+        @handle_test_mode(default_return_value=True)
+        async def stop_worker(worker_id: int) -> bool:
+            # 业务逻辑
+            pass
+
+        @handle_test_mode(default_return_factory=lambda wid: {"worker_id": wid, "status": "running"})
+        async def get_worker_status(worker_id: int) -> Dict[str, Any]:
+            # 业务逻辑
+            pass
+    """
+    def decorator(func):
+        async def wrapper(*args, **kwargs):
+            await worker_service.initialize()
+
+            # 如果 CommManager 未初始化成功，返回模拟数据（用于测试）
+            if worker_service._comm_manager is None:
+                # 尝试从参数中提取 worker_id
+                worker_id = kwargs.get('worker_id') or (args[0] if args else None)
+                logger.info(f"模拟{func.__name__} {worker_id} (测试模式)")
+
+                if default_return_factory:
+                    return default_return_factory(worker_id)
+                else:
+                    return default_return_value
+
+            # 正常执行业务逻辑
+            return await func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
 # 全局服务实例
 worker_service = WorkerService()
 
 
+@handle_test_mode(default_return_factory=lambda wid: str(uuid.uuid4()))
 async def start_worker_async(worker_id: int) -> str:
     """
     异步启动Worker
-    
+
     通过ZeroMQ发送启动命令
     """
-    await worker_service.initialize()
-    
     task_id = str(uuid.uuid4())
-    
-    # 如果 CommManager 未初始化成功，模拟成功响应（用于测试）
-    if worker_service._comm_manager is None:
-        logger.info(f"模拟启动Worker {worker_id} (测试模式)")
-        return task_id
-    
+
     # 发送启动命令
     message = Message.create_control(
         MessageType.START,
         str(worker_id),
         {"task_id": task_id}
     )
-    
+
     try:
         success = await asyncio.wait_for(
             worker_service._comm_manager.send_control(str(worker_id), message),
             timeout=OPERATION_TIMEOUT
         )
-        
+
         if success:
             return task_id
         else:
@@ -150,24 +186,18 @@ async def start_worker_async(worker_id: int) -> str:
         raise Exception("发送启动命令超时")
 
 
+@handle_test_mode(default_return_value=True)
 async def stop_worker(worker_id: int) -> bool:
     """
     停止Worker
-    
+
     通过ZeroMQ发送停止命令
     """
-    await worker_service.initialize()
-    
-    # 如果 CommManager 未初始化成功，模拟成功响应（用于测试）
-    if worker_service._comm_manager is None:
-        logger.info(f"模拟停止Worker {worker_id} (测试模式)")
-        return True
-    
     message = Message.create_control(
         MessageType.STOP,
         str(worker_id)
     )
-    
+
     try:
         return await asyncio.wait_for(
             worker_service._comm_manager.send_control(str(worker_id), message),
@@ -178,29 +208,23 @@ async def stop_worker(worker_id: int) -> bool:
         return False
 
 
+@handle_test_mode(default_return_factory=lambda wid: str(uuid.uuid4()))
 async def restart_worker_async(worker_id: int) -> str:
     """重启Worker"""
-    await worker_service.initialize()
-    
     task_id = str(uuid.uuid4())
-    
-    # 如果 CommManager 未初始化成功，模拟成功响应（用于测试）
-    if worker_service._comm_manager is None:
-        logger.info(f"模拟重启Worker {worker_id} (测试模式)")
-        return task_id
-    
+
     message = Message.create_control(
         MessageType.RESTART,
         str(worker_id),
         {"task_id": task_id}
     )
-    
+
     try:
         success = await asyncio.wait_for(
             worker_service._comm_manager.send_control(str(worker_id), message),
             timeout=OPERATION_TIMEOUT
         )
-        
+
         if success:
             return task_id
         else:
@@ -209,20 +233,15 @@ async def restart_worker_async(worker_id: int) -> str:
         raise Exception("发送重启命令超时")
 
 
+@handle_test_mode(default_return_factory=lambda wid: {
+    "worker_id": wid,
+    "status": "running",
+    "uptime": 3600,
+    "last_heartbeat": datetime.now().isoformat(),
+    "is_healthy": True
+})
 async def get_worker_status(worker_id: int) -> Dict[str, Any]:
     """获取Worker状态"""
-    await worker_service.initialize()
-    
-    # 如果 CommManager 未初始化成功，返回模拟数据（用于测试）
-    if worker_service._comm_manager is None:
-        return {
-            "worker_id": worker_id,
-            "status": "running",
-            "uptime": 3600,
-            "last_heartbeat": datetime.now().isoformat(),
-            "is_healthy": True
-        }
-    
     # 这里应该通过ZeroMQ查询实时状态
     # 简化实现：返回模拟数据
     return {
@@ -234,36 +253,31 @@ async def get_worker_status(worker_id: int) -> Dict[str, Any]:
     }
 
 
+@handle_test_mode(default_return_factory=lambda wid: {
+    "worker_id": wid,
+    "status": "running",
+    "is_healthy": True,
+    "checks": {
+        "communication": True,
+        "heartbeat": True,
+        "process": True
+    }
+})
 async def health_check(worker_id: int) -> Dict[str, Any]:
     """健康检查"""
-    await worker_service.initialize()
-    
-    # 如果 CommManager 未初始化成功，返回模拟数据（用于测试）
-    if worker_service._comm_manager is None:
-        return {
-            "worker_id": worker_id,
-            "status": "running",
-            "is_healthy": True,
-            "checks": {
-                "communication": True,
-                "heartbeat": True,
-                "process": True
-            }
-        }
-    
     # 发送健康检查命令
     message = Message.create_control(
         MessageType.CONTROL,
         str(worker_id),
         {"action": "health_check"}
     )
-    
+
     try:
         success = await asyncio.wait_for(
             worker_service._comm_manager.send_control(str(worker_id), message),
             timeout=OPERATION_TIMEOUT
         )
-        
+
         return {
             "worker_id": worker_id,
             "status": "running" if success else "unknown",
@@ -287,27 +301,22 @@ async def health_check(worker_id: int) -> Dict[str, Any]:
         }
 
 
+@handle_test_mode(default_return_factory=lambda wid: {
+    "worker_id": wid,
+    "network_in": 1024000,
+    "network_out": 512000,
+    "active_tasks": 3,
+    "timestamp": datetime.now().isoformat()
+})
 async def get_worker_metrics(worker_id: int) -> Dict[str, Any]:
     """获取Worker性能指标"""
-    await worker_service.initialize()
-    
-    # 如果 CommManager 未初始化成功，返回模拟数据（用于测试）
-    if worker_service._comm_manager is None:
-        return {
-            "worker_id": worker_id,
-            "network_in": 1024000,
-            "network_out": 512000,
-            "active_tasks": 3,
-            "timestamp": datetime.now().isoformat()
-        }
-    
     # 请求指标数据
     message = Message.create_control(
         MessageType.CONTROL,
         str(worker_id),
         {"action": "get_metrics"}
     )
-    
+
     try:
         await asyncio.wait_for(
             worker_service._comm_manager.send_control(str(worker_id), message),
@@ -315,7 +324,7 @@ async def get_worker_metrics(worker_id: int) -> Dict[str, Any]:
         )
     except asyncio.TimeoutError:
         pass
-    
+
     # 简化实现：返回模拟数据
     return {
         "worker_id": worker_id,
@@ -428,22 +437,17 @@ async def stream_logs(websocket, worker_id: int):
                 pass  # 忽略发送失败的错误
 
 
+@handle_test_mode(default_return_factory=lambda wid, **kwargs: {
+    "deployed": True,
+    "strategy_id": kwargs.get("request", type('obj', (object,), {'strategy_id': None})()).strategy_id if kwargs.get("request") else None,
+    "worker_id": wid
+})
 async def deploy_strategy(worker_id: int, request: schemas.StrategyDeployRequest) -> Dict[str, Any]:
     """
     部署策略
-    
+
     通过ZeroMQ发送策略部署命令
     """
-    await worker_service.initialize()
-    
-    # 如果 CommManager 未初始化成功，返回模拟数据（用于测试）
-    if worker_service._comm_manager is None:
-        return {
-            "deployed": True,
-            "strategy_id": request.strategy_id,
-            "worker_id": worker_id
-        }
-    
     message = Message.create_control(
         MessageType.CONTROL,
         str(worker_id),
@@ -454,13 +458,13 @@ async def deploy_strategy(worker_id: int, request: schemas.StrategyDeployRequest
             "auto_start": request.auto_start
         }
     )
-    
+
     try:
         success = await asyncio.wait_for(
             worker_service._comm_manager.send_control(str(worker_id), message),
             timeout=OPERATION_TIMEOUT
         )
-        
+
         return {
             "deployed": success,
             "strategy_id": request.strategy_id,
@@ -475,29 +479,24 @@ async def deploy_strategy(worker_id: int, request: schemas.StrategyDeployRequest
         }
 
 
+@handle_test_mode(default_return_factory=lambda wid: {
+    "undeployed": True,
+    "worker_id": wid
+})
 async def undeploy_strategy(worker_id: int) -> Dict[str, Any]:
     """卸载策略"""
-    await worker_service.initialize()
-    
-    # 如果 CommManager 未初始化成功，返回模拟数据（用于测试）
-    if worker_service._comm_manager is None:
-        return {
-            "undeployed": True,
-            "worker_id": worker_id
-        }
-    
     message = Message.create_control(
         MessageType.CONTROL,
         str(worker_id),
         {"action": "undeploy_strategy"}
     )
-    
+
     try:
         success = await asyncio.wait_for(
             worker_service._comm_manager.send_control(str(worker_id), message),
             timeout=OPERATION_TIMEOUT
         )
-        
+
         return {
             "undeployed": success,
             "worker_id": worker_id
@@ -510,20 +509,15 @@ async def undeploy_strategy(worker_id: int) -> Dict[str, Any]:
         }
 
 
+@handle_test_mode(default_return_value=True)
 async def update_strategy_params(worker_id: int, parameters: Dict[str, Any]) -> bool:
     """更新策略参数"""
-    await worker_service.initialize()
-    
-    # 如果 CommManager 未初始化成功，模拟成功响应（用于测试）
-    if worker_service._comm_manager is None:
-        return True
-    
     message = Message.create_control(
         MessageType.UPDATE_PARAMS,
         str(worker_id),
         parameters
     )
-    
+
     try:
         return await asyncio.wait_for(
             worker_service._comm_manager.send_control(str(worker_id), message),
@@ -647,22 +641,17 @@ async def get_orders(worker_id: int, status: Optional[str] = None) -> Dict[str, 
         db.close()
 
 
+@handle_test_mode(default_return_factory=lambda wid: {
+    "sent": True,
+    "signal_id": str(uuid.uuid4()),
+    "worker_id": wid
+})
 async def send_trading_signal(worker_id: int, signal: Dict[str, Any]) -> Dict[str, Any]:
     """
     发送交易信号
-    
+
     通过ZeroMQ发送交易信号
     """
-    await worker_service.initialize()
-    
-    # 如果 CommManager 未初始化成功，返回模拟数据（用于测试）
-    if worker_service._comm_manager is None:
-        return {
-            "sent": True,
-            "signal_id": str(uuid.uuid4()),
-            "worker_id": worker_id
-        }
-    
     message = Message(
         msg_type=MessageType.CONTROL,
         worker_id=str(worker_id),
@@ -671,13 +660,13 @@ async def send_trading_signal(worker_id: int, signal: Dict[str, Any]) -> Dict[st
             "signal": signal
         }
     )
-    
+
     try:
         success = await asyncio.wait_for(
             worker_service._comm_manager.send_control(str(worker_id), message),
             timeout=OPERATION_TIMEOUT
         )
-        
+
         return {
             "sent": success,
             "signal_id": str(uuid.uuid4()),

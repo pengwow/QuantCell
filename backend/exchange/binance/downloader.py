@@ -307,8 +307,11 @@ class BinanceDownloader(BaseCollector):
             return
 
         symbol = self.normalize_symbol(symbol)
-        # 使用 .parquet 后缀
-        instrument_path = self.save_dir.joinpath(f"{symbol}.parquet")
+        # 直接使用 save_dir（已经是完整的目标目录: .../crypto/spot/klines/{interval}）
+        # 只需拼接文件名，不再重复拼接路径结构
+        instrument_path = self.save_dir / f"{symbol}.parquet"
+        # 最终路径: {save_dir}/{symbol}.parquet
+        # 例如: backend/data/source/crypto/spot/klines/15m/BTCUSDT.parquet ✅
         df["symbol"] = symbol
 
         # 统一列名：确保存在 timestamp 列（兼容 date/open_time 列名）
