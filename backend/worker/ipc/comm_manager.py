@@ -11,6 +11,7 @@ from typing import Optional, Callable, Any, List
 import asyncio
 from datetime import datetime
 from utils.logger import get_logger, LogType
+from core.port_manager import port_manager
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -36,14 +37,17 @@ class CommManager:
     def __init__(
         self,
         host: str = "127.0.0.1",
-        data_port: int = 5555,
-        control_port: int = 5556,
-        status_port: int = 5557,
+        data_port: Optional[int] = None,
+        control_port: Optional[int] = None,
+        status_port: Optional[int] = None,
     ):
         self.host = host
-        self.data_port = data_port
-        self.control_port = control_port
-        self.status_port = status_port
+        # 从 PortManager 获取端口（如果未提供）
+        self.data_port = data_port if data_port is not None else port_manager.get_port("zmq_data")
+        self.control_port = control_port if control_port is not None else port_manager.get_port("zmq_control")
+        self.status_port = status_port if status_port is not None else port_manager.get_port("zmq_status")
+
+        logger.info(f"初始化通信管理器 | data_port={self.data_port} | control_port={self.control_port} | status_port={self.status_port}")
 
         # 通信上下文
         self._context: Optional[zmq.asyncio.Context] = None

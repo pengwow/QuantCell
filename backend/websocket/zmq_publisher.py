@@ -6,6 +6,7 @@ import zmq.asyncio
 import asyncio
 from typing import Optional, Dict, Any
 from utils.logger import get_logger, LogType
+from core.port_manager import port_manager
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -23,13 +24,25 @@ class ZMQWebSocketPublisher:
             cls._instance = super().__new__(cls)
         return cls._instance
     
-    def __init__(self, publish_port: int = 5558, subscribe_port: int = 5559):
+    def __init__(self, publish_port: int = None, subscribe_port: int = None):
         if hasattr(self, '_initialized'):
             return
         self._initialized = True
         
-        self.publish_port = publish_port
-        self.subscribe_port = subscribe_port
+        # 从 PortManager 获取端口（如果未提供），保持向后兼容性
+        self.publish_port = publish_port or port_manager.get_port("zmq_broadcast")
+        # subscribe_port 通常与 publish_port 相同或相关，如果未提供则从 PortManager 获取
+        if subscribe_port:
+            self.subscribe_port = subscribe_port
+        else:
+            try:
+                self.subscribe_port = port_manager.get_port("zmq_broadcast")
+            except Exception:
+                # 如果获取失败，使用与 publish_port 相同的值
+                self.subscribe_port = self.publish_port
+        
+        logger.info(f"[ZMQ Publisher] 初始化完成 - publish_port: {self.publish_port}, subscribe_port: {self.subscribe_port}")
+        
         self._context: Optional[zmq.asyncio.Context] = None
         self._publisher: Optional[zmq.asyncio.Socket] = None
         self._subscriber: Optional[zmq.asyncio.Socket] = None

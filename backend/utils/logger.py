@@ -319,6 +319,14 @@ class UnifiedLogger:
 
         # 获取日志级别
         level = os.environ.get("LOG_LEVEL", "INFO").upper()
+        
+        # ========== CLI 模式智能检测 ==========
+        # 自动检测是否在命令行工具中运行，如果是则提升日志级别以减少干扰
+        if self._is_cli_mode():
+            if level == "INFO" or level == "DEBUG":
+                level = "WARNING"
+                os.environ["CLI_MODE_DETECTED"] = "true"
+        # ========== CLI 检测完毕 ==========
 
         # 添加控制台处理器（使用兼容格式）
         console_format = os.environ.get("LOG_CONSOLE_FORMAT", "default")
@@ -359,6 +367,66 @@ class UnifiedLogger:
                 print(f"[UnifiedLogger] 初始化文件日志管理器失败: {e}", file=sys.stderr)
                 self._file_log_manager = None
 
+    @staticmethod
+    def _is_cli_mode() -> bool:
+        """
+        智能检测当前是否在 CLI 工具模式运行
+        
+        检测条件（满足任一即判定为 CLI 模式）：
+        1. 直接执行 Python 脚本（sys.argv[0] 以 .py 结尾）
+        2. 运行在交互式终端中（TTY）
+        3. 显式设置环境变量 CLI_MODE=1
+        
+        排除条件（以下情况不算 CLI 模式）：
+        - uvicorn 启动 FastAPI 应用（包含 main:app 参数）
+        - pytest 测试运行
+        
+        Returns:
+            bool: 是否为 CLI 模式
+        """
+        try:
+            import sys
+            
+            # 排除：pytest 测试环境
+            if "pytest" in sys.modules or "_pytest" in sys.modules:
+                return False
+            
+            # 排除：uvicorn 启动 FastAPI（通过检测参数）
+            argv_str = " ".join(sys.argv)
+            if "main:app" in argv_str or "uvicorn" in argv_str:
+                return False
+            
+            # 条件1：直接运行 .py 脚本
+            if len(sys.argv) > 0 and sys.argv[0].endswith(".py"):
+                script_name = Path(sys.argv[0]).name
+                
+                # 排除主入口文件（main.py）
+                if script_name == "main.py":
+                    return False
+                    
+                # 常见的 CLI 工具脚本模式
+                cli_patterns = ["_cli.py", "-cli.py", "cli.py", "script.py", "tool.py"]
+                if any(pattern in script_name.lower() for pattern in cli_patterns):
+                    return True
+                
+                # 其他 .py 脚本也视为 CLI 模式（保守策略）
+                return True
+            
+            # 条件2：显式环境变量标记
+            if os.environ.get("CLI_MODE", "").lower() in ("1", "true", "yes"):
+                return True
+            
+            # 条件3：在 TTY 终端中且非 Web 服务
+            if hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+                # 如果在 TTY 中且没有明确的 Web 服务参数，可能是 CLI
+                if len(sys.argv) <= 2:  # 参数较少，更可能是 CLI 工具
+                    return True
+            
+            return False
+            
+        except Exception:
+            # 检测失败时默认不启用 CLI 模式（安全起见）
+            return False
 
     def _get_default_log_file(self) -> Optional[str]:
         """获取默认日志文件路径"""

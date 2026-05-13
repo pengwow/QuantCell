@@ -10,6 +10,7 @@ import pandas as pd
 from pathlib import Path
 from dataclasses import dataclass, field
 from utils.logger import get_logger, LogType
+from utils.timestamp_utils import convert_to_datetime
 
 
 # 获取模块日志器
@@ -288,14 +289,14 @@ class BacktestDataProvider:
         except Exception as e:
             logger.error(f"[BacktestDataProvider] 获取可用周期失败: {e}")
             return []
-    
+
     def _normalize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         标准化DataFrame格式
         
         处理内容：
         1. 列名转换：open→Open, high→High等
-        2. 时间戳处理：设置datetime索引
+        2. 时间戳处理：设置datetime索引（自动检测精度）
         3. 数据类型确保：价格列为float64
         
         Args:
@@ -317,16 +318,16 @@ class BacktestDataProvider:
         
         # 重命名列
         df.rename(columns=column_mapping, inplace=True)
-        
-        # 设置时间索引
+
+        # 设置时间索引（使用统一的工具函数自动检测时间戳精度）
         if 'timestamp' in df.columns:
             if not isinstance(df.index, pd.DatetimeIndex):
                 df.set_index('timestamp', inplace=True)
-                df.index = pd.to_datetime(df.index, utc=True)
+            df.index = convert_to_datetime(df.index)
         elif 'date' in df.columns:
             if not isinstance(df.index, pd.DatetimeIndex):
                 df.set_index('date', inplace=True)
-                df.index = pd.to_datetime(df.index, utc=True)
+            df.index = convert_to_datetime(df.index)
         
         # 确保价格列为float64
         price_columns = ['Open', 'High', 'Low', 'Close', 'Volume']

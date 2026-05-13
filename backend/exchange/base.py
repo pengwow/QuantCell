@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 from joblib import Parallel, delayed
 from utils.logger import get_logger, LogType
+from utils.timestamp_utils import convert_to_datetime
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -207,17 +208,8 @@ class BaseCollector(abc.ABC):
                 else:
                     return []
 
-            # 根据时间戳长度判断精度并转换为datetime
-            def ts_to_datetime(ts):
-                ts_str = str(int(ts))
-                if len(ts_str) > 18:  # 纳秒级
-                    return pd.to_datetime(ts, unit='ns', errors='coerce')
-                elif len(ts_str) > 15:  # 微秒级
-                    return pd.to_datetime(ts, unit='us', errors='coerce')
-                else:  # 毫秒级
-                    return pd.to_datetime(ts, unit='ms', errors='coerce')
-            
-            existing_datetimes = pd.Series([ts_to_datetime(ts) for ts in existing_timestamps])
+            # 使用统一的工具函数自动检测时间戳精度并转换
+            existing_datetimes = pd.Series([convert_to_datetime(ts) for ts in existing_timestamps])
             existing_datetimes = existing_datetimes.dropna()
 
             if existing_datetimes.empty:

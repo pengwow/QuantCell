@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import { getAccessToken, updateAccessToken, removeToken } from '../utils/tokenManager';
+import { getApiBaseUrl, getCachedPortConfig, initializePortConfig, type PortConfig } from '../utils/portConfig';
 import type {
   LogQueryParams,
   LogQueryResponse,
@@ -257,13 +258,28 @@ export class ApiError extends Error {
 /**
  * 配置 Axios 实例
  */
-export const api: AxiosInstance = axios.create({
-  baseURL: '/api',
-  timeout: 30000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+const createApiClient = (): AxiosInstance => {
+  const baseUrl = getApiBaseUrl();
+
+  return axios.create({
+    baseURL: `${baseUrl}/api`,
+    timeout: 30000,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+};
+
+export const api: AxiosInstance = createApiClient();
+
+export const updateApiClientBaseUrl = (portConfig?: PortConfig): void => {
+  const newBaseUrl = getApiBaseUrl(portConfig);
+
+  if (newBaseUrl !== api.defaults.baseURL) {
+    api.defaults.baseURL = `${newBaseUrl}/api`;
+    console.log(`[API] Base URL 已更新为: ${api.defaults.baseURL}`);
+  }
+};
 
 /**
  * 请求拦截器
@@ -1196,6 +1212,16 @@ export const exchangeApi = {
   getSupportedExchanges: () => {
     return apiRequest.get<{ exchanges: string[] }>('/exchanges/supported');
   },
+};
+
+export const initializeApiConfig = async (): Promise<void> => {
+  try {
+    const portConfig = await initializePortConfig();
+    updateApiClientBaseUrl(portConfig);
+    console.log('[API] 配置初始化完成');
+  } catch (error) {
+    console.error('[API] 配置初始化失败:', error);
+  }
 };
 
 export default api;
