@@ -26,8 +26,34 @@ from ..db.models import CryptoSymbol, SystemConfigBusiness as SystemConfig
 from ..schemas.data import DownloadCryptoRequest, ExportCryptoRequest, LoadDataRequest
 from ..utils.task_manager import task_manager
 
-# 固定下载目录：项目后端根目录的 data 目录
-default_save_dir = Path(__file__).parent.parent.parent / "data"
+# 基础源数据目录：项目后端根目录的 data/source 目录
+SOURCE_DATA_DIR = Path(__file__).parent.parent.parent / "data" / "source"
+
+
+def get_crypto_kline_dir(exchange_type: str = "spot", data_type: str = "klines") -> Path:
+    """获取加密货币K线数据保存目录
+
+    Args:
+        exchange_type: 交易所类型 ("spot" 现货 或 "future" 合约)
+        data_type: 数据类型 ("klines" K线数据 等)
+
+    Returns:
+        Path: 数据保存目录路径，格式为 data/source/crypto/{exchange_type}/{data_type}
+    """
+    return SOURCE_DATA_DIR / "crypto" / exchange_type / data_type
+
+
+def get_source_data_root() -> Path:
+    """获取源数据根目录（不包含子结构）
+
+    Returns:
+        Path: data/source 目录路径
+    """
+    return SOURCE_DATA_DIR
+
+
+# 默认保存目录改为根目录（避免重复拼接，让 GetData.run() 负责唯一的一次路径构建）
+default_save_dir = get_source_data_root()  # 返回: backend/data/source ✅
 
 
 class GetData:
@@ -75,7 +101,9 @@ class GetData:
 
     def run(self, start_date=None, progress_callback=None):
         actual_start = start_date or self.start
-        full_save_dir = self.save_dir / self.interval
+        # 构建完整保存路径: {save_dir}/crypto/{spot|future}/klines/{interval}
+        market_type = 'spot' if self.candle_type == "spot" else 'future'
+        full_save_dir = self.save_dir / 'crypto' / market_type / 'klines' / self.interval
 
         if isinstance(self.symbols, list):
             symbols_str = ','.join(self.symbols)

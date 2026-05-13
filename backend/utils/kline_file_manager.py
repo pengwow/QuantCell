@@ -27,15 +27,16 @@ class KlineFileManager:
     管理K线数据的Parquet文件存储，支持现货和合约两种市场类型。
     数据按照以下目录结构组织：
     
-    base_dir/
-    ├── spot/
-    │   └── {symbol}/
-    │       └── {interval}/
-    │           └── {YYYY-MM}.parquet
-    └── future/
-        └── {symbol}/
-            └── {interval}/
-                └── {YYYY-MM}.parquet
+    base_dir (data/source)
+    ├── crypto/
+    │   ├── spot/
+    │   │   └── klines/
+    │   │       └── {symbol}/
+    │   │           └── {interval}/
+    │   │               └── {YYYY-MM}.parquet
+    │   └── future/
+    │       └── klines/
+    ├── stock/  (预留)
     """
     
     def __init__(self, base_dir: Optional[Path] = None):
@@ -43,10 +44,10 @@ class KlineFileManager:
         初始化文件管理器
         
         Args:
-            base_dir: 基础目录路径，默认为 backend/data/klines
+            base_dir: 基础目录路径，默认为 backend/data/source
         """
         if base_dir is None:
-            self.base_dir = Path(__file__).parent.parent / 'data' / 'klines'
+            self.base_dir = Path(__file__).parent.parent / 'data' / 'source'
         else:
             self.base_dir = Path(base_dir)
         
@@ -72,10 +73,12 @@ class KlineFileManager:
             Path: 文件完整路径
         """
         return (
-            self.base_dir 
-            / market_type 
-            / symbol 
-            / interval 
+            self.base_dir
+            / 'crypto'
+            / market_type
+            / 'klines'
+            / symbol
+            / interval
             / f"{date_str}.parquet"
         )
     
