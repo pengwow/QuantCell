@@ -1095,12 +1095,45 @@ class WorkerCoreService:
                         message="Worker 启动失败（Nautilus Trader 初始化失败）",
                     )
 
-                # Worker 启动成功
+                # 等待进程初始化并检测存活状态（关键修复）
+                import asyncio
+                await asyncio.sleep(2)  # 等待 2 秒让进程初始化
+                
+                pid = manager.get_worker_pid(str(worker_id))
+                is_alive = False
+                
+                if pid:
+                    try:
+                        # 检查进程是否存活
+                        os.kill(pid, 0)  # 发送信号 0 检测进程是否存在
+                        is_alive = True
+                        logger.info(f"[async_start_worker] Worker {worker_id} 进程存活检查通过 (PID: {pid})")
+                    except (ProcessLookupError, OSError):
+                        logger.warning(f"[async_start_worker] Worker {worker_id} 进程已退出 (PID: {pid})")
+                
+                if not is_alive and pid:
+                    # 进程启动后立即退出 - 可能是初始化失败
+                    logger.error(
+                        f"[async_start_worker] Worker {worker_id} 启动后立即退出！"
+                        f"PID: {pid} 已不存在"
+                    )
+                    
+                    # 更新状态为 error
+                    worker.status = "error"
+                    worker.pid = None
+                    db.commit()
+                    
+                    raise WorkerStartError(
+                        worker_id,
+                        message="Worker 进程启动后立即退出（可能是策略加载失败或配置错误），请查看系统日志",
+                    )
+
+                # Worker 启动成功且进程存活
                 logger.info(
                     f"[async_start_worker] Worker {worker_id} 启动成功，更新状态为 running"
                 )
                 worker.status = "running"
-                worker.pid = manager.get_worker_pid(str(worker_id))
+                worker.pid = pid
                 db.commit()
                 logger.info(
                     f"[async_start_worker] Worker {worker_id} 已更新为 running 状态，"
