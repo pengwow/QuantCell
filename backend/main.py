@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 
 # 导入核心模块
 from core import lifespan
+from core.port_manager import port_manager, PortAllocationError
 from utils.logger import get_logger, LogType
 
 # 获取主模块日志器
@@ -42,6 +43,7 @@ from worker import router as worker_router
 from utils.log_routes import router as log_router
 from common.notifications.routes import router as notification_router
 from agent.api.routes import router as agent_router
+from api.system_ports import router as system_ports_router
 
 
 # 创建FastAPI应用实例
@@ -82,6 +84,7 @@ app.include_router(worker_router)
 app.include_router(log_router)
 app.include_router(notification_router)
 app.include_router(agent_router)
+app.include_router(system_ports_router)
 
 # 插件路由注册会在应用启动时通过lifespan函数完成
 # 这里不需要提前注册，插件会在应用启动时动态加载和注册
@@ -234,8 +237,8 @@ def parse_args():
     parser.add_argument(
         "--port",
         type=int,
-        default=8000,
-        help="服务器监听端口 (默认: 8000)",
+        default=None,
+        help="首选端口号（留空则自动分配）",
     )
     parser.add_argument(
         "--debug",
@@ -326,6 +329,23 @@ if __name__ == "__main__":
     # 解析命令行参数
     args = parse_args()
 
+    # ========== 集成 PortManager 动态端口分配 ==========
+    try:
+        if args.port:
+            port_manager.set_preferred_port("fastapi", args.port)
+
+        fastapi_port = port_manager.get_port("fastapi")
+        logger.info(f"[PortManager] FastAPI 服务将使用端口: {fastapi_port}")
+
+        if fastapi_port != 8000:
+            logger.warning(f"[PortManager] 默认端口 8000 被占用，已自动切换到 {fastapi_port}")
+
+    except PortAllocationError as e:
+        logger.error(f"[PortManager] 端口分配失败: {e}")
+        logger.error("[PortManager] 请检查端口占用情况或手动指定其他端口")
+        sys.exit(1)
+    # ========== PortManager 集成完毕 ==========
+
     # 只在主进程中初始化数据库，避免热重载时的锁冲突
     init_db()
 
@@ -336,12 +356,12 @@ if __name__ == "__main__":
     else:
         log_level = get_uvicorn_log_level()
     print(f"Uvicorn日志级别设置为: {log_level}")
-    print(f"服务器将在 {args.host}:{args.port} 启动")
+    print(f"服务器将在 {args.host}:{fastapi_port} 启动")
 
     uvicorn.run(
         "main:app",  # 指定应用路径
         host=args.host,  # 主机地址
-        port=args.port,  # 端口号
+        port=fastapi_port,  # 使用动态分配的端口
         reload=False,  # 禁用热重载，避免DuckDB锁冲突
         log_level=log_level.lower(),  # 设置日志级别
     )

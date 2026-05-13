@@ -321,18 +321,56 @@ class EventDrivenBacktestService:
             engine.add_instrument(instrument)
             instruments[symbol] = instrument
             
-            # 转换数据格式
+            # 转换数据格式（确保与 NautilusTrader 兼容）
             df = df.copy()
+            
+            # 只保留 BarDataWrangler 需要的列（避免多余列导致错误）
+            required_cols = ['open', 'high', 'low', 'close', 'volume']
+            
+            # 标准化列名为小写
             df.columns = [col.lower() for col in df.columns]
             
+            # 只保留必要列 + 时间戳列（如果存在）
+            cols_to_keep = [c for c in required_cols if c in df.columns]
+            if 'timestamp' in df.columns:
+                cols_to_keep.insert(0, 'timestamp')
+            
+            df = df[cols_to_keep]
+            
+            # 设置时间索引
             if not isinstance(df.index, pd.DatetimeIndex):
                 if 'timestamp' in df.columns:
                     df = df.set_index('timestamp')
-                df.index = pd.to_datetime(df.index, utc=True)
+                    df.drop(columns=['timestamp'], errors='ignore', inplace=True)
             
-            for col in ['open', 'high', 'low', 'close', 'volume']:
+            # 确保索引是 datetime 类型
+            if len(df) > 0:
+                try:
+                    df.index = pd.to_datetime(df.index, utc=True)
+                except Exception as e:
+                    logger.warning(f"时间戳转换警告: {e}")
+                    df.index = pd.to_datetime(df.index.astype(str), utc=True)
+            
+            # 强制转换价格和成交量为 float64（关键：避免 "Buffer dtype mismatch" 错误）
+            for col in required_cols:
                 if col in df.columns:
+                    # 使用 pd.to_numeric 安全转换（处理可能的字符串或混合类型）
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                    
+                    # 转换为 float64
                     df[col] = df[col].astype('float64')
+                    
+                    # 填充可能的 NaN 值为 0.0（避免引擎报错）
+                    nan_count = df[col].isna().sum()
+                    if nan_count > 0:
+                        logger.warning(f"{symbol} 的 {col} 列有 {nan_count} 个 NaN 值，将填充为 0.0")
+                        df[col] = df[col].fillna(0.0)
+            
+            # 最终验证：确保所有列都是数值类型
+            non_numeric_cols = df.select_dtypes(exclude=['number']).columns.tolist()
+            if non_numeric_cols:
+                logger.error(f"发现非数值列: {non_numeric_cols}，将删除这些列")
+                df = df.drop(columns=non_numeric_cols)
             
             # 创建BarType
             event_timeframe = ResultFormatterService.convert_timeframe_to_event(timeframe)

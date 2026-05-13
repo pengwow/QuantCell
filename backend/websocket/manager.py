@@ -8,6 +8,8 @@ from typing import Dict, Set, Optional, Any, List
 import threading
 
 from utils.logger import get_logger, LogType
+# 延迟导入 port_manager，避免循环依赖
+# (在 start() 方法中按需导入)
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -62,21 +64,31 @@ class ConnectionManager:
         # 批处理缓存: {client_id: List[Dict]}
         self.batch_cache: Dict[str, List[Dict[str, Any]]] = {}
         
-        # ZMQ 相关 - 用于跨进程通信
+        # ZMQ 相关 - 用于跨进程通信（现在从 PortManager 获取）
         self._zmq_context = None
         self._zmq_socket = None
         self._zmq_publisher = None
-        self._zmq_port = 5558  # ZMQ 广播端口
+        self._zmq_port = None  # 延迟初始化，在 start() 中从 PortManager 获取
         self._zmq_started = False
     
     async def start(self):
         """启动消息处理任务和 ZMQ 服务"""
+        # 延迟导入 port_manager，避免模块加载时的循环依赖
+        from core.port_manager import port_manager as _pm, PortAllocationError
+        
         # 延迟初始化消息队列，确保在事件循环中创建
         if self.message_queue is None:
             self.message_queue = asyncio.Queue()
             logger.info("消息队列已初始化")
         
-        # 启动 ZMQ 服务（用于接收子进程的消息）
+        # 从 PortManager 获取 ZMQ Broadcast 端口
+        try:
+            self._zmq_port = _pm.get_port("zmq_broadcast")
+            logger.info(f"[ZMQ] 从 PortManager 获取广播端口: {self._zmq_port}")
+        except PortAllocationError as e:
+            logger.error(f"[ZMQ] 无法获取端口: {e}")
+            raise
+        
         await self._start_zmq()
         
         self.processing_task = asyncio.create_task(self.process_messages())
@@ -87,21 +99,37 @@ class ConnectionManager:
         if self._zmq_started:
             return
         
-        try:
-            import zmq.asyncio
-            self._zmq_context = zmq.asyncio.Context()
-            
-            # 创建 REP socket 接收子进程的消息（支持 REQ 客户端）
-            self._zmq_socket = self._zmq_context.socket(zmq.REP)
-            self._zmq_socket.bind(f"tcp://127.0.0.1:{self._zmq_port}")
-            
-            # 启动 ZMQ 消息接收循环
-            asyncio.create_task(self._zmq_receive_loop())
-            
-            self._zmq_started = True
-            logger.info(f"[ZMQ] 服务已启动，端口: {self._zmq_port}，使用 REQ/REP 模式")
-        except Exception as e:
-            logger.error(f"[ZMQ] 服务启动失败: {e}")
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                import zmq.asyncio
+                self._zmq_context = zmq.asyncio.Context()
+                
+                # 创建 REP socket 接收子进程的消息（支持 REQ 客户端）
+                self._zmq_socket = self._zmq_context.socket(zmq.REP)
+                self._zmq_socket.bind(f"tcp://127.0.0.1:{self._zmq_port}")
+                
+                # 启动 ZMQ 消息接收循环
+                asyncio.create_task(self._zmq_receive_loop())
+                
+                self._zmq_started = True
+                logger.info(f"[ZMQ] 服务已启动，端口: {self._zmq_port}，使用 REQ/REP 模式")
+                return
+                
+            except Exception as e:
+                logger.warning(f"[ZMQ] 端口 {self._zmq_port} 绑定失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    try:
+                        from core.port_manager import port_manager as _pm_retry
+                        # 调用 get_port 触发重新分配（会自动跳过已失败的端口）
+                        self._zmq_port = _pm_retry.get_port("zmq_broadcast")
+                        logger.info(f"[ZMQ] 尝试下一个端口: {self._zmq_port}")
+                    except Exception as port_error:
+                        logger.error(f"[ZMQ] 无法分配下一个端口: {port_error}")
+                        raise
+                else:
+                    logger.error(f"[ZMQ] 服务启动失败: 已重试 {max_retries} 次")
+                    raise
     
     async def process_messages(self):
         """处理消息队列中的消息（优化版：批量处理）"""

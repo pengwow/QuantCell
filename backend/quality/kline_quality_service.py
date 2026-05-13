@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 import pandas as pd
 from utils.logger import get_logger, LogType
+from utils.timestamp_utils import convert_to_datetime
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -195,34 +196,16 @@ class KlineQualityService:
         if timestamps.empty or timestamps.isna().all():
             return result
 
-        # 自动检测时间戳精度并转换
-        ts_min = int(timestamps.min())
-        ts_max = int(timestamps.max())
-        ts_len = len(str(ts_min))
-
-        if ts_len > 16:  # 纳秒级
-            dt_min = pd.to_datetime(timestamps.min(), unit='ns')
-            dt_max = pd.to_datetime(timestamps.max(), unit='ns')
-            time_unit = 'ns'
-        elif ts_len > 13:  # 微秒级
-            dt_min = pd.to_datetime(timestamps.min(), unit='us')
-            dt_max = pd.to_datetime(timestamps.max(), unit='us')
-            time_unit = 'us'
-        elif ts_len > 10:  # 毫秒级
-            dt_min = pd.to_datetime(timestamps.min(), unit='ms')
-            dt_max = pd.to_datetime(timestamps.max(), unit='ms')
-            time_unit = 'ms'
-        else:  # 秒级
-            dt_min = pd.to_datetime(timestamps.min(), unit='s')
-            dt_max = pd.to_datetime(timestamps.max(), unit='s')
-            time_unit = 's'
+        # 使用统一的工具函数自动检测时间戳精度并转换
+        dt_min = convert_to_datetime(timestamps.min())
+        dt_max = convert_to_datetime(timestamps.max())
 
         expected_index = pd.date_range(start=dt_min, end=dt_max, freq=delta)
         result["expected_records"] = len(expected_index)
         result["coverage_ratio"] = round(len(df) / len(expected_index), 4) if len(expected_index) > 0 else 0
 
-        # 使用相同的时间单位转换实际时间戳，避免精度不匹配
-        actual_dates = pd.to_datetime(timestamps, unit=time_unit)
+        # 转换实际时间戳进行缺失记录检测
+        actual_dates = convert_to_datetime(timestamps)
         missing = expected_index.difference(actual_dates)
 
         if len(missing) > 0:

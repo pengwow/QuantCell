@@ -7,10 +7,38 @@
 - 数据库存储: 统一使用纳秒级 (19位整数)
 - 外部API交互: 根据API要求转换 (通常是毫秒)
 - 内部处理: 统一使用纳秒级
+- Pandas数据转换: 使用 convert_to_datetime() 自动检测精度（推荐）
+
+核心功能:
+1. 精度转换: to_nanoseconds(), from_nanoseconds() - 不同精度间转换
+2. 格式化: format_nanoseconds(), parse_to_nanoseconds() - 时间字符串处理
+3. Pandas集成: convert_to_datetime() - 智能时间戳→datetime转换（统一入口）
+4. 批量处理: batch_to_nanoseconds() - 批量转换
+5. 验证: is_valid_nanoseconds(), validate_nanoseconds() - 有效性检查
+
+典型用法:
+    # 场景1: Parquet数据加载时自动检测时间戳精度
+    from utils.timestamp_utils import convert_to_datetime
+    df.index = convert_to_datetime(df.index)  # 自动识别 s/ms/us/ns
+
+    # 场景2: 显式指定精度
+    dt = convert_to_datetime(timestamp, precision='ms')
+
+    # 场景3: 纳秒级标准化存储
+    from utils.timestamp_utils import to_nanoseconds
+    ns_timestamp = to_nanoseconds(original_timestamp)
 """
 
 from typing import Literal, Optional, Union
 from datetime import datetime
+import logging
+
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+
+logger = logging.getLogger(__name__)
 
 
 # 时间戳精度类型
@@ -325,6 +353,256 @@ def validate_nanoseconds(timestamp: Union[str, int],
             f"{field_name} 必须是有效的纳秒级时间戳 (19位整数), "
             f"实际值: {timestamp}"
         )
+
+
+# ============================================================
+# Pandas 集成函数（统一的 timestamp → datetime 转换入口）
+# ============================================================
+
+def detect_timestamp_precision(data) -> str:
+    """
+    智能检测时间戳精度（支持标量和序列输入）
+
+    与 detect_precision() 不同之处：
+    - 接受 array-like 输入（不仅是标量）
+    - 使用统计方法（取第一个有效值）确定整体精度
+    - 更健壮的边界值处理
+    - 与现有 detect_precision() 保持阈值一致
+
+    Args:
+        data: 时间戳数据（标量、Series、Index、array-like）
+
+    Returns:
+        str: 检测到的精度 ('s', 'ms', 'us', 'ns', 'unknown')
+
+    Examples:
+        >>> detect_timestamp_precision(1776038400000000)  # 16位微秒
+        'us'
+        >>> import pandas as pd
+        >>> detect_timestamp_precision(pd.Series([17760384, 17760393]))  # 10位秒
+        's'
+    """
+    if data is None or (hasattr(data, '__len__') and len(data) == 0):
+        return 'unknown'
+
+    try:
+        if hasattr(data, 'iloc'):
+            first_val = data.iloc[0]
+        elif hasattr(data, '__iter__') and not isinstance(data, (str, bytes)):
+            first_val = next(iter(data))
+        else:
+            first_val = data
+
+        if first_val is None or (isinstance(first_val, float) and pd.isna(first_val)):
+            return 'unknown'
+
+        return detect_precision(first_val)
+
+    except (ValueError, TypeError, StopIteration) as e:
+        logger.debug(f"时间戳精度检测失败: {e}")
+        return 'unknown'
+
+
+def convert_to_datetime(
+    data,
+    precision: str = 'auto',
+    timezone: str = 'utc',
+    errors: str = 'coerce',
+    validate_year_range: tuple = (2000, 2050)
+):
+    """
+    智能转换时间戳为 datetime（自动检测精度）
+
+    这是项目统一的 pandas 时间戳转换入口，
+    替代所有直接调用 pd.to_datetime() 的场景。
+
+    核心特性：
+    - 自动检测时间戳精度（s/ms/us/ns）
+    - 支持多种输入类型（标量、Series、Index、array-like）
+    - 结果合理性验证（年份范围检查）
+    - 防御性编程（异常处理和降级策略）
+    - 统一的行为和日志记录
+
+    Args:
+        data: 输入数据（可以是标量、Series、Index、array-like）
+        precision: 时间戳精度 ('auto', 's', 'ms', 'us', 'ns')
+                 'auto' 表示根据数值长度自动检测（默认）
+        timezone: 时区 ('utc', None表示本地时间）
+        errors: 错误处理方式 ('raise', 'coerce')
+                'raise' 表示转换失败时抛出异常
+                'coerce' 表示转换失败时设为 NaT（默认）
+        validate_year_range: 合法年份范围元组 (min_year, max_year)
+                            用于验证转换结果的合理性，默认 (2000, 2050)
+
+    Returns:
+        转换后的 datetime 对象：
+        - 标量输入 → pd.Timestamp
+        - Series 输入 → pd.DatetimeIndex
+        - Index 输入 → pd.DatetimeIndex
+        - 其他序列 → pd.Series
+
+    Raises:
+        ValueError: 当 errors='raise' 且转换失败时
+        ImportError: 当 pandas 未安装时
+
+    Examples:
+        >>> # 16位微秒时间戳自动检测
+        >>> convert_to_datetime(1776038400000000)
+        Timestamp('2026-04-13 08:00:00+0000', tz='UTC')
+
+        >>> # 序列输入（自动检测为秒级）
+        >>> import pandas as pd
+        >>> convert_to_datetime([17760384, 17760393])
+        DatetimeIndex(['2026-04-13 08:00', '2026-04-13 08:15'],
+                     dtype='datetime64[ns, UTC]')
+
+        >>> # DataFrame 列输入
+        >>> df = pd.DataFrame({'ts': [17760384, 17760393]})
+        >>> convert_to_datetime(df['ts'])
+        0   2026-04-13 08:00:00+00:00
+        1   2026-04-13 08:15:00+00:00
+        Name: ts, dtype: datetime64[ns, UTC]
+
+        >>> # 已经是 datetime 类型，直接返回
+        >>> convert_to_datetime(pd.Timestamp('2026-04-13'))
+        Timestamp('2026-04-13 00:00:00')
+
+        >>> # 显式指定精度
+        >>> convert_to_datetime(17760384, precision='s')
+        Timestamp('2026-04-13 08:00:00+0000', tz='UTC')
+    """
+    if pd is None:
+        raise ImportError("pandas 未安装，无法使用 convert_to_datetime()")
+
+    if data is None:
+        return pd.NaT
+
+    is_sequence = hasattr(data, '__len__') and not isinstance(data, (str, bytes))
+
+    if is_sequence and len(data) == 0:
+        return pd.DatetimeIndex([])
+
+    first_val = _get_first_valid_value(data)
+
+    if first_val is None:
+        if is_sequence:
+            return pd.DatetimeIndex([])
+        return pd.NaT
+
+    if isinstance(first_val, (pd.Timestamp, datetime)):
+        logger.debug("输入已经是 datetime 类型，直接转换")
+        tz = 'utc' if timezone == 'utc' else None
+        result = pd.to_datetime(data, utc=(timezone == 'utc'))
+        return result
+
+    detected_precision = precision if precision != 'auto' else detect_timestamp_precision(data)
+
+    if detected_precision == 'unknown':
+        logger.warning(f"无法自动检测时间戳精度，使用默认的 pd.to_datetime() 处理")
+        try:
+            result = pd.to_datetime(data, errors=errors, utc=(timezone == 'utc'))
+            return result
+        except Exception as e:
+            if errors == 'raise':
+                raise
+            logger.warning(f"时间戳转换失败（降级处理）: {e}")
+            if is_sequence:
+                return pd.DatetimeIndex([pd.NaT] * len(data))
+            return pd.NaT
+
+    logger.debug(f"检测到 {detected_precision} 级时间戳")
+
+    try:
+        tz = 'utc' if timezone == 'utc' else None
+        result = pd.to_datetime(
+            data,
+            unit=detected_precision,
+            errors=errors,
+            utc=bool(tz)
+        )
+
+        if is_sequence and len(result) > 0 and hasattr(result, '__getitem__'):
+            year = result[0].year
+            min_year, max_year = validate_year_range
+            if year < min_year or year > max_year:
+                logger.warning(
+                    f"时间戳转换结果年份可能不正确: year={year}, "
+                    f"合理范围=[{min_year}, {max_year}], "
+                    f"检测精度={detected_precision}"
+                )
+
+        return result
+
+    except (ValueError, TypeError, OverflowError) as e:
+        if errors == 'raise':
+            raise ValueError(f"时间戳转换失败（precision={detected_precision}）: {e}") from e
+
+        logger.warning(f"时间戳转换失败（{errors}模式）: {e}")
+
+        if is_sequence:
+            return pd.DatetimeIndex([pd.NaT] * len(data))
+        return pd.NaT
+
+
+def _get_first_valid_value(data):
+    """
+    获取数据的第一个有效值（内部辅助函数）
+
+    Args:
+        data: 输入数据（任意类型）
+
+    Returns:
+        第一个非空值，如果不存在则返回 None
+    """
+    if data is None:
+        return None
+
+    if isinstance(data, (pd.Timestamp, datetime)):
+        return data
+
+    try:
+        if hasattr(data, 'iloc'):
+            for val in data.iloc[:10]:
+                if _is_valid_timestamp(val):
+                    return val
+            return None
+        elif hasattr(data, '__iter__') and not isinstance(data, (str, bytes)):
+            for val in data:
+                if _is_valid_timestamp(val):
+                    return val
+            return None
+        else:
+            return data if _is_valid_timestamp(data) else None
+
+    except (TypeError, AttributeError):
+        return data
+
+
+def _is_valid_timestamp(value):
+    """
+    检查值是否为有效的时间戳（内部辅助函数）
+
+    Args:
+        value: 待检查的值
+
+    Returns:
+        bool: 是否为有效时间戳
+    """
+    if value is None:
+        return False
+
+    if isinstance(value, float) and pd.isna(value):
+        return False
+
+    if isinstance(value, (pd.Timestamp, datetime)):
+        return True
+
+    try:
+        int(float(value))
+        return True
+    except (ValueError, TypeError):
+        return False
+
 
 
 

@@ -400,7 +400,7 @@ def _output_results(results: dict, output_format: str, output_file: Optional[str
             print("\n" + json.dumps(results, indent=2, ensure_ascii=False, default=str))
     
     if output_format in ("table", "both"):
-        output_results(results, format='table')
+        output_results(results)
 
 
 if __name__ == "__main__":
