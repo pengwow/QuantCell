@@ -127,9 +127,12 @@ def scan_parquet_files(
         for pfile in parquet_files:
             sym = pfile.stem
 
-            # 按交易对筛选
-            if symbol and sym != symbol.upper():
-                continue
+            # 按交易对筛选（支持逗号分隔的多交易对）
+            if symbol:
+                # ✅ 支持多交易对：将输入拆分为列表
+                symbol_list = [s.strip().upper() for s in symbol.split(',') if s.strip()]
+                if sym not in symbol_list:
+                    continue
 
             try:
                 meta = get_parquet_info(pfile)
@@ -1323,6 +1326,27 @@ def download(
         typer.echo("错误: 不能同时指定 --symbols 和 --pool 参数", err=True)
         raise typer.Exit(1)
 
+    # ✅ 验证时间范围：end 必须大于等于 start
+    if start and end:
+        try:
+            from datetime import datetime as dt
+            start_date = dt.strptime(start, "%Y%m%d")
+            end_date = dt.strptime(end, "%Y%m%d")
+            
+            if end_date < start_date:
+                typer.echo(f"❌ 错误: 结束时间 ({end}) 不能早于开始时间 ({start})", err=True)
+                typer.echo(f"   开始时间: {start} → {start_date.strftime('%Y-%m-%d')}", err=True)
+                typer.echo(f"   结束时间: {end}   → {end_date.strftime('%Y-%m-%d')}", err=True)
+                typer.echo("", err=True)
+                typer.echo(f"💡 请确保 --end 时间 >= --start 时间", err=True)
+                raise typer.Exit(1)
+            elif end_date == start_date:
+                typer.echo(f"⚠️  提示: 开始时间和结束时间相同 ({start})，将下载该天的数据")
+        except ValueError as e:
+            typer.echo(f"❌ 错误: 时间格式无效 - {e}", err=True)
+            typer.echo(f"   请使用 YYYYMMDD 格式，如: 20260101", err=True)
+            raise typer.Exit(1)
+
     # 处理 pool 参数，从自选组合获取交易对
     if pool:
         logger.info(f"从自选组合 '{pool}' 获取货币对...")
@@ -1337,30 +1361,47 @@ def download(
             raise typer.Exit(1)
 
     # ========== 参数默认值处理 ==========
-    
-    # 1. 处理 symbols 参数（当 symbols 和 pool 都缺失时，从本地Parquet文件扫描）
+
+    # 1. 处理 symbols 参数（当 symbols 和 pool 都缺失时，从交易所API获取所有可用货币对）
     if not symbols:
-        logger.info("未指定交易对，正在从本地Parquet文件扫描...")
+        logger.info("未指定交易对，正在从交易所API获取所有可用货币对...")
         try:
-            # 从已有Parquet文件获取符号列表
-            existing_files = scan_parquet_files(candle_type=candle_type)
-            if existing_files:
-                symbols = sorted(set(f['symbol'] for f in existing_files))
-                logger.info(f"从本地Parquet文件发现 {len(symbols)} 个已有数据的交易对")
+            import requests as _requests
+
+            if exchange == "binance":
+                if candle_type == 'spot':
+                    url = 'https://api.binance.com/api/v3/exchangeInfo'
+                elif candle_type == 'future':
+                    url = 'https://fapi.binance.com/fapi/v1/exchangeInfo'
+                else:
+                    raise ValueError(f"不支持的蜡烛图类型: {candle_type}")
+
+                response = _requests.get(url, timeout=15)
+                response.raise_for_status()
+                data = response.json()
+                symbols = [symbol['symbol'] for symbol in data['symbols'] if symbol['status'] == 'TRADING']
             else:
-                # 如果没有任何Parquet数据，提示用户必须指定交易对
-                typer.echo("错误: 未找到本地Parquet数据，无法自动确定下载目标", err=True)
+                raise ValueError(f"暂不支持自动获取 {exchange} 交易所的交易对列表")
+
+            if symbols:
+                logger.info(f"✅ 从交易所API成功获取 {len(symbols)} 个可用交易对")
+                typer.echo(f"ℹ️  未指定交易对，将从交易所下载所有 {len(symbols)} 个可用交易对")
+            else:
+                typer.echo("⚠️  无法从交易所API获取交易对列表", err=True)
                 typer.echo("", err=True)
                 typer.echo("解决方案:", err=True)
                 typer.echo("  1. 使用 -s 参数指定交易对，例如:", err=True)
                 typer.echo("     python data_cli.py download -s BTCUSDT -s ETHUSDT", err=True)
                 typer.echo("", err=True)
-                typer.echo("  2. 或者先下载数据后再使用增量模式更新:", err=True)
-                typer.echo("     python data_cli.py download -s BTCUSDT -i 1h --start 20240101 --end 20241231", err=True)
+                typer.echo("  2. 检查网络连接和交易所API是否正常", err=True)
                 raise typer.Exit(1)
+
         except Exception as e:
-            logger.error(f"扫描本地Parquet文件失败: {e}")
-            typer.echo(f"错误: 获取货币对列表失败: {e}", err=True)
+            logger.error(f"从交易所API获取交易对失败: {e}")
+            typer.echo(f"❌ 错误: 从交易所获取交易对列表失败 - {e}", err=True)
+            typer.echo("", err=True)
+            typer.echo("请使用 -s 参数手动指定交易对:", err=True)
+            typer.echo("  python data_cli.py download -s BTCUSDT -s ETHUSDT", err=True)
             raise typer.Exit(1)
     
     # 2. 处理 interval 参数（默认1h）
@@ -1468,11 +1509,13 @@ def download(
         download_thread = threading.Thread(target=run_download)
         download_thread.start()
 
-        # 轮询进度并显示文字版（无进度条）
+        # 轮询进度并显示进度条（在行尾）
         import time
         import sys
 
         last_status = ""
+        bar_width = 20  # 进度条宽度（字符数）
+
         while download_thread.is_alive():
             time.sleep(0.5)  # 每0.5秒刷新一次
 
@@ -1484,8 +1527,14 @@ def download(
                 status = progress_data.get('status', '')
 
                 if total > 0:
-                    progress_pct = min(int((completed / total) * 100), 100)
-                    current_status = f"\r  下载进度: {progress_pct}% - {status}" if status else f"\r  下载进度: {progress_pct}%"
+                    progress_pct = min((completed / total) * 100, 100)
+
+                    # 生成进度条
+                    filled = int(bar_width * completed / total)
+                    bar = '█' * filled + '░' * (bar_width - filled)
+
+                    # 组装完整状态行：状态文字 + 进度条 + 百分比
+                    current_status = f"\r  {status} [{bar}] {progress_pct:5.1f}%" if status else f"\r  [{bar}] {progress_pct:5.1f}%"
 
                     if current_status != last_status:
                         sys.stdout.write(current_status)
@@ -1500,15 +1549,25 @@ def download(
         if task_info and task_info.get("status") == "completed":
             typer.echo("")
             typer.echo("✓ 下载完成!")
-            # 从 progress 子字典中获取统计信息，如果没有则使用默认值
-            progress = task_info.get("progress", {})
-            # 尝试从多个位置获取统计信息
-            completed = progress.get('completed', task_info.get('completed', 0))
-            failed = progress.get('failed', task_info.get('failed', 0))
-            total = progress.get('total', task_info.get('total', 0))
-            typer.echo(f"  已完成: {completed}")
-            typer.echo(f"  失败: {failed}")
-            typer.echo(f"  总任务数: {total}")
+
+            # ✅ 从 progress 子字典获取真实的统计数据（这是正确的数据源）
+            progress_data = task_info.get('progress', {})
+            actual_completed = progress_data.get('completed', task_info.get('completed', 0))
+            actual_failed = progress_data.get('failed', task_info.get('failed', 0))
+            actual_total = progress_data.get('total', task_info.get('total', 0))
+
+            # 如果还是0，尝试从参数推断
+            if actual_total == 0:
+                actual_total = len(interval) * len(symbols) if interval and symbols else 1
+
+            typer.echo(f"  已完成: {actual_completed}")
+            typer.echo(f"  失败: {actual_failed}")
+            typer.echo(f"  总任务数: {actual_total}")
+
+            # ✅ 只有当 completed=0 且 total>0 时才提示（说明确实没有成功完成任务）
+            if actual_completed == 0 and actual_total > 0:
+                typer.echo("")
+                typer.echo("⚠️  提示: 没有成功下载任何数据，请检查网络或数据源")
         else:
             typer.echo("")
             typer.echo("✗ 下载可能未完成，请使用 status 命令查询任务状态")
@@ -1516,7 +1575,7 @@ def download(
         typer.echo(f"\n可使用以下命令查询任务状态:")
         typer.echo(f"  python data_cli.py status -t {task_id}")
         typer.echo(f"\n可使用以下命令查询本地数据:")
-        typer.echo(f"  python data_cli.py list-local-data -s {', '.join(symbols)}")
+        typer.echo(f"  python data_cli.py list-local-data -s {','.join(symbols)}")
     except Exception as e:
         logger.exception(f"下载数据时发生错误: {e}")
         typer.echo(f"错误: {e}", err=True)
