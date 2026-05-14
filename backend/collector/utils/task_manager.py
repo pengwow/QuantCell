@@ -184,13 +184,17 @@ class TaskManager:
         symbol = current
         task_key = f"{interval}:{symbol}" if interval else symbol
 
-        # 只保留单个任务的进度信息
+        # 保留完整的进度信息（包含统计字段）
         progress_info = {
             "symbol": symbol,
             "interval": interval,
             "task_key": task_key,
             "percentage": percentage,
             "status": status,
+            # 新增：统计字段，用于显示任务完成情况
+            "completed": completed,
+            "total": total,
+            "failed": failed,
         }
 
         self._tasks[task_id]["progress"] = progress_info

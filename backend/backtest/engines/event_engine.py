@@ -585,7 +585,11 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 "trades": trades,
                 "positions": positions,
                 "account": self._convert_account(account_df, account_obj),
-                "metrics": self._calculate_metrics(positions_df, account_df),
+                "metrics": self._calculate_metrics(
+                    positions_df=positions_df,
+                    account_df=account_df,
+                    trade_count=len(trades) if trades else 0  # ✅ 传入实际交易次数
+                ),
                 "equity_curve": self._build_equity_curve(account_df),
             }
 
@@ -712,24 +716,34 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                     status = str(row.get(status_col))
                     break
 
-            # 提取 NautilusTrader 原生 ID
-            # trade_id: 成交唯一标识
+            # ✅ 提取 NautilusTrader 原生 ID
             trade_id = str(row.get("trade_id", row.get("id", idx)))
-            # client_order_id: 客户端订单ID
             client_order_id = str(row.get("client_order_id", row.get("order_id", "")))
-            # venue_order_id: 交易所订单ID
             venue_order_id = str(row.get("venue_order_id", ""))
-            # position_id: 关联的持仓ID
             position_id = str(row.get("position_id", ""))
-            # commission: 手续费
             commission = str(row.get("commission", row.get("commissions", "0")))
+
+            # ✅ 提取品种标识（支持多种列名格式）
+            instrument_id = ""
+            for inst_col in ["instrument_id", "InstrumentID", "instrument", "symbol", "Symbol"]:
+                if inst_col in row.index and row.get(inst_col):
+                    val = str(row.get(inst_col))
+                    # 标准化格式：ETHUSDT.BINANCE 或 ETH/USDT -> ETHUSDT
+                    if "." in val:
+                        # 移除交易所后缀：ETHUSDT.BINANCE -> ETHUSDT
+                        instrument_id = val.split(".")[0]
+                    elif "/" in val:
+                        instrument_id = val.replace("/", "")
+                    else:
+                        instrument_id = val
+                    break
 
             trade = {
                 "trade_id": trade_id,
                 "client_order_id": client_order_id,
                 "venue_order_id": venue_order_id,
                 "position_id": position_id,
-                "instrument_id": str(row.get("instrument_id", row.get("symbol", ""))),
+                "symbol": instrument_id,  # ✅ 使用标准化的品种标识
                 "side": side,
                 "direction": direction,
                 "quantity": quantity,
@@ -795,9 +809,23 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             # signed_qty: 有符号数量
             signed_qty = safe_float(row.get("signed_qty", row.get("signed_quantity", current_qty)), "signed_qty")
 
+            # ✅ 提取品种标识（支持多种列名格式，与 trades 保持一致）
+            position_instrument_id = ""
+            for inst_col in ["instrument_id", "InstrumentID", "instrument", "symbol", "Symbol"]:
+                if inst_col in row.index and row.get(inst_col):
+                    val = str(row.get(inst_col))
+                    # 标准化格式：ETHUSDT.BINANCE 或 ETH/USDT -> ETHUSDT
+                    if "." in val:
+                        position_instrument_id = val.split(".")[0]
+                    elif "/" in val:
+                        position_instrument_id = val.replace("/", "")
+                    else:
+                        position_instrument_id = val
+                    break
+
             position = {
                 "position_id": pos_id,
-                "instrument_id": str(row.get("instrument_id", row.get("symbol", ""))),
+                "symbol": position_instrument_id,  # ✅ 使用标准化的品种标识
                 "side": str(row.get("side", row.get("position_side", ""))),
                 "quantity": current_qty,  # 当前持仓量（平仓后为0）
                 "trade_quantity": peak_qty,  # 实际交易量（使用 peak_qty）
@@ -907,17 +935,44 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         self,
         positions_df: Optional[pd.DataFrame],
         account_df: Optional[pd.DataFrame],
+        trade_count: int = 0,  # ✅ 新增：实际交易次数
     ) -> Dict[str, Any]:
         """
-        计算绩效指标
+        计算绩效指标（支持传入实际交易次数）
 
         Args:
             positions_df: 持仓 DataFrame
             account_df: 账户 DataFrame
+            trade_count: 实际交易次数（可选，默认为0）
 
         Returns:
-            Dict[str, Any]: 绩效指标字典
+            Dict[str, Any]: 绩效指标字典（包含完整的投资组合统计信息）
         """
+        # 从账户数据提取初始/最终权益
+        initial_equity = 0.0
+        final_equity = 0.0
+        total_fees = 0.0
+
+        if account_df is not None and not account_df.empty:
+            # NautilusTrader 账户报告使用 total 列表示总权益
+            total_series = account_df.get("total", account_df.get("equity", pd.Series()))
+            if len(total_series) > 0:
+                initial_equity = safe_float(total_series.iloc[0])
+                final_equity = safe_float(total_series.iloc[-1])
+
+            # 尝试从账户对象获取手续费信息
+            if self._venues:
+                try:
+                    first_venue = list(self._venues.values())[0]
+                    account_obj = self._engine.trader._cache.account_for_venue(first_venue)
+                    if account_obj and hasattr(account_obj, 'commissions'):
+                        commissions = account_obj.commissions()
+                        if commissions:
+                            total_fees = sum(float(money) for money in commissions.values())
+                except Exception as e:
+                    logger.debug(f"获取手续费信息失败: {e}")
+
+        # 如果没有持仓数据，返回基础账户信息
         if positions_df is None or positions_df.empty:
             return {
                 "total_return": 0.0,
@@ -926,6 +981,10 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 "win_rate": 0.0,
                 "profit_factor": 0.0,
                 "total_trades": 0,
+                # 投资组合关键字段：保留8位小数精度
+                "initial_equity": round(initial_equity, 8),
+                "final_equity": round(final_equity, 8),
+                "total_fees": round(total_fees, 8),
             }
 
         # 提取 PnL 数值
@@ -933,8 +992,6 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         for _, row in positions_df.iterrows():
             pnl_raw = row.get("realized_pnl", "0")
             if isinstance(pnl_raw, str):
-                # 提取数值部分（移除货币后缀如 USDT, BTC 等）
-                # 格式如: "-96.43511300 USDT" -> "-96.43511300"
                 import re
                 match = re.match(r'^([+-]?\d+\.?\d*)', pnl_raw.strip())
                 if match:
@@ -962,6 +1019,10 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 "win_rate": 0.0,
                 "profit_factor": 0.0,
                 "total_trades": 0,
+                # 投资组合关键字段：保留8位小数精度
+                "initial_equity": round(initial_equity, 8),
+                "final_equity": round(final_equity, 8),
+                "total_fees": round(total_fees, 8),
             }
 
         winning_trades = [p for p in pnls if p > 0]
@@ -976,37 +1037,36 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             gross_loss = abs(sum(losing_trades))
             profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0.0
 
-        # 计算总收益率
-        initial_capital = self._config.get("initial_capital", 100000.0)
-        total_return = (total_pnl / initial_capital) * 100 if initial_capital > 0 else 0.0
+        # 计算总收益率（基于实际权益变化）
+        if initial_equity > 0:
+            total_return = ((final_equity - initial_equity) / initial_equity) * 100
+        else:
+            initial_capital = self._config.get("initial_capital", 100000.0)
+            total_return = (total_pnl / initial_capital) * 100 if initial_capital > 0 else 0.0
 
         # 计算夏普比率 (使用权益曲线数据)
         sharpe_ratio = 0.0
         max_drawdown = 0.0
         if account_df is not None and not account_df.empty:
-            # 构建权益曲线
             equity_curve = self._build_equity_curve(account_df)
             if equity_curve:
                 equities = [point.get("equity", 0) for point in equity_curve]
-                
-                # 计算收益率序列
+
                 if len(equities) > 1:
                     returns = []
                     for i in range(1, len(equities)):
                         if equities[i-1] > 0:
                             ret = (equities[i] - equities[i-1]) / equities[i-1]
                             returns.append(ret)
-                    
-                    # 计算夏普比率
+
                     if len(returns) > 1:
                         import numpy as np
                         avg_return = np.mean(returns)
                         std_return = np.std(returns, ddof=1)
-                        # 假设无风险利率为0，年化因子假设每小时数据，每年252个交易日，每天24小时
-                        periods_per_year = 252 * 24
+                        periods_per_year = 252 * 24  # 假设15分钟K线，每年252个交易日，每天24小时
                         if std_return > 0:
                             sharpe_ratio = (avg_return / std_return) * np.sqrt(periods_per_year)
-                    
+
                     # 计算最大回撤
                     peak = equities[0]
                     for equity in equities:
@@ -1022,11 +1082,16 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             "sharpe_ratio": round(sharpe_ratio, 2),
             "max_drawdown": round(max_drawdown, 2),
             "win_rate": round(win_rate, 2),
-            "profit_factor": round(profit_factor, 2),
-            "total_trades": len(pnls),
+            "profit_factor": round(profit_factor, 4),  # 盈亏比保留4位
+            "total_trades": trade_count if trade_count > 0 else len(pnls),  # ✅ 使用传入的实际交易次数
+            "total_closed_positions": len(pnls) if pnls else 0,              # ✅ 新增：已平仓持仓数
             "winning_trades": len(winning_trades),
             "losing_trades": len(losing_trades),
-            "total_pnl": round(total_pnl, 2),
+            "total_pnl": round(total_pnl, 8),  # PnL保留8位精度
+            # 投资组合完整统计字段：保留8位小数精度
+            "initial_equity": round(initial_equity, 8),
+            "final_equity": round(final_equity, 8),
+            "total_fees": round(total_fees, 8),
         }
 
     def _build_equity_curve(self, account_df: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:

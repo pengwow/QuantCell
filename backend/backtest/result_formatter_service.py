@@ -126,61 +126,79 @@ class ResultFormatterService:
         instruments: dict
     ) -> dict:
         """
-        格式化多品种事件驱动回测结果
-        
+        格式化多品种事件驱动回测结果（修复版）
+
+        核心改进：
+        1. 从 results['trades'] 和 results['positions'] 提取数据（而非 portfolio）
+        2. 使用字典的 'symbol' 字段进行过滤（修复 hasattr 问题）
+        3. 为每个品种独立计算 metrics
+
         Args:
-            results: 事件驱动回测原始结果
+            results: 事件驱动回测原始结果（来自 EventDrivenBacktestEngine._process_results()）
             symbols: 品种列表
             timeframe: 时间周期
             strategy_name: 策略名称
             instruments: Instrument映射
-            
+
         Returns:
             dict: 格式化的多品种回测结果
         """
         formatted = {}
-        
+
+        # ✅ 从正确的位置提取全局数据
+        all_trades = results.get('trades', [])           # 来自 _process_results()
+        all_positions = results.get('positions', [])      # 来自 _process_results()
+        account = results.get('account', {})             # 账户信息
+        global_metrics = results.get('metrics', {})     # 全局指标
+        equity_curve = results.get('equity_curve', [])   # 权益曲线
+
+        logger.info(f"[format_event_results_multi] 开始格式化，共 {len(symbols)} 个品种")
+        logger.info(f"[format_event_results_multi] 总交易数: {len(all_trades)}, 总持仓数: {len(all_positions)}")
+
         # 为每个品种提取单独结果
         for symbol in symbols:
             key = f"{symbol}_{timeframe}"
-            
-            # 从组合级结果中提取该品种的指标
-            portfolio_metrics = results.get('portfolio', {}).get('metrics', {})
-            
-            # 尝试从positions中过滤出该品种的持仓和交易
-            all_positions = results.get('portfolio', {}).get('positions', [])
-            symbol_positions = [p for p in all_positions if hasattr(p, 'symbol') and p.symbol == symbol]
-            
-            # 如果没有按品种分开的数据，使用组合级数据
-            if not symbol_positions:
-                symbol_positions = all_positions
-            
-            all_trades = results.get('portfolio', {}).get('trades', [])
-            symbol_trades = [t for t in all_trades if hasattr(t, 'symbol') and t.symbol == symbol]
-            if not symbol_trades:
-                symbol_trades = all_trades
-            
-            equity_curve = results.get('portfolio', {}).get('equity_curve', [])
-            
+
+            # ✅ 正确过滤：使用字典的 'symbol' 字段（修复 hasattr 问题）
+            symbol_trades = [t for t in all_trades if isinstance(t, dict) and t.get('symbol') == symbol]
+            symbol_positions = [p for p in all_positions if isinstance(p, dict) and p.get('symbol') == symbol]
+
+            logger.debug(f"[{key}] 过滤结果: trades={len(symbol_trades)}, positions={len(symbol_positions)}")
+
+            # ✅ 为每个品种独立计算 metrics
+            symbol_metrics = ResultFormatterService.calculate_symbol_metrics(
+                trades=symbol_trades,
+                positions=symbol_positions,
+                account=account
+            )
+
+            # ✅ 构建该品种的权益曲线（基于该品种的持仓变化）
+            symbol_equity_curve = ResultFormatterService._extract_symbol_equity_curve(
+                global_equity_curve=equity_curve,
+                symbol=symbol,
+                positions=symbol_positions
+            )
+
             formatted[key] = {
                 'symbol': symbol,
                 'timeframe': timeframe,
-                'metrics': portfolio_metrics,
-                'trades': symbol_trades,
-                'positions': symbol_positions,
-                'equity_curve': equity_curve,
+                'metrics': symbol_metrics,          # ✅ 独立计算
+                'trades': symbol_trades,            # ✅ 已正确过滤
+                'positions': symbol_positions,       # ✅ 已正确过滤
+                'equity_curve': symbol_equity_curve, # ✅ 独立提取或使用全局
             }
-        
+
         # 添加全局账户信息
-        formatted['account'] = results.get('account', {})
-        
-        # 添加投资组合汇总
+        formatted['account'] = account
+
+        # 添加投资组合汇总（包含所有品种的数据）
         formatted['portfolio'] = {
-            'metrics': results.get('portfolio', {}).get('metrics', {}),
-            'trades': results.get('portfolio', {}).get('trades', []),
-            'equity_curve': results.get('portfolio', {}).get('equity_curve', []),
+            'metrics': global_metrics,              # 使用全局计算的指标
+            'trades': all_trades,                   # 所有交易
+            'positions': all_positions,             # 所有持仓
+            'equity_curve': equity_curve,           # 全局权益曲线
         }
-        
+
         # 添加元数据
         now = datetime.now()
         formatted['_meta'] = {
@@ -190,26 +208,54 @@ class ResultFormatterService:
             'timestamp': int(now.timestamp()),
             'formatted_time': now.strftime('%Y-%m-%d %H:%M:%S'),
         }
-        
+
         logger.info(f"[ResultFormatterService] 多品种结果格式化完成，共 {len(symbols)} 个品种")
-        
+
         return formatted
+
+    @staticmethod
+    def _extract_symbol_equity_curve(global_equity_curve: List[Dict], symbol: str, positions: List[Dict]) -> List[Dict]:
+        """
+        提取单个品种的权益曲线
+
+        如果无法按品种分离，则返回全局权益曲线（因为所有品种共享同一账户）
+
+        Args:
+            global_equity_curve: 全局权益曲线
+            symbol: 品种名称
+            positions: 该品种的持仓列表
+
+        Returns:
+            List[Dict]: 权益曲线数据
+        """
+        # 当前实现：返回全局权益曲线
+        # TODO: 未来可以基于持仓价值变化计算每个品种的贡献
+        return global_equity_curve
     
     @staticmethod
     def calculate_symbol_metrics(trades, positions, account):
         """
-        计算单品种绩效指标
-        
+        计算单品种绩效指标（支持字典和对象两种格式）
+
         Args:
-            trades: 交易记录列表
+            trades: 交易记录列表（字典或对象）
             positions: 持仓记录列表
-            account: 账户信息
-            
+            account: 账户信息（字典或对象）
+
         Returns:
             dict: 绩效指标字典
         """
+
+        # ✅ 辅助函数：安全获取属性/键值（支持 dict 和 object）
+        def get_attr_or_get(obj, attr, default=0):
+            """安全获取属性值，兼容字典和对象"""
+            if isinstance(obj, dict):
+                return obj.get(attr, default)
+            else:
+                return getattr(obj, attr, default)
+
         metrics = {}
-        
+
         try:
             if not trades or len(trades) == 0:
                 return {
@@ -219,35 +265,42 @@ class ResultFormatterService:
                     'profit_factor': 0.0,
                     'max_drawdown': 0.0,
                     'sharpe_ratio': 0.0,
+                    'total_pnl': 0.0,
                 }
-            
-            total_pnl = sum(getattr(t, 'pnl', getattr(t, 'realized_pnl', 0)) for t in trades)
-            winning_trades = [t for t in trades if (getattr(t, 'pnl', 0) > 0)]
-            losing_trades = [t for t in trades if (getattr(t, 'pnl', 0) <= 0)]
-            
+
+            # ✅ 使用安全的属性访问方法
+            total_pnl = sum(
+                get_attr_or_get(t, 'pnl', get_attr_or_get(t, 'realized_pnl', 0))
+                for t in trades
+            )
+            winning_trades = [t for t in trades if (get_attr_or_get(t, 'pnl', 0) > 0)]
+            losing_trades = [t for t in trades if (get_attr_or_get(t, 'pnl', 0) <= 0)]
+
             win_rate = len(winning_trades) / len(trades) * 100 if trades else 0
-            
-            total_wins = sum(getattr(t, 'pnl', 0) for t in winning_trades)
-            total_losses = abs(sum(getattr(t, 'pnl', 0) for t in losing_trades))
+
+            total_wins = sum(get_attr_or_get(t, 'pnl', 0) for t in winning_trades)
+            total_losses = abs(sum(get_attr_or_get(t, 'pnl', 0) for t in losing_trades))
             profit_factor = total_wins / total_losses if total_losses > 0 else float('inf')
-            
-            initial_balance = getattr(account, 'starting_balance', 10000)
-            final_balance = getattr(account, 'balance', initial_balance) + total_pnl
+
+            # ✅ 使用安全的属性访问方法
+            initial_balance = get_attr_or_get(account, 'starting_balance',
+                             get_attr_or_get(account, 'initial_balance', 10000))
+            final_balance = get_attr_or_get(account, 'balance', initial_balance) + total_pnl
             total_return = ((final_balance - initial_balance) / initial_balance) * 100
-            
+
             metrics = {
                 'total_return': round(total_return, 2),
-                'total_pnl': round(total_pnl, 2),
+                'total_pnl': round(total_pnl, 8),   # PnL保留8位精度
                 'total_trades': len(trades),
                 'winning_trades': len(winning_trades),
                 'losing_trades': len(losing_trades),
                 'win_rate': round(win_rate, 2),
-                'profit_factor': round(profit_factor, 2),
+                'profit_factor': round(profit_factor, 4),  # 盈亏比保留4位
             }
-            
+
         except Exception as e:
             logger.warning(f"[ResultFormatterService] 计算单品种指标失败: {e}")
-        
+
         return metrics
     
     @staticmethod
