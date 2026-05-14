@@ -1298,18 +1298,27 @@ class DataService:
                 )
 
                 # 创建实时进度回调函数（推送下载过程中的细粒度进度）
+                symbol_completed = 0  # ✅ 当前时间周期内已完成的货币对计数
+
                 def download_progress_callback(symbol, current, total_count, failed_count, status="downloading"):
                     """下载过程中的实时进度回调"""
+                    nonlocal symbol_completed  # ✅ 使用 nonlocal 声明以修改外部变量
                     try:
-                        progress_pct = (current / total_count * 100) if total_count > 0 else 0
+                        # 计算当前货币对的独立进度百分比（0-100）
+                        symbol_progress_pct = (current / total_count * 100) if total_count > 0 else 0
+
+                        # ✅ 当货币对完成时，递增已完成计数
+                        if status in ["completed", "failed"]:
+                            if symbol_progress_pct >= 99.9:  # 避免重复计数
+                                symbol_completed += 1
 
                         task_manager.update_progress(
                             task_id=task_id,
                             current=symbol,
-                            completed=completed_tasks + (progress_pct / 100),
-                            total=total_tasks,
-                            status=f"正在下载 {symbol} {interval}: {status}",
-                            symbol_progress=round(progress_pct, 1),
+                            completed=symbol_progress_pct,   # ✅ 使用当前货币对的独立进度（0-100）
+                            total=100,                       # ✅ 总量固定为100（百分比模式）
+                            status=f"[{symbol_completed+1}/{total_symbols}] {symbol} {interval}: {status}",
+                            symbol_progress=round(symbol_progress_pct, 1),
                             interval=interval
                         )
                     except Exception as e:
@@ -1318,21 +1327,35 @@ class DataService:
                 # 调用run方法下载数据（传入进度回调以实现实时更新）
                 get_data.run(progress_callback=download_progress_callback)
 
-                # 更新进度：当前时间周期的所有货币对完成
+                # 更新计数：当前时间周期的所有货币对完成
                 completed_tasks += total_symbols
+
+                # 更新进度：显示100%完成
                 task_manager.update_progress(
                     task_id=task_id,
                     current=f"{interval}",
-                    completed=completed_tasks,
-                    total=total_tasks,
-                    status=f"{interval} 数据下载完成",
+                    completed=100,  # ✅ 显示100%（当前周期已完成）
+                    total=100,
+                    status=f"[{completed_tasks}/{total_symbols * len(request.interval)}] {interval} 数据下载完成",
                     symbol_progress=100.0,
                     interval=interval
                 )
                 logger.info(f"时间周期 {interval} 所有数据下载成功")
 
             logger.info(f"所有时间周期数据下载成功，任务ID: {task_id}")
-            
+
+            # ✅ 显式设置任务级别的统计信息（用于最终显示）
+            total_task_count = total_symbols * len(request.interval) if request.interval else total_symbols
+            task_manager.update_progress(
+                task_id=task_id,
+                current="完成",
+                completed=completed_tasks,      # ✅ 使用实际完成的任务数
+                total=total_task_count,         # ✅ 总任务数
+                status="全部下载完成",
+                symbol_progress=100.0,
+                interval="all"
+            )
+
             # 更新任务状态为已完成
             task_manager.complete_task(task_id)
         except Exception as e:
