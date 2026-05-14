@@ -1452,18 +1452,47 @@ def download(
         
         # 执行下载
         typer.echo("开始下载数据...")
-        
-        with typer.progressbar(length=100, label="下载进度") as progress:
-            # 定义进度回调
-            def progress_callback(current, completed, total, failed, status=None):
+
+        # 使用线程异步执行下载，主线程轮询进度
+        import threading
+        download_error: list = [None]  # 用于捕获异常
+
+        def run_download():
+            try:
+                data_service.async_download_crypto(task_id, request)
+            except Exception as e:
+                download_error[0] = e
+                logger.exception(f"下载过程出错: {e}")
+
+        # 启动下载线程
+        download_thread = threading.Thread(target=run_download)
+        download_thread.start()
+
+        # 轮询进度并显示文字版（无进度条）
+        import time
+        import sys
+
+        last_status = ""
+        while download_thread.is_alive():
+            time.sleep(0.5)  # 每0.5秒刷新一次
+
+            task_info = task_manager.get_task(task_id)
+            if task_info:
+                progress_data = task_info.get('progress', {})
+                completed = progress_data.get('completed', 0)
+                total = progress_data.get('total', 1)
+                status = progress_data.get('status', '')
+
                 if total > 0:
-                    progress_pct = int((completed / total) * 100)
-                    progress.update(progress_pct - progress.n)  # pyright: ignore[reportAttributeAccessIssue]
-                    if status:
-                        progress.label = f"下载进度 - {status}"
-            
-            # 执行异步下载
-            data_service.async_download_crypto(task_id, request)
+                    progress_pct = min(int((completed / total) * 100), 100)
+                    current_status = f"\r  下载进度: {progress_pct}% - {status}" if status else f"\r  下载进度: {progress_pct}%"
+
+                    if current_status != last_status:
+                        sys.stdout.write(current_status)
+                        sys.stdout.flush()
+                        last_status = current_status
+
+        print()  # 换行
         
         # 获取最终任务状态
         task_info = task_manager.get_task(task_id)
