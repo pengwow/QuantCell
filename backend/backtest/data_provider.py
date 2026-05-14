@@ -231,7 +231,30 @@ class BacktestDataProvider:
         
         if show_progress:
             success_count = sum(1 for r in download_results if r.success)
+            fail_count = total_tasks - success_count
             print(f"\r[✓] 批量加载完成: {success_count}/{total_tasks} 个任务成功")
+
+            # 🔍 增强错误信息：显示详细的失败原因
+            if fail_count > 0:
+                print("\n" + "="*60)
+                print("⚠️  数据加载失败详情:")
+                print("="*60)
+                for result in download_results:
+                    if not result.success:
+                        print(f"  ❌ {result.symbol} {result.timeframe}")
+                        print(f"     类型: {result.failure_type}")
+                        print(f"     原因: {result.failure_reason}")
+                        if hasattr(result, 'warnings') and result.warnings:
+                            for warn in result.warnings:
+                                print(f"     ⚠️  {warn}")
+                print("="*60)
+                print("\n💡 可能的原因：")
+                print("   1. 本地没有该交易对/周期的数据文件")
+                print("   2. 数据文件路径配置不正确")
+                print("   3. 时间范围超出数据覆盖范围")
+                print("\n🔧 解决方案：")
+                print("   运行: uv run python scripts/data_cli.py list")
+                print("   查看可用的数据文件列表\n")
         
         logger.info(
             f"[BacktestDataProvider] 批量加载完成: "

@@ -372,10 +372,15 @@ def start(
     worker_id: Annotated[int, typer.Argument(help="Worker ID")],
 ):
     """
-    启动指定 Worker
+    启动指定 Worker（后台运行模式）
+
+    启动后立即返回，Worker 在后台初始化。
+    使用 'status' 或 'logs' 命令查看进度。
 
     示例:
-      python worker_cli.py start 1
+      python worker_cli.py start 1           # 后台启动（默认）
+      python worker_cli.py status 1           # 查看状态
+      python worker_cli.py logs 1 --lines 20  # 查看日志
     """
     try:
         svc, exceptions = _get_core_service()
@@ -385,11 +390,15 @@ def start(
             worker = svc.get_worker(worker_id)
             current_status = worker.get('status', 'unknown')
 
-            if current_status == 'running':
-                typer.secho(f"⚠ Worker {worker_id} 已经在运行中", fg=typer.colors.YELLOW)
-                typer.echo(f"  Worker ID: {worker_id}")
+            if current_status in ['running', 'starting']:
+                typer.secho(f"⚠ Worker {worker_id} 正在运行中", fg=typer.colors.YELLOW)
                 typer.echo(f"  状态: {current_status}")
                 typer.echo(f"  PID: {worker.get('pid')}")
+                if current_status == 'starting':
+                    typer.echo("")
+                    typer.secho("ℹ  Worker 正在初始化中...", fg=typer.colors.YELLOW)
+                    typer.echo("  查看日志:")
+                    typer.echo(f"    python worker_cli.py logs {worker_id} --lines 20")
                 return
         except Exception:
             # 如果获取状态失败，继续尝试启动
@@ -397,10 +406,25 @@ def start(
 
         result = asyncio.run(svc.async_start_worker(worker_id))
 
-        typer.secho(f"✓ Worker {worker_id} 启动成功", fg=typer.colors.GREEN)
-        typer.echo(f"  Worker ID: {result.get('worker_id')}")
-        typer.echo(f"  状态: {result.get('status')}")
-        typer.echo(f"  PID: {result.get('pid')}")
+        status = result.get('status', 'unknown')
+        pid = result.get('pid')
+
+        if status in ['running', 'starting']:
+            typer.secho(f"✓ Worker {worker_id} 启动成功", fg=typer.colors.GREEN)
+            typer.echo(f"  Worker ID: {result.get('worker_id')}")
+            typer.echo(f"  状态: {status}")
+            typer.echo(f"  PID: {pid}")
+
+            if status == 'starting':
+                # starting 状态时提供额外提示
+                typer.echo("")
+                typer.secho("ℹ  Worker 正在后台初始化...", fg=typer.colors.YELLOW)
+                typer.echo("  使用以下命令查看进度:")
+                typer.echo(f"    python worker_cli.py status {worker_id}")
+                typer.echo(f"    python worker_cli.py logs {worker_id} --lines 20")
+        else:
+            typer.echo(f"错误: {result.get('message', '启动失败')}", err=True)
+            raise typer.Exit(1)
 
     except exceptions['WorkerNotFoundError']:
         typer.echo(f"错误: Worker {worker_id} 不存在", err=True)

@@ -24,7 +24,7 @@ import { useWorkerStore } from '../../store/workerStore';
 import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
 import WorkerParamsTab from '../../components/worker/WorkerParamsTab';
 import WorkerPositionTab from '../../components/worker/WorkerPositionTab';
-import WorkerTradesTab from '../../components/worker/WorkerTradesTab';
+import WorkerOrderTab from '../../components/worker/WorkerOrderTab';
 import WorkerPerformanceTab from '../../components/worker/WorkerPerformanceTab';
 import WorkerLogsTab from '../../components/worker/WorkerLogsTab';
 
@@ -102,9 +102,9 @@ const WorkerDetail = () => {
       children: <WorkerPositionTab workerId={currentWorker.id} />,
     },
     {
-      key: 'trades',
-      label: t('trades') || '成交',
-      children: <WorkerTradesTab workerId={currentWorker.id} />,
+      key: 'orders',
+      label: t('orders') || '委托',
+      children: <WorkerOrderTab workerId={currentWorker.id} />,
     },
     {
       key: 'performance',

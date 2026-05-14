@@ -13,6 +13,66 @@ from .models import Worker, WorkerLog, WorkerMetric, WorkerPerformance, WorkerPa
 from . import schemas
 
 
+def find_strategy_by_name_or_id(db: Session, strategy_id: Optional[int] = None, strategy_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """
+    通过 strategy_id 或 strategy_name 查找策略信息
+    
+    容错逻辑：
+    1. 优先使用 strategy_id 查找
+    2. 如果 strategy_id 找不到，尝试使用 strategy_name 查找
+    3. 返回策略信息字典（包含 id, name, file_name 等）
+    
+    Args:
+        db: 数据库会话
+        strategy_id: 策略 ID（可选）
+        strategy_name: 策略名称（可选）
+    
+    Returns:
+        dict: 策略信息，如果找不到返回 None
+    """
+    try:
+        from ..strategy.models import Strategy
+        
+        # 优先通过 ID 查找
+        if strategy_id:
+            strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+            if strategy:
+                return {
+                    'id': strategy.id,
+                    'name': strategy.name,
+                    'file_name': getattr(strategy, 'file_name', None),
+                }
+            else:
+                # ID 找不到，记录警告并尝试通过名称查找
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"策略 ID {strategy_id} 未找到，尝试通过名称查找...")
+        
+        # 通过名称查找（容错机制）
+        if strategy_name:
+            strategy = db.query(Strategy).filter(
+                and_(
+                    Strategy.name == strategy_name,
+                    Strategy.is_deleted == False if hasattr(Strategy, 'is_deleted') else True
+                )
+            ).first()
+            
+            if strategy:
+                return {
+                    'id': strategy.id,
+                    'name': strategy.name,
+                    'file_name': getattr(strategy, 'file_name', None),
+                }
+        
+        return None
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"查找策略失败: {e}")
+        return None
+
+
 def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
     """创建Worker"""
     import json
@@ -43,6 +103,7 @@ def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
         name=worker_data.name,
         description=worker_data.description,
         strategy_id=worker_data.strategy_id,
+        strategy_name=getattr(worker_data, 'strategy_name', None),  # 新增：策略名称（冗余存储）
         trading_config=json.dumps(trading_config),
         env_vars=json.dumps(worker_data.env_vars) if worker_data.env_vars else '{}',
         config=json.dumps({**(worker_data.config or {}), 'strategy_file_name': worker_data.strategy_file_name}) if (worker_data.config or worker_data.strategy_file_name) else '{}',

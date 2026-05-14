@@ -530,19 +530,39 @@ async def update_strategy_params(worker_id: int, parameters: Dict[str, Any]) -> 
 
 async def get_positions(worker_id: int) -> Dict[str, Any]:
     """
-    获取Worker持仓信息（从SQLAlchemy主库查询）
-    
-    当前主库无独立positions表，返回空列表。
-    持仓信息可通过 /monitoring/performance 端点获取。
-    """
-    return {
-        "worker_id": worker_id,
-        "positions": [],
-        "total": 0,
-        "source": "sqlalchemy",
-        "note": "持仓数据暂未独立存储，请通过 performance 接口查看",
-        "timestamp": datetime.now().isoformat()
+    获取Worker持仓信息（从 worker_positions 表查询）
+
+    返回格式：
+    {
+        "items": [Position dict...],
+        "total": int,
+        "timestamp": str
     }
+    """
+    from . import models
+    from collector.db.database import SessionLocal
+
+    try:
+        with SessionLocal() as db:
+            positions = db.query(models.WorkerPosition).filter(
+                models.WorkerPosition.worker_id == worker_id,
+                models.WorkerPosition.status == 'OPEN'
+            ).order_by(models.WorkerPosition.updated_at.desc()).all()
+
+            return {
+                "items": [pos.to_dict() for pos in positions],
+                "total": len(positions),
+                "timestamp": datetime.now().isoformat()
+            }
+
+    except Exception as e:
+        logger.error(f"[get_positions] Worker {worker_id} 获取持仓信息失败: {e}")
+        return {
+            "items": [],
+            "total": 0,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 
 async def get_trades(

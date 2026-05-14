@@ -382,23 +382,62 @@ def compare(
 def _output_results(results: dict, output_format: str, output_file: Optional[str], console: Console):
     """
     格式化并输出回测结果
-    
+
     Args:
         results: 回测结果字典
         output_format: 输出格式 (json/table/both)
-        output_file: 输出文件路径（可选）
+        output_file: 输出文件路径（可选，默认保存到 logs/backtest/）
         console: Rich控制台实例
     """
+    from datetime import datetime
+
+    # 确定输出目录：统一保存到 logs/backtest/
+    backend_dir = Path(__file__).resolve().parent.parent
+    default_output_dir = backend_dir / "logs" / "backtest"
+
+    if not output_file:
+        # 自动创建子目录（如果不存在）
+        default_output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 生成带时间戳的文件名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # 从结果中提取策略名称和交易对作为文件名的一部分
+        strategy_name = "unknown"
+        symbols = "unknown"
+
+        if isinstance(results, dict):
+            strategy_name = results.get("_meta", {}).get("strategy", "unknown")
+            symbols = results.get("_meta", {}).get("symbols", ["unknown"])
+            if isinstance(symbols, list):
+                symbols = "_".join(symbols[:3])  # 取前3个品种
+            elif isinstance(symbols, str):
+                symbols = symbols.replace(",", "_")[:20]
+
+        safe_strategy = "".join(c for c in str(strategy_name) if c.isalnum() or c in ['_', '-'])[:30]
+        safe_symbols = "".join(c for c in str(symbols) if c.isalnum() or c in ['_', '-'])[:20]
+
+        output_file = str(default_output_dir / f"{timestamp}_{safe_strategy}_{safe_symbols}.json")
+
+        logger.info(f"[回测结果] 自动保存到: {output_file}")
+
+    else:
+        # 用户指定了路径，确保目录存在
+        output_path = Path(output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
     from backtest.result_analysis import output_results
-    
+
     if output_format in ("json", "both"):
-        if output_file:
+        try:
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(results, f, indent=2, ensure_ascii=False, default=str)
-            console.print(f"\n[bold green]✅ 结果已保存到: {output_file}[/bold green]")
-        else:
-            print("\n" + json.dumps(results, indent=2, ensure_ascii=False, default=str))
-    
+            output_path_full = Path(output_file).resolve()
+            console.print(f"\n[bold green]✅ 结果已保存到: {output_path_full}[/bold green]")
+        except Exception as e:
+            logger.error(f"[回测结果] 保存失败: {e}")
+            console.print(f"\n[red]❌ 保存失败: {e}[/red]")
+
     if output_format in ("table", "both"):
         output_results(results)
 

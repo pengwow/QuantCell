@@ -711,10 +711,18 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
     返回：
         str: 输出文件路径
     """
-    # 如果没有指定输出文件，自动生成
+    # 如果没有指定输出文件，自动生成（使用统一的标准目录）
     if output_file is None:
+        from pathlib import Path
+
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_file = f"backtest_results_{timestamp}.{output_format}"
+
+        # 统一保存到 logs/backtest/ 目录（与 cli.py 保持一致）
+        backend_dir = Path(__file__).resolve().parent.parent
+        default_output_dir = backend_dir / "logs" / "backtest"
+        default_output_dir.mkdir(parents=True, exist_ok=True)
+
+        output_file = str(default_output_dir / f"backtest_results_{timestamp}.{output_format}")
 
     # 分离正常结果和失败信息
     normal_results = {k: v for k, v in results.items() if not k.startswith('_')}
@@ -868,7 +876,8 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
 
     # 保存结果
     if save_results(results, output_file, output_format):
-        print(f"\n结果已保存到: {output_file}")
+        output_path_full = Path(output_file).resolve()
+        print(f"\n结果已保存到: {output_path_full}")
     else:
         print(f"\n保存结果失败: {output_file}")
 

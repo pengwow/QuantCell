@@ -31,6 +31,10 @@ class Worker(Base):
     strategy_id = Column(Integer, ForeignKey('strategies.id'), nullable=True)
     strategy = relationship("Strategy", back_populates="workers", lazy="selectin")
 
+    # 策略名称（冗余存储，用于在 strategy_id 失效时通过名称查找策略）
+    # 当策略被删除或 ID 不存在时，可以通过此字段重新关联
+    strategy_name = Column(String(200), nullable=True, index=True)
+
     # 交易配置 (JSON格式，支持复杂配置)
     # {
     #   "exchange": "binance",
@@ -72,6 +76,7 @@ class Worker(Base):
         UniqueConstraint('name', name='unique_worker_name'),
         Index('idx_worker_status', 'status'),
         Index('idx_worker_strategy', 'strategy_id'),
+        Index('idx_worker_strategy_name', 'strategy_name'),
     )
     
     def get_env_vars_dict(self) -> Dict[str, str]:
@@ -593,4 +598,122 @@ class WorkerTrade(Base):
             'entry_time': self.entry_time.isoformat() if self.entry_time else None,
             'exit_time': self.exit_time.isoformat() if self.exit_time else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class WorkerOrder(Base):
+    """Worker委托/订单模型 - 存储提交但未完全成交的订单"""
+    __tablename__ = "worker_orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    worker_id = Column(Integer, ForeignKey('workers.id'), nullable=False, index=True)
+
+    # 订单标识
+    client_order_id = Column(String(100), unique=True, nullable=False)  # 客户端订单ID
+    venue_order_id = Column(String(100), nullable=True)                 # 交易所订单ID
+
+    # 订单基本信息
+    symbol = Column(String(50), nullable=False)
+    side = Column(String(10), nullable=False)        # BUY, SELL
+    order_type = Column(String(20), nullable=False)   # MARKET, LIMIT, STOP_MARKET...
+
+    # 数量和价格
+    quantity = Column(Float, nullable=False)          # 委托数量
+    price = Column(Float, nullable=True)              # 委托价格（市价单为None）
+    filled_qty = Column(Float, default=0.0)           # 已成交数量
+    avg_fill_price = Column(Float, default=0.0)       # 成交均价
+
+    # 订单状态
+    status = Column(String(20), nullable=False, index=True)
+    # INITIALIZED → ACCEPTED → OPEN (部分成交) → FILLED/CANCELED/REJECTED
+
+    # 关联信息
+    position_id = Column(String(100), nullable=True)   # 关联的持仓ID（如有）
+    strategy_id = Column(String(100), nullable=True)   # 策略ID
+
+    # 时间戳
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    submitted_at = Column(DateTime, nullable=True)
+    filled_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index('idx_worker_order_status', 'worker_id', 'status'),
+        Index('idx_worker_order_symbol', 'worker_id', 'symbol'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'worker_id': self.worker_id,
+            'client_order_id': self.client_order_id,
+            'venue_order_id': self.venue_order_id,
+            'symbol': self.symbol,
+            'side': self.side,
+            'order_type': self.order_type,
+            'quantity': self.quantity,
+            'price': self.price,
+            'filled_qty': self.filled_qty,
+            'avg_fill_price': self.avg_fill_price,
+            'status': self.status,
+            'position_id': self.position_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'submitted_at': self.submitted_at.isoformat() if self.submitted_at else None,
+        }
+
+
+class WorkerPosition(Base):
+    """Worker持仓模型 - 存储当前持有的仓位"""
+    __tablename__ = "worker_positions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    worker_id = Column(Integer, ForeignKey('workers.id'), nullable=False, index=True)
+
+    # 持仓标识
+    position_id = Column(String(100), unique=True, nullable=False)  # Nautilus PositionId
+    symbol = Column(String(50), nullable=False)
+
+    # 持仓方向和数量
+    side = Column(String(10), nullable=False)  # LONG, SHORT
+    quantity = Column(Float, nullable=False)   # 持仓数量（正数）
+
+    # 价格信息
+    entry_price = Column(Float, nullable=False)       # 开仓均价
+    current_price = Column(Float, nullable=True)      # 当前价格（用于计算浮动盈亏）
+
+    # 盈亏计算
+    unrealized_pnl = Column(Float, default=0.0)       # 未实现盈亏
+    realized_pnl = Column(Float, default=0.0)         # 已实现盈亏
+
+    # 持仓状态
+    status = Column(String(20), nullable=False, index=True)  # OPEN, CLOSED
+
+    # 时间戳
+    opened_at = Column(DateTime, nullable=True)
+    closed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index('idx_worker_position_status', 'worker_id', 'status'),
+        Index('idx_worker_position_symbol', 'worker_id', 'symbol'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'worker_id': self.worker_id,
+            'position_id': self.position_id,
+            'symbol': self.symbol,
+            'side': self.side.lower(),
+            'quantity': self.quantity,
+            'entry_price': self.entry_price,
+            'current_price': self.current_price,
+            'unrealized_pnl': self.unrealized_pnl,
+            'unrealized_pnl_pct': (self.unrealized_pnl / (self.quantity * self.entry_price) * 100
+                                   if self.quantity and self.entry_price else 0),
+            'realized_pnl': self.realized_pnl,
+            'status': self.status,
+            'opened_at': self.opened_at.isoformat() if self.opened_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
