@@ -40,6 +40,10 @@ class WorkerCreate(WorkerBase):
         default=None,
         description="策略文件名称（如 grid_order_validation.py），当 strategy_id 在数据库中找不到时使用"
     )
+    strategy_name: Optional[str] = Field(
+        default=None,
+        description="策略名称（冗余存储，用于在 strategy_id 失效时通过名称查找策略）"
+    )
 
     # 交易配置（新格式）
     trading_config: Optional[TradingConfig] = Field(None, description="交易配置")
@@ -59,6 +63,14 @@ class WorkerUpdate(BaseModel):
     """更新Worker请求模型"""
     name: Optional[str] = Field(None, description="Worker名称")
     description: Optional[str] = Field(None, description="Worker描述")
+    strategy_file_name: Optional[str] = Field(
+        None,
+        description="策略文件名称"
+    )
+    strategy_name: Optional[str] = Field(
+        None,
+        description="策略名称（冗余存储，用于在 strategy_id 失效时通过名称查找策略）"
+    )
     # 交易配置（新格式）
     trading_config: Optional[TradingConfig] = Field(None, description="交易配置")
     # 兼容旧版本的字段

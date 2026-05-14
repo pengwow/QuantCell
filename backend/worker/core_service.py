@@ -638,7 +638,7 @@ class WorkerCoreService:
         self, worker: models.Worker, db: Session
     ) -> tuple:
         """
-        加载策略代码或路径（三层回退机制）
+        加载策略代码或路径（多层回退机制）
 
         Args:
             worker: Worker 模型实例
@@ -647,12 +647,15 @@ class WorkerCoreService:
         Returns:
             tuple: (strategy_path: Optional[str], strategy_code: Optional[str], strategy_found: bool)
 
-        Layer 1: 从数据库 strategy 表查询（最优先）
+        Layer 1: 从数据库 strategy 表通过 ID 查询（最优先）
+        Layer 1.5: 从数据库通过 strategy_name 查询（新增容错）
         Layer 2: 通过 strategy_file_name 参数查找文件
-        Layer 3: 文件系统扫描兜底
+        Layer 2.5: 通过 strategy_name 模糊匹配文件系统（新增）
+        Layer 3: 文件系统扫描兜底（增强版：支持模糊匹配）
         """
         import json as json_lib
         from pathlib import Path
+        from difflib import SequenceMatcher
 
         # 确定策略目录的绝对路径（基于 core_service.py 文件位置）
         # core_service.py 在 backend/worker/ 目录下
@@ -676,9 +679,10 @@ class WorkerCoreService:
                 pass
 
         strategy_file_name_from_config = worker_config.get("strategy_file_name")
+        strategy_name_from_worker = getattr(worker, 'strategy_name', None)  # 新增：获取策略名称
 
-        if worker.strategy_id or strategy_file_name_from_config:
-            # Layer 1: 从数据库查询（最优先）
+        if worker.strategy_id or strategy_file_name_from_config or strategy_name_from_worker:
+            # Layer 1: 从数据库查询（最优先）- 通过 ID
             if worker.strategy_id:
                 from strategy.models import Strategy
 
@@ -693,20 +697,94 @@ class WorkerCoreService:
                     if strategy.code:
                         strategy_code = strategy.code
                         logger.info(
-                            f"[策略加载] 使用数据库策略代码 "
+                            f"[策略加载] ✅ Layer 1: 使用数据库策略代码 "
                             f"(策略: {strategy.name}, ID: {strategy.id})"
                         )
                     elif strategy.file_name:
                         # 使用绝对路径
                         strategy_path = str(_strategies_dir / strategy.file_name)
                         logger.info(
-                            f"[策略加载] 使用策略文件名 "
+                            f"[策略加载] ✅ Layer 1: 使用策略文件名 "
                             f"(策略: {strategy.name}, 文件: {strategy.file_name})"
                         )
                     else:
                         logger.warning(
-                            f"[策略加载] 数据库策略缺少 code 和 file_name "
+                            f"[策略加载] ⚠️ Layer 1: 数据库策略缺少 code 和 file_name "
                             f"(ID: {strategy.id})"
+                        )
+                else:
+                    logger.warning(
+                        f"[策略加载] ⚠️ Layer 1: 数据库未找到 strategy_id={worker.strategy_id}"
+                    )
+
+            # Layer 1.5: 从数据库查询 - 通过 strategy_name（新增容错机制）
+            if not strategy_found and strategy_name_from_worker:
+                from strategy.models import Strategy
+
+                logger.info(
+                    f"[策略加载] 🔍 Layer 1.5: 尝试通过 strategy_name='{strategy_name_from_worker}' 查找..."
+                )
+
+                # 精确匹配策略名称
+                strategies_by_name = (
+                    db.query(Strategy)
+                    .filter(Strategy.name == strategy_name_from_worker)
+                    .all()
+                )
+
+                if strategies_by_name:
+                    # 找到一个或多个匹配的策略
+                    strategy = strategies_by_name[0]  # 取第一个
+                    strategy_found = True
+
+                    # 更新 Worker 的 strategy_id（修复无效的 ID）
+                    try:
+                        worker.strategy_id = strategy.id
+                        db.commit()
+                        logger.info(
+                            f"[策略加载] ✅ Layer 1.5: 通过名称找到策略，已更新 strategy_id "
+                            f"{worker.strategy_id} → {strategy.id} (策略: {strategy.name})"
+                        )
+                    except Exception as e:
+                        logger.warning(f"[策略加载] ⚠️ 更新 strategy_id 失败: {e}")
+
+                    if strategy.code:
+                        strategy_code = strategy.code
+                        logger.info(
+                            f"[策略加载] ✅ Layer 1.5: 使用数据库策略代码 "
+                            f"(策略: {strategy.name}, ID: {strategy.id})"
+                        )
+                    elif strategy.file_name:
+                        strategy_path = str(_strategies_dir / strategy.file_name)
+                        logger.info(
+                            f"[策略加载] ✅ Layer 1.5: 使用策略文件名 "
+                            f"(策略: {strategy.name}, 文件: {strategy.file_name})"
+                        )
+                else:
+                    # 尝试模糊匹配（包含关系）
+                    all_strategies = db.query(Strategy).all()
+                    matched_strategies = [
+                        s for s in all_strategies
+                        if strategy_name_from_worker.lower() in s.name.lower()
+                           or s.name.lower() in strategy_name_from_worker.lower()
+                    ]
+
+                    if matched_strategies:
+                        strategy = matched_strategies[0]
+                        strategy_found = True
+
+                        logger.info(
+                            f"[策略加载] ✅ Layer 1.5: 模糊匹配找到策略 "
+                            f"(搜索: '{strategy_name_from_worker}' → 匹配: '{strategy.name}', ID: {strategy.id})"
+                        )
+
+                        if strategy.code:
+                            strategy_code = strategy.code
+                        elif strategy.file_name:
+                            strategy_path = str(_strategies_dir / strategy.file_name)
+                    else:
+                        logger.warning(
+                            f"[策略加载] ⚠️ Layer 1.5: 数据库未找到 strategy_name='{strategy_name_from_worker}'"
                         )
 
             # Layer 2: 通过 strategy_file_name 参数查找
@@ -718,15 +796,68 @@ class WorkerCoreService:
                     strategy_path = str(full_path)
                     strategy_found = True
                     logger.info(
-                        f"[策略加载] 通过文件名找到策略文件: {full_path}"
+                        f"[策略加载] ✅ Layer 2: 通过文件名找到策略文件: {full_path}"
                     )
                 else:
-                    logger.warning(f"[策略加载] 策略文件不存在: {full_path}")
+                    logger.warning(f"[策略加载] ⚠️ Layer 2: 策略文件不存在: {full_path}")
 
-            # Layer 3: 文件系统扫描（兜底）
+            # Layer 2.5: 通过 strategy_name 模糊匹配文件系统（新增）
+            if not strategy_found and strategy_name_from_worker:
+                logger.info(
+                    f"[策略加载] 🔍 Layer 2.5: 尝试通过 strategy_name='{strategy_name_from_worker}' 匹配文件..."
+                )
+
+                # 获取所有可用的策略文件
+                available_files = list(_strategies_dir.glob("*.py"))
+                available_names = [f.stem for f in available_files if f.stem != "__init__"]
+
+                # 精确匹配文件名
+                exact_match = next(
+                    (f for f in available_files if f.stem == strategy_name_from_worker), None
+                )
+                if exact_match:
+                    strategy_path = str(exact_match)
+                    strategy_found = True
+                    logger.info(
+                        f"[策略加载] ✅ Layer 2.5: 精确匹配找到策略文件: {exact_match.name}"
+                    )
+                else:
+                    # 包含匹配（子串）
+                    contains_matches = [
+                        f for f in available_files
+                        if strategy_name_from_worker.lower() in f.stem.lower()
+                           or f.stem.lower() in strategy_name_from_worker.lower()
+                    ]
+
+                    if contains_matches:
+                        best_match = contains_matches[0]
+                        strategy_path = str(best_match)
+                        strategy_found = True
+                        logger.info(
+                            f"[策略加载] ✅ Layer 2.5: 包含匹配找到策略文件: {best_match.name} "
+                            f"(搜索: '{strategy_name_from_worker}')"
+                        )
+                    else:
+                        # 相似度匹配（使用 SequenceMatcher）
+                        similarity_scores = [
+                            (f, SequenceMatcher(None, strategy_name_from_worker.lower(), f.stem.lower()).ratio())
+                            for f in available_files
+                        ]
+                        similarity_scores.sort(key=lambda x: x[1], reverse=True)
+
+                        if similarity_scores and similarity_scores[0][1] > 0.6:  # 相似度阈值 60%
+                            best_match, score = similarity_scores[0]
+                            strategy_path = str(best_match)
+                            strategy_found = True
+                            logger.info(
+                                f"[策略加载] ✅ Layer 2.5: 相似度匹配找到策略文件: {best_match.name} "
+                                f"(相似度: {score:.2%}, 搜索: '{strategy_name_from_worker}')"
+                            )
+
+            # Layer 3: 文件系统扫描兜底（增强版）
             if not strategy_found:
                 logger.info(
-                    "[策略加载] 数据库和精确文件名均未找到，开始文件系统扫描..."
+                    "[策略加载] Layer 3: 所有精确匹配均失败，开始智能文件系统扫描..."
                 )
 
                 # 使用绝对路径进行文件系统扫描
@@ -735,43 +866,71 @@ class WorkerCoreService:
                 if strategies_dir.exists():
                     candidates = []
 
+                    # 候选列表生成（基于多种信息源）
                     if worker.strategy_id:
-                        candidates.append(f"{worker.strategy_id}.py")
+                        candidates.append(("ID匹配", f"{worker.strategy_id}.py"))
 
                     if strategy_file_name_from_config:
-                        candidates.append(strategy_file_name_from_config)
+                        candidates.append(("配置文件名", strategy_file_name_from_config))
 
-                    candidates.append(
-                        f"{worker.name.lower().replace(' ', '_')}.py"
-                    )
+                    if strategy_name_from_worker:
+                        candidates.append(("策略名称", f"{strategy_name_from_worker}.py"))
 
-                    for candidate in candidates:
-                        candidate_path = strategies_dir / candidate
+                    candidates.append(("Worker名称", f"{worker.name.lower().replace(' ', '_')}.py"))
+
+                    # 尝试精确匹配候选文件
+                    for candidate_type, candidate_name in candidates:
+                        candidate_path = strategies_dir / candidate_name
                         if candidate_path.exists():
                             strategy_path = str(candidate_path)
                             strategy_found = True
                             logger.info(
-                                f"[策略加载] 文件系统扫描找到策略: {candidate_path}"
+                                f"[策略加载] ✅ Layer 3: [{candidate_type}] 找到策略: {candidate_path}"
                             )
                             break
 
+                    # 如果仍然没找到，使用模糊匹配
                     if not strategy_found:
                         available_files = list(strategies_dir.glob("*.py"))
-                        available_names = [
-                            f.stem
-                            for f in available_files
-                            if f.stem != "__init__"
-                        ]
+                        available_names = [f.stem for f in available_files if f.stem != "__init__"]
+
+                        # 构建搜索关键词
+                        search_terms = []
+                        if strategy_name_from_worker:
+                            search_terms.append(strategy_name_from_worker)
+                        if worker.strategy_id and isinstance(worker.strategy_id, int) and worker.strategy_id < 10000:
+                            search_terms.append(str(worker.strategy_id))
+                        search_terms.append(worker.name.lower().replace(' ', '_'))
+
+                        # 对每个关键词尝试模糊匹配
+                        for term in search_terms:
+                            for avail_file in available_files:
+                                stem = avail_file.stem.lower()
+                                if term.lower() in stem or stem in term.lower():
+                                    strategy_path = str(avail_file)
+                                    strategy_found = True
+                                    logger.info(
+                                        f"[策略加载] ✅ Layer 3: 模糊匹配找到策略: {avail_file.name} "
+                                        f"(关键词: '{term}')"
+                                    )
+                                    break
+                            if strategy_found:
+                                break
+
+                    # 最终仍未找到
+                    if not strategy_found:
+                        available_names = [f.stem for f in list(strategies_dir.glob("*.py")) if f.stem != "__init__"]
                         logger.error(
-                            f"[策略加载] 策略文件未找到！\n"
+                            f"[策略加载] ❌ 策略文件未找到！\n"
+                            f"   - worker_id: {worker.id}\n"
+                            f"   - worker_name: {worker.name}\n"
                             f"   - strategy_id: {worker.strategy_id}\n"
+                            f"   - strategy_name: {strategy_name_from_worker}\n"
                             f"   - strategy_file_name: {strategy_file_name_from_config}\n"
-                            f"   - 可用策略文件: {available_names}"
+                            f"   - 可用策略文件 ({len(available_names)}个): {available_names[:10]}{'...' if len(available_names) > 10 else ''}"
                         )
                 else:
-                    logger.error(
-                        f"[策略加载] 策略目录不存在: {strategies_dir.absolute()}"
-                    )
+                    logger.error(f"[策略加载] ❌ 策略目录不存在: {strategies_dir.absolute()}")
 
         # 最终检查
         if not strategy_code and not strategy_path:
@@ -780,6 +939,7 @@ class WorkerCoreService:
                 message=(
                     f"无法加载策略文件。"
                     f"strategy_id={worker.strategy_id}, "
+                    f"strategy_name={strategy_name_from_worker}, "
                     f"请确认策略已正确配置或在数据库中存在。"
                 ),
             )
@@ -1095,56 +1255,94 @@ class WorkerCoreService:
                         message="Worker 启动失败（Nautilus Trader 初始化失败）",
                     )
 
-                # 等待进程初始化并检测存活状态（关键修复）
+                # 等待进程初始化并检测存活状态（智能等待策略）
                 import asyncio
-                await asyncio.sleep(2)  # 等待 2 秒让进程初始化
-                
+                from pathlib import Path
+
+                # Step 1: 快速验证进程启动（0.5秒）
+                await asyncio.sleep(0.5)
+
                 pid = manager.get_worker_pid(str(worker_id))
                 is_alive = False
-                
+
                 if pid:
                     try:
-                        # 检查进程是否存活
                         os.kill(pid, 0)  # 发送信号 0 检测进程是否存在
                         is_alive = True
-                        logger.info(f"[async_start_worker] Worker {worker_id} 进程存活检查通过 (PID: {pid})")
+                        logger.info(f"[async_start_worker] Worker {worker_id} 进程已启动 (PID: {pid})")
                     except (ProcessLookupError, OSError):
                         logger.warning(f"[async_start_worker] Worker {worker_id} 进程已退出 (PID: {pid})")
-                
+
                 if not is_alive and pid:
                     # 进程启动后立即退出 - 可能是初始化失败
                     logger.error(
                         f"[async_start_worker] Worker {worker_id} 启动后立即退出！"
                         f"PID: {pid} 已不存在"
                     )
-                    
-                    # 更新状态为 error
+
                     worker.status = "error"
                     worker.pid = None
                     db.commit()
-                    
+
                     raise WorkerStartError(
                         worker_id,
                         message="Worker 进程启动后立即退出（可能是策略加载失败或配置错误），请查看系统日志",
                     )
 
-                # Worker 启动成功且进程存活
-                logger.info(
-                    f"[async_start_worker] Worker {worker_id} 启动成功，更新状态为 running"
-                )
-                worker.status = "running"
-                worker.pid = pid
-                db.commit()
-                logger.info(
-                    f"[async_start_worker] Worker {worker_id} 已更新为 running 状态，"
-                    f"pid={worker.pid}"
-                )
+                # Step 2: 等待日志系统初始化（5秒）
+                logger.info(f"[async_start_worker] Worker {worker_id} 等待日志系统初始化...")
+                await asyncio.sleep(5)
 
-                return {
-                    "worker_id": worker_id,
-                    "status": "running",
-                    "pid": worker.pid,
-                }
+                # Step 3: 检查日志文件是否创建
+                log_file = Path(__file__).parent.parent / "logs" / f"worker_{worker_id}.log"
+                log_initialized = log_file.exists() and log_file.stat().st_size > 0
+
+                # Step 4: 再次检查进程存活
+                try:
+                    os.kill(pid, 0)
+                    process_still_alive = True
+                except (ProcessLookupError, OSError):
+                    process_still_alive = False
+
+                # Step 5: 决定最终状态
+                if process_still_alive:
+                    # 进程存活 - 根据日志情况决定状态
+                    if log_initialized:
+                        # 日志文件已创建 → 完全初始化成功
+                        final_status = "running"
+                        logger.info(
+                            f"[async_start_worker] Worker {worker_id} 初始化完成，状态: running"
+                        )
+                    else:
+                        # 进程在但无日志 → 可能还在初始化（如 Binance 连接慢）
+                        final_status = "starting"
+                        logger.info(
+                            f"[async_start_worker] Worker {worker_id} 进程运行中但日志未就绪，状态: starting"
+                        )
+
+                    worker.status = final_status
+                    worker.started_at = datetime.now()
+                    worker.pid = pid
+                    db.commit()
+
+                    return {
+                        "worker_id": worker_id,
+                        "status": final_status,
+                        "pid": pid,
+                        "log_initialized": log_initialized,
+                        "message": f"Worker 已启动（状态: {final_status}）"
+                    }
+                else:
+                    # 进程在等待期间退出
+                    logger.error(f"[async_start_worker] Worker {worker_id} 在初始化期间退出")
+                    worker.status = "error"
+                    worker.pid = None
+                    db.commit()
+
+                    raise WorkerStartError(
+                        worker_id,
+                        message="Worker 在初始化过程中退出，请查看系统日志了解详情",
+                    )
 
         except (WorkerNotFoundError, WorkerAlreadyRunningError, StrategyLoadError, ConfigPreparationError, WorkerStartError):
             raise
@@ -1211,33 +1409,140 @@ class WorkerCoreService:
             raise WorkerOperationError("停止", worker_id, message=str(e))
 
     async def async_stop_worker(self, worker_id: int) -> dict:
-        """异步版本停止 Worker"""
+        """
+        异步版本停止 Worker - 实现真正的优雅停止
+
+        停止策略（按优先级）：
+        1. 通过 Manager 发送 STOP 控制消息 → 触发 Worker._handle_stop()
+           - 停止 Nautilus 运行任务
+           - 取消未成交订单
+           - 调用 trading_node.dispose()/stop()
+           - 调用策略 on_stop()
+
+        2. 如果 Manager 不可用，使用 SIGTERM 信号 → 触发 Worker._handle_signal()
+           - 仅设置 _shutdown_event，不会执行完整清理流程
+
+        3. 如果超时未退出，使用 SIGKILL 强制终止
+
+        Args:
+            worker_id: Worker ID
+
+        Returns:
+            dict: {"worker_id": int, "status": "stopped"}
+        """
+        import asyncio
+
         try:
             with self.get_db() as db:
                 worker = crud.get_worker(db, worker_id)
                 if not worker:
                     raise WorkerNotFoundError(worker_id)
 
-                if worker.status == "stopped":
+                current_status = worker.status
+
+                # 如果已经是 stopped，直接返回
+                if current_status == "stopped":
                     return {"worker_id": worker_id, "status": "stopped", "message": "Worker 已停止"}
 
-                manager = self._get_manager()
-                success = await manager.stop_worker(str(worker_id))
+                pid = worker.pid
+                stopped_successfully = False
+                stop_method = "unknown"
 
-                if not success:
-                    raise WorkerOperationError("停止", worker_id, message="停止 Worker 失败")
+                # 方案 1 (推荐): 通过 Manager 发送 STOP 控制消息
+                # 这会触发 Worker._handle_stop() 执行完整的优雅停止流程
+                try:
+                    manager = self._get_manager()
+                    logger.info(f"[async_stop_worker] 尝试通过 Manager 发送 STOP 控制消息给 Worker {worker_id}")
 
+                    success = await manager.stop_worker(str(worker_id), timeout=30.0)
+
+                    if success:
+                        stop_method = "control_message"
+                        logger.info(f"[async_stop_worker] STOP 控制消息已发送给 Worker {worker_id}")
+
+                        # 等待进程优雅退出（最多 30 秒）
+                        if pid:
+                            for i in range(60):  # 30 秒 = 60 * 0.5秒
+                                await asyncio.sleep(0.5)
+                                try:
+                                    os.kill(pid, 0)  # 检查进程是否还在
+                                    if i % 10 == 9:  # 每 5 秒记录一次日志
+                                        logger.debug(f"[async_stop_worker] 等待 Worker {worker_id} 优雅退出... ({(i+1)*0.5:.1f}s)")
+                                except (ProcessLookupError, OSError):
+                                    # 进程已退出
+                                    stopped_successfully = True
+                                    logger.info(f"[async_stop_worker] Worker {worker_id} 已优雅退出 ({(i+1)*0.5:.1f}s)")
+                                    break
+                            else:
+                                # 超时但控制消息已发送，可能进程卡住了
+                                logger.warning(f"[async_stop_worker] Worker {worker_id} 未在 30s 内退出，将尝试强制终止")
+                except Exception as e:
+                    logger.warning(f"[async_stop_worker] Manager 方式失败: {e}, 将尝试信号方式")
+
+                # 方案 2 (备选): 使用 SIGTERM 信号
+                # 这会触发 Worker._handle_signal()，仅设置 _shutdown_event
+                if not stopped_successfully and pid:
+                    try:
+                        os.kill(pid, 0)  # 检查进程是否存在
+
+                        # 发送 SIGTERM 信号
+                        os.kill(pid, 15)  # SIGTERM = 15
+                        stop_method = "sigterm"
+                        logger.info(f"[async_stop_worker] 向 Worker {worker_id} (PID: {pid}) 发送 SIGTERM")
+
+                        # 等待进程退出（最多 15 秒）
+                        for i in range(30):  # 15 秒 = 30 * 0.5秒
+                            await asyncio.sleep(0.5)
+                            try:
+                                os.kill(pid, 0)  # 再次检查
+                            except (ProcessLookupError, OSError):
+                                # 进程已退出
+                                stopped_successfully = True
+                                logger.info(f"[async_stop_worker] Worker {worker_id} 进程已退出 (SIGTERM)")
+                                break
+                        else:
+                            # 超时
+                            logger.warning(f"[async_stop_worker] Worker {worker_id} 未响应 SIGTERM (15s)")
+
+                    except (ProcessLookupError, OSError) as e:
+                        # 进程不存在，可能已经退出了
+                        logger.info(f"[async_stop_worker] Worker {worker_id} 进程已不存在 (PID: {pid}): {e}")
+                        stopped_successfully = True
+                        stop_method = "already_exited"
+
+                # 方案 3 (最后手段): 强制终止 SIGKILL
+                if not stopped_successfully and pid:
+                    try:
+                        os.kill(pid, 0)  # 最后检查一次
+                        logger.warning(f"[async_stop_worker] 强制终止 Worker {worker_id} (PID: {pid}) SIGKILL")
+                        os.kill(pid, 9)  # SIGKILL = 9
+                        stop_method = "sigkill"
+
+                        # 短暂等待确认进程被杀死
+                        await asyncio.sleep(1)
+                        try:
+                            os.kill(pid, 0)
+                        except (ProcessLookupError, OSError):
+                            stopped_successfully = True
+                            logger.warning(f"[async_stop_worker] Worker {worker_id} 已被强制终止")
+                    except (ProcessLookupError, OSError):
+                        # 进程已经不存在了
+                        stopped_successfully = True
+                        stop_method = "already_exited"
+
+                # 更新数据库状态
                 worker.status = "stopped"
                 worker.pid = None
                 db.commit()
-                logger.info(f"[async_stop_worker] Worker {worker_id} 已停止")
+
+                logger.info(f"[async_stop_worker] Worker {worker_id} 已停止 (方式: {stop_method})")
 
                 return {"worker_id": worker_id, "status": "stopped"}
 
         except WorkerNotFoundError:
             raise
         except Exception as e:
-            logger.error(f"[async_stop_worker] 停止 Worker {worker_id} 失败: {e}")
+            logger.error(f"[async_stop_worker] 停止 Worker {worker_id} 失败: {e}", exc_info=True)
             raise WorkerOperationError("停止", worker_id, message=str(e))
 
     def restart_worker(self, worker_id: int) -> dict:
@@ -1408,6 +1713,8 @@ class WorkerCoreService:
         """
         获取 Worker 实时状态（通过 CommManager）
 
+        包含自动状态转换：starting → running（当检测到 Worker 已完全初始化）
+
         Args:
             worker_id: Worker ID
 
@@ -1424,6 +1731,40 @@ class WorkerCoreService:
 
                 # 尝试从 Manager 获取实时状态
                 worker_status = manager.get_worker_status(str(worker_id))
+
+                # 🔧 关键修复：自动状态转换 starting → running
+                if worker.status == "starting":
+                    worker_process = manager.get_worker(str(worker_id))
+                    
+                    if worker_process and worker_process.is_alive():
+                        # 进程存活，检查是否应该升级为 running
+                        pid = worker.pid
+                        
+                        if pid:
+                            try:
+                                os.kill(pid, 0)  # 验证进程存在
+                                
+                                # 检查运行时长和日志文件
+                                import time
+                                started_at = worker.started_at
+                                if started_at:
+                                    running_time = (datetime.utcnow() - started_at).total_seconds()
+                                    
+                                    # 如果运行超过 30 秒且进程存活，自动升级为 running
+                                    if running_time > 30:
+                                        logger.info(
+                                            f"[get_worker_status] Worker {worker_id} 自动状态转换: "
+                                            f"starting → running (运行 {running_time:.0f}s)"
+                                        )
+                                        worker.status = "running"
+                                        db.commit()
+                                        
+                            except (ProcessLookupError, OSError):
+                                # 进程已退出，保持 starting 或标记为 error
+                                logger.warning(f"[get_worker_status] Worker {worker_id} 进程已退出 (PID: {pid})")
+                                worker.status = "error"
+                                worker.pid = None
+                                db.commit()
 
                 if worker_status:
                     return {

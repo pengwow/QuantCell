@@ -371,6 +371,8 @@ class BinanceWebSocketClient(AbstractExchangeClient):
         try:
             while self._connected:
                 try:
+                    has_message = False
+
                     # 检查是否需要发送ping保持连接
                     current_time = time.time()
                     if current_time - self._last_ping_time > self._ping_interval:
@@ -388,7 +390,6 @@ class BinanceWebSocketClient(AbstractExchangeClient):
                         results = await asyncio.gather(*tasks, return_exceptions=True)
 
                         # 处理结果
-                        has_message = False
                         for result in results:
                             if isinstance(result, Exception):
                                 consecutive_errors += 1

@@ -401,7 +401,8 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
         name: values.name,
         description: values.description,
         strategy_id: strategyId,
-        strategy_file_name: strategyFileName,  // 新增：传递策略文件名
+        strategy_file_name: strategyFileName,  // 策略文件名
+        strategy_name: selectedStrategy?.name || null,  // 新增：策略名称（冗余存储）
         exchange: values.exchange,
         symbol: selectedSymbol.toUpperCase(),
         timeframe: values.timeframe,

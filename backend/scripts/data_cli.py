@@ -101,6 +101,10 @@ def scan_parquet_files(
     if base_dir is None:
         base_dir = get_source_data_dir()
 
+    # 确保 base_dir 是 Path 类型（防止外部传入字符串导致 TypeError）
+    if isinstance(base_dir, str):
+        base_dir = Path(base_dir)
+
     market_type = 'spot' if candle_type == "spot" else 'future'
     crypto_kline_dir = base_dir / 'crypto' / market_type / 'klines'
 
@@ -178,7 +182,23 @@ def scan_parquet_files(
 
 
 def filter_by_date_range(df: pd.DataFrame, start: Optional[str], end: Optional[str]) -> pd.DataFrame:
-    """按时间范围筛选 DataFrame"""
+    """
+    按时间范围筛选 DataFrame（自动检测时间戳精度）
+
+    支持多种时间戳精度：
+    - 秒级 (s): 10位数字，如 1767830400
+    - 毫秒级 (ms): 13位数字，如 1767830400000
+    - 微秒级 (us): 16位数字，如 1767830400000000
+    - 纳秒级 (ns): 19位数字，如 1767830400000000000
+
+    Args:
+        df: 包含 timestamp 或 date 列的 DataFrame
+        start: 开始日期字符串 (YYYY-MM-DD)
+        end: 结束日期字符串 (YYYY-MM-DD)
+
+    Returns:
+        筛选后的 DataFrame
+    """
     if df.empty or ('timestamp' not in df.columns and 'date' not in df.columns):
         return df
 
@@ -186,12 +206,49 @@ def filter_by_date_range(df: pd.DataFrame, start: Optional[str], end: Optional[s
     df[ts_col] = pd.to_numeric(df[ts_col], errors='coerce')
     df = df.dropna(subset=[ts_col])
 
+    if df.empty:
+        return df
+
+    # 🔧 自动检测数据中的时间戳精度
+    first_ts = int(df[ts_col].iloc[0])
+    ts_len = len(str(first_ts))
+
+    logger.debug(f"[filter_by_date_range] 检测到时间戳精度: {ts_len}位")
+
     if start:
-        start_ns = datetime_to_nanoseconds(datetime.strptime(start, "%Y-%m-%d"))
-        df = df[df[ts_col] >= start_ns]
+        start_dt = datetime.strptime(start, "%Y-%m-%d")
+        # 根据数据的时间戳精度转换日期
+        if ts_len > 16:  # 纳秒级 (19位)
+            start_ts = int(start_dt.timestamp() * 1_000_000_000)
+        elif ts_len > 13:  # 微秒级 (16位)
+            start_ts = int(start_dt.timestamp() * 1_000_000)
+        elif ts_len > 10:  # 毫秒级 (13位)
+            start_ts = int(start_dt.timestamp() * 1000)
+        else:  # 秒级 (10位)
+            start_ts = int(start_dt.timestamp())
+
+        logger.debug(f"[filter_by_date_range] 开始时间: {start} → {start_ts} ({ts_len}位)")
+        df = df[df[ts_col] >= start_ts]
+
     if end:
-        end_ns = datetime_to_nanoseconds(datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1))
-        df = df[df[ts_col] < end_ns]
+        end_dt = datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)
+        # 根据数据的时间戳精度转换日期
+        if ts_len > 16:  # 纳秒级 (19位)
+            end_ts = int(end_dt.timestamp() * 1_000_000_000)
+        elif ts_len > 13:  # 微秒级 (16位)
+            end_ts = int(end_dt.timestamp() * 1_000_000)
+        elif ts_len > 10:  # 毫秒级 (13位)
+            end_ts = int(end_dt.timestamp() * 1000)
+        else:  # 秒级 (10位)
+            end_ts = int(end_dt.timestamp())
+
+        logger.debug(f"[filter_by_date_range] 结束时间: {end} → {end_ts} ({ts_len}位)")
+        df = df[df[ts_col] < end_ts]
+
+    logger.info(
+        f"[filter_by_date_range] 时间筛选完成: "
+        f"保留 {len(df)} 条记录 (原始 {len(df) + (len(df[df[ts_col] < start_ts]) if start else 0)} 条)"
+    )
 
     return df
 

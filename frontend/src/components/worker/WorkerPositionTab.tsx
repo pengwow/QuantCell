@@ -10,6 +10,7 @@ import {
   Empty,
   Spin,
 } from 'antd';
+import { workerApi } from '@/api/workerApi';
 
 interface Position {
   id: number;
@@ -43,14 +44,20 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId }) => {
   const fetchPositionData = async () => {
     setLoading(true);
     try {
-      // TODO: 替换为实际的API调用
-      // const data = await workerApi.getPosition(workerId);
-      // setPositions(data);
+      // 调用实际API获取持仓数据
+      const response: any = await workerApi.getPositions(workerId);
 
-      // 临时：显示空状态，等待后端API
-      setPositions([]);
+      if (response && response.code === 0 && response.data?.items) {
+        setPositions(response.data.items);
+      } else if (Array.isArray(response)) {
+        // 兼容直接返回数组的格式
+        setPositions(response);
+      } else {
+        setPositions([]);
+      }
     } catch (error) {
       console.error('获取持仓数据失败:', error);
+      setPositions([]);
     } finally {
       setLoading(false);
     }

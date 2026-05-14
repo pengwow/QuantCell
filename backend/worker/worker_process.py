@@ -20,6 +20,7 @@ from core.port_manager import port_manager
 logger = get_logger(__name__, LogType.APPLICATION)
 from .ipc import WorkerCommClient, Message, MessageType
 from .state import WorkerState, WorkerStatus
+from .unified_file_logger import create_unified_logger
 
 
 class WorkerProcess(multiprocessing.Process):
@@ -65,6 +66,9 @@ class WorkerProcess(multiprocessing.Process):
         # 运行控制
         self._shutdown_event = multiprocessing.Event()
 
+        # 标记是否需要优雅停止（用于区分信号停止和控制消息停止）
+        self._graceful_stop_requested = False
+
         # 统计信息
         self._messages_processed = 0
         self._orders_placed = 0
@@ -82,6 +86,21 @@ class WorkerProcess(multiprocessing.Process):
         """
         # 设置环境变量，标识这是 Worker 进程
         os.environ['WORKER_ID'] = str(self.worker_id)
+
+        # 初始化统一文件日志器（确保所有日志都写入 worker_{id}.log）
+        try:
+            unified_file_logger = create_unified_logger(
+                worker_id=str(self.worker_id),
+                log_directory="logs",
+            )
+            # 安装各种日志捕获器
+            unified_file_logger.install_stdout_capture()    # 捕获 stdout 输出
+            unified_file_logger.install_stderr_capture()    # 捕获 stderr 输出（NautilusTrader 警告/错误日志）
+            unified_file_logger.install_logging_handler()   # 捕获 logging 模块日志
+            unified_file_logger.install_loguru_sink()       # 捕获 loguru 日志（DEBUG 及以上级别）
+            logger.info(f"[WorkerProcess] 统一文件日志器已初始化: logs/worker_{self.worker_id}.log")
+        except Exception as e:
+            logger.error(f"[WorkerProcess] 初始化统一文件日志器失败: {e}", exc_info=True)
 
         # 调试：记录子进程中的 worker_id
         logger.info(f"[WorkerProcess.run] 子进程启动，worker_id={self.worker_id}, pid={os.getpid()}")
@@ -174,8 +193,16 @@ class WorkerProcess(multiprocessing.Process):
 
                 # 等待一段时间
                 await asyncio.sleep(5)
-            
+
             logger.info(f"[WorkerProcess] Worker {self.worker_id} 主循环退出，_shutdown_event 已设置")
+
+            # 如果是通过信号触发的停止，执行完整的优雅停止流程（停止 Nautilus）
+            if self._graceful_stop_requested:
+                logger.info(f"[WorkerProcess] 检测到优雅停止请求，执行 Nautilus 停止流程...")
+                try:
+                    await self._handle_stop()
+                except Exception as e:
+                    logger.error(f"[WorkerProcess] 优雅停止 Nautilus 失败: {e}", exc_info=True)
 
         except asyncio.CancelledError:
             logger.info(f"Worker {self.worker_id} 控制循环被取消，正在优雅退出")
@@ -882,6 +909,103 @@ class WorkerProcess(multiprocessing.Process):
             self.status.record_error(f"{method_name}: {str(e)}")
             # 不抛出异常，防止 Worker 崩溃
 
+    async def _sync_orders_from_nautilus(self):
+        """
+        从 NautilusTrader Cache 同步活跃委托到本地数据库
+
+        核心逻辑：
+        1. 调用 trader.cache.orders_open() 获取所有未成交订单
+        2. 将每个 Order 对象转换为 WorkerOrder 记录
+        3. 使用 upsert 策略（存在则更新，不存在则插入）
+        """
+        if not hasattr(self, 'trader') or not self.trader:
+            return
+
+        try:
+            from datetime import datetime
+
+            # 获取所有开放的订单（未完全成交）
+            open_orders = self.trader.cache.orders_open()
+
+            for order in open_orders:
+                try:
+                    order_data = {
+                        'client_order_id': str(order.client_order_id),
+                        'venue_order_id': str(order.venue_order_id) if order.venue_order_id else None,
+                        'symbol': str(order.instrument_id.symbol),
+                        'side': str(order.side).upper(),
+                        'order_type': str(order.order_type).lower(),
+                        'quantity': float(order.quantity),
+                        'price': float(order.price) if order.price else None,
+                        'filled_qty': float(order.filled_qty),
+                        'avg_fill_price': float(order.avg_fill_price) if hasattr(order, 'avg_fill_price') else 0.0,
+                        'status': 'OPEN' if order.is_open_c() else str(order.status).upper(),
+                        'position_id': str(order.position_id) if order.position_id else None,
+                        'worker_id': self.worker_id,
+                        'updated_at': datetime.utcnow(),
+                    }
+
+                    # 保存到内存队列，后续批量持久化
+                    if not hasattr(self, '_pending_orders_to_sync'):
+                        self._pending_orders_to_sync = []
+                    self._pending_orders_to_sync.append(order_data)
+
+                except Exception as e:
+                    logger.warning(f"[{self.worker_id}] 处理订单 {order.client_order_id} 失败: {e}")
+
+            logger.debug(f"[{self.worker_id}] 同步了 {len(open_orders)} 个活跃委托")
+
+        except Exception as e:
+            logger.error(f"[{self.worker_id}] 同步委托失败: {e}")
+
+    async def _sync_positions_from_nautilus(self):
+        """
+        从 NautilusTrader Cache 同步当前持仓到本地数据库
+
+        核心逻辑：
+        1. 调用 trader.cache.positions_open() 获取所有当前持仓
+        2. 将每个 Position 对象转换为 WorkerPosition 记录
+        3. 使用 upsert 策略
+        """
+        if not hasattr(self, 'trader') or not self.trader:
+            return
+
+        try:
+            from datetime import datetime
+
+            # 获取所有开放的持仓
+            open_positions = self.trader.cache.positions_open()
+
+            for position in open_positions:
+                try:
+                    pos_data = {
+                        'position_id': str(position.position_id),
+                        'symbol': str(position.instrument_id.symbol),
+                        'side': str(position.side).upper(),
+                        'quantity': abs(float(position.quantity)),
+                        'entry_price': float(position.avg_entry_open) if hasattr(position, 'avg_entry_open') else float(position.entry_price) if hasattr(position, 'entry_price') else 0.0,
+                        'current_price': None,
+                        'unrealized_pnl': float(position.unrealized_pnl()) if hasattr(position, 'unrealized_pnl') and callable(position.unrealized_pnl) else 0.0,
+                        'realized_pnl': float(position.realized_pnl) if hasattr(position, 'realized_pnl') else 0.0,
+                        'status': 'OPEN',
+                        'opened_at': position.opened_time if hasattr(position, 'opened_time') else datetime.utcnow(),
+                        'worker_id': self.worker_id,
+                        'updated_at': datetime.utcnow(),
+                    }
+
+                    # 保存到内存队列，后续批量持久化
+                    if not hasattr(self, '_pending_positions_to_sync'):
+                        self._pending_positions_to_sync = []
+                    self._pending_positions_to_sync.append(pos_data)
+
+                except Exception as e:
+                    logger.warning(f"[{self.worker_id}] 处理持仓 {position.position_id} 失败: {e}")
+
+            logger.debug(f"[{self.worker_id}] 同步了 {len(open_positions)} 个持仓")
+
+        except Exception as e:
+            logger.error(f"[{self.worker_id}] 同步持仓失败: {e}")
+
     async def _send_heartbeat(self):
         """发送心跳消息"""
         self.status.update_heartbeat()
@@ -921,11 +1045,14 @@ class WorkerProcess(multiprocessing.Process):
         """
         处理系统信号
 
+        改进：标记需要优雅停止，让主循环退出后执行完整的 Nautilus 停止流程
+
         Args:
             signum: 信号编号
             frame: 当前栈帧
         """
-        logger.info(f"Worker {self.worker_id} 收到信号 {signum}")
+        logger.info(f"Worker {self.worker_id} 收到信号 {signum}，请求优雅停止")
+        self._graceful_stop_requested = True  # 标记需要优雅停止
         self._shutdown_event.set()
 
     async def _cleanup(self):
@@ -1285,12 +1412,12 @@ class TradingNodeWorkerProcess(WorkerProcess):
             check_count = 0
             save_interval_counter = 0
             while not self._shutdown_event.is_set():
-                # 每5秒检查一次 Nautilus 状态
                 check_count += 1
-                if check_count % 5 == 0:
-                    is_healthy = await self._check_nautilus_health()
-                    if not is_healthy:
-                        logger.warning(f"Worker {self.worker_id} Nautilus 健康检查失败")
+
+                # 每10秒同步一次委托和持仓状态（新增）
+                if check_count % 10 == 0:
+                    await self._sync_orders_from_nautilus()
+                    await self._sync_positions_from_nautilus()
 
                 # 每30秒触发一次数据持久化（备份机制）
                 save_interval_counter += 1
@@ -2063,53 +2190,6 @@ class TradingNodeWorkerProcess(WorkerProcess):
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 清理资源时出错: {e}")
             raise
-
-    async def _check_nautilus_health(self) -> bool:
-        """
-        检查 Nautilus 是否正常运行
-
-        Returns:
-            bool: Nautilus 是否健康
-        """
-        if not NAUTILUS_AVAILABLE or self.trading_node is None:
-            return False
-
-        try:
-            # 检查 TradingNode 是否正在运行
-            # 通过检查 kernel 是否存在且正在运行来判断
-            if hasattr(self.trading_node, '_kernel'):
-                kernel = self.trading_node._kernel
-                if kernel is None:
-                    logger.debug(f"Worker {self.worker_id} Nautilus kernel 为 None")
-                    return False
-
-                # 检查 kernel 是否正在运行
-                if hasattr(kernel, 'is_running'):
-                    is_running = kernel.is_running()
-                    if not is_running:
-                        logger.debug(f"Worker {self.worker_id} Nautilus kernel 未在运行")
-                    return is_running
-
-                # 如果无法直接检查 is_running，检查是否有 executor
-                if hasattr(kernel, '_executor'):
-                    executor = kernel._executor
-                    if executor is None:
-                        logger.debug(f"Worker {self.worker_id} Nautilus executor 为 None")
-                        return False
-
-                return True
-            else:
-                # 如果没有 _kernel 属性，尝试其他方式检查
-                # 检查 trading_node 是否有 is_running 方法
-                if hasattr(self.trading_node, 'is_running'):
-                    return self.trading_node.is_running()
-
-                # 默认认为正在运行（因为 trading_node 存在）
-                return True
-
-        except Exception as e:
-            logger.debug(f"Worker {self.worker_id} 检查 Nautilus 健康状态失败: {e}")
-            return False
 
     async def _call_strategy_method(self, method_name: str, *args, **kwargs):
         """安全调用策略方法"""

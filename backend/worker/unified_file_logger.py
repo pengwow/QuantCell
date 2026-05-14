@@ -97,9 +97,6 @@ class StdoutCapture:
     def fileno(self):
         return self._original_stdout.fileno()
 
-    def isatty(self) -> bool:
-        return self._original_stdout.isatty()
-
     @property
     def encoding(self) -> str:
         return self._original_stdout.encoding
@@ -111,6 +108,82 @@ class StdoutCapture:
     @property
     def buffer(self):
         return self._original_stdout.buffer
+
+
+class StderrCapture:
+    """
+    Stderr 捕获器（Tee 模式）
+
+    包装原始 stderr，将所有错误输出同时写入终端和日志文件。
+    用于捕获 NautilusTrader 等第三方库的警告和错误日志。
+    """
+
+    def __init__(
+        self,
+        original_stderr: TextIO,
+        unified_logger: "UnifiedFileLogger",
+    ):
+        self._original_stderr = original_stderr
+        self._unified_logger = unified_logger
+        self._closed = False
+
+    def write(self, data: str) -> int:
+        """写入数据到原始 stderr 和日志文件"""
+        if self._closed:
+            return 0
+        try:
+            result = self._original_stderr.write(data)
+        except (ValueError, OSError):
+            self._closed = True
+            return 0
+
+        if data and self._unified_logger:
+            try:
+                self._unified_logger.write_raw(data)
+            except Exception:
+                pass
+
+        return result
+
+    def flush(self):
+        """刷新缓冲区"""
+        if self._closed:
+            return
+        try:
+            self._original_stderr.flush()
+        except (ValueError, OSError):
+            self._closed = True
+        if self._unified_logger:
+            try:
+                self._unified_logger.flush()
+            except Exception:
+                pass
+
+    def close(self):
+        """关闭捕获器（不关闭底层 stderr）"""
+        self._closed = True
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def fileno(self):
+        return self._original_stderr.fileno()
+
+    @property
+    def encoding(self) -> str:
+        return self._original_stderr.encoding
+
+    @property
+    def errors(self) -> str:
+        return self._original_stderr.errors
+
+    @property
+    def buffer(self):
+        return self._original_stderr.buffer
+
+    def isatty(self) -> bool:
+        return self._original_stderr.isatty()
 
 
 class UnifiedFileLogger:
@@ -172,7 +245,9 @@ class UnifiedFileLogger:
         self._lock: threading.Lock = threading.Lock()
 
         self._original_stdout = sys.stdout
+        self._original_stderr = sys.stderr  # 保存原始 stderr
         self._installed: bool = False
+        self._stderr_installed: bool = False  # 标记 stderr 捕获是否已安装
         self._closed: bool = False
         self._loguru_sink_id: Optional[int] = None
 
@@ -211,6 +286,22 @@ class UnifiedFileLogger:
             sys.stdout = self._original_stdout
             self._installed = False
             logger.info(f"[UnifiedFileLogger] stdout捕获已卸载: {self.worker_id}")
+
+    def install_stderr_capture(self):
+        """安装 stderr 捕获（Tee 模式）- 用于捕获 NautilusTrader 等第三方库的警告/错误日志"""
+        if self._stderr_installed:
+            return
+
+        sys.stderr = StderrCapture(self._original_stderr, self)
+        self._stderr_installed = True
+        logger.info(f"[UnifiedFileLogger] stderr捕获已安装: {self.worker_id}")
+
+    def uninstall_stderr_capture(self):
+        """卸载 stderr 捕获"""
+        if self._stderr_installed and sys.stderr != self._original_stderr:
+            sys.stderr = self._original_stderr
+            self._stderr_installed = False
+            logger.info(f"[UnifiedFileLogger] stderr捕获已卸载: {self.worker_id}")
 
     def install_logging_handler(self):
         """安装 logging 模块 Handler"""
@@ -399,7 +490,8 @@ class UnifiedFileLogger:
         3. 移除 loguru sink（避免关闭后仍被回调）
         4. 移除 logging handler
         5. 关闭文件 handler
-        6. 最后卸载 stdout 捕获（恢复原始 stdout）
+        6. 卸载 stderr 捕获（恢复原始 stderr）
+        7. 最后卸载 stdout 捕获（恢复原始 stdout）
         """
         if self._closed:
             return
@@ -417,7 +509,8 @@ class UnifiedFileLogger:
                 pass
             self._file_handler = None
 
-        self.uninstall_stdout_capture()
+        self.uninstall_stderr_capture()  # 先卸载 stderr
+        self.uninstall_stdout_capture()  # 再卸载 stdout
 
 
 def create_unified_logger(
@@ -445,5 +538,6 @@ def create_unified_logger(
 __all__ = [
     "UnifiedFileLogger",
     "StdoutCapture",
+    "StderrCapture",
     "create_unified_logger",
 ]
