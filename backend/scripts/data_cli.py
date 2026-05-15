@@ -446,16 +446,19 @@ def _find_parquet_file(symbol: str, interval: str, candle_type: str = "spot") ->
     定位 Parquet 文件路径
 
     Args:
-        symbol: 交易对符号（如 BTCUSDT）
+        symbol: 交易对符号（如 BTCUSDT 或 ETH/USDT）
         interval: 时间周期（如 1h, 15m）
         candle_type: 市场类型 ("spot" 或 "future")
 
     Returns:
         Path: Parquet 文件的完整路径
     """
+    # 标准化货币对名称：移除斜杠（ETH/USDT → ETHUSDT）
+    normalized_symbol = symbol.upper().replace("/", "")
+    
     base_dir = get_source_data_dir()
     market_type = 'spot' if candle_type == "spot" else 'future'
-    return base_dir / 'crypto' / market_type / 'klines' / interval / f"{symbol.upper()}.parquet"
+    return base_dir / 'crypto' / market_type / 'klines' / interval / f"{normalized_symbol}.parquet"
 
 
 def _init_db_for_task_manager():
@@ -918,8 +921,9 @@ def export_parquet(
         if output:
             output_path = Path(output)
         else:
-            # 默认保存到当前目录
-            output_path = Path.cwd() / f"{symbol.upper()}_{interval}.parquet"
+            # 默认保存到当前目录（标准化货币对名称）
+            normalized_symbol = symbol.upper().replace("/", "")
+            output_path = Path.cwd() / f"{normalized_symbol}_{interval}.parquet"
             if verbose:
                 typer.echo(f"使用默认输出路径: {output_path}")
 

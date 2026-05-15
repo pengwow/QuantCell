@@ -9,6 +9,7 @@ from typing import Optional, Union
 
 import pandas as pd
 import requests
+import warnings
 from utils.logger import get_logger, LogType
 from utils.timestamp_utils import normalize_to_nanoseconds
 from utils.parquet_utils import append_to_parquet
@@ -17,6 +18,7 @@ from utils.parquet_utils import append_to_parquet
 logger = get_logger(__name__, LogType.APPLICATION)
 from exchange.base import BaseCollector
 from utils.decorators import deco_retry
+from utils.deprecation import deprecated
 
 
 class OKXDownloader(BaseCollector):
@@ -351,12 +353,14 @@ class OKXDownloader(BaseCollector):
             return len(df)
         return 0
 
+    @deprecated("2.1", "3.0", "scripts/data_cli.py export csv/parquet")
     def convert_to_qlib(self, csv_dir, qlib_dir, interval=None):
         """
         将下载的CSV数据转换为QLib格式
-        
-        注意：此功能已弃用，QLib转换不再支持。
-        如需数据格式转换，请使用 scripts/data_cli.py 的导出功能。
+
+        .. deprecated:: 2.1
+            此功能已弃用，QLib转换不再支持。
+            如需数据格式转换，请使用 scripts/data_cli.py 的导出功能。
 
         :param csv_dir: CSV数据目录
         :param qlib_dir: QLib数据保存目录
@@ -378,7 +382,23 @@ class OKXDownloader(BaseCollector):
         return result
 
 
-# 向后兼容别名
-OKXCollector = OKXDownloader
+# 向后兼容别名（带弃用警告）
+def _okx_collector_init_warning(self, *args, **kwargs):
+    """
+    .. deprecated:: 2.1
+        请使用 OKXDownloader 替代
+    """
+    warnings.warn(
+        "OKXCollector 类名已弃用（v2.1），请使用 OKXDownloader",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    OKXDownloader.__init__(self, *args, **kwargs)
+
+OKXCollector = type('OKXCollector', (OKXDownloader,), {
+    '__module__': 'exchange.okx.downloader',
+    '__doc__': '.. deprecated:: 2.1\n\n    请使用 :class:`OKXDownloader` 替代',
+    '__init__': _okx_collector_init_warning
+})
 
 __all__ = ["OKXDownloader", "OKXCollector"]

@@ -100,6 +100,10 @@ class LogRecord:
         return data
 
 
+from utils.deprecation import deprecated
+
+
+@deprecated("2.0", "3.0", "utils.file_log_manager.FileLogManager")
 class DatabaseLogHandler:
     """
     数据库日志处理器（已弃用）

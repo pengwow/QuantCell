@@ -22,6 +22,7 @@ import {
   Modal,
   App,
   Dropdown,
+  Checkbox,
 } from 'antd';
 import {
   PlusOutlined,
@@ -41,6 +42,8 @@ import {
   UnorderedListOutlined,
   EyeOutlined,
   MoreOutlined,
+  CheckSquareOutlined,
+  BorderOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { useWorkerStore } from '../../store/workerStore';
@@ -78,6 +81,9 @@ const Worker = () => {
     startWorker,
     stopWorker,
     restartWorker,
+    batchStartWorkers,
+    batchStopWorkers,
+    batchRestartWorkers,
     clearErrors,
   } = useWorkerStore();
 
@@ -88,6 +94,10 @@ const Worker = () => {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [tradePagination, setTradePagination] = useState({ current: 1, pageSize: 10 });
+
+  // 批量操作状态
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchOperationLoading, setBatchOperationLoading] = useState(false);
   
   // 视图类型状态 - 卡片/列表
   const [viewType, setViewType] = useState<'card' | 'list'>('card');
@@ -267,19 +277,67 @@ const Worker = () => {
   // Event handlers
   const handleStart = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
     e.stopPropagation();
-    const success = await startWorker(worker.id);
-    if (success) {
+    try {
+      await startWorker(worker.id);
       apiMessage.success(t('worker_start_success'));
+    } catch (error: any) {
+      const errorMsg = error?.message || error?.toString() || '未知错误';
+
+      if (
+        errorMsg.includes('非法状态转换') ||
+        errorMsg.includes('can_transition') ||
+        errorMsg.includes('cannot transition')
+      ) {
+        apiMessage.warning({
+          content: (
+            <div>
+              <div><strong>{worker.name}</strong> 当前不允许启动</div>
+              <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                原因: {errorMsg}
+              </div>
+            </div>
+          ),
+          duration: 5,
+        });
+      } else if (errorMsg.includes('already running') || errorMsg.includes('已在运行')) {
+        apiMessage.info(`${worker.name} 已在运行中`);
+      } else {
+        apiMessage.error(`启动失败: ${errorMsg}`);
+      }
     }
-  }, [startWorker, t]);
+  }, [startWorker, t, apiMessage]);
 
   const handleStop = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
     e.stopPropagation();
-    const success = await stopWorker(worker.id);
-    if (success) {
+    try {
+      await stopWorker(worker.id);
       apiMessage.success(t('worker_stop_success'));
+    } catch (error: any) {
+      const errorMsg = error?.message || error?.toString() || '未知错误';
+
+      if (
+        errorMsg.includes('非法状态转换') ||
+        errorMsg.includes('can_transition') ||
+        errorMsg.includes('cannot transition')
+      ) {
+        apiMessage.warning({
+          content: (
+            <div>
+              <div><strong>{worker.name}</strong> 当前不允许停止</div>
+              <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                原因: {errorMsg}
+              </div>
+            </div>
+          ),
+          duration: 5,
+        });
+      } else if (errorMsg.includes('already stopped') || errorMsg.includes('已停止')) {
+        apiMessage.info(`${worker.name} 已停止`);
+      } else {
+        apiMessage.error(`停止失败: ${errorMsg}`);
+      }
     }
-  }, [stopWorker, t]);
+  }, [stopWorker, t, apiMessage]);
 
   const handleRestart = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -288,6 +346,85 @@ const Worker = () => {
       apiMessage.success(t('worker_restart_success'));
     }
   }, [restartWorker, t]);
+
+  // ============================================
+  // 批量操作处理函数
+  // ============================================
+
+  const handleBatchStart = useCallback(async () => {
+    if (selectedRowKeys.length === 0) return;
+    setBatchOperationLoading(true);
+    try {
+      const result = await batchStartWorkers(selectedRowKeys.map(Number));
+      const successCount = result?.success?.length || 0;
+      const failCount = Object.keys(result?.failed || {}).length;
+
+      if (failCount === 0) {
+        apiMessage.success(`成功启动 ${successCount} 个 Worker`);
+      } else {
+        apiMessage.warning(
+          `部分成功: ${successCount} 个启动成功, ${failCount} 个失败`,
+          5
+        );
+        if (result?.results) {
+          console.table(result.results.filter((r: any) => !r.success));
+        }
+      }
+      setSelectedRowKeys([]);
+    } catch (error: any) {
+        apiMessage.error(`批量启动失败: ${error.message}`);
+    } finally {
+      setBatchOperationLoading(false);
+    }
+  }, [selectedRowKeys, batchStartWorkers, apiMessage]);
+
+  const handleBatchStop = useCallback(async () => {
+    if (selectedRowKeys.length === 0) return;
+    setBatchOperationLoading(true);
+    try {
+      const result = await batchStopWorkers(selectedRowKeys.map(Number));
+      const successCount = result?.success?.length || 0;
+      const failCount = Object.keys(result?.failed || {}).length;
+
+      if (failCount === 0) {
+        apiMessage.success(`成功停止 ${successCount} 个 Worker`);
+      } else {
+        apiMessage.warning(
+          `部分成功: ${successCount} 个停止成功, ${failCount} 个失败`,
+          5
+        );
+      }
+      setSelectedRowKeys([]);
+    } catch (error: any) {
+      apiMessage.error(`批量停止失败: ${error.message}`);
+    } finally {
+      setBatchOperationLoading(false);
+    }
+  }, [selectedRowKeys, batchStopWorkers, apiMessage]);
+
+  const handleBatchRestart = useCallback(async () => {
+    if (selectedRowKeys.length === 0) return;
+    setBatchOperationLoading(true);
+    try {
+      const result = await batchRestartWorkers(selectedRowKeys.map(Number));
+      const successCount = result?.success?.length || 0;
+      const failCount = Object.keys(result?.failed || {}).length;
+
+      if (failCount === 0) {
+        apiMessage.success(`成功重启 ${successCount} 个 Worker`);
+      } else {
+        apiMessage.warning(
+          `部分成功: ${successCount} 个重启成功, ${failCount} 个失败`,
+          5
+        );
+      }
+      setSelectedRowKeys([]);
+    } catch (error: any) {
+      apiMessage.error(`批量重启失败: ${error.message}`);
+    } finally {
+      setBatchOperationLoading(false);
+    }
+  }, [selectedRowKeys, batchRestartWorkers, apiMessage]);
 
   const handleDelete = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -507,6 +644,61 @@ const Worker = () => {
             </Col>
           </Row>
 
+          {/* 批量操作工具栏 - 仅在选中 Worker 时显示 */}
+          {selectedRowKeys.length > 0 && (
+            <div
+              style={{
+                marginBottom: 16,
+                padding: '12px 16px',
+                background: 'linear-gradient(135deg, #e6f7ff 0%, #bae0ff 100%)',
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span style={{ fontSize: 14, color: '#1890ff' }}>
+                <CheckSquareOutlined style={{ marginRight: 8 }} />
+                已选择 <strong>{selectedRowKeys.length}</strong> 个 Worker
+              </span>
+              <Space>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<PlayCircleOutlined />}
+                  loading={batchOperationLoading}
+                  onClick={handleBatchStart}
+                >
+                  批量启动
+                </Button>
+                <Button
+                  danger
+                  size="small"
+                  icon={<StopOutlined />}
+                  loading={batchOperationLoading}
+                  onClick={handleBatchStop}
+                >
+                  批量停止
+                </Button>
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  loading={batchOperationLoading}
+                  onClick={handleBatchRestart}
+                >
+                  批量重启
+                </Button>
+                <Button
+                  size="small"
+                  icon={<BorderOutlined />}
+                  onClick={() => setSelectedRowKeys([])}
+                >
+                  取消选择
+                </Button>
+              </Space>
+            </div>
+          )}
+
           {/* Main Content */}
           <Row gutter={[16, 16]}>
             {/* Worker List */}
@@ -539,6 +731,18 @@ const Worker = () => {
                           }}
                           extra={
                             <Space size={4}>
+                              <Checkbox
+                                checked={selectedRowKeys.includes(worker.id)}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  if (e.target.checked) {
+                                    setSelectedRowKeys([...selectedRowKeys, worker.id]);
+                                  } else {
+                                    setSelectedRowKeys(selectedRowKeys.filter(key => key !== worker.id));
+                                  }
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              />
                               <Tooltip title={t('edit')}>
                                 <Button
                                   type="text"
@@ -701,6 +905,10 @@ const Worker = () => {
                     size="small"
                     pagination={false}
                     scroll={{ x: 800 }}
+                    rowSelection={{
+                      selectedRowKeys,
+                      onChange: (keys) => setSelectedRowKeys(keys),
+                    }}
                     onRow={(worker) => ({
                       onClick: () => setSelectedWorker(worker),
                       style: { cursor: 'pointer', backgroundColor: selectedWorker?.id === worker.id ? '#e6f7ff' : undefined }

@@ -27,9 +27,10 @@ class Worker(Base):
     # Worker状态: stopped, running, paused, error, starting, stopping
     status = Column(String(20), default='stopped', index=True)
 
-    # 策略关联 - 使用 back_populates 保持双向关系同步
+    # 策略关联 - 使用延迟加载避免子进程中的映射错误
+    # 原因：Worker 子进程中可能未导入 Strategy 模型，导致 selectin 模式无法解析
     strategy_id = Column(Integer, ForeignKey('strategies.id'), nullable=True)
-    strategy = relationship("Strategy", back_populates="workers", lazy="selectin")
+    strategy = relationship("Strategy", back_populates="workers", lazy="select")
 
     # 策略名称（冗余存储，用于在 strategy_id 失效时通过名称查找策略）
     # 当策略被删除或 ID 不存在时，可以通过此字段重新关联

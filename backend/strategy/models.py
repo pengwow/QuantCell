@@ -5,6 +5,7 @@
 提供策略的数据库存储和管理功能。
 """
 
+import warnings
 from typing import Optional, Dict, Any, List
 
 from sqlalchemy import (
@@ -84,22 +85,62 @@ class Strategy(Base):
 
     @property
     def content(self) -> Optional[str]:
-        """兼容 collector.db.models 的 content 属性"""
+        """
+        兼容 collector.db.models 的 content 属性
+
+        .. deprecated:: 2.0
+            请使用 .code 属性替代
+        """
+        warnings.warn(
+            "Strategy.content 属性已弃用（v2.0），请使用 .code",
+            DeprecationWarning,
+            stacklevel=2
+        )
         return self.code
 
     @content.setter
     def content(self, value: Optional[str]):
-        """兼容 collector.db.models 的 content 属性"""
+        """
+        兼容 collector.db.models 的 content 属性
+
+        .. deprecated:: 2.0
+            请使用 .code 属性替代
+        """
+        warnings.warn(
+            "Strategy.content 属性已弃用（v2.0），请使用 .code",
+            DeprecationWarning,
+            stacklevel=2
+        )
         self.code = value
 
     @property
     def filename(self) -> Optional[str]:
-        """兼容 collector.db.models 的 filename 属性"""
+        """
+        兼容 collector.db.models 的 filename 属性
+
+        .. deprecated:: 2.0
+            请使用 .file_name 属性替代
+        """
+        warnings.warn(
+            "Strategy.filename 属性已弃用（v2.0），请使用 .file_name",
+            DeprecationWarning,
+            stacklevel=2
+        )
         return self.file_name
 
     @filename.setter
     def filename(self, value: Optional[str]):
-        """兼容 collector.db.models 的 filename 属性"""
+        """
+        兼容 collector.db.models 的 filename 属性
+
+        .. deprecated:: 2.0
+            请使用 .file_name 属性替代
+        """
+        warnings.warn(
+            "Strategy.filename 属性已弃用（v2.0），请使用 .file_name",
+            DeprecationWarning,
+            stacklevel=2
+        )
         self.file_name = value
 
     def to_dict(self) -> Dict[str, Any]:

@@ -53,11 +53,12 @@ class BacktestService:
         symbols: List[str],
         timeframes: List[str],
         engine_type: str,
-        config: Optional[Dict] = None
-    ) -> int:
+        config: Optional[Dict] = None,
+        task_id: Any = None
+    ) -> Any:
         """
         创建回测任务
-        
+
         Args:
             strategy_name: 策略名称
             strategy_params: 策略参数
@@ -65,11 +66,13 @@ class BacktestService:
             timeframes: 时间周期列表
             engine_type: 引擎类型 (default/event)
             config: 回测配置
-            
+            task_id: 可选的任务ID（如果提供则使用，否则自动生成）
+
         Returns:
-            int: 任务ID
+            任务ID（与传入的 task_id 相同类型，或生成的整数）
         """
-        task_id = int(datetime.now().timestamp() * 1000)
+        if task_id is None:
+            task_id = int(datetime.now().timestamp() * 1000)
         
         task_data = {
             "id": task_id,
@@ -95,7 +98,7 @@ class BacktestService:
     
     def run_backtest(
         self,
-        task_id: int,
+        task_id: Any,
         progress_tracker=None
     ) -> Dict[str, Any]:
         """
@@ -119,9 +122,13 @@ class BacktestService:
         try:
             # 更新状态为运行中
             self._update_task_status(task_id, "running")
-            
+
             if progress_tracker:
-                progress_tracker.update_progress(10.0, "正在初始化...")
+                progress_tracker.update_progress(
+                    task_id=str(task_id),
+                    stage="overall",
+                    data={"progress": 10.0, "status": "running"}
+                )
             
             # 调用引擎服务执行回测
             from backtest.data_provider import BacktestDataProvider
@@ -133,8 +140,8 @@ class BacktestService:
             
             if task['engine_type'] == 'event':
                 service = EventDrivenBacktestService(data_provider)
-                
-                result = service.run_backtest(
+
+                raw_result = service.run_backtest(
                     strategy_name=task['strategy_name'],
                     strategy_params=task.get('strategy_params', {}),
                     symbols=task['symbols'],
@@ -145,6 +152,15 @@ class BacktestService:
                     },
                     show_progress=False
                 )
+
+                # 将引擎原始结果包装为标准响应格式
+                result = {
+                    'status': 'completed',
+                    'message': '回测执行成功',
+                    'successful_currencies': task['symbols'],
+                    'failed_currencies': [],
+                    'results': raw_result
+                }
             else:
                 service = DefaultBacktestService(data_provider)
                 
@@ -169,18 +185,36 @@ class BacktestService:
                     config=engine_config,
                     show_progress=False
                 )
+
+                # 将引擎原始结果包装为标准响应格式
+                raw_result = result
+                result = {
+                    'status': 'completed',
+                    'message': '回测执行成功',
+                    'successful_currencies': task['symbols'],
+                    'failed_currencies': [],
+                    'results': raw_result if isinstance(raw_result, dict) else {'stats': raw_result}
+                }
             
             if progress_tracker:
-                progress_tracker.update_progress(90.0, "正在保存结果...")
-            
+                progress_tracker.update_progress(
+                    task_id=str(task_id),
+                    stage="overall",
+                    data={"progress": 90.0, "status": "running"}
+                )
+
             # 保存结果
             self._save_result(task_id, result)
-            
+
             # 更新状态为完成
             self._update_task_status(task_id, "completed")
-            
+
             if progress_tracker:
-                progress_tracker.update_progress(100.0, "完成")
+                progress_tracker.update_progress(
+                    task_id=str(task_id),
+                    stage="overall",
+                    data={"progress": 100.0, "status": "completed"}
+                )
             
             return result
             
@@ -303,42 +337,42 @@ class BacktestService:
         
         return deleted
     
-    def _load_task(self, task_id: int) -> Optional[Dict]:
+    def _load_task(self, task_id: Any) -> Optional[Dict]:
         """加载任务配置"""
         task_file = self._get_task_file(task_id)
-        
+
         if not task_file.exists():
             return None
-        
+
         with open(task_file, 'r', encoding='utf-8') as f:
             return json.load(f)
-    
-    def _update_task_status(self, task_id: int, status: str):
+
+    def _update_task_status(self, task_id: Any, status: str):
         """更新任务状态"""
         task = self._load_task(task_id)
         if task:
             task['status'] = status
             task['updated_at'] = datetime.now().isoformat()
-            
+
             task_file = self._get_task_file(task_id)
             with open(task_file, 'w', encoding='utf-8') as f:
                 json.dump(task, f, indent=2, ensure_ascii=False, default=str)
-    
-    def _save_result(self, task_id: int, result: Dict):
+
+    def _save_result(self, task_id: Any, result: Dict):
         """保存回测结果"""
         result_file = self._get_result_file(task_id)
-        
+
         with open(result_file, 'w', encoding='utf-8') as f:
             json.dump(result, f, indent=2, ensure_ascii=False, default=str)
-        
+
         self.logger.info(f"保存回测结果: {result_file}")
-    
-    def _get_task_file(self, task_id: int) -> Path:
+
+    def _get_task_file(self, task_id: Any) -> Path:
         """获取任务文件路径"""
         tasks_dir = self.results_dir.parent / 'backtest_tasks'
         tasks_dir.mkdir(parents=True, exist_ok=True)
         return tasks_dir / f'task_{task_id}.json'
-    
-    def _get_result_file(self, result_id: int) -> Path:
+
+    def _get_result_file(self, result_id: Any) -> Path:
         """获取结果文件路径"""
         return self.results_dir / f'result_{result_id}.json'
