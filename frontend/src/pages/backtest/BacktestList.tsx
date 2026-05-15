@@ -267,7 +267,7 @@ const BacktestList = () => {
       result = result.filter(
         (task) =>
           task.strategy_name?.toLowerCase().includes(lowerSearch) ||
-          task.id?.toLowerCase().includes(lowerSearch)
+          String(task.id ?? '').toLowerCase().includes(lowerSearch)
       );
     }
 

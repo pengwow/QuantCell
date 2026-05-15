@@ -515,7 +515,6 @@ const Worker = () => {
             precision={2}
             prefix={'$'}
             styles={{ content: { color: statusStats.totalProfit >= 0 ? '#52c41a' : '#ff4d4f' } }}
-            valueStyle={{ color: statusStats.totalProfit >= 0 ? '#52c41a' : '#ff4d4f' }}
           />
         </Card>
       </Col>
