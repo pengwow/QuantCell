@@ -41,7 +41,9 @@ class WorkerProcess(multiprocessing.Process):
         control_port: Optional[int] = None,
         status_port: Optional[int] = None,
     ):
-        super().__init__(daemon=True)
+        # ✅ 修复：改为 daemon=False，允许 Worker 进程在父进程退出后继续运行
+        # 原因：daemon=True 会导致父进程（CLI）退出时自动终止子进程，造成 Worker 收到 SIGTERM
+        super().__init__(daemon=False)
 
         self.worker_id = worker_id
         self.strategy_path = strategy_path
@@ -187,22 +189,50 @@ class WorkerProcess(multiprocessing.Process):
 
             # 5. 主循环 - 等待关闭信号
             logger.info(f"[WorkerProcess] Worker {self.worker_id} 进入主循环，等待 _shutdown_event...")
-            while not self._shutdown_event.is_set():
-                # 发送心跳
-                await self._send_heartbeat()
 
-                # 等待一段时间
+            from .graceful_shutdown import GracefulShutdownManager, ShutdownConfig
+
+            shutdown_config = ShutdownConfig(
+                total_timeout=30.0,
+                drain_timeout=10.0,
+                service_stop_timeout=10.0,
+                force_kill_after_timeout=True,
+            )
+
+            shutdown_mgr = GracefulShutdownManager(
+                config=shutdown_config,
+                on_drain=self._drain_in_progress_operations,
+                on_stop_services=self._handle_stop,
+                on_cleanup=self._cleanup_resources,
+            )
+
+            while not self._shutdown_event.is_set():
+                await self._send_heartbeat()
                 await asyncio.sleep(5)
 
             logger.info(f"[WorkerProcess] Worker {self.worker_id} 主循环退出，_shutdown_event 已设置")
 
-            # 如果是通过信号触发的停止，执行完整的优雅停止流程（停止 Nautilus）
+            # 使用停机管理器执行优雅停机
             if self._graceful_stop_requested:
-                logger.info(f"[WorkerProcess] 检测到优雅停止请求，执行 Nautilus 停止流程...")
+                logger.info(f"[WorkerProcess] 检测到优雅停止请求，启动 GracefulShutdownManager...")
                 try:
-                    await self._handle_stop()
+                    shutdown_status = await shutdown_mgr.shutdown()
+
+                    if shutdown_status.timeout_occurred:
+                        logger.error(
+                            f"[WorkerProcess] 优雅停机超时 (耗时: {shutdown_status.duration_seconds:.2f}s)"
+                        )
+                    else:
+                        logger.info(
+                            f"[WorkerProcess] 优雅停机完成 "
+                            f"(耗时: {shutdown_status.duration_seconds:.2f}s, "
+                            f"阶段: {shutdown_status.phases_completed}/{len(shutdown_status.phase_results)})"
+                        )
+
                 except Exception as e:
-                    logger.error(f"[WorkerProcess] 优雅停止 Nautilus 失败: {e}", exc_info=True)
+                    logger.error(f"[WorkerProcess] GracefulShutdownManager 执行异常: {e}", exc_info=True)
+                    fallback_result = await self._handle_stop()
+                    logger.warning(f"[WorkerProcess] 回退到直接停止方法: {fallback_result}")
 
         except asyncio.CancelledError:
             logger.info(f"Worker {self.worker_id} 控制循环被取消，正在优雅退出")
@@ -857,6 +887,61 @@ class WorkerProcess(multiprocessing.Process):
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 处理控制命令错误: {e}")
             self.status.record_error(str(e))
+
+    async def _drain_in_progress_operations(self):
+        """
+        排空进行中的操作（GracefulShutdown Phase 1）
+
+        等待当前正在进行的订单、交易等操作完成或达到安全状态
+        """
+        logger.info(f"[WorkerProcess] [{self.worker_id}] 排空进行中的操作...")
+
+        try:
+            if hasattr(self, 'trader') and self.trader:
+                open_orders = len(self.trader.cache.orders_open())
+                if open_orders > 0:
+                    logger.info(
+                        f"[WorkerProcess] [{self.worker_id}] 检测到 {open_orders} 个活跃订单，"
+                        f"等待处理..."
+                    )
+                    await asyncio.sleep(2)
+                else:
+                    logger.debug(
+                        f"[WorkerProcess] [{self.worker_id}] 无活跃订单，跳过等待"
+                    )
+            else:
+                logger.debug(
+                    f"[WorkerProcess] [{self.worker_id}] trader 未初始化，跳过排空"
+                )
+
+        except Exception as e:
+            logger.warning(
+                f"[WorkerProcess] [{self.worker_id}] 排空阶段异常（非致命）: {e}"
+            )
+
+    async def _cleanup_resources(self):
+        """清理资源（GracefulShutdown Phase 3）"""
+        logger.info(f"[WorkerProcess] [{self.worker_id}] 清理资源...")
+
+        try:
+            if hasattr(self, 'comm_client') and self.comm_client:
+                await self.comm_client.disconnect()
+                logger.debug(f"[WorkerProcess] [{self.worker_id}] 通信连接已断开")
+
+            if hasattr(self, '_pending_orders_to_sync'):
+                pending_count = len(self._pending_orders_to_sync)
+                if pending_count > 0:
+                    logger.warning(
+                        f"[WorkerProcess] [{self.worker_id}] "
+                        f"仍有 {pending_count} 个订单未同步"
+                    )
+
+            logger.info(f"[WorkerProcess] [{self.worker_id}] 资源清理完成")
+
+        except Exception as e:
+            logger.error(
+                f"[WorkerProcess] [{self.worker_id}] 资源清理异常: {e}"
+            )
 
     async def _handle_stop(self):
         """处理停止命令"""
@@ -1731,6 +1816,7 @@ class TradingNodeWorkerProcess(WorkerProcess):
             return
 
         try:
+            from strategy.models import Strategy
             from worker.models import WorkerTrade
             from collector.db.database import SessionLocal
 

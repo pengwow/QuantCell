@@ -21,10 +21,27 @@
 日期: 2026-02-12
 """
 
+import warnings
 from exchange.base import BaseExchange, CryptoBaseCollector
 
-# 向后兼容：Exchange别名
-Exchange = BaseExchange
+# 向后兼容：Exchange别名（带弃用警告）
+def _exchange_init_warning(self, *args, **kwargs):
+    """
+    .. deprecated:: 2.1
+        请使用 BaseExchange 替代
+    """
+    warnings.warn(
+        "Exchange 类名已弃用（v2.1），请使用 BaseExchange",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    BaseExchange.__init__(self, *args, **kwargs)
+
+Exchange = type('Exchange', (BaseExchange,), {
+    '__module__': 'exchange',
+    '__doc__': '.. deprecated:: 2.1\n\n    请使用 :class:`BaseExchange` 替代',
+    '__init__': _exchange_init_warning
+})
 from exchange.types import (
     # 枚举类型
     OrderSide,

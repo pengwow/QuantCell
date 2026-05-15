@@ -232,43 +232,55 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"WebSocket连接管理器或系统信息推送服务启动失败: {e}")
 
+    # 初始化 Worker System（全局单例，统一管理所有 Worker）
+    _worker_system_available = False
+    try:
+        from worker.worker_system import worker_system
+        _worker_system_available = True
+        logger.info("正在初始化 Worker System...")
+        try:
+            await worker_system.initialize()
+            summary = worker_system.get_summary()
+            logger.info(
+                f"✓ Worker System 初始化完成 | "
+                f"Worker 总数: {summary['total_workers']} | "
+                f"状态分布: {summary['status_breakdown']}"
+            )
+        except Exception as init_err:
+            logger.error(f"Worker System 初始化失败: {init_err}")
+            logger.warning(
+                "Worker 相关功能将不可用，但其他 API 正常工作。"
+                "可后续通过 CLI 手动初始化 (worker_cli.py init)"
+            )
+    except ImportError as import_err:
+        logger.warning(f"Worker System 模块导入失败（可能缺少依赖）: {import_err}")
+        logger.warning("Worker 功能将被禁用，不影响其他功能运行")
+    except Exception as import_err:
+        logger.error(f"Worker System 导入时发生意外错误: {import_err}")
+
     yield
 
     # ========== 应用关闭阶段（必须保证执行完毕） ==========
     # 使用 try/finally + CancelledError 保护，确保 Ctrl+C 时关键资源也能清理
     logger.info("========== 应用开始关闭 ==========")
 
-    # 步骤 1: 停止所有 Worker 进程（最高优先级，防止孤儿进程）
-    try:
-        from worker.api.routes import shutdown_worker_manager
-        await asyncio.wait_for(shutdown_worker_manager(), timeout=60.0)
-        logger.info("所有 Worker 进程已停止")
-    except asyncio.CancelledError:
-        logger.warning("停止 Worker 进程时被中断（CancelledError），尝试快速终止...")
+    # 步骤 1: 关闭 Worker System 全局单例（统一管理：停止进程 + 清理状态 + 关闭Manager后台任务）
+    if _worker_system_available:
         try:
-            from worker.api.routes import _worker_manager
-            if _worker_manager is not None:
-                for wid, w in list(_worker_manager._workers.items()):
-                    if w.is_alive():
-                        w.terminate()
-                _worker_manager._workers.clear()
-                logger.info("Worker 进程已强制终止")
-        except Exception as e2:
-            logger.error(f"强制终止 Worker 失败: {e2}")
-        raise
-    except Exception as e:
-        logger.error(f"停止 Worker 进程失败: {e}")
-
-    # 步骤 2: 停止 WorkerService（清理 ZMQ 通信资源）
-    try:
-        from worker.service import worker_service
-        await asyncio.wait_for(worker_service.shutdown(), timeout=10.0)
-        logger.info("WorkerService 已停止")
-    except CancelledError:
-        logger.warning("WorkerService 停止被中断")
-        raise
-    except Exception as e:
-        logger.error(f"停止 WorkerService 失败: {e}")
+            from worker.worker_system import worker_system
+            logger.info("正在关闭 Worker System...")
+            try:
+                await asyncio.wait_for(worker_system.shutdown(), timeout=30.0)
+                logger.info("✓ Worker System 已优雅关闭")
+            except Exception as ws_err:
+                logger.error(f"Worker System 关闭失败: {ws_err}")
+        except ImportError:
+            logger.debug("Worker System 模块不可用，跳过关闭")
+        except asyncio.CancelledError:
+            logger.warning("Worker System 关闭被中断")
+            raise
+        except Exception as e:
+            logger.error(f"关闭 Worker System 时发生意外错误: {e}")
 
     # 步骤 3: 停止实时引擎
     if realtime_engine:

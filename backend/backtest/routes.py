@@ -90,8 +90,8 @@ def get_backtest_list(request: Optional[BacktestListRequest] = None) -> ApiRespo
     try:
         logger.info("获取回测结果列表请求")
 
-        # 获取回测结果列表
-        backtests = backtest_service.list_backtest_results()
+        # 获取回测结果列表（使用正确的 API 方法名）
+        backtests = backtest_service.get_result_list()
 
         logger.info(f"成功获取回测结果列表，共 {len(backtests)} 个回测结果")
 
@@ -236,11 +236,23 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                 try:
                     logger.info(f"[任务 {task_id}] 开始后台执行回测")
                     logger.info(f"[任务 {task_id}] 使用引擎: {backtest_config_dict.get('engine_type', 'default')}")
-                    
+
+                    # 先通过 BacktestService 创建任务（保存到文件系统）
+                    service_task_id = backtest_service.create_task(
+                        strategy_name=strategy_config_dict.get('strategy_name', ''),
+                        strategy_params=strategy_config_dict.get('params', {}),
+                        symbols=backtest_config_dict.get('symbols', []),
+                        timeframes=[backtest_config_dict.get('interval', '1h')],
+                        engine_type=backtest_config_dict.get('engine_type', 'default'),
+                        config=backtest_config_dict,
+                        task_id=task_id  # 使用原始的 UUID 作为 task_id
+                    )
+                    logger.info(f"[任务 {task_id}] BacktestService 任务已创建: {service_task_id}")
+
+                    # 执行回测
                     result = backtest_service.run_backtest(
-                        strategy_config=strategy_config_dict,
-                        backtest_config=backtest_config_dict,
-                        task_id=task_id
+                        task_id=service_task_id,
+                        progress_tracker=progress_tracker
                     )
                     
                     logger.info(f"[任务 {task_id}] 回测执行完成，状态: {result.get('status')}")

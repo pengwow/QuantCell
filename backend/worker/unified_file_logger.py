@@ -401,6 +401,19 @@ class UnifiedFileLogger:
         """
         if self._closed:
             return
+
+        # 新增：同时写入内存环形缓冲区（用于实时 API 查询）
+        try:
+            from .log_ring_buffer import get_global_buffer
+            buffer = get_global_buffer()
+            buffer.append_raw(
+                message=data,
+                logger_name="unified",
+                worker_id=getattr(self, '_worker_id', None),
+            )
+        except Exception:
+            pass  # 不影响主日志流程
+
         self._write_to_buffer(data)
 
     def _write_to_buffer(self, data: str):

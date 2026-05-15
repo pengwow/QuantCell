@@ -95,6 +95,11 @@ interface WorkerActions {
   resumeWorker: (workerId: number) => Promise<boolean>;
   restartWorker: (workerId: number) => Promise<boolean>;
 
+  // 批量操作
+  batchStartWorkers: (workerIds: number[]) => Promise<any>;
+  batchStopWorkers: (workerIds: number[]) => Promise<any>;
+  batchRestartWorkers: (workerIds: number[]) => Promise<any>;
+
   // WebSocket
   connectLogStream: (workerId: number) => void;
   disconnectLogStream: () => void;
@@ -394,6 +399,52 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
         } catch (error: any) {
           get().messageApi?.error(error.message || '重启Worker失败');
           return false;
+        }
+      },
+
+      // ============================================
+      // 批量操作 Actions
+      // ============================================
+
+      batchStartWorkers: async (workerIds: number[]) => {
+        try {
+          const result = await workerApi.batchOperation({
+            worker_ids: workerIds,
+            operation: 'start',
+          });
+          workerIds.forEach(id => get().updateWorkerStatus(id, 'starting'));
+          setTimeout(() => get().fetchWorkers(), 2000);
+          return result;
+        } catch (error: any) {
+          throw error;
+        }
+      },
+
+      batchStopWorkers: async (workerIds: number[]) => {
+        try {
+          const result = await workerApi.batchOperation({
+            worker_ids: workerIds,
+            operation: 'stop',
+          });
+          workerIds.forEach(id => get().updateWorkerStatus(id, 'stopped'));
+          setTimeout(() => get().fetchWorkers(), 1000);
+          return result;
+        } catch (error: any) {
+          throw error;
+        }
+      },
+
+      batchRestartWorkers: async (workerIds: number[]) => {
+        try {
+          const result = await workerApi.batchOperation({
+            worker_ids: workerIds,
+            operation: 'restart',
+          });
+          workerIds.forEach(id => get().updateWorkerStatus(id, 'starting'));
+          setTimeout(() => get().fetchWorkers(), 3000);
+          return result;
+        } catch (error: any) {
+          throw error;
         }
       },
 

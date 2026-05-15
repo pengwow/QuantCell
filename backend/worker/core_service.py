@@ -24,6 +24,8 @@ import time
 from pathlib import Path
 
 from . import models, crud, schemas
+from .worker_state import worker_state_manager, WorkerStateManager
+from .worker_system import worker_system, WorkerSystem
 from collector.db.database import SessionLocal, init_database_config
 from utils.logger import get_logger, LogType
 
@@ -194,12 +196,46 @@ class WorkerCoreService:
         self._initialized = True
         self._config = self._load_config()
         self._worker_manager = None
-        logger.info(f"[WorkerCoreService] 初始化完成，配置已加载")
+
+        # 获取 WorkerSystem 单例（延迟初始化）
+        self.system = worker_system
+
+        # 保留原有的 manager 引用（向后兼容）
+        # 但实际操作会委托给 self.system
+        self.manager = getattr(self.system, 'manager', None)
+
+        self._register_state_event_handlers()
+        logger.info(f"[WorkerCoreService] 初始化完成（Facade模式），配置已加载，状态管理器已集成")
 
     @classmethod
     def reset_instance(cls):
         """重置单例状态（用于测试）"""
         cls._instance = None
+
+    def _ensure_initialized(self) -> None:
+        """
+        检查 WorkerSystem 是否已初始化（Facade 模式的安全检查）
+
+        在所有委托方法的开头调用，确保 WorkerSystem 已经完成初始化。
+        提供清晰的错误信息，帮助调用方快速定位问题。
+
+        Raises:
+            RuntimeError: 如果 WorkerSystem 未完成初始化
+        """
+        if not hasattr(self, 'system') or self.system is None:
+            raise RuntimeError(
+                "WorkerCoreService [Facade]: WorkerSystem 单例未正确加载。"
+                "请检查 worker_system 模块是否正常导入。"
+            )
+
+        if not self.system._fully_initialized:
+            raise RuntimeError(
+                "WorkerCoreService [Facade]: WorkerSystem 尚未完成初始化。"
+                "请先调用 await worker_system.initialize() 完成初始化。"
+                "\n提示：通常在应用启动时（main.py 或 lifespan 事件中）调用一次即可。"
+            )
+
+        logger.debug("[WorkerCoreService] [Facade] WorkerSystem 初始化检查通过")
 
     def _load_config(self) -> Dict[str, Any]:
         """从环境变量和默认配置文件加载配置"""
@@ -283,14 +319,22 @@ class WorkerCoreService:
             WorkerOperationError: 创建失败时抛出
         """
         try:
-            with self.get_db() as db:
-                worker_data = schemas.WorkerCreate(**data)
-                worker = crud.create_worker(db, worker_data)
-                result = worker.to_dict()
-                logger.info(f"[WorkerCoreService] Worker创建成功: id={result['id']}, name={result['name']}")
-                return result
+            self._ensure_initialized()
+            logger.debug(f"[WorkerCoreService] [Facade] 委托创建Worker到 WorkerSystem")
+            result = self.system.create_worker(data)
+
+            # 获取完整的 Worker 信息（兼容返回值格式）
+            worker_info = self.system.get_worker(result)
+            if worker_info:
+                logger.info(f"[WorkerCoreService] [Facade] Worker创建成功: id={result}, name={worker_info.get('name')}")
+                return worker_info
+            else:
+                # 如果无法获取完整信息，返回基本结果
+                logger.info(f"[WorkerCoreService] [Facade] Worker创建成功: id={result}")
+                return {"id": result, "status": "stopped"}
+
         except Exception as e:
-            logger.error(f"[WorkerCoreService] 创建Worker失败: {e}")
+            logger.error(f"[WorkerCoreService] [Facade] 创建Worker失败: {e}")
             raise WorkerOperationError("create", message=str(e))
 
     def get_worker(self, worker_id: int) -> Dict[str, Any]:
@@ -306,11 +350,15 @@ class WorkerCoreService:
         Raises:
             WorkerNotFoundError: Worker不存在时抛出
         """
-        with self.get_db() as db:
-            worker = crud.get_worker(db, worker_id)
-            if not worker:
-                raise WorkerNotFoundError(worker_id)
-            return worker.to_dict()
+        self._ensure_initialized()
+        logger.debug(f"[WorkerCoreService] [Facade] 委托获取Worker {worker_id} 到 WorkerSystem")
+        result = self.system.get_worker(worker_id)
+
+        if not result:
+            raise WorkerNotFoundError(worker_id)
+
+        logger.debug(f"[WorkerCoreService] [Facade] Worker {worker_id} 获取成功")
+        return result
 
     def list_workers(
         self,
@@ -331,23 +379,31 @@ class WorkerCoreService:
         Returns:
             包含items、total、page、page_size的字典
         """
-        page_size = min(page_size, self._config["max_page_size"])
-        skip = (page - 1) * page_size
+        self._ensure_initialized()
+        logger.debug(f"[WorkerCoreService] [Facade] 委托获取Worker列表到 WorkerSystem (status={status})")
 
-        with self.get_db() as db:
-            workers, total = crud.get_workers(
-                db,
-                status=status,
-                strategy_id=strategy_id,
-                skip=skip,
-                limit=page_size,
-            )
-            return {
-                "items": [w.to_dict() for w in workers],
-                "total": total,
-                "page": page,
-                "page_size": page_size,
-            }
+        # 委托给 WorkerSystem 的 list_workers 方法
+        workers_list = self.system.list_workers(status_filter=status)
+
+        # TODO: WorkerSystem.list_workers 目前不支持分页和 strategy_id 筛选
+        # 如果需要这些功能，后续需要在 WorkerSystem 中扩展或保留原有逻辑
+        # 当前先实现基本委托，保持向后兼容的返回格式
+
+        total = len(workers_list)
+
+        # 手动实现简单的分页（如果需要）
+        if page and page_size:
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            workers_list = workers_list[start_idx:end_idx]
+
+        logger.debug(f"[WorkerCoreService] [Facade] 获取到 {total} 个Worker，返回第 {page} 页")
+        return {
+            "items": workers_list,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
     def update_worker(self, worker_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -392,12 +448,12 @@ class WorkerCoreService:
         Raises:
             WorkerNotFoundError: Worker不存在时抛出
         """
-        with self.get_db() as db:
-            success = crud.delete_worker(db, worker_id)
-            if not success:
-                raise WorkerNotFoundError(worker_id)
-            logger.info(f"[WorkerCoreService] Worker删除成功: id={worker_id}")
-            return True
+        self._ensure_initialized()
+        logger.debug(f"[WorkerCoreService] [Facade] 委托删除Worker {worker_id} 到 WorkerSystem")
+        result = self.system.delete_worker(worker_id)
+
+        logger.info(f"[WorkerCoreService] [Facade] Worker {worker_id} 删除成功")
+        return result
 
     def clone_worker(
         self,
@@ -519,61 +575,59 @@ class WorkerCoreService:
 
     def batch_operation(self, worker_ids: List[int], operation: str) -> Dict[str, Any]:
         """
-        批量操作Worker（同步版本）
+        批量操作Worker（增强版 - 通过状态机验证）
+
+        改进点：
+        1. 所有状态变更必须通过 StateMachineGuard 验证
+        2. 返回详细的结果列表（包含旧状态和新状态）
+        3. 支持审计追溯
+        4. 自动记录非法转换尝试
 
         Args:
             worker_ids: Worker ID列表
             operation: 操作类型 (start/stop/restart)
 
         Returns:
-            包含success、failed、total的字典
+            包含success、failed、total、results的字典
+            results 中包含每个 Worker 的详细新旧状态信息
         """
-        valid_operations = ["start", "stop", "restart"]
+        from .state_guard import StateMachineGuard, WorkerState
+
+        valid_operations = {
+            "start": WorkerState.STARTING,
+            "stop": WorkerState.STOPPING,
+            "restart": WorkerState.RESTARTING,
+        }
+
         if operation not in valid_operations:
             raise WorkerOperationError(
                 operation,
-                message=f"不支持的操作类型: {operation}，支持的操作: {valid_operations}",
+                message=f"不支持的操作类型: {operation}，支持的操作: {list(valid_operations.keys())}",
             )
 
-        success_list = []
-        failed_dict = {}
+        target_state = valid_operations[operation]
+        guard = StateMachineGuard()
 
-        for wid in worker_ids:
-            try:
-                with self.get_db() as db:
-                    worker = crud.get_worker(db, wid)
-                    if not worker:
-                        failed_dict[wid] = "Worker不存在"
-                        continue
-
-                    if operation == "start":
-                        if worker.status == "running":
-                            failed_dict[wid] = "Worker已在运行中"
-                            continue
-                        crud.update_worker_status(db, wid, "starting")
-                    elif operation == "stop":
-                        if worker.status == "stopped":
-                            failed_dict[wid] = "Worker已停止"
-                            continue
-                        crud.update_worker_status(db, wid, "stopped")
-                    elif operation == "restart":
-                        crud.update_worker_status(db, wid, "stopped")
-
-                    success_list.append(wid)
-                    logger.info(f"[WorkerCoreService] 批量{operation}成功: worker_id={wid}")
-            except Exception as e:
-                failed_dict[wid] = str(e)
-                logger.error(f"[WorkerCoreService] 批量{operation}失败: worker_id={wid}, error={e}")
-
-        result = {
-            "success": success_list,
-            "failed": failed_dict,
-            "total": len(worker_ids),
-        }
-        logger.info(
-            f"[WorkerCoreService] 批量{operation}完成: "
-            f"成功={len(success_list)}, 失败={len(failed_dict)}, 总计={len(worker_ids)}"
+        # 使用增强的批量转换方法（自动进行状态机验证）
+        batch_result = asyncio.get_event_loop().run_until_complete(
+            guard.batch_transition(worker_ids, target_state, operation)
         )
+
+        # 转换为兼容旧接口的格式
+        result = {
+            "success": batch_result.success_ids,
+            "failed": batch_result.failed_dict,
+            "total": batch_result.total,
+            "results": batch_result.results,  # 新增：详细的操作结果
+        }
+
+        logger.info(
+            f"[WorkerCoreService] 批量{operation}完成 (状态机验证): "
+            f"成功={len(batch_result.success_ids)}, "
+            f"失败={len(batch_result.failed_dict)}, "
+            f"总计={batch_result.total}"
+        )
+
         return result
 
     async def async_batch_operation(
@@ -619,6 +673,57 @@ class WorkerCoreService:
 
     # ==================== Worker 生命周期管理方法 ====================
 
+    def _register_state_event_handlers(self):
+        """
+        注册状态变更事件监听器
+
+        在初始化时调用，将状态管理器的事件与 core_service 的处理逻辑绑定
+        """
+        worker_state_manager.register_handler("state_changed", self._handle_state_change)
+        logger.info("[WorkerCoreService] 状态变更事件监听器已注册")
+
+    def _handle_state_change(self, event_data: Dict[str, Any]):
+        """
+        处理 Worker 状态变更事件
+
+        Args:
+            event_data: 事件数据字典，包含 worker_id, old_status, new_status, timestamp
+        """
+        worker_id = event_data.get("worker_id")
+        old_status = event_data.get("old_status")
+        new_status = event_data.get("new_status")
+        timestamp = event_data.get("timestamp")
+
+        logger.info(
+            f"[状态事件] Worker {worker_id} 状态变更: "
+            f"{old_status} -> {new_status} (时间: {timestamp})"
+        )
+
+        if new_status == "error":
+            error_msg = event_data.get("error_message", "未知错误")
+            logger.warning(
+                f"[状态事件] ⚠️ Worker {worker_id} 进入错误状态: {error_msg}"
+            )
+        elif new_status == "running":
+            logger.info(
+                f"[状态事件] ✅ Worker {worker_id} 已成功启动并进入运行状态"
+            )
+
+    async def get_worker_state(self, worker_id: int) -> Optional[Dict[str, Any]]:
+        """
+        从 state_manager 获取 Worker 完整状态对象
+
+        Args:
+            worker_id: Worker ID
+
+        Returns:
+            Worker 状态字典，如果不存在返回 None
+        """
+        state = await worker_state_manager.get_state(worker_id)
+        if state:
+            return state.to_dict()
+        return None
+
     def _get_manager(self):
         """
         获取或创建 WorkerManager 实例（懒加载 + 线程安全）
@@ -662,6 +767,16 @@ class WorkerCoreService:
         # 策略目录在 backend/strategies/ 目录下
         _backend_dir = Path(__file__).parent.parent.resolve()
         _strategies_dir = _backend_dir / "strategies"
+
+        logger.info(f"[策略加载] 📁 策略目录完整路径: {_strategies_dir.absolute()}")
+        logger.info(f"[策略加载] 📁 策略目录是否存在: {_strategies_dir.exists()}")
+
+        if _strategies_dir.exists():
+            available_strategy_files = list(_strategies_dir.glob("*.py"))
+            available_names = [f.stem for f in available_strategy_files if f.stem != "__init__"]
+            logger.info(f"[策略加载] 📁 可用策略文件 ({len(available_names)}个): {', '.join(available_names[:10])}{'...' if len(available_names) > 10 else ''}")
+        else:
+            logger.error(f"[策略加载] ❌ 策略目录不存在: {_strategies_dir.absolute()}")
 
         strategy_path = None
         strategy_code = None
@@ -782,10 +897,27 @@ class WorkerCoreService:
                             strategy_code = strategy.code
                         elif strategy.file_name:
                             strategy_path = str(_strategies_dir / strategy.file_name)
+                            logger.info(f"[策略加载] 🔍 Layer 1.5: 拼接后的完整路径: {strategy_path}")
+                            logger.info(f"[策略加载] 🔍 Layer 1.5: 文件是否存在: {Path(strategy_path).exists()}")
                     else:
+                        from strategy.models import Strategy as StrategyModel
+                        all_strategies = db.query(StrategyModel.name).all()
+                        existing_names = [s[0] for s in all_strategies if s[0]]
                         logger.warning(
                             f"[策略加载] ⚠️ Layer 1.5: 数据库未找到 strategy_name='{strategy_name_from_worker}'"
                         )
+                        logger.warning(
+                            f"[策略加载] ⚠️ Layer 1.5: 数据库中现有策略名称 ({len(existing_names)}个): {', '.join(existing_names[:10])}{'...' if len(existing_names) > 10 else ''}"
+                        )
+
+            # ✅ 强制降级检查：如果数据库查找失败，立即降级到本地文件系统
+            if not strategy_found and strategy_name_from_worker:
+                logger.warning(
+                    f"[策略加载] 🔄 数据库未找到策略，开始降级到本地文件系统..."
+                )
+                logger.info(
+                    f"[策略加载] 🔍 降级搜索: strategy_name='{strategy_name_from_worker}'"
+                )
 
             # Layer 2: 通过 strategy_file_name 参数查找
             if not strategy_found and strategy_file_name_from_config:
@@ -801,15 +933,22 @@ class WorkerCoreService:
                 else:
                     logger.warning(f"[策略加载] ⚠️ Layer 2: 策略文件不存在: {full_path}")
 
-            # Layer 2.5: 通过 strategy_name 模糊匹配文件系统（新增）
+            # Layer 2.5: 通过 strategy_name 模糊匹配文件系统（降级机制）
             if not strategy_found and strategy_name_from_worker:
-                logger.info(
-                    f"[策略加载] 🔍 Layer 2.5: 尝试通过 strategy_name='{strategy_name_from_worker}' 匹配文件..."
+                logger.warning(
+                    f"[策略加载] 🔍 Layer 2.5: 尝试通过 strategy_name='{strategy_name_from_worker}' 匹配本地文件..."
                 )
 
                 # 获取所有可用的策略文件
                 available_files = list(_strategies_dir.glob("*.py"))
                 available_names = [f.stem for f in available_files if f.stem != "__init__"]
+
+                logger.warning(
+                    f"[策略加载] 📂 本地策略目录: {_strategies_dir.absolute()}"
+                )
+                logger.warning(
+                    f"[策略加载] 📂 找到 {len(available_files)} 个策略文件: {', '.join(available_names[:10])}{'...' if len(available_names) > 10 else ''}"
+                )
 
                 # 精确匹配文件名
                 exact_match = next(
@@ -818,9 +957,23 @@ class WorkerCoreService:
                 if exact_match:
                     strategy_path = str(exact_match)
                     strategy_found = True
-                    logger.info(
+                    logger.warning(
                         f"[策略加载] ✅ Layer 2.5: 精确匹配找到策略文件: {exact_match.name}"
                     )
+                    logger.warning(
+                        f"[策略加载] ✅ Layer 2.5: 完整路径: {exact_match.absolute()}"
+                    )
+                    # ✅ 降级成功：读取本地策略文件内容
+                    try:
+                        with open(exact_match, 'r', encoding='utf-8') as f:
+                            strategy_code = f.read()
+                            logger.warning(
+                                f"[策略加载] ✅ Layer 2.5: 成功读取策略代码 ({len(strategy_code)} 字符)"
+                            )
+                    except Exception as read_error:
+                        logger.warning(
+                            f"[策略加载] ⚠️ Layer 2.5: 读取策略文件失败: {read_error}"
+                        )
                 else:
                     # 包含匹配（子串）
                     contains_matches = [
@@ -934,6 +1087,17 @@ class WorkerCoreService:
 
         # 最终检查
         if not strategy_code and not strategy_path:
+            logger.error(
+                f"[策略加载] ❌ 策略加载最终失败！\n"
+                f"   📁 策略目录: {_strategies_dir.absolute()}\n"
+                f"   📁 目录存在: {_strategies_dir.exists()}\n"
+                f"   🔍 worker_id: {worker.id}\n"
+                f"   🔍 worker_name: {worker.name}\n"
+                f"   🔍 strategy_id: {worker.strategy_id}\n"
+                f"   🔍 strategy_name: {strategy_name_from_worker}\n"
+                f"   🔍 strategy_file_name: {strategy_file_name_from_config}\n"
+                f"   🔍 拼接后的预期路径: {_strategies_dir / (strategy_name_from_worker or 'unknown')}.py"
+            )
             raise StrategyLoadError(
                 worker.id,
                 message=(
@@ -1083,21 +1247,13 @@ class WorkerCoreService:
         """
         启动 Worker（同步版本，供 CLI 使用）
 
-        流程：
-        1. 获取 Worker 记录
-        2. 检查状态（如果 running 则返回提示）
-        3. 加载策略（调用 _load_strategy）
-        4. 准备配置（调用 _prepare_trading_config）
-        5. 更新状态为 starting
-        6. 调用 WorkerManager.start_trading_worker()
-        7. 更新状态为 running，记录 PID
-        8. 返回成功结果
+        保持向后兼容的同步接口，委托给 WorkerSystem.sync_start_worker()
 
         Args:
             worker_id: Worker ID
 
         Returns:
-            dict: {"worker_id": int, "status": "running", "pid": int}
+            dict: {"worker_id": int, "status": str, "pid": int}
 
         Raises:
             WorkerNotFoundError: Worker 不存在
@@ -1106,110 +1262,101 @@ class WorkerCoreService:
             ConfigPreparationError: 配置准备失败
             WorkerStartError: 启动失败
         """
-        import asyncio
-
+        self._ensure_initialized()
+        logger.info(f"[WorkerCoreService] [Facade] 委托启动Worker {worker_id} 到 WorkerSystem (sync)")
         try:
-            with self.get_db() as db:
-                worker = crud.get_worker(db, worker_id)
-                if not worker:
-                    raise WorkerNotFoundError(worker_id)
-
-                # 检查 Worker 是否已在运行
-                if worker.status == "running":
-                    raise WorkerAlreadyRunningError(worker_id)
-
-                # 加载策略（三层回退机制）
-                strategy_path, strategy_code, strategy_found = self._load_strategy(
-                    worker, db
-                )
-
-                # 准备交易配置
-                config = self._prepare_trading_config(
-                    worker, db, strategy_code=strategy_code
-                )
-
-                # 更新状态为 starting
-                logger.info(
-                    f"[start_worker] Worker {worker_id} 状态变更: "
-                    f"{worker.status} -> starting"
-                )
-                worker.status = "starting"
-                worker.started_at = datetime.now()
-                db.commit()
-
-                # 获取 Manager 并启动 Worker（异步调用需要在同步上下文中包装）
-                manager = self._get_manager()
-
-                async def _async_start():
-                    return await manager.start_trading_worker(
-                        strategy_path=strategy_path,
-                        config=config,
-                        worker_id=str(worker_id),
-                        exchange_config=config.get("trading"),
-                    )
-
-                result_worker_id = asyncio.run(_async_start())
-                logger.info(
-                    f"[start_worker] Worker {worker_id} "
-                    f"manager.start_trading_worker() 返回: {result_worker_id}"
-                )
-
-                if not result_worker_id:
-                    # 启动失败，更新状态为 error
-                    logger.error(
-                        f"[start_worker] Worker {worker_id} start_trading_worker 返回 None"
-                    )
-                    worker.status = "error"
-                    worker.pid = None
-                    db.commit()
-                    raise WorkerStartError(
-                        worker_id,
-                        message="Worker 启动失败（Nautilus Trader 初始化失败）",
-                    )
-
-                # Worker 启动成功，更新状态为 running
-                logger.info(
-                    f"[start_worker] Worker {worker_id} 启动成功，更新状态为 running"
-                )
-                worker.status = "running"
-                worker.pid = manager.get_worker_pid(str(worker_id))
-                db.commit()
-                logger.info(
-                    f"[start_worker] Worker {worker_id} 已更新为 running 状态，"
-                    f"pid={worker.pid}"
-                )
-
-                return {
-                    "worker_id": worker_id,
-                    "status": "running",
-                    "pid": worker.pid,
-                }
-
-        except (WorkerNotFoundError, WorkerAlreadyRunningError, StrategyLoadError, ConfigPreparationError, WorkerStartError):
-            raise
+            result = self.system.sync_start_worker(worker_id)
+            logger.info(f"[WorkerCoreService] [Facade] Worker {worker_id} 启动成功")
+            return result
         except Exception as e:
-            logger.error(f"[start_worker] 启动 Worker {worker_id} 失败: {e}")
-            raise WorkerStartError(worker_id, message=f"启动 Worker 失败: {str(e)}")
+            logger.error(f"[WorkerCoreService] [Facade] 同步启动 Worker {worker_id} 失败: {e}")
+            raise
+
+    async def _async_start_worker_sync(self, worker_id: int) -> dict:
+        """内部使用的异步启动方法（供同步版本调用）"""
+        return await self.async_start_worker(worker_id)
 
     async def async_start_worker(self, worker_id: int) -> dict:
         """
-        异步版本启动 Worker（供 API 使用）
+        异步版本启动 Worker - 状态驱动的非阻塞模式
+
+        直接执行启动逻辑，不委托给 WorkerSystem（避免循环依赖）。
+
+        调用链（修复后）：
+        外部调用 → core_service.async_start_worker()
+          → 状态转换: stopped → starting
+          → 异步执行 _do_start_worker()  ✅ 无循环
 
         Args:
             worker_id: Worker ID
 
         Returns:
-            dict: {"worker_id": int, "status": "running", "pid": int}
+            dict: {"worker_id": int, "status": "starting", "message": str}
+        """
+        self._ensure_initialized()
+
+        logger.info(f"[WorkerCoreService] 异步启动 Worker {worker_id}")
+
+        try:
+            from .worker_state import worker_state_manager
+
+            # 1. 状态转换: 当前状态 → starting
+            success = await worker_state_manager.transition(worker_id, "starting")
+            if not success:
+                state = worker_state_manager.get_state_sync(worker_id)
+                current_status = state.status if state else "unknown"
+
+                if current_status == "running":
+                    return {
+                        'worker_id': worker_id,
+                        'status': 'running',
+                        'message': 'Worker 已经处于运行状态',
+                    }
+                elif current_status == "starting":
+                    return {
+                        'worker_id': worker_id,
+                        'status': 'starting',
+                        'message': 'Worker 正在启动中...',
+                    }
+                else:
+                    raise WorkerOperationError(
+                        "启动", worker_id,
+                        f"当前状态 ({current_status}) 不允许启动"
+                    )
+
+            # 2. 异步执行实际启动操作
+            asyncio.create_task(self._do_start_worker(worker_id))
+
+            # 3. 立即返回中间状态
+            return {
+                'worker_id': worker_id,
+                'status': 'starting',
+                'message': 'Worker 启动请求已接收，正在异步处理中...',
+            }
+
+        except Exception as e:
+            logger.error(f"[WorkerCoreService] 异步启动 Worker {worker_id} 失败: {e}")
+            raise
+
+    async def _do_start_worker(self, worker_id: int):
+        """
+        执行 Worker 启动的后台异步任务
+
+        包含完整的启动流程：读取配置、加载策略、启动进程、更新状态
+
+        Args:
+            worker_id: Worker ID
         """
         try:
             with self.get_db() as db:
                 worker = crud.get_worker(db, worker_id)
                 if not worker:
-                    raise WorkerNotFoundError(worker_id)
-
-                # 检查 Worker 是否已在运行
-                if worker.status == "running":
-                    raise WorkerAlreadyRunningError(worker_id)
+                    logger.error(f"[_do_start_worker] Worker {worker_id} 不存在")
+                    await worker_state_manager.transition(
+                        worker_id, "error",
+                        error_message=f"Worker {worker_id} 不存在"
+                    )
+                    return
 
                 # 加载策略（三层回退机制）
                 strategy_path, strategy_code, strategy_found = self._load_strategy(
@@ -1221,14 +1368,7 @@ class WorkerCoreService:
                     worker, db, strategy_code=strategy_code
                 )
 
-                # 更新状态为 starting
-                logger.info(
-                    f"[async_start_worker] Worker {worker_id} 状态变更: "
-                    f"{worker.status} -> starting"
-                )
-                worker.status = "starting"
-                worker.started_at = datetime.now()
-                db.commit()
+                logger.info(f"[_do_start_worker] Worker {worker_id} 配置准备完成，正在启动进程...")
 
                 # 获取 Manager 并启动 Worker
                 manager = self._get_manager()
@@ -1238,342 +1378,352 @@ class WorkerCoreService:
                     worker_id=str(worker_id),
                     exchange_config=config.get("trading"),
                 )
+
                 logger.info(
-                    f"[async_start_worker] Worker {worker_id} "
+                    f"[_do_start_worker] Worker {worker_id} "
                     f"manager.start_trading_worker() 返回: {result_worker_id}"
                 )
 
                 if not result_worker_id:
-                    logger.error(
-                        f"[async_start_worker] Worker {worker_id} start_trading_worker 返回 None"
+                    # 启动失败，转换到 error 状态
+                    logger.error(f"[_do_start_worker] Worker {worker_id} start_trading_worker 返回 None")
+                    await worker_state_manager.transition(
+                        worker_id, "error",
+                        error_message="Worker 启动失败（Nautilus Trader 初始化失败）"
                     )
-                    worker.status = "error"
-                    worker.pid = None
-                    db.commit()
-                    raise WorkerStartError(
-                        worker_id,
-                        message="Worker 启动失败（Nautilus Trader 初始化失败）",
-                    )
+                    return
 
-                # 等待进程初始化并检测存活状态（智能等待策略）
-                import asyncio
-                from pathlib import Path
-
-                # Step 1: 快速验证进程启动（0.5秒）
-                await asyncio.sleep(0.5)
-
+                # 验证进程存活
                 pid = manager.get_worker_pid(str(worker_id))
                 is_alive = False
 
                 if pid:
                     try:
-                        os.kill(pid, 0)  # 发送信号 0 检测进程是否存在
+                        os.kill(pid, 0)
                         is_alive = True
-                        logger.info(f"[async_start_worker] Worker {worker_id} 进程已启动 (PID: {pid})")
+                        logger.info(f"[_do_start_worker] Worker {worker_id} 进程已启动 (PID: {pid})")
                     except (ProcessLookupError, OSError):
-                        logger.warning(f"[async_start_worker] Worker {worker_id} 进程已退出 (PID: {pid})")
+                        logger.warning(f"[_do_start_worker] Worker {worker_id} 进程已退出 (PID: {pid})")
 
                 if not is_alive and pid:
-                    # 进程启动后立即退出 - 可能是初始化失败
-                    logger.error(
-                        f"[async_start_worker] Worker {worker_id} 启动后立即退出！"
-                        f"PID: {pid} 已不存在"
+                    logger.error(f"[_do_start_worker] Worker {worker_id} 启动后立即退出！PID: {pid} 已不存在")
+                    await worker_state_manager.transition(
+                        worker_id, "error",
+                        error_message="Worker 进程启动后立即退出（可能是策略加载失败或配置错误）"
                     )
+                    return
 
-                    worker.status = "error"
-                    worker.pid = None
-                    db.commit()
+                # 短暂等待日志系统初始化
+                await asyncio.sleep(2)
 
-                    raise WorkerStartError(
-                        worker_id,
-                        message="Worker 进程启动后立即退出（可能是策略加载失败或配置错误），请查看系统日志",
-                    )
-
-                # Step 2: 等待日志系统初始化（5秒）
-                logger.info(f"[async_start_worker] Worker {worker_id} 等待日志系统初始化...")
-                await asyncio.sleep(5)
-
-                # Step 3: 检查日志文件是否创建
-                log_file = Path(__file__).parent.parent / "logs" / f"worker_{worker_id}.log"
-                log_initialized = log_file.exists() and log_file.stat().st_size > 0
-
-                # Step 4: 再次检查进程存活
+                # 再次检查进程存活
                 try:
                     os.kill(pid, 0)
                     process_still_alive = True
                 except (ProcessLookupError, OSError):
                     process_still_alive = False
 
-                # Step 5: 决定最终状态
-                if process_still_alive:
-                    # 进程存活 - 根据日志情况决定状态
-                    if log_initialized:
-                        # 日志文件已创建 → 完全初始化成功
-                        final_status = "running"
-                        logger.info(
-                            f"[async_start_worker] Worker {worker_id} 初始化完成，状态: running"
-                        )
-                    else:
-                        # 进程在但无日志 → 可能还在初始化（如 Binance 连接慢）
-                        final_status = "starting"
-                        logger.info(
-                            f"[async_start_worker] Worker {worker_id} 进程运行中但日志未就绪，状态: starting"
-                        )
-
-                    worker.status = final_status
-                    worker.started_at = datetime.now()
-                    worker.pid = pid
-                    db.commit()
-
-                    return {
-                        "worker_id": worker_id,
-                        "status": final_status,
-                        "pid": pid,
-                        "log_initialized": log_initialized,
-                        "message": f"Worker 已启动（状态: {final_status}）"
-                    }
+                if process_still_alive and is_alive:
+                    # 启动成功，转换到 running 状态，记录 PID
+                    await worker_state_manager.transition(
+                        worker_id, "running", pid=pid
+                    )
+                    logger.info(
+                        f"[_do_start_worker] ✅ Worker {worker_id} 启动成功，"
+                        f"状态已更新为 running (PID: {pid})"
+                    )
                 else:
                     # 进程在等待期间退出
-                    logger.error(f"[async_start_worker] Worker {worker_id} 在初始化期间退出")
-                    worker.status = "error"
-                    worker.pid = None
-                    db.commit()
-
-                    raise WorkerStartError(
-                        worker_id,
-                        message="Worker 在初始化过程中退出，请查看系统日志了解详情",
+                    logger.error(f"[_do_start_worker] Worker {worker_id} 在初始化期间退出")
+                    await worker_state_manager.transition(
+                        worker_id, "error",
+                        error_message="Worker 在初始化过程中退出"
                     )
 
-        except (WorkerNotFoundError, WorkerAlreadyRunningError, StrategyLoadError, ConfigPreparationError, WorkerStartError):
-            raise
+        except StrategyLoadError as e:
+            logger.error(f"[_do_start_worker] Worker {worker_id} 策略加载失败: {e}")
+            await worker_state_manager.transition(
+                worker_id, "error", error_message=str(e)
+            )
+        except ConfigPreparationError as e:
+            logger.error(f"[_do_start_worker] Worker {worker_id} 配置准备失败: {e}")
+            await worker_state_manager.transition(
+                worker_id, "error", error_message=str(e)
+            )
         except Exception as e:
-            logger.error(f"[async_start_worker] 启动 Worker {worker_id} 失败: {e}")
-            raise WorkerStartError(worker_id, message=f"启动 Worker 失败: {str(e)}")
+            logger.error(f"[_do_start_worker] Worker {worker_id} 启动过程异常: {e}", exc_info=True)
+            await worker_state_manager.transition(
+                worker_id, "error", error_message=str(e)
+            )
 
     def stop_worker(self, worker_id: int) -> dict:
         """
         停止 Worker（同步版本）
 
-        流程：
-        1. 检查 Worker 是否存在
-        2. 检查状态（如果 stopped 则返回提示）
-        3. 调用 WorkerManager.stop_worker()
-        4. 更新状态为 stopped，清空 PID
-        5. 返回成功结果
+        保持向后兼容的同步接口，委托给 WorkerSystem.sync_stop_worker()
 
         Args:
             worker_id: Worker ID
 
         Returns:
-            dict: {"worker_id": int, "status": "stopped"}
+            dict: {"worker_id": int, "status": str}
 
         Raises:
             WorkerNotFoundError: Worker 不存在
             WorkerOperationError: 停止失败
         """
-        import asyncio
-
+        self._ensure_initialized()
+        logger.info(f"[WorkerCoreService] [Facade] 委托停止Worker {worker_id} 到 WorkerSystem (sync)")
         try:
-            with self.get_db() as db:
-                worker = crud.get_worker(db, worker_id)
-                if not worker:
-                    raise WorkerNotFoundError(worker_id)
-
-                # 检查状态
-                if worker.status == "stopped":
-                    return {"worker_id": worker_id, "status": "stopped", "message": "Worker 已停止"}
-
-                # 获取 Manager 并停止 Worker
-                manager = self._get_manager()
-
-                async def _async_stop():
-                    return await manager.stop_worker(str(worker_id))
-
-                success = asyncio.run(_async_stop())
-
-                if not success:
-                    raise WorkerOperationError("停止", worker_id, message="停止 Worker 失败")
-
-                # 更新状态
-                worker.status = "stopped"
-                worker.pid = None
-                db.commit()
-                logger.info(f"[stop_worker] Worker {worker_id} 已停止")
-
-                return {"worker_id": worker_id, "status": "stopped"}
-
-        except WorkerNotFoundError:
-            raise
+            result = self.system.sync_stop_worker(worker_id)
+            logger.info(f"[WorkerCoreService] [Facade] Worker {worker_id} 停止成功")
+            return result
         except Exception as e:
-            logger.error(f"[stop_worker] 停止 Worker {worker_id} 失败: {e}")
-            raise WorkerOperationError("停止", worker_id, message=str(e))
+            logger.error(f"[WorkerCoreService] [Facade] 同步停止 Worker {worker_id} 失败: {e}")
+            raise
+
+    async def _async_stop_worker_sync(self, worker_id: int) -> dict:
+        """内部使用的异步停止方法（供同步版本调用）"""
+        return await self.async_stop_worker(worker_id)
 
     async def async_stop_worker(self, worker_id: int) -> dict:
         """
-        异步版本停止 Worker - 实现真正的优雅停止
+        异步版本停止 Worker - 状态驱动的非阻塞模式
 
-        停止策略（按优先级）：
-        1. 通过 Manager 发送 STOP 控制消息 → 触发 Worker._handle_stop()
-           - 停止 Nautilus 运行任务
-           - 取消未成交订单
-           - 调用 trading_node.dispose()/stop()
-           - 调用策略 on_stop()
+        直接执行停止逻辑，不委托给 WorkerSystem（避免循环依赖）。
 
-        2. 如果 Manager 不可用，使用 SIGTERM 信号 → 触发 Worker._handle_signal()
-           - 仅设置 _shutdown_event，不会执行完整清理流程
-
-        3. 如果超时未退出，使用 SIGKILL 强制终止
+        调用链（修复后）：
+        外部调用 → core_service.async_stop_worker()
+          → 状态转换: running → stopping
+          → 异步执行 _do_stop_worker()  ✅ 无循环
 
         Args:
             worker_id: Worker ID
 
         Returns:
-            dict: {"worker_id": int, "status": "stopped"}
+            dict: {"worker_id": int, "status": "stopping", "message": str}
         """
-        import asyncio
+        self._ensure_initialized()
 
+        logger.info(f"[WorkerCoreService] 异步停止 Worker {worker_id}")
+
+        try:
+            from .worker_state import worker_state_manager
+
+            # 1. 状态转换: 当前状态 → stopping
+            success = await worker_state_manager.transition(worker_id, "stopping")
+            if not success:
+                state = worker_state_manager.get_state_sync(worker_id)
+                current_status = state.status if state else "unknown"
+
+                if current_status == "stopped":
+                    return {
+                        'worker_id': worker_id,
+                        'status': 'stopped',
+                        'message': 'Worker 已经处于停止状态',
+                    }
+                elif current_status == "stopping":
+                    return {
+                        'worker_id': worker_id,
+                        'status': 'stopping',
+                        'message': 'Worker 正在停止中...',
+                    }
+                else:
+                    raise WorkerOperationError(
+                        "停止", worker_id,
+                        f"当前状态 ({current_status}) 不允许停止"
+                    )
+
+            # 2. 异步执行实际停止操作
+            asyncio.create_task(self._do_stop_worker(worker_id))
+
+            # 3. 立即返回中间状态
+            return {
+                'worker_id': worker_id,
+                'status': 'stopping',
+                'message': 'Worker 停止请求已接收，正在异步处理中...',
+            }
+
+        except Exception as e:
+            logger.error(f"[WorkerCoreService] 异步停止 Worker {worker_id} 失败: {e}")
+            raise
+
+    async def _do_stop_worker(self, worker_id: int):
+        """
+        执行 Worker 停止的后台异步任务
+
+        包含完整的停止流程：发送停止信号、等待退出、超时处理、强制终止
+
+        Args:
+            worker_id: Worker ID
+        """
         try:
             with self.get_db() as db:
                 worker = crud.get_worker(db, worker_id)
                 if not worker:
-                    raise WorkerNotFoundError(worker_id)
-
-                current_status = worker.status
-
-                # 如果已经是 stopped，直接返回
-                if current_status == "stopped":
-                    return {"worker_id": worker_id, "status": "stopped", "message": "Worker 已停止"}
+                    logger.error(f"[_do_stop_worker] Worker {worker_id} 不存在")
+                    await worker_state_manager.transition(
+                        worker_id, "stopped"
+                    )
+                    return
 
                 pid = worker.pid
                 stopped_successfully = False
                 stop_method = "unknown"
 
-                # 方案 1 (推荐): 通过 Manager 发送 STOP 控制消息
-                # 这会触发 Worker._handle_stop() 执行完整的优雅停止流程
-                try:
-                    manager = self._get_manager()
-                    logger.info(f"[async_stop_worker] 尝试通过 Manager 发送 STOP 控制消息给 Worker {worker_id}")
+                manager = self._get_manager()
 
-                    success = await manager.stop_worker(str(worker_id), timeout=30.0)
-
-                    if success:
-                        stop_method = "control_message"
-                        logger.info(f"[async_stop_worker] STOP 控制消息已发送给 Worker {worker_id}")
-
-                        # 等待进程优雅退出（最多 30 秒）
-                        if pid:
-                            for i in range(60):  # 30 秒 = 60 * 0.5秒
-                                await asyncio.sleep(0.5)
-                                try:
-                                    os.kill(pid, 0)  # 检查进程是否还在
-                                    if i % 10 == 9:  # 每 5 秒记录一次日志
-                                        logger.debug(f"[async_stop_worker] 等待 Worker {worker_id} 优雅退出... ({(i+1)*0.5:.1f}s)")
-                                except (ProcessLookupError, OSError):
-                                    # 进程已退出
-                                    stopped_successfully = True
-                                    logger.info(f"[async_stop_worker] Worker {worker_id} 已优雅退出 ({(i+1)*0.5:.1f}s)")
-                                    break
-                            else:
-                                # 超时但控制消息已发送，可能进程卡住了
-                                logger.warning(f"[async_stop_worker] Worker {worker_id} 未在 30s 内退出，将尝试强制终止")
-                except Exception as e:
-                    logger.warning(f"[async_stop_worker] Manager 方式失败: {e}, 将尝试信号方式")
-
-                # 方案 2 (备选): 使用 SIGTERM 信号
-                # 这会触发 Worker._handle_signal()，仅设置 _shutdown_event
-                if not stopped_successfully and pid:
+                # 使用 SIGTERM 信号停止 Worker 进程
+                if pid:
                     try:
-                        os.kill(pid, 0)  # 检查进程是否存在
+                        os.kill(pid, 0)
 
-                        # 发送 SIGTERM 信号
-                        os.kill(pid, 15)  # SIGTERM = 15
+                        os.kill(pid, 15)
                         stop_method = "sigterm"
-                        logger.info(f"[async_stop_worker] 向 Worker {worker_id} (PID: {pid}) 发送 SIGTERM")
+                        logger.info(
+                            f"[_do_stop_worker] 向 Worker {worker_id} (PID: {pid}) 发送 SIGTERM"
+                        )
 
-                        # 等待进程退出（最多 15 秒）
-                        for i in range(30):  # 15 秒 = 30 * 0.5秒
+                        # 等待进程退出（最多 30 秒）
+                        for i in range(60):
                             await asyncio.sleep(0.5)
                             try:
-                                os.kill(pid, 0)  # 再次检查
+                                os.kill(pid, 0)
+                                if i % 10 == 9:
+                                    logger.debug(
+                                        f"[_do_stop_worker] 等待 Worker {worker_id} "
+                                        f"优雅退出... ({(i+1)*0.5:.1f}s)"
+                                    )
                             except (ProcessLookupError, OSError):
-                                # 进程已退出
                                 stopped_successfully = True
-                                logger.info(f"[async_stop_worker] Worker {worker_id} 进程已退出 (SIGTERM)")
+                                logger.info(
+                                    f"[_do_stop_worker] Worker {worker_id} 已优雅退出 "
+                                    f"({(i+1)*0.5:.1f}s)"
+                                )
                                 break
                         else:
-                            # 超时
-                            logger.warning(f"[async_stop_worker] Worker {worker_id} 未响应 SIGTERM (15s)")
-
-                    except (ProcessLookupError, OSError) as e:
-                        # 进程不存在，可能已经退出了
-                        logger.info(f"[async_stop_worker] Worker {worker_id} 进程已不存在 (PID: {pid}): {e}")
+                            logger.warning(
+                                f"[_do_stop_worker] Worker {worker_id} 未在 30s 内退出，"
+                                f"将尝试强制终止"
+                            )
+                    except ProcessLookupError:
+                        logger.info(f"[_do_stop_worker] Worker {worker_id} 进程已不存在")
                         stopped_successfully = True
-                        stop_method = "already_exited"
+                    except Exception as e:
+                        logger.error(f"[_do_stop_worker] 发送 SIGTERM 失败: {e}")
+                else:
+                    logger.warning(f"[_do_stop_worker] Worker {worker_id} 没有 PID 信息")
 
-                # 方案 3 (最后手段): 强制终止 SIGKILL
+                # 如果 SIGTERM 未成功，使用 SIGKILL 强制终止
                 if not stopped_successfully and pid:
                     try:
-                        os.kill(pid, 0)  # 最后检查一次
-                        logger.warning(f"[async_stop_worker] 强制终止 Worker {worker_id} (PID: {pid}) SIGKILL")
-                        os.kill(pid, 9)  # SIGKILL = 9
+                        os.kill(pid, 0)
+                        logger.warning(
+                            f"[_do_stop_worker] 强制终止 Worker {worker_id} (PID: {pid}) SIGKILL"
+                        )
+                        os.kill(pid, 9)
                         stop_method = "sigkill"
 
-                        # 短暂等待确认进程被杀死
                         await asyncio.sleep(1)
                         try:
                             os.kill(pid, 0)
                         except (ProcessLookupError, OSError):
                             stopped_successfully = True
-                            logger.warning(f"[async_stop_worker] Worker {worker_id} 已被强制终止")
+                            logger.warning(f"[_do_stop_worker] Worker {worker_id} 已被强制终止")
                     except (ProcessLookupError, OSError):
-                        # 进程已经不存在了
                         stopped_successfully = True
                         stop_method = "already_exited"
 
-                # 更新数据库状态
-                worker.status = "stopped"
-                worker.pid = None
-                db.commit()
+                # 更新最终状态
+                if stopped_successfully or stop_method in ("already_exited", "sigkill"):
+                    await worker_state_manager.transition(worker_id, "stopped")
+                    logger.info(
+                        f"[_do_stop_worker] ✅ Worker {worker_id} 已成功停止 (方式: {stop_method})"
+                    )
+                else:
+                    # 异常情况：未能确认停止
+                    await worker_state_manager.transition(
+                        worker_id, "error",
+                        error_message=f"Worker 停止失败，最后尝试方式: {stop_method}"
+                    )
+                    logger.error(f"[_do_stop_worker] ❌ Worker {worker_id} 停止失败")
 
-                logger.info(f"[async_stop_worker] Worker {worker_id} 已停止 (方式: {stop_method})")
-
-                return {"worker_id": worker_id, "status": "stopped"}
-
-        except WorkerNotFoundError:
-            raise
         except Exception as e:
-            logger.error(f"[async_stop_worker] 停止 Worker {worker_id} 失败: {e}", exc_info=True)
-            raise WorkerOperationError("停止", worker_id, message=str(e))
+            logger.error(f"[_do_stop_worker] Worker {worker_id} 停止过程异常: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                await worker_state_manager.transition(
+                    worker_id, "error", error_message=str(e)
+                )
+            except Exception as transition_err:
+                logger.error(f"[_do_stop_worker] 状态转换失败: {transition_err}")
 
     def restart_worker(self, worker_id: int) -> dict:
         """
         重启 Worker（同步版本）
 
-        先停止再启动
+        原子化操作：先停止再启动，确保整体流程的一致性
+        委托给 WorkerSystem.restart_worker()
 
         Args:
             worker_id: Worker ID
 
         Returns:
-            dict: {"worker_id": int, "status": "running", "pid": int}
+            dict: {"worker_id": int, "status": str}
+
+        Raises:
+            WorkerOperationError: 重启失败
         """
+        self._ensure_initialized()
+        logger.info(f"[WorkerCoreService] [Facade] 委托重启Worker {worker_id} 到 WorkerSystem")
         try:
-            # 先停止
-            self.stop_worker(worker_id)
-            # 再启动
-            return self.start_worker(worker_id)
+            result = self.system.restart_worker(worker_id)
+            logger.info(f"[WorkerCoreService] [Facade] Worker {worker_id} 重启成功")
+            return result
         except Exception as e:
-            logger.error(f"[restart_worker] 重启 Worker {worker_id} 失败: {e}")
-            raise WorkerOperationError("重启", worker_id, message=str(e))
+            logger.error(f"[WorkerCoreService] [Facade] 同步重启 Worker {worker_id} 失败: {e}")
+            raise
+
+    async def _async_restart_worker_sync(self, worker_id: int) -> dict:
+        """内部使用的异步重启方法（供同步版本调用）"""
+        return await self.async_restart_worker(worker_id)
 
     async def async_restart_worker(self, worker_id: int) -> dict:
-        """异步版本重启 Worker"""
+        """
+        异步版本重启 Worker - 原子化状态驱动模式
+
+        委托给 WorkerSystem 的 restart_worker 方法（内部处理异步逻辑）
+
+        Args:
+            worker_id: Worker ID
+
+        Returns:
+            dict: {"worker_id": int, "status": str}
+        """
+        logger.info(f"[WorkerCoreService] [Facade] 委托异步重启Worker {worker_id} 到 WorkerSystem")
         try:
-            await self.async_stop_worker(worker_id)
-            return await self.async_start_worker(worker_id)
+            # WorkerSystem.restart_worker 是同步方法，但内部会调用 sync_stop + sync_start
+            # 为了保持异步接口的一致性，我们在线程池中执行
+            import asyncio
+            import concurrent.futures
+
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    result = await loop.run_in_executor(
+                        executor,
+                        self.system.restart_worker,
+                        worker_id
+                    )
+            else:
+                result = self.system.restart_worker(worker_id)
+
+            logger.info(f"[WorkerCoreService] [Facade] Worker {worker_id} 异步重启成功")
+            return result
         except Exception as e:
-            logger.error(f"[async_restart_worker] 重启 Worker {worker_id} 失败: {e}")
-            raise WorkerOperationError("重启", worker_id, message=str(e))
+            logger.error(f"[WorkerCoreService] [Facade] 异步重启 Worker {worker_id} 失败: {e}")
+            raise
 
     def pause_worker(self, worker_id: int) -> dict:
         """

@@ -6,6 +6,7 @@
 """
 import asyncio
 import ssl
+import warnings
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -24,6 +25,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 from exchange.base import BaseCollector
 from utils.decorators import async_deco_retry, deco_retry
 from utils.time_parser import get_date_range
+from utils.deprecation import deprecated
 
 
 class BinanceDownloader(BaseCollector):
@@ -481,12 +483,14 @@ class BinanceDownloader(BaseCollector):
             return len(df)
         return 0
 
+    @deprecated("2.1", "3.0", "scripts/data_cli.py export csv/parquet")
     def convert_to_qlib(self, csv_dir, qlib_dir, interval=None):
         """
         将下载的CSV数据转换为QLib格式
-        
-        注意：此功能已弃用，QLib转换不再支持。
-        如需数据格式转换，请使用 scripts/data_cli.py 的导出功能。
+
+        .. deprecated:: 2.1
+            此功能已弃用，QLib转换不再支持。
+            如需数据格式转换，请使用 scripts/data_cli.py 的导出功能。
 
         :param csv_dir: CSV数据目录
         :param qlib_dir: QLib数据保存目录
@@ -508,7 +512,23 @@ class BinanceDownloader(BaseCollector):
         return result
 
 
-# 向后兼容别名
-BinanceCollector = BinanceDownloader
+# 向后兼容别名（带弃用警告）
+def _binance_collector_init_warning(self, *args, **kwargs):
+    """
+    .. deprecated:: 2.1
+        请使用 BinanceDownloader 替代
+    """
+    warnings.warn(
+        "BinanceCollector 类名已弃用（v2.1），请使用 BinanceDownloader",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    BinanceDownloader.__init__(self, *args, **kwargs)
+
+BinanceCollector = type('BinanceCollector', (BinanceDownloader,), {
+    '__module__': 'exchange.binance.downloader',
+    '__doc__': '.. deprecated:: 2.1\n\n    请使用 :class:`BinanceDownloader` 替代',
+    '__init__': _binance_collector_init_warning
+})
 
 __all__ = ["BinanceDownloader", "BinanceCollector"]

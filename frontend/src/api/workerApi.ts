@@ -615,6 +615,52 @@ export const sendTradingSignal = (
 };
 
 // ============================================
+// Log Statistics API (内存日志)
+// ============================================
+
+/**
+ * 从 LogRingBuffer 查询最近的内存日志
+ */
+export const fetchRecentLogs = (
+  workerId: string | number,
+  params?: {
+    limit?: number;
+    level?: string;
+    keyword?: string;
+  }
+): Promise<{
+    code: number;
+    data: {
+      worker_id: string;
+      count: number;
+      logs: Array<{
+        timestamp: string;
+        level: string;
+        message: string;
+        worker_id: string;
+      }>;
+      query_time: string;
+    };
+  }> => {
+  return apiRequest.get(`/workers/${workerId}/logs/recent`, { params });
+};
+
+/**
+ * 获取全局日志统计
+ */
+export const fetchLogStats = (): Promise<{
+  code: number;
+  data: {
+    current_size: number;
+    max_size: number;
+    utilization_percent: number;
+    level_distribution: Record<string, number>;
+  };
+}> => {
+  return apiRequest.get('/workers/logs/stats');
+};
+
+// ============================================
 // Worker API 导出
 // ============================================
 
@@ -656,6 +702,10 @@ export const workerApi = {
   // WebSocket / SSE
   WorkerLogStream,
   WorkerLogStreamSSE,
+
+  // Log Statistics
+  fetchRecentLogs,
+  fetchLogStats,
 };
 
 export default workerApi;

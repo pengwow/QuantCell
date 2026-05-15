@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Worker 管理命令行工具
+Worker 管理命令行工具（重构版）
 
-基于 WorkerCoreService 的独立 CLI 实现。
-支持 Worker 的完整生命周期管理，无需 FastAPI 服务。
+基于 WorkerSystem 全局单例的 CLI 实现。
+支持 Worker 的完整生命周期管理、批量操作、实时状态监控。
 
 特性:
-  - 直接操作数据库和 WorkerManager
-  - 无需 HTTP 连接
-  - 支持完整的 Worker 管理功能
+  - 使用 WorkerSystem 全局单例替代延迟导入
+  - 支持同步/异步双模式启动
+  - 批量操作支持
+  - 实时状态查询
+  - 增强的输出格式（颜色、图标、耗时统计）
 """
 
 import sys
@@ -27,36 +29,8 @@ from typing_extensions import Annotated
 # 添加 backend 到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# 延迟导入：避免循环导入问题（collector.services ↔ services.symbol_sync 循环依赖）
-# worker.core_service 会在首次使用时才导入
-
-def _get_core_service():
-    """
-    延迟获取 WorkerCoreService 实例和异常类
-    
-    Returns:
-        tuple: (worker_core_service实例, 异常类字典)
-    """
-    from worker.core_service import (
-        worker_core_service,
-        WorkerNotFoundError,
-        WorkerAlreadyRunningError,
-        WorkerOperationError,
-        StrategyLoadError,
-        ConfigPreparationError,
-        WorkerStartError,
-    )
-    
-    exceptions = {
-        'WorkerNotFoundError': WorkerNotFoundError,
-        'WorkerAlreadyRunningError': WorkerAlreadyRunningError,
-        'WorkerOperationError': WorkerOperationError,
-        'StrategyLoadError': StrategyLoadError,
-        'ConfigPreparationError': ConfigPreparationError,
-        'WorkerStartError': WorkerStartError,
-    }
-    
-    return worker_core_service, exceptions
+# 导入 WorkerSystem 全局单例
+from worker.worker_system import worker_system, WorkerSystem
 
 from utils.logger import get_logger, LogType
 
@@ -77,16 +51,51 @@ class OutputFormat(str, Enum):
 
 app = typer.Typer(
     name="worker-cli",
-    help="Worker 管理命令行工具 - 基于 WorkerCoreService（独立运行）",
+    help="Worker 管理命令行工具 - 基于 WorkerSystem 全局单例",
     epilog="""
 示例:
-  python worker_cli.py create --name worker_001 --strategy-id 1
-  python worker_cli.py start 1
-  python worker_cli.py status
+  python worker_cli.py init                          # 初始化引擎
+  python worker_cli.py create --name w1 --strategy-id 1
+  python worker_cli.py start 1                        # 启动（非阻塞）
+  python worker_cli.py start 1 --wait                 # 启动（等待完成）
+  python worker_cli.py status                         # 查看状态
+  python worker_cli.py summary                        # 系统摘要
+  python worker_cli.py start-all                      # 批量启动
+  python worker_cli.py stop-all                       # 批量停止
   
 注意: 此工具可直接使用，无需启动 FastAPI 服务。
 """,
 )
+
+
+# ==================== 工具函数 ====================
+
+def _get_state_color(state: str) -> str:
+    """获取状态颜色"""
+    color_map = {
+        "running": typer.colors.GREEN,
+        "stopped": typer.colors.WHITE,
+        "error": typer.colors.RED,
+        "initializing": typer.colors.YELLOW,
+        "starting": typer.colors.YELLOW,
+        "stopping": typer.colors.YELLOW,
+        "paused": typer.colors.CYAN,
+    }
+    return color_map.get(state.lower(), typer.colors.WHITE)
+
+
+def _get_state_icon(state: str) -> str:
+    """获取状态图标"""
+    icon_map = {
+        "running": "🟢",
+        "stopped": "⚪",
+        "error": "🔴",
+        "starting": "🟡",
+        "stopping": "🟠",
+        "paused": "🔵",
+        "initializing": "🟣",
+    }
+    return icon_map.get(state.lower(), "⚫")
 
 
 def _format_uptime(started_at: Optional[str]) -> str:
@@ -112,39 +121,40 @@ def _format_uptime(started_at: Optional[str]) -> str:
         return "N/A"
 
 
-def _get_state_color(state: str) -> str:
-    """获取状态颜色"""
-    color_map = {
-        "running": typer.colors.GREEN,
-        "stopped": typer.colors.WHITE,
-        "error": typer.colors.RED,
-        "initializing": typer.colors.YELLOW,
-        "starting": typer.colors.YELLOW,
-        "stopping": typer.colors.YELLOW,
-        "paused": typer.colors.CYAN,
-    }
-    return color_map.get(state.lower(), typer.colors.WHITE)
+def _format_elapsed(elapsed: float) -> str:
+    """格式化耗时"""
+    if elapsed < 1:
+        return f"{elapsed * 1000:.0f}ms"
+    else:
+        return f"{elapsed:.2f}s"
 
 
 def _print_worker_table(workers: List[Dict[str, Any]], show_header: bool = True):
-    """打印 Worker 表格"""
+    """
+    打印 Worker 表格（增强版）
+    
+    包含：ID、名称、状态（带颜色和图标）、PID、运行时长
+    """
     if show_header:
-        typer.echo(f"{'ID':<8} {'名称':<20} {'状态':<12} {'PID':<10} {'运行时长':<15}")
-        typer.echo("-" * 70)
+        typer.echo(f"{'ID':<8} {'名称':<20} {'状态':<15} {'PID':<10} {'运行时长':<15}")
+        typer.echo("-" * 75)
 
     for worker in workers:
-        worker_id = str(worker.get("id", "N/A"))[:6]
+        worker_id = str(worker.get("worker_id", worker.get("id", "N/A")))[:6]
         name = worker.get("name", "N/A")[:18]
         state = worker.get("status", "unknown")
         pid = str(worker.get("pid")) if worker.get("pid") else "N/A"
         pid = pid[:8]
+        
         started_at = worker.get("started_at")
         uptime = _format_uptime(started_at)
 
         state_color = _get_state_color(state)
+        state_icon = _get_state_icon(state)
+        state_display = f"{state_icon} {state}"
 
         typer.echo(f"{worker_id:<8} {name:<20} ", nl=False)
-        typer.secho(f"{state:<12}", fg=state_color, nl=False)
+        typer.secho(f"{state_display:<15}", fg=state_color, nl=False)
         typer.echo(f" {pid:<10} {uptime:<15}")
 
 
@@ -175,7 +185,138 @@ def _print_log_entry(log: dict):
     typer.echo(f" {source_str}{log.get('message', '')}")
 
 
-# ========== Worker 创建/删除命令 ==========
+def _print_start_result(result: Dict[str, Any], worker_id: int):
+    """
+    打印启动结果（用于 --wait 模式）
+    
+    显示最终状态和耗时信息
+    """
+    status = result.get('status', 'unknown')
+    pid = result.get('pid')
+    elapsed = result.get('elapsed')
+
+    state_icon = _get_state_icon(status)
+    state_color = _get_state_color(status)
+
+    typer.echo("")
+    typer.secho(f"✓ Worker {worker_id} 启动完成", fg=typer.colors.GREEN)
+    typer.echo(f"  Worker ID: {result.get('worker_id', worker_id)}")
+    typer.echo(f"  最终状态: ", nl=False)
+    typer.secho(f"{state_icon} {status}", fg=state_color)
+    
+    if pid:
+        typer.echo(f"  PID: {pid}")
+    
+    if elapsed is not None:
+        typer.echo(f"  耗时: {_format_elapsed(elapsed)}")
+
+    if status == 'starting':
+        typer.echo("")
+        typer.secho("ℹ  Worker 正在后台初始化中...", fg=typer.colors.YELLOW)
+        typer.echo("  查看日志:")
+        typer.echo(f"    python worker_cli.py logs {worker_id} --lines 20")
+
+
+def _handle_runtime_error(e: RuntimeError):
+    """
+    处理 RuntimeError（未初始化等）
+    
+    提供友好的中文错误消息和解决建议
+    """
+    typer.secho(f"⚠ 系统未初始化", fg=typer.colors.YELLOW)
+    typer.echo(f"  错误: {e}")
+    typer.echo(f"\n  解决方案:")
+    typer.echo(f"    python worker_cli.py init")
+    raise typer.Exit(1)
+
+
+def _handle_general_error(e: Exception, verbose: bool = False):
+    """
+    处理通用异常
+    
+    提供友好的错误信息，可选显示详细堆栈
+    """
+    typer.echo(f"✗ 操作失败: {e}", err=True)
+    if verbose:
+        import traceback
+        traceback.print_exc()
+    raise typer.Exit(1)
+
+
+# ==================== 系统管理命令 ====================
+
+@app.command()
+def init():
+    """
+    初始化 Worker 引擎（加载配置、启动后台任务）
+
+    在使用其他命令前，建议先执行此命令以初始化系统。
+    会从数据库加载所有 Worker 配置并启动后台任务。
+
+    示例:
+      python worker_cli.py init
+    """
+    try:
+        asyncio.run(worker_system.initialize())
+        summary = worker_system.get_summary()
+        
+        typer.secho("✓ Worker 引擎初始化完成", fg=typer.colors.GREEN)
+        typer.echo(f"  已加载 {summary['total_workers']} 个 Worker")
+        
+        # 显示状态分布
+        breakdown = summary.get('status_breakdown', {})
+        if breakdown:
+            typer.echo(f"\n  状态分布:")
+            for status, count in breakdown.items():
+                color = _get_state_color(status)
+                icon = _get_state_icon(status)
+                typer.secho(f"    {icon} {status}: {count}", fg=color)
+                
+    except RuntimeError as e:
+        _handle_runtime_error(e)
+    except Exception as e:
+        _handle_general_error(e)
+
+
+@app.command()
+def summary():
+    """
+    显示系统摘要信息
+
+    查看 Worker 系统的整体状态，包括总数、状态分布、初始化状态等。
+
+    示例:
+      python worker_cli.py summary
+    """
+    try:
+        summary_data = worker_system.get_summary()
+        
+        typer.echo("\n📊 Worker 系统摘要\n")
+        typer.echo(f"  总数: {summary_data['total_workers']}")
+        typer.echo(f"  初始化状态: ", nl=False)
+        if summary_data['is_initialized']:
+            typer.secho("✓ 已初始化", fg=typer.colors.GREEN)
+        else:
+            typer.secho("✗ 未初始化", fg=typer.colors.RED)
+            typer.echo(f"\n  提示: 执行 'python worker_cli.py init' 初始化系统")
+        
+        typer.echo(f"\n  状态分布:")
+        
+        for status, count in summary_data['status_breakdown'].items():
+            color = _get_state_color(status)
+            icon = _get_state_icon(status)
+            typer.secho(f"    {icon} {status}: {count}", fg=color)
+            
+        if not summary_data['status_breakdown']:
+            typer.echo("    （暂无 Worker）")
+            
+    except RuntimeError as e:
+        _handle_runtime_error(e)
+    except Exception as e:
+        _handle_general_error(e)
+
+
+# ==================== Worker CRUD 命令 ====================
 
 @app.command()
 def create(
@@ -195,8 +336,6 @@ def create(
       python worker_cli.py create --name worker_001 --strategy-id 1 --exchange binance --symbol BTCUSDT
     """
     try:
-        svc, exceptions = _get_core_service()
-
         worker_data = {
             "name": name,
             "description": description,
@@ -208,65 +347,130 @@ def create(
             "trading_mode": trading_mode,
         }
 
-        result = svc.create_worker(worker_data)
+        worker_id = worker_system.create_worker(worker_data)
 
-        typer.echo(f"✓ Worker 创建成功")
-        typer.echo(f"  ID: {result.get('id')}")
-        typer.echo(f"  名称: {result.get('name')}")
-        typer.echo(f"  策略ID: {result.get('strategy_id')}")
-        typer.echo(f"  交易所: {result.get('exchange')}")
-        typer.echo(f"  交易对: {result.get('symbol')}")
-        typer.echo(f"  时间周期: {result.get('timeframe')}")
-        typer.echo(f"  市场类型: {result.get('market_type')}")
-        typer.echo(f"  交易模式: {result.get('trading_mode')}")
+        typer.secho("✓ Worker 创建成功", fg=typer.colors.GREEN)
+        typer.echo(f"  ID: {worker_id}")
+        typer.echo(f"  名称: {name}")
+        typer.echo(f"  策略ID: {strategy_id}")
+        typer.echo(f"  交易所: {exchange}")
+        typer.echo(f"  交易对: {symbol}")
+        typer.echo(f"  时间周期: {timeframe}")
+        typer.echo(f"  市场类型: {market_type}")
+        typer.echo(f"  交易模式: {trading_mode}")
+        
+        typer.echo(f"\n  下一步:")
+        typer.echo(f"    python worker_cli.py start {worker_id}   # 启动 Worker")
 
-    except exceptions['WorkerNotFoundError']:
-        typer.echo(f"错误: Worker 不存在", err=True)
-        raise typer.Exit(1)
-    except exceptions['WorkerAlreadyRunningError'] as e:
-        typer.secho(f"⚠ {e}", fg=typer.colors.YELLOW)
-    except exceptions['WorkerOperationError'] as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
+
+
+@app.command()
+def add(
+    name: Annotated[str, typer.Option("--name", "-n", help="Worker 名称")],
+    strategy_id: Annotated[int, typer.Option("--strategy-id", "-s", help="策略ID")],
+    exchange: Annotated[str, typer.Option("--exchange", "-e", help="交易所")] = "binance",
+    symbol: Annotated[str, typer.Option("--symbol", help="交易对")] = "BTCUSDT",
+):
+    """
+    快速添加新 Worker（简化版 create）
+
+    使用最常用的参数快速创建 Worker，适合日常使用。
+
+    示例:
+      python worker_cli.py add --name quick_worker --strategy-id 1
+      python worker_cli.py add -n w2 -s 2 -e binance -symbol ETHUSDT
+    """
+    try:
+        worker_data = {
+            "name": name,
+            "strategy_id": strategy_id,
+            "exchange": exchange,
+            "symbol": symbol,
+            "timeframe": "1h",
+            "market_type": "spot",
+            "trading_mode": "paper",
+        }
+
+        worker_id = worker_system.create_worker(worker_data)
+
+        typer.secho(f"✓ Worker 已添加 (ID: {worker_id})", fg=typer.colors.GREEN)
+        typer.echo(f"  名称: {name}")
+        typer.echo(f"  状态: stopped (可随时启动)")
+        typer.echo(f"\n  下一步:")
+        typer.echo(f"    python worker_cli.py start {worker_id}   # 启动 Worker")
+
+    except RuntimeError as e:
+        _handle_runtime_error(e)
+    except Exception as e:
+        _handle_general_error(e)
 
 
 @app.command()
 def delete(
     worker_id: Annotated[int, typer.Argument(help="Worker ID")],
+    force: Annotated[bool, typer.Option("--force", "-f", help="强制删除运行中的 Worker")] = False,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="确认删除，不提示")] = False,
 ):
     """
     删除 Worker
 
+    支持强制删除运行中的 Worker（会先停止再删除）。
+
     示例:
       python worker_cli.py delete 1
-      python worker_cli.py delete 1 --yes
+      python worker_cli.py delete 1 --force     # 强制删除（即使正在运行）
+      python worker_cli.py delete 1 --yes       # 跳过确认提示
     """
     try:
-        svc, exceptions = _get_core_service()
-
         # 先获取 Worker 信息
-        worker = svc.get_worker(worker_id)
+        worker = worker_system.get_worker(worker_id)
+        if not worker:
+            typer.echo(f"✗ Worker {worker_id} 不存在", err=True)
+            raise typer.Exit(1)
 
         # 确认删除
         if not yes:
-            if not typer.confirm(f"确定要删除 Worker {worker_id} ({worker.get('name')}) 吗?"):
+            worker_name = worker.get('name', 'Unknown')
+            if not typer.confirm(f"确定要删除 Worker {worker_id} ({worker_name}) 吗?"):
                 typer.echo("已取消")
                 raise typer.Exit(0)
 
-        # 删除 Worker
-        svc.delete_worker(worker_id)
-        typer.echo(f"✓ Worker {worker_id} 已删除")
+        # 删除 Worker（支持强制删除）
+        success = worker_system.delete_worker(worker_id, force_stop=force)
+        
+        if success:
+            typer.secho(f"✓ Worker {worker_id} 已删除", fg=typer.colors.GREEN)
+            if force:
+                typer.echo(f"  （使用了强制删除模式）")
+        else:
+            typer.echo(f"✗ 删除失败", err=True)
+            raise typer.Exit(1)
 
-    except exceptions['WorkerNotFoundError']:
-        typer.echo(f"错误: Worker {worker_id} 不存在", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
+    except typer.Exit:
+        raise
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
+
+
+@app.command()
+def remove(
+    worker_id: Annotated[int, typer.Argument(help="Worker ID")],
+    force: Annotated[bool, typer.Option("--force", "-f", help="强制删除")] = False,
+):
+    """
+    快捷删除 Worker（简化版 delete）
+
+    示例:
+      python worker_cli.py remove 1
+      python worker_cli.py remove 1 --force
+    """
+    delete.callback(worker_id=worker_id, force=force, yes=True)
 
 
 @app.command()
@@ -286,9 +490,8 @@ def update(
       python worker_cli.py update 1 --name new_name --symbol ETHUSDT
     """
     try:
-        svc, exceptions = _get_core_service()
-
-        # 构建更新数据
+        from worker.core_service import worker_core_service
+        
         update_data = {}
         if name:
             update_data["name"] = name
@@ -304,24 +507,19 @@ def update(
             update_data["trading_mode"] = trading_mode
 
         if not update_data:
-            typer.echo("错误: 没有指定要更新的字段", err=True)
+            typer.echo("✗ 没有指定要更新的字段", err=True)
             raise typer.Exit(1)
 
-        result = svc.update_worker(worker_id, update_data)
+        result = worker_core_service.update_worker(worker_id, update_data)
 
-        typer.echo(f"✓ Worker {worker_id} 更新成功")
+        typer.secho(f"✓ Worker {worker_id} 更新成功", fg=typer.colors.GREEN)
         typer.echo(f"  名称: {result.get('name')}")
         typer.echo(f"  交易对: {result.get('symbol')}")
 
-    except exceptions['WorkerNotFoundError']:
-        typer.echo(f"错误: Worker {worker_id} 不存在", err=True)
-        raise typer.Exit(1)
-    except exceptions['WorkerOperationError'] as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command()
@@ -338,136 +536,169 @@ def clone(
       python worker_cli.py clone 1 --new-name worker_002
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
-        result = svc.clone_worker(
+        result = worker_core_service.clone_worker(
             worker_id,
             new_name=new_name,
             copy_config=copy_config,
             copy_parameters=copy_parameters,
         )
 
-        typer.echo(f"✓ Worker 克隆成功")
+        typer.secho(f"✓ Worker 克隆成功", fg=typer.colors.GREEN)
         typer.echo(f"  新 Worker ID: {result.get('id')}")
         typer.echo(f"  新 Worker 名称: {result.get('name')}")
         typer.echo(f"  源 Worker ID: {worker_id}")
         typer.echo(f"  复制配置: {copy_config}")
         typer.echo(f"  复制参数: {copy_parameters}")
 
-    except exceptions['WorkerNotFoundError']:
-        typer.echo(f"错误: Worker {worker_id} 不存在", err=True)
-        raise typer.Exit(1)
-    except exceptions['WorkerOperationError'] as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
-# ========== Worker 生命周期命令 ==========
+# ==================== 生命周期命令 ====================
 
 @app.command()
 def start(
     worker_id: Annotated[int, typer.Argument(help="Worker ID")],
+    wait: Annotated[bool, typer.Option("--wait", "-w", help="等待启动完成")] = False,
 ):
     """
-    启动指定 Worker（后台运行模式）
+    启动指定 Worker
 
-    启动后立即返回，Worker 在后台初始化。
-    使用 'status' 或 'logs' 命令查看进度。
+    支持两种模式：
+      - 非阻塞模式（默认）：发送启动请求后立即返回
+      - 阻塞模式（--wait）：等待启动完成后返回最终状态
 
     示例:
-      python worker_cli.py start 1           # 后台启动（默认）
-      python worker_cli.py status 1           # 查看状态
-      python worker_cli.py logs 1 --lines 20  # 查看日志
+      python worker_cli.py start 1           # 非阻塞模式（默认）
+      python worker_cli.py start 1 --wait    # 等待启动完成
     """
     try:
-        svc, exceptions = _get_core_service()
-
         # 先检查 Worker 当前状态
-        try:
-            worker = svc.get_worker(worker_id)
-            current_status = worker.get('status', 'unknown')
-
-            if current_status in ['running', 'starting']:
-                typer.secho(f"⚠ Worker {worker_id} 正在运行中", fg=typer.colors.YELLOW)
-                typer.echo(f"  状态: {current_status}")
-                typer.echo(f"  PID: {worker.get('pid')}")
-                if current_status == 'starting':
-                    typer.echo("")
-                    typer.secho("ℹ  Worker 正在初始化中...", fg=typer.colors.YELLOW)
-                    typer.echo("  查看日志:")
-                    typer.echo(f"    python worker_cli.py logs {worker_id} --lines 20")
-                return
-        except Exception:
-            # 如果获取状态失败，继续尝试启动
-            pass
-
-        result = asyncio.run(svc.async_start_worker(worker_id))
-
-        status = result.get('status', 'unknown')
-        pid = result.get('pid')
-
-        if status in ['running', 'starting']:
-            typer.secho(f"✓ Worker {worker_id} 启动成功", fg=typer.colors.GREEN)
-            typer.echo(f"  Worker ID: {result.get('worker_id')}")
-            typer.echo(f"  状态: {status}")
-            typer.echo(f"  PID: {pid}")
-
-            if status == 'starting':
-                # starting 状态时提供额外提示
-                typer.echo("")
-                typer.secho("ℹ  Worker 正在后台初始化...", fg=typer.colors.YELLOW)
-                typer.echo("  使用以下命令查看进度:")
-                typer.echo(f"    python worker_cli.py status {worker_id}")
-                typer.echo(f"    python worker_cli.py logs {worker_id} --lines 20")
-        else:
-            typer.echo(f"错误: {result.get('message', '启动失败')}", err=True)
+        worker = worker_system.get_worker(worker_id)
+        if not worker:
+            typer.echo(f"✗ Worker {worker_id} 不存在", err=True)
             raise typer.Exit(1)
 
-    except exceptions['WorkerNotFoundError']:
-        typer.echo(f"错误: Worker {worker_id} 不存在", err=True)
-        raise typer.Exit(1)
-    except exceptions['WorkerAlreadyRunningError'] as e:
-        typer.secho(f"⚠ {e}", fg=typer.colors.YELLOW)
-    except (exceptions['StrategyLoadError'], exceptions['ConfigPreparationError'], exceptions['WorkerStartError']) as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        current_status = worker.get('status', 'unknown')
+
+        if current_status in ['running', 'starting']:
+            state_icon = _get_state_icon(current_status)
+            state_color = _get_state_color(current_status)
+            typer.secho(f"{state_icon} Worker {worker_id} 正在运行中", fg=state_color)
+            typer.echo(f"  状态: {current_status}")
+            
+            if current_status == 'starting':
+                typer.echo("")
+                typer.secho("ℹ  Worker 正在初始化中...", fg=typer.colors.YELLOW)
+                typer.echo("  查看日志:")
+                typer.echo(f"    python worker_cli.py logs {worker_id} --lines 20")
+            return
+
+        if wait:
+            # 同步等待启动完成
+            start_time = time.time()
+            result = worker_system.sync_start_worker(worker_id)
+            elapsed = time.time() - start_time
+            
+            result['elapsed'] = elapsed
+            _print_start_result(result, worker_id)
+        else:
+            # 异步非阻塞启动
+            result = asyncio.run(
+                worker_system.async_start_worker(worker_id)
+            )
+            
+            status = result.get('status', 'starting')
+            pid = result.get('pid')
+            
+            typer.secho(f"✓ 启动请求已发送", fg=typer.colors.GREEN)
+            typer.echo(f"  Worker ID: {worker_id}")
+            typer.echo(f"  当前状态: ", nl=False)
+            typer.secho(f"{_get_state_icon(status)} {status}", fg=_get_state_color(status))
+            
+            if pid:
+                typer.echo(f"  PID: {pid}")
+            
+            typer.echo(f"\n  提示: 使用以下命令查看进度:")
+            typer.echo(f"    python worker_cli.py status {worker_id}")
+            typer.echo(f"    python worker_cli.py logs {worker_id} --lines 20")
+
+    except RuntimeError as e:
+        _handle_runtime_error(e)
+    except typer.Exit:
+        raise
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command()
 def stop(
     worker_id: Annotated[int, typer.Argument(help="Worker ID")],
+    wait: Annotated[bool, typer.Option("--wait", "-w", help="等待停止完成")] = False,
     force: Annotated[bool, typer.Option("--force", "-f", help="强制停止")] = False,
 ):
     """
     停止指定 Worker
 
+    支持两种模式：
+      - 非阻塞模式（默认）：发送停止请求后立即返回
+      - 阻塞模式（--wait）：等待停止完成后返回最终状态
+
     示例:
-      python worker_cli.py stop 1
-      python worker_cli.py stop 1 --force
+      python worker_cli.py stop 1             # 非阻塞模式（默认）
+      python worker_cli.py stop 1 --wait      # 等待停止完成
+      python worker_cli.py stop 1 --force     # 强制停止
     """
     try:
-        svc, exceptions = _get_core_service()
+        start_time = time.time()
 
-        result = asyncio.run(svc.async_stop_worker(worker_id))
+        if wait:
+            # 同步等待停止完成
+            result = worker_system.sync_stop_worker(worker_id)
+            elapsed = time.time() - start_time
+            
+            status = result.get('status', 'unknown')
+            
+            typer.echo("")
+            typer.secho(f"✓ Worker {worker_id} 停止完成", fg=typer.colors.GREEN)
+            typer.echo(f"  最终状态: ", nl=False)
+            typer.secho(f"{_get_state_icon(status)} {status}", fg=_get_state_color(status))
+            typer.echo(f"  耗时: {_format_elapsed(elapsed)}")
+            
+            if status not in ['stopped', 'stopping']:
+                typer.secho(
+                    f"  ⚠ 状态为 '{status}'，可能触发了优雅停机超时保护",
+                    fg=typer.colors.YELLOW
+                )
+                typer.echo(f"  提示: 使用 'diagnose {worker_id}' 查看详细信息")
+            elif elapsed > 10:
+                typer.secho(
+                    f"  ℹ 停机耗时较长 ({elapsed:.1f}s)，可能进行了资源清理",
+                    fg=typer.colors.CYAN
+                )
+        else:
+            # 异步非阻塞停止
+            result = asyncio.run(
+                worker_system.async_stop_worker(worker_id)
+            )
+            
+            elapsed = time.time() - start_time
+            status = result.get('status', 'unknown')
+            
+            typer.secho(f"✓ 停止请求已发送", fg=typer.colors.GREEN)
+            typer.echo(f"  Worker ID: {worker_id}")
+            typer.echo(f"  当前状态: ", nl=False)
+            typer.secho(f"{_get_state_icon(status)} {status}", fg=_get_state_color(status))
+            typer.echo(f"  耗时: {_format_elapsed(elapsed)}")
 
-        typer.echo(f"✓ Worker {worker_id} 已停止")
-        typer.echo(f"  状态: {result.get('status')}")
-
-    except exceptions['WorkerNotFoundError']:
-        typer.echo(f"错误: Worker {worker_id} 不存在", err=True)
-        raise typer.Exit(1)
-    except exceptions['WorkerOperationError'] as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command()
@@ -477,29 +708,27 @@ def restart(
     """
     重启指定 Worker
 
+    内部执行先停止再启动的操作。
+
     示例:
       python worker_cli.py restart 1
     """
     try:
-        svc, exceptions = _get_core_service()
+        start_time = time.time()
+        result = worker_system.restart_worker(worker_id)
+        elapsed = time.time() - start_time
 
-        # 重启是同步操作（内部先停止再启动）
-        result = svc.restart_worker(worker_id)
+        typer.secho(f"✓ Worker {worker_id} 重启完成", fg=typer.colors.GREEN)
+        typer.echo(f"  状态: {result.get('start_result', {}).get('status', 'unknown')}")
+        typer.echo(f"  耗时: {_format_elapsed(elapsed)}")
+        
+        if result.get('start_result', {}).get('pid'):
+            typer.echo(f"  PID: {result['start_result']['pid']}")
 
-        typer.echo(f"✓ Worker {worker_id} 重启中")
-        typer.echo(f"  状态: {result.get('status')}")
-        if result.get('pid'):
-            typer.echo(f"  PID: {result.get('pid')}")
-
-    except exceptions['WorkerNotFoundError']:
-        typer.echo(f"错误: Worker {worker_id} 不存在", err=True)
-        raise typer.Exit(1)
-    except exceptions['WorkerOperationError'] as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command()
@@ -513,22 +742,17 @@ def pause(
       python worker_cli.py pause 1
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
-        result = asyncio.run(svc.async_pause_worker(worker_id))
+        result = asyncio.run(worker_core_service.async_pause_worker(worker_id))
 
-        typer.echo(f"✓ Worker {worker_id} 已暂停")
+        typer.secho(f"✓ Worker {worker_id} 已暂停", fg=typer.colors.GREEN)
         typer.echo(f"  状态: {result.get('status')}")
 
-    except exceptions['WorkerNotFoundError']:
-        typer.echo(f"错误: Worker {worker_id} 不存在", err=True)
-        raise typer.Exit(1)
-    except exceptions['WorkerOperationError'] as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command()
@@ -542,22 +766,126 @@ def resume(
       python worker_cli.py resume 1
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
-        result = asyncio.run(svc.async_resume_worker(worker_id))
+        result = asyncio.run(worker_core_service.async_resume_worker(worker_id))
 
-        typer.echo(f"✓ Worker {worker_id} 已恢复")
+        typer.secho(f"✓ Worker {worker_id} 已恢复", fg=typer.colors.GREEN)
         typer.echo(f"  状态: {result.get('status')}")
 
-    except exceptions['WorkerNotFoundError']:
-        typer.echo(f"错误: Worker {worker_id} 不存在", err=True)
-        raise typer.Exit(1)
-    except exceptions['WorkerOperationError'] as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
+
+
+# ==================== 批量操作命令 ====================
+
+@app.command("start-all")
+def start_all(
+    concurrent: Annotated[int, typer.Option("--concurrent", "-c", help="最大并发数")] = 3,
+):
+    """
+    启动所有已停止的 Worker
+
+    使用信号量控制并发数量，避免同时启动过多 Worker 导致资源耗尽。
+
+    示例:
+      python worker_cli.py start-all              # 默认并发数 3
+      python worker_cli.py start-all -c 5         # 最大并发数 5
+    """
+    try:
+        results = asyncio.run(
+            worker_system.async_start_all(max_concurrent=concurrent)
+        )
+
+        if not results:
+            typer.echo("\n没有需要启动的 Worker（所有 Worker 都不在 stopped 状态）")
+            return
+
+        success_count = sum(1 for r in results if r.get('success'))
+        fail_count = len(results) - success_count
+
+        typer.echo(f"\n{'='*60}")
+        typer.secho(f"批量启动完成 | 成功: {success_count} | 失败: {fail_count}", 
+                   fg=typer.colors.GREEN if fail_count == 0 else typer.colors.YELLOW,
+                   bold=True)
+        typer.echo(f"{'='*60}")
+
+        # 显示每个 Worker 的结果
+        for r in results:
+            wid = r['worker_id']
+            if r.get('success'):
+                typer.secho(f"  ✓ Worker {wid}: 启动成功", fg=typer.colors.GREEN)
+            else:
+                error_msg = r.get('error', '未知错误')
+                typer.secho(f"  ✗ Worker {wid}: {error_msg}", fg=typer.colors.RED)
+
+    except RuntimeError as e:
+        _handle_runtime_error(e)
+    except Exception as e:
+        _handle_general_error(e)
+
+
+@app.command("stop-all")
+def stop_all(
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="跳过确认提示")] = False,
+):
+    """
+    停止所有运行中的 Worker
+
+    示例:
+      python worker_cli.py stop-all             # 会提示确认
+      python worker_cli.py stop-all -y          # 跳过确认
+    """
+    try:
+        # 检查是否有运行中的 Worker
+        summary = worker_system.get_summary()
+        running_count = summary['status_breakdown'].get('running', 0)
+        starting_count = summary['status_breakdown'].get('starting', 0)
+        total_running = running_count + starting_count
+
+        if total_running == 0:
+            typer.echo("\n没有需要停止的 Worker（没有运行中的 Worker）")
+            return
+
+        # 确认提示
+        if not yes:
+            typer.echo(f"\n即将停止 {total_running} 个运行中的 Worker:")
+            typer.echo(f"  - 运行中: {running_count}")
+            typer.echo(f"  - 启动中: {starting_count}")
+            
+            if not typer.confirm("\n确定要停止所有运行中的 Worker 吗?"):
+                typer.echo("已取消")
+                raise typer.Exit(0)
+
+        # 执行批量停止
+        results = asyncio.run(worker_system.async_stop_all())
+
+        success_count = sum(1 for r in results if r.get('success'))
+        fail_count = len(results) - success_count
+
+        typer.echo(f"\n{'='*60}")
+        typer.secho(f"批量停止完成 | 成功: {success_count} | 失败: {fail_count}",
+                   fg=typer.colors.GREEN if fail_count == 0 else typer.colors.YELLOW,
+                   bold=True)
+        typer.echo(f"{'='*60}")
+
+        # 显示每个 Worker 的结果
+        for r in results:
+            wid = r['worker_id']
+            if r.get('success'):
+                typer.secho(f"  ✓ Worker {wid}: 已停止", fg=typer.colors.GREEN)
+            else:
+                error_msg = r.get('error', '未知错误')
+                typer.secho(f"  ✗ Worker {wid}: {error_msg}", fg=typer.colors.RED)
+
+    except RuntimeError as e:
+        _handle_runtime_error(e)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        _handle_general_error(e)
 
 
 @app.command("batch")
@@ -566,35 +894,72 @@ def batch_operation(
     worker_ids: Annotated[List[int], typer.Option("--worker-ids", "-w", help="Worker ID 列表")],
 ):
     """
-    批量操作 Worker
+    批量操作指定的 Worker 列表
 
     示例:
       python worker_cli.py batch --operation start --worker-ids 1 --worker-ids 2 --worker-ids 3
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
-        result = svc.batch_operation(worker_ids, operation)
+        result = worker_core_service.batch_operation(worker_ids, operation)
 
-        typer.echo(f"批量操作完成:")
-        typer.echo(f"  成功: {len(result.get('success', []))} 个")
-        typer.echo(f"  失败: {len(result.get('failed', {}))} 个")
-        typer.echo(f"  总计: {result.get('total', 0)} 个")
+        success_list = result.get('success', [])
+        failed_dict = result.get('failed', {})
+        total = result.get('total', 0)
+        results_detail = result.get('results', [])
 
-        if result.get('failed'):
-            typer.echo(f"\n失败的 Worker:")
-            for wid, error in result['failed'].items():
-                typer.echo(f"  - Worker {wid}: {error}")
+        typer.echo(f"\n{'='*60}")
+        typer.secho(f"批量{operation}操作完成", fg=typer.colors.GREEN, bold=True)
+        typer.echo(f"{'='*60}")
+        typer.echo(f"  总计: {total} 个 Worker")
+        typer.secho(f"  ✓ 成功: {len(success_list)} 个", fg=typer.colors.GREEN)
+        if failed_dict:
+            typer.secho(f"  ✗ 失败: {len(failed_dict)} 个", fg=typer.colors.RED)
+        else:
+            typer.secho(f"  ✗ 失败: 0 个", fg=typer.colors.GREEN)
 
-    except exceptions['WorkerOperationError'] as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        # 展示每个 Worker 的详细状态转换信息（来自 StateMachineGuard）
+        if results_detail:
+            typer.echo(f"\n{'─'*60}")
+            typer.echo("详细状态转换记录:")
+            typer.echo(f"{'─'*60}")
+            typer.echo(f"{'Worker ID':<12} {'结果':<8} {'旧状态':<15} {'新状态':<15} {'消息'}")
+            typer.echo(f"{'-'*12} {'-'*8} {'-'*15} {'-'*15} {'-'*30}")
+
+            for r in results_detail:
+                wid = str(r.get('worker_id', 'N/A'))
+                is_success = r.get('success', False)
+                old_state = r.get('old_state') or 'N/A'
+                new_state = r.get('new_state') or 'N/A'
+                message = r.get('message', '')
+
+                # 处理 Enum 类型
+                if hasattr(old_state, 'value') and not isinstance(old_state, str):
+                    old_state = old_state.value
+                if hasattr(new_state, 'value') and not isinstance(new_state, str):
+                    new_state = new_state.value
+
+                result_icon = "✓" if is_success else "✗"
+                result_color = typer.colors.GREEN if is_success else typer.colors.RED
+
+                typer.echo(f"{wid:<12} ", nl=False)
+                typer.secho(f"{result_icon} {'成功' if is_success else '失败':<6}", fg=result_color, nl=False)
+                typer.echo(f" {str(old_state):<15} {str(new_state):<15} {message[:40]}")
+
+        # 失败详情
+        if failed_dict:
+            typer.echo(f"\n失败原因详情:")
+            for wid, error in failed_dict.items():
+                typer.secho(f"  ! Worker {wid}: {error}", fg=typer.colors.RED)
+
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
-# ========== Worker 状态查看命令 ==========
+# ==================== 状态查看命令 ====================
 
 @app.command()
 def status(
@@ -605,14 +970,14 @@ def status(
     """
     查看 Worker 状态
 
+    从 WorkerSystem 获取实时状态信息。
+
     示例:
       python worker_cli.py status              # 查看所有 Worker 状态
       python worker_cli.py status 1            # 查看指定 Worker 状态
       python worker_cli.py status --watch      # 持续监控
     """
     try:
-        svc, exceptions = _get_core_service()
-
         if watch:
             # 持续监控模式
             typer.echo(f"开始监控 Worker 状态，按 Ctrl+C 停止...\n")
@@ -628,71 +993,55 @@ def status(
             # 单次显示
             _show_status(worker_id)
 
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 def _show_status(worker_id: Optional[int] = None):
-    """显示 Worker 状态"""
-    svc, exceptions = _get_core_service()
-    
+    """显示 Worker 状态（从 WorkerSystem 获取数据）"""
     if worker_id:
         # 显示单个 Worker 状态
-        worker = svc.get_worker(worker_id)
+        worker = worker_system.get_worker(worker_id)
+        
+        if not worker:
+            typer.echo(f"✗ Worker {worker_id} 不存在", err=True)
+            raise typer.Exit(1)
 
-        # 从 trading_config 解析交易配置
-        trading_config = worker.get('trading_config', '{}')
-        if isinstance(trading_config, str):
-            try:
-                trading_config = json.loads(trading_config)
-            except:
-                trading_config = {}
+        state = worker.get('status', 'unknown')
+        state_icon = _get_state_icon(state)
+        state_color = _get_state_color(state)
 
-        symbols_config = trading_config.get('symbols_config', {})
-        symbols = symbols_config.get('symbols', [])
-        # 显示交易对，多个用逗号分隔
-        symbols_str = ', '.join(symbols) if symbols else 'N/A'
-
-        typer.echo(f"Worker ID: {worker.get('id')}")
+        typer.echo(f"Worker ID: {worker.get('worker_id', worker_id)}")
         typer.echo(f"名称: {worker.get('name')}")
         typer.echo(f"状态: ", nl=False)
-        typer.secho(f"{worker.get('status')}", fg=_get_state_color(worker.get('status', '')))
+        typer.secho(f"{state_icon} {state}", fg=state_color)
         typer.echo(f"策略ID: {worker.get('strategy_id')}")
-        typer.echo(f"交易所: {trading_config.get('exchange', 'N/A')}")
-        typer.echo(f"交易对: {symbols_str}")
-        typer.echo(f"时间周期: {trading_config.get('timeframe', 'N/A')}")
-        typer.echo(f"市场类型: {trading_config.get('market_type', 'N/A')}")
-        typer.echo(f"交易模式: {trading_config.get('trading_mode', 'N/A')}")
-        typer.echo(f"PID: {worker.get('pid') or 'N/A'}")
-        typer.echo(f"运行时长: {_format_uptime(worker.get('started_at'))}")
-
-        # 获取实时状态
-        try:
-            realtime = svc.get_worker_status(worker_id)
+        typer.echo(f"交易所: {worker.get('exchange')}")
+        typer.echo(f"交易对: {worker.get('symbol')}")
+        
+        # 显示实时状态信息（如果有）
+        state_info = worker.get('_state_info')
+        if state_info:
             typer.echo(f"\n实时状态:")
-            typer.echo(f"  是否健康: {realtime.get('is_healthy', False)}")
-            typer.echo(f"  最后心跳: {realtime.get('last_heartbeat', 'N/A')}")
-        except:
-            pass
+            typer.echo(f"  是否健康: {state_info.get('is_healthy', False)}")
+            typer.echo(f"  最后心跳: {state_info.get('last_heartbeat', 'N/A')}")
     else:
         # 显示所有 Worker 状态
-        result = svc.list_workers()
-        workers = result.get("items", [])
-        total = result.get("total", 0)
+        workers = worker_system.list_workers()
 
         if not workers:
             typer.echo("没有 Worker")
             return
 
-        typer.echo(f"\n总计: {total} 个 Worker\n")
+        typer.echo(f"\n总计: {len(workers)} 个 Worker\n")
         _print_worker_table(workers)
 
 
 @app.command()
 def list_workers(
     status: Annotated[Optional[str], typer.Option("--status", "-s", help="按状态筛选")] = None,
-    strategy_id: Annotated[Optional[int], typer.Option("--strategy-id", help="按策略ID筛选")] = None,
     page: Annotated[int, typer.Option("--page", "-p", help="页码")] = 1,
     page_size: Annotated[int, typer.Option("--page-size", help="每页数量")] = 20,
     format: Annotated[OutputFormat, typer.Option("--format", "-f", help="输出格式")] = OutputFormat.TABLE,
@@ -700,36 +1049,42 @@ def list_workers(
     """
     列出所有 Worker
 
+    从 WorkerSystem 获取 Worker 列表，支持状态筛选。
+
     示例:
       python worker_cli.py list_workers
       python worker_cli.py list_workers --status running
       python worker_cli.py list_workers --format json
     """
     try:
-        svc, exceptions = _get_core_service()
+        workers = worker_system.list_workers(status_filter=status)
 
-        result = svc.list_workers(
-            status=status,
-            strategy_id=strategy_id,
-            page=page,
-            page_size=page_size,
-        )
-        workers = result.get("items", [])
-        total = result.get("total", 0)
+        # 手动分页（因为 WorkerSystem 返回的是列表而非分页结果）
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_workers = workers[start_idx:end_idx]
+        total = len(workers)
 
-        if not workers:
+        if not paginated_workers:
             typer.echo("没有 Worker")
             return
 
         if format == OutputFormat.JSON:
-            typer.echo(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+            output = {
+                "items": paginated_workers,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            }
+            typer.echo(json.dumps(output, indent=2, ensure_ascii=False, default=str))
         else:
             typer.echo(f"\n总计: {total} 个 Worker (第 {page} 页，每页 {page_size} 个)\n")
-            _print_worker_table(workers)
+            _print_worker_table(paginated_workers)
 
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command()
@@ -744,21 +1099,22 @@ def stats(
       python worker_cli.py stats 1            # 查看指定 Worker 统计
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
-        result = svc.get_worker_stats(worker_id)
+        result = worker_core_service.get_worker_stats(worker_id)
 
         if worker_id:
             # 查看单个 Worker 统计
             typer.echo(f"Worker {worker_id} 统计信息:")
             typer.echo(f"{'='*50}")
             typer.echo(f"名称: {result.get('name')}")
-            typer.echo(f"状态: {result.get('status')}")
+            typer.echo(f"状态: ", nl=False)
+            typer.secho(f"{result.get('status')}", fg=_get_state_color(result.get('status', '')))
             typer.echo(f"运行时长: {_format_uptime(result.get('started_at'))}")
 
             # 获取实时指标
             try:
-                metrics = svc.get_worker_metrics(worker_id)
+                metrics = worker_core_service.get_worker_metrics(worker_id)
                 typer.echo(f"\n性能指标:")
                 typer.echo(f"  CPU 使用率: {metrics.get('cpu_usage', 0):.1f}%")
                 typer.echo(f"  内存使用: {metrics.get('memory_usage_mb', 0):.2f} MB")
@@ -771,36 +1127,35 @@ def stats(
 
         else:
             # 查看全局统计
+            summary = worker_system.get_summary()
+            
             typer.echo("全局统计信息:")
             typer.echo(f"{'='*50}")
-            typer.echo(f"总 Worker 数: {result.get('total_workers', 0)}")
-            typer.echo(f"运行中: {result.get('running', 0)}")
-            typer.echo(f"已停止: {result.get('stopped', 0)}")
-            typer.echo(f"错误: {result.get('error', 0)}")
-            typer.echo(f"暂停: {result.get('paused', 0)}")
-            typer.echo(f"启动中: {result.get('starting', 0)}")
+            typer.echo(f"总 Worker 数: {summary['total_workers']}")
+            
+            typer.echo(f"\n状态分布:")
+            for status, count in summary['status_breakdown'].items():
+                icon = _get_state_icon(status)
+                color = _get_state_color(status)
+                typer.echo(f"  {icon} {status}: {count}", nl=False)
+                typer.secho(f" ({count})", fg=color)
 
-            running_count = result.get('running', 0)
+            running_count = summary['status_breakdown'].get('running', 0)
             if running_count > 0:
                 typer.echo(f"\n运行中的 Worker:")
-                workers_result = svc.list_workers(status="running")
-                for w in workers_result.get("items", []):
-                    pid = w.get('pid')
-                    pid_str = f", PID: {pid}" if pid else ""
-                    typer.echo(f"  - {w.get('name')} (ID: {w.get('id')}{pid_str}, 运行时长: {_format_uptime(w.get('started_at'))})")
+                workers = worker_system.list_workers(status_filter='running')
+                for w in workers:
+                    wid = w.get('worker_id')
+                    wname = w.get('name')
+                    typer.echo(f"  - {wname} (ID: {wid})")
 
-    except exceptions['WorkerNotFoundError']:
-        typer.echo(f"错误: Worker {worker_id} 不存在", err=True)
-        raise typer.Exit(1)
-    except exceptions['WorkerOperationError'] as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
-# ========== 配置管理命令 ==========
+# ==================== 配置管理命令 ====================
 
 def _get_strategy_name(strategy_id: int) -> str:
     """
@@ -846,22 +1201,15 @@ def _format_symbols(worker_data: Dict) -> str:
     Returns:
         str: 格式化后的交易对字符串
     """
-    # 优先从 trading_config.symbols_config.symbols 获取
-    trading_config = worker_data.get("trading_config", {})
-    if isinstance(trading_config, str):
-        try:
-            trading_config = json.loads(trading_config)
-        except (json.JSONDecodeError, TypeError):
-            trading_config = {}
-
-    symbols_config = trading_config.get("symbols_config", {})
+    config = worker_data.get("config", {})
+    symbols_config = config.get("symbols_config", {})
     symbols = symbols_config.get("symbols", [])
 
     # 如果是列表且非空，格式化显示
     if isinstance(symbols, list) and symbols:
         return ", ".join(symbols)
 
-    # 兼容旧字段 symbol（单个字符串）
+    # 使用 WorkerConfig 中的 symbol 字段
     symbol = worker_data.get("symbol")
     if symbol:
         return str(symbol)
@@ -883,9 +1231,9 @@ def config(
       python worker_cli.py config 1 --set symbol=ETHUSDT
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
-        worker = svc.get_worker(worker_id)
+        worker = worker_core_service.get_worker(worker_id)
 
         if set:
             # 修改配置
@@ -901,11 +1249,11 @@ def config(
                     parsed_value = value
 
                 # 更新配置
-                svc.update_worker_config(worker_id, {key: parsed_value})
-                typer.echo(f"✓ 配置已更新: {key} = {parsed_value}")
+                worker_core_service.update_worker_config(worker_id, {key: parsed_value})
+                typer.secho(f"✓ 配置已更新: {key} = {parsed_value}", fg=typer.colors.GREEN)
 
             except ValueError:
-                typer.echo("错误: 配置项格式错误，请使用 key=value 格式", err=True)
+                typer.echo("✗ 配置项格式错误，请使用 key=value 格式", err=True)
                 raise typer.Exit(1)
 
         else:
@@ -933,12 +1281,10 @@ def config(
             typer.echo(f"创建时间: {worker.get('created_at')}")
             typer.echo(f"更新时间: {worker.get('updated_at')}")
 
-    except exceptions['WorkerNotFoundError']:
-        typer.echo(f"错误: Worker {worker_id} 不存在", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command()
@@ -955,8 +1301,6 @@ def strategies(
       python worker_cli.py strategies --format json
     """
     try:
-        svc, exceptions = _get_core_service()
-
         from strategy.models import Strategy
         from collector.db.database import SessionLocal
         from collector.db.database import init_database_config
@@ -995,11 +1339,10 @@ def strategies(
             typer.echo("  例如: python worker_cli.py create --name worker_001 --strategy-id 1")
 
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
-# ========== 日志命令 ==========
+# ==================== 日志命令 ====================
 
 @app.command()
 def logs(
@@ -1031,7 +1374,7 @@ def logs(
     from pathlib import Path
 
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
         # 显示日志文件路径
         if show_path:
@@ -1059,20 +1402,20 @@ def logs(
                     typer.echo("已取消")
                     raise typer.Exit(0)
 
-            result = svc.clear_worker_logs(
+            result = worker_core_service.clear_worker_logs(
                 worker_id,
                 before_days=before_days,
                 confirm=True,
             )
             deleted_count = result.get("deleted_count", 0)
-            typer.echo(f"✓ 已清理 {deleted_count} 个日志文件")
+            typer.secho(f"✓ 已清理 {deleted_count} 个日志文件", fg=typer.colors.GREEN)
             return
 
         # 查看日志模式
         # 默认 tail 模式：offset 未指定时，先获取总数再计算偏移量，始终显示最后 N 条
         actual_offset = offset
         if offset is None:
-            count_result = svc.get_worker_logs(
+            count_result = worker_core_service.get_worker_logs(
                 worker_id,
                 level=level,
                 start_time=start_time,
@@ -1083,7 +1426,7 @@ def logs(
             total_for_calc = count_result.get("total", 0)
             actual_offset = max(0, total_for_calc - lines)
 
-        result = svc.get_worker_logs(
+        result = worker_core_service.get_worker_logs(
             worker_id,
             level=level,
             start_time=start_time,
@@ -1134,11 +1477,10 @@ def logs(
             typer.echo(f" {source_str}{log.get('message', '')}")
 
     except FileNotFoundError:
-        typer.echo(f"错误: Worker {worker_id} 的日志文件不存在", err=True)
+        typer.echo(f"✗ Worker {worker_id} 的日志文件不存在", err=True)
         raise typer.Exit(1)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command()
@@ -1159,14 +1501,14 @@ def tail(
       python worker_cli.py tail 1 --level ERROR      # 只跟踪错误日志
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
-        typer.echo(f"🔍 开始实时跟踪 Worker {worker_id} 日志...")
+        typer.secho(f"🔍 开始实时跟踪 Worker {worker_id} 日志...", fg=typer.colors.CYAN)
         typer.echo("按 Ctrl+C 停止监控\n")
 
         # 显示历史日志
         if lines > 0:
-            result = svc.get_worker_logs(
+            result = worker_core_service.get_worker_logs(
                 worker_id,
                 level=level,
                 limit=lines,
@@ -1187,7 +1529,7 @@ def tail(
                 time.sleep(1)  # 每秒检查一次
 
                 try:
-                    result = svc.get_worker_logs(
+                    result = worker_core_service.get_worker_logs(
                         worker_id,
                         level=level,
                         limit=10,
@@ -1198,7 +1540,7 @@ def tail(
                     if total > last_total:
                         # 有新的日志
                         new_logs_count = total - last_total
-                        logs_result = svc.get_worker_logs(
+                        logs_result = worker_core_service.get_worker_logs(
                             worker_id,
                             level=level,
                             limit=new_logs_count,
@@ -1215,14 +1557,208 @@ def tail(
                     pass
 
         except KeyboardInterrupt:
-            typer.echo("\n✓ 监控已停止")
+            typer.secho("\n✓ 监控已停止", fg=typer.colors.GREEN)
 
     except Exception as e:
         typer.echo(f"❌ 错误: {e}", err=True)
         raise typer.Exit(1)
 
 
-# ========== 系统管理命令 ==========
+@app.command("realtime-logs")
+def realtime_logs(
+    worker_id: Annotated[Optional[int], typer.Argument(help="Worker ID，不指定则查看全局")] = None,
+    limit: Annotated[int, typer.Option("--limit", "-n", help="最大返回条数")] = 100,
+    level: Annotated[Optional[str], typer.Option("--level", "-l", help="日志级别筛选(DEBUG/INFO/WARNING/ERROR)")] = None,
+    keyword: Annotated[Optional[str], typer.Option("--keyword", "-k", help="关键词搜索")] = None,
+    watch: Annotated[bool, typer.Option("--watch", "-w", help="持续监控模式")] = False,
+    interval: Annotated[int, typer.Option("--interval", "-i", help="监控刷新间隔(秒)")] = 2,
+):
+    """
+    查询实时内存日志（LogRingBuffer）
+
+    从内存缓冲区查询最近的日志，无需读取文件。
+    适用于快速查看最新日志、调试错误、监控关键字。
+
+    特点:
+      - 毫秒级响应（纯内存查询）
+      - 支持多维度过滤（级别、关键词）
+      - 可选持续监控模式
+
+    示例:
+      python worker_cli.py realtime-logs              # 查看全局最近100条日志
+      python worker_cli.py realtime-logs 1            # 查看 Worker 1 最近日志
+      python worker_cli.py realtime-logs --level ERROR --limit 50
+      python worker_cli.py realtime-logs --keyword timeout --watch  # 持续监控含 timeout 的日志
+    """
+    try:
+        from worker.log_ring_buffer import get_global_buffer
+
+        buffer = get_global_buffer()
+
+        if not watch:
+            # 单次查询模式
+            logs = buffer.get_recent(
+                limit=limit,
+                level=level,
+                worker_id=str(worker_id) if worker_id else None,
+                keyword=keyword,
+            )
+
+            if not logs:
+                typer.echo("暂无日志（缓冲区为空）")
+                return
+
+            worker_filter = f" [Worker {worker_id}]" if worker_id else " [全局]"
+            level_filter = f" [{level}]" if level else ""
+            keyword_filter = f" 关键词:'{keyword}'" if keyword else ""
+
+            typer.echo(f"实时内存日志查询结果{worker_filter}{level_filter}{keyword_filter}:")
+            typer.echo(f"{'='*80}")
+            typer.echo(f"共 {len(logs)} 条 (缓冲区容量: {buffer.maxlen})\n")
+
+            for log in logs:
+                timestamp = log.get('timestamp', 'N/A')
+                log_level = log.get('level', 'INFO')
+                message = log.get('message', '')
+                log_worker_id = log.get('worker_id', '')
+
+                level_color = {
+                    "DEBUG": typer.colors.WHITE,
+                    "INFO": typer.colors.GREEN,
+                    "WARNING": typer.colors.YELLOW,
+                    "ERROR": typer.colors.RED,
+                }.get(log_level, typer.colors.WHITE)
+
+                worker_prefix = f"[{log_worker_id}] " if log_worker_id else ""
+
+                typer.echo(f"[{timestamp[:19]}] ", nl=False)
+                typer.secho(f"{log_level:<8}", fg=level_color, nl=False)
+                typer.echo(f" {worker_prefix}{message[:120]}")
+
+            # 显示统计
+            stats = buffer.get_stats()
+            typer.echo(f"\n{'─'*80}")
+            typer.echo(f"缓冲区统计:")
+            typer.echo(f"  当前条目数: {stats['current_size']}/{stats['max_size']}")
+            typer.echo(f"  使用率: {stats['utilization_percent']}%")
+
+        else:
+            # 持续监控模式
+            worker_suffix = f" (Worker {worker_id})" if worker_id else ""
+            typer.secho(
+                f"🔍 开始监控实时日志{worker_suffix}...",
+                fg=typer.colors.CYAN
+            )
+            typer.echo("按 Ctrl+C 停止\n")
+
+            last_timestamp = None
+            try:
+                while True:
+                    logs = buffer.get_recent(
+                        limit=limit,
+                        level=level,
+                        worker_id=str(worker_id) if worker_id else None,
+                        keyword=keyword,
+                    )
+
+                    if logs:
+                        latest_ts = logs[-1].get('timestamp')
+                        if latest_ts != last_timestamp:
+                            os.system('clear' if os.name == 'posix' else 'cls')
+                            latest_ts_display = latest_ts[:19] if latest_ts else 'N/A'
+                            typer.echo(
+                                f"实时日志监控 - "
+                                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
+                                f"(最新: {latest_ts_display})\n"
+                            )
+
+                            for log in logs[-20:]:
+                                timestamp = log.get('timestamp', 'N/A')
+                                log_level = log.get('level', 'INFO')
+                                message = log.get('message', '')
+                                log_wid = log.get('worker_id', '')
+
+                                level_color = {
+                                    "DEBUG": typer.colors.WHITE,
+                                    "INFO": typer.colors.GREEN,
+                                    "WARNING": typer.colors.YELLOW,
+                                    "ERROR": typer.colors.RED,
+                                }.get(log_level, typer.colors.WHITE)
+
+                                wid_prefix = f"[{log_wid}] " if log_wid else ""
+                                typer.echo(f"[{timestamp[:19]}] ", nl=False)
+                                typer.secho(f"{log_level:<8}", fg=level_color, nl=False)
+                                typer.echo(f" {wid_prefix}{message[:100]}")
+
+                            last_timestamp = latest_ts
+                    else:
+                        if last_timestamp is None:
+                            typer.echo("等待日志数据...")
+
+                    time.sleep(interval)
+
+            except KeyboardInterrupt:
+                typer.secho("\n✓ 监控已停止", fg=typer.colors.GREEN)
+
+    except ImportError as e:
+        typer.echo(f"错误: LogRingBuffer 模块加载失败: {e}", err=True)
+        typer.echo("请确保 worker.log_ring_buffer 模块可用", err=True)
+        raise typer.Exit(1)
+    except Exception as e:
+        _handle_general_error(e)
+
+
+@app.command("log-stats")
+def log_stats():
+    """
+    查看全局日志统计信息
+
+    示例:
+      python worker_cli.py log-stats
+    """
+    try:
+        from worker.log_ring_buffer import get_global_buffer
+
+        buffer = get_global_buffer()
+        stats = buffer.get_stats()
+        level_counts = buffer.get_level_counts()
+
+        typer.echo("全局日志统计 (LogRingBuffer):")
+        typer.echo(f"{'='*50}")
+        typer.echo(f"缓冲区容量: {stats['max_size']:,} 条")
+        typer.echo(f"当前条目数: {stats['current_size']:,} 条")
+        typer.echo(f"使用率: {stats['utilization_percent']}%")
+        typer.echo(f"剩余空间: {stats['remaining_capacity']:,} 条")
+        typer.echo(f"\n累计统计:")
+        typer.echo(f"  总追加: {stats['total_appended']:,} 条")
+        typer.echo(f"  总淘汰: {stats['total_evicted']:,} 条")
+        typer.echo(f"\n级别分布:")
+
+        if level_counts:
+            total = sum(level_counts.values())
+            for lvl, count in sorted(level_counts.items(), key=lambda x: -x[1]):
+                percentage = (count / total * 100) if total > 0 else 0
+                bar_len = int(percentage / 5)
+                bar = "█" * bar_len
+                color = {
+                    "ERROR": typer.colors.RED,
+                    "WARNING": typer.colors.YELLOW,
+                    "INFO": typer.colors.GREEN,
+                    "DEBUG": typer.colors.WHITE,
+                }.get(lvl, typer.colors.WHITE)
+
+                typer.echo(f"  ", nl=False)
+                typer.secho(f"{lvl:<8}", fg=color, nl=False)
+                typer.echo(f"{count:>6,} ({percentage:5.1f}%) {bar}")
+
+        if stats.get('last_timestamp'):
+            typer.echo(f"\n最后日志时间: {stats['last_timestamp']}")
+
+    except Exception as e:
+        _handle_general_error(e)
+
+
+# ==================== 系统监控命令 ====================
 
 @app.command()
 def monitor(
@@ -1236,18 +1772,18 @@ def monitor(
       python worker_cli.py monitor --interval 10
     """
     try:
-        svc, exceptions = _get_core_service()
-
-        typer.echo(f"开始监控 Worker，刷新间隔: {interval}秒，按 Ctrl+C 停止...\n")
+        typer.secho(f"开始监控 Worker，刷新间隔: {interval}秒，按 Ctrl+C 停止...\n", 
+                   fg=typer.colors.CYAN)
 
         try:
             while True:
                 os.system('clear' if os.name == 'posix' else 'cls')
                 typer.echo(f"QuantCell Worker 监控 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
-                result = svc.list_workers()
-                workers = result.get("items", [])
-                total = result.get("total", 0)
+                workers = worker_system.list_workers()
+                
+                # 计算统计信息
+                total = len(workers)
                 running_count = sum(1 for w in workers if w.get("status") == "running")
 
                 # 显示概览
@@ -1255,32 +1791,19 @@ def monitor(
                 typer.echo("-" * 80)
 
                 if workers:
-                    typer.echo(f"{'ID':<8} {'名称':<20} {'状态':<12} {'PID':<10} {'运行时长':<15}")
-                    typer.echo("-" * 80)
-
-                    for worker in workers:
-                        worker_id = str(worker.get("id", "N/A"))
-                        name = worker.get("name", "N/A")[:18]
-                        state = worker.get("status", "unknown")
-                        pid = str(worker.get("pid")) if worker.get("pid") else "N/A"
-                        uptime = _format_uptime(worker.get("started_at"))
-
-                        state_color = _get_state_color(state)
-
-                        typer.echo(f"{worker_id:<8} {name:<20} ", nl=False)
-                        typer.secho(f"{state:<12}", fg=state_color, nl=False)
-                        typer.echo(f" {pid:<10} {uptime:<15}")
+                    _print_worker_table(workers)
                 else:
                     typer.echo("没有 Worker")
 
                 time.sleep(interval)
 
         except KeyboardInterrupt:
-            typer.echo("\n监控已停止")
+            typer.secho("\n监控已停止", fg=typer.colors.GREEN)
 
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command()
@@ -1295,16 +1818,19 @@ def health(
       python worker_cli.py health 1            # 检查指定 Worker
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
         if worker_id:
             # 检查单个 Worker
-            health = svc.health_check(worker_id)
+            health = worker_core_service.health_check(worker_id)
 
             typer.echo(f"Worker {worker_id} 健康检查:")
             typer.echo(f"{'='*50}")
             typer.echo(f"状态: {health.get('status', 'unknown')}")
-            typer.echo(f"是否健康: {health.get('is_healthy', False)}")
+            typer.echo(f"是否健康: ", nl=False)
+            is_healthy = health.get('is_healthy', False)
+            typer.secho(f"{'✓ 是' if is_healthy else '✗ 否'}", 
+                       fg=typer.colors.GREEN if is_healthy else typer.colors.RED)
 
             checks = health.get('checks', {})
             if checks:
@@ -1316,25 +1842,27 @@ def health(
 
         else:
             # 检查所有 Worker
-            result = svc.list_workers()
-            workers = result.get("items", [])
+            workers = worker_system.list_workers()
 
             healthy_count = 0
             unhealthy_count = 0
             issues = []
 
             for worker in workers:
+                wid = worker.get('worker_id')
                 if worker.get("status") == "running":
                     try:
-                        health = svc.health_check(worker.get('id'))
-                        if health.get('is_healthy', False):
+                        h = worker_core_service.health_check(wid)
+                        if h.get('is_healthy', False):
                             healthy_count += 1
                         else:
                             unhealthy_count += 1
-                            issues.append(f"Worker {worker.get('id')} ({worker.get('name')}): 不健康")
+                            wname = worker.get('name', 'Unknown')
+                            issues.append(f"Worker {wid} ({wname}): 不健康")
                     except Exception as e:
                         unhealthy_count += 1
-                        issues.append(f"Worker {worker.get('id')} ({worker.get('name')}): 检查失败 - {e}")
+                        wname = worker.get('name', 'Unknown')
+                        issues.append(f"Worker {wid} ({wname}): 检查失败 - {e}")
 
             typer.echo("健康检查完成:")
             typer.echo(f"  健康: {healthy_count}")
@@ -1348,12 +1876,10 @@ def health(
             else:
                 typer.secho("\n✓ 所有检查通过", fg=typer.colors.GREEN)
 
-    except exceptions['WorkerNotFoundError']:
-        typer.echo(f"错误: Worker {worker_id} 不存在", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command()
@@ -1370,9 +1896,9 @@ def diagnose(
       python worker_cli.py diagnose 3         # 诊断指定 Worker
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
-        diagnosis = svc.diagnose_worker(worker_id)
+        diagnosis = worker_core_service.diagnose_worker(worker_id)
 
         typer.echo("=" * 60)
         typer.echo("Worker 系统诊断报告")
@@ -1503,12 +2029,13 @@ def diagnose(
             for i, rec in enumerate(recommendations, 1):
                 typer.echo(f"  {i}. {rec}")
 
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
-# ========== 数据查询命令 ==========
+# ==================== 数据查询命令 ====================
 
 @app.command()
 def trades(
@@ -1530,9 +2057,9 @@ def trades(
       python worker_cli.py trades 1 --format json       # JSON格式输出
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
-        result = svc.get_worker_trades(
+        result = worker_core_service.get_worker_trades(
             worker_id,
             symbol=symbol,
             page=1,
@@ -1576,12 +2103,10 @@ def trades(
                 typer.secho(f"{side:<6}", fg=side_color, nl=False)
                 typer.echo(f" {order_type:<8} {quantity:>10.4f} {price:>12.2f} {amount:>14.2f}")
 
-    except exceptions['WorkerOperationError'] as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command()
@@ -1595,8 +2120,6 @@ def positions(
     当前持仓数据未独立存储，可通过 performance 接口查看相关指标。
     """
     try:
-        svc, exceptions = _get_core_service()
-
         typer.echo(f"\nWorker {worker_id} 持仓信息:")
         typer.echo(f"{'='*60}")
         typer.secho("当前版本暂无独立持仓表，请通过以下方式查看:", fg=typer.colors.YELLOW)
@@ -1604,8 +2127,7 @@ def positions(
         typer.echo("  - CLI: python worker_cli.py stats {worker_id}")
 
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command()
@@ -1627,9 +2149,9 @@ def orders(
       python worker_cli.py orders 1 --format json        # JSON格式输出
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
-        result = svc.get_worker_orders(
+        result = worker_core_service.get_worker_orders(
             worker_id,
             status=status,
             limit=limit,
@@ -1680,12 +2202,10 @@ def orders(
                 typer.secho(f"{side:<6}", fg=side_color, nl=False)
                 typer.echo(f" {quantity:>10.4f} {price:>12.2f}")
 
-    except exceptions['WorkerOperationError'] as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 @app.command("data-sync")
@@ -1703,7 +2223,7 @@ def data_sync(
       python worker_cli.py data-sync 1            # 查看指定Worker
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
         if worker_id:
             typer.echo(f"\nWorker {worker_id} 数据状态:")
@@ -1711,14 +2231,14 @@ def data_sync(
             typer.secho(f"数据源: SQLAlchemy 主库 (quantcell_sqlite.db)", fg=typer.colors.GREEN)
             typer.echo(f"  表名: worker_trades, worker_orders")
 
-            trades_check = svc.get_worker_trades(
+            trades_check = worker_core_service.get_worker_trades(
                 worker_id,
                 page=1,
                 page_size=1,
             )
             total_trades = trades_check.get("total", 0)
 
-            orders_check = svc.get_worker_orders(
+            orders_check = worker_core_service.get_worker_orders(
                 worker_id,
                 limit=1,
             )
@@ -1736,12 +2256,13 @@ def data_sync(
             typer.echo("  - 无需 ZMQ/DataCollector 中间件")
             typer.echo("  - 使用 'orders' 或 'trades' 命令查看具体数据")
 
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
-# ========== Daemon 管理命令 ==========
+# ==================== Daemon 管理命令 ====================
 
 @app.command("daemon")
 def daemon_command(
@@ -1756,10 +2277,10 @@ def daemon_command(
       python worker_cli.py daemon status    # 查看守护进程状态
     """
     try:
-        svc, exceptions = _get_core_service()
+        from worker.core_service import worker_core_service
 
         if action == "start":
-            result = svc.start_daemon()
+            result = worker_core_service.start_daemon()
             typer.secho(f"✓ Daemon 启动成功", fg=typer.colors.GREEN)
             typer.echo(f"  PID: {result['pid']}")
             typer.echo(f"  状态: {result['status']}")
@@ -1769,7 +2290,7 @@ def daemon_command(
             typer.echo("  - 使用 'python worker_cli.py daemon status' 查看状态")
 
         elif action == "stop":
-            result = svc.stop_daemon()
+            result = worker_core_service.stop_daemon()
             typer.secho(f"✓ Daemon 已停止", fg=typer.colors.GREEN)
             typer.echo(f"  PID: {result['pid']}")
             typer.echo(f"  状态: {result['status']}")
@@ -1777,7 +2298,7 @@ def daemon_command(
             typer.echo("  - 所有 Worker 进程也已停止")
 
         elif action == "status":
-            status = svc.get_daemon_status()
+            status = worker_core_service.get_daemon_status()
 
             typer.echo("\nWorkerManager Daemon 状态:")
             typer.echo(f"{'='*50}")
@@ -1793,16 +2314,14 @@ def daemon_command(
                 typer.echo("  python worker_cli.py daemon start")
 
         else:
-            typer.echo(f"错误: 未知操作 '{action}'", err=True)
+            typer.echo(f"✗ 未知操作 '{action}'", err=True)
             typer.echo("支持的操作: start, stop, status", err=True)
             raise typer.Exit(1)
 
-    except exceptions['WorkerOperationError'] as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+    except RuntimeError as e:
+        _handle_runtime_error(e)
     except Exception as e:
-        typer.echo(f"错误: {e}", err=True)
-        raise typer.Exit(1)
+        _handle_general_error(e)
 
 
 if __name__ == "__main__":

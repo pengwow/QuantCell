@@ -62,3 +62,5 @@ QuantCell.code-workspace
 agent_workspace/sessions/*.json
 
 
+backend/_archive_20260515/*
+

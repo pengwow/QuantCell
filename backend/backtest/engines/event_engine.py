@@ -156,22 +156,31 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         创建引擎配置，配置回测引擎的核心参数，包括:
         - 交易者ID
-        - 日志配置
+        - 日志配置（禁用 PyO3 日志避免重复初始化 panic）
         - 缓存数据库配置（可选）
         - 流式配置（可选）
         """
+        import os
+
         # 延迟导入底层实现
         from nautilus_trader.config import BacktestEngineConfig, LoggingConfig
         from nautilus_trader.model import TraderId
 
         # 获取配置参数
         trader_id_str = self._config.get("trader_id", "BACKTEST-001")
-        log_level = self._config.get("log_level", "INFO")
+        log_level = self._config.get("log_level", "WARNING")
+
+        # 创建日志配置：禁用 use_pyo3 避免 Rust 日志系统重复初始化 panic
+        # 参考: https://blog.gitcode.com/b5893efea7062a911d655a93cd54ded5.html
+        logging_config = LoggingConfig(
+            log_level=log_level,
+            use_pyo3=False,  # 关键：禁用 PyO3 日志后端，避免重复初始化崩溃
+        )
 
         # 创建引擎配置
         self._engine_config = BacktestEngineConfig(
             trader_id=TraderId(trader_id_str),
-            logging=LoggingConfig(log_level=log_level),
+            logging=logging_config,
         )
         logger.debug(f"引擎配置已创建: trader_id={trader_id_str}, log_level={log_level}")
 

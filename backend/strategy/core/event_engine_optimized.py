@@ -13,6 +13,7 @@
 
 import threading
 import time
+import warnings
 import logging
 from typing import Dict, List, Callable, Any, Optional
 from dataclasses import dataclass, field
@@ -699,15 +700,28 @@ class OptimizedEventEngine:
             self._graceful_degradation.force_level(level)
 
 
-# 兼容性：保留原始EventEngine的接口
+# 兼容性：保留原始EventEngine的接口（带弃用警告）
 class EventEngine(OptimizedEventEngine):
     """
     向后兼容的事件引擎
-    
+
+    .. deprecated:: 2.2
+        请直接使用 OptimizedEventEngine，并显式配置参数
+
     继承自OptimizedEventEngine，保持与原始EventEngine相同的接口
     """
-    
+
     def __init__(self):
+        """
+        .. deprecated:: 2.2
+            请使用 OptimizedEventEngine(max_queue_size=..., num_workers=...)
+        """
+        warnings.warn(
+            "EventEngine 默认构造函数已弃用（v2.2），"
+            "请使用 OptimizedEventEngine(max_queue_size=..., num_workers=...)",
+            DeprecationWarning,
+            stacklevel=2
+        )
         # 使用默认参数初始化优化引擎
         super().__init__(
             max_queue_size=100000,

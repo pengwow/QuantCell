@@ -17,6 +17,7 @@ from ..core_service import (
     WorkerAlreadyRunningError,
     WorkerOperationError,
 )
+from ..worker_state import worker_state_manager
 from ..dependencies import get_current_user
 from collector.db.database import get_db as get_db_session
 from utils.logger import get_logger, LogType
@@ -61,11 +62,32 @@ async def list_workers(
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user)
 ):
-    """获取Worker列表（支持分页、状态筛选和策略筛选）- 委托给 WorkerCoreService"""
+    """
+    获取Worker列表（支持分页、状态筛选和策略筛选）
+
+    每个列表项包含简化的实时状态信息：
+    - _status: 当前状态 (starting/running/stopping/stopped/error)
+    - _pid: 进程ID
+    - _updated_at: 状态最后更新时间
+
+    性能优化：使用 get_all_states() 批量获取，避免 N+1 查询问题
+    """
     try:
         result = await worker_core_service.async_list_workers(
             status=status, strategy_id=strategy_id, page=page, page_size=page_size
         )
+
+        all_states = await worker_state_manager.get_all_states()
+        items = result.get("items", [])
+
+        for item in items:
+            worker_id = item.get("id")
+            if worker_id and worker_id in all_states:
+                state = all_states[worker_id]
+                item["_status"] = state.status
+                item["_pid"] = state.pid
+                item["_updated_at"] = state.updated_at.isoformat()
+
         return schemas.ApiResponse(code=0, message="success", data=result)
     except Exception as e:
         logger.error(f"获取Worker列表失败: {e}", exc_info=True)
@@ -78,14 +100,82 @@ async def get_worker(
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user)
 ):
-    """获取Worker详情 - 委托给 WorkerCoreService"""
+    """
+    获取Worker详情（包含实时状态信息）
+
+    返回内容：
+    - 基础信息：来自数据库的 Worker 配置
+    - _state_info：来自 state_manager 的实时状态详情
+      * status: 当前状态 (starting/running/stopping/stopped/error)
+      * previous_status: 前一状态
+      * pid: 进程ID
+      * started_at: 启动时间
+      * stopped_at: 停止时间
+      * error_message: 错误信息
+      * updated_at: 状态最后更新时间
+    """
     try:
         result = await worker_core_service.async_get_worker(worker_id)
+
+        state = await worker_state_manager.get_state(worker_id)
+        if state:
+            result["_state_info"] = state.to_dict()
+
         return schemas.ApiResponse(code=0, message="success", data=result)
     except WorkerNotFoundError:
         raise HTTPException(status_code=404, detail="Worker不存在")
     except Exception as e:
         logger.error(f"获取Worker {worker_id} 详情失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{worker_id}/state", response_model=schemas.ApiResponse)
+async def get_worker_state(
+    worker_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    获取Worker详细状态信息（专用端点）
+
+    用于前端轮询或 WebSocket 推送，返回完整的 WorkerState 对象。
+
+    返回内容：
+    - worker_id: Worker ID
+    - status: 当前状态 (starting/running/stopping/stopped/error)
+    - previous_status: 前一状态
+    - pid: 进程ID
+    - started_at: 启动时间 (ISO 8601)
+    - stopped_at: 停止时间 (ISO 8601)
+    - error_message: 错误信息（如果有）
+    - updated_at: 状态最后更新时间 (ISO 8601)
+
+    性能特点：
+    - 内存缓存查询，响应速度快
+    - 适合高频轮询场景
+
+    示例请求:
+        GET /api/workers/10/state
+    """
+    try:
+        state = await worker_state_manager.get_state(worker_id)
+
+        if not state:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Worker {worker_id} 状态信息不存在"
+            )
+
+        logger.debug(f"获取Worker {worker_id} 状态: {state.status}")
+
+        return schemas.ApiResponse(
+            code=0,
+            message="success",
+            data=state.to_dict()
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取Worker {worker_id} 状态失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -202,19 +292,60 @@ async def start_worker(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    启动Worker - 委托给 WorkerCoreService
-    
-    从原来的280+行简化到30行以内
-    所有业务逻辑（策略加载、配置准备、进程管理）都在 core_service 中处理
+    启动Worker（异步操作）
+
+    业务逻辑委托给 WorkerCoreService，状态管理由 WorkerStateManager 负责。
+
+    返回内容：
+    - status: "starting" 表示已接收启动请求
+    - message: 提示信息说明这是异步操作
+    - _state_info: 当前状态快照（可选）
+
+    错误处理：
+    - 404: Worker 不存在
+    - 409: 非法状态转换（如重复启动）
+    - 400: 其他业务错误
+    - 500: 内部服务器错误
+
+    注意：此操作为异步执行，实际状态变更请通过 GET /workers/{worker_id}/state 轮询
     """
     try:
+        state = await worker_state_manager.get_state(worker_id)
+
+        if state and state.status in ("running", "starting"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Worker {worker_id} 当前状态为 {state.status}，不允许再次启动。请先停止 Worker。"
+            )
+
         result = await worker_core_service.async_start_worker(worker_id)
-        return schemas.ApiResponse(code=0, message="Worker启动成功", data=result)
+
+        current_state = await worker_state_manager.get_state(worker_id)
+        response_data = {
+            "worker_id": worker_id,
+            "status": "starting",
+            "message": "Worker 启动请求已接收，正在异步处理中。请通过 GET /workers/{worker_id}/state 查询最新状态。",
+        }
+        if current_state:
+            response_data["_state_snapshot"] = {
+                "status": current_state.status,
+                "updated_at": current_state.updated_at.isoformat(),
+            }
+        result.update(response_data)
+
+        logger.info(f"Worker {worker_id} 启动请求已接收")
+
+        return schemas.ApiResponse(code=0, message="Worker启动中（异步操作）", data=result)
+    except HTTPException:
+        raise
     except WorkerNotFoundError:
         raise HTTPException(status_code=404, detail="Worker不存在")
-    except WorkerAlreadyRunningError as e:
-        return schemas.ApiResponse(
-            code=0, message=str(e), data={"worker_id": worker_id, "status": "running"}
+    except WorkerAlreadyRunningError:
+        state = await worker_state_manager.get_state(worker_id)
+        current_status = state.status if state else "unknown"
+        raise HTTPException(
+            status_code=409,
+            detail=f"Worker {worker_id} 当前状态为 {current_status}，不允许再次启动。请先停止 Worker。"
         )
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -229,19 +360,64 @@ async def stop_worker(
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user)
 ):
-    """停止Worker - 委托给 WorkerCoreService"""
+    """
+    停止Worker（异步操作）
+
+    业务逻辑委托给 WorkerCoreService，状态管理由 WorkerStateManager 负责。
+
+    返回内容：
+    - status: "stopping" 表示已接收停止请求
+    - message: 提示信息说明这是异步操作
+    - _state_info: 当前状态快照（可选）
+
+    错误处理：
+    - 404: Worker 不存在
+    - 409: 非法状态转换（如重复停止）
+    - 400: 其他业务错误
+    - 500: 内部服务器错误
+
+    注意：此操作为异步执行，实际状态变更请通过 GET /workers/{worker_id}/state 轮询
+    """
     try:
-        result = await worker_core_service.async_stop_worker(worker_id)
-        if result.get("message") == "Worker 已停止":
-            return schemas.ApiResponse(
-                code=0, message="Worker已处于停止状态",
-                data={"worker_id": worker_id, "status": "stopped"}
+        state = await worker_state_manager.get_state(worker_id)
+
+        if state and state.status in ("stopped", "stopping"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Worker {worker_id} 当前状态为 {state.status}，不允许再次停止。"
             )
-        return schemas.ApiResponse(code=0, message="Worker停止成功", data=result)
+
+        result = await worker_core_service.async_stop_worker(worker_id)
+
+        current_state = await worker_state_manager.get_state(worker_id)
+        response_data = {
+            "worker_id": worker_id,
+            "status": "stopping",
+            "message": "Worker 停止请求已接收，正在异步处理中。请通过 GET /workers/{worker_id}/state 查询最新状态。",
+        }
+        if current_state:
+            response_data["_state_snapshot"] = {
+                "status": current_state.status,
+                "updated_at": current_state.updated_at.isoformat(),
+            }
+        result.update(response_data)
+
+        logger.info(f"Worker {worker_id} 停止请求已接收")
+
+        return schemas.ApiResponse(code=0, message="Worker停止中（异步操作）", data=result)
+    except HTTPException:
+        raise
     except WorkerNotFoundError:
         raise HTTPException(status_code=404, detail="Worker不存在")
     except WorkerOperationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        error_msg = str(e)
+        if "已停止" in error_msg or "not running" in error_msg.lower():
+            return schemas.ApiResponse(
+                code=0,
+                message="Worker已处于停止状态",
+                data={"worker_id": worker_id, "status": "stopped"}
+            )
+        raise HTTPException(status_code=400, detail=error_msg)
     except Exception as e:
         logger.error(f"停止Worker {worker_id} 失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"停止Worker失败: {str(e)}")
@@ -687,36 +863,143 @@ async def send_trading_signal(
 async def shutdown_worker_manager():
     """
     关闭 WorkerManager（兼容性接口）
-    
-    薄封装：委托给 WorkerCoreService 处理
-    保留此函数以确保与 main.py 和 core/lifespan.py 的向后兼容
+
+    直接使用 WorkerSystem 全局单例进行关闭操作
+    确保与 lifespan.py 中的初始化/关闭逻辑一致
     """
     try:
         logger.info("[routes] 正在关闭 WorkerManager...")
-        # 停止所有运行中的 Worker
-        result = worker_core_service.list_workers(status='running')
-        running_workers = result.get('items', [])
-        
-        if running_workers:
-            for worker in running_workers:
-                worker_id = worker.get('id')
+
+        # 使用 WorkerSystem 单例进行关闭（避免使用可能未初始化的 worker_core_service）
+        from ..worker_system import worker_system
+
+        if not worker_system._fully_initialized:
+            logger.info("[routes] WorkerSystem 未初始化，跳过关闭")
+            return
+
+        # 停止所有运行中的 Worker（通过 WorkerSystem）
+        stopped_count = 0
+        for worker_id, config in list(worker_system.workers.items()):
+            if config.status in ("running", "starting"):
                 try:
-                    await worker_core_service.async_stop_worker(worker_id)
+                    await worker_system.async_stop_worker(worker_id)
+                    stopped_count += 1
                     logger.info(f"[routes] 已停止 Worker {worker_id}")
                 except Exception as e:
                     logger.warning(f"[routes] 停止 Worker {worker_id} 失败: {e}")
-        
-        # 清理 WorkerManager 实例
-        if worker_core_service._worker_manager is not None:
-            try:
-                await worker_core_service._worker_manager.stop()
-                logger.info("[routes] WorkerManager 已停止")
-            except Exception as e:
-                logger.warning(f"[routes] 停止 WorkerManager 时出错: {e}")
-            
-            worker_core_service._worker_manager = None
-        
+
+        logger.info(f"[routes] 已停止 {stopped_count} 个运行中的 Worker")
         logger.info("[routes] WorkerManager 关闭完成")
-        
+
     except Exception as e:
-        logger.error(f"[routes] 关闭 WorkerManager 失败: {e}", exc_info=True)
+        logger.error(f"[routes] 关闭 WorkerManager 失败: {e}")
+
+
+# ==================== 实时日志模块 ====================
+
+@router.get("/{worker_id}/logs/recent", response_model=schemas.ApiResponse)
+async def get_worker_recent_logs(
+    worker_id: str,
+    limit: int = Query(default=100, ge=1, le=1000, description="最大返回条数"),
+    level: Optional[str] = Query(
+        default=None,
+        pattern=r"^(DEBUG|INFO|WARNING|ERROR)$",
+        description="日志级别过滤"
+    ),
+    keyword: Optional[str] = Query(default=None, description="关键词搜索（不区分大小写）"),
+):
+    """
+    获取 Worker 最近日志（从内存缓冲区实时查询）
+
+    适用场景：
+    - 实时查看 Worker 运行状态
+    - 快速定位错误日志
+    - 开发调试
+    - 监控告警
+
+    示例请求:
+        GET /api/workers/001/logs/recent?limit=50&level=ERROR&keyword=timeout
+    """
+    try:
+        from ..log_ring_buffer import get_global_buffer
+
+        buffer = get_global_buffer()
+        logs = buffer.get_recent(
+            limit=limit,
+            level=level,
+            worker_id=worker_id,
+            keyword=keyword,
+        )
+
+        return schemas.ApiResponse(
+            code=0,
+            message=f"获取成功，共 {len(logs)} 条日志",
+            data={
+                "worker_id": worker_id,
+                "count": len(logs),
+                "logs": logs,
+                "query_time": datetime.now().isoformat(),
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"[routes] 获取 Worker {worker_id} 日志失败: {e}")
+        raise HTTPException(status_code=500, detail=f"查询日志失败: {str(e)}")
+
+
+@router.get("/logs/stats", response_model=schemas.ApiResponse)
+async def get_global_log_stats():
+    """
+    获取全局日志统计信息
+
+    返回：
+    - 缓冲区使用率
+    - 各级别日志分布
+    - 总追加/淘汰数量
+    """
+    try:
+        from ..log_ring_buffer import get_global_buffer
+
+        buffer = get_global_buffer()
+        stats = buffer.get_stats()
+
+        return schemas.ApiResponse(
+            code=0,
+            message="获取统计信息成功",
+            data=stats
+        )
+
+    except Exception as e:
+        logger.error(f"[routes] 获取日志统计失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/logs/search", response_model=schemas.ApiResponse)
+async def search_logs(
+    query: str = Query(..., description="搜索关键词", min_length=1),
+    limit: int = Query(default=100, ge=1, le=500, description="最大返回条数"),
+):
+    """
+    全文搜索日志
+
+    在所有日志消息、logger名称、Worker ID 中搜索匹配的条目
+    """
+    try:
+        from ..log_ring_buffer import get_global_buffer
+
+        buffer = get_global_buffer()
+        results = buffer.search(query=query, limit=limit)
+
+        return schemas.ApiResponse(
+            code=0,
+            message=f"搜索完成，找到 {len(results)} 条匹配",
+            data={
+                "query": query,
+                "count": len(results),
+                "results": results,
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"[routes] 搜索日志失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -12,6 +12,8 @@ import {
   Tooltip,
   Badge,
   Divider,
+  Button,
+  message as apiMessage,
 } from 'antd';
 import {
   ClearOutlined,
@@ -19,10 +21,12 @@ import {
   PlayCircleOutlined,
   SyncOutlined,
   FileTextOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
 import { useWorkerStore } from '../../store/workerStore';
+import { fetchRecentLogs } from '../../api/workerApi';
 
 // WorkerLog 类型定义（避免循环依赖）
 interface WorkerLog {
@@ -96,6 +100,34 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
       }
     };
   }, [workerId, isPaused]);
+
+  // 从 LogRingBuffer 加载最近日志作为初始内容
+  const [initialLogsLoaded, setInitialLogsLoaded] = useState(false);
+  const loadInitialLogsFromBuffer = useCallback(async () => {
+    try {
+      const res = await fetchRecentLogs(workerId, { limit: 100 });
+      if (res.code === 0 && res.data.logs.length > 0) {
+        const formattedLogs = res.data.logs.map(log => ({
+          id: `buffer-${log.timestamp}-${Math.random().toString(36).substr(2, 9)}`,
+          timestamp: log.timestamp,
+          level: log.level as 'DEBUG' | 'INFO' | 'WARN' | 'ERROR',
+          source: 'memory-buffer',
+          message: log.message,
+        }));
+        clearLogs();
+        setInitialLogsLoaded(true);
+      }
+    } catch (error) {
+      console.warn('[WorkerLogsPanel] 加载初始日志失败（非致命）:', error);
+    }
+  }, [workerId, clearLogs]);
+
+  // 组件挂载时加载初始日志
+  useEffect(() => {
+    if (workerId && !initialLogsLoaded) {
+      loadInitialLogsFromBuffer();
+    }
+  }, [workerId, initialLogsLoaded, loadInitialLogsFromBuffer]);
 
   // 智能自动滚动逻辑
   useEffect(() => {
@@ -208,6 +240,28 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
               className="p-1.5 rounded hover:bg-stone-700 text-stone-300 hover:text-white transition-colors"
             >
               {isPaused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
+            </button>
+          </Tooltip>
+
+          {/* 历史快照 - 从 LogRingBuffer 加载最近日志 */}
+          <Tooltip title="加载历史快照 (LogRingBuffer)">
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetchRecentLogs(workerId, { limit: 200 });
+                  if (res.code === 0 && res.data.logs.length > 0) {
+                    apiMessage.success(`已加载 ${res.data.logs.length} 条最近日志`);
+                    clearLogs();
+                  } else {
+                    apiMessage.info('暂无历史日志');
+                  }
+                } catch (error: any) {
+                  apiMessage.error(`加载失败: ${error.message}`);
+                }
+              }}
+              className="p-1.5 rounded hover:bg-stone-700 text-stone-300 hover:text-white transition-colors"
+            >
+              <HistoryOutlined />
             </button>
           </Tooltip>
 
