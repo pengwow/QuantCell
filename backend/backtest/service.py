@@ -296,18 +296,20 @@ class BacktestService:
         with open(latest_file, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    def get_backtest_symbols(self) -> List[Dict[str, Any]]:
+    def get_backtest_symbols(self, backtest_id: Optional[str] = None) -> Dict[str, Any]:
         """
         获取可用的回测货币对列表
 
         扫描数据目录，返回所有有数据的货币对及其可用的时间周期
 
+        Args:
+            backtest_id: 可选的回测ID（兼容路由参数，实际不使用）
+
         Returns:
-            list: 货币对列表，每个元素包含:
-                - symbol: 货币对名称 (如 "ETHUSDT")
-                - intervals: 可用的时间周期列表 (如 ["1m", "5m", "15m", "1h", "4h", "1d"])
-                - data_count: 数据条数
-                - last_update: 最后更新时间
+            dict: 标准响应格式 {
+                "status": "success",
+                "data": [货币对列表]
+            }
         """
         from pathlib import Path
         import os
@@ -364,7 +366,10 @@ class BacktestService:
         except Exception as e:
             self.logger.error(f"获取回测货币对列表失败: {e}")
 
-        return symbols
+        return {
+            "status": "success",
+            "data": symbols
+        }
 
     def get_result_list(
         self,
