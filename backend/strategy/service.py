@@ -304,8 +304,8 @@ class StrategyService:
                 # 为文件系统策略生成一个基于名称的ID（使用名称的哈希值）
                 import hashlib
                 name_hash = int(hashlib.md5(strategy_info["name"].encode()).hexdigest(), 16)
-                # 确保是正整数且在合理范围内
-                strategy_info["id"] = (name_hash % 2147483647) + 1
+                # 确保是正整数且在合理范围内，并转换为字符串
+                strategy_info["id"] = str((name_hash % 2147483647) + 1)
             return strategy_info
         except Exception as e:
             logger.error(f"解析策略文件失败: {file_path}, 错误: {e}")
@@ -422,7 +422,7 @@ class StrategyService:
                             params = strategy.get_parameters_list()
 
                             db_strategies_list.append({
-                                "id": strategy.id,
+                                "id": str(strategy.id),  # 确保转换为字符串，前端需要调用 toLowerCase()
                                 "name": strategy.name,
                                 "file_name": strategy.file_name or strategy.filename,
                                 "file_path": strategy.file_path or str(self.strategy_dir / strategy.filename) if strategy.filename else "",
@@ -430,8 +430,8 @@ class StrategyService:
                                 "version": strategy.version or "1.0.0",
                                 "tags": tags,
                                 "params": params,
-                                "created_at": strategy.created_at,
-                                "updated_at": strategy.updated_at,
+                                "created_at": strategy.created_at.isoformat() if strategy.created_at else None,
+                                "updated_at": strategy.updated_at.isoformat() if strategy.updated_at else None,
                                 "source": "db",
                                 "code": strategy.content or ""
                             })
