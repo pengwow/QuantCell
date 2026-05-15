@@ -124,10 +124,28 @@ class BacktestService:
             self._update_task_status(task_id, "running")
 
             if progress_tracker:
+                # 更新数据准备阶段进度（30% 权重）
                 progress_tracker.update_progress(
                     task_id=str(task_id),
-                    stage="overall",
-                    data={"progress": 10.0, "status": "running"}
+                    stage="data_prep",
+                    data={
+                        "progress": 100.0,
+                        "status": "completed",
+                        "message": "数据准备完成"
+                    }
+                )
+                # 更新执行阶段进度（60% 权重）
+                progress_tracker.update_progress(
+                    task_id=str(task_id),
+                    stage="execution",
+                    data={
+                        "progress": 0.0,
+                        "status": "running",
+                        "current_symbol": task['symbols'][0] if task.get('symbols') else "",
+                        "total_symbols": len(task.get('symbols', [])),
+                        "completed_symbols": 0,
+                        "message": "开始执行回测..."
+                    }
                 )
             
             # 调用引擎服务执行回测
@@ -197,10 +215,26 @@ class BacktestService:
                 }
             
             if progress_tracker:
+                # 更新执行阶段完成（60% 权重）
                 progress_tracker.update_progress(
                     task_id=str(task_id),
-                    stage="overall",
-                    data={"progress": 90.0, "status": "running"}
+                    stage="execution",
+                    data={
+                        "progress": 100.0,
+                        "status": "completed",
+                        "completed_symbols": len(task.get('symbols', [])),
+                        "message": "回测执行完成"
+                    }
+                )
+                # 更新分析阶段进度（10% 权重）
+                progress_tracker.update_progress(
+                    task_id=str(task_id),
+                    stage="analysis",
+                    data={
+                        "progress": 50.0,
+                        "status": "running",
+                        "message": "正在保存结果..."
+                    }
                 )
 
             # 保存结果
@@ -210,10 +244,15 @@ class BacktestService:
             self._update_task_status(task_id, "completed")
 
             if progress_tracker:
+                # 更新分析阶段完成（10% 权重）- 总体 100%
                 progress_tracker.update_progress(
                     task_id=str(task_id),
-                    stage="overall",
-                    data={"progress": 100.0, "status": "completed"}
+                    stage="analysis",
+                    data={
+                        "progress": 100.0,
+                        "status": "completed",
+                        "message": "回测结果已保存"
+                    }
                 )
             
             return result
@@ -256,7 +295,77 @@ class BacktestService:
         
         with open(latest_file, 'r', encoding='utf-8') as f:
             return json.load(f)
-    
+
+    def get_backtest_symbols(self) -> List[Dict[str, Any]]:
+        """
+        获取可用的回测货币对列表
+
+        扫描数据目录，返回所有有数据的货币对及其可用的时间周期
+
+        Returns:
+            list: 货币对列表，每个元素包含:
+                - symbol: 货币对名称 (如 "ETHUSDT")
+                - intervals: 可用的时间周期列表 (如 ["1m", "5m", "15m", "1h", "4h", "1d"])
+                - data_count: 数据条数
+                - last_update: 最后更新时间
+        """
+        from pathlib import Path
+        import os
+
+        symbols = []
+
+        try:
+            # 获取数据源目录
+            source_dir = Path(__file__).parent.parent / 'data' / 'source' / 'crypto' / 'spot' / 'klines'
+
+            if not source_dir.exists():
+                self.logger.warning(f"数据目录不存在: {source_dir}")
+                return symbols
+
+            # 遍历所有时间周期目录
+            for interval_dir in sorted(source_dir.iterdir()):
+                if not interval_dir.is_dir():
+                    continue
+
+                interval = interval_dir.name  # 如 "15m", "1h"
+
+                # 遍历该周期下的所有 parquet 文件
+                for data_file in sorted(interval_dir.glob('*.parquet')):
+                    symbol = data_file.stem  # 文件名即货币对（如 ETHUSDT）
+
+                    # 检查是否已在列表中
+                    existing = next((s for s in symbols if s['symbol'] == symbol), None)
+                    if existing:
+                        if interval not in existing['intervals']:
+                            existing['intervals'].append(interval)
+                        continue
+
+                    # 获取文件信息
+                    stat = data_file.stat()
+                    data_count = 0
+
+                    try:
+                        import pandas as pd
+                        df = pd.read_parquet(data_file, columns=[])
+                        data_count = len(df)
+                    except Exception:
+                        pass
+
+                    symbols.append({
+                        'symbol': symbol,
+                        'intervals': [interval],
+                        'data_count': data_count,
+                        'last_update': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        'file_size': stat.st_size
+                    })
+
+            self.logger.info(f"扫描到 {len(symbols)} 个可回测的货币对")
+
+        except Exception as e:
+            self.logger.error(f"获取回测货币对列表失败: {e}")
+
+        return symbols
+
     def get_result_list(
         self,
         limit: int = 20,
