@@ -9,7 +9,7 @@ import json
 import re
 import time
 from datetime import datetime
-from typing import AsyncGenerator, Dict, Any, Optional
+from typing import AsyncGenerator, Dict, Any, Optional, List
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -154,6 +154,9 @@ class ExecuteIndicatorRequest(BaseModel):
     period: str = Field("1h", description="K线周期")
     limit: int = Field(500, ge=50, le=2000, description="K线数据条数")
     params: Optional[Dict[str, Any]] = Field(default=None, description="指标参数")
+    kline_data: Optional[List[Dict[str, Any]]] = Field(default=None, alias="klineData", description="前端传入的K线数据（可选，为空则使用mock数据）")
+
+    model_config = {"populate_by_name": True}
 
 
 @router.get("")
@@ -375,11 +378,17 @@ async def execute_indicator(indicator_id: int, request: ExecuteIndicatorRequest)
         )
     
     executor = get_executor()
-    
+
     try:
+        kline_data_to_use = request.kline_data if request.kline_data else []
+        logger.info(f"指标执行请求: indicator_id={indicator_id}, kline_data长度={len(kline_data_to_use)}, symbol={request.symbol}")
+        
+        if not kline_data_to_use:
+            logger.warning(f"指标执行未收到K线数据, 将使用mock数据: indicator_id={indicator_id}")
+
         result = await executor.execute(
             code=code,
-            kline_data=[],
+            kline_data=kline_data_to_use,
             params=request.params or {},
         )
         
