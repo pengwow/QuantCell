@@ -18,7 +18,7 @@ import {
   Col,
   InputNumber,
   Tooltip,
-  message,
+  App,
   Card,
   Spin,
 } from 'antd';
@@ -123,6 +123,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   onSuccess,
 }) => {
   const { t } = useTranslation();
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const { updateWorker } = useWorkerStore();
 

@@ -13,7 +13,7 @@ import {
   Form,
   Space,
   Typography,
-  message,
+  App,
   Popconfirm,
   Divider,
 } from "antd";
@@ -68,6 +68,7 @@ const PROVIDER_ICONS: Record<string, string> = {
   dashscope: "/imgs/model_providers/dashscope.png",
   google: "/imgs/model_providers/google.png",
   azure: "/imgs/model_providers/azure.png",
+  xiaomi: "/imgs/model_providers/xiaomi.png",
 };
 
 const getPresetProviders = (t: any): PresetProvider[] => [
@@ -116,6 +117,11 @@ const getPresetProviders = (t: any): PresetProvider[] => [
     name: t('provider_azure') || '微软Azure OpenAI',
     icon: PROVIDER_ICONS.azure,
   },
+  {
+    id: "xiaomi",
+    name: t('provider_xiaomi') || '小米',
+    icon: PROVIDER_ICONS.xiaomi,
+  },
 ];
 
 // 预设模型列表
@@ -129,10 +135,12 @@ const PRESET_MODELS: Record<string, string[]> = {
   dashscope: ["qwen-max", "qwen-plus", "qwen-turbo"],
   google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"],
   azure: ["gpt-4", "gpt-4o", "gpt-35-turbo"],
+  xiaomi: ["mimo-v2.5-pro", "mimo-v2.5", "mimo-v2.5-tts", "mimo-v2.5-tts-voicedesign", "mimo-v2.5-tts-voiceclone", "mimo-v2-pro", "mimo-v2-omni", "mimo-v2-tts", "mimo-v2-flash"],
 };
 
 const ModelSettingsPage = () => {
   const { t } = useTranslation();
+  const { message } = App.useApp();
   const { isGuest } = useGuestRestriction();
   const [providers, setProviders] = useState<ModelProvider[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string>("");
@@ -214,7 +222,7 @@ const ModelSettingsPage = () => {
             api_key: "",
             api_host: getDefaultApiHost(preset.id),
             models: PRESET_MODELS[preset.id]?.map((name) => ({
-              id: `${preset.id}-${name}`,
+              id: name,
               name,
             })) || [],
             is_default: false,
@@ -245,7 +253,7 @@ const ModelSettingsPage = () => {
       api_key: "",
       api_host: getDefaultApiHost(preset.id),
       models: PRESET_MODELS[preset.id]?.map((name) => ({
-        id: `${preset.id}-${name}`,
+        id: name,
         name,
       })) || [],
       is_default: false,
@@ -273,6 +281,7 @@ const ModelSettingsPage = () => {
       dashscope: "https://dashscope.aliyuncs.com/compatible-mode/v1",
       google: "https://generativelanguage.googleapis.com/v1",
       azure: "",
+      xiaomi: "https://token-plan-cn.xiaomimimo.com/v1",
     };
     return hosts[providerId] || "";
   }
@@ -403,7 +412,7 @@ const ModelSettingsPage = () => {
     if (!selectedProvider) return;
 
     const newModel: Model = {
-      id: `${selectedProvider.id}-${values.model_id}`,
+      id: values.model_id,
       name: values.name,
     };
 
@@ -453,9 +462,14 @@ const ModelSettingsPage = () => {
       // 调用系统配置批量更新接口
       await configApi.updateConfig(batchConfigs);
       message.success(t("config_saved") || "配置已保存");
-    } catch (error) {
+    } catch (error: any) {
+      const errorMsg = error?.message || error?.response?.data?.detail || t("save_failed") || "保存失败";
       console.error(t('save_model_config_failed', { message: error }) || "保存配置失败:", error);
-      message.error(t("save_failed") || "保存失败");
+      if (error?.code === 401 || error?.response?.status === 401) {
+        message.warning(errorMsg);
+      } else {
+        message.error(errorMsg);
+      }
     }
   };
 

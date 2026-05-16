@@ -230,6 +230,9 @@ export class WorkerLogStreamSSE {
   private onErrorCallback: ((error: Event) => void) | null = null;
   private onCloseCallback: (() => void) | null = null;
   private onOpenCallback: (() => void) | null = null;
+  private _manuallyClosed = false;
+  private _reconnectCount = 0;
+  private readonly _maxReconnects = 5;
 
   constructor(workerId: number) {
     this.workerId = workerId;
@@ -244,6 +247,9 @@ export class WorkerLogStreamSSE {
       console.log(`⚠️  [SSE] Worker ${this.workerId} 已有活跃连接，跳过`);
       return;
     }
+
+    this._manuallyClosed = false;
+    this._reconnectCount = 0;
 
     const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '';
     const httpProtocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
@@ -301,17 +307,22 @@ export class WorkerLogStreamSSE {
 
     // 监听错误事件
     this.eventSource.onerror = (error) => {
+      if (this._manuallyClosed) return;
+
       const state = this.eventSource?.readyState;
       if (state === EventSource.CLOSED) {
-        // 正常关闭（页面刷新、组件卸载等），静默处理
         console.log(`🔌 [SSE] Worker ${this.workerId} 连接已关闭`);
         this.onCloseCallback?.();
       } else if (state === EventSource.CONNECTING) {
-        // 连接中失败（网络问题），EventSource 会自动重连
-        console.warn(`⚠️ [SSE] Worker ${this.workerId} 连接中断，自动重连中...`);
+        this._reconnectCount++;
+        console.warn(`⚠️ [SSE] Worker ${this.workerId} 连接中断，重连中... (${this._reconnectCount}/${this._maxReconnects})`);
         this.onErrorCallback?.(error);
+        if (this._reconnectCount >= this._maxReconnects) {
+          console.error(`❌ [SSE] Worker ${this.workerId} 达到最大重连次数 (${this._maxReconnects})，停止重连`);
+          this.disconnect();
+          return;
+        }
       } else {
-        // 其他异常
         console.error('❌ [SSE] Worker', this.workerId, '日志流异常:', error);
         this.onErrorCallback?.(error);
         this.onCloseCallback?.();
@@ -321,6 +332,7 @@ export class WorkerLogStreamSSE {
 
   disconnect(): void {
     if (this.eventSource) {
+      this._manuallyClosed = true;
       console.log(`🔌 [SSE] 断开 Worker ${this.workerId} 的 SSE 连接`);
       this.eventSource.close();
       this.eventSource = null;

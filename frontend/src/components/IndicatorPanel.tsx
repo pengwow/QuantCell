@@ -16,7 +16,7 @@ import {
   AreaChartOutlined,
   DotChartOutlined,
 } from '@ant-design/icons';
-import { Button, Card, List, Tag, Tooltip, Modal, Input, message } from 'antd';
+import { Button, Card, List, Tag, Tooltip, Modal, Input, App } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useIndicators, builtInIndicators, type Indicator, type ActiveIndicator } from '../hooks/useIndicators';
 
@@ -44,6 +44,7 @@ const IndicatorPanel: React.FC<IndicatorPanelProps> = ({
   onEditIndicator,
 }) => {
   const { t } = useTranslation();
+  const { message } = App.useApp();
   const { indicators, loading, deleteIndicator } = useIndicators();
   const [paramModalVisible, setParamModalVisible] = useState(false);
   const [selectedIndicator, setSelectedIndicator] = useState<Indicator | null>(null);

@@ -98,20 +98,18 @@ class User(TimezoneAwareBase):
 
 class SystemConfig(TimezoneAwareBase):
     """系统配置SQLAlchemy模型
-    
+
     对应system_config表的SQLAlchemy模型定义
-    支持按user_id隔离用户配置，user_id为null时为系统级配置
-    主键为(key, user_id)联合主键，确保同一用户下配置key唯一
+    主键为key，全局唯一
     """
     __tablename__ = "system_config"
-    
+
     key = Column(String, primary_key=True, index=True)
     value = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     name = Column(String, nullable=True, index=True)
     plugin = Column(String, nullable=True, index=True)
     is_sensitive = Column(Boolean, default=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True, primary_key=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 

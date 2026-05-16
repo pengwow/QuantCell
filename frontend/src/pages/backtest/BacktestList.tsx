@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Table, Button, Tag, Space, Popconfirm, message, Segmented, Row, Col, Pagination, Input, Select, DatePicker, Grid } from 'antd';
+import { Card, Table, Button, Tag, Space, Popconfirm, App, Segmented, Row, Col, Pagination, Input, Select, DatePicker, Grid } from 'antd';
 import type { TableProps } from 'antd';
 import { AppstoreOutlined, UnorderedListOutlined, ReloadOutlined, FilterOutlined } from '@ant-design/icons';
 import { backtestApi } from '../../api';
@@ -29,6 +29,7 @@ type SortOrder = 'asc' | 'desc';
 const BacktestList = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { message } = App.useApp();
 
   // 回测任务数据
   const [backtestTasks, setBacktestTasks] = useState<BacktestTask[]>([]);

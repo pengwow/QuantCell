@@ -35,11 +35,11 @@ class IndicatorExecutionError(Exception):
         super().__init__(message)
 
 
-def _generate_mock_df(num_bars: int = 100) -> pd.DataFrame:
+def _generate_mock_df(num_bars: int = 200) -> pd.DataFrame:
     """生成模拟K线数据用于代码验证
     
     Args:
-        num_bars: K线条数
+        num_bars: K线条数，默认200条
         
     Returns:
         模拟DataFrame，包含time/open/high/low/close/volume列
@@ -47,14 +47,14 @@ def _generate_mock_df(num_bars: int = 100) -> pd.DataFrame:
     np.random.seed(42)
     
     base_price = 50000.0
-    returns = np.random.randn(num_bars) * 0.02
+    returns = np.random.randn(num_bars) * 0.015
     prices = base_price * np.cumprod(1 + returns)
     
-    opens = prices * (1 + np.random.rand(num_bars) * 0.005)
-    highs = np.maximum(opens, prices) * (1 + np.abs(np.random.randn(num_bars)) * 0.01)
-    lows = np.minimum(opens, prices) * (1 - np.abs(np.random.randn(num_bars)) * 0.01)
+    opens = prices * (1 + np.random.rand(num_bars) * 0.004 - 0.002)
+    highs = np.maximum(opens, prices) * (1 + np.abs(np.random.randn(num_bars)) * 0.008)
+    lows = np.minimum(opens, prices) * (1 - np.abs(np.random.randn(num_bars)) * 0.008)
     closes = prices
-    volumes = np.random.randint(100, 10000, size=num_bars).astype(float)
+    volumes = np.random.randint(1000, 50000, size=num_bars).astype(float)
     
     timestamps = pd.date_range("2024-01-01", periods=num_bars, freq="h")
     

@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { Button, Tooltip, message } from 'antd';
+import { Button, Tooltip, App } from 'antd';
 import { PlayCircleOutlined, PauseCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import * as realtimeApi from '../api/realtimeApi';
 import { wsService } from '../services/websocketService';
@@ -45,6 +45,7 @@ export function RealtimeToggleButton({
   onRealtimeData,
   onStatusChange,
 }: RealtimeToggleButtonProps) {
+  const { message } = App.useApp();
   // 从 localStorage 恢复状态
   const getInitialState = (): boolean => {
     try {

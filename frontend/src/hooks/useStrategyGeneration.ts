@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { message } from 'antd';
+import { App } from 'antd';
 import { aiModelApi, type StrategyGenerateRequest, type ThinkingChainEventData, type CodeValidationRequest, type StrategyTemplate } from '../api';
 import { useTranslation } from 'react-i18next';
 
@@ -74,6 +74,7 @@ export interface UseStrategyGenerationReturn {
  */
 export function useStrategyGeneration(): UseStrategyGenerationReturn {
   const { t } = useTranslation();
+  const { message } = App.useApp();
   
   // 状态
   const [isGenerating, setIsGenerating] = useState(false);

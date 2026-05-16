@@ -114,12 +114,13 @@ def get_default_provider_and_models() -> Optional[Dict[str, Any]]:
             logger.warning("未找到任何 AI 模型提供商配置")
             return None
         
-        # 查找默认提供商
-        default_provider = None
-        for provider in providers:
-            if provider.get("is_default", False):
-                default_provider = provider
-                break
+        # 查找默认提供商（is_default=true），检测多个默认的情况
+        default_providers = [p for p in providers if p.get("is_default", False)]
+        if len(default_providers) > 1:
+            logger.warning(f"检测到{len(default_providers)}个供应商同时设置了is_default=1: "
+                         f"{[p['id'] for p in default_providers]}，将使用第一个: {default_providers[0]['id']}。"
+                         f"请在模型设置中重新保存配置以修复此问题")
+        default_provider = default_providers[0] if default_providers else None
         
         # 如果没有默认提供商，使用第一个启用的提供商（is_enabled 不为空）
         if not default_provider:

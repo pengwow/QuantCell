@@ -4,7 +4,7 @@
  */
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, message, Tooltip, Input } from 'antd';
+import { Divider, Form, type RadioChangeEvent, Select, Space, Button, Spin, App, Tooltip, Input } from 'antd';
 import { useSettings } from './SettingsContext';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 
@@ -47,6 +47,7 @@ const getTimezoneOptions = (t: any) => [
 
 const GeneralSettingsPage = () => {
   const { t, i18n } = useTranslation();
+  const { message } = App.useApp();
   const {
     generalSettings,
     setGeneralSettings,
