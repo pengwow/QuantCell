@@ -15,7 +15,7 @@ import {
   Statistic,
   Spin,
   Alert,
-  message,
+  App,
   DatePicker,
   Tooltip,
   Badge,
@@ -122,6 +122,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
+  const { message } = App.useApp();
 
   // 设置页面标题
   useEffect(() => {

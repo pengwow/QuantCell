@@ -391,7 +391,11 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
     if (msg.code) {
       return (
         <div className="space-y-4">
-          {/* <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div> */}
+          {msg.content && (
+            <div className="text-sm leading-relaxed whitespace-pre-wrap text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
+              {msg.content}
+            </div>
+          )}
           <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm">
             <code>{msg.code}</code>
           </pre>
@@ -419,7 +423,11 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
       );
     }
 
-    return <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>;
+    return (
+      <div className="text-sm leading-relaxed whitespace-pre-wrap text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 p-4 rounded-lg max-h-[500px] overflow-y-auto">
+        {msg.content || (t('no_content') || '暂无内容')}
+      </div>
+    );
   };
 
   // 更新思维链状态 - 根据后端数据动态渲染
@@ -485,42 +493,54 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
             </div>
           ) : (
             <div className="w-full">
-              {/* 思维链 - 带进度显示和动画效果 */}
-              {/* 修改：只要有思维链步骤就显示，不仅限于生成中 */}
               {thinkingSteps.length > 0 && (
                 <div className="px-4 py-3 bg-white dark:bg-gray-800 mx-4 my-2 rounded-xl shadow-sm transition-all duration-300 ease-in-out">
-                  {/* 思维链步骤 */}
-                  <ThoughtChain
-                    items={getThinkingItems()}
-                    className="w-full"
-                  />
-                  {/* 进度条 - 放在思维链底部 */}
-                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
-                        {isGenerating ? (
-                          <>
-                            <Spin size="small" />
-                            {t('thinking_progress') || '思考进度'}
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircleOutlined className="text-green-500" />
-                            {t('thinking_complete') || '思考完成'}
-                          </>
-                        )}
-                      </span>
-                      <span className={`text-xs font-medium ${isGenerating ? 'text-blue-600 dark:text-blue-400' : 'text-green-600 dark:text-green-400'}`}>
-                        {Math.round(thinkingProgress)}%
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
-                      <div
-                        className={`h-2 rounded-full transition-all duration-500 ease-out ${isGenerating ? 'bg-blue-500' : 'bg-green-500'}`}
-                        style={{ width: `${thinkingProgress}%` }}
+                  {thinkingSteps.length > 1 ? (
+                    <>
+                      <ThoughtChain
+                        items={getThinkingItems()}
+                        className="w-full"
                       />
+                      <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                            {isGenerating ? (
+                              <><Spin size="small" />{t('thinking_progress') || '思考进度'}</>
+                            ) : (
+                              <><CheckCircleOutlined className="text-green-500" />{t('thinking_complete') || '思考完成'}</>
+                            )}
+                          </span>
+                          <span className={`text-xs font-medium ${isGenerating ? 'text-blue-600 dark:text-blue-400' : 'text-green-600 dark:text-green-400'}`}>
+                            {Math.round(thinkingProgress)}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                          <div
+                            className={`h-2 rounded-full transition-all duration-500 ease-out ${isGenerating ? 'bg-blue-500' : 'bg-green-500'}`}
+                            style={{ width: `${thinkingProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex justify-center items-center gap-3 py-1">
+                      {isGenerating && <Spin size="small" />}
+                      <span className={`text-xs font-medium flex items-center gap-1.5 ${
+                        isGenerating ? 'text-blue-600 dark:text-blue-400' : 'text-green-600 dark:text-green-400'
+                      }`}>
+                        {isGenerating
+                          ? (thinkingSteps[0]?.description || t('generating') || '生成中...')
+                          : <><CheckCircleOutlined />{t('complete') || '完成'}</>
+                        }
+                      </span>
+                      <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ease-out ${isGenerating ? 'bg-blue-500' : 'bg-green-500'}`}
+                          style={{ width: `${thinkingProgress}%` }}
+                        />
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
               <Bubble.List

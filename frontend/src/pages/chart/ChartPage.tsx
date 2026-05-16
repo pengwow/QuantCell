@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Input, Modal, Spin, message, Alert } from 'antd';
-
+import { Button, Input, Modal, Spin, Alert, App } from 'antd';
 import { init, dispose, type Nullable, registerIndicator, registerOverlay, registerLocale } from 'klinecharts';
 import { dataApi } from '../../api';
 import * as realtimeApi from '../../api/realtimeApi';
@@ -10,6 +9,7 @@ import IndicatorToolbar from '../../components/IndicatorToolbar';
 import RealtimeToggleButton from '../../components/RealtimeToggleButton';
 import TokenDisplay from '../../components/TokenDisplay';
 import type { Indicator, ActiveIndicator } from '../../hooks/useIndicators';
+import { getAccessToken } from '../../utils/tokenManager';
 // 导入自定义绘图工具扩展
 import overlays from '../../extension/index';
 import { setPageTitle } from '@/router';
@@ -102,6 +102,7 @@ registerLocale('zh-HK', {
 
 const ChartPage = () => {
   const { t } = useTranslation();
+  const { message } = App.useApp();
 
   // 设置页面标题
   useEffect(() => {
@@ -147,6 +148,8 @@ const ChartPage = () => {
   const lastUpdateTimeRef = useRef<number>(0);
   const batchUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const klineDataRef = useRef<any[]>([]);
+  const volInitializedRef = useRef(false);
+  const customIndicatorDataRef = useRef<Map<string, { plots: any[]; figures: any[]; plotKeys: string[]; plotDataMap: Record<string, number[]> }>>(new Map());
 
   // 保存用户偏好
   const saveUserPreferences = (symbol: string, period: string) => {
@@ -317,18 +320,38 @@ const ChartPage = () => {
       // 加载初始数据
       loadKlineData();
 
-      // 自动添加VOL指标
-      setTimeout(() => {
-        try {
-          const existingIndicators = chart.getIndicators() || [];
-          const hasVolIndicator = existingIndicators.some((ind: any) => ind.name === 'VOL');
-          if (!hasVolIndicator) {
-            chart.createIndicator('VOL', true);
+      // 自动添加VOL指标，并同步状态（只执行一次）
+      if (!volInitializedRef.current) {
+        volInitializedRef.current = true;
+        // 延迟执行确保K线数据已加载
+        setTimeout(() => {
+          try {
+            if (!chartInstanceRef.current) return;
+            
+            const existingIndicators = chartInstanceRef.current.getIndicators() || [];
+            const hasVolIndicator = existingIndicators.some((ind: any) => ind.name === 'VOL');
+            
+            // 如果图表上还没有VOL，则创建
+            if (!hasVolIndicator) {
+              chartInstanceRef.current.createIndicator('VOL', true);
+            }
+            
+            // 同步状态（无论是否刚创建）
+            setActiveIndicators(prev => {
+              const alreadyExists = prev.some(ind => String(ind.id) === 'vol');
+              if (alreadyExists) return prev;
+              return [...prev, {
+                id: 'vol',
+                name: 'VOL',
+                params: {},
+                isCustom: false,
+              }];
+            });
+          } catch (err) {
+            console.error('创建VOL指标失败:', err);
           }
-        } catch (err) {
-          console.error('创建VOL指标失败:', err);
-        }
-      }, 500);
+        }, 800);
+      }
     }
 
     return () => {
@@ -515,16 +538,26 @@ const DEFAULT_PLOT_COLORS = [
           return null;
       }
 
-      // 构建plot数据映射：{ figureKey -> number[] }，过滤无效值
-      const plotDataMap: Record<string, (number | null)[]> = {};
+      // 构建plot数据映射：{ figureKey -> number[] }，过滤无效值并双向填充确保无null
+      const plotDataMap: Record<string, number[]> = {};
+      const plotKeys: string[] = [];
       plots.forEach((plot: any, idx: number) => {
           const key = sanitizeFigureKey(plot.name || `plot_${idx}`);
-          // 过滤 NaN、undefined、Infinity 等无效值
-          const data = (plot.data || []).map((v: any) => {
+          plotKeys.push(key);
+          const raw = (plot.data || []).map((v: any) => {
               if (v === null || v === undefined) return null;
               if (typeof v === 'number' && !isFinite(v)) return null;
               return v;
           });
+          // 前向填充(ffill)：用前一个有效值替换null
+          let lastValid: number | null = null;
+          const ffilled = raw.map((v: number | null) => {
+              if (v !== null) { lastValid = v; return v; }
+              return lastValid;
+          });
+          // 后向填充(bfill)：处理开头的null（用第一个有效值填充），确保绝对没有null
+           const firstValid = ffilled.find((v: number | null): v is number => v !== null);
+           const data: number[] = ffilled.map((v: number | null) => v ?? firstValid ?? 0);
           plotDataMap[key] = data;
       });
 
@@ -545,6 +578,16 @@ const DEFAULT_PLOT_COLORS = [
                   return null;
               }
 
+              // 缓存指标数据到 ref（用于后续动态更新）
+              customIndicatorDataRef.current.set(indicatorName, {
+                  plots,
+                  figures: validFigures,
+                  plotKeys,
+                  plotDataMap,
+              });
+
+              // 注册透传型指标：calc 直接从 ref 读取注入的数据
+              // 关键改进：使用 ref 而非闭包变量，确保数据始终可访问
               registerIndicator({
                   name: indicatorName,
                   shortName: indicator.name || 'Custom',
@@ -552,14 +595,24 @@ const DEFAULT_PLOT_COLORS = [
                       if (!kLineDataList || !Array.isArray(kLineDataList)) {
                           return [];
                       }
-                      return kLineDataList.map((_kLine, i) => {
-                          const point: Record<string, any> = {};
-                          for (const figKey in plotDataMap) {
-                              const dataArray = plotDataMap[figKey];
-                              // 确保返回有效数值或 null（不能返回 undefined）
-                              point[figKey] = (i < dataArray.length && dataArray[i] !== undefined)
-                                  ? dataArray[i]
-                                  : null;
+                      const cached = customIndicatorDataRef.current.get(indicatorName);
+                      if (!cached) return [];
+                      const { plotDataMap: dataMap, figures: figs } = cached;
+                      return kLineDataList.map((_kLine: any, i: number) => {
+                          const point: Record<string, number> = {};
+                          for (const fig of figs) {
+                              const dataArray = dataMap[fig.key];
+                              let value = 0;
+                              if (dataArray && Array.isArray(dataArray) && dataArray.length > 0) {
+                                  if (i < dataArray.length) {
+                                      const rawValue = dataArray[i];
+                                      value = (typeof rawValue === 'number' && isFinite(rawValue)) ? rawValue : (dataArray[dataArray.length - 1] ?? 0);
+                                  } else {
+                                      const lastVal = dataArray[dataArray.length - 1];
+                                      value = (typeof lastVal === 'number' && isFinite(lastVal)) ? lastVal : 0;
+                                  }
+                              }
+                              point[fig.key] = value;
                           }
                           return point;
                       });
@@ -654,6 +707,8 @@ const DEFAULT_PLOT_COLORS = [
           chartInstanceRef.current?.removeIndicator({ paneId: ind.paneId, indicatorName: ind.name });
         }
       });
+      // 清理自定义指标缓存数据
+      customIndicatorDataRef.current.delete(`custom_${indicator.id}`);
       setActiveIndicators(prev => prev.filter(ind => String(ind.id) !== indicatorId));
     } else {
       // 启动指标
@@ -663,12 +718,23 @@ const DEFAULT_PLOT_COLORS = [
         // 内置指标
         const isOverlay = ['MA', 'EMA', 'BOLL', 'SAR', 'BBI', 'SMA'].includes(builtInName);
         chartInstanceRef.current.createIndicator(builtInName, !isOverlay, { calcParams: params || {} });
+        // 同步更新activeIndicators状态
+        setActiveIndicators(prev => [...prev, {
+          id: indicatorId,
+          name: builtInName,
+          params,
+          isCustom: false,
+        }]);
       } else {
         // 自定义指标
         try {
+          const token = getAccessToken();
           const response = await fetch(`/api/indicators/${indicator.id}/execute`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
             body: JSON.stringify({
               symbol: currentSymbol.code,
               period: currentPeriod,
@@ -676,27 +742,37 @@ const DEFAULT_PLOT_COLORS = [
             })
           });
 
+          if (!response.ok) {
+            if (response.status === 401) {
+              message.error(t('indicator.authError', '登录已过期，请重新登录'));
+              return;
+            }
+            throw new Error(`HTTP ${response.status}`);
+          }
+
           const result = await response.json();
 
           if ((result.code === 0 || result.success) && result.data) {
             const customIndicatorName = registerCustomIndicator(indicator, result.data);
             if (customIndicatorName) {
               chartInstanceRef.current.createIndicator(customIndicatorName, true);
+              setActiveIndicators(prev => [...prev, {
+                id: indicatorId,
+                name: indicator.name,
+                params,
+                isCustom: true,
+              }]);
+            } else {
+              message.warning(t('indicator.registerError', '指标注册失败，请检查代码格式'));
             }
           } else {
-            console.error('获取指标数据失败:', result.message);
+            message.error(t('indicator.executeError', '指标执行失败') + ': ' + (result.message || '未知错误'));
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error('执行自定义指标失败:', err);
+          message.error(t('indicator.executeFailed', '自定义指标执行失败') + ': ' + (err.message || err));
         }
       }
-
-      setActiveIndicators(prev => [...prev, {
-        id: indicatorId,
-        name: indicator.name,
-        params,
-        isCustom: !builtInName,
-      }]);
     }
   }, [activeIndicators, currentSymbol.code, currentPeriod]);
 

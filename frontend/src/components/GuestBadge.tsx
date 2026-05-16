@@ -3,7 +3,7 @@
  * 用于在UI中显示当前用户是否为访客，并提供相关提示
  */
 import { useMemo } from "react";
-import { Tag, Tooltip, Alert, Button, message } from "antd";
+import { Tag, Tooltip, Alert, Button, App } from "antd";
 import { IconUserCircle, IconLock } from "@tabler/icons-react";
 import { useNavigate } from "react-router-dom";
 import { isGuestUser, getCurrentUsername, getRestrictedFeatureMessage } from "../utils/roleManager";
@@ -100,6 +100,7 @@ export const GuestProtectedButton = ({
   featureName?: string;
 } & React.ComponentProps<typeof Button>) => {
   const isGuest = useMemo(() => isGuestUser(), []);
+  const { message } = App.useApp();
 
   const handleClick = () => {
     if (isGuest) {

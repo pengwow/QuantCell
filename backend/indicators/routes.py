@@ -6,6 +6,7 @@
 
 import asyncio
 import json
+import re
 import time
 from datetime import datetime
 from typing import AsyncGenerator, Dict, Any, Optional
@@ -13,6 +14,8 @@ from typing import AsyncGenerator, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
+
+from openai import OpenAI
 
 from utils.logger import get_logger, LogType
 from common.schemas import ApiResponse
@@ -29,6 +32,7 @@ from indicators.executor import (
     parse_indicator_params,
     _generate_mock_df,
 )
+from indicators.code_quality import analyze_indicator_code_quality, get_quality_score
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -46,45 +50,86 @@ def get_executor() -> IndicatorExecutor:
 
 
 DEFAULT_INDICATOR_SYSTEM_PROMPT = """# Role
+You are an expert Python quantitative trading indicator developer for a professional K-line chart platform.
 
-You are an expert Python quantitative trading indicator developer. Your task is to write custom indicator scripts for a professional K-line chart component.
+# Runtime Environment & Pre-installed Libraries
 
-# Context & Environment
+1. **Execution**: Server-side Python sandbox with pandas and numpy pre-loaded.
+2. **Available variables**: `df` (pandas DataFrame), `pd` (pandas), `np` (numpy), `math`, `params` (dict).
+3. **DO NOT** import any modules — they are already available.
+4. **Input DataFrame `df`**: index 0..N, columns: `time`(timestamp), `open`, `high`, `low`, `close`, `volume`.
+5. **Always start with**: `df = df.copy()` to avoid modifying the original data.
 
-1. **Runtime Environment**: Code runs in server-side Python environment with pandas and numpy available.
-2. **Pre-installed Libraries**: The system has already imported `pandas as pd` and `numpy as np`. **DO NOT** include `import pandas as pd` or `import numpy as np` in your generated code. Use `pd` and `np` directly.
-3. **Input Data**: The system provides a variable `df` (Pandas DataFrame) with index from 0 to N.
-   - Columns include: `df['time']` (timestamp), `df['open']`, `df['high']`, `df['low']`, `df['close']`, `df['volume']`.
+# Output Contract (MUST follow exactly)
 
-# Output Requirement (Strict)
+You MUST define these two metadata variables:
+```python
+my_indicator_name = "指标名称"
+my_indicator_description = "指标描述"
+```
 
-At the end of code execution, you **MUST** define a dictionary variable named `output`. The system only reads this variable to render the chart.
-
-Additionally, you MUST define:
-- my_indicator_name = "..."
-- my_indicator_description = "..."
-
-`output` MUST follow this shape:
+And a final dictionary variable named `output`:
 ```python
 output = {
-  "name": my_indicator_name,
-  "plots": [ { "name": str, "data": list, "color": "#RRGGBB", "overlay": bool, "type": "line" } ],
-  "signals": [ { "type": "buy"|"sell", "text": str, "data": list, "color": "#RRGGBB" } ],
-  "calculatedVars": {}
+    "name": my_indicator_name,
+    "plots": [
+        {
+            "name": "显示名称",
+            "data": [number or None, ...],   # 长度必须等于 len(df)
+            "color": "#RRGGBB",              # 十六进制颜色
+            "overlay": True,                  # True=叠加主图, False=独立副图
+            "type": "line"                    # line/bar/candle/area
+        },
+        # ...更多 plot
+    ],
+    "signals": [
+        {
+            "type": "buy" | "sell",           # 仅支持两种信号类型
+            "text": "B" | "S",               # 显示文字标签
+            "data": [number or None, ...],    # 有值处显示标记, None 处不显示
+            "color": "#RRGGBB"
+        },
+        # ...更多 signal
+    ]
 }
 ```
-Where `data` lists MUST have the same length as `df` and use `None` for "no value".
 
-# Signal confirmation / execution timing (IMPORTANT)
-- Signals are generally confirmed on bar close.
+# Critical Rules (VIOLATION = RENDER FAILURE)
 
-# Robustness requirements (IMPORTANT)
-- Always handle NaN/inf and division-by-zero (common in RSI/BB/RSV calculations).
-- Prefer edge-triggered signals to avoid repeated consecutive signals:
+## NaN Handling (CRITICAL)
+- rolling(N).mean(), ewm(), shift() produce leading NaN values.
+- **ALWAYS** apply `.fillna()` after rolling/window operations:
+  ```python
+  sma = df["close"].rolling(20).mean().fillna(method="ffill").fillna(df["close"].iloc[0])
+  ```
+- **NEVER** use literal `np.nan` or `float('nan')` in data lists — use `None` instead.
+- For division, guard against zero: `(a / b.replace(0, np.nan)).fillna(default_value)`
+
+## Signal Markers (BEST PRACTICE)
+- Use edge-triggered signals to avoid repeated consecutive marks:
+  ```python
+  raw_buy = condition_here
   buy = raw_buy.fillna(False) & (~raw_buy.shift(1).fillna(False))
-  sell = raw_sell.fillna(False) & (~raw_sell.shift(1).fillna(False))
+  ```
+- Signal marker positions: use price-based positioning for visual clarity:
+  ```python
+  buy_marks = [df['low'].iloc[i] * 0.995 if bool(buy.iloc[i]) else None for i in range(len(df))]
+  sell_marks = [df['high'].iloc[i] * 1.005 if bool(sell.iloc[i]) else None for i in range(len(df))]
+  ```
 
-IMPORTANT: Output Python code directly, without explanations, without descriptions, and do NOT use markdown code blocks like ```python.
+## Data Length Consistency
+- ALL `data` lists in plots and signals MUST have exactly `len(df)` elements.
+- Use `.tolist()` to convert Series/Series to Python list.
+
+# Quality Self-Check (before output)
+✓ output dict has "name", "plots", "signals" keys
+✓ Each plot has: name, data(list), color, overlay
+✓ Each signal has: type(buy|sell), text, data(list), color
+✓ All data lists length == len(df)
+✓ No NaN values in any data list (use fillna)
+✓ No dangerous imports (os, sys, requests, subprocess...)
+
+Return ONLY valid Python source code. No markdown fences, no explanations, no prose.
 """
 
 
@@ -120,6 +165,28 @@ async def get_indicators(request: Request):
         message="获取指标列表成功",
         data=indicators,
         timestamp=datetime.now(),
+    )
+
+
+class IndicatorGenerateRequest(BaseModel):
+    """AI生成指标请求体"""
+    prompt: str = Field(..., description="指标生成提示词")
+    existing_code: str = Field("", description="现有代码（用于优化）")
+
+
+@router.post("/ai-generate")
+async def ai_generate_indicator(request: IndicatorGenerateRequest):
+    """AI流式生成指标代码（SSE）"""
+    logger.info(f"AI生成指标: {request.prompt[:50]}...")
+
+    return StreamingResponse(
+        generate_indicator_stream(request.prompt, request.existing_code),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
     )
 
 
@@ -376,67 +443,162 @@ async def generate_indicator_stream(
     prompt: str,
     existing_code: str = ""
 ) -> AsyncGenerator[str, None]:
-    """流式生成指标代码，带思维链"""
+    """流式生成指标代码，含静态质量分析和LLM自动修复"""
     request_id = f"indicator_{int(time.time() * 1000)}"
-    
+
     try:
-        yield f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': 1, 'total_steps': 4, 'step_title': '需求分析', 'step_description': '分析用户提供的指标需求', 'status': 'processing', 'progress': 25}})}\n\n"
-        await asyncio.sleep(0.3)
-        yield f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': 1, 'total_steps': 4, 'step_title': '需求分析', 'status': 'completed', 'progress': 25}})}\n\n"
-        await asyncio.sleep(0.1)
-        
-        yield f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': 2, 'total_steps': 4, 'step_title': '指标设计', 'status': 'processing', 'progress': 50}})}\n\n"
-        await asyncio.sleep(0.3)
-        yield f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': 2, 'total_steps': 4, 'step_title': '指标设计', 'status': 'completed', 'progress': 50}})}\n\n"
-        await asyncio.sleep(0.1)
-        
-        yield f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': 3, 'total_steps': 4, 'step_title': '代码生成', 'status': 'processing', 'progress': 75}})}\n\n"
-        await asyncio.sleep(0.1)
-        
+        yield f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': 0, 'total_steps': 1, 'step_title': '生成指标', 'step_description': '正在生成K线图指标代码...', 'status': 'processing', 'progress': 40}})}\n\n"
+
         full_code = await call_ai_generate_code(prompt, existing_code)
-        
-        yield f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': 3, 'total_steps': 4, 'step_title': '代码生成', 'status': 'completed', 'progress': 75}})}\n\n"
-        await asyncio.sleep(0.1)
-        
-        yield f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': 4, 'total_steps': 4, 'step_title': '验证优化', 'status': 'processing', 'progress': 100}})}\n\n"
-        await asyncio.sleep(0.3)
-        yield f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': 4, 'total_steps': 4, 'step_title': '验证优化', 'status': 'completed', 'progress': 100}})}\n\n"
-        await asyncio.sleep(0.1)
-        
-        yield f"data: {json.dumps({'type': 'done', 'code': full_code, 'raw_content': full_code})}\n\n"
-        
+
+        yield f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': 0, 'total_steps': 1, 'step_title': '代码验证', 'step_description': '正在分析代码质量...', 'status': 'processing', 'progress': 70}})}\n\n"
+
+        hints = analyze_indicator_code_quality(full_code)
+        score, level = get_quality_score(hints)
+        error_hints = [h for h in hints if h.get("severity") == "error"]
+
+        if error_hints:
+            logger.info(f"[{request_id}] 指标代码检测到{len(error_hints)}个错误，尝试LLM自动修复")
+            yield f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': 0, 'total_steps': 1, 'step_title': '自动修复', 'step_description': f'发现{len(error_hints)}个问题，正在智能修复...', 'status': 'processing', 'progress': 85}})}\n\n"
+
+            repaired_code = await _repair_indicator_code_via_llm(prompt, full_code, hints)
+            if repaired_code:
+                repaired_hints = analyze_indicator_code_quality(repaired_code)
+                repaired_errors = [h for h in repaired_hints if h.get("severity") == "error"]
+                if len(repaired_errors) < len(error_hints):
+                    full_code = repaired_code
+                    hints = repaired_hints
+                    score, level = get_quality_score(hints)
+                    logger.info(f"[{request_id}] LLM修复成功: {len(error_hints)}→{len(repaired_errors)}个错误, 质量分={score}")
+                else:
+                    logger.warning(f"[{request_id}] LLM修复后仍有{len(repaired_errors)}个错误，使用原始代码")
+
+        yield f"data: {json.dumps({'type': 'thinking_chain', 'data': {'current_step': 0, 'total_steps': 1, 'step_title': '完成', 'step_description': f'指标代码生成完成 (质量分:{score}/{level})', 'status': 'completed', 'progress': 100}})}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done', 'code': full_code, 'raw_content': full_code, 'quality': {'score': score, 'level': level, 'hints': hints}})}\n\n"
+
     except Exception as e:
         logger.error(f"指标生成失败: {e}")
         yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
 
 async def call_ai_generate_code(prompt: str, existing_code: str = "") -> str:
-    """调用AI生成指标代码"""
+    """调用AI生成指标代码
+    
+    Raises:
+        Exception: 当AI模型配置缺失、API调用失败或返回空内容时抛出具体异常
+    """
+    system_prompt = DEFAULT_INDICATOR_SYSTEM_PROMPT
+    
     try:
-        system_prompt = DEFAULT_INDICATOR_SYSTEM_PROMPT
+        if ThinkingChainManager is not None:
+            chain = ThinkingChainManager.get_active_chain_by_type("indicator_generation")
+            if chain and chain.get("system_prompt"):
+                system_prompt = chain["system_prompt"]
+    except Exception as e:
+        logger.warning(f"无法获取system_prompt: {e}")
+    
+    user_prompt = prompt
+    if existing_code:
+        user_prompt = (
+            f"# Existing Code:\n{existing_code}\n\n"
+            f"# Modification Requirements:\n{prompt}\n\n"
+            f"Please generate complete new Python code."
+        )
+    
+    logger.info(f"AI生成指标代码: {prompt[:50]}...")
+    
+    # 获取AI模型配置
+    from ai_model.config_utils import get_default_provider_and_models
+    config = get_default_provider_and_models()
+    
+    if not config or not config.get("provider"):
+        raise Exception("未获取到AI模型配置，请在系统设置中配置AI模型提供商")
+    
+    provider = config["provider"]
+    api_key = provider.get("api_key", "")
+    api_host = provider.get("api_host", "").rstrip("/")
+    
+    enabled_models = config.get("enabled_models", [])
+    if not enabled_models:
+        raise Exception(f"未获取到启用的模型，请检查提供商 [{provider.get('name')}] 的模型配置")
+    
+    _model = enabled_models[0]
+    model = _model.get("id") or _model.get("name") or _model.get("model_name") or "gpt-4"
+    
+    logger.info(f"使用模型: {model}, API Host: {api_host}")
+    
+    try:
+        client = OpenAI(
+            api_key=api_key,
+            base_url=f"{api_host}/v1" if not api_host.endswith("/v1") else api_host,
+            timeout=120.0,
+        )
         
-        try:
-            if ThinkingChainManager is not None:
-                chain = ThinkingChainManager.get_active_chain_by_type("indicator_generation")
-                if chain and chain.get("system_prompt"):
-                    system_prompt = chain["system_prompt"]
-        except Exception as e:
-            logger.warning(f"无法获取system_prompt: {e}")
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.7,
+            max_tokens=4096,
+        )
         
-        user_prompt = prompt
-        if existing_code:
-            user_prompt = (
-                f"# Existing Code:\n{existing_code}\n\n"
-                f"# Modification Requirements:\n{prompt}\n\n"
-                f"Please generate complete new Python code."
-            )
+        generated_code = response.choices[0].message.content
         
-        logger.info(f"AI生成指标代码: {prompt[:50]}...")
-        return generate_default_indicator_code(prompt)
+        if not generated_code:
+            raise Exception(f"LLM模型 [{model}] 返回了空内容，请尝试更换其他模型")
+        
+        # 清理代码：移除markdown代码块标记
+        cleaned_code = _clean_generated_code(generated_code)
+        
+        logger.info(f"AI生成指标代码成功, 长度: {len(cleaned_code)}")
+        return cleaned_code
         
     except Exception as e:
-        logger.error(f"AI生成代码失败: {e}")
-        return generate_default_indicator_code(prompt)
+        error_msg = str(e)
+        # 提取有意义的错误信息
+        if "authentication" in error_msg.lower() or "401" in error_msg or "invalid_api_key" in error_msg.lower():
+            raise Exception(f"AI模型认证失败 (401): 请检查API密钥是否正确。原始错误: {error_msg}")
+        elif "connection" in error_msg.lower() or "timeout" in error_msg.lower() or "network" in error_msg.lower():
+            raise Exception(f"AI模型连接失败: 无法连接到 {api_host}。请检查网络和API地址是否正确。原始错误: {error_msg}")
+        elif "rate_limit" in error_msg.lower() or "429" in error_msg:
+            raise Exception(f"AI模型请求频率限制 (429): 请稍后重试。原始错误: {error_msg}")
+        elif "model" in error_msg.lower() and ("not_found" in error_msg.lower() or "does_not_exist" in error_msg.lower()):
+            raise Exception(f"AI模型不存在: 模型名称 [{model}] 无效，请在系统设置中选择正确的模型。原始错误: {error_msg}")
+        else:
+            raise Exception(f"AI生成指标代码失败: {error_msg}")
+
+
+def _clean_generated_code(code: str) -> str:
+    """清理LLM生成的代码，移除markdown标记和多余文本"""
+    lines = code.strip().split("\n")
+    
+    start_idx = 0
+    end_idx = len(lines)
+    
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("```python") or stripped.startswith("```"):
+            start_idx = i + 1
+            break
+        if stripped and not stripped.startswith("#") and not stripped.startswith("```"):
+            start_idx = i
+            break
+    
+    for i in range(len(lines) - 1, -1, -1):
+        stripped = lines[i].strip()
+        if stripped == "```":
+            end_idx = i
+            break
+        if stripped and not stripped.startswith("#"):
+            end_idx = i + 1
+            break
+    
+    cleaned = "\n".join(lines[start_idx:end_idx]).strip()
+    
+    return cleaned if cleaned else code.strip()
 
 
 def generate_default_indicator_code(prompt: str) -> str:
@@ -446,6 +608,8 @@ def generate_default_indicator_code(prompt: str) -> str:
 
 my_indicator_name = "自定义指标"
 my_indicator_description = "{prompt[:200]}"
+
+df = df.copy()
 
 rsi_period = 14
 
@@ -458,16 +622,13 @@ avg_loss = loss.ewm(alpha=1/rsi_period, adjust=False).mean()
 
 rs = avg_gain / avg_loss.replace(0, np.nan)
 rsi = 100 - (100 / (1 + rs))
-rsi = rsi.fillna(50)
+rsi = rsi.fillna(method="ffill").fillna(50)
 
 raw_buy = (rsi < 30)
 raw_sell = (rsi > 70)
 
 buy = raw_buy.fillna(False) & (~raw_buy.shift(1).fillna(False))
 sell = raw_sell.fillna(False) & (~raw_sell.shift(1).fillna(False))
-
-df['buy'] = buy.astype(bool)
-df['sell'] = sell.astype(bool)
 
 buy_marks = [df['low'].iloc[i] * 0.995 if bool(buy.iloc[i]) else None for i in range(len(df))]
 sell_marks = [df['high'].iloc[i] * 1.005 if bool(sell.iloc[i]) else None for i in range(len(df))]
@@ -485,20 +646,89 @@ output = {{
 '''
 
 
-@router.get("/ai-generate")
-async def ai_generate_indicator(
-    prompt: str = Query(..., description="指标生成提示词"),
-    existing_code: str = Query("", description="现有代码（用于优化）")
-):
-    """AI流式生成指标代码（SSE）"""
-    logger.info(f"AI生成指标: {prompt[:50]}...")
-    
-    return StreamingResponse(
-        generate_indicator_stream(prompt, existing_code),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        }
-    )
+async def _repair_indicator_code_via_llm(
+    prompt: str,
+    original_code: str,
+    hints: list
+) -> Optional[str]:
+    """调用LLM自动修复指标代码中的错误"""
+    try:
+        from ai_model.config_utils import get_default_provider_and_models
+
+        provider_config = get_default_provider_and_models()
+        if not provider_config:
+            logger.warning("无法获取默认AI模型配置，跳过LLM修复")
+            return None
+
+        model_id = provider_config.get("enabled_models")
+        if not model_id:
+            return None
+
+        error_hints = [h for h in hints if h.get("severity") == "error"]
+        error_messages = "\n".join(
+            f"  - [{h.get('code', 'UNKNOWN')}] {h.get('message', '')}"
+            for h in error_hints
+        )
+
+        repair_prompt = f"""# Indicator Code Repair Task
+
+## Original User Request
+{prompt}
+
+## Current Code (has errors)
+```python
+{original_code}
+```
+
+## Errors Found by Static Analysis
+{error_messages}
+
+## Instructions
+Fix ALL errors listed above while preserving the indicator's core logic.
+Follow these rules:
+- Keep the same indicator name and description
+- Fix NaN handling: add .fillna() after rolling/ewm operations
+- Ensure all data lists have length equal to len(df)
+- Use None instead of np.nan in data lists
+- Do NOT add new features, only fix bugs
+- Output ONLY valid Python code, no explanations
+
+## Fixed Code:"""
+
+        from ai_model.services import AIModelService
+        api_key_val = provider_config.get("api_key") or ""
+        adapter = AIModelService.get_adapter(
+            provider_config["id"],
+            api_key_val,
+            provider_config.get("api_host"),
+        )
+        if not adapter:
+            return None
+
+        client = getattr(adapter, '_client', None)
+        if not client:
+            return None
+
+        model_name = model_id.split("-", 1)[-1] if "-" in str(model_id) else str(model_id)
+        response = await client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": DEFAULT_INDICATOR_SYSTEM_PROMPT},
+                {"role": "user", "content": repair_prompt}
+            ],
+            temperature=0.2,
+            max_tokens=4096,
+        )
+
+        repaired = response.choices[0].message.content or ""
+        if repaired and len(repaired) > 50:
+            cleaned = re.sub(r'^```(?:python)?\s*\n?', '', repaired.strip())
+            cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+            if cleaned and 'output' in cleaned:
+                return cleaned
+
+        return None
+
+    except Exception as e:
+        logger.warning(f"LLM自动修复失败: {e}")
+        return None

@@ -15,7 +15,7 @@ class BinanceExchange(Exchange):
     """
     定义 BinanceExchange 类，继承自 Exchange 类，用于与 Binance 交易所进行交互
     
-    支持 testnet 模式（参考 QuantDinger 实现）
+    支持 testnet 模式
     """
 
     # Binance 测试网 URL 配置
@@ -45,7 +45,7 @@ class BinanceExchange(Exchange):
         self.exchange = ccxt.binance(config)
         
         # 配置测试网络 - 完全不使用 CCXT 的 sandbox 机制
-        # 只需手动覆盖所有 URL 到 testnet 端点即可（参考 QuantDinger 实现）
+        # 只需手动覆盖所有 URL 到 testnet 端点即可
         if testnet:
             self._configure_testnet(trading_mode)
         
@@ -172,7 +172,7 @@ class BinanceExchange(Exchange):
     def test_connection(self) -> ConnectionTestResult:
         """
         测试 Binance 交易所连通性
-        使用直接 HTTP 请求（参考 QuantDinger 实现），避免 CCXT sandbox 检查问题
+        使用直接 HTTP 请求，避免 CCXT sandbox 检查问题
         """
         import time as _time
         import requests as _requests
@@ -386,7 +386,7 @@ class BinanceExchange(Exchange):
         except Exception as e:
             error_msg = str(e)
             
-            # Binance -2015 错误的特殊处理（参考 QuantDinger）
+            # Binance -2015 错误的特殊处理
             if "-2015" in error_msg:
                 hint = (
                     f"币安接口返回 -2015（密钥/IP/权限不匹配）。请逐项核对："

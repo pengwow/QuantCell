@@ -18,7 +18,7 @@ import {
   Col,
   InputNumber,
   Tooltip,
-  message,
+  App,
   Card,
   Spin,
 } from 'antd';
@@ -121,6 +121,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   onSuccess,
 }) => {
   const { t } = useTranslation();
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const { createWorker } = useWorkerStore();
 

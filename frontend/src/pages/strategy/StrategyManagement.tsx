@@ -7,7 +7,7 @@ import {
   Tag,
   Tooltip,
   Modal,
-  message,
+  App,
   Spin,
   Input,
   Select,
@@ -72,6 +72,7 @@ const StrategyManagement = () => {
   const screens = useBreakpoint();
   const [searchParams, setSearchParams] = useSearchParams();
   const getDefaultPageSize = useConfigStore((state: { getDefaultPageSize: () => number }) => state.getDefaultPageSize);
+  const { message } = App.useApp();
 
   // 从 URL 参数读取 Tab 状态
   const tabFromUrl = searchParams.get('tab') as TabType;

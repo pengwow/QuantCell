@@ -117,8 +117,6 @@ class StrategyService:
                 "code": file_content
             }
             
-            logger.info(f"开始查找策略类，代码内容: {file_content[:100]}...")
-            
             # 首先查找策略配置类（继承自 StrategyConfig）
             config_class = None
             config_class_name = None

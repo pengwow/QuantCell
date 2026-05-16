@@ -17,7 +17,7 @@ import {
   Statistic,
   Spin,
   Alert,
-  message,
+  App,
   Divider,
   Tooltip,
 } from 'antd';
@@ -109,6 +109,7 @@ const parseInterval = (interval: string): { span: number; type: any } => {
 const BacktestReplay = () => {
   const { backtestId } = useParams<{ backtestId: string }>();
   const { t } = useTranslation();
+  const { message } = App.useApp();
 
   // 获取主题
   const { theme } = useTheme({ localStorageKey: "quantcell-ui-theme" });
@@ -755,7 +756,7 @@ const BacktestReplay = () => {
                   />
                 </Tooltip>
 
-                <Divider type="vertical" style={{ margin: '0 8px' }} />
+                <Divider orientation="vertical" style={{ margin: '0 8px' }} />
 
                 {/* 播放速度 */}
                 <Tooltip title="播放速度">

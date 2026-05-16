@@ -232,6 +232,28 @@ class OllamaAdapter(OpenAICompatibleAdapter):
         return f"Ollama本地模型: {model_id}"
 
 
+class XiaomiAdapter(OpenAICompatibleAdapter):
+    """小米(MiMo)厂商适配器"""
+
+    DEFAULT_API_HOST = "https://token-plan-cn.xiaomimimo.com"
+    DEFAULT_MODEL = "mimo-v2.5"
+    PROVIDER_NAME = "Xiaomi"
+
+    def _get_model_description(self, model_id: str) -> str:
+        descriptions = {
+            "mimo-v2.5-pro": "MiMo V2.5 Pro，小米最强多模态模型",
+            "mimo-v2.5": "MiMo V2.5，小米通用对话模型",
+            "mimo-v2.5-tts": "MiMo V2.5 TTS，文本转语音模型",
+            "mimo-v2.5-tts-voicedesign": "MiMo V2.5 TTS声音设计，自定义音色",
+            "mimo-v2.5-tts-voiceclone": "MiMo V2.5 TTS语音克隆，支持声音复刻",
+            "mimo-v2-pro": "MiMo V2 Pro，增强版多模态模型",
+            "mimo-v2-omni": "MiMo V2 Omni，全模态理解模型",
+            "mimo-v2-tts": "MiMo V2 TTS，文本转语音基础版",
+            "mimo-v2-flash": "MiMo V2 Flash，轻量快速推理模型",
+        }
+        return descriptions.get(model_id, f"小米MiMo模型: {model_id}")
+
+
 class AnthropicAdapter(AIProviderAdapter):
     """Anthropic厂商适配器"""
     
@@ -373,6 +395,7 @@ class AIModelService:
         "openrouter": OpenRouterAdapter,
         "dashscope": DashScopeAdapter,
         "ollama": OllamaAdapter,
+        "xiaomi": XiaomiAdapter,
         "openai-compatible": OpenAICompatibleAdapter
     }
     
@@ -493,5 +516,6 @@ class AIModelService:
             {"id": "openrouter", "name": "OpenRouter", "description": "OpenRouter多模型聚合平台"},
             {"id": "dashscope", "name": "DashScope", "description": "阿里云百炼通义千问模型"},
             {"id": "ollama", "name": "Ollama", "description": "本地运行的Ollama模型"},
+            {"id": "xiaomi", "name": "Xiaomi", "description": "小米MiMo系列多模态模型"},
             {"id": "openai-compatible", "name": "OpenAI兼容API", "description": "任意OpenAI兼容的API服务"}
         ]

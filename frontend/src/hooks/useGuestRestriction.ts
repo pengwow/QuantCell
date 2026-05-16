@@ -3,7 +3,7 @@
  * 用于检查当前用户是否为访客，并提供相应的限制功能
  */
 import { useMemo, useCallback } from 'react';
-import { message, Modal } from 'antd';
+import { App, Modal } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { isGuestUser, getRestrictedFeatureMessage } from '../utils/roleManager';
 
@@ -26,6 +26,7 @@ interface UseGuestRestrictionReturn {
  */
 export const useGuestRestriction = (): UseGuestRestrictionReturn => {
   const navigate = useNavigate();
+  const { message } = App.useApp();
   
   const isGuest = useMemo(() => isGuestUser(), []);
 

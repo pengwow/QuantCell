@@ -12,6 +12,8 @@ import {
   LoadingOutlined,
   ThunderboltOutlined,
   CodeOutlined,
+  CheckOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
 import {
   Modal,
@@ -23,11 +25,12 @@ import {
   Space,
   Tooltip,
   App,
+  Card,
 } from 'antd';
 import { useTranslation } from 'react-i18next';
 import Editor from '@monaco-editor/react';
 import { useIndicators, type Indicator, defaultIndicatorCode } from '../hooks/useIndicators';
-import { aiModelApi, type ThinkingChainEventData } from '../api';
+import { aiModelApi, indicatorApi, type ThinkingChainEventData } from '../api';
 import { useGuestRestriction } from '../hooks/useGuestRestriction';
 
 interface IndicatorEditorProps {
@@ -72,6 +75,10 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const streamCancelRef = useRef<(() => void) | null>(null);
 
+  // AI生成结果（预览用，采纳后才更新到code）
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
+  const [generatedQuality, setGeneratedQuality] = useState<{ score: number; level: string; hints: any[] } | null>(null);
+
   // 验证结果
   const [verifyResult, setVerifyResult] = useState<{
     valid: boolean;
@@ -99,6 +106,9 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       setThinkingSteps([]);
       setThinkingProgress(0);
       setIsGenerating(false);
+      // 重置AI生成结果
+      setGeneratedCode(null);
+      setGeneratedQuality(null);
     }
   }, [visible, editingIndicator]);
 
@@ -156,11 +166,11 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
     // 注：移除 setActiveTab('code')，保持页面在AI生成tab页不动
 
     try {
-      // 使用优化的流式生成API（带思维链）
-      const cancelStream = aiModelApi.generateStrategyStream(
+      // 使用指标专用流式生成API（简化思维链：total_steps=1）
+      const cancelStream = indicatorApi.generateIndicatorStream(
         {
-          requirement: aiPrompt,
-          prompt_category: 'indicator_generation',
+          prompt: aiPrompt,
+          existingCode: code,
         },
         // onThinkingChain - 思维链进度实时更新
         (data: ThinkingChainEventData) => {
@@ -196,10 +206,12 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
           });
         },
         // onDone - 生成完成
-        (result) => {
+        (result: { code?: string; raw_content?: string; quality?: { score: number; level: string; hints: any[] } }) => {
           if (result.code) {
-            setCode(result.code);
-            message.success(t('indicator.aiGenerateSuccess', 'AI生成完成'));
+            // 存储到预览状态，不直接更新代码编辑器
+            setGeneratedCode(result.code);
+            setGeneratedQuality(result.quality || null);
+            message.success(t('indicator.aiGenerateSuccess', 'AI生成完成，请查看并采纳代码'));
           }
           setThinkingProgress(100);
           setThinkingSteps((prev) => 
@@ -209,7 +221,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
           setAiLoading(false);
         },
         // onError - 错误处理
-        (error) => {
+        (error: Error) => {
           message.error(t('indicator.aiGenerateError', 'AI生成失败') + ': ' + error.message);
           setIsGenerating(false);
           setAiLoading(false);
@@ -222,6 +234,25 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       setIsGenerating(false);
       setAiLoading(false);
     }
+  };
+
+  // 采纳AI生成的代码
+  const handleAdoptCode = () => {
+    if (generatedCode) {
+      setCode(generatedCode);
+      setGeneratedCode(null);
+      setGeneratedQuality(null);
+      message.success(t('indicator.adoptSuccess', '已采纳代码，请切换到代码编辑页查看'));
+      // 切换到代码编辑标签页
+      setActiveTab('code');
+    }
+  };
+
+  // 拒绝AI生成的代码
+  const handleRejectCode = () => {
+    setGeneratedCode(null);
+    setGeneratedQuality(null);
+    message.info(t('indicator.rejectCode', '已放弃本次生成结果'));
   };
 
   // 保存指标
@@ -404,6 +435,65 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
           
           {/* 思维链显示 */}
           {renderThinkingChain()}
+          
+          {/* AI生成结果预览 */}
+          {generatedCode && (
+            <Card
+              title={
+                <Space>
+                  <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                  <span>{t('indicator.generatedCodePreview', '生成代码预览')}</span>
+                  {generatedQuality && (
+                    <span style={{ 
+                      fontSize: 12, 
+                      padding: '2px 8px', 
+                      borderRadius: 4,
+                      background: generatedQuality.score >= 80 ? '#f6ffed' : generatedQuality.score >= 60 ? '#fffbe6' : '#fff2f0',
+                      color: generatedQuality.score >= 80 ? '#52c41a' : generatedQuality.score >= 60 ? '#faad14' : '#ff4d4f',
+                    }}>
+                      质量评分: {generatedQuality.score}/100 ({generatedQuality.level})
+                    </span>
+                  )}
+                </Space>
+              }
+              style={{ marginBottom: 16 }}
+              extra={
+                <Space>
+                  <Button
+                    icon={<CloseOutlined />}
+                    size="small"
+                    onClick={handleRejectCode}
+                  >
+                    {t('indicator.reject', '放弃')}
+                  </Button>
+                  <Button
+                    type="primary"
+                    icon={<CheckOutlined />}
+                    size="small"
+                    onClick={handleAdoptCode}
+                  >
+                    {t('indicator.adopt', '采纳此代码')}
+                  </Button>
+                </Space>
+              }
+            >
+              <Editor
+                height="300px"
+                defaultLanguage="python"
+                value={generatedCode}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  readOnly: true,
+                  automaticLayout: true,
+                  tabSize: 4,
+                  wordWrap: 'on',
+                }}
+                theme="vs-dark"
+              />
+            </Card>
+          )}
           
           <TextArea
             rows={4}

@@ -94,10 +94,8 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
     }
 
     return () => {
-      if (!isPaused) {
-        console.log(`🔌 [WorkerLogs] 清理: 断开 Worker ${workerId} 日志流`);
-        disconnectLogStreamRef.current();
-      }
+      console.log(`🔌 [WorkerLogs] 清理: 断开 Worker ${workerId} 日志流`);
+      disconnectLogStreamRef.current();
     };
   }, [workerId, isPaused]);
 

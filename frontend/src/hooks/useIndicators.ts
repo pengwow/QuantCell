@@ -178,36 +178,68 @@ export const useIndicators = () => {
     onComplete: () => void,
     onError: (error: string) => void
   ) => {
-    const url = '/api/indicators/ai-generate';
-    const eventSource = new EventSource(`${url}?prompt=${encodeURIComponent(prompt)}&existing_code=${encodeURIComponent(existingCode)}`);
+    const controller = new AbortController();
 
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.chunk) {
-          onChunk(data.chunk);
+    fetch('/api/indicators/ai-generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt,
+        existing_code: existingCode,
+      }),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
-        if (data.complete) {
-          eventSource.close();
-          onComplete();
-        }
-        if (data.error) {
-          eventSource.close();
-          onError(data.error);
-        }
-      } catch (err) {
-        onChunk(event.data);
-      }
-    };
 
-    eventSource.onerror = () => {
-      eventSource.close();
-      onError('SSE连接错误');
-    };
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('No readable stream');
 
-    return () => {
-      eventSource.close();
-    };
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.chunk) {
+                  onChunk(data.chunk);
+                }
+                if (data.complete) {
+                  onComplete();
+                  return;
+                }
+                if (data.error) {
+                  onError(data.error);
+                  return;
+                }
+              } catch (err) {
+                onChunk(line.slice(6));
+              }
+            }
+          }
+        }
+        onComplete();
+      })
+      .catch((err) => {
+        if (err.name !== 'AbortError') {
+          onError(err.message || 'SSE连接错误');
+        }
+      });
+
+    return () => controller.abort();
   }, []);
 
   // 获取单个指标

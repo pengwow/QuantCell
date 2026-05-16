@@ -693,6 +693,92 @@ export const indicatorApi = {
     return apiRequest.post('/indicators/ai-generate', { prompt, existing_code: existingCode });
   },
 
+  /**
+   * 流式生成指标代码（SSE），调用 /api/indicators/ai-generate
+   * 与 generateStrategyStream 接口一致，但使用简化的思维链（total_steps=1）
+   */
+  generateIndicatorStream: (
+    data: { prompt: string; existingCode?: string },
+    onThinkingChain?: (data: ThinkingChainEventData) => void,
+    onDone?: (result: { code?: string; raw_content?: string; quality?: { score: number; level: string; hints: any[] } }) => void,
+    onError?: (error: Error) => void
+  ): (() => void) => {
+    const token = getAccessToken();
+    const controller = new AbortController();
+
+    const fetchPromise = fetch(`/api/indicators/ai-generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        prompt: data.prompt,
+        existing_code: data.existingCode || '',
+      }),
+      signal: controller.signal,
+    });
+
+    fetchPromise
+      .then(async (response) => {
+        if (response.status === 401) {
+          handleUnauthorized();
+          throw new Error('登录已过期，请重新登录');
+        }
+        if (!response.ok) {
+          let errorMessage = `HTTP error! status: ${response.status}`;
+          try {
+            const errorData = await response.json();
+            if (errorData.detail) errorMessage = errorData.detail;
+            else if (errorData.message) errorMessage = errorData.message;
+          } catch (e) {}
+          throw new Error(errorMessage);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('No readable stream');
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const jsonData = JSON.parse(line.slice(6));
+                if (jsonData.type === 'thinking_chain' && jsonData.data && onThinkingChain) {
+                  onThinkingChain(jsonData.data);
+                }
+                if (jsonData.type === 'done' && onDone) {
+                  onDone({
+                    code: jsonData.code,
+                    raw_content: jsonData.raw_content,
+                    quality: jsonData.quality,
+                  });
+                }
+                if (jsonData.type === 'error' && onError) {
+                  onError(new Error(jsonData.error || '生成失败'));
+                }
+              } catch (e) {
+                // 忽略解析错误
+              }
+            }
+          }
+        }
+      })
+      .catch((err) => {
+        if (err.name !== 'AbortError' && onError) onError(err);
+      });
+
+    return () => controller.abort();
+  },
+
   getIndicatorParams: (id: number) => {
     return apiRequest.get(`/indicators/${id}/params`);
   },

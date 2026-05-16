@@ -69,6 +69,9 @@ def verify_password(password: str, hashed_password: str) -> bool:
 
 # 导入配置管理相关模块
 from settings.models import SystemConfigBusiness as SystemConfig
+from collector.db.models import SystemConfig as SystemConfigModel
+from collector.db.database import SessionLocal
+from sqlalchemy.orm import Session
 from collector.db.models import UserBusiness
 from settings.services import SystemService
 
@@ -260,11 +263,9 @@ def get_all_configs(request: Request):
     """
     try:
         logger.info("开始获取所有系统配置")
-        from utils.rbac import get_current_user_id
-        user_id = get_current_user_id(request)
 
         # 获取所有配置的详细信息
-        configs = SystemConfig.get_all_with_details(user_id=user_id)
+        configs = SystemConfig.get_all_with_details()
 
         # 按 name 字段分组构建配置数据
         grouped_configs: Dict[str, Dict[str, str]] = {}
@@ -366,9 +367,6 @@ def update_config(request: Request, config: ConfigUpdateRequest):
         )
 
     try:
-        from utils.rbac import get_current_user_id
-        user_id = get_current_user_id(request)
-
         # 从Pydantic模型中获取配置字段
         key = config.key
         value = config.value
@@ -377,10 +375,10 @@ def update_config(request: Request, config: ConfigUpdateRequest):
         name = config.name
         is_sensitive = config.is_sensitive
         
-        logger.info(f"开始更新配置: key={key}, value={value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}, user_id={user_id}")
+        logger.info(f"开始更新配置: key={key}, value={value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}")
         
-        # 更新配置（绑定用户ID）
-        success = SystemConfig.set(key, value, description, plugin, name, is_sensitive, user_id=user_id)
+        # 更新配置
+        success = SystemConfig.set(key, value, description, plugin, name, is_sensitive)
         
         if success:
             logger.info(f"成功更新配置: key={key}")
@@ -431,12 +429,10 @@ def delete_config(request: Request, key: str = Path(..., description="要删除�
         500: 删除配置失败
     """
     try:
-        from utils.rbac import get_current_user_id
-        user_id = get_current_user_id(request)
-        logger.info(f"开始删除配置: {key}, user_id={user_id}")
+        logger.info(f"开始删除配置: {key}")
         
-        # 删除配置（绑定用户ID）
-        success = SystemConfig.delete(key, user_id=user_id)
+        # 删除配置
+        success = SystemConfig.delete(key)
         
         if success:
             logger.info(f"成功删除配置: {key}")
@@ -516,9 +512,7 @@ def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[D
         )
 
     try:
-        from utils.rbac import get_current_user_id
-        user_id = get_current_user_id(request)
-        logger.info(f"开始批量更新系统配置, user_id={user_id}")
+        logger.info("开始批量更新系统配置")
         updated_count = 0
         batch_configs = configs
         
@@ -530,7 +524,7 @@ def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[D
             for key, value in batch_configs.items():
                 if not key.startswith("__v"):
                     logger.info(f"更新配置: key={key}, value={value}")
-                    SystemConfig.set(key, value, user_id=user_id)
+                    SystemConfig.set(key, value)
                     updated_count += 1
         elif isinstance(batch_configs, list):
             # 遍历配置项对象列表，逐个更新
@@ -549,6 +543,7 @@ def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[D
                     logger.info(f"用户密码已加密存储")
 
                 logger.info(f"更新配置: key={key}, value={'******' if is_sensitive else value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}")
+                # 系统配置不使用user_id隔离，确保能按key精确匹配并更新已有记录
                 SystemConfig.set(
                     key=key,
                     value=value,
@@ -556,11 +551,13 @@ def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[D
                     plugin=plugin,
                     name=name,
                     is_sensitive=is_sensitive,
-                    user_id=user_id
                 )
                 updated_count += 1
         
         logger.info(f"批量更新的配置数量: {updated_count}")
+
+        # is_default互斥处理：确保ai_model.*.is_default只有一条为'1'
+        _ensure_single_default_provider(batch_configs)
 
         # 刷新应用上下文配置
         from utils.config_manager import load_system_configs
@@ -575,6 +572,55 @@ def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[D
     except Exception as e:
         logger.error(f"批量更新配置失败: error={e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _ensure_single_default_provider(batch_configs: Any) -> None:
+    """确保ai_model.*.is_default只有一条记录为'1'，实现默认供应商的互斥唯一性
+
+    当批量配置中包含ai_model.*.is_default='1'时，自动将其他所有供应商的is_default置为'0'
+    """
+    try:
+        has_is_default_update = False
+        configs_list = []
+
+        if isinstance(batch_configs, list):
+            configs_list = batch_configs
+        elif isinstance(batch_configs, dict):
+            configs_list = [{"key": k, "value": v} for k, v in batch_configs.items()]
+
+        for item in configs_list:
+            key = item.get("key", "") if isinstance(item, dict) else ""
+            value = item.get("value", "") if isinstance(item, dict) else ""
+            if key.endswith(".is_default") and value == "1":
+                has_is_default_update = True
+                break
+
+        if not has_is_default_update:
+            return
+
+        db: Session = SessionLocal()
+        try:
+            default_records = (
+                db.query(SystemConfigModel)
+                .filter(SystemConfigModel.key.like("ai_model.%.is_default"))
+                .all()
+            )
+            enabled_records = [r for r in default_records if r.value == "1"]
+
+            if len(enabled_records) <= 1:
+                return
+
+            keep_record = enabled_records[0]
+            for record in enabled_records[1:]:
+                record.value = "0"
+                logger.info(f"is_default互斥修正: {record.key} 从 '1' 置为 '0', 保留默认供应商: {keep_record.key}")
+
+            db.commit()
+            logger.warning(f"检测到{len(enabled_records)}条is_default=1记录，已自动修正为仅保留: {keep_record.key}")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"is_default互斥处理失败: {e}")
 
 
 @config_router.get("/plugin/{plugin_name}", response_model=ApiResponse)
@@ -1001,11 +1047,8 @@ def get_exchange_configs(request: Request):
     try:
         logger.info("获取交易所配置（扁平化存储）")
 
-        from utils.rbac import get_current_user_id
-        user_id = get_current_user_id(request)
-
         # 使用扁平化存储方法获取所有交易所配置
-        exchanges_data = SystemConfig.get_all_flattened_by_prefix("exchange", user_id=user_id)
+        exchanges_data = SystemConfig.get_all_flattened_by_prefix("exchange")
         exchange_configs = []
 
         for exchange_id, config_data in exchanges_data.items():
@@ -1075,15 +1118,12 @@ def create_exchange_config(request: Request, config: Dict[str, Any] = Body(...))
         }
 
         # 使用扁平化存储方法保存配置
-        from utils.rbac import get_current_user_id
-        user_id = get_current_user_id(request)
         prefix = f"exchange.{exchange_id}"
         success = SystemConfig.set_flattened(
             prefix=prefix,
             config_dict=config_data,
             name="exchange",
             description=f"{config.get('name', exchange_id)}交易所配置",
-            user_id=user_id
         )
 
         if success:
@@ -1138,15 +1178,12 @@ def update_exchange_config(request: Request, key: str, config: Dict[str, Any] = 
         }
 
         # 使用扁平化存储方法更新配置
-        from utils.rbac import get_current_user_id
-        user_id = get_current_user_id(request)
         prefix = f"exchange.{key}"
         success = SystemConfig.set_flattened(
             prefix=prefix,
             config_dict=config_data,
             name="exchange",
             description=f"{config.get('name', key)}交易所配置",
-            user_id=user_id
         )
 
         if success:
@@ -1184,10 +1221,8 @@ def delete_exchange_config(request: Request, key: str):
         logger.info(f"删除交易所配置（扁平化存储）: {key}")
 
         # 使用扁平化存储方法删除配置
-        from utils.rbac import get_current_user_id
-        user_id = get_current_user_id(request)
         prefix = f"exchange.{key}"
-        success = SystemConfig.delete_flattened(prefix, user_id=user_id)
+        success = SystemConfig.delete_flattened(prefix)
 
         if success:
             # 刷新应用上下文配置
