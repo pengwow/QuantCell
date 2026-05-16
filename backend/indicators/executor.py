@@ -317,11 +317,14 @@ class IndicatorExecutor:
         # 构建DataFrame
         if use_mock and mock_df is not None:
             df = mock_df.copy()
+            logger.info(f"使用预定义mock数据: {len(df)}条")
         elif kline_data:
             limited_data = kline_data[:MAX_KLINE_LIMIT]
             df = _build_kline_dataframe(limited_data)
+            logger.info(f"使用真实K线数据: 原始{len(kline_data)}条, 限制后{len(df)}条")
         else:
             df = _generate_mock_df(100)
+            logger.warning(f"kline_data为空, 使用随机mock数据: {len(df)}条")
         
         # 构建安全执行环境
         exec_env = self._create_safe_exec_env(df, params)

@@ -729,6 +729,9 @@ const DEFAULT_PLOT_COLORS = [
         // 自定义指标
         try {
           const token = getAccessToken();
+          const currentKlineData = klineDataRef.current || [];
+          console.log(`[自定义指标] 发送请求: indicatorId=${indicator.id}, klineData长度=${currentKlineData.length}`);
+          
           const response = await fetch(`/api/indicators/${indicator.id}/execute`, {
             method: 'POST',
             headers: { 
@@ -738,7 +741,8 @@ const DEFAULT_PLOT_COLORS = [
             body: JSON.stringify({
               symbol: currentSymbol.code,
               period: currentPeriod,
-              params: params || {}
+              params: params || {},
+              klineData: currentKlineData,
             })
           });
 
