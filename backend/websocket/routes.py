@@ -34,12 +34,12 @@ async def websocket_endpoint(
     if topics:
         topic_set = set(topics.split(","))
 
-    logger.info(f"WebSocket连接请求: client_id={client_id}, topics={topic_set}")
+    logger.debug(f"WebSocket连接请求: client_id={client_id}, topics={topic_set}")
 
     # 处理连接
     client_id = await manager.connect(websocket, client_id, topic_set)
-    logger.info(f"WebSocket连接已建立: client_id={client_id}")
-    logger.info(f"当前所有订阅: {dict((k, list(v)) for k, v in manager.subscriptions.items())}")
+    logger.debug(f"WebSocket连接已建立: client_id={client_id}")
+    logger.debug(f"当前所有订阅: {dict((k, list(v)) for k, v in manager.subscriptions.items())}")
     
     try:
         while True:
@@ -68,6 +68,7 @@ async def websocket_endpoint(
                 )
     except WebSocketDisconnect:
         # 处理连接断开
+        logger.debug(f"WebSocket连接断开: client_id={client_id}")
         await manager.disconnect(client_id)
     except Exception as e:
         logger.error(f"WebSocket处理错误: {e}")

@@ -394,7 +394,7 @@ async def stream_logs(websocket, worker_id: int):
                 # 检测是否是连接关闭相关的错误
                 error_msg = str(e).lower()
                 if any(keyword in error_msg for keyword in ['close', 'disconnect', 'closed']):
-                    logger.info(f"Worker {worker_id} 日志流: 客户端断开连接，停止推送")
+                    logger.debug(f"Worker {worker_id} 日志流: 客户端断开连接，停止推送")
                 else:
                     logger.error(f"WebSocket发送日志失败: {e}")
                 return  # 直接返回，不进入心跳循环
@@ -406,11 +406,12 @@ async def stream_logs(websocket, worker_id: int):
             await asyncio.sleep(30)
             try:
                 if websocket.client_state.DISCONNECTED:
-                    logger.info(f"Worker {worker_id} 日志流: 客户端已断开，停止心跳")
+                    logger.debug(f"Worker {worker_id} 日志流: 客户端已断开，停止心跳")
                     return
 
                 await websocket.send_json({"type": "heartbeat"})
             except Exception as e:
+                logger.debug(f"Worker {worker_id} 日志流: 心跳发送失败: {e}")
                 error_msg = str(e).lower()
                 if any(keyword in error_msg for keyword in ['close', 'disconnect', 'closed']):
                     logger.info(f"Worker {worker_id} 日志流: 心跳发送失败，客户端可能已断开")
@@ -419,11 +420,11 @@ async def stream_logs(websocket, worker_id: int):
                 return  # 连接已关闭，退出
 
     except asyncio.CancelledError:
-        logger.info(f"Worker {worker_id} 日志流: 连接被取消（应用关闭）")
+        logger.debug(f"Worker {worker_id} 日志流: 连接被取消（应用关闭）")
     except Exception as e:
         error_msg = str(e).lower()
         if any(keyword in error_msg for keyword in ['close', 'disconnect', 'closed']):
-            logger.info(f"Worker {worker_id} 日志流正常关闭: {e}")
+            logger.debug(f"Worker {worker_id} 日志流正常关闭: {e}")
         else:
             logger.error(f"日志流异常: {e}")
             # 尝试发送错误消息（如果连接还活着）

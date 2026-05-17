@@ -64,6 +64,7 @@ class WorkerProcess(multiprocessing.Process):
         )
         self.comm_client: Optional[WorkerCommClient] = None
         self.strategy: Optional[Any] = None
+        self.trading_strategy: Optional[Any] = None
 
         # 运行控制
         self._shutdown_event = multiprocessing.Event()
@@ -102,7 +103,9 @@ class WorkerProcess(multiprocessing.Process):
             unified_file_logger.install_loguru_sink()       # 捕获 loguru 日志（DEBUG 及以上级别）
             logger.info(f"[WorkerProcess] 统一文件日志器已初始化: logs/worker_{self.worker_id}.log")
         except Exception as e:
-            logger.error(f"[WorkerProcess] 初始化统一文件日志器失败: {e}", exc_info=True)
+            logger.error(f"[WorkerProcess] 初始化统一文件日志器失败: {e}")
+            import traceback
+            traceback.print_exc()
 
         # 调试：记录子进程中的 worker_id
         logger.info(f"[WorkerProcess.run] 子进程启动，worker_id={self.worker_id}, pid={os.getpid()}")
@@ -230,7 +233,9 @@ class WorkerProcess(multiprocessing.Process):
                         )
 
                 except Exception as e:
-                    logger.error(f"[WorkerProcess] GracefulShutdownManager 执行异常: {e}", exc_info=True)
+                    logger.error(f"[WorkerProcess] GracefulShutdownManager 执行异常: {e}")
+                    import traceback
+                    traceback.print_exc()
                     fallback_result = await self._handle_stop()
                     logger.warning(f"[WorkerProcess] 回退到直接停止方法: {fallback_result}")
 

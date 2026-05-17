@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   CheckCircleOutlined,
+  QuestionCircleOutlined,
   RobotOutlined,
   SaveOutlined,
   PlayCircleOutlined,
@@ -85,6 +86,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
     message: string;
     plots_count?: number;
     signals_count?: number;
+    quality?: { score: number; level: string; hints: any[] };
   } | null>(null);
 
   // 初始化编辑器内容
@@ -131,12 +133,11 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
     setLoading(true);
     try {
       const response = await verifyCode(code);
-      // 后端返回标准格式: { code: 0, message: "...", data: {...} }
       const result = response.data || response;
-      // 处理后端返回的数据，确保 valid 是布尔值
       const normalizedResult = {
         ...result,
         valid: result.valid === true || result.valid === 'true',
+        quality: result.quality || null,
       };
       setVerifyResult(normalizedResult);
       if (normalizedResult.valid) {
@@ -162,11 +163,17 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
 
     setAiLoading(true);
     setIsGenerating(true);
-    setThinkingProgress(0);
-    // 注：移除 setActiveTab('code')，保持页面在AI生成tab页不动
+    setThinkingProgress(5);
+    // 立即初始化思维链步骤，确保UI即刻显示（后续SSE事件会更新标题和状态）
+    setThinkingSteps([
+      { title: '需求分析', description: '正在分析指标需求...', status: 'pending' },
+      { title: '指标设计', description: '正在设计指标计算逻辑...', status: 'pending' },
+      { title: '代码生成', description: '正在调用AI模型生成代码...', status: 'pending' },
+      { title: '验证优化', description: '正在分析代码质量...', status: 'pending' },
+    ]);
 
     try {
-      // 使用指标专用流式生成API（简化思维链：total_steps=1）
+      // 使用指标专用流式生成API（4步思维链）
       const cancelStream = indicatorApi.generateIndicatorStream(
         {
           prompt: aiPrompt,
@@ -382,14 +389,67 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       ),
       children: (
         <div className="code-editor-container">
-          {/* 验证结果提示 */}
+          {/* 验证结果：质量评分 */}
           {verifyResult && (
             <Alert
-              title={verifyResult.valid ? t('indicator.verifySuccess', '代码验证通过') : t('indicator.verifyFailed', '代码验证失败')}
-              description={!verifyResult.valid ? verifyResult.message : undefined}
               type={verifyResult.valid ? 'success' : 'error'}
               showIcon
               style={{ marginBottom: 16 }}
+              message={
+                <Space>
+                  <span>{verifyResult.valid ? t('indicator.verifySuccess', '验证通过') : t('indicator.verifyFailed', '验证失败')}</span>
+                  {verifyResult.quality && (
+                    <Tooltip
+                      title={
+                        <div style={{ maxWidth: 320 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 6 }}>质量评分基于静态代码分析：</div>
+                          <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
+                            <li>危险模块（os/sys等）——扣30分/项</li>
+                            <li>代码安全（eval/exec等）——扣30分/项</li>
+                            <li>输出格式规范——扣30分/项</li>
+                            <li>其他规则——扣2~10分/项</li>
+                          </ul>
+                          <div style={{ marginTop: 8, color: '#faad14' }}>
+                            90+ 优秀 · 70-89 良好 · 50-69 一般 · &lt;50 较差
+                          </div>
+                          {verifyResult.quality.hints && verifyResult.quality.hints.length > 0 && (
+                            <>
+                              <div style={{ marginTop: 8, fontWeight: 600 }}>检查出的问题：</div>
+                              <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
+                                {verifyResult.quality.hints.slice(0, 3).map((hint: any, i: number) => (
+                                  <li key={i}>
+                                    <span style={{ color: hint.severity === 'error' ? '#ff4d4f' : hint.severity === 'warn' ? '#faad14' : '#1890ff' }}>
+                                      [{hint.severity}]
+                                    </span> {hint.message || hint.rule}
+                                  </li>
+                                ))}
+                              </ul>
+                            </>
+                          )}
+                        </div>
+                      }
+                    >
+                      <span style={{
+                        fontSize: 12,
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        background: verifyResult.quality.score >= 80 ? '#f6ffed' : verifyResult.quality.score >= 60 ? '#fffbe6' : '#fff2f0',
+                        color: verifyResult.quality.score >= 80 ? '#52c41a' : verifyResult.quality.score >= 60 ? '#faad14' : '#ff4d4f',
+                        cursor: 'help',
+                      }}>
+                        质量评分: {verifyResult.quality.score}/100 ({verifyResult.quality.level})
+                        <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 11 }} />
+                      </span>
+                    </Tooltip>
+                  )}
+                  {verifyResult.plots_count != null && (
+                    <span style={{ fontSize: 12, color: '#666' }}>
+                      {verifyResult.plots_count}条线 · {verifyResult.signals_count || 0}个信号
+                    </span>
+                  )}
+                </Space>
+              }
+              description={!verifyResult.valid ? verifyResult.message : undefined}
             />
           )}
           <Editor
@@ -433,6 +493,51 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
             style={{ marginBottom: 16 }}
           />
           
+          {/* 验证结果：质量评分 */}
+          {verifyResult && verifyResult.quality && (
+            <Alert
+              type={verifyResult.valid ? 'success' : 'error'}
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={
+                <Space>
+                  <span>{verifyResult.valid ? t('indicator.verifySuccess', '验证通过') : t('indicator.verifyFailed', '验证失败')}</span>
+                  <Tooltip
+                    title={
+                      <div style={{ maxWidth: 320 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 6 }}>质量评分基于静态代码分析：</div>
+                        <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
+                          <li>危险模块（os/sys等）——扣30分/项</li>
+                          <li>代码安全（eval/exec等）——扣30分/项</li>
+                          <li>输出格式规范——扣30分/项</li>
+                          <li>其他规则——扣2~10分/项</li>
+                        </ul>
+                        <div style={{ marginTop: 8, color: '#faad14' }}>
+                          90+ 优秀 · 70-89 良好 · 50-69 一般 · &lt;50 较差
+                        </div>
+                      </div>
+                    }
+                  >
+                    <span style={{
+                      fontSize: 12, padding: '2px 8px', borderRadius: 4, cursor: 'help',
+                      background: verifyResult.quality.score >= 80 ? '#f6ffed' : verifyResult.quality.score >= 60 ? '#fffbe6' : '#fff2f0',
+                      color: verifyResult.quality.score >= 80 ? '#52c41a' : verifyResult.quality.score >= 60 ? '#faad14' : '#ff4d4f',
+                    }}>
+                      质量评分: {verifyResult.quality.score}/100 ({verifyResult.quality.level})
+                      <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 11 }} />
+                    </span>
+                  </Tooltip>
+                  {verifyResult.plots_count != null && (
+                    <span style={{ fontSize: 12, color: '#666' }}>
+                      {verifyResult.plots_count}条线 · {verifyResult.signals_count || 0}个信号
+                    </span>
+                  )}
+                </Space>
+              }
+              description={!verifyResult.valid ? verifyResult.message : undefined}
+            />
+          )}
+          
           {/* 思维链显示 */}
           {renderThinkingChain()}
           
@@ -444,15 +549,51 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
                   <CheckCircleOutlined style={{ color: '#52c41a' }} />
                   <span>{t('indicator.generatedCodePreview', '生成代码预览')}</span>
                   {generatedQuality && (
-                    <span style={{ 
-                      fontSize: 12, 
-                      padding: '2px 8px', 
-                      borderRadius: 4,
-                      background: generatedQuality.score >= 80 ? '#f6ffed' : generatedQuality.score >= 60 ? '#fffbe6' : '#fff2f0',
-                      color: generatedQuality.score >= 80 ? '#52c41a' : generatedQuality.score >= 60 ? '#faad14' : '#ff4d4f',
-                    }}>
-                      质量评分: {generatedQuality.score}/100 ({generatedQuality.level})
-                    </span>
+                    <Tooltip
+                      title={
+                        <div style={{ maxWidth: 320 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 6 }}>质量评分基于静态代码分析：</div>
+                          <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
+                            <li>危险模块（os/sys等）——扣30分/项</li>
+                            <li>代码安全（eval/exec等）——扣30分/项</li>
+                            <li>输出格式规范——扣30分/项</li>
+                            <li>其他规则——扣2~10分/项</li>
+                          </ul>
+                          <div style={{ marginTop: 8, color: '#faad14' }}>
+                            90+ 优秀 · 70-89 良好 · 50-69 一般 · &lt;50 较差
+                          </div>
+                          {generatedQuality.hints && generatedQuality.hints.length > 0 && (
+                            <>
+                              <div style={{ marginTop: 8, fontWeight: 600 }}>检查出的问题：</div>
+                              <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12 }}>
+                                {generatedQuality.hints.slice(0, 3).map((hint: any, i: number) => (
+                                  <li key={i}>
+                                    <span style={{ color: hint.severity === 'error' ? '#ff4d4f' : hint.severity === 'warn' ? '#faad14' : '#1890ff' }}>
+                                      [{hint.severity}]
+                                    </span> {hint.message || hint.rule}
+                                  </li>
+                                ))}
+                                {generatedQuality.hints.length > 3 && (
+                                  <li style={{ color: '#999' }}>...还有 {generatedQuality.hints.length - 3} 个问题</li>
+                                )}
+                              </ul>
+                            </>
+                          )}
+                        </div>
+                      }
+                    >
+                      <span style={{ 
+                        fontSize: 12, 
+                        padding: '2px 8px', 
+                        borderRadius: 4,
+                        background: generatedQuality.score >= 80 ? '#f6ffed' : generatedQuality.score >= 60 ? '#fffbe6' : '#fff2f0',
+                        color: generatedQuality.score >= 80 ? '#52c41a' : generatedQuality.score >= 60 ? '#faad14' : '#ff4d4f',
+                        cursor: 'help',
+                      }}>
+                        质量评分: {generatedQuality.score}/100 ({generatedQuality.level})
+                        <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 11 }} />
+                      </span>
+                    </Tooltip>
                   )}
                 </Space>
               }

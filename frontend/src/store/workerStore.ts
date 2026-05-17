@@ -382,7 +382,16 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           setTimeout(() => get().fetchWorkers(), 1000);
           return true;
         } catch (error: any) {
-          get().messageApi?.error(error.message || '停止Worker失败');
+          const errorMsg = error?.message || error?.toString() || '';
+          // 识别"已停止"的特殊情况，将其视为成功而非错误
+          if (errorMsg.includes('已停止') || errorMsg.includes('already stopped') ||
+              errorMsg.includes('不允许再次停止') || errorMsg.includes('当前状态为 stopped')) {
+            get().messageApi?.info('Worker已处于停止状态');
+            // 即使后端返回"已停止"错误，也正确更新前端状态
+            get().updateWorkerStatus(workerId, 'stopped');
+            return true;
+          }
+          get().messageApi?.error(errorMsg || '停止Worker失败');
           return false;
         }
       },
