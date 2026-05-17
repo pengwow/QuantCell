@@ -558,7 +558,6 @@ class NautilusTradingSystem:
         """
         state = self.get_system_state()
 
-        strategies = []
         from .state import strategy_registry
         strategies = strategy_registry.list_all()
 
