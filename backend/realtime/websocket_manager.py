@@ -145,7 +145,7 @@ class WebSocketManager:
         Returns:
             bool: 所有客户端是否都连接成功
         """
-        logger.info(f"正在连接所有交易所客户端，共 {len(self.clients)} 个")
+        logger.debug(f"正在连接所有交易所客户端，共 {len(self.clients)} 个")
         
         tasks = [client.connect() for client in self.clients.values()]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -158,7 +158,7 @@ class WebSocketManager:
                 exchange_name = list(self.clients.keys())[i]
                 logger.error(f"连接交易所客户端失败: {exchange_name}, 错误: {result}")
         
-        logger.info(f"连接完成，成功 {success_count} 个，失败 {len(results) - success_count} 个")
+        logger.debug(f"连接完成，成功 {success_count} 个，失败 {len(results) - success_count} 个")
         return success_count == len(results)
     
     async def disconnect_all(self) -> bool:
@@ -168,7 +168,7 @@ class WebSocketManager:
         Returns:
             bool: 所有客户端是否都断开成功
         """
-        logger.info(f"正在断开所有交易所客户端连接，共 {len(self.clients)} 个")
+        logger.debug(f"正在断开所有交易所客户端连接，共 {len(self.clients)} 个")
 
         if not self.clients:
             return True

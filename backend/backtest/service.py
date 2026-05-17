@@ -254,6 +254,8 @@ class BacktestService:
                         "message": "回测结果已保存"
                     }
                 )
+                # 标记整个任务为已完成状态，确保前端轮询能够正确停止
+                progress_tracker.complete_progress(task_id)
             
             return result
             

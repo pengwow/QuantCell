@@ -47,7 +47,6 @@ function App() {
   // 输出当前全局配置（用于调试）
   useEffect(() => {
     const config = useConfigStore.getState().config;
-    console.log('[App] 当前全局配置:', config);
   }, []);
 
   useEffect(() => {

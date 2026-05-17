@@ -1303,7 +1303,7 @@ class WorkerCoreService:
             # 1. 状态转换: 当前状态 → starting
             success = await worker_state_manager.transition(worker_id, "starting")
             if not success:
-                state = worker_state_manager.get_state_sync(worker_id)
+                state = await worker_state_manager.get_state(worker_id)
                 current_status = state.status if state else "unknown"
 
                 if current_status == "running":
@@ -1343,10 +1343,12 @@ class WorkerCoreService:
         执行 Worker 启动的后台异步任务
 
         包含完整的启动流程：读取配置、加载策略、启动进程、更新状态
+        整体受健康检查超时保护（60秒 starting 超时 → 自动修正为 error）
 
         Args:
             worker_id: Worker ID
         """
+        startup_start_time = time.time()
         try:
             with self.get_db() as db:
                 worker = crud.get_worker(db, worker_id)
@@ -1425,12 +1427,13 @@ class WorkerCoreService:
 
                 if process_still_alive and is_alive:
                     # 启动成功，转换到 running 状态，记录 PID
+                    startup_duration = time.time() - startup_start_time
                     await worker_state_manager.transition(
                         worker_id, "running", pid=pid
                     )
                     logger.info(
                         f"[_do_start_worker] ✅ Worker {worker_id} 启动成功，"
-                        f"状态已更新为 running (PID: {pid})"
+                        f"状态已更新为 running (PID: {pid}, 耗时: {startup_duration:.1f}s)"
                     )
                 else:
                     # 进程在等待期间退出
@@ -1451,7 +1454,9 @@ class WorkerCoreService:
                 worker_id, "error", error_message=str(e)
             )
         except Exception as e:
-            logger.error(f"[_do_start_worker] Worker {worker_id} 启动过程异常: {e}", exc_info=True)
+            logger.error(f"[_do_start_worker] Worker {worker_id} 启动过程异常: {e}")
+            import traceback
+            traceback.print_exc()
             await worker_state_manager.transition(
                 worker_id, "error", error_message=str(e)
             )
@@ -1513,7 +1518,7 @@ class WorkerCoreService:
             # 1. 状态转换: 当前状态 → stopping
             success = await worker_state_manager.transition(worker_id, "stopping")
             if not success:
-                state = worker_state_manager.get_state_sync(worker_id)
+                state = await worker_state_manager.get_state(worker_id)
                 current_status = state.status if state else "unknown"
 
                 if current_status == "stopped":

@@ -8,9 +8,12 @@ Worker 管理器（事件驱动版本）
 """
 
 import asyncio
+import json
 import os
 import signal
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
 from utils.logger import get_logger, LogType
 from core.port_manager import port_manager
@@ -263,9 +266,10 @@ class WorkerManager:
         except Exception as e:
             logger.error(
                 f"[事件驱动] 处理状态变更事件失败 | "
-                f"worker_id={worker_id} | status={new_status} | error={e}",
-                exc_info=True
+                f"worker_id={worker_id} | status={new_status} | error={e}"
             )
+            import traceback
+            traceback.print_exc()
 
     async def _handle_start_event(self, worker_id: int):
         """
@@ -280,11 +284,11 @@ class WorkerManager:
 
         try:
             from collector.db.database import SessionLocal
-            from worker.crud import get_worker_by_id
+            from worker.crud import get_worker
 
             db = SessionLocal()
             try:
-                worker_record = get_worker_by_id(db, worker_id)
+                worker_record = get_worker(db, worker_id)
                 if not worker_record:
                     logger.error(f"[启动事件] Worker {worker_id} 在数据库中不存在")
                     await worker_state_manager.transition(
@@ -293,8 +297,35 @@ class WorkerManager:
                     )
                     return
 
-                strategy_path = worker_record.strategy_path
-                config = worker_record.config or {}
+                # 从 config JSON 中解析策略文件路径
+                # Worker 模型没有 strategy_path 字段，需要从 config 和 strategy_name 推导
+                raw_config = worker_record.config
+                if isinstance(raw_config, str):
+                    try:
+                        config = json.loads(raw_config)
+                    except (json.JSONDecodeError, TypeError):
+                        config = {}
+                else:
+                    config = raw_config or {}
+
+                strategy_file_name = config.get("strategy_file_name")
+                strategies_dir = Path(__file__).parent.parent / "strategies"
+
+                if strategy_file_name:
+                    strategy_path = str(strategies_dir / strategy_file_name)
+                elif worker_record.strategy_name:
+                    strategy_path = str(strategies_dir / f"{worker_record.strategy_name}.py")
+                else:
+                    logger.error(
+                        f"[启动事件] Worker {worker_id} 无法确定策略文件路径，"
+                        f"config 中缺少 strategy_file_name 且 strategy_name 为空"
+                    )
+                    await worker_state_manager.transition(
+                        worker_id, "error",
+                        error_message="无法确定策略文件路径：缺少 strategy_file_name 和 strategy_name"
+                    )
+                    return
+
                 process_id = f"worker-{worker_id}"
 
                 if len(self._workers) >= self.max_workers:
@@ -342,7 +373,9 @@ class WorkerManager:
                 db.close()
 
         except Exception as e:
-            logger.error(f"[启动事件] Worker {worker_id} 启动失败: {e}", exc_info=True)
+            logger.error(f"[启动事件] Worker {worker_id} 启动失败: {e}")
+            import traceback
+            traceback.print_exc()
             try:
                 await worker_state_manager.transition(
                     worker_id, "error",
@@ -380,7 +413,9 @@ class WorkerManager:
             logger.info(f"[停止事件] Worker {worker_id} 停止命令已发送")
 
         except Exception as e:
-            logger.error(f"[停止事件] Worker {worker_id} 停止失败: {e}", exc_info=True)
+            logger.error(f"[停止事件] Worker {worker_id} 停止失败: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def _handle_cleanup_event(self, worker_id: int, status: str):
         """
@@ -415,7 +450,9 @@ class WorkerManager:
             logger.info(f"[清理事件] Worker {worker_id} 清理完成 | final_status={status}")
 
         except Exception as e:
-            logger.error(f"[清理事件] Worker {worker_id} 清理失败: {e}", exc_info=True)
+            logger.error(f"[清理事件] Worker {worker_id} 清理失败: {e}")
+            import traceback
+            traceback.print_exc()
 
     # =========================================================================
     # 健康检查机制
@@ -440,20 +477,29 @@ class WorkerManager:
                 logger.info("[健康检查] 循环已取消")
                 break
             except Exception as e:
-                logger.error(f"[健康检查] 循环异常: {e}", exc_info=True)
+                logger.error(f"[健康检查] 循环异常: {e}")
+                import traceback
+                traceback.print_exc()
                 await asyncio.sleep(60)
 
     async def _check_all_workers_health(self):
         """
-        检查所有 Worker 进程的健康状态
+        检查所有 Worker 进程的健康状态（增强版）
 
         检查项：
         1. 进程是否存在（os.kill(pid, 0)）
-        2. 如果进程不存在但 state_manager 显示为 running → 自动修正为 error/stopped
-        3. 检测僵尸进程并清理
+        2. 覆盖所有非终止状态的卡死检测（starting/stopping/restarting/paused/running）
+        3. starting 超时检测（60秒）
+        4. stopping/restarting 超时检测（120秒）
+        5. 检测僵尸进程并清理
         """
         logger.debug("[健康检查] 开始检查所有 Worker 进程")
 
+        # 超时阈值配置
+        STARTING_TIMEOUT_SECONDS = 60
+        INTERMEDIATE_TIMEOUT_SECONDS = 120
+
+        # 检查已有进程对象的 Worker
         for process_id, worker in list(self._workers.items()):
             try:
                 pid = worker.pid
@@ -470,13 +516,14 @@ class WorkerManager:
                     worker_db_id = self._extract_worker_id(process_id)
                     if worker_db_id:
                         current_state = await worker_state_manager.get_state(worker_db_id)
-                        if current_state and current_state.status == "running":
+                        if current_state and current_state.status not in ("stopped", "error"):
                             logger.warning(
-                                f"[健康检查] 自动修正 Worker {worker_db_id} 状态: running -> error"
+                                f"[健康检查] 自动修正 Worker {worker_db_id} 状态: "
+                                f"{current_state.status} -> error"
                             )
                             await worker_state_manager.transition(
                                 worker_db_id, "error",
-                                error_message="Process died unexpectedly (health check)"
+                                error_message="进程意外退出 (health check)"
                             )
 
                     exit_code = worker.exitcode
@@ -486,9 +533,83 @@ class WorkerManager:
 
             except Exception as e:
                 logger.error(
-                    f"[健康检查] 检查 Worker {process_id} 失败: {e}",
-                    exc_info=True
+                    f"[健康检查] 检查 Worker {process_id} 失败: {e}"
                 )
+                import traceback
+                traceback.print_exc()
+
+        # 检查所有在 state_manager 中但可能不在 self._workers 中的 Worker 状态
+        try:
+            all_states = await worker_state_manager.get_all_states()
+            now = datetime.now(timezone.utc)
+
+            for worker_id, state in all_states.items():
+                # 跳过终止状态
+                if state.status in ("stopped", "error"):
+                    continue
+
+                process_id = f"worker-{worker_id}"
+                worker = self._workers.get(process_id)
+
+                # 计算状态持续时间
+                if state.updated_at:
+                    elapsed = (now - state.updated_at).total_seconds()
+                else:
+                    elapsed = 0
+
+                if state.status == "starting":
+                    # 检查进程是否存在
+                    if worker and not worker.is_alive():
+                        logger.warning(
+                            f"[健康检查] Worker {worker_id} 处于 starting 状态但进程已退出，"
+                            f"自动修正为 error"
+                        )
+                        await worker_state_manager.transition(
+                            worker_id, "error",
+                            error_message="进程在启动阶段意外退出"
+                        )
+                    elif elapsed > STARTING_TIMEOUT_SECONDS:
+                        logger.warning(
+                            f"[健康检查] Worker {worker_id} 启动超时 "
+                            f"({elapsed:.0f}s > {STARTING_TIMEOUT_SECONDS}s)，自动修正为 error"
+                        )
+                        await worker_state_manager.transition(
+                            worker_id, "error",
+                            error_message=f"启动超时（{elapsed:.0f}秒），可能策略加载失败"
+                        )
+                        # 清理可能的残留进程
+                        if worker:
+                            await self._handle_cleanup_event(worker_id, "error")
+
+                elif state.status in ("running", "paused"):
+                    # 检查进程是否存在
+                    if worker and not worker.is_alive():
+                        logger.warning(
+                            f"[健康检查] Worker {worker_id} 处于 {state.status} 状态但进程已退出，"
+                            f"自动修正为 error"
+                        )
+                        await worker_state_manager.transition(
+                            worker_id, "error",
+                            error_message=f"进程在 {state.status} 状态意外退出"
+                        )
+
+                elif state.status in ("stopping", "restarting"):
+                    if elapsed > INTERMEDIATE_TIMEOUT_SECONDS:
+                        logger.warning(
+                            f"[健康检查] Worker {worker_id} {state.status} 超时 "
+                            f"({elapsed:.0f}s > {INTERMEDIATE_TIMEOUT_SECONDS}s)，自动修正为 stopped"
+                        )
+                        await worker_state_manager.transition(
+                            worker_id, "stopped",
+                            error_message=f"{state.status} 状态超时（{elapsed:.0f}秒），自动修正"
+                        )
+                        if worker:
+                            await self._handle_cleanup_event(worker_id, "stopped")
+
+        except Exception as e:
+            logger.error(f"[健康检查] 批量状态检查失败: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _is_process_alive(self, pid: int) -> bool:
         """
@@ -567,7 +688,9 @@ class WorkerManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"[监控] 循环错误: {e}", exc_info=True)
+                logger.error(f"[监控] 循环错误: {e}")
+                import traceback
+                traceback.print_exc()
                 await asyncio.sleep(5)
 
     # =========================================================================
@@ -702,7 +825,9 @@ class WorkerManager:
 
             logger.info(f"[Manager] Worker {worker_id} 停止流程完成")
         except Exception as e:
-            logger.error(f"[Manager] 等待 Worker {worker_id} 停止时出错: {e}", exc_info=True)
+            logger.error(f"[Manager] 等待 Worker {worker_id} 停止时出错: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def _force_stop_all_workers(self):
         """强制停止所有 Worker（在 shutdown 时调用）"""

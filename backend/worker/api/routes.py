@@ -49,7 +49,9 @@ async def create_worker(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"创建Worker失败: {e}", exc_info=True)
+        logger.error(f"创建Worker失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -87,10 +89,14 @@ async def list_workers(
                 item["_status"] = state.status
                 item["_pid"] = state.pid
                 item["_updated_at"] = state.updated_at.isoformat()
+                # 优先使用实时状态覆盖数据库中的过时status值
+                item["status"] = state.status
 
         return schemas.ApiResponse(code=0, message="success", data=result)
     except Exception as e:
-        logger.error(f"获取Worker列表失败: {e}", exc_info=True)
+        logger.error(f"获取Worker列表失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -125,7 +131,9 @@ async def get_worker(
     except WorkerNotFoundError:
         raise HTTPException(status_code=404, detail="Worker不存在")
     except Exception as e:
-        logger.error(f"获取Worker {worker_id} 详情失败: {e}", exc_info=True)
+        logger.error(f"获取Worker {worker_id} 详情失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -175,7 +183,9 @@ async def get_worker_state(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"获取Worker {worker_id} 状态失败: {e}", exc_info=True)
+        logger.error(f"获取Worker {worker_id} 状态失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -197,7 +207,9 @@ async def update_worker(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"更新Worker {worker_id} 失败: {e}", exc_info=True)
+        logger.error(f"更新Worker {worker_id} 失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -217,7 +229,9 @@ async def update_worker_config(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"更新Worker {worker_id} 配置失败: {e}", exc_info=True)
+        logger.error(f"更新Worker {worker_id} 配置失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -236,7 +250,9 @@ async def delete_worker(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"删除Worker {worker_id} 失败: {e}", exc_info=True)
+        logger.error(f"删除Worker {worker_id} 失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -258,7 +274,9 @@ async def clone_worker(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"克隆Worker {worker_id} 失败: {e}", exc_info=True)
+        logger.error(f"克隆Worker {worker_id} 失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -278,7 +296,9 @@ async def batch_operation(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"批量操作Worker失败: {e}", exc_info=True)
+        logger.error(f"批量操作Worker失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -350,7 +370,9 @@ async def start_worker(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"启动Worker {worker_id} 失败: {e}", exc_info=True)
+        logger.error(f"启动Worker {worker_id} 失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"启动Worker失败: {str(e)}")
 
 
@@ -419,7 +441,9 @@ async def stop_worker(
             )
         raise HTTPException(status_code=400, detail=error_msg)
     except Exception as e:
-        logger.error(f"停止Worker {worker_id} 失败: {e}", exc_info=True)
+        logger.error(f"停止Worker {worker_id} 失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"停止Worker失败: {str(e)}")
 
 
@@ -439,7 +463,9 @@ async def restart_worker(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"重启Worker {worker_id} 失败: {e}", exc_info=True)
+        logger.error(f"重启Worker {worker_id} 失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -456,7 +482,9 @@ async def get_worker_status(
     except WorkerNotFoundError:
         raise HTTPException(status_code=404, detail="Worker不存在")
     except Exception as e:
-        logger.error(f"获取Worker {worker_id} 状态失败: {e}", exc_info=True)
+        logger.error(f"获取Worker {worker_id} 状态失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -473,7 +501,9 @@ async def health_check(
     except WorkerNotFoundError:
         raise HTTPException(status_code=404, detail="Worker不存在")
     except Exception as e:
-        logger.error(f"Worker {worker_id} 健康检查失败: {e}", exc_info=True)
+        logger.error(f"Worker {worker_id} 健康检查失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -494,7 +524,9 @@ async def get_worker_metrics(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"获取Worker {worker_id} 性能指标失败: {e}", exc_info=True)
+        logger.error(f"获取Worker {worker_id} 性能指标失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -518,7 +550,9 @@ async def get_metrics_history(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"获取Worker {worker_id} 历史指标失败: {e}", exc_info=True)
+        logger.error(f"获取Worker {worker_id} 历史指标失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -548,7 +582,9 @@ async def get_worker_logs(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"获取Worker {worker_id} 日志失败: {e}", exc_info=True)
+        logger.error(f"获取Worker {worker_id} 日志失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -579,7 +615,9 @@ async def clear_worker_logs(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"清理Worker {worker_id} 日志失败: {e}", exc_info=True)
+        logger.error(f"清理Worker {worker_id} 日志失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -688,7 +726,9 @@ async def get_worker_performance(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"获取Worker {worker_id} 绩效统计失败: {e}", exc_info=True)
+        logger.error(f"获取Worker {worker_id} 绩效统计失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -714,7 +754,9 @@ async def get_worker_trades(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"获取Worker {worker_id} 交易记录失败: {e}", exc_info=True)
+        logger.error(f"获取Worker {worker_id} 交易记录失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -738,7 +780,9 @@ async def deploy_strategy(
         result = await service.deploy_strategy(worker_id, request)
         return schemas.ApiResponse(code=0, message="策略部署成功", data=result)
     except Exception as e:
-        logger.error(f"部署策略到Worker {worker_id} 失败: {e}", exc_info=True)
+        logger.error(f"部署策略到Worker {worker_id} 失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -755,7 +799,9 @@ async def undeploy_strategy(
         result = await service.undeploy_strategy(worker_id)
         return schemas.ApiResponse(code=0, message="策略卸载成功", data=result)
     except Exception as e:
-        logger.error(f"卸载Worker {worker_id} 策略失败: {e}", exc_info=True)
+        logger.error(f"卸载Worker {worker_id} 策略失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -772,7 +818,9 @@ async def get_strategy_parameters(
         params = crud.get_worker_parameters(db, worker_id)
         return schemas.ApiResponse(code=0, message="success", data=[p.to_dict() for p in params])
     except Exception as e:
-        logger.error(f"获取Worker {worker_id} 策略参数失败: {e}", exc_info=True)
+        logger.error(f"获取Worker {worker_id} 策略参数失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -795,7 +843,9 @@ async def update_strategy_parameters(
         await service.update_strategy_params(worker_id, request.parameters)
         return schemas.ApiResponse(code=0, message="参数更新成功")
     except Exception as e:
-        logger.error(f"更新Worker {worker_id} 策略参数失败: {e}", exc_info=True)
+        logger.error(f"更新Worker {worker_id} 策略参数失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -812,7 +862,9 @@ async def get_positions(
         positions = await service.get_positions(worker_id)
         return schemas.ApiResponse(code=0, message="success", data=positions)
     except Exception as e:
-        logger.error(f"获取Worker {worker_id} 持仓信息失败: {e}", exc_info=True)
+        logger.error(f"获取Worker {worker_id} 持仓信息失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -832,7 +884,9 @@ async def get_orders(
     except WorkerOperationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"获取Worker {worker_id} 订单信息失败: {e}", exc_info=True)
+        logger.error(f"获取Worker {worker_id} 订单信息失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -854,7 +908,9 @@ async def send_trading_signal(
         result = await service.send_trading_signal(worker_id, signal)
         return schemas.ApiResponse(code=0, message="信号发送成功", data=result)
     except Exception as e:
-        logger.error(f"发送交易信号到Worker {worker_id} 失败: {e}", exc_info=True)
+        logger.error(f"发送交易信号到Worker {worker_id} 失败: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 

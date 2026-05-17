@@ -695,7 +695,7 @@ export const indicatorApi = {
 
   /**
    * 流式生成指标代码（SSE），调用 /api/indicators/ai-generate
-   * 与 generateStrategyStream 接口一致，但使用简化的思维链（total_steps=1）
+   * 使用4步思维链展示生成进度
    */
   generateIndicatorStream: (
     data: { prompt: string; existingCode?: string },

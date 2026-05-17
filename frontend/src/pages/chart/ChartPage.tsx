@@ -207,22 +207,31 @@ const ChartPage = () => {
         name: 'signalTag',
         totalStep: 2,
         lock: true,
-        needDefaultPointFigure: true,
-        needDefaultXAxisFigure: true,
-        needDefaultYAxisFigure: true,
+        needDefaultPointFigure: false,
+        needDefaultXAxisFigure: false,
+        needDefaultYAxisFigure: false,
         createPointFigures: ({ coordinates }: any) => {
-          const { extendData = {} } = coordinates[1] || {};
+          const coord0 = coordinates[0];
+          const coord1 = coordinates[1];
+          if (!coord0 || !coord1) return [];
+          
+          const { extendData = {} } = coord1;
           const text = extendData.text || '';
           const color = extendData.color || '#1890ff';
           const side = extendData.side || 'buy';
+
+          const px = coord0.x ?? 0;
+          const py = coord0.y ?? 0;
+          const p1x = coord1.x ?? px;
+          const p1y = coord1.y ?? py;
           
           return [
             {
               title: text,
               type: 'rect',
               attrs: {
-                x: (coordinates[0].x ?? 0) - 18,
-                y: (coordinates[0].y ?? 0) - (side === 'buy' ? 22 : 2),
+                x: px - 18,
+                y: py - (side === 'buy' ? 22 : 2),
                 width: 36,
                 height: 20,
                 fill: color,
@@ -232,8 +241,8 @@ const ChartPage = () => {
             {
               type: 'text',
               attrs: {
-                x: coordinates[0].x ?? 0,
-                y: (coordinates[0].y ?? 0) + (side === 'buy' ? -10 : 14),
+                x: px,
+                y: py + (side === 'buy' ? -10 : 14),
                 text: String(text),
                 fill: '#FFFFFF',
                 fontSize: 11,
@@ -244,8 +253,8 @@ const ChartPage = () => {
             {
               type: 'circle',
               attrs: {
-                x: coordinates[0].x ?? 0,
-                y: coordinates[0].y ?? 0,
+                x: px,
+                y: py,
                 r: 4,
                 fill: color,
               },
@@ -253,10 +262,10 @@ const ChartPage = () => {
             {
               type: 'line',
               attrs: {
-                x1: coordinates[0].x ?? 0,
-                y1: coordinates[0].y ?? 0,
-                x2: coordinates[1]?.x ?? coordinates[0].x ?? 0,
-                y2: coordinates[1]?.y ?? coordinates[0].y ?? 0,
+                coordinates: [
+                  { x: px, y: py },
+                  { x: p1x, y: p1y },
+                ],
                 stroke: color,
                 strokeWidth: 1,
                 size: 1,
@@ -549,17 +558,16 @@ const DEFAULT_PLOT_COLORS = [
               if (typeof v === 'number' && !isFinite(v)) return null;
               return v;
           });
-          // 前向填充(ffill)：用前一个有效值替换null
           let lastValid: number | null = null;
           const ffilled = raw.map((v: number | null) => {
               if (v !== null) { lastValid = v; return v; }
               return lastValid;
           });
-          // 后向填充(bfill)：处理开头的null（用第一个有效值填充），确保绝对没有null
            const firstValid = ffilled.find((v: number | null): v is number => v !== null);
            const data: number[] = ffilled.map((v: number | null) => v ?? firstValid ?? 0);
           plotDataMap[key] = data;
-      });
+          
+          });
 
       // 构建figures配置
       const figures = plots.map((plot: any, idx: number) => ({
@@ -571,53 +579,95 @@ const DEFAULT_PLOT_COLORS = [
 
       try {
               // 确保 figures 中的 key 和 plotDataMap 一致
-              const validFigures = figures.filter((fig: any) => plotDataMap[fig.key] && plotDataMap[fig.key].length > 0);
+              const invalidFigures: string[] = [];
+              const validFigures = figures.filter((fig: any, idx: number) => {
+                  const data = plotDataMap[fig.key];
+                  if (!data || !Array.isArray(data) || data.length === 0) {
+                      invalidFigures.push(`${fig.key}(no data)`);
+                      return false;
+                  }
+                  const badValues = data.filter((v: any) => v === null || v === undefined || typeof v !== 'number' || !isFinite(v));
+                  if (badValues.length > 0) {
+                      invalidFigures.push(`${fig.key}(bad=${badValues.length}/${data.length})`);
+                      return false;
+                  }
+                  return true;
+              });
+              
+              if (invalidFigures.length > 0) {
+                  console.warn(`[Indicator] 无效figures: ${invalidFigures.join(', ')}`);
+              }
 
               if (validFigures.length === 0) {
                   console.warn('[Indicator] 无有效figures数据');
                   return null;
               }
 
-              // 缓存指标数据到 ref（用于后续动态更新）
+              // 深度清理 plotDataMap：确保所有值都是有效数字
+              const cleanedPlotDataMap: Record<string, number[]> = {};
+              for (const fig of validFigures) {
+                  const original = plotDataMap[fig.key];
+                  cleanedPlotDataMap[fig.key] = original.map((v: number) => {
+                      const clean = (typeof v === 'number' && isFinite(v) && !isNaN(v)) ? v : 0;
+                      return clean;
+                  });
+              }
+
+              // 缓存指标数据到 ref
               customIndicatorDataRef.current.set(indicatorName, {
                   plots,
                   figures: validFigures,
                   plotKeys,
-                  plotDataMap,
+                  plotDataMap: cleanedPlotDataMap,
               });
 
-              // 注册透传型指标：calc 直接从 ref 读取注入的数据
-              // 关键改进：使用 ref 而非闭包变量，确保数据始终可访问
+              // 构建 klinecharts figures 配置
+              const kcFigures = validFigures.map((fig: any, idx: number) => {
+                  const config = {
+                      key: fig.key,
+                      title: fig.title || fig.key,
+                      type: 'line' as const,
+                      color: fig.color || '#1890ff',
+                      baseValue: 0,
+                  };
+                  return config;
+              });
+
+              // 注册透传型指标
               registerIndicator({
                   name: indicatorName,
                   shortName: indicator.name || 'Custom',
                   calc: (kLineDataList: any[]) => {
-                      if (!kLineDataList || !Array.isArray(kLineDataList)) {
+                      
+                      if (!kLineDataList || !Array.isArray(kLineDataList) || kLineDataList.length === 0) {
                           return [];
                       }
                       const cached = customIndicatorDataRef.current.get(indicatorName);
-                      if (!cached) return [];
+                      if (!cached) {
+                          return [];
+                      }
                       const { plotDataMap: dataMap, figures: figs } = cached;
-                      return kLineDataList.map((_kLine: any, i: number) => {
+                      
+                      const result: Record<string, number>[] = [];
+                      for (let i = 0; i < kLineDataList.length; i++) {
                           const point: Record<string, number> = {};
-                          for (const fig of figs) {
-                              const dataArray = dataMap[fig.key];
-                              let value = 0;
+                          for (let j = 0; j < figs.length; j++) {
+                              const fig = figs[j];
+                              const dataArray = dataMap?.[fig.key];
+                              let value: number = 0;
                               if (dataArray && Array.isArray(dataArray) && dataArray.length > 0) {
-                                  if (i < dataArray.length) {
-                                      const rawValue = dataArray[i];
-                                      value = (typeof rawValue === 'number' && isFinite(rawValue)) ? rawValue : (dataArray[dataArray.length - 1] ?? 0);
-                                  } else {
-                                      const lastVal = dataArray[dataArray.length - 1];
-                                      value = (typeof lastVal === 'number' && isFinite(lastVal)) ? lastVal : 0;
-                                  }
+                                  const idx = Math.min(i, Math.max(0, dataArray.length - 1));
+                                  const raw = dataArray[idx];
+                                  value = (typeof raw === 'number' && isFinite(raw) && !isNaN(raw)) ? raw : 0;
                               }
                               point[fig.key] = value;
                           }
-                          return point;
-                      });
+                          result.push(point);
+                      }
+                      
+                      return result;
                   },
-                  figures: validFigures,
+                  figures: kcFigures,
               });
 
               // 渲染信号overlay
@@ -643,18 +693,45 @@ const DEFAULT_PLOT_COLORS = [
           if (val === null || val === undefined || isNaN(val)) continue;
 
           const bar = klineData[i];
-          if (!bar || !bar.timestamp) continue;
+          if (!bar) continue;
 
           // 确保时间戳是有效数值
-          const timestamp = typeof bar.timestamp === 'number' && isFinite(bar.timestamp)
-              ? bar.timestamp
-              : bar.timestamp;
-          if (!timestamp && timestamp !== 0) continue;
+          let timestamp: number = 0;
+          if (typeof bar.timestamp === 'number' && isFinite(bar.timestamp)) {
+              timestamp = bar.timestamp;
+          } else if (typeof bar.time === 'number' && isFinite(bar.time)) {
+              timestamp = bar.time;
+          } else {
+              continue;
+          }
+
+          // 价格必须使用K线实际价格，而非信号值（信号值只是布尔标记，如0/1，不是价格）
+          let price: number = 0;
+          if (isBuy) {
+              price = (typeof bar.low === 'number' && isFinite(bar.low)) ? bar.low : 0;
+          } else {
+              price = (typeof bar.high === 'number' && isFinite(bar.high)) ? bar.high : 0;
+          }
+          // 如果没有有效的K线价格，使用 close
+          if (price === 0 || !isFinite(price)) {
+              price = (typeof bar.close === 'number' && isFinite(bar.close)) ? bar.close : 0;
+          }
+          
+          let anchorPrice: number = 0;
+          if (isBuy) {
+              anchorPrice = (typeof bar.close === 'number' && isFinite(bar.close)) ? bar.close : price;
+          } else {
+              anchorPrice = (typeof bar.close === 'number' && isFinite(bar.close)) ? bar.close : price;
+          }
+          
+          // 最终兜底：确保绝对不是 undefined/NaN，跳过无效点位
+          if (!isFinite(price) || price === 0) continue;
+          if (!isFinite(anchorPrice) || anchorPrice === 0) anchorPrice = price;
 
           points.push({
               timestamp,
-              price: val,
-              anchorPrice: isBuy ? bar.low : bar.high,
+              price,
+              anchorPrice,
               side: isBuy ? 'buy' : 'sell',
               color: signal.color || (isBuy ? '#00E676' : '#FF5252'),
               text: signal.text || (isBuy ? 'B' : 'S'),
@@ -670,6 +747,10 @@ const DEFAULT_PLOT_COLORS = [
       signals.forEach((signal) => {
           const points = parseSignalData(signal, klineData);
           points.forEach((point) => {
+              // 数据校验：确保点位数据有效后再创建overlay，防止klinecharts内部碰撞检测崩溃
+              if (!point || !isFinite(point.timestamp) || !isFinite(point.price) || !isFinite(point.anchorPrice)) {
+                  return;
+              }
               try {
                   chartInstanceRef.current?.createOverlay({
                       name: 'signalTag',
