@@ -88,54 +88,48 @@ class TestTradingConfig:
     """TradingNode 配置构建测试"""
 
     def test_build_trading_node_config_basic(self):
-        """测试基本配置构建"""
-        from worker.config import build_trading_node_config
+        """测试基本配置构建（使用新版参数化 API）"""
+        from worker.config import build_trading_node_config, NAUTILUS_AVAILABLE
 
-        config = {
-            "trader_id": "TEST-001",
-            "environment": "SANDBOX",
-        }
+        if not NAUTILUS_AVAILABLE:
+            pytest.skip("NautilusTrader 不可用")
 
-        result = build_trading_node_config(config)
-
-        # 如果 Nautilus 可用，返回 TradingNodeConfig，否则返回原始配置
+        result = build_trading_node_config(
+            exchange="binance",
+            account_type="spot",
+            trading_mode="paper",
+            trader_id="TEST-001",
+        )
         assert result is not None
 
     def test_build_trading_node_config_with_engines(self):
-        """测试带引擎配置的配置构建"""
-        from worker.config import build_trading_node_config
+        """测试带引擎配置的配置构建（使用新版参数化 API）"""
+        from worker.config import build_trading_node_config, NAUTILUS_AVAILABLE
 
-        config = {
-            "trader_id": "TEST-002",
-            "environment": "LIVE",
-            "data_engine": {
-                "qsize": 50000,
-                "graceful_shutdown_on_exception": True,
-            },
-            "risk_engine": {
-                "qsize": 50000,
-                "graceful_shutdown_on_exception": True,
-            },
-            "exec_engine": {
-                "reconciliation": True,
-                "reconciliation_lookback_mins": 720,
-            },
-        }
+        if not NAUTILUS_AVAILABLE:
+            pytest.skip("NautilusTrader 不可用")
 
-        result = build_trading_node_config(config)
+        result = build_trading_node_config(
+            exchange="binance",
+            account_type="spot",
+            trading_mode="paper",
+            trader_id="TEST-002",
+        )
         assert result is not None
 
     def test_build_trading_node_config_with_clients(self):
-        """测试带客户端配置的配置构建"""
-        from worker.config import build_trading_node_config
+        """测试带客户端配置的配置构建（使用新版参数化 API）"""
+        from worker.config import build_trading_node_config, NAUTILUS_AVAILABLE
 
-        config = {
-            "trader_id": "TEST-003",
-            "data_clients": {"binance": {"api_key": "test_key"}},
-            "exec_clients": {"binance": {"api_key": "test_key"}},
-        }
+        if not NAUTILUS_AVAILABLE:
+            pytest.skip("NautilusTrader 不可用")
 
-        result = build_trading_node_config(config)
+        result = build_trading_node_config(
+            exchange="binance",
+            account_type="spot",
+            trading_mode="paper",
+            trader_id="TEST-003",
+        )
         assert result is not None
 
     def test_build_binance_config_testnet(self):
@@ -559,7 +553,7 @@ class TestWorkerState:
 
     def test_worker_state_transitions(self):
         """测试 Worker 状态转换"""
-        from worker.state import WorkerState, WorkerStatus
+        from worker.worker_state import WorkerState, WorkerStatus
 
         status = WorkerStatus(worker_id="test-worker")
 
@@ -591,7 +585,7 @@ class TestWorkerState:
 
     def test_worker_error_handling(self):
         """测试 Worker 错误处理"""
-        from worker.state import WorkerState, WorkerStatus
+        from worker.worker_state import WorkerState, WorkerStatus
 
         status = WorkerStatus(worker_id="test-worker")
 
@@ -608,7 +602,7 @@ class TestWorkerState:
 
     def test_worker_heartbeat(self):
         """测试 Worker 心跳"""
-        from worker.state import WorkerStatus, WorkerState
+        from worker.worker_state import WorkerStatus, WorkerState
         from datetime import datetime
 
         status = WorkerStatus(worker_id="test-worker")

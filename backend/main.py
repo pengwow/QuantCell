@@ -40,6 +40,7 @@ from strategy import router as strategy_router
 from websocket.routes import router as websocket_router
 from realtime.routes import realtime_router
 from worker import router as worker_router
+from worker.api.routes import websocket_endpoint
 from utils.log_routes import router as log_router
 from common.notifications.routes import router as notification_router
 from agent.api.routes import router as agent_router
@@ -85,6 +86,9 @@ app.include_router(log_router)
 app.include_router(notification_router)
 app.include_router(agent_router)
 app.include_router(system_ports_router)
+
+# 注册 Worker WebSocket 端点
+app.websocket("/ws/worker")(websocket_endpoint)
 
 # 插件路由注册会在应用启动时通过lifespan函数完成
 # 这里不需要提前注册，插件会在应用启动时动态加载和注册

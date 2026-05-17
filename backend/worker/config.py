@@ -523,145 +523,7 @@ def validate_config(
     return True, ""
 
 
-# =============================================================================
-# 旧的配置构建器 API（向后兼容）
-# =============================================================================
 
-def build_trading_node_config_legacy(config: Dict[str, Any]) -> Any:
-    """
-    构建 TradingNodeConfig 配置（旧版API，向后兼容）
-
-    根据 QuantCell 的配置字典构建 TradingNode 配置实例，
-    包含数据引擎、风险引擎、执行引擎以及客户端配置。
-
-    参数：
-        config: QuantCell 配置字典，可包含以下字段：
-            - trader_id: 交易者ID，格式为 "NAME-ID"，默认为 "QUANTCELL-001"
-            - environment: 运行环境，可选 "LIVE" 或 "SANDBOX"，默认为 "SANDBOX"
-            - data_engine: 数据引擎配置字典
-            - risk_engine: 风险引擎配置字典
-            - exec_engine: 执行引擎配置字典
-            - data_clients: 数据客户端配置字典，键为客户端名称，值为配置字典
-            - exec_clients: 执行客户端配置字典，键为客户端名称，值为配置字典
-
-    返回：
-        TradingNodeConfig: 交易节点配置实例，如果 Nautilus 未安装则返回配置字典
-
-    示例：
-        >>> config = {
-        ...     "trader_id": "QUANTCELL-001",
-        ...     "environment": "SANDBOX",
-        ...     "data_clients": {"binance": {...}},
-        ...     "exec_clients": {"binance": {...}},
-        ... }
-        >>> node_config = build_trading_node_config_legacy(config)
-    """
-    if not NAUTILUS_AVAILABLE:
-        logger.warning("Nautilus Trader 未安装，返回原始配置字典")
-        return config
-
-    # 提取或设置默认值
-    trader_id_str = config.get("trader_id", "QUANTCELL-001")
-    environment_str = config.get("environment", "SANDBOX")
-
-    # 创建 TraderId
-    trader_id = TraderId(trader_id_str)
-
-    # 解析环境
-    environment = Environment.SANDBOX
-    if environment_str.upper() == "LIVE":
-        environment = Environment.LIVE
-    elif environment_str.upper() == "SANDBOX":
-        environment = Environment.SANDBOX
-    else:
-        logger.warning(f"未知的环境类型: {environment_str}，使用默认 SANDBOX")
-
-    # 构建数据引擎配置
-    data_engine_config = _build_data_engine_config(
-        config.get("data_engine", {})
-    )
-
-    # 构建风险引擎配置
-    risk_engine_config = _build_risk_engine_config(
-        config.get("risk_engine", {})
-    )
-
-    # 构建执行引擎配置
-    exec_engine_config = _build_exec_engine_config(
-        config.get("exec_engine", {})
-    )
-
-    # 获取客户端配置
-    data_clients = config.get("data_clients", {})
-    exec_clients = config.get("exec_clients", {})
-
-    logger.info(
-        f"构建 TradingNode 配置: trader_id={trader_id}, environment={environment}"
-    )
-
-    return TradingNodeConfig(
-        trader_id=trader_id,
-        environment=environment,
-        data_engine=data_engine_config,
-        risk_engine=risk_engine_config,
-        exec_engine=exec_engine_config,
-        data_clients=data_clients,
-        exec_clients=exec_clients,
-    )
-
-
-def _build_data_engine_config(config: Dict[str, Any]) -> Any:
-    """
-    构建数据引擎配置
-
-    参数：
-        config: 数据引擎配置字典
-
-    返回：
-        LiveDataEngineConfig: 实时数据引擎配置实例
-    """
-    if not NAUTILUS_AVAILABLE:
-        return config
-    return LiveDataEngineConfig(
-        qsize=config.get("qsize", 100_000),
-        graceful_shutdown_on_exception=config.get("graceful_shutdown_on_exception", False),
-    )
-
-
-def _build_risk_engine_config(config: Dict[str, Any]) -> Any:
-    """
-    构建风险引擎配置
-
-    参数：
-        config: 风险引擎配置字典
-
-    返回：
-        LiveRiskEngineConfig: 实时风险引擎配置实例
-    """
-    if not NAUTILUS_AVAILABLE:
-        return config
-    return LiveRiskEngineConfig(
-        qsize=config.get("qsize", 100_000),
-        graceful_shutdown_on_exception=config.get("graceful_shutdown_on_exception", False),
-    )
-
-
-def _build_exec_engine_config(config: Dict[str, Any]) -> Any:
-    """
-    构建执行引擎配置
-
-    参数：
-        config: 执行引擎配置字典
-
-    返回：
-        LiveExecEngineConfig: 实时执行引擎配置实例
-    """
-    if not NAUTILUS_AVAILABLE:
-        return config
-    return LiveExecEngineConfig(
-        reconciliation=config.get("reconciliation", True),
-        reconciliation_lookback_mins=config.get("reconciliation_lookback_mins", 1440),
-    )
 
 
 def build_binance_config(
@@ -779,11 +641,8 @@ def build_binance_live_config(
 
 
 __all__ = [
-    # 新的配置构建器 API
     "build_trading_node_config",
     "validate_config",
-    # 旧的配置构建器 API（向后兼容）
-    "build_trading_node_config_legacy",
     "build_binance_config",
     "build_binance_live_config",
 ]

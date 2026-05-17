@@ -101,6 +101,9 @@ const Worker = () => {
   
   // 视图类型状态 - 卡片/列表
   const [viewType, setViewType] = useState<'card' | 'list'>('card');
+
+  // 单个 Worker 操作提交状态（防重复点击 + loading 反馈）
+  const [submittingWorkerIds, setSubmittingWorkerIds] = useState<Set<number>>(new Set());
   
   // 日志面板状态
   const [logsPanelVisible, setLogsPanelVisible] = useState(false);
@@ -277,6 +280,11 @@ const Worker = () => {
   // Event handlers
   const handleStart = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
     e.stopPropagation();
+
+    // 防重复点击
+    if (submittingWorkerIds.has(worker.id)) return;
+    setSubmittingWorkerIds((prev) => new Set(prev).add(worker.id));
+
     try {
       await startWorker(worker.id);
       apiMessage.success(t('worker_start_success'));
@@ -304,11 +312,21 @@ const Worker = () => {
       } else {
         apiMessage.error(`启动失败: ${errorMsg}`);
       }
+    } finally {
+      setSubmittingWorkerIds((prev) => {
+        const next = new Set(prev);
+        next.delete(worker.id);
+        return next;
+      });
     }
-  }, [startWorker, t, apiMessage]);
+  }, [startWorker, t, apiMessage, submittingWorkerIds]);
 
   const handleStop = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
     e.stopPropagation();
+
+    if (submittingWorkerIds.has(worker.id)) return;
+    setSubmittingWorkerIds((prev) => new Set(prev).add(worker.id));
+
     try {
       await stopWorker(worker.id);
       apiMessage.success(t('worker_stop_success'));
@@ -336,8 +354,14 @@ const Worker = () => {
       } else {
         apiMessage.error(`停止失败: ${errorMsg}`);
       }
+    } finally {
+      setSubmittingWorkerIds((prev) => {
+        const next = new Set(prev);
+        next.delete(worker.id);
+        return next;
+      });
     }
-  }, [stopWorker, t, apiMessage]);
+  }, [stopWorker, t, apiMessage, submittingWorkerIds]);
 
   const handleRestart = useCallback(async (worker: WorkerType, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -811,6 +835,8 @@ const Worker = () => {
                                   type="primary"
                                   size="small"
                                   icon={<CaretRightOutlined />}
+                                  loading={submittingWorkerIds.has(worker.id)}
+                                  disabled={submittingWorkerIds.has(worker.id)}
                                   onClick={(e) => { e.stopPropagation(); handleStart(worker, e); }}
                                   style={{ width: '100%' }}
                                 >
@@ -822,12 +848,14 @@ const Worker = () => {
                                   onConfirm={(e) => handleStop(worker, e as React.MouseEvent)}
                                   okText={t('yes')}
                                   cancelText={t('no')}
+                                  disabled={submittingWorkerIds.has(worker.id)}
                                 >
                                   <Button
                                     type="primary"
                                     danger
                                     size="small"
                                     icon={<StopOutlined />}
+                                    loading={submittingWorkerIds.has(worker.id)}
                                     onClick={(e) => e.stopPropagation()}
                                     style={{ width: '100%' }}
                                   >
@@ -980,12 +1008,14 @@ const Worker = () => {
                                     key: 'start',
                                     label: t('start'),
                                     icon: <CaretRightOutlined />,
+                                    disabled: submittingWorkerIds.has(worker.id),
                                     onClick: (e: any) => { e.domEvent.stopPropagation(); handleStart(worker, e.domEvent); },
                                   }] : []),
                                   ...(worker.status === 'running' ? [{
                                     key: 'stop',
                                     label: t('stop'),
                                     icon: <StopOutlined />,
+                                    disabled: submittingWorkerIds.has(worker.id),
                                     onClick: (e: any) => { e.domEvent.stopPropagation(); handleStop(worker, e.domEvent); },
                                   }] : []),
                                   {

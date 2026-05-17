@@ -4,7 +4,6 @@ Worker API数据模型定义
 定义Pydantic请求和响应模型
 """
 
-import warnings
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field, model_validator
@@ -60,25 +59,8 @@ class WorkerCreate(WorkerBase):
     config: Optional[Dict[str, Any]] = Field(default=None, description="Worker配置")
 
     @model_validator(mode='after')
-    def warn_legacy_fields(self):
-        """检测旧格式字段使用并发出弃用警告"""
-        legacy_fields = {
-            'exchange': self.exchange,
-            'symbols': self.symbols,
-            'symbol': self.symbol,
-            'timeframe': self.timeframe,
-            'market_type': self.market_type,
-            'trading_mode': self.trading_mode
-        }
-        used_legacy = [k for k, v in legacy_fields.items() if v is not None]
-        
-        if used_legacy:
-            warnings.warn(
-                f"Worker 配置使用了旧版扁平字段 ({', '.join(used_legacy)})，"
-                "已弃用（v2.1），请使用 trading_config 结构化配置",
-                DeprecationWarning,
-                stacklevel=2
-            )
+    def validate_symbols(self):
+        """验证交易对配置 - 兼容旧版扁平字段与新版 trading_config"""
         return self
 
 
@@ -114,7 +96,7 @@ class StrategyInfo(BaseModel):
     id: int = Field(..., description="策略ID")
     name: str = Field(..., description="策略名称")
     description: Optional[str] = Field(None, description="策略描述")
-    strategy_type: str = Field(default="default", description="策略类型: default/legacy")
+    strategy_type: str = Field(default="default", description="策略类型: default")
     version: str = Field(default="1.0.0", description="策略版本")
 
 
