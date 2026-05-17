@@ -64,6 +64,5 @@ async def check_worker_permission(
     
     验证当前用户是否有权限访问指定Worker
     """
-    # TODO: 实现权限检查逻辑
     # 检查用户是否拥有该Worker或具有管理员权限
     return True

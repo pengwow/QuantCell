@@ -1,332 +1,267 @@
 """
-Worker 状态机定义
+Worker 模块全局单例状态枢纽
 
-定义 Worker 进程的生命周期状态
+参考 Nautilus-Web-Interface 的 state.py 模式设计，
+集中管理 Worker 模块所需的所有全局单例，
+确保所有 Router 和 Service 层操作同一实例。
+
+单例列表:
+    - connection_manager: WebSocket 连接管理与消息广播
+    - strategy_registry: 策略注册表（内存字典 + DB 持久化）
+    - live_manager: 实盘交易管理器（Binance/OKX 连接）
+    - nautilus_system: NautilusTrader 策略执行引擎
 """
 
-from enum import Enum
+import asyncio
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Any, Callable
+from fastapi import WebSocket
+
+from utils.logger import get_logger, LogType
+
+logger = get_logger(__name__, LogType.APPLICATION)
 
 
-class WorkerState(Enum):
+# =============================================================================
+# ConnectionManager — WebSocket 连接管理与消息广播
+# =============================================================================
+
+class ConnectionManager:
     """
-    Worker 状态枚举
+    WebSocket 连接管理器
 
-    定义 Worker 进程的完整生命周期状态
-    """
-
-    # 初始状态
-    INITIALIZING = "initializing"  # 正在初始化
-    INITIALIZED = "initialized"  # 初始化完成
-
-    # 运行状态
-    STARTING = "starting"  # 正在启动
-    RUNNING = "running"  # 正常运行
-
-    # 停止状态
-    STOPPING = "stopping"  # 正在停止
-    STOPPED = "stopped"  # 已停止
-
-    # 错误状态
-    ERROR = "error"  # 发生错误
-    RECOVERING = "recovering"  # 正在恢复
-
-    # 重启状态
-    RELOADING = "reloading"  # 正在重载配置
-    RESTARTING = "restarting"  # 正在重启
-
-    def is_active(self) -> bool:
-        """
-        检查状态是否为活跃状态
-
-        Returns:
-            是否为活跃状态
-        """
-        return self in [
-            WorkerState.RUNNING,
-        ]
-
-    def is_terminal(self) -> bool:
-        """
-        检查状态是否为终止状态
-
-        Returns:
-            是否为终止状态
-        """
-        return self in [
-            WorkerState.STOPPED,
-            WorkerState.ERROR,
-        ]
-
-    def can_transition_to(self, new_state: "WorkerState") -> bool:
-        """
-        检查是否可以转换到指定状态
-
-        Args:
-            new_state: 目标状态
-
-        Returns:
-            是否可以转换
-        """
-        # 定义合法的状态转换
-        valid_transitions = {
-            WorkerState.INITIALIZING: [
-                WorkerState.INITIALIZED,
-                WorkerState.STARTING,
-                WorkerState.RUNNING,  # 允许直接跳转到 RUNNING（简化状态流转）
-                WorkerState.ERROR,
-            ],
-            WorkerState.INITIALIZED: [
-                WorkerState.STARTING,
-                WorkerState.STOPPING,
-                WorkerState.ERROR,
-            ],
-            WorkerState.STARTING: [
-                WorkerState.RUNNING,
-                WorkerState.ERROR,
-            ],
-            WorkerState.RUNNING: [
-                WorkerState.STOPPING,
-                WorkerState.RELOADING,
-                WorkerState.ERROR,
-            ],
-            WorkerState.STOPPING: [
-                WorkerState.STOPPED,
-                WorkerState.ERROR,
-            ],
-            WorkerState.STOPPED: [
-                WorkerState.STARTING,
-                WorkerState.RESTARTING,
-            ],
-            WorkerState.ERROR: [
-                WorkerState.RECOVERING,
-                WorkerState.STOPPING,
-            ],
-            WorkerState.RECOVERING: [
-                WorkerState.RUNNING,
-                WorkerState.ERROR,
-                WorkerState.STOPPING,
-            ],
-            WorkerState.RELOADING: [
-                WorkerState.RUNNING,
-                WorkerState.ERROR,
-            ],
-            WorkerState.RESTARTING: [
-                WorkerState.INITIALIZING,
-                WorkerState.ERROR,
-            ],
-        }
-
-        return new_state in valid_transitions.get(self, [])
-
-
-@dataclass
-class WorkerStatus:
-    """
-    Worker 状态信息
-
-    记录 Worker 的完整状态信息
+    管理所有活跃的 WebSocket 连接，支持广播消息到所有客户端，
+    自动清理已断开的连接。
     """
 
-    worker_id: str
-    state: WorkerState = WorkerState.INITIALIZING
-    strategy_name: Optional[str] = None
-    strategy_path: Optional[str] = None
-    symbols: list = field(default_factory=list)
-    pid: Optional[int] = None
+    def __init__(self) -> None:
+        self.active_connections: List[WebSocket] = []
 
-    # 时间戳
-    created_at: datetime = field(default_factory=datetime.now)
-    started_at: Optional[datetime] = None
-    stopped_at: Optional[datetime] = None
-    last_heartbeat: Optional[datetime] = None
+    async def connect(self, websocket: WebSocket) -> None:
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        logger.info(f"WebSocket 客户端已连接，当前连接数: {len(self.active_connections)}")
 
-    # 统计信息
-    messages_processed: int = 0
-    orders_placed: int = 0
-    errors_count: int = 0
+    def disconnect(self, websocket: WebSocket) -> None:
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+            logger.info(f"WebSocket 客户端已断开，当前连接数: {len(self.active_connections)}")
 
-    # 错误信息
-    last_error: Optional[str] = None
-    last_error_time: Optional[datetime] = None
-
-    # 扩展信息
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        转换为字典
-
-        Returns:
-            状态字典
-        """
-        return {
-            "worker_id": self.worker_id,
-            "state": self.state.value,
-            "strategy_name": self.strategy_name,
-            "strategy_path": self.strategy_path,
-            "symbols": self.symbols,
-            "pid": self.pid,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "stopped_at": self.stopped_at.isoformat() if self.stopped_at else None,
-            "last_heartbeat": self.last_heartbeat.isoformat() if self.last_heartbeat else None,
-            "messages_processed": self.messages_processed,
-            "orders_placed": self.orders_placed,
-            "errors_count": self.errors_count,
-            "last_error": self.last_error,
-            "last_error_time": self.last_error_time.isoformat() if self.last_error_time else None,
-            "metadata": self.metadata,
-        }
-
-    def update_state(self, new_state: WorkerState) -> bool:
-        """
-        更新状态
-
-        Args:
-            new_state: 新状态
-
-        Returns:
-            是否更新成功
-        """
-        if self.state.can_transition_to(new_state):
-            old_state = self.state
-            self.state = new_state
-
-            # 更新时间戳
-            if new_state == WorkerState.RUNNING and old_state != WorkerState.RUNNING:
-                self.started_at = datetime.now()
-            elif new_state == WorkerState.STOPPED:
-                self.stopped_at = datetime.now()
-
-            return True
-        return False
-
-    def update_heartbeat(self):
-        """更新心跳时间"""
-        self.last_heartbeat = datetime.now()
-
-    def record_error(self, error_message: str):
-        """
-        记录错误
-
-        Args:
-            error_message: 错误信息
-        """
-        self.errors_count += 1
-        self.last_error = error_message
-        self.last_error_time = datetime.now()
-
-    def is_healthy(self, heartbeat_timeout: int = 30) -> bool:
-        """
-        检查 Worker 是否健康
-
-        Args:
-            heartbeat_timeout: 心跳超时时间（秒）
-
-        Returns:
-            是否健康
-        """
-        if self.state not in [WorkerState.RUNNING, WorkerState.PAUSED]:
-            return False
-
-        if self.last_heartbeat is None:
-            return False
-
-        from datetime import timedelta
-        elapsed = datetime.now() - self.last_heartbeat
-        return elapsed < timedelta(seconds=heartbeat_timeout)
-
-
-class StateMachine:
-    """
-    状态机管理器
-
-    管理 Worker 的状态转换
-    """
-
-    def __init__(self, initial_state: WorkerState = WorkerState.INITIALIZING):
-        self._state = initial_state
-        self._state_history: list = [(initial_state, datetime.now())]
-        self._transition_handlers: Dict[WorkerState, list] = {}
+    async def broadcast(self, message: dict) -> None:
+        """向所有连接广播消息，自动清理断开连接"""
+        disconnected = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                disconnected.append(connection)
+        for conn in disconnected:
+            self.disconnect(conn)
 
     @property
-    def current_state(self) -> WorkerState:
-        """获取当前状态"""
-        return self._state
+    def connection_count(self) -> int:
+        return len(self.active_connections)
 
-    def transition_to(self, new_state: WorkerState) -> bool:
-        """
-        转换到指定状态
 
-        Args:
-            new_state: 目标状态
+# =============================================================================
+# StrategyRuntime — 策略运行时状态
+# =============================================================================
 
-        Returns:
-            是否转换成功
-        """
-        if self._state.can_transition_to(new_state):
-            old_state = self._state
-            self._state = new_state
-            self._state_history.append((new_state, datetime.now()))
+@dataclass
+class StrategyRuntime:
+    """
+    策略运行时对象
 
-            # 调用状态转换处理器
-            self._call_transition_handlers(old_state, new_state)
+    记录单个策略在进程内的完整运行时状态，
+    包括配置、NautilusTrader 引擎实例、异步任务引用等。
+    """
+    worker_id: int
+    strategy_id: int
+    name: str
+    status: str = "stopped"
+    trading_node: Optional[Any] = None
+    _run_task: Optional[asyncio.Task] = None
+    error_message: Optional[str] = None
+    started_at: Optional[str] = None
+    stopped_at: Optional[str] = None
 
-            return True
-        return False
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "worker_id": self.worker_id,
+            "strategy_id": self.strategy_id,
+            "name": self.name,
+            "status": self.status,
+            "is_running": self.is_running,
+            "error_message": self.error_message,
+            "started_at": self.started_at,
+            "stopped_at": self.stopped_at,
+        }
 
-    def register_transition_handler(
+    @property
+    def is_running(self) -> bool:
+        return self.status == "running" and self._run_task is not None and not self._run_task.done()
+
+
+# =============================================================================
+# StrategyRegistry — 策略注册表
+# =============================================================================
+
+class StrategyRegistry:
+    """
+    策略注册表（单例）
+
+    维护所有策略的运行时状态，提供 CRUD 操作，
+    状态变更时触发回调通知（用于 WebSocket 广播）。
+
+    三层架构中的内存存储层：
+        1. 全局单例层: state.py 统一管理
+        2. 内存存储层: StrategyRegistry 字典（本文）
+        3. 数据库持久化层: crud.py
+    """
+
+    def __init__(self):
+        self._strategies: Dict[int, StrategyRuntime] = {}
+        self._change_callbacks: List[Callable] = []
+
+    def register(self, runtime: StrategyRuntime) -> None:
+        self._strategies[runtime.worker_id] = runtime
+        logger.info(f"[StrategyRegistry] 注册策略: worker_id={runtime.worker_id}, name={runtime.name}")
+
+    def unregister(self, worker_id: int) -> Optional[StrategyRuntime]:
+        runtime = self._strategies.pop(worker_id, None)
+        if runtime:
+            logger.info(f"[StrategyRegistry] 注销策略: worker_id={worker_id}")
+        return runtime
+
+    def get(self, worker_id: int) -> Optional[StrategyRuntime]:
+        return self._strategies.get(worker_id)
+
+    def list_all(self) -> List[StrategyRuntime]:
+        return list(self._strategies.values())
+
+    def update_status(
         self,
-        target_state: WorkerState,
-        handler: callable,
-    ):
-        """
-        注册状态转换处理器
+        worker_id: int,
+        status: str,
+        error_message: Optional[str] = None,
+    ) -> Optional[StrategyRuntime]:
+        runtime = self._strategies.get(worker_id)
+        if runtime is None:
+            return None
 
-        Args:
-            target_state: 目标状态
-            handler: 处理函数，接收 (old_state, new_state) 参数
-        """
-        if target_state not in self._transition_handlers:
-            self._transition_handlers[target_state] = []
-        self._transition_handlers[target_state].append(handler)
+        old_status = runtime.status
+        runtime.status = status
+        if error_message is not None:
+            runtime.error_message = error_message
 
-    def _call_transition_handlers(self, old_state: WorkerState, new_state: WorkerState):
-        """
-        调用状态转换处理器
+        logger.info(
+            f"[StrategyRegistry] 状态变更: worker_id={worker_id}, "
+            f"{old_status} -> {status}"
+        )
 
-        Args:
-            old_state: 旧状态
-            new_state: 新状态
-        """
-        handlers = self._transition_handlers.get(new_state, [])
-        for handler in handlers:
+        self._notify_change(worker_id, old_status, status, error_message)
+        return runtime
+
+    def set_run_task(self, worker_id: int, task: Optional[asyncio.Task]) -> None:
+        runtime = self._strategies.get(worker_id)
+        if runtime:
+            runtime._run_task = task
+
+    def set_trading_node(self, worker_id: int, trading_node: Any) -> None:
+        runtime = self._strategies.get(worker_id)
+        if runtime:
+            runtime.trading_node = trading_node
+
+    def on_change(self, callback: callable) -> None:
+        """注册状态变更回调"""
+        self._change_callbacks.append(callback)
+
+    def _notify_change(
+        self,
+        worker_id: int,
+        old_status: str,
+        new_status: str,
+        error_message: Optional[str],
+    ) -> None:
+        for callback in self._change_callbacks:
             try:
-                handler(old_state, new_state)
+                callback(worker_id, old_status, new_status, error_message)
             except Exception as e:
-                # 处理器错误不应影响状态转换
-                pass
+                logger.error(f"[StrategyRegistry] 回调执行失败: {e}")
 
-    def get_state_history(self) -> list:
-        """
-        获取状态历史
 
-        Returns:
-            状态历史列表
-        """
-        return self._state_history.copy()
+# =============================================================================
+# LiveTradingManager — 实盘交易管理器
+# =============================================================================
 
-    def can_transition_to(self, new_state: WorkerState) -> bool:
-        """
-        检查是否可以转换到指定状态
+class LiveTradingManager:
+    """
+    实盘交易管理器，管理交易所连接、下单、撤单、持仓同步等实盘操作。
+    """
 
-        Args:
-            new_state: 目标状态
+    def __init__(self):
+        self._connected: bool = False
+        self._exchange: Optional[str] = None
 
-        Returns:
-            是否可以转换
-        """
-        return self._state.can_transition_to(new_state)
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
+
+    async def connect(self, exchange: str, api_key: str, api_secret: str) -> bool:
+        self._exchange = exchange
+        self._connected = True
+        logger.info(f"[LiveTradingManager] 已连接交易所: {exchange}")
+        return True
+
+    async def disconnect(self) -> None:
+        self._connected = False
+        self._exchange = None
+        logger.info("[LiveTradingManager] 已断开交易所连接")
+
+    def get_status(self) -> Dict[str, Any]:
+        return {
+            "connected": self._connected,
+            "exchange": self._exchange,
+        }
+
+
+# =============================================================================
+# 模块级单例（在 Python 模块加载时创建一次，全局唯一）
+# =============================================================================
+
+connection_manager = ConnectionManager()
+strategy_registry = StrategyRegistry()
+live_manager = LiveTradingManager()
+
+# nautilus_system 延迟导入（避免循环依赖，由 worker_system 模块提供）
+nautilus_system: Optional[Any] = None
+
+
+# =============================================================================
+# WebSocket 广播集成 — 策略状态变更时自动广播到所有连接的客户端
+# =============================================================================
+
+def _broadcast_state_change(
+    worker_id: int,
+    old_status: str,
+    new_status: str,
+    error_message: Optional[str],
+) -> None:
+    """策略状态变更时通过 WebSocket 广播消息到所有客户端"""
+    message = {
+        "type": "strategy_event",
+        "worker_id": worker_id,
+        "old_status": old_status,
+        "new_status": new_status,
+        "error_message": error_message,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(connection_manager.broadcast(message))
+    except RuntimeError:
+        pass
+
+
+strategy_registry.on_change(_broadcast_state_change)

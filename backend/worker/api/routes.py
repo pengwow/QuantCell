@@ -5,10 +5,14 @@ Worker API路由定义
 薄封装层：所有业务逻辑委托给 WorkerCoreService
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, WebSocket, Request
+import asyncio
+import json
+import time
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, WebSocket, WebSocketDisconnect, Request
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
-from datetime import datetime
 
 from .. import schemas
 from ..core_service import (
@@ -21,6 +25,7 @@ from ..worker_state import worker_state_manager
 from ..dependencies import get_current_user
 from collector.db.database import get_db as get_db_session
 from utils.logger import get_logger, LogType
+from worker.state import connection_manager, strategy_registry
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -32,6 +37,39 @@ router = APIRouter(
         500: {"description": "服务器内部错误"},
     },
 )
+
+
+# ==================== WebSocket端点 ====================
+
+async def websocket_endpoint(websocket: WebSocket):
+    await connection_manager.connect(websocket)
+    await websocket.send_json({"type": "connection", "status": "connected"})
+
+    last_snapshot_time = time.time()
+    try:
+        while True:
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=2.0)
+                try:
+                    msg = json.loads(data)
+                    if msg.get("type") == "ping":
+                        await websocket.send_json({"type": "pong"})
+                except json.JSONDecodeError:
+                    pass
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "heartbeat"})
+
+            now = time.time()
+            if now - last_snapshot_time >= 3.0:
+                strategies = [s.to_dict() for s in strategy_registry.list_all()]
+                await websocket.send_json({
+                    "type": "state_snapshot",
+                    "strategies": strategies,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+                last_snapshot_time = now
+    except WebSocketDisconnect:
+        connection_manager.disconnect(websocket)
 
 
 # ==================== 基础管理模块 ====================
@@ -762,49 +800,6 @@ async def get_worker_trades(
 
 # ==================== 策略代理模块 ====================
 
-@router.post("/{worker_id}/strategy/deploy", response_model=schemas.ApiResponse)
-async def deploy_strategy(
-    worker_id: int,
-    request: schemas.StrategyDeployRequest,
-    db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    部署策略到Worker
-    
-    通过ZeroMQ发送策略部署命令 - 委托给 service 层
-    """
-    from .. import service
-
-    try:
-        result = await service.deploy_strategy(worker_id, request)
-        return schemas.ApiResponse(code=0, message="策略部署成功", data=result)
-    except Exception as e:
-        logger.error(f"部署策略到Worker {worker_id} 失败: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{worker_id}/strategy/undeploy", response_model=schemas.ApiResponse)
-async def undeploy_strategy(
-    worker_id: int,
-    db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
-):
-    """卸载Worker上的策略 - 委托给 service 层"""
-    from .. import service
-
-    try:
-        result = await service.undeploy_strategy(worker_id)
-        return schemas.ApiResponse(code=0, message="策略卸载成功", data=result)
-    except Exception as e:
-        logger.error(f"卸载Worker {worker_id} 策略失败: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/{worker_id}/strategy/parameters", response_model=schemas.ApiResponse)
 async def get_strategy_parameters(
     worker_id: int,
@@ -833,14 +828,13 @@ async def update_strategy_parameters(
 ):
     """
     更新策略参数
-    
-    更新数据库并通过ZeroMQ通知Worker更新参数 - 委托给 crud 和 service 层
+
+    更新数据库中的策略参数
     """
-    from .. import crud, service
+    from .. import crud
 
     try:
         crud.update_worker_parameters(db, worker_id, request.parameters)
-        await service.update_strategy_params(worker_id, request.parameters)
         return schemas.ApiResponse(code=0, message="参数更新成功")
     except Exception as e:
         logger.error(f"更新Worker {worker_id} 策略参数失败: {e}")
@@ -885,30 +879,6 @@ async def get_orders(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"获取Worker {worker_id} 订单信息失败: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{worker_id}/strategy/signal", response_model=schemas.ApiResponse)
-async def send_trading_signal(
-    worker_id: int,
-    signal: Dict[str, Any],
-    db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    发送交易信号
-    
-    通过ZeroMQ发送交易信号到Worker - 委托给 service 层
-    """
-    from .. import service
-
-    try:
-        result = await service.send_trading_signal(worker_id, signal)
-        return schemas.ApiResponse(code=0, message="信号发送成功", data=result)
-    except Exception as e:
-        logger.error(f"发送交易信号到Worker {worker_id} 失败: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

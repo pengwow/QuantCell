@@ -348,7 +348,7 @@ class TestMemoryUsage(TestTradingPerformanceBase):
     @pytest.mark.asyncio
     async def test_worker_memory_leak(self):
         """测试 Worker 内存泄漏"""
-        from worker.worker_process import TradingNodeWorkerProcess
+        # worker_process 已删除; from worker.worker_process import TradingNodeWorkerProcess
 
         gc.collect()
         initial_memory = psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024

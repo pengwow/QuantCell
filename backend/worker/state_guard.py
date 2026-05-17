@@ -11,7 +11,7 @@
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
-from .state import WorkerState, StateMachine
+from .worker_state import WorkerState, StateMachine
 import logging
 
 logger = logging.getLogger(__name__)

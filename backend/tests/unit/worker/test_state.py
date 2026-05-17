@@ -6,7 +6,7 @@ Worker 状态机模块单元测试
 
 import pytest
 from datetime import datetime, timedelta
-from worker.state import WorkerState, WorkerStatus, StateMachine
+from worker.worker_state import WorkerState, WorkerStatus, StateMachine
 
 
 class TestWorkerState:
@@ -97,8 +97,8 @@ class TestWorkerStatus:
 
     def test_update_state_failure(self, worker_status):
         """测试失败的状态更新"""
-        # 直接从 INITIALIZING 到 RUNNING 应该失败
-        assert worker_status.update_state(WorkerState.RUNNING) is False
+        # 从 INITIALIZING 不能直接到 STOPPED
+        assert worker_status.update_state(WorkerState.STOPPED) is False
         assert worker_status.state == WorkerState.INITIALIZING
 
     def test_update_heartbeat(self, worker_status):
@@ -195,7 +195,7 @@ class TestStateMachine:
 
     def test_transition_to_failure(self, state_machine):
         """测试失败的状态转换"""
-        assert state_machine.transition_to(WorkerState.RUNNING) is False
+        assert state_machine.transition_to(WorkerState.STOPPED) is False
         assert state_machine.current_state == WorkerState.INITIALIZING
 
     def test_get_state_history(self, state_machine):
@@ -217,7 +217,7 @@ class TestStateMachine:
     def test_can_transition_to(self, state_machine):
         """测试状态转换检查"""
         assert state_machine.can_transition_to(WorkerState.INITIALIZED) is True
-        assert state_machine.can_transition_to(WorkerState.RUNNING) is False
+        assert state_machine.can_transition_to(WorkerState.STOPPED) is False
 
     def test_transition_handler(self, state_machine):
         """测试状态转换处理器"""

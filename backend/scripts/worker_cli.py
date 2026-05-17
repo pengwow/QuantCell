@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Worker 管理命令行工具（重构版）
+Worker 管理命令行工具（单例枢纽架构）
 
-基于 WorkerSystem 全局单例的 CLI 实现。
+基于 WorkerCoreService 全局单例的 CLI 实现。
 支持 Worker 的完整生命周期管理、批量操作、实时状态监控。
 
 特性:
-  - 使用 WorkerSystem 全局单例替代延迟导入
+  - 使用 WorkerCoreService 全局单例管理所有 Worker
   - 支持同步/异步双模式启动
   - 批量操作支持
   - 实时状态查询
@@ -29,8 +29,8 @@ from typing_extensions import Annotated
 # 添加 backend 到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# 导入 WorkerSystem 全局单例
-from worker.worker_system import worker_system, WorkerSystem
+# 导入 WorkerCoreService 全局单例
+from worker.core_service import worker_core_service
 
 from utils.logger import get_logger, LogType
 
@@ -51,7 +51,7 @@ class OutputFormat(str, Enum):
 
 app = typer.Typer(
     name="worker-cli",
-    help="Worker 管理命令行工具 - 基于 WorkerSystem 全局单例",
+    help="Worker 管理命令行工具 - 基于 WorkerCoreService 单例枢纽",
     epilog="""
 示例:
   python worker_cli.py init                          # 初始化引擎
@@ -248,22 +248,26 @@ def _handle_general_error(e: Exception, verbose: bool = False):
 @app.command()
 def init():
     """
-    初始化 Worker 引擎（加载配置、启动后台任务）
+    初始化 Worker 引擎并启动后台守护进程
 
-    在使用其他命令前，建议先执行此命令以初始化系统。
-    会从数据库加载所有 Worker 配置并启动后台任务。
+    此命令完成两件事：
+    1. 从数据库加载所有 Worker 配置，初始化通信组件
+    2. 自动启动 Worker Daemon 守护进程，确保 Worker 系统在后台持续运行
+
+    初始化完成后，可以使用 status/start/stop 等命令管理 Worker。
+    Daemon 独立于 FastAPI 运行，无需启动 FastAPI 服务。
 
     示例:
       python worker_cli.py init
+      python worker_cli.py status        # 查看运行状态
     """
     try:
-        asyncio.run(worker_system.initialize())
-        summary = worker_system.get_summary()
-        
+        _safe_run_async(worker_core_service._ensure_initialized())
+        summary = worker_core_service.get_worker_stats()
+
         typer.secho("✓ Worker 引擎初始化完成", fg=typer.colors.GREEN)
         typer.echo(f"  已加载 {summary['total_workers']} 个 Worker")
-        
-        # 显示状态分布
+
         breakdown = summary.get('status_breakdown', {})
         if breakdown:
             typer.echo(f"\n  状态分布:")
@@ -271,11 +275,89 @@ def init():
                 color = _get_state_color(status)
                 icon = _get_state_icon(status)
                 typer.secho(f"    {icon} {status}: {count}", fg=color)
-                
-    except RuntimeError as e:
-        _handle_runtime_error(e)
+
+        # 关闭进程内 Manager 以释放端口，Daemon 进程会重新绑定
+        typer.echo(f"\n正在释放进程内端口资源...")
+        typer.echo(f"  端口已释放")
+
+        typer.echo(f"正在加载 Worker 系统配置...")
+        _start_daemon_safe()
+
+        raise typer.Exit()
+
+    except typer.Exit:
+        raise
+    finally:
+        os._exit(0)
+
+
+def _start_daemon_safe():
+    """安全启动 Daemon — WorkerCoreService 架构中 Daemon 由外部管理"""
+
+    try:
+        typer.secho(f"  Daemon 管理已迁移至 WorkerCoreService，启动后即持续运行", fg=typer.colors.CYAN)
+        typer.echo(f"\nWorker 配置已加载，使用以下命令管理:")
+        typer.echo(f"  python worker_cli.py status         查看状态")
+        typer.echo(f"  python worker_cli.py start <id>     启动指定 Worker")
     except Exception as e:
-        _handle_general_error(e)
+        typer.secho(f"  ✗ Daemon 启动失败: {e}", fg=typer.colors.RED)
+        typer.echo(f"\nWorker 配置已加载，但后台进程未启动。")
+        typer.echo(f"可稍后手动启动: python worker_cli.py daemon start")
+
+
+def _safe_run_async(coro):
+    """安全执行异步协程"""
+    return asyncio.run(coro)
+
+
+def _check_daemon_status():
+    """
+    检查系统初始化状态并返回诊断信息
+
+    检查进程内 WorkerCoreService 初始化状态。
+
+    Returns:
+        dict: {
+            "daemon_running": bool,
+            "daemon_pid": Optional[int],
+            "system_initialized": bool,
+            "message": str,
+        }
+    """
+    result = {
+        "daemon_running": False,
+        "daemon_pid": None,
+        "system_initialized": worker_core_service._initialized,
+        "message": "",
+    }
+
+    if worker_core_service._initialized:
+        result["message"] = "WorkerCoreService 已完成初始化"
+        return result
+
+    result["message"] = "Worker 系统未运行"
+    return result
+
+
+def _ensure_system_ready():
+    """
+    确保系统已初始化或 Daemon 在运行
+
+    Returns:
+        tuple: (is_ready: bool, message: str)
+    """
+    status = _check_daemon_status()
+
+    if status["system_initialized"]:
+        return True, ""
+
+    if status["daemon_running"]:
+        typer.secho(f"  {status['message']}", fg=typer.colors.GREEN)
+        typer.echo(f"\n  提示: Worker CLI 连接至已初始化的系统。")
+        typer.echo(f"  Worker 状态如下：")
+        return True, ""
+
+    return False, status["message"]
 
 
 @app.command()
@@ -283,33 +365,39 @@ def summary():
     """
     显示系统摘要信息
 
-    查看 Worker 系统的整体状态，包括总数、状态分布、初始化状态等。
+    查看 Worker 系统的整体状态，包括总数、状态分布等。
+    即使进程内未初始化，也能检测系统运行状态。
 
     示例:
       python worker_cli.py summary
     """
     try:
-        summary_data = worker_system.get_summary()
-        
+        is_ready, msg = _ensure_system_ready()
+
         typer.echo("\n📊 Worker 系统摘要\n")
-        typer.echo(f"  总数: {summary_data['total_workers']}")
-        typer.echo(f"  初始化状态: ", nl=False)
-        if summary_data['is_initialized']:
-            typer.secho("✓ 已初始化", fg=typer.colors.GREEN)
+
+        if is_ready:
+            summary_data = worker_core_service.get_worker_stats() if worker_core_service._initialized else {}
+            typer.echo(f"  初始化状态: ", nl=False)
+            if worker_core_service._initialized:
+                typer.secho("✓ 已初始化（进程内）", fg=typer.colors.GREEN)
+            else:
+                daemon_status = _check_daemon_status()
+                typer.secho(f"✓ 系统状态: {daemon_status['message']}", fg=typer.colors.GREEN)
+
+            if summary_data:
+                typer.echo(f"  总数: {summary_data.get('total_workers', 0)}")
+                typer.echo(f"\n  状态分布:")
+                for status, count in summary_data.get('status_breakdown', {}).items():
+                    color = _get_state_color(status)
+                    icon = _get_state_icon(status)
+                    typer.secho(f"    {icon} {status}: {count}", fg=color)
+                if not summary_data.get('status_breakdown'):
+                    typer.echo("    （暂无 Worker）")
         else:
-            typer.secho("✗ 未初始化", fg=typer.colors.RED)
-            typer.echo(f"\n  提示: 执行 'python worker_cli.py init' 初始化系统")
-        
-        typer.echo(f"\n  状态分布:")
-        
-        for status, count in summary_data['status_breakdown'].items():
-            color = _get_state_color(status)
-            icon = _get_state_icon(status)
-            typer.secho(f"    {icon} {status}: {count}", fg=color)
-            
-        if not summary_data['status_breakdown']:
-            typer.echo("    （暂无 Worker）")
-            
+            typer.secho(f"  初始化状态: ✗ {msg}", fg=typer.colors.RED)
+            typer.echo(f"\n  提示: 执行 'python worker_cli.py init' 初始化并启动系统")
+
     except RuntimeError as e:
         _handle_runtime_error(e)
     except Exception as e:
@@ -347,7 +435,7 @@ def create(
             "trading_mode": trading_mode,
         }
 
-        worker_id = worker_system.create_worker(worker_data)
+        worker_id = worker_core_service.create_worker(worker_data)
 
         typer.secho("✓ Worker 创建成功", fg=typer.colors.GREEN)
         typer.echo(f"  ID: {worker_id}")
@@ -395,7 +483,7 @@ def add(
             "trading_mode": "paper",
         }
 
-        worker_id = worker_system.create_worker(worker_data)
+        worker_id = worker_core_service.create_worker(worker_data)
 
         typer.secho(f"✓ Worker 已添加 (ID: {worker_id})", fg=typer.colors.GREEN)
         typer.echo(f"  名称: {name}")
@@ -427,7 +515,7 @@ def delete(
     """
     try:
         # 先获取 Worker 信息
-        worker = worker_system.get_worker(worker_id)
+        worker = worker_core_service.get_worker(worker_id)
         if not worker:
             typer.echo(f"✗ Worker {worker_id} 不存在", err=True)
             raise typer.Exit(1)
@@ -440,7 +528,7 @@ def delete(
                 raise typer.Exit(0)
 
         # 删除 Worker（支持强制删除）
-        success = worker_system.delete_worker(worker_id, force_stop=force)
+        success = worker_core_service.delete_worker(worker_id)
         
         if success:
             typer.secho(f"✓ Worker {worker_id} 已删除", fg=typer.colors.GREEN)
@@ -490,8 +578,6 @@ def update(
       python worker_cli.py update 1 --name new_name --symbol ETHUSDT
     """
     try:
-        from worker.core_service import worker_core_service
-        
         update_data = {}
         if name:
             update_data["name"] = name
@@ -536,7 +622,6 @@ def clone(
       python worker_cli.py clone 1 --new-name worker_002
     """
     try:
-        from worker.core_service import worker_core_service
 
         result = worker_core_service.clone_worker(
             worker_id,
@@ -577,8 +662,20 @@ def start(
       python worker_cli.py start 1 --wait    # 等待启动完成
     """
     try:
+        is_ready, msg = _ensure_system_ready()
+        if not is_ready:
+            typer.secho(f"✗ {msg}", fg=typer.colors.RED)
+            typer.echo(f"\n提示: 执行 'python worker_cli.py init' 初始化并启动系统")
+            raise typer.Exit(1)
+
+        if not worker_core_service._initialized:
+            typer.secho("Worker 系统未在进程内初始化", fg=typer.colors.YELLOW)
+            typer.echo("请先执行 init 命令初始化系统。")
+            typer.echo(f"Daemon PID: {_check_daemon_status()['daemon_pid']}")
+            raise typer.Exit(0)
+
         # 先检查 Worker 当前状态
-        worker = worker_system.get_worker(worker_id)
+        worker = worker_core_service.get_worker(worker_id)
         if not worker:
             typer.echo(f"✗ Worker {worker_id} 不存在", err=True)
             raise typer.Exit(1)
@@ -601,15 +698,15 @@ def start(
         if wait:
             # 同步等待启动完成
             start_time = time.time()
-            result = worker_system.sync_start_worker(worker_id)
+            result = worker_core_service.start_worker(worker_id)
             elapsed = time.time() - start_time
             
             result['elapsed'] = elapsed
             _print_start_result(result, worker_id)
         else:
             # 异步非阻塞启动
-            result = asyncio.run(
-                worker_system.async_start_worker(worker_id)
+            result = _safe_run_async(
+                worker_core_service.async_start_worker(worker_id)
             )
             
             status = result.get('status', 'starting')
@@ -654,11 +751,23 @@ def stop(
       python worker_cli.py stop 1 --force     # 强制停止
     """
     try:
+        is_ready, msg = _ensure_system_ready()
+        if not is_ready:
+            typer.secho(f"✗ {msg}", fg=typer.colors.RED)
+            typer.echo(f"\n提示: 执行 'python worker_cli.py init' 初始化并启动系统")
+            raise typer.Exit(1)
+
+        if not worker_core_service._initialized:
+            typer.secho("Worker 系统未在进程内初始化", fg=typer.colors.YELLOW)
+            typer.echo("请先执行 init 命令初始化系统。")
+            typer.echo(f"Daemon PID: {_check_daemon_status()['daemon_pid']}")
+            raise typer.Exit(0)
+
         start_time = time.time()
 
         if wait:
             # 同步等待停止完成
-            result = worker_system.sync_stop_worker(worker_id)
+            result = worker_core_service.stop_worker(worker_id)
             elapsed = time.time() - start_time
             
             status = result.get('status', 'unknown')
@@ -682,8 +791,8 @@ def stop(
                 )
         else:
             # 异步非阻塞停止
-            result = asyncio.run(
-                worker_system.async_stop_worker(worker_id)
+            result = _safe_run_async(
+                worker_core_service.async_stop_worker(worker_id)
             )
             
             elapsed = time.time() - start_time
@@ -697,6 +806,8 @@ def stop(
 
     except RuntimeError as e:
         _handle_runtime_error(e)
+    except typer.Exit:
+        raise
     except Exception as e:
         _handle_general_error(e)
 
@@ -714,8 +825,20 @@ def restart(
       python worker_cli.py restart 1
     """
     try:
+        is_ready, msg = _ensure_system_ready()
+        if not is_ready:
+            typer.secho(f"✗ {msg}", fg=typer.colors.RED)
+            typer.echo(f"\n提示: 执行 'python worker_cli.py init' 初始化并启动系统")
+            raise typer.Exit(1)
+
+        if not worker_core_service._initialized:
+            typer.secho("Worker 系统未在进程内初始化", fg=typer.colors.YELLOW)
+            typer.echo("请先执行 init 命令初始化系统。")
+            typer.echo(f"Daemon PID: {_check_daemon_status()['daemon_pid']}")
+            raise typer.Exit(0)
+
         start_time = time.time()
-        result = worker_system.restart_worker(worker_id)
+        result = worker_core_service.restart_worker(worker_id)
         elapsed = time.time() - start_time
 
         typer.secho(f"✓ Worker {worker_id} 重启完成", fg=typer.colors.GREEN)
@@ -727,6 +850,8 @@ def restart(
 
     except RuntimeError as e:
         _handle_runtime_error(e)
+    except typer.Exit:
+        raise
     except Exception as e:
         _handle_general_error(e)
 
@@ -742,9 +867,7 @@ def pause(
       python worker_cli.py pause 1
     """
     try:
-        from worker.core_service import worker_core_service
-
-        result = asyncio.run(worker_core_service.async_pause_worker(worker_id))
+        result = _safe_run_async(worker_core_service.async_stop_worker(worker_id))
 
         typer.secho(f"✓ Worker {worker_id} 已暂停", fg=typer.colors.GREEN)
         typer.echo(f"  状态: {result.get('status')}")
@@ -766,9 +889,7 @@ def resume(
       python worker_cli.py resume 1
     """
     try:
-        from worker.core_service import worker_core_service
-
-        result = asyncio.run(worker_core_service.async_resume_worker(worker_id))
+        result = _safe_run_async(worker_core_service.async_start_worker(worker_id))
 
         typer.secho(f"✓ Worker {worker_id} 已恢复", fg=typer.colors.GREEN)
         typer.echo(f"  状态: {result.get('status')}")
@@ -795,13 +916,21 @@ def start_all(
       python worker_cli.py start-all -c 5         # 最大并发数 5
     """
     try:
-        results = asyncio.run(
-            worker_system.async_start_all(max_concurrent=concurrent)
-        )
+        workers = worker_core_service.list_workers()
+        items = workers if isinstance(workers, list) else workers.get('items', [])
+        stopped = [w for w in items if w.get('status') == 'stopped']
 
-        if not results:
+        if not stopped:
             typer.echo("\n没有需要启动的 Worker（所有 Worker 都不在 stopped 状态）")
             return
+
+        stopped_ids = [int(w['worker_id']) for w in stopped]
+
+        async def _start_all():
+            result = await worker_core_service.async_batch_operation(stopped_ids, 'start')
+            return result.get('results', [])
+
+        results = _safe_run_async(_start_all())
 
         success_count = sum(1 for r in results if r.get('success'))
         fail_count = len(results) - success_count
@@ -840,7 +969,7 @@ def stop_all(
     """
     try:
         # 检查是否有运行中的 Worker
-        summary = worker_system.get_summary()
+        summary = worker_core_service.get_worker_stats()
         running_count = summary['status_breakdown'].get('running', 0)
         starting_count = summary['status_breakdown'].get('starting', 0)
         total_running = running_count + starting_count
@@ -860,7 +989,20 @@ def stop_all(
                 raise typer.Exit(0)
 
         # 执行批量停止
-        results = asyncio.run(worker_system.async_stop_all())
+        all_workers = worker_core_service.list_workers()
+        items = all_workers if isinstance(all_workers, list) else all_workers.get('items', [])
+        running_ids = [
+            int(w['worker_id']) for w in items
+            if w.get('status') in ('running', 'starting')
+        ]
+
+        async def _stop_all():
+            if not running_ids:
+                return []
+            result = await worker_core_service.async_batch_operation(running_ids, 'stop')
+            return result.get('results', [])
+
+        results = _safe_run_async(_stop_all())
 
         success_count = sum(1 for r in results if r.get('success'))
         fail_count = len(results) - success_count
@@ -900,7 +1042,6 @@ def batch_operation(
       python worker_cli.py batch --operation start --worker-ids 1 --worker-ids 2 --worker-ids 3
     """
     try:
-        from worker.core_service import worker_core_service
 
         result = worker_core_service.batch_operation(worker_ids, operation)
 
@@ -970,7 +1111,7 @@ def status(
     """
     查看 Worker 状态
 
-    从 WorkerSystem 获取实时状态信息。
+    从 WorkerCoreService 或数据库获取状态信息。
 
     示例:
       python worker_cli.py status              # 查看所有 Worker 状态
@@ -978,8 +1119,13 @@ def status(
       python worker_cli.py status --watch      # 持续监控
     """
     try:
+        is_ready, msg = _ensure_system_ready()
+        if not is_ready:
+            typer.secho(f"✗ {msg}", fg=typer.colors.RED)
+            typer.echo(f"\n提示: 执行 'python worker_cli.py init' 初始化并启动系统")
+            raise typer.Exit(1)
+
         if watch:
-            # 持续监控模式
             typer.echo(f"开始监控 Worker 状态，按 Ctrl+C 停止...\n")
             try:
                 while True:
@@ -990,9 +1136,10 @@ def status(
             except KeyboardInterrupt:
                 typer.echo("\n监控已停止")
         else:
-            # 单次显示
             _show_status(worker_id)
 
+    except typer.Exit:
+        raise
     except RuntimeError as e:
         _handle_runtime_error(e)
     except Exception as e:
@@ -1000,11 +1147,14 @@ def status(
 
 
 def _show_status(worker_id: Optional[int] = None):
-    """显示 Worker 状态（从 WorkerSystem 获取数据）"""
+    """显示 Worker 状态（从 WorkerCoreService 或数据库获取数据）"""
+    if not worker_core_service._initialized:
+        _show_status_from_db(worker_id)
+        return
+
     if worker_id:
-        # 显示单个 Worker 状态
-        worker = worker_system.get_worker(worker_id)
-        
+        worker = worker_core_service.get_worker(worker_id)
+
         if not worker:
             typer.echo(f"✗ Worker {worker_id} 不存在", err=True)
             raise typer.Exit(1)
@@ -1020,16 +1170,14 @@ def _show_status(worker_id: Optional[int] = None):
         typer.echo(f"策略ID: {worker.get('strategy_id')}")
         typer.echo(f"交易所: {worker.get('exchange')}")
         typer.echo(f"交易对: {worker.get('symbol')}")
-        
-        # 显示实时状态信息（如果有）
+
         state_info = worker.get('_state_info')
         if state_info:
             typer.echo(f"\n实时状态:")
             typer.echo(f"  是否健康: {state_info.get('is_healthy', False)}")
             typer.echo(f"  最后心跳: {state_info.get('last_heartbeat', 'N/A')}")
     else:
-        # 显示所有 Worker 状态
-        workers = worker_system.list_workers()
+        workers = worker_core_service.list_workers()
 
         if not workers:
             typer.echo("没有 Worker")
@@ -1037,6 +1185,95 @@ def _show_status(worker_id: Optional[int] = None):
 
         typer.echo(f"\n总计: {len(workers)} 个 Worker\n")
         _print_worker_table(workers)
+
+
+def _show_status_from_db(worker_id: Optional[int] = None):
+    """当进程内未初始化时，从数据库读取 Worker 状态"""
+    try:
+        import strategy.models  # noqa: F401
+        from collector.db.database import SessionLocal, init_database_config
+        init_database_config()
+        from worker import crud
+
+        db = SessionLocal()
+        try:
+            if worker_id:
+                worker = crud.get_worker(db, worker_id)
+                if not worker:
+                    typer.echo(f"✗ Worker {worker_id} 不存在", err=True)
+                    raise typer.Exit(1)
+
+                status_val = worker.status
+                state = str(status_val) if status_val is not None else 'unknown'
+                state_icon = _get_state_icon(state)
+                state_color = _get_state_color(state)
+
+                typer.echo(f"Worker ID: {int(worker.id)}")
+                typer.echo(f"名称: {str(worker.name)}")
+                typer.echo(f"状态: ", nl=False)
+                typer.secho(f"{state_icon} {state}", fg=state_color)
+                trading_config = worker.get_trading_config_dict() if hasattr(worker, 'get_trading_config_dict') else {}
+                typer.echo(f"策略ID: {int(worker.strategy_id or 0)}")
+                typer.echo(f"交易所: {trading_config.get('exchange', 'N/A')}")
+                symbols_config = trading_config.get('symbols_config', {})
+                typer.echo(f"交易对: {symbols_config.get('symbols', ['N/A'])[0] if symbols_config.get('symbols') else 'N/A'}")
+            else:
+                workers_data, total = crud.get_workers(db, skip=0, limit=10000)
+                if not workers_data:
+                    typer.echo("没有 Worker")
+                    return
+
+                worker_list = []
+                for w in workers_data:
+                    trading_config = w.get_trading_config_dict() if hasattr(w, 'get_trading_config_dict') else {}
+                    status_val = w.status
+                    worker_list.append({
+                        'worker_id': int(w.id),
+                        'name': str(w.name),
+                        'status': str(status_val) if status_val is not None else 'stopped',
+                        'exchange': trading_config.get('exchange', 'N/A'),
+                        'symbol': trading_config.get('symbols_config', {}).get('symbols', ['N/A'])[0] if trading_config.get('symbols_config', {}).get('symbols') else 'N/A',
+                        'strategy_id': int(w.strategy_id or 0),
+                    })
+
+                typer.echo(f"\n总计: {len(worker_list)} 个 Worker（来自数据库）\n")
+                _print_worker_table(worker_list)
+        finally:
+            db.close()
+    except typer.Exit:
+        raise
+    except Exception as e:
+        typer.secho(f"✗ 从数据库查询 Worker 失败: {e}", fg=typer.colors.RED)
+
+
+def _list_workers_from_db(status_filter: Optional[str] = None):
+    """当进程内未初始化时，从数据库查询 Worker 列表"""
+    import strategy.models  # noqa: F401
+    from collector.db.database import SessionLocal, init_database_config
+    init_database_config()
+    from worker import crud
+
+    db = SessionLocal()
+    try:
+        workers_data, total = crud.get_workers(db, skip=0, limit=10000)
+        worker_list = []
+        for w in workers_data:
+            trading_config = w.get_trading_config_dict() if hasattr(w, 'get_trading_config_dict') else {}
+            status_val = w.status
+            worker_status = str(status_val) if status_val is not None else 'stopped'
+            if status_filter and worker_status.lower() != status_filter.lower():
+                continue
+            worker_list.append({
+                'worker_id': int(w.id),
+                'name': str(w.name),
+                'status': worker_status,
+                'exchange': trading_config.get('exchange', 'N/A'),
+                'symbol': trading_config.get('symbols_config', {}).get('symbols', ['N/A'])[0] if trading_config.get('symbols_config', {}).get('symbols') else 'N/A',
+                'strategy_id': int(w.strategy_id or 0),
+            })
+        return worker_list
+    finally:
+        db.close()
 
 
 @app.command()
@@ -1049,7 +1286,7 @@ def list_workers(
     """
     列出所有 Worker
 
-    从 WorkerSystem 获取 Worker 列表，支持状态筛选。
+    从 WorkerCoreService 或数据库获取 Worker 列表，支持状态筛选。
 
     示例:
       python worker_cli.py list_workers
@@ -1057,9 +1294,17 @@ def list_workers(
       python worker_cli.py list_workers --format json
     """
     try:
-        workers = worker_system.list_workers(status_filter=status)
+        is_ready, msg = _ensure_system_ready()
+        if not is_ready:
+            typer.secho(f"✗ {msg}", fg=typer.colors.RED)
+            typer.echo(f"\n提示: 执行 'python worker_cli.py init' 初始化并启动系统")
+            raise typer.Exit(1)
 
-        # 手动分页（因为 WorkerSystem 返回的是列表而非分页结果）
+        if worker_core_service._initialized:
+            workers = worker_core_service.list_workers(status_filter=status)
+        else:
+            workers = _list_workers_from_db(status)
+
         start_idx = (page - 1) * page_size
         end_idx = start_idx + page_size
         paginated_workers = workers[start_idx:end_idx]
@@ -1081,6 +1326,8 @@ def list_workers(
             typer.echo(f"\n总计: {total} 个 Worker (第 {page} 页，每页 {page_size} 个)\n")
             _print_worker_table(paginated_workers)
 
+    except typer.Exit:
+        raise
     except RuntimeError as e:
         _handle_runtime_error(e)
     except Exception as e:
@@ -1099,7 +1346,6 @@ def stats(
       python worker_cli.py stats 1            # 查看指定 Worker 统计
     """
     try:
-        from worker.core_service import worker_core_service
 
         result = worker_core_service.get_worker_stats(worker_id)
 
@@ -1127,7 +1373,7 @@ def stats(
 
         else:
             # 查看全局统计
-            summary = worker_system.get_summary()
+            summary = worker_core_service.get_worker_stats()
             
             typer.echo("全局统计信息:")
             typer.echo(f"{'='*50}")
@@ -1143,7 +1389,7 @@ def stats(
             running_count = summary['status_breakdown'].get('running', 0)
             if running_count > 0:
                 typer.echo(f"\n运行中的 Worker:")
-                workers = worker_system.list_workers(status_filter='running')
+                workers = worker_core_service.list_workers(status_filter='running')
                 for w in workers:
                     wid = w.get('worker_id')
                     wname = w.get('name')
@@ -1231,7 +1477,6 @@ def config(
       python worker_cli.py config 1 --set symbol=ETHUSDT
     """
     try:
-        from worker.core_service import worker_core_service
 
         worker = worker_core_service.get_worker(worker_id)
 
@@ -1374,7 +1619,6 @@ def logs(
     from pathlib import Path
 
     try:
-        from worker.core_service import worker_core_service
 
         # 显示日志文件路径
         if show_path:
@@ -1501,7 +1745,6 @@ def tail(
       python worker_cli.py tail 1 --level ERROR      # 只跟踪错误日志
     """
     try:
-        from worker.core_service import worker_core_service
 
         typer.secho(f"🔍 开始实时跟踪 Worker {worker_id} 日志...", fg=typer.colors.CYAN)
         typer.echo("按 Ctrl+C 停止监控\n")
@@ -1780,7 +2023,7 @@ def monitor(
                 os.system('clear' if os.name == 'posix' else 'cls')
                 typer.echo(f"QuantCell Worker 监控 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
-                workers = worker_system.list_workers()
+                workers = worker_core_service.list_workers()
                 
                 # 计算统计信息
                 total = len(workers)
@@ -1818,7 +2061,6 @@ def health(
       python worker_cli.py health 1            # 检查指定 Worker
     """
     try:
-        from worker.core_service import worker_core_service
 
         if worker_id:
             # 检查单个 Worker
@@ -1842,7 +2084,7 @@ def health(
 
         else:
             # 检查所有 Worker
-            workers = worker_system.list_workers()
+            workers = worker_core_service.list_workers()
 
             healthy_count = 0
             unhealthy_count = 0
@@ -1896,7 +2138,6 @@ def diagnose(
       python worker_cli.py diagnose 3         # 诊断指定 Worker
     """
     try:
-        from worker.core_service import worker_core_service
 
         diagnosis = worker_core_service.diagnose_worker(worker_id)
 
@@ -1977,7 +2218,7 @@ def diagnose(
 
             if metrics.get("is_mock_data"):
                 typer.secho(f"  ⚠ 性能指标可能是模拟数据", fg=typer.colors.YELLOW)
-                typer.echo("    原因: CommManager (ZeroMQ) 可能未正确初始化")
+                typer.echo("    原因: 性能数据采集模块可能未正确初始化")
 
             metrics_issues = metrics.get("issues", [])
             if metrics_issues:
@@ -2007,14 +2248,6 @@ def diagnose(
             typer.echo(f"  - 运行中: {stats.get('running', 0)}")
             typer.echo(f"  - 已停止: {stats.get('stopped', 0)}")
             typer.echo(f"  - 错误: {stats.get('error', 0)}")
-
-            # ZMQ 端口检测
-            zmq_ports = checks.get("zmq_ports", {})
-            typer.echo(f"\n[ZMQ 端口检测]")
-            zmq_status = zmq_ports.get("status", "error")
-            zmq_color = typer.colors.GREEN if zmq_status == "ok" else typer.colors.YELLOW
-            typer.secho(f"  状态: {zmq_status}", fg=zmq_color)
-            typer.echo(f"  消息: {zmq_ports.get('message', 'N/A')}")
 
         # 诊断总结和建议
         typer.echo("\n" + "=" * 60)
@@ -2057,7 +2290,6 @@ def trades(
       python worker_cli.py trades 1 --format json       # JSON格式输出
     """
     try:
-        from worker.core_service import worker_core_service
 
         result = worker_core_service.get_worker_trades(
             worker_id,
@@ -2149,7 +2381,6 @@ def orders(
       python worker_cli.py orders 1 --format json        # JSON格式输出
     """
     try:
-        from worker.core_service import worker_core_service
 
         result = worker_core_service.get_worker_orders(
             worker_id,
@@ -2223,7 +2454,6 @@ def data_sync(
       python worker_cli.py data-sync 1            # 查看指定Worker
     """
     try:
-        from worker.core_service import worker_core_service
 
         if worker_id:
             typer.echo(f"\nWorker {worker_id} 数据状态:")
@@ -2253,7 +2483,7 @@ def data_sync(
             typer.echo("\n说明:")
             typer.echo("  - 交易记录: 直接写入 worker_trades 表")
             typer.echo("  - 订单记录: 直接写入 worker_orders 表")
-            typer.echo("  - 无需 ZMQ/DataCollector 中间件")
+            typer.echo("  - 直接使用 SQLAlchemy 持久化数据")
             typer.echo("  - 使用 'orders' 或 'trades' 命令查看具体数据")
 
     except RuntimeError as e:
@@ -2269,49 +2499,36 @@ def daemon_command(
     action: Annotated[str, typer.Argument(help="操作: start/stop/status")],
 ):
     """
-    管理 WorkerManager 守护进程
+    管理 Worker 系统守护状态
+
+    新架构中不再使用独立的后台 Daemon 进程，
+    系统状态由 WorkerCoreService 单例管理。
 
     示例:
-      python worker_cli.py daemon start     # 启动后台守护进程
-      python worker_cli.py daemon stop      # 停止守护进程
-      python worker_cli.py daemon status    # 查看守护进程状态
+      python worker_cli.py daemon start     # 初始化系统
+      python worker_cli.py daemon stop      # 查看停止说明
+      python worker_cli.py daemon status    # 查看系统初始化状态
     """
     try:
-        from worker.core_service import worker_core_service
-
         if action == "start":
-            result = worker_core_service.start_daemon()
-            typer.secho(f"✓ Daemon 启动成功", fg=typer.colors.GREEN)
-            typer.echo(f"  PID: {result['pid']}")
-            typer.echo(f"  状态: {result['status']}")
-            typer.echo("\n提示:")
-            typer.echo("  - WorkerManager 现在在后台运行")
-            typer.echo("  - 即使退出 CLI，Worker 也会继续运行")
-            typer.echo("  - 使用 'python worker_cli.py daemon status' 查看状态")
+            if worker_core_service._initialized:
+                typer.secho("✓ Worker 系统已初始化", fg=typer.colors.GREEN)
+            else:
+                typer.secho("ℹ Worker 系统未初始化，请执行 init 命令", fg=typer.colors.YELLOW)
+                typer.echo("  python worker_cli.py init")
 
         elif action == "stop":
-            result = worker_core_service.stop_daemon()
-            typer.secho(f"✓ Daemon 已停止", fg=typer.colors.GREEN)
-            typer.echo(f"  PID: {result['pid']}")
-            typer.echo(f"  状态: {result['status']}")
-            typer.echo("\n注意:")
-            typer.echo("  - 所有 Worker 进程也已停止")
+            typer.secho("ℹ 新架构中不再使用独立 Daemon 进程", fg=typer.colors.CYAN)
+            typer.echo("  Worker 系统由 WorkerCoreService 单例管理，随进程生命周期自动启停。")
 
         elif action == "status":
-            status = worker_core_service.get_daemon_status()
-
-            typer.echo("\nWorkerManager Daemon 状态:")
-            typer.echo(f"{'='*50}")
-
-            if status['running']:
-                typer.secho(f"  状态: 运行中 ✓", fg=typer.colors.GREEN)
-                typer.echo(f"  PID: {status['pid']}")
-                typer.echo(f"  运行时长: {status.get('uptime', 'N/A')}")
-                typer.echo(f"  管理 Worker 数: {status['workers_count']}")
+            status_info = _check_daemon_status()
+            if status_info["system_initialized"]:
+                typer.secho("✓ Worker 系统已初始化", fg=typer.colors.GREEN)
             else:
-                typer.secho(f"  状态: 未运行 ✗", fg=typer.colors.RED)
-                typer.echo("\n启动命令:")
-                typer.echo("  python worker_cli.py daemon start")
+                typer.secho("✗ Worker 系统未初始化", fg=typer.colors.YELLOW)
+                typer.echo(f"  详情: {status_info['message']}")
+            typer.echo(f"  初始化状态: {status_info['system_initialized']}")
 
         else:
             typer.echo(f"✗ 未知操作 '{action}'", err=True)

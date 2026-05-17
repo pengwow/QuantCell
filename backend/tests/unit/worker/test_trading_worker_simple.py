@@ -123,9 +123,10 @@ class TestWorkerState:
     def test_worker_state_transitions(self):
         """测试 Worker 状态转换"""
         import importlib.util
-        state_path = os.path.join(os.path.dirname(__file__), '../../../worker/state.py')
-        spec = importlib.util.spec_from_file_location("worker_state", state_path)
+        state_path = os.path.join(os.path.dirname(__file__), '../../../worker/worker_state.py')
+        spec = importlib.util.spec_from_file_location("worker.worker_state", state_path)
         state_module = importlib.util.module_from_spec(spec)
+        state_module.__package__ = "worker"
         
         # Mock 依赖
         sys.modules['sqlalchemy'] = Mock()
@@ -133,6 +134,10 @@ class TestWorkerState:
         sys.modules['collector'] = Mock()
         sys.modules['collector.db'] = Mock()
         sys.modules['collector.db.database'] = Mock()
+        sys.modules['utils'] = Mock()
+        sys.modules['utils.logger'] = Mock()
+        sys.modules['worker'] = Mock()
+        sys.modules['worker.crud'] = Mock()
         
         spec.loader.exec_module(state_module)
         
@@ -170,9 +175,10 @@ class TestWorkerState:
     def test_worker_error_handling(self):
         """测试 Worker 错误处理"""
         import importlib.util
-        state_path = os.path.join(os.path.dirname(__file__), '../../../worker/state.py')
-        spec = importlib.util.spec_from_file_location("worker_state", state_path)
+        state_path = os.path.join(os.path.dirname(__file__), '../../../worker/worker_state.py')
+        spec = importlib.util.spec_from_file_location("worker.worker_state", state_path)
         state_module = importlib.util.module_from_spec(spec)
+        state_module.__package__ = "worker"
         
         # Mock 依赖
         sys.modules['sqlalchemy'] = Mock()
@@ -180,6 +186,10 @@ class TestWorkerState:
         sys.modules['collector'] = Mock()
         sys.modules['collector.db'] = Mock()
         sys.modules['collector.db.database'] = Mock()
+        sys.modules['utils'] = Mock()
+        sys.modules['utils.logger'] = Mock()
+        sys.modules['worker'] = Mock()
+        sys.modules['worker.crud'] = Mock()
         
         spec.loader.exec_module(state_module)
         
@@ -201,9 +211,10 @@ class TestWorkerState:
     def test_worker_heartbeat(self):
         """测试 Worker 心跳"""
         import importlib.util
-        state_path = os.path.join(os.path.dirname(__file__), '../../../worker/state.py')
-        spec = importlib.util.spec_from_file_location("worker_state", state_path)
+        state_path = os.path.join(os.path.dirname(__file__), '../../../worker/worker_state.py')
+        spec = importlib.util.spec_from_file_location("worker.worker_state", state_path)
         state_module = importlib.util.module_from_spec(spec)
+        state_module.__package__ = "worker"
         
         # Mock 依赖
         sys.modules['sqlalchemy'] = Mock()
@@ -211,6 +222,10 @@ class TestWorkerState:
         sys.modules['collector'] = Mock()
         sys.modules['collector.db'] = Mock()
         sys.modules['collector.db.database'] = Mock()
+        sys.modules['utils'] = Mock()
+        sys.modules['utils.logger'] = Mock()
+        sys.modules['worker'] = Mock()
+        sys.modules['worker.crud'] = Mock()
         
         spec.loader.exec_module(state_module)
         

@@ -5,6 +5,16 @@
 """
 
 import pytest
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--run-integration",
+        action="store_true",
+        default=False,
+        help="运行集成测试（需要运行中的 FastAPI 服务和数据库）",
+    )
+
 from fastapi.testclient import TestClient
 from typing import Generator, Dict, Any
 import sys

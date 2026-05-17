@@ -6,13 +6,15 @@ Worker 状态管理器
 - 内存缓存与数据库持久化
 - 事件驱动通知机制
 - 并发安全的单例管理
+- Worker 状态枚举、状态信息数据类、状态机
 """
 
 import asyncio
 import inspect
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timedelta
+from enum import Enum
 from typing import Optional, Dict, Any, Callable, List, Set
 
 from utils.logger import get_logger, LogType
@@ -22,8 +24,351 @@ from . import crud
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
+# =============================================================================
+# Worker 状态枚举
+# =============================================================================
+
+class WorkerState(Enum):
+    """
+    Worker 状态枚举
+
+    定义 Worker 进程的完整生命周期状态
+    """
+
+    # 初始状态
+    INITIALIZING = "initializing"  # 正在初始化
+    INITIALIZED = "initialized"  # 初始化完成
+
+    # 运行状态
+    STARTING = "starting"  # 正在启动
+    RUNNING = "running"  # 正常运行
+
+    # 停止状态
+    STOPPING = "stopping"  # 正在停止
+    STOPPED = "stopped"  # 已停止
+
+    # 错误状态
+    ERROR = "error"  # 发生错误
+    RECOVERING = "recovering"  # 正在恢复
+
+    # 重启状态
+    RELOADING = "reloading"  # 正在重载配置
+    RESTARTING = "restarting"  # 正在重启
+
+    # 暂停状态
+    PAUSED = "paused"  # 已暂停
+
+    def is_active(self) -> bool:
+        """
+        检查状态是否为活跃状态
+
+        Returns:
+            是否为活跃状态
+        """
+        return self in [
+            WorkerState.RUNNING,
+            WorkerState.PAUSED,
+        ]
+
+    def is_terminal(self) -> bool:
+        """
+        检查状态是否为终止状态
+
+        Returns:
+            是否为终止状态
+        """
+        return self in [
+            WorkerState.STOPPED,
+            WorkerState.ERROR,
+        ]
+
+    def can_transition_to(self, new_state: "WorkerState") -> bool:
+        """
+        检查是否可以转换到指定状态
+
+        Args:
+            new_state: 目标状态
+
+        Returns:
+            是否可以转换
+        """
+        valid_transitions = {
+            WorkerState.INITIALIZING: [
+                WorkerState.INITIALIZED,
+                WorkerState.STARTING,
+                WorkerState.RUNNING,
+                WorkerState.ERROR,
+            ],
+            WorkerState.INITIALIZED: [
+                WorkerState.STARTING,
+                WorkerState.STOPPING,
+                WorkerState.ERROR,
+            ],
+            WorkerState.STARTING: [
+                WorkerState.RUNNING,
+                WorkerState.ERROR,
+            ],
+            WorkerState.RUNNING: [
+                WorkerState.STOPPING,
+                WorkerState.PAUSED,
+                WorkerState.RELOADING,
+                WorkerState.ERROR,
+            ],
+            WorkerState.PAUSED: [
+                WorkerState.RUNNING,
+                WorkerState.STOPPING,
+                WorkerState.ERROR,
+            ],
+            WorkerState.STOPPING: [
+                WorkerState.STOPPED,
+                WorkerState.ERROR,
+            ],
+            WorkerState.STOPPED: [
+                WorkerState.STARTING,
+                WorkerState.RESTARTING,
+            ],
+            WorkerState.ERROR: [
+                WorkerState.RECOVERING,
+                WorkerState.STOPPING,
+            ],
+            WorkerState.RECOVERING: [
+                WorkerState.RUNNING,
+                WorkerState.ERROR,
+                WorkerState.STOPPING,
+            ],
+            WorkerState.RELOADING: [
+                WorkerState.RUNNING,
+                WorkerState.ERROR,
+            ],
+            WorkerState.RESTARTING: [
+                WorkerState.INITIALIZING,
+                WorkerState.ERROR,
+            ],
+        }
+
+        return new_state in valid_transitions.get(self, [])
+
+
+# =============================================================================
+# Worker 状态信息数据类（WorkerProcess 使用的完整状态快照）
+# =============================================================================
+
 @dataclass
-class WorkerState:
+class WorkerStatus:
+    """
+    Worker 状态信息
+
+    记录 Worker 的完整状态信息，用于 WorkerProcess 子进程侧的状态追踪
+    """
+
+    worker_id: str
+    state: WorkerState = WorkerState.INITIALIZING
+    strategy_name: Optional[str] = None
+    strategy_path: Optional[str] = None
+    symbols: list = field(default_factory=list)
+    pid: Optional[int] = None
+
+    # 时间戳
+    created_at: datetime = field(default_factory=datetime.now)
+    started_at: Optional[datetime] = None
+    stopped_at: Optional[datetime] = None
+    last_heartbeat: Optional[datetime] = None
+
+    # 统计信息
+    messages_processed: int = 0
+    orders_placed: int = 0
+    errors_count: int = 0
+
+    # 错误信息
+    last_error: Optional[str] = None
+    last_error_time: Optional[datetime] = None
+
+    # 扩展信息
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        转换为字典
+
+        Returns:
+            状态字典
+        """
+        return {
+            "worker_id": self.worker_id,
+            "state": self.state.value,
+            "strategy_name": self.strategy_name,
+            "strategy_path": self.strategy_path,
+            "symbols": self.symbols,
+            "pid": self.pid,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "stopped_at": self.stopped_at.isoformat() if self.stopped_at else None,
+            "last_heartbeat": self.last_heartbeat.isoformat() if self.last_heartbeat else None,
+            "messages_processed": self.messages_processed,
+            "orders_placed": self.orders_placed,
+            "errors_count": self.errors_count,
+            "last_error": self.last_error,
+            "last_error_time": self.last_error_time.isoformat() if self.last_error_time else None,
+            "metadata": self.metadata,
+        }
+
+    def update_state(self, new_state: WorkerState) -> bool:
+        """
+        更新状态
+
+        Args:
+            new_state: 新状态
+
+        Returns:
+            是否更新成功
+        """
+        if self.state.can_transition_to(new_state):
+            old_state = self.state
+            self.state = new_state
+
+            if new_state == WorkerState.RUNNING and old_state != WorkerState.RUNNING:
+                self.started_at = datetime.now()
+            elif new_state == WorkerState.STOPPED:
+                self.stopped_at = datetime.now()
+
+            return True
+        return False
+
+    def update_heartbeat(self):
+        """更新心跳时间"""
+        self.last_heartbeat = datetime.now()
+
+    def record_error(self, error_message: str):
+        """
+        记录错误
+
+        Args:
+            error_message: 错误信息
+        """
+        self.errors_count += 1
+        self.last_error = error_message
+        self.last_error_time = datetime.now()
+
+    def is_healthy(self, heartbeat_timeout: int = 30) -> bool:
+        """
+        检查 Worker 是否健康
+
+        Args:
+            heartbeat_timeout: 心跳超时时间（秒）
+
+        Returns:
+            是否健康
+        """
+        if self.state not in [WorkerState.RUNNING, WorkerState.PAUSED]:
+            return False
+
+        if self.last_heartbeat is None:
+            return False
+
+        elapsed = datetime.now() - self.last_heartbeat
+        return elapsed < timedelta(seconds=heartbeat_timeout)
+
+
+# =============================================================================
+# 状态机管理器
+# =============================================================================
+
+class StateMachine:
+    """
+    状态机管理器
+
+    管理 Worker 的状态转换
+    """
+
+    def __init__(self, initial_state: WorkerState = WorkerState.INITIALIZING):
+        self._state = initial_state
+        self._state_history: list = [(initial_state, datetime.now())]
+        self._transition_handlers: Dict[WorkerState, list] = {}
+
+    @property
+    def current_state(self) -> WorkerState:
+        """获取当前状态"""
+        return self._state
+
+    def transition_to(self, new_state: WorkerState) -> bool:
+        """
+        转换到指定状态
+
+        Args:
+            new_state: 目标状态
+
+        Returns:
+            是否转换成功
+        """
+        if self._state.can_transition_to(new_state):
+            old_state = self._state
+            self._state = new_state
+            self._state_history.append((new_state, datetime.now()))
+
+            self._call_transition_handlers(old_state, new_state)
+
+            return True
+        return False
+
+    def register_transition_handler(
+        self,
+        target_state: WorkerState,
+        handler: callable,
+    ):
+        """
+        注册状态转换处理器
+
+        Args:
+            target_state: 目标状态
+            handler: 处理函数，接收 (old_state, new_state) 参数
+        """
+        if target_state not in self._transition_handlers:
+            self._transition_handlers[target_state] = []
+        self._transition_handlers[target_state].append(handler)
+
+    def _call_transition_handlers(self, old_state: WorkerState, new_state: WorkerState):
+        """
+        调用状态转换处理器
+
+        Args:
+            old_state: 旧状态
+            new_state: 新状态
+        """
+        handlers = self._transition_handlers.get(new_state, [])
+        for handler in handlers:
+            try:
+                handler(old_state, new_state)
+            except Exception:
+                pass
+
+    def get_state_history(self) -> list:
+        """
+        获取状态历史
+
+        Returns:
+            状态历史列表
+        """
+        return self._state_history.copy()
+
+    def can_transition_to(self, new_state: WorkerState) -> bool:
+        """
+        检查是否可以转换到指定状态
+
+        Args:
+            new_state: 目标状态
+
+        Returns:
+            是否可以转换
+        """
+        return self._state.can_transition_to(new_state)
+
+
+# =============================================================================
+# Worker 状态记录（状态管理器内部使用的数据类）
+# =============================================================================
+
+@dataclass
+class WorkerStateRecord:
     """
     Worker 状态数据类
 
@@ -108,13 +453,13 @@ class WorkerStateManager:
             return
 
         self._initialized = True
-        self._state_cache: Dict[int, WorkerState] = {}
+        self._state_cache: Dict[int, WorkerStateRecord] = {}
         self._lock = asyncio.Lock()
         self._event_handlers: Dict[str, List[Callable]] = {}
 
         logger.info("WorkerStateManager 初始化完成")
 
-    async def get_state(self, worker_id: int) -> Optional[WorkerState]:
+    async def get_state(self, worker_id: int) -> Optional[WorkerStateRecord]:
         """
         获取 Worker 状态
 
@@ -122,7 +467,7 @@ class WorkerStateManager:
             worker_id: Worker ID
 
         Returns:
-            WorkerState 对象，如果不存在返回 None
+            WorkerStateRecord 对象，如果不存在返回 None
         """
         async with self._lock:
             state = self._state_cache.get(worker_id)
@@ -159,7 +504,7 @@ class WorkerStateManager:
                         f"Worker {worker_id} 不存在，无法转换到 {target_status}"
                     )
                     return False
-                current_state = WorkerState(worker_id=worker_id, status="stopped")
+                current_state = WorkerStateRecord(worker_id=worker_id, status="stopped")
                 self._state_cache[worker_id] = current_state
 
             # 验证状态转换合法性
@@ -195,14 +540,19 @@ class WorkerStateManager:
             except Exception as e:
                 logger.error(f"持久化 Worker {worker_id} 状态失败: {e}")
 
-            # 触发状态转换事件
+            # 触发状态转换事件（fire-and-forget，避免阻塞调用方）
+            # 事件处理器（如 manager._handle_start_event）可能耗时较长，
+            # 使用 create_task 确保 transition 快速返回，不阻塞 HTTP 响应
             try:
-                await self._emit_event("state_changed", {
-                    "worker_id": worker_id,
-                    "old_status": old_status,
-                    "new_status": target_status,
-                    "timestamp": datetime.now().isoformat(),
-                })
+                asyncio.create_task(
+                    self._emit_event("state_changed", {
+                        "worker_id": worker_id,
+                        "old_status": old_status,
+                        "new_status": target_status,
+                        "timestamp": datetime.now().isoformat(),
+                        "error_message": kwargs.get("error_message", ""),
+                    })
+                )
             except Exception as e:
                 logger.error(f"触发状态转换事件失败: {e}")
 
@@ -212,12 +562,12 @@ class WorkerStateManager:
 
             return True
 
-    async def get_all_states(self) -> Dict[int, WorkerState]:
+    async def get_all_states(self) -> Dict[int, WorkerStateRecord]:
         """
         获取所有 Worker 状态
 
         Returns:
-            Worker ID 到 WorkerState 的映射字典
+            Worker ID 到 WorkerStateRecord 的映射字典
         """
         async with self._lock:
             return self._state_cache.copy()
@@ -264,16 +614,18 @@ class WorkerStateManager:
             except Exception as e:
                 logger.error(f"持久化强制重置失败: {e}")
 
-            # 触发事件通知
+            # 触发事件通知（fire-and-forget）
             try:
-                await self._emit_event("state_changed", {
-                    "worker_id": worker_id,
-                    "old_status": old_status,
-                    "new_status": "stopped",
-                    "timestamp": datetime.now().isoformat(),
-                    "force_reset": True,
-                    "reason": reason,
-                })
+                asyncio.create_task(
+                    self._emit_event("state_changed", {
+                        "worker_id": worker_id,
+                        "old_status": old_status,
+                        "new_status": "stopped",
+                        "timestamp": datetime.now().isoformat(),
+                        "force_reset": True,
+                        "reason": reason,
+                    })
+                )
             except Exception as e:
                 logger.error(f"触发强制重置事件失败: {e}")
 
@@ -283,7 +635,7 @@ class WorkerStateManager:
 
             return True
 
-    def _persist_state(self, state: WorkerState) -> None:
+    def _persist_state(self, state: WorkerStateRecord) -> None:
         """
         持久化状态到数据库（带重试机制）
 
@@ -291,7 +643,7 @@ class WorkerStateManager:
         最终失败时记录错误但不中断主流程（内存状态继续使用）
 
         Args:
-            state: WorkerState 对象
+            state: WorkerStateRecord 对象
         """
         max_retries = 3
         last_error = None
@@ -367,7 +719,7 @@ class WorkerStateManager:
                                 f"[状态恢复] 修正Worker {worker.id} 数据库状态失败: {e}"
                             )
 
-                    state = WorkerState(
+                    state = WorkerStateRecord(
                         worker_id=worker.id,
                         status=status,
                         pid=None if status == "stopped" else worker.pid,
