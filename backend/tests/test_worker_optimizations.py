@@ -30,7 +30,7 @@ from worker.graceful_shutdown import (
     ShutdownPhase,
     reset_shutdown_manager,
 )
-from worker.log_ring_buffer import (
+from worker.log_utils import (
     LogRingBuffer,
     LogEntry,
     get_global_buffer,

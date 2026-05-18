@@ -195,9 +195,9 @@ def client(db_session):
             from collector.db.database import get_db
             
             # 在导入 main 之前，确保 mock 已经注入
-            # 同时 mock worker.api.routes.service
-            import worker.api.routes
-            worker.api.routes.service = _mock_service_module
+            # 同时 mock worker.routes.service
+            import worker.routes
+            worker.routes.service = _mock_service_module
             
             from main import app
             

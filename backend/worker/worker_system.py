@@ -28,19 +28,26 @@ from collector.db.database import SessionLocal
 from utils.logger import get_logger, LogType
 
 from . import crud
-from .config import build_trading_node_config, NAUTILUS_AVAILABLE
+from .config import build_trading_node_config, NAUTILUS_AVAILABLE, NAUTILUS_MISSING_DETAIL
 from .worker_state import WorkerState, worker_state_manager, WorkerStateManager
+
+logger = get_logger(__name__, LogType.APPLICATION)
 
 if NAUTILUS_AVAILABLE:
     try:
-        from nautilus_trader.trading import TradingNode
-    except ImportError:
+        from nautilus_trader.live.node import TradingNode
+    except ImportError as e:
         TradingNode = None
         NAUTILUS_AVAILABLE = False
+        NAUTILUS_MISSING_DETAIL = (
+            f"nautilus_trader.live.node 模块不可用 (TradingNode): {e}"
+        )
+        logger.warning(
+            f"[NautilusTradingSystem] NautilusTrader 核心交易模块导入失败，"
+            f"策略管理功能受限: {e}"
+        )
 else:
     TradingNode = None
-
-logger = get_logger(__name__, LogType.APPLICATION)
 
 
 class NautilusTradingSystem:
@@ -73,11 +80,31 @@ class NautilusTradingSystem:
 
         logger.info("[NautilusTradingSystem] 正在初始化...")
 
+        await worker_state_manager.initialize()
+
         if not NAUTILUS_AVAILABLE:
             logger.warning("[NautilusTradingSystem] NautilusTrader 不可用，策略管理功能受限")
+
+            if NAUTILUS_MISSING_DETAIL:
+                logger.warning(f"[NautilusTradingSystem] 失败原因: {NAUTILUS_MISSING_DETAIL}")
+
+            try:
+                import importlib.util
+                spec = importlib.util.find_spec("nautilus_trader")
+                if spec is None:
+                    logger.warning(
+                        "[NautilusTradingSystem] 未检测到 nautilus_trader 包，"
+                        "请运行 `uv pip install nautilus-trader` 安装"
+                    )
+                elif spec.origin:
+                    logger.info(
+                        f"[NautilusTradingSystem] nautilus_trader 包位置: {spec.origin}"
+                    )
+            except Exception:
+                pass
+
             return
 
-        await worker_state_manager.initialize()
         await self._load_workers_from_db()
 
         logger.info("[NautilusTradingSystem] 初始化完成")
@@ -132,7 +159,7 @@ class NautilusTradingSystem:
             worker_id
         """
         if not NAUTILUS_AVAILABLE:
-            raise RuntimeError("NautilusTrader 不可用")
+            raise RuntimeError("NautilusTrader 不可用，无法创建策略")
 
         from .state import strategy_registry, StrategyRuntime
 
@@ -166,7 +193,8 @@ class NautilusTradingSystem:
             是否启动成功
         """
         if not NAUTILUS_AVAILABLE:
-            raise RuntimeError("NautilusTrader 不可用")
+            logger.warning("[NautilusTradingSystem] NautilusTrader 不可用，无法启动策略")
+            return False
 
         db = SessionLocal()
         try:
@@ -244,8 +272,8 @@ class NautilusTradingSystem:
         node = TradingNode(config=node_config)
 
         # 注册数据客户端和执行客户端工厂
-        node.add_data_client_factory(data_factory)
-        node.add_exec_client_factory(exec_factory)
+        node.add_data_client_factory(venue, data_factory)
+        node.add_exec_client_factory(venue, exec_factory)
 
         # TODO: 当自定义策略可用时，在此处加载并注册策略
         # strategy_class = load_strategy_from_path(worker.strategy_path)

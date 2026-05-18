@@ -40,7 +40,7 @@ from strategy import router as strategy_router
 from websocket.routes import router as websocket_router
 from realtime.routes import realtime_router
 from worker import router as worker_router
-from worker.api.routes import websocket_endpoint
+from worker.routes import websocket_endpoint
 from utils.log_routes import router as log_router
 from common.notifications.routes import router as notification_router
 from agent.api.routes import router as agent_router
@@ -300,7 +300,7 @@ if __name__ == "__main__":
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                from worker.api.routes import shutdown_worker_manager
+                from worker.routes import shutdown_worker_manager
                 from worker.service import worker_service
 
                 loop.run_until_complete(asyncio.wait_for(

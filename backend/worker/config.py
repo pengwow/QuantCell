@@ -32,55 +32,81 @@ from utils.logger import get_logger, LogType
 
 logger = get_logger(__name__, LogType.SYSTEM)
 
-# 尝试导入 Nautilus 配置类
+# 尝试导入 Nautilus Trader，采用精细化逐级导入以准确诊断缺失模块
+NAUTILUS_AVAILABLE = False
+NAUTILUS_MISSING_DETAIL = ""
+
 try:
     from nautilus_trader.config import (
         CacheConfig,
         LoggingConfig,
         TradingNodeConfig,
     )
-    from nautilus_trader.live.config import (
-        LiveDataEngineConfig,
-        LiveExecEngineConfig,
-        LiveRiskEngineConfig,
-    )
-    from nautilus_trader.common import Environment
-    from nautilus_trader.model.identifiers import ClientId, TraderId
-
-    # Binance 适配器
-    from nautilus_trader.adapters.binance import (
-        BINANCE,
-        BinanceAccountType,
-        BinanceDataClientConfig,
-        BinanceExecClientConfig,
-        BinanceInstrumentProviderConfig,
-        BinanceLiveDataClientFactory,
-        BinanceLiveExecClientFactory,
-    )
-
-    # OKX 适配器
-    from nautilus_trader.adapters.okx import (
-        OKX,
-        OKXDataClientConfig,
-        OKXExecClientConfig,
-        OKXLiveDataClientFactory,
-        OKXLiveExecClientFactory,
-    )
-    from nautilus_trader.core.nautilus_pyo3 import OKXInstrumentType
-
-    NAUTILUS_AVAILABLE = True
 except ImportError as e:
-    NAUTILUS_AVAILABLE = False
-    logger.warning(f"Nautilus Trader 未安装或导入失败: {e}，相关功能将不可用")
+    NAUTILUS_MISSING_DETAIL = f"核心配置模块不可用 — nautilus_trader.config: {e}"
+    logger.warning(f"Nautilus Trader 导入失败({NAUTILUS_MISSING_DETAIL})，相关功能将不可用")
     TradingNodeConfig = None
-    LiveDataEngineConfig = None
-    LiveExecEngineConfig = None
-    LiveRiskEngineConfig = None
     CacheConfig = None
     LoggingConfig = None
     Environment = None
     TraderId = None
     ClientId = None
+else:
+    try:
+        from nautilus_trader.live.config import (
+            LiveDataEngineConfig,
+            LiveExecEngineConfig,
+            LiveRiskEngineConfig,
+        )
+    except ImportError as e:
+        NAUTILUS_MISSING_DETAIL = f"实时引擎配置不可用 — nautilus_trader.live.config: {e}"
+        logger.warning(f"Nautilus Trader 导入失败({NAUTILUS_MISSING_DETAIL})，相关功能将不可用")
+        LiveDataEngineConfig = None
+        LiveExecEngineConfig = None
+        LiveRiskEngineConfig = None
+        Environment = None
+        TraderId = None
+        ClientId = None
+    else:
+        try:
+            from nautilus_trader.common import Environment
+            from nautilus_trader.model.identifiers import ClientId, TraderId
+        except ImportError as e:
+            NAUTILUS_MISSING_DETAIL = f"公共模块不可用 — nautilus_trader.common/model: {e}"
+            logger.warning(f"Nautilus Trader 导入失败({NAUTILUS_MISSING_DETAIL})，相关功能将不可用")
+            Environment = None
+            TraderId = None
+            ClientId = None
+        else:
+            try:
+                from nautilus_trader.adapters.binance import (
+                    BINANCE,
+                    BinanceAccountType,
+                    BinanceDataClientConfig,
+                    BinanceExecClientConfig,
+                    BinanceInstrumentProviderConfig,
+                    BinanceLiveDataClientFactory,
+                    BinanceLiveExecClientFactory,
+                )
+            except ImportError as e:
+                NAUTILUS_MISSING_DETAIL = f"Binance 适配器不可用 — nautilus_trader.adapters.binance: {e}"
+                logger.warning(f"Nautilus Trader 导入失败({NAUTILUS_MISSING_DETAIL})，相关功能将不可用")
+            else:
+                try:
+                    from nautilus_trader.adapters.okx import (
+                        OKX,
+                        OKXDataClientConfig,
+                        OKXExecClientConfig,
+                        OKXLiveDataClientFactory,
+                        OKXLiveExecClientFactory,
+                    )
+                    from nautilus_trader.core.nautilus_pyo3 import OKXInstrumentType
+
+                    NAUTILUS_AVAILABLE = True
+                    logger.info("Nautilus Trader 全部模块导入成功")
+                except ImportError as e:
+                    NAUTILUS_MISSING_DETAIL = f"OKX 适配器不可用 — nautilus_trader.adapters.okx: {e}"
+                    logger.warning(f"Nautilus Trader 导入失败({NAUTILUS_MISSING_DETAIL})，相关功能将不可用")
 
 # 类型定义
 ExchangeConfig = Dict[str, Any]

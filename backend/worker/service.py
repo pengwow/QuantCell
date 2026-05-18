@@ -10,7 +10,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from . import schemas
-from .log_file_reader import get_log_file_manager
+from .log_utils import get_log_file_manager
 from utils.logger import get_logger, LogType
 
 logger = get_logger(__name__, LogType.APPLICATION)

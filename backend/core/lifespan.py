@@ -241,8 +241,11 @@ async def lifespan(app: FastAPI):
         try:
             await worker_system.initialize()
             summary = worker_system.get_summary()
+            state = worker_system.get_system_state()
+            nautilus_status = "已连接" if state.get("nautilus_available") else "未安装"
             logger.info(
                 f"✓ Worker System 初始化完成 | "
+                f"NautilusTrader: {nautilus_status} | "
                 f"Worker 总数: {summary['total_workers']} | "
                 f"状态分布: {summary['status_breakdown']}"
             )
@@ -270,7 +273,7 @@ async def lifespan(app: FastAPI):
             from worker.worker_system import worker_system
             logger.info("正在关闭 Worker System...")
             try:
-                await asyncio.wait_for(worker_system.shutdown(), timeout=30.0)
+                worker_system.shutdown()
                 logger.info("✓ Worker System 已优雅关闭")
             except Exception as ws_err:
                 logger.error(f"Worker System 关闭失败: {ws_err}")

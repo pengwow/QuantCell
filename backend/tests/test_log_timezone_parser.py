@@ -19,7 +19,7 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from worker.log_timezone_parser import LogTimezoneParser, TIMESTAMP_PATTERNS
+from worker.log_utils import LogTimezoneParser, TIMESTAMP_PATTERNS
 
 
 class TestTimestampPatternMatching:
@@ -443,7 +443,7 @@ class TestLogFileReaderIntegration:
 
     def test_parse_nautilus_format(self, temp_log_dir):
         """测试解析 NautilusTrader 格式"""
-        from worker.log_file_reader import LogFileReader
+        from worker.log_utils import LogFileReader
 
         lines = [
             "2026-05-07T02:40:46.685406000Z [INFO] WORKER-1.TradingNode: Building system kernel",
@@ -461,7 +461,7 @@ class TestLogFileReaderIntegration:
 
     def test_parse_with_utc_conversion(self, temp_log_dir):
         """测试 UTC 时间转换"""
-        from worker.log_file_reader import LogFileReader
+        from worker.log_utils import LogFileReader
 
         lines = [
             "2026-05-07T02:40:46.685406000Z [INFO] WORKER-1.TradingNode: test message",
@@ -477,7 +477,7 @@ class TestLogFileReaderIntegration:
 
     def test_parse_raw_line_with_timestamp(self, temp_log_dir):
         """测试解析带时间戳的原始行"""
-        from worker.log_file_reader import LogFileReader
+        from worker.log_utils import LogFileReader
 
         lines = [
             "2026-05-07T02:40:46.685406000Z [INFO] WORKER-1.TradingNode: standard line",
@@ -495,7 +495,7 @@ class TestLogFileReaderIntegration:
 
     def test_query_with_time_filter(self, temp_log_dir):
         """测试带时间过滤的查询"""
-        from worker.log_file_reader import LogFileReader
+        from worker.log_utils import LogFileReader
 
         lines = [
             "2026-05-07T02:40:46.000000000Z [INFO] WORKER-1.TradingNode: early message",
@@ -516,7 +516,7 @@ class TestLogFileReaderIntegration:
 
     def test_tail_logs(self, temp_log_dir):
         """测试 tail_logs 方法"""
-        from worker.log_file_reader import LogFileReader
+        from worker.log_utils import LogFileReader
 
         lines = [f"2026-05-07T02:40:46.{i:09d}Z [INFO] WORKER-1.TradingNode: message {i}" for i in range(20)]
         self._create_log_file(temp_log_dir, "1", lines)
@@ -544,7 +544,7 @@ class TestNautilusTraderLogFormat:
 
     def test_multiple_component_levels(self):
         """测试多级组件名"""
-        from worker.log_file_reader import LogFileReader, LOG_PATTERN
+        from worker.log_utils import LogFileReader, LOG_PATTERN
 
         line = "2026-05-07T02:40:46.685406000Z [INFO] WORKER-1.Throttler-ORDER_SUBMIT_THROTTLER: READY"
         match = LOG_PATTERN.match(line)
@@ -557,7 +557,7 @@ class TestNautilusTraderLogFormat:
 
     def test_special_characters_in_message(self):
         """测试消息中的特殊字符"""
-        from worker.log_file_reader import LogFileReader, LOG_PATTERN
+        from worker.log_utils import LogFileReader, LOG_PATTERN
 
         line = '2026-05-07T02:40:46.685406000Z [INFO] WORKER-1.Config: config.encoding=\'msgpack\''
         match = LOG_PATTERN.match(line)
@@ -568,7 +568,7 @@ class TestNautilusTraderLogFormat:
 
     def test_braille_art_lines(self):
         """测试 Braille 艺术字符行"""
-        from worker.log_file_reader import LogFileReader, LOG_PATTERN
+        from worker.log_utils import LogFileReader, LOG_PATTERN
 
         line = "2026-05-07T02:40:46.685413004Z [INFO] WORKER-1.TradingNode: ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣶⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
         match = LOG_PATTERN.match(line)
@@ -577,7 +577,7 @@ class TestNautilusTraderLogFormat:
 
     def test_separator_lines(self):
         """测试分隔符行"""
-        from worker.log_file_reader import LogFileReader, LOG_PATTERN
+        from worker.log_utils import LogFileReader, LOG_PATTERN
 
         line = "2026-05-07T02:40:46.685406000Z [INFO] WORKER-1.TradingNode: ================================================================="
         match = LOG_PATTERN.match(line)

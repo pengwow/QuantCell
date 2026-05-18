@@ -11,7 +11,7 @@ Worker管理模块
     - config: 配置构建模块
 """
 
-from .api import router
+from .routes import router
 from .service import worker_service
 from .manager import TradingNodeWorkerManager
 from .event_handler import EventHandler, EventBufferConfig
