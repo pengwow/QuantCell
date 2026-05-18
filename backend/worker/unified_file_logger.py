@@ -403,7 +403,7 @@ class UnifiedFileLogger:
             return
 
         try:
-            from .log_ring_buffer import get_global_buffer
+            from .log_utils import get_global_buffer
             buffer = get_global_buffer()
             buffer.append_raw(
                 message=data,

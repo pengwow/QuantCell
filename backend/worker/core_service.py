@@ -19,9 +19,10 @@ import os
 import json
 import asyncio
 
-from . import models, crud, schemas
+from . import models, crud, schemas, state as _ws
 from .worker_state import worker_state_manager, WorkerStateManager
-from .state import nautilus_system, strategy_registry
+from .state import strategy_registry
+from .config import NAUTILUS_AVAILABLE
 from collector.db.database import SessionLocal, init_database_config
 from utils.logger import get_logger, LogType
 
@@ -116,13 +117,13 @@ class WorkerCoreService:
         Raises:
             RuntimeError: 如果 nautilus_system 未完成初始化
         """
-        if nautilus_system is None:
+        if _ws.nautilus_system is None:
             raise RuntimeError(
                 "WorkerCoreService: nautilus_system 单例未注册。"
                 "请检查 worker_system 模块是否正常导入。"
             )
 
-        if not getattr(nautilus_system, '_initialized', False):
+        if not getattr(_ws.nautilus_system, '_initialized', False):
             raise RuntimeError(
                 "WorkerCoreService: nautilus_system 尚未完成初始化。"
                 "请先调用 await nautilus_system.initialize() 完成初始化。"
@@ -639,6 +640,9 @@ class WorkerCoreService:
         """
         self._ensure_initialized()
 
+        if not NAUTILUS_AVAILABLE:
+            raise WorkerOperationError("启动", worker_id, message="NautilusTrader 未安装，无法启动策略")
+
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
@@ -649,7 +653,7 @@ class WorkerCoreService:
         logger.info(f"[WorkerCoreService] 同步启动 Worker {worker_id}")
 
         try:
-            success = asyncio.run(nautilus_system.start_strategy(worker_id))
+            success = asyncio.run(_ws.nautilus_system.start_strategy(worker_id))
             if not success:
                 raise WorkerOperationError("启动", worker_id, message="nautilus_system 启动策略失败")
 
@@ -675,6 +679,9 @@ class WorkerCoreService:
             dict: {"worker_id": int, "status": "starting", "message": str}
         """
         self._ensure_initialized()
+
+        if not NAUTILUS_AVAILABLE:
+            raise WorkerOperationError("启动", worker_id, message="NautilusTrader 未安装，无法启动策略")
 
         logger.info(f"[WorkerCoreService] 异步启动 Worker {worker_id}")
 
@@ -725,7 +732,7 @@ class WorkerCoreService:
             worker_id: Worker ID
         """
         try:
-            success = await nautilus_system.start_strategy(worker_id)
+            success = await _ws.nautilus_system.start_strategy(worker_id)
             if success:
                 logger.info(f"[_do_start_worker] Worker {worker_id} 启动成功")
             else:
@@ -763,7 +770,7 @@ class WorkerCoreService:
         logger.info(f"[WorkerCoreService] 同步停止 Worker {worker_id}")
 
         try:
-            success = asyncio.run(nautilus_system.stop_strategy(worker_id))
+            success = asyncio.run(_ws.nautilus_system.stop_strategy(worker_id))
             if not success:
                 raise WorkerOperationError("停止", worker_id, message="nautilus_system 停止策略失败")
 
@@ -839,7 +846,7 @@ class WorkerCoreService:
             worker_id: Worker ID
         """
         try:
-            success = await nautilus_system.stop_strategy(worker_id)
+            success = await _ws.nautilus_system.stop_strategy(worker_id)
             if success:
                 logger.info(f"[_do_stop_worker] Worker {worker_id} 停止成功")
             else:
@@ -1087,7 +1094,7 @@ class WorkerCoreService:
         Returns:
             LogFileReader: 日志文件读取器实例
         """
-        from .log_file_reader import get_log_file_manager
+        from .log_utils import get_log_file_manager
 
         log_mgr = get_log_file_manager()
         return log_mgr.get_reader(str(worker_id))

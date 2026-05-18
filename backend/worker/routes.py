@@ -14,15 +14,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, W
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
 
-from .. import schemas
-from ..core_service import (
+from . import schemas
+from .core_service import (
     worker_core_service,
     WorkerNotFoundError,
     WorkerAlreadyRunningError,
     WorkerOperationError,
 )
-from ..worker_state import worker_state_manager
-from ..dependencies import get_current_user
+from .worker_state import worker_state_manager
+from .dependencies import get_current_user
 from collector.db.database import get_db as get_db_session
 from utils.logger import get_logger, LogType
 from worker.state import connection_manager, strategy_registry
@@ -673,7 +673,7 @@ async def log_stream_sse(
     特殊路由：保留较多代码因为涉及 EventSourceResponse 和流式生成器
     但日志读取逻辑委托给 core_service 的 _get_log_file_reader 方法
     """
-    from ..dependencies import get_current_user
+    from .dependencies import get_current_user
     from fastapi.responses import EventSourceResponse
     from fastapi.sse import format_sse_event, KEEPALIVE_COMMENT
     import json as json_module
@@ -739,7 +739,7 @@ async def log_stream(websocket: WebSocket, worker_id: int):
     仅用于不支持 SSE 的旧浏览器或特殊场景。
     新代码推荐使用 SSE 端点：GET /api/workers/{worker_id}/monitoring/logs/stream
     """
-    from .. import service
+    from . import service
 
     await websocket.accept()
     try:
@@ -807,7 +807,7 @@ async def get_strategy_parameters(
     current_user: dict = Depends(get_current_user)
 ):
     """获取策略参数 - 委托给 crud 层"""
-    from .. import crud
+    from . import crud
 
     try:
         params = crud.get_worker_parameters(db, worker_id)
@@ -831,7 +831,7 @@ async def update_strategy_parameters(
 
     更新数据库中的策略参数
     """
-    from .. import crud
+    from . import crud
 
     try:
         crud.update_worker_parameters(db, worker_id, request.parameters)
@@ -850,7 +850,7 @@ async def get_positions(
     current_user: dict = Depends(get_current_user)
 ):
     """获取持仓信息 - 委托给 service 层"""
-    from .. import service
+    from . import service
 
     try:
         positions = await service.get_positions(worker_id)
@@ -896,23 +896,23 @@ async def shutdown_worker_manager():
     try:
         logger.info("[routes] 正在关闭 WorkerManager...")
 
-        # 使用 WorkerSystem 单例进行关闭（避免使用可能未初始化的 worker_core_service）
-        from ..worker_system import worker_system
+        from .worker_system import worker_system
 
-        if not worker_system._fully_initialized:
-            logger.info("[routes] WorkerSystem 未初始化，跳过关闭")
+        if not worker_system._initialized:
+            logger.info("[routes] NautilusTradingSystem 未初始化，跳过关闭")
             return
 
-        # 停止所有运行中的 Worker（通过 WorkerSystem）
+        # 停止所有运行中的 Worker（通过 NautilusTradingSystem）
+        strategies = worker_system.list_strategies()
         stopped_count = 0
-        for worker_id, config in list(worker_system.workers.items()):
-            if config.status in ("running", "starting"):
+        for s in strategies:
+            if s["status"] in ("running", "starting"):
                 try:
-                    await worker_system.async_stop_worker(worker_id)
+                    await worker_system.stop_strategy(s["worker_id"])
                     stopped_count += 1
-                    logger.info(f"[routes] 已停止 Worker {worker_id}")
+                    logger.info(f"[routes] 已停止 Worker {s['worker_id']}")
                 except Exception as e:
-                    logger.warning(f"[routes] 停止 Worker {worker_id} 失败: {e}")
+                    logger.warning(f"[routes] 停止 Worker {s['worker_id']} 失败: {e}")
 
         logger.info(f"[routes] 已停止 {stopped_count} 个运行中的 Worker")
         logger.info("[routes] WorkerManager 关闭完成")
@@ -947,7 +947,7 @@ async def get_worker_recent_logs(
         GET /api/workers/001/logs/recent?limit=50&level=ERROR&keyword=timeout
     """
     try:
-        from ..log_ring_buffer import get_global_buffer
+        from .log_utils import get_global_buffer
 
         buffer = get_global_buffer()
         logs = buffer.get_recent(
@@ -984,7 +984,7 @@ async def get_global_log_stats():
     - 总追加/淘汰数量
     """
     try:
-        from ..log_ring_buffer import get_global_buffer
+        from .log_utils import get_global_buffer
 
         buffer = get_global_buffer()
         stats = buffer.get_stats()
@@ -1011,7 +1011,7 @@ async def search_logs(
     在所有日志消息、logger名称、Worker ID 中搜索匹配的条目
     """
     try:
-        from ..log_ring_buffer import get_global_buffer
+        from .log_utils import get_global_buffer
 
         buffer = get_global_buffer()
         results = buffer.search(query=query, limit=limit)
