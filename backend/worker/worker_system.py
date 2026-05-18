@@ -77,24 +77,28 @@ if TradingNode is not None:
         from nautilus_trader.system.kernel import NautilusKernel
 
         _original_setup_loop = NautilusKernel._setup_loop
-        _patched_details = (
-            f"已被 monkey-patch，uvicorn 的 SIGINT 处理器不再被覆盖"
-        )
 
         def _patched_setup_loop(self):
-            """No-op: 不注册信号处理器，避免覆盖 uvicorn 的 SIGINT 处理"""
+            """
+            完全 no-op：阻止 nautilus_trader 覆盖 SIGINT 处理器
+
+            独立循环模式：每个 TradingNode 使用独立 asyncio 事件循环（daemon 线程）。
+            - signal.signal(SIGINT, SIG_DFL) 会全局覆盖 uvicorn 的处理器 → 必须阻止
+            - add_signal_handler 会覆盖 wakeup FD（进程全局），使 uvicorn 收不到信号 → 必须阻止
+            - 独立循环的 daemon 线程不需要信号处理（CTRL+C 由 uvicorn 主循环处理）
+            """
             if self._loop is None:
                 return
             if self._loop.is_closed():
                 return
             self._log.debug(
-                f"信号处理跳过 ({_patched_details})"
+                "信号处理跳过（独立循环模式，由 uvicorn 主循环处理信号）"
             )
 
         NautilusKernel._setup_loop = _patched_setup_loop
         logger.info(
-            "[NautilusTradingSystem] 已 patch NautilusKernel._setup_loop(), "
-            "uvicorn 的 SIGINT 处理器将保持正常工作"
+            "[NautilusTradingSystem] 已 patch NautilusKernel._setup_loop() "
+            "(独立循环模式: 阻止 SIG_DFL 覆盖, 允许独立循环注册信号)"
         )
     except ImportError:
         logger.warning(
@@ -328,15 +332,19 @@ class NautilusTradingSystem:
             log_file_name=log_file_name,
         )
 
-        # 创建 TradingNode
-        node = TradingNode(config=node_config)
+        # 为每个 TradingNode 创建独立事件循环（不共享 uvicorn 主循环）
+        # 这样 node.run() 会调用 run_until_complete() 真正阻塞，
+        # node.stop() 也能通过 run_coroutine_threadsafe() 真正停止引擎
+        node_loop = asyncio.new_event_loop()
+
+        # 创建 TradingNode（传入独立循环，避免使用 uvicorn 主循环）
+        node = TradingNode(config=node_config, loop=node_loop)
 
         # 注册数据客户端和执行客户端工厂
         node.add_data_client_factory(venue, data_factory)
         node.add_exec_client_factory(venue, exec_factory)
 
-        # 构建节点的客户端（必须在 node.run() 之前调用）
-        node.build()
+        # 将 node.build() 移到 daemon 线程中执行（需要在独立循环上下文中构建）
 
         # 启动日志刷新线程（解决 nautilus BufWriter 8KB 缓冲导致日志延迟写入的问题）
         _flush_stop = threading.Event()
@@ -365,7 +373,7 @@ class NautilusTradingSystem:
         # 创建 daemon 线程运行 TradingNode（不阻塞事件循环，Ctrl+C 可强制退出）
         run_thread = threading.Thread(
             target=self._run_node_sync,
-            args=(worker_id, node),
+            args=(worker_id, node, node_loop),
             name=f"nautilus-worker-{worker_id}",
             daemon=True,
         )
@@ -375,6 +383,8 @@ class NautilusTradingSystem:
         strategy_registry.set_trading_node(worker_id, node)
         strategy_registry.set_run_thread(worker_id, run_thread)
         strategy_registry.update_status(worker_id, "running")
+
+        runtime.set_pid(os.getpid())
 
         if runtime.started_at is None:
             runtime.started_at = datetime.now(timezone.utc).isoformat()
@@ -392,19 +402,24 @@ class NautilusTradingSystem:
         )
         return True
 
-    def _run_node_sync(self, worker_id: int, node) -> None:
+    def _run_node_sync(self, worker_id: int, node, node_loop) -> None:
         """
-        在 daemon 线程中同步运行 TradingNode
+        在 daemon 线程中，使用独立事件循环运行 TradingNode
 
-        node.run() 是同步阻塞调用，内部创建自己的事件循环。
-        运行在 daemon 线程中确保：
-        1. 不阻塞主事件循环
-        2. Ctrl+C 时 OS 直接杀掉 daemon 线程，不会卡死
-        3. 异常只更新状态，不导致进程崩溃
+        关键设计：
+        - 每个 TradingNode 拥有独立的 asyncio 事件循环，不与 uvicorn 主循环共享
+        - node_loop 未运行 → node.run() 调用 run_until_complete() → 真正阻塞
+        - node.stop() 可以通过 run_coroutine_threadsafe() 从其他线程真正停止引擎
+        - daemon 线程生命周期与 TradingNode 生命周期完全一致
         """
         from .state import strategy_registry
 
+        asyncio.set_event_loop(node_loop)
         try:
+            logger.info(
+                f"[NautilusTradingSystem] TradingNode 构建中: worker_id={worker_id}"
+            )
+            node.build()
             logger.info(
                 f"[NautilusTradingSystem] TradingNode 开始运行(Thread): worker_id={worker_id}"
             )
@@ -415,27 +430,48 @@ class NautilusTradingSystem:
                 f"[NautilusTradingSystem] TradingNode 异常: "
                 f"worker_id={worker_id}, error={error_msg}\n{traceback.format_exc()}"
             )
-            # 立即刷新日志缓冲区，确保崩溃前的 nautilus 日志落盘
+            strategy_registry.update_status(
+                worker_id, "error", error_message=error_msg
+            )
+            strategy_registry.set_run_thread(worker_id, None)
+            strategy_registry.set_trading_node(worker_id, None)
+        finally:
+            logger.info(
+                f"[NautilusTradingSystem] TradingNode 已结束: worker_id={worker_id}"
+            )
+            # 立即刷新日志缓冲区
             try:
                 flush_logger()
             except Exception:
                 pass
-            strategy_registry.update_status(
-                worker_id, "error", error_message=error_msg
-            )
-            logger.info(
-                f"[NautilusTradingSystem] TradingNode 已结束: worker_id={worker_id}"
-            )
+            # 线程退出后同步状态为 stopped
+            runtime = strategy_registry.get(worker_id)
+            if runtime is not None and runtime.status == "running":
+                strategy_registry.update_status(worker_id, "stopped")
+                logger.info(
+                    f"[NautilusTradingSystem] TradingNode 线程已退出, "
+                    f"状态已同步为 stopped: worker_id={worker_id}"
+                )
+            # 关闭独立事件循环
+            try:
+                if not node_loop.is_closed():
+                    node_loop.close()
+            except Exception:
+                pass
 
     async def stop_strategy(self, worker_id: int) -> bool:
         """
         停止策略
 
+        支持两种场景：
+        1. 正常运行中 stop → 调用 node.stop() + 等待线程退出 + 清理资源
+        2. 状态不一致时 stop（status=running 但 is_running=False）→ 强制清理引用，确保状态过渡到 stopped
+
         Args:
             worker_id: Worker ID
 
         Returns:
-            是否停止成功
+            是否停止成功（清理完成后始终返回 True）
         """
         from .state import strategy_registry
 
@@ -446,9 +482,43 @@ class NautilusTradingSystem:
             )
             return False
 
+        # 如果 worker 已经处于 stopped 状态，直接返回 True
+        if runtime.status == "stopped":
+            logger.info(
+                f"[NautilusTradingSystem] Worker {worker_id} 已经处于 stopped 状态"
+            )
+            return True
+
+        # 检测状态不一致：status=running 但 is_running=False（线程意外退出）
+        if not runtime.is_running and runtime.status == "running":
+            logger.warning(
+                f"[NautilusTradingSystem] Worker {worker_id} 状态不一致 "
+                f"(status=running, is_running=False), 进入强制清理模式"
+            )
+            await worker_state_manager.transition(worker_id, "stopping")
+            strategy_registry.set_run_thread(worker_id, None)
+            strategy_registry.set_trading_node(worker_id, None)
+            _flush_stop = strategy_registry.get_flush_stop(worker_id)
+            if _flush_stop is not None:
+                _flush_stop.set()
+                strategy_registry.set_flush_stop(worker_id, None)
+            runtime.stopped_at = datetime.now(timezone.utc).isoformat()
+            strategy_registry.update_status(worker_id, "stopped")
+            db = SessionLocal()
+            try:
+                crud.update_worker_status(db, worker_id, "stopped")
+                db.commit()
+            finally:
+                db.close()
+            await worker_state_manager.transition(worker_id, "stopped")
+            logger.info(
+                f"[NautilusTradingSystem] 强制清理完成: worker_id={worker_id}"
+            )
+            return True
+
         if not runtime.is_running:
             logger.warning(
-                f"[NautilusTradingSystem] Worker {worker_id} 未在运行中"
+                f"[NautilusTradingSystem] Worker {worker_id} 不在运行中 (status={runtime.status})"
             )
             return False
 
@@ -457,29 +527,48 @@ class NautilusTradingSystem:
         run_thread = runtime._run_thread
         node = runtime.trading_node
 
-        if node is not None and hasattr(node, 'stop'):
+        # 使用独立事件循环设计后，node.run() 通过 run_until_complete 阻塞
+        # node.stop() 也会检查 is_running()，因为在 run_until_complete 中
+        # 循环正在运行，node.stop() 只创建 task 不会等待。
+        # 
+        # 正确做法：通过 run_coroutine_threadsafe 在独立循环上调度 stop_async()，
+        # stop_async() 会取消所有 engine tasks → run_until_complete 返回
+        # → node.run() 返回 → daemon 线程退出 → 我们 join 线程即可完成停止
+        if node is not None and hasattr(node, 'kernel') and node.kernel is not None:
             try:
-                logger.info(f"[NautilusTradingSystem] 正在停止 TradingNode: worker_id={worker_id}")
-                stop_thread = threading.Thread(target=node.stop, daemon=True)
-                stop_thread.start()
-                stop_thread.join(timeout=10.0)
-                if stop_thread.is_alive():
-                    logger.warning(
-                        f"[NautilusTradingSystem] node.stop() 超时(10s): worker_id={worker_id}"
+                logger.info(
+                    f"[NautilusTradingSystem] 正在停止 TradingNode: worker_id={worker_id}"
+                )
+                node_loop = node.kernel.loop
+                if node_loop is not None and not node_loop.is_closed():
+                    future = asyncio.run_coroutine_threadsafe(
+                        node.stop_async(), node_loop
                     )
+                    try:
+                        future.result(timeout=10.0)
+                        logger.info(
+                            f"[NautilusTradingSystem] node.stop_async() 完成: worker_id={worker_id}"
+                        )
+                    except TimeoutError:
+                        logger.warning(
+                            f"[NautilusTradingSystem] node.stop_async() 超时(10s): worker_id={worker_id}"
+                        )
                 else:
-                    logger.info(f"[NautilusTradingSystem] node.stop() 完成: worker_id={worker_id}")
+                    logger.warning(
+                        f"[NautilusTradingSystem] 事件循环已关闭，跳过 stop_async: worker_id={worker_id}"
+                    )
             except Exception as e:
                 logger.error(
                     f"[NautilusTradingSystem] 停止 TradingNode 异常: "
                     f"worker_id={worker_id}, error={e}"
                 )
 
+        # 等待 daemon 线程退出（stop_async 完成后 run_until_complete 应返回，线程自然退出）
         if run_thread is not None and run_thread.is_alive():
-            run_thread.join(timeout=5.0)
+            run_thread.join(timeout=10.0)
             if run_thread.is_alive():
                 logger.warning(
-                    f"[NautilusTradingSystem] 运行线程未在5s内退出: worker_id={worker_id}"
+                    f"[NautilusTradingSystem] 运行线程未在10s内退出: worker_id={worker_id}"
                 )
 
         strategy_registry.set_run_thread(worker_id, None)
@@ -710,11 +799,11 @@ class NautilusTradingSystem:
         """
         关闭系统，释放资源
 
-        关键设计决策：
-        - node.run() 内部是 asyncio.run() → 创建独立事件循环，运行在 daemon 线程
-        - node.stop() 需要通过 kernel loop 调度异步停止任务，可能因网络 I/O 永久阻塞
-        - 因此 shutdown 不调用 node.stop()，daemon 线程由 OS 在进程退出时回收
-        - 只做：状态记录 + 线程诊断 + 线程池关闭
+        独立事件循环模式：
+        - 每个 TradingNode 有独立事件循环，daemon 线程因 run_until_complete 而阻塞
+        - shutdown 只需停止独立循环 → run_until_complete 返回 → 线程退出
+        - 不做 node.stop() 调用（可能在独立循环上下文中失效，且 stop_async 已覆盖此场景）
+        - 状态记录 + 线程诊断 + 线程池关闭
         """
         start_time = time.monotonic()
         logger.info(
@@ -730,24 +819,42 @@ class NautilusTradingSystem:
             f"其中运行中 {sum(1 for s in strategies if s.is_running)} 个"
         )
 
-        # 步骤 1: 记录运行中的策略状态（不尝试 stop，避免阻塞）
+        # 步骤 1: 停止所有独立事件循环（触发 run_until_complete 返回 → 线程退出）
         for runtime in strategies:
             worker_id = runtime.worker_id
-            run_thread = runtime._run_thread
+            node = runtime.trading_node
 
             if not runtime.is_running:
                 logger.info(
                     f"[NautilusTradingSystem] shutdown: worker_id={worker_id} "
                     f"status={runtime.status}, 跳过"
                 )
+                if runtime.status == "running":
+                    strategy_registry.update_status(worker_id, "stopping")
                 continue
 
+            run_thread = runtime._run_thread
             thread_alive = run_thread is not None and run_thread.is_alive()
             logger.info(
                 f"[NautilusTradingSystem] shutdown: worker_id={worker_id} "
-                f"status={runtime.status}, run_thread_alive={thread_alive}, "
-                f"线程为daemon线程，将由OS在进程退出时回收"
+                f"status={runtime.status}, run_thread_alive={thread_alive}"
             )
+
+            # CTRL+C 场景：aggressive stop，不等 engine 优雅清理
+            if node is not None and hasattr(node, 'kernel') and node.kernel is not None:
+                node_loop = node.kernel.loop
+                if node_loop is not None and not node_loop.is_closed():
+                    try:
+                        node_loop.call_soon_threadsafe(node_loop.stop)
+                        logger.info(
+                            f"[NautilusTradingSystem] shutdown: worker_id={worker_id} "
+                            f"已发送 loop.stop()"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[NautilusTradingSystem] shutdown loop.stop 失败: "
+                            f"worker_id={worker_id}, error={e}"
+                        )
 
             strategy_registry.update_status(worker_id, "stopping")
 

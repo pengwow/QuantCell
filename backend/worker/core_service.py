@@ -842,6 +842,10 @@ class WorkerCoreService:
         直接调用 nautilus_system.stop_strategy()，
         由 NautilusTradingSystem 内部处理 asyncio Task 取消、TradingNode dispose。
 
+        注意：stop_strategy() 返回 False 不一定代表失败——
+        可能因为运行时已经不存在（线程意外退出但状态已同步为 stopped），
+        此时不应转为 error 状态。
+
         Args:
             worker_id: Worker ID
         """
@@ -850,11 +854,27 @@ class WorkerCoreService:
             if success:
                 logger.info(f"[_do_stop_worker] Worker {worker_id} 停止成功")
             else:
-                logger.error(f"[_do_stop_worker] Worker {worker_id} 停止失败")
-                await worker_state_manager.transition(
-                    worker_id, "error",
-                    error_message="nautilus_system 停止策略失败"
-                )
+                # 检查当前状态：如果已经 stopped，不需要转为 error
+                current_state = worker_state_manager.get_state(worker_id)
+                if current_state and current_state.status == "stopped":
+                    logger.info(
+                        f"[_do_stop_worker] Worker {worker_id} 状态已为 stopped, "
+                        f"无需额外处理"
+                    )
+                else:
+                    logger.warning(
+                        f"[_do_stop_worker] Worker {worker_id} stop_strategy 返回 False, "
+                        f"当前状态={current_state.status if current_state else 'unknown'}"
+                    )
+                    try:
+                        await worker_state_manager.transition(
+                            worker_id, "stopped",
+                        )
+                    except Exception as te:
+                        logger.warning(
+                            f"[_do_stop_worker] Worker {worker_id} "
+                            f"强制转为 stopped 失败: {te}"
+                        )
         except Exception as e:
             logger.error(f"[_do_stop_worker] Worker {worker_id} 停止过程异常: {e}")
             import traceback

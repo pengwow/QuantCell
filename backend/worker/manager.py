@@ -87,6 +87,16 @@ class TradingNodeWorkerManager:
                         f"(status=running, is_running=False)，修正为 stopped"
                     )
                     strategy_registry.update_status(runtime.worker_id, "stopped")
+                    # 同步修正 worker_state_manager（防止 stop 时进入 error 状态）
+                    try:
+                        await worker_state_manager.transition(
+                            runtime.worker_id, "stopped"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[健康检查] 同步 worker_state_manager 失败: "
+                            f"worker_id={runtime.worker_id}, error={e}"
+                        )
             except Exception as e:
                 logger.error(
                     f"[健康检查] 检查 Worker {runtime.worker_id} 失败: {e}"
