@@ -85,6 +85,7 @@ class StrategyRuntime:
     _run_task: Optional[asyncio.Task] = None
     _run_thread: Optional[threading.Thread] = None
     _flush_stop: Optional[threading.Event] = None
+    _pid: Optional[int] = None
     error_message: Optional[str] = None
     started_at: Optional[str] = None
     stopped_at: Optional[str] = None
@@ -96,10 +97,14 @@ class StrategyRuntime:
             "name": self.name,
             "status": self.status,
             "is_running": self.is_running,
+            "pid": self._pid,
             "error_message": self.error_message,
             "started_at": self.started_at,
             "stopped_at": self.stopped_at,
         }
+
+    def set_pid(self, pid: int) -> None:
+        self._pid = pid
 
     @property
     def is_running(self) -> bool:

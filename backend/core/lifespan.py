@@ -264,19 +264,19 @@ async def lifespan(app: FastAPI):
     yield
 
     # ========== 应用关闭阶段（必须保证执行完毕） ==========
-    # 使用 try/finally + CancelledError 保护，确保 Ctrl+C 时关键资源也能清理
+    # 独立事件循环设计：每个 TradingNode 使用独立 asyncio 循环（非 uvicorn 主循环）
+    # uvicorn 的 SIGINT 处理器始终有效，shutdown 流程正常触发
     import time as _time, threading as _th, os as _os
 
     _shutdown_start = _time.monotonic()
 
-    # 5秒强制退出定时器（兜底：即使事件循环/线程卡死，也能退出）
+    # 3秒强制退出定时器（兜底：即使事件循环/线程卡死，也能退出）
     def _force_exit_timer():
-        _th.Event().wait(5.0)
+        _th.Event().wait(3.0)
         _elapsed = _time.monotonic() - _shutdown_start
-        # 使用独立的 logger 避免死锁
         import logging as _log
         _log.getLogger(__name__).warning(
-            f"[FORCE EXIT] 5秒强制退出定时器触发 (已等待 {_elapsed:.2f}s)"
+            f"[FORCE EXIT] 3秒强制退出定时器触发 (已等待 {_elapsed:.2f}s)"
         )
         _os._exit(0)
 

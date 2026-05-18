@@ -187,8 +187,7 @@ def _print_worker_table(workers: List[Dict[str, Any]], show_header: bool = True)
         worker_id = str(worker.get("worker_id", worker.get("id", "N/A")))[:6]
         name = worker.get("name", "N/A")[:18]
         state = worker.get("status", "unknown")
-        pid = str(worker.get("pid")) if worker.get("pid") else "N/A"
-        pid = pid[:8]
+        pid = str(worker.get("pid")) if worker.get("pid") else "-"
         
         started_at = worker.get("started_at")
         uptime = _format_uptime(started_at)
