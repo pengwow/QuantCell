@@ -890,8 +890,10 @@ async def shutdown_worker_manager():
     """
     关闭 WorkerManager（兼容性接口）
 
-    直接使用 WorkerSystem 全局单例进行关闭操作
-    确保与 lifespan.py 中的初始化/关闭逻辑一致
+    直接委托给 worker_system.shutdown()，由它统一处理：
+    - 状态记录 + 线程诊断 + 线程池关闭
+    - 不调用 node.stop()（因为 kernel 事件循环可能卡死）
+    - daemon 线程由 OS 在进程退出时回收
     """
     try:
         logger.info("[routes] 正在关闭 WorkerManager...")
@@ -902,19 +904,7 @@ async def shutdown_worker_manager():
             logger.info("[routes] NautilusTradingSystem 未初始化，跳过关闭")
             return
 
-        # 停止所有运行中的 Worker（通过 NautilusTradingSystem）
-        strategies = worker_system.list_strategies()
-        stopped_count = 0
-        for s in strategies:
-            if s["status"] in ("running", "starting"):
-                try:
-                    await worker_system.stop_strategy(s["worker_id"])
-                    stopped_count += 1
-                    logger.info(f"[routes] 已停止 Worker {s['worker_id']}")
-                except Exception as e:
-                    logger.warning(f"[routes] 停止 Worker {s['worker_id']} 失败: {e}")
-
-        logger.info(f"[routes] 已停止 {stopped_count} 个运行中的 Worker")
+        worker_system.shutdown()
         logger.info("[routes] WorkerManager 关闭完成")
 
     except Exception as e:

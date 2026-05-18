@@ -265,70 +265,16 @@ if __name__ == "__main__":
     from collector.db import init_db
     import uvicorn
 
-    # ========== 安装自定义优雅关闭机制 ==========
-    # 目的：Ctrl+C 时先执行我们的清理逻辑（Worker进程、ZMQ等），
-    #       然后干净退出，避免 uvicorn/starlette 框架内部打印 CancelledError 错误栈
-
-    _graceful_shutdown_done = False
-
-    def _custom_excepthook(exctype, value, tb):
-        """自定义异常钩子：过滤掉关闭时的预期 CancelledError 输出"""
-        global _graceful_shutdown_done
-        # 如果是 KeyboardInterrupt 触发的 CancelledError 链（正常关闭流程），静默处理
-        if exctype is KeyboardInterrupt or (isinstance(value, KeyboardInterrupt)):
-            if _graceful_shutdown_done:
-                print("\n✓ 应用已安全退出")
-                return
-        # 其他异常走默认处理
-        sys.__excepthook__(exctype, value, tb)
-
-    sys.excepthook = _custom_excepthook
-
-    def _graceful_shutdown_handler(signum, frame):
-        """信号处理器：在 uvicorn 处理信号前执行清理"""
-        global _graceful_shutdown_done
-        if _graceful_shutdown_done:
-            print("\n强制退出...")
-            os._exit(1)
-        _graceful_shutdown_done = True
-        sig_name = signal.Signals(signum).name
-        logger.info(f"收到 {sig_name} 信号，开始优雅关闭...")
-
-        # 在新线程中运行异步清理，避免阻塞信号处理上下文
-        def _run_cleanup():
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                from worker.routes import shutdown_worker_manager
-                from worker.service import worker_service
-
-                loop.run_until_complete(asyncio.wait_for(
-                    shutdown_worker_manager(), timeout=60.0
-                ))
-                logger.info("所有 Worker 进程已停止")
-
-                loop.run_until_complete(asyncio.wait_for(
-                    worker_service.shutdown(), timeout=10.0
-                ))
-                logger.info("WorkerService 已停止")
-            except Exception as e:
-                logger.error(f"优雅关闭清理失败: {e}")
-            finally:
-                loop.close()
-
-        import threading
-        t = threading.Thread(target=_run_cleanup, daemon=True)
-        t.start()
-        t.join(timeout=15)
-        if t.is_alive():
-            logger.warning("优雅关闭超时，部分资源可能未完全释放")
-
-        logger.info("优雅关闭完成")
-
-    signal.signal(signal.SIGINT, _graceful_shutdown_handler)
-    signal.signal(signal.SIGTERM, _graceful_shutdown_handler)
-    # ========== 优雅关闭机制安装完毕 ==========
+    # ========== 关闭机制说明 ==========
+    # 不安装自定义 SIGINT/SIGTERM 处理器，让 uvicorn 默认处理
+    # uvicorn 收到信号后会：
+    #   1. 触发 lifespan 的 shutdown 事件（清理 worker_system + service）
+    #   2. 关闭 HTTP 服务器
+    #   3. 正常退出事件循环
+    # 自定义信号处理器会覆盖 uvicorn 的默认行为，导致进程无法退出
+    #
+    # 兜底机制：lifespan shutdown 事件中已包含 5 秒强制退出定时器
+    # ==============================================================
 
     # 解析命令行参数
     args = parse_args()

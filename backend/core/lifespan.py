@@ -265,6 +265,24 @@ async def lifespan(app: FastAPI):
 
     # ========== 应用关闭阶段（必须保证执行完毕） ==========
     # 使用 try/finally + CancelledError 保护，确保 Ctrl+C 时关键资源也能清理
+    import time as _time, threading as _th, os as _os
+
+    _shutdown_start = _time.monotonic()
+
+    # 5秒强制退出定时器（兜底：即使事件循环/线程卡死，也能退出）
+    def _force_exit_timer():
+        _th.Event().wait(5.0)
+        _elapsed = _time.monotonic() - _shutdown_start
+        # 使用独立的 logger 避免死锁
+        import logging as _log
+        _log.getLogger(__name__).warning(
+            f"[FORCE EXIT] 5秒强制退出定时器触发 (已等待 {_elapsed:.2f}s)"
+        )
+        _os._exit(0)
+
+    _force_thread = _th.Thread(target=_force_exit_timer, daemon=True, name="force-exit-timer")
+    _force_thread.start()
+
     logger.info("========== 应用开始关闭 ==========")
 
     # 步骤 1: 关闭 Worker System 全局单例（统一管理：停止进程 + 清理状态 + 关闭Manager后台任务）

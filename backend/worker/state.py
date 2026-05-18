@@ -13,6 +13,7 @@ Worker 模块全局单例状态枢纽
 """
 
 import asyncio
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Callable
@@ -82,6 +83,8 @@ class StrategyRuntime:
     status: str = "stopped"
     trading_node: Optional[Any] = None
     _run_task: Optional[asyncio.Task] = None
+    _run_thread: Optional[threading.Thread] = None
+    _flush_stop: Optional[threading.Event] = None
     error_message: Optional[str] = None
     started_at: Optional[str] = None
     stopped_at: Optional[str] = None
@@ -100,7 +103,13 @@ class StrategyRuntime:
 
     @property
     def is_running(self) -> bool:
-        return self.status == "running" and self._run_task is not None and not self._run_task.done()
+        if self.status != "running":
+            return False
+        if self._run_task is not None and not self._run_task.done():
+            return True
+        if self._run_thread is not None and self._run_thread.is_alive():
+            return True
+        return False
 
 
 # =============================================================================
@@ -172,6 +181,22 @@ class StrategyRegistry:
         runtime = self._strategies.get(worker_id)
         if runtime:
             runtime.trading_node = trading_node
+
+    def set_run_thread(self, worker_id: int, thread: Optional[threading.Thread]) -> None:
+        runtime = self._strategies.get(worker_id)
+        if runtime:
+            runtime._run_thread = thread
+
+    def set_flush_stop(self, worker_id: int, event: Optional[threading.Event]) -> None:
+        runtime = self._strategies.get(worker_id)
+        if runtime:
+            runtime._flush_stop = event
+
+    def get_flush_stop(self, worker_id: int) -> Optional[threading.Event]:
+        runtime = self._strategies.get(worker_id)
+        if runtime:
+            return runtime._flush_stop
+        return None
 
     def on_change(self, callback: callable) -> None:
         """注册状态变更回调"""

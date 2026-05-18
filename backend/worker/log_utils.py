@@ -105,9 +105,9 @@ RAW_TIMESTAMP_PATTERN = re.compile(
 class LogEntry:
     """结构化日志条目（统一格式，同时支持内存缓冲和文件读取场景）"""
 
-    timestamp: str
-    level: str
-    message: str
+    timestamp: str = ""
+    level: str = "INFO"
+    message: str = ""
     logger: str = ""
     worker_id: Optional[str] = None
     request_id: Optional[str] = None
@@ -319,6 +319,7 @@ class LogRingBuffer:
 
     def append(self, entry: LogEntry) -> None:
         with self._lock:
+            prev_len = len(self._buffer)
             self._buffer.append(entry)
             self._stats["total_appended"] += 1
             self._stats["last_timestamp"] = entry.timestamp
@@ -326,7 +327,7 @@ class LogRingBuffer:
             self._stats["level_distribution"][level] = (
                 self._stats["level_distribution"].get(level, 0) + 1
             )
-            if len(self._buffer) == self.maxlen:
+            if prev_len == self.maxlen:
                 self._stats["total_evicted"] += 1
 
     def append_from_dict(self, data: Dict[str, Any]) -> None:

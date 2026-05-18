@@ -64,3 +64,4 @@ agent_workspace/sessions/*.json
 
 backend/_archive_20260515/*
 
+backend/tmp_deleted/*
