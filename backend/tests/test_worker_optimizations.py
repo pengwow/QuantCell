@@ -117,12 +117,13 @@ class TestStateMachineGuard:
     def test_statistics_collection(self):
         """统计信息应正确收集"""
         self.guard.transition(1, WorkerState.STARTING)
-        self.guard.transition(2, WorkerState.RUNNING)
+        self.guard.transition(1, WorkerState.RUNNING)
+        self.guard.transition(2, WorkerState.STARTING)
 
         stats = self.guard.get_statistics()
 
         assert stats["cached_machines"] == 2
-        assert stats["total_transitions"] == 2
+        assert stats["total_transitions"] == 3
 
     def test_cache_invalidation(self):
         """缓存失效应强制重新加载"""
@@ -396,7 +397,8 @@ class TestIntegration:
             on_drain=on_drain,
         )
 
-        # 初始状态：RUNNING
+        # 初始状态：先到 STARTING 再到 RUNNING
+        guard.transition(1, WorkerState.STARTING)
         guard.transition(1, WorkerState.RUNNING)
 
         # 执行优雅停机

@@ -10,7 +10,7 @@ from typing import Optional
 
 from utils.logger import get_logger, LogType
 from .worker_state import worker_state_manager
-from .state import nautilus_system, strategy_registry
+from .state import strategy_registry
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -50,44 +50,20 @@ class TradingNodeWorkerManager:
         return True
 
     async def _on_state_changed(self, event_data: dict):
+        """
+        状态变更事件观察器（仅日志，不执行业务逻辑）
+
+        实际的 start/stop 操作由 core_service._do_start_worker / _do_stop_worker 负责，
+        此处仅做状态变更日志记录，避免竞态条件导致 stop_strategy 被重复调用。
+        """
         worker_id = event_data["worker_id"]
         new_status = event_data["new_status"]
         old_status = event_data.get("old_status", "unknown")
 
         logger.info(
-            f"[事件驱动] 状态变更 | worker_id={worker_id} | "
+            f"[事件观察] 状态变更 | worker_id={worker_id} | "
             f"{old_status} -> {new_status}"
         )
-
-        try:
-            if new_status == "starting":
-                await self._handle_start_event(worker_id)
-            elif new_status == "stopping":
-                await self._handle_stop_event(worker_id)
-        except Exception as e:
-            logger.error(
-                f"[事件驱动] 处理事件失败 | worker_id={worker_id} | error={e}"
-            )
-
-    async def _handle_start_event(self, worker_id: int):
-        logger.info(f"[启动事件] Worker {worker_id} 启动策略")
-        try:
-            if nautilus_system is not None:
-                nautilus_system.start_strategy(worker_id)
-            strategy_registry.update_status(worker_id, "running")
-            logger.info(f"[启动事件] Worker {worker_id} 策略已启动")
-        except Exception as e:
-            logger.error(f"[启动事件] Worker {worker_id} 启动失败: {e}")
-
-    async def _handle_stop_event(self, worker_id: int):
-        logger.info(f"[停止事件] Worker {worker_id} 停止策略")
-        try:
-            if nautilus_system is not None:
-                nautilus_system.stop_strategy(worker_id)
-            strategy_registry.update_status(worker_id, "stopped")
-            logger.info(f"[停止事件] Worker {worker_id} 策略已停止")
-        except Exception as e:
-            logger.error(f"[停止事件] Worker {worker_id} 停止失败: {e}")
 
     async def _health_check_loop(self):
         logger.info("[健康检查] 循环已启动，间隔 30 秒")

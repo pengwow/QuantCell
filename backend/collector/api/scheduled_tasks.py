@@ -303,7 +303,7 @@ async def run_scheduled_task_now(task_id: int):
                 logger.error(f"立即执行定时任务失败: task_id={task_id}, error={e}")
         
         # 启动后台线程执行任务
-        threading.Thread(target=_run_task).start()
+        threading.Thread(target=_run_task, daemon=True).start()
         
         logger.info(f"立即执行定时任务请求已提交: task_id={task_id}")
         
