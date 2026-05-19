@@ -3,9 +3,8 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.fixtures.mocks.auth_mock import mock_get_current_user
-from typing import Dict, Any, List
 
+from typing import Dict, Any, List
 
 class TestConfigListAPI:
     """配置列表API测试类"""
@@ -70,7 +69,6 @@ class TestConfigListAPI:
         response = client.get("/api/config/")
         assert response.status_code == 500
         assert "Database error" in str(response.json().get("detail", ""))
-
 
 class TestConfigDetailAPI:
     """配置详情API测试类"""
@@ -148,13 +146,12 @@ class TestConfigDetailAPI:
         response = client.get("/api/config/config_with-special.chars")
         assert_api_response(response)
 
-
 class TestConfigUpdateAPI:
     """配置更新API测试类"""
 
     def test_update_config_success(self, client: TestClient, mocker, assert_api_response):
         """测试更新配置成功"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -179,7 +176,7 @@ class TestConfigUpdateAPI:
 
     def test_update_sensitive_config(self, client: TestClient, mocker, assert_api_response):
         """测试更新敏感配置"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -204,7 +201,7 @@ class TestConfigUpdateAPI:
 
     def test_update_config_with_plugin(self, client: TestClient, mocker, assert_api_response):
         """测试更新带插件的配置"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -230,7 +227,6 @@ class TestConfigUpdateAPI:
 
     def test_update_config_missing_key(self, client: TestClient):
         """测试更新配置缺少键"""
-        mock_get_current_user(mocker)
         request_data = {
             "value": "new_value"
         }
@@ -240,7 +236,6 @@ class TestConfigUpdateAPI:
 
     def test_update_config_missing_value(self, client: TestClient):
         """测试更新配置缺少值"""
-        mock_get_current_user(mocker)
         request_data = {
             "key": "new_config"
         }
@@ -250,7 +245,7 @@ class TestConfigUpdateAPI:
 
     def test_update_config_empty_key(self, client: TestClient, mocker):
         """测试更新配置空键"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -270,7 +265,7 @@ class TestConfigUpdateAPI:
 
     def test_update_config_failed(self, client: TestClient, mocker):
         """测试更新配置失败"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=False
@@ -283,7 +278,6 @@ class TestConfigUpdateAPI:
 
         response = client.post("/api/config/", json=request_data)
         assert response.status_code == 500
-
 
 class TestConfigDeleteAPI:
     """配置删除API测试类（需要认证）"""
@@ -338,13 +332,12 @@ class TestConfigDeleteAPI:
         response = client.delete("/api/config/config-with_special.chars", headers=auth_headers)
         assert_api_response(response)
 
-
 class TestConfigBatchUpdateAPI:
     """配置批量更新API测试类"""
 
     def test_batch_update_dict_format(self, client: TestClient, mocker, assert_api_response):
         """测试批量更新字典格式"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -366,7 +359,7 @@ class TestConfigBatchUpdateAPI:
 
     def test_batch_update_list_format(self, client: TestClient, mocker, assert_api_response):
         """测试批量更新列表格式"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -398,7 +391,7 @@ class TestConfigBatchUpdateAPI:
 
     def test_batch_update_with_configs_field(self, client: TestClient, mocker, assert_api_response):
         """测试批量更新带configs字段格式"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -422,7 +415,7 @@ class TestConfigBatchUpdateAPI:
 
     def test_batch_update_skip_vue_internal(self, client: TestClient, mocker, assert_api_response):
         """测试批量更新跳过Vue内部属性"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -445,7 +438,7 @@ class TestConfigBatchUpdateAPI:
 
     def test_batch_update_empty(self, client: TestClient, mocker, assert_api_response):
         """测试批量更新空数据"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "utils.config_manager.load_system_configs",
             return_value={}
@@ -460,7 +453,7 @@ class TestConfigBatchUpdateAPI:
 
     def test_batch_update_service_error(self, client: TestClient, mocker):
         """测试批量更新服务异常"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             side_effect=Exception("Update failed")
@@ -472,7 +465,6 @@ class TestConfigBatchUpdateAPI:
 
         response = client.post("/api/config/batch", json=request_data)
         assert response.status_code == 500
-
 
 class TestPluginConfigAPI:
     """插件配置API测试类"""
@@ -536,7 +528,6 @@ class TestPluginConfigAPI:
 
         response = client.get("/api/config/plugin/my-plugin_v1.0")
         assert_api_response(response)
-
 
 class TestSystemInfoAPI:
     """系统信息API测试类"""
@@ -606,13 +597,12 @@ class TestSystemInfoAPI:
         data = response.json()
         assert data["code"] == 1
 
-
 class TestSettingsEdgeCases:
     """设置API边界条件测试类"""
 
     def test_update_config_very_long_key(self, client: TestClient, mocker, assert_api_response):
         """测试更新超长键配置"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -633,7 +623,7 @@ class TestSettingsEdgeCases:
 
     def test_update_config_very_long_value(self, client: TestClient, mocker, assert_api_response):
         """测试更新超长值配置"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -654,7 +644,7 @@ class TestSettingsEdgeCases:
 
     def test_update_config_unicode(self, client: TestClient, mocker, assert_api_response):
         """测试更新Unicode配置"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -675,7 +665,7 @@ class TestSettingsEdgeCases:
 
     def test_update_config_special_chars_in_value(self, client: TestClient, mocker, assert_api_response):
         """测试更新特殊字符值配置"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -695,7 +685,7 @@ class TestSettingsEdgeCases:
 
     def test_batch_update_large_number(self, client: TestClient, mocker, assert_api_response):
         """测试批量更新大量配置"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -714,7 +704,7 @@ class TestSettingsEdgeCases:
 
     def test_nested_config_value(self, client: TestClient, mocker, assert_api_response):
         """测试嵌套配置值（JSON字符串）"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -734,7 +724,7 @@ class TestSettingsEdgeCases:
 
     def test_config_with_null_values(self, client: TestClient, mocker, assert_api_response):
         """测试带null值的配置"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -756,7 +746,7 @@ class TestSettingsEdgeCases:
 
     def test_boolean_config_values(self, client: TestClient, mocker, assert_api_response):
         """测试布尔值配置"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -779,7 +769,7 @@ class TestSettingsEdgeCases:
 
     def test_numeric_config_values(self, client: TestClient, mocker, assert_api_response):
         """测试数值配置"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
@@ -799,7 +789,7 @@ class TestSettingsEdgeCases:
 
     def test_concurrent_config_updates(self, client: TestClient, mocker):
         """测试并发配置更新"""
-        mock_get_current_user(mocker)
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
         mocker.patch(
             "settings.models.SystemConfigBusiness.set",
             return_value=True
