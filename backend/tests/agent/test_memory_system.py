@@ -168,11 +168,11 @@ async def test_auto_compact():
         get_tool_definitions=lambda: [],
     )
     
-    # 创建 AutoCompact (TTL=0 表示立即过期)
+    # 创建 AutoCompact (TTL=1 分钟，设置为立即过期)
     auto_compact = AutoCompact(
         sessions=sessions,
         consolidator=consolidator,
-        session_ttl_minutes=0,  # 立即过期用于测试
+        session_ttl_minutes=1,  # 1分钟TTL，测试将设置更旧的updated_at
     )
     
     # 创建一个过期会话

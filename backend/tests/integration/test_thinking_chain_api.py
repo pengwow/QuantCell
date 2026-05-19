@@ -2,39 +2,15 @@
 """思维链API集成测试
 
 使用pytest和TestClient测试思维链RESTful API
+
+auth_headers 和 client fixture 由 integration/conftest.py 提供：
+- client: 会话级 TestClient 实例
+- auth_headers: 使用 utils.jwt_utils 密钥直接生成的有效 JWT 令牌
 """
-import json
 import tempfile
 import os
-from io import BytesIO
 
 import pytest
-from fastapi.testclient import TestClient
-
-
-# 使用已有的测试客户端fixture
-@pytest.fixture
-def client():
-    """创建测试客户端"""
-    from main import app
-    return TestClient(app)
-
-
-@pytest.fixture
-def auth_headers(client):
-    """获取认证token"""
-    # 先登录获取token
-    login_data = {
-        "username": "admin",
-        "password": "admin123"
-    }
-    response = client.post("/api/auth/login", data=login_data)
-    if response.status_code == 200:
-        data = response.json()
-        if data.get("code") == 0:
-            token = data["data"]["access_token"]
-            return {"Authorization": f"Bearer {token}"}
-    return {}
 
 
 class TestThinkingChainAPI:
@@ -281,9 +257,12 @@ order = 2
             json=payload
         )
 
-        assert response.status_code == 200
+        # 缺少必填字段时 Pydantic 验证返回 422
+        assert response.status_code == 422
         data = response.json()
-        assert data["code"] == 1  # 应该返回错误
+        assert data["code"] == 422
+        assert "chain_type" in data["message"]
+        assert "steps" in data["message"]
 
 
 class TestThinkingChainTomlValidation:

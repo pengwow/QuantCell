@@ -356,7 +356,7 @@ class TestEngineBenchmark:
         # 记录性能指标
         logger.info(
             f"Engine 初始化 [{data_size}]: "
-            f"{result.stats['mean']:.4f}s"
+            f"{benchmark.stats.stats.mean:.4f}s"
         )
 
     @pytest.mark.benchmark
@@ -392,7 +392,7 @@ class TestEngineBenchmark:
 
         logger.info(
             f"LegacyEngine 初始化 [{data_size}]: "
-            f"{result.stats['mean']:.4f}s"
+            f"{benchmark.stats.stats.mean:.4f}s"
         )
 
 

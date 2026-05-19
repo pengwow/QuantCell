@@ -249,7 +249,7 @@ class PortManager:
 
         # 构建要尝试的端口列表：首选端口 -> 默认端口 -> 其他端口
         ports_to_try = []
-        if preferred_port and preferred_port not in (start_port, default_port):
+        if preferred_port is not None and preferred_port != default_port:
             ports_to_try.append(preferred_port)
         if default_port not in ports_to_try:
             ports_to_try.append(default_port)

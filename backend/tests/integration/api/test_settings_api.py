@@ -3,6 +3,7 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.fixtures.mocks.auth_mock import mock_get_current_user
 from typing import Dict, Any, List
 
 
@@ -32,7 +33,7 @@ class TestConfigListAPI:
             }
         }
         mocker.patch(
-            "settings.routes.SystemConfig.get_all_with_details",
+            "settings.models.SystemConfigBusiness.get_all_with_details",
             return_value=mock_configs
         )
 
@@ -44,13 +45,13 @@ class TestConfigListAPI:
         assert "exchange" in data["data"]
         # 验证分组内的配置
         assert data["data"]["data_config"]["qlib_data_dir"] == "data/crypto_data"
-        assert data["data"]["data_config"]["api_key"] == "******"
+        assert data["data"]["data_config"]["api_key"] == ""
         assert "binance" in data["data"]["exchange"]
 
     def test_get_all_configs_empty(self, client: TestClient, mocker, assert_api_response):
         """测试获取空配置列表"""
         mocker.patch(
-            "settings.routes.SystemConfig.get_all_with_details",
+            "settings.models.SystemConfigBusiness.get_all_with_details",
             return_value={}
         )
 
@@ -62,7 +63,7 @@ class TestConfigListAPI:
     def test_get_all_configs_service_error(self, client: TestClient, mocker):
         """测试获取配置服务异常"""
         mocker.patch(
-            "settings.routes.SystemConfig.get_all_with_details",
+            "settings.models.SystemConfigBusiness.get_all_with_details",
             side_effect=Exception("Database error")
         )
 
@@ -85,7 +86,7 @@ class TestConfigDetailAPI:
             "name": "数据配置"
         }
         mocker.patch(
-            "settings.routes.SystemConfig.get_with_details",
+            "settings.models.SystemConfigBusiness.get_with_details",
             return_value=mock_config
         )
 
@@ -104,19 +105,19 @@ class TestConfigDetailAPI:
             "is_sensitive": True
         }
         mocker.patch(
-            "settings.routes.SystemConfig.get_with_details",
+            "settings.models.SystemConfigBusiness.get_with_details",
             return_value=mock_config
         )
 
         response = client.get("/api/config/api_secret")
         assert_api_response(response)
         data = response.json()
-        assert data["data"]["value"] == "******"
+        assert data["data"]["value"] == ""
 
     def test_get_config_not_found(self, client: TestClient, mocker):
         """测试获取不存在的配置"""
         mocker.patch(
-            "settings.routes.SystemConfig.get_with_details",
+            "settings.models.SystemConfigBusiness.get_with_details",
             return_value=None
         )
 
@@ -140,7 +141,7 @@ class TestConfigDetailAPI:
             "is_sensitive": False
         }
         mocker.patch(
-            "settings.routes.SystemConfig.get_with_details",
+            "settings.models.SystemConfigBusiness.get_with_details",
             return_value=mock_config
         )
 
@@ -153,12 +154,13 @@ class TestConfigUpdateAPI:
 
     def test_update_config_success(self, client: TestClient, mocker, assert_api_response):
         """测试更新配置成功"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -177,12 +179,13 @@ class TestConfigUpdateAPI:
 
     def test_update_sensitive_config(self, client: TestClient, mocker, assert_api_response):
         """测试更新敏感配置"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -196,17 +199,18 @@ class TestConfigUpdateAPI:
         response = client.post("/api/config/", json=request_data)
         assert_api_response(response)
         data = response.json()
-        assert data["data"]["value"] == "******"
+        assert data["data"]["value"] == ""
         assert data["data"]["is_sensitive"] == True
 
     def test_update_config_with_plugin(self, client: TestClient, mocker, assert_api_response):
         """测试更新带插件的配置"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -226,6 +230,7 @@ class TestConfigUpdateAPI:
 
     def test_update_config_missing_key(self, client: TestClient):
         """测试更新配置缺少键"""
+        mock_get_current_user(mocker)
         request_data = {
             "value": "new_value"
         }
@@ -235,6 +240,7 @@ class TestConfigUpdateAPI:
 
     def test_update_config_missing_value(self, client: TestClient):
         """测试更新配置缺少值"""
+        mock_get_current_user(mocker)
         request_data = {
             "key": "new_config"
         }
@@ -244,12 +250,13 @@ class TestConfigUpdateAPI:
 
     def test_update_config_empty_key(self, client: TestClient, mocker):
         """测试更新配置空键"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -263,8 +270,9 @@ class TestConfigUpdateAPI:
 
     def test_update_config_failed(self, client: TestClient, mocker):
         """测试更新配置失败"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=False
         )
 
@@ -283,11 +291,11 @@ class TestConfigDeleteAPI:
     def test_delete_config_success(self, client: TestClient, auth_headers: Dict[str, str], mocker, assert_api_response):
         """测试删除配置成功"""
         mocker.patch(
-            "settings.routes.SystemConfig.delete",
+            "settings.models.SystemConfigBusiness.delete",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -299,7 +307,7 @@ class TestConfigDeleteAPI:
     def test_delete_config_not_found(self, client: TestClient, auth_headers: Dict[str, str], mocker):
         """测试删除不存在的配置"""
         mocker.patch(
-            "settings.routes.SystemConfig.delete",
+            "settings.models.SystemConfigBusiness.delete",
             return_value=False
         )
 
@@ -319,11 +327,11 @@ class TestConfigDeleteAPI:
     def test_delete_config_special_chars_key(self, client: TestClient, auth_headers: Dict[str, str], mocker, assert_api_response):
         """测试删除特殊字符键配置"""
         mocker.patch(
-            "settings.routes.SystemConfig.delete",
+            "settings.models.SystemConfigBusiness.delete",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -336,12 +344,13 @@ class TestConfigBatchUpdateAPI:
 
     def test_batch_update_dict_format(self, client: TestClient, mocker, assert_api_response):
         """测试批量更新字典格式"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -357,12 +366,13 @@ class TestConfigBatchUpdateAPI:
 
     def test_batch_update_list_format(self, client: TestClient, mocker, assert_api_response):
         """测试批量更新列表格式"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -388,12 +398,13 @@ class TestConfigBatchUpdateAPI:
 
     def test_batch_update_with_configs_field(self, client: TestClient, mocker, assert_api_response):
         """测试批量更新带configs字段格式"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -411,12 +422,13 @@ class TestConfigBatchUpdateAPI:
 
     def test_batch_update_skip_vue_internal(self, client: TestClient, mocker, assert_api_response):
         """测试批量更新跳过Vue内部属性"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -433,8 +445,9 @@ class TestConfigBatchUpdateAPI:
 
     def test_batch_update_empty(self, client: TestClient, mocker, assert_api_response):
         """测试批量更新空数据"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -447,8 +460,9 @@ class TestConfigBatchUpdateAPI:
 
     def test_batch_update_service_error(self, client: TestClient, mocker):
         """测试批量更新服务异常"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             side_effect=Exception("Update failed")
         )
 
@@ -483,7 +497,7 @@ class TestPluginConfigAPI:
             }
         }
         mocker.patch(
-            "settings.routes.SystemConfig.get_all_with_details",
+            "settings.models.SystemConfigBusiness.get_all_with_details",
             return_value=mock_configs
         )
 
@@ -491,13 +505,13 @@ class TestPluginConfigAPI:
         assert_api_response(response)
         data = response.json()
         assert "plugin1_config1" in data["data"]
-        assert data["data"]["plugin1_config2"] == "******"
+        assert data["data"]["plugin1_config2"] == ""
         assert "other_config" not in data["data"]
 
     def test_get_plugin_config_empty(self, client: TestClient, mocker, assert_api_response):
         """测试获取空插件配置"""
         mocker.patch(
-            "settings.routes.SystemConfig.get_all_with_details",
+            "settings.models.SystemConfigBusiness.get_all_with_details",
             return_value={}
         )
 
@@ -516,7 +530,7 @@ class TestPluginConfigAPI:
             }
         }
         mocker.patch(
-            "settings.routes.SystemConfig.get_all_with_details",
+            "settings.models.SystemConfigBusiness.get_all_with_details",
             return_value=mock_configs
         )
 
@@ -552,7 +566,7 @@ class TestSystemInfoAPI:
             }
         }
         mocker.patch(
-            "settings.routes.SystemService.get_system_info",
+            "settings.services.SystemService.get_system_info",
             return_value=mock_result
         )
 
@@ -571,7 +585,7 @@ class TestSystemInfoAPI:
             "error": "Service unavailable"
         }
         mocker.patch(
-            "settings.routes.SystemService.get_system_info",
+            "settings.services.SystemService.get_system_info",
             return_value=mock_result
         )
 
@@ -583,7 +597,7 @@ class TestSystemInfoAPI:
     def test_get_system_info_exception(self, client: TestClient, mocker):
         """测试获取系统信息异常"""
         mocker.patch(
-            "settings.routes.SystemService.get_system_info",
+            "settings.services.SystemService.get_system_info",
             side_effect=Exception("System error")
         )
 
@@ -598,12 +612,13 @@ class TestSettingsEdgeCases:
 
     def test_update_config_very_long_key(self, client: TestClient, mocker, assert_api_response):
         """测试更新超长键配置"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -618,12 +633,13 @@ class TestSettingsEdgeCases:
 
     def test_update_config_very_long_value(self, client: TestClient, mocker, assert_api_response):
         """测试更新超长值配置"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -638,12 +654,13 @@ class TestSettingsEdgeCases:
 
     def test_update_config_unicode(self, client: TestClient, mocker, assert_api_response):
         """测试更新Unicode配置"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -658,12 +675,13 @@ class TestSettingsEdgeCases:
 
     def test_update_config_special_chars_in_value(self, client: TestClient, mocker, assert_api_response):
         """测试更新特殊字符值配置"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -677,12 +695,13 @@ class TestSettingsEdgeCases:
 
     def test_batch_update_large_number(self, client: TestClient, mocker, assert_api_response):
         """测试批量更新大量配置"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -695,12 +714,13 @@ class TestSettingsEdgeCases:
 
     def test_nested_config_value(self, client: TestClient, mocker, assert_api_response):
         """测试嵌套配置值（JSON字符串）"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -714,12 +734,13 @@ class TestSettingsEdgeCases:
 
     def test_config_with_null_values(self, client: TestClient, mocker, assert_api_response):
         """测试带null值的配置"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -735,12 +756,13 @@ class TestSettingsEdgeCases:
 
     def test_boolean_config_values(self, client: TestClient, mocker, assert_api_response):
         """测试布尔值配置"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -757,12 +779,13 @@ class TestSettingsEdgeCases:
 
     def test_numeric_config_values(self, client: TestClient, mocker, assert_api_response):
         """测试数值配置"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 
@@ -776,12 +799,13 @@ class TestSettingsEdgeCases:
 
     def test_concurrent_config_updates(self, client: TestClient, mocker):
         """测试并发配置更新"""
+        mock_get_current_user(mocker)
         mocker.patch(
-            "settings.routes.SystemConfig.set",
+            "settings.models.SystemConfigBusiness.set",
             return_value=True
         )
         mocker.patch(
-            "settings.routes.load_system_configs",
+            "utils.config_manager.load_system_configs",
             return_value={}
         )
 

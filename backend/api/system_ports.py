@@ -12,7 +12,7 @@ from datetime import datetime
 import os
 
 from utils.logger import get_logger, LogType
-from core.port_manager import port_manager
+from core.port_manager import PortManager, PORT_RANGES
 
 logger = get_logger(__name__, LogType.SYSTEM)
 
@@ -50,7 +50,7 @@ async def get_system_ports():
         }
     """
     try:
-        all_ports = port_manager.get_all_ports()
+        all_ports = PortManager().get_all_ports()
 
         service_descriptions = {
             "fastapi": "HTTP API Server",
@@ -71,7 +71,7 @@ async def get_system_ports():
             "pid": os.getpid(),
             "start_time": datetime.now().isoformat() + "Z",
             "last_updated": datetime.now().isoformat() + "Z",
-            "config_file": str(port_manager.config_path),
+            "config_file": str(PortManager().config_path),
         }
 
         logger.debug(f"[SystemPorts] 返回端口配置: {result}")
@@ -116,7 +116,7 @@ async def get_service_port(service_name: str):
         )
 
     try:
-        port = port_manager.get_port(service_name)
+        port = PortManager().get_port(service_name)
 
         service_descriptions = {
             "fastapi": "HTTP API Server",

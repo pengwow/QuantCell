@@ -1471,7 +1471,7 @@ def logs(
         # 显示日志文件路径（本地信息）
         if show_path:
             script_dir = Path(__file__).parent
-            log_dir = script_dir.parent / "logs"
+            log_dir = script_dir.parent / "logs" / "worker"
             log_file = log_dir / f"worker_{worker_id}.log"
             typer.echo(f"日志文件路径: {log_file.absolute()}")
             if log_file.exists():
@@ -1542,7 +1542,17 @@ def logs(
             source = log.get("source", "")
 
             if source == "raw":
-                typer.echo(log.get('message', ''))
+                timestamp = log.get("timestamp", "N/A")
+                if timestamp != "N/A":
+                    try:
+                        dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                        dt_local = dt.astimezone()
+                        timestamp = dt_local.strftime("%Y-%m-%d %H:%M:%S")
+                    except:
+                        pass
+                typer.echo(f"[{timestamp}] ", nl=False)
+                typer.secho("RAW     ", fg=typer.colors.WHITE, nl=False)
+                typer.echo(f" {log.get('message', '')}")
                 continue
 
             timestamp = log.get("timestamp", "N/A")

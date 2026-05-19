@@ -463,15 +463,23 @@ def _standardize_dataframe(
     if timestamp_column in df.columns:
         # 转换时间戳列为 datetime 类型
         if not pd.api.types.is_datetime64_any_dtype(df[timestamp_column]):
-            df[timestamp_column] = pd.to_datetime(df[timestamp_column], unit="ms")
+            # 先尝试直接解析（支持日期字符串格式如 "2023-01-01 00:00:00"）
+            try:
+                df[timestamp_column] = pd.to_datetime(df[timestamp_column])
+            except (ValueError, TypeError):
+                # 尝试按毫秒时间戳解析
+                df[timestamp_column] = pd.to_datetime(df[timestamp_column], unit="ms")
         # 设置为索引
         df = df.set_index(timestamp_column)
     elif not isinstance(df.index, pd.DatetimeIndex):
         # 尝试将索引转换为 datetime
         try:
-            df.index = pd.to_datetime(df.index, unit="ms")
+            df.index = pd.to_datetime(df.index)
         except (ValueError, TypeError):
-            raise ValueError("无法识别时间戳列，请确保有 timestamp 列或 DatetimeIndex 索引")
+            try:
+                df.index = pd.to_datetime(df.index, unit="ms")
+            except (ValueError, TypeError):
+                raise ValueError("无法识别时间戳列，请确保有 timestamp 列或 DatetimeIndex 索引")
 
     # 确保索引名称为 timestamp（BarDataWrangler 要求）
     df.index.name = "timestamp"

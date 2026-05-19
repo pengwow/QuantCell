@@ -94,8 +94,8 @@ class TestStatusAPI:
         
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "running"
-        assert data["connected"] is True
+        assert data["data"]["status"] == "running"
+        assert data["data"]["connected"] is True
         mock_realtime_engine.get_status.assert_called_once()
     
     def test_get_status_engine_not_initialized(self, uninitialized_test_client):
@@ -104,8 +104,8 @@ class TestStatusAPI:
         
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "stopped"
-        assert data["connected"] is False
+        assert data["data"]["status"] == "stopped"
+        assert data["data"]["connected"] is False
         assert "实时引擎未初始化" in data["message"]
     
     def test_get_status_exception(self, test_client, mock_realtime_engine):
@@ -114,8 +114,10 @@ class TestStatusAPI:
         
         response = test_client.get("/api/realtime/status")
         
-        assert response.status_code == 500
-        assert "测试异常" in response.json()["detail"]
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 1
+        assert "测试异常" in data["message"]
 
 
 # =============================================================================
@@ -134,7 +136,7 @@ class TestControlAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
-        assert data["success"] is True
+        assert data["data"]["success"] is True
         assert "启动成功" in data["message"]
         mock_realtime_engine.start.assert_called_once()
     
@@ -147,7 +149,7 @@ class TestControlAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert data["success"] is False
+        assert data["data"]["success"] is False
         assert "启动失败" in data["message"]
     
     def test_start_engine_not_initialized(self, uninitialized_test_client):
@@ -157,7 +159,7 @@ class TestControlAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert data["success"] is False
+        assert data["data"]["success"] is False
         assert "实时引擎未初始化" in data["message"]
     
     def test_start_engine_exception(self, test_client, mock_realtime_engine):
@@ -178,7 +180,7 @@ class TestControlAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
-        assert data["success"] is True
+        assert data["data"]["success"] is True
         assert "停止成功" in data["message"]
         mock_realtime_engine.stop.assert_called_once()
     
@@ -191,7 +193,7 @@ class TestControlAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert data["success"] is False
+        assert data["data"]["success"] is False
         assert "停止失败" in data["message"]
     
     def test_stop_engine_not_initialized(self, uninitialized_test_client):
@@ -201,7 +203,7 @@ class TestControlAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert data["success"] is False
+        assert data["data"]["success"] is False
         assert "实时引擎未初始化" in data["message"]
     
     # --- Restart API ---
@@ -213,7 +215,7 @@ class TestControlAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
-        assert data["success"] is True
+        assert data["data"]["success"] is True
         assert "重启成功" in data["message"]
         mock_realtime_engine.restart.assert_called_once()
     
@@ -226,7 +228,7 @@ class TestControlAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert data["success"] is False
+        assert data["data"]["success"] is False
         assert "重启失败" in data["message"]
     
     def test_restart_engine_not_initialized(self, uninitialized_test_client):
@@ -236,7 +238,7 @@ class TestControlAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert data["success"] is False
+        assert data["data"]["success"] is False
         assert "实时引擎未初始化" in data["message"]
 
 
@@ -275,7 +277,7 @@ class TestConfigAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
-        assert data["success"] is True
+        assert data["data"]["success"] is True
         assert "配置更新成功" in data["message"]
         mock_realtime_engine.update_config.assert_called_once()
     
@@ -289,7 +291,7 @@ class TestConfigAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert data["success"] is False
+        assert data["data"]["success"] is False
         assert "配置更新失败" in data["message"]
     
     def test_update_config_engine_not_initialized(self, uninitialized_test_client):
@@ -300,7 +302,7 @@ class TestConfigAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert data["success"] is False
+        assert data["data"]["success"] is False
         assert "实时引擎未初始化" in data["message"]
 
 
@@ -319,7 +321,7 @@ class TestSubscribeAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
-        assert data["success"] is True
+        assert data["data"]["success"] is True
         assert "订阅成功" in data["message"]
         mock_realtime_engine.subscribe.assert_called_once_with(channels)
     
@@ -333,7 +335,7 @@ class TestSubscribeAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert data["success"] is False
+        assert data["data"]["success"] is False
         assert "订阅失败" in data["message"]
     
     def test_subscribe_engine_not_initialized(self, uninitialized_test_client):
@@ -344,7 +346,7 @@ class TestSubscribeAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert data["success"] is False
+        assert data["data"]["success"] is False
         assert "实时引擎未初始化" in data["message"]
     
     def test_unsubscribe_success(self, test_client, mock_realtime_engine):
@@ -355,7 +357,7 @@ class TestSubscribeAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
-        assert data["success"] is True
+        assert data["data"]["success"] is True
         assert "取消订阅成功" in data["message"]
         mock_realtime_engine.unsubscribe.assert_called_once_with(channels)
     
@@ -369,7 +371,7 @@ class TestSubscribeAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert data["success"] is False
+        assert data["data"]["success"] is False
         assert "取消订阅失败" in data["message"]
     
     def test_unsubscribe_engine_not_initialized(self, uninitialized_test_client):
@@ -380,7 +382,7 @@ class TestSubscribeAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert data["success"] is False
+        assert data["data"]["success"] is False
         assert "实时引擎未初始化" in data["message"]
 
 
@@ -451,18 +453,18 @@ class TestIntegrationWorkflow:
         # 1. 启动引擎
         response = test_client.post("/api/realtime/start")
         assert response.status_code == 200
-        assert response.json()["success"] is True
+        assert response.json()["data"]["success"] is True
         
         # 2. 获取状态
         response = test_client.get("/api/realtime/status")
         assert response.status_code == 200
-        assert response.json()["status"] == "running"
+        assert response.json()["data"]["status"] == "running"
         
         # 3. 订阅频道
         channels = ["kline.BTCUSDT.1m"]
         response = test_client.post("/api/realtime/subscribe", json=channels)
         assert response.status_code == 200
-        assert response.json()["success"] is True
+        assert response.json()["data"]["success"] is True
         
         # 4. 获取配置
         response = test_client.get("/api/realtime/config")
@@ -472,4 +474,4 @@ class TestIntegrationWorkflow:
         # 5. 停止引擎
         response = test_client.post("/api/realtime/stop")
         assert response.status_code == 200
-        assert response.json()["success"] is True
+        assert response.json()["data"]["success"] is True

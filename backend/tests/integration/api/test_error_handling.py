@@ -192,7 +192,8 @@ class TestErrorResponseFormat:
         response = client.post("/api/backtest/run", json=request_data)
         assert response.status_code == 422
         data = response.json()
-        assert "detail" in data
+        assert data["code"] == 422
+        assert "缺少" in data["message"]
 
     def test_server_error_response_format(self, client: TestClient, mocker):
         """测试服务器错误响应格式"""
@@ -245,10 +246,6 @@ class TestBusinessErrorHandling:
 
     def test_backtest_not_found_error(self, client: TestClient, mocker):
         """测试回测不存在错误"""
-        mocker.patch(
-            "backtest.routes.backtest_service.analyze_backtest",
-            return_value={"status": "error", "message": "回测不存在"}
-        )
         response = client.get("/api/backtest/nonexistent_id")
         assert response.status_code == 200
         data = response.json()
@@ -435,7 +432,7 @@ class TestRecoveryFromErrors:
     def test_partial_failure_handling(self, client: TestClient, mocker):
         """测试部分失败处理"""
         mocker.patch(
-            "backtest.routes.backtest_service.list_backtest_results",
+            "backtest.routes.backtest_service.get_result_list",
             return_value=[
                 {"id": "bt1", "status": "completed"},
                 {"id": "bt2", "status": "failed"}

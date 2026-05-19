@@ -51,8 +51,14 @@ def file_manager(temp_log_dir):
     """
     创建使用临时目录的FileLogManager实例
 
-    使用新的实例而非全局单例，确保测试隔离性。
+    重置单例状态，确保每次测试使用独立的实例和临时目录，
+    避免历史日志数据污染新测试。
     """
+    FileLogManager._instance = None
+    FileLogManager._initialized = False
+    import utils.file_log_manager as flm
+    flm._file_log_manager_instance = None
+
     manager = FileLogManager(base_log_dir=temp_log_dir)
     yield manager
     manager.close()
@@ -66,7 +72,9 @@ class TestFileLogManagerInit:
         log_dir = Path(temp_log_dir) / "system"
         assert not log_dir.exists()
 
-        manager = FileLogManager(base_log_dir=temp_log_dir)
+        FileLogManager._instance = None
+        FileLogManager._initialized = False
+        manager = FileLogManager(base_log_dir=str(log_dir))
 
         assert log_dir.exists()
         assert log_dir.is_dir()
@@ -348,7 +356,7 @@ class TestCleanup:
     def test_cleanup_old_logs(self, file_manager, temp_log_dir):
         """测试清理旧日志"""
         # 创建不同日期的日志（通过修改文件名模拟）
-        base_path = Path(temp_log_dir) / "system" / "application"
+        base_path = Path(temp_log_dir) / "application"
         base_path.mkdir(parents=True, exist_ok=True)
 
         # 创建一个"旧"日志文件（30天前）
@@ -376,18 +384,19 @@ class TestLogQueryEngine:
         """辅助方法：创建带数据的查询引擎"""
         from utils.log_query_engine import LogQueryEngine
 
-        # 重置全局实例以使用临时目录
         import utils.file_log_manager as flm
-        original_instance = flm._file_log_manager_instance
+        # 重置所有单例状态，确保使用临时目录而非全局日志目录
+        flm.FileLogManager._instance = None
+        flm.FileLogManager._initialized = False
         flm._file_log_manager_instance = None
 
-        manager = FileLogManager(base_log_dir=str(tmp_path))
+        manager = flm.FileLogManager(base_log_dir=str(tmp_path))
 
         # 写入测试数据
         for i in range(20):
             record = LogRecord(
                 timestamp=datetime.utcnow() - timedelta(minutes=i),
-                level=[LogLevel.INFO, LogLevel.ERROR][i % 2],
+                level=[LogLevel.INFO.value, LogLevel.ERROR.value][i % 2],
                 message=f"引擎测试消息 {i}",
                 module="engine_module",
                 function="engine_func",
@@ -400,7 +409,11 @@ class TestLogQueryEngine:
         engine = LogQueryEngine()
         engine.file_manager = manager
 
-        return engine, lambda: setattr(flm, '_file_log_manager_instance', original_instance)
+        return engine, lambda: (
+            setattr(flm, '_file_log_manager_instance', None),
+            setattr(flm.FileLogManager, '_instance', None),
+            setattr(flm.FileLogManager, '_initialized', False),
+        )
 
     def test_query_with_cache(self, temp_log_dir):
         """测试带缓存的查询"""
@@ -479,13 +492,13 @@ class TestEdgeCases:
         for msg in special_messages:
             record = LogRecord(
                 timestamp=datetime.utcnow(),
-                level=LogLevel.INFO,
+                level=LogLevel.INFO.value,
                 message=msg,
                 module="special_module",
                 function="special_func",
                 line=1,
                 logger_name="special_logger",
-                log_type=LogType.APPLICATION,
+                log_type=LogType.APPLICATION.value,
             )
             file_manager.write_log(record)
 
@@ -502,13 +515,13 @@ class TestEdgeCases:
 
         record = LogRecord(
             timestamp=datetime.utcnow(),
-            level=LogLevel.INFO,
+            level=LogLevel.INFO.value,
             message=long_message,
             module="long_module",
             function="long_func",
             line=1,
             logger_name="long_logger",
-            log_type=LogType.APPLICATION,
+            log_type=LogType.APPLICATION.value,
         )
 
         result = file_manager.write_log(record)

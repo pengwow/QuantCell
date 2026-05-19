@@ -223,7 +223,7 @@ class KlineFileManager:
             pd.DataFrame: K线数据
         """
         try:
-            data_dir = self.base_dir / market_type / symbol / interval
+            data_dir = self.base_dir / 'crypto' / market_type / 'klines' / symbol / interval
             
             if not data_dir.exists():
                 logger.warning(f"[KlineFileManager] 目录不存在: {data_dir}")
@@ -381,7 +381,7 @@ class KlineFileManager:
         Returns:
             List[str]: 交易对符号列表
         """
-        market_dir = self.base_dir / market_type
+        market_dir = self.base_dir / 'crypto' / market_type / 'klines'
         
         if not market_dir.exists():
             return []
@@ -404,7 +404,7 @@ class KlineFileManager:
         Returns:
             List[str]: 周期列表
         """
-        symbol_dir = self.base_dir / market_type / symbol
+        symbol_dir = self.base_dir / 'crypto' / market_type / 'klines' / symbol
         
         if not symbol_dir.exists():
             return []
@@ -433,8 +433,8 @@ class KlineFileManager:
         Returns:
             tuple: (最早日期, 最晚日期) 或 None
         """
-        data_dir = self.base_dir / market_type / symbol / interval
-        
+        data_dir = self.base_dir / 'crypto' / market_type / 'klines' / symbol / interval
+
         if not data_dir.exists():
             return None
         
@@ -466,7 +466,7 @@ class KlineFileManager:
             bool: 是否成功
         """
         try:
-            target_dir = self.base_dir / market_type / symbol / interval
+            target_dir = self.base_dir / 'crypto' / market_type / 'klines' / symbol / interval
             
             if not target_dir.exists():
                 logger.warning(f"[KlineFileManager] 目录不存在: {target_dir}")
@@ -501,7 +501,7 @@ class KlineFileManager:
             return stats
         
         for market_type in ['spot', 'future']:
-            market_dir = self.base_dir / market_type
+            market_dir = self.base_dir / 'crypto' / market_type / 'klines'
             
             if not market_dir.exists():
                 continue
