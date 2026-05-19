@@ -193,10 +193,10 @@ def nanoseconds_to_datetime(timestamp: Union[str, int]) -> datetime:
         >>> nanoseconds_to_datetime(1767830400000000000)
         datetime.datetime(2026, 1, 8, 0, 0)
     """
+    from datetime import timezone
     ts = int(timestamp)
-    # 纳秒转秒
     seconds = ts / 1_000_000_000
-    return datetime.fromtimestamp(seconds)
+    return datetime.fromtimestamp(seconds, tz=timezone.utc)
 
 
 def datetime_to_nanoseconds(dt: datetime) -> int:
@@ -204,7 +204,7 @@ def datetime_to_nanoseconds(dt: datetime) -> int:
     将datetime对象转换为纳秒级时间戳
 
     Args:
-        dt: datetime对象
+        dt: datetime对象（naive datetime 会被视为 UTC）
 
     Returns:
         int: 纳秒级时间戳
@@ -214,6 +214,9 @@ def datetime_to_nanoseconds(dt: datetime) -> int:
         >>> datetime_to_nanoseconds(datetime(2026, 1, 8, 0, 0))
         1767830400000000000
     """
+    from datetime import timezone
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     return int(dt.timestamp() * 1_000_000_000)
 
 

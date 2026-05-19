@@ -5,11 +5,12 @@ Worker模块CRUD操作
 """
 
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_
+from sqlalchemy import desc, and_, func, cast, Date, case
 from typing import List, Optional, Tuple, Dict, Any
 from datetime import datetime, timedelta
+import numpy as np
 
-from .models import Worker, WorkerLog, WorkerMetric, WorkerPerformance, WorkerParameter, WorkerTrade
+from .models import Worker, WorkerLog, WorkerMetric, WorkerPerformance, WorkerParameter, WorkerTrade, WorkerOrder, WorkerPosition
 from . import schemas
 
 
@@ -422,6 +423,427 @@ def get_worker_trades(
     if end_time:
         query = query.filter(WorkerTrade.created_at <= end_time)
     
+    total = query.count()
+    trades = query.order_by(desc(WorkerTrade.created_at)).offset(skip).limit(limit).all()
+    return trades, total
+
+
+def create_trade_if_not_exists(db: Session, trade_data: dict) -> WorkerTrade:
+    existing = db.query(WorkerTrade).filter(WorkerTrade.trade_id == trade_data['trade_id']).first()
+    if existing:
+        return existing
+    db_trade = WorkerTrade(**trade_data)
+    db.add(db_trade)
+    db.commit()
+    db.refresh(db_trade)
+    return db_trade
+
+
+def create_order_if_not_exists(db: Session, order_data: dict) -> WorkerOrder:
+    existing = db.query(WorkerOrder).filter(WorkerOrder.client_order_id == order_data['client_order_id']).first()
+    if existing:
+        return existing
+    db_order = WorkerOrder(**order_data)
+    db.add(db_order)
+    db.commit()
+    db.refresh(db_order)
+    return db_order
+
+
+def create_position_if_not_exists(db: Session, position_data: dict) -> WorkerPosition:
+    existing = db.query(WorkerPosition).filter(WorkerPosition.position_id == position_data['position_id']).first()
+    if existing:
+        return existing
+    db_position = WorkerPosition(**position_data)
+    db.add(db_position)
+    db.commit()
+    db.refresh(db_position)
+    return db_position
+
+
+def update_position(db: Session, position_id: str, position_data: dict) -> Optional[WorkerPosition]:
+    position = db.query(WorkerPosition).filter(WorkerPosition.position_id == position_id).first()
+    if not position:
+        return None
+    for field, value in position_data.items():
+        if hasattr(position, field):
+            setattr(position, field, value)
+    position.updated_at = datetime.now()
+    db.commit()
+    db.refresh(position)
+    return position
+
+
+def get_all_worker_trades(
+    db: Session,
+    worker_id: int,
+    symbol: Optional[str] = None,
+    side: Optional[str] = None,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+) -> List[WorkerTrade]:
+    query = db.query(WorkerTrade).filter(WorkerTrade.worker_id == worker_id)
+    if symbol:
+        query = query.filter(WorkerTrade.symbol == symbol)
+    if side:
+        query = query.filter(WorkerTrade.side == side)
+    if start_time:
+        query = query.filter(WorkerTrade.created_at >= start_time)
+    if end_time:
+        query = query.filter(WorkerTrade.created_at <= end_time)
+    return query.order_by(desc(WorkerTrade.created_at)).all()
+
+
+def get_worker_order_by_id(db: Session, worker_id: int, client_order_id: str) -> Optional[WorkerOrder]:
+    return db.query(WorkerOrder).filter(
+        and_(
+            WorkerOrder.worker_id == worker_id,
+            WorkerOrder.client_order_id == client_order_id,
+        )
+    ).first()
+
+
+def update_worker_order_status(
+    db: Session,
+    order_id: int,
+    status: str,
+    filled_qty: float,
+    avg_fill_price: float,
+    commission: float,
+    venue_order_id: str,
+) -> Optional[WorkerOrder]:
+    order = db.query(WorkerOrder).filter(WorkerOrder.id == order_id).first()
+    if not order:
+        return None
+    order.status = status
+    order.filled_qty = filled_qty
+    order.avg_fill_price = avg_fill_price
+    order.venue_order_id = venue_order_id
+    order.updated_at = datetime.now()
+    if status == "FILLED":
+        order.filled_at = datetime.now()
+    db.commit()
+    db.refresh(order)
+    return order
+
+
+def get_trading_summary(db: Session, worker_id: int) -> dict:
+    trades = db.query(WorkerTrade).filter(WorkerTrade.worker_id == worker_id).all()
+
+    if not trades:
+        return {
+            "total_trades": 0,
+            "winning_trades": 0,
+            "losing_trades": 0,
+            "win_rate": 0.0,
+            "total_pnl": 0.0,
+            "total_profit": 0.0,
+            "total_loss": 0.0,
+            "profit_factor": 0.0,
+            "average_profit": 0.0,
+            "average_loss": 0.0,
+            "largest_profit": 0.0,
+            "largest_loss": 0.0,
+            "total_volume": 0.0,
+            "total_fees": 0.0,
+            "trading_days": 0,
+            "daily_average_trades": 0.0,
+        }
+
+    pnl_values = [t.realized_pnl for t in trades if t.realized_pnl is not None]
+    positive_pnl = [p for p in pnl_values if p > 0]
+    negative_pnl = [p for p in pnl_values if p < 0]
+
+    total_trades = len(trades)
+    winning_trades = len(positive_pnl)
+    losing_trades = len(negative_pnl)
+    total_pnl = sum(pnl_values)
+    total_profit = sum(positive_pnl)
+    total_loss = sum(negative_pnl)
+    largest_profit = max(positive_pnl) if positive_pnl else 0.0
+    largest_loss = min(negative_pnl) if negative_pnl else 0.0
+    total_volume = sum(t.amount for t in trades if t.amount)
+    total_fees = sum(t.fee for t in trades if t.fee)
+
+    trade_dates = set()
+    for t in trades:
+        if t.created_at:
+            trade_dates.add(t.created_at.date())
+    trading_days = len(trade_dates)
+
+    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+    profit_factor = (total_profit / abs(total_loss)) if total_loss != 0 else 0.0
+    average_profit = (total_profit / winning_trades) if winning_trades > 0 else 0.0
+    average_loss = (total_loss / losing_trades) if losing_trades > 0 else 0.0
+    daily_average_trades = (total_trades / trading_days) if trading_days > 0 else 0.0
+
+    return {
+        "total_trades": total_trades,
+        "winning_trades": winning_trades,
+        "losing_trades": losing_trades,
+        "win_rate": round(win_rate, 2),
+        "total_pnl": round(total_pnl, 2),
+        "total_profit": round(total_profit, 2),
+        "total_loss": round(total_loss, 2),
+        "profit_factor": round(profit_factor, 2),
+        "average_profit": round(average_profit, 2),
+        "average_loss": round(average_loss, 2),
+        "largest_profit": round(largest_profit, 2),
+        "largest_loss": round(largest_loss, 2),
+        "total_volume": round(total_volume, 2),
+        "total_fees": round(total_fees, 2),
+        "trading_days": trading_days,
+        "daily_average_trades": round(daily_average_trades, 2),
+    }
+
+
+def get_trade_history_chart(db: Session, worker_id: int, days: int = 30) -> dict:
+    start_date = datetime.now() - timedelta(days=days)
+    trades = (
+        db.query(WorkerTrade)
+        .filter(
+            and_(
+                WorkerTrade.worker_id == worker_id,
+                WorkerTrade.created_at >= start_date,
+            )
+        )
+        .order_by(WorkerTrade.created_at)
+        .all()
+    )
+
+    if not trades:
+        return {
+            "dates": [],
+            "cumulative_pnl": [],
+            "daily_pnl": [],
+            "trade_count": [],
+        }
+
+    daily_data: Dict[str, Dict[str, float]] = {}
+    for t in trades:
+        if not t.created_at:
+            continue
+        date_str = t.created_at.strftime("%Y-%m-%d")
+        if date_str not in daily_data:
+            daily_data[date_str] = {"pnl": 0.0, "count": 0}
+        daily_data[date_str]["pnl"] += t.realized_pnl or 0.0
+        daily_data[date_str]["count"] += 1
+
+    sorted_dates = sorted(daily_data.keys())
+    dates = []
+    cumulative_pnl = []
+    daily_pnl = []
+    trade_count = []
+    cumulative = 0.0
+
+    for date_str in sorted_dates:
+        cumulative += daily_data[date_str]["pnl"]
+        dates.append(date_str)
+        cumulative_pnl.append(round(cumulative, 2))
+        daily_pnl.append(round(daily_data[date_str]["pnl"], 2))
+        trade_count.append(int(daily_data[date_str]["count"]))
+
+    return {
+        "dates": dates,
+        "cumulative_pnl": cumulative_pnl,
+        "daily_pnl": daily_pnl,
+        "trade_count": trade_count,
+    }
+
+
+def get_pnl_distribution(db: Session, worker_id: int) -> dict:
+    trades = db.query(WorkerTrade).filter(WorkerTrade.worker_id == worker_id).all()
+    pnl_values = [t.realized_pnl for t in trades if t.realized_pnl is not None]
+
+    if not pnl_values:
+        return {
+            "bins": [],
+            "counts": [],
+            "mean": 0.0,
+            "median": 0.0,
+            "std": 0.0,
+        }
+
+    pnl_array = np.array(pnl_values)
+    counts, bin_edges = np.histogram(pnl_array, bins=20)
+
+    return {
+        "bins": [round(float(b), 2) for b in bin_edges.tolist()],
+        "counts": [int(c) for c in counts.tolist()],
+        "mean": round(float(np.mean(pnl_array)), 2),
+        "median": round(float(np.median(pnl_array)), 2),
+        "std": round(float(np.std(pnl_array)), 2),
+    }
+
+
+def get_worker_orders_paginated(
+    db: Session,
+    worker_id: int,
+    status: Optional[str] = None,
+    symbol: Optional[str] = None,
+    side: Optional[str] = None,
+    order_type: Optional[str] = None,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> Tuple[List[WorkerOrder], int]:
+    query = db.query(WorkerOrder).filter(WorkerOrder.worker_id == worker_id)
+
+    if status:
+        query = query.filter(WorkerOrder.status == status)
+    if symbol:
+        query = query.filter(WorkerOrder.symbol == symbol)
+    if side:
+        query = query.filter(WorkerOrder.side == side)
+    if order_type:
+        query = query.filter(WorkerOrder.order_type == order_type)
+    if start_time:
+        query = query.filter(WorkerOrder.created_at >= start_time)
+    if end_time:
+        query = query.filter(WorkerOrder.created_at <= end_time)
+
+    total = query.count()
+    orders = query.order_by(desc(WorkerOrder.created_at)).offset(skip).limit(limit).all()
+    return orders, total
+
+
+def get_worker_positions_filtered(
+    db: Session,
+    worker_id: int,
+    status: Optional[str] = "OPEN",
+    symbol: Optional[str] = None,
+    side: Optional[str] = None,
+) -> List[WorkerPosition]:
+    query = db.query(WorkerPosition).filter(WorkerPosition.worker_id == worker_id)
+
+    if status:
+        query = query.filter(WorkerPosition.status == status)
+    if symbol:
+        query = query.filter(WorkerPosition.symbol == symbol)
+    if side:
+        query = query.filter(WorkerPosition.side == side)
+
+    return query.order_by(desc(WorkerPosition.updated_at)).all()
+
+
+def get_trading_summary_optimized(
+    db: Session,
+    worker_id: int,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+) -> dict:
+    query = db.query(
+        func.count(WorkerTrade.id).label('total_trades'),
+        func.sum(case((WorkerTrade.realized_pnl > 0, 1), else_=0)).label('winning_trades'),
+        func.sum(case((WorkerTrade.realized_pnl < 0, 1), else_=0)).label('losing_trades'),
+        func.sum(WorkerTrade.realized_pnl).label('total_pnl'),
+        func.sum(case((WorkerTrade.realized_pnl > 0, WorkerTrade.realized_pnl), else_=0)).label('total_profit'),
+        func.sum(case((WorkerTrade.realized_pnl < 0, WorkerTrade.realized_pnl), else_=0)).label('total_loss'),
+        func.max(WorkerTrade.realized_pnl).label('largest_profit'),
+        func.min(WorkerTrade.realized_pnl).label('largest_loss'),
+        func.sum(WorkerTrade.amount).label('total_volume'),
+        func.sum(WorkerTrade.fee).label('total_fees'),
+        func.count(func.distinct(func.date(WorkerTrade.created_at))).label('trading_days'),
+    ).filter(WorkerTrade.worker_id == worker_id)
+
+    if start_time:
+        query = query.filter(WorkerTrade.created_at >= start_time)
+    if end_time:
+        query = query.filter(WorkerTrade.created_at <= end_time)
+
+    row = query.first()
+
+    if not row or not row.total_trades:
+        return {
+            "total_trades": 0,
+            "winning_trades": 0,
+            "losing_trades": 0,
+            "win_rate": 0.0,
+            "total_pnl": 0.0,
+            "total_profit": 0.0,
+            "total_loss": 0.0,
+            "profit_factor": 0.0,
+            "average_profit": 0.0,
+            "average_loss": 0.0,
+            "largest_profit": 0.0,
+            "largest_loss": 0.0,
+            "total_volume": 0.0,
+            "total_fees": 0.0,
+            "trading_days": 0,
+            "daily_average_trades": 0.0,
+        }
+
+    total_trades = row.total_trades or 0
+    winning_trades = row.winning_trades or 0
+    losing_trades = row.losing_trades or 0
+    total_pnl = row.total_pnl or 0.0
+    total_profit = row.total_profit or 0.0
+    total_loss = row.total_loss or 0.0
+    largest_profit = row.largest_profit or 0.0
+    largest_loss = row.largest_loss or 0.0
+    total_volume = row.total_volume or 0.0
+    total_fees = row.total_fees or 0.0
+    trading_days = row.trading_days or 0
+
+    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+    profit_factor = (total_profit / abs(total_loss)) if total_loss != 0 else 0.0
+    average_profit = (total_profit / winning_trades) if winning_trades > 0 else 0.0
+    average_loss = (total_loss / losing_trades) if losing_trades > 0 else 0.0
+    daily_average_trades = (total_trades / trading_days) if trading_days > 0 else 0.0
+
+    return {
+        "total_trades": total_trades,
+        "winning_trades": winning_trades,
+        "losing_trades": losing_trades,
+        "win_rate": round(win_rate, 2),
+        "total_pnl": round(total_pnl, 2),
+        "total_profit": round(total_profit, 2),
+        "total_loss": round(total_loss, 2),
+        "profit_factor": round(profit_factor, 2),
+        "average_profit": round(average_profit, 2),
+        "average_loss": round(average_loss, 2),
+        "largest_profit": round(largest_profit, 2),
+        "largest_loss": round(largest_loss, 2),
+        "total_volume": round(total_volume, 2),
+        "total_fees": round(total_fees, 2),
+        "trading_days": trading_days,
+        "daily_average_trades": round(daily_average_trades, 2),
+    }
+
+
+def get_worker_trades_paginated(
+    db: Session,
+    worker_id: int,
+    symbol: Optional[str] = None,
+    side: Optional[str] = None,
+    order_type: Optional[str] = None,
+    pnl_status: Optional[str] = None,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> Tuple[List[WorkerTrade], int]:
+    query = db.query(WorkerTrade).filter(WorkerTrade.worker_id == worker_id)
+
+    if symbol:
+        query = query.filter(WorkerTrade.symbol == symbol)
+    if side:
+        query = query.filter(WorkerTrade.side == side)
+    if order_type:
+        query = query.filter(WorkerTrade.order_type == order_type)
+    if pnl_status is not None:
+        if pnl_status == 'profit':
+            query = query.filter(WorkerTrade.realized_pnl > 0)
+        elif pnl_status == 'loss':
+            query = query.filter(WorkerTrade.realized_pnl < 0)
+        elif pnl_status == 'flat':
+            query = query.filter(WorkerTrade.realized_pnl == 0)
+    if start_time:
+        query = query.filter(WorkerTrade.created_at >= start_time)
+    if end_time:
+        query = query.filter(WorkerTrade.created_at <= end_time)
+
     total = query.count()
     trades = query.order_by(desc(WorkerTrade.created_at)).offset(skip).limit(limit).all()
     return trades, total

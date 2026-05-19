@@ -38,7 +38,7 @@ def test_invalid_transition():
     assert result.error is None
 
 
-def test_batch_transition():
+async def test_batch_transition():
     """测试批量状态转换"""
     guard = StateMachineGuard()
     # First transition to STARTING for both
@@ -46,7 +46,7 @@ def test_batch_transition():
     guard.transition(2, WorkerState.STARTING)
     
     # Now try transitioning both to RUNNING
-    batch_result = guard.batch_transition([1, 2], WorkerState.RUNNING, "test_batch")
+    batch_result = await guard.batch_transition([1, 2], WorkerState.RUNNING, "test_batch")
     
     assert isinstance(batch_result, BatchOperationResult)
     assert len(batch_result.success_ids) == 2

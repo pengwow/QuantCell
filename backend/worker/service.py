@@ -49,6 +49,47 @@ class WorkerService:
     async def shutdown(self):
         self._initialized = False
 
+    def get_worker_orders(
+        self,
+        worker_id: int,
+        status: Optional[str] = None,
+        symbol: Optional[str] = None,
+        side: Optional[str] = None,
+        order_type: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict:
+        from .crud import get_worker_orders_paginated
+        from collector.db.database import SessionLocal
+
+        skip = (page - 1) * page_size
+
+        db = SessionLocal()
+        try:
+            items, total = get_worker_orders_paginated(
+                db=db,
+                worker_id=worker_id,
+                status=status,
+                symbol=symbol,
+                side=side,
+                order_type=order_type,
+                start_time=start_time,
+                end_time=end_time,
+                skip=skip,
+                limit=page_size,
+            )
+
+            return {
+                "items": [item.to_dict() for item in items],
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            }
+        finally:
+            db.close()
+
     @classmethod
     def reset_instance(cls):
         cls._instance = None
