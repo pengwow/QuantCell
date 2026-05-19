@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 from typing import Dict, Any, List
 from datetime import datetime
 
-
 class TestBacktestListAPI:
     """回测列表API测试类"""
 
@@ -47,7 +46,6 @@ class TestBacktestListAPI:
         assert response.status_code == 500
         assert "Database connection failed" in str(response.json().get("detail", ""))
 
-
 class TestBacktestStrategiesAPI:
     """策略类型列表API测试类"""
 
@@ -67,7 +65,6 @@ class TestBacktestStrategiesAPI:
         data = response.json()
         assert data["code"] == 0
         assert data["data"]["strategies"] == []
-
 
 class TestBacktestRunAPI:
     """回测执行API测试类"""
@@ -237,7 +234,6 @@ class TestBacktestRunAPI:
             response = client.post("/api/backtest/run", json=request_data)
             assert response.status_code == 200, f"Failed for interval {interval}"
 
-
 class TestBacktestStopAPI:
     """回测终止API测试类"""
 
@@ -281,7 +277,6 @@ class TestBacktestStopAPI:
         request_data = {"task_id": ""}
         response = client.post("/api/backtest/stop", json=request_data)
         assert response.status_code == 422
-
 
 class TestBacktestAnalyzeAPI:
     """回测分析API测试类"""
@@ -327,12 +322,13 @@ class TestBacktestAnalyzeAPI:
         response = client.post("/api/backtest/analyze", json=request_data)
         assert response.status_code == 422
 
-
 class TestBacktestDeleteAPI:
     """回测删除API测试类（需要认证）"""
 
     def test_delete_backtest_success(self, client: TestClient, auth_headers: Dict[str, str], mocker, assert_api_response):
         """测试删除回测结果成功"""
+        mocker.patch("backtest.routes.is_guest_user", return_value=False)
+        mocker.patch("utils.auth.decode_jwt_token", return_value={"sub": "test_user", "name": "test_user", "role": "user"})
         mocker.patch(
             "backtest.routes.backtest_service.delete_backtest_result",
             return_value=True
@@ -346,6 +342,8 @@ class TestBacktestDeleteAPI:
 
     def test_delete_backtest_not_found(self, client: TestClient, auth_headers: Dict[str, str], mocker):
         """测试删除不存在的回测结果"""
+        mocker.patch("backtest.routes.is_guest_user", return_value=False)
+        mocker.patch("utils.auth.decode_jwt_token", return_value={"sub": "test_user", "name": "test_user", "role": "user"})
         mocker.patch(
             "backtest.routes.backtest_service.delete_backtest_result",
             return_value=False
@@ -365,7 +363,6 @@ class TestBacktestDeleteAPI:
         """测试删除无效ID的回测"""
         response = client.delete("/api/backtest/delete/", headers=auth_headers)
         assert response.status_code == 307
-
 
 class TestBacktestDetailAPI:
     """回测详情API测试类"""
@@ -388,7 +385,6 @@ class TestBacktestDetailAPI:
         """测试获取空ID的回测详情"""
         response = client.get("/api/backtest/")
         assert response.status_code in [404, 307]
-
 
 class TestBacktestSymbolsAPI:
     """回测货币对列表API测试类"""
@@ -428,7 +424,6 @@ class TestBacktestSymbolsAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-
 
 class TestBacktestReplayAPI:
     """回测回放API测试类"""
@@ -492,7 +487,6 @@ class TestBacktestReplayAPI:
         data = response.json()
         assert data["code"] == 1
 
-
 class TestStrategyConfigAPI:
     """策略配置API测试类"""
 
@@ -539,7 +533,6 @@ class TestStrategyConfigAPI:
         response = client.post("/api/backtest/strategy/config", json=request_data)
         assert response.status_code == 422
 
-
 class TestBacktestUploadAPI:
     """策略上传API测试类"""
 
@@ -585,7 +578,6 @@ class TestBacktestUploadAPI:
 
         response = client.post("/api/backtest/strategy", json=request_data)
         assert response.status_code == 422
-
 
 class TestDataIntegrityAPI:
     """数据完整性检查API测试类"""
@@ -663,7 +655,6 @@ class TestDataIntegrityAPI:
         response = client.post("/api/backtest/check-data", json=request_data)
         assert response.status_code == 422
 
-
 class TestDataDownloadAPI:
     """数据下载API测试类"""
 
@@ -704,7 +695,6 @@ class TestDataDownloadAPI:
         data = response.json()
         assert data["code"] == 1
         assert data["data"]["status"] == "failed"
-
 
 class TestBacktestEdgeCases:
     """回测API边界条件测试类"""
