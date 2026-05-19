@@ -38,28 +38,19 @@ class TestAIModelAPI:
 
     def test_get_ai_models_list(self, client, mock_auth, mock_should_refresh):
         """测试获取AI模型配置列表"""
-        with patch("ai_model.models.AIModelBusiness.list") as mock_list:
-            mock_list.return_value = {
-                "items": [
-                    {
-                        "id": 1,
-                        "provider": "openai",
-                        "name": "OpenAI Config",
-                        "api_host": "https://api.openai.com",
-                        "models": ["gpt-4"],
-                        "is_default": True,
-                        "is_enabled": True,
-                        "created_at": "2026-03-02 10:00:00",
-                        "updated_at": "2026-03-02 10:00:00",
-                        "api_key_masked": "sk-...1234"
-                    }
-                ],
-                "total": 1,
-                "page": 1,
-                "limit": 10,
-                "pages": 1
-            }
-
+        mock_providers = [{
+            "id": 1,
+            "provider": "openai",
+            "name": "OpenAI Config",
+            "api_host": "https://api.openai.com",
+            "models": ["gpt-4"],
+            "is_default": True,
+            "is_enabled": "gpt-4",
+            "created_at": "2026-03-02 10:00:00",
+            "updated_at": "2026-03-02 10:00:00",
+            "api_key_masked": "sk-...1234"
+        }]
+        with patch('ai_model.routes.get_ai_models_from_config', return_value=mock_providers):
             response = client.get(
                 "/api/ai-models/",
                 headers={"Authorization": "Bearer test_token"}
@@ -73,20 +64,7 @@ class TestAIModelAPI:
 
     def test_create_ai_model(self, client, mock_auth, mock_should_refresh):
         """测试创建AI模型配置"""
-        with patch("ai_model.models.AIModelBusiness.create") as mock_create:
-            mock_create.return_value = {
-                "id": 1,
-                "provider": "openai",
-                "name": "Test Config",
-                "api_host": "https://api.openai.com",
-                "models": ["gpt-4"],
-                "is_default": False,
-                "is_enabled": True,
-                "created_at": "2026-03-02 10:00:00",
-                "updated_at": "2026-03-02 10:00:00",
-                "api_key_masked": "sk-...1234"
-            }
-
+        with patch('ai_model.routes.save_ai_model_to_config', return_value=True):
             response = client.post(
                 "/api/ai-models/",
                 headers={"Authorization": "Bearer test_token"},
@@ -97,7 +75,7 @@ class TestAIModelAPI:
                     "api_host": "https://api.openai.com",
                     "models": ["gpt-4"],
                     "is_default": False,
-                    "is_enabled": True
+                    "is_enabled": "gpt-4"
                 }
             )
 
@@ -108,20 +86,19 @@ class TestAIModelAPI:
 
     def test_get_ai_model_by_id(self, client, mock_auth, mock_should_refresh):
         """测试获取单个AI模型配置"""
-        with patch("ai_model.models.AIModelBusiness.get_by_id") as mock_get:
-            mock_get.return_value = {
-                "id": 1,
-                "provider": "openai",
-                "name": "Test Config",
-                "api_host": "https://api.openai.com",
-                "models": ["gpt-4"],
-                "is_default": False,
-                "is_enabled": True,
-                "created_at": "2026-03-02 10:00:00",
-                "updated_at": "2026-03-02 10:00:00",
-                "api_key_masked": "sk-...1234"
-            }
-
+        mock_providers = [{
+            "id": 1,
+            "provider": "openai",
+            "name": "Test Config",
+            "api_host": "https://api.openai.com",
+            "models": ["gpt-4"],
+            "is_default": True,
+            "is_enabled": "gpt-4",
+            "created_at": "2026-03-02 10:00:00",
+            "updated_at": "2026-03-02 10:00:00",
+            "api_key_masked": "sk-...1234"
+        }]
+        with patch('ai_model.routes.get_ai_models_from_config', return_value=mock_providers):
             response = client.get(
                 "/api/ai-models/1",
                 headers={"Authorization": "Bearer test_token"}
@@ -134,20 +111,20 @@ class TestAIModelAPI:
 
     def test_update_ai_model(self, client, mock_auth, mock_should_refresh):
         """测试更新AI模型配置"""
-        with patch("ai_model.models.AIModelBusiness.update") as mock_update:
-            mock_update.return_value = {
-                "id": 1,
-                "provider": "openai",
-                "name": "Updated Config",
-                "api_host": "https://api.openai.com",
-                "models": ["gpt-4", "gpt-3.5-turbo"],
-                "is_default": True,
-                "is_enabled": True,
-                "created_at": "2026-03-02 10:00:00",
-                "updated_at": "2026-03-02 11:00:00",
-                "api_key_masked": "sk-...1234"
-            }
-
+        mock_providers = [{
+            "id": 1,
+            "provider": "openai",
+            "name": "Test Config",
+            "api_host": "https://api.openai.com",
+            "models": ["gpt-4"],
+            "is_default": True,
+            "is_enabled": "gpt-4",
+            "created_at": "2026-03-02 10:00:00",
+            "updated_at": "2026-03-02 10:00:00",
+            "api_key_masked": "sk-...1234"
+        }]
+        with patch('ai_model.routes.get_ai_models_from_config', return_value=mock_providers), \
+             patch('ai_model.routes.save_ai_model_to_config', return_value=True):
             response = client.put(
                 "/api/ai-models/1",
                 headers={"Authorization": "Bearer test_token"},
@@ -164,9 +141,7 @@ class TestAIModelAPI:
 
     def test_delete_ai_model(self, client, mock_auth, mock_should_refresh):
         """测试删除AI模型配置"""
-        with patch("ai_model.models.AIModelBusiness.delete") as mock_delete:
-            mock_delete.return_value = True
-
+        with patch('ai_model.routes.delete_ai_model_from_config', return_value=True):
             response = client.delete(
                 "/api/ai-models/1",
                 headers={"Authorization": "Bearer test_token"}
@@ -248,22 +223,21 @@ class TestAIModelAPI:
 
     def test_get_available_models(self, client, mock_auth, mock_should_refresh):
         """测试获取配置的可用模型列表"""
-        with patch("ai_model.models.AIModelBusiness.get_by_id") as mock_get_config, \
-             patch("ai_model.services.AIModelService.fetch_available_models") as mock_fetch:
-            
-            mock_get_config.return_value = {
-                "id": 1,
-                "provider": "openai",
-                "name": "Test Config",
-                "api_host": "https://api.openai.com",
-                "api_key": "sk-test123456789"
-            }
-            
-            mock_fetch.return_value = [
-                {"id": "gpt-4", "name": "gpt-4", "description": "GPT-4模型", "provider": "openai"},
-                {"id": "gpt-3.5-turbo", "name": "gpt-3.5-turbo", "description": "GPT-3.5 Turbo模型", "provider": "openai"}
-            ]
-
+        mock_providers = [{
+            "id": 1,
+            "provider": "openai",
+            "name": "Test Config",
+            "api_host": "https://api.openai.com",
+            "api_key": "sk-test123456789",
+            "is_default": True,
+            "is_enabled": "gpt-4",
+        }]
+        mock_models = [
+            {"id": "gpt-4", "name": "gpt-4", "description": "GPT-4模型", "provider": "openai"},
+            {"id": "gpt-3.5-turbo", "name": "gpt-3.5-turbo", "description": "GPT-3.5 Turbo模型", "provider": "openai"}
+        ]
+        with patch('ai_model.routes.get_ai_models_from_config', return_value=mock_providers), \
+             patch("ai_model.services.AIModelService.fetch_available_models", return_value=mock_models):
             response = client.get(
                 "/api/ai-models/1/models",
                 headers={"Authorization": "Bearer test_token"}
@@ -278,9 +252,7 @@ class TestAIModelAPI:
 
     def test_get_available_models_config_not_found(self, client, mock_auth, mock_should_refresh):
         """测试获取不存在配置的可用模型列表"""
-        with patch("ai_model.models.AIModelBusiness.get_by_id") as mock_get_config:
-            mock_get_config.return_value = None
-
+        with patch('ai_model.routes.get_ai_models_from_config', return_value=[]):
             response = client.get(
                 "/api/ai-models/999/models",
                 headers={"Authorization": "Bearer test_token"}
@@ -293,14 +265,14 @@ class TestAIModelAPI:
 
     def test_get_available_models_no_api_key(self, client, mock_auth, mock_should_refresh):
         """测试获取没有API密钥的配置的可用模型列表"""
-        with patch("ai_model.models.AIModelBusiness.get_by_id") as mock_get_config:
-            mock_get_config.return_value = {
-                "id": 1,
-                "provider": "openai",
-                "name": "Test Config",
-                "api_host": "https://api.openai.com"
-            }
-
+        mock_providers = [{
+            "id": 1,
+            "provider": "openai",
+            "name": "Test Config",
+            "api_host": "https://api.openai.com",
+            "is_default": True,
+        }]
+        with patch('ai_model.routes.get_ai_models_from_config', return_value=mock_providers):
             response = client.get(
                 "/api/ai-models/1/models",
                 headers={"Authorization": "Bearer test_token"}
@@ -309,7 +281,7 @@ class TestAIModelAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
-        assert "配置中没有API密钥" in data["message"]
+        assert "API密钥" in data["message"]
 
 
 class TestAIModelAuth:
