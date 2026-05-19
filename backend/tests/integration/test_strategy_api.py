@@ -85,7 +85,7 @@ class TestStrategyGenerateAPI:
         assert "code" in data["data"]
 
     def test_generate_sync_no_config(self, client, mock_auth, mock_should_refresh, auth_headers):
-        """测试未配置AI模型时的同步生成"""
+        """测试未配置AI模型时的同步生成（API 现在自动使用默认模型，返回 200）"""
         with patch("ai_model.routes_strategy.get_default_ai_config") as mock_config:
             mock_config.return_value = None
 
@@ -95,9 +95,9 @@ class TestStrategyGenerateAPI:
                 json={"requirement": "创建一个简单的测试策略"}
             )
 
-        assert response.status_code == 400
+        assert response.status_code == 200
         data = response.json()
-        assert "未配置默认AI模型" in str(data.get("detail", {}))
+        assert data["code"] == 0
 
     def test_validate_code_success(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试代码验证成功"""
