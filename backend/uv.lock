@@ -426,6 +426,7 @@ dependencies = [
 dev = [
     { name = "autoflake" },
     { name = "dead" },
+    { name = "pytest-mock" },
     { name = "vulture" },
 ]
 
@@ -494,6 +495,7 @@ requires-dist = [
 dev = [
     { name = "autoflake", specifier = ">=2.3.3" },
     { name = "dead", specifier = ">=2.1.0" },
+    { name = "pytest-mock", specifier = ">=3.15.1" },
     { name = "vulture", specifier = ">=2.16" },
 ]
 

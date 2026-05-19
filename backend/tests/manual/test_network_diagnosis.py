@@ -1,4 +1,8 @@
-"""深度网络诊断工具 - 排查 APITimeoutError 根本原因"""
+"""深度网络诊断工具 - 排查 APITimeoutError 根本原因
+
+注意：此文件为手动诊断脚本，依赖外部 OpenAI API 网络连接。
+在自动化测试环境中跳过。
+"""
 
 import asyncio
 import os
@@ -7,6 +11,10 @@ import sys
 import time
 from pathlib import Path
 from urllib.parse import urlparse
+
+import pytest
+
+pytestmark = pytest.mark.skip(reason="手动网络诊断工具，依赖外部 OpenAI API 连接")
 
 
 def check_environment():

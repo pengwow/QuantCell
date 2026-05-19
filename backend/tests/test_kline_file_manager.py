@@ -42,7 +42,7 @@ class TestKlineFileManagerInit:
     
     def test_init_with_default_base_dir(self):
         manager = KlineFileManager()
-        assert manager.base_dir.name == 'klines'
+        assert manager.base_dir.name == 'source'
     
     def test_init_with_custom_base_dir(self, temp_dir):
         manager = KlineFileManager(base_dir=temp_dir)
@@ -67,7 +67,7 @@ class TestSaveKlines:
         )
         
         assert result is True
-        expected_path = temp_dir / 'spot' / 'BTCUSDT' / '1h' / '2024-01.parquet'
+        expected_path = temp_dir / 'crypto' / 'spot' / 'klines' / 'BTCUSDT' / '1h' / '2024-01.parquet'
         assert expected_path.exists()
     
     def test_save_future_klines(self, temp_dir, sample_df):
@@ -81,7 +81,7 @@ class TestSaveKlines:
         )
         
         assert result is True
-        expected_path = temp_dir / 'future' / 'ETHUSDT' / '15m' / '2024-01.parquet'
+        expected_path = temp_dir / 'crypto' / 'future' / 'klines' / 'ETHUSDT' / '15m' / '2024-01.parquet'
         assert expected_path.exists()
     
     def test_save_empty_dataframe(self, temp_dir):
@@ -117,8 +117,8 @@ class TestSaveKlines:
         assert result is True
         
         # 验证两个文件都创建
-        jan_file = temp_dir / 'spot' / 'BTCUSDT' / '1h' / '2024-01.parquet'
-        feb_file = temp_dir / 'spot' / 'BTCUSDT' / '1h' / '2024-02.parquet'
+        jan_file = temp_dir / 'crypto' / 'spot' / 'klines' / 'BTCUSDT' / '1h' / '2024-01.parquet'
+        feb_file = temp_dir / 'crypto' / 'spot' / 'klines' / 'BTCUSDT' / '1h' / '2024-02.parquet'
         
         assert jan_file.exists()
         assert feb_file.exists()
@@ -294,7 +294,7 @@ class TestDeleteKlines:
         manager.save_klines(sample_df, 'BTCUSDT', '1h')
         
         # 验证文件存在
-        data_dir = temp_dir / 'spot' / 'BTCUSDT' / '1h'
+        data_dir = temp_dir / 'crypto' / 'spot' / 'klines' / 'BTCUSDT' / '1h'
         assert data_dir.exists()
         
         # 删除数据

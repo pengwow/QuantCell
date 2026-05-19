@@ -25,6 +25,16 @@ class MockProvider(LLMProvider):
             has_tool_calls=False,
             tool_calls=[],
         )
+    
+    async def chat_stream(self, **kwargs):
+        from agent.providers.base import StreamChunk
+        for response in self.responses:
+            yield StreamChunk(
+                content=response.content,
+                delta=response.content,
+                finish_reason="stop" if not response.has_tool_calls else "tool_calls",
+                tool_calls=response.tool_calls if response.has_tool_calls else None,
+            )
         
     def get_default_model(self):
         return "mock-model"

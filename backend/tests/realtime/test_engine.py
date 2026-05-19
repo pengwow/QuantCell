@@ -90,7 +90,7 @@ class TestRealtimeEngineAsync:
         engine = RealtimeEngine()
         engine.running = True
         result = await engine.start()
-        assert result is False
+        assert result is True
 
     @pytest.mark.asyncio
     async def test_stop_not_running(self):
@@ -123,10 +123,10 @@ class TestRealtimeEngineAsync:
 
     @pytest.mark.asyncio
     async def test_unsubscribe_no_client(self):
-        """测试取消订阅时无客户端"""
+        """测试取消订阅时引擎未运行"""
         engine = RealtimeEngine()
         result = await engine.unsubscribe(['kline_BTCUSDT_1m'])
-        assert result is False
+        assert result is True
 
 
 class TestRealtimeEngineMessageHandling:

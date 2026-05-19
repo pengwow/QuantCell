@@ -8,6 +8,7 @@ import sys
 import tempfile
 import os
 
+import pytest
 import requests
 
 # API基础URL
@@ -53,6 +54,38 @@ def get_headers():
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
+
+
+@pytest.fixture
+def chain_id():
+    token = get_auth_token()
+    if not token:
+        pytest.skip("无法获取认证Token，跳过测试")
+
+    url = f"{BASE_URL}{API_PREFIX}/thinking-chains"
+    payload = {
+        "chain_type": "strategy_generation",
+        "name": "pytest-fixture-思维链",
+        "description": "pytest fixture 创建的测试思维链",
+        "steps": [
+            {"key": "step_1", "title": "测试步骤1", "description": "测试", "order": 1},
+        ],
+        "is_active": True
+    }
+
+    try:
+        response = requests.post(url, headers=get_headers(), json=payload, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("code") == 0:
+                cid = data.get("data", {}).get("id")
+                yield cid
+                delete_url = f"{BASE_URL}{API_PREFIX}/thinking-chains/{cid}"
+                requests.delete(delete_url, headers=get_headers(), timeout=10)
+                return
+        pytest.skip("无法创建测试思维链")
+    except Exception:
+        pytest.skip("API 服务不可用，跳过测试")
 
 
 def test_get_thinking_chains():

@@ -852,12 +852,11 @@ class TestFrontendBackendPortSync:
         """API 返回的端口与 PortManager 内部状态一致
 
         确保前后端看到的端口配置完全一致。
-        注意：API 使用全局 port_manager 单例，测试需使用同一实例。
+        使用 PortManager() 确保与 API 使用同一单例实例。
         """
         from api.system_ports import get_system_ports
 
-        # API 使用全局 port_manager 单例，这里也使用同一个
-        manager = port_manager
+        manager = PortManager()
 
         # 动态分配多个服务
         services_to_allocate = ["fastapi", "zmq_data", "zmq_broadcast"]
@@ -1008,29 +1007,27 @@ class TestEdgeCasesAndStress:
         """
         manager = PortManager()
 
-        # 测试设置边界端口
         boundary_tests = [
-            ("fastapi", 8000),   # 范围起始
-            ("fastapi", 8009),   # 范围结束前一个
+            ("fastapi", 8000),
+            ("fastapi", 8009),
             ("zmq_data", 5550),
             ("zmq_data", 5559),
         ]
 
-        for service_name, port in boundary_tests:
-            try:
-                manager.set_preferred_port(service_name, port)
-                allocated = manager.get_port(service_name)
+        with patch.object(PortManager, '_is_port_available', return_value=True):
+            for service_name, port in boundary_tests:
+                try:
+                    manager.set_preferred_port(service_name, port)
+                    allocated = manager.get_port(service_name)
 
-                # 如果端口可用，应该分配成功
-                assert allocated == port or PORT_RANGES[service_name]["default"] == allocated
+                    assert allocated == port, (
+                        f"边界端口 {service_name}:{port} 应该分配成功，"
+                        f"实际分配: {allocated}"
+                    )
 
-                # 为下次测试重置
-                manager.release_port(service_name)
-                PortManager._instance = None
-                PortManager._instance = manager
-            except ValueError:
-                # 端口超出范围是预期行为
-                pass
+                    manager.release_port(service_name)
+                except ValueError:
+                    pass
 
     def test_config_persistence_under_stress(self, temp_config_dir):
         """高频率配置持久化测试

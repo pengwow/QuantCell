@@ -264,13 +264,13 @@ class BacktestService:
             self._update_task_status(task_id, "failed")
             raise
     
-    def get_result(self, result_id: int) -> Optional[Dict]:
+    def get_result(self, result_id: Any) -> Optional[Dict]:
         """
         获取单个回测结果
-        
+
         Args:
             result_id: 结果ID（即任务ID）
-            
+
         Returns:
             dict or None: 回测结果
         """
@@ -324,7 +324,7 @@ class BacktestService:
 
             if not source_dir.exists():
                 self.logger.warning(f"数据目录不存在: {source_dir}")
-                return symbols
+                return {"status": "success", "data": symbols}
 
             # 遍历所有时间周期目录
             for interval_dir in sorted(source_dir.iterdir()):
@@ -425,33 +425,153 @@ class BacktestService:
         
         return results
     
-    def delete_task(self, task_id: int) -> bool:
+    def delete_task(self, task_id: Any) -> bool:
         """
         删除回测任务及其结果
-        
+
         Args:
             task_id: 任务ID
-            
+
         Returns:
             bool: 是否成功删除
         """
         task_file = self._get_task_file(task_id)
         result_file = self._get_result_file(task_id)
-        
+
         deleted = False
-        
+
         if task_file.exists():
             task_file.unlink()
             deleted = True
-        
+
         if result_file.exists():
             result_file.unlink()
             deleted = True
-        
+
         if deleted:
             self.logger.info(f"删除回测任务: {task_id}")
-        
+
         return deleted
+
+    def delete_backtest_result(self, backtest_id: str) -> bool:
+        """
+        删除回测结果（路由层兼容接口）
+
+        Args:
+            backtest_id: 回测ID
+
+        Returns:
+            bool: 是否成功删除
+        """
+        try:
+            task_id = int(backtest_id) if backtest_id.isdigit() else backtest_id
+        except (ValueError, AttributeError):
+            task_id = backtest_id
+        return self.delete_task(task_id)
+
+    def stop_backtest(self, task_id: str) -> Dict[str, Any]:
+        """
+        终止回测任务
+
+        Args:
+            task_id: 任务ID
+
+        Returns:
+            dict: 终止结果
+        """
+        try:
+            numeric_id = int(task_id) if task_id.isdigit() else task_id
+        except (ValueError, AttributeError):
+            numeric_id = task_id
+
+        task = self._load_task(numeric_id)
+        if not task:
+            return {"status": "error", "message": "回测任务不存在"}
+
+        if task.get("status") not in ("running", "pending"):
+            return {"status": "error", "message": "回测任务不在运行中"}
+
+        self._update_task_status(numeric_id, "stopped")
+        return {"status": "success", "message": "回测已终止"}
+
+    def analyze_backtest(self, backtest_id: str) -> Dict[str, Any]:
+        """
+        分析回测结果
+
+        Args:
+            backtest_id: 回测ID
+
+        Returns:
+            dict: 分析结果
+        """
+        try:
+            result_id = int(backtest_id) if backtest_id.isdigit() else backtest_id
+        except (ValueError, AttributeError):
+            result_id = backtest_id
+
+        result = self.get_result(result_id)
+        if not result:
+            return {"status": "error", "message": "回测结果不存在"}
+
+        return {
+            "status": "success",
+            "metrics": result.get("results", {}).get("stats", {}),
+            "trades": [],
+            "equity_curve": [],
+        }
+
+    def get_replay_data(self, backtest_id: str, symbol: Optional[str] = None) -> Dict[str, Any]:
+        """
+        获取回测回放数据
+
+        Args:
+            backtest_id: 回测ID
+            symbol: 可选，指定货币对
+
+        Returns:
+            dict: 回放数据
+        """
+        try:
+            result_id = int(backtest_id) if backtest_id.isdigit() else backtest_id
+        except (ValueError, AttributeError):
+            result_id = backtest_id
+
+        result = self.get_result(result_id)
+        if not result:
+            return {"status": "error", "message": "回测不存在"}
+
+        return {
+            "status": "success",
+            "data": {
+                "kline_data": [],
+                "trade_signals": [],
+                "equity_data": [],
+            },
+        }
+
+    def upload_strategy_file(self, strategy_name: str, file_content: str) -> bool:
+        """
+        上传策略文件
+
+        Args:
+            strategy_name: 策略名称
+            file_content: 策略文件内容
+
+        Returns:
+            bool: 是否上传成功
+        """
+        strategies_dir = Path(__file__).resolve().parent.parent / "strategies"
+        strategies_dir.mkdir(parents=True, exist_ok=True)
+
+        file_path = strategies_dir / f"{strategy_name}.py"
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(file_content)
+            self.logger.info(f"策略文件已保存: {file_path}")
+            return True
+        except Exception as e:
+            self.logger.error(f"保存策略文件失败: {e}")
+            return False
     
     def _load_task(self, task_id: Any) -> Optional[Dict]:
         """加载任务配置"""

@@ -89,7 +89,7 @@ TZ_TEXT_PATTERN = re.compile(
 # =============================================================================
 
 LOG_PATTERN = re.compile(
-    r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,9}Z)\s+\[(\w+)\]\s+(\S+?):\s+(.*)$"
+    r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,9}Z)\s+\[(\w+)\]\s+(\S+?):\s*(.*)$"
 )
 
 RAW_TIMESTAMP_PATTERN = re.compile(
@@ -485,7 +485,7 @@ class LogFileReader:
     def __init__(self, log_directory: Optional[str] = None):
         if log_directory is None:
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            log_directory = os.path.join(project_root, "logs")
+            log_directory = os.path.join(project_root, "logs", "worker")
         self.log_directory = log_directory
         self.tz_parser = LogTimezoneParser()
         os.makedirs(log_directory, exist_ok=True)
@@ -505,7 +505,11 @@ class LogFileReader:
         return files
 
     @staticmethod
-    def _parse_line(line: str, tz_parser: Optional[LogTimezoneParser] = None) -> Optional[Dict[str, Any]]:
+    def _parse_line(
+        line: str,
+        tz_parser: Optional[LogTimezoneParser] = None,
+        default_timestamp: Optional[datetime] = None,
+    ) -> Optional[Dict[str, Any]]:
         line = line.strip()
         if not line:
             return None
@@ -532,7 +536,7 @@ class LogFileReader:
         level_match = re.search(r'\b(DEBUG|INFO|WARN|ERROR)\b', line)
         if level_match:
             extracted_level = level_match.group(1)
-        timestamp = datetime.now(timezone.utc)
+        timestamp = default_timestamp or datetime.now(timezone.utc)
         ts_match = RAW_TIMESTAMP_PATTERN.search(line)
         if ts_match:
             try:
@@ -572,13 +576,21 @@ class LogFileReader:
         log_files = self._get_log_files(worker_id)
         all_entries: List[Dict] = []
         self._detect_timezone(worker_id)
+        last_parsed_ts: Optional[datetime] = None
         for log_file in reversed(log_files):
             try:
                 with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
                     for line in f:
-                        entry = self._parse_line(line, self.tz_parser)
+                        entry = self._parse_line(
+                            line, self.tz_parser, default_timestamp=last_parsed_ts
+                        )
                         if entry is None:
                             continue
+                        if entry.get("source") != "raw":
+                            try:
+                                last_parsed_ts = datetime.fromisoformat(entry["timestamp"])
+                            except ValueError:
+                                pass
                         entry_ts = datetime.fromisoformat(entry["timestamp"])
                         if start_time and entry_ts < start_time:
                             continue
@@ -742,7 +754,7 @@ class LogFileManager:
         if LogFileManager._instance is not None:
             raise RuntimeError("LogFileManager 是单例，请使用 get_instance()")
         self.log_directory = log_directory or os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs"
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs", "worker"
         )
         self._readers: Dict[str, LogFileReader] = {}
 
