@@ -26,6 +26,7 @@ import WorkerParamsTab from '../../components/worker/WorkerParamsTab';
 import WorkerPositionTab from '../../components/worker/WorkerPositionTab';
 import WorkerOrderTab from '../../components/worker/WorkerOrderTab';
 import WorkerPerformanceTab from '../../components/worker/WorkerPerformanceTab';
+import WorkerTradingStatsTab from '../../components/worker/WorkerTradingStatsTab';
 import WorkerLogsTab from '../../components/worker/WorkerLogsTab';
 
 const WorkerDetail = () => {
@@ -110,6 +111,11 @@ const WorkerDetail = () => {
       key: 'performance',
       label: t('performance') || '绩效',
       children: <WorkerPerformanceTab />,
+    },
+    {
+      key: 'stats',
+      label: '统计',
+      children: workerId ? <WorkerTradingStatsTab workerId={parseInt(workerId)} /> : null,
     },
     {
       key: 'logs',

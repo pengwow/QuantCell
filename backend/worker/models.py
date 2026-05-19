@@ -577,8 +577,11 @@ class WorkerTrade(Base):
     raw_data = Column(Text, nullable=True)
 
     __table_args__ = (
-        Index('idx_worker_trade_symbol', 'worker_id', 'symbol'),
-        Index('idx_worker_trade_time', 'worker_id', 'created_at'),
+        Index('idx_worker_trades_worker_id', 'worker_id'),
+        Index('idx_worker_trades_trade_id', 'trade_id'),
+        Index('idx_worker_trades_symbol', 'symbol'),
+        Index('idx_worker_trades_created_at', 'created_at'),
+        Index('idx_worker_trades_worker_symbol', 'worker_id', 'symbol'),
     )
     
     def to_dict(self) -> Dict[str, Any]:
@@ -639,8 +642,10 @@ class WorkerOrder(Base):
     filled_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
-        Index('idx_worker_order_status', 'worker_id', 'status'),
-        Index('idx_worker_order_symbol', 'worker_id', 'symbol'),
+        Index('idx_worker_orders_worker_id', 'worker_id'),
+        Index('idx_worker_orders_client_order_id', 'client_order_id'),
+        Index('idx_worker_orders_status', 'status'),
+        Index('idx_worker_orders_created_at', 'created_at'),
     )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -696,8 +701,10 @@ class WorkerPosition(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        Index('idx_worker_position_status', 'worker_id', 'status'),
-        Index('idx_worker_position_symbol', 'worker_id', 'symbol'),
+        Index('idx_worker_positions_worker_id', 'worker_id'),
+        Index('idx_worker_positions_position_id', 'position_id'),
+        Index('idx_worker_positions_symbol', 'symbol'),
+        Index('idx_worker_positions_status', 'status'),
     )
 
     def to_dict(self) -> Dict[str, Any]:

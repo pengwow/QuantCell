@@ -31,6 +31,11 @@ import type {
   LogQueryParams,
   TradeQueryParams,
   MetricsHistoryParams,
+  TradingSummary,
+  PositionSummary,
+  PnLDistribution,
+  TradeHistoryChart,
+  ApiResponse,
 } from '../types/worker';
 
 // ============================================
@@ -673,6 +678,26 @@ export const fetchLogStats = (): Promise<{
 };
 
 // ============================================
+// Trading Statistics API
+// ============================================
+
+export const getTradingSummary = (workerId: number): Promise<ApiResponse<TradingSummary>> => {
+  return apiRequest.get(`/workers/${workerId}/stats/trading-summary`);
+};
+
+export const getPositionSummary = (workerId: number): Promise<ApiResponse<PositionSummary>> => {
+  return apiRequest.get(`/workers/${workerId}/stats/position-summary`);
+};
+
+export const getPnLDistribution = (workerId: number): Promise<ApiResponse<PnLDistribution>> => {
+  return apiRequest.get(`/workers/${workerId}/stats/pnl-distribution`);
+};
+
+export const getTradeHistoryChart = (workerId: number, days?: number): Promise<ApiResponse<TradeHistoryChart>> => {
+  return apiRequest.get(`/workers/${workerId}/stats/trade-history-chart`, { params: { days: days || 30 } });
+};
+
+// ============================================
 // Worker API 导出
 // ============================================
 
@@ -718,6 +743,12 @@ export const workerApi = {
   // Log Statistics
   fetchRecentLogs,
   fetchLogStats,
+
+  // Trading Statistics
+  getTradingSummary,
+  getPositionSummary,
+  getPnLDistribution,
+  getTradeHistoryChart,
 };
 
 export default workerApi;

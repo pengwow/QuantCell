@@ -499,3 +499,61 @@ export const WorkerStatusTagColor: Record<WorkerStatus, string> = {
   [WorkerStatus.STARTING]: 'processing',
   [WorkerStatus.STOPPING]: 'cyan'
 };
+
+export interface TradingSummary {
+  total_trades: number
+  winning_trades: number
+  losing_trades: number
+  win_rate: number
+  total_pnl: number
+  total_profit: number
+  total_loss: number
+  profit_factor: number
+  average_profit: number
+  average_loss: number
+  largest_profit: number
+  largest_loss: number
+  total_volume: number
+  total_fees: number
+  trading_days: number
+  daily_average_trades: number
+}
+
+export interface PositionSummary {
+  total_positions: number
+  long_positions: number
+  short_positions: number
+  total_value: number
+  total_unrealized_pnl: number
+  total_margin_used: number
+  positions: Position[]
+}
+
+export interface PnLDistribution {
+  bins: number[]
+  counts: number[]
+  mean: number
+  median: number
+  std: number
+}
+
+export interface TradeHistoryChart {
+  dates: string[]
+  cumulative_pnl: number[]
+  daily_pnl: number[]
+  trade_count: number[]
+}
+
+export interface Position {
+  id: number
+  symbol: string
+  side: 'long' | 'short'
+  quantity: number
+  entry_price: number
+  current_price: number
+  unrealized_pnl: number
+  pnl_percentage: number
+  margin_used: number
+  leverage: number
+  open_time: string
+}

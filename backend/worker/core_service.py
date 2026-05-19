@@ -1363,6 +1363,11 @@ class WorkerCoreService:
         self,
         worker_id: int,
         symbol: Optional[str] = None,
+        side: Optional[str] = None,
+        order_type: Optional[str] = None,
+        pnl_status: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
         page: int = 1,
         page_size: int = 20
     ) -> dict:
@@ -1372,6 +1377,11 @@ class WorkerCoreService:
         Args:
             worker_id: Worker ID
             symbol: 交易对筛选
+            side: 买卖方向 buy/sell
+            order_type: 订单类型 market/limit/stop
+            pnl_status: 盈亏状态 profit/loss/flat
+            start_time: 开始时间
+            end_time: 结束时间
             page: 页码（从1开始）
             page_size: 每页数量
 
@@ -1386,9 +1396,11 @@ class WorkerCoreService:
             skip = (page - 1) * page_size
 
             with self.get_db() as db:
-                trades, total = crud.get_worker_trades(
-                    db, worker_id, symbol=symbol,
-                    skip=skip, limit=page_size
+                trades, total = crud.get_worker_trades_paginated(
+                    db, worker_id,
+                    symbol=symbol, side=side, order_type=order_type,
+                    pnl_status=pnl_status, start_time=start_time,
+                    end_time=end_time, skip=skip, limit=page_size
                 )
                 return {
                     "items": [t.to_dict() for t in trades],
@@ -1404,11 +1416,19 @@ class WorkerCoreService:
         self,
         worker_id: int,
         symbol: Optional[str] = None,
+        side: Optional[str] = None,
+        order_type: Optional[str] = None,
+        pnl_status: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
         page: int = 1,
         page_size: int = 20
     ) -> dict:
         """异步版本获取 Worker 交易记录"""
-        return self.get_worker_trades(worker_id, symbol, page, page_size)
+        return self.get_worker_trades(
+            worker_id, symbol, side, order_type, pnl_status,
+            start_time, end_time, page, page_size
+        )
 
     def get_worker_orders(
         self,

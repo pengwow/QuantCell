@@ -92,7 +92,7 @@ class TestPromptManagerTemplateLoading:
         template = manager.get_template(PromptCategory.STRATEGY_GENERATION)
         assert isinstance(template, str)
         assert len(template) > 0
-        assert "{{user_description}}" in template
+        assert "{{user_requirement}}" in template
 
     def test_get_nonexistent_template_raises_keyerror(self):
         """测试获取不存在的模板抛出 KeyError"""

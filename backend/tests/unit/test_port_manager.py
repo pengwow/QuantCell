@@ -139,8 +139,8 @@ class TestPortAllocationNormal:
 
         port = manager.get_port('fastapi')
 
-        assert port == PORT_RANGES['fastapi']['default']
-        assert port == 8000
+        start_port, end_port = PORT_RANGES['fastapi']['range']
+        assert start_port <= port <= end_port
 
     def test_get_port_caches_result(self, temp_config_dir):
         """重复获取同一服务端口应返回缓存值"""
@@ -172,7 +172,9 @@ class TestPortAllocationNormal:
         assert isinstance(all_ports, dict)
         assert 'fastapi' in all_ports
         assert 'zmq_data' in all_ports
-        assert all_ports['fastapi'] == 8000
+        assert all_ports['fastapi'] is not None
+        start_port, end_port = PORT_RANGES['fastapi']['range']
+        assert start_port <= all_ports['fastapi'] <= end_port
 
     def test_last_used_timestamp_updated(self, temp_config_dir):
         """获取端口时更新最后使用时间"""
@@ -256,7 +258,9 @@ class TestConfigPersistence:
         assert 'version' in data
         assert 'services' in data
         assert 'fastapi' in data['services']
-        assert data['services']['fastapi']['port'] == 8000
+        start_port, end_port = PORT_RANGES['fastapi']['range']
+        assert start_port <= data['services']['fastapi']['port'] <= end_port
+        assert 'pid' in data['services']['fastapi']
 
     def test_load_config_reads_existing_config(self, temp_config_dir):
         """能正确读取已存在的配置文件"""

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
 
 from . import schemas
+from . import crud
 from .core_service import (
     worker_core_service,
     WorkerNotFoundError,
@@ -774,6 +775,9 @@ async def get_worker_performance(
 async def get_worker_trades(
     worker_id: int,
     symbol: Optional[str] = Query(None, description="交易对筛选"),
+    side: Optional[str] = Query(None, description="买卖方向: buy/sell"),
+    order_type: Optional[str] = Query(None, description="订单类型: market/limit/stop"),
+    pnl_status: Optional[str] = Query(None, description="盈亏状态: profit/loss/flat"),
     start_time: Optional[datetime] = Query(None, description="开始时间"),
     end_time: Optional[datetime] = Query(None, description="结束时间"),
     page: int = Query(1, ge=1, description="页码"),
@@ -784,7 +788,7 @@ async def get_worker_trades(
     """获取Worker交易记录 - 委托给 WorkerCoreService"""
     try:
         result = await worker_core_service.async_get_worker_trades(
-            worker_id, symbol, page, page_size
+            worker_id, symbol, side, order_type, pnl_status, start_time, end_time, page, page_size
         )
         return schemas.ApiResponse(code=0, message="success", data=result)
     except WorkerNotFoundError:
@@ -846,14 +850,15 @@ async def update_strategy_parameters(
 @router.get("/{worker_id}/strategy/positions", response_model=schemas.ApiResponse)
 async def get_positions(
     worker_id: int,
+    status: Optional[str] = Query("OPEN", description="持仓状态: OPEN/CLOSED"),
+    symbol: Optional[str] = Query(None, description="交易对筛选"),
+    side: Optional[str] = Query(None, description="方向: LONG/SHORT"),
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user)
 ):
-    """获取持仓信息 - 委托给 service 层"""
-    from . import service
-
     try:
-        positions = await service.get_positions(worker_id)
+        from . import crud
+        positions = crud.get_worker_positions_filtered(db, worker_id, status, symbol, side)
         return schemas.ApiResponse(code=0, message="success", data=positions)
     except Exception as e:
         logger.error(f"获取Worker {worker_id} 持仓信息失败: {e}")
@@ -865,18 +870,29 @@ async def get_positions(
 @router.get("/{worker_id}/strategy/orders", response_model=schemas.ApiResponse)
 async def get_orders(
     worker_id: int,
-    status: Optional[str] = Query(None, description="订单状态筛选"),
+    symbol: Optional[str] = Query(None, description="交易对"),
+    side: Optional[str] = Query(None, description="方向: BUY/SELL"),
+    order_type: Optional[str] = Query(None, description="订单类型"),
+    start_time: Optional[datetime] = Query(None, description="开始时间"),
+    end_time: Optional[datetime] = Query(None, description="结束时间"),
+    page_size: int = Query(50, ge=1, le=100, description="每页数量"),
+    page: int = Query(1, ge=1, description="页码"),
     db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user)
 ):
-    """获取订单信息 - 委托给 WorkerCoreService"""
     try:
-        result = await worker_core_service.async_get_worker_orders(worker_id, status)
-        return schemas.ApiResponse(code=0, message="success", data=result)
-    except WorkerNotFoundError:
-        raise HTTPException(status_code=404, detail="Worker不存在")
-    except WorkerOperationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        from . import crud
+        skip = (page - 1) * page_size
+        orders, total = crud.get_worker_orders_paginated(
+            db, worker_id, status=None, symbol=symbol, side=side, order_type=order_type,
+            start_time=start_time, end_time=end_time, skip=skip, limit=page_size
+        )
+        return schemas.ApiResponse(code=0, message="success", data={
+            "items": [o.to_dict() for o in orders],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        })
     except Exception as e:
         logger.error(f"获取Worker {worker_id} 订单信息失败: {e}")
         import traceback
@@ -1018,4 +1034,108 @@ async def search_logs(
 
     except Exception as e:
         logger.error(f"[routes] 搜索日志失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 统计相关路由 ====================
+
+@router.get("/{worker_id}/stats/trading-summary", summary="获取交易汇总统计")
+async def get_trading_summary(
+    worker_id: int,
+    db: Session = Depends(get_db_session),
+    _current_user: dict = Depends(get_current_user),
+):
+    worker = crud.get_worker(db, worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+    try:
+        from .stats_service import TradingStatsService
+        stats_service = TradingStatsService(db)
+        result = stats_service.get_trading_summary(worker_id)
+        return schemas.ApiResponse(data=result)
+    except Exception as e:
+        logger.error(f"获取交易汇总统计失败: worker_id={worker_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取交易汇总统计失败: {str(e)}")
+
+
+@router.get("/{worker_id}/stats/position-summary", summary="获取持仓汇总统计")
+async def get_position_summary(
+    worker_id: int,
+    db: Session = Depends(get_db_session),
+    _current_user: dict = Depends(get_current_user),
+):
+    worker = crud.get_worker(db, worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+    try:
+        from .stats_service import TradingStatsService
+        stats_service = TradingStatsService(db)
+        result = stats_service.get_position_summary(worker_id)
+        return schemas.ApiResponse(data=result)
+    except Exception as e:
+        logger.error(f"获取持仓汇总统计失败: worker_id={worker_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取持仓汇总统计失败: {str(e)}")
+
+
+@router.get("/{worker_id}/stats/pnl-distribution", summary="获取盈亏分布")
+async def get_pnl_distribution(
+    worker_id: int,
+    db: Session = Depends(get_db_session),
+    _current_user: dict = Depends(get_current_user),
+):
+    worker = crud.get_worker(db, worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+    try:
+        from .stats_service import TradingStatsService
+        stats_service = TradingStatsService(db)
+        result = stats_service.get_pnl_distribution(worker_id)
+        return schemas.ApiResponse(data=result)
+    except Exception as e:
+        logger.error(f"获取盈亏分布失败: worker_id={worker_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取盈亏分布失败: {str(e)}")
+
+
+@router.get("/{worker_id}/stats/trade-history-chart", summary="获取交易历史图表数据")
+async def get_trade_history_chart(
+    worker_id: int,
+    days: int = Query(30, ge=1, le=365, description="查询天数"),
+    db: Session = Depends(get_db_session),
+    _current_user: dict = Depends(get_current_user),
+):
+    worker = crud.get_worker(db, worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+    try:
+        from .stats_service import TradingStatsService
+        stats_service = TradingStatsService(db)
+        result = stats_service.get_trade_history_chart(worker_id, days)
+        return schemas.ApiResponse(data=result)
+    except Exception as e:
+        logger.error(f"获取交易历史图表数据失败: worker_id={worker_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取交易历史图表数据失败: {str(e)}")
+
+
+@router.get("/{worker_id}/stats/trading-summary-filtered", summary="获取带时间过滤的交易汇总")
+async def get_trading_summary_filtered(
+    worker_id: int,
+    start_time: Optional[datetime] = Query(None, description="开始时间"),
+    end_time: Optional[datetime] = Query(None, description="结束时间"),
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user)
+):
+    from . import crud
+    from .models import Worker
+    worker = db.query(Worker).filter(Worker.id == worker_id).first()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    try:
+        result = crud.get_trading_summary_optimized(db, worker_id, start_time, end_time)
+        return schemas.ApiResponse(code=0, message="success", data=result)
+    except Exception as e:
+        logger.error(f"获取Worker {worker_id} 交易汇总失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

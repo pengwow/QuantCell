@@ -272,3 +272,47 @@ class HealthCheckResponse(BaseModel):
     last_heartbeat: Optional[datetime] = Field(None, description="最后心跳")
     uptime: Optional[float] = Field(None, description="运行时间")
     checks: Dict[str, bool] = Field(..., description="各项检查状态")
+
+
+class TradingSummary(BaseModel):
+    total_trades: int = 0
+    winning_trades: int = 0
+    losing_trades: int = 0
+    win_rate: float = 0.0
+    total_pnl: float = 0.0
+    total_profit: float = 0.0
+    total_loss: float = 0.0
+    profit_factor: float = 0.0
+    average_profit: float = 0.0
+    average_loss: float = 0.0
+    largest_profit: float = 0.0
+    largest_loss: float = 0.0
+    total_volume: float = 0.0
+    total_fees: float = 0.0
+    trading_days: int = 0
+    daily_average_trades: float = 0.0
+
+
+class PositionSummary(BaseModel):
+    total_positions: int = 0
+    long_positions: int = 0
+    short_positions: int = 0
+    total_value: float = 0.0
+    total_unrealized_pnl: float = 0.0
+    total_margin_used: float = 0.0
+    positions: List[Dict[str, Any]] = []
+
+
+class PnLDistribution(BaseModel):
+    bins: List[float] = []
+    counts: List[int] = []
+    mean: float = 0.0
+    median: float = 0.0
+    std: float = 0.0
+
+
+class TradeHistoryChart(BaseModel):
+    dates: List[str] = []
+    cumulative_pnl: List[float] = []
+    daily_pnl: List[float] = []
+    trade_count: List[int] = []
