@@ -31,20 +31,19 @@ Agent 管理命令行工具
 import sys
 import os
 import json
+import asyncio
 from pathlib import Path
-from typing import List, Optional, Dict, Any
-from urllib.parse import urljoin
 from datetime import datetime
 
 import typer
 from typing_extensions import Annotated
 
-# 添加后端目录到路径
 backend_path = Path(__file__).resolve().parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
 from utils.logger import get_logger, LogType
+from agent.session.manager import SessionManager
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -67,97 +66,15 @@ app.add_typer(chat_app, name="chat")
 app.add_typer(workspace_app, name="workspace")
 
 
-class AgentCLIConfig:
-    """CLI 配置"""
-
-    def __init__(self):
-        self.base_url = os.getenv("AGENT_API_URL", "http://localhost:8000")
-        self.api_prefix = "/api/agent"
-        self.workspace = Path(__file__).parent.parent / "agent_workspace"
-
-    def get_api_url(self, path: str = "") -> str:
-        """获取完整 API URL"""
-        base = urljoin(self.base_url, self.api_prefix)
-        if path:
-            return urljoin(base + "/", path)
-        return base
+WORKSPACE = Path(__file__).resolve().parent.parent / "agent_workspace"
+WORKSPACE.mkdir(parents=True, exist_ok=True)
 
 
-_config = AgentCLIConfig()
-
-
-# 辅助函数
-def _make_request(
-    method: str,
-    path: str,
-    json_data: Optional[Dict] = None,
-    params: Optional[Dict] = None,
-) -> Dict[str, Any]:
-    """
-    发送 HTTP 请求到 Agent API
-
-    Args:
-        method: HTTP 方法 (GET, POST, DELETE 等)
-        path: API 路径
-        json_data: JSON 请求体
-        params: URL 参数
-
-    Returns:
-        API 响应数据
-
-    Raises:
-        typer.Exit: 请求失败时退出程序
-    """
-    try:
-        import requests
-    except ImportError:
-        logger.error("请先安装 requests: pip install requests")
-        raise typer.Exit(1)
-
-    url = _config.get_api_url(path)
-    logger.debug(f"{method} {url}")
-
-    try:
-        # 根据路径设置不同的超时时间
-        # chat 接口可能需要较长时间（涉及工具调用）
-        timeout = 120 if path == "chat" else 30
-        
-        response = requests.request(
-            method=method,
-            url=url,
-            json=json_data,
-            params=params,
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.ConnectionError:
-        logger.error(f"无法连接到 Agent API: {_config.base_url}")
-        logger.error("请确保后端服务已启动: uvicorn main:app --host 0.0.0.0 --port 8000")
-        raise typer.Exit(1)
-    except requests.exceptions.Timeout:
-        logger.error("请求超时，请稍后重试")
-        raise typer.Exit(1)
-    except requests.exceptions.HTTPError as e:
-        error_detail = ""
-        try:
-            error_data = e.response.json()
-            error_detail = error_data.get("detail", str(error_data))
-        except:
-            error_detail = str(e)
-        logger.error(f"API 错误: {error_detail}")
-        raise typer.Exit(1)
-    except Exception as e:
-        logger.error(f"请求失败: {e}")
-        raise typer.Exit(1)
-
-
-def _print_json(data: Any) -> None:
-    """以 JSON 格式打印数据"""
+def _print_json(data) -> None:
     print(json.dumps(data, indent=2, ensure_ascii=False))
 
 
-def _print_table(headers: List[str], rows: List[List[str]]) -> None:
+def _print_table(headers: list[str], rows: list[list[str]]) -> None:
     """以表格格式打印数据"""
     if not rows:
         print("(无数据)")
@@ -200,17 +117,8 @@ def session_list(
         typer.Option("--format", "-f", help="输出格式: json 或 table")
     ] = "table",
 ):
-    """列出所有会话"""
-    sessions = []
-    
-    # 尝试通过 API 获取会话列表
-    try:
-        data = _make_request("GET", "sessions")
-        sessions = data.get("sessions", [])
-    except Exception as e:
-        # 如果 API 失败，尝试直接读取工作空间
-        logger.debug(f"API 调用失败: {e}，尝试直接读取工作空间")
-        sessions = _get_sessions_from_workspace()
+    sm = SessionManager(WORKSPACE)
+    sessions = sm.list_sessions()
 
     if not sessions:
         print("暂无会话")
@@ -222,38 +130,14 @@ def session_list(
         headers = ["ID", "名称", "更新时间"]
         rows = [
             [
-                s.get("id", ""),
-                s.get("name", "未命名"),
-                _format_timestamp(s.get("updatedAt", "")),
+                s.get("key", ""),
+                s.get("key", "未命名"),
+                _format_timestamp(s.get("updated_at", "")),
             ]
             for s in sessions
         ]
         _print_table(headers, rows)
         print(f"\n共 {len(sessions)} 个会话")
-
-
-def _get_sessions_from_workspace() -> List[Dict]:
-    """从工作空间目录读取会话列表"""
-    sessions = []
-    workspace = _config.workspace / "sessions"
-    if not workspace.exists():
-        return sessions
-
-    for session_file in workspace.glob("*.json"):
-        try:
-            import json
-            with open(session_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                sessions.append({
-                    "id": data.get("id", session_file.stem),
-                    "name": data.get("name", "未命名"),
-                    "createdAt": data.get("createdAt", ""),
-                    "updatedAt": data.get("updatedAt", ""),
-                })
-        except Exception as e:
-            logger.debug(f"读取会话文件失败 {session_file}: {e}")
-
-    return sorted(sessions, key=lambda x: x.get("updatedAt", ""), reverse=True)
 
 
 @session_app.command("info", help="查看会话详情")
@@ -264,40 +148,34 @@ def session_info(
         typer.Option("--format", "-f", help="输出格式: json 或 table")
     ] = "table",
 ):
-    """查看会话详情"""
-    try:
-        data = _make_request("GET", f"sessions/{session_id}")
-        session = data.get("session", {})
-    except:
-        logger.error(f"获取会话 {session_id} 失败")
+    sm = SessionManager(WORKSPACE)
+    info = sm.get_session_info(session_id)
+
+    if not info:
+        logger.error(f"会话 {session_id} 不存在")
         raise typer.Exit(1)
 
     if format == "json":
-        _print_json(session)
+        _print_json(info)
     else:
-        print(f"会话 ID: {session.get('id')}")
-        print(f"名称: {session.get('name')}")
-        print(f"创建时间: {_format_timestamp(session.get('createdAt', ''))}")
-        print(f"更新时间: {_format_timestamp(session.get('updatedAt', ''))}")
-        print(f"消息数量: {session.get('messageCount', 0)}")
+        print(f"会话 ID: {info.get('id')}")
+        print(f"名称: {info.get('name')}")
+        print(f"创建时间: {_format_timestamp(info.get('created_at', ''))}")
+        print(f"更新时间: {_format_timestamp(info.get('updated_at', ''))}")
+        print(f"消息数量: {info.get('message_count', 0)}")
 
 
 @session_app.command("create", help="创建新会话")
 def session_create(
     name: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--name", "-n", help="会话名称")
     ] = None,
 ):
-    """创建新会话"""
-    try:
-        data = _make_request("POST", "sessions", json_data={"name": name})
-        session = data.get("session", {})
-        print(f"会话创建成功: {session.get('id')}")
-        print(f"名称: {session.get('name')}")
-    except Exception as e:
-        logger.error(f"创建会话失败: {e}")
-        raise typer.Exit(1)
+    sm = SessionManager(WORKSPACE)
+    session_info = sm.create_session(name)
+    print(f"会话创建成功: {session_info.get('id')}")
+    print(f"名称: {session_info.get('name')}")
 
 
 @session_app.command("delete", help="删除会话")
@@ -308,18 +186,18 @@ def session_delete(
         typer.Option("--force", "-f", help="强制删除，不提示确认")
     ] = False,
 ):
-    """删除会话"""
     if not force:
         confirm = typer.confirm(f"确定要删除会话 {session_id} 吗？此操作不可恢复。")
         if not confirm:
             print("已取消")
             raise typer.Exit(0)
 
-    try:
-        _make_request("DELETE", f"sessions/{session_id}")
+    sm = SessionManager(WORKSPACE)
+    success = sm.delete(session_id)
+    if success:
         print(f"会话 {session_id} 已删除")
-    except Exception as e:
-        logger.error(f"删除会话失败: {e}")
+    else:
+        logger.error(f"删除会话 {session_id} 失败")
         raise typer.Exit(1)
 
 
@@ -327,13 +205,9 @@ def session_delete(
 def session_clear(
     session_id: Annotated[str, typer.Argument(help="会话 ID")],
 ):
-    """清空会话历史消息"""
-    try:
-        _make_request("POST", f"sessions/{session_id}/clear")
-        print(f"会话 {session_id} 的历史消息已清空")
-    except Exception as e:
-        logger.error(f"清空会话失败: {e}")
-        raise typer.Exit(1)
+    sm = SessionManager(WORKSPACE)
+    sm.clear_session(session_id)
+    print(f"会话 {session_id} 的历史消息已清空")
 
 
 # 工具管理命令
@@ -344,14 +218,7 @@ def tool_list(
         typer.Option("--format", "-f", help="输出格式: json 或 table")
     ] = "table",
 ):
-    """列出所有可用工具"""
-    try:
-        data = _make_request("GET", "tools")
-        tools = data.get("tools", [])
-    except:
-        # 如果 API 失败，尝试直接导入
-        logger.debug("API 调用失败，尝试直接导入工具注册表")
-        tools = _get_tools_from_registry()
+    tools = _get_tools_from_registry()
 
     if not tools:
         print("暂无工具")
@@ -372,7 +239,7 @@ def tool_list(
         print(f"\n共 {len(tools)} 个工具")
 
 
-def _get_tools_from_registry() -> List[Dict]:
+def _get_tools_from_registry() -> list[dict]:
     """从工具注册表获取工具列表（使用统一的自动发现机制）"""
     try:
         from agent.tools import get_tool_list
@@ -441,7 +308,7 @@ def tool_info(
 def tool_run(
     tool_name: Annotated[str, typer.Argument(help="工具名称")],
     params_str: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--params", "-p", help="工具参数 (JSON 格式)"),
     ] = None,
     allow_all: Annotated[
@@ -516,7 +383,7 @@ def tool_run(
 def chat_send(
     message: Annotated[str, typer.Argument(help="消息内容")],
     session: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--session", "-s", help="会话 ID")
     ] = None,
     stream: Annotated[
@@ -532,7 +399,7 @@ def chat_send(
     async def _run():
         # 延迟导入避免循环导入
         try:
-            from agent.api.routes import get_agent
+            from agent.core.factory import get_agent
             logger.info("正在初始化 Agent...")
             agent = get_agent()
             logger.info(f"Agent 初始化完成: model={agent.model}, provider={agent.provider}")
@@ -552,13 +419,74 @@ def chat_send(
             await _normal_mode(agent, message, session_id)
 
     async def _stream_mode(agent, message, session_id):
-        """流式输出模式"""
         import time
         start_time = time.time()
+        _state = {"reasoning_started": False, "content_started": False}
         logger.info("[CLI] 开始调用 agent.process_message_stream()...")
 
+        async def _handle_stream_event(event):
+            event_type = event.event_type
+            data = event.data
+
+            if event_type == "start":
+                print("⏳ ", end="", flush=True)
+
+            elif event_type == "content":
+                content = data.get("delta", "") or data.get("content", "")
+                if content:
+                    if not _state["content_started"]:
+                        _state["content_started"] = True
+                    print(content, end="", flush=True)
+
+            elif event_type == "reasoning":
+                reasoning = data.get("content", "")
+                if reasoning:
+                    if not _state["reasoning_started"]:
+                        if _state["content_started"]:
+                            print("")
+                        print(f"🤔 [推理中] {reasoning}", end="", flush=True)
+                        _state["reasoning_started"] = True
+                    else:
+                        print(reasoning, end="", flush=True)
+
+            elif event_type == "tool_calls":
+                tools = data.get("tools", [])
+                tool_names = [t.get("name", "") for t in tools]
+                print(f"\n🔧 准备执行工具: {', '.join(tool_names)}")
+
+            elif event_type == "tool_start":
+                name = data.get("name", "")
+                args = data.get("args", {})
+                args_preview = str(args)[:100]
+                if _state["reasoning_started"] or _state["content_started"]:
+                    print("")
+                print(f"  ▶️ 执行: {name}({args_preview})...", end="", flush=True)
+
+            elif event_type == "tool_result":
+                name = data.get("name", "")
+                elapsed = data.get("elapsed", 0)
+                print(f" ✅ ({elapsed:.2f}s)", flush=True)
+
+            elif event_type == "complete":
+                content = data.get("content", "")
+                iteration = data.get("iteration", 0)
+                max_reached = data.get("max_reached", False)
+                if max_reached:
+                    print(f"\n⚠️ 达到最大迭代次数", flush=True)
+
+            elif event_type == "error":
+                error = data.get("error", "")
+                print(f"\n❌ 错误: {error}", flush=True)
+
+            elif event_type == "iteration_start":
+                iteration = data.get("iteration", 1)
+                max_iterations = data.get("max_iterations", 40)
+                if iteration > 1:
+                    _state["reasoning_started"] = False
+                    _state["content_started"] = False
+                    print(f"\n🔄 第 {iteration}/{max_iterations} 轮迭代...", flush=True)
+
         try:
-            # 使用回调方式接收流式事件
             await agent.process_message_stream(
                 content=message,
                 session_key=session_id,
@@ -567,7 +495,7 @@ def chat_send(
 
             elapsed = time.time() - start_time
             logger.info(f"[CLI] 流式处理完成, 耗时: {elapsed:.2f}s")
-            print("\n")  # 结束换行
+            print("\n")
             print("-" * 50)
 
         except asyncio.CancelledError:
@@ -576,64 +504,6 @@ def chat_send(
             logger.error(f"[CLI] 流式处理失败: {type(e).__name__}: {e}")
             print(f"\n❌ 错误: {e}")
             raise typer.Exit(1)
-
-    async def _handle_stream_event(event):
-        """处理流式事件并实时显示"""
-        event_type = event.event_type
-        data = event.data
-
-        if event_type == "start":
-            print("⏳ ", end="", flush=True)
-
-        elif event_type == "content":
-            # 实时打印文本增量
-            content = data.get("delta", "") or data.get("content", "")
-            print(content, end="", flush=True)
-
-        elif event_type == "reasoning":
-            # 推理过程（可选显示）
-            reasoning = data.get("content", "")
-            if reasoning:
-                print(f"\n🤔 [推理中] {reasoning}", end="", flush=True)
-
-        elif event_type == "tool_calls":
-            # LLM 决定调用工具
-            tools = data.get("tools", [])
-            tool_names = [t.get("name", "") for t in tools]
-            print(f"\n\n🔧 准备执行工具: {', '.join(tool_names)}")
-
-        elif event_type == "tool_start":
-            # 开始执行工具
-            name = data.get("name", "")
-            args = data.get("args", {})
-            args_preview = str(args)[:100]
-            print(f"\n  ▶️ 执行: {name}({args_preview})...", end="", flush=True)
-
-        elif event_type == "tool_result":
-            # 工具执行完成
-            name = data.get("name", "")
-            elapsed = data.get("elapsed", 0)
-            print(f" ✅ ({elapsed:.2f}s)", flush=True)
-
-        elif event_type == "complete":
-            # 全部完成
-            content = data.get("content", "")
-            iteration = data.get("iteration", 0)
-            max_reached = data.get("max_reached", False)
-            if max_reached:
-                print(f"\n\n⚠️ 达到最大迭代次数", flush=True)
-
-        elif event_type == "error":
-            # 错误
-            error = data.get("error", "")
-            print(f"\n❌ 错误: {error}", flush=True)
-
-        elif event_type == "iteration_start":
-            # 新一轮迭代开始
-            iteration = data.get("iteration", 1)
-            max_iterations = data.get("max_iterations", 40)
-            if iteration > 1:
-                print(f"\n🔄 第 {iteration}/{max_iterations} 轮迭代...", flush=True)
 
     async def _normal_mode(agent, message, session_id):
         """传统非流式模式"""
@@ -676,7 +546,7 @@ def chat_send(
 @chat_app.command("interactive", help="交互式对话")
 def chat_interactive(
     session: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--session", "-s", help="会话 ID")
     ] = None,
 ):
@@ -689,7 +559,7 @@ def chat_interactive(
     async def _run():
         # 延迟导入避免循环导入
         try:
-            from agent.api.routes import get_agent
+            from agent.core.factory import get_agent
             agent = get_agent()
         except Exception as e:
             print(f"错误: 无法初始化 Agent - {e}")
@@ -762,47 +632,43 @@ def chat_history(
     ] = 50,
 ):
     """查看会话历史消息"""
-    try:
-        data = _make_request("GET", f"sessions/{session_id}/history", params={"limit": limit})
-        history = data.get("history", [])
-        total = data.get("total_messages", 0)
+    sm = SessionManager(WORKSPACE)
+    result = sm.get_history(session_id, limit)
+    history = result.get("history", [])
+    total = result.get("total_messages", 0)
 
-        if not history:
-            print("暂无历史消息")
-            return
+    if not history:
+        print("暂无历史消息")
+        return
 
-        print(f"会话 {session_id} 的历史消息 (显示 {len(history)}/{total}):\n")
+    print(f"会话 {session_id} 的历史消息 (显示 {len(history)}/{total}):\n")
 
-        for msg in history:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            timestamp = _format_timestamp(msg.get("timestamp", ""))
+    for msg in history:
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        timestamp = _format_timestamp(msg.get("timestamp", ""))
 
-            role_display = {
-                "user": "用户",
-                "assistant": "Agent",
-                "tool": "工具",
-            }.get(role, role)
+        role_display = {
+            "user": "用户",
+            "assistant": "Agent",
+            "tool": "工具",
+        }.get(role, role)
 
-            print(f"[{timestamp}] {role_display}:")
-            print(f"{content[:200]}{'...' if len(content) > 200 else ''}")
-            print()
-
-    except Exception as e:
-        logger.error(f"获取历史消息失败: {e}")
-        raise typer.Exit(1)
+        print(f"[{timestamp}] {role_display}:")
+        print(f"{content[:200]}{'...' if len(content) > 200 else ''}")
+        print()
 
 
 # 工作空间管理命令
 @workspace_app.command("list", help="列出工作空间文件")
 def workspace_list(
     path: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--path", "-p", help="子目录路径")
     ] = None,
 ):
     """列出工作空间文件"""
-    target_path = _config.workspace
+    target_path = WORKSPACE
     if path:
         target_path = target_path / path
 
@@ -813,7 +679,7 @@ def workspace_list(
     try:
         import asyncio
         from agent.tools.filesystem import ListDirTool
-        tool = ListDirTool(workspace=_config.workspace)
+        tool = ListDirTool(workspace=WORKSPACE)
         
         # 同步执行
         result = asyncio.get_event_loop().run_until_complete(
@@ -857,7 +723,7 @@ def workspace_cat(
     file_path: Annotated[str, typer.Argument(help="文件路径")],
 ):
     """查看工作空间文件内容"""
-    target_path = _config.workspace / file_path
+    target_path = WORKSPACE / file_path
 
     if not target_path.exists():
         logger.error(f"文件不存在: {file_path}")
@@ -870,7 +736,7 @@ def workspace_cat(
     try:
         import asyncio
         from agent.tools.filesystem import ReadFileTool
-        tool = ReadFileTool(workspace=_config.workspace)
+        tool = ReadFileTool(workspace=WORKSPACE)
         
         result = asyncio.get_event_loop().run_until_complete(
             tool.execute(path=str(target_path))
@@ -907,7 +773,7 @@ def workspace_clean(
         import shutil
 
         cleaned = 0
-        for item in _config.workspace.iterdir():
+        for item in WORKSPACE.iterdir():
             # 保留 sessions 目录
             if item.name == "sessions":
                 continue
@@ -1076,11 +942,11 @@ def params_import(
 @params_app.command("export", help="导出配置到JSON文件")
 def params_export(
     output: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--output", "-o", help="输出文件路径")
     ] = None,
     tool_name: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--tool", "-t", help="指定工具名称")
     ] = None
 ):
@@ -1102,7 +968,6 @@ def params_export(
 def params_validate(
     tool_name: Annotated[str, typer.Argument(help="工具名称")]
 ):
-    """验证工具的必需参数是否都已配置"""
     from agent.config.templates import get_tool_template
     from agent.config.tool_params import ToolParamResolver
 
@@ -1132,6 +997,173 @@ def params_validate(
         print("✅ 所有必要参数已正确配置")
     else:
         print("⚠️  存在未配置的必要参数，工具可能无法正常工作")
+
+
+# ==================== 高级操作命令 ====================
+action_app = typer.Typer(help="高级操作：策略生成、回测分析、参数优化、诊断、市场数据、部署")
+app.add_typer(action_app, name="action")
+
+
+def _run_tool_async(tool_cls, **params):
+    async def _run():
+        tool = tool_cls()
+        return await tool.execute(**params)
+    return asyncio.run(_run())
+
+
+@action_app.command("generate-strategy", help="根据自然语言描述生成策略代码")
+def action_generate_strategy(
+    requirement: Annotated[str, typer.Option("--requirement", "-r", help="策略需求描述")],
+    name: Annotated[str, typer.Option("--name", "-n", help="策略名称")],
+    indicators: Annotated[
+        str | None,
+        typer.Option("--indicators", "-i", help="自定义指标配置 JSON")
+    ] = None,
+):
+    from agent.tools.trading.strategy import GenerateStrategyTool
+    result = _run_tool_async(
+        GenerateStrategyTool,
+        requirement=requirement,
+        strategy_name=name,
+        indicators=indicators,
+    )
+    data = json.loads(result)
+    if data.get("success"):
+        print(f"策略代码已生成并保存到: {data.get('file_path')}")
+        print(f"\n--- 策略代码 ---\n{data.get('code', '')[:500]}...")
+    else:
+        print(f"生成失败: {data.get('validation_errors', [])}")
+
+
+@action_app.command("analyze-backtest", help="分析回测结果并给出优化建议")
+def action_analyze_backtest(
+    backtest_id: Annotated[
+        str | None,
+        typer.Option("--backtest-id", "-b", help="回测任务ID")
+    ] = None,
+    result_file: Annotated[
+        str | None,
+        typer.Option("--result-file", "-f", help="回测结果JSON文件路径")
+    ] = None,
+    result_data: Annotated[
+        str | None,
+        typer.Option("--result-data", "-d", help="直接传入的回测结果JSON字符串")
+    ] = None,
+):
+    if not backtest_id and not result_file and not result_data:
+        print("请提供 --backtest-id、--result-file 或 --result-data 中的至少一个")
+        raise typer.Exit(1)
+
+    from agent.tools.trading.strategy import AnalyzeBacktestResultTool
+    result = _run_tool_async(
+        AnalyzeBacktestResultTool,
+        backtest_id=backtest_id,
+        result_file=result_file,
+        result_data=result_data,
+    )
+    _print_json(json.loads(result))
+
+
+@action_app.command("optimize-params", help="网格搜索最优策略参数")
+def action_optimize_params(
+    strategy_name: Annotated[str, typer.Option("--strategy-name", "-s", help="策略名称")],
+    param_ranges: Annotated[str, typer.Option("--param-ranges", "-p", help="参数搜索范围 JSON")],
+    symbols: Annotated[
+        str,
+        typer.Option("--symbols", help="交易对列表，逗号分隔")
+    ] = "BTCUSDT",
+    timeframe: Annotated[
+        str,
+        typer.Option("--timeframe", "-t", help="时间周期")
+    ] = "1h",
+    metric: Annotated[
+        str,
+        typer.Option("--metric", "-m", help="优化目标指标")
+    ] = "sharpe_ratio",
+):
+    from agent.tools.trading.strategy import OptimizeStrategyParamsTool
+    result = _run_tool_async(
+        OptimizeStrategyParamsTool,
+        strategy_name=strategy_name,
+        param_ranges=param_ranges,
+        symbols=symbols,
+        timeframe=timeframe,
+        metric=metric,
+    )
+    print(result)
+
+
+@action_app.command("diagnose", help="诊断策略亏损原因")
+def action_diagnose(
+    strategy_name: Annotated[str, typer.Option("--strategy-name", "-s", help="策略名称")],
+    backtest_id: Annotated[
+        str | None,
+        typer.Option("--backtest-id", "-b", help="回测任务ID（可选）")
+    ] = None,
+):
+    from agent.tools.trading.strategy import DiagnoseStrategyTool
+    result = _run_tool_async(
+        DiagnoseStrategyTool,
+        strategy_name=strategy_name,
+        backtest_id=backtest_id,
+    )
+    _print_json(json.loads(result))
+
+
+@action_app.command("fetch-market", help="获取实时或历史市场数据")
+def action_fetch_market(
+    symbol: Annotated[str, typer.Option("--symbol", "-s", help="交易对，如 BTCUSDT")],
+    data_type: Annotated[
+        str,
+        typer.Option("--data-type", "-t", help="数据类型：kline 或 24h_ticker")
+    ] = "kline",
+    interval: Annotated[
+        str,
+        typer.Option("--interval", "-i", help="K线周期")
+    ] = "1h",
+    limit: Annotated[
+        int,
+        typer.Option("--limit", "-l", help="数据条数")
+    ] = 100,
+):
+    from agent.tools.trading.market_data import FetchMarketDataTool
+    result = _run_tool_async(
+        FetchMarketDataTool,
+        symbol=symbol,
+        data_type=data_type,
+        interval=interval,
+        limit=limit,
+    )
+    _print_json(json.loads(result))
+
+
+@action_app.command("deploy", help="将策略部署到Worker")
+def action_deploy(
+    strategy_name: Annotated[str, typer.Option("--strategy-name", "-s", help="策略名称")],
+    symbols: Annotated[str, typer.Option("--symbols", help="交易对列表，逗号分隔")],
+    exchange: Annotated[
+        str,
+        typer.Option("--exchange", "-e", help="交易所")
+    ] = "binance",
+    timeframe: Annotated[
+        str,
+        typer.Option("--timeframe", "-t", help="时间周期")
+    ] = "1h",
+    auto_start: Annotated[
+        bool,
+        typer.Option("--auto-start/--no-auto-start", help="是否自动启动")
+    ] = False,
+):
+    from agent.tools.trading.strategy import DeployStrategyTool
+    result = _run_tool_async(
+        DeployStrategyTool,
+        strategy_name=strategy_name,
+        symbols=symbols,
+        exchange=exchange,
+        timeframe=timeframe,
+        auto_start=auto_start,
+    )
+    _print_json(json.loads(result))
 
 
 # 主入口

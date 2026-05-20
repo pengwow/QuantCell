@@ -12,7 +12,7 @@ def _discover_tool_classes() -> List[type[Tool]]:
     tools_dir = Path(__file__).parent
     
     # 需要扫描的子目录（排除 __pycache__ 和 base.py）
-    exclude_dirs = {"__pycache__", "trading"}
+    exclude_dirs = {"__pycache__"}
     
     for py_file in tools_dir.rglob("*.py"):
         # 跳过特殊文件

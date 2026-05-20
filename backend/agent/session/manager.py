@@ -138,6 +138,61 @@ class SessionManager:
                 logger.error(f"删除会话 {key} 失败: {e}")
         return False
 
+    def create_session(self, name: str | None = None) -> dict[str, Any]:
+        import uuid
+        import time
+        session_id = str(uuid.uuid4())[:8]
+        now = datetime.now().isoformat()
+        session = self.get_or_create(session_id)
+        session_name = name or f"会话 {datetime.now().strftime('%Y/%m/%d %H:%M:%S')}"
+        session_data = session.to_dict()
+        session_data["id"] = session.key
+        session_data["name"] = session_name
+        session_file = self._get_session_file(session.key)
+        session_file.write_text(
+            json.dumps(session_data, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+        return {
+            "id": session.key,
+            "name": session_name,
+            "created_at": session.created_at.isoformat() if hasattr(session.created_at, 'isoformat') else str(session.created_at),
+            "updated_at": session.updated_at.isoformat() if hasattr(session.updated_at, 'isoformat') else str(session.updated_at),
+        }
+
+    def get_session_info(self, key: str) -> dict[str, Any] | None:
+        session = self.get_or_create(key)
+        name = key
+        session_file = self._get_session_file(key)
+        if session_file.exists():
+            try:
+                data = json.loads(session_file.read_text(encoding="utf-8"))
+                name = data.get("name", key)
+            except Exception:
+                pass
+        return {
+            "id": session.key,
+            "name": name,
+            "created_at": session.created_at.isoformat() if hasattr(session.created_at, 'isoformat') else str(session.created_at),
+            "updated_at": session.updated_at.isoformat() if hasattr(session.updated_at, 'isoformat') else str(session.updated_at),
+            "message_count": len(session.messages),
+        }
+
+    def get_history(self, key: str, limit: int = 50) -> dict[str, Any]:
+        session = self.get_or_create(key)
+        messages = session.messages[-limit:]
+        return {
+            "session_id": key,
+            "history": messages,
+            "total_messages": len(session.messages),
+        }
+
+    def clear_session(self, key: str) -> bool:
+        session = self.get_or_create(key)
+        session.clear()
+        self.save(session)
+        return True
+
     def list_sessions(self) -> list[dict[str, Any]]:
         """列出所有会话的基本信息"""
         sessions_info = []
