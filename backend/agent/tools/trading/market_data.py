@@ -1,5 +1,6 @@
-"""市场数据工具 - 获取行情、K线等数据"""
+"""市场数据工具 - 薄封装，调用CLI层"""
 
+import json
 from typing import Any
 
 from ..base import Tool
@@ -22,39 +23,8 @@ class GetKlinesTool(Tool):
     }
 
     async def execute(self, symbol: str, timeframe: str, limit: int = 100, exchange: str = "binance", **kwargs: Any) -> str:
-        try:
-            # 导入 collector 服务获取数据
-            from collector.services.market_data_service import MarketDataService
-            
-            service = MarketDataService()
-            data = await service.get_klines(
-                symbol=symbol.upper(),
-                timeframe=timeframe,
-                limit=min(limit, 1000),
-                exchange=exchange,
-            )
-            
-            if not data:
-                return f"未找到 {symbol} 的 K 线数据"
-            
-            # 格式化输出
-            lines = [f"{symbol} {timeframe} K线数据（最近 {len(data)} 条）:\n"]
-            for item in data[-10:]:  # 只显示最近10条
-                lines.append(
-                    f"时间: {item['timestamp']}, "
-                    f"开: {item['open']:.2f}, "
-                    f"高: {item['high']:.2f}, "
-                    f"低: {item['low']:.2f}, "
-                    f"收: {item['close']:.2f}, "
-                    f"量: {item['volume']:.4f}"
-                )
-            
-            if len(data) > 10:
-                lines.append(f"\n... 还有 {len(data) - 10} 条数据")
-            
-            return "\n".join(lines)
-        except Exception as e:
-            return f"错误: 获取 K 线数据失败: {e}"
+        from scripts.market_cli import get_klines
+        return get_klines(symbol, timeframe, limit, exchange)
 
 
 class GetTickerTool(Tool):
@@ -72,22 +42,60 @@ class GetTickerTool(Tool):
     }
 
     async def execute(self, symbol: str, exchange: str = "binance", **kwargs: Any) -> str:
-        try:
-            from collector.services.market_data_service import MarketDataService
-            
-            service = MarketDataService()
-            ticker = await service.get_ticker(symbol.upper(), exchange)
-            
-            if not ticker:
-                return f"未找到 {symbol} 的行情数据"
-            
-            return (
-                f"{symbol} 最新行情:\n"
-                f"最新价: {ticker.get('last_price', 'N/A')}\n"
-                f"24h 涨跌: {ticker.get('price_change_percent', 'N/A')}%\n"
-                f"24h 最高: {ticker.get('high_24h', 'N/A')}\n"
-                f"24h 最低: {ticker.get('low_24h', 'N/A')}\n"
-                f"24h 成交量: {ticker.get('volume_24h', 'N/A')}"
-            )
-        except Exception as e:
-            return f"错误: 获取行情失败: {e}"
+        from scripts.market_cli import get_ticker
+        return get_ticker(symbol, exchange)
+
+
+class GetCryptoSymbolsTool(Tool):
+    """获取交易对列表"""
+
+    name = "get_crypto_symbols"
+    description = "获取交易所支持的加密货币交易对列表。"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "exchange": {"type": "string", "description": "交易所名称，如 binance", "default": "binance"},
+            "filter": {"type": "string", "description": "过滤条件，如 USDT"},
+            "limit": {"type": "integer", "description": "返回数量", "default": 100},
+            "market_type": {"type": "string", "description": "市场类型：spot(现货)/future(合约)", "default": "spot"},
+        },
+        "required": [],
+    }
+    param_template = {}
+
+    async def execute(self, exchange: str = "binance", filter: str = "USDT", limit: int = 100, market_type: str = "spot", **kwargs: Any) -> str:
+        from scripts.market_cli import get_crypto_symbols
+        return get_crypto_symbols(exchange, filter, limit, market_type)
+
+
+class FetchMarketDataTool(Tool):
+    """获取市场数据"""
+
+    name = "fetch_market_data"
+    description = "获取实时或历史市场数据。支持K线(OHLCV)、24小时行情、订单簿等数据类型。"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "symbol": {"type": "string", "description": "交易对，如 BTCUSDT"},
+            "data_type": {
+                "type": "string",
+                "description": "数据类型：kline(K线)、24h_ticker(24小时行情)",
+                "enum": ["kline", "24h_ticker"],
+            },
+            "interval": {"type": "string", "description": "K线时间周期(仅kline类型需要)，如1m,5m,15m,1h,4h,1d", "default": "1h"},
+            "limit": {"type": "integer", "description": "返回数据条数(仅kline类型需要)", "default": 100},
+            "market_type": {"type": "string", "description": "市场类型：spot(现货)/future(合约)", "default": "spot"},
+        },
+        "required": ["symbol", "data_type"],
+    }
+    param_template = {}
+
+    async def execute(self, symbol: str, data_type: str, interval: str = "1h", limit: int = 100, market_type: str = "spot", **kwargs: Any) -> str:
+        from scripts.market_cli import fetch_market_data
+        return fetch_market_data(symbol, data_type, interval, limit, market_type)
+
+
+TOOLS_MAP = {
+    "get_crypto_symbols": GetCryptoSymbolsTool,
+    "fetch_market_data": FetchMarketDataTool,
+}
