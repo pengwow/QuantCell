@@ -565,23 +565,12 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                 }}
               >
                 {strategies
-                  .filter((strategy) => {
-                    const hasName = strategy.name !== undefined && strategy.name !== null && strategy.name !== '';
-                    return hasName;
-                  })
-                  .map((strategy) => {
-                    const strategyId = strategy.id !== undefined && strategy.id !== null
-                      ? strategy.id
-                      : Math.abs(strategy.name.split('').reduce((a: number, b: string) => {
-                          a = ((a << 5) - a) + b.charCodeAt(0);
-                          return a & a;
-                        }, 0)) % 2147483647 + 1;
-                    return (
-                      <Option key={strategyId} value={strategyId}>
-                        {strategy.name}
-                      </Option>
-                    );
-                  })}
+                  .filter((strategy) => strategy?.id && strategy?.name)
+                  .map((strategy) => (
+                    <Option key={strategy.id} value={strategy.id}>
+                      {strategy.name}
+                    </Option>
+                  ))}
               </Select>
             </Form.Item>
           </Col>

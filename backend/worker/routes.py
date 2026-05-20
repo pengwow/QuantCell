@@ -179,17 +179,24 @@ async def get_worker(
 @router.get("/{worker_id}/state", response_model=schemas.ApiResponse)
 async def get_worker_state(
     worker_id: int,
+    db: Session = Depends(get_db_session),
     current_user: dict = Depends(get_current_user)
 ):
     """
     获取Worker详细状态信息（专用端点）
 
     用于前端轮询或 WebSocket 推送，返回完整的 WorkerState 对象。
+    同时从数据库查询Worker基本信息（名称、策略、交易配置等）并合并返回。
 
     返回内容：
     - worker_id: Worker ID
+    - name: Worker名称
     - status: 当前状态 (starting/running/stopping/stopped/error)
     - previous_status: 前一状态
+    - strategy_id: 策略ID
+    - exchange: 交易所
+    - symbol: 交易对列表
+    - timeframe: K线周期
     - pid: 进程ID
     - started_at: 启动时间 (ISO 8601)
     - stopped_at: 停止时间 (ISO 8601)
@@ -197,7 +204,7 @@ async def get_worker_state(
     - updated_at: 状态最后更新时间 (ISO 8601)
 
     性能特点：
-    - 内存缓存查询，响应速度快
+    - 内存缓存查询状态，数据库查询Worker信息
     - 适合高频轮询场景
 
     示例请求:
@@ -212,12 +219,36 @@ async def get_worker_state(
                 detail=f"Worker {worker_id} 状态信息不存在"
             )
 
+        result = state.to_dict()
+
+        worker = crud.get_worker(db, worker_id)
+        if worker:
+            result['name'] = worker.name
+            result['strategy_id'] = worker.strategy_id
+            trading_config = worker.get_trading_config_dict()
+            result['exchange'] = trading_config.get('exchange', 'binance')
+            result['symbol'] = worker.get_symbols()
+            result['timeframe'] = trading_config.get('timeframe', '1h')
+            result['market_type'] = trading_config.get('market_type', 'spot')
+            result['trading_mode'] = trading_config.get('trading_mode', 'paper')
+
+            strategy_info = None
+            if worker.strategy:
+                strategy_info = {
+                    'id': worker.strategy.id,
+                    'name': worker.strategy.name,
+                    'description': worker.strategy.description,
+                    'strategy_type': worker.strategy.strategy_type,
+                    'version': worker.strategy.version,
+                }
+            result['strategy_info'] = strategy_info
+
         logger.debug(f"获取Worker {worker_id} 状态: {state.status}")
 
         return schemas.ApiResponse(
             code=0,
             message="success",
-            data=state.to_dict()
+            data=result
         )
     except HTTPException:
         raise

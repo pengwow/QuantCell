@@ -55,6 +55,9 @@ async def lifespan(app: FastAPI):
     # 启动时异步初始化数据库
     await asyncio.to_thread(init_database)
 
+    # 自动扫描并初始化策略到数据库
+    await asyncio.to_thread(_init_strategies)
+
     # 异步加载系统配置到应用上下文
     app.state.configs = await asyncio.to_thread(load_system_configs)
 
@@ -366,3 +369,106 @@ def init_database():
 
     # 初始化定时任务管理器，确保数据库表已创建
     logger.info("初始化定时任务管理器")
+
+
+def _init_strategies():
+    """自动扫描策略目录，将新策略初始化到数据库
+
+    在 FastAPI 启动时自动执行：
+    1. 扫描 backend/strategies/ 目录下的 .py 文件
+    2. 对每个策略文件，检查数据库中是否已存在同名策略
+    3. 如果不存在，解析策略文件内容并插入数据库
+    4. 输出初始化结果日志
+    """
+    import json
+    from pathlib import Path
+
+    try:
+        from strategy.service import StrategyService
+        from collector.db.database import SessionLocal, init_database_config
+        from strategy.models import Strategy
+    except ImportError as e:
+        logger.warning(f"策略初始化模块导入失败，跳过策略自动初始化: {e}")
+        return
+
+    try:
+        strategy_service = StrategyService()
+        strategy_dir = strategy_service.strategy_dir
+
+        if not strategy_dir.exists():
+            logger.info(f"策略目录不存在: {strategy_dir}，跳过策略初始化")
+            return
+
+        strategy_files = [f for f in strategy_dir.glob("*.py") if f.stem != "__init__"]
+
+        if not strategy_files:
+            logger.info("策略目录为空，跳过策略初始化")
+            return
+
+        init_database_config()
+        db = SessionLocal()
+
+        added = 0
+        skipped = 0
+        failed = 0
+
+        try:
+            for file_path in strategy_files:
+                existing = db.query(Strategy).filter_by(name=file_path.stem).first()
+                if existing:
+                    skipped += 1
+                    continue
+
+                strategy_info = strategy_service._parse_strategy_file(file_path)
+                if not strategy_info:
+                    failed += 1
+                    logger.warning(f"策略解析失败: {file_path.name}")
+                    continue
+
+                params = strategy_info.get("params", [])
+                tags = strategy_info.get("tags", [])
+                logger.info(f"策略解析结果: name={strategy_info['name']}, params_type={type(params).__name__}, params={params}, tags_type={type(tags).__name__}, tags={tags}")
+
+                if isinstance(params, str):
+                    logger.warning(f"策略参数为字符串类型，尝试解析JSON: {params}")
+                    import json
+                    try:
+                        params = json.loads(params) if params else []
+                    except json.JSONDecodeError:
+                        params = []
+                if not isinstance(params, list):
+                    params = []
+
+                if isinstance(tags, str):
+                    logger.warning(f"策略标签为字符串类型，尝试解析JSON: {tags}")
+                    import json
+                    try:
+                        tags = json.loads(tags) if tags else []
+                    except json.JSONDecodeError:
+                        tags = []
+                if not isinstance(tags, list):
+                    tags = []
+
+                new_strategy = Strategy(
+                    name=strategy_info["name"],
+                    file_name=strategy_info["file_name"],
+                    file_path=strategy_info.get("file_path", str(file_path)),
+                    code=strategy_info.get("code", ""),
+                    description=strategy_info.get("description", ""),
+                    version=strategy_info.get("version", "1.0.0"),
+                )
+                new_strategy.set_parameters_list(params)
+                new_strategy.set_tags_list(tags)
+                db.add(new_strategy)
+                added += 1
+                logger.info(f"策略已初始化: {strategy_info['name']}, params_count={len(params)}, tags_count={len(tags)}")
+
+            db.commit()
+            logger.info(f"策略初始化完成: 新增 {added} 个, 跳过 {skipped} 个, 失败 {failed} 个")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"策略初始化事务失败: {e}")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"策略初始化失败: {e}")
