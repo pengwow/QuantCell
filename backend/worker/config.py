@@ -42,7 +42,7 @@ try:
         LoggingConfig,
         TradingNodeConfig,
     )
-except ImportError as e:
+except Exception as e:
     NAUTILUS_MISSING_DETAIL = f"核心配置模块不可用 — nautilus_trader.config: {e}"
     logger.warning(f"Nautilus Trader 导入失败({NAUTILUS_MISSING_DETAIL})，相关功能将不可用")
     TradingNodeConfig = None
@@ -58,7 +58,7 @@ else:
             LiveExecEngineConfig,
             LiveRiskEngineConfig,
         )
-    except ImportError as e:
+    except Exception as e:
         NAUTILUS_MISSING_DETAIL = f"实时引擎配置不可用 — nautilus_trader.live.config: {e}"
         logger.warning(f"Nautilus Trader 导入失败({NAUTILUS_MISSING_DETAIL})，相关功能将不可用")
         LiveDataEngineConfig = None
@@ -71,7 +71,7 @@ else:
         try:
             from nautilus_trader.common import Environment
             from nautilus_trader.model.identifiers import ClientId, TraderId
-        except ImportError as e:
+        except Exception as e:
             NAUTILUS_MISSING_DETAIL = f"公共模块不可用 — nautilus_trader.common/model: {e}"
             logger.warning(f"Nautilus Trader 导入失败({NAUTILUS_MISSING_DETAIL})，相关功能将不可用")
             Environment = None
@@ -88,7 +88,7 @@ else:
                     BinanceLiveDataClientFactory,
                     BinanceLiveExecClientFactory,
                 )
-            except ImportError as e:
+            except Exception as e:
                 NAUTILUS_MISSING_DETAIL = f"Binance 适配器不可用 — nautilus_trader.adapters.binance: {e}"
                 logger.warning(f"Nautilus Trader 导入失败({NAUTILUS_MISSING_DETAIL})，相关功能将不可用")
             else:
@@ -104,7 +104,7 @@ else:
 
                     NAUTILUS_AVAILABLE = True
                     logger.info("Nautilus Trader 全部模块导入成功")
-                except ImportError as e:
+                except Exception as e:
                     NAUTILUS_MISSING_DETAIL = f"OKX 适配器不可用 — nautilus_trader.adapters.okx: {e}"
                     logger.warning(f"Nautilus Trader 导入失败({NAUTILUS_MISSING_DETAIL})，相关功能将不可用")
 

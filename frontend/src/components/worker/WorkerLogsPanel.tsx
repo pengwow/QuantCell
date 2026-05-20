@@ -10,8 +10,6 @@ import {
   Tag,
   Select,
   Tooltip,
-  Badge,
-  Divider,
   Button,
   message as apiMessage,
 } from 'antd';
@@ -19,9 +17,7 @@ import {
   ClearOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
-  SyncOutlined,
   FileTextOutlined,
-  HistoryOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
@@ -196,10 +192,6 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
         <div className="flex items-center gap-2">
           <FileTextOutlined />
           <span className="text-lg font-medium">{t('real_time_logs') || '实时日志'}</span>
-          <Badge
-            status={isLogStreamConnected ? 'processing' : 'default'}
-            text={isLogStreamConnected ? (t('connected') || '已连接') : (t('disconnected') || '未连接')}
-          />
           {isPaused && <Tag color="orange">{t('paused') || '已暂停'}</Tag>}
         </div>
       </div>
@@ -224,54 +216,30 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
           ))}
         </Select>
 
-        {/* 右侧：操作按钮组 */}
+        {/* 右侧：操作按钮组（2个按钮） */}
         <div className="flex items-center gap-2">
-          {/* 智能滚动状态指示 */}
-          <Tooltip title={autoScroll ? (t('auto_tracking') || '自动跟踪最新日志') : (t('manual_scroll') || '手动浏览历史日志')}>
-            <Badge status={autoScroll ? 'success' : 'default'} />
-          </Tooltip>
-
           {/* 暂停/恢复 */}
           <Tooltip title={isPaused ? (t('resume') || '恢复' ) : (t('pause') || '暂停')}>
-            <button
+            <Button
+              type={isPaused ? 'primary' : 'default'}
+              size="small"
+              icon={isPaused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
               onClick={handleTogglePause}
-              className="p-1.5 rounded hover:bg-stone-700 text-stone-300 hover:text-white transition-colors"
             >
-              {isPaused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
-            </button>
-          </Tooltip>
-
-          {/* 历史快照 - 从 LogRingBuffer 加载最近日志 */}
-          <Tooltip title="加载历史快照 (LogRingBuffer)">
-            <button
-              onClick={async () => {
-                try {
-                  const res = await fetchRecentLogs(workerId, { limit: 200 });
-                  if (res.code === 0 && res.data.logs.length > 0) {
-                    apiMessage.success(`已加载 ${res.data.logs.length} 条最近日志`);
-                    clearLogs();
-                  } else {
-                    apiMessage.info('暂无历史日志');
-                  }
-                } catch (error: any) {
-                  apiMessage.error(`加载失败: ${error.message}`);
-                }
-              }}
-              className="p-1.5 rounded hover:bg-stone-700 text-stone-300 hover:text-white transition-colors"
-            >
-              <HistoryOutlined />
-            </button>
+              {isPaused ? (t('resume') || '恢复') : (t('pause') || '暂停')}
+            </Button>
           </Tooltip>
 
           {/* 清除日志 */}
           <Tooltip title={t('clear_logs') || '清除日志'}>
-            <button
+            <Button
+              size="small"
+              icon={<ClearOutlined />}
               onClick={handleClear}
               disabled={logs.length === 0}
-              className="p-1.5 rounded hover:bg-stone-700 text-stone-300 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <ClearOutlined />
-            </button>
+              {t('clear_logs') || '清除'}
+            </Button>
           </Tooltip>
         </div>
       </div>
@@ -346,42 +314,13 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
           }}
         >
           <div className="flex w-full items-center">
-            <a
-              onClick={handleClear}
-              className={`text-xs cursor-pointer ${
-                logs.length > 0
-                  ? 'text-blue-400 hover:text-blue-300'
-                  : 'text-stone-600 cursor-not-allowed'
-              }`}
-            >
-              {t('clear_logs') || '清除日志'}
-            </a>
-            <Divider orientation="vertical" className="bg-stone-600 mx-2" />
             <span className="text-xs text-stone-500">
               {t('total_logs') || '总数'}: {logs.length} | {t('filtered_logs') || '过滤'}:{filteredLogs.length}
             </span>
 
-            {/* 智能滚动状态指示 */}
-            {autoScroll && !isPaused ? (
-              <>
-                <Divider orientation="vertical" className="bg-stone-600 mx-2" />
-                <span className="text-xs text-green-400 flex items-center gap-1">
-                  <SyncOutlined spin style={{ fontSize: '10px' }} />
-                  {t('auto_tracking') || '自动跟踪最新日志'}
-                </span>
-              </>
-            ) : !autoScroll && !isPaused ? (
-              <>
-                <Divider orientation="vertical" className="bg-stone-600 mx-2" />
-                <span className="text-xs text-blue-300">
-                  {t('manual_browsing') || '手动浏览历史日志'}
-                </span>
-              </>
-            ) : null}
-
             {isPaused && (
               <>
-                <Divider orientation="vertical" className="bg-stone-600 mx-2" />
+                <span className="mx-2 text-stone-600">|</span>
                 <span className="text-xs text-yellow-400">
                   {t('stream_paused') || '流已暂停'}
                 </span>

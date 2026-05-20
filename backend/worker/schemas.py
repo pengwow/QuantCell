@@ -68,6 +68,7 @@ class WorkerUpdate(BaseModel):
     """更新Worker请求模型"""
     name: Optional[str] = Field(None, description="Worker名称")
     description: Optional[str] = Field(None, description="Worker描述")
+    strategy_id: Optional[int] = Field(None, description="关联策略ID")
     strategy_file_name: Optional[str] = Field(
         None,
         description="策略文件名称"

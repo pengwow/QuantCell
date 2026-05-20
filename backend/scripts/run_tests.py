@@ -89,7 +89,7 @@ def run_all_tests(verbose: bool = False, parallel: bool = False) -> int:
 
 def run_unit_tests(verbose: bool = False) -> int:
     """运行单元测试"""
-    cmd = ["uv", "run", "pytest", "-m", "unit"]
+    cmd = ["uv", "run", "pytest", "tests/unit"]
 
     if verbose:
         cmd.append("-v")

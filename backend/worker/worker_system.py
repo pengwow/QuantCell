@@ -391,7 +391,8 @@ class NautilusTradingSystem:
 
         # 更新数据库状态
         if db is not None:
-            crud.update_worker_status(db, worker_id, "running")
+            import os
+            crud.update_worker_status(db, worker_id, "running", pid=os.getpid())
             db.commit()
 
         await worker_state_manager.transition(worker_id, "running")
@@ -424,6 +425,23 @@ class NautilusTradingSystem:
                 f"[NautilusTradingSystem] TradingNode 开始运行(Thread): worker_id={worker_id}"
             )
             node.run()
+        except RuntimeError as e:
+            error_msg = str(e)
+            if "Event loop stopped before Future completed" in error_msg:
+                logger.info(
+                    f"[NautilusTradingSystem] TradingNode 正常停止: "
+                    f"worker_id={worker_id}"
+                )
+            else:
+                logger.error(
+                    f"[NautilusTradingSystem] TradingNode RuntimeError: "
+                    f"worker_id={worker_id}, error={error_msg}\n{traceback.format_exc()}"
+                )
+                strategy_registry.update_status(
+                    worker_id, "error", error_message=error_msg
+                )
+                strategy_registry.set_run_thread(worker_id, None)
+                strategy_registry.set_trading_node(worker_id, None)
         except Exception as e:
             error_msg = str(e)
             logger.error(

@@ -48,7 +48,7 @@ class Strategy(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
     # 关联关系
-    parameters = relationship("StrategyParameter", back_populates="strategy", cascade="all, delete-orphan")
+    strategy_parameters = relationship("StrategyParameter", back_populates="strategy", cascade="all, delete-orphan")
     workers = relationship("Worker", back_populates="strategy", lazy="dynamic")
 
     __table_args__ = (
@@ -166,7 +166,7 @@ class StrategyParameter(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     strategy_id = Column(Integer, ForeignKey('strategies.id'), nullable=False, index=True)
-    strategy = relationship("Strategy", back_populates="parameters")
+    strategy = relationship("Strategy", back_populates="strategy_parameters")
 
     # 参数信息
     param_name = Column(String(100), nullable=False)

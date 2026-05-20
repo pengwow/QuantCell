@@ -241,19 +241,18 @@ def _format_elapsed(elapsed: float) -> str:
 def _print_worker_table(workers: List[Dict[str, Any]], show_header: bool = True):
     """
     打印 Worker 表格（增强版）
-    
-    包含：ID、名称、状态（带颜色和图标）、PID、运行时长
+
+    包含：ID、名称、状态（带颜色和图标）、运行时长
     """
     if show_header:
-        typer.echo(f"{'ID':<8} {'名称':<20} {'状态':<15} {'PID':<10} {'运行时长':<15}")
-        typer.echo("-" * 75)
+        typer.echo(f"{'ID':<8} {'名称':<20} {'状态':<15} {'运行时长':<15}")
+        typer.echo("-" * 60)
 
     for worker in workers:
         worker_id = str(worker.get("worker_id", worker.get("id", "N/A")))[:6]
         name = worker.get("name", "N/A")[:18]
         state = worker.get("status", "unknown")
-        pid = str(worker.get("pid")) if worker.get("pid") else "-"
-        
+
         started_at = worker.get("started_at")
         uptime = _format_uptime(started_at)
 
@@ -263,7 +262,7 @@ def _print_worker_table(workers: List[Dict[str, Any]], show_header: bool = True)
 
         typer.echo(f"{worker_id:<8} {name:<20} ", nl=False)
         typer.secho(f"{state_display:<15}", fg=state_color, nl=False)
-        typer.echo(f" {pid:<10} {uptime:<15}")
+        typer.echo(f" {uptime:<15}")
 
 
 def _print_log_entry(log: dict):
@@ -779,7 +778,30 @@ def status(
 def _show_status(worker_id: Optional[int] = None):
     """显示 Worker 状态（通过 HTTP 获取数据）"""
     if worker_id:
-        state_data = _get(f"/api/workers/{worker_id}/state")
+        if _local_mode:
+            db = _get_local_db()
+            try:
+                from worker.crud import get_worker
+                from worker.worker_state import worker_state_manager
+                worker = get_worker(db, worker_id)
+                if not worker:
+                    typer.echo(f"✗ Worker {worker_id} 不存在", err=True)
+                    raise typer.Exit(1)
+
+                state = worker_state_manager._state_cache.get(worker_id)
+                state_data = state.to_dict() if state else {'status': worker.status}
+                state_data['name'] = worker.name
+                state_data['strategy_id'] = worker.strategy_id
+                trading_config = worker.get_trading_config_dict()
+                state_data['exchange'] = trading_config.get('exchange', 'binance')
+                state_data['symbol'] = worker.get_symbols()
+                state_data['timeframe'] = trading_config.get('timeframe', '1h')
+                state_data['market_type'] = trading_config.get('market_type', 'spot')
+                state_data['trading_mode'] = trading_config.get('trading_mode', 'paper')
+            finally:
+                db.close()
+        else:
+            state_data = _get(f"/api/workers/{worker_id}/state")
 
         if not state_data:
             typer.echo(f"✗ Worker {worker_id} 不存在", err=True)
@@ -788,20 +810,40 @@ def _show_status(worker_id: Optional[int] = None):
         state = state_data.get('status', 'unknown')
         state_icon = _get_state_icon(state)
         state_color = _get_state_color(state)
+        name = state_data.get('name') or '未命名'
+        strategy_id = state_data.get('strategy_id')
+        exchange = state_data.get('exchange') or '未配置'
+        symbols = state_data.get('symbol', [])
+        symbol_str = ', '.join(symbols) if isinstance(symbols, list) and symbols else (symbols or '未配置')
+        timeframe = state_data.get('timeframe') or '未配置'
+        market_type = state_data.get('market_type') or '未配置'
+        trading_mode = state_data.get('trading_mode') or '未配置'
+        strategy_info = state_data.get('strategy_info')
+        strategy_name = strategy_info.get('name') if strategy_info else None
 
+        typer.echo(f"{'='*60}")
         typer.echo(f"Worker ID: {state_data.get('worker_id', worker_id)}")
-        typer.echo(f"名称: {state_data.get('name')}")
+        typer.echo(f"名称: {name}")
         typer.echo(f"状态: ", nl=False)
         typer.secho(f"{state_icon} {state}", fg=state_color)
-        typer.echo(f"策略ID: {state_data.get('strategy_id')}")
-        typer.echo(f"交易所: {state_data.get('exchange')}")
-        typer.echo(f"交易对: {state_data.get('symbol')}")
+        if strategy_name:
+            typer.echo(f"策略: {strategy_name} (ID: {strategy_id})")
+        elif strategy_id:
+            typer.echo(f"策略ID: {strategy_id}")
+        typer.echo(f"交易所: {exchange}")
+        typer.echo(f"交易对: {symbol_str}")
+        typer.echo(f"周期: {timeframe} | 市场: {market_type} | 模式: {trading_mode}")
 
-        state_info = state_data.get('_state_info')
-        if state_info:
-            typer.echo(f"\n实时状态:")
-            typer.echo(f"  是否健康: {state_info.get('is_healthy', False)}")
-            typer.echo(f"  最后心跳: {state_info.get('last_heartbeat', 'N/A')}")
+        started_at = state_data.get('started_at')
+        if started_at:
+            uptime = _format_uptime(started_at)
+            typer.echo(f"运行时长: {uptime}")
+
+        error_message = state_data.get('error_message')
+        if error_message:
+            typer.secho(f"错误信息: {error_message}", fg=typer.colors.RED)
+
+        typer.echo(f"{'='*60}")
     else:
         workers_data = _get("/api/workers/")
         workers = workers_data if isinstance(workers_data, list) else workers_data.get('items', workers_data.get('workers', []))
@@ -903,11 +945,23 @@ def stats(
 
             state_data = _get(f"/api/workers/{worker_id}/state")
 
+            name = state_data.get('name') or '未命名'
+            status = state_data.get('status', 'unknown')
+            exchange = state_data.get('exchange') or '未配置'
+            symbols = state_data.get('symbol', [])
+            symbol_str = ', '.join(symbols) if isinstance(symbols, list) and symbols else (symbols or '未配置')
+            strategy_info = state_data.get('strategy_info')
+            strategy_name = strategy_info.get('name') if strategy_info else None
+
             typer.echo(f"Worker {worker_id} 统计信息:")
-            typer.echo(f"{'='*50}")
-            typer.echo(f"名称: {state_data.get('name')}")
+            typer.echo(f"{'='*60}")
+            typer.echo(f"名称: {name}")
             typer.echo(f"状态: ", nl=False)
-            typer.secho(f"{state_data.get('status')}", fg=_get_state_color(state_data.get('status', '')))
+            typer.secho(f"{status}", fg=_get_state_color(status))
+            if strategy_name:
+                typer.echo(f"策略: {strategy_name}")
+            typer.echo(f"交易所: {exchange}")
+            typer.echo(f"交易对: {symbol_str}")
             typer.echo(f"运行时长: {_format_uptime(state_data.get('started_at'))}")
 
             try:
@@ -918,9 +972,13 @@ def stats(
             except Exception:
                 pass
 
-            typer.echo(f"\n交易记录:")
-            typer.echo(f"  成交数量: {state_data.get('trades_count', 0)}")
-            typer.echo(f"  订单数量: {state_data.get('orders_count', 0)}")
+            try:
+                trades_data = _get(f"/api/workers/{worker_id}/monitoring/trades", params={"page_size": 1})
+                total_trades = trades_data.get('total', 0) if isinstance(trades_data, dict) else 0
+                typer.echo(f"\n交易记录:")
+                typer.echo(f"  成交数量: {total_trades}")
+            except Exception:
+                pass
 
         else:
             workers_data = _get("/api/workers/")
