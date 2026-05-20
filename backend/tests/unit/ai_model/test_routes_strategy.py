@@ -17,14 +17,41 @@ test_file = Path(__file__).resolve()
 backend_dir = test_file.parent.parent.parent.parent  # tests/unit/ai_model -> tests/unit -> tests -> backend
 sys.path.insert(0, str(backend_dir))
 
-# 需要先mock掉可能导致循环导入的模块
-with patch.dict('sys.modules', {
+# mock数据库和worker相关模块，避免导入链触发nautilus_trader等重型依赖
+_mock_worker = MagicMock()
+_mock_worker.router = MagicMock()
+_mock_worker_routes = MagicMock()
+_mock_worker_routes.websocket_endpoint = MagicMock()
+
+_MOCK_MODULES = {
     'settings.models': MagicMock(),
     'collector.db.database': MagicMock(),
     'collector.db.models': MagicMock(),
-}):
-    from main import app
+    'worker': _mock_worker,
+    'worker.routes': _mock_worker_routes,
+}
+for _name, _mock in _MOCK_MODULES.items():
+    sys.modules.setdefault(_name, _mock)
 
+from main import app
+import ai_model.routes_strategy  # noqa: F401
+
+# 清理mock条目和被污染的模块，避免影响后续测试文件的收集
+# 不清理ai_model和ai_model.routes_strategy（本测试需要它们）
+_KEEP_MODULES = {'ai_model', 'ai_model.routes_strategy', 'ai_model.routes',
+                 'ai_model.schemas_strategy', 'ai_model.config_utils',
+                 'ai_model.prompts', 'ai_model.strategy_generator',
+                 'ai_model.thinking_chain', 'ai_model.performance_monitor'}
+for _mod_name in list(_MOCK_MODULES.keys()) + ['main']:
+    sys.modules.pop(_mod_name, None)
+# 清理因mock collector.db.database而使用了mock Base的模块
+for _mod_name in list(sys.modules.keys()):
+    if _mod_name in _KEEP_MODULES:
+        continue
+    if _mod_name.startswith(('strategy.', 'backtest.', 'settings.', 'collector.', 'system.', 'factor.', 'worker.')):
+        sys.modules.pop(_mod_name, None)
+for _mod_name in ['strategy', 'backtest', 'settings', 'collector', 'system', 'factor']:
+    sys.modules.pop(_mod_name, None)
 
 # 创建测试客户端
 client = TestClient(app)
@@ -151,10 +178,8 @@ class TestValidateStrategyCode:
             headers={"Authorization": "Bearer test-token"}
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["code"] == 0
-        assert data["data"]["valid"] is False
+        # 空代码应被请求验证拒绝（min_length=1）
+        assert response.status_code == 422
 
 
 class TestRequestValidation:
