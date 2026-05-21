@@ -65,13 +65,9 @@ def list_strategies(db_session=None) -> str:
     """
     try:
         from strategy.models import Strategy
-        from collector.db.database import SessionLocal, init_database_config
+        from utils.db_session import use_db_session
 
-        init_database_config()
-        db = db_session or SessionLocal()
-        should_close = db_session is None
-
-        try:
+        with use_db_session(db_session) as db:
             strategies = db.query(Strategy).all()
             if not strategies:
                 return "系统中暂无策略"
@@ -84,9 +80,6 @@ def list_strategies(db_session=None) -> str:
                     f"状态: {'已激活' if s.is_active else '未激活'}"
                 )
             return "\n".join(lines)
-        finally:
-            if should_close:
-                db.close()
     except Exception as e:
         logger.error(f"获取策略列表失败: {e}")
         return f"错误: 获取策略列表失败: {e}"
@@ -105,13 +98,9 @@ def get_strategy_detail(strategy_id: int, db_session=None) -> str:
     """
     try:
         from strategy.models import Strategy
-        from collector.db.database import SessionLocal, init_database_config
+        from utils.db_session import use_db_session
 
-        init_database_config()
-        db = db_session or SessionLocal()
-        should_close = db_session is None
-
-        try:
+        with use_db_session(db_session) as db:
             strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
             if not strategy:
                 return f"策略 ID {strategy_id} 不存在"
@@ -126,9 +115,6 @@ def get_strategy_detail(strategy_id: int, db_session=None) -> str:
                 f"创建时间: {strategy.created_at}\n"
                 f"更新时间: {strategy.updated_at}"
             )
-        finally:
-            if should_close:
-                db.close()
     except Exception as e:
         logger.error(f"获取策略详情失败: {e}")
         return f"错误: 获取策略详情失败: {e}"
@@ -278,12 +264,10 @@ def analyze_backtest_result(
         raw_data = None
 
         if backtest_id:
-            from collector.db.database import SessionLocal, init_database_config
+            from utils.db_session import get_db_session
             from backtest.models import BacktestResult
 
-            init_database_config()
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 record = db.query(BacktestResult).filter(BacktestResult.id == backtest_id).first()
                 if not record:
                     return json.dumps(
@@ -291,8 +275,6 @@ def analyze_backtest_result(
                         ensure_ascii=False,
                     )
                 raw_data = record.get_metrics_dict()
-            finally:
-                db.close()
         elif result_file:
             with open(result_file, "r", encoding="utf-8") as f:
                 raw_data = json.load(f)
@@ -466,12 +448,10 @@ def diagnose_strategy(
 
         trade_analysis = None
         if backtest_id:
-            from collector.db.database import SessionLocal, init_database_config
+            from utils.db_session import get_db_session
             from backtest.models import BacktestResult
 
-            init_database_config()
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 record = db.query(BacktestResult).filter(BacktestResult.id == backtest_id).first()
                 if record:
                     metrics = record.get_metrics_dict()
@@ -498,8 +478,6 @@ def diagnose_strategy(
                     if max_consecutive_losses > 5:
                         issues.append(f"连续亏损次数过多({max_consecutive_losses}次)，策略稳定性不足")
                         recommendations.append("建议增加过滤条件减少连续亏损，或设置连续亏损后的暂停机制")
-            finally:
-                db.close()
 
         return json.dumps(
             {

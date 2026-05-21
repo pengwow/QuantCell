@@ -70,7 +70,7 @@ def verify_password(password: str, hashed_password: str) -> bool:
 # 导入配置管理相关模块
 from settings.models import SystemConfigBusiness as SystemConfig
 from collector.db.models import SystemConfig as SystemConfigModel
-from collector.db.database import SessionLocal
+from utils.db_session import get_db_session
 from sqlalchemy.orm import Session
 from collector.db.models import UserBusiness
 from settings.services import SystemService
@@ -598,8 +598,7 @@ def _ensure_single_default_provider(batch_configs: Any) -> None:
         if not has_is_default_update:
             return
 
-        db: Session = SessionLocal()
-        try:
+        with get_db_session() as db:
             default_records = (
                 db.query(SystemConfigModel)
                 .filter(SystemConfigModel.key.like("ai_model.%.is_default"))
@@ -617,8 +616,6 @@ def _ensure_single_default_provider(batch_configs: Any) -> None:
 
             db.commit()
             logger.warning(f"检测到{len(enabled_records)}条is_default=1记录，已自动修正为仅保留: {keep_record.key}")
-        finally:
-            db.close()
     except Exception as e:
         logger.error(f"is_default互斥处理失败: {e}")
 
