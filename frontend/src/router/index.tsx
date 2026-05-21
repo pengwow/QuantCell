@@ -31,6 +31,7 @@ import ExchangeSettingsPage from '@/pages/setting/ExchangeSettingsPage';
 import NotificationsPage from '@/pages/setting/NotificationsPage';
 import ModelSettingsPage from '@/pages/setting/ModelSettingsPage';
 import SystemInfoPage from '@/pages/setting/SystemInfoPage';
+import EnvironmentVariablesPage from '@/pages/setting/EnvironmentVariablesPage';
 
 const isAuthenticated = (): boolean => {
   const token = localStorage.getItem('access_token');
@@ -138,6 +139,10 @@ const baseRoutes: RouteObject[] = [
           {
             path: 'general',
             element: <GeneralSettingsPage />,
+          },
+          {
+            path: 'env',
+            element: <EnvironmentVariablesPage />,
           },
           {
             path: 'exchange',

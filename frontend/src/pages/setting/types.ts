@@ -110,7 +110,26 @@ export enum LogLevel {
   FATAL = 'fatal',
 }
 
-// 日志记录类型定义
+/** 环境变量项 */
+export interface EnvVariable {
+  key: string;
+  value: string;
+  description?: string;
+  is_sensitive?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** 环境变量保存请求 */
+export interface EnvVariableSaveRequest {
+  items: EnvVariable[];
+}
+
+/** 环境变量列表响应 */
+export interface EnvVariableListResponse {
+  items: EnvVariable[];
+  total: number;
+}
 export interface LogRecord {
   id: string;
   timestamp: string;

@@ -1266,9 +1266,157 @@ def get_supported_exchanges(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# 创建环境变量API路由子路由
+env_var_router = APIRouter(prefix="/api/env-vars", tags=["env-variables"])
+
+
+@env_var_router.get("/", response_model=ApiResponse)
+@jwt_auth_required_sync
+def get_env_variables(request: Request):
+    """获取所有环境变量配置
+
+    从系统配置中获取所有 name="env" 的环境变量配置
+
+    Returns:
+        ApiResponse: 包含环境变量列表的响应
+    """
+    try:
+        logger.info("获取环境变量配置")
+
+        all_configs = SystemConfig.get_all_with_details()
+        env_vars = {}
+        for key, config in all_configs.items():
+            if config.get("name") == "env":
+                if config.get("is_sensitive", False):
+                    env_vars[key] = {
+                        "key": key,
+                        "value": "",
+                        "description": config.get("description", ""),
+                        "is_sensitive": True,
+                        "created_at": config.get("created_at"),
+                        "updated_at": config.get("updated_at"),
+                    }
+                else:
+                    env_vars[key] = {
+                        "key": key,
+                        "value": config.get("value", ""),
+                        "description": config.get("description", ""),
+                        "is_sensitive": False,
+                        "created_at": config.get("created_at"),
+                        "updated_at": config.get("updated_at"),
+                    }
+
+        items = list(env_vars.values())
+        logger.info(f"成功获取环境变量配置，共 {len(items)} 项")
+
+        return ApiResponse(
+            code=0,
+            message="获取环境变量配置成功",
+            data={"items": items, "total": len(items)}
+        )
+    except Exception as e:
+        logger.error(f"获取环境变量配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@env_var_router.post("/", response_model=ApiResponse)
+def save_env_variables(request: Request, items: List[Dict[str, Any]] = Body(...)):
+    """批量保存环境变量配置
+
+    接受环境变量列表，以 name="env" 存储到 system_config 表中
+
+    Args:
+        request: FastAPI请求对象
+        items: 环境变量列表，每项包含 key, value, description, is_sensitive
+
+    Returns:
+        ApiResponse: 包含保存结果的响应
+    """
+    if is_guest_user(request):
+        logger.warning("未认证用户尝试保存环境变量，已拦截")
+        return ApiResponse(
+            code=401,
+            message="请先登录",
+            data={"detail": "请登录后再修改环境变量配置"},
+            timestamp=datetime.now()
+        )
+
+    try:
+        logger.info(f"批量保存环境变量配置，共 {len(items)} 项")
+
+        batch_configs = []
+        for item in items:
+            batch_configs.append({
+                "key": item.get("key", ""),
+                "value": str(item.get("value", "")),
+                "description": item.get("description", ""),
+                "name": "env",
+                "is_sensitive": item.get("is_sensitive", False),
+            })
+
+        from utils.config_manager import load_system_configs
+
+        updated_count = 0
+        for config_item in batch_configs:
+            key = config_item["key"]
+            if not key:
+                continue
+            SystemConfig.set(
+                key=key,
+                value=config_item["value"],
+                description=config_item["description"],
+                name="env",
+                is_sensitive=config_item.get("is_sensitive", False),
+            )
+            updated_count += 1
+
+        request.app.state.configs = load_system_configs()
+        logger.info(f"环境变量配置已保存: {updated_count}/{len(items)}")
+
+        return ApiResponse(
+            code=0,
+            message="环境变量配置保存成功",
+            data={"updated_count": updated_count}
+        )
+    except Exception as e:
+        logger.error(f"保存环境变量配置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@env_var_router.delete("/{key}", response_model=ApiResponse)
+@jwt_auth_required_sync
+def delete_env_variable(request: Request, key: str = Path(..., description="要删除的环境变量键名")):
+    """删除指定环境变量配置
+
+    Args:
+        request: FastAPI请求对象
+        key: 要删除的环境变量键名
+
+    Returns:
+        ApiResponse: 包含删除结果的响应
+    """
+    try:
+        logger.info(f"删除环境变量: {key}")
+
+        config = SystemConfig.get_with_details(key)
+        if config and config.get("name") == "env":
+            success = SystemConfig.delete(key)
+            if success:
+                from utils.config_manager import load_system_configs
+                request.app.state.configs = load_system_configs()
+                logger.info(f"环境变量已删除: {key}")
+                return ApiResponse(code=0, message="环境变量删除成功", data={"key": key})
+
+        return ApiResponse(code=1, message="环境变量不存在", data={"key": key})
+    except Exception as e:
+        logger.error(f"删除环境变量失败: key={key}, error={e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # 注册子路由
 router.include_router(auth_router)
 router.include_router(config_router)
 router.include_router(system_router)
 router.include_router(notification_router)
 router.include_router(exchange_router)
+router.include_router(env_var_router)
