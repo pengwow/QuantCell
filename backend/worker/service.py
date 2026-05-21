@@ -62,12 +62,11 @@ class WorkerService:
         page_size: int = 50,
     ) -> dict:
         from .crud import get_worker_orders_paginated
-        from collector.db.database import SessionLocal
+        from utils.db_session import get_db_session
 
         skip = (page - 1) * page_size
 
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             items, total = get_worker_orders_paginated(
                 db=db,
                 worker_id=worker_id,
@@ -87,8 +86,6 @@ class WorkerService:
                 "page": page,
                 "page_size": page_size,
             }
-        finally:
-            db.close()
 
     @classmethod
     def reset_instance(cls):
@@ -206,10 +203,10 @@ async def get_positions(worker_id: int) -> Dict[str, Any]:
     }
     """
     from . import models
-    from collector.db.database import SessionLocal
+    from utils.db_session import get_db_session
 
     try:
-        with SessionLocal() as db:
+        with get_db_session() as db:
             positions = db.query(models.WorkerPosition).filter(
                 models.WorkerPosition.worker_id == worker_id,
                 models.WorkerPosition.status == 'OPEN'
@@ -243,28 +240,28 @@ async def get_trades(
     获取Worker成交记录（从SQLAlchemy主库查询）
     """
     from .crud import get_worker_trades
-    from collector.db.database import SessionLocal
+    from utils.db_session import get_db_session
 
-    db = SessionLocal()
     try:
-        trades, total = get_worker_trades(
-            db, worker_id, symbol=symbol,
-            start_time=start_time, end_time=end_time,
-            skip=offset, limit=limit
-        )
+        with get_db_session() as db:
+            trades, total = get_worker_trades(
+                db, worker_id, symbol=symbol,
+                start_time=start_time, end_time=end_time,
+                skip=offset, limit=limit
+            )
 
-        result = []
-        for t in trades:
-            trade_dict = t.to_dict()
-            result.append(trade_dict)
+            result = []
+            for t in trades:
+                trade_dict = t.to_dict()
+                result.append(trade_dict)
 
-        return {
-            "worker_id": worker_id,
-            "trades": result,
-            "total": total,
-            "source": "sqlalchemy",
-            "timestamp": datetime.now().isoformat()
-        }
+            return {
+                "worker_id": worker_id,
+                "trades": result,
+                "total": total,
+                "source": "sqlalchemy",
+                "timestamp": datetime.now().isoformat()
+            }
     except Exception as e:
         logger.error(f"查询成交记录失败: {e}")
         return {
@@ -274,8 +271,6 @@ async def get_trades(
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }
-    finally:
-        db.close()
 
 
 async def get_orders(worker_id: int, status: Optional[str] = None) -> Dict[str, Any]:
@@ -286,46 +281,46 @@ async def get_orders(worker_id: int, status: Optional[str] = None) -> Dict[str, 
     """
     import json
     from .crud import get_worker_trades
-    from collector.db.database import SessionLocal
+    from utils.db_session import get_db_session
 
-    db = SessionLocal()
     try:
-        trades, total = get_worker_trades(db, worker_id, limit=50)
+        with get_db_session() as db:
+            trades, total = get_worker_trades(db, worker_id, limit=50)
 
-        orders = []
-        for t in trades:
-            raw_data = {}
-            if t.raw_data:
-                try:
-                    raw_data = json.loads(t.raw_data)
-                except (json.JSONDecodeError, TypeError):
-                    pass
+            orders = []
+            for t in trades:
+                raw_data = {}
+                if t.raw_data:
+                    try:
+                        raw_data = json.loads(t.raw_data)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
 
-            orders.append({
-                "order_id": t.trade_id,
-                "client_order_id": raw_data.get("client_order_id", t.trade_id),
-                "venue_order_id": raw_data.get("venue_order_id", ""),
-                "event_type": "OrderFilled",
-                "instrument_id": raw_data.get("instrument_id", f"{t.symbol}.BINANCE"),
-                "symbol": t.symbol,
-                "side": t.side,
-                "order_type": t.order_type,
-                "quantity": t.quantity,
-                "price": t.price,
-                "last_qty": t.quantity,
-                "last_px": t.price,
-                "commission": t.fee,
-                "commission_currency": t.fee_currency or "USDT",
-                "created_at": t.created_at.isoformat() if t.created_at else None,
-            })
+                orders.append({
+                    "order_id": t.trade_id,
+                    "client_order_id": raw_data.get("client_order_id", t.trade_id),
+                    "venue_order_id": raw_data.get("venue_order_id", ""),
+                    "event_type": "OrderFilled",
+                    "instrument_id": raw_data.get("instrument_id", f"{t.symbol}.BINANCE"),
+                    "symbol": t.symbol,
+                    "side": t.side,
+                    "order_type": t.order_type,
+                    "quantity": t.quantity,
+                    "price": t.price,
+                    "last_qty": t.quantity,
+                    "last_px": t.price,
+                    "commission": t.fee,
+                    "commission_currency": t.fee_currency or "USDT",
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                })
 
-        return {
-            "worker_id": worker_id,
-            "orders": orders,
-            "total": len(orders),
-            "source": "sqlalchemy",
-            "timestamp": datetime.now().isoformat()
-        }
+            return {
+                "worker_id": worker_id,
+                "orders": orders,
+                "total": len(orders),
+                "source": "sqlalchemy",
+                "timestamp": datetime.now().isoformat()
+            }
     except Exception as e:
         logger.error(f"查询订单失败: {e}")
         return {
@@ -335,5 +330,3 @@ async def get_orders(worker_id: int, status: Optional[str] = None) -> Dict[str, 
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }
-    finally:
-        db.close()

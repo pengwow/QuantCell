@@ -162,7 +162,8 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
     import threading
     import uuid
     from datetime import datetime, timezone
-    from collector.db.database import SessionLocal, init_database_config
+    from collector.db.database import init_database_config
+    from utils.db_session import get_db_session
     from backtest.models import BacktestTask
     import json
     from utils.validation import validate_time_range, parse_time_range
@@ -202,11 +203,7 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
         task_id = str(uuid.uuid4())
         logger.info(f"生成任务ID: {task_id}")
 
-        # 初始化数据库连接
-        init_database_config()
-        db = SessionLocal()
-
-        try:
+        with get_db_session() as db:
             # 创建回测任务记录
             task = BacktestTask(
                 id=task_id,
@@ -301,9 +298,6 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                     "message": "回测任务已创建并开始执行，请通过进度接口查询状态"
                 }
             )
-
-        finally:
-            db.close()
 
     except Exception as e:
         logger.error(f"创建回测任务失败: {e}")
@@ -571,15 +565,12 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
         logger.info(f"获取回测结果详情请求，回测ID: {backtest_id}")
 
         # 从数据库获取回测任务和结果
-        from collector.db.database import SessionLocal, init_database_config
+        from utils.db_session import get_db_session
         from backtest.models import BacktestTask, BacktestResult
         from strategy.models import Strategy
         import json
 
-        init_database_config()
-        db = SessionLocal()
-
-        try:
+        with get_db_session() as db:
             # 获取回测任务
             task = db.query(BacktestTask).filter_by(id=backtest_id).first()
 
@@ -645,9 +636,6 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
                 message="获取回测结果详情成功",
                 data=detail_data
             )
-
-        finally:
-            db.close()
 
     except Exception as e:
         logger.error(f"获取回测结果详情失败: {e}")

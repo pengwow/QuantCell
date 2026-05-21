@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from exchange import BinanceCollector, OKXCollector
 
 from ..db import crud
-from ..db.database import SessionLocal, init_database_config
+from ..db.database import init_database_config
 from ..db.models import CryptoSymbol, SystemConfigBusiness as SystemConfig
 
 from ..schemas.data import DownloadCryptoRequest, ExportCryptoRequest, LoadDataRequest
@@ -306,9 +306,9 @@ def sync_crypto_symbols(
 
         while retry_count < max_retries:
             try:
+                from utils.db_session import get_db_session
                 logger.info(f"开始数据库操作，重试次数: {retry_count + 1}/{max_retries}")
-                db = SessionLocal()
-                try:
+                with get_db_session() as db:
                     logger.info(f"开始处理{exchange}的货币对数据...")
 
                     logger.info(f"获取{exchange}的现有货币对数据...")
@@ -372,10 +372,6 @@ def sync_crypto_symbols(
                         'deleted_count': deleted_count,
                         'timestamp': datetime.now().isoformat()
                     }
-                finally:
-                    logger.debug("关闭数据库连接...")
-                    db.close()
-                    logger.debug("数据库连接已关闭")
 
             except Exception as e:
                 retry_count += 1
@@ -950,7 +946,7 @@ class DataService:
         try:
             import json
 
-            from ..db.database import SessionLocal, init_database_config
+            from utils.db_session import get_db_session
             from ..db.models import CryptoSymbol
             from config import get_config
 
@@ -958,10 +954,7 @@ class DataService:
             quote_currency = get_config('quote', 'USDT')
             logger.info(f"系统配置计价货币: quote={quote_currency}")
 
-            # 初始化数据库配置
-            init_database_config()
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 # 查询数据库中的货币对
                 query = db.query(CryptoSymbol).filter(CryptoSymbol.exchange == exchange)
 
@@ -1012,8 +1005,6 @@ class DataService:
                     "message": "从数据库获取加密货币对列表成功",
                     "response_data": response_data
                 }
-            finally:
-                db.close()
         except Exception as e:
             logger.error(f"从数据库获取货币对失败: {e}")
             return {

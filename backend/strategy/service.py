@@ -312,14 +312,12 @@ class StrategyService:
     
     def get_strategy_parameters(self, strategy_id: int) -> List[Dict[str, Any]]:
         """根据策略ID获取参数列表（优先查库，无数据则从策略文件AST解析）"""
-        from collector.db.database import SessionLocal, init_database_config
+        from utils.db_session import get_db_session
         from .models import StrategyParameter, Strategy
 
         # 1. 先查询 strategy_parameters 表
         try:
-            init_database_config()
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 params = db.query(StrategyParameter).filter(
                     StrategyParameter.strategy_id == strategy_id
                 ).all()
@@ -328,17 +326,13 @@ class StrategyService:
                     result = [p.to_dict() for p in params]
                     logger.info(f"根据策略ID {strategy_id} 从 parameters 表获取到 {len(result)} 个参数")
                     return result
-            finally:
-                db.close()
         except Exception as e:
             logger.warning(f"查询 strategy_parameters 表失败: {e}")
 
         # 2. 表无数据，回退到 AST 解析策略文件
         logger.info(f"strategy_parameters 表无数据 (id={strategy_id})，回退到 AST 解析")
         try:
-            init_database_config()
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 strategy = db.query(Strategy).filter_by(id=strategy_id).first()
                 if not strategy or not strategy.content:
                     logger.warning(f"策略 ID={strategy_id} 不存在或内容为空")
@@ -361,8 +355,6 @@ class StrategyService:
                     })
                 logger.info(f"AST 解析策略 {strategy.name} 获取到 {len(result)} 个参数")
                 return result
-            finally:
-                db.close()
         except Exception as e:
             logger.error(f"AST 解析策略参数失败 (strategy_id={strategy_id}): {e}")
             return []
@@ -401,12 +393,10 @@ class StrategyService:
             if source is None or source == "db":
                 try:
                     # 从数据库表中获取策略列表
-                    from collector.db.database import SessionLocal, init_database_config
+                    from utils.db_session import get_db_session
                     from strategy.models import Strategy
 
-                    init_database_config()
-                    db = SessionLocal()
-                    try:
+                    with get_db_session() as db:
                         # 查询所有策略
                         db_strategies = db.query(Strategy).all()
 
@@ -436,8 +426,6 @@ class StrategyService:
 
                         strategies.extend(db_strategies_list)
                         logger.info(f"从数据库获取策略列表成功，共 {len(db_strategies_list)} 个策略")
-                    finally:
-                        db.close()
                 except ImportError:
                     logger.warning("无法导入数据库模块，跳过从数据库获取策略")
                 except Exception as e:
@@ -481,12 +469,10 @@ class StrategyService:
 
             # 1. 首先尝试从数据库获取
             try:
-                from collector.db.database import SessionLocal, init_database_config
+                from utils.db_session import get_db_session
                 from strategy.models import Strategy
 
-                init_database_config()
-                db = SessionLocal()
-                try:
+                with get_db_session() as db:
                     # 查询策略
                     strategy = db.query(Strategy).filter_by(name=strategy_name).first()
                     if strategy:
@@ -540,8 +526,6 @@ class StrategyService:
                             "code": strategy.content or "",
                             "source": "db"
                         }
-                finally:
-                    db.close()
             except Exception as db_e:
                 logger.error(f"从数据库获取策略详情失败: {db_e}")
                 logger.exception(db_e)
@@ -833,12 +817,10 @@ class StrategyService:
             if not file_content:
                 logger.info(f"尝试从数据库获取策略内容: {strategy_name}")
                 try:
-                    from collector.db.database import SessionLocal, init_database_config
+                    from utils.db_session import get_db_session
                     from strategy.models import Strategy as StrategyModel
 
-                    init_database_config()
-                    db = SessionLocal()
-                    try:
+                    with get_db_session() as db:
                         strategy = db.query(StrategyModel).filter_by(name=strategy_name).first()
                         if strategy and strategy.content:
                             file_content = strategy.content
@@ -846,8 +828,6 @@ class StrategyService:
                         else:
                             logger.error(f"数据库中未找到策略或策略内容为空: {strategy_name}")
                             return None
-                    finally:
-                        db.close()
                 except Exception as db_e:
                     logger.error(f"从数据库获取策略内容失败: {db_e}")
                     return None
@@ -1150,100 +1130,97 @@ class StrategyService:
             logger.info(f"策略文件上传成功: {strategy_file}")
             
             # 将策略信息保存到数据库
-            from collector.db.database import SessionLocal, init_database_config
+            from utils.db_session import get_db_session
             from strategy.models import Strategy
             import json
 
-            init_database_config()
-            db = SessionLocal()
-            try:
-                # 检查策略是否已存在
-                logger.info(f"检查策略是否已存在: id={id}, name={strategy_name}")
-                existing_strategy = None
-                if id:
-                    # 如果提供了id，根据id查询
-                    existing_strategy = db.query(Strategy).filter_by(id=id).first()
-                else:
-                    # 否则根据策略名称查询
-                    existing_strategy = db.query(Strategy).filter_by(name=strategy_name).first()
-                logger.info(f"现有策略: {existing_strategy}")
+            with get_db_session() as db:
+                try:
+                    # 检查策略是否已存在
+                    logger.info(f"检查策略是否已存在: id={id}, name={strategy_name}")
+                    existing_strategy = None
+                    if id:
+                        # 如果提供了id，根据id查询
+                        existing_strategy = db.query(Strategy).filter_by(id=id).first()
+                    else:
+                        # 否则根据策略名称查询
+                        existing_strategy = db.query(Strategy).filter_by(name=strategy_name).first()
+                    logger.info(f"现有策略: {existing_strategy}")
 
-                # 初始化基本策略信息
-                strategy_info = {
-                    "name": strategy_name,
-                    "file_name": f"{strategy_name}.py",
-                    "description": description or "",
-                    "version": version or "1.0.0",
-                    "tags": tags or [],
-                    "params": params or []  # 如果传入了params，优先使用
-                }
+                    # 初始化基本策略信息
+                    strategy_info = {
+                        "name": strategy_name,
+                        "file_name": f"{strategy_name}.py",
+                        "description": description or "",
+                        "version": version or "1.0.0",
+                        "tags": tags or [],
+                        "params": params or []  # 如果传入了params，优先使用
+                    }
 
-                # 如果没有传入params，尝试解析策略内容提取参数
-                if not params:
-                    try:
-                        parsed_info = self._parse_strategy_content(file_content, strategy_name)
-                        if parsed_info:
-                            # 只有当 description 为 None 时才使用解析的描述，空字符串应该被保留
-                            if description is None:
-                                strategy_info["description"] = parsed_info["description"]
+                    # 如果没有传入params，尝试解析策略内容提取参数
+                    if not params:
+                        try:
+                            parsed_info = self._parse_strategy_content(file_content, strategy_name)
+                            if parsed_info:
+                                # 只有当 description 为 None 时才使用解析的描述，空字符串应该被保留
+                                if description is None:
+                                    strategy_info["description"] = parsed_info["description"]
+                                else:
+                                    strategy_info["description"] = description
+                                strategy_info["params"] = parsed_info["params"]
+                                # 如果没有提供tags，保留默认空列表；如果提供了tags，使用提供的
+                                if not tags and "tags" in parsed_info:
+                                     strategy_info["tags"] = parsed_info["tags"]
+                                logger.info(f"策略解析成功，使用解析的信息")
                             else:
-                                strategy_info["description"] = description
-                            strategy_info["params"] = parsed_info["params"]
-                            # 如果没有提供tags，保留默认空列表；如果提供了tags，使用提供的
-                            if not tags and "tags" in parsed_info:
-                                 strategy_info["tags"] = parsed_info["tags"]
-                            logger.info(f"策略解析成功，使用解析的信息")
-                        else:
-                            logger.info(f"策略解析失败，使用默认信息")
-                    except Exception as parse_e:
-                        logger.error(f"解析策略内容失败: {parse_e}")
-                        logger.exception(parse_e)
-                else:
-                    logger.info(f"使用传入的参数列表，跳过解析: {params}")
+                                logger.info(f"策略解析失败，使用默认信息")
+                        except Exception as parse_e:
+                            logger.error(f"解析策略内容失败: {parse_e}")
+                            logger.exception(parse_e)
+                    else:
+                        logger.info(f"使用传入的参数列表，跳过解析: {params}")
 
-                # 准备参数JSON
-                params_json = json.dumps(strategy_info["params"]) if strategy_info["params"] else None
-                tags_json = json.dumps(strategy_info["tags"]) if strategy_info["tags"] else None
-                logger.info(f"准备保存的参数: {params_json}")
-                
-                if existing_strategy:
-                    # 更新现有策略
-                    logger.info(f"更新现有策略: id={id}, name={strategy_name}")
-                    existing_strategy.name = strategy_name
-                    existing_strategy.filename = strategy_info["file_name"]
-                    existing_strategy.content = file_content  # 保存策略内容到数据库
-                    existing_strategy.description = strategy_info["description"]
-                    existing_strategy.parameters = params_json
-                    existing_strategy.tags = tags_json
-                    existing_strategy.version = strategy_info["version"]
-                    # 不需要手动设置updated_at，模型已配置onupdate=func.now()
-                    logger.info(f"更新策略信息到数据库: {strategy_name}")
-                else:
-                    # 创建新策略
-                    logger.info(f"创建新策略: {strategy_name}")
-                    new_strategy = Strategy(
-                        name=strategy_name,
-                        filename=strategy_info["file_name"],
-                        content=file_content,  # 保存策略内容到数据库
-                        description=strategy_info["description"],
-                        parameters=params_json,
-                        tags=tags_json,
-                        version=strategy_info["version"]
-                    )
-                    logger.info(f"新策略对象: {new_strategy}")
-                    db.add(new_strategy)
-                    logger.info(f"保存策略信息到数据库: {strategy_name}")
-                
-                # 提交事务
-                logger.info(f"提交事务: {strategy_name}")
-                db.commit()
-                logger.info(f"策略信息保存到数据库成功: {strategy_name}")
-            except Exception as db_e:
-                db.rollback()
-                logger.error(f"保存策略信息到数据库失败: {db_e}")
-                logger.exception(db_e)
-            finally:
-                db.close()
+                    # 准备参数JSON
+                    params_json = json.dumps(strategy_info["params"]) if strategy_info["params"] else None
+                    tags_json = json.dumps(strategy_info["tags"]) if strategy_info["tags"] else None
+                    logger.info(f"准备保存的参数: {params_json}")
+                    
+                    if existing_strategy:
+                        # 更新现有策略
+                        logger.info(f"更新现有策略: id={id}, name={strategy_name}")
+                        existing_strategy.name = strategy_name
+                        existing_strategy.filename = strategy_info["file_name"]
+                        existing_strategy.content = file_content  # 保存策略内容到数据库
+                        existing_strategy.description = strategy_info["description"]
+                        existing_strategy.parameters = params_json
+                        existing_strategy.tags = tags_json
+                        existing_strategy.version = strategy_info["version"]
+                        # 不需要手动设置updated_at，模型已配置onupdate=func.now()
+                        logger.info(f"更新策略信息到数据库: {strategy_name}")
+                    else:
+                        # 创建新策略
+                        logger.info(f"创建新策略: {strategy_name}")
+                        new_strategy = Strategy(
+                            name=strategy_name,
+                            filename=strategy_info["file_name"],
+                            content=file_content,  # 保存策略内容到数据库
+                            description=strategy_info["description"],
+                            parameters=params_json,
+                            tags=tags_json,
+                            version=strategy_info["version"]
+                        )
+                        logger.info(f"新策略对象: {new_strategy}")
+                        db.add(new_strategy)
+                        logger.info(f"保存策略信息到数据库: {strategy_name}")
+                    
+                    # 提交事务
+                    logger.info(f"提交事务: {strategy_name}")
+                    db.commit()
+                    logger.info(f"策略信息保存到数据库成功: {strategy_name}")
+                except Exception as db_e:
+                    db.rollback()
+                    logger.error(f"保存策略信息到数据库失败: {db_e}")
+                    logger.exception(db_e)
             
             return True
         except Exception as e:
@@ -1290,36 +1267,33 @@ class StrategyService:
             
             # 2. 从数据库中删除策略记录
             try:
-                from collector.db.database import SessionLocal, init_database_config
+                from utils.db_session import get_db_session
                 from strategy.models import Strategy
 
-                init_database_config()
-                db = SessionLocal()
-                try:
-                    # 构建查询条件
-                    query = db.query(Strategy)
-                    if strategy_id:
-                        # 如果提供了ID，优先使用ID查询
-                        query = query.filter_by(id=strategy_id)
-                    else:
-                        # 否则使用策略名称查询
-                        query = query.filter_by(name=strategy_name)
+                with get_db_session() as db:
+                    try:
+                        # 构建查询条件
+                        query = db.query(Strategy)
+                        if strategy_id:
+                            # 如果提供了ID，优先使用ID查询
+                            query = query.filter_by(id=strategy_id)
+                        else:
+                            # 否则使用策略名称查询
+                            query = query.filter_by(name=strategy_name)
 
-                    # 执行删除
-                    deleted_count = query.delete()
-                    
-                    if deleted_count > 0:
-                        logger.info(f"从数据库中删除策略成功，删除了 {deleted_count} 条记录")
-                        db.commit()
-                    else:
-                        logger.warning(f"数据库中未找到要删除的策略: name={strategy_name}, id={strategy_id}")
-                except Exception as db_e:
-                    db.rollback()
-                    logger.error(f"从数据库中删除策略失败: {db_e}")
-                    logger.exception(db_e)
-                    return False
-                finally:
-                    db.close()
+                        # 执行删除
+                        deleted_count = query.delete()
+                        
+                        if deleted_count > 0:
+                            logger.info(f"从数据库中删除策略成功，删除了 {deleted_count} 条记录")
+                            db.commit()
+                        else:
+                            logger.warning(f"数据库中未找到要删除的策略: name={strategy_name}, id={strategy_id}")
+                    except Exception as db_e:
+                        db.rollback()
+                        logger.error(f"从数据库中删除策略失败: {db_e}")
+                        logger.exception(db_e)
+                        return False
             except Exception as db_import_e:
                 logger.error(f"导入数据库模块失败: {db_import_e}")
                 logger.exception(db_import_e)
