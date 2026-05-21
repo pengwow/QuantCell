@@ -1267,6 +1267,35 @@ export const exchangeConfigApi = {
 };
 
 /**
+ * 环境变量配置相关 API
+ * 使用系统配置表存储，name="env"
+ */
+export const envVarApi = {
+  /**
+   * 获取环境变量列表
+   */
+  getList: () => {
+    return apiRequest.get('/env-vars/');
+  },
+
+  /**
+   * 批量保存环境变量
+   * @param items 环境变量列表
+   */
+  save: (items: any[]) => {
+    return apiRequest.post('/env-vars/', items);
+  },
+
+  /**
+   * 删除单个环境变量
+   * @param key 环境变量键名
+   */
+  delete: (key: string) => {
+    return apiRequest.delete(`/env-vars/${key}`);
+  },
+};
+
+/**
  * 交易所连接测试相关 API
  */
 export const exchangeApi = {

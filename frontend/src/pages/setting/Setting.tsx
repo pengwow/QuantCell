@@ -11,6 +11,7 @@ import {
   IconInfoCircle,
   IconRobot,
   IconBuildingBank,
+  IconVariable,
 } from "@tabler/icons-react";
 import { Menu } from "antd";
 import { SettingsProvider } from "./SettingsContext";
@@ -25,6 +26,7 @@ const SettingLayout = () => {
   // 菜单配置
   const menus = [
     ["general", t("general_settings") || "通用设置", <IconPalette size="1em" />],
+    ["env", t("env_variables") || "环境变量", <IconVariable size="1em" />],
     ["exchange", t("exchange_settings") || "交易所设置", <IconBuildingBank size="1em" />],
     ["notifications", t("notification_settings") || "通知设置", <IconBell size="1em" />],
     ["model", t("model_settings") || "模型设置", <IconRobot size="1em" />],

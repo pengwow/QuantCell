@@ -1275,5 +1275,21 @@
   "return_rate": "Return Rate",
   "total_trades": "Total Trades",
   "total_profit": "Total Profit",
-  "total_loss": "Total Loss"
+  "total_loss": "Total Loss",
+  "env_variables": "Environment Variables",
+  "env_var_key": "Key",
+  "env_var_value": "Value",
+  "no_env_vars": "No Environment Variables",
+  "edit_env_var": "Edit Environment Variable",
+  "add_env_var": "Add Environment Variable",
+  "please_input_key": "Please enter key name",
+  "invalid_key_format": "Key can only contain letters, numbers and underscores, cannot start with a number",
+  "enter_value": "Enter value",
+  "please_input_value": "Please enter value",
+  "enter_description": "Enter description",
+  "load_env_vars_failed": "Failed to load environment variables",
+  "save_env_vars_success": "Environment variables saved",
+  "save_env_vars_failed": "Failed to save environment variables",
+  "confirm_delete_env_var": "Confirm delete this environment variable?",
+  "key_exists": "Key already exists, please use another name"
 }
