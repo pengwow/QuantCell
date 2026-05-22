@@ -597,6 +597,174 @@ class TestSystemInfoAPI:
         data = response.json()
         assert data["code"] == 1
 
+class TestEnvVarsAPI:
+    """环境变量API测试类"""
+
+    def test_get_env_vars_success(self, client: TestClient, auth_headers: Dict[str, str], mocker, assert_api_response):
+        """测试获取环境变量成功"""
+        mock_configs = {
+            "MY_ENV_VAR": {
+                "key": "MY_ENV_VAR",
+                "value": "test_value",
+                "description": "测试环境变量",
+                "is_sensitive": False,
+                "name": "env",
+                "created_at": "2026-01-24 18:00:00",
+                "updated_at": "2026-01-24 18:00:00"
+            },
+            "SECRET_KEY": {
+                "key": "SECRET_KEY",
+                "value": "supersecret",
+                "description": "测试敏感环境变量",
+                "is_sensitive": True,
+                "name": "env",
+                "created_at": "2026-01-24 18:00:00",
+                "updated_at": "2026-01-24 18:00:00"
+            },
+            "OTHER_CONFIG": {
+                "key": "OTHER_CONFIG",
+                "value": "other_value",
+                "description": "其他配置",
+                "is_sensitive": False,
+                "name": "other"
+            }
+        }
+        mocker.patch(
+            "settings.models.SystemConfigBusiness.get_all_with_details",
+            return_value=mock_configs
+        )
+
+        response = client.get("/api/env-vars/", headers=auth_headers)
+        assert_api_response(response)
+        data = response.json()
+        assert "items" in data["data"]
+        assert len(data["data"]["items"]) == 2  # Only name="env"
+        # Check non-sensitive
+        non_sensitive = next(item for item in data["data"]["items"] if item["key"] == "MY_ENV_VAR")
+        assert non_sensitive["value"] == "test_value"
+        assert non_sensitive["is_sensitive"] is False
+        # Check sensitive
+        sensitive = next(item for item in data["data"]["items"] if item["key"] == "SECRET_KEY")
+        assert sensitive["value"] == ""
+        assert sensitive["is_sensitive"] is True
+        assert data["data"]["total"] == 2
+
+    def test_get_env_vars_empty(self, client: TestClient, auth_headers: Dict[str, str], mocker, assert_api_response):
+        """测试获取空环境变量列表"""
+        mocker.patch(
+            "settings.models.SystemConfigBusiness.get_all_with_details",
+            return_value={}
+        )
+
+        response = client.get("/api/env-vars/", headers=auth_headers)
+        assert_api_response(response)
+        data = response.json()
+        assert data["data"]["items"] == []
+        assert data["data"]["total"] == 0
+
+    def test_get_env_vars_without_auth(self, client: TestClient):
+        """测试未认证获取环境变量"""
+        response = client.get("/api/env-vars/")
+        assert response.status_code == 401
+
+    def test_save_env_vars_success(self, client: TestClient, mocker, assert_api_response):
+        """测试保存环境变量成功"""
+        mocker.patch("settings.routes.is_guest_user", return_value=False)
+        mocker.patch(
+            "settings.models.SystemConfigBusiness.set",
+            return_value=True
+        )
+        mocker.patch(
+            "utils.config_manager.load_system_configs",
+            return_value={}
+        )
+
+        request_data = [
+            {
+                "key": "NEW_ENV",
+                "value": "new_value",
+                "description": "新环境变量",
+                "is_sensitive": False
+            },
+            {
+                "key": "NEW_SECRET",
+                "value": "new_secret",
+                "description": "新敏感变量",
+                "is_sensitive": True
+            }
+        ]
+
+        response = client.post("/api/env-vars/", json=request_data)
+        assert_api_response(response)
+        data = response.json()
+        assert data["data"]["updated_count"] == 2
+
+    def test_save_env_vars_guest_user(self, client: TestClient, mocker):
+        """测试访客用户保存环境变量"""
+        mocker.patch("settings.routes.is_guest_user", return_value=True)
+
+        request_data = [{"key": "TEST", "value": "val"}]
+        response = client.post("/api/env-vars/", json=request_data)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 401
+
+    def test_delete_env_var_success(self, client: TestClient, auth_headers: Dict[str, str], mocker, assert_api_response):
+        """测试删除环境变量成功"""
+        mocker.patch(
+            "settings.models.SystemConfigBusiness.get_with_details",
+            return_value={
+                "key": "MY_ENV_VAR",
+                "name": "env"
+            }
+        )
+        mocker.patch(
+            "settings.models.SystemConfigBusiness.delete",
+            return_value=True
+        )
+        mocker.patch(
+            "utils.config_manager.load_system_configs",
+            return_value={}
+        )
+
+        response = client.delete("/api/env-vars/MY_ENV_VAR", headers=auth_headers)
+        assert_api_response(response)
+        data = response.json()
+        assert data["data"]["key"] == "MY_ENV_VAR"
+
+    def test_delete_env_var_not_found(self, client: TestClient, auth_headers: Dict[str, str], mocker, assert_api_response):
+        """测试删除不存在的环境变量"""
+        mocker.patch(
+            "settings.models.SystemConfigBusiness.get_with_details",
+            return_value=None
+        )
+
+        response = client.delete("/api/env-vars/NON_EXISTENT", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 1
+
+    def test_delete_env_var_not_env(self, client: TestClient, auth_headers: Dict[str, str], mocker, assert_api_response):
+        """测试删除非环境变量配置"""
+        mocker.patch(
+            "settings.models.SystemConfigBusiness.get_with_details",
+            return_value={
+                "key": "OTHER_CONFIG",
+                "name": "other"
+            }
+        )
+
+        response = client.delete("/api/env-vars/OTHER_CONFIG", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 1
+
+    def test_delete_env_var_without_auth(self, client: TestClient):
+        """测试未认证删除环境变量"""
+        response = client.delete("/api/env-vars/MY_ENV_VAR")
+        assert response.status_code == 401
+
+
 class TestSettingsEdgeCases:
     """设置API边界条件测试类"""
 
