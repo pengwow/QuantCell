@@ -77,7 +77,7 @@ def list_strategies(db_session=None) -> str:
                 lines.append(
                     f"ID: {s.id}, 名称: {s.name}, "
                     f"类型: {s.strategy_type or 'N/A'}, "
-                    f"状态: {'已激活' if s.is_active else '未激活'}"
+                    f"状态: {s.status or 'N/A'}"
                 )
             return "\n".join(lines)
     except Exception as e:
@@ -111,7 +111,7 @@ def get_strategy_detail(strategy_id: int, db_session=None) -> str:
                 f"名称: {strategy.name}\n"
                 f"描述: {strategy.description or 'N/A'}\n"
                 f"类型: {strategy.strategy_type or 'N/A'}\n"
-                f"状态: {'已激活' if strategy.is_active else '未激活'}\n"
+                f"状态: {strategy.status or 'N/A'}\n"
                 f"创建时间: {strategy.created_at}\n"
                 f"更新时间: {strategy.updated_at}"
             )
@@ -185,9 +185,7 @@ def generate_strategy(
         if indicators:
             template_vars["indicators"] = indicators
 
-        result = asyncio.run(
-            asyncio.to_thread(generator.generate_strategy, requirement, **template_vars)
-        )
+        result = generator.generate_strategy(requirement, **template_vars)
 
         if not result.get("success"):
             return json.dumps(
