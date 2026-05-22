@@ -436,18 +436,22 @@ def chat_send(
                 if content:
                     if not _state["content_started"]:
                         _state["content_started"] = True
-                    print(content, end="", flush=True)
+                    # 将内容中的换行符替换为空格，并压缩连续空格，保持紧凑的单行流式输出
+                    content_single_line = " ".join(content.split())
+                    print(content_single_line, end="", flush=True)
 
             elif event_type == "reasoning":
                 reasoning = data.get("content", "")
                 if reasoning:
+                    # 将推理内容中的换行符替换为空格，并压缩连续空格，保持紧凑的单行流式输出
+                    reasoning_single_line = " ".join(reasoning.split())
                     if not _state["reasoning_started"]:
                         if _state["content_started"]:
                             print("")
-                        print(f"🤔 [推理中] {reasoning}", end="", flush=True)
+                        print(f"🤔 [推理中] {reasoning_single_line}", end="", flush=True)
                         _state["reasoning_started"] = True
                     else:
-                        print(reasoning, end="", flush=True)
+                        print(reasoning_single_line, end="", flush=True)
 
             elif event_type == "tool_calls":
                 tools = data.get("tools", [])
