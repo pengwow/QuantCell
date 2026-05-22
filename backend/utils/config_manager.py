@@ -8,6 +8,7 @@
 """
 
 import sys
+import os
 import json
 import tomli
 import tomli_w
@@ -753,6 +754,39 @@ def load_system_configs() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"加载系统配置失败: {e}")
         return {}
+    finally:
+        db.close()
+
+
+def load_env_to_os_environ() -> int:
+    """从 system_config 表中加载 name='env' 的配置项到 os.environ
+
+    将数据库中的环境变量注入当前进程的环境变量，
+    使 CLI 脚本和子进程能够通过 os.environ 访问这些变量。
+    已存在的 os.environ 键不会被覆盖（数据库值优先级低于系统环境变量）。
+
+    Returns:
+        int: 成功加载的环境变量数量
+    """
+    from collector.db.database import init_database_config, SessionLocal
+    from collector.db.models import SystemConfig
+
+    init_database_config()
+    db = SessionLocal()
+
+    try:
+        env_configs = db.query(SystemConfig).filter(SystemConfig.name == "env").all()
+        loaded_count = 0
+        for config in env_configs:
+            if config.key and config.key not in os.environ:
+                os.environ[config.key] = str(config.value) if config.value else ""
+                loaded_count += 1
+        if loaded_count > 0:
+            logger.info(f"从 system_config 加载了 {loaded_count} 个环境变量 (name=env)")
+        return loaded_count
+    except Exception as e:
+        logger.error(f"从 system_config 加载环境变量失败: {e}")
+        return 0
     finally:
         db.close()
 

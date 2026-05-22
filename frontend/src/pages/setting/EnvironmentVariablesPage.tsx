@@ -14,6 +14,7 @@ import {
   App,
   Popconfirm,
   Spin,
+  Switch,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
@@ -58,8 +59,9 @@ const EnvironmentVariablesPage = () => {
     setEditingRecord(record);
     form.setFieldsValue({
       key: record.key,
-      value: record.value || '',
+      value: record.is_sensitive ? '' : record.value || '',
       description: record.description || '',
+      is_sensitive: record.is_sensitive,
     });
     setModalVisible(true);
   };
@@ -84,12 +86,17 @@ const EnvironmentVariablesPage = () => {
         key: values.key,
         value: values.value || '',
         description: values.description || '',
+        is_sensitive: editingRecord
+          ? editingRecord.is_sensitive
+          : (values.is_sensitive || false),
       };
 
       if (editingRecord) {
-        const filtered = currentItems.filter((item) => item.key !== editingRecord.key);
-        filtered.push(newItem);
-        await envVarApi.save(filtered);
+        const idx = currentItems.findIndex((item) => item.key === editingRecord.key);
+        if (idx !== -1) {
+          currentItems[idx] = newItem;
+        }
+        await envVarApi.save(currentItems);
       } else {
         currentItems.push(newItem);
         await envVarApi.save(currentItems);
@@ -120,7 +127,12 @@ const EnvironmentVariablesPage = () => {
       dataIndex: 'value',
       key: 'value',
       ellipsis: true,
-      render: (val: string) => val || '-',
+      render: (_: string, record: EnvVariable) => {
+        if (record.is_sensitive) {
+          return '******';
+        }
+        return record.value || '-';
+      },
     },
     {
       title: t('description'),
@@ -219,7 +231,7 @@ const EnvironmentVariablesPage = () => {
                 },
               ]}
             >
-              <Input placeholder="DATABASE_URL" />
+              <Input placeholder="DATABASE_URL" disabled={!!editingRecord} />
             </Form.Item>
 
             <Form.Item
@@ -238,6 +250,15 @@ const EnvironmentVariablesPage = () => {
                 rows={2}
                 placeholder={t('enter_description')}
               />
+            </Form.Item>
+
+            <Form.Item
+              name="is_sensitive"
+              label={t('is_sensitive')}
+              valuePropName="checked"
+              initialValue={false}
+            >
+              <Switch disabled={!!editingRecord} />
             </Form.Item>
           </Form>
         </Modal>
