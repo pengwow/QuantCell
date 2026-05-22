@@ -1291,5 +1291,6 @@
   "save_env_vars_success": "Environment variables saved",
   "save_env_vars_failed": "Failed to save environment variables",
   "confirm_delete_env_var": "Confirm delete this environment variable?",
-  "key_exists": "Key already exists, please use another name"
+  "key_exists": "Key already exists, please use another name",
+  "is_sensitive": "Sensitive Config"
 }

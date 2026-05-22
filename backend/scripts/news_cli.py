@@ -59,6 +59,9 @@ def get_news(
     Returns:
         str: 新闻列表或错误信息
     """
+    from utils.config_manager import load_env_to_os_environ
+    load_env_to_os_environ()
+
     api_key = os.environ.get("NEWSAPI_KEY", "")
 
     if not api_key:

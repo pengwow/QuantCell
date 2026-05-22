@@ -115,7 +115,7 @@ export interface EnvVariable {
   key: string;
   value: string;
   description?: string;
-  is_sensitive?: boolean;
+  is_sensitive: boolean;
   created_at?: string;
   updated_at?: string;
 }
