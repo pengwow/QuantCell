@@ -520,6 +520,95 @@ class TestTradeHistoryChart:
         assert result["cumulative_pnl"][-1] == 130.0
 
 
+class TestTradingStatsService:
+    """TradingStatsService测试"""
+
+    def test_get_position_summary_empty(self, db_session):
+        """无持仓时返回零值"""
+        from worker.stats_service import TradingStatsService
+        service = TradingStatsService(db_session)
+        result = service.get_position_summary(1)
+        assert result["total_positions"] == 0
+        assert result["long_positions"] == 0
+        assert result["short_positions"] == 0
+        assert result["total_value"] == 0.0
+        assert result["total_unrealized_pnl"] == 0.0
+        assert result["total_margin_used"] == 0.0
+        assert result["positions"] == []
+
+    def test_get_position_summary_basic(self, db_session):
+        """基本持仓统计"""
+        from worker.stats_service import TradingStatsService
+        worker_id = 1
+        db_session.add(WorkerPosition(
+            worker_id=worker_id, position_id="p1", symbol="BTCUSDT",
+            side="LONG", quantity=1.0, entry_price=50000.0, current_price=51000.0,
+            unrealized_pnl=1000.0, margin_used=5000.0, status="OPEN",
+        ))
+        db_session.add(WorkerPosition(
+            worker_id=worker_id, position_id="p2", symbol="ETHUSDT",
+            side="SHORT", quantity=5.0, entry_price=3000.0, current_price=2950.0,
+            unrealized_pnl=250.0, margin_used=7500.0, status="OPEN",
+        ))
+        db_session.commit()
+
+        service = TradingStatsService(db_session)
+        result = service.get_position_summary(worker_id)
+        assert result["total_positions"] == 2
+        assert result["long_positions"] == 1
+        assert result["short_positions"] == 1
+        assert result["total_value"] == pytest.approx(1.0*51000 +5.0*2950, 0.01)
+        assert result["total_unrealized_pnl"] == 1250.0
+        assert result["total_margin_used"] == 12500.0
+        assert len(result["positions"]) == 2
+
+    def test_get_trading_summary_via_service(self, db_session):
+        """通过service获取交易汇总"""
+        from worker.stats_service import TradingStatsService
+        worker_id = 1
+        db_session.add(WorkerTrade(
+            worker_id=worker_id, trade_id="t1", symbol="BTCUSDT",
+            side="buy", order_type="market", quantity=1, price=50000, amount=50000,
+            realized_pnl=100.0,
+        ))
+        db_session.commit()
+
+        service = TradingStatsService(db_session)
+        result = service.get_trading_summary(worker_id)
+        assert result["total_trades"] == 1
+        assert result["winning_trades"] ==1
+
+    def test_get_pnl_distribution_via_service(self, db_session):
+        """通过service获取盈亏分布"""
+        from worker.stats_service import TradingStatsService
+        worker_id = 1
+        db_session.add(WorkerTrade(
+            worker_id=worker_id, trade_id="t1", symbol="BTCUSDT",
+            side="buy", order_type="market", quantity=1, price=50000, amount=50000,
+            realized_pnl=100.0,
+        ))
+        db_session.commit()
+
+        service = TradingStatsService(db_session)
+        result = service.get_pnl_distribution(worker_id)
+        assert result["mean"] != 0.0
+
+    def test_get_trade_history_chart_via_service(self, db_session):
+        """通过service获取交易历史图表"""
+        from worker.stats_service import TradingStatsService
+        worker_id =1
+        db_session.add(WorkerTrade(
+            worker_id=worker_id, trade_id="t1", symbol="BTCUSDT",
+            side="buy", order_type="market", quantity=1, price=50000, amount=50000,
+            realized_pnl=100.0,
+        ))
+        db_session.commit()
+
+        service = TradingStatsService(db_session)
+        result = service.get_trade_history_chart(worker_id)
+        assert len(result["dates"]) >=0
+
+
 class TestDataIntegrity:
     """数据完整性测试"""
 
