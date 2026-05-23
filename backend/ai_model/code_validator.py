@@ -200,6 +200,10 @@ class CodeValidator:
         # 检查是否包含必需的类名（作为基类或类名的一部分）
         strategy_classes: List[ast.ClassDef] = []
         for cls in classes:
+            # 跳过配置类（以Config结尾的类不是策略类）
+            if cls.name.endswith("Config"):
+                continue
+
             # 检查类名是否包含Strategy
             if self.required_class_name in cls.name:
                 strategy_classes.append(cls)

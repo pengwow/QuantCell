@@ -3,6 +3,90 @@
 import pytest
 import json
 from unittest.mock import patch, MagicMock
+from typer.testing import CliRunner
+
+runner = CliRunner()
+
+
+class TestCliKlines:
+    """测试 CLI klines 命令"""
+
+    @patch("scripts.market_cli.get_klines")
+    def test_cli_klines_success(self, mock_get):
+        """测试 CLI klines 命令成功"""
+        from scripts.market_cli import app
+
+        mock_get.return_value = "BTCUSDT 1h K线数据"
+
+        result = runner.invoke(app, ["klines", "--symbol", "BTCUSDT", "--timeframe", "1h"])
+        assert result.exit_code == 0
+        assert "BTCUSDT" in result.output
+
+    @patch("scripts.market_cli.get_klines")
+    def test_cli_klines_error(self, mock_get):
+        """测试 CLI klines 命令异常"""
+        from scripts.market_cli import app
+
+        mock_get.return_value = "错误: 获取失败"
+
+        result = runner.invoke(app, ["klines", "--symbol", "BTCUSDT"])
+        assert result.exit_code == 0
+        assert "错误" in result.output
+
+
+class TestCliTicker:
+    """测试 CLI ticker 命令"""
+
+    @patch("scripts.market_cli.get_ticker")
+    def test_cli_ticker_success(self, mock_get):
+        """测试 CLI ticker 命令成功"""
+        from scripts.market_cli import app
+
+        mock_get.return_value = "BTCUSDT 最新行情: 50000"
+
+        result = runner.invoke(app, ["ticker", "--symbol", "BTCUSDT"])
+        assert result.exit_code == 0
+        assert "BTCUSDT" in result.output
+
+
+class TestCliSymbols:
+    """测试 CLI symbols 命令"""
+
+    @patch("scripts.market_cli.get_crypto_symbols")
+    def test_cli_symbols_success(self, mock_get):
+        """测试 CLI symbols 命令成功"""
+        from scripts.market_cli import app
+
+        mock_get.return_value = json.dumps({"success": True, "total": 2})
+
+        result = runner.invoke(app, ["symbols", "--exchange", "binance"])
+        assert result.exit_code == 0
+        assert "success" in result.output
+
+
+class TestCliFetch:
+    """测试 CLI fetch 命令"""
+
+    @patch("scripts.market_cli.fetch_market_data")
+    def test_cli_fetch_success(self, mock_fetch):
+        """测试 CLI fetch 命令成功"""
+        from scripts.market_cli import app
+
+        mock_fetch.return_value = json.dumps({"success": True, "symbol": "BTCUSDT"})
+
+        result = runner.invoke(app, ["fetch", "--symbol", "BTCUSDT", "--data-type", "kline"])
+        assert result.exit_code == 0
+        assert "BTCUSDT" in result.output
+
+    @patch("scripts.market_cli.fetch_market_data")
+    def test_cli_fetch_unsupported_type(self, mock_fetch):
+        """测试 CLI fetch 命令不支持类型"""
+        from scripts.market_cli import app
+
+        mock_fetch.return_value = json.dumps({"success": False, "error": "不支持"})
+
+        result = runner.invoke(app, ["fetch", "--symbol", "BTCUSDT", "--data-type", "invalid"])
+        assert result.exit_code == 0
 
 
 class TestGetKlines:
@@ -24,6 +108,8 @@ class TestGetKlines:
         result = get_klines("BTCUSDT", "1h", 100, "binance")
         assert "BTCUSDT" in result
         assert "1h" in result
+        assert "2009-02-13 23:31:30" in result
+        assert "1234567890000" in result
 
     @patch("ccxt.binance")
     def test_get_klines_empty(self, mock_exchange_cls):
