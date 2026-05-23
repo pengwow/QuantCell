@@ -20,13 +20,62 @@ VALID_TIMEFRAMES = ['15m', '30m', '1h', '4h', '1d']
 VALID_TRADING_MODES = ['spot', 'futures', 'perpetual']
 
 
+def _split_time_range(time_range: str) -> Tuple[str, str]:
+    """
+    辅助函数：正确分割时间范围字符串
+    
+    参数：
+        time_range: 时间范围字符串
+        
+    返回：
+        Tuple[str, str]: (开始时间字符串, 结束时间字符串)
+        
+    异常：
+        ValueError: 如果无法正确分割
+    """
+    # 情况1：包含空格（ISO datetime格式）
+    if ' ' in time_range:
+        # 找到第一个空格后的'-'
+        space_index = time_range.index(' ')
+        separator_index = time_range.find('-', space_index)
+        if separator_index == -1:
+            raise ValueError("无法找到时间范围分隔符")
+        start_str = time_range[:separator_index].strip()
+        end_str = time_range[separator_index+1:].strip()
+        return start_str, end_str
+    
+    # 情况2：不包含空格
+    # 检查第一个'-'前的部分是否是8位数字（YYYYMMDD格式）
+    first_dash = time_range.find('-')
+    if first_dash == -1:
+        raise ValueError("无法找到时间范围分隔符")
+    
+    first_part = time_range[:first_dash]
+    if len(first_part) == 8 and first_part.isdigit():
+        # YYYYMMDD格式
+        start_str = first_part
+        end_str = time_range[first_dash+1:].strip()
+        return start_str, end_str
+    
+    # 否则，假设是YYYY-MM-DD格式，找到第三个'-'作为分隔符
+    dashes = [i for i, c in enumerate(time_range) if c == '-']
+    if len(dashes) < 3:
+        raise ValueError("无法找到时间范围分隔符")
+    
+    separator_index = dashes[2]
+    start_str = time_range[:separator_index].strip()
+    end_str = time_range[separator_index+1:].strip()
+    return start_str, end_str
+
+
 def validate_time_range(time_range: Optional[str]) -> bool:
     """
     验证时间范围格式（YYYYMMDD-YYYYMMDD 或 ISO格式）
     
     支持格式：
     - YYYYMMDD-YYYYMMDD (例如: 20240101-20241231)
-    - YYYY-MM-DD HH:MM:SS-YYYY-MM-DD HH:MM:SS (ISO格式)
+    - YYYY-MM-DD-YYYY-MM-DD (ISO日期格式)
+    - YYYY-MM-DD HH:MM:SS-YYYY-MM-DD HH:MM:SS (ISO时间格式)
     
     参数：
         time_range: 时间范围字符串
@@ -38,31 +87,24 @@ def validate_time_range(time_range: Optional[str]) -> bool:
         return True  # 允许为空
     
     try:
-        parts = time_range.split('-')
-        if len(parts) != 2:
-            return False
-
+        start_str, end_str = _split_time_range(time_range)
+        
+        start_date = None
+        end_date = None
+        
         # 尝试解析 YYYYMMDD 格式
         try:
-            start_date = datetime.strptime(parts[0], '%Y%m%d')
-            end_date = datetime.strptime(parts[1], '%Y%m%d')
+            start_date = datetime.strptime(start_str, '%Y%m%d')
+            end_date = datetime.strptime(end_str, '%Y%m%d')
         except ValueError:
-            # 尝试解析 ISO 格式 (YYYY-MM-DD HH:MM:SS)
+            # 尝试解析 ISO datetime 格式
             try:
-                # 处理带空格的ISO格式
-                start_str = parts[0].strip()
-                end_str = parts[1].strip()
-                
-                # 尝试完整ISO格式
-                try:
-                    start_date = datetime.strptime(start_str, '%Y-%m-%d %H:%M:%S')
-                    end_date = datetime.strptime(end_str, '%Y-%m-%d %H:%M:%S')
-                except ValueError:
-                    # 尝试日期格式
-                    start_date = datetime.strptime(start_str, '%Y-%m-%d')
-                    end_date = datetime.strptime(end_str, '%Y-%m-%d')
+                start_date = datetime.strptime(start_str, '%Y-%m-%d %H:%M:%S')
+                end_date = datetime.strptime(end_str, '%Y-%m-%d %H:%M:%S')
             except ValueError:
-                return False
+                # 尝试解析 ISO date 格式
+                start_date = datetime.strptime(start_str, '%Y-%m-%d')
+                end_date = datetime.strptime(end_str, '%Y-%m-%d')
 
         if start_date >= end_date:
             return False
@@ -78,7 +120,8 @@ def parse_time_range(time_range: Optional[str]) -> Tuple[Optional[datetime], Opt
     
     支持格式：
     - YYYYMMDD-YYYYMMDD (例如: 20240101-20241231)
-    - YYYY-MM-DD HH:MM:SS-YYYY-MM-DD HH:MM:SS (ISO格式)
+    - YYYY-MM-DD-YYYY-MM-DD (ISO日期格式)
+    - YYYY-MM-DD HH:MM:SS-YYYY-MM-DD HH:MM:SS (ISO时间格式)
     
     参数：
         time_range: 时间范围字符串
@@ -92,35 +135,34 @@ def parse_time_range(time_range: Optional[str]) -> Tuple[Optional[datetime], Opt
     if time_range is None:
         return None, None
 
-    parts = time_range.split('-')
-    if len(parts) != 2:
-        raise ValueError(f"时间范围格式错误: {time_range}，应为 YYYYMMDD-YYYYMMDD 或 ISO格式")
-
-    # 尝试解析 YYYYMMDD 格式
     try:
-        start_date = datetime.strptime(parts[0], '%Y%m%d')
-        end_date = datetime.strptime(parts[1], '%Y%m%d')
-    except ValueError:
-        # 尝试解析 ISO 格式
+        start_str, end_str = _split_time_range(time_range)
+        
+        start_date = None
+        end_date = None
+        
+        # 尝试解析 YYYYMMDD 格式
         try:
-            start_str = parts[0].strip()
-            end_str = parts[1].strip()
-            
-            # 尝试完整ISO格式
+            start_date = datetime.strptime(start_str, '%Y%m%d')
+            end_date = datetime.strptime(end_str, '%Y%m%d')
+        except ValueError:
+            # 尝试解析 ISO datetime 格式
             try:
                 start_date = datetime.strptime(start_str, '%Y-%m-%d %H:%M:%S')
                 end_date = datetime.strptime(end_str, '%Y-%m-%d %H:%M:%S')
             except ValueError:
-                # 尝试日期格式
+                # 尝试解析 ISO date 格式
                 start_date = datetime.strptime(start_str, '%Y-%m-%d')
                 end_date = datetime.strptime(end_str, '%Y-%m-%d')
-        except ValueError as e:
-            raise ValueError(f"时间范围格式错误: {time_range}，应为 YYYYMMDD-YYYYMMDD 或 ISO格式") from e
 
-    if start_date >= end_date:
-        raise ValueError(f"开始日期必须早于结束日期: {start_date} >= {end_date}")
+        if start_date >= end_date:
+            raise ValueError(f"开始日期必须早于结束日期: {start_date} >= {end_date}")
 
-    return start_date, end_date
+        return start_date, end_date
+    except ValueError as e:
+        raise e
+    except Exception as e:
+        raise ValueError(f"时间范围格式错误: {time_range}，应为 YYYYMMDD-YYYYMMDD 或 ISO格式") from e
 
 
 def validate_symbols(symbols: Optional[str]) -> bool:
