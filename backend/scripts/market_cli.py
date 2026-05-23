@@ -103,11 +103,15 @@ def get_klines(
             return f"未找到 {symbol} 的 K 线数据"
 
         # 格式化输出
+        from datetime import datetime, timezone
+
         lines = [f"{symbol} {timeframe} K线数据（最近 {len(ohlcv)} 条）:\n"]
         for item in ohlcv[-10:]:  # 只显示最近10条
             timestamp, open_price, high, low, close, volume = item
+            dt = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+            time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
             lines.append(
-                f"时间: {timestamp}, "
+                f"时间: {time_str} ({timestamp}), "
                 f"开: {open_price:.2f}, "
                 f"高: {high:.2f}, "
                 f"低: {low:.2f}, "

@@ -3,6 +3,155 @@
 import pytest
 import json
 from unittest.mock import patch, MagicMock
+from typer.testing import CliRunner
+
+runner = CliRunner()
+
+
+class TestOptimizeStrategyParams:
+    """测试 optimize_strategy_params 函数"""
+
+    @patch("scripts.strategy_cli.optimize_strategy_params")
+    def test_cli_optimize_success(self, mock_optimize):
+        """测试 CLI optimize 命令成功"""
+        from scripts.strategy_cli import app
+
+        mock_optimize.return_value = json.dumps({
+            "success": True,
+            "total_combinations": 2,
+            "results": [{"params": {"fast": 5}, "metrics": {"sharpe_ratio": 1.5}}]
+        })
+
+        result = runner.invoke(app, [
+            "optimize",
+            "--strategy-name", "sma_cross",
+            "--param-ranges", '{"fast": [5, 10]}'
+        ])
+        assert result.exit_code == 0
+        assert "success" in result.output
+
+    @patch("scripts.strategy_cli.optimize_strategy_params")
+    def test_cli_optimize_error(self, mock_optimize):
+        """测试 CLI optimize 命令异常"""
+        from scripts.strategy_cli import app
+
+        mock_optimize.return_value = json.dumps({
+            "success": False,
+            "error": "参数解析失败"
+        })
+
+        result = runner.invoke(app, [
+            "optimize",
+            "--strategy-name", "sma_cross",
+            "--param-ranges", "invalid_json"
+        ])
+        assert result.exit_code == 0
+
+    @patch("backtest.service.BacktestService")
+    @patch("itertools.product")
+    def test_optimize_params_empty_ranges(self, mock_product, mock_service_cls):
+        """测试空参数范围"""
+        from scripts.strategy_cli import optimize_strategy_params
+
+        mock_product.return_value = []
+
+        result = optimize_strategy_params("sma_cross", "{}")
+        data = json.loads(result)
+        assert data["success"] is True
+        assert data["total_combinations"] == 0
+
+    @patch("backtest.service.BacktestService")
+    def test_optimize_params_invalid_json(self, mock_service_cls):
+        """测试无效JSON参数"""
+        from scripts.strategy_cli import optimize_strategy_params
+
+        result = optimize_strategy_params("sma_cross", "invalid_json")
+        data = json.loads(result)
+        assert data["success"] is False
+        assert "error" in data
+
+
+class TestCliCommands:
+    """测试 strategy_cli CLI 命令"""
+
+    @patch("scripts.strategy_cli.list_strategies")
+    def test_cli_list(self, mock_list):
+        """测试 CLI list 命令"""
+        from scripts.strategy_cli import app
+
+        mock_list.return_value = "可用策略列表"
+
+        result = runner.invoke(app, ["list"])
+        assert result.exit_code == 0
+        assert "可用策略列表" in result.output
+
+    @patch("scripts.strategy_cli.get_strategy_detail")
+    def test_cli_info(self, mock_detail):
+        """测试 CLI info 命令"""
+        from scripts.strategy_cli import app
+
+        mock_detail.return_value = "策略详情: test_strategy"
+
+        result = runner.invoke(app, ["info", "1"])
+        assert result.exit_code == 0
+        assert "test_strategy" in result.output
+
+    @patch("scripts.strategy_cli.generate_strategy")
+    def test_cli_generate(self, mock_generate):
+        """测试 CLI generate 命令"""
+        from scripts.strategy_cli import app
+
+        mock_generate.return_value = json.dumps({
+            "success": True,
+            "file_path": "/path/to/strategy.py"
+        })
+
+        result = runner.invoke(app, [
+            "generate",
+            "--requirement", "双均线策略",
+            "--name", "sma_cross"
+        ])
+        assert result.exit_code == 0
+        assert "策略代码已生成" in result.output
+
+    @patch("scripts.strategy_cli.analyze_backtest_result")
+    def test_cli_analyze(self, mock_analyze):
+        """测试 CLI analyze 命令"""
+        from scripts.strategy_cli import app
+
+        mock_analyze.return_value = json.dumps({"success": True, "metrics": {}})
+
+        result = runner.invoke(app, ["analyze", "--backtest-id", "test-1"])
+        assert result.exit_code == 0
+
+    @patch("scripts.strategy_cli.diagnose_strategy")
+    def test_cli_diagnose(self, mock_diagnose):
+        """测试 CLI diagnose 命令"""
+        from scripts.strategy_cli import app
+
+        mock_diagnose.return_value = json.dumps({"success": True, "issues": []})
+
+        result = runner.invoke(app, ["diagnose", "--strategy-name", "sma_cross"])
+        assert result.exit_code == 0
+
+    @patch("scripts.strategy_cli.deploy_strategy")
+    def test_cli_deploy(self, mock_deploy):
+        """测试 CLI deploy 命令"""
+        from scripts.strategy_cli import app
+
+        mock_deploy.return_value = json.dumps({
+            "success": True,
+            "worker_id": 123,
+            "status": "created"
+        })
+
+        result = runner.invoke(app, [
+            "deploy",
+            "--strategy-name", "sma_cross",
+            "--symbols", "BTCUSDT"
+        ])
+        assert result.exit_code == 0
+        assert "策略已部署" in result.output
 
 
 class TestListStrategies:
