@@ -7,14 +7,10 @@ class PluginAPI:
     """插件API，提供核心功能访问和插件间通信"""
     
     def __init__(self, plugin_manager: Any):
-        """初始化插件API
-        
-        Args:
-            plugin_manager: 插件管理器实例
-        """
         self.plugin_manager = plugin_manager
         self.logger = logger.bind(component="plugin_api")
         self._registered_services: Dict[str, Any] = {}
+        self._event_bus = getattr(plugin_manager, 'event_bus', None)
     
     def register_service(self, name: str, service: Any) -> None:
         """注册服务，供其他插件使用
@@ -57,16 +53,22 @@ class PluginAPI:
         return list(self.plugin_manager.plugins.keys())
     
     def send_event(self, event_name: str, data: Any = None) -> None:
-        """发送事件给所有插件
-        
-        Args:
-            event_name: 事件名称
-            data: 事件数据
-        """
-        self.logger.info(f"发送事件 {event_name}，数据: {data}")
-        # 这里可以实现事件总线，通知所有插件
-        # 暂时只记录日志
-    
+        if self._event_bus:
+            self._event_bus.publish(event_name, data)
+        else:
+            self.logger.info(f"发送事件 {event_name}，数据: {data}")
+
+    def subscribe_event(self, event_name: str, callback) -> None:
+        if self._event_bus:
+            self._event_bus.subscribe(event_name, callback)
+
+    def unsubscribe_event(self, event_name: str, callback) -> None:
+        if self._event_bus:
+            self._event_bus.unsubscribe(event_name, callback)
+
+    def get_event_bus(self):
+        return self._event_bus
+
     def log(self, message: str, level: str = "info") -> None:
         """记录日志
         

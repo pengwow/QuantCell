@@ -32,6 +32,7 @@ import NotificationsPage from '@/pages/setting/NotificationsPage';
 import ModelSettingsPage from '@/pages/setting/ModelSettingsPage';
 import SystemInfoPage from '@/pages/setting/SystemInfoPage';
 import EnvironmentVariablesPage from '@/pages/setting/EnvironmentVariablesPage';
+import PluginManagement from '@/pages/setting/PluginManagement';
 
 const isAuthenticated = (): boolean => {
   const token = localStorage.getItem('access_token');
@@ -159,6 +160,10 @@ const baseRoutes: RouteObject[] = [
           {
             path: 'info',
             element: <SystemInfoPage />,
+          },
+          {
+            path: 'plugins',
+            element: <PluginManagement />,
           },
         ],
       },

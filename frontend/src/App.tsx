@@ -5,6 +5,7 @@ import { router } from './router';
 import { useConfigStore } from './store';
 import { useWorkerStore } from './store/workerStore';
 import { wsService } from './services/websocketService';
+import { PluginProvider } from './plugins';
 import './i18n/config';
 import './global.css';
 import './index.css';
@@ -94,8 +95,10 @@ function App() {
       }}
     >
       <AntdApp>
-        <AppInjector setMessageApi={setMessageApi} />
-        <RouterProvider router={router} />
+        <PluginProvider>
+          <AppInjector setMessageApi={setMessageApi} />
+          <RouterProvider router={router} />
+        </PluginProvider>
       </AntdApp>
     </ConfigProvider>
   );

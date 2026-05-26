@@ -20,7 +20,8 @@ from collector.utils.task_manager import task_manager
 from collector.utils.scheduled_task_manager import scheduled_task_manager
 from collector.services.system_service import SystemService
 from utils.config_manager import load_system_configs
-from plugins import init_plugin_system
+from plugins import PluginManager
+from plugins.event_bus import event_bus
 from realtime.engine import RealtimeEngine
 from realtime.routes import setup_routes
 from websocket.manager import manager
@@ -151,17 +152,12 @@ async def lifespan(app: FastAPI):
     # 异步启动新的定时任务管理器
     await asyncio.to_thread(scheduled_task_manager.start)
 
-    # 初始化插件系统
-    plugin_manager, plugin_api = await asyncio.to_thread(init_plugin_system)
-    # 加载所有插件
+    plugin_manager = await asyncio.to_thread(PluginManager, app=app)
     await asyncio.to_thread(plugin_manager.load_all_plugins)
-
-    # 注册插件路由
     plugin_manager.register_plugins(app)
-
-    # 将插件管理器保存到应用状态，供后续使用
     app.state.plugin_manager = plugin_manager
-    app.state.plugin_api = plugin_api
+    app.state.plugin_api = plugin_manager
+    app.state.event_bus = event_bus
 
     # 初始化实时引擎
     try:
@@ -343,11 +339,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"取消货币对同步任务失败: {e}")
 
-    # 步骤 7: 关闭调度器和插件
     try:
         await asyncio.to_thread(traditional_scheduler.shutdown)
         await asyncio.to_thread(scheduled_task_manager.shutdown)
         await asyncio.to_thread(plugin_manager.stop_all_plugins)
+        await asyncio.to_thread(event_bus.clear)
     except asyncio.CancelledError:
         raise
     except Exception as e:

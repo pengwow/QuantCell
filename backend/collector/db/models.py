@@ -2286,3 +2286,26 @@ class ScheduledTaskBusiness:
 # 日志功能已迁移到基于文件的日志系统 (utils/file_log_manager.py)
 # 如需查询历史数据库日志，请使用备份或迁移工具
 # 相关 API 端点已更新为使用文件日志系统 (utils/log_query_engine.py)
+
+
+class Plugin(TimezoneAwareBase):
+    """插件SQLAlchemy模型
+    
+    对应plugins表的SQLAlchemy模型定义，用于存储插件信息
+    """
+    __tablename__ = "plugins"
+    
+    name = Column(String, primary_key=True, index=True)
+    version = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    author = Column(String, nullable=True)
+    load_type = Column(String, nullable=False, default="hot")
+    status = Column(String, nullable=False, default="installed")
+    install_source = Column(String, nullable=True)
+    install_path = Column(String, nullable=True)
+    permissions = Column(Text, nullable=True)
+    config_schema = Column(Text, nullable=True)
+    frontend_entry = Column(String, nullable=True)
+    error_message = Column(Text, nullable=True)
+    installed_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())

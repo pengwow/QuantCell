@@ -45,6 +45,7 @@ from utils.log_routes import router as log_router
 from common.notifications.routes import router as notification_router
 from agent.api.routes import router as agent_router
 from api.system_ports import router as system_ports_router
+from plugins.routes import router as plugins_router
 
 
 # 创建FastAPI应用实例
@@ -86,6 +87,7 @@ app.include_router(log_router)
 app.include_router(notification_router)
 app.include_router(agent_router)
 app.include_router(system_ports_router)
+app.include_router(plugins_router)
 
 # 注册 Worker WebSocket 端点
 app.websocket("/ws/worker")(websocket_endpoint)
