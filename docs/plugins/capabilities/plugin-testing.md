@@ -1,5 +1,7 @@
 # 插件测试方法和兼容性验证指南
 
+本文档介绍 QuantCell 插件系统的测试方法，基于当前架构，后端使用 FastAPI TestClient 测试插件路由，前端使用 @testing-library/react 测试 usePlugins() Hook。
+
 ## 1. 测试概述
 
 ### 1.1 测试的重要性
@@ -46,39 +48,42 @@ from plugins.basic_plugin.plugin import BasicPlugin
 def test_plugin_initialization():
     """测试插件初始化"""
     plugin = BasicPlugin()
-    assert plugin.name == "basic-plugin"
+    assert plugin.name == "basic_plugin"
     assert plugin.version == "1.0.0"
-    assert not plugin.is_active
+    assert not plugin.enabled
 
 
 def test_plugin_get_info():
     """测试获取插件信息"""
     plugin = BasicPlugin()
-    info = plugin.get_info()
+    info = plugin.get_metadata()
     assert isinstance(info, dict)
-    assert info["name"] == "basic-plugin"
+    assert info["name"] == "basic_plugin"
     assert info["version"] == "1.0.0"
-    assert info["is_active"] == False
+    assert info["enabled"] == False
 
 
 def test_plugin_lifecycle():
     """测试插件生命周期"""
     plugin = BasicPlugin()
     
-    # 模拟插件管理器
-    class MockPluginManager:
-        pass
+    # 模拟插件API
+    class MockPluginAPI:
+        def register_service(self, name, service):
+            pass
+        def subscribe(self, event, callback):
+            return "handler_id"
+        def unsubscribe(self, handler_id):
+            pass
     
-    # 测试注册
-    plugin.register(MockPluginManager())
+    # 测试启用
+    import asyncio
+    asyncio.run(plugin.on_enable())
+    assert plugin.enabled == True
     
-    # 测试启动
-    plugin.start()
-    assert plugin.is_active == True
-    
-    # 测试停止
-    plugin.stop()
-    assert plugin.is_active == False
+    # 测试禁用
+    asyncio.run(plugin.on_disable())
+    assert plugin.enabled == False
 ```
 
 ### 2.3 集成测试
@@ -100,21 +105,28 @@ def client():
 
 def test_basic_plugin_root(client):
     """测试基础插件根路由"""
-    response = client.get("/api/plugins/basic/")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["message"] == "Hello from basic plugin!"
-    assert data["plugin_name"] == "basic-plugin"
-    assert data["version"] == "1.0.0"
+    response = client.get("/api/plugins/basic_plugin/")
+    # 根据插件是否启用，返回不同状态码
+    assert response.status_code in [200, 404]
 
 
-def test_basic_plugin_health(client):
-    """测试基础插件健康检查路由"""
-    response = client.get("/api/plugins/basic/health")
+def test_plugin_list(client):
+    """测试插件列表"""
+    response = client.get("/api/plugins")
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "healthy"
-    assert data["plugin"] == "basic-plugin"
+    assert isinstance(data, list)
+
+
+def test_plugin_enable_disable(client):
+    """测试插件启用/禁用"""
+    # 启用插件
+    response = client.post("/api/plugins/basic_plugin/enable")
+    assert response.status_code == 200
+    
+    # 禁用插件
+    response = client.post("/api/plugins/basic_plugin/disable")
+    assert response.status_code == 200
 ```
 
 ### 2.4 API测试
@@ -148,6 +160,7 @@ async def test_plugin_api_endpoints():
 ```python
 # tests/plugins/test_data_service_plugin.py
 import pytest
+import asyncio
 from plugins.data_service_plugin.plugin import DataServicePlugin
 
 
@@ -155,8 +168,8 @@ def test_data_service():
     """测试数据服务插件"""
     plugin = DataServicePlugin()
     
-    # 启动插件
-    plugin.start()
+    # 启用插件
+    asyncio.run(plugin.on_enable())
     
     # 测试数据服务初始化
     assert hasattr(plugin, "data_service")
@@ -175,6 +188,9 @@ def test_data_service():
     assert "key1" in all_data
     assert "key2" in all_data
     assert "key3" in all_data
+    
+    # 禁用插件
+    asyncio.run(plugin.on_disable())
     
     # 停止插件
     plugin.stop()
@@ -228,57 +244,58 @@ describe('BasicPage Component', () => {
 
 ```typescript
 // tests/plugins/BasicFrontendPlugin.test.ts
-import { BasicFrontendPlugin } from '../../src/plugins/basic-frontend-plugin/index';
+import { PluginRegistry } from '../../src/plugins/PluginRegistry';
 
 describe('BasicFrontendPlugin', () => {
-  let plugin: BasicFrontendPlugin;
+  let registry: PluginRegistry;
   
   beforeEach(() => {
-    plugin = new BasicFrontendPlugin();
+    registry = PluginRegistry.getInstance();
   });
   
-  test('initializes with correct properties', () => {
-    expect(plugin.name).toBe('basic-frontend-plugin');
-    expect(plugin.version).toBe('1.0.0');
-    expect(plugin.description).toBe('基础前端插件示例');
-    expect(plugin.author).toBe('QuantCell Team');
-    expect(plugin.isActive).toBe(false);
-  });
-  
-  test('registers plugin and adds menu and route', () => {
-    // 测试注册前
-    expect(plugin.getMenus()).toHaveLength(0);
-    expect(plugin.getRoutes()).toHaveLength(0);
-    
+  test('plugin registration', () => {
     // 注册插件
-    plugin.register();
+    registry.registerPlugin({
+      name: 'basic_frontend_plugin',
+      version: '1.0.0',
+      description: '基础前端插件示例',
+      author: 'QuantCell Team',
+      enabled: true
+    });
     
-    // 测试注册后
-    expect(plugin.isActive).toBe(true);
-    expect(plugin.getMenus()).toHaveLength(1);
-    expect(plugin.getRoutes()).toHaveLength(1);
-    
-    // 测试菜单配置
-    const menu = plugin.getMenus()[0];
-    expect(menu.group).toBe('前端插件');
-    expect(menu.items).toHaveLength(1);
-    expect(menu.items[0].path).toBe('/plugins/basic');
-    expect(menu.items[0].name).toBe('基础插件页面');
-    
-    // 测试路由配置
-    const route = plugin.getRoutes()[0];
-    expect(route.path).toBe('/plugins/basic');
-    expect(route.element).toBeDefined();
+    // 验证插件已注册
+    const plugin = registry.getPlugin('basic_frontend_plugin');
+    expect(plugin).toBeDefined();
+    expect(plugin?.name).toBe('basic_frontend_plugin');
   });
   
-  test('starts and stops plugin', () => {
-    // 启动插件
-    plugin.start();
-    expect(plugin.isActive).toBe(true);
+  test('plugin menu configuration', () => {
+    // 注册菜单
+    registry.registerMenu('basic_frontend_plugin', {
+      id: 'basic',
+      label: '基础插件页面',
+      path: '/basic',
+      icon: 'BasicIcon'
+    });
     
-    // 停止插件
-    plugin.stop();
-    expect(plugin.isActive).toBe(false);
+    // 验证菜单已注册
+    const menus = registry.getMenus();
+    const basicMenu = menus.find(m => m.id === 'basic');
+    expect(basicMenu).toBeDefined();
+    expect(basicMenu?.label).toBe('基础插件页面');
+  });
+  
+  test('plugin route configuration', () => {
+    // 注册路由
+    registry.registerRoute('basic_frontend_plugin', {
+      path: '/basic',
+      component: () => null
+    });
+    
+    // 验证路由已注册
+    const routes = registry.getRoutes();
+    const basicRoute = routes.find(r => r.path === '/basic');
+    expect(basicRoute).toBeDefined();
   });
 });
 ```
@@ -289,28 +306,36 @@ describe('BasicFrontendPlugin', () => {
 
 ```typescript
 // tests/plugins/plugin-integration.test.ts
-import { pluginManager } from '../../src/plugins/PluginManager';
-import { BasicFrontendPlugin } from '../../src/plugins/basic-frontend-plugin/index';
+import { pluginApi } from '../../src/api/plugin';
+import { PluginRegistry } from '../../src/plugins/PluginRegistry';
 
 describe('Plugin Integration', () => {
-  test('plugin manager initializes correctly', async () => {
-    // 初始化插件管理器
-    await pluginManager.init();
+  test('plugin API initializes correctly', async () => {
+    // 获取插件列表
+    const plugins = await pluginApi.getPlugins();
     
     // 测试插件管理器状态
-    expect(pluginManager.getPlugins().size).toBeGreaterThan(0);
+    expect(Array.isArray(plugins)).toBe(true);
   });
   
-  test('plugin can be installed and uninstalled', async () => {
-    const pluginName = 'basic-frontend-plugin';
+  test('plugin can be enabled and disabled', async () => {
+    const pluginName = 'basic_frontend_plugin';
     
-    // 安装插件
-    await pluginManager.installPlugin(pluginName);
-    expect(pluginManager.getPlugin(pluginName)).toBeDefined();
+    // 启用插件
+    const enableResult = await pluginApi.enablePlugin(pluginName);
+    expect(enableResult).toBeDefined();
+    
+    // 禁用插件
+    const disableResult = await pluginApi.disablePlugin(pluginName);
+    expect(disableResult).toBeDefined();
+  });
+  
+  test('plugin can be uninstalled', async () => {
+    const pluginName = 'basic_frontend_plugin';
     
     // 卸载插件
-    await pluginManager.uninstallPlugin(pluginName);
-    expect(pluginManager.getPlugin(pluginName)).toBeUndefined();
+    const uninstallResult = await pluginApi.uninstallPlugin(pluginName);
+    expect(uninstallResult).toBeDefined();
   });
 });
 ```
@@ -329,15 +354,23 @@ describe('Basic Frontend Plugin', () => {
   
   it('should display basic plugin page', () => {
     // 点击插件菜单
-    cy.contains('前端插件').click();
-    
-    // 点击基础插件页面
-    cy.contains('基础插件页面').click();
+    cy.contains('基础插件').click();
     
     // 验证页面内容
-    cy.url().should('include', '/plugins/basic');
+    cy.url().should('include', '/basic');
     cy.contains('基础插件页面').should('be.visible');
     cy.contains('这是一个基础前端插件示例页面').should('be.visible');
+  });
+  
+  it('should enable and disable plugin', () => {
+    // 访问插件管理页面
+    cy.visit('http://localhost:3000/settings/plugins');
+    
+    // 启用插件
+    cy.contains('basic_frontend_plugin').parent().find('button').contains('启用').click();
+    
+    // 禁用插件
+    cy.contains('basic_frontend_plugin').parent().find('button').contains('禁用').click();
   });
 });
 ```
@@ -403,6 +436,8 @@ describe('Basic Frontend Plugin', () => {
 - 避免插件与其他插件的冲突
 - 确保插件在不同环境下的兼容性
 - 提高插件的可靠性和稳定性
+- 验证插件权限声明的正确性
+- 检测路由冲突
 
 ### 5.2 后端插件兼容性验证
 
@@ -413,6 +448,7 @@ describe('Basic Frontend Plugin', () => {
   - 插件是否能在不同版本的系统核心上正常加载
   - 插件是否能在不同版本的系统核心上正常运行
   - 插件的API调用是否与系统核心兼容
+  - 插件的 `load_type` 属性是否正确设置
 
 #### 5.2.2 插件间兼容性
 
@@ -421,6 +457,7 @@ describe('Basic Frontend Plugin', () => {
   - 插件是否与其他插件冲突
   - 插件是否能正确使用其他插件提供的服务
   - 其他插件是否能正确使用目标插件提供的服务
+  - 插件路由是否与其他插件路由冲突
 
 #### 5.2.3 依赖兼容性
 
@@ -428,6 +465,14 @@ describe('Basic Frontend Plugin', () => {
 - **验证内容**：
   - 插件是否能在不同版本的依赖库上正常运行
   - 插件的依赖是否与系统核心的依赖冲突
+
+#### 5.2.4 安全兼容性
+
+- **测试方法**：测试插件的权限声明和路由冲突
+- **验证内容**：
+  - 插件权限声明是否正确
+  - 插件路由是否与系统核心路由冲突
+  - 插件是否在沙箱中正确执行
 
 ### 5.3 前端插件兼容性验证
 
@@ -446,12 +491,15 @@ describe('Basic Frontend Plugin', () => {
   - 插件是否能在不同版本的前端系统中正常加载
   - 插件是否能在不同版本的前端系统中正常运行
   - 插件的API调用是否与前端系统兼容
+  - 插件是否通过 `PluginRegistry` 正确注册
 
 #### 5.3.3 插件间兼容性
 
 - **测试方法**：与其他前端插件一起测试目标插件
 - **验证内容**：
   - 插件是否与其他前端插件冲突
+  - 插件菜单是否与其他插件菜单冲突
+  - 插件路由是否与其他插件路由冲突
   - 插件是否能正确与其他插件交互
   - 插件的UI是否与其他插件的UI协调一致
 
@@ -565,7 +613,7 @@ jobs:
         run: |
           cd backend
           pip install uv
-          uv install
+          uv sync
           uv add pytest pytest-cov
       - name: Run tests
         run: |
@@ -600,10 +648,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v1
         with:
-          node-version: '18'
+          bun-version: latest
       - name: Install dependencies
         run: |
           cd frontend
@@ -628,11 +676,13 @@ jobs:
 - 插件依赖缺失
 - 插件代码错误
 - 插件配置错误
+- 插件权限声明错误
 
 **解决方案**：
 - 安装缺失的依赖
 - 修复插件代码错误
 - 检查并修复插件配置
+- 检查插件权限声明是否正确
 
 #### 8.1.2 问题：测试环境与生产环境不一致
 

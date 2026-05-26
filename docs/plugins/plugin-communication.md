@@ -200,6 +200,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
 #### 3.1.1 使用插件 API 通信
 
+PluginAPI 位于 `backend/plugins/api.py`，提供插件间通信的核心方法：
+
 ```python
 from plugins.api import PluginAPI
 from plugins.plugin_base import PluginBase
@@ -224,7 +226,57 @@ class ExamplePlugin(PluginBase):
         return None
 ```
 
-#### 3.1.2 注册和获取服务
+#### 3.1.2 PluginAPI 事件通信方法
+
+PluginAPI 提供以下事件相关方法，底层调用真实 EventBus：
+
+| 方法 | 说明 |
+|------|------|
+| `send_event(event_name, data)` | 发布事件到 EventBus |
+| `subscribe_event(event_name, callback)` | 订阅事件 |
+| `unsubscribe_event(event_name, callback)` | 取消订阅事件 |
+| `get_event_bus()` | 获取 EventBus 实例 |
+
+```python
+from plugins.api import PluginAPI
+from plugins.plugin_base import PluginBase
+
+class EventProducerPlugin(PluginBase):
+    def __init__(self):
+        super().__init__("event_producer", "1.0.0")
+        self.api = None
+    
+    def register(self, plugin_manager):
+        super().register(plugin_manager)
+        self.api = PluginAPI(plugin_manager)
+    
+    def produce_event(self):
+        # 发布事件，底层调用 event_bus.publish()
+        self.api.send_event("data_updated", {"key": "value"})
+
+
+class EventConsumerPlugin(PluginBase):
+    def __init__(self):
+        super().__init__("event_consumer", "1.0.0")
+        self.api = None
+    
+    def register(self, plugin_manager):
+        super().register(plugin_manager)
+        self.api = PluginAPI(plugin_manager)
+        # 订阅事件
+        self.api.subscribe_event("data_updated", self.handle_data_updated)
+    
+    def handle_data_updated(self, data):
+        """处理数据更新事件"""
+        logger.info(f"收到数据更新事件: {data}")
+    
+    def stop(self):
+        # 取消订阅
+        self.api.unsubscribe_event("data_updated", self.handle_data_updated)
+        super().stop()
+```
+
+#### 3.1.3 注册和获取服务
 
 ```python
 from plugins.api import PluginAPI
@@ -353,58 +405,96 @@ export const ExampleComponent: React.FC = () => {
 
 #### 4.1.1 事件总线实现
 
+事件总线位于 `backend/plugins/event_bus.py`，提供线程安全的发布-订阅机制：
+
 ```python
-from typing import Dict, List, Callable, Any
-from loguru import logger
+import asyncio
+import threading
+from typing import Any, Callable, Dict, List
+
+from utils.logger import get_logger, LogType
+
+logger = get_logger(__name__, LogType.APPLICATION)
+
 
 class EventBus:
+
     def __init__(self):
         self._subscribers: Dict[str, List[Callable]] = {}
-    
-    def subscribe(self, event_name: str, callback: Callable) -> None:
-        """订阅事件
-        
-        Args:
-            event_name: 事件名称
-            callback: 事件回调函数
-        """
-        if event_name not in self._subscribers:
-            self._subscribers[event_name] = []
-        self._subscribers[event_name].append(callback)
-        logger.info(f"订阅事件: {event_name}")
-    
-    def unsubscribe(self, event_name: str, callback: Callable) -> None:
-        """取消订阅事件
-        
-        Args:
-            event_name: 事件名称
-            callback: 事件回调函数
-        """
-        if event_name in self._subscribers:
-            try:
-                self._subscribers[event_name].remove(callback)
-                logger.info(f"取消订阅事件: {event_name}")
-            except ValueError:
-                pass
-    
-    def publish(self, event_name: str, data: Any = None) -> None:
-        """发布事件
-        
-        Args:
-            event_name: 事件名称
-            data: 事件数据
-        """
-        logger.info(f"发布事件: {event_name}, 数据: {data}")
-        if event_name in self._subscribers:
-            for callback in self._subscribers[event_name]:
-                try:
-                    callback(data)
-                except Exception as e:
-                    logger.error(f"执行事件回调失败: {e}")
+        self._lock = threading.Lock()
 
-# 创建全局事件总线实例
+    def subscribe(self, event_name: str, callback: Callable) -> None:
+        """订阅事件，使用 threading.Lock 保证线程安全"""
+        with self._lock:
+            if event_name not in self._subscribers:
+                self._subscribers[event_name] = []
+            if callback not in self._subscribers[event_name]:
+                self._subscribers[event_name].append(callback)
+                logger.info(f"订阅事件: {event_name} -> {callback.__name__}")
+
+    def unsubscribe(self, event_name: str, callback: Callable) -> None:
+        """取消订阅"""
+        with self._lock:
+            if event_name in self._subscribers:
+                try:
+                    self._subscribers[event_name].remove(callback)
+                    logger.info(f"取消订阅事件: {event_name} -> {callback.__name__}")
+                except ValueError:
+                    logger.warning(f"订阅者不存在: {event_name} -> {callback.__name__}")
+
+    def publish(self, event_name: str, data: Any = None) -> None:
+        """同步发布事件，异常隔离：单个订阅者回调异常不影响其他订阅者"""
+        with self._lock:
+            subscribers = list(self._subscribers.get(event_name, []))
+
+        for callback in subscribers:
+            try:
+                callback(data)
+            except Exception as e:
+                logger.error(
+                    f"事件 {event_name} 的订阅者 {callback.__name__} 执行异常",
+                    exception=e
+                )
+
+    def publish_async(self, event_name: str, data: Any = None) -> None:
+        """异步发布事件，使用 loop.run_in_executor 在线程池执行"""
+        with self._lock:
+            subscribers = list(self._subscribers.get(event_name, []))
+
+        loop = asyncio.get_event_loop()
+
+        for callback in subscribers:
+            try:
+                loop.run_in_executor(None, callback, data)
+            except Exception as e:
+                logger.error(
+                    f"异步事件 {event_name} 的订阅者 {callback.__name__} 启动异常",
+                    exception=e
+                )
+
+    def get_subscribers(self, event_name: str) -> List[str]:
+        """获取订阅者列表，返回回调函数名称列表"""
+        with self._lock:
+            subscribers = list(self._subscribers.get(event_name, []))
+
+        return [getattr(cb, '__name__', type(cb).__name__) for cb in subscribers]
+
+    def clear(self) -> None:
+        """清除所有订阅"""
+        with self._lock:
+            self._subscribers.clear()
+            logger.info("已清除所有事件订阅")
+
+
+# 全局单例，通过 import 直接使用
 event_bus = EventBus()
 ```
+
+**核心特性**：
+- **线程安全**：所有操作通过 `threading.Lock` 保护
+- **异常隔离**：单个订阅者回调异常不影响其他订阅者
+- **同步/异步发布**：`publish()` 同步执行，`publish_async()` 通过线程池异步执行
+- **全局单例**：`from plugins.event_bus import event_bus` 直接导入使用
 
 #### 4.1.2 事件总线使用示例
 
@@ -528,7 +618,212 @@ export class ExamplePlugin extends PluginBase {
 }
 ```
 
-### 4.3 事件总线最佳实践
+### 4.3 SSE 事件推送机制
+
+Server-Sent Events (SSE) 是一种服务器向客户端推送事件的机制，用于实时通知前端插件状态变化。
+
+#### 4.3.1 后端 SSE 端点实现
+
+SSE 端点位于 `backend/plugins/routes.py`：
+
+```python
+import asyncio
+import json
+from typing import List
+
+from fastapi import APIRouter, Request
+from fastapi.responses import StreamingResponse
+
+router = APIRouter(prefix="/api/plugins", tags=["plugins"])
+
+# 管理多个客户端连接的队列
+_event_queues: List[asyncio.Queue] = []
+
+
+def broadcast_event(event_type: str, data: dict):
+    """向所有连接的客户端广播事件"""
+    for queue in _event_queues:
+        try:
+            queue.put_nowait({"event": event_type, "data": data})
+        except asyncio.QueueFull:
+            pass
+
+
+async def _sse_generator(queue: asyncio.Queue):
+    """SSE 事件流生成器"""
+    try:
+        while True:
+            event = await queue.get()
+            event_type = event.get("event", "message")
+            data = json.dumps(event.get("data", {}), ensure_ascii=False)
+            yield f"event: {event_type}\ndata: {data}\n\n"
+    except asyncio.CancelledError:
+        return
+
+
+@router.get("/events")
+async def plugin_events(request: Request):
+    """SSE 事件推送端点：GET /api/plugins/events"""
+    queue: asyncio.Queue = asyncio.Queue()
+    _event_queues.append(queue)
+
+    async def cleanup():
+        _event_queues.remove(queue)
+
+    async def event_stream():
+        try:
+            async for chunk in _sse_generator(queue):
+                if await request.is_disconnected():
+                    break
+                yield chunk
+        finally:
+            await cleanup()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+```
+
+#### 4.3.2 支持的事件类型
+
+| 事件类型 | 触发时机 | 数据字段 |
+|---------|---------|---------|
+| `plugin_loaded` | 插件启用 | `{name, status}` |
+| `plugin_unloaded` | 插件禁用 | `{name, status}` |
+| `plugin_installed` | 插件安装 | `{name, status}` |
+| `plugin_uninstalled` | 插件卸载 | `{name, status}` |
+| `plugin_error` | 插件错误 | `{name, status, error}` |
+
+#### 4.3.3 事件广播调用示例
+
+在插件管理操作中调用 `broadcast_event()` 推送事件：
+
+```python
+# 启用插件时
+@router.post("/{name}/enable")
+async def enable_plugin(request: Request, name: str):
+    pm = _get_plugin_manager(request)
+    result = pm.enable_plugin(name)
+    broadcast_event("plugin_loaded", {
+        "name": name,
+        "status": "enabled",
+    })
+    return ApiResponse(code=0, message="插件启用成功", data=result)
+
+# 安装插件时
+@router.post("/install/upload")
+async def install_plugin_upload(request: Request, file: UploadFile = File(...)):
+    pm = _get_plugin_manager(request)
+    result = pm.install_from_zip(tmp_path)
+    broadcast_event("plugin_installed", {
+        "name": result.get("name", ""),
+        "status": "installed",
+    })
+    return ApiResponse(code=0, message="插件安装成功", data=result)
+```
+
+### 4.4 前端 SSE 监听
+
+#### 4.4.1 前端 SSE 监听实现
+
+前端通过 `EventSource` API 监听后端推送的插件事件，代码位于 `frontend/src/api/plugin.ts`：
+
+```typescript
+import { getAccessToken } from '../utils/tokenManager';
+
+export interface PluginEvent {
+  event: string;
+  data: {
+    name: string;
+    status: string;
+    error?: string;
+  };
+}
+
+export function listenPluginEvents(
+  onEvent: (evt: PluginEvent) => void,
+): () => void {
+  const token = getAccessToken();
+  const url = `/api/plugins/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  const es = new EventSource(url);
+
+  // 监听通用消息
+  es.onmessage = (msg: MessageEvent) => {
+    try {
+      const data = JSON.parse(msg.data);
+      onEvent({ event: 'message', data });
+    } catch {
+      // 忽略解析错误
+    }
+  };
+
+  // 监听特定事件类型
+  const trackedEvents = [
+    'plugin_loaded',
+    'plugin_unloaded',
+    'plugin_installed',
+    'plugin_uninstalled',
+    'plugin_error',
+  ];
+  for (const evt of trackedEvents) {
+    es.addEventListener(evt, ((e: MessageEvent) => {
+      try {
+        onEvent({ event: evt, data: JSON.parse(e.data) });
+      } catch {
+        // 忽略解析错误
+      }
+    }) as EventListener);
+  }
+
+  es.onerror = () => {
+    es.close();
+  };
+
+  // 返回清理函数，用于关闭连接
+  return () => es.close();
+}
+```
+
+#### 4.4.2 前端使用示例
+
+```typescript
+import { listenPluginEvents, PluginEvent } from '../api/plugin';
+import { useEffect } from 'react';
+
+function usePluginEvents() {
+  useEffect(() => {
+    const cleanup = listenPluginEvents((evt: PluginEvent) => {
+      switch (evt.event) {
+        case 'plugin_loaded':
+          console.log(`插件 ${evt.data.name} 已启用`);
+          break;
+        case 'plugin_unloaded':
+          console.log(`插件 ${evt.data.name} 已禁用`);
+          break;
+        case 'plugin_installed':
+          console.log(`插件 ${evt.data.name} 已安装`);
+          break;
+        case 'plugin_uninstalled':
+          console.log(`插件 ${evt.data.name} 已卸载`);
+          break;
+        case 'plugin_error':
+          console.error(`插件 ${evt.data.name} 错误: ${evt.data.error}`);
+          break;
+      }
+    });
+
+    return cleanup;
+  }, []);
+}
+```
+
+### 4.5 事件总线最佳实践
 
 - **事件命名**：使用清晰、语义化的事件名称，避免冲突
 - **事件数据**：事件数据应简洁明了，包含必要的信息

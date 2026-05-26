@@ -12,6 +12,7 @@ import {
   IconRobot,
   IconBuildingBank,
   IconVariable,
+  IconPuzzle,
 } from "@tabler/icons-react";
 import { Menu } from "antd";
 import { SettingsProvider } from "./SettingsContext";
@@ -31,6 +32,7 @@ const SettingLayout = () => {
     ["notifications", t("notification_settings") || "通知设置", <IconBell size="1em" />],
     ["model", t("model_settings") || "模型设置", <IconRobot size="1em" />],
     ["info", t("system_info") || "系统信息", <IconInfoCircle size="1em" />],
+    ["plugins", t("plugin_management") || "插件管理", <IconPuzzle size="1em" />],
   ] satisfies [string, string, React.ReactElement][];
 
   // 当前选中的菜单项

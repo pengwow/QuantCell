@@ -10,20 +10,26 @@
 
 ```python
 from fastapi import APIRouter
-from plugins.plugin_base import PluginBase
+from plugins.plugin_base import PluginBase, LoadType
+from plugins.api import PluginAPI
 
 class BasicPlugin(PluginBase):
     """基础功能插件示例"""
     
-    def __init__(self):
-        super().__init__("basic-plugin", "1.0.0")
+    def __init__(self, api: PluginAPI):
+        super().__init__(api)
+        self.name = "basic_plugin"
+        self.version = "1.0.0"
+        self.description = "基础功能插件示例"
+        self.author = "QuantCell Team"
+        self.load_type = LoadType.HOT
         self.router = APIRouter(prefix="/api/plugins/basic")
         self._setup_routes()
     
     def _setup_routes(self):
         """设置API路由"""
         @self.router.get("/")
-        def basic_root():
+        async def basic_root():
             """基础插件根路由"""
             return {
                 "message": "Hello from basic plugin!",
@@ -32,40 +38,54 @@ class BasicPlugin(PluginBase):
             }
         
         @self.router.get("/health")
-        def health_check():
+        async def health_check():
             """健康检查路由"""
             return {"status": "healthy", "plugin": self.name}
     
-    def register(self, plugin_manager):
-        """注册插件"""
-        super().register(plugin_manager)
-        self.logger.info(f"{self.name} 插件注册成功")
+    async def on_enable(self):
+        """插件启用时调用"""
+        self.enabled = True
+        self.logger.info(f"{self.name} 插件已启用")
     
-    def start(self):
-        """启动插件"""
-        super().start()
-        self.logger.info(f"{self.name} 插件启动成功")
+    async def on_disable(self):
+        """插件禁用时调用"""
+        self.enabled = False
+        self.logger.info(f"{self.name} 插件已禁用")
     
-    def stop(self):
-        """停止插件"""
-        super().stop()
-        self.logger.info(f"{self.name} 插件停止成功")
+    def get_frontend_assets(self) -> dict:
+        """获取前端资源信息"""
+        return {
+            "js": ["/static/plugins/basic_plugin/index.js"],
+            "css": ["/static/plugins/basic_plugin/index.css"]
+        }
+    
+    def get_config_schema(self) -> dict:
+        """获取配置模式"""
+        return {
+            "basic_enabled": {
+                "type": "boolean",
+                "default": True,
+                "description": "启用基础功能"
+            }
+        }
 
-def register_plugin():
+def register_plugin(api: PluginAPI):
     """注册插件的入口函数"""
-    return BasicPlugin()
+    return BasicPlugin(api)
 ```
 
 **manifest.json**：
 
 ```json
 {
-  "name": "basic-plugin",
+  "name": "data_service",
   "version": "1.0.0",
-  "description": "基础功能插件示例",
+  "description": "数据服务插件示例",
   "author": "QuantCell Team",
   "main": "plugin.py",
-  "dependencies": []
+  "load_type": "hot",
+  "permissions": ["read_data", "write_data"],
+  "frontend_entry": "frontend/index.html"
 }
 ```
 
@@ -76,70 +96,53 @@ def register_plugin():
 **实现示例**：
 
 ```python
-from plugins.plugin_base import PluginBase
+from plugins.plugin_base import PluginBase, LoadType
+from plugins.api import PluginAPI
 
-class DataServicePlugin(PluginBase):
-    """数据服务插件示例"""
+class ServiceProviderPlugin(PluginBase):
+    """服务提供插件示例"""
     
-    def __init__(self):
-        super().__init__("data-service-plugin", "1.0.0")
-        self.data_service = DataService()
+    def __init__(self, api: PluginAPI):
+        super().__init__(api)
+        self.name = "service_provider"
+        self.version = "1.0.0"
+        self.description = "服务提供插件示例"
+        self.author = "QuantCell Team"
+        self.load_type = LoadType.HOT
     
-    def register(self, plugin_manager):
-        """注册插件"""
-        super().register(plugin_manager)
-        
+    async def on_enable(self):
+        """插件启用时注册服务"""
+        self.enabled = True
         # 注册服务供其他插件使用
-        if hasattr(plugin_manager, 'plugin_api'):
-            plugin_manager.plugin_api.register_service("data_service", self.data_service)
-            self.logger.info("数据服务注册成功")
-        
-        self.logger.info(f"{self.name} 插件注册成功")
+        self.api.register_service("my_service", MyService())
+        self.logger.info(f"{self.name} 插件已启用，服务已注册")
     
-    def start(self):
-        """启动插件"""
-        super().start()
-        self.data_service.initialize()
-        self.logger.info(f"{self.name} 插件启动成功")
+    async def on_disable(self):
+        """插件禁用时注销服务"""
+        self.enabled = False
+        self.logger.info(f"{self.name} 插件已禁用")
     
-    def stop(self):
-        """停止插件"""
-        super().stop()
-        self.data_service.shutdown()
-        self.logger.info(f"{self.name} 插件停止成功")
+    def get_frontend_assets(self) -> dict:
+        """获取前端资源信息"""
+        return {
+            "js": ["/static/plugins/service_provider/index.js"],
+            "css": ["/static/plugins/service_provider/index.css"]
+        }
+    
+    def get_config_schema(self) -> dict:
+        """获取配置模式"""
+        return {
+            "service_enabled": {
+                "type": "boolean",
+                "default": True,
+                "description": "启用服务提供功能"
+            }
+        }
 
-class DataService:
-    """数据服务实现"""
-    
-    def __init__(self):
-        self.data = {}
-    
-    def initialize(self):
-        """初始化服务"""
-        self.data = {"key1": "value1", "key2": "value2"}
-    
-    def shutdown(self):
-        """关闭服务"""
-        self.data = {}
-    
-    def get_data(self, key):
-        """获取数据"""
-        return self.data.get(key)
-    
-    def set_data(self, key, value):
-        """设置数据"""
-        self.data[key] = value
-        return True
-    
-    def get_all_data(self):
-        """获取所有数据"""
-        return self.data
-
-def register_plugin():
+def register_plugin(api: PluginAPI):
     """注册插件的入口函数"""
-    return DataServicePlugin()
+    return ServiceProviderPlugin(api)
 ```
-
 ### 1.3 定时任务插件
 
 **适用场景**：执行定时任务和后台处理
@@ -148,35 +151,36 @@ def register_plugin():
 
 ```python
 import asyncio
-from plugins.plugin_base import PluginBase
+from plugins.plugin_base import PluginBase, LoadType
+from plugins.api import PluginAPI
 
 class ScheduledTaskPlugin(PluginBase):
     """定时任务插件示例"""
     
-    def __init__(self):
-        super().__init__("scheduled-task-plugin", "1.0.0")
+    def __init__(self, api: PluginAPI):
+        super().__init__(api)
+        self.name = "scheduled_task"
+        self.version = "1.0.0"
+        self.description = "定时任务插件示例"
+        self.author = "QuantCell Team"
+        self.load_type = LoadType.HOT
         self.task = None
         self.running = False
     
-    def register(self, plugin_manager):
-        """注册插件"""
-        super().register(plugin_manager)
-        self.logger.info(f"{self.name} 插件注册成功")
-    
-    def start(self):
-        """启动插件"""
-        super().start()
+    async def on_enable(self):
+        """插件启用时启动定时任务"""
+        self.enabled = True
         self.running = True
         self.task = asyncio.create_task(self._run_scheduled_tasks())
-        self.logger.info(f"{self.name} 插件启动成功")
+        self.logger.info(f"{self.name} 插件已启用，定时任务已启动")
     
-    def stop(self):
-        """停止插件"""
-        super().stop()
+    async def on_disable(self):
+        """插件禁用时停止定时任务"""
+        self.enabled = False
         self.running = False
         if self.task:
             self.task.cancel()
-        self.logger.info(f"{self.name} 插件停止成功")
+        self.logger.info(f"{self.name} 插件已禁用，定时任务已停止")
     
     async def _run_scheduled_tasks(self):
         """运行定时任务"""
@@ -200,10 +204,27 @@ class ScheduledTaskPlugin(PluginBase):
         # 模拟任务执行
         await asyncio.sleep(1)
         self.logger.info("定时任务执行完成")
+    
+    def get_frontend_assets(self) -> dict:
+        """获取前端资源信息"""
+        return {
+            "js": ["/static/plugins/scheduled_task/index.js"],
+            "css": ["/static/plugins/scheduled_task/index.css"]
+        }
+    
+    def get_config_schema(self) -> dict:
+        """获取配置模式"""
+        return {
+            "task_interval": {
+                "type": "number",
+                "default": 10,
+                "description": "任务执行间隔（秒）"
+            }
+        }
 
-def register_plugin():
+def register_plugin(api: PluginAPI):
     """注册插件的入口函数"""
-    return ScheduledTaskPlugin()
+    return ScheduledTaskPlugin(api)
 ```
 
 ### 1.4 事件处理插件
@@ -213,45 +234,61 @@ def register_plugin():
 **实现示例**：
 
 ```python
-from plugins.plugin_base import PluginBase
+from plugins.plugin_base import PluginBase, LoadType
+from plugins.api import PluginAPI
 
 class EventHandlerPlugin(PluginBase):
     """事件处理插件示例"""
     
-    def __init__(self):
-        super().__init__("event-handler-plugin", "1.0.0")
+    def __init__(self, api: PluginAPI):
+        super().__init__(api)
+        self.name = "event_handler"
+        self.version = "1.0.0"
+        self.description = "事件处理插件示例"
+        self.author = "QuantCell Team"
+        self.load_type = LoadType.HOT
+        self.handler_id = None
     
-    def register(self, plugin_manager):
-        """注册插件"""
-        super().register(plugin_manager)
-        self.logger.info(f"{self.name} 插件注册成功")
-    
-    def start(self):
-        """启动插件"""
-        super().start()
-        self.logger.info(f"{self.name} 插件启动成功")
+    async def on_enable(self):
+        """插件启用时订阅事件"""
+        self.enabled = True
         # 订阅事件
-        self._subscribe_to_events()
+        self.handler_id = self.api.subscribe("data_updated", self._handle_data_updated)
+        self.logger.info(f"{self.name} 插件已启用，事件订阅完成")
     
-    def stop(self):
-        """停止插件"""
-        super().stop()
-        self.logger.info(f"{self.name} 插件停止成功")
-    
-    def _subscribe_to_events(self):
-        """订阅事件"""
-        # 这里可以实现事件订阅逻辑
-        # 例如：self.plugin_manager.event_bus.subscribe("data_updated", self._handle_data_updated)
-        self.logger.info("事件订阅完成")
+    async def on_disable(self):
+        """插件禁用时取消订阅事件"""
+        self.enabled = False
+        # 取消订阅事件
+        if self.handler_id:
+            self.api.unsubscribe(self.handler_id)
+        self.logger.info(f"{self.name} 插件已禁用，事件订阅已取消")
     
     def _handle_data_updated(self, event_data):
         """处理数据更新事件"""
         self.logger.info(f"收到数据更新事件: {event_data}")
         # 处理事件逻辑
+    
+    def get_frontend_assets(self) -> dict:
+        """获取前端资源信息"""
+        return {
+            "js": ["/static/plugins/event_handler/index.js"],
+            "css": ["/static/plugins/event_handler/index.css"]
+        }
+    
+    def get_config_schema(self) -> dict:
+        """获取配置模式"""
+        return {
+            "event_enabled": {
+                "type": "boolean",
+                "default": True,
+                "description": "启用事件处理功能"
+            }
+        }
 
-def register_plugin():
+def register_plugin(api: PluginAPI):
     """注册插件的入口函数"""
-    return EventHandlerPlugin()
+    return EventHandlerPlugin(api)
 ```
 
 ## 2. 前端插件实现模式
@@ -263,99 +300,53 @@ def register_plugin():
 **实现示例**：
 
 ```typescript
-import React from 'react';
-import { PluginBase } from '../PluginBase';
+// frontend/src/plugins/basic-ui-plugin/index.tsx
+import { PluginRegistry } from '../PluginRegistry';
+import { pluginApi } from '../api/plugin';
+import { usePlugins } from '../PluginContext';
+import BasicPage from './components/BasicPage';
 
-// 示例页面组件
-const BasicPage: React.FC = () => {
+const registry = PluginRegistry.getInstance();
+
+// 注册插件
+registry.registerPlugin({
+  name: 'basic_ui_plugin',
+  version: '1.0.0',
+  description: '基础UI插件示例',
+  author: 'QuantCell Team',
+  enabled: true
+});
+
+// 注册菜单
+registry.registerMenu('basic_ui_plugin', {
+  id: 'basic-ui',
+  label: '基础UI',
+  path: '/basic-ui',
+  icon: 'BasicUIIcon'
+});
+
+// 注册路由
+registry.registerRoute('basic_ui_plugin', {
+  path: '/basic-ui',
+  component: BasicPage
+});
+
+// 在组件中使用 usePlugins Hook
+const BasicUIComponent: React.FC = () => {
+  const { plugins, loading, error } = usePlugins();
+  
+  // 获取当前插件状态
+  const plugin = plugins.find(p => p.name === 'basic_ui_plugin');
+  
   return (
-    <div style={{ padding: '20px' }}>
-      <h1>基础插件页面</h1>
-      <p>这是一个基础前端插件示例页面</p>
-      <div>
-        <h2>插件功能</h2>
-        <ul>
-          <li>提供基础UI界面</li>
-          <li>注册到系统菜单</li>
-          <li>响应路由导航</li>
-        </ul>
-      </div>
+    <div>
+      <h1>基础UI插件</h1>
+      <p>插件状态: {plugin?.enabled ? '已启用' : '已禁用'}</p>
     </div>
   );
 };
 
-export class BasicFrontendPlugin extends PluginBase {
-  constructor() {
-    super(
-      'basic-frontend-plugin', 
-      '1.0.0', 
-      '基础前端插件示例', 
-      'QuantCell Team'
-    );
-  }
-
-  /**
-   * 注册插件，添加菜单和路由
-   */
-  public register(): void {
-    super.register();
-    
-    // 添加菜单
-    this.addMenu({
-      group: '前端插件',
-      items: [
-        {
-          path: '/plugins/basic',
-          name: '基础插件页面',
-          icon: undefined
-        }
-      ]
-    });
-    
-    // 添加路由
-    this.addRoute({
-      path: '/plugins/basic',
-      element: <BasicPage />
-    });
-  }
-
-  /**
-   * 启动插件
-   */
-  public start(): void {
-    super.start();
-    console.log('基础前端插件启动成功');
-  }
-
-  /**
-   * 停止插件
-   */
-  public stop(): void {
-    super.stop();
-    console.log('基础前端插件停止成功');
-  }
-}
-
-/**
- * 插件注册入口，供插件管理器调用
- * @returns 插件实例
- */
-export function registerPlugin(): BasicFrontendPlugin {
-  return new BasicFrontendPlugin();
-}
-```
-
-**manifest.json**：
-
-```json
-{
-  "name": "basic-frontend-plugin",
-  "version": "1.0.0",
-  "description": "基础前端插件示例",
-  "author": "QuantCell Team",
-  "main": "index.tsx",
-  "dependencies": []
-}
+export default BasicUIComponent;
 ```
 
 ### 2.2 配置管理插件
@@ -366,113 +357,73 @@ export function registerPlugin(): BasicFrontendPlugin {
 
 ```typescript
 import React from 'react';
-import { PluginBase } from '../PluginBase';
+import { PluginRegistry } from '../PluginRegistry';
+import { pluginApi } from '../api/plugin';
+import { usePlugins } from '../PluginContext';
+import ConfigPage from './components/ConfigPage';
 
-// 配置页面组件
-const ConfigPage: React.FC = () => {
+const registry = PluginRegistry.getInstance();
+
+// 注册插件
+registry.registerPlugin({
+  name: 'config_plugin',
+  version: '1.0.0',
+  description: '配置管理插件示例',
+  author: 'QuantCell Team',
+  enabled: true
+});
+
+// 注册菜单
+registry.registerMenu('config_plugin', {
+  id: 'config',
+  label: '配置管理',
+  path: '/config',
+  icon: 'ConfigIcon'
+});
+
+// 注册路由
+registry.registerRoute('config_plugin', {
+  path: '/config',
+  component: ConfigPage
+});
+
+// 在组件中使用 usePlugins Hook 和配置管理
+const ConfigComponent: React.FC = () => {
+  const { plugins, loading, error, getConfig, setConfig } = usePlugins();
+  
+  // 获取当前插件状态
+  const plugin = plugins.find(p => p.name === 'config_plugin');
+  
+  // 获取配置值
+  const enabled = getConfig('config_plugin_enabled');
+  const mode = getConfig('config_plugin_mode');
+  
+  // 设置配置值
+  const handleToggle = () => {
+    setConfig('config_plugin_enabled', !enabled);
+  };
+  
   return (
-    <div style={{ padding: '20px' }}>
-      <h1>配置管理插件页面</h1>
-      <p>这是一个配置管理插件示例页面</p>
+    <div>
+      <h1>配置管理插件</h1>
+      <p>插件状态: {plugin?.enabled ? '已启用' : '已禁用'}</p>
       <div>
         <h2>配置项</h2>
-        <p>插件注册的配置项会显示在系统设置中</p>
+        <label>
+          <input 
+            type="checkbox" 
+            checked={enabled} 
+            onChange={handleToggle}
+          />
+          启用配置管理插件
+        </label>
+        <p>当前模式: {mode}</p>
       </div>
     </div>
   );
 };
 
-export class ConfigPlugin extends PluginBase {
-  constructor() {
-    super(
-      'config-plugin', 
-      '1.0.0', 
-      '配置管理插件示例', 
-      'QuantCell Team'
-    );
-  }
-
-  /**
-   * 注册插件，添加菜单、路由和配置
-   */
-  public register(): void {
-    super.register();
-    
-    // 添加菜单
-    this.addMenu({
-      group: '配置插件',
-      items: [
-        {
-          path: '/plugins/config',
-          name: '配置插件页面',
-          icon: undefined
-        }
-      ]
-    });
-    
-    // 添加路由
-    this.addRoute({
-      path: '/plugins/config',
-      element: <ConfigPage />
-    });
-    
-    // 添加系统配置项
-    this.addSystemConfig({
-      key: 'config_plugin_enabled',
-      value: true,
-      description: '启用配置管理插件',
-      type: 'boolean'
-    });
-    
-    this.addSystemConfig({
-      key: 'config_plugin_mode',
-      value: 'standard',
-      description: '插件运行模式',
-      type: 'select',
-      options: ['standard', 'advanced', 'expert']
-    });
-    
-    this.addSystemConfig({
-      key: 'config_plugin_timeout',
-      value: 30,
-      description: '超时时间（秒）',
-      type: 'number'
-    });
-    
-    // 设置配置菜单名称
-    this.setConfigMenuName('配置管理插件设置');
-  }
-
-  /**
-   * 启动插件
-   */
-  public start(): void {
-    super.start();
-    // 读取配置值
-    const enabled = this.getConfig('config_plugin_enabled');
-    const mode = this.getConfig('config_plugin_mode');
-    const timeout = this.getConfig('config_plugin_timeout');
-    
-    console.log('配置管理插件启动成功');
-    console.log('插件配置:', { enabled, mode, timeout });
-  }
-
-  /**
-   * 停止插件
-   */
-  public stop(): void {
-    super.stop();
-    console.log('配置管理插件停止成功');
-  }
-}
-
-/**
- * 插件注册入口，供插件管理器调用
- * @returns 插件实例
- */
-export function registerPlugin(): ConfigPlugin {
-  return new ConfigPlugin();
-}
+export default ConfigComponent;
 ```
 
 ### 2.3 数据可视化插件
@@ -483,135 +434,57 @@ export function registerPlugin(): ConfigPlugin {
 
 ```typescript
 import React, { useState, useEffect } from 'react';
-import { PluginBase } from '../PluginBase';
+import { PluginRegistry } from '../PluginRegistry';
+import { pluginApi } from '../api/plugin';
+import { usePlugins } from '../PluginContext';
+import VisualizationPage from './components/VisualizationPage';
 
-// 可视化页面组件
-const VisualizationPage: React.FC = () => {
-  const [data, setData] = useState<number[]>([]);
+const registry = PluginRegistry.getInstance();
 
-  useEffect(() => {
-    // 生成模拟数据
-    const generateData = () => {
-      const newData = Array.from({ length: 10 }, () => Math.random() * 100);
-      setData(newData);
-    };
+// 注册插件
+registry.registerPlugin({
+  name: 'visualization_plugin',
+  version: '1.0.0',
+  description: '数据可视化插件示例',
+  author: 'QuantCell Team',
+  enabled: true
+});
 
-    generateData();
-    const interval = setInterval(generateData, 5000);
+// 注册菜单
+registry.registerMenu('visualization_plugin', {
+  id: 'visualization',
+  label: '数据可视化',
+  path: '/visualization',
+  icon: 'VisualizationIcon'
+});
 
-    return () => clearInterval(interval);
-  }, []);
+// 注册路由
+registry.registerRoute('visualization_plugin', {
+  path: '/visualization',
+  component: VisualizationPage
+});
 
+// 在组件中使用 usePlugins Hook
+const VisualizationComponent: React.FC = () => {
+  const { plugins, loading, error, getConfig } = usePlugins();
+  
+  // 获取当前插件状态
+  const plugin = plugins.find(p => p.name === 'visualization_plugin');
+  
+  // 获取配置值
+  const refreshInterval = getConfig('visualization_refresh_interval') || 5;
+  
   return (
-    <div style={{ padding: '20px' }}>
-      <h1>数据可视化插件页面</h1>
-      <p>这是一个数据可视化插件示例页面</p>
-      
-      <div style={{ marginTop: '20px' }}>
-        <h2>数据图表</h2>
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'end', 
-          height: '300px', 
-          gap: '10px',
-          padding: '20px',
-          border: '1px solid #ddd'
-        }}>
-          {data.map((value, index) => (
-            <div 
-              key={index}
-              style={{
-                width: '40px',
-                height: `${value}%`,
-                backgroundColor: '#4CAF50',
-                borderRadius: '4px 4px 0 0',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'start',
-                paddingTop: '10px',
-                color: 'white',
-                fontSize: '12px'
-              }}
-            >
-              {Math.round(value)}
-            </div>
-          ))}
-        </div>
-        <p style={{ textAlign: 'center', marginTop: '10px', color: '#666' }}>
-          模拟数据可视化 - 每5秒更新一次
-        </p>
-      </div>
+    <div>
+      <h1>数据可视化插件</h1>
+      <p>插件状态: {plugin?.enabled ? '已启用' : '已禁用'}</p>
+      <p>刷新间隔: {refreshInterval} 秒</p>
+      <VisualizationPage refreshInterval={refreshInterval} />
     </div>
   );
 };
 
-export class VisualizationPlugin extends PluginBase {
-  constructor() {
-    super(
-      'visualization-plugin', 
-      '1.0.0', 
-      '数据可视化插件示例', 
-      'QuantCell Team'
-    );
-  }
-
-  /**
-   * 注册插件，添加菜单和路由
-   */
-  public register(): void {
-    super.register();
-    
-    // 添加菜单
-    this.addMenu({
-      group: '可视化插件',
-      items: [
-        {
-          path: '/plugins/visualization',
-          name: '数据可视化页面',
-          icon: undefined
-        }
-      ]
-    });
-    
-    // 添加路由
-    this.addRoute({
-      path: '/plugins/visualization',
-      element: <VisualizationPage />
-    });
-    
-    // 添加配置项
-    this.addSystemConfig({
-      key: 'visualization_refresh_interval',
-      value: 5,
-      description: '数据刷新间隔（秒）',
-      type: 'number'
-    });
-  }
-
-  /**
-   * 启动插件
-   */
-  public start(): void {
-    super.start();
-    console.log('数据可视化插件启动成功');
-  }
-
-  /**
-   * 停止插件
-   */
-  public stop(): void {
-    super.stop();
-    console.log('数据可视化插件停止成功');
-  }
-}
-
-/**
- * 插件注册入口，供插件管理器调用
- * @returns 插件实例
- */
-export function registerPlugin(): VisualizationPlugin {
-  return new VisualizationPlugin();
-}
+export default VisualizationComponent;
 ```
 
 ### 2.4 交互功能插件
@@ -622,158 +495,53 @@ export function registerPlugin(): VisualizationPlugin {
 
 ```typescript
 import React, { useState } from 'react';
-import { PluginBase } from '../PluginBase';
+import { PluginRegistry } from '../PluginRegistry';
+import { pluginApi } from '../api/plugin';
+import { usePlugins } from '../PluginContext';
+import InteractivePage from './components/InteractivePage';
 
-// 交互页面组件
-const InteractivePage: React.FC = () => {
-  const [count, setCount] = useState(0);
-  const [message, setMessage] = useState('');
+const registry = PluginRegistry.getInstance();
 
-  const handleIncrement = () => {
-    setCount(count + 1);
-  };
+// 注册插件
+registry.registerPlugin({
+  name: 'interactive_plugin',
+  version: '1.0.0',
+  description: '交互功能插件示例',
+  author: 'QuantCell Team',
+  enabled: true
+});
 
-  const handleDecrement = () => {
-    setCount(count - 1);
-  };
+// 注册菜单
+registry.registerMenu('interactive_plugin', {
+  id: 'interactive',
+  label: '交互功能',
+  path: '/interactive',
+  icon: 'InteractiveIcon'
+});
 
-  const handleMessageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setMessage(e.target.value);
-  };
+// 注册路由
+registry.registerRoute('interactive_plugin', {
+  path: '/interactive',
+  component: InteractivePage
+});
 
+// 在组件中使用 usePlugins Hook
+const InteractiveComponent: React.FC = () => {
+  const { plugins, loading, error } = usePlugins();
+  
+  // 获取当前插件状态
+  const plugin = plugins.find(p => p.name === 'interactive_plugin');
+  
   return (
-    <div style={{ padding: '20px' }}>
-      <h1>交互功能插件页面</h1>
-      <p>这是一个交互功能插件示例页面</p>
-      
-      <div style={{ marginTop: '20px', padding: '20px', border: '1px solid #ddd', borderRadius: '8px' }}>
-        <h2>计数器</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-          <button 
-            onClick={handleDecrement}
-            style={{
-              padding: '10px 20px',
-              fontSize: '16px',
-              backgroundColor: '#f44336',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            -
-          </button>
-          <div style={{ fontSize: '24px', minWidth: '60px', textAlign: 'center' }}>
-            {count}
-          </div>
-          <button 
-            onClick={handleIncrement}
-            style={{
-              padding: '10px 20px',
-              fontSize: '16px',
-              backgroundColor: '#4CAF50',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            +
-          </button>
-        </div>
-        
-        <h2>消息输入</h2>
-        <div style={{ marginBottom: '20px' }}>
-          <input 
-            type="text"
-            value={message}
-            onChange={handleMessageChange}
-            placeholder="输入消息..."
-            style={{
-              padding: '10px',
-              fontSize: '16px',
-              width: '300px',
-              border: '1px solid #ddd',
-              borderRadius: '4px'
-            }}
-          />
-        </div>
-        
-        {message && (
-          <div style={{ 
-            padding: '15px', 
-            backgroundColor: '#e3f2fd', 
-            borderRadius: '4px',
-            borderLeft: '4px solid #2196F3'
-          }}>
-            <h3>输入的消息：</h3>
-            <p>{message}</p>
-          </div>
-        )}
-      </div>
+    <div>
+      <h1>交互功能插件</h1>
+      <p>插件状态: {plugin?.enabled ? '已启用' : '已禁用'}</p>
+      <InteractivePage />
     </div>
   );
 };
 
-export class InteractivePlugin extends PluginBase {
-  constructor() {
-    super(
-      'interactive-plugin', 
-      '1.0.0', 
-      '交互功能插件示例', 
-      'QuantCell Team'
-    );
-  }
-
-  /**
-   * 注册插件，添加菜单和路由
-   */
-  public register(): void {
-    super.register();
-    
-    // 添加菜单
-    this.addMenu({
-      group: '交互插件',
-      items: [
-        {
-          path: '/plugins/interactive',
-          name: '交互功能页面',
-          icon: undefined
-        }
-      ]
-    });
-    
-    // 添加路由
-    this.addRoute({
-      path: '/plugins/interactive',
-      element: <InteractivePage />
-    });
-  }
-
-  /**
-   * 启动插件
-   */
-  public start(): void {
-    super.start();
-    console.log('交互功能插件启动成功');
-  }
-
-  /**
-   * 停止插件
-   */
-  public stop(): void {
-    super.stop();
-    console.log('交互功能插件停止成功');
-  }
-}
-
-/**
- * 插件注册入口，供插件管理器调用
- * @returns 插件实例
- */
-export function registerPlugin(): InteractivePlugin {
-  return new InteractivePlugin();
-}
+export default InteractiveComponent;
 ```
 
 ## 3. 插件实现最佳实践
@@ -853,9 +621,9 @@ export function registerPlugin(): InteractivePlugin {
 
 1. **创建插件目录**：在 `frontend/src/plugins/` 下创建插件目录
 2. **编写 manifest.json**：定义插件基本信息
-3. **实现插件类**：继承 `PluginBase` 并实现核心方法
-4. **创建组件**：实现插件所需的 React 组件
-5. **注册菜单和路由**：在 `register` 方法中注册
+3. **创建组件**：实现插件所需的 React 组件
+4. **注册菜单和路由**：通过 `PluginRegistry.registerMenu()` 和 `PluginRegistry.registerRoute()` 注册
+5. **获取插件状态**：通过 `usePlugins()` Hook 获取插件状态和操作
 6. **测试插件**：启动开发服务器并测试插件功能
 7. **构建部署**：运行构建命令并部署到生产环境
 
@@ -885,86 +653,118 @@ export function registerPlugin(): InteractivePlugin {
 
 ### 7.1 后端插件注册
 
-后端插件通过 `register_plugin` 函数注册，插件管理器会自动发现并加载插件：
+后端插件通过 `register_plugin(api: PluginAPI)` 函数注册，插件管理器会自动发现并加载插件：
 
 ```python
-def register_plugin() -> PluginBase:
+def register_plugin(api: PluginAPI) -> PluginBase:
     """注册插件的入口函数"""
-    return ExamplePlugin()
+    return ExamplePlugin(api)
 ```
 
 ### 7.2 前端插件注册
 
-前端插件通过 `registerPlugin` 函数注册，插件管理器会自动发现并加载插件：
+前端插件通过 `PluginRegistry` 注册菜单和路由：
 
 ```typescript
-export function registerPlugin(): ExamplePlugin {
-  return new ExamplePlugin();
-}
+import { PluginRegistry } from '../plugins/PluginRegistry';
+
+const registry = PluginRegistry.getInstance();
+
+registry.registerMenu('plugin_name', {
+  id: 'example',
+  label: '示例插件',
+  path: '/example',
+  icon: 'ExampleIcon'
+});
+
+registry.registerRoute('plugin_name', {
+  path: '/example',
+  component: ExamplePage
+});
 ```
 
 ## 8. 插件生命周期管理
 
 ### 8.1 后端插件生命周期
 
-1. **加载**：插件管理器扫描并加载插件
-2. **注册**：调用 `register` 方法
-3. **启动**：调用 `start` 方法
+1. **安装**：插件安装器解压并校验插件
+2. **加载**：插件管理器根据 `load_type` 选择加载器动态导入模块
+3. **注册**：调用 `register_plugin(api)` 获取实例，调用 `register()` 和 `start()`
 4. **运行**：插件处理请求和事件
-5. **停止**：调用 `stop` 方法
+5. **启用/禁用**：调用 `on_enable()` / `on_disable()` 回调
+6. **停止**：调用 `stop()` 方法
 
 ### 8.2 前端插件生命周期
 
-1. **加载**：插件管理器动态导入插件模块
-2. **注册**：调用 `register` 方法
-3. **启动**：调用 `start` 方法
+1. **加载**：`PluginProvider` 挂载时通过 `pluginApi.getPlugins()` 获取插件列表
+2. **注册**：插件信息注册到 `PluginRegistry`
+3. **资源加载**：`PluginLoader.loadPluginAssets()` 加载 JS/CSS 资源
 4. **运行**：插件渲染UI和处理用户交互
-5. **停止**：调用 `stop` 方法
-6. **卸载**：从插件管理器中移除
+5. **状态更新**：SSE 事件监听自动刷新插件状态
+6. **资源卸载**：`PluginLoader.unloadPluginAssets()` 移除资源
 
 ## 9. 插件通信示例
 
 ### 9.1 后端插件间通信
 
-**服务调用**：
+**服务注册与发现**：
 
 ```python
 # 在插件A中注册服务
-if hasattr(self.plugin_manager, 'plugin_api'):
-    self.plugin_manager.plugin_api.register_service("my_service", MyService())
+self.api.register_service("my_service", MyService())
 
 # 在插件B中使用服务
-if hasattr(self.plugin_manager, 'plugin_api'):
-    my_service = self.plugin_manager.plugin_api.get_service("my_service")
-    if my_service:
-        result = my_service.do_something()
+my_service = self.api.get_service("my_service")
+if my_service:
+    result = my_service.do_something()
+```
+
+**事件总线通信**：
+
+```python
+from plugins.event_bus import event_bus
+
+# 订阅事件
+def on_data_updated(data):
+    print(f"收到数据更新: {data}")
+event_bus.subscribe("data_updated", on_data_updated)
+
+# 发布事件
+event_bus.publish("data_updated", {"key": "value"})
 ```
 
 ### 9.2 前端插件间通信
 
-**插件实例访问**：
+**通过 PluginRegistry 访问插件**：
 
 ```typescript
-// 在插件中访问其他插件
-import { pluginManager } from '../PluginManager';
+import { pluginRegistry } from '@/plugins';
 
-// 获取指定插件
-const otherPlugin = pluginManager.getPlugin('other-plugin');
-if (otherPlugin) {
-  // 调用插件方法或访问属性
-  console.log('其他插件版本:', otherPlugin.instance.version);
+const plugin = pluginRegistry.getPlugin('other_plugin');
+if (plugin) {
+  console.log('其他插件版本:', plugin.version);
 }
 ```
 
-**全局状态管理**：
+**React Context 状态共享**：
 
 ```typescript
-// 使用全局状态管理
-import { useDispatch, useSelector } from 'react-redux';
+import { usePlugins } from '@/plugins';
 
-// 分发动作
-dispatch({ type: 'PLUGIN_ACTION', payload: data });
+function MyComponent() {
+  const { plugins, refresh, enablePlugin, disablePlugin } = usePlugins();
+  return <div>...</div>;
+}
 
-// 选择状态
-const state = useSelector((state) => state.pluginState);
+**发布订阅机制**：
+
+```typescript
+import { pluginRegistry } from '@/plugins';
+
+// 订阅
+pluginRegistry.subscribe(() => {
+  console.log('插件状态变更，刷新界面');
+});
+
+// 插件注册/注销时会自动通知所有订阅者
 ```
