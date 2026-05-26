@@ -36,7 +36,7 @@ import { init, dispose } from 'klinecharts';
 import dayjs from 'dayjs';
 import { dataApi } from '@/api/dataApi';
 import PageContainer from '@/components/PageContainer';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 import { useTranslation } from 'react-i18next';
 
 const { Option } = Select;

@@ -26,7 +26,7 @@ import PageContainer from '@/components/PageContainer';
 import { dataApi } from '@/api/dataApi';
 import { wsService } from '@/services/websocketService';
 import type { Task } from '@/types/data';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 
 const { Text } = Typography;
 

@@ -6,7 +6,7 @@ import { AppstoreOutlined, UnorderedListOutlined, ReloadOutlined, FilterOutlined
 import { backtestApi } from '../../api';
 import { useTranslation } from 'react-i18next';
 import { IconPlayerPlay, IconEye, IconTrash } from '@tabler/icons-react';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 import type { BacktestTask } from '../../types/backtest';
 import PageContainer from '@/components/PageContainer';
 import dayjs from 'dayjs';

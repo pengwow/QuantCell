@@ -3,7 +3,7 @@ import { Button, Typography, Space } from 'antd';
 import { IconArrowLeft } from '@tabler/icons-react';
 import { useTranslation } from 'react-i18next';
 import { useEffect } from 'react';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 
 const { Title } = Typography;
 

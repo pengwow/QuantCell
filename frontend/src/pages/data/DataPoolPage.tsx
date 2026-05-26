@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { Card, Button, Table } from 'antd';
 import { IconPlus } from '@tabler/icons-react';
 import PageContainer from '@/components/PageContainer';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 
 const DataPoolPage = () => {
   const { t } = useTranslation();

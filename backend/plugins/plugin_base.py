@@ -1,7 +1,5 @@
-from utils.logger import get_logger, LogType
-
-logger = get_logger(__name__, LogType.APPLICATION)
 from typing import Any, Dict, Optional
+from utils.logger import get_plugin_logger
 
 
 class PluginBase:
@@ -9,7 +7,7 @@ class PluginBase:
         self.name = name
         self.version = version
         self.load_type: str = "hot"
-        self.logger = logger.bind(plugin=self.name)
+        self.logger = get_plugin_logger(name)
         self.plugin_manager = None
         self.is_active = False
 

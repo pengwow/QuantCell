@@ -74,6 +74,7 @@ class LogType(Enum):
     API = "api"                 # API日志
     DATABASE = "database"       # 数据库日志
     EXCEPTION = "exception"     # 异常日志
+    PLUGIN = "plugin"           # 插件日志
 
 
 @dataclass
@@ -742,6 +743,76 @@ def get_strategy_logger(strategy_name: str) -> StrategyLogger:
         StrategyLogger: 策略专用日志器
     """
     return StrategyLogger(strategy_name)
+
+
+class PluginLogger:
+    """
+    插件专用日志器
+
+    为每个插件提供独立的日志文件，存储在 backend/logs/plugins/ 目录下
+    """
+
+    LOG_DIR = Path(__file__).resolve().parent.parent / "logs" / "plugins"
+    _loggers: Dict[str, "PluginLogger"] = {}
+
+    def __new__(cls, plugin_name: str):
+        if plugin_name not in cls._loggers:
+            instance = super().__new__(cls)
+            instance._initialized = False
+            cls._loggers[plugin_name] = instance
+        return cls._loggers[plugin_name]
+
+    def __init__(self, plugin_name: str):
+        if getattr(self, '_initialized', False):
+            return
+
+        self._initialized = True
+        self.plugin_name = plugin_name
+        self._logger = get_logger(f"plugin.{plugin_name}", LogType.PLUGIN)
+
+        self.LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+        log_file = self.LOG_DIR / f"{plugin_name}_{{time:YYYYMMDD}}.log"
+        _loguru_logger.add(
+            log_file,
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
+            level="INFO",
+            rotation="10 MB",
+            retention="30 days",
+            encoding="utf-8",
+            filter=lambda record: record["extra"].get("logger_name") == f"plugin.{plugin_name}",
+        )
+
+    def debug(self, message: str):
+        self._logger.debug(f"[{self.plugin_name}] {message}")
+
+    def info(self, message: str):
+        self._logger.info(f"[{self.plugin_name}] {message}")
+
+    def warning(self, message: str):
+        self._logger.warning(f"[{self.plugin_name}] {message}")
+
+    def error(self, message: str):
+        self._logger.error(f"[{self.plugin_name}] {message}")
+
+    def critical(self, message: str):
+        self._logger.critical(f"[{self.plugin_name}] {message}")
+
+    def bind(self, **kwargs):
+        return self._logger.bind(**kwargs)
+
+
+def get_plugin_logger(plugin_name: str) -> PluginLogger:
+    """
+    获取插件专用日志器
+
+    参数：
+        plugin_name: 插件名称
+
+    返回：
+        PluginLogger: 插件专用日志器
+    """
+    return PluginLogger(plugin_name)
 
 
 # 兼容旧接口：logger 变量

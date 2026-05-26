@@ -69,7 +69,7 @@ import { dataApi } from '@/api/dataApi';
 import { wsService } from '@/services/websocketService';
 import { useConfigStore } from '@/store';
 import type { Task, TaskStatus } from '@/types/data';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;

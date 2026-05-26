@@ -19,7 +19,7 @@ import {
 import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import PageContainer from '@/components/PageContainer';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 
 const { Option } = Select;
 const { TabPane } = Tabs;

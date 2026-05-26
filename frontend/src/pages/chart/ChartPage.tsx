@@ -12,7 +12,7 @@ import type { Indicator, ActiveIndicator } from '../../hooks/useIndicators';
 import { getAccessToken } from '../../utils/tokenManager';
 // 导入自定义绘图工具扩展
 import overlays from '../../extension/index';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 import './ChartPage.css';
 
 // 周期配置

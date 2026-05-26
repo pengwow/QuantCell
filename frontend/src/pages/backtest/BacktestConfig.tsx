@@ -32,7 +32,7 @@ import type { StepStatusState, ProgressData } from '../../components/BacktestPro
 import type { Strategy, StrategyParam, BacktestProgressData } from '../../types/backtest';
 import { pollBacktestProgress } from '../../api/backtest';
 import PageContainer from '@/components/PageContainer';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;

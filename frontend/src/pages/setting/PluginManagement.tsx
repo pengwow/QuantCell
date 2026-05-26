@@ -5,13 +5,14 @@ import {
   Badge,
   Button,
   Card,
+  Col,
   Descriptions,
   Empty,
   Form,
   Input,
-  List,
   Modal,
   Popconfirm,
+  Row,
   Space,
   Switch,
   Tabs,
@@ -149,12 +150,9 @@ export default function PluginManagement() {
       {plugins.length === 0 && !loading ? (
         <Empty description="暂无已安装插件" />
       ) : (
-        <List
-          grid={{ gutter: 16, xs: 1, sm: 2, md: 2, lg: 3, xl: 3, xxl: 4 }}
-          loading={loading}
-          dataSource={plugins}
-          renderItem={(plugin) => (
-            <List.Item>
+        <Row gutter={[16, 16]}>
+          {plugins.map((plugin) => (
+            <Col key={plugin.name} xs={24} sm={12} md={12} lg={8} xl={8} xxl={6}>
               <PluginCard
                 plugin={plugin}
                 loading={!!actionLoading[plugin.name]}
@@ -162,9 +160,9 @@ export default function PluginManagement() {
                 onUninstall={handleUninstall}
                 onDetail={openDetail}
               />
-            </List.Item>
-          )}
-        />
+            </Col>
+          ))}
+        </Row>
       )}
 
       <InstallModal

@@ -27,7 +27,7 @@ import MetricCard from '../../components/MetricCard';
 import TradeTable from '../../components/TradeTable';
 import EquityChart from '../../components/EquityChart';
 import PageContainer from '@/components/PageContainer';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'ahooks';
 

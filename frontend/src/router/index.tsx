@@ -47,139 +47,138 @@ const AuthGuard = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
-// 基础路由配置
-const baseRoutes: RouteObject[] = [
-  {
-    path: '/login',
-    element: <LoginPage />,
-  },
-  {
-    path: '/',
-    element: (
-      <AuthGuard>
-        <ConsoleLayout />
-      </AuthGuard>
-    ),
-    children: [
-      {
-        path: '/chart',
-        element: <ChartPage />,
-      },
-      {
-        path: '/strategy-worker',
-        element: <Worker />,
-      },
-      {
-        path: '/strategy-worker/:workerId',
-        element: <WorkerDetail />,
-      },
-      {
-        path: '/strategy-management',
-        element: <StrategyManagement />,
-      },
-      {
-        path: '/strategy-editor',
-        element: <StrategyEditor />,
-      },
-      {
-        path: '/strategy-editor/:strategyName',
-        element: <StrategyEditor />,
-      },
-      // 回测模块路由
-      {
-        path: '/backtest',
-        element: <BacktestLayout />,
-        children: [
-          {
-            index: true,
-            element: <BacktestList />,
-          },
-          {
-            path: 'detail/:backtestId',
-            element: <BacktestDetail />,
-          },
-          {
-            path: 'config',
-            element: <BacktestConfig />,
-          },
-          {
-            path: 'replay/:backtestId',
-            element: <BacktestReplay />,
-          },
-        ],
-      },
-      {
-        path: '/agent',
-        element: <Agent />,
-      },
-      {
-        path: '/factor-analysis',
-        element: <FactorAnalysis />,
-      },
-      {
-        path: '/model-management',
-        element: <ModelManagement />,
-      },
-      {
-        path: '/data-management',
-        element: <DataManagementPage />,
-      },
-      {
-        path: '/data-management/replay',
-        element: <KlineReplayPage />,
-      },
-      // 设置页面及其子路由
-      {
-        path: '/setting',
-        element: <Setting />,
-        children: [
-          {
-            index: true,
-            element: <Navigate to="/setting/general" replace />,
-          },
-          {
-            path: 'general',
-            element: <GeneralSettingsPage />,
-          },
-          {
-            path: 'env',
-            element: <EnvironmentVariablesPage />,
-          },
-          {
-            path: 'exchange',
-            element: <ExchangeSettingsPage />,
-          },
-          {
-            path: 'notifications',
-            element: <NotificationsPage />,
-          },
-          {
-            path: 'model',
-            element: <ModelSettingsPage />,
-          },
-          {
-            path: 'info',
-            element: <SystemInfoPage />,
-          },
-          {
-            path: 'plugins',
-            element: <PluginManagement />,
-          },
-        ],
-      },
-      // 默认重定向到图表页面
-      {
-        index: true,
-        element: <Navigate to="/chart" replace />,
-      },
-    ],
-  },
-];
+// 基础路由配置（使用函数延迟创建，避免模块加载时的循环依赖）
+function createBaseRoutes(): RouteObject[] {
+  return [
+    {
+      path: '/login',
+      element: <LoginPage />,
+    },
+    {
+      path: '/',
+      element: (
+        <AuthGuard>
+          <ConsoleLayout />
+        </AuthGuard>
+      ),
+      children: [
+        {
+          path: '/chart',
+          element: <ChartPage />,
+        },
+        {
+          path: '/strategy-worker',
+          element: <Worker />,
+        },
+        {
+          path: '/strategy-worker/:workerId',
+          element: <WorkerDetail />,
+        },
+        {
+          path: '/strategy-management',
+          element: <StrategyManagement />,
+        },
+        {
+          path: '/strategy-editor',
+          element: <StrategyEditor />,
+        },
+        {
+          path: '/strategy-editor/:strategyName',
+          element: <StrategyEditor />,
+        },
+        // 回测模块路由
+        {
+          path: '/backtest',
+          element: <BacktestLayout />,
+          children: [
+            {
+              index: true,
+              element: <BacktestList />,
+            },
+            {
+              path: 'detail/:backtestId',
+              element: <BacktestDetail />,
+            },
+            {
+              path: 'config',
+              element: <BacktestConfig />,
+            },
+            {
+              path: 'replay/:backtestId',
+              element: <BacktestReplay />,
+            },
+          ],
+        },
+        {
+          path: '/agent',
+          element: <Agent />,
+        },
+        {
+          path: '/factor-analysis',
+          element: <FactorAnalysis />,
+        },
+        {
+          path: '/model-management',
+          element: <ModelManagement />,
+        },
+        {
+          path: '/data-management',
+          element: <DataManagementPage />,
+        },
+        {
+          path: '/data-management/replay',
+          element: <KlineReplayPage />,
+        },
+        // 设置页面及其子路由
+        {
+          path: '/setting',
+          element: <Setting />,
+          children: [
+            {
+              index: true,
+              element: <Navigate to="/setting/general" replace />,
+            },
+            {
+              path: 'general',
+              element: <GeneralSettingsPage />,
+            },
+            {
+              path: 'env',
+              element: <EnvironmentVariablesPage />,
+            },
+            {
+              path: 'exchange',
+              element: <ExchangeSettingsPage />,
+            },
+            {
+              path: 'notifications',
+              element: <NotificationsPage />,
+            },
+            {
+              path: 'model',
+              element: <ModelSettingsPage />,
+            },
+            {
+              path: 'info',
+              element: <SystemInfoPage />,
+            },
+            {
+              path: 'plugins',
+              element: <PluginManagement />,
+            },
+          ],
+        },
+        // 默认重定向到图表页面
+        {
+          index: true,
+          element: <Navigate to="/chart" replace />,
+        },
+      ],
+    },
+  ];
+}
 
 // 创建路由
-export const router = createBrowserRouter(baseRoutes);
+export const router = createBrowserRouter(createBaseRoutes());
 
-// 设置页面标题
-export const setPageTitle = (title?: string): void => {
-  document.title = title ? `${title} - QuantCell` : 'QuantCell - 量化交易平台';
-};
+import { setPageTitle } from '@/utils/pageTitle';
