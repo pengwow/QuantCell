@@ -19,7 +19,7 @@ import {
   LoadingOutlined,
 } from '@ant-design/icons';
 import PageContainer from '@/components/PageContainer';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 import { useWorkerStore } from '../../store/workerStore';
 import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
 import WorkerParamsTab from '../../components/worker/WorkerParamsTab';

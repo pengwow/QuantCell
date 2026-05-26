@@ -16,7 +16,7 @@ import {
 } from "@tabler/icons-react";
 import { Menu } from "antd";
 import { SettingsProvider } from "./SettingsContext";
-import { setPageTitle } from "@/router";
+import { setPageTitle } from "@/utils/pageTitle";
 import PageContainer from "@/components/PageContainer";
 
 const SettingLayout = () => {

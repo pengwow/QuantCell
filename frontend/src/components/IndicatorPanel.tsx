@@ -16,7 +16,7 @@ import {
   AreaChartOutlined,
   DotChartOutlined,
 } from '@ant-design/icons';
-import { Button, Card, List, Tag, Tooltip, Modal, Input, App } from 'antd';
+import { Button, Card, Tag, Tooltip, Modal, Input, App, Spin, Empty } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useIndicators, builtInIndicators, type Indicator, type ActiveIndicator } from '../hooks/useIndicators';
 
@@ -181,64 +181,65 @@ const IndicatorPanel: React.FC<IndicatorPanelProps> = ({
         }
         className="indicator-section"
       >
-        <List
-          size="small"
-          loading={loading}
-          dataSource={indicators}
-          locale={{ emptyText: t('indicator.noCustomIndicators', '暂无自定义指标') }}
-          renderItem={(indicator) => (
-            <List.Item
-              className={`indicator-list-item ${isIndicatorActive(indicator.id) ? 'active' : ''}`}
-              onClick={() => handleCustomIndicatorClick(indicator)}
-              actions={[
-                <Tooltip key="toggle" title={isIndicatorActive(indicator.id) ? t('indicator.stop', '停止') : t('indicator.start', '启动')}>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={isIndicatorActive(indicator.id) ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCustomIndicatorClick(indicator);
-                    }}
-                  />
-                </Tooltip>,
-                <Tooltip key="edit" title={t('common.edit', '编辑')}>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<EditOutlined />}
-                    onClick={(e) => handleEdit(indicator, e)}
-                  />
-                </Tooltip>,
-                <Tooltip key="delete" title={t('common.delete', '删除')}>
-                  <Button
-                    type="text"
-                    size="small"
-                    danger
-                    icon={<DeleteOutlined />}
-                    onClick={(e) => handleDelete(indicator, e)}
-                  />
-                </Tooltip>,
-              ]}
-            >
-              <List.Item.Meta
-                title={
-                  <div className="indicator-item-title">
-                    <span>{indicator.name}</span>
-                    {isIndicatorActive(indicator.id) && (
-                      <Tag color="success">{t('indicator.running', '运行中')}</Tag>
-                    )}
+        <Spin spinning={loading}>
+          {indicators.length === 0 ? (
+            <Empty description={t('indicator.noCustomIndicators', '暂无自定义指标')} />
+          ) : (
+            <div className="indicator-list">
+              {indicators.map((indicator) => (
+                <div
+                  key={indicator.id}
+                  className={`indicator-list-item ${isIndicatorActive(indicator.id) ? 'active' : ''}`}
+                  onClick={() => handleCustomIndicatorClick(indicator)}
+                >
+                  <div className="indicator-item-content">
+                    <div className="indicator-item-main">
+                      <div className="indicator-item-title">
+                        <span>{indicator.name}</span>
+                        {isIndicatorActive(indicator.id) && (
+                          <Tag color="success">{t('indicator.running', '运行中')}</Tag>
+                        )}
+                      </div>
+                      <div className="indicator-item-desc">
+                        {indicator.description || t('indicator.noDescription', '暂无描述')}
+                      </div>
+                    </div>
+                    <div className="indicator-item-actions">
+                      <Tooltip title={isIndicatorActive(indicator.id) ? t('indicator.stop', '停止') : t('indicator.start', '启动')}>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={isIndicatorActive(indicator.id) ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCustomIndicatorClick(indicator);
+                          }}
+                        />
+                      </Tooltip>
+                      <Tooltip title={t('common.edit', '编辑')}>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={(e) => handleEdit(indicator, e)}
+                        />
+                      </Tooltip>
+                      <Tooltip title={t('common.delete', '删除')}>
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={(e) => handleDelete(indicator, e)}
+                        />
+                      </Tooltip>
+                    </div>
                   </div>
-                }
-                description={
-                  <span className="indicator-item-desc">
-                    {indicator.description || t('indicator.noDescription', '暂无描述')}
-                  </span>
-                }
-              />
-            </List.Item>
+                </div>
+              ))}
+            </div>
           )}
-        />
+        </Spin>
       </Card>
 
       {/* 参数配置弹窗 */}

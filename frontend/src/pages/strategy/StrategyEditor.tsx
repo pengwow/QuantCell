@@ -28,7 +28,7 @@ import { useTranslation } from 'react-i18next';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
 import { strategyApi, aiModelApi } from '../../api';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 import PageContainer from '@/components/PageContainer';
 // AI 聊天弹窗组件
 import AIChatModal from '@/components/AIChatModal';

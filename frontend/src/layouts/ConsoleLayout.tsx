@@ -14,7 +14,8 @@ import {
   IconBotId,
   IconRobot,
   IconLogout,
-  IconUser
+  IconUser,
+  IconPlug,
 } from "@tabler/icons-react";
 import { Button, Drawer, Layout, Menu, type MenuProps, theme, Dropdown, Avatar } from "antd";
 
@@ -22,6 +23,7 @@ import AppLocale from "@/components/AppLocale";
 import AppTheme from "@/components/AppTheme";
 import useBrowserTheme from "@/hooks/useBrowserTheme";
 import type { ThemeMode } from "@/components/AppTheme";
+import { pluginRegistry } from "@/plugins/PluginRegistry";
 
 const ConsoleLayout = () => {
   const { t } = useTranslation();
@@ -213,7 +215,16 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
   const MENU_KEY_DATA = "/data-management";
   const MENU_KEY_AGENT = "/agent";
 
-  const menuItems: Required<MenuProps>["items"] = (
+  const [pluginMenus, setPluginMenus] = useState(pluginRegistry.getMenuItems());
+
+  useEffect(() => {
+    const unsubscribe = pluginRegistry.subscribe(() => {
+      setPluginMenus(pluginRegistry.getMenuItems());
+    });
+    return unsubscribe;
+  }, []);
+
+  const baseMenuItems: Required<MenuProps>["items"] = (
     [
       [MENU_KEY_CHART, "chart", <IconChartBar size="1em" />, false],
       [MENU_KEY_AGENT, "agent", <IconRobot size="1em" />, false],
@@ -239,6 +250,22 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       },
     };
   });
+
+  const pluginMenuItems: Required<MenuProps>["items"] = pluginMenus.map((pm) => ({
+    key: pm.key,
+    icon: (
+      <span className="anticon scale-125" role="img">
+        {pm.icon || <IconPlug size="1em" />}
+      </span>
+    ),
+    label: collapsed ? undefined : pm.label,
+    onClick: () => {
+      navigate(pm.key);
+      onSelect?.(pm.key);
+    },
+  }));
+
+  const menuItems = [...baseMenuItems, ...pluginMenuItems];
 
   const [menuSelectedKey, setMenuSelectedKey] = useState<string>();
 

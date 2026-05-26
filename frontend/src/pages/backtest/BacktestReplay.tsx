@@ -37,7 +37,7 @@ import { backtestApi } from '../../api';
 import type { ReplayData, MergeSummary, SymbolInfo } from '../../types/backtest';
 import './backtest.css';
 import PageContainer from '@/components/PageContainer';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 
 const { Option } = Select;
 

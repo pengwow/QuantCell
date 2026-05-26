@@ -8,7 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { IconArrowRight, IconLock, IconUser, IconUserPlus } from "@tabler/icons-react";
 import { Button, Card, Form, Input, Space, Typography, Divider, Tabs, App } from "antd";
 import { saveToken } from "../../utils/tokenManager";
-import { setPageTitle } from "@/router";
+import { setPageTitle } from "@/utils/pageTitle";
 
 const { Title, Text } = Typography;
 

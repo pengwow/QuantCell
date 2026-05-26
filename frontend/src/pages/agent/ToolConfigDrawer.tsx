@@ -14,7 +14,6 @@
 import { useEffect, useState } from 'react';
 import {
   Drawer,
-  List,
   Card,
   Tag,
   Button,
@@ -400,35 +399,38 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
           </div>
 
           <Spin spinning={loading}>
-            <List
-              dataSource={tools}
-              renderItem={(tool) => (
-                <List.Item
-                  className={`tool-item ${selectedTool === tool.name ? 'selected' : ''}`}
-                  onClick={() => setSelectedTool(tool.name)}
-                >
-                  <div className="tool-item-content">
-                    <div className="tool-info">
-                      <Space>
-                        <ToolOutlined />
-                        <Text strong>{tool.name}</Text>
-                      </Space>
-                      <div className="tool-status">
-                        {tool.has_required_params ? (
-                          <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                        ) : (
-                          <WarningOutlined style={{ color: '#faad14' }} />
-                        )}
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          {tool.configured_count}/{tool.param_count}
-                        </Text>
+            {tools.length === 0 ? (
+              <Empty description="暂无工具" />
+            ) : (
+              <div className="tool-list">
+                {tools.map((tool) => (
+                  <div
+                    key={tool.name}
+                    className={`tool-item ${selectedTool === tool.name ? 'selected' : ''}`}
+                    onClick={() => setSelectedTool(tool.name)}
+                  >
+                    <div className="tool-item-content">
+                      <div className="tool-info">
+                        <Space>
+                          <ToolOutlined />
+                          <Text strong>{tool.name}</Text>
+                        </Space>
+                        <div className="tool-status">
+                          {tool.has_required_params ? (
+                            <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                          ) : (
+                            <WarningOutlined style={{ color: '#faad14' }} />
+                          )}
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {tool.configured_count}/{tool.param_count}
+                          </Text>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </List.Item>
-              )}
-              locale={{ emptyText: <Empty description="暂无工具" /> }}
-            />
+                ))}
+              </div>
+            )}
           </Spin>
         </div>
 

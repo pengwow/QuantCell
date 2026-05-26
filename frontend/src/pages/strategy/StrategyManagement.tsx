@@ -35,7 +35,7 @@ import type { Strategy } from '../../types';
 import type { BacktestTask } from '../../types/backtest';
 import { useTranslation } from 'react-i18next';
 import { useGuestRestriction } from '../../hooks/useGuestRestriction';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 import PageContainer from '@/components/PageContainer';
 import type { TableProps } from 'antd';
 import dayjs from 'dayjs';

@@ -1,7 +1,7 @@
 import { ConfigProvider, App as AntdApp, theme as antdTheme } from 'antd';
-import { RouterProvider } from 'react-router-dom';
+import { BrowserRouter } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { router } from './router';
+import { DynamicRouter } from './router/DynamicRouter';
 import { useConfigStore } from './store';
 import { useWorkerStore } from './store/workerStore';
 import { wsService } from './services/websocketService';
@@ -95,10 +95,12 @@ function App() {
       }}
     >
       <AntdApp>
-        <PluginProvider>
-          <AppInjector setMessageApi={setMessageApi} />
-          <RouterProvider router={router} />
-        </PluginProvider>
+        <BrowserRouter>
+          <PluginProvider>
+            <AppInjector setMessageApi={setMessageApi} />
+            <DynamicRouter />
+          </PluginProvider>
+        </BrowserRouter>
       </AntdApp>
     </ConfigProvider>
   );

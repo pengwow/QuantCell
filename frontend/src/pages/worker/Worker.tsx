@@ -51,7 +51,7 @@ import { WorkerCreateModal, WorkerEditModal, WorkerLogsPanel } from '../../compo
 import type { Worker as WorkerType } from '../../types/worker';
 import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
-import { setPageTitle } from '@/router';
+import { setPageTitle } from '@/utils/pageTitle';
 
 const { Option } = Select;
 const { Search } = Input;
