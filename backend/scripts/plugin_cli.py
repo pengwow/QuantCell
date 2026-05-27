@@ -791,8 +791,43 @@ def _render_vite_config_ts(plugin_name: str) -> str:
     return '''import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+function externalsToGlobals() {
+  const globals: Record<string, string> = {
+    react: 'React',
+    'react-dom': 'ReactDOM',
+  };
+  const mods = Object.keys(globals).map(m => m.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')).join('|');
+  return {
+    name: 'externals-to-globals',
+    enforce: 'post',
+    transform(code: string, id: string) {
+      if (!id.includes('/src/')) return null;
+      let result = code;
+      result = result.replace(
+        new RegExp(`import\\s+(\\w+)\\s+from\\s+['"](?:${mods})['"]\\s*;?\\n?`, 'g'),
+        ''
+      );
+      result = result.replace(
+        new RegExp(`import\\s*\\{([^}]+)\\}\\s+from\\s+['"](?:${mods})['"]\\s*;?\\n?`, 'g'),
+        (_match: string, imports: string) => {
+          const items = imports.split(',').map(i => i.trim()).filter(Boolean);
+          return items.map(item => {
+            const parts = item.split(/\\s+as\\s+/);
+            const local = parts[1] || parts[0];
+            return `const ${local.trim()} = ${globals['react']}.${parts[0].trim()};`;
+          }).join('\\n');
+        }
+      );
+      return result;
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react({ jsxRuntime: 'classic' }),
+    externalsToGlobals(),
+  ],
   build: {
     lib: {
       entry: 'src/main.tsx',
@@ -800,7 +835,7 @@ export default defineConfig({
       fileName: 'index',
     },
     rollupOptions: {
-      external: ['react', 'react-dom', 'react/jsx-runtime'],
+      external: ['react', 'react-dom'],
       output: {
         globals: {
           react: 'React',
@@ -885,30 +920,17 @@ def _render_index_html(plugin_name: str) -> str:
 
 def _render_main_tsx(plugin_name: str) -> str:
     kebab = _snake_to_kebab(plugin_name)
-    return f'''import type {{ ReactNode }} from 'react';
-import App from './App';
+    return f'''import App from './App';
 
-interface RouteConfig {{
-  path: string;
-  element: ReactNode;
-  pluginName: string;
-}}
-
-interface MenuConfig {{
-  key: string;
-  label: string;
-  pluginName: string;
-}}
-
-const routes: RouteConfig[] = [
+const routes = [
   {{
     path: '/plugins/{kebab}',
-    element: <App />,
+    element: React.createElement(App),
     pluginName: '{plugin_name}',
   }},
 ];
 
-const menuItems: MenuConfig[] = [
+const menuItems = [
   {{
     key: '{plugin_name}',
     label: '{plugin_name}',
@@ -918,7 +940,7 @@ const menuItems: MenuConfig[] = [
 
 export function registerPlugin() {{
   return {{
-    register(context: {{ addRoute: (r: RouteConfig) => void; addMenu: (m: MenuConfig) => void }}) {{
+    register(context) {{
       for (const route of routes) {{
         context.addRoute(route);
       }}

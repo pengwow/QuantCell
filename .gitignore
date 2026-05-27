@@ -16,7 +16,6 @@ frontend/dist/*
 frontend/dist/
 frontend/design-proposal.md
 frontend/test_data/*
-frontend/src/plugins/*
 frontend/tsconfig.tsbuildinfo
 
 crypto_data/
@@ -30,7 +29,6 @@ backend/.trash/
 backend/.DS_Store
 backend/.DS_Stores
 backend/backtest/results/*
-backend/plugins/*
 backend/performance_reports/*.json
 backend/performance_reports/*.md
 backend/performance_reports/*.csv
