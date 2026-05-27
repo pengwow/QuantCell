@@ -165,38 +165,24 @@ class PluginInstaller:
         return True, ""
 
     def _find_manifest(self, root_dir: str) -> tuple[Optional[str], Optional[dict]]:
-        """递归查找 manifest.json，返回最浅的有效插件 manifest（有 name 且 main 文件存在）"""
-        candidates: list[tuple[int, str, dict]] = []
+        direct_path = os.path.join(root_dir, MANIFEST_NAME)
+        if os.path.isfile(direct_path):
+            try:
+                with open(direct_path, 'r', encoding='utf-8') as f:
+                    return direct_path, json.load(f)
+            except (json.JSONDecodeError, OSError):
+                return None, None
 
-        for dirpath, dirnames, filenames in os.walk(root_dir):
-            if MANIFEST_NAME in filenames:
-                manifest_path = os.path.join(dirpath, MANIFEST_NAME)
+        for entry in os.listdir(root_dir):
+            sub_path = os.path.join(root_dir, entry, MANIFEST_NAME)
+            if os.path.isfile(sub_path):
                 try:
-                    with open(manifest_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
+                    with open(sub_path, 'r', encoding='utf-8') as f:
+                        return sub_path, json.load(f)
                 except (json.JSONDecodeError, OSError):
-                    continue
+                    return None, None
 
-                name = data.get("name")
-                main_file = data.get("main", "main.py")
-                if not name:
-                    continue
-
-                main_full_path = os.path.join(dirpath, main_file)
-                if not os.path.isfile(main_full_path):
-                    continue
-
-                depth = dirpath.count(os.sep) - root_dir.count(os.sep)
-                candidates.append((depth, manifest_path, data))
-
-            dirnames[:] = [d for d in dirnames if d != '__pycache__']
-
-        if not candidates:
-            return None, None
-
-        candidates.sort(key=lambda c: c[0])
-        _, path, data = candidates[0]
-        return path, data
+        return None, None
 
     def _cleanup_temp(self, temp_dir: str):
         try:

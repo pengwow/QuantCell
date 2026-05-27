@@ -790,61 +790,84 @@ def _render_frontend_package_json(plugin_name: str, description: str) -> str:
 
 def _render_vite_config_ts(plugin_name: str) -> str:
     return '''import { defineConfig } from 'vite';
+import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
-function externalsToGlobals() {
-  const map: Record<string, string> = {
+function externalsToGlobals(): Plugin {
+  const moduleMap: Record<string, string> = {
     'react': 'React',
     'react-dom': 'ReactDOM',
-    'react/jsx-runtime': 'React',
     'react-dom/client': 'ReactDOM',
+    'react/jsx-runtime': 'ReactJSX',
   };
-  function replaceImports(code: string): string {
+
+  function transformImports(code: string): string {
     let result = code;
-    for (const [mod, globalName] of Object.entries(map)) {
+    for (const [mod, globalName] of Object.entries(moduleMap)) {
       const escaped = mod.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
-      result = result.replace(
-        new RegExp(`import\\\\s+\\\\*\\\\s+as\\\\s+(\\\\w+)\\\\s+from\\\\s*['"]${escaped}['"];?\\\\s*`, 'g'),
-        (_m: string, ns: string) => `const ${ns} = ${globalName};\\n`
+
+      // 1) import * as X from "mod"
+      const nsRe = new RegExp(
+        `import\\\\s+\\\\*\\\\s+as\\\\s+(\\\\w+)\\\\s+from\\\\s*"${escaped}"\\\\s*;?`,
+        'g'
       );
-      result = result.replace(
-        new RegExp(`import\\\\s+(\\\\w+)\\\\s*,\\\\s*\\\\{([^}]+)\\\\}\\\\s+from\\\\s*['"]${escaped}['"];?\\\\s*`, 'g'),
-        (_m: string, def: string, named: string) => {
-          const items = named.split(',').map(i => i.trim()).filter(Boolean);
-          const assigns = items.map(item => {
-            const parts = item.split(/\\\\s+as\\\\s+/);
-            const imported = parts[0].trim();
-            const local = (parts[1] || parts[0]).trim();
-            return `const ${local} = ${globalName}.${imported};`;
-          });
-          return `const ${def} = ${globalName}.default || ${globalName};\\n${assigns.join('\\n')}\\n`;
-        }
+      result = result.replace(nsRe, (_m: string, name: string) =>
+        `const ${name} = ${globalName};`
       );
-      result = result.replace(
-        new RegExp(`import\\\\s*\\\\{([^}]+)\\\\}\\\\s+from\\\\s*['"]${escaped}['"];?\\\\s*`, 'g'),
-        (_m: string, named: string) => {
-          const items = named.split(',').map(i => i.trim()).filter(Boolean);
-          return items.map(item => {
-            const parts = item.split(/\\\\s+as\\\\s+/);
-            const imported = parts[0].trim();
-            const local = (parts[1] || parts[0]).trim();
-            return `const ${local} = ${globalName}.${imported};`;
-          }).join('\\n') + '\\n';
-        }
+
+      // 2) import X, { a, b as c } from "mod"
+      const defNamedRe = new RegExp(
+        `import\\\\s+(\\\\w+)\\\\s*,\\\\s*\\\\{([^}]+)\\\\}\\\\s+from\\\\s*"${escaped}"\\\\s*;?`,
+        'g'
       );
-      result = result.replace(
-        new RegExp(`import\\\\s+(\\\\w+)\\\\s+from\\\\s*['"]${escaped}['"];?\\\\s*`, 'g'),
-        (_m: string, def: string) => `const ${def} = ${globalName};\\n`
+      result = result.replace(defNamedRe, (_m: string, defName: string, named: string) => {
+        const parts = [`const ${defName} = ${globalName};`];
+        parseNamedImports(named, globalName, parts);
+        return parts.join('\\n');
+      });
+
+      // 3) import { a, b as c } from "mod"
+      const namedRe = new RegExp(
+        `import\\\\s+\\\\{([^}]+)\\\\}\\\\s+from\\\\s*"${escaped}"\\\\s*;?`,
+        'g'
+      );
+      result = result.replace(namedRe, (_m: string, named: string) => {
+        const parts: string[] = [];
+        parseNamedImports(named, globalName, parts);
+        return parts.join('\\n');
+      });
+
+      // 4) import X from "mod"
+      const defRe = new RegExp(
+        `import\\\\s+(\\\\w+)\\\\s+from\\\\s*"${escaped}"\\\\s*;?`,
+        'g'
+      );
+      result = result.replace(defRe, (_m: string, name: string) =>
+        `const ${name} = ${globalName};`
       );
     }
     return result;
   }
+
+  function parseNamedImports(named: string, globalName: string, parts: string[]): void {
+    for (const item of named.split(',')) {
+      const t = item.trim();
+      if (!t) continue;
+      const asMatch = t.match(/^(\\\\w+)\\\\s+as\\\\s+(\\\\w+)$/);
+      if (asMatch) {
+        parts.push(`const ${asMatch[2]} = ${globalName}.${asMatch[1]};`);
+      } else {
+        parts.push(`const ${t} = ${globalName}.${t};`);
+      }
+    }
+  }
+
   return {
     name: 'externals-to-globals',
-    generateBundle(_options: unknown, bundle: Record<string, { type: string; code: string }>) {
-      for (const [, chunk] of Object.entries(bundle)) {
+    generateBundle(_options, bundle) {
+      for (const chunk of Object.values(bundle)) {
         if (chunk.type === 'chunk') {
-          chunk.code = replaceImports(chunk.code);
+          chunk.code = transformImports(chunk.code);
         }
       }
     },
@@ -852,10 +875,10 @@ function externalsToGlobals() {
 }
 
 export default defineConfig({
-  plugins: [
-    react({ jsxRuntime: 'classic' }),
-    externalsToGlobals(),
-  ],
+  plugins: [react(), externalsToGlobals()],
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('production'),
+  },
   build: {
     lib: {
       entry: 'src/main.tsx',
@@ -863,12 +886,8 @@ export default defineConfig({
       fileName: 'index',
     },
     rollupOptions: {
-      external: ['react', 'react-dom'],
+      external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client'],
       output: {
-        globals: {
-          react: 'React',
-          'react-dom': 'ReactDOM',
-        },
         assetFileNames: 'index.[ext]',
       },
     },
@@ -960,7 +979,7 @@ const routes = [
 
 const menuItems = [
   {{
-    key: '{plugin_name}',
+    key: '/plugins/{kebab}',
     label: '{plugin_name}',
     pluginName: '{plugin_name}',
   }},
