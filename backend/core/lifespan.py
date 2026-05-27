@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import os
 import time
 from contextlib import asynccontextmanager
 
@@ -152,7 +153,12 @@ async def lifespan(app: FastAPI):
     # 异步启动新的定时任务管理器
     await asyncio.to_thread(scheduled_task_manager.start)
 
-    plugin_manager = await asyncio.to_thread(PluginManager, app=app)
+    plugin_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "data", "installed_plugins"
+    )
+    os.makedirs(plugin_dir, exist_ok=True)
+    plugin_manager = await asyncio.to_thread(PluginManager, app=app, plugin_dir=plugin_dir)
     await asyncio.to_thread(plugin_manager.load_all_plugins)
     plugin_manager.register_plugins(app)
     app.state.plugin_manager = plugin_manager

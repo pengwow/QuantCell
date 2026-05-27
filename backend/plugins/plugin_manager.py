@@ -35,7 +35,12 @@ class PluginManager:
 
     def __init__(self, app: Optional[FastAPI] = None, plugin_dir: Optional[str] = None):
         self._app = app
-        self.plugin_dir = plugin_dir or os.path.dirname(os.path.abspath(__file__))
+        if plugin_dir is None:
+            plugin_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "data", "installed_plugins"
+            )
+        self.plugin_dir = plugin_dir
         self.plugins: Dict[str, PluginBase] = {}
         self.plugin_configs: Dict[str, dict] = {}
         self._loaded_modules: Dict[str, object] = {}

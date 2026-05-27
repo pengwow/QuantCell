@@ -73,7 +73,8 @@ def _get_plugin_manager():
     global _plugin_manager
     if _plugin_manager is None:
         from plugins import PluginManager
-        plugin_dir = str(backend_path / "plugins")
+        plugin_dir = str(backend_path / "data" / "installed_plugins")
+        os.makedirs(plugin_dir, exist_ok=True)
         _plugin_manager = PluginManager(app=None, plugin_dir=plugin_dir)
     return _plugin_manager
 
@@ -792,33 +793,60 @@ def _render_vite_config_ts(plugin_name: str) -> str:
 import react from '@vitejs/plugin-react';
 
 function externalsToGlobals() {
-  const globals: Record<string, string> = {
-    react: 'React',
+  const map: Record<string, string> = {
+    'react': 'React',
     'react-dom': 'ReactDOM',
+    'react/jsx-runtime': 'React',
+    'react-dom/client': 'ReactDOM',
   };
-  const mods = Object.keys(globals).map(m => m.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')).join('|');
-  return {
-    name: 'externals-to-globals',
-    enforce: 'post',
-    transform(code: string, id: string) {
-      if (!id.includes('/src/')) return null;
-      let result = code;
+  function replaceImports(code: string): string {
+    let result = code;
+    for (const [mod, globalName] of Object.entries(map)) {
+      const escaped = mod.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
       result = result.replace(
-        new RegExp(`import\\s+(\\w+)\\s+from\\s+['"](?:${mods})['"]\\s*;?\\n?`, 'g'),
-        ''
+        new RegExp(`import\\\\s+\\\\*\\\\s+as\\\\s+(\\\\w+)\\\\s+from\\\\s*['"]${escaped}['"];?\\\\s*`, 'g'),
+        (_m: string, ns: string) => `const ${ns} = ${globalName};\\n`
       );
       result = result.replace(
-        new RegExp(`import\\s*\\{([^}]+)\\}\\s+from\\s+['"](?:${mods})['"]\\s*;?\\n?`, 'g'),
-        (_match: string, imports: string) => {
-          const items = imports.split(',').map(i => i.trim()).filter(Boolean);
-          return items.map(item => {
-            const parts = item.split(/\\s+as\\s+/);
-            const local = parts[1] || parts[0];
-            return `const ${local.trim()} = ${globals['react']}.${parts[0].trim()};`;
-          }).join('\\n');
+        new RegExp(`import\\\\s+(\\\\w+)\\\\s*,\\\\s*\\\\{([^}]+)\\\\}\\\\s+from\\\\s*['"]${escaped}['"];?\\\\s*`, 'g'),
+        (_m: string, def: string, named: string) => {
+          const items = named.split(',').map(i => i.trim()).filter(Boolean);
+          const assigns = items.map(item => {
+            const parts = item.split(/\\\\s+as\\\\s+/);
+            const imported = parts[0].trim();
+            const local = (parts[1] || parts[0]).trim();
+            return `const ${local} = ${globalName}.${imported};`;
+          });
+          return `const ${def} = ${globalName}.default || ${globalName};\\n${assigns.join('\\n')}\\n`;
         }
       );
-      return result;
+      result = result.replace(
+        new RegExp(`import\\\\s*\\\\{([^}]+)\\\\}\\\\s+from\\\\s*['"]${escaped}['"];?\\\\s*`, 'g'),
+        (_m: string, named: string) => {
+          const items = named.split(',').map(i => i.trim()).filter(Boolean);
+          return items.map(item => {
+            const parts = item.split(/\\\\s+as\\\\s+/);
+            const imported = parts[0].trim();
+            const local = (parts[1] || parts[0]).trim();
+            return `const ${local} = ${globalName}.${imported};`;
+          }).join('\\n') + '\\n';
+        }
+      );
+      result = result.replace(
+        new RegExp(`import\\\\s+(\\\\w+)\\\\s+from\\\\s*['"]${escaped}['"];?\\\\s*`, 'g'),
+        (_m: string, def: string) => `const ${def} = ${globalName};\\n`
+      );
+    }
+    return result;
+  }
+  return {
+    name: 'externals-to-globals',
+    generateBundle(_options: unknown, bundle: Record<string, { type: string; code: string }>) {
+      for (const [, chunk] of Object.entries(bundle)) {
+        if (chunk.type === 'chunk') {
+          chunk.code = replaceImports(chunk.code);
+        }
+      }
     },
   };
 }
