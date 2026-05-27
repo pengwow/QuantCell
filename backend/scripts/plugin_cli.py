@@ -943,7 +943,7 @@ export default function App() {{
   return (
     <div style={{{{ padding: 24 }}}}>
       <Card>
-        <Title level={{{{ 3 }}}}>{plugin_name}</Title>
+        <Title level={{{3}}}>{plugin_name}</Title>
         <Paragraph>{display_desc}</Paragraph>
         <Paragraph type="secondary">
           插件已成功加载。编辑此组件开始开发你的插件页面。
