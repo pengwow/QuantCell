@@ -226,9 +226,9 @@ async def disable_plugin(request: Request, name: str):
 @router.get("/{name}/assets/{path:path}")
 async def serve_plugin_asset(name: str, path: str):
     try:
-        plugin_dir = Path("plugins") / name / "frontend" / "dist" / path
+        plugin_dir = Path("data") / "installed_plugins" / name / "frontend" / "dist" / path
         if not plugin_dir.is_file():
-            plugin_dir = Path("plugins_data") / name / "frontend" / "dist" / path
+            plugin_dir = Path("plugins") / name / "frontend" / "dist" / path
         if not plugin_dir.is_file():
             raise HTTPException(status_code=404, detail="资源文件不存在")
 
