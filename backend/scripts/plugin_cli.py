@@ -2,10 +2,13 @@
 """
 插件管理命令行工具
 
-提供插件的安装、卸载、查看、启用/禁用、清理、打包等功能。
+提供插件的创建、安装、卸载、查看、启用/禁用、清理、打包等功能。
 核心逻辑复用 PluginInstaller、PluginManager、PluginStore。
 
 使用示例:
+    # 创建插件脚手架
+    python scripts/plugin_cli.py create my_plugin --output ./plugins --type fullstack
+
     # 从 ZIP 安装插件
     python scripts/plugin_cli.py install --zip /path/to/plugin.zip
 
@@ -37,7 +40,9 @@
 
 import json
 import os
+import re
 import shutil
+import stat
 import sys
 import tempfile
 import zipfile
@@ -101,6 +106,7 @@ def _print_table(headers: list[str], rows: list[list[str]]) -> None:
 
 def _status_icon(status: str) -> str:
     return {
+        "enabled": "🟢",
         "active": "🟢",
         "installed": "⚪",
         "disabled": "🔴",
@@ -576,6 +582,475 @@ def cmd_pack(
 
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+
+
+# ==================== 创建命令 ====================
+
+_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _snake_to_pascal(name: str) -> str:
+    return "".join(word.capitalize() for word in name.replace("-", "_").split("_"))
+
+
+def _snake_to_kebab(name: str) -> str:
+    return name.replace("_", "-")
+
+
+def _write_file(path: str, content: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(content)
+
+
+def _make_executable(path: str) -> None:
+    st = os.stat(path)
+    os.chmod(path, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _render_manifest(
+    plugin_name: str,
+    description: str,
+    author: str,
+    load_type: str,
+    plugin_type: str,
+) -> str:
+    data = {
+        "name": plugin_name,
+        "version": "0.1.0",
+        "description": description,
+        "author": author,
+        "main": "plugin.py",
+        "frontend_entry": "frontend/src/main.tsx" if plugin_type == "fullstack" else None,
+        "load_type": load_type,
+        "permissions": [],
+        "config_schema": None,
+        "dependencies": [],
+    }
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+def _render_plugin_py(plugin_name: str) -> str:
+    class_name = _snake_to_pascal(plugin_name)
+    kebab = _snake_to_kebab(plugin_name)
+    return f'''from fastapi import APIRouter
+
+from plugins.plugin_base import PluginBase
+from utils.logger import get_plugin_logger
+
+
+class {class_name}Plugin(PluginBase):
+
+    def __init__(self) -> None:
+        super().__init__("{plugin_name}", "0.1.0")
+        self.logger = get_plugin_logger("{plugin_name}")
+        self.router = APIRouter(prefix="/api/plugins/{kebab}")
+        self._setup_routes()
+
+    def _setup_routes(self) -> None:
+
+        @self.router.get("/health")
+        async def health():
+            return {{"status": "ok", "plugin": self.name, "version": self.version}}
+
+    def register(self, plugin_manager) -> None:
+        super().register(plugin_manager)
+        self.logger.info(f"{{self.name}} 已注册")
+
+    def start(self) -> None:
+        super().start()
+        self.logger.info(f"{{self.name}} 已启动")
+
+    def stop(self) -> None:
+        super().stop()
+        self.logger.info(f"{{self.name}} 已停止")
+
+
+def register_plugin():
+    return {class_name}Plugin()
+'''
+
+
+def _render_build_sh(plugin_name: str) -> str:
+    return f'''#!/bin/bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+RED='\\033[0;31m'
+GREEN='\\033[0;32m'
+YELLOW='\\033[0;33m'
+NC='\\033[0m'
+
+info()  {{ echo -e "${{GREEN}}[INFO]${{NC}}  $*"; }}
+warn()  {{ echo -e "${{YELLOW}}[WARN]${{NC}}  $*"; }}
+error() {{ echo -e "${{RED}}[ERROR]${{NC}} $*"; exit 1; }}
+
+SKIP_FRONTEND=false
+for arg in "$@"; do
+    case "$arg" in
+        --skip-frontend) SKIP_FRONTEND=true ;;
+    esac
+done
+
+MANIFEST="manifest.json"
+if [ ! -f "$MANIFEST" ]; then
+    error "manifest.json 不存在"
+fi
+
+PLUGIN_NAME=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['name'])" "$MANIFEST")
+PLUGIN_VERSION=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['version'])" "$MANIFEST")
+
+info "插件: $PLUGIN_NAME v$PLUGIN_VERSION"
+
+if [ "$SKIP_FRONTEND" = false ]; then
+    if [ -d "frontend" ]; then
+        info "构建前端..."
+        cd frontend
+        bun install --frozen-lockfile 2>/dev/null || bun install
+        bun run build
+        cd ..
+        info "前端构建完成"
+    fi
+else
+    info "跳过前端构建"
+    if [ -d "frontend" ] && [ ! -d "frontend/dist" ]; then
+        error "frontend/dist/ 不存在，请先执行完整构建（不带 --skip-frontend）"
+    fi
+fi
+
+OUTPUT_DIR="$SCRIPT_DIR/dist"
+mkdir -p "$OUTPUT_DIR"
+
+ZIP_NAME="${{PLUGIN_NAME}}-${{PLUGIN_VERSION}}.zip"
+ZIP_PATH="$OUTPUT_DIR/$ZIP_NAME"
+rm -f "$ZIP_PATH"
+
+STAGING=$(mktemp -d)
+trap 'rm -rf "$STAGING"' EXIT
+STAGING_PLUGIN="$STAGING/$PLUGIN_NAME"
+mkdir -p "$STAGING_PLUGIN"
+
+rsync -a \\
+    --exclude='__pycache__' \\
+    --exclude='*.pyc' \\
+    --exclude='*.pyo' \\
+    --exclude='*.db' \\
+    --exclude='.DS_Store' \\
+    --exclude='*.egg-info' \\
+    --exclude='node_modules' \\
+    --exclude='frontend/node_modules' \\
+    --exclude='.git' \\
+    --exclude='/dist' \\
+    "$SCRIPT_DIR/" "$STAGING_PLUGIN/"
+
+(cd "$STAGING" && zip -r "$ZIP_PATH" "$PLUGIN_NAME/" -q)
+
+info "打包完成: $ZIP_PATH"
+info ""
+info "ZIP 结构:"
+python3 -c "
+import zipfile, sys
+with zipfile.ZipFile(sys.argv[1]) as zf:
+    for name in sorted(zf.namelist()):
+        print(f'  {{name}}')
+" "$ZIP_PATH"
+'''
+
+
+def _render_frontend_package_json(plugin_name: str, description: str) -> str:
+    data = {
+        "name": f"@quantcell-plugin/{plugin_name}",
+        "private": True,
+        "version": "0.1.0",
+        "type": "module",
+        "scripts": {
+            "dev": "vite",
+            "build": "vite build",
+            "preview": "vite preview",
+        },
+        "dependencies": {
+            "react": "^18.3.1",
+            "react-dom": "^18.3.1",
+            "antd": "^5.24.0",
+            "@ant-design/icons": "^5.6.1",
+        },
+        "devDependencies": {
+            "@types/react": "^18.3.18",
+            "@types/react-dom": "^18.3.5",
+            "@vitejs/plugin-react": "^4.3.4",
+            "typescript": "~5.6.2",
+            "vite": "^6.0.0",
+        },
+    }
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+def _render_vite_config_ts(plugin_name: str) -> str:
+    return '''import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    lib: {
+      entry: 'src/main.tsx',
+      formats: ['es'],
+      fileName: 'index',
+    },
+    rollupOptions: {
+      external: ['react', 'react-dom', 'react/jsx-runtime'],
+      output: {
+        globals: {
+          react: 'React',
+          'react-dom': 'ReactDOM',
+        },
+        assetFileNames: 'index.[ext]',
+      },
+    },
+    cssCodeSplit: false,
+    outDir: 'dist',
+    emptyOutDir: true,
+  },
+});
+'''
+
+
+def _render_tsconfig_json() -> str:
+    return '''{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src"]
+}
+'''
+
+
+def _render_tsconfig_node_json() -> str:
+    return '''{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["vite.config.ts"]
+}
+'''
+
+
+def _render_index_html(plugin_name: str) -> str:
+    return f'''<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{plugin_name}</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+'''
+
+
+def _render_main_tsx(plugin_name: str) -> str:
+    kebab = _snake_to_kebab(plugin_name)
+    return f'''import type {{ ReactNode }} from 'react';
+import App from './App';
+
+interface RouteConfig {{
+  path: string;
+  element: ReactNode;
+  pluginName: string;
+}}
+
+interface MenuConfig {{
+  key: string;
+  label: string;
+  pluginName: string;
+}}
+
+const routes: RouteConfig[] = [
+  {{
+    path: '/plugins/{kebab}',
+    element: <App />,
+    pluginName: '{plugin_name}',
+  }},
+];
+
+const menuItems: MenuConfig[] = [
+  {{
+    key: '{plugin_name}',
+    label: '{plugin_name}',
+    pluginName: '{plugin_name}',
+  }},
+];
+
+export function registerPlugin() {{
+  return {{
+    register(context: {{ addRoute: (r: RouteConfig) => void; addMenu: (m: MenuConfig) => void }}) {{
+      for (const route of routes) {{
+        context.addRoute(route);
+      }}
+      for (const menu of menuItems) {{
+        context.addMenu(menu);
+      }}
+    }},
+    getRoutes: () => routes,
+    getMenuItems: () => menuItems,
+  }};
+}}
+'''
+
+
+def _render_app_tsx(plugin_name: str, description: str) -> str:
+    display_desc = description or f"{plugin_name} 插件"
+    return f'''import {{ Card, Typography }} from 'antd';
+
+const {{ Title, Paragraph }} = Typography;
+
+export default function App() {{
+  return (
+    <div style={{{{ padding: 24 }}}}>
+      <Card>
+        <Title level={{{{ 3 }}}}>{plugin_name}</Title>
+        <Paragraph>{display_desc}</Paragraph>
+        <Paragraph type="secondary">
+          插件已成功加载。编辑此组件开始开发你的插件页面。
+        </Paragraph>
+      </Card>
+    </div>
+  );
+}}
+'''
+
+
+def _render_vite_env_d_ts() -> str:
+    return '''/// <reference types="vite/client" />
+'''
+
+
+@app.command("create", help="创建插件脚手架项目")
+def cmd_create(
+    name: Annotated[str, typer.Argument(help="插件名称，仅允许字母、数字、下划线、连字符")],
+    output: Annotated[
+        str,
+        typer.Option("--output", "-o", help="项目输出目录")
+    ] = ".",
+    description: Annotated[
+        str,
+        typer.Option("--description", "-d", help="插件描述")
+    ] = "",
+    author: Annotated[
+        str,
+        typer.Option("--author", "-a", help="插件作者")
+    ] = "",
+    plugin_type: Annotated[
+        str,
+        typer.Option("--type", "-t", help="插件类型: backend(纯后端) / fullstack(全栈)")
+    ] = "fullstack",
+    load_type: Annotated[
+        str,
+        typer.Option("--load-type", help="加载类型: hot(热加载) / restart(重启加载)")
+    ] = "hot",
+):
+    """创建一个符合 QuantCell 标准的插件脚手架项目"""
+    if not _NAME_RE.match(name):
+        typer.echo(f"错误: 插件名称格式不合法: {name}，仅允许字母、数字、下划线、连字符", err=True)
+        raise typer.Exit(1)
+
+    if plugin_type not in ("backend", "fullstack"):
+        typer.echo(f"错误: 不支持的插件类型: {plugin_type}，可选: backend / fullstack", err=True)
+        raise typer.Exit(1)
+
+    if load_type not in ("hot", "restart"):
+        typer.echo(f"错误: 不支持的加载类型: {load_type}，可选: hot / restart", err=True)
+        raise typer.Exit(1)
+
+    project_dir = os.path.join(output, name)
+    if os.path.exists(project_dir):
+        typer.echo(f"错误: 目标目录已存在: {project_dir}", err=True)
+        raise typer.Exit(1)
+
+    os.makedirs(project_dir, exist_ok=True)
+
+    _write_file(os.path.join(project_dir, "manifest.json"),
+                _render_manifest(name, description, author, load_type, plugin_type))
+    _write_file(os.path.join(project_dir, "plugin.py"),
+                _render_plugin_py(name))
+
+    build_path = os.path.join(project_dir, "build.sh")
+    _write_file(build_path, _render_build_sh(name))
+    _make_executable(build_path)
+
+    if plugin_type == "fullstack":
+        fe_dir = os.path.join(project_dir, "frontend")
+        _write_file(os.path.join(fe_dir, "package.json"),
+                    _render_frontend_package_json(name, description))
+        _write_file(os.path.join(fe_dir, "vite.config.ts"),
+                    _render_vite_config_ts(name))
+        _write_file(os.path.join(fe_dir, "tsconfig.json"),
+                    _render_tsconfig_json())
+        _write_file(os.path.join(fe_dir, "tsconfig.node.json"),
+                    _render_tsconfig_node_json())
+        _write_file(os.path.join(fe_dir, "index.html"),
+                    _render_index_html(name))
+        _write_file(os.path.join(fe_dir, "src", "main.tsx"),
+                    _render_main_tsx(name))
+        _write_file(os.path.join(fe_dir, "src", "App.tsx"),
+                    _render_app_tsx(name, description))
+        _write_file(os.path.join(fe_dir, "src", "vite-env.d.ts"),
+                    _render_vite_env_d_ts())
+
+    typer.echo(f"\n✅ 插件项目已创建: {project_dir}\n")
+    typer.echo("项目结构:")
+    for root, dirs, files in os.walk(project_dir):
+        dirs.sort()
+        level = root.replace(project_dir, "").count(os.sep)
+        indent = "  " * level
+        basename = os.path.basename(root)
+        typer.echo(f"{indent}{basename}/")
+        sub_indent = "  " * (level + 1)
+        for file in sorted(files):
+            typer.echo(f"{sub_indent}{file}")
+
+    typer.echo(f"\n下一步:")
+    typer.echo(f"  cd {project_dir}")
+    if plugin_type == "fullstack":
+        typer.echo(f"  cd frontend && bun install && cd ..")
+    typer.echo(f"  ./build.sh")
+    typer.echo(f"  cd {backend_path.parent}")
+    typer.echo(f"  uv run python backend/scripts/plugin_cli.py install --zip {project_dir}/dist/{name}-0.1.0.zip")
 
 
 if __name__ == "__main__":
