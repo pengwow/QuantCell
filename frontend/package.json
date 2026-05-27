@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
+    "@originjs/vite-plugin-federation": "^1.4.1",
     "@tailwindcss/postcss": "^4.1.18",
     "@tailwindcss/vite": "^4.1.18",
     "@types/node": "^24.10.4",

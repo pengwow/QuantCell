@@ -53,24 +53,27 @@ class PluginRegistry {
 
       if (typeof module.registerPlugin === 'function') {
         const instance = module.registerPlugin();
-
-        if (typeof instance.getRoutes === 'function') {
-          for (const route of instance.getRoutes()) {
-            this.registerRoute(route);
-          }
-        }
-
-        if (typeof instance.getMenuItems === 'function') {
-          for (const item of instance.getMenuItems()) {
-            this.registerMenu(item);
-          }
-        }
+        this.registerPluginInstance(instance);
       }
     } catch (err) {
       console.warn(`插件 ${plugin.name} 前端加载失败:`, err);
     } finally {
       this.loadingPlugins.delete(plugin.name);
       this.notify();
+    }
+  }
+
+  private registerPluginInstance(instance: any): void {
+    if (typeof instance.getRoutes === 'function') {
+      for (const route of instance.getRoutes()) {
+        this.registerRoute(route);
+      }
+    }
+
+    if (typeof instance.getMenuItems === 'function') {
+      for (const item of instance.getMenuItems()) {
+        this.registerMenu(item);
+      }
     }
   }
 

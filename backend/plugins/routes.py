@@ -15,6 +15,9 @@ from utils.logger import get_logger, LogType
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
+# 插件资源目录基准路径，与 plugin_manager.py 保持一致
+_PLUGIN_ASSETS_BASE = Path(__file__).resolve().parent.parent / "data" / "installed_plugins"
+
 router = APIRouter(
     prefix="/api/plugins",
     tags=["plugins"],
@@ -226,9 +229,11 @@ async def disable_plugin(request: Request, name: str):
 @router.get("/{name}/assets/{path:path}")
 async def serve_plugin_asset(name: str, path: str):
     try:
-        plugin_dir = Path("data") / "installed_plugins" / name / "frontend" / "dist" / path
+        # 使用绝对路径查找插件资源，避免工作目录不一致导致 404
+        plugin_dir = _PLUGIN_ASSETS_BASE / name / "frontend" / "dist" / path
         if not plugin_dir.is_file():
-            plugin_dir = Path("plugins") / name / "frontend" / "dist" / path
+            # 兼容旧路径（框架源码目录下的 plugins）
+            plugin_dir = Path(__file__).resolve().parent.parent / "plugins" / name / "frontend" / "dist" / path
         if not plugin_dir.is_file():
             raise HTTPException(status_code=404, detail="资源文件不存在")
 

@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import federation from '@originjs/vite-plugin-federation'
 import path from 'path'
 import fs from 'fs'
 
@@ -25,7 +26,14 @@ const { host, port } = getServerConfig()
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    federation({
+      name: 'quantcell-host',
+      shared: ['react', 'react-dom'],
+    }),
+  ],
   define: {
     __APP_VERSION__: JSON.stringify(getAppVersion()),
   },
