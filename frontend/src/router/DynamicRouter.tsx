@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRoutes, Navigate } from 'react-router-dom';
 import type { RouteObject } from 'react-router-dom';
 
@@ -34,7 +34,6 @@ import PluginManagement from '@/pages/setting/PluginManagement';
 import { pluginRegistry } from '@/plugins/PluginRegistry';
 import PluginPage from '@/pages/plugin/PluginPage';
 
-// 基础路由配置（使用函数延迟创建，避免模块加载时的循环依赖）
 function createBaseRoutes(): RouteObject[] {
   return [
     {
@@ -91,12 +90,20 @@ function createBaseRoutes(): RouteObject[] {
 }
 
 export function DynamicRouter() {
+  const [pluginVersion, setPluginVersion] = useState(0);
+
+  useEffect(() => {
+    const unsubscribe = pluginRegistry.subscribe(() => {
+      setPluginVersion((v) => v + 1);
+    });
+    return unsubscribe;
+  }, []);
+
   const routes = useMemo(() => {
     const base = createBaseRoutes();
     const rootRoute = base.find((r) => r.path === '/');
     if (!rootRoute || !rootRoute.children) return base;
 
-    // 添加插件动态路由
     const pluginRoutes = pluginRegistry.getRoutes();
     for (const pr of pluginRoutes) {
       rootRoute.children.push({
@@ -106,7 +113,7 @@ export function DynamicRouter() {
     }
 
     return base;
-  }, []);
+  }, [pluginVersion]);
 
   return useRoutes(routes);
 }

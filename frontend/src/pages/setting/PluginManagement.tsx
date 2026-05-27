@@ -380,6 +380,13 @@ function DetailModal({
             : '无特殊权限'}
         </Descriptions.Item>
         <Descriptions.Item label="安装时间" span={2}>{plugin.installed_at}</Descriptions.Item>
+        <Descriptions.Item label="前端入口" span={2}>
+          {plugin.frontend_entry ? (
+            <Text code>{plugin.frontend_entry}</Text>
+          ) : (
+            <Text type="secondary">无前端入口（纯后端插件）</Text>
+          )}
+        </Descriptions.Item>
       </Descriptions>
 
       {plugin.error_message && (

@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import sys
 from typing import Dict, List, Optional
 
@@ -119,7 +120,7 @@ class PluginManager:
         self._loaded_modules[plugin_name] = sys.modules.get(f"plugins.hot.{plugin_name}") or sys.modules.get(f"plugins.restart.{plugin_name}")
 
         if plugin_info:
-            self._store.update_status(plugin_name, "active")
+            self._store.update_status(plugin_name, "enabled")
 
         self._event_bus.publish("plugin.loaded", {"name": plugin_name})
         logger.info(f"插件 {plugin_name} 加载成功")
@@ -280,7 +281,11 @@ class PluginManager:
 
         load_type = manifest.get("load_type", "hot")
         if load_type == "hot":
-            self.load_plugin(name)
+            plugin = self.load_plugin(name)
+            if plugin is None:
+                self._store.update_status(name, "error", "安装后自动加载失败")
+                logger.warning(f"插件 {name} 安装成功但加载失败，状态已标记为 error")
+                return True
 
         logger.info(f"插件 {name} 安装成功")
         return True
@@ -291,8 +296,19 @@ class PluginManager:
                 logger.error(f"卸载插件 {plugin_name} 失败，取消卸载操作")
                 return False
 
+        plugin_info = self._store.get_plugin(plugin_name)
+        install_path = None
+        if plugin_info:
+            install_path = plugin_info.get("install_path") or os.path.join(self.plugin_dir, plugin_name)
+
         deleted = self._store.delete_plugin(plugin_name)
         if deleted:
+            if install_path and os.path.isdir(install_path):
+                try:
+                    shutil.rmtree(install_path)
+                    logger.info(f"插件目录已删除: {install_path}")
+                except OSError as e:
+                    logger.warning(f"删除插件目录失败: {install_path}, 错误: {e}")
             self._event_bus.publish("plugin.uninstalled", {"name": plugin_name})
             logger.info(f"插件 {plugin_name} 已卸载")
         return deleted
@@ -306,7 +322,7 @@ class PluginManager:
         if plugin_name in self.plugins:
             plugin = self.plugins[plugin_name]
             plugin.on_enable()
-            self._store.update_status(plugin_name, "active")
+            self._store.update_status(plugin_name, "enabled")
             logger.info(f"插件 {plugin_name} 已启用")
             return True
 
@@ -315,7 +331,7 @@ class PluginManager:
             return False
 
         plugin.on_enable()
-        self._store.update_status(plugin_name, "active")
+        self._store.update_status(plugin_name, "enabled")
         logger.info(f"插件 {plugin_name} 已启用")
         return True
 
