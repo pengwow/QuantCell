@@ -12,6 +12,9 @@ from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+
+# 导入统一的AST解析工具
+from utils.strategy_ast_parser import StrategyASTParser
 @dataclass
 class ValidationError:
     """验证错误信息"""
@@ -82,6 +85,9 @@ class CodeValidator:
         self.max_line_length = max_line_length
         self.required_class_name = required_class_name
         self.required_methods = (required_methods or self.DEFAULT_REQUIRED_METHODS).copy()
+        
+        # 创建AST解析器实例
+        self.ast_parser = StrategyASTParser()
 
         logger.debug(
             f"CodeValidator初始化完成，最大行长度: {max_line_length}, "
@@ -153,7 +159,7 @@ class CodeValidator:
     def validate_structure(self, code: str) -> Tuple[List[ValidationError], List[ValidationWarning]]:
         """验证代码结构
 
-        检查代码是否包含必需的类和方法。
+        使用统一的AST解析工具检查代码是否包含必需的类和方法。
 
         Args:
             code: 要验证的Python代码
@@ -175,18 +181,17 @@ class CodeValidator:
             )
             return errors, warnings
 
-        try:
-            tree = ast.parse(code)
-        except SyntaxError:
+        # 使用统一的AST解析器
+        tree = self.ast_parser.parse(code)
+        if not tree:
             # 语法错误已在validate_syntax中处理
             return errors, warnings
 
-        # 查找所有类定义
-        classes: List[ast.ClassDef] = [
-            node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
-        ]
+        # 使用AST解析器查找策略类
+        strategy_classes = self.ast_parser.find_strategy_classes(tree)
+        all_classes = self.ast_parser.find_all_classes(tree)
 
-        if not classes:
+        if not all_classes:
             errors.append(
                 ValidationError(
                     type="structure_error",
@@ -197,62 +202,36 @@ class CodeValidator:
             )
             return errors, warnings
 
-        # 检查是否包含必需的类名（作为基类或类名的一部分）
-        strategy_classes: List[ast.ClassDef] = []
-        for cls in classes:
-            # 跳过配置类（以Config结尾的类不是策略类）
-            if cls.name.endswith("Config"):
-                continue
-
-            # 检查类名是否包含Strategy
-            if self.required_class_name in cls.name:
-                strategy_classes.append(cls)
-            else:
-                # 检查基类
-                for base in cls.bases:
-                    if isinstance(base, ast.Name) and self.required_class_name in base.id:
-                        strategy_classes.append(cls)
-                        break
-                    elif isinstance(base, ast.Attribute):
-                        if self.required_class_name in base.attr:
-                            strategy_classes.append(cls)
-                            break
-
         if not strategy_classes:
             warnings.append(
                 ValidationWarning(
                     type="structure_warning",
-                    line=classes[0].lineno,
-                    column=classes[0].col_offset,
+                    line=all_classes[0].class_node.lineno,
+                    column=all_classes[0].class_node.col_offset,
                     message=f"未找到包含'{self.required_class_name}'的类，建议类名或基类包含'Strategy'",
                 )
             )
         else:
             # 检查必需方法
-            for cls in strategy_classes:
-                method_names: Set[str] = {
-                    node.name
-                    for node in ast.walk(cls)
-                    if isinstance(node, ast.FunctionDef)
-                }
+            for strategy_class_info in strategy_classes:
+                method_names: Set[str] = set(
+                    self.ast_parser.find_class_methods(strategy_class_info.class_node)
+                )
 
                 for required_method in self.required_methods:
                     if required_method not in method_names:
                         errors.append(
                             ValidationError(
                                 type="structure_error",
-                                line=cls.lineno,
-                                column=cls.col_offset,
-                                message=f"类'{cls.name}'缺少必需方法'{required_method}'",
+                                line=strategy_class_info.class_node.lineno,
+                                column=strategy_class_info.class_node.col_offset,
+                                message=f"类'{strategy_class_info.class_name}'缺少必需方法'{required_method}'",
                             )
                         )
 
         # 检查是否有__init__方法（推荐但不强制）
-        has_init = any(
-            isinstance(node, ast.FunctionDef) and node.name == "__init__"
-            for node in ast.walk(tree)
-        )
-        if not has_init:
+        methods = self.ast_parser.find_methods(tree)
+        if "__init__" not in methods:
             warnings.append(
                 ValidationWarning(
                     type="structure_warning",
@@ -402,7 +381,7 @@ class CodeValidator:
     def validate_strategy_code(self, code: str) -> Dict[str, Any]:
         """专门验证策略代码
 
-        针对策略代码的特定验证，包含更严格的检查。
+        使用统一的AST解析工具进行策略代码的特定验证。
 
         Args:
             code: 策略代码
@@ -414,18 +393,11 @@ class CodeValidator:
 
         # 额外的策略特定检查
         if result["summary"]["syntax_valid"]:
-            try:
-                tree = ast.parse(code)
-
-                # 检查是否导入必要的模块
-                imports: Set[str] = set()
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.Import):
-                        for alias in node.names:
-                            imports.add(alias.name)
-                    elif isinstance(node, ast.ImportFrom):
-                        if node.module:
-                            imports.add(node.module)
+            # 使用统一的AST解析器
+            tree = self.ast_parser.parse(code)
+            if tree:
+                # 使用AST解析器查找导入
+                imports = self.ast_parser.find_imports(tree)
 
                 # 检查是否有策略相关的导入
                 strategy_imports = [
@@ -447,8 +419,5 @@ class CodeValidator:
                         "message": "未检测到策略框架导入，建议导入strategy.core或其他策略框架",
                     })
                     result["summary"]["total_warnings"] += 1
-
-            except SyntaxError:
-                pass
 
         return result

@@ -32,6 +32,9 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Type
 from enum import Enum
 
+# 导入统一的AST解析工具
+from utils.strategy_ast_parser import StrategyASTParser
+
 # 导入策略基类（从 strategy.core 统一导入）
 from .core import StrategyBase
 
@@ -65,6 +68,9 @@ class StrategyService:
         self.strategy_dir = Path(__file__).parent.parent / "strategies"
         self.strategy_dir.mkdir(parents=True, exist_ok=True)
         
+        # 创建AST解析器实例
+        self.ast_parser = StrategyASTParser()
+        
         # 策略实例缓存
         self.strategy_instances: Dict[str, Any] = {}
         
@@ -77,17 +83,18 @@ class StrategyService:
         """
         解析策略文件内容，提取策略信息
         
-        支持两种策略格式：
-        1. Legacy格式：继承自 StrategyBase，参数作为类属性
-        2. Config格式：继承自 StrategyConfig，参数在 __init__ 方法中定义
+        使用统一的AST解析工具，简化代码逻辑
         
         :param file_content: 策略文件内容
         :param strategy_name: 策略名称
         :return: 策略信息字典，如果没有找到策略类则返回None
         """
         try:
-            # 解析Python代码
-            tree = ast.parse(file_content)
+            # 使用统一的AST解析器
+            tree = self.ast_parser.parse(file_content)
+            if not tree:
+                logger.error(f"策略代码解析失败: {strategy_name}")
+                return None
             
             # 获取文件修改时间
             file_path = self.strategy_dir / f"{strategy_name}.py"
@@ -96,7 +103,6 @@ class StrategyService:
             
             if file_path.exists():
                 try:
-                    # 使用文件的修改时间
                     mtime = file_path.stat().st_mtime
                     created_at = datetime.fromtimestamp(mtime)
                     updated_at = datetime.fromtimestamp(mtime)
@@ -117,166 +123,51 @@ class StrategyService:
                 "code": file_content
             }
             
-            # 首先查找策略配置类（继承自 StrategyConfig）
+            # 查找配置类和策略类
+            config_classes = self.ast_parser.find_config_classes(tree)
+            strategy_classes = self.ast_parser.find_strategy_classes(tree)
+            
+            # 处理配置类（优先）
             config_class = None
-            config_class_name = None
+            if config_classes:
+                config_class = config_classes[0]
+                logger.info(f"找到策略配置类: {config_class.class_name}")
+                # 提取配置类文档字符串作为策略描述
+                docstring = ast.get_docstring(config_class.class_node)
+                if docstring:
+                    strategy_info["description"] = docstring
+                
+                # 从配置类的__init__方法中提取参数
+                strategy_info["params"] = self.ast_parser.extract_params_from_config_class(
+                    config_class.class_node, file_content
+                )
             
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    # 检查是否继承自 StrategyConfig
-                    for base in node.bases:
-                        base_name = None
-                        if isinstance(base, ast.Name):
-                            base_name = base.id
-                        elif isinstance(base, ast.Attribute):
-                            base_name = base.attr
-                        
-                        if base_name == 'StrategyConfig':
-                            config_class = node
-                            config_class_name = node.name
-                            logger.info(f"找到策略配置类: {node.name}")
-                            # 提取配置类文档字符串作为策略描述
-                            docstring = ast.get_docstring(node)
-                            if docstring:
-                                strategy_info["description"] = docstring
-                            break
-                    
-                    if config_class:
-                        break
-            
-            # 如果找到配置类，从 __init__ 方法中提取参数
-            if config_class:
-                for item in config_class.body:
-                    if isinstance(item, ast.FunctionDef) and item.name == '__init__':
-                        logger.info(f"从配置类 {config_class_name} 的 __init__ 方法提取参数")
-                        # 提取函数参数
-                        args = item.args
-                        # 跳过 self 参数
-                        arg_names = [arg.arg for arg in args.args[1:]]  # 跳过 self
-                        defaults = args.defaults
-                        
-                        # 计算默认值起始索引
-                        defaults_start = len(arg_names) - len(defaults)
-                        
-                        for i, arg_name in enumerate(arg_names):
-                            # 跳过 instrument_ids, bar_types, trade_size, log_level 等内置参数
-                            if arg_name in ['instrument_ids', 'bar_types', 'trade_size', 'log_size', 'log_level']:
-                                continue
-                            
-                            # 获取默认值
-                            default_value = None
-                            if i >= defaults_start:
-                                default_node = defaults[i - defaults_start]
-                                if isinstance(default_node, ast.Constant):
-                                    default_value = default_node.value
-                                elif isinstance(default_node, ast.Num):
-                                    default_value = default_node.n
-                                elif isinstance(default_node, ast.Str):
-                                    default_value = default_node.s
-                                elif isinstance(default_node, ast.NameConstant):
-                                    default_value = default_node.value
-                                elif isinstance(default_node, ast.Call):
-                                    # 处理 Decimal("0.1") 这样的调用
-                                    if isinstance(default_node.func, ast.Name) and default_node.func.id == 'Decimal':
-                                        if default_node.args and isinstance(default_node.args[0], ast.Str):
-                                            try:
-                                                default_value = float(default_node.args[0].s)
-                                            except (ValueError, TypeError):
-                                                default_value = None
-                                    elif isinstance(default_node.func, ast.Attribute):
-                                        # 处理其他类型的调用
-                                        default_value = None
-                            
-                            # 确定参数类型
-                            param_type = "Any"
-                            # 从函数注解中获取类型
-                            if hasattr(args, 'annotations') and arg_name in args.annotations:
-                                ann = args.annotations[arg_name]
-                                if isinstance(ann, ast.Name):
-                                    param_type = ann.id
-                                elif isinstance(ann, ast.Attribute):
-                                    param_type = ann.attr
-                                elif isinstance(ann, ast.Subscript):
-                                    if isinstance(ann.value, ast.Name):
-                                        param_type = f"{ann.value.id}[...]"
-                            
-                            # 从默认值推断类型
-                            if default_value is not None:
-                                param_type = type(default_value).__name__
-                            
-                            # 添加到参数列表
-                            strategy_info["params"].append({
-                                "name": arg_name,
-                                "type": param_type,
-                                "default": default_value,
-                                "description": "",
-                                "required": default_value is None
-                            })
-                            logger.info(f"提取参数: {arg_name} = {default_value} ({param_type})")
-                        break
-            
-            # 查找策略类（继承自 StrategyBase 或 Strategy）
+            # 处理策略类
             found_strategy_class = False
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    # 检查是否继承自 Strategy 或 StrategyBase
-                    has_strategy_base = False
-                    for base in node.bases:
-                        if isinstance(base, ast.Name) and (base.id == 'Strategy' or base.id == 'StrategyBase'):
-                            has_strategy_base = True
-                        elif isinstance(base, ast.Attribute) and (base.attr == 'Strategy' or base.attr == 'StrategyBase'):
-                            has_strategy_base = True
-                    
-                    if has_strategy_base:
-                        found_strategy_class = True
-                        logger.info(f"找到策略类: {node.name}")
-                        # 如果没有从配置类获取描述，使用策略类的文档字符串
-                        if not strategy_info["description"]:
-                            strategy_info["description"] = ast.get_docstring(node) or ""
-                        
-                        # 如果没有找到配置类，尝试从策略类的类属性中提取参数（Legacy格式）
-                        if not config_class:
-                            logger.info("使用Legacy格式解析参数")
-                            for item in node.body:
-                                if isinstance(item, ast.Assign):
-                                    if len(item.targets) == 1 and isinstance(item.targets[0], ast.Name):
-                                        param_name = item.targets[0].id
-                                        if param_name.startswith('_'):
-                                            continue
-                                        
-                                        param_default = None
-                                        if isinstance(item.value, ast.Constant):
-                                            param_default = item.value.value
-                                        elif isinstance(item.value, ast.Num):
-                                            param_default = item.value.n
-                                        elif isinstance(item.value, ast.Str):
-                                            param_default = item.value.s
-                                        elif isinstance(item.value, ast.NameConstant):
-                                            param_default = item.value.value
-                                        
-                                        param_desc = ""
-                                        if hasattr(item, 'lineno'):
-                                            lines = file_content.split('\n')
-                                            if item.lineno <= len(lines):
-                                                line = lines[item.lineno - 1]
-                                                comment_index = line.find('#')
-                                                if comment_index != -1:
-                                                    param_desc = line[comment_index + 1:].strip()
-                                        
-                                        param_type = type(param_default).__name__ if param_default is not None else "Any"
-                                        
-                                        strategy_info["params"].append({
-                                            "name": param_name,
-                                            "type": param_type,
-                                            "default": param_default,
-                                            "description": param_desc,
-                                            "required": False
-                                        })
-                        break
+            if strategy_classes:
+                strategy_class = strategy_classes[0]
+                found_strategy_class = True
+                logger.info(f"找到策略类: {strategy_class.class_name}")
+                
+                # 如果没有从配置类获取描述，使用策略类的文档字符串
+                if not strategy_info["description"]:
+                    strategy_info["description"] = ast.get_docstring(strategy_class.class_node) or ""
+                
+                # 如果没有找到配置类，从策略类的类属性中提取参数（Legacy格式）
+                if not config_class:
+                    logger.info("使用Legacy格式解析参数")
+                    strategy_info["params"] = self.ast_parser.extract_params_from_strategy_class(
+                        strategy_class.class_node, file_content
+                    )
             
-            logger.info(f"策略类查找结果: {found_strategy_class}, 配置类: {config_class_name}, 参数数量: {len(strategy_info['params'])}")
-            # 找到策略类或配置类都认为是有效的
-            return strategy_info if (found_strategy_class or config_class) else None
+            # 验证是否找到有效的策略类或配置类
+            if not found_strategy_class and not config_class:
+                logger.warning(f"未找到策略类或配置类: {strategy_name}")
+                return None
+            
+            logger.info(f"策略解析完成: {strategy_name}, 参数数量: {len(strategy_info['params'])}")
+            return strategy_info
+            
         except Exception as e:
             logger.error(f"解析策略内容失败: {strategy_name}, 错误: {e}")
             logger.exception(e)
