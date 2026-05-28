@@ -238,8 +238,19 @@ async def serve_plugin_asset(name: str, path: str):
             raise HTTPException(status_code=404, detail="资源文件不存在")
 
         content_type, _ = mimetypes.guess_type(str(plugin_dir))
-        if content_type is None:
-            content_type = "application/octet-stream"
+        if not content_type:
+            # 根据文件扩展名明确设置 MIME type
+            ext = plugin_dir.suffix.lower()
+            if ext == ".js":
+                content_type = "application/javascript"
+            elif ext == ".css":
+                content_type = "text/css"
+            elif ext == ".json":
+                content_type = "application/json"
+            elif ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"):
+                content_type = f"image/{ext.lstrip('.')}"
+            else:
+                content_type = "application/octet-stream"
 
         return FileResponse(
             path=str(plugin_dir),
