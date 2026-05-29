@@ -1010,21 +1010,41 @@ export function registerPlugin() {{
 
 def _render_app_tsx(plugin_name: str, description: str) -> str:
     display_desc = description or f"{plugin_name} 插件"
-    return f'''import {{ Card, Typography }} from 'antd';
+    return f'''import {{ Card, Typography, ConfigProvider, theme as antdTheme }} from 'antd';
+import {{ useTheme }} from './hooks/useTheme';
+import {{ useLocale }} from './hooks/useLocale';
 
 const {{ Title, Paragraph }} = Typography;
 
 export default function App() {{
+  const theme = useTheme();
+  const locale = useLocale();
+  const isDark = theme === 'dark';
+
   return (
-    <div style={{{{ padding: 24 }}}}>
-      <Card>
-        <Title level={{{3}}}>{plugin_name}</Title>
-        <Paragraph>{display_desc}</Paragraph>
-        <Paragraph type="secondary">
-          插件已成功加载。编辑此组件开始开发你的插件页面。
-        </Paragraph>
-      </Card>
-    </div>
+    <ConfigProvider
+      locale={{locale}}
+      theme={{
+        algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+        token: {{
+          colorBgBase: isDark ? '#141414' : '#fff',
+        }},
+      }}
+    >
+      <div style={{{{ padding: 0, background: isDark ? '#141414' : '#fff' }}}}>
+        <Card style={{{{ background: isDark ? '#1f1f1f' : '#fff' }}}}>
+          <Title level={{{{3}}}} style={{{{ color: isDark ? '#fff' : undefined }}}}>
+            {plugin_name}
+          </Title>
+          <Paragraph style={{{{ color: isDark ? 'rgba(255,255,255,0.65)' : undefined }}}}>
+            {display_desc}
+          </Paragraph>
+          <Paragraph type="secondary">
+            插件已成功加载。编辑此组件开始开发你的插件页面。
+          </Paragraph>
+        </Card>
+      </div>
+    </ConfigProvider>
   );
 }}
 '''
@@ -1032,6 +1052,87 @@ export default function App() {{
 
 def _render_vite_env_d_ts() -> str:
     return '''/// <reference types="vite/client" />
+'''
+
+
+def _render_use_theme_ts() -> str:
+    return '''import { useState, useEffect } from 'react';
+
+export type ThemeMode = 'light' | 'dark';
+
+export function useTheme(): ThemeMode {
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    if (typeof document !== 'undefined') {
+      return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+    }
+    return 'light';
+  });
+
+  useEffect(() => {
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.attributeName === 'class') {
+          const isDark = document.documentElement.classList.contains('dark');
+          setTheme(isDark ? 'dark' : 'light');
+        }
+      });
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  return theme;
+}
+'''
+
+
+def _render_use_locale_ts() -> str:
+    return '''import { useState, useEffect } from 'react';
+import zhCN from 'antd/locale/zh_CN';
+import enUS from 'antd/locale/en_US';
+import type { Locale } from 'antd/es/locale';
+
+export type SupportedLocale = 'zh-CN' | 'en-US';
+
+const localeMap: Record<SupportedLocale, Locale> = {
+  'zh-CN': zhCN,
+  'en-US': enUS,
+};
+
+export function useLocale(): Locale {
+  const [locale, setLocale] = useState<Locale>(() => {
+    if (typeof document !== 'undefined') {
+      const lang = document.documentElement.lang as SupportedLocale;
+      return localeMap[lang] || zhCN;
+    }
+    return zhCN;
+  });
+
+  useEffect(() => {
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.attributeName === 'lang') {
+          const lang = document.documentElement.lang as SupportedLocale;
+          setLocale(localeMap[lang] || zhCN);
+        }
+      });
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['lang'],
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  return locale;
+}
 '''
 
 
@@ -1106,6 +1207,11 @@ def cmd_create(
                     _render_app_tsx(name, description))
         _write_file(os.path.join(fe_dir, "src", "vite-env.d.ts"),
                     _render_vite_env_d_ts())
+        # 生成主题和国际化 hooks
+        _write_file(os.path.join(fe_dir, "src", "hooks", "useTheme.ts"),
+                    _render_use_theme_ts())
+        _write_file(os.path.join(fe_dir, "src", "hooks", "useLocale.ts"),
+                    _render_use_locale_ts())
 
     typer.echo(f"\n✅ 插件项目已创建: {project_dir}\n")
     typer.echo("项目结构:")
