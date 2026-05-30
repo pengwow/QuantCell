@@ -391,7 +391,6 @@ class NautilusTradingSystem:
 
         # 更新数据库状态
         if db is not None:
-            import os
             crud.update_worker_status(db, worker_id, "running", pid=os.getpid())
             db.commit()
 
@@ -819,10 +818,12 @@ class NautilusTradingSystem:
 
         独立事件循环模式：
         - 每个 TradingNode 有独立事件循环，daemon 线程因 run_until_complete 而阻塞
-        - shutdown 只需停止独立循环 → run_until_complete 返回 → 线程退出
-        - 不做 node.stop() 调用（可能在独立循环上下文中失效，且 stop_async 已覆盖此场景）
+        - 优先使用 NautilusTrader 内置的 node.stop() 优雅停止
+        - 如果优雅停止超时，回退到 loop.stop() 强制停止
         - 状态记录 + 线程诊断 + 线程池关闭
         """
+        import traceback
+
         start_time = time.monotonic()
         logger.info(
             f"[NautilusTradingSystem] ========== shutdown 开始 ==========\n"
@@ -837,7 +838,7 @@ class NautilusTradingSystem:
             f"其中运行中 {sum(1 for s in strategies if s.is_running)} 个"
         )
 
-        # 步骤 1: 停止所有独立事件循环（触发 run_until_complete 返回 → 线程退出）
+        # 步骤 1: 优雅停止所有 TradingNode（优先使用 node.stop()）
         for runtime in strategies:
             worker_id = runtime.worker_id
             node = runtime.trading_node
@@ -858,21 +859,78 @@ class NautilusTradingSystem:
                 f"status={runtime.status}, run_thread_alive={thread_alive}"
             )
 
-            # CTRL+C 场景：aggressive stop，不等 engine 优雅清理
+            # 尝试优雅停止 TradingNode
             if node is not None and hasattr(node, 'kernel') and node.kernel is not None:
                 node_loop = node.kernel.loop
                 if node_loop is not None and not node_loop.is_closed():
                     try:
-                        node_loop.call_soon_threadsafe(node_loop.stop)
+                        # 方案1: 使用 NautilusTrader 内置的优雅停止方法 ✅
+                        # node.stop() 会调用 stop_async() 优雅清理资源
+                        # 避免直接调用 loop.stop() 导致 RuntimeError
                         logger.info(
                             f"[NautilusTradingSystem] shutdown: worker_id={worker_id} "
-                            f"已发送 loop.stop()"
+                            f"尝试优雅停止 (node.stop())..."
                         )
+
+                        # 在独立线程中调用 node.stop()，避免阻塞主线程
+                        def _graceful_stop():
+                            try:
+                                node.stop()
+                                logger.info(
+                                    f"[NautilusTradingSystem] shutdown: worker_id={worker_id} "
+                                    f"✓ node.stop() 成功"
+                                )
+                            except Exception as stop_err:
+                                error_msg = str(stop_err)
+                                if "Event loop stopped before Future completed" in error_msg:
+                                    # 这是正常的停止行为，不是错误
+                                    logger.info(
+                                        f"[NautilusTradingSystem] shutdown: worker_id={worker_id} "
+                                        f"事件循环已停止 (正常行为)"
+                                    )
+                                else:
+                                    logger.warning(
+                                        f"[NautilusTradingSystem] shutdown: worker_id={worker_id} "
+                                        f"node.stop() 异常: {error_msg}"
+                                    )
+
+                        stop_thread = threading.Thread(
+                            target=_graceful_stop,
+                            name=f"nautilus-stop-{worker_id}",
+                            daemon=True,
+                        )
+                        stop_thread.start()
+
+                        # 给优雅停止一点时间（最多0.5秒）
+                        stop_thread.join(timeout=0.5)
+
+                        if stop_thread.is_alive():
+                            # 如果优雅停止超时，回退到强制停止 loop
+                            logger.warning(
+                                f"[NautilusTradingSystem] shutdown: worker_id={worker_id} "
+                                f"优雅停止超时 (>0.5s)，回退到 loop.stop()"
+                            )
+                            try:
+                                node_loop.call_soon_threadsafe(node_loop.stop)
+                            except Exception as force_err:
+                                logger.warning(
+                                    f"[NautilusTradingSystem] shutdown: worker_id={worker_id} "
+                                    f"loop.stop 也失败: {force_err}"
+                                )
+
                     except Exception as e:
                         logger.warning(
-                            f"[NautilusTradingSystem] shutdown loop.stop 失败: "
-                            f"worker_id={worker_id}, error={e}"
+                            f"[NautilusTradingSystem] shutdown: worker_id={worker_id} "
+                            f"优雅停止失败，尝试强制停止: {e}"
                         )
+                        # 回退：直接停止事件循环
+                        try:
+                            node_loop.call_soon_threadsafe(node_loop.stop)
+                        except Exception as force_err:
+                            logger.warning(
+                                f"[NautilusTradingSystem] shutdown: worker_id={worker_id} "
+                                f"强制停止也失败: {force_err}"
+                            )
 
             strategy_registry.update_status(worker_id, "stopping")
 
@@ -881,7 +939,27 @@ class NautilusTradingSystem:
             f"耗时 {time.monotonic() - start_time:.3f}s"
         )
 
-        # 步骤 2: 关闭线程池
+        # 步骤 2: 等待所有 daemon 线程退出（最多1秒）
+        logger.info("[NautilusTradingSystem] shutdown: 等待 Worker 线程退出...")
+        t_start = time.monotonic()
+
+        active_threads = [
+            runtime._run_thread
+            for runtime in strategies
+            if runtime._run_thread is not None and runtime._run_thread.is_alive()
+        ]
+
+        if active_threads:
+            logger.info(f"[NautilusTradingSystem] shutdown: 还有 {len(active_threads)} 个活跃线程")
+            # 给 daemon 线程时间退出（daemon 线程会在主线程退出时自动终止）
+            time.sleep(min(1.0, max(0.3, len(active_threads) * 0.1)))
+
+        logger.info(
+            f"[NautilusTradingSystem] shutdown: 线程等待完成, "
+            f"耗时 {time.monotonic() - t_start:.3f}s"
+        )
+
+        # 步骤 3: 关闭线程池
         logger.info("[NautilusTradingSystem] shutdown: 开始关闭 ThreadPoolExecutor...")
         t_start = time.monotonic()
         self._executor.shutdown(wait=False)

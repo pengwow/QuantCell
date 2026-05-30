@@ -83,14 +83,20 @@ const GeneralSettingsPage = () => {
     }
   };
 
-  // 处理语言变更
+  // 处理语言变更（智能版本）
   const handleLanguageChange = (value: string) => {
+    // 始终更新设置状态，确保保存按钮能正确响应
+    setLocaleChanged(true);
+    setGeneralSettings(prev => ({ ...prev, language: value as 'zh-CN' | 'en-US' }));
+
+    // 只在语言真正改变时才切换 i18n（避免不必要的重渲染）
     if (value !== (i18n.resolvedLanguage ?? i18n.language)) {
-      setLocaleChanged(true);
-      setGeneralSettings(prev => ({ ...prev, language: value as 'zh-CN' | 'en-US' }));
       i18n.changeLanguage(value);
       message.success(t('language_changed') || '语言已切换');
     }
+
+    // 立即持久化到 localStorage，防止刷新丢失
+    localStorage.setItem('quantcell-language', value);
   };
 
   // 处理分页变更
