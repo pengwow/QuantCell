@@ -4,6 +4,7 @@
  */
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { App } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { configApi, systemApi } from '../../api';
 import type {
   GeneralSettings,
@@ -120,6 +121,7 @@ interface SettingsProviderProps {
 
 export const SettingsProvider = ({ children }: SettingsProviderProps) => {
   const { message } = App.useApp();
+  const { i18n } = useTranslation();
   const [generalSettings, setGeneralSettings] = useState<GeneralSettings>(defaultGeneralSettings);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(defaultNotificationSettings);
   const [apiSettings, setApiSettings] = useState<ApiSettings>(defaultApiSettings);
@@ -218,6 +220,21 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
         // 保存初始值用于变更检测
         setInitialGeneralSettings(newSettings);
         applyTheme(filteredGeneralSettings.theme || 'light');
+
+        // 智能同步 i18n 语言设置（优先级：后端配置 > localStorage > 当前i18n）
+        const targetLanguage = filteredGeneralSettings.language ||
+                              localStorage.getItem('quantcell-language') ||
+                              i18n.language;
+
+        if (targetLanguage && targetLanguage !== i18n.language) {
+          i18n.changeLanguage(targetLanguage);
+          console.log(`[SettingsContext] 已同步语言设置为: ${targetLanguage} (来源: ${filteredGeneralSettings.language ? '后端' : 'localStorage'})`);
+        }
+
+        // 同步到 localStorage（确保一致性）
+        if (filteredGeneralSettings.language) {
+          localStorage.setItem('quantcell-language', filteredGeneralSettings.language);
+        }
       }
 
       // 从扁平配置中提取通知设置
@@ -265,7 +282,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     } finally {
       setLoading(false);
     }
-  }, [applyTheme, refreshSystemMetrics]);
+  }, [applyTheme, refreshSystemMetrics, i18n]);
 
   // 保存配置
   const saveConfig = useCallback(async () => {
@@ -294,6 +311,12 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
       setPasswordModified(false);
       // 更新初始值
       setInitialGeneralSettings(generalSettings);
+
+      // 持久化语言设置到 localStorage（确保刷新后立即生效）
+      if (generalSettings.language) {
+        localStorage.setItem('quantcell-language', generalSettings.language);
+        console.log(`[SettingsContext] 语言设置已持久化到 localStorage: ${generalSettings.language}`);
+      }
 
       // 重新加载系统配置
       console.log('[SettingsContext] 保存成功，重新加载系统配置');

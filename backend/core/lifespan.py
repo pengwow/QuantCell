@@ -275,13 +275,13 @@ async def lifespan(app: FastAPI):
 
     _shutdown_start = _time.monotonic()
 
-    # 3秒强制退出定时器（兜底：即使事件循环/线程卡死，也能退出）
+    # 2秒强制退出定时器（兜底：即使事件循环/线程卡死，也能快速退出）
     def _force_exit_timer():
-        _th.Event().wait(3.0)
+        _th.Event().wait(2.0)
         _elapsed = _time.monotonic() - _shutdown_start
         import logging as _log
         _log.getLogger(__name__).warning(
-            f"[FORCE EXIT] 3秒强制退出定时器触发 (已等待 {_elapsed:.2f}s)"
+            f"[FORCE EXIT] 2秒强制退出定时器触发 (已等待 {_elapsed:.2f}s)"
         )
         _os._exit(0)
 
@@ -308,30 +308,39 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"关闭 Worker System 时发生意外错误: {e}")
 
-    # 步骤 3: 停止实时引擎
+    # 步骤 3: 停止实时引擎（带超时保护）
     if realtime_engine:
         try:
-            await realtime_engine.stop()
+            await asyncio.wait_for(realtime_engine.stop(), timeout=1.0)
             logger.info("实时引擎已停止")
+        except asyncio.TimeoutError:
+            logger.warning("实时引擎停止超时（>1s），强制跳过")
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error(f"停止实时引擎失败: {e}")
 
-    # 步骤 4: 停止系统状态推送服务
+    # 步骤 4: 停止系统状态推送服务（带超时保护）
     try:
         if hasattr(app.state, "system_service"):
-            await app.state.system_service.stop_system_status_push()
+            await asyncio.wait_for(
+                app.state.system_service.stop_system_status_push(),
+                timeout=1.0
+            )
             logger.info("系统状态推送服务已停止")
+    except asyncio.TimeoutError:
+        logger.warning("系统状态推送服务停止超时（>1s），强制跳过")
     except asyncio.CancelledError:
         raise
     except Exception as e:
         logger.error(f"停止系统状态推送服务失败: {e}")
 
-    # 步骤 5: 停止 WebSocket 连接管理器
+    # 步骤 5: 停止 WebSocket 连接管理器（带超时保护）
     try:
-        await manager.stop()
+        await asyncio.wait_for(manager.stop(), timeout=1.0)
         logger.info("WebSocket连接管理器已停止")
+    except asyncio.TimeoutError:
+        logger.warning("WebSocket连接管理器停止超时（>1s），强制跳过")
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -345,11 +354,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"取消货币对同步任务失败: {e}")
 
+    # 步骤 7: 关闭调度器和插件（带超时保护，使用线程池执行器）
     try:
-        await asyncio.to_thread(traditional_scheduler.shutdown)
-        await asyncio.to_thread(scheduled_task_manager.shutdown)
-        await asyncio.to_thread(plugin_manager.stop_all_plugins)
-        await asyncio.to_thread(event_bus.clear)
+        # 使用 asyncio.to_thread 配合 wait_for 实现超时控制
+        async def _shutdown_schedulers():
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, traditional_scheduler.shutdown)
+            await loop.run_in_executor(None, scheduled_task_manager.shutdown)
+            await loop.run_in_executor(None, plugin_manager.stop_all_plugins)
+            await loop.run_in_executor(None, event_bus.clear)
+
+        await asyncio.wait_for(_shutdown_schedulers(), timeout=1.5)
+        logger.info("调度器和插件已全部关闭")
+    except asyncio.TimeoutError:
+        logger.warning("调度器或插件关闭超时（>1.5s），强制跳过")
     except asyncio.CancelledError:
         raise
     except Exception as e:

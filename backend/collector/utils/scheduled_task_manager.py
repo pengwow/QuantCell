@@ -64,11 +64,13 @@ class ScheduledTaskManager:
             raise
     
     def shutdown(self):
-        """关闭调度器"""
+        """关闭调度器（非阻塞模式，避免 CTRL+C 时卡死）"""
         try:
             if self._scheduler.running:
-                self._scheduler.shutdown(wait=True)
-                logger.info("APScheduler调度器已关闭")
+                # 使用 wait=False 避免阻塞等待正在执行的任务
+                # CTRL+C 场景下应快速退出，不等任务完成
+                self._scheduler.shutdown(wait=False)
+                logger.info("APScheduler调度器已关闭（非阻塞模式）")
         except Exception as e:
             logger.error(f"关闭APScheduler调度器失败: {e}")
             raise
