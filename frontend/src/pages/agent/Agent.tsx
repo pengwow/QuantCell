@@ -49,6 +49,8 @@ import {
   ToolParamsResponse,
   ToolParamValue,
 } from '../../api/agentApi';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import './Agent.css';
 
 const { Content } = Layout;
@@ -129,7 +131,9 @@ const ChatMessage = ({ message }: { message: Message }) => {
                   />
                 </Tooltip>
               )}
-              {message.content}
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {message.content}
+              </ReactMarkdown>
             </div>
             {message.toolResult && (
               <div className="tool-result">

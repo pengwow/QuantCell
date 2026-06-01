@@ -17,6 +17,8 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Bubble, Sender, ThoughtChain } from '@ant-design/x';
 import { aiModelApi } from '../api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // AI模型配置类型
 export interface AIModel {
@@ -388,17 +390,56 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
       return renderMessageContent(msg);
     }
 
+    // 自定义代码块组件（支持语法高亮和复制按钮）
+    const CodeBlock = ({ className, children }: { className?: string; children?: React.ReactNode }) => {
+      const language = className?.replace('language-', '') || '';
+      const codeString = String(children).replace(/\n$/, '');
+
+      return (
+        <div className="relative group my-3">
+          <div className="flex items-center justify-between bg-gray-800 dark:bg-gray-900 px-4 py-2 rounded-t-lg">
+            <span className="text-xs text-gray-400 dark:text-gray-500">{language || 'code'}</span>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(codeString);
+                message.success('代码已复制');
+              }}
+              className="text-xs text-gray-400 hover:text-white transition-colors"
+            >
+              复制
+            </button>
+          </div>
+          <pre className="bg-gray-900 dark:bg-black p-4 rounded-b-lg overflow-x-auto text-sm max-h-[400px] overflow-y-auto">
+            <code className={`hljs language-${language} text-gray-100`}>{children}</code>
+          </pre>
+        </div>
+      );
+    };
+
+    // 自定义表格组件（添加样式）
+    const TableWrapper = ({ children }: { children?: React.ReactNode }) => (
+      <div className="overflow-x-auto my-3 rounded-lg border border-gray-200 dark:border-gray-700">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">{children}</table>
+      </div>
+    );
+
     if (msg.code) {
       return (
         <div className="space-y-4">
           {msg.content && (
-            <div className="text-sm leading-relaxed whitespace-pre-wrap text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
-              {msg.content}
+            <div className="text-sm leading-relaxed text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 p-4 rounded-lg prose prose-sm dark:prose-invert max-w-none overflow-x-auto">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code: CodeBlock,
+                  table: TableWrapper,
+                }}
+              >
+                {msg.content}
+              </ReactMarkdown>
             </div>
           )}
-          <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm">
-            <code>{msg.code}</code>
-          </pre>
+          <CodeBlock>{msg.code}</CodeBlock>
           {renderActions && renderActions(msg)}
           {msg.type === 'ai' && msg.code && (
             <div className="flex gap-3 pt-2">
@@ -424,8 +465,16 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
     }
 
     return (
-      <div className="text-sm leading-relaxed whitespace-pre-wrap text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 p-4 rounded-lg max-h-[500px] overflow-y-auto">
-        {msg.content || (t('no_content') || '暂无内容')}
+      <div className="text-sm leading-relaxed text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 p-4 rounded-lg max-h-[500px] overflow-y-auto prose prose-sm dark:prose-invert max-w-none">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            code: CodeBlock,
+            table: TableWrapper,
+          }}
+        >
+          {msg.content || (t('no_content') || '暂无内容')}
+        </ReactMarkdown>
       </div>
     );
   };

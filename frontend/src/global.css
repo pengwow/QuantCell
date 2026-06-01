@@ -123,3 +123,150 @@
 .status-indicator[data-status="warning"] {
   --status-color: #FFC107;
 }
+
+/* ========== AI Chat Markdown 样式 ========== */
+
+/* Prose 样式 - 用于 Markdown 内容渲染 */
+.prose {
+  color: var(--tw-color-foreground);
+  line-height: 1.75;
+  font-size: 0.875rem;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  color: var(--tw-color-foreground);
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.25;
+}
+
+.prose h1 { font-size: 1.5em; }
+.prose h2 { font-size: 1.375em; border-bottom: 1px solid var(--tw-color-border); padding-bottom: 0.3em; }
+.prose h3 { font-size: 1.25em; }
+.prose h4 { font-size: 1.125em; }
+
+.prose p {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose ul,
+.prose ol {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+  padding-left: 1.5em;
+}
+
+.prose li {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.prose strong {
+  font-weight: 600;
+  color: var(--tw-color-foreground);
+}
+
+.prose em {
+  font-style: italic;
+}
+
+/* 表格样式 */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+
+.prose thead {
+  background-color: rgba(128, 128, 128, 0.1);
+}
+
+.prose th {
+  padding: 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid var(--tw-color-border);
+  color: var(--tw-color-foreground);
+}
+
+.prose td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--tw-color-border-secondary);
+  vertical-align: top;
+}
+
+.prose tbody tr:hover {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+/* 引用样式 */
+.prose blockquote {
+  border-left: 4px solid var(--tw-color-primary);
+  padding-left: 1em;
+  margin: 1em 0;
+  color: rgba(128, 128, 128, 0.8);
+  font-style: italic;
+}
+
+/* 链接样式 */
+.prose a {
+  color: var(--tw-color-info);
+  text-decoration: underline;
+  transition: color 0.2s;
+}
+
+.prose a:hover {
+  color: var(--tw-color-primary);
+}
+
+/* 水平分割线 */
+.prose hr {
+  border: none;
+  border-top: 1px solid var(--tw-color-border);
+  margin: 1.5em 0;
+}
+
+/* 内联代码 */
+.prose code:not(.hljs) {
+  background-color: rgba(128, 128, 128, 0.15);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+}
+
+/* 图片样式 */
+.prose img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 1em 0;
+}
+
+/* 暗色模式下的 Prose 样式调整 */
+.dark .prose {
+  color: #e5e7eb;
+}
+
+.dark .prose h2 {
+  border-bottom-color: #374151;
+}
+
+.dark .prose th {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.dark .prose code:not(.hljs) {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark .prose blockquote {
+  color: #9ca3af;
+}
