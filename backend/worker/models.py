@@ -690,6 +690,7 @@ class WorkerPosition(Base):
     # 盈亏计算
     unrealized_pnl = Column(Float, default=0.0)       # 未实现盈亏
     realized_pnl = Column(Float, default=0.0)         # 已实现盈亏
+    margin_used = Column(Float, default=0.0)            # 已用保证金
 
     # 持仓状态
     status = Column(String(20), nullable=False, index=True)  # OPEN, CLOSED
@@ -721,6 +722,7 @@ class WorkerPosition(Base):
             'unrealized_pnl_pct': (self.unrealized_pnl / (self.quantity * self.entry_price) * 100
                                    if self.quantity and self.entry_price else 0),
             'realized_pnl': self.realized_pnl,
+            'margin_used': self.margin_used,
             'status': self.status,
             'opened_at': self.opened_at.isoformat() if self.opened_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
