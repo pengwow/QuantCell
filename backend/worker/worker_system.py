@@ -18,9 +18,11 @@ Worker System — NautilusTradingSystem 策略执行引擎
 
 
 import asyncio
+import json
 import os
 import signal
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -366,14 +368,25 @@ class NautilusTradingSystem:
         flush_thread.start()
         strategy_registry.set_flush_stop(worker_id, _flush_stop)
 
-        # TODO: 当自定义策略可用时，在此处加载并注册策略
-        # strategy_class = load_strategy_from_path(worker.strategy_path)
-        # node.trader.add_strategy(strategy_class(config=config))
+        # 加载策略类和配置
+        strategy_class = None
+        strategy_config = None
+        try:
+            strategy_class, strategy_config = load_strategy_from_path(worker, db)
+            logger.info(
+                f"[NautilusTradingSystem] 策略已加载: worker_id={worker_id}, "
+                f"strategy_class={strategy_class.__name__ if strategy_class else None}"
+            )
+        except Exception as e:
+            logger.error(
+                f"[NautilusTradingSystem] 策略加载失败: worker_id={worker_id}, "
+                f"error={e}\n{traceback.format_exc()}"
+            )
 
         # 创建 daemon 线程运行 TradingNode（不阻塞事件循环，Ctrl+C 可强制退出）
         run_thread = threading.Thread(
             target=self._run_node_sync,
-            args=(worker_id, node, node_loop),
+            args=(worker_id, node, node_loop, strategy_class, strategy_config),
             name=f"nautilus-worker-{worker_id}",
             daemon=True,
         )
@@ -402,7 +415,7 @@ class NautilusTradingSystem:
         )
         return True
 
-    def _run_node_sync(self, worker_id: int, node, node_loop) -> None:
+    def _run_node_sync(self, worker_id: int, node, node_loop, strategy_class=None, strategy_config=None) -> None:
         """
         在 daemon 线程中，使用独立事件循环运行 TradingNode
 
@@ -419,10 +432,78 @@ class NautilusTradingSystem:
             logger.info(
                 f"[NautilusTradingSystem] TradingNode 构建中: worker_id={worker_id}"
             )
+
+            # 注册策略到 trader（必须在 node.build() 之前）
+            if strategy_class is not None:
+                try:
+                    strategy_instance = strategy_class(config=strategy_config)
+                    node.trader.add_strategy(strategy_instance)
+                    logger.info(
+                        f"[NautilusTradingSystem] 策略已注册到 Trader: "
+                        f"worker_id={worker_id}, strategy={strategy_class.__name__}"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"[NautilusTradingSystem] 注册策略失败: "
+                        f"worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
+                    )
+
             node.build()
             logger.info(
                 f"[NautilusTradingSystem] TradingNode 开始运行(Thread): worker_id={worker_id}"
             )
+
+            # 注册 LiveTradeRecorder 事件处理器，订阅 nautilus 事件并持久化到 DB
+            try:
+                from .event_handler import NautilusEventHandler
+
+                def _live_trade_event_callback(event_type: str, event_data: dict) -> None:
+                    """回调：将 nautilus 事件持久化到数据库"""
+                    try:
+                        from collector.db.database import SessionLocal as _SessionLocal
+                        from worker.models import WorkerLog
+                        _db = _SessionLocal()
+                        try:
+                            log_entry = WorkerLog(
+                                worker_id=worker_id,
+                                level="INFO",
+                                message=json.dumps({
+                                    "event_type": event_type,
+                                    **event_data,
+                                }),
+                                source="LiveTradeRecorder",
+                            )
+                            _db.add(log_entry)
+                            _db.commit()
+                        except Exception as db_err:
+                            _db.rollback()
+                            logger.warning(
+                                f"[LiveTradeRecorder] 持久化事件失败: "
+                                f"worker_id={worker_id}, error={db_err}"
+                            )
+                        finally:
+                            _db.close()
+                    except Exception as cb_err:
+                        logger.warning(
+                            f"[LiveTradeRecorder] 事件回调异常: "
+                            f"worker_id={worker_id}, error={cb_err}"
+                        )
+
+                recorder = NautilusEventHandler(
+                    trader=node.trader,
+                    event_callback=_live_trade_event_callback,
+                )
+                recorder.subscribe_events()
+                logger.info(
+                    f"[NautilusTradingSystem] LiveTradeRecorder 已注册: "
+                    f"worker_id={worker_id}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[NautilusTradingSystem] LiveTradeRecorder 注册失败 "
+                    f"(非致命): worker_id={worker_id}, error={e}"
+                )
+
             node.run()
         except RuntimeError as e:
             error_msg = str(e)
@@ -994,3 +1075,238 @@ def _register_to_state() -> None:
 
 
 _register_to_state()
+
+
+# =========================================================================
+# 策略加载函数
+# =========================================================================
+
+def load_strategy_from_path(worker, db=None):
+    """
+    从 Worker ORM 对象加载策略类和配置。
+
+    支持两种加载方式：
+    1. 文件加载：策略文件存储在磁盘上（file_path 或 file_name）
+    2. 代码加载：策略代码存储在数据库中（code 字段），写入临时文件后加载
+
+    支持两种策略类型：
+    - default：原生 NautilusTrader Strategy，使用 load_advanced_strategy() 加载
+    - legacy：基于 StrategyBase 的旧策略，使用 adapt_legacy_strategy() 包装
+
+    Args:
+        worker: Worker ORM 对象（需通过 session 确保 strategy 关系已加载）
+        db: 数据库会话（可选，用于懒加载 strategy 关系）
+
+    Returns:
+        (strategy_class, strategy_config_dict) 元组
+
+    Raises:
+        ValueError: 如果策略配置无效或找不到策略
+        Exception: 加载失败时的其他异常
+    """
+    from strategy.models import Strategy
+    from backtest.adapters.strategy_adapter import (
+        load_advanced_strategy,
+        adapt_legacy_strategy,
+    )
+
+    # 1. 获取 Strategy ORM 对象
+    strategy = getattr(worker, "strategy", None)
+    if strategy is None and worker.strategy_id is not None:
+        if db is None:
+            from collector.db.database import SessionLocal as _SessionLocal
+            db = _SessionLocal()
+            own_db = True
+        else:
+            own_db = False
+        try:
+            strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
+        finally:
+            if own_db:
+                db.close()
+
+    if strategy is None:
+        raise ValueError(
+            f"Worker {worker.id} 没有关联的策略 "
+            f"(strategy_id={worker.strategy_id})"
+        )
+
+    # 2. 构建策略配置：worker.config (JSON) 合并 strategy.parameters (JSON)
+    worker_config = {}
+    if worker.config:
+        try:
+            worker_config = json.loads(worker.config) if isinstance(worker.config, str) else worker.config
+        except (json.JSONDecodeError, TypeError):
+            worker_config = {}
+
+    strategy_params = {}
+    if strategy.parameters:
+        try:
+            strategy_params = json.loads(strategy.parameters) if isinstance(strategy.parameters, str) else strategy.parameters
+        except (json.JSONDecodeError, TypeError):
+            strategy_params = {}
+
+    # 合并配置：strategy.parameters 作为基础，worker.config 覆盖
+    merged_config = {**strategy_params, **worker_config}
+
+    # 3. 确定策略类型
+    strategy_type = getattr(strategy, "strategy_type", "default") or "default"
+
+    # 4. 获取策略代码/文件
+    strategy_file_path = getattr(strategy, "file_path", None)
+    strategy_file_name = getattr(strategy, "file_name", None)
+    strategy_code = getattr(strategy, "code", None)
+
+    temp_file = None
+
+    try:
+        if strategy_type == "legacy":
+            # ----- Legacy 策略加载 -----
+            # Legacy 策略继承自 StrategyBase，需要先导入再包装
+            legacy_class = None
+
+            if strategy_file_path and os.path.isfile(strategy_file_path):
+                # 从文件加载 legacy 策略
+                legacy_class = _load_class_from_file(
+                    strategy_file_path, strategy_file_name
+                )
+            elif strategy_code:
+                # 从数据库代码加载 legacy 策略（写入临时文件）
+                temp_file = _write_code_to_temp_file(
+                    strategy_code, strategy_file_name
+                )
+                legacy_class = _load_class_from_file(
+                    temp_file, strategy_file_name
+                )
+            else:
+                raise ValueError(
+                    f"Legacy 策略 {strategy.name} 既没有文件也没有代码"
+                )
+
+            # 使用 adapt_legacy_strategy 包装为 Nautilus Strategy
+            strategy_class = adapt_legacy_strategy(legacy_class)
+            logger.info(
+                f"[策略加载] Legacy 策略已包装: {strategy.name} -> "
+                f"{strategy_class.__name__}"
+            )
+        else:
+            # ----- Default (原生 Nautilus) 策略加载 -----
+            if strategy_file_path and os.path.isfile(strategy_file_path):
+                # 从文件加载
+                strategy_class = load_advanced_strategy(strategy_file_path)
+            elif strategy_code:
+                # 从数据库代码加载（写入临时文件）
+                temp_file = _write_code_to_temp_file(
+                    strategy_code, strategy_file_name
+                )
+                strategy_class = load_advanced_strategy(temp_file)
+            else:
+                raise ValueError(
+                    f"策略 {strategy.name} 既没有文件也没有代码"
+                )
+
+            logger.info(
+                f"[策略加载] 原生策略已加载: {strategy.name} -> "
+                f"{strategy_class.__name__}"
+            )
+
+        return strategy_class, merged_config
+
+    finally:
+        # 清理临时文件
+        if temp_file and os.path.exists(temp_file):
+            try:
+                os.unlink(temp_file)
+            except OSError:
+                pass
+
+
+def _load_class_from_file(file_path, strategy_name=None):
+    """
+    从 Python 文件加载策略类（支持 legacy StrategyBase）。
+
+    Args:
+        file_path: Python 文件路径
+        strategy_name: 策略类名称（可选）
+
+    Returns:
+        策略类
+
+    Raises:
+        ImportError: 导入失败
+        ValueError: 找不到策略类
+    """
+    import importlib
+    from pathlib import Path
+
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"策略文件不存在: {file_path}")
+
+    # 添加策略目录到 sys.path
+    strategy_dir = str(path.parent)
+    if strategy_dir not in sys.path:
+        sys.path.insert(0, strategy_dir)
+
+    module_name = path.stem
+    try:
+        # 清除模块缓存（避免重复导入）
+        if module_name in sys.modules:
+            del sys.modules[module_name]
+
+        module = importlib.import_module(module_name)
+
+        if strategy_name and hasattr(module, strategy_name):
+            return getattr(module, strategy_name)
+
+        # 自动查找：优先找 StrategyBase 子类，其次找任何类
+        try:
+            from strategy.core import StrategyBase
+            for name in dir(module):
+                obj = getattr(module, name)
+                if (
+                    isinstance(obj, type)
+                    and issubclass(obj, StrategyBase)
+                    and obj is not StrategyBase
+                ):
+                    return obj
+        except ImportError:
+            pass
+
+        # 回退：查找任何非私有类
+        for name in dir(module):
+            obj = getattr(module, name)
+            if isinstance(obj, type) and not name.startswith("_"):
+                return obj
+
+        raise ValueError(
+            f"在模块 {module_name} 中找不到策略类"
+        )
+    except Exception as e:
+        raise ImportError(
+            f"从文件加载策略失败: {file_path}, error={e}"
+        ) from e
+
+
+def _write_code_to_temp_file(code, file_name=None):
+    """
+    将数据库中的策略代码写入临时文件。
+
+    Args:
+        code: 策略 Python 代码
+        file_name: 原始文件名（用于保留 .py 后缀）
+
+    Returns:
+        临时文件的路径
+    """
+    fd, temp_path = tempfile.mkstemp(suffix=".py", prefix="strategy_")
+
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(code)
+    except Exception:
+        os.close(fd)
+        raise
+
+    logger.info(f"[策略加载] 代码已写入临时文件: {temp_path}")
+    return temp_path

@@ -228,32 +228,69 @@ class StrategyRegistry:
 class LiveTradingManager:
     """
     实盘交易管理器，管理交易所连接、下单、撤单、持仓同步等实盘操作。
+    支持按 worker_id 追踪多个交易所连接配置。
     """
 
     def __init__(self):
-        self._connected: bool = False
-        self._exchange: Optional[str] = None
+        self._connected_workers: Dict[int, Dict[str, Any]] = {}
 
     @property
     def is_connected(self) -> bool:
-        return self._connected
+        return len(self._connected_workers) > 0
 
-    async def connect(self, exchange: str, api_key: str, api_secret: str) -> bool:
-        self._exchange = exchange
-        self._connected = True
-        logger.info(f"[LiveTradingManager] 已连接交易所: {exchange}")
+    async def connect(self, worker_id: int, exchange: str, config: Optional[Dict[str, Any]] = None) -> bool:
+        self._connected_workers[worker_id] = {
+            "exchange": exchange,
+            "config": config or {},
+        }
+        logger.info(f"[LiveTradingManager] Worker {worker_id} 已连接交易所: {exchange}")
         return True
 
-    async def disconnect(self) -> None:
-        self._connected = False
-        self._exchange = None
-        logger.info("[LiveTradingManager] 已断开交易所连接")
+    async def disconnect(self, worker_id: Optional[int] = None) -> None:
+        if worker_id is not None:
+            if worker_id in self._connected_workers:
+                exchange = self._connected_workers[worker_id].get("exchange", "unknown")
+                del self._connected_workers[worker_id]
+                logger.info(f"[LiveTradingManager] Worker {worker_id} 已断开交易所连接: {exchange}")
+            else:
+                logger.warning(f"[LiveTradingManager] Worker {worker_id} 未找到连接记录")
+        else:
+            self._connected_workers.clear()
+            logger.info("[LiveTradingManager] 已断开所有交易所连接")
 
     def get_status(self) -> Dict[str, Any]:
+        workers_status = {}
+        for wid, info in self._connected_workers.items():
+            workers_status[wid] = {
+                "exchange": info.get("exchange"),
+                "config": info.get("config"),
+            }
         return {
-            "connected": self._connected,
-            "exchange": self._exchange,
+            "connected": self.is_connected,
+            "worker_count": len(self._connected_workers),
+            "workers": workers_status,
         }
+
+    def register_worker(self, worker_id: int, exchange: str, config: Optional[Dict[str, Any]] = None) -> None:
+        """注册一个 worker 的交易所配置（不立即连接）。"""
+        if worker_id not in self._connected_workers:
+            self._connected_workers[worker_id] = {
+                "exchange": exchange,
+                "config": config or {},
+            }
+            logger.info(f"[LiveTradingManager] 已注册 Worker {worker_id} 交易所: {exchange}")
+        else:
+            logger.warning(f"[LiveTradingManager] Worker {worker_id} 已注册，更新配置")
+            self._connected_workers[worker_id]["exchange"] = exchange
+            self._connected_workers[worker_id]["config"] = config or {}
+
+    def unregister_worker(self, worker_id: int) -> None:
+        """取消注册一个 worker 的交易所配置。"""
+        if worker_id in self._connected_workers:
+            del self._connected_workers[worker_id]
+            logger.info(f"[LiveTradingManager] 已取消注册 Worker {worker_id}")
+        else:
+            logger.warning(f"[LiveTradingManager] Worker {worker_id} 未注册")
 
 
 # =============================================================================
