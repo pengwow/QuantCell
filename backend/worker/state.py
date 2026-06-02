@@ -137,22 +137,27 @@ class StrategyRegistry:
     def __init__(self):
         self._strategies: Dict[int, StrategyRuntime] = {}
         self._change_callbacks: List[Callable] = []
+        self._lock = threading.Lock()  # 保护 _strategies 的并发访问
 
     def register(self, runtime: StrategyRuntime) -> None:
-        self._strategies[runtime.worker_id] = runtime
+        with self._lock:
+            self._strategies[runtime.worker_id] = runtime
         logger.info(f"[StrategyRegistry] 注册策略: worker_id={runtime.worker_id}, name={runtime.name}")
 
     def unregister(self, worker_id: int) -> Optional[StrategyRuntime]:
-        runtime = self._strategies.pop(worker_id, None)
+        with self._lock:
+            runtime = self._strategies.pop(worker_id, None)
         if runtime:
             logger.info(f"[StrategyRegistry] 注销策略: worker_id={worker_id}")
         return runtime
 
     def get(self, worker_id: int) -> Optional[StrategyRuntime]:
-        return self._strategies.get(worker_id)
+        with self._lock:
+            return self._strategies.get(worker_id)
 
     def list_all(self) -> List[StrategyRuntime]:
-        return list(self._strategies.values())
+        with self._lock:
+            return list(self._strategies.values())
 
     def update_status(
         self,
@@ -160,14 +165,15 @@ class StrategyRegistry:
         status: str,
         error_message: Optional[str] = None,
     ) -> Optional[StrategyRuntime]:
-        runtime = self._strategies.get(worker_id)
-        if runtime is None:
-            return None
+        with self._lock:
+            runtime = self._strategies.get(worker_id)
+            if runtime is None:
+                return None
 
-        old_status = runtime.status
-        runtime.status = status
-        if error_message is not None:
-            runtime.error_message = error_message
+            old_status = runtime.status
+            runtime.status = status
+            if error_message is not None:
+                runtime.error_message = error_message
 
         logger.info(
             f"[StrategyRegistry] 状态变更: worker_id={worker_id}, "
@@ -178,29 +184,34 @@ class StrategyRegistry:
         return runtime
 
     def set_run_task(self, worker_id: int, task: Optional[asyncio.Task]) -> None:
-        runtime = self._strategies.get(worker_id)
-        if runtime:
-            runtime._run_task = task
+        with self._lock:
+            runtime = self._strategies.get(worker_id)
+            if runtime:
+                runtime._run_task = task
 
     def set_trading_node(self, worker_id: int, trading_node: Any) -> None:
-        runtime = self._strategies.get(worker_id)
-        if runtime:
-            runtime.trading_node = trading_node
+        with self._lock:
+            runtime = self._strategies.get(worker_id)
+            if runtime:
+                runtime.trading_node = trading_node
 
     def set_run_thread(self, worker_id: int, thread: Optional[threading.Thread]) -> None:
-        runtime = self._strategies.get(worker_id)
-        if runtime:
-            runtime._run_thread = thread
+        with self._lock:
+            runtime = self._strategies.get(worker_id)
+            if runtime:
+                runtime._run_thread = thread
 
     def set_flush_stop(self, worker_id: int, event: Optional[threading.Event]) -> None:
-        runtime = self._strategies.get(worker_id)
-        if runtime:
-            runtime._flush_stop = event
+        with self._lock:
+            runtime = self._strategies.get(worker_id)
+            if runtime:
+                runtime._flush_stop = event
 
     def get_flush_stop(self, worker_id: int) -> Optional[threading.Event]:
-        runtime = self._strategies.get(worker_id)
-        if runtime:
-            return runtime._flush_stop
+        with self._lock:
+            runtime = self._strategies.get(worker_id)
+            if runtime:
+                return runtime._flush_stop
         return None
 
     def on_change(self, callback: callable) -> None:

@@ -19,6 +19,7 @@ from typing import Optional, Dict, Any, Callable, List, Set
 
 from utils.logger import get_logger, LogType
 from collector.db.database import SessionLocal
+from utils.db_session import get_db_session
 from . import crud
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -86,6 +87,9 @@ class WorkerState(Enum):
         """
         检查是否可以转换到指定状态
 
+        ⚠️ 此方法是状态转换的唯一权威来源。
+        所有状态验证必须通过此方法，不要在其他地方定义独立的转换规则。
+
         Args:
             new_state: 目标状态
 
@@ -112,11 +116,13 @@ class WorkerState(Enum):
                 WorkerState.STOPPING,
                 WorkerState.PAUSED,
                 WorkerState.RELOADING,
+                WorkerState.RESTARTING,   # 允许从运行中直接重启
                 WorkerState.ERROR,
             ],
             WorkerState.PAUSED: [
                 WorkerState.RUNNING,
                 WorkerState.STOPPING,
+                WorkerState.RESTARTING,   # 允许从暂停中重启
                 WorkerState.ERROR,
             ],
             WorkerState.STOPPING: [
@@ -130,6 +136,9 @@ class WorkerState(Enum):
             WorkerState.ERROR: [
                 WorkerState.RECOVERING,
                 WorkerState.STOPPING,
+                WorkerState.STARTING,     # 允许从错误状态重试启动
+                WorkerState.STOPPED,      # 允许从错误状态标记为已停止
+                WorkerState.RESTARTING,   # 允许从错误状态强制重启
             ],
             WorkerState.RECOVERING: [
                 WorkerState.RUNNING,
@@ -142,6 +151,7 @@ class WorkerState(Enum):
             ],
             WorkerState.RESTARTING: [
                 WorkerState.INITIALIZING,
+                WorkerState.STARTING,     # 允许直接转到启动状态
                 WorkerState.ERROR,
             ],
         }
@@ -395,36 +405,27 @@ class WorkerStateRecord:
         return data
 
 
-# 合法的状态转换规则
-STATE_TRANSITIONS: Dict[str, List[str]] = {
-    "stopped": ["starting", "restarting"],
-    "starting": ["running", "error"],
-    "running": ["stopping", "error", "paused", "restarting"],
-    "stopping": ["stopped", "error"],
-    "paused": ["running", "stopping", "restarting"],
-    "error": [
-        "starting",      # 重试启动
-        "stopped",       # 标记为已停止（清理完成）
-        "stopping",      # 强制停止（从错误状态恢复的关键路径）
-        "restarting",    # 强制重启
-    ],
-    "restarting": ["starting", "stopped", "error"],
-}
-
-
 def is_valid_transition(current_status: str, target_status: str) -> bool:
     """
-    验证状态转换是否合法
+    验证状态转换是否合法（委托给 WorkerState.can_transition_to）
+
+    ⚠️ 此函数仅用于向后兼容字符串 API。
+    新代码应直接使用 WorkerState.can_transition_to() 枚举版本。
 
     Args:
-        current_status: 当前状态
-        target_status: 目标状态
+        current_status: 当前状态（字符串）
+        target_status: 目标状态（字符串）
 
     Returns:
         是否为合法的状态转换
     """
-    valid_targets = STATE_TRANSITIONS.get(current_status, [])
-    return target_status in valid_targets
+    try:
+        current = WorkerState(current_status)
+        target = WorkerState(target_status)
+        return current.can_transition_to(target)
+    except ValueError:
+        # 未知状态字符串，拒绝转换
+        return False
 
 
 class WorkerStateManager:
@@ -536,7 +537,7 @@ class WorkerStateManager:
 
             # 持久化到数据库
             try:
-                self._persist_state(current_state)
+                await self._persist_state(current_state)
             except Exception as e:
                 logger.error(f"持久化 Worker {worker_id} 状态失败: {e}")
 
@@ -610,7 +611,7 @@ class WorkerStateManager:
 
             # 持久化到数据库
             try:
-                self._persist_state(current_state)
+                await self._persist_state(current_state)
             except Exception as e:
                 logger.error(f"持久化强制重置失败: {e}")
 
@@ -635,7 +636,7 @@ class WorkerStateManager:
 
             return True
 
-    def _persist_state(self, state: WorkerStateRecord) -> None:
+    async def _persist_state(self, state: WorkerStateRecord) -> None:
         """
         持久化状态到数据库（带重试机制）
 
@@ -649,33 +650,30 @@ class WorkerStateManager:
         last_error = None
 
         for attempt in range(max_retries):
-            db = SessionLocal()
             try:
-                crud.update_worker_status(
-                    db=db,
-                    worker_id=state.worker_id,
-                    status=state.status,
-                    pid=state.pid,
-                )
-                logger.debug(f"Worker {state.worker_id} 状态已持久化: {state.status}")
-                return
+                with get_db_session() as db:
+                    crud.update_worker_status(
+                        db=db,
+                        worker_id=state.worker_id,
+                        status=state.status,
+                        pid=state.pid,
+                    )
+                    logger.debug(f"Worker {state.worker_id} 状态已持久化: {state.status}")
+                    return
             except Exception as e:
                 last_error = e
-                db.rollback()
                 if attempt < max_retries - 1:
                     wait_time = 0.5 * (attempt + 1)
                     logger.warning(
                         f"持久化状态失败（尝试 {attempt + 1}/{max_retries}），"
                         f"{wait_time:.1f}s 后重试: {e}"
                     )
-                    time.sleep(wait_time)
+                    await asyncio.sleep(wait_time)
                 else:
                     logger.error(
                         f"持久化状态最终失败（{max_retries}次尝试均失败）: {e}，"
                         f"Worker {state.worker_id} 内存状态保持为 {state.status}"
                     )
-            finally:
-                db.close()
 
         if last_error:
             raise last_error
@@ -689,57 +687,55 @@ class WorkerStateManager:
         async with self._lock:
             logger.info("正在从数据库恢复 Worker 状态...")
 
-            db = SessionLocal()
             try:
-                from .crud import get_workers
+                with get_db_session() as db:
+                    from .crud import get_workers
 
-                workers, total = get_workers(db, skip=0, limit=1000)
+                    workers, total = get_workers(db, skip=0, limit=1000)
 
-                # 中间状态集合（程序异常退出后残留的风险状态）
-                RECOVERABLE_STATES = {"starting", "stopping", "restarting", "paused"}
-                recovered_count = 0
+                    # 中间状态集合（程序异常退出后残留的风险状态）
+                    RECOVERABLE_STATES = {"starting", "stopping", "restarting", "paused"}
+                    recovered_count = 0
 
-                for worker in workers:
-                    status = worker.status or "stopped"
+                    for worker in workers:
+                        status = worker.status or "stopped"
 
-                    # 自动修复中间状态为 stopped，防止程序异常退出后状态永久冻住
-                    if status in RECOVERABLE_STATES:
-                        logger.warning(
-                            f"[状态恢复] Worker {worker.id} 发现残留中间状态 '{status}'，"
-                            f"自动修正为 'stopped'（上次程序可能异常退出）"
-                        )
-                        status = "stopped"
-                        recovered_count += 1
-                        # 同步修正数据库中的状态
-                        try:
-                            from .crud import update_worker_status
-                            update_worker_status(db, worker.id, "stopped", pid=None)
-                        except Exception as e:
-                            logger.error(
-                                f"[状态恢复] 修正Worker {worker.id} 数据库状态失败: {e}"
+                        # 自动修复中间状态为 stopped，防止程序异常退出后状态永久冻住
+                        if status in RECOVERABLE_STATES:
+                            logger.warning(
+                                f"[状态恢复] Worker {worker.id} 发现残留中间状态 '{status}'，"
+                                f"自动修正为 'stopped'（上次程序可能异常退出）"
                             )
+                            status = "stopped"
+                            recovered_count += 1
+                            # 同步修正数据库中的状态
+                            try:
+                                from .crud import update_worker_status
+                                update_worker_status(db, worker.id, "stopped", pid=None)
+                            except Exception as e:
+                                logger.error(
+                                    f"[状态恢复] 修正Worker {worker.id} 数据库状态失败: {e}"
+                                )
 
-                    state = WorkerStateRecord(
-                        worker_id=worker.id,
-                        status=status,
-                        pid=None if status == "stopped" else worker.pid,
-                        started_at=worker.started_at,
-                        stopped_at=worker.stopped_at,
-                        updated_at=worker.updated_at or datetime.now(),
-                    )
-                    self._state_cache[worker.id] = state
+                        state = WorkerStateRecord(
+                            worker_id=worker.id,
+                            status=status,
+                            pid=None if status == "stopped" else worker.pid,
+                            started_at=worker.started_at,
+                            stopped_at=worker.stopped_at,
+                            updated_at=worker.updated_at or datetime.now(),
+                        )
+                        self._state_cache[worker.id] = state
 
-                if recovered_count > 0:
-                    logger.info(
-                        f"已恢复 {len(workers)} 个 Worker 状态，"
-                        f"其中 {recovered_count} 个残留中间状态已被自动修正为 stopped"
-                    )
-                else:
-                    logger.info(f"已恢复 {len(workers)} 个 Worker 状态")
+                    if recovered_count > 0:
+                        logger.info(
+                            f"已恢复 {len(workers)} 个 Worker 状态，"
+                            f"其中 {recovered_count} 个残留中间状态已被自动修正为 stopped"
+                        )
+                    else:
+                        logger.info(f"已恢复 {len(workers)} 个 Worker 状态")
             except Exception as e:
                 logger.error(f"从数据库恢复状态失败: {e}")
-            finally:
-                db.close()
 
     async def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
         """
@@ -826,6 +822,42 @@ class WorkerStateManager:
                 logger.info(f"已移除 Worker {worker_id} 状态")
                 return True
             return False
+
+    async def cleanup_stale_cache(self) -> int:
+        """
+        清理过期的缓存条目
+
+        检查缓存中的 worker_id 是否还在数据库中，如果不在则移除。
+        用于定期清理过期的缓存数据。
+
+        Returns:
+            清理的缓存条目数量
+        """
+        async with self._lock:
+            if not self._state_cache:
+                return 0
+
+            try:
+                with get_db_session() as db:
+                    from .crud import get_worker
+                    
+                    stale_worker_ids = []
+                    for worker_id in self._state_cache:
+                        worker = get_worker(db, worker_id)
+                        if worker is None:
+                            stale_worker_ids.append(worker_id)
+                    
+                    for worker_id in stale_worker_ids:
+                        del self._state_cache[worker_id]
+                        logger.info(f"已清理过期的 Worker {worker_id} 缓存条目")
+                    
+                    if stale_worker_ids:
+                        logger.info(f"共清理了 {len(stale_worker_ids)} 个过期的缓存条目")
+                    
+                    return len(stale_worker_ids)
+            except Exception as e:
+                logger.error(f"清理过期缓存失败: {e}")
+                return 0
 
     def get_registered_events(self) -> Set[str]:
         """
