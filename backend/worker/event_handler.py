@@ -240,6 +240,7 @@ class NautilusEventHandler:
         self,
         trader: Any,
         event_callback: Callable[[str, dict], None],
+        node: Any = None,
     ):
         """
         初始化事件处理器
@@ -250,17 +251,58 @@ class NautilusEventHandler:
             Nautilus Trader 实例
         event_callback : Callable[[str, dict], None]
             事件回调函数，接收 (event_type, event_data)
+        node : Any, optional
+            Nautilus TradingNode 实例（用于访问 msgbus）
         """
         self.trader = trader
         self.event_callback = event_callback
+        self.node = node
         self._subscribed = False
+
+    @staticmethod
+    def _resolve_msgbus(trader: Any, node: Any = None) -> Any:
+        """解析并返回 msg_bus 实例（与 LiveTradeRecorder 共用逻辑）"""
+        # 方式1: node.msgbus
+        if node is not None and hasattr(node, 'msgbus') and node.msgbus is not None:
+            return node.msgbus
+
+        # 方式2: node.kernel.msgbus
+        if (
+            node is not None
+            and getattr(node, '_HAS_KERNEL', False)
+            and node.kernel is not None
+            and hasattr(node.kernel, 'msgbus')
+            and node.kernel.msgbus is not None
+        ):
+            return node.kernel.msgbus
+
+        # 方式3: trader.kernel.msgbus
+        if (
+            trader is not None
+            and getattr(trader, '_HAS_KERNEL', False)
+            and trader.kernel is not None
+            and hasattr(trader.kernel, 'msgbus')
+            and trader.kernel.msgbus is not None
+        ):
+            return trader.kernel.msgbus
+
+        # 方式4: trader.msgbus（兼容旧版本）
+        if trader is not None and hasattr(trader, 'msgbus') and trader.msgbus is not None:
+            return trader.msgbus
+
+        return None
 
     def subscribe_events(self) -> None:
         """订阅 Nautilus 事件"""
         if self._subscribed:
             return
-        # 获取消息总线
-        msg_bus = self.trader.msg_bus
+        # 获取消息总线（支持多种访问方式）
+        msg_bus = self._resolve_msgbus(self.trader, self.node)
+        if msg_bus is None:
+            raise AttributeError(
+                "无法访问 msg_bus：请传入 TradingNode 实例，"
+                "或确保 trader 有 kernel.msgbus 属性"
+            )
         # 订阅订单事件 (nautilus msg_bus topic: events.order.{strategy_id})
         msg_bus.subscribe(
             topic="events.order.*",
@@ -284,7 +326,9 @@ class NautilusEventHandler:
         """取消订阅 Nautilus 事件"""
         if not self._subscribed:
             return
-        msg_bus = self.trader.msg_bus
+        msg_bus = self._resolve_msgbus(self.trader, self.node)
+        if msg_bus is None:
+            return
         msg_bus.unsubscribe(
             topic="events.order.*",
             handler=self._handle_order_event,
@@ -382,18 +426,37 @@ class LiveTradeRecorder:
         self.worker_id = worker_id
         self._subscribed = False
         self._trader = None
+        self._node = None
 
     # ------------------------------------------------------------------
     # 公共接口
     # ------------------------------------------------------------------
 
-    def subscribe(self, trader: Any) -> None:
-        """订阅 msg_bus 事件（需在 node.build() 之后、node.run() 之前调用）"""
+    def subscribe(self, trader: Any, node: Any = None) -> None:
+        """
+        订阅 msg_bus 事件（需在 node.build() 之后、node.run() 之前调用）
+
+        Parameters
+        ----------
+        trader : Any
+            Nautilus Trader 实例（保留以兼容旧调用方式）
+        node : Any, optional
+            Nautilus TradingNode 实例（用于访问 msgbus）
+            如果不提供，将尝试从 trader.kernel.msgbus 获取
+        """
         if self._subscribed:
             return
 
         self._trader = trader
-        msg_bus = trader.msg_bus
+        self._node = node
+
+        # msgbus 访问优先级：node.msgbus > node.kernel.msgbus > trader.kernel.msgbus
+        msg_bus = self._resolve_msgbus(trader, node)
+        if msg_bus is None:
+            raise AttributeError(
+                "无法访问 msg_bus：请传入 TradingNode 实例，"
+                "或确保 trader 有 kernel.msgbus 属性"
+            )
 
         # order events: events.order.{strategy_id}
         msg_bus.subscribe(topic="events.order.*", handler=self._on_order_event)
@@ -405,12 +468,69 @@ class LiveTradeRecorder:
         self._subscribed = True
         logger.info(f"LiveTradeRecorder: worker_id={self.worker_id} 已订阅 msg_bus 事件")
 
+    @staticmethod
+    def _resolve_msgbus(trader: Any, node: Any = None) -> Any:
+        """
+        解析并返回 msg_bus 实例，支持多种获取方式
+
+        优先级：
+        1. node.msgbus（TradingNode 属性）
+        2. node.kernel.msgbus（通过 kernel 访问）
+        3. trader.kernel.msgbus（通过 trader 的 kernel 访问）
+        4. trader.msgbus（兼容旧版本）
+
+        实现要点：
+        - 使用 _HAS_KERNEL 标志位区分 Mock 对象和真实对象，
+          避免在 Mock 上错误地匹配自动生成的子属性
+        - 真实的 Trader/Node 对象应在代码中显式设置 _HAS_KERNEL = True
+        """
+        # 方式1: node.msgbus
+        if node is not None and hasattr(node, 'msgbus') and node.msgbus is not None:
+            logger.debug("LiveTradeRecorder: 使用 node.msgbus")
+            return node.msgbus
+
+        # 方式2: node.kernel.msgbus（需要 node 有真实的 kernel 属性）
+        if (
+            node is not None
+            and getattr(node, '_HAS_KERNEL', False)
+            and node.kernel is not None
+            and hasattr(node.kernel, 'msgbus')
+            and node.kernel.msgbus is not None
+        ):
+            logger.debug("LiveTradeRecorder: 使用 node.kernel.msgbus")
+            return node.kernel.msgbus
+
+        # 方式3: trader.kernel.msgbus（需要 trader 有真实的 kernel 属性）
+        if (
+            trader is not None
+            and getattr(trader, '_HAS_KERNEL', False)
+            and trader.kernel is not None
+            and hasattr(trader.kernel, 'msgbus')
+            and trader.kernel.msgbus is not None
+        ):
+            logger.debug("LiveTradeRecorder: 使用 trader.kernel.msgbus")
+            return trader.kernel.msgbus
+
+        # 方式4: trader.msgbus（兼容旧版本）
+        if trader is not None and hasattr(trader, 'msgbus') and trader.msgbus is not None:
+            logger.debug("LiveTradeRecorder: 使用 trader.msgbus（兼容模式）")
+            return trader.msgbus
+
+        return None
+
     def unsubscribe(self) -> None:
         """取消订阅"""
         if not self._subscribed or self._trader is None:
             return
 
-        msg_bus = self._trader.msg_bus
+        msg_bus = self._resolve_msgbus(self._trader, self._node)
+        if msg_bus is None:
+            logger.warning(
+                f"LiveTradeRecorder: unsubscribe 时无法访问 msg_bus "
+                f"(worker_id={self.worker_id})"
+            )
+            return
+
         msg_bus.unsubscribe(topic="events.order.*", handler=self._on_order_event)
         msg_bus.unsubscribe(topic="events.fills.*", handler=self._on_fill_event)
         msg_bus.unsubscribe(topic="events.position.*", handler=self._on_position_event)

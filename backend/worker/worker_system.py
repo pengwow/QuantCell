@@ -489,6 +489,7 @@ class NautilusTradingSystem:
                 recorder = NautilusEventHandler(
                     trader=node.trader,
                     event_callback=_live_trade_event_callback,
+                    node=node,  # 传入 node 以便访问 msgbus
                 )
                 recorder.subscribe_events()
                 logger.info(
