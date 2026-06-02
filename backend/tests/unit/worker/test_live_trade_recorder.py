@@ -93,10 +93,25 @@ class TestLiveTradeRecorder:
 
     @pytest.fixture
     def mock_trader(self):
-        """创建模拟的 trader 对象"""
+        """创建模拟的 trader 对象（模拟真实的 NautilusTrader 对象结构）"""
         mock_trader = Mock()
-        mock_trader.msg_bus = Mock()
-        return mock_trader
+        # NautilusTrader 的 Trader 没有 msg_bus 属性
+        # msgbus 实际在 trader.kernel.msgbus
+        mock_msgbus = Mock()
+        mock_trader.kernel.msgbus = mock_msgbus
+        # 标记 _HAS_KERNEL 表明这是真实的 kernel 访问（不是 Mock 自动生成的）
+        type(mock_trader)._HAS_KERNEL = True
+        yield mock_trader
+        type(mock_trader)._HAS_KERNEL = False
+
+    @pytest.fixture
+    def mock_node(self):
+        """创建模拟的 TradingNode 对象"""
+        mock_node = Mock()
+        # TradingNode 有 msgbus 属性（通过 @property 暴露）
+        mock_msgbus = Mock()
+        mock_node.msgbus = mock_msgbus
+        return mock_node
 
     @pytest.fixture
     def mock_order_accepted_event(self):
@@ -128,21 +143,40 @@ class TestLiveTradeRecorder:
         """创建模拟的数据库会话"""
         return Mock()
 
-    def test_subscribe_events(self, recorder, mock_trader):
-        """测试事件订阅功能"""
-        recorder.subscribe(mock_trader)
-        
-        # 验证订阅了正确的事件
-        assert mock_trader.msg_bus.subscribe.call_count == 3
+    def test_subscribe_events(self, recorder, mock_trader, mock_node):
+        """测试事件订阅功能（使用 node.msgbus）"""
+        recorder.subscribe(mock_trader, node=mock_node)
+
+        # 验证通过 node.msgbus 订阅了正确的事件
+        assert mock_node.msgbus.subscribe.call_count == 3
         assert recorder._subscribed is True
 
-    def test_unsubscribe_events(self, recorder, mock_trader):
-        """测试事件取消订阅功能"""
+    def test_subscribe_events_via_trader_kernel(self, recorder, mock_trader):
+        """测试通过 trader.kernel.msgbus 订阅（兼容性测试）"""
         recorder.subscribe(mock_trader)
+
+        # 验证通过 trader.kernel.msgbus 订阅
+        assert mock_trader.kernel.msgbus.subscribe.call_count == 3
+        assert recorder._subscribed is True
+
+    def test_subscribe_events_via_trader_msgbus_compat(self, recorder):
+        """测试通过 trader.msgbus 订阅（兼容旧版本）"""
+        mock_trader = Mock()
+        # 显式标记 _HAS_KERNEL = False（模拟没有 kernel 属性的旧版本 Trader）
+        mock_trader._HAS_KERNEL = False
+        mock_trader.msgbus = Mock()  # 直接挂在 trader 上（兼容模式）
+        recorder.subscribe(mock_trader)
+
+        assert mock_trader.msgbus.subscribe.call_count == 3
+        assert recorder._subscribed is True
+
+    def test_unsubscribe_events(self, recorder, mock_trader, mock_node):
+        """测试事件取消订阅功能"""
+        recorder.subscribe(mock_trader, node=mock_node)
         recorder.unsubscribe()
-        
+
         # 验证取消了订阅
-        assert mock_trader.msg_bus.unsubscribe.call_count == 3
+        assert mock_node.msgbus.unsubscribe.call_count == 3
         assert recorder._subscribed is False
 
     def test_handle_order_accepted_with_real_db(self, recorder, mock_order_accepted_event, db_session):
