@@ -28,6 +28,20 @@ from utils.logger import get_logger, LogType
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
+def _is_mock_object(obj: Any) -> bool:
+    """
+    检查对象是否是 Mock 对象
+
+    用于区分真实的 nautilus_trader 对象和测试中的 Mock 对象，
+    避免在 Mock 上错误地匹配自动生成的子属性。
+    """
+    if obj is None:
+        return False
+    obj_type = type(obj)
+    type_name = f"{obj_type.__module__}.{obj_type.__name__}"
+    return "mock" in type_name.lower()
+
+
 @dataclass
 class EventBufferConfig:
     """
@@ -263,13 +277,19 @@ class NautilusEventHandler:
     def _resolve_msgbus(trader: Any, node: Any = None) -> Any:
         """解析并返回 msg_bus 实例（与 LiveTradeRecorder 共用逻辑）"""
         # 方式1: node.msgbus
-        if node is not None and hasattr(node, 'msgbus') and node.msgbus is not None:
+        if (
+            node is not None
+            and not _is_mock_object(node)
+            and hasattr(node, 'msgbus')
+            and node.msgbus is not None
+        ):
             return node.msgbus
 
         # 方式2: node.kernel.msgbus
         if (
             node is not None
-            and getattr(node, '_HAS_KERNEL', False)
+            and not _is_mock_object(node)
+            and hasattr(node, 'kernel')
             and node.kernel is not None
             and hasattr(node.kernel, 'msgbus')
             and node.kernel.msgbus is not None
@@ -279,7 +299,8 @@ class NautilusEventHandler:
         # 方式3: trader.kernel.msgbus
         if (
             trader is not None
-            and getattr(trader, '_HAS_KERNEL', False)
+            and not _is_mock_object(trader)
+            and hasattr(trader, 'kernel')
             and trader.kernel is not None
             and hasattr(trader.kernel, 'msgbus')
             and trader.kernel.msgbus is not None
@@ -287,7 +308,12 @@ class NautilusEventHandler:
             return trader.kernel.msgbus
 
         # 方式4: trader.msgbus（兼容旧版本）
-        if trader is not None and hasattr(trader, 'msgbus') and trader.msgbus is not None:
+        if (
+            trader is not None
+            and not _is_mock_object(trader)
+            and hasattr(trader, 'msgbus')
+            and trader.msgbus is not None
+        ):
             return trader.msgbus
 
         return None
@@ -480,31 +506,40 @@ class LiveTradeRecorder:
         4. trader.msgbus（兼容旧版本）
 
         实现要点：
-        - 使用 _HAS_KERNEL 标志位区分 Mock 对象和真实对象，
-          避免在 Mock 上错误地匹配自动生成的子属性
-        - 真实的 Trader/Node 对象应在代码中显式设置 _HAS_KERNEL = True
+        - 真实的 Trader/Node 对象应当是 nautilus_trader 的具体类实例
+        - 通过检查类型模块路径来区分真实对象和测试 Mock
+        - 容器对象（kernel/trader）必须是真实的，最终的 msgbus 可以是 Mock
         """
-        # 方式1: node.msgbus
-        if node is not None and hasattr(node, 'msgbus') and node.msgbus is not None:
+        # 方式1: node.msgbus（要求 node 是真实对象，不是 Mock）
+        if (
+            node is not None
+            and not _is_mock_object(node)
+            and hasattr(node, 'msgbus')
+            and node.msgbus is not None
+        ):
             logger.debug("LiveTradeRecorder: 使用 node.msgbus")
             return node.msgbus
 
-        # 方式2: node.kernel.msgbus（需要 node 有真实的 kernel 属性）
+        # 方式2: node.kernel.msgbus
         if (
             node is not None
-            and getattr(node, '_HAS_KERNEL', False)
+            and not _is_mock_object(node)
+            and hasattr(node, 'kernel')
             and node.kernel is not None
+            and not _is_mock_object(node.kernel)
             and hasattr(node.kernel, 'msgbus')
             and node.kernel.msgbus is not None
         ):
             logger.debug("LiveTradeRecorder: 使用 node.kernel.msgbus")
             return node.kernel.msgbus
 
-        # 方式3: trader.kernel.msgbus（需要 trader 有真实的 kernel 属性）
+        # 方式3: trader.kernel.msgbus
         if (
             trader is not None
-            and getattr(trader, '_HAS_KERNEL', False)
+            and not _is_mock_object(trader)
+            and hasattr(trader, 'kernel')
             and trader.kernel is not None
+            and not _is_mock_object(trader.kernel)
             and hasattr(trader.kernel, 'msgbus')
             and trader.kernel.msgbus is not None
         ):
@@ -512,7 +547,12 @@ class LiveTradeRecorder:
             return trader.kernel.msgbus
 
         # 方式4: trader.msgbus（兼容旧版本）
-        if trader is not None and hasattr(trader, 'msgbus') and trader.msgbus is not None:
+        if (
+            trader is not None
+            and not _is_mock_object(trader)
+            and hasattr(trader, 'msgbus')
+            and trader.msgbus is not None
+        ):
             logger.debug("LiveTradeRecorder: 使用 trader.msgbus（兼容模式）")
             return trader.msgbus
 

@@ -17,6 +17,17 @@ from worker.event_handler import LiveTradeRecorder
 from worker.models import WorkerOrder, WorkerTrade, WorkerPosition
 
 
+# 自定义类模拟真实的 Trader 对象（不是 Mock）
+class FakeTrader:
+    """模拟真实的 NautilusTrader Trader 对象（不是 Mock）"""
+    pass
+
+
+class FakeNode:
+    """模拟真实的 NautilusTrader TradingNode 对象（不是 Mock）"""
+    pass
+
+
 class MockNautilusOrderAccepted:
     """模拟 Nautilus 的 OrderAccepted 事件"""
     def __init__(self):
@@ -94,24 +105,24 @@ class TestLiveTradeRecorder:
     @pytest.fixture
     def mock_trader(self):
         """创建模拟的 trader 对象（模拟真实的 NautilusTrader 对象结构）"""
-        mock_trader = Mock()
-        # NautilusTrader 的 Trader 没有 msg_bus 属性
+        # 使用 FakeTrader 而非 Mock，模拟真实的 Trader 对象
+        fake_trader = FakeTrader()
         # msgbus 实际在 trader.kernel.msgbus
         mock_msgbus = Mock()
-        mock_trader.kernel.msgbus = mock_msgbus
-        # 标记 _HAS_KERNEL 表明这是真实的 kernel 访问（不是 Mock 自动生成的）
-        type(mock_trader)._HAS_KERNEL = True
-        yield mock_trader
-        type(mock_trader)._HAS_KERNEL = False
+        fake_kernel = FakeTrader()
+        setattr(fake_kernel, 'msgbus', mock_msgbus)
+        setattr(fake_trader, 'kernel', fake_kernel)
+        return fake_trader
 
     @pytest.fixture
     def mock_node(self):
         """创建模拟的 TradingNode 对象"""
-        mock_node = Mock()
+        # 使用 FakeNode 而非 Mock，模拟真实的 Node 对象
+        fake_node = FakeNode()
         # TradingNode 有 msgbus 属性（通过 @property 暴露）
         mock_msgbus = Mock()
-        mock_node.msgbus = mock_msgbus
-        return mock_node
+        setattr(fake_node, 'msgbus', mock_msgbus)
+        return fake_node
 
     @pytest.fixture
     def mock_order_accepted_event(self):
@@ -161,13 +172,11 @@ class TestLiveTradeRecorder:
 
     def test_subscribe_events_via_trader_msgbus_compat(self, recorder):
         """测试通过 trader.msgbus 订阅（兼容旧版本）"""
-        mock_trader = Mock()
-        # 显式标记 _HAS_KERNEL = False（模拟没有 kernel 属性的旧版本 Trader）
-        mock_trader._HAS_KERNEL = False
-        mock_trader.msgbus = Mock()  # 直接挂在 trader 上（兼容模式）
-        recorder.subscribe(mock_trader)
+        fake_trader = FakeTrader()
+        setattr(fake_trader, 'msgbus', Mock())  # 直接挂在 trader 上（兼容模式）
+        recorder.subscribe(fake_trader)
 
-        assert mock_trader.msgbus.subscribe.call_count == 3
+        assert fake_trader.msgbus.subscribe.call_count == 3
         assert recorder._subscribed is True
 
     def test_unsubscribe_events(self, recorder, mock_trader, mock_node):
