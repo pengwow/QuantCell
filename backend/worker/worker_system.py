@@ -30,11 +30,17 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from collector.db.database import SessionLocal
+from utils.db_session import get_db_session
 from utils.logger import get_logger, LogType
 
 from . import crud
 from .config import build_trading_node_config, NAUTILUS_AVAILABLE, NAUTILUS_MISSING_DETAIL
+from .exceptions import (
+    WorkerNotFoundException,
+    WorkerAlreadyRunningException,
+    WorkerNotRunningException,
+    WorkerStartFailedException,
+)
 from .worker_state import WorkerState, worker_state_manager, WorkerStateManager
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -121,13 +127,21 @@ class NautilusTradingSystem:
         3. 数据库持久化层: crud.py 操作 SQLite
     """
 
-    def __init__(self):
+    def __init__(self, max_workers: Optional[int] = None):
         self._lock = asyncio.Lock()
         self._initialized = False
+        
+        # 线程池大小：优先使用配置值，否则根据 CPU 核心数自适应
+        if max_workers is None:
+            cpu_count = os.cpu_count() or 4
+            # 回测任务是 CPU 密集型，线程数不宜超过 CPU 核心数
+            max_workers = min(cpu_count, 8)
+        
         self._executor = ThreadPoolExecutor(
-            max_workers=4,
+            max_workers=max_workers,
             thread_name_prefix="nautilus-backtest",
         )
+        logger.info(f"[NautilusTradingSystem] ThreadPoolExecutor 初始化: max_workers={max_workers}")
 
     async def initialize(self) -> None:
         """初始化系统，从数据库恢复策略状态"""
@@ -171,8 +185,7 @@ class NautilusTradingSystem:
         """从数据库加载 worker 配置到内存注册表"""
         from .state import strategy_registry, StrategyRuntime
 
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             workers, total = crud.get_workers(db, skip=0, limit=1000)
             logger.info(f"[NautilusTradingSystem] 从数据库加载了 {total} 个策略配置")
 
@@ -200,10 +213,6 @@ class NautilusTradingSystem:
                         strategy_registry.update_status(
                             worker.id, "error", error_message=str(e)
                         )
-        except Exception as e:
-            logger.error(f"[NautilusTradingSystem] 从数据库加载策略失败: {e}")
-        finally:
-            db.close()
 
     async def create_strategy(self, db, worker_config: Dict[str, Any]) -> int:
         """
@@ -254,15 +263,17 @@ class NautilusTradingSystem:
             logger.warning("[NautilusTradingSystem] NautilusTrader 不可用，无法启动策略")
             return False
 
-        db = SessionLocal()
         try:
-            worker = crud.get_worker(db, worker_id)
-            if worker is None:
-                logger.warning(f"[NautilusTradingSystem] Worker {worker_id} 不存在")
-                return False
+            with get_db_session() as db:
+                worker = crud.get_worker(db, worker_id)
+                if worker is None:
+                    raise WorkerNotFoundException(worker_id)
 
-            await worker_state_manager.transition(worker_id, "starting")
-            return await self._do_start_strategy(worker_id, worker, db)
+                await worker_state_manager.transition(worker_id, "starting")
+                return await self._do_start_strategy(worker_id, worker, db)
+        except WorkerNotFoundException as e:
+            logger.warning(f"[NautilusTradingSystem] {e.message}")
+            return False
         except Exception as e:
             logger.error(
                 f"[NautilusTradingSystem] 启动策略失败: worker_id={worker_id}, "
@@ -272,8 +283,6 @@ class NautilusTradingSystem:
                 worker_id, "error", error_message=str(e)
             )
             return False
-        finally:
-            db.close()
 
     async def _do_start_strategy(self, worker_id: int, worker, db=None) -> bool:
         """
@@ -299,10 +308,7 @@ class NautilusTradingSystem:
             return False
 
         if runtime.is_running:
-            logger.warning(
-                f"[NautilusTradingSystem] Worker {worker_id} 已在运行中"
-            )
-            return False
+            raise WorkerAlreadyRunningException(worker_id)
 
         # 构建 TradingNode 配置
         exchange = getattr(worker, 'exchange', 'binance') or 'binance'
@@ -460,10 +466,9 @@ class NautilusTradingSystem:
                 def _live_trade_event_callback(event_type: str, event_data: dict) -> None:
                     """回调：将 nautilus 事件持久化到数据库"""
                     try:
-                        from collector.db.database import SessionLocal as _SessionLocal
+                        from utils.db_session import get_db_session as _get_db_session
                         from worker.models import WorkerLog
-                        _db = _SessionLocal()
-                        try:
+                        with _get_db_session() as _db:
                             log_entry = WorkerLog(
                                 worker_id=worker_id,
                                 level="INFO",
@@ -475,14 +480,6 @@ class NautilusTradingSystem:
                             )
                             _db.add(log_entry)
                             _db.commit()
-                        except Exception as db_err:
-                            _db.rollback()
-                            logger.warning(
-                                f"[LiveTradeRecorder] 持久化事件失败: "
-                                f"worker_id={worker_id}, error={db_err}"
-                            )
-                        finally:
-                            _db.close()
                     except Exception as cb_err:
                         logger.warning(
                             f"[LiveTradeRecorder] 事件回调异常: "
@@ -575,10 +572,7 @@ class NautilusTradingSystem:
 
         runtime = strategy_registry.get(worker_id)
         if runtime is None:
-            logger.warning(
-                f"[NautilusTradingSystem] Worker {worker_id} 不在注册表中"
-            )
-            return False
+            raise WorkerNotFoundException(worker_id)
 
         # 如果 worker 已经处于 stopped 状态，直接返回 True
         if runtime.status == "stopped":
@@ -602,12 +596,9 @@ class NautilusTradingSystem:
                 strategy_registry.set_flush_stop(worker_id, None)
             runtime.stopped_at = datetime.now(timezone.utc).isoformat()
             strategy_registry.update_status(worker_id, "stopped")
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 crud.update_worker_status(db, worker_id, "stopped")
                 db.commit()
-            finally:
-                db.close()
             await worker_state_manager.transition(worker_id, "stopped")
             logger.info(
                 f"[NautilusTradingSystem] 强制清理完成: worker_id={worker_id}"
@@ -681,17 +672,15 @@ class NautilusTradingSystem:
         runtime.stopped_at = datetime.now(timezone.utc).isoformat()
         strategy_registry.update_status(worker_id, "stopped")
 
-        db = SessionLocal()
         try:
-            crud.update_worker_status(db, worker_id, "stopped")
-            db.commit()
+            with get_db_session() as db:
+                crud.update_worker_status(db, worker_id, "stopped")
+                db.commit()
         except Exception as e:
             logger.error(
                 f"[NautilusTradingSystem] 更新数据库状态失败: "
                 f"worker_id={worker_id}, error={e}"
             )
-        finally:
-            db.close()
 
         await worker_state_manager.transition(worker_id, "stopped")
 
@@ -714,7 +703,7 @@ class NautilusTradingSystem:
 
         runtime = strategy_registry.get(worker_id)
         if runtime is None:
-            return False
+            raise WorkerNotFoundException(worker_id)
 
         if runtime.is_running:
             await self.stop_strategy(worker_id)
@@ -722,18 +711,16 @@ class NautilusTradingSystem:
         strategy_registry.unregister(worker_id)
         await worker_state_manager.remove_worker(worker_id)
 
-        db = SessionLocal()
         try:
-            crud.delete_worker(db, worker_id)
-            db.commit()
+            with get_db_session() as db:
+                crud.delete_worker(db, worker_id)
+                db.commit()
         except Exception as e:
             logger.error(
                 f"[NautilusTradingSystem] 删除策略失败: "
                 f"worker_id={worker_id}, error={e}"
             )
             return False
-        finally:
-            db.close()
 
         logger.info(f"[NautilusTradingSystem] 策略已删除: worker_id={worker_id}")
         return True
@@ -785,30 +772,28 @@ class NautilusTradingSystem:
         end_time: Optional[str],
     ) -> Dict[str, Any]:
         """同步回测执行（在 executor 线程中运行）"""
-        db = SessionLocal()
         try:
-            worker = crud.get_worker(db, worker_id)
-            if worker is None:
-                return {"error": f"Worker {worker_id} 不存在"}
+            with get_db_session() as db:
+                worker = crud.get_worker(db, worker_id)
+                if worker is None:
+                    return {"error": f"Worker {worker_id} 不存在"}
 
-            logger.warning(
-                f"[NautilusTradingSystem] 回测功能尚未集成 NautilusTrader BacktestEngine, "
-                f"worker_id={worker_id}"
-            )
+                logger.warning(
+                    f"[NautilusTradingSystem] 回测功能尚未集成 NautilusTrader BacktestEngine, "
+                    f"worker_id={worker_id}"
+                )
 
-            return {
-                "worker_id": worker_id,
-                "status": "not_implemented",
-                "message": "回测功能将在后续版本中集成 NautilusTrader BacktestEngine",
-            }
+                return {
+                    "worker_id": worker_id,
+                    "status": "not_implemented",
+                    "message": "回测功能将在后续版本中集成 NautilusTrader BacktestEngine",
+                }
         except Exception as e:
             logger.error(
                 f"[NautilusTradingSystem] 回测执行失败: "
                 f"worker_id={worker_id}, error={e}"
             )
             return {"error": str(e)}
-        finally:
-            db.close()
 
     def get_strategy_state(self, worker_id: int) -> Optional[Dict[str, Any]]:
         """
