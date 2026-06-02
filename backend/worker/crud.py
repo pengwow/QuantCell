@@ -528,9 +528,29 @@ def update_worker_order_status(
 
 
 def get_trading_summary(db: Session, worker_id: int) -> dict:
-    trades = db.query(WorkerTrade).filter(WorkerTrade.worker_id == worker_id).all()
+    """
+    获取交易汇总统计（优化版 - 使用 SQL 聚合）
+    
+    使用 SQLAlchemy 的聚合函数在数据库层面完成统计计算，
+    避免加载所有交易记录到内存。
+    """
+    query = db.query(
+        func.count(WorkerTrade.id).label('total_trades'),
+        func.sum(case((WorkerTrade.realized_pnl > 0, 1), else_=0)).label('winning_trades'),
+        func.sum(case((WorkerTrade.realized_pnl < 0, 1), else_=0)).label('losing_trades'),
+        func.sum(WorkerTrade.realized_pnl).label('total_pnl'),
+        func.sum(case((WorkerTrade.realized_pnl > 0, WorkerTrade.realized_pnl), else_=0)).label('total_profit'),
+        func.sum(case((WorkerTrade.realized_pnl < 0, WorkerTrade.realized_pnl), else_=0)).label('total_loss'),
+        func.max(WorkerTrade.realized_pnl).label('largest_profit'),
+        func.min(WorkerTrade.realized_pnl).label('largest_loss'),
+        func.sum(WorkerTrade.amount).label('total_volume'),
+        func.sum(WorkerTrade.fee).label('total_fees'),
+        func.count(func.distinct(func.date(WorkerTrade.created_at))).label('trading_days'),
+    ).filter(WorkerTrade.worker_id == worker_id)
 
-    if not trades:
+    row = query.first()
+
+    if not row or not row.total_trades:
         return {
             "total_trades": 0,
             "winning_trades": 0,
@@ -550,26 +570,17 @@ def get_trading_summary(db: Session, worker_id: int) -> dict:
             "daily_average_trades": 0.0,
         }
 
-    pnl_values = [t.realized_pnl for t in trades if t.realized_pnl is not None]
-    positive_pnl = [p for p in pnl_values if p > 0]
-    negative_pnl = [p for p in pnl_values if p < 0]
-
-    total_trades = len(trades)
-    winning_trades = len(positive_pnl)
-    losing_trades = len(negative_pnl)
-    total_pnl = sum(pnl_values)
-    total_profit = sum(positive_pnl)
-    total_loss = sum(negative_pnl)
-    largest_profit = max(positive_pnl) if positive_pnl else 0.0
-    largest_loss = min(negative_pnl) if negative_pnl else 0.0
-    total_volume = sum(t.amount for t in trades if t.amount)
-    total_fees = sum(t.fee for t in trades if t.fee)
-
-    trade_dates = set()
-    for t in trades:
-        if t.created_at:
-            trade_dates.add(t.created_at.date())
-    trading_days = len(trade_dates)
+    total_trades = row.total_trades or 0
+    winning_trades = row.winning_trades or 0
+    losing_trades = row.losing_trades or 0
+    total_pnl = row.total_pnl or 0.0
+    total_profit = row.total_profit or 0.0
+    total_loss = row.total_loss or 0.0
+    largest_profit = row.largest_profit or 0.0
+    largest_loss = row.largest_loss or 0.0
+    total_volume = row.total_volume or 0.0
+    total_fees = row.total_fees or 0.0
+    trading_days = row.trading_days or 0
 
     win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
     profit_factor = (total_profit / abs(total_loss)) if total_loss != 0 else 0.0
@@ -652,10 +663,27 @@ def get_trade_history_chart(db: Session, worker_id: int, days: int = 30) -> dict
 
 
 def get_pnl_distribution(db: Session, worker_id: int) -> dict:
-    trades = db.query(WorkerTrade).filter(WorkerTrade.worker_id == worker_id).all()
-    pnl_values = [t.realized_pnl for t in trades if t.realized_pnl is not None]
-
-    if not pnl_values:
+    """
+    获取 PNL 分布统计（优化版 - 使用 SQL 聚合计算统计量）
+    
+    使用 SQLAlchemy 聚合函数在数据库层面计算 mean、std，
+    仅加载 pnl_values 用于直方图计算。
+    """
+    # 使用 SQL 聚合计算统计量
+    stats_query = db.query(
+        func.count(WorkerTrade.id).label('count'),
+        func.sum(WorkerTrade.realized_pnl).label('sum_pnl'),
+        func.avg(WorkerTrade.realized_pnl).label('mean_pnl'),
+        func.min(WorkerTrade.realized_pnl).label('min_pnl'),
+        func.max(WorkerTrade.realized_pnl).label('max_pnl'),
+    ).filter(
+        WorkerTrade.worker_id == worker_id,
+        WorkerTrade.realized_pnl.isnot(None)
+    )
+    
+    stats_row = stats_query.first()
+    
+    if not stats_row or not stats_row.count:
         return {
             "bins": [],
             "counts": [],
@@ -663,14 +691,24 @@ def get_pnl_distribution(db: Session, worker_id: int) -> dict:
             "median": 0.0,
             "std": 0.0,
         }
-
+    
+    # 仅加载 pnl_values 用于直方图和标准差计算
+    pnl_values = db.query(WorkerTrade.realized_pnl).filter(
+        WorkerTrade.worker_id == worker_id,
+        WorkerTrade.realized_pnl.isnot(None)
+    ).all()
+    pnl_values = [p[0] for p in pnl_values]
+    
     pnl_array = np.array(pnl_values)
     counts, bin_edges = np.histogram(pnl_array, bins=20)
-
+    
+    # 使用 SQL 计算的 mean，Python 计算 median 和 std
+    mean_pnl = float(stats_row.mean_pnl) if stats_row.mean_pnl else 0.0
+    
     return {
         "bins": [round(float(b), 2) for b in bin_edges.tolist()],
         "counts": [int(c) for c in counts.tolist()],
-        "mean": round(float(np.mean(pnl_array)), 2),
+        "mean": round(mean_pnl, 2),
         "median": round(float(np.median(pnl_array)), 2),
         "std": round(float(np.std(pnl_array)), 2),
     }

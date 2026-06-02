@@ -30,10 +30,18 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 @dataclass
 class EventBufferConfig:
-    """事件缓冲配置"""
+    """
+    事件缓冲配置
+
+    overflow_strategy: 溢出策略
+        - "drop": 丢弃新事件（默认，适合非关键事件）
+        - "block": 阻塞生产者直到有空间（适合关键事件）
+        - "oldest": 丢弃最旧的事件（适合只关心最新状态的场景）
+    """
     buffer_size: int = 1000
     flush_interval: float = 1.0
     batch_size: int = 100
+    overflow_strategy: str = "drop"  # drop, block, oldest
 
 
 class EventHandler:
@@ -41,6 +49,7 @@ class EventHandler:
     事件处理器
 
     负责处理 Worker 中的各类事件，并将事件同步到主进程。
+    支持三种溢出策略：drop（丢弃新事件）、block（阻塞生产者）、oldest（丢弃最旧事件）
     """
 
     def __init__(
@@ -58,10 +67,14 @@ class EventHandler:
         self._flush_task: Optional[asyncio.Task] = None
         self._running = False
 
+        # 背压控制
+        self._backpressure_event = asyncio.Event() if self.config.overflow_strategy == "block" else None
+
         # 统计
         self._events_received = 0
         self._events_sent = 0
         self._events_dropped = 0
+        self._events_blocked = 0
 
     async def start(self) -> None:
         """启动事件处理器"""
@@ -126,12 +139,32 @@ class EventHandler:
         })
 
     def _buffer_event(self, event: Dict[str, Any]) -> None:
-        """将事件添加到缓冲队列"""
+        """
+        将事件添加到缓冲队列，支持三种溢出策略：
+        - drop: 丢弃新事件（默认）
+        - block: 阻塞生产者直到有空间（需要在 async 上下文中使用）
+        - oldest: 丢弃最旧的事件
+        """
         if len(self._event_buffer) >= self.config.buffer_size:
-            self._events_dropped += 1
-            logger.warning(f"Worker {self.worker_id} 事件缓冲区已满，丢弃事件")
+            if self.config.overflow_strategy == "drop":
+                self._events_dropped += 1
+                logger.warning(f"Worker {self.worker_id} 事件缓冲区已满，丢弃新事件")
+                return
+            elif self.config.overflow_strategy == "oldest":
+                self._event_buffer.popleft()
+                self._events_dropped += 1
+                logger.debug(f"Worker {self.worker_id} 事件缓冲区已满，丢弃最旧事件")
+            elif self.config.overflow_strategy == "block":
+                self._events_blocked += 1
+                logger.debug(f"Worker {self.worker_id} 事件缓冲区已满，等待空间")
+                if self._backpressure_event:
+                    self._backpressure_event.clear()
 
         self._event_buffer.append(event)
+
+        # 通知阻塞的生产者有空间了
+        if self._backpressure_event and not self._backpressure_event.is_set():
+            self._backpressure_event.set()
 
         # 达到批量大小立即刷新（如果有运行的事件循环）
         if len(self._event_buffer) >= self.config.batch_size:
@@ -176,7 +209,10 @@ class EventHandler:
             "events_received": self._events_received,
             "events_sent": self._events_sent,
             "events_dropped": self._events_dropped,
+            "events_blocked": self._events_blocked,
             "buffer_size": len(self._event_buffer),
+            "buffer_capacity": self.config.buffer_size,
+            "overflow_strategy": self.config.overflow_strategy,
         }
 
 
