@@ -506,17 +506,17 @@ class ConfigManager:
         if value is None:
             return None
         
+        # 尝试转换为布尔值 first
+        if value.lower() == 'true' or value == '1':
+            return True
+        if value.lower() == 'false' or value == '0':
+            return False
+        
         # 尝试解析为JSON
         try:
             return json.loads(value)
         except (json.JSONDecodeError, TypeError):
             pass
-        
-        # 尝试转换为布尔值
-        if value.lower() == 'true' or value == '1':
-            return True
-        if value.lower() == 'false' or value == '0':
-            return False
         
         # 尝试转换为整数
         try:
