@@ -24,6 +24,7 @@ from .worker_state import worker_state_manager, WorkerStateManager
 from .state import strategy_registry
 from .config import NAUTILUS_AVAILABLE
 from collector.db.database import SessionLocal, init_database_config
+from utils.db_session import get_db_session
 from utils.logger import get_logger, LogType
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -165,16 +166,8 @@ class WorkerCoreService:
         Yields:
             Session: SQLAlchemy数据库会话
         """
-        init_database_config()
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             yield db
-        except Exception as e:
-            db.rollback()
-            logger.error(f"[WorkerCoreService] 数据库操作异常: {e}")
-            raise
-        finally:
-            db.close()
 
     @asynccontextmanager
     async def async_get_db(self) -> AsyncGenerator[Session, None]:
@@ -186,16 +179,8 @@ class WorkerCoreService:
         Yields:
             Session: SQLAlchemy数据库会话
         """
-        init_database_config()
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             yield db
-        except Exception as e:
-            db.rollback()
-            logger.error(f"[WorkerCoreService] 数据库操作异常: {e}")
-            raise
-        finally:
-            db.close()
 
     # ==================== 同步CRUD方法（供CLI使用） ====================
 
