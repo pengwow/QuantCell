@@ -606,6 +606,29 @@ class MyStrategy:
         # 应该识别到包含Strategy的类
         assert result["valid"] is True
 
+    def test_skip_config_classes(self, validator):
+        """测试跳过以Config结尾的配置类"""
+        code = '''class MyStrategyConfig:
+    pass
+
+class MyStrategy:
+    def on_bar(self, bar):
+        pass
+'''
+        errors, warnings = validator.validate_structure(code)
+        # 应该只检查MyStrategy类，忽略MyStrategyConfig
+        assert len([e for e in errors if e.type == "structure_error"]) == 0
+
+    def test_only_config_class(self, validator):
+        """测试只有Config类的代码"""
+        code = '''class MyStrategyConfig:
+    pass
+'''
+        errors, warnings = validator.validate_structure(code)
+        # 因为只有Config类，应该警告未找到Strategy类，还可能有__init__警告
+        strategy_warnings = [w for w in warnings if "未找到包含'Strategy'" in w.message]
+        assert len(strategy_warnings) == 1
+
     def test_inheritance_chain(self, validator):
         """测试继承链"""
         code = '''class BaseStrategy:
