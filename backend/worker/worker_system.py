@@ -393,11 +393,27 @@ class NautilusTradingSystem:
 
         trader_id = f"WORKER-{worker_id:04d}"
 
-        # 确保 nautilus 日志目录存在
+        # 创建日志目录和日志文件（立即创建，不依赖 nautilus run()）
         backend_dir = os.path.dirname(os.path.dirname(__file__))
         log_directory = os.path.join(backend_dir, "logs", "worker")
         os.makedirs(log_directory, exist_ok=True)
         log_file_name = f"worker_{worker_id}.log"
+        log_path = os.path.join(log_directory, log_file_name)
+
+        # 使用 RotatingFileHandler 防止单文件过大（10MB × 5 备份）
+        import logging
+        from logging.handlers import RotatingFileHandler
+        worker_logger = logging.getLogger(f"worker_{worker_id}")
+        if not worker_logger.handlers:
+            worker_logger.setLevel(logging.INFO)
+            _rh = RotatingFileHandler(
+                log_path, maxBytes=10*1024*1024, backupCount=5, encoding="utf-8"
+            )
+            _rh.setFormatter(logging.Formatter(
+                "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+            ))
+            worker_logger.addHandler(_rh)
+        worker_logger.info("[Worker] 日志文件已创建: %s", log_path)
 
         node_config, (data_factory, exec_factory, venue) = build_trading_node_config(
             exchange=exchange,
