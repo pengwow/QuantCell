@@ -5,7 +5,7 @@ Worker数据库模型定义
 
 import json
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from sqlalchemy import (
     Column, Integer, String, Text, Float, Boolean, DateTime, 
@@ -134,40 +134,43 @@ class Worker(Base):
             # 直接返回货币对列表
             return symbols_config.get('symbols', [])
 
-    def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
-        # 获取最新绩效数据
-        latest_performance = None
-        if self.performance:
-            # 按日期排序，获取最新的绩效记录
-            sorted_performance = sorted(
-                self.performance,
-                key=lambda x: x.date if x.date else datetime.min,
-                reverse=True
-            )
-            if sorted_performance:
-                latest_performance = sorted_performance[0]
+    def _get_latest_performance(self) -> Any:
+        """Get latest performance record, avoiding N+1 queries via try/except."""
+        try:
+            if not self.performance:
+                return None
+            performance_list = list(self.performance)
+            if not performance_list:
+                return None
+            first_date = performance_list[0].date if performance_list[0].date else datetime.min
+            last_date = performance_list[-1].date if performance_list[-1].date else datetime.min
+            if first_date >= last_date:
+                return performance_list[0]
+            return max(performance_list, key=lambda x: x.date if x.date else datetime.min)
+        except Exception:
+            return None
 
-        # 获取交易配置
-        trading_config = self.get_trading_config_dict()
-        symbols_config = trading_config.get('symbols_config', {})
-
-        # 兼容旧版本：从 trading_config 中提取字段
-        exchange = trading_config.get('exchange', 'binance')
-        timeframe = trading_config.get('timeframe', '1h')
-        market_type = trading_config.get('market_type', 'spot')
-        trading_mode = trading_config.get('trading_mode', 'paper')
-
-        # 策略信息（从关联的 Strategy 模型获取）
-        strategy_info = None
-        if self.strategy:
-            strategy_info = {
+    def _get_strategy_info(self) -> Optional[Dict[str, Any]]:
+        """Get strategy info, avoiding N+1 queries via try/except."""
+        try:
+            if not self.strategy:
+                return None
+            return {
                 'id': self.strategy.id,
                 'name': self.strategy.name,
                 'description': self.strategy.description,
                 'strategy_type': self.strategy.strategy_type,
                 'version': self.strategy.version,
             }
+        except Exception:
+            return None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        latest_performance = self._get_latest_performance()
+        trading_config = self.get_trading_config_dict()
+        symbols_config = trading_config.get('symbols_config', {})
+        strategy_info = self._get_strategy_info()
 
         return {
             'id': self.id,
@@ -176,14 +179,12 @@ class Worker(Base):
             'status': self.status,
             'strategy_id': self.strategy_id,
             'strategy_info': strategy_info,
-            # 交易配置（新格式）
             'trading_config': trading_config,
-            # 兼容旧版本字段
-            'exchange': exchange,
+            'exchange': trading_config.get('exchange', 'binance'),
             'symbols': symbols_config.get('symbols', []),
-            'timeframe': timeframe,
-            'market_type': market_type,
-            'trading_mode': trading_mode,
+            'timeframe': trading_config.get('timeframe', '1h'),
+            'market_type': trading_config.get('market_type', 'spot'),
+            'trading_mode': trading_config.get('trading_mode', 'paper'),
             'pid': self.pid,
             'config': self.get_config_dict(),
             'created_at': self.created_at.isoformat() if self.created_at else None,

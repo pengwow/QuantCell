@@ -27,12 +27,15 @@ class WorkerService:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._initialization_lock = asyncio.Lock()
+            cls._initialization_lock = None
         return cls._instance
 
     async def initialize(self) -> bool:
         if self._initialized:
             return True
+
+        if self._initialization_lock is None:
+            self._initialization_lock = asyncio.Lock()
 
         async with self._initialization_lock:
             if self._initialized:

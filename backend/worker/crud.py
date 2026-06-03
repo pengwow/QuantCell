@@ -527,85 +527,19 @@ def update_worker_order_status(
     return order
 
 
-def get_trading_summary(db: Session, worker_id: int) -> dict:
+def get_trading_summary(
+    db: Session,
+    worker_id: int,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+) -> dict:
     """
     获取交易汇总统计（优化版 - 使用 SQL 聚合）
     
-    使用 SQLAlchemy 的聚合函数在数据库层面完成统计计算，
-    避免加载所有交易记录到内存。
+    Uses SQLAlchemy aggregate functions to compute statistics at the database level,
+    avoiding loading all trade records into memory.
     """
-    query = db.query(
-        func.count(WorkerTrade.id).label('total_trades'),
-        func.sum(case((WorkerTrade.realized_pnl > 0, 1), else_=0)).label('winning_trades'),
-        func.sum(case((WorkerTrade.realized_pnl < 0, 1), else_=0)).label('losing_trades'),
-        func.sum(WorkerTrade.realized_pnl).label('total_pnl'),
-        func.sum(case((WorkerTrade.realized_pnl > 0, WorkerTrade.realized_pnl), else_=0)).label('total_profit'),
-        func.sum(case((WorkerTrade.realized_pnl < 0, WorkerTrade.realized_pnl), else_=0)).label('total_loss'),
-        func.max(WorkerTrade.realized_pnl).label('largest_profit'),
-        func.min(WorkerTrade.realized_pnl).label('largest_loss'),
-        func.sum(WorkerTrade.amount).label('total_volume'),
-        func.sum(WorkerTrade.fee).label('total_fees'),
-        func.count(func.distinct(func.date(WorkerTrade.created_at))).label('trading_days'),
-    ).filter(WorkerTrade.worker_id == worker_id)
-
-    row = query.first()
-
-    if not row or not row.total_trades:
-        return {
-            "total_trades": 0,
-            "winning_trades": 0,
-            "losing_trades": 0,
-            "win_rate": 0.0,
-            "total_pnl": 0.0,
-            "total_profit": 0.0,
-            "total_loss": 0.0,
-            "profit_factor": 0.0,
-            "average_profit": 0.0,
-            "average_loss": 0.0,
-            "largest_profit": 0.0,
-            "largest_loss": 0.0,
-            "total_volume": 0.0,
-            "total_fees": 0.0,
-            "trading_days": 0,
-            "daily_average_trades": 0.0,
-        }
-
-    total_trades = row.total_trades or 0
-    winning_trades = row.winning_trades or 0
-    losing_trades = row.losing_trades or 0
-    total_pnl = row.total_pnl or 0.0
-    total_profit = row.total_profit or 0.0
-    total_loss = row.total_loss or 0.0
-    largest_profit = row.largest_profit or 0.0
-    largest_loss = row.largest_loss or 0.0
-    total_volume = row.total_volume or 0.0
-    total_fees = row.total_fees or 0.0
-    trading_days = row.trading_days or 0
-
-    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
-    profit_factor = (total_profit / abs(total_loss)) if total_loss != 0 else 0.0
-    average_profit = (total_profit / winning_trades) if winning_trades > 0 else 0.0
-    average_loss = (total_loss / losing_trades) if losing_trades > 0 else 0.0
-    daily_average_trades = (total_trades / trading_days) if trading_days > 0 else 0.0
-
-    return {
-        "total_trades": total_trades,
-        "winning_trades": winning_trades,
-        "losing_trades": losing_trades,
-        "win_rate": round(win_rate, 2),
-        "total_pnl": round(total_pnl, 2),
-        "total_profit": round(total_profit, 2),
-        "total_loss": round(total_loss, 2),
-        "profit_factor": round(profit_factor, 2),
-        "average_profit": round(average_profit, 2),
-        "average_loss": round(average_loss, 2),
-        "largest_profit": round(largest_profit, 2),
-        "largest_loss": round(largest_loss, 2),
-        "total_volume": round(total_volume, 2),
-        "total_fees": round(total_fees, 2),
-        "trading_days": trading_days,
-        "daily_average_trades": round(daily_average_trades, 2),
-    }
+    return get_trading_summary_optimized(db, worker_id, start_time, end_time)
 
 
 def get_trade_history_chart(db: Session, worker_id: int, days: int = 30) -> dict:
