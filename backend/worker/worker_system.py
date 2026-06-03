@@ -327,6 +327,13 @@ class NautilusTradingSystem:
         Returns:
             是否启动成功
         """
+        # 诊断日志：记录调用方信息
+        import traceback
+        caller_info = ""
+        stack = traceback.extract_stack()
+        for frame in stack[-4:-1]:
+            caller_info += f"\n  File {frame.filename}:{frame.lineno}, in {frame.name}"
+
         if not NAUTILUS_AVAILABLE:
             logger.warning("[NautilusTradingSystem] NautilusTrader 不可用，无法启动策略")
             return False
@@ -336,6 +343,13 @@ class NautilusTradingSystem:
                 worker = crud.get_worker(db, worker_id)
                 if worker is None:
                     raise WorkerNotFoundException(worker_id)
+
+                logger.info(
+                    f"[NautilusTradingSystem] ===== start_strategy 被调用 ====="
+                    f"\n  worker_id={worker_id} (type={type(worker_id).__name__})"
+                    f"\n  数据库 name={worker.name}"
+                    f"\n  调用方堆栈:{caller_info}"
+                )
 
                 await worker_state_manager.transition(worker_id, "starting")
                 return await self._do_start_strategy(worker_id, worker, db)
@@ -367,6 +381,14 @@ class NautilusTradingSystem:
             是否启动成功
         """
         from .state import strategy_registry
+
+        # 关键诊断：记录实际使用的 worker_id
+        logger.info(
+            f"[NautilusTradingSystem] ===== _do_start_strategy 开始 ====="
+            f"\n  入参 worker_id={worker_id} (type={type(worker_id).__name__})"
+            f"\n  入参 worker.id={worker.id} (type={type(worker.id).__name__})"
+            f"\n  入参 worker.name={worker.name}"
+        )
 
         runtime = strategy_registry.get(worker_id)
         if runtime is None:
