@@ -181,13 +181,56 @@ class NautilusTradingSystem:
 
         logger.info("[NautilusTradingSystem] 初始化完成")
 
+    def _validate_worker_config(self, worker, db=None) -> None:
+        """验证 worker 配置是否合法，不合法抛出 ValueError"""
+        # 验证 strategy_id 存在
+        if not worker.strategy_id:
+            raise ValueError(f"worker {worker.id} 未关联策略 (strategy_id 为空)")
+
+        # 验证 worker.config 可解析为 dict
+        if worker.config:
+            try:
+                config = json.loads(worker.config) if isinstance(worker.config, str) else worker.config
+                if not isinstance(config, dict):
+                    raise ValueError(
+                        f"worker.config 类型异常: {type(config).__name__}，期望 dict"
+                    )
+            except (json.JSONDecodeError, TypeError) as e:
+                raise ValueError(f"worker.config JSON 解析失败: {e}")
+
+        # 验证关联策略的 parameters 可解析为 dict
+        strategy = getattr(worker, "strategy", None)
+        if strategy is None and db is not None:
+            from strategy.models import Strategy
+            strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
+        if strategy and strategy.parameters:
+            try:
+                params = json.loads(strategy.parameters) if isinstance(strategy.parameters, str) else strategy.parameters
+                if isinstance(params, list):
+                    raise ValueError(
+                        f"策略 {strategy.id} 的 parameters 是 list 类型，"
+                        f"期望 dict。请将参数改为 dict 格式后重启"
+                    )
+                if not isinstance(params, dict):
+                    raise ValueError(
+                        f"策略 {strategy.id} 的 parameters 类型异常: {type(params).__name__}"
+                    )
+            except (json.JSONDecodeError, TypeError) as e:
+                raise ValueError(f"策略 parameters JSON 解析失败: {e}")
+
     async def _load_workers_from_db(self) -> None:
-        """从数据库加载 worker 配置到内存注册表"""
+        """从数据库加载 worker 配置到内存注册表
+        
+        启动时验证所有策略配置，配置异常的策略直接标记为 error，
+        不会启动 nautilus engine。
+        """
         from .state import strategy_registry, StrategyRuntime
 
         with get_db_session() as db:
             workers, total = crud.get_workers(db, skip=0, limit=1000)
             logger.info(f"[NautilusTradingSystem] 从数据库加载了 {total} 个策略配置")
+
+            config_errors = []  # 收集所有配置验证失败的 worker
 
             for worker in workers:
                 runtime = StrategyRuntime(
@@ -198,7 +241,26 @@ class NautilusTradingSystem:
                 )
                 strategy_registry.register(runtime)
 
+                # 验证 running 状态的策略配置
                 if worker.status == "running":
+                    try:
+                        self._validate_worker_config(worker, db)
+                    except ValueError as e:
+                        error_msg = f"配置验证失败: {e}"
+                        logger.error(
+                            f"[NautilusTradingSystem] 策略配置异常，跳过启动: "
+                            f"worker_id={worker.id}, name={worker.name}, error={e}"
+                        )
+                        strategy_registry.update_status(
+                            worker.id, "error", error_message=error_msg
+                        )
+                        config_errors.append({
+                            "worker_id": worker.id,
+                            "name": worker.name,
+                            "error": str(e),
+                        })
+                        continue
+
                     logger.info(
                         f"[NautilusTradingSystem] 恢复启动运行中的策略: "
                         f"worker_id={worker.id}, name={worker.name}"
@@ -213,6 +275,12 @@ class NautilusTradingSystem:
                         strategy_registry.update_status(
                             worker.id, "error", error_message=str(e)
                         )
+
+            if config_errors:
+                logger.warning(
+                    f"[NautilusTradingSystem] {len(config_errors)} 个策略配置异常，"
+                    f"已标记为 error 状态，请修复后重启"
+                )
 
     async def create_strategy(self, db, worker_config: Dict[str, Any]) -> int:
         """
@@ -1155,8 +1223,23 @@ def load_strategy_from_path(worker, db=None):
     strategy_params = {}
     if strategy.parameters:
         try:
-            strategy_params = json.loads(strategy.parameters) if isinstance(strategy.parameters, str) else strategy.parameters
-        except (json.JSONDecodeError, TypeError):
+            parsed = json.loads(strategy.parameters) if isinstance(strategy.parameters, str) else strategy.parameters
+            if isinstance(parsed, dict):
+                strategy_params = parsed
+            elif isinstance(parsed, list):
+                logger.warning(
+                    f"策略 {strategy.id} 的 parameters 是 list 类型，"
+                    f"将忽略。请将参数改为 dict 格式"
+                )
+                strategy_params = {}
+            else:
+                logger.warning(
+                    f"策略 {strategy.id} 的 parameters 类型异常: {type(parsed).__name__}，"
+                    f"将忽略"
+                )
+                strategy_params = {}
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"策略 {strategy.id} 的 parameters JSON 解析失败: {e}")
             strategy_params = {}
 
     # 合并配置：strategy.parameters 作为基础，worker.config 覆盖
