@@ -462,24 +462,51 @@ class NautilusTradingSystem:
             # 注册 LiveTradeRecorder 事件处理器，订阅 nautilus 事件并持久化到 DB
             try:
                 from .event_handler import NautilusEventHandler
+                import threading
 
-                def _live_trade_event_callback(event_type: str, event_data: dict) -> None:
-                    """回调：将 nautilus 事件持久化到数据库"""
+                _event_buffer: list = []
+                _event_buffer_lock = threading.Lock()
+                _FLUSH_THRESHOLD = 20
+
+                def _flush_event_buffer() -> None:
+                    """将缓冲区中的事件批量写入DB"""
+                    nonlocal _event_buffer
+                    with _event_buffer_lock:
+                        if not _event_buffer:
+                            return
+                        batch = _event_buffer[:]
+                        _event_buffer.clear()
+
                     try:
                         from utils.db_session import get_db_session as _get_db_session
                         from worker.models import WorkerLog
                         with _get_db_session() as _db:
-                            log_entry = WorkerLog(
-                                worker_id=worker_id,
-                                level="INFO",
-                                message=json.dumps({
-                                    "event_type": event_type,
-                                    **event_data,
-                                }),
-                                source="LiveTradeRecorder",
-                            )
-                            _db.add(log_entry)
+                            for ev_type, ev_data in batch:
+                                log_entry = WorkerLog(
+                                    worker_id=worker_id,
+                                    level="INFO",
+                                    message=json.dumps({
+                                        "event_type": ev_type,
+                                        **ev_data,
+                                    }),
+                                    source="LiveTradeRecorder",
+                                )
+                                _db.add(log_entry)
                             _db.commit()
+                    except Exception as flush_err:
+                        logger.warning(
+                            f"[LiveTradeRecorder] 批量写入异常: "
+                            f"worker_id={worker_id}, error={flush_err}"
+                        )
+
+                def _live_trade_event_callback(event_type: str, event_data: dict) -> None:
+                    """回调：将 nautilus 事件缓冲后批量写入数据库"""
+                    try:
+                        with _event_buffer_lock:
+                            _event_buffer.append((event_type, event_data))
+                            should_flush = len(_event_buffer) >= _FLUSH_THRESHOLD
+                        if should_flush:
+                            _flush_event_buffer()
                     except Exception as cb_err:
                         logger.warning(
                             f"[LiveTradeRecorder] 事件回调异常: "

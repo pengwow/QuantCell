@@ -23,8 +23,7 @@ from .core_service import (
     WorkerOperationError,
 )
 from .worker_state import worker_state_manager
-from .dependencies import get_current_user
-from collector.db.database import get_db as get_db_session
+from .dependencies import get_current_user, get_db_session
 from utils.logger import get_logger, LogType
 from worker.state import connection_manager, strategy_registry
 

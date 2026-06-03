@@ -20,6 +20,7 @@ import json
 import asyncio
 
 from . import models, crud, schemas, state as _ws
+from .exceptions import WorkerException
 from .worker_state import worker_state_manager, WorkerStateManager
 from .state import strategy_registry
 from .config import NAUTILUS_AVAILABLE
@@ -30,7 +31,7 @@ from utils.logger import get_logger, LogType
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
-class WorkerOperationError(Exception):
+class WorkerOperationError(WorkerException):
     """Worker操作失败异常"""
 
     def __init__(self, operation: str, worker_id: int = None, message: str = None):
@@ -43,7 +44,7 @@ class WorkerOperationError(Exception):
         super().__init__(self.message)
 
 
-class WorkerNotFoundError(Exception):
+class WorkerNotFoundError(WorkerException):
     """Worker未找到异常"""
 
     def __init__(self, worker_id: int, message: str = None):
@@ -52,7 +53,7 @@ class WorkerNotFoundError(Exception):
         super().__init__(self.message)
 
 
-class WorkerAlreadyRunningError(Exception):
+class WorkerAlreadyRunningError(WorkerException):
     """Worker已在运行异常"""
 
     def __init__(self, worker_id: int, message: str = None):
@@ -362,12 +363,12 @@ class WorkerCoreService:
     # ==================== 异步CRUD方法（供API使用） ====================
 
     async def async_create_worker(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """创建Worker（异步版本）"""
-        return self.create_worker(data)
+        """创建Worker（异步版本，通过线程池执行同步DB操作）"""
+        return await asyncio.to_thread(self.create_worker, data)
 
     async def async_get_worker(self, worker_id: int) -> Dict[str, Any]:
-        """获取Worker详情（异步版本）"""
-        return self.get_worker(worker_id)
+        """获取Worker详情（异步版本，通过线程池执行同步DB操作）"""
+        return await asyncio.to_thread(self.get_worker, worker_id)
 
     async def async_list_workers(
         self,
@@ -376,16 +377,16 @@ class WorkerCoreService:
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
-        """获取Worker列表（异步版本）"""
-        return self.list_workers(status, strategy_id, page, page_size)
+        """获取Worker列表（异步版本，通过线程池执行同步DB操作）"""
+        return await asyncio.to_thread(self.list_workers, status, strategy_id, page, page_size)
 
     async def async_update_worker(self, worker_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
-        """更新Worker（异步版本）"""
-        return self.update_worker(worker_id, data)
+        """更新Worker（异步版本，通过线程池执行同步DB操作）"""
+        return await asyncio.to_thread(self.update_worker, worker_id, data)
 
     async def async_delete_worker(self, worker_id: int) -> bool:
-        """删除Worker（异步版本）"""
-        return self.delete_worker(worker_id)
+        """删除Worker（异步版本，通过线程池执行同步DB操作）"""
+        return await asyncio.to_thread(self.delete_worker, worker_id)
 
     async def async_clone_worker(
         self,
@@ -394,8 +395,8 @@ class WorkerCoreService:
         copy_config: bool = True,
         copy_parameters: bool = True,
     ) -> Dict[str, Any]:
-        """克隆Worker（异步版本）"""
-        return self.clone_worker(worker_id, new_name, copy_config, copy_parameters)
+        """克隆Worker（异步版本，通过线程池执行同步DB操作）"""
+        return await asyncio.to_thread(self.clone_worker, worker_id, new_name, copy_config, copy_parameters)
 
     def update_worker_config(self, worker_id: int, config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -434,7 +435,7 @@ class WorkerCoreService:
 
     def batch_operation(self, worker_ids: List[int], operation: str) -> Dict[str, Any]:
         """
-        批量操作Worker（通过状态机验证）
+        批量操作Worker（同步版本，供CLI使用）
 
         Args:
             worker_ids: Worker ID列表
@@ -460,9 +461,22 @@ class WorkerCoreService:
         target_state = valid_operations[operation]
         guard = StateMachineGuard()
 
-        batch_result = asyncio.get_event_loop().run_until_complete(
-            guard.batch_transition(worker_ids, target_state, operation)
-        )
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                batch_result = pool.submit(
+                    asyncio.run,
+                    guard.batch_transition(worker_ids, target_state, operation)
+                ).result()
+        else:
+            batch_result = asyncio.run(
+                guard.batch_transition(worker_ids, target_state, operation)
+            )
 
         result = {
             "success": batch_result.success_ids,
@@ -483,24 +497,49 @@ class WorkerCoreService:
     async def async_batch_operation(
         self, worker_ids: List[int], operation: str
     ) -> Dict[str, Any]:
-        """批量操作Worker（异步版本）"""
-        return self.batch_operation(worker_ids, operation)
+        """批量操作Worker（异步版本，直接await协程避免死锁）"""
+        from .state_guard import StateMachineGuard, WorkerState
+
+        valid_operations = {
+            "start": WorkerState.STARTING,
+            "stop": WorkerState.STOPPING,
+            "restart": WorkerState.RESTARTING,
+        }
+
+        if operation not in valid_operations:
+            raise WorkerOperationError(
+                operation,
+                message=f"不支持的操作类型: {operation}，支持的操作: {list(valid_operations.keys())}",
+            )
+
+        target_state = valid_operations[operation]
+        guard = StateMachineGuard()
+        batch_result = await guard.batch_transition(worker_ids, target_state, operation)
+
+        result = {
+            "success": batch_result.success_ids,
+            "failed": batch_result.failed_dict,
+            "total": batch_result.total,
+            "results": batch_result.results,
+        }
+
+        logger.info(
+            f"[WorkerCoreService] 批量{operation}完成 (异步): "
+            f"成功={len(batch_result.success_ids)}, "
+            f"失败={len(batch_result.failed_dict)}, "
+            f"总计={batch_result.total}"
+        )
+
+        return result
 
     # ==================== 辅助方法 ====================
 
     def get_worker_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        """根据名称获取Worker"""
+        """根据名称精确匹配获取Worker"""
         with self.get_db() as db:
-            from sqlalchemy import or_
-
             worker = (
                 db.query(models.Worker)
-                .filter(
-                    or_(
-                        models.Worker.name == name,
-                        models.Worker.name.ilike(f"%{name}%"),
-                    )
-                )
+                .filter(models.Worker.name == name)
                 .first()
             )
             if worker:

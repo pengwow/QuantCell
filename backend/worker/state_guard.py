@@ -8,6 +8,7 @@
 4. 支持同步和异步批量操作
 """
 
+from collections import deque
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -79,7 +80,7 @@ class StateMachineGuard:
 
     def __init__(self):
         self._machines: Dict[int, StateMachine] = {}
-        self._transition_log: List[Dict[str, Any]] = []
+        self._transition_log: deque = deque(maxlen=100)
         self._lock = None  # 可选的锁，用于多线程环境
 
     def get_machine(self, worker_id: int) -> StateMachine:
@@ -338,7 +339,7 @@ class StateMachineGuard:
     def get_statistics(self) -> Dict[str, Any]:
         """获取统计信息"""
         total_transitions = len(self._transition_log)
-        recent_transitions = self._transition_log[-10:] if total_transitions > 0 else []
+        recent_transitions = list(self._transition_log)[-10:] if total_transitions > 0 else []
 
         return {
             "cached_machines": len(self._machines),

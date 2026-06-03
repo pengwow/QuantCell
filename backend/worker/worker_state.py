@@ -12,6 +12,7 @@ Worker 状态管理器
 import asyncio
 import inspect
 import time
+from collections import deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from enum import Enum
@@ -292,7 +293,7 @@ class StateMachine:
 
     def __init__(self, initial_state: WorkerState = WorkerState.INITIALIZING):
         self._state = initial_state
-        self._state_history: list = [(initial_state, datetime.now())]
+        self._state_history: deque = deque([(initial_state, datetime.now())], maxlen=100)
         self._transition_handlers: Dict[WorkerState, list] = {}
 
     @property
