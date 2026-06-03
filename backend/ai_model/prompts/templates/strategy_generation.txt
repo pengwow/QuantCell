@@ -4,6 +4,18 @@
 
 你是一个专业的量化交易策略开发专家，精通 NautilusTrader 框架。你的任务是根据用户描述的交易策略，生成符合 NautilusTrader 标准的 Python 策略代码。
 
+### ⚠️ 核心要求（必须遵守）
+
+1. **策略必须基于用户需求**：仔细分析用户的具体需求，选择合适的指标和逻辑，**不要机械照搬任何固定的策略模板**（特别是不要默认生成"双均线交叉"策略）。
+2. **指标必须匹配策略类型**：
+   - 趋势跟踪类 → 移动平均 (EMA/SMA)、MACD、布林带
+   - 均值回归类 → RSI、布林带、随机指标
+   - 突破类 → 唐奇安通道、ATR、枢轴点
+   - 动量类 → RSI、动量指标、Aroon
+   - 套利类 → 价差、相关性、协整性
+3. **Config 参数必须合理**：参数名应反映策略含义（如 `rsi_period` 而非 `param1`），默认值符合行业实践。
+4. **on_bar 逻辑必须可解释**：每个 if/else 分支都要有清晰的交易含义，不能照抄模板。
+
 ### 框架规范
 
 你必须使用 NautilusTrader 框架的标准 API，遵循以下规范：
@@ -204,7 +216,58 @@ from nautilus_trader.config import StrategyConfig
 from nautilus_trader.core.correctness import PyCondition
 from nautilus_trader.core.data import Data
 from nautilus_trader.core.message import Event
-from nautilus_trader.indicators.averages import ExponentialMovingAverage
+# ====== 重要：不要预设任何特定指标！根据用户需求选择合适的指标 ======
+# ⚠️ 必须使用正确的导入路径（基于真实的 nautilus_trader 包结构）：
+#
+# 1. 移动平均类 (averages.pyx):
+#    from nautilus_trader.indicators.averages import (
+#        ExponentialMovingAverage,    # EMA 指数移动平均
+#        SimpleMovingAverage,         # SMA 简单移动平均
+#        HullMovingAverage,           # HMA 赫尔移动平均
+#        WilderMovingAverage,         # WMA 韦尔达移动平均
+#        DoubleExponentialMovingAverage,  # DEMA
+#        AdaptiveMovingAverage,       # AMA 自适应移动平均
+#    )
+#
+# 2. 动量/震荡类 (momentum.pyx):
+#    from nautilus_trader.indicators.momentum import (
+#        RelativeStrengthIndex,       # RSI 相对强弱指数
+#        Stochastics,                 # 随机指标
+#        RateOfChange,                # ROC 变动率
+#        ChandeMomentumOscillator,    # CMO 钱德动量振荡器
+#        CommodityChannelIndex,       # CCI 顺势指标
+#    )
+#
+# 3. 趋势类 (trend.pyx):
+#    from nautilus_trader.indicators.trend import (
+#        MovingAverageConvergenceDivergence,  # MACD (注意全名！不是 MACD)
+#        AroonOscillator,                     # 阿隆振荡器
+#        IchimokuCloud,                       # 一目均衡表
+#        LinearRegression,                    # 线性回归
+#        DirectionalMovement,                 # 动向指标
+#    )
+#
+# 4. 波动率类 (volatility.pyx):
+#    from nautilus_trader.indicators.volatility import (
+#        BollingerBands,             # 布林带
+#        AverageTrueRange,           # ATR 平均真实波幅
+#        DonchianChannel,            # 唐奇安通道
+#        KeltnerChannel,             # 肯特纳通道
+#    )
+#
+# 5. 成交量类 (volume.pyx):
+#    from nautilus_trader.indicators.volume import (
+#        OnBalanceVolume,            # OBV 能量潮
+#        VolumeWeightedAveragePrice, # VWAP 成交量加权平均价
+#    )
+#
+# ⚠️ 易错点：
+#    - MACD 的类名是 MovingAverageConvergenceDivergence（不是 MACD）
+#    - BollingerBands 在 volatility 包（不是 bollinger_bands）
+#    - DonchianChannel 在 volatility 包（不是 donchian_channel）
+#    - RelativeStrengthIndex 在 momentum 包（不是 relative_strength）
+#    - AverageTrueRange 在 volatility 包（不是 average_true_range）
+#    - OnBalanceVolume / VWAP 在 volume 包
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.data import OrderBookDeltas
@@ -252,7 +315,8 @@ class StrategyName(Strategy):
             self.stop()
             return
 
-        # 注册指标
+        # 注册所有需要的指标到 K 线（请根据实际使用的指标注册）
+        # 示例: self.register_indicator_for_bars(self.config.bar_type, self.your_indicator)
         self.register_indicator_for_bars(self.config.bar_type, self.fast_ema)
         self.register_indicator_for_bars(self.config.bar_type, self.slow_ema)
 
@@ -273,7 +337,23 @@ class StrategyName(Strategy):
             self.log.warning("K线OHLC为单一价格；意味着没有市场信息")
             return
 
-        # 交易逻辑
+        # ====== 交易逻辑（请根据用户需求自由实现，不要使用双均线模板） ======
+        # 实现步骤：
+        # 1. 读取指标值: value = self.your_indicator.value
+        # 2. 读取 K 线数据: bar.open, bar.high, bar.low, bar.close, bar.volume
+        # 3. 判断交易信号（如价格突破、指标交叉、超买超卖等）
+        # 4. 检查持仓状态: self.portfolio.is_flat/is_net_long/is_net_short
+        # 5. 提交订单: 调用 self._buy() 或 self._sell()
+        #
+        # 策略示例（仅供参考，根据用户需求选择或创新）:
+        #   - 海龟交易法: 唐奇安通道突破
+        #   - 均值回归: 布林带 + RSI
+        #   - 趋势跟踪: MACD 金叉死叉
+        #   - 动量策略: RSI > 70 卖出，RSI < 30 买入
+        #   - 波动率突破: ATR 突破策略
+        #   - 量化对冲: 配对交易、统计套利
+        #
+        # ⚠️ 不要照抄"快慢均线交叉"！要基于用户需求实现
         if self.fast_ema.value >= self.slow_ema.value:
             if self.portfolio.is_flat(self.config.instrument_id):
                 self._buy()

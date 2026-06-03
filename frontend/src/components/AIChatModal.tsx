@@ -174,16 +174,21 @@ const AIChatModal: React.FC<AIChatModalProps> = ({
       console.log('预加载思维链配置:', result);
       
       if (result && result.steps) {
-        const steps: ThinkingChainStepState[] = result.steps.map((step: any) => ({
-          title: step.title,
-          description: step.description || '',
+        // 兼容不同的字段命名：title/name, description/content, step/step_number
+        const steps: ThinkingChainStepState[] = result.steps.map((step: any, index: number) => ({
+          title: step.title || step.name || step.step_name || `步骤 ${step.step || step.step_number || index + 1}`,
+          description: step.description || step.content || step.detail || '',
           status: 'pending' as const,
         }));
-        
+
+        console.log('[AIChatModal] 预加载思维链步骤数:', steps.length);
+
         // 缓存预加载的思维链
         thinkingChainCacheRef.current[chainType] = steps;
         setThinkingSteps(steps);
         setThinkingProgress(0); // 初始化进度为0
+      } else {
+        console.warn('[AIChatModal] 思维链返回数据无 steps 字段:', result);
       }
     } catch (error) {
       console.error('预加载思维链失败:', error);

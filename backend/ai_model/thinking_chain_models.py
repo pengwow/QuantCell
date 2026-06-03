@@ -103,8 +103,44 @@ class ThinkingChain(Base):
         """获取思维链步骤
 
         Returns:
-            List[Dict[str, Any]]: 思维链步骤列表
+            List[Dict[str, Any]]: 思维链步骤列表（已标准化为 title/description 字段）
         """
-        if self.steps:
-            return json.loads(self.steps)
-        return []
+        if not self.steps:
+            return []
+
+        try:
+            raw_steps = json.loads(self.steps)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+        # 标准化步骤字段，兼容 name/title, description/content 等多种命名
+        normalized_steps = []
+        for idx, step in enumerate(raw_steps):
+            if not isinstance(step, dict):
+                continue
+
+            # 兼容字段命名
+            title = (
+                step.get("title")
+                or step.get("name")
+                or step.get("step_name")
+                or f"步骤 {step.get('step', step.get('step_number', idx + 1))}"
+            )
+            description = (
+                step.get("description")
+                or step.get("content")
+                or step.get("detail")
+                or ""
+            )
+
+            normalized_step = {
+                "step": step.get("step", step.get("step_number", idx + 1)),
+                "title": title,
+                "name": title,  # 兼容旧前端
+                "description": description,
+                "content": description,  # 兼容旧前端
+                **step,  # 保留其他原始字段
+            }
+            normalized_steps.append(normalized_step)
+
+        return normalized_steps

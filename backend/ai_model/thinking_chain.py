@@ -465,6 +465,23 @@ class ThinkingChainManager:
         """
         db = ThinkingChainManager._get_db()
         try:
+            # 优先返回名为"默认XXX思维链"的链，其次按 created_at 降序
+            # 这样可以避免返回测试用的临时链
+            default_chain = (
+                db.query(ThinkingChain)
+                .filter(
+                    and_(
+                        ThinkingChain.chain_type == chain_type,
+                        ThinkingChain.is_active == True,
+                        ThinkingChain.name.like("默认%"),
+                    )
+                )
+                .order_by(desc(ThinkingChain.created_at))
+                .first()
+            )
+            if default_chain:
+                return default_chain.to_dict()
+
             chain = (
                 db.query(ThinkingChain)
                 .filter(
