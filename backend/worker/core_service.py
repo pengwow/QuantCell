@@ -879,7 +879,8 @@ class WorkerCoreService:
                 logger.info(f"[_do_stop_worker] Worker {worker_id} 停止成功")
             else:
                 # 检查当前状态：如果已经 stopped，不需要转为 error
-                current_state = worker_state_manager.get_state(worker_id)
+                # 注意：get_state() 是异步方法，需要 await
+                current_state = await worker_state_manager.get_state(worker_id)
                 if current_state and current_state.status == "stopped":
                     logger.info(
                         f"[_do_stop_worker] Worker {worker_id} 状态已为 stopped, "
