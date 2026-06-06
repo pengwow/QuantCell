@@ -100,6 +100,7 @@ interface WorkerActions {
   fetchTrades: (workerId: number, params?: TradeQueryParams) => Promise<void>;
   fetchLogs: (workerId: number, params?: LogQueryParams) => Promise<void>;
   fetchReturnRateData: (workerId: number, days?: number) => Promise<void>;
+  fetchOverview: (workerId: number, window?: OverviewWindow) => Promise<void>;
 
   // CRUD 操作
   createWorker: (data: CreateWorkerRequest) => Promise<Worker | null>;

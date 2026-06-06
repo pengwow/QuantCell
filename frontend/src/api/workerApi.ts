@@ -714,6 +714,41 @@ export const getTradeHistoryChart = (workerId: number, days?: number): Promise<A
 };
 
 // ============================================
+// Worker Overview API (聚合总览)
+// ============================================
+
+export interface OverviewApiData {
+  metrics: OverviewMetrics;
+  cumulative_pnl_series: TradeHistoryChart;
+  pnl_distribution: PnLDistribution;
+  window: OverviewWindow;
+}
+
+/**
+ * 获取 Worker 总览数据（一次拉取聚合 KPI、累计收益曲线、盈亏分布）
+ * @param workerId Worker ID
+ * @param window 时间窗口 24h/7d/30d/90d/all
+ */
+export const getOverview = (
+  workerId: number,
+  window: OverviewWindow = '30d'
+): Promise<ApiResponse<OverviewApiData>> => {
+  return apiRequest.get(`/workers/${workerId}/stats/overview`, { params: { window } });
+};
+
+/**
+ * 获取 Worker 交易汇总（支持时间窗口过滤）
+ * @param workerId Worker ID
+ * @param params 筛选参数：window
+ */
+export const getTradingSummaryFiltered = (
+  workerId: number,
+  params?: { window?: OverviewWindow }
+): Promise<ApiResponse<TradingSummary>> => {
+  return apiRequest.get(`/workers/${workerId}/stats/trading-summary`, { params });
+};
+
+// ============================================
 // Worker API 导出
 // ============================================
 
