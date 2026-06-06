@@ -125,15 +125,14 @@ const WorkerOrderTab: React.FC<WorkerOrderTabProps> = ({ workerId, active = true
         params.start_time = appliedFilters.time_range[0].toISOString();
         params.end_time = appliedFilters.time_range[1].toISOString();
       }
+      // apiRequest.get() 已解包 ApiResponse.data，response 直接是委托数组
       const response: any = await workerApi.getOrders(workerId, params);
-      // 兼容多种返回结构
       let items: Order[] = [];
-      if (response && response.code === 0 && Array.isArray(response.data?.items)) {
-        items = response.data.items;
-      } else if (response && Array.isArray(response.data)) {
-        items = response.data;
-      } else if (Array.isArray(response)) {
+      if (Array.isArray(response)) {
         items = response;
+      } else if (response && Array.isArray(response.items)) {
+        // 兜底：万一后端未走 ApiResponse 包装
+        items = response.items;
       }
       setOrders(items);
     } catch (error) {
