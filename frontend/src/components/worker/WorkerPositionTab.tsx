@@ -1,16 +1,28 @@
-import { useEffect, useState } from 'react';
+/**
+ * Worker 持仓 Tab
+ *
+ * 展示当前 Worker 的实时持仓情况：
+ * - 5s 轮询刷新（仅在 tab 激活时启用）
+ * - 量化行业标准列：标记价、强平价、ROE、持仓时长
+ * - 汇总卡片：总持仓价值、总未实现盈亏、总保证金、总 ROE
+ * - 盈亏绝对值 > 5% 的行高亮提示
+ */
+
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  Card,
-  Table,
-  Row,
-  Col,
-  Statistic,
-  Tag,
-  Empty,
-  Spin,
-} from 'antd';
+import { Badge, Card, Col, Empty, Row, Spin, Statistic, Table, Tag } from 'antd';
 import { workerApi } from '@/api/workerApi';
+import { usePolling } from '@/hooks/usePolling';
+import {
+  QUANT_COLORS,
+  calcROE,
+  formatHoldingDuration,
+  formatLeverage,
+  formatPercent,
+  formatQuantity,
+  formatTimestamp,
+  formatUSD,
+} from '@/utils/format';
 
 interface Position {
   id: number;
@@ -19,56 +31,77 @@ interface Position {
   quantity: number;
   entry_price: number;
   current_price: number;
+  mark_price?: number;
+  liquidation_price?: number;
+  leverage?: number;
+  margin_used?: number;
   unrealized_pnl: number;
   pnl_percentage: number;
-  margin_used: number;
-  leverage: number;
-  open_time: string;
+  roe?: number;
+  open_time?: string;
+  holding_duration?: string;
+  timestamp: string;
 }
 
 interface WorkerPositionTabProps {
   workerId: number;
+  /** tab 是否激活；激活时才进行 5s 轮询，避免无效请求 */
+  active?: boolean;
 }
 
-const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId }) => {
+const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active = true }) => {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [positions, setPositions] = useState<Position[]>([]);
 
-  useEffect(() => {
-    // TODO: 调用实际API获取持仓数据
-    // 暂时使用模拟数据或显示空状态
-    fetchPositionData();
-  }, [workerId]);
-
-  const fetchPositionData = async () => {
+  // 拉取持仓数据：兼容多种返回结构
+  const fetchPositionData = useCallback(async () => {
     setLoading(true);
     try {
-      // 调用实际API获取持仓数据
       const response: any = await workerApi.getPositions(workerId);
-
-      if (response && response.code === 0 && response.data?.items) {
+      // 兼容 { code, data: { items: [...] } } / { data: [...] } / [...] 三种格式
+      if (response && response.code === 0 && Array.isArray(response.data?.items)) {
         setPositions(response.data.items);
+      } else if (response && Array.isArray(response.data)) {
+        setPositions(response.data);
       } else if (Array.isArray(response)) {
-        // 兼容直接返回数组的格式
         setPositions(response);
       } else {
         setPositions([]);
       }
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error('获取持仓数据失败:', error);
       setPositions([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [workerId]);
 
-  // 使用 any 类型避免复杂的 Table columns 类型推断问题
+  // 5s 轮询：仅在 tab 激活时启用
+  usePolling(fetchPositionData, { interval: 5000, enabled: active });
+
+  // 汇总指标
+  const summary = useMemo(() => {
+    const totalPositionValue = positions.reduce(
+      (sum, p) => sum + p.quantity * p.current_price,
+      0,
+    );
+    const totalUnrealizedPnL = positions.reduce((sum, p) => sum + p.unrealized_pnl, 0);
+    const totalMarginUsed = positions.reduce((sum, p) => sum + (p.margin_used || 0), 0);
+    // 总 ROE：总未实现盈亏 / 总保证金 × 100
+    const totalROE = totalMarginUsed > 0 ? (totalUnrealizedPnL / totalMarginUsed) * 100 : 0;
+    return { totalPositionValue, totalUnrealizedPnL, totalMarginUsed, totalROE };
+  }, [positions]);
+
+  // 表格列：按量化行业标准排序
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const columns: any = [
     {
       title: t('symbol') || '交易对',
       dataIndex: 'symbol',
       key: 'symbol',
+      width: 120,
       render: (symbol: string) => <Tag color="blue">{symbol}</Tag>,
     },
     {
@@ -78,7 +111,7 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId }) => {
       width: 80,
       render: (side: 'long' | 'short') => (
         <Tag color={side === 'long' ? 'green' : 'red'}>
-          {side === 'long' ? (t('long') || '做多') : (t('short') || '做空')}
+          {side === 'long' ? t('long') || '做多' : t('short') || '做空'}
         </Tag>
       ),
     },
@@ -87,111 +120,181 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId }) => {
       dataIndex: 'quantity',
       key: 'quantity',
       align: 'right',
+      render: (qty: number) => formatQuantity(qty),
     },
     {
-      title: t('entry_price') || '开仓价格',
+      title: t('entry_price') || '开仓价',
       dataIndex: 'entry_price',
       key: 'entry_price',
       align: 'right',
-      render: (price: number) => `$${price.toFixed(2)}`,
+      render: (price: number) => formatUSD(price),
     },
     {
-      title: t('current_price') || '当前价格',
+      title: t('current_price') || '最新价',
       dataIndex: 'current_price',
       key: 'current_price',
       align: 'right',
-      render: (price: number) => `$${price.toFixed(2)}`,
+      render: (price: number) => formatUSD(price),
+    },
+    {
+      title: '标记价',
+      dataIndex: 'mark_price',
+      key: 'mark_price',
+      align: 'right',
+      render: (price?: number) =>
+        price === null || price === undefined ? <span style={{ color: '#999' }}>-</span> : formatUSD(price),
+    },
+    {
+      title: '强平价',
+      dataIndex: 'liquidation_price',
+      key: 'liquidation_price',
+      align: 'right',
+      render: (price?: number) =>
+        price === null || price === undefined ? <span style={{ color: '#999' }}>-</span> : formatUSD(price),
+    },
+    {
+      title: t('leverage') || '杠杆',
+      dataIndex: 'leverage',
+      key: 'leverage',
+      width: 80,
+      align: 'center',
+      render: (lev?: number) => (lev ? <Tag color="orange">{formatLeverage(lev)}</Tag> : '-'),
+    },
+    {
+      title: '保证金',
+      dataIndex: 'margin_used',
+      key: 'margin_used',
+      align: 'right',
+      render: (margin?: number) => formatUSD(margin),
     },
     {
       title: t('unrealized_pnl') || '未实现盈亏',
       dataIndex: 'unrealized_pnl',
       key: 'unrealized_pnl',
       align: 'right',
+      width: 140,
       render: (pnl: number) => (
-        <span style={{ fontWeight: 600, color: pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
-          {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+        <span style={{ fontWeight: 600, color: pnl >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
+          {formatUSD(pnl, { showSign: true })}
         </span>
       ),
     },
     {
-      title: t('pnl_percentage') || '盈亏%',
-      dataIndex: 'pnl_percentage',
-      key: 'pnl_percentage',
+      title: 'ROE (%)',
+      dataIndex: 'roe',
+      key: 'roe',
       align: 'right',
       width: 100,
-      render: (pct: number) => (
-        <span style={{ fontWeight: 600, color: pct >= 0 ? '#52c41a' : '#ff4d4f' }}>
-          {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
-        </span>
-      ),
-    },
-    {
-      title: t('leverage') || '杠杆',
-      dataIndex: 'leverage',
-      key: 'leverage',
-      width: 70,
-      align: 'center',
-      render: (lev: number) => <Tag color="orange">{lev}x</Tag>,
+      // 优先使用后端 roe 字段；缺失则前端计算（unrealized_pnl / margin_used * 100）
+      render: (roe: number | undefined, record: Position) => {
+        const value = roe !== undefined ? roe : calcROE(record.unrealized_pnl, record.margin_used || 0);
+        return (
+          <span style={{ fontWeight: 600, color: value >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative }}>
+            {formatPercent(value, { showSign: true })}
+          </span>
+        );
+      },
     },
     {
       title: t('open_time') || '开仓时间',
       dataIndex: 'open_time',
       key: 'open_time',
-      width: 160,
-      render: (time: string) => new Date(time).toLocaleString(),
+      width: 170,
+      render: (time?: string) => (time ? formatTimestamp(time) : '-'),
+    },
+    {
+      title: '持仓时长',
+      dataIndex: 'open_time',
+      key: 'holding_duration',
+      width: 110,
+      render: (time?: string, record?: Position) =>
+        formatHoldingDuration(record?.holding_duration ? null : time),
     },
   ];
 
-  // 计算汇总数据
-  const totalPositionValue = positions.reduce((sum, pos) => sum + (pos.quantity * pos.current_price), 0);
-  const totalUnrealizedPnL = positions.reduce((sum, pos) => sum + pos.unrealized_pnl, 0);
-  const totalMarginUsed = positions.reduce((sum, pos) => sum + pos.margin_used, 0);
+  // 高亮 |pnl| > 5% 的持仓行
+  const rowClassName = (record: Position) => {
+    const pnlPct = Math.abs(record.pnl_percentage || 0);
+    return pnlPct > 5 ? 'position-row-highlight' : '';
+  };
 
-  if (loading) {
+  if (loading && positions.length === 0) {
     return <Spin style={{ display: 'block', margin: '100px auto' }} />;
   }
 
   return (
     <div>
-      {/* 持仓汇总卡片 */}
+      {/* 汇总卡片：总持仓价值 / 总未实现盈亏 / 总保证金 / 总 ROE */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={24} sm={8}>
+        <Col xs={12} sm={12} md={6}>
           <Card size="small">
             <Statistic
               title={t('total_position_value') || '总持仓价值'}
-              value={totalPositionValue}
+              value={summary.totalPositionValue}
               precision={2}
               prefix="$"
-              styles={{ content: { color: '#1890ff' } }}
+              styles={{ content: { color: QUANT_COLORS.info } }}
             />
           </Card>
         </Col>
-        <Col xs={24} sm={8}>
+        <Col xs={12} sm={12} md={6}>
           <Card size="small">
             <Statistic
               title={t('unrealized_pnl') || '总未实现盈亏'}
-              value={totalUnrealizedPnL}
+              value={summary.totalUnrealizedPnL}
               precision={2}
               prefix="$"
-              styles={{ content: { color: totalUnrealizedPnL >= 0 ? '#52c41a' : '#ff4d4f' } }}
+              styles={{
+                content: {
+                  color: summary.totalUnrealizedPnL >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
+                },
+              }}
             />
           </Card>
         </Col>
-        <Col xs={24} sm={8}>
+        <Col xs={12} sm={12} md={6}>
           <Card size="small">
             <Statistic
-              title={t('margin_used') || '保证金占用'}
-              value={totalMarginUsed}
+              title={t('margin_used') || '总保证金占用'}
+              value={summary.totalMarginUsed}
               precision={2}
               prefix="$"
-              styles={{ content: { color: '#faad14' } }}
+              styles={{ content: { color: QUANT_COLORS.warning } }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={12} md={6}>
+          <Card size="small">
+            <Statistic
+              title="总 ROE"
+              value={summary.totalROE}
+              precision={2}
+              suffix="%"
+              styles={{
+                content: {
+                  color: summary.totalROE >= 0 ? QUANT_COLORS.positive : QUANT_COLORS.negative,
+                },
+              }}
             />
           </Card>
         </Col>
       </Row>
 
       {/* 持仓列表 */}
-      <Card title={t('current_position') || '当前持仓'}>
+      <Card
+        title={
+          <span>
+            {t('current_position') || '当前持仓'}
+            {active && (
+              <Badge
+                status="processing"
+                text="实时"
+                style={{ marginLeft: 12, color: QUANT_COLORS.info }}
+              />
+            )}
+          </span>
+        }
+      >
         {positions.length === 0 ? (
           <Empty
             description={t('no_position_data') || '暂无持仓数据'}
@@ -202,12 +305,23 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId }) => {
             columns={columns}
             dataSource={positions}
             rowKey="id"
+            rowClassName={rowClassName}
             pagination={false}
             size="middle"
             scroll={{ x: 'max-content' }}
           />
         )}
       </Card>
+
+      {/* 高亮行样式：盈亏绝对值 > 5% */}
+      <style>{`
+        .position-row-highlight {
+          background-color: #fff7e6 !important;
+        }
+        .position-row-highlight:hover td {
+          background-color: #ffe7ba !important;
+        }
+      `}</style>
     </div>
   );
 };
