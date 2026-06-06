@@ -1,10 +1,11 @@
 /**
  * Worker 详情页
  *
- * 5 个 tab 布局：参数、总览、持仓、委托、日志
+ * 5 个 tab 布局（顺序：总览、持仓、委托、参数、日志）
  * - URL hash 同步：切换 tab 时更新 hash，刷新页面时根据 hash 恢复
  * - 旧 hash (#performance/#stats) 兼容：自动重定向到 #overview 并 toast 提示
  * - 页面头部 Card 增加「最后更新时间」字段，每 60s 刷新
+ * - 所有 tab 标签使用 i18n 翻译
  */
 
 import { useEffect, useState } from 'react';
@@ -148,15 +149,12 @@ const WorkerDetail = () => {
     );
   }
 
+  // 5 个 tab 顺序：总览 → 持仓 → 委托 → 参数 → 日志
+  // 所有标签使用 i18n；key 兜底保证 key 缺失时显示正确中文
   const tabItems = [
     {
-      key: 'params',
-      label: t('parameters') || '参数',
-      children: <WorkerParamsTab worker={currentWorker} />,
-    },
-    {
       key: 'overview',
-      label: '总览',
+      label: t('overview') || '总览',
       children: (
         <WorkerOverviewTab
           workerId={currentWorker.id}
@@ -174,6 +172,11 @@ const WorkerDetail = () => {
       key: 'orders',
       label: t('orders') || '委托',
       children: <WorkerOrderTab workerId={currentWorker.id} active={activeTab === 'orders'} />,
+    },
+    {
+      key: 'params',
+      label: t('parameters') || '参数',
+      children: <WorkerParamsTab worker={currentWorker} />,
     },
     {
       key: 'logs',

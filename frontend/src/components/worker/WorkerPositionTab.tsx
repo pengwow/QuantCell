@@ -58,14 +58,13 @@ const WorkerPositionTab: React.FC<WorkerPositionTabProps> = ({ workerId, active 
   const fetchPositionData = useCallback(async () => {
     setLoading(true);
     try {
+      // apiRequest.get() 已解包 ApiResponse.data，response 直接是持仓数组
       const response: any = await workerApi.getPositions(workerId);
-      // 兼容 { code, data: { items: [...] } } / { data: [...] } / [...] 三种格式
-      if (response && response.code === 0 && Array.isArray(response.data?.items)) {
-        setPositions(response.data.items);
-      } else if (response && Array.isArray(response.data)) {
-        setPositions(response.data);
-      } else if (Array.isArray(response)) {
+      if (Array.isArray(response)) {
         setPositions(response);
+      } else if (response && Array.isArray(response.items)) {
+        // 兜底：万一后端未走 ApiResponse 包装
+        setPositions(response.items);
       } else {
         setPositions([]);
       }

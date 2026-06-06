@@ -314,17 +314,18 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
         const targetWindow: OverviewWindow = window || get().overviewWindow || '30d';
         set({ loadingOverview: true, overviewError: null, overviewWindow: targetWindow });
         try {
+          // apiRequest.get() 已在 axios 拦截器中解包 ApiResponse.data，
+          // 因此 response 直接就是 { metrics, cumulative_pnl_series, pnl_distribution, window }
           const response: any = await workerApi.getOverview(workerId, targetWindow);
-          const data = response?.data;
-          if (!data) {
+          if (!response || !response.metrics) {
             throw new Error('总览数据为空');
           }
           set({
             overview: {
-              metrics: data.metrics,
-              cumulativePnlSeries: data.cumulative_pnl_series,
-              pnlDistribution: data.pnl_distribution,
-              window: data.window,
+              metrics: response.metrics,
+              cumulativePnlSeries: response.cumulative_pnl_series,
+              pnlDistribution: response.pnl_distribution,
+              window: response.window,
               updatedAt: Date.now(),
             },
             loadingOverview: false,
