@@ -8,7 +8,7 @@ Worker API路由定义
 import asyncio
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, WebSocket, WebSocketDisconnect, Request
 from sqlalchemy.orm import Session
@@ -1069,9 +1069,28 @@ async def search_logs(
 
 # ==================== 统计相关路由 ====================
 
+# 时间窗口 → 天数 / start_time 映射，用于 stats 端点统一处理
+WINDOW_TO_TIMEDELTA = {
+    "24h": timedelta(hours=24),
+    "7d": timedelta(days=7),
+    "30d": timedelta(days=30),
+    "90d": timedelta(days=90),
+    "all": None,
+}
+
+
+def _resolve_window(window: str) -> Optional[datetime]:
+    """根据窗口字符串计算 start_time，all 时返回 None（不限制）"""
+    delta = WINDOW_TO_TIMEDELTA.get(window)
+    if delta is None:
+        return None
+    return datetime.now() - delta
+
+
 @router.get("/{worker_id}/stats/trading-summary", summary="获取交易汇总统计")
 async def get_trading_summary(
     worker_id: int,
+    window: str = Query("30d", pattern="^(24h|7d|30d|90d|all)$", description="时间窗口: 24h/7d/30d/90d/all"),
     db: Session = Depends(get_db_session),
     _current_user: dict = Depends(get_current_user),
 ):
@@ -1082,11 +1101,32 @@ async def get_trading_summary(
     try:
         from .stats_service import TradingStatsService
         stats_service = TradingStatsService(db)
-        result = stats_service.get_trading_summary(worker_id)
+        result = stats_service.get_trading_summary(worker_id, window=window)
         return schemas.ApiResponse(data=result)
     except Exception as e:
         logger.error(f"获取交易汇总统计失败: worker_id={worker_id}, error={str(e)}")
         raise HTTPException(status_code=500, detail=f"获取交易汇总统计失败: {str(e)}")
+
+
+@router.get("/{worker_id}/stats/overview", summary="获取Worker总览（合并绩效+统计+图表）")
+async def get_overview(
+    worker_id: int,
+    window: str = Query("30d", pattern="^(24h|7d|30d|90d|all)$", description="时间窗口: 24h/7d/30d/90d/all"),
+    db: Session = Depends(get_db_session),
+    _current_user: dict = Depends(get_current_user),
+):
+    worker = crud.get_worker(db, worker_id)
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+    try:
+        from .stats_service import TradingStatsService
+        stats_service = TradingStatsService(db)
+        result = stats_service.get_overview(worker_id, window=window)
+        return schemas.ApiResponse(data=result)
+    except Exception as e:
+        logger.error(f"获取Worker总览失败: worker_id={worker_id}, error={str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取Worker总览失败: {str(e)}")
 
 
 @router.get("/{worker_id}/stats/position-summary", summary="获取持仓汇总统计")

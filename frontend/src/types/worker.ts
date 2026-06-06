@@ -258,22 +258,34 @@ export interface PositionInfo {
   quantity: number;
   entry_price: number;
   current_price: number;
+  mark_price?: number;
+  liquidation_price?: number;
+  leverage?: number;
+  margin_used?: number;
   unrealized_pnl: number;
-  unrealized_pnl_pct: number;
+  pnl_percentage: number;
+  roe?: number;
+  open_time?: string;
+  holding_duration?: string;
   timestamp: string;
 }
 
 // 订单信息
 export interface OrderInfo {
   order_id: string;
+  client_order_id?: string;
+  venue_order_id?: string;
   symbol: string;
   side: 'buy' | 'sell';
   order_type: string;
   quantity: number;
   price?: number;
+  avg_fill_price?: number;
   status: string;
   filled_quantity: number;
+  position_side?: 'LONG' | 'SHORT' | 'BOTH';
   created_at: string;
+  submitted_at?: string;
 }
 
 // API响应包装
@@ -542,6 +554,46 @@ export interface TradeHistoryChart {
   cumulative_pnl: number[]
   daily_pnl: number[]
   trade_count: number[]
+}
+
+// ==================== 总览 (Overview) 相关类型 ====================
+
+// 概览时间窗口
+export type OverviewWindow = '24h' | '7d' | '30d' | '90d' | 'all'
+
+// 总览聚合指标（与后端 OverviewMetrics 对齐）
+export interface OverviewMetrics {
+  total_pnl: number
+  total_profit: number
+  total_loss: number
+  net_profit: number
+  return_rate: number
+  total_trades: number
+  winning_trades: number
+  losing_trades: number
+  win_rate: number
+  profit_factor: number
+  profit_loss_ratio: number
+  average_profit: number
+  average_loss: number
+  largest_profit: number
+  largest_loss: number
+  max_drawdown: number
+  sharpe_ratio: number
+  total_volume: number
+  total_fees: number
+  trading_days: number
+  daily_average_trades: number
+  window: OverviewWindow
+}
+
+// 总览状态（store 中使用）
+export interface OverviewState {
+  metrics: OverviewMetrics
+  cumulativePnlSeries: TradeHistoryChart
+  pnlDistribution: PnLDistribution
+  window: OverviewWindow
+  updatedAt: number
 }
 
 export interface Position {

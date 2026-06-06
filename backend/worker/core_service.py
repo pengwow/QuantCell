@@ -428,8 +428,8 @@ class WorkerCoreService:
             raise WorkerOperationError("更新配置", worker_id, message=str(e))
 
     async def async_update_worker_config(self, worker_id: int, config: Dict[str, Any]) -> Dict[str, Any]:
-        """更新Worker配置（异步版本）"""
-        return self.update_worker_config(worker_id, config)
+        """更新Worker配置（异步版本，通过线程池执行同步操作）"""
+        return await asyncio.to_thread(self.update_worker_config, worker_id, config)
 
     # ==================== 批量操作 ====================
 
@@ -1124,8 +1124,8 @@ class WorkerCoreService:
             }
 
     async def async_get_worker_status(self, worker_id: int) -> dict:
-        """异步版本获取 Worker 状态"""
-        return self.get_worker_status(worker_id)
+        """异步版本获取 Worker 状态（通过线程池执行同步操作）"""
+        return await asyncio.to_thread(self.get_worker_status, worker_id)
 
     # ==================== 监控与日志管理方法 ====================
 
@@ -1221,8 +1221,10 @@ class WorkerCoreService:
         limit: int = 100,
         offset: int = 0
     ) -> dict:
-        """异步版本查询 Worker 日志"""
-        return self.get_worker_logs(worker_id, level, start_time, end_time, limit, offset)
+        """异步版本查询 Worker 日志（通过线程池执行同步操作）"""
+        return await asyncio.to_thread(
+            self.get_worker_logs, worker_id, level, start_time, end_time, limit, offset
+        )
 
     def clear_worker_logs(
         self,
@@ -1272,8 +1274,10 @@ class WorkerCoreService:
         before_days: Optional[int] = None,
         confirm: bool = False
     ) -> dict:
-        """异步版本清理 Worker 日志"""
-        return self.clear_worker_logs(worker_id, before_days, confirm)
+        """异步版本清理 Worker 日志（通过线程池执行同步操作）"""
+        return await asyncio.to_thread(
+            self.clear_worker_logs, worker_id, before_days, confirm
+        )
 
     # ---------- 性能指标查询 ----------
 
@@ -1323,8 +1327,8 @@ class WorkerCoreService:
             raise MetricsError(worker_id, message=str(e))
 
     async def async_get_worker_metrics(self, worker_id: int) -> dict:
-        """异步版本获取 Worker 性能指标"""
-        return self.get_worker_metrics(worker_id)
+        """异步版本获取 Worker 性能指标（通过线程池执行同步操作）"""
+        return await asyncio.to_thread(self.get_worker_metrics, worker_id)
 
     def get_metrics_history(
         self,
@@ -1379,8 +1383,10 @@ class WorkerCoreService:
         end_time=None,
         interval="1m"
     ) -> list:
-        """异步版本获取历史性能指标"""
-        return self.get_metrics_history(worker_id, start_time, end_time, interval)
+        """异步版本获取历史性能指标（通过线程池执行同步操作）"""
+        return await asyncio.to_thread(
+            self.get_metrics_history, worker_id, start_time, end_time, interval
+        )
 
     # ---------- 交易记录与订单查询 ----------
 
@@ -1449,9 +1455,9 @@ class WorkerCoreService:
         page: int = 1,
         page_size: int = 20
     ) -> dict:
-        """异步版本获取 Worker 交易记录"""
-        return self.get_worker_trades(
-            worker_id, symbol, side, order_type, pnl_status,
+        """异步版本获取 Worker 交易记录（通过线程池执行同步操作）"""
+        return await asyncio.to_thread(
+            self.get_worker_trades, worker_id, symbol, side, order_type, pnl_status,
             start_time, end_time, page, page_size
         )
 
@@ -1500,8 +1506,8 @@ class WorkerCoreService:
         status: Optional[str] = None,
         limit: int = 50
     ) -> dict:
-        """异步版本获取 Worker 订单列表"""
-        return self.get_worker_orders(worker_id, status, limit)
+        """异步版本获取 Worker 订单列表（通过线程池执行同步操作）"""
+        return await asyncio.to_thread(self.get_worker_orders, worker_id, status, limit)
 
     # ---------- 统计信息 ----------
 
@@ -1578,8 +1584,8 @@ class WorkerCoreService:
             raise WorkerOperationError("统计信息", message=str(e))
 
     async def async_get_worker_stats(self, worker_id: Optional[int] = None) -> dict:
-        """异步版本获取 Worker 统计信息"""
-        return self.get_worker_stats(worker_id)
+        """异步版本获取 Worker 统计信息（通过线程池执行同步操作）"""
+        return await asyncio.to_thread(self.get_worker_stats, worker_id)
 
     def get_worker_performance(self, worker_id: int, days: int = 30) -> list:
         """
@@ -1601,8 +1607,8 @@ class WorkerCoreService:
             raise WorkerOperationError("绩效统计", worker_id, message=str(e))
 
     async def async_get_worker_performance(self, worker_id: int, days: int = 30) -> list:
-        """异步版本获取 Worker 绩效统计"""
-        return self.get_worker_performance(worker_id, days)
+        """异步版本获取 Worker 绩效统计（通过线程池执行同步操作）"""
+        return await asyncio.to_thread(self.get_worker_performance, worker_id, days)
 
     # ---------- 诊断功能 ----------
 
@@ -1662,8 +1668,8 @@ class WorkerCoreService:
             return diagnosis
 
     async def async_diagnose_worker(self, worker_id: Optional[int] = None) -> dict:
-        """异步版本诊断 Worker"""
-        return self.diagnose_worker(worker_id)
+        """异步版本诊断 Worker（通过线程池执行同步操作）"""
+        return await asyncio.to_thread(self.diagnose_worker, worker_id)
 
     # ---------- 诊断辅助方法 ----------
 

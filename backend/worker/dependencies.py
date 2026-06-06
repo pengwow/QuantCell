@@ -7,9 +7,8 @@ Worker模块依赖注入
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
-from sqlalchemy.orm import Session
 
-from collector.db.database import get_db
+from collector.db.database import SessionLocal, init_database_config
 from utils.jwt_utils import decode_jwt_token
 
 
@@ -46,9 +45,14 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail=f"无效的认证令牌: {str(e)}")
 
 
-async def get_db_session() -> Session:
-    """获取数据库会话"""
-    db = get_db()
+async def get_db_session():
+    """获取数据库会话
+
+    注意：collector.db.database 中的 get_db() 是使用 yield 的生成器函数，
+    直接调用只会得到一个 generator 对象。这里直接使用 SessionLocal() 创建一个真正的 Session。
+    """
+    init_database_config()
+    db = SessionLocal()
     try:
         yield db
     finally:

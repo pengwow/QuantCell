@@ -26,6 +26,8 @@ import type {
   WorkerFilterParams,
   TradeQueryParams,
   LogQueryParams,
+  OverviewState,
+  OverviewWindow,
 } from '../types/worker';
 import { workerApi, WorkerLogStreamSSE, WorkerLogStream } from '../api/workerApi';
 
@@ -37,10 +39,25 @@ export interface WorkerState {
   // 数据
   workers: Worker[];
   selectedWorker: Worker | null;
+  /**
+   * @deprecated 自 2026-06 改为 `overview` 聚合状态。
+   * 旧 WorkerPerformanceTab / WorkerTradingStatsTab 合并到 WorkerOverviewTab 后，
+   * 不再单独维护 performance / tradingSummary / returnRateData。
+   * 仍保留字段以避免对其他模块的影响，过渡期结束后可移除。
+   */
   performance: WorkerPerformance | null;
   trades: WorkerTrade[];
   logs: WorkerLog[];
+  /**
+   * @deprecated 见 performance 注释。
+   */
   returnRateData: ReturnRateDataPoint[];
+
+  /**
+   * 总览（Overview）聚合状态：合并自旧 performance + tradingSummary + returnRateData。
+   */
+  overview: OverviewState | null;
+  overviewWindow: OverviewWindow;
 
   // 分页
   total: number;
@@ -51,6 +68,7 @@ export interface WorkerState {
   loading: boolean;
   loadingDetail: boolean;
   loadingPerformance: boolean;
+  loadingOverview: boolean;
   loadingTrades: boolean;
   loadingLogs: boolean;
 
@@ -58,6 +76,7 @@ export interface WorkerState {
   error: string | null;
   detailError: string | null;
   performanceError: string | null;
+  overviewError: string | null;
   tradesError: string | null;
   logsError: string | null;
 
@@ -127,6 +146,9 @@ const initialState: WorkerState = {
   logs: [],
   returnRateData: [],
 
+  overview: null,
+  overviewWindow: '30d',
+
   total: 0,
   page: 1,
   pageSize: 20,
@@ -134,12 +156,14 @@ const initialState: WorkerState = {
   loading: false,
   loadingDetail: false,
   loadingPerformance: false,
+  loadingOverview: false,
   loadingTrades: false,
   loadingLogs: false,
 
   error: null,
   detailError: null,
   performanceError: null,
+  overviewError: null,
   tradesError: null,
   logsError: null,
 
@@ -282,6 +306,34 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           set({ returnRateData });
         } catch (error: any) {
           console.error('获取收益率数据失败:', error);
+        }
+      },
+
+      fetchOverview: async (workerId, window) => {
+        const targetWindow: OverviewWindow = window || get().overviewWindow || '30d';
+        set({ loadingOverview: true, overviewError: null, overviewWindow: targetWindow });
+        try {
+          const response: any = await workerApi.getOverview(workerId, targetWindow);
+          const data = response?.data;
+          if (!data) {
+            throw new Error('总览数据为空');
+          }
+          set({
+            overview: {
+              metrics: data.metrics,
+              cumulativePnlSeries: data.cumulative_pnl_series,
+              pnlDistribution: data.pnl_distribution,
+              window: data.window,
+              updatedAt: Date.now(),
+            },
+            loadingOverview: false,
+          });
+        } catch (error: any) {
+          set({
+            overviewError: error.message || '获取总览数据失败',
+            loadingOverview: false,
+          });
+          get().messageApi?.error(error.message || '获取总览数据失败');
         }
       },
 
