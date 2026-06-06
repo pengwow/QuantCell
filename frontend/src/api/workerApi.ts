@@ -35,6 +35,8 @@ import type {
   PositionSummary,
   PnLDistribution,
   TradeHistoryChart,
+  OverviewMetrics,
+  OverviewWindow,
   ApiResponse,
 } from '../types/worker';
 
@@ -605,18 +607,32 @@ export const updateStrategyParameters = (
 /**
  * 获取持仓信息
  * @param workerId Worker ID
+ * @param params 筛选参数：status/symbol/side
  */
-export const getPositions = (workerId: number): Promise<PositionInfo[]> => {
-  return apiRequest.get(`/workers/${workerId}/strategy/positions`);
+export const getPositions = (
+  workerId: number,
+  params?: { status?: string; symbol?: string; side?: string }
+): Promise<PositionInfo[]> => {
+  return apiRequest.get(`/workers/${workerId}/strategy/positions`, { params });
 };
 
 /**
  * 获取订单信息
  * @param workerId Worker ID
- * @param status 订单状态筛选
+ * @param params 筛选参数：status/symbol/side/order_type/start_time/end_time
  */
-export const getOrders = (workerId: number, status?: string): Promise<OrderInfo[]> => {
-  return apiRequest.get(`/workers/${workerId}/strategy/orders`, { status });
+export const getOrders = (
+  workerId: number,
+  params?: {
+    status?: string;
+    symbol?: string;
+    side?: string;
+    order_type?: string;
+    start_time?: string;
+    end_time?: string;
+  }
+): Promise<OrderInfo[]> => {
+  return apiRequest.get(`/workers/${workerId}/strategy/orders`, { params });
 };
 
 /**
@@ -749,6 +765,10 @@ export const workerApi = {
   getPositionSummary,
   getPnLDistribution,
   getTradeHistoryChart,
+
+  // Overview
+  getOverview,
+  getTradingSummaryFiltered,
 };
 
 export default workerApi;

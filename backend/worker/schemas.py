@@ -317,3 +317,44 @@ class TradeHistoryChart(BaseModel):
     cumulative_pnl: List[float] = []
     daily_pnl: List[float] = []
     trade_count: List[int] = []
+
+
+class OverviewMetrics(BaseModel):
+    """Worker 总览（Overview）聚合指标
+    合并自原 performance + trading_summary 字段。
+    """
+    # 基础收益
+    total_pnl: float = 0.0
+    total_profit: float = 0.0
+    total_loss: float = 0.0
+    net_profit: float = 0.0
+    return_rate: float = 0.0  # 收益率（百分比），后续按窗口计算
+    # 胜率与盈亏
+    total_trades: int = 0
+    winning_trades: int = 0
+    losing_trades: int = 0
+    win_rate: float = 0.0
+    profit_factor: float = 0.0
+    profit_loss_ratio: float = 0.0
+    average_profit: float = 0.0
+    average_loss: float = 0.0
+    largest_profit: float = 0.0
+    largest_loss: float = 0.0
+    # 风险指标
+    max_drawdown: float = 0.0
+    sharpe_ratio: float = 0.0
+    # 规模指标
+    total_volume: float = 0.0
+    total_fees: float = 0.0
+    trading_days: int = 0
+    daily_average_trades: float = 0.0
+    # 窗口元信息
+    window: str = "30d"
+
+
+class OverviewResponse(BaseModel):
+    """Worker 总览响应：聚合指标 + 时间序列 + 分布"""
+    metrics: OverviewMetrics
+    cumulative_pnl_series: TradeHistoryChart
+    pnl_distribution: PnLDistribution
+    window: str = "30d"
