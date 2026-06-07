@@ -34,6 +34,9 @@ import SystemInfoPage from '@/pages/setting/SystemInfoPage';
 import EnvironmentVariablesPage from '@/pages/setting/EnvironmentVariablesPage';
 import PluginManagement from '@/pages/setting/PluginManagement';
 
+// 公开分享页（无需登录）
+import SharePage from '@/pages/share/SharePage';
+
 const isAuthenticated = (): boolean => {
   const token = localStorage.getItem('access_token');
   return !!token && token !== 'null' && token !== 'undefined';
@@ -53,6 +56,11 @@ function createBaseRoutes(): RouteObject[] {
     {
       path: '/login',
       element: <LoginPage />,
+    },
+    // 公开分享页（无需登录，使用 URL 中的 token 访问）
+    {
+      path: '/share/:token',
+      element: <SharePage />,
     },
     {
       path: '/',

@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { App, Card, Button, Tabs, Spin, Row, Col, Tag, Space, Descriptions } from 'antd';
-import { ArrowLeftOutlined, ClockCircleOutlined, LoadingOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ClockCircleOutlined, LoadingOutlined, ShareAltOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -25,6 +25,7 @@ import WorkerOverviewTab from '../../components/worker/WorkerOverviewTab';
 import WorkerPositionTab from '../../components/worker/WorkerPositionTab';
 import WorkerOrderTab from '../../components/worker/WorkerOrderTab';
 import WorkerLogsTab from '../../components/worker/WorkerLogsTab';
+import WorkerShareModal from '../../components/worker/WorkerShareModal';
 
 dayjs.extend(relativeTime);
 
@@ -53,6 +54,8 @@ const WorkerDetail = () => {
   const [activeTab, setActiveTab] = useState<TabKey>(DEFAULT_TAB);
   // 初始时间戳使用懒初始化，避免每次渲染重新计算
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(() => Date.now());
+  // 分享 modal 的 open 状态
+  const [shareOpen, setShareOpen] = useState<boolean>(false);
 
   const {
     workers,
@@ -195,9 +198,18 @@ const WorkerDetail = () => {
       <Spin spinning={loading}>
         {/* 返回按钮 - 独立在页面左上角 */}
         <div style={{ marginBottom: 16 }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/strategy-worker')}>
-            {t('back_to_list') || '返回列表'}
-          </Button>
+          <Space>
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/strategy-worker')}>
+              {t('back_to_list') || '返回列表'}
+            </Button>
+            <Button
+              icon={<ShareAltOutlined />}
+              onClick={() => setShareOpen(true)}
+              disabled={!currentWorker}
+            >
+              {t('share.button') || '分享'}
+            </Button>
+          </Space>
         </div>
 
         {/* 错误提示 */}
@@ -272,6 +284,14 @@ const WorkerDetail = () => {
             size="large"
           />
         </Card>
+
+        {/* 分享配置 Modal（受控） */}
+        <WorkerShareModal
+          open={shareOpen}
+          workerId={currentWorker.id}
+          workerName={currentWorker.name}
+          onClose={() => setShareOpen(false)}
+        />
       </Spin>
     </PageContainer>
   );

@@ -41,6 +41,8 @@ from websocket.routes import router as websocket_router
 from realtime.routes import realtime_router
 from worker import router as worker_router
 from worker.routes import websocket_endpoint
+from share import router as share_router  # 分享系统路由
+from share import models as share_models  # noqa: F401  # 触发 share 模型注册到 Base.metadata
 from utils.log_routes import router as log_router
 from common.notifications.routes import router as notification_router
 from agent.api.routes import router as agent_router
@@ -83,6 +85,7 @@ app.include_router(backtest_router)
 app.include_router(realtime_router)
 app.include_router(websocket_router)
 app.include_router(worker_router)
+app.include_router(share_router)  # 分享系统
 app.include_router(log_router)
 app.include_router(notification_router)
 app.include_router(agent_router)

@@ -1294,5 +1294,59 @@
   "save_env_vars_failed": "Failed to save environment variables",
   "confirm_delete_env_var": "Confirm delete this environment variable?",
   "key_exists": "Key already exists, please use another name",
-  "is_sensitive": "Sensitive Config"
+  "is_sensitive": "Sensitive Config",
+
+  "share": {
+    "title": "Share Strategy",
+    "button": "Share",
+    "modal_title": "Share Strategy: {name}",
+    "share_page_title": "Share: {name}",
+    "share_page_subtitle": "Read-only share view · powered by QuantCell",
+    "readonly_banner": "This page is a read-only share view, no editing features are available.",
+
+    "expires_in": "Expires In",
+    "expires_in_label": "Expires In",
+    "expires_in_1h": "1 Hour",
+    "expires_in_24h": "24 Hours",
+    "expires_in_7d": "7 Days",
+    "expires_in_unlimited": "Unlimited",
+
+    "one_time": "One-time access",
+    "one_time_desc": "When enabled, the share link will expire immediately after a single access",
+
+    "generate": "Generate Link",
+    "generate_failed": "Failed to generate share link",
+
+    "copy_link": "Copy Link",
+    "copied": "Link copied",
+    "copy_failed": "Copy failed, please copy manually",
+
+    "link_generated": "Share link generated (please save it now, the plaintext cannot be retrieved after closing)",
+    "share_link_placeholder": "Click the \"Generate Link\" button to create a share link",
+
+    "token_list": "Generated Share Links",
+    "no_tokens": "No share links",
+    "revoke": "Revoke",
+    "revoke_failed": "Revoke failed",
+    "confirm_revoke": "Are you sure to revoke this share link? This action cannot be undone.",
+
+    "token_prefix": "Token Prefix",
+    "view_count": "Views",
+    "max_views_label": "Max Views",
+    "max_views_desc": "Leave empty for unlimited. Enter 1 to make this a one-time link.",
+    "max_views_unlimited": "Unlimited",
+    "access_limit": "Access Limit",
+    "expires_at": "Expires At",
+    "created_at": "Created At",
+    "status": "Status",
+
+    "status_active": "Active",
+    "status_revoked": "Revoked",
+    "status_expired": "Expired",
+    "status_one_time_used": "One-time used",
+
+    "invalid_token": "Link is invalid or has expired",
+    "invalid_token_desc": "This share link may have been revoked, expired, or was a one-time link that has already been used.",
+    "back_home": "Back to Home"
+  }
 }

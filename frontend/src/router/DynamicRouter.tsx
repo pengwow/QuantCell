@@ -34,11 +34,19 @@ import PluginManagement from '@/pages/setting/PluginManagement';
 import { pluginRegistry } from '@/plugins/PluginRegistry';
 import PluginPage from '@/pages/plugin/PluginPage';
 
+// 公开分享页（无需登录，使用 URL 中的 token 访问）
+import SharePage from '@/pages/share/SharePage';
+
 function createBaseRoutes(): RouteObject[] {
   return [
     {
       path: '/login',
       element: <LoginPage />,
+    },
+    // 公开分享页（无需登录，使用 URL 中的 token 访问）
+    {
+      path: '/share/:token',
+      element: <SharePage />,
     },
     {
       path: '/',

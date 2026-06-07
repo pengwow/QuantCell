@@ -69,6 +69,7 @@ def _import_all_models():
         'worker.models',
         'collector.db.models',
         'indicators.models',
+        'share.models',  # 分享系统的 token/view 模型
     ]
 
     imported_modules = []
