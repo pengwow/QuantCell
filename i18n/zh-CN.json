@@ -1292,5 +1292,59 @@
   "save_env_vars_failed": "保存环境变量配置失败",
   "confirm_delete_env_var": "确认删除该环境变量？",
   "key_exists": "键名已存在，请使用其他名称",
-  "is_sensitive": "敏感配置"
+  "is_sensitive": "敏感配置",
+
+  "share": {
+    "title": "分享策略",
+    "button": "分享",
+    "modal_title": "分享策略：{name}",
+    "share_page_title": "分享：{name}",
+    "share_page_subtitle": "只读分享视图 · 由 QuantCell 提供",
+    "readonly_banner": "此页面为只读分享视图，不包含编辑功能。",
+
+    "expires_in": "有效期",
+    "expires_in_label": "有效期",
+    "expires_in_1h": "1 小时",
+    "expires_in_24h": "24 小时",
+    "expires_in_7d": "7 天",
+    "expires_in_unlimited": "不限",
+
+    "one_time": "一次性访问",
+    "one_time_desc": "启用后，分享链接在被访问一次后立即失效",
+
+    "generate": "生成链接",
+    "generate_failed": "生成分享链接失败",
+
+    "copy_link": "复制链接",
+    "copied": "链接已复制",
+    "copy_failed": "复制失败，请手动复制",
+
+    "link_generated": "分享链接已生成（请妥善保存，关闭后无法再次查看明文）",
+    "share_link_placeholder": "点击「生成链接」按钮创建分享链接",
+
+    "token_list": "已生成的分享链接",
+    "no_tokens": "暂无分享链接",
+    "revoke": "撤销",
+    "revoke_failed": "撤销失败",
+    "confirm_revoke": "确定撤销该分享链接？撤销后无法恢复。",
+
+    "token_prefix": "Token 前缀",
+    "view_count": "访问次数",
+    "max_views_label": "最大访问次数",
+    "max_views_desc": "留空表示不限；填 1 等同于一次性访问（仅可访问一次）",
+    "max_views_unlimited": "不限",
+    "access_limit": "访问限制",
+    "expires_at": "过期时间",
+    "created_at": "创建时间",
+    "status": "状态",
+
+    "status_active": "有效",
+    "status_revoked": "已撤销",
+    "status_expired": "已过期",
+    "status_one_time_used": "一次性已使用",
+
+    "invalid_token": "链接无效或已过期",
+    "invalid_token_desc": "该分享链接可能已被撤销、过期或仅允许一次性访问且已使用。",
+    "back_home": "返回首页"
+  }
 }

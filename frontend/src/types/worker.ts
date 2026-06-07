@@ -609,3 +609,93 @@ export interface Position {
   leverage: number
   open_time: string
 }
+
+// ============================================================
+// 分享系统类型
+// ============================================================
+
+/**
+ * 分享 token 创建请求
+ * expires_in_seconds: 过期时间（秒），0 或 undefined 表示不限
+ * one_time: 是否一次性访问
+ * max_views: 最大访问次数
+ */
+export interface CreateShareTokenRequest {
+  expires_in_seconds?: number
+  one_time?: boolean
+  max_views?: number
+}
+
+/**
+ * 分享 token 创建响应（仅创建时返回明文 token）
+ */
+export interface ShareTokenResponse {
+  id: number
+  token: string
+  url: string
+  expires_at: string | null
+  one_time: boolean
+  max_views: number | null
+  created_at: string
+  created_by: string | null
+}
+
+/**
+ * 分享 token 列表项（不含明文 token）
+ */
+export interface ShareTokenListItem {
+  id: number
+  worker_id: number
+  token_prefix: string
+  one_time: boolean
+  max_views: number | null
+  view_count: number
+  created_at: string
+  expires_at: string | null
+  revoked: boolean
+  revoked_at: string | null
+  created_by: string | null
+}
+
+/**
+ * 分享页只读快照 — Worker 元信息
+ */
+export interface WorkerMetaSnapshot {
+  id: number
+  name: string
+  status: string
+  exchange: string | null
+  timeframe: string | null
+  market_type: string | null
+  trading_mode: string | null
+  symbols: string[]
+  created_at: string | null
+  started_at: string | null
+}
+
+/**
+ * 分享页只读快照 — 持仓概况（白名单）
+ */
+export interface PositionSnapshot {
+  symbol: string
+  side: string
+  quantity: number
+  entry_price: number
+  current_price: number
+  unrealized_pnl: number
+  pnl_percentage: number
+  open_time: string | null
+}
+
+/**
+ * 分享页只读快照 — 完整 payload
+ */
+export interface ShareSnapshot {
+  worker: WorkerMetaSnapshot
+  metrics: OverviewMetrics
+  cumulative_pnl_series: TradeHistoryChart
+  pnl_distribution: PnLDistribution
+  positions: PositionSnapshot[]
+  generated_at: string
+  read_only: true
+}

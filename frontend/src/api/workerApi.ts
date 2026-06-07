@@ -38,6 +38,8 @@ import type {
   OverviewMetrics,
   OverviewWindow,
   ApiResponse,
+  ShareTokenResponse,
+  ShareTokenListItem,
 } from '../types/worker';
 
 // ============================================
@@ -749,6 +751,48 @@ export const getTradingSummaryFiltered = (
 };
 
 // ============================================
+// Worker Share API（分享系统）
+// ============================================
+
+/**
+ * 创建一个分享 token
+ * @param workerId Worker ID
+ * @param payload 分享配置：expires_in_seconds / one_time / max_views
+ */
+export const createShareToken = (
+  workerId: number,
+  payload?: {
+    expires_in_seconds?: number;
+    one_time?: boolean;
+    max_views?: number;
+  }
+): Promise<ShareTokenResponse> => {
+  return apiRequest.post(`/workers/${workerId}/share`, payload || {});
+};
+
+/**
+ * 列出该 worker 的所有分享 token（不含明文）
+ * @param workerId Worker ID
+ */
+export const listShareTokens = (
+  workerId: number
+): Promise<ShareTokenListItem[]> => {
+  return apiRequest.get(`/workers/${workerId}/share`);
+};
+
+/**
+ * 撤销一个分享 token
+ * @param workerId Worker ID
+ * @param shareId Share Token ID
+ */
+export const revokeShareToken = (
+  workerId: number,
+  shareId: number
+): Promise<{ id: number; revoked: boolean; revoked_at: string | null }> => {
+  return apiRequest.delete(`/workers/${workerId}/share/${shareId}`);
+};
+
+// ============================================
 // Worker API 导出
 // ============================================
 
@@ -804,6 +848,11 @@ export const workerApi = {
   // Overview
   getOverview,
   getTradingSummaryFiltered,
+
+  // Share（分享系统）
+  createShareToken,
+  listShareTokens,
+  revokeShareToken,
 };
 
 export default workerApi;
