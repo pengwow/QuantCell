@@ -35,7 +35,7 @@ def test_remote_config_disabled_by_default():
         cfg = ShareRemoteConfig()
         assert cfg.enabled is False
         assert cfg.is_ready is False
-        assert cfg.base_url == "https://quantcell.top"
+        assert cfg.base_url == "https://share.quantcell.top"
         _reset_singleton()
 
 

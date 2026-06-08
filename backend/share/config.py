@@ -66,7 +66,7 @@ class ShareRemoteConfig:
         self.base_url: str = (
             os.getenv("SHARE_REMOTE_BASE_URL")
             or remote.get("base_url")
-            or "https://quantcell.top"
+            or "https://share.quantcell.top"
         ).rstrip("/")
 
         self.timeout_seconds: float = float(
