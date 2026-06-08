@@ -1345,6 +1345,18 @@
 
     "invalid_token": "链接无效或已过期",
     "invalid_token_desc": "该分享链接可能已被撤销、过期或仅允许一次性访问且已使用。",
-    "back_home": "返回首页"
+    "back_home": "返回首页",
+
+    "local_only_hint": "当前为本地模式，链接仅本机可见",
+
+    "qr_code": "二维码",
+    "qr_downloaded": "二维码已下载",
+    "qr_download_failed": "二维码下载失败",
+
+    "wechat_share": "微信",
+    "copy_wechat_text": "复制为微信分享文案（标题 + 摘要 + 链接）",
+    "wechat_copied": "微信分享文案已复制",
+    "wechat_text_title": "QuantCell 策略分享：{name}",
+    "wechat_text_desc": "查看本策略的实时收益曲线、KPI 与持仓概况。"
   }
 }
