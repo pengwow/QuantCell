@@ -1347,6 +1347,18 @@
 
     "invalid_token": "Link is invalid or has expired",
     "invalid_token_desc": "This share link may have been revoked, expired, or was a one-time link that has already been used.",
-    "back_home": "Back to Home"
+    "back_home": "Back to Home",
+
+    "local_only_hint": "Local-only mode: the link is only visible on this device",
+
+    "qr_code": "QR Code",
+    "qr_downloaded": "QR code downloaded",
+    "qr_download_failed": "Failed to download QR code",
+
+    "wechat_share": "WeChat",
+    "copy_wechat_text": "Copy as WeChat share text (title + summary + link)",
+    "wechat_copied": "WeChat share text copied",
+    "wechat_text_title": "QuantCell Strategy Share: {name}",
+    "wechat_text_desc": "View the strategy's PnL curve, KPIs and position summary."
   }
 }

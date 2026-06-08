@@ -49,6 +49,12 @@ class ShareToken(Base):
     # 计数
     view_count = Column(Integer, default=0, nullable=False)
 
+    # 远端分发（quantcell.top）—— 字段可空以兼容旧记录
+    remote_id = Column(String(64), nullable=True, index=True)        # quantcell.top 分配
+    short_url = Column(String(512), nullable=True)                   # e.g. https://share.quantcell.top/<token>
+    remote_status = Column(String(16), default="PENDING", nullable=False)  # PENDING/UPLOADED/FAILED/REVOKED
+    remote_error = Column(String(512), nullable=True)                 # 上传失败时的错误信息（脱敏）
+
     worker = relationship("Worker", lazy="select")
     views = relationship("ShareView", back_populates="token", cascade="all, delete-orphan")
 

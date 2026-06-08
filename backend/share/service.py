@@ -11,8 +11,10 @@ build_snapshot() 严格白名单聚合：
 """
 import json
 import logging
-from datetime import datetime
-from typing import List
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any, List
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -21,6 +23,30 @@ from worker.stats_service import TradingStatsService
 
 
 logger = logging.getLogger(__name__)
+
+
+def _to_json_safe(obj: Any) -> Any:
+    """递归把对象转成 JSON 原生类型，便于 quantcell.top 端 parse 失败容错。
+
+    - datetime/date → ISO 字符串
+    - Decimal / float 子类 → float
+    - UUID → str
+    - dict / list → 递归
+    - 其他 → 强转 str
+    """
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, UUID):
+        return str(obj)
+    if isinstance(obj, dict):
+        return {str(k): _to_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [_to_json_safe(v) for v in obj]
+    return str(obj)
 
 
 # 持仓白名单字段 —— 顺序敏感，前端按此顺序展示
@@ -175,3 +201,10 @@ def build_snapshot(db: Session, worker_id: int, window: str = "30d") -> dict:
         "generated_at": datetime.now().isoformat(),
         "read_only": True,
     }
+
+
+def serialize_for_remote(snapshot: dict) -> dict:
+    """对外推送前的最终清洗：JSON 安全化 + 标记 static_compat（仅远端使用）。"""
+    safe = _to_json_safe(snapshot)
+    safe["static_compat"] = True  # 标记：snapshot 经 _to_json_safe 二次清洗，quantcell.top 端可放心 JSON parse
+    return safe

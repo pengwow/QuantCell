@@ -49,7 +49,10 @@ class ShareTokenResponse(BaseModel):
     """创建分享 token 后的完整响应（含明文 token 与完整 URL）"""
     id: int
     token: str
-    url: str
+    url: str                                       # 远端 short_url（如已上传）；否则为本地 fallback
+    short_url: Optional[str] = None                # 显式的远端链接（本地分享时为 null）
+    remote_status: str = "PENDING"                 # PENDING / UPLOADED / FAILED / LOCAL_ONLY
+    remote_warning: Optional[str] = None          # 远端上传失败时的非阻塞提示
     expires_at: Optional[datetime]
     one_time: bool
     max_views: Optional[int]
@@ -70,6 +73,10 @@ class ShareTokenListItem(BaseModel):
     revoked: bool
     revoked_at: Optional[datetime] = None
     created_by: Optional[str] = None
+    # 远端字段
+    short_url: Optional[str] = None
+    remote_status: str = "PENDING"
+    remote_error: Optional[str] = None
 
 
 # ============================================================

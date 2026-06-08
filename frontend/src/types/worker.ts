@@ -632,7 +632,14 @@ export interface CreateShareTokenRequest {
 export interface ShareTokenResponse {
   id: number
   token: string
+  /** 远端 short_url（UPLOADED 时）或本地 fallback /share/<token> */
   url: string
+  /** 远端链接（仅 UPLOADED 时存在；本地模式下为 null） */
+  short_url: string | null
+  /** PENDING / UPLOADED / FAILED / LOCAL_ONLY / REVOKED */
+  remote_status: 'PENDING' | 'UPLOADED' | 'FAILED' | 'LOCAL_ONLY' | 'REVOKED' | string
+  /** 远端失败时的非阻塞提示（前端弹 toast） */
+  remote_warning: string | null
   expires_at: string | null
   one_time: boolean
   max_views: number | null
@@ -655,6 +662,10 @@ export interface ShareTokenListItem {
   revoked: boolean
   revoked_at: string | null
   created_by: string | null
+  // 远端字段
+  short_url: string | null
+  remote_status: 'PENDING' | 'UPLOADED' | 'FAILED' | 'LOCAL_ONLY' | 'REVOKED' | string
+  remote_error: string | null
 }
 
 /**

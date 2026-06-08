@@ -755,6 +755,19 @@ export const getTradingSummaryFiltered = (
 // ============================================
 
 /**
+ * 重新上传分享到 quantcell.top（不重新生成 token）
+ * 用于首次上传失败后的重试
+ * @param workerId Worker ID
+ * @param shareId Share Token ID
+ */
+export function retryShareRemoteUpload(
+  workerId: number,
+  shareId: number
+): Promise<{ id: number; short_url: string | null; remote_status: string }> {
+  return apiRequest.post(`/workers/${workerId}/share/${shareId}/retry-remote`);
+}
+
+/**
  * 创建一个分享 token
  * @param workerId Worker ID
  * @param payload 分享配置：expires_in_seconds / one_time / max_views
@@ -853,6 +866,7 @@ export const workerApi = {
   createShareToken,
   listShareTokens,
   revokeShareToken,
+  retryShareRemoteUpload,
 };
 
 export default workerApi;
