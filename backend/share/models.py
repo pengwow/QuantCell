@@ -3,7 +3,10 @@
 Worker 分享系统数据模型
 
 - ShareToken: 分享 token 元数据
-- ShareView:  分享查看记录（用于审计与限速）
+
+说明：
+- 公开只读页已下线，分享功能完全走 quantcell.top 远端分发
+- 本地不再维护 ShareView 访问审计（远端 quantcell.top 端负责统计）
 """
 from datetime import datetime
 
@@ -15,10 +18,8 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
-    Text,
     func,
 )
-from sqlalchemy.orm import relationship
 
 from collector.db.database import Base
 
@@ -55,9 +56,6 @@ class ShareToken(Base):
     remote_status = Column(String(16), default="PENDING", nullable=False)  # PENDING/UPLOADED/FAILED/REVOKED
     remote_error = Column(String(512), nullable=True)                 # 上传失败时的错误信息（脱敏）
 
-    worker = relationship("Worker", lazy="select")
-    views = relationship("ShareView", back_populates="token", cascade="all, delete-orphan")
-
     __table_args__ = (
         Index("idx_share_tokens_worker", "worker_id"),
         Index("idx_share_tokens_hash", "token_hash", unique=True),
@@ -84,7 +82,10 @@ class ShareToken(Base):
         return self.view_count >= self.max_views
 
     def is_active(self, now: datetime) -> bool:
-        """token 是否仍处于有效状态（可访问）"""
+        """token 是否仍处于有效状态（可访问）
+
+        注：仅用于本地一致性检查，公开访问入口已下线。
+        """
         if self.is_revoked():
             return False
         if self.is_expired(now):
@@ -94,26 +95,3 @@ class ShareToken(Base):
         if self.has_reached_max_views():
             return False
         return True
-
-
-class ShareView(Base):
-    """分享查看记录
-
-    每次公开端点被访问时记录一行（无论 token 是否有效），
-    用于审计、防滥用、限速。
-    """
-    __tablename__ = "share_views"
-
-    id = Column(Integer, primary_key=True, index=True)
-    token_id = Column(Integer, ForeignKey("share_tokens.id", ondelete="CASCADE"), nullable=False)
-    ip = Column(String(64), nullable=True)
-    user_agent = Column(Text, nullable=True)
-    viewed_at = Column(DateTime, default=func.now(), nullable=False)
-    success = Column(Boolean, default=True, nullable=False)
-
-    token = relationship("ShareToken", back_populates="views", lazy="select")
-
-    __table_args__ = (
-        Index("idx_share_views_token", "token_id"),
-        Index("idx_share_views_ip_time", "ip", "viewed_at"),
-    )

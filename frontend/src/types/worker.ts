@@ -632,12 +632,10 @@ export interface CreateShareTokenRequest {
 export interface ShareTokenResponse {
   id: number
   token: string
-  /** 远端 short_url（UPLOADED 时）或本地 fallback /share/<token> */
-  url: string
-  /** 远端链接（仅 UPLOADED 时存在；本地模式下为 null） */
+  /** 远端 short_url（UPLOADED 时） */
   short_url: string | null
-  /** PENDING / UPLOADED / FAILED / LOCAL_ONLY / REVOKED */
-  remote_status: 'PENDING' | 'UPLOADED' | 'FAILED' | 'LOCAL_ONLY' | 'REVOKED' | string
+  /** PENDING / UPLOADED / FAILED / REVOKED */
+  remote_status: 'PENDING' | 'UPLOADED' | 'FAILED' | 'REVOKED' | string
   /** 远端失败时的非阻塞提示（前端弹 toast） */
   remote_warning: string | null
   expires_at: string | null
@@ -664,49 +662,7 @@ export interface ShareTokenListItem {
   created_by: string | null
   // 远端字段
   short_url: string | null
-  remote_status: 'PENDING' | 'UPLOADED' | 'FAILED' | 'LOCAL_ONLY' | 'REVOKED' | string
+  remote_status: 'PENDING' | 'UPLOADED' | 'FAILED' | 'REVOKED' | string
   remote_error: string | null
 }
 
-/**
- * 分享页只读快照 — Worker 元信息
- */
-export interface WorkerMetaSnapshot {
-  id: number
-  name: string
-  status: string
-  exchange: string | null
-  timeframe: string | null
-  market_type: string | null
-  trading_mode: string | null
-  symbols: string[]
-  created_at: string | null
-  started_at: string | null
-}
-
-/**
- * 分享页只读快照 — 持仓概况（白名单）
- */
-export interface PositionSnapshot {
-  symbol: string
-  side: string
-  quantity: number
-  entry_price: number
-  current_price: number
-  unrealized_pnl: number
-  pnl_percentage: number
-  open_time: string | null
-}
-
-/**
- * 分享页只读快照 — 完整 payload
- */
-export interface ShareSnapshot {
-  worker: WorkerMetaSnapshot
-  metrics: OverviewMetrics
-  cumulative_pnl_series: TradeHistoryChart
-  pnl_distribution: PnLDistribution
-  positions: PositionSnapshot[]
-  generated_at: string
-  read_only: true
-}

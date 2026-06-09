@@ -486,6 +486,109 @@ def update_kline_tables(session: Session, db_type: str) -> None:
     logger.info("K线表结构更新完成")
 
 
+def update_share_tokens_table(session: Session, db_type: str) -> None:
+    """更新 share_tokens 表结构
+
+    为分享系统补齐远端分发（quantcell.top）相关字段。
+    与 backend.share.models.ShareToken 定义保持一致。
+    - remote_id: 远端主键（可空）
+    - short_url: 公开短链（可空）
+    - remote_status: 推送状态枚举，默认 PENDING
+    - remote_error: 失败时脱敏错误信息（可空）
+
+    Args:
+        session: SQLAlchemy 会话
+        db_type: 数据库类型（sqlite / duckdb）
+    """
+    logger.info("开始更新 share_tokens 表结构...")
+
+    # 1. 检查表是否存在
+    table_exists = False
+    try:
+        if db_type == "sqlite":
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='share_tokens'")
+            ).fetchone()
+        elif db_type == "duckdb":
+            table_exists = session.execute(
+                text("SELECT table_name FROM information_schema.tables WHERE table_name='share_tokens'")
+            ).fetchone()
+        else:
+            # 默认 sqlite 语法
+            table_exists = session.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='share_tokens'")
+            ).fetchone()
+    except Exception as e:
+        logger.error(f"检查 share_tokens 表是否存在失败: {e}")
+        return
+
+    if not table_exists:
+        logger.info("share_tokens 表不存在，跳过更新（表结构由 SQLAlchemy 在首次创建时建好）")
+        return
+
+    # 2. 通用辅助：检查并添加列（幂等）
+    def _ensure_column(column_name: str, ddl: str, *, has_default: bool = False) -> None:
+        """若列不存在则执行 ddl 添加；添加后再补建索引（如果 ddl 中带 INDEX）"""
+        try:
+            exists = False
+            if db_type in ("sqlite", None, ""):
+                exists = session.execute(
+                    text(f"SELECT name FROM pragma_table_info('share_tokens') WHERE name=:c"),
+                    {"c": column_name},
+                ).fetchone()
+            elif db_type == "duckdb":
+                exists = session.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name='share_tokens' AND column_name=:c"
+                    ),
+                    {"c": column_name},
+                ).fetchone()
+            if exists:
+                logger.info(f"share_tokens.{column_name} 列已存在，跳过")
+                return
+            logger.info(f"为 share_tokens 添加 {column_name} 列...")
+            session.execute(text(ddl))
+            logger.info(f"share_tokens.{column_name} 列添加成功")
+        except Exception as e:
+            logger.error(f"添加 share_tokens.{column_name} 列失败: {e}")
+
+    # remote_id: VARCHAR(64)，可空
+    _ensure_column(
+        "remote_id",
+        "ALTER TABLE share_tokens ADD COLUMN remote_id VARCHAR(64)",
+    )
+    # 为 remote_id 建索引（idx_share_tokens_remote_id）
+    try:
+        if db_type in ("sqlite", None, ""):
+            session.execute(
+                text("CREATE INDEX IF NOT EXISTS idx_share_tokens_remote_id ON share_tokens(remote_id)")
+            )
+    except Exception as e:
+        logger.error(f"创建 idx_share_tokens_remote_id 索引失败: {e}")
+
+    # short_url: VARCHAR(512)，可空
+    _ensure_column(
+        "short_url",
+        "ALTER TABLE share_tokens ADD COLUMN short_url VARCHAR(512)",
+    )
+
+    # remote_status: VARCHAR(16)，NOT NULL DEFAULT 'PENDING'
+    # 注意：SQLite 的 ALTER TABLE ADD COLUMN 不支持在 NOT NULL 时使用常量 DEFAULT 时带括号外的引号
+    _ensure_column(
+        "remote_status",
+        "ALTER TABLE share_tokens ADD COLUMN remote_status VARCHAR(16) NOT NULL DEFAULT 'PENDING'",
+    )
+
+    # remote_error: VARCHAR(512)，可空
+    _ensure_column(
+        "remote_error",
+        "ALTER TABLE share_tokens ADD COLUMN remote_error VARCHAR(512)",
+    )
+
+    logger.info("share_tokens 表结构更新完成")
+
+
 def create_users_table(session: Session, db_type: str) -> None:
     """创建users表（如果不存在）
 
@@ -712,7 +815,10 @@ def run_migrations() -> None:
             
             # 更新K线表结构，添加data_source列
             update_kline_tables(session, db_type)
-            
+
+            # 更新 share_tokens 表结构，补齐远端分发相关列
+            update_share_tokens_table(session, db_type)
+
             # 提交所有更改
             session.commit()
             logger.info("所有迁移脚本执行成功")

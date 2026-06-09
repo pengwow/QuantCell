@@ -34,8 +34,8 @@ import SystemInfoPage from '@/pages/setting/SystemInfoPage';
 import EnvironmentVariablesPage from '@/pages/setting/EnvironmentVariablesPage';
 import PluginManagement from '@/pages/setting/PluginManagement';
 
-// 公开分享页（无需登录）
-import SharePage from '@/pages/share/SharePage';
+// 公开分享页（无需登录）— 本地模式已下线，分享链接完全由远端 quantcell.top 提供
+// 访问远端链接不需要走前端路由，因此此处不注册 /share/:token 路由
 
 const isAuthenticated = (): boolean => {
   const token = localStorage.getItem('access_token');
@@ -56,11 +56,6 @@ function createBaseRoutes(): RouteObject[] {
     {
       path: '/login',
       element: <LoginPage />,
-    },
-    // 公开分享页（无需登录，使用 URL 中的 token 访问）
-    {
-      path: '/share/:token',
-      element: <SharePage />,
     },
     {
       path: '/',

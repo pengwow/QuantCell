@@ -9,8 +9,9 @@
 2. backend/config.local.toml         —— 本地敏感信息（.gitignore）
 3. backend/config.toml               —— 仓库内默认配置（仅占位）
 
-未配置 api_key / hmac_secret 时，RemoteShareClient 进入"禁用远端"模式，
-回退到本地分享（仅本机可见），避免误用导致空指针或裸调。
+未配置 api_key / hmac_secret 时,create_share 在调远端前会先
+调用 ensure_remote_credentials()(调远端 auto-register 拿凭据,
+写到 backend/config.local.toml)。
 """
 from __future__ import annotations
 
@@ -28,12 +29,18 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
+# 集中维护 toml 路径,被 credentials.py 与本模块的 _load_toml_chain 共用
+CONFIG_LOCAL = _BACKEND_ROOT / "config.local.toml"
+CONFIG_DEFAULT = _BACKEND_ROOT / "config.toml"
+
 
 def _load_toml_chain() -> dict:
-    """依次读取 config.toml → config.local.toml，后者覆盖前者"""
+    """依次读取 config.toml → config.local.toml,后者覆盖前者
+
+    路径统一来自模块顶部常量,便于测试时整体 monkeypatch。
+    """
     merged: dict = {}
-    for name in ("config.toml", "config.local.toml"):
-        path = _BACKEND_ROOT / name
+    for path in (CONFIG_DEFAULT, CONFIG_LOCAL):
         if not path.exists():
             continue
         try:
@@ -82,31 +89,30 @@ class ShareRemoteConfig:
             os.getenv("SHARE_REMOTE_HMAC_SECRET") or remote.get("hmac_secret")
         )
 
-        # 总开关（默认关闭以便双写灰度）
-        enabled_env = os.getenv("SHARE_REMOTE_ENABLED")
-        if enabled_env is not None:
-            self.enabled: bool = enabled_env.lower() in ("1", "true", "yes", "on")
-        else:
-            self.enabled = bool(remote.get("enabled", False))
-
         # 重试策略
         self.max_retries: int = int(remote.get("max_retries", 3))
         self.retry_backoff: float = float(remote.get("retry_backoff", 0.6))
 
     @property
     def is_ready(self) -> bool:
-        """是否所有远端依赖都就绪（用于判断能否发起真实上传）"""
-        return (
-            self.enabled
-            and bool(self.api_key)
-            and bool(self.hmac_secret)
-        )
+        """是否所有远端依赖都就绪(api_key + hmac_secret 都已配置)"""
+        return bool(self.api_key) and bool(self.hmac_secret)
+
+    @classmethod
+    def reload(cls) -> "ShareRemoteConfig":
+        """清空单例并重建(写完 config.local.toml 后调用)
+
+        运行时修改 toml 后,旧单例仍持有旧值;必须显式清空才能让下次访问
+        看到新凭据。线程安全(类内 _lock 保护)。
+        """
+        with cls._lock:
+            cls._instance = None
+        return cls()  # 立即重建,触发新一次 _init()
 
     def summary(self) -> dict:
         """用于日志/调试的脱敏摘要（不打印任何 secret）"""
         return {
             "base_url": self.base_url,
-            "enabled": self.enabled,
             "ready": self.is_ready,
             "has_api_key": bool(self.api_key),
             "has_hmac_secret": bool(self.hmac_secret),

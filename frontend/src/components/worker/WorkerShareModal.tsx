@@ -2,16 +2,21 @@
  * Worker 分享配置 Modal
  *
  * 提供分享链接的生成、复制、查看与撤销能力。
- * - 顶部：有效期 Radio + 一次性 Switch
- * - 「生成链接」按钮触发 createShareToken
+ * - 顶部：有效期 Radio + 最大访问次数 InputNumber
+ * - 「生成链接」按钮触发 createShareToken（自动走远端 quantcell.top 分发）
  * - 生成的 URL 支持一键复制（带 fallback）
- * - 底部表格展示当前 worker 的所有 token 列表，支持撤销
+ * - 底部表格展示当前 worker 的所有 token 列表，支持撤销与重试
+ *
+ * 说明：
+ * - 本地分享模式已下线，分享功能完全走远端 quantcell.top 分发
+ * - 远端凭据通过 ensure_remote_credentials 自动按需注册，前端无需配置 UI
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   App,
+  Alert,
   Button,
   Form,
   Input,
@@ -159,18 +164,17 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         one_time: isOneTime,
         max_views: maxViews !== null && maxViews > 1 ? maxViews : undefined,
       });
-      // 远端 short_url 优先；失败/未启用时回退到本地链接
-      const displayUrl = res.short_url || `${window.location.origin}/share/${res.token}`;
-      setGeneratedUrl(displayUrl);
-      setSharedWorkerName(workerName || '');
-      // 远端失败 → 弹非阻塞提示（依然展示本地链接）
-      if (res.remote_warning) {
-        message.warning(res.remote_warning);
-      } else if (res.remote_status === 'LOCAL_ONLY') {
-        message.info(t('share.local_only_hint') || '当前为本地模式，链接仅本机可见');
-      } else {
+      // 远端上传成功才有 short_url;失败时仍返回 token,但不展示链接
+      if (res.short_url) {
+        setGeneratedUrl(res.short_url);
         message.success(t('share.link_generated'));
+      } else if (res.remote_warning) {
+        // 远端上传失败:给出非阻塞提示
+        message.warning(res.remote_warning);
+      } else {
+        message.warning(t('share.generate_failed'));
       }
+      setSharedWorkerName(workerName || '');
       // 刷新列表
       fetchTokens();
     } catch (err: any) {
@@ -320,10 +324,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         key: 'token_prefix',
         width: 200,
         render: (v: string, record: ShareTokenListItem) => (
-          <Tooltip
-            title={record.short_url || `${window.location.origin}/share/${record.token_prefix}`}
-            placement="topLeft"
-          >
+          <Tooltip title={record.short_url || ''} placement="topLeft">
             <span style={{ fontFamily: 'monospace', fontSize: 12 }}>
               {record.short_url
                 ? record.short_url.replace(/^https?:\/\//, '').slice(0, 32) + (record.short_url.length > 40 ? '…' : '')
@@ -396,8 +397,6 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
               </Tooltip>
             );
           }
-          if (r === 'LOCAL_ONLY')
-            return <Tag>{t('share.remote_local_only') || '本地模式'}</Tag>;
           if (r === 'REVOKED') return <Tag color="default">{t('share.remote_revoked') || '已撤销'}</Tag>;
           return <Tag>-</Tag>;
         },
@@ -475,6 +474,16 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       destroyOnClose
     >
       <Form layout="vertical">
+        {/* 远端上传失败时给出非阻塞提示 */}
+        {generatedUrl === '' && tokens.some((tk) => tk.remote_status === 'FAILED') && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={t('share.remote_failed_hint') || '部分链接推送失败，可在列表中点击「重试」再次发布到 quantcell.top'}
+          />
+        )}
+
         {/* 有效期 + 一次性 */}
         <Space size="large" wrap style={{ marginBottom: 8 }}>
           <Form.Item
