@@ -6,37 +6,41 @@ Worker 分享系统 路由
 - POST   /api/workers/{worker_id}/share              创建分享 token
 - GET    /api/workers/{worker_id}/share              列出 worker 的所有 token
 - DELETE /api/workers/{worker_id}/share/{share_id}   撤销 token
-
-公开端点（无需登录）：
-- GET    /api/share/{token}                          获取只读 snapshot
+- POST   /api/workers/{worker_id}/share/{share_id}/retry-remote  重新上传远端
+- GET    /api/share/credentials/status               查询远端凭据状态
+- POST   /api/share/credentials/generate             一键生成远端凭据
 
 权限模型：
 - 任何已登录用户可对自己 worker 创建 share token（created_by 记录 user_id）
-- 撤销操作仅允许 token 创建者（created_by）执行
-- 公开端点仅校验 token 本身（hash 匹配 + 有效期/一次性/最大访问次数）
-"""
-import json
-import logging
-from typing import List, Optional
+- 撤销与重推操作仅允许 token 创建者（created_by）执行
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+说明：
+- 公开只读页已下线，分享功能完全走 quantcell.top 远端分发
+- 本地不再提供 GET /api/share/{token}
+"""
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from collector.db.database import Base  # noqa: F401 触发模型注册
 from worker.dependencies import get_current_user, get_db_session
 from worker.models import Worker
 from worker.schemas import ApiResponse
 
 from . import crud
 from .config import get_remote_config
+from .credentials import (
+    RemoteConfigError,
+    ensure_remote_credentials,
+    is_admin_token_configured,
+)
 from .remote_client import RemoteShareClient, RemoteShareError
 from .schemas import (
     CreateShareRequest,
-    PositionSnapshot,
-    ShareSnapshot,
     ShareTokenListItem,
     ShareTokenResponse,
-    WorkerMetaSnapshot,
 )
 from .service import build_snapshot, serialize_for_remote
 
@@ -66,10 +70,10 @@ def create_share(
 
     行为：
     1. 本地 create_share_token 必成功
-    2. 远端 quantcell.top 上传为 best-effort：
-       - 成功 → short_url 写回，remote_status=UPLOADED
-       - 失败 → remote_status=FAILED，remote_warning 反馈给前端，不阻断本地
-    3. 远端未启用（缺 api_key/hmac_secret 或开关关闭） → LOCAL_ONLY 状态
+    2. ensure_remote_credentials()：缺失凭据则调远端 auto-register;失败抛 RemoteConfigError(本接口返 503)
+    3. 远端 quantcell.top 上传为 best-effort：
+       - 成功 → short_url 写回,remote_status=UPLOADED
+       - 失败 → remote_status=FAILED,remote_warning 反馈给前端
     """
     # 1. 校验 worker 存在
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
@@ -87,10 +91,22 @@ def create_share(
         max_views=payload.max_views,
     )
 
-    # 3. 远端上传（best-effort）
+    # 3. 确保远端凭据已配置(若缺失则自动调远端 auto-register)
+    user_id = current_user.get("user_id") or current_user.get("user_name") or "anonymous"
+    try:
+        ensure_remote_credentials(name=f"QuantCell-{user_id}", user_id=user_id)
+    except RemoteConfigError as e:
+        logger.error("create_share 自动配置远端凭据失败: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail=f"远端分享凭据未配置且自动注册失败: {str(e)[:200]}",
+        )
+
+    # 4. 远端上传(失败 → 502,token 仍落库以便重试)
     short_url: Optional[str] = None
     remote_status = "PENDING"
     remote_warning: Optional[str] = None
+    upload_failed: Optional[Exception] = None
 
     remote_cfg = get_remote_config()
     if remote_cfg.is_ready:
@@ -116,35 +132,34 @@ def create_share(
         except RemoteShareError as e:
             share.remote_status = "FAILED"
             share.remote_error = str(e)[:500]
-            remote_status = "FAILED"  # 必须同步更新响应变量，否则响应会显示 PENDING
-            remote_warning = f"远端上传失败：{str(e)[:200]}"
+            remote_status = "FAILED"
+            remote_warning = f"远端上传失败:{str(e)[:200]}"
+            upload_failed = e
             logger.warning("share 上传远端失败 id=%s err=%s", share.id, e)
         except Exception as e:  # noqa: BLE001  兜底避免上传异常影响主流程
             share.remote_status = "FAILED"
             share.remote_error = repr(e)[:500]
             remote_status = "FAILED"
             remote_warning = "远端上传异常"
+            upload_failed = e
             logger.exception("share 上传远端异常 id=%s", share.id)
         finally:
             db.add(share)
             db.commit()
             db.refresh(share)
-    else:
-        share.remote_status = "LOCAL_ONLY"
-        remote_status = "LOCAL_ONLY"  # 必须同步更新响应变量
-        db.add(share)
-        db.commit()
-        db.refresh(share)
-        logger.info(
-            "share 远端未启用，使用本地模式 id=%s reason=%s",
-            share.id, remote_cfg.summary(),
+
+    # 5. 远端上传失败 → 返 502(token 已落库,可走列表点「重试」)
+    if upload_failed is not None:
+        raise HTTPException(
+            status_code=502,
+            detail=f"远端上传失败: {str(upload_failed)[:200]}",
         )
 
-    # 4. 构造响应：url 优先用 short_url，否则用本地 fallback
+    # 6. 构造响应(永远只走远端,不再有 LOCAL_ONLY 兜底)
     response = ShareTokenResponse(
         id=share.id,
         token=plain_token,
-        url=short_url or f"/share/{plain_token}",  # 前端再补 origin
+        url=short_url or "",
         short_url=short_url,
         remote_status=remote_status,
         remote_warning=remote_warning,
@@ -278,8 +293,15 @@ def retry_remote_upload(
     if share.is_revoked():
         raise HTTPException(status_code=400, detail="已撤销的 token 无法重推")
 
-    if not get_remote_config().is_ready:
-        raise HTTPException(status_code=400, detail="远端分享未启用或凭据未配置")
+    # 凭据未就绪时先自动配置(与 create_share 保持一致)
+    user_id = current_user.get("user_id") or current_user.get("user_name") or "anonymous"
+    try:
+        ensure_remote_credentials(name=f"QuantCell-{user_id}", user_id=user_id)
+    except RemoteConfigError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"远端分享凭据未配置且自动注册失败: {str(e)[:200]}",
+        )
 
     # 重新构造 snapshot 并上传
     try:
@@ -322,71 +344,91 @@ def retry_remote_upload(
 
 
 # ============================================================
-# 公开端点
+# 凭据管理端点(用于前端"一键启用远程分享模式"工作流)
 # ============================================================
-
-# 公开端点限速：60s 内同 IP 最多 30 次（先打日志；后续可接入 SlowAPI）
-PUBLIC_ENDPOINT_RATE_LIMIT_WINDOW = 60
-PUBLIC_ENDPOINT_RATE_LIMIT_MAX = 30
+class GenerateCredentialsRequest(BaseModel):
+    """生成凭据的请求体(可选 name)"""
+    name: Optional[str] = Field(default=None, max_length=128)
 
 
 @router.get(
-    "/share/{token}",
+    "/share/credentials/status",
     response_model=ApiResponse,
-    summary="获取分享页只读快照（公开）",
+    summary="查询分享远端凭据状态",
 )
-def get_share_snapshot(
-    token: str,
-    request: Request,
-    db: Session = Depends(get_db_session),
+def get_credentials_status(
+    current_user: dict = Depends(get_current_user),
 ):
-    """根据 token 返回只读 snapshot。无需登录。
+    """查询当前远端凭据配置状态(供 CLI / 运维使用)。
 
-    对过期/撤销/一次性已用 token 一律返回 404（避免泄露存在性）。
+    Returns:
+        ApiResponse.data 含:
+        - ready: api_key AND hmac_secret 都已配置
+        - has_api_key / has_hmac_secret: 是否已配置
+        - base_url: 远端入口
+        - admin_token_configured: 是否设置了 SHARE_REMOTE_ADMIN_TOKEN
     """
-    client_ip = request.client.host if request.client else None
-    user_agent = request.headers.get("user-agent", "")
+    from .credentials import is_admin_token_configured
+    cfg = get_remote_config()
+    return ApiResponse(data={
+        "ready": cfg.is_ready,
+        "has_api_key": bool(cfg.api_key),
+        "has_hmac_secret": bool(cfg.hmac_secret),
+        "base_url": cfg.base_url,
+        "admin_token_configured": is_admin_token_configured(),
+    })
 
-    # 1. 查 token
-    share = crud.get_share_by_token(db, token)
-    if not share:
-        # 仍然记录一条失败访问用于审计
-        if client_ip:
-            try:
-                # 这里使用一个伪记录避免被恶意探测时无法追踪
-                pass
-            except Exception:
-                pass
-        raise HTTPException(status_code=404, detail="分享链接无效或已过期")
 
-    # 2. 限速检查（仅打日志，不阻断 v1）
-    if client_ip:
-        recent = crud.count_recent_views_by_ip(db, client_ip, PUBLIC_ENDPOINT_RATE_LIMIT_WINDOW)
-        if recent >= PUBLIC_ENDPOINT_RATE_LIMIT_MAX:
-            logger.warning("share 公开端点触发限速 ip=%s count=%s", client_ip, recent)
-            # v1 不阻断；v2 接入 SlowAPI 后改为 429
+@router.post(
+    "/share/credentials/generate",
+    response_model=ApiResponse,
+    summary="一键生成并启用远程分享凭据(仅远端注册路径)",
+)
+def generate_credentials(
+    payload: GenerateCredentialsRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """一键生成 api_key + hmac_secret(仅远端注册路径)。
 
-    # 3. 校验 token 状态
-    from datetime import datetime
-    now = datetime.now()
-    if not share.is_active(now):
-        # 一次性 token 访问时立即消费
-        # 过期/撤销情况：仅记录不消费
-        if share.one_time and not share.is_one_time_consumed() and not share.is_revoked():
-            pass  # 不会到这里
-        crud.record_view(db, share, client_ip, user_agent, success=False)
-        raise HTTPException(status_code=404, detail="分享链接无效或已过期")
+    流程:
+    1. 读取 SHARE_REMOTE_ADMIN_TOKEN
+       - 无值 → 返 503
+    2. 调远端 POST /api/admin/devices/auto-register
+       - 失败 → 返 502
+    3. 凭据写入 config.local.toml + reload 单例
+    4. 返回脱敏摘要(source 恒为 'remote')
 
-    # 4. 记录访问并消费（一次性 token 立即撤销）
-    crud.record_view(db, share, client_ip, user_agent, success=True)
-    if share.one_time:
-        crud.consume_one_time(db, share)
+    Returns:
+        ApiResponse.data 含:
+        - success: True
+        - source: 'remote'
+        - api_key_prefix: 仅前 8 位
+        - ready: 热重载后 is_ready
+        - base_url: 远端入口
+    """
+    user_id = current_user.get("user_id") or current_user.get("user_name") or "anonymous"
+    name = payload.name or f"QuantCell-PC-{user_id}"
 
-    # 5. 构造白名单 snapshot
+    if not is_admin_token_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="缺少 SHARE_REMOTE_ADMIN_TOKEN,无法自动注册远端凭据",
+        )
+
     try:
-        snapshot = build_snapshot(db, share.worker_id)
-    except ValueError as e:
-        # worker 已删除
-        raise HTTPException(status_code=404, detail=str(e))
+        api_key, _hmac_secret = ensure_remote_credentials(name=name, user_id=user_id)
+    except RemoteConfigError as e:
+        raise HTTPException(status_code=502, detail=str(e)[:200])
 
-    return ApiResponse(data=snapshot)
+    new_cfg = get_remote_config()
+    return ApiResponse(data={
+        "success": True,
+        "source": "remote",
+        "api_key_prefix": api_key[:8] + "…",
+        "ready": new_cfg.is_ready,
+        "base_url": new_cfg.base_url,
+        "admin_token_configured": True,
+    })
+
+
+# 公开端点已删除(分享页完全走远端 quantcell.top,本地不再提供 GET /api/share/{token})

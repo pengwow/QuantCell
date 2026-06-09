@@ -1347,8 +1347,6 @@
     "invalid_token_desc": "该分享链接可能已被撤销、过期或仅允许一次性访问且已使用。",
     "back_home": "返回首页",
 
-    "local_only_hint": "当前为本地模式，链接仅本机可见",
-
     "qr_code": "二维码",
     "qr_downloaded": "二维码已下载",
     "qr_download_failed": "二维码下载失败",
@@ -1357,6 +1355,16 @@
     "copy_wechat_text": "复制为微信分享文案（标题 + 摘要 + 链接）",
     "wechat_copied": "微信分享文案已复制",
     "wechat_text_title": "QuantCell 策略分享：{name}",
-    "wechat_text_desc": "查看本策略的实时收益曲线、KPI 与持仓概况。"
+    "wechat_text_desc": "查看本策略的实时收益曲线、KPI 与持仓概况。",
+
+    "remote_failed_hint": "部分链接推送失败，可在列表中点击「重试」再次发布到 quantcell.top",
+    "remote_status_label": "分发",
+    "remote_uploaded": "已发布",
+    "remote_pending": "推送中",
+    "remote_failed": "推送失败",
+    "remote_revoked": "已撤销",
+    "retry": "重试",
+    "retry_remote_success": "已重新发布到 quantcell.top",
+    "retry_remote_failed": "重试失败"
   }
 }

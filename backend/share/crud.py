@@ -5,16 +5,21 @@ Worker 分享系统 CRUD
 token 生成遵循：
 - 256 bit 熵：secrets.token_urlsafe(32)
 - 数据库仅存 SHA256(token)，不存明文
+
+说明：
+- 公开只读页已下线，分享功能完全走 quantcell.top 远端分发
+- 本地不再记录 ShareView 访问审计（远端 quantcell.top 端负责统计）
+- view_count 仍保留但不再自增，仅作为兼容字段
 """
 import hashlib
 import secrets
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from sqlalchemy import and_, desc
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from .models import ShareToken, ShareView
+from .models import ShareToken
 
 
 def _hash_token(token: str) -> str:
@@ -97,82 +102,3 @@ def revoke_share(db: Session, share: ShareToken) -> ShareToken:
         db.commit()
         db.refresh(share)
     return share
-
-
-def _has_ip_viewed_today(db: Session, share: ShareToken, ip: Optional[str]) -> bool:
-    """判断指定 IP 是否在当天已访问过此 token（成功访问）。
-
-    用于实现"按 IP + 天"去重的访问次数统计：
-    - 同一 IP 同一天重复访问（含刷新）不重复计数
-    - 不同 IP 当天访问则计为新一次
-    - 跨天会重新计为新一次
-    - IP 为空时按"无来源"处理，返回 False（视为每次都计数，避免来源丢失）
-    """
-    if not ip:
-        return False
-    # 取当天 0 点（本地时区，datetime.now() 已是 naive local time）
-    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    return (
-        db.query(ShareView)
-        .filter(
-            ShareView.token_id == share.id,
-            ShareView.ip == ip,
-            ShareView.success.is_(True),
-            ShareView.viewed_at >= today_start,
-        )
-        .first()
-        is not None
-    )
-
-
-def record_view(
-    db: Session,
-    share: ShareToken,
-    ip: Optional[str],
-    user_agent: Optional[str],
-    success: bool = True,
-) -> bool:
-    """记录一次查看（用于审计），并按"IP + 天"去重维护 view_count。
-
-    Returns:
-        bool: view_count 是否发生了递增
-            - True  : 视为一次新的"独立访问"，view_count +1
-            - False : 同 IP 当天重复访问，仅记录审计日志，不递增
-    """
-    view = ShareView(
-        token_id=share.id,
-        ip=ip,
-        user_agent=user_agent,
-        success=success,
-    )
-    db.add(view)
-
-    # 成功访问才计入 view_count；失败访问仅做审计
-    counted = False
-    if success and not _has_ip_viewed_today(db, share, ip):
-        share.view_count = (share.view_count or 0) + 1
-        counted = True
-
-    db.add(share)
-    db.commit()
-    return counted
-
-
-def consume_one_time(db: Session, share: ShareToken) -> None:
-    """一次性 token 已被访问，标记为已撤销"""
-    share.revoked_at = datetime.now()
-    db.add(share)
-    db.commit()
-    db.refresh(share)
-
-
-def count_recent_views_by_ip(db: Session, ip: str, window_seconds: int = 60) -> int:
-    """统计指定 IP 在最近 N 秒内的访问次数（用于限速）"""
-    if not ip:
-        return 0
-    threshold = datetime.now() - timedelta(seconds=window_seconds)
-    return (
-        db.query(ShareView)
-        .filter(and_(ShareView.ip == ip, ShareView.viewed_at >= threshold))
-        .count()
-    )

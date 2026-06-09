@@ -2,12 +2,15 @@
 """
 Worker 分享系统 Pydantic Schema
 
-严格区分：
-- 受保护端点使用的完整信息（创建响应含明文 token，列表项不含）
-- 公开端点使用的只读快照（白名单字段，绝不暴露敏感数据）
+仅保留受保护端点使用的 schema（创建响应含明文 token，列表项不含）。
+
+说明：
+- 公开只读页已下线，分享功能完全走 quantcell.top 远端分发
+- 本地不再提供 GET /api/share/{token} 端点，因此 PositionSnapshot /
+  WorkerMetaSnapshot / ShareSnapshot 等"白名单只读快照"已不再使用
 """
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -46,12 +49,16 @@ class CreateShareRequest(BaseModel):
 
 
 class ShareTokenResponse(BaseModel):
-    """创建分享 token 后的完整响应（含明文 token 与完整 URL）"""
+    """创建分享 token 后的完整响应（含明文 token 与远端链接）
+
+    远端上传失败时：short_url 仍可能为 None（远端未接受），
+    remote_status='FAILED',remote_warning 反馈给前端。
+    """
     id: int
     token: str
-    url: str                                       # 远端 short_url（如已上传）；否则为本地 fallback
-    short_url: Optional[str] = None                # 显式的远端链接（本地分享时为 null）
-    remote_status: str = "PENDING"                 # PENDING / UPLOADED / FAILED / LOCAL_ONLY
+    url: str                                       # 远端 short_url；未上传/失败时为 ''
+    short_url: Optional[str] = None                # 显式的远端链接
+    remote_status: str = "PENDING"                 # PENDING / UPLOADED / FAILED / REVOKED
     remote_warning: Optional[str] = None          # 远端上传失败时的非阻塞提示
     expires_at: Optional[datetime]
     one_time: bool
@@ -77,44 +84,3 @@ class ShareTokenListItem(BaseModel):
     short_url: Optional[str] = None
     remote_status: str = "PENDING"
     remote_error: Optional[str] = None
-
-
-# ============================================================
-# 公开端点（无需登录）
-# ============================================================
-
-class PositionSnapshot(BaseModel):
-    """持仓概况（只读）—— 严格白名单字段，绝不包含杠杆、保证金、强平价等敏感信息"""
-    symbol: str
-    side: str
-    quantity: float
-    entry_price: float
-    current_price: float
-    unrealized_pnl: float
-    pnl_percentage: float
-    open_time: Optional[datetime] = None
-
-
-class WorkerMetaSnapshot(BaseModel):
-    """Worker 元信息（只读）"""
-    id: int
-    name: str
-    status: str
-    exchange: Optional[str] = None
-    timeframe: Optional[str] = None
-    market_type: Optional[str] = None
-    trading_mode: Optional[str] = None
-    symbols: List[str] = Field(default_factory=list)
-    created_at: Optional[datetime] = None
-    started_at: Optional[datetime] = None
-
-
-class ShareSnapshot(BaseModel):
-    """公开分享页的完整 payload —— 严格白名单"""
-    worker: WorkerMetaSnapshot
-    metrics: Any  # 复用 stats_service.get_overview 的 metrics 结构
-    cumulative_pnl_series: Any
-    pnl_distribution: Any
-    positions: List[PositionSnapshot] = Field(default_factory=list)
-    generated_at: datetime
-    read_only: bool = True

@@ -13,7 +13,7 @@ secret_key = "niWWyFI1HXYRR0JaZJr9u67RS8iiY40PINUKen7-gaM"
 # 获取方式：登录 https://quantcell.top → 用户中心 → 设备 API Key → 新建设备
 # ============================================================
 [share_remote]
-enabled = false                                          # 灰度开关：true 后才会真正调远端
+enabled = true                                          # 灰度开关：true 后才会真正调远端
 base_url = "https://share.quantcell.top"                 # 远端 base URL（带 https，不带尾斜杠）
 timeout_seconds = 10                                     # HTTP 单次超时
 max_retries = 3                                          # 失败重试次数（指数退避）
