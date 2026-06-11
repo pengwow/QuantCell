@@ -39,6 +39,7 @@ import {
   LinkOutlined,
   ReloadOutlined,
   ShareAltOutlined,
+  StopOutlined,
   WechatOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -46,6 +47,7 @@ import {
   createShareToken,
   listShareTokens,
   revokeShareToken,
+  deleteShareToken,
   retryShareRemoteUpload,
 } from '@/api/workerApi';
 import type { ShareTokenListItem } from '@/types/worker';
@@ -294,6 +296,23 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
     }
   };
 
+  // 物理删除（记录从数据库彻底移除）
+  const handleDelete = async (shareId: number) => {
+    if (!workerId) return;
+    setRevokingId(shareId);
+    try {
+      await deleteShareToken(workerId, shareId);
+      message.success(t('share.delete_success') || '已删除');
+      fetchTokens();
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.error('删除分享 token 失败:', err);
+      message.error(err?.message || t('share.delete_failed') || '删除失败');
+    } finally {
+      setRevokingId(null);
+    }
+  };
+
   // 重新上传远端（不重新生成 token，只重推）
   const handleRetryRemote = async (shareId: number) => {
     if (!workerId) return;
@@ -404,7 +423,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       {
         title: t('action'),
         key: 'action',
-        width: 160,
+        width: 220,
         align: 'center',
         fixed: 'right',
         render: (_: any, record: ShareTokenListItem) => {
@@ -433,13 +452,28 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
                 disabled={revokeDisabled}
               >
                 <Button
-                  danger
                   size="small"
-                  icon={<DeleteOutlined />}
+                  icon={<StopOutlined />}
                   loading={revokingId === record.id}
                   disabled={revokeDisabled}
                 >
                   {t('share.revoke')}
+                </Button>
+              </Popconfirm>
+              <Popconfirm
+                title={t('share.confirm_delete') || '确定要删除该分享链接？删除后无法恢复。'}
+                onConfirm={() => handleDelete(record.id)}
+                okText={t('confirm')}
+                okButtonProps={{ danger: true }}
+                cancelText={t('cancel')}
+              >
+                <Button
+                  danger
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  loading={revokingId === record.id}
+                >
+                  {t('share.delete') || '删除'}
                 </Button>
               </Popconfirm>
             </Space>
@@ -462,9 +496,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       title={
         <Space>
           <ShareAltOutlined />
-          {workerName
-            ? t('share.modal_title', { name: workerName })
-            : t('share.title')}
+          {t('share.title')}
         </Space>
       }
       open={open}

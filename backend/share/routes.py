@@ -266,6 +266,55 @@ def revoke_share(
 
 
 @router.post(
+    "/workers/{worker_id}/share/{share_id}/delete",
+    response_model=ApiResponse,
+    summary="物理删除分享 token",
+)
+def delete_share(
+    worker_id: int,
+    share_id: int,
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """物理删除一个分享 token。仅 token 创建者可操作。
+
+    与 revoke 的区别：
+    - revoke：标记 revoked_at，记录保留在表中，便于审计
+    - delete：从数据库彻底移除
+
+    远端撤销为 best-effort：失败仅记录日志，不影响本地删除结果。
+    """
+    share = crud.get_share_by_id(db, share_id)
+    if not share or share.worker_id != worker_id:
+        raise HTTPException(status_code=404, detail="分享 token 不存在")
+
+    # 权限：仅 token 创建者可删除
+    user_id = current_user.get("user_id") or current_user.get("user_name")
+    if share.created_by and user_id and share.created_by != user_id:
+        raise HTTPException(status_code=403, detail="无权删除该分享")
+
+    # 远端 best-effort 撤销（仅当已上传过且未撤销时）
+    remote_revoked = False
+    if share.remote_id and not share.is_revoked() and get_remote_config().is_ready:
+        try:
+            RemoteShareClient().revoke_sync(share.remote_id)
+            remote_revoked = True
+        except RemoteShareError as e:
+            logger.warning("share 远端撤销失败(物理删除继续) id=%s err=%s", share.id, e)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("share 远端撤销异常(物理删除继续) id=%s", share.id)
+
+    # 本地物理删除
+    crud.delete_share(db, share)
+
+    return ApiResponse(data={
+        "id": share_id,
+        "deleted": True,
+        "remote_revoked": remote_revoked,
+    })
+
+
+@router.post(
     "/workers/{worker_id}/share/{share_id}/retry-remote",
     response_model=ApiResponse,
     summary="重新上传分享到 quantcell.top",

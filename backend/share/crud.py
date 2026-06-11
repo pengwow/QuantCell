@@ -102,3 +102,13 @@ def revoke_share(db: Session, share: ShareToken) -> ShareToken:
         db.commit()
         db.refresh(share)
     return share
+
+
+def delete_share(db: Session, share: ShareToken) -> None:
+    """物理删除一个分享 token
+
+    与 revoke 的区别：revoke 仅标记 revoked_at,记录仍在表中;delete 会从数据库移除记录。
+    远端撤销由路由层在调用本函数前完成 best-effort 处理。
+    """
+    db.delete(share)
+    db.commit()
