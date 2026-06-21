@@ -21,13 +21,24 @@ from .strategy import (
 # 核心引擎模块
 from .event_engine import EventEngine, EventType
 from .vector_engine import VectorEngine
-from .numba_functions import (
-    simulate_orders,
-    signals_to_orders,
-    calculate_metrics,
-    calculate_funding_rate,
-    calculate_funding_payment
-)
+
+# Numba 函数（可选导入）
+try:
+    from .numba_functions import (
+        simulate_orders,
+        signals_to_orders,
+        calculate_metrics,
+        calculate_funding_rate,
+        calculate_funding_payment
+    )
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
+    simulate_orders = None
+    signals_to_orders = None
+    calculate_metrics = None
+    calculate_funding_rate = None
+    calculate_funding_payment = None
 
 # 优化的事件引擎
 from .event_engine_optimized import (
