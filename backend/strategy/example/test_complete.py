@@ -23,13 +23,24 @@ from utils.logger import get_logger, LogType
 logger = get_logger(__name__, LogType.APPLICATION)
 # 导入策略引擎模块 - 更新为正确的导入路径
 from strategy.core import StrategyBase, VectorEngine, EventEngine, EventType
-from strategy.core.numba_functions import (
-    simulate_orders,
-    signals_to_orders,
-    calculate_metrics,
-    calculate_funding_rate,
-    calculate_funding_payment
-)
+
+# Numba 函数（可选导入）
+try:
+    from strategy.core.numba_functions import (
+        simulate_orders,
+        signals_to_orders,
+        calculate_metrics,
+        calculate_funding_rate,
+        calculate_funding_payment
+    )
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
+    simulate_orders = None
+    signals_to_orders = None
+    calculate_metrics = None
+    calculate_funding_rate = None
+    calculate_funding_payment = None
 from strategy.trading_modules import PerpetualContract, CryptoUtils
 from strategy.adapters import VectorBacktestAdapter
 
@@ -55,6 +66,11 @@ def test_numba_functions():
     print("测试 1: Numba 函数导入和基本功能")
     print("=" * 70)
     print()
+    
+    if not NUMBA_AVAILABLE:
+        print("⚠️  Numba 未安装，跳过 Numba 函数测试")
+        print("   使用 Python 实现替代")
+        return
     
     # 测试数据
     n_steps = 100

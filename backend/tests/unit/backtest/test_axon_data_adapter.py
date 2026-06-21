@@ -7,7 +7,7 @@ import os
 
 
 def _load_adapter_module():
-    """直接加载 adapter 模块，避免通过 __init__.py 触发 numba 导入"""
+    """直接加载 adapter 模块，避免通过 __init__.py 触发其他模块导入"""
     backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
     spec = importlib.util.spec_from_file_location(
         "axon_data_adapter",
