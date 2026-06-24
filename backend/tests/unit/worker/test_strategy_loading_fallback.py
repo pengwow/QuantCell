@@ -7,7 +7,7 @@
 2. 数据库中的策略代码（回退）
 3. 文件路径加载（最后回退）
 
-以及自动发现策略类和创建 Nautilus 策略实例的逻辑。
+以及自动发现策略类和创建 Axon 策略实例的逻辑。
 
 这些测试直接验证了 d6be87c 提交中实现的三层回退机制。
 """
@@ -497,8 +497,8 @@ class TestStrategyParamsExtraction:
         assert params == {}
 
 
-class TestNautilusStrategyCreation:
-    """测试 Nautilus 策略创建逻辑"""
+class TestAxonStrategyCreation:
+    """测试 Axon 策略创建逻辑"""
 
     def test_config_class_lookup_priority(self):
         """测试 Config 类查找优先级"""

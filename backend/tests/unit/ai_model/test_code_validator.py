@@ -548,11 +548,11 @@ class MyStrategy(Strategy):
         assert len(strategy_warnings) == 1
         assert "策略框架导入" in strategy_warnings[0]["message"]
 
-    def test_strategy_code_with_nautilus_import(self, validator):
-        """测试使用nautilus_trader导入的代码"""
-        code = '''from nautilus_trader.trading.strategy import Strategy
+    def test_strategy_code_with_axon_import(self, validator):
+        """测试使用axon_quant导入的代码"""
+        code = '''from strategy.core import StrategyBase
 
-class MyStrategy(Strategy):
+class MyStrategy(StrategyBase):
     def on_bar(self, bar):
         pass
 '''

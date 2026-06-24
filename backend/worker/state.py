@@ -1,7 +1,6 @@
 """
 Worker 模块全局单例状态枢纽
 
-参考 Nautilus-Web-Interface 的 state.py 模式设计，
 集中管理 Worker 模块所需的所有全局单例，
 确保所有 Router 和 Service 层操作同一实例。
 
@@ -9,7 +8,7 @@ Worker 模块全局单例状态枢纽
     - connection_manager: WebSocket 连接管理与消息广播
     - strategy_registry: 策略注册表（内存字典 + DB 持久化）
     - live_manager: 实盘交易管理器（Binance/OKX 连接）
-    - nautilus_system: NautilusTrader 策略执行引擎
+    - axon_system: axon_quant 策略执行引擎
 """
 
 import asyncio
@@ -75,7 +74,7 @@ class StrategyRuntime:
     策略运行时对象
 
     记录单个策略在进程内的完整运行时状态，
-    包括配置、NautilusTrader 引擎实例、异步任务引用等。
+    包括配置、axon_quant 引擎实例、异步任务引用等。
     """
     worker_id: int
     strategy_id: int
@@ -312,8 +311,8 @@ connection_manager = ConnectionManager()
 strategy_registry = StrategyRegistry()
 live_manager = LiveTradingManager()
 
-# nautilus_system 延迟导入（避免循环依赖，由 worker_system 模块提供）
-nautilus_system: Optional[Any] = None
+# axon_system 延迟导入（避免循环依赖，由 axon_worker_system 模块提供）
+axon_system: Optional[Any] = None
 
 
 # =============================================================================

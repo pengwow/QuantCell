@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """axon 交易所配置
 
-替代原 worker/config.py 中的 nautilus TradingNodeConfig。
-使用简化的配置字典，不依赖 nautilus_trader。
+替代原 worker/config.py 中的 axon_quant TradingNodeConfig。
+使用简化的配置字典，不依赖 axon_quant。
 """
 from __future__ import annotations
 

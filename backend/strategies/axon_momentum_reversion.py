@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """动量与均值回归混合策略（axon 版本）
 
-使用 AxonStrategy 基类，不依赖 nautilus_trader。
+使用 AxonStrategy 基类，不依赖 axon_quant。
 """
 from __future__ import annotations
 

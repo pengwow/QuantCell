@@ -240,17 +240,16 @@ async def lifespan(app: FastAPI):
     # 初始化 Worker System（全局单例，统一管理所有 Worker）
     _worker_system_available = False
     try:
-        from worker.worker_system import worker_system
+        from worker.axon_worker_system import worker_system
         _worker_system_available = True
         logger.info("正在初始化 Worker System...")
         try:
             await worker_system.initialize()
             summary = worker_system.get_summary()
             state = worker_system.get_system_state()
-            nautilus_status = "已连接" if state.get("nautilus_available") else "未安装"
             logger.info(
                 f"✓ Worker System 初始化完成 | "
-                f"NautilusTrader: {nautilus_status} | "
+                f"axon_quant: 已连接 | "
                 f"Worker 总数: {summary['total_workers']} | "
                 f"状态分布: {summary['status_breakdown']}"
             )
@@ -293,7 +292,7 @@ async def lifespan(app: FastAPI):
     # 步骤 1: 关闭 Worker System 全局单例（统一管理：停止进程 + 清理状态 + 关闭Manager后台任务）
     if _worker_system_available:
         try:
-            from worker.worker_system import worker_system
+            from worker.axon_worker_system import worker_system
             logger.info("正在关闭 Worker System...")
             try:
                 worker_system.shutdown()

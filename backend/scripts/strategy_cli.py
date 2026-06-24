@@ -549,9 +549,9 @@ def deploy_strategy(
         worker_id = worker.get("id") if isinstance(worker, dict) else getattr(worker, "id", None)
 
         if auto_start and worker_id:
-            from worker.state import nautilus_system
-            if nautilus_system:
-                nautilus_system.start_strategy(str(worker_id))
+            from worker.state import axon_system
+            if axon_system:
+                axon_system.start_strategy(str(worker_id))
 
         status = "running" if auto_start else "created"
         return json.dumps(

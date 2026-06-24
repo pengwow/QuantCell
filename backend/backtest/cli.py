@@ -78,10 +78,10 @@ def run(
       python backtest_cli.py run --strategy sma_cross_strategy --symbols BTCUSDT --timeframes 1h
       
       # 使用事件驱动引擎
-      python backtest_cli.py run --strategy sma_cross_nautilus --engine event --init-cash 100000
+      python backtest_cli.py run --strategy sma_cross_axon --engine event --init-cash 100000
       
       # 多品种回测
-      python backtest_cli.py run --strategy sma_cross_nautilus --engine event --symbols BTCUSDT,ETHUSDT --timeframes 1h
+      python backtest_cli.py run --strategy sma_cross_axon --engine event --symbols BTCUSDT,ETHUSDT --timeframes 1h
     """
     console = Console()
     

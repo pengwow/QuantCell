@@ -2,7 +2,7 @@
 """
 统一文件日志器 (UnifiedFileLogger)
 
-捕获所有来源的日志（stdout、logging、loguru、Nautilus），
+捕获所有来源的日志（stdout、logging、loguru、axon_quant），
 统一格式化并写入带轮转的日志文件。
 
 使用示例:
@@ -115,7 +115,7 @@ class StderrCapture:
     Stderr 捕获器（Tee 模式）
 
     包装原始 stderr，将所有错误输出同时写入终端和日志文件。
-    用于捕获 NautilusTrader 等第三方库的警告和错误日志。
+    用于捕获 axon_quant 等第三方库的警告和错误日志。
     """
 
     def __init__(
@@ -191,15 +191,15 @@ class UnifiedFileLogger:
     统一文件日志器
 
     职责：
-    - 捕获所有来源的日志（stdout、logging、loguru、Nautilus）
+    - 捕获所有来源的日志（stdout、logging、loguru、axon_quant）
     - 统一格式化并写入轮转日志文件
     - 高性能缓冲写入（减少 I/O 次数）
 
     日志格式：
-        2026-04-28T10:30:45.123456789Z [INFO] [nautilus.TradingNode] TradingNode started successfully
+        2026-04-28T10:30:45.123456789Z [INFO] [axon_quant.TradingNode] TradingNode started successfully
     """
 
-    NAUTILUS_LOG_PATTERN = re.compile(
+    AXON_LOG_PATTERN = re.compile(
         r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+\[(\w+)\]\s+(.+?):(.*)$"
     )
 
@@ -288,7 +288,7 @@ class UnifiedFileLogger:
             logger.info(f"[UnifiedFileLogger] stdout捕获已卸载: {self.worker_id}")
 
     def install_stderr_capture(self):
-        """安装 stderr 捕获（Tee 模式）- 用于捕获 NautilusTrader 等第三方库的警告/错误日志"""
+        """安装 stderr 捕获（Tee 模式）- 用于捕获 axon_quant 等第三方库的警告/错误日志"""
         if self._stderr_installed:
             return
 

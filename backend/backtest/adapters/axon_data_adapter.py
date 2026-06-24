@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """axon 数据适配器
 
-替代原 backtest/adapters/data_adapter.py 中的 nautilus 数据类型依赖。
+替代原 backtest/adapters/data_adapter.py 中的 axon_quant 数据类型依赖。
 使用 pandas 原生加载，转换为 axon 事件格式。
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ class AxonDataAdapter:
     """axon 数据适配器。
 
     从 CSV/Parquet 加载 OHLCV 数据，转换为 DataFrame。
-    不依赖 nautilus_trader。
+    不依赖 axon_quant。
     """
 
     def load_bars_from_csv(self, path: str) -> pd.DataFrame:

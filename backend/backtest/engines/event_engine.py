@@ -140,7 +140,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             self._setup_engine_config()
 
             # 延迟导入底层实现
-            from nautilus_trader.backtest.engine import BacktestEngine
+            from axon_quant.backtest.engine import BacktestEngine
             self._engine = BacktestEngine(config=self._engine_config)
 
             self._is_initialized = True
@@ -163,8 +163,8 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         import os
 
         # 延迟导入底层实现
-        from nautilus_trader.config import BacktestEngineConfig, LoggingConfig
-        from nautilus_trader.model import TraderId
+        from axon_quant.config import BacktestEngineConfig, LoggingConfig
+        from axon_quant.model import TraderId
 
         # 获取配置参数
         trader_id_str = self._config.get("trader_id", "BACKTEST-001")
@@ -221,9 +221,9 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         try:
             # 延迟导入底层实现
-            from nautilus_trader.model import Venue
-            from nautilus_trader.model.enums import AccountType, OmsType
-            from nautilus_trader.model.objects import Currency, Money
+            from axon_quant.model import Venue
+            from axon_quant.model.enums import AccountType, OmsType
+            from axon_quant.model.objects import Currency, Money
 
             # 使用默认值
             if oms_type is None:
@@ -336,7 +336,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             logger.info(f"开始从 CSV 加载数据: {csv_path}")
 
             # 延迟导入底层实现
-            from nautilus_trader.persistence.wranglers import BarDataWrangler
+            from axon_quant.persistence.wranglers import BarDataWrangler
 
             # 读取 CSV 文件
             df = pd.read_csv(csv_path, sep=sep, decimal=decimal, header=0, index_col=False)
@@ -415,7 +415,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             logger.info(f"开始从 Parquet 加载数据: {parquet_path}")
 
             # 延迟导入底层实现
-            from nautilus_trader.persistence.wranglers import BarDataWrangler
+            from axon_quant.persistence.wranglers import BarDataWrangler
 
             # 读取 Parquet 文件
             df = pd.read_parquet(parquet_path)
@@ -475,7 +475,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         try:
             # 检查策略是否有底层实现（EventDrivenStrategy包装器）
             if hasattr(strategy, '_get_strategy_impl'):
-                # 使用底层NautilusTrader策略实现
+                # 使用底层axon_quant策略实现
                 strategy_impl = strategy._get_strategy_impl()
                 self._engine.add_strategy(strategy_impl)
                 self._strategies.append(strategy_impl)
@@ -663,14 +663,14 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             if ts is None:
                 ts = ""
 
-            # 解析时间戳 (NautilusTrader 使用纳秒时间戳)
+            # 解析时间戳 (axon_quant 使用纳秒时间戳)
             formatted_time = ""
             timestamp_val = 0
             from datetime import datetime, timezone
 
             if isinstance(ts, (int, float)) and ts > 0:
                 # 处理纳秒/毫秒时间戳
-                # NautilusTrader 使用纳秒时间戳 (19位)
+                # axon_quant 使用纳秒时间戳 (19位)
                 if ts > 1e18:  # 纳秒时间戳
                     ts_sec = int(ts / 1e9)
                 elif ts > 1e12:  # 毫秒时间戳
@@ -725,7 +725,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                     status = str(row.get(status_col))
                     break
 
-            # ✅ 提取 NautilusTrader 原生 ID
+            # ✅ 提取 axon_quant 原生 ID
             trade_id = str(row.get("trade_id", row.get("id", idx)))
             client_order_id = str(row.get("client_order_id", row.get("order_id", "")))
             venue_order_id = str(row.get("venue_order_id", ""))
@@ -791,7 +791,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             if not pos_id:
                 pos_id = f"POS_{idx}"
 
-            # 提取 NautilusTrader 原生 ID 和属性
+            # 提取 axon_quant 原生 ID 和属性
             # opening_order_id: 开仓订单ID
             opening_order_id = str(row.get("opening_order_id", ""))
             # closing_order_id: 平仓订单ID
@@ -859,7 +859,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         Args:
             account_df: 账户 DataFrame
-            account_obj: NautilusTrader Account 对象（可选）
+            account_obj: axon_quant Account 对象（可选）
 
         Returns:
             Dict[str, Any]: 账户信息字典
@@ -963,7 +963,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         total_fees = 0.0
 
         if account_df is not None and not account_df.empty:
-            # NautilusTrader 账户报告使用 total 列表示总权益
+            # axon_quant 账户报告使用 total 列表示总权益
             total_series = account_df.get("total", account_df.get("equity", pd.Series()))
             if len(total_series) > 0:
                 initial_equity = safe_float(total_series.iloc[0])
@@ -1118,7 +1118,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         equity_curve = []
         for _, row in account_df.iterrows():
-            # NautilusTrader 使用 total/free/locked 列名
+            # axon_quant 使用 total/free/locked 列名
             # total = free + locked (locked 是保证金占用)
 
             # 处理时间戳 - 从DataFrame索引或timestamp列获取

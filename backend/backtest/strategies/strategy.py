@@ -3,15 +3,14 @@
 策略基类
 
 提供统一的事件驱动策略封装，支持高性能回测和实盘交易。
-基于 NautilusTrader 原生 Strategy 类进行封装，同时保留扩展性以支持其他策略引擎。
 
 包含:
     - StrategyConfig: 策略配置基类
-    - Strategy: 策略基类（继承自 nautilus_trader.trading.strategy.Strategy）
+    - Strategy: 策略基类
 
 作者: QuantCell Team
-版本: 2.0.0
-日期: 2026-03-02
+版本: 3.0.0
+日期: 2026-06-24
 """
 
 from __future__ import annotations
@@ -24,15 +23,26 @@ from typing import Any, Optional
 
 from utils.logger import get_logger, LogType
 
-# 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-# 导入 NautilusTrader 原生 Strategy
-from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
-from nautilus_trader.trading.config import StrategyConfig as NautilusStrategyConfig
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.events import OrderFilled
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.enums import OrderSide, TimeInForce
+
+# 尝试导入 axon_quant（可选）
+try:
+    from axon_quant.trading.strategy import Strategy as Strategy
+    from axon_quant.trading.config import StrategyConfig as StrategyConfig
+    from axon_quant.model.data import Bar
+    from axon_quant.model.events import OrderFilled
+    from axon_quant.model.identifiers import InstrumentId
+    from axon_quant.model.enums import OrderSide, TimeInForce
+    AXON_AVAILABLE = True
+except ImportError:
+    AXON_AVAILABLE = False
+    Strategy = object
+    StrategyConfig = None
+    Bar = None
+    OrderFilled = None
+    InstrumentId = None
+    OrderSide = None
+    TimeInForce = None
 
 
 class StrategyConfig:
@@ -150,12 +160,12 @@ class StrategyConfig:
         return self.bar_types[idx] if idx >= 0 else None
 
 
-class Strategy(NautilusStrategy):
+class Strategy(Strategy):
     """
     策略基类
 
-    为 QuantCell 项目提供统一的策略封装，继承自 NautilusTrader 原生 Strategy 类
-    封装了常用的交易操作和生命周期管理，同时保留 NautilusTrader 的全部功能
+    为 QuantCell 项目提供统一的策略封装，继承自 axon_quant 原生 Strategy 类
+    封装了常用的交易操作和生命周期管理，同时保留 axon_quant 的全部功能
 
     子类需要实现以下方法:
     - `on_bar`: 处理K线数据的核心交易逻辑
@@ -197,15 +207,15 @@ class Strategy(NautilusStrategy):
         Args:
             config: 策略配置对象
         """
-        # 创建 NautilusTrader 原生配置
-        nautilus_config = NautilusStrategyConfig(
+        # 创建 axon_quant 原生配置
+        axon_config = StrategyConfig(
             strategy_id=config.__class__.__name__,
             order_id_tag="001",
             oms_type="NETTING",
         )
 
         # 调用父类初始化
-        super().__init__(nautilus_config)
+        super().__init__(axon_config)
 
         # 使用 _strategy_config 避免与父类的 config 属性冲突
         self._strategy_config = config

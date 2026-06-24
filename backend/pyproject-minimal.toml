@@ -57,7 +57,7 @@ dependencies = [
     "python-binance>=1.0.34",            # Binance 官方 SDK
     
     # ==================== 回测框架 (精简) ====================
-    "nautilus_trader>=1.222.0",         # Nautilus Trader 回测引擎
+    "axon_quant>=1.222.0",         # axon_quant Trader 回测引擎
     
     # ==================== 调度与通知 ====================
     "apscheduler>=3.11.1",             # 任务调度
@@ -157,7 +157,7 @@ exchanges = [
 # uv sync --extra backtesting
 backtesting = [
     "backtrader>=1.9.78.123",          # Backtrader 回测框架
-    "nautilus_trader>=1.222.0",        # Nautilus Trader 回测框架
+    "axon_quant>=1.222.0",        # axon_quant Trader 回测框架
 ]
 
 # 可选的开发工具依赖组

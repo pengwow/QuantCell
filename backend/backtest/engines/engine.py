@@ -19,17 +19,31 @@ from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-# 交易引擎核心导入
-from nautilus_trader.backtest.node import (
-    BacktestDataConfig,
-    BacktestEngineConfig,
-    BacktestNode,
-    BacktestRunConfig,
-    BacktestVenueConfig,
-)
-from nautilus_trader.config import ImportableStrategyConfig, LoggingConfig
-from nautilus_trader.model import Venue
-from nautilus_trader.persistence.catalog import ParquetDataCatalog
+
+# 交易引擎核心导入（可选）
+try:
+    from axon_quant.backtest.node import (
+        BacktestDataConfig,
+        BacktestEngineConfig,
+        BacktestNode,
+        BacktestRunConfig,
+        BacktestVenueConfig,
+    )
+    from axon_quant.config import ImportableStrategyConfig, LoggingConfig
+    from axon_quant.model import Venue
+    from axon_quant.persistence.catalog import ParquetDataCatalog
+    AXON_AVAILABLE = True
+except ImportError:
+    AXON_AVAILABLE = False
+    BacktestDataConfig = None
+    BacktestEngineConfig = None
+    BacktestNode = None
+    BacktestRunConfig = None
+    BacktestVenueConfig = None
+    ImportableStrategyConfig = None
+    LoggingConfig = None
+    Venue = None
+    ParquetDataCatalog = None
 
 from .base import BacktestEngineBase, EngineType
 
@@ -215,7 +229,7 @@ class Engine(BacktestEngineBase):
         Raises:
             ValueError: 配置缺少必需参数时抛出
         """
-        from nautilus_trader.model.data import Bar
+        from axon_quant.model.data import Bar
 
         catalog_path = self._config.get("catalog_path")
         symbols = self._config.get("symbols", [])

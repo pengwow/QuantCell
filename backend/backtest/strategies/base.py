@@ -1,5 +1,5 @@
 # 基础策略类
-# 包含自研策略框架和 NautilusTrader 策略框架的实现
+# 包含自研策略框架和 axon_quant 策略框架的实现
 
 from __future__ import annotations
 
@@ -123,29 +123,46 @@ class BaseStrategy(StrategyCore):
 
 
 # =============================================================================
-# NautilusTrader 策略基类
+# 策略基类（支持 axon_quant 可选）
 # =============================================================================
 
-from nautilus_trader.common.enums import LogColor
-from nautilus_trader.config import StrategyConfig
-from nautilus_trader.model.data import Bar
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.enums import OrderSide
-from nautilus_trader.model.enums import OrderType
-from nautilus_trader.model.enums import TimeInForce
-from nautilus_trader.model.identifiers import InstrumentId
-from nautilus_trader.model.instruments import Instrument
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.objects import Quantity
-from nautilus_trader.model.position import Position
-from nautilus_trader.trading.strategy import Strategy
+try:
+    from axon_quant.common.enums import LogColor
+    from axon_quant.config import StrategyConfig
+    from axon_quant.model.data import Bar
+    from axon_quant.model.data import BarType
+    from axon_quant.model.enums import OrderSide
+    from axon_quant.model.enums import OrderType
+    from axon_quant.model.enums import TimeInForce
+    from axon_quant.model.identifiers import InstrumentId
+    from axon_quant.model.instruments import Instrument
+    from axon_quant.model.objects import Price
+    from axon_quant.model.objects import Quantity
+    from axon_quant.model.position import Position
+    from axon_quant.trading.strategy import Strategy
+    AXON_AVAILABLE = True
+except ImportError:
+    AXON_AVAILABLE = False
+    LogColor = None
+    StrategyConfig = None
+    Bar = None
+    BarType = None
+    OrderSide = None
+    OrderType = None
+    TimeInForce = None
+    InstrumentId = None
+    Instrument = None
+    Price = None
+    Quantity = None
+    Position = None
+    Strategy = object
 
 
-class QuantCellNautilusConfig(StrategyConfig, frozen=True):
+class QuantCellaxon_quantConfig(StrategyConfig, frozen=True):
     """
-    QuantCell NautilusTrader 策略配置基类
+    QuantCell axon_quant 策略配置基类
 
-    所有使用 NautilusTrader 框架的策略都需要继承此配置类
+    所有使用 axon_quant 框架的策略都需要继承此配置类
     提供基础的配置参数，子类可以扩展更多特定参数
 
     Parameters
@@ -177,11 +194,11 @@ class QuantCellNautilusConfig(StrategyConfig, frozen=True):
     log_level: str = "INFO"
 
 
-class QuantCellNautilusStrategy(Strategy):
+class QuantCellaxon_quantStrategy(Strategy):
     """
-    QuantCell NautilusTrader 策略基类
+    QuantCell axon_quant 策略基类
 
-    为 QuantCell 项目提供统一的 NautilusTrader 策略封装
+    为 QuantCell 项目提供统一的 axon_quant 策略封装
     封装了常用的交易操作和生命周期管理
 
     子类需要实现以下方法:
@@ -191,12 +208,12 @@ class QuantCellNautilusStrategy(Strategy):
 
     Parameters
     ----------
-    config : QuantCellNautilusConfig
+    config : QuantCellaxon_quantConfig
         策略配置对象
 
     Attributes
     ----------
-    config : QuantCellNautilusConfig
+    config : QuantCellaxon_quantConfig
         策略配置
     instrument : Instrument | None
         交易品种对象，在 on_start 中初始化
@@ -209,7 +226,7 @@ class QuantCellNautilusStrategy(Strategy):
 
     Examples
     --------
-    >>> config = QuantCellNautilusConfig(
+    >>> config = QuantCellaxon_quantConfig(
     ...     instrument_id=InstrumentId.from_str("BTCUSDT.BINANCE"),
     ...     bar_type=BarType.from_str("BTCUSDT.BINANCE-1-MINUTE-LAST-EXTERNAL"),
     ...     trade_size=Decimal("0.1"),
@@ -217,7 +234,7 @@ class QuantCellNautilusStrategy(Strategy):
     >>> strategy = MyStrategy(config)
     """
 
-    def __init__(self, config: QuantCellNautilusConfig) -> None:
+    def __init__(self, config: QuantCellaxon_quantConfig) -> None:
         """
         初始化策略
 

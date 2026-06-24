@@ -38,22 +38,13 @@ from utils.strategy_ast_parser import StrategyASTParser
 # 导入策略基类（从 strategy.core 统一导入）
 from .core import StrategyBase
 
-# 尝试导入 trading engine 的 Strategy 类
-try:
-    from nautilus_trader.trading.strategy import Strategy as DefaultStrategy
-    default_AVAILABLE = True
-except ImportError:
-    DefaultStrategy = None
-    default_AVAILABLE = False
-    logger.warning("trading engine 未安装，trading engine 策略支持不可用")
-
 # 策略基类别名，用于兼容性检查
 Strategy = StrategyBase
 
 
 class StrategyType(Enum):
     """策略类型枚举"""
-    advanced = "default"      # trading engine 策略
+    AXON = "axon"              # axon_quant 策略
     LEGACY = "legacy"          # Legacy 策略 (StrategyBase)
     UNKNOWN = "unknown"        # 未知类型
 
@@ -487,16 +478,10 @@ class StrategyService:
                             base_name = base.attr
 
                         if base_name:
-                            # 检查是否为 trading engine 策略
-                            if base_name == 'Strategy' or 'advanced' in file_content.lower():
-                                # 进一步确认是否从 nautilus_trader 导入
-                                for stmt in ast.walk(tree):
-                                    if isinstance(stmt, ast.ImportFrom):
-                                        if stmt.module and 'nautilus_trader' in stmt.module:
-                                            for alias in stmt.names:
-                                                if alias.name == 'Strategy':
-                                                    logger.info(f"检测到 trading engine 策略: {node.name}")
-                                                    return StrategyType.DEFAULT
+                            # 检查是否为 axon_quant 策略
+                            if base_name == 'AxonStrategy' or 'axon' in file_content.lower():
+                                logger.info(f"检测到 axon_quant 策略: {node.name}")
+                                return StrategyType.AXON
 
                             # 检查是否为 Legacy 策略
                             if base_name in ('StrategyBase', 'Strategy'):
@@ -514,9 +499,9 @@ class StrategyService:
                                                     return StrategyType.LEGACY
 
             # 如果通过 AST 无法确定，尝试通过文本内容判断
-            if 'nautilus_trader' in file_content.lower():
-                logger.info("通过文本内容检测到 trading engine 策略")
-                return StrategyType.DEFAULT
+            if 'AxonStrategy' in file_content:
+                logger.info("通过文本内容检测到 axon_quant 策略")
+                return StrategyType.AXON
             elif 'StrategyBase' in file_content:
                 logger.info("通过文本内容检测到 Legacy 策略")
                 return StrategyType.LEGACY

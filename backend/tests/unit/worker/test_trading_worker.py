@@ -89,10 +89,10 @@ class TestTradingConfig:
 
     def test_build_trading_node_config_basic(self):
         """测试基本配置构建（使用新版参数化 API）"""
-        from worker.config import build_trading_node_config, NAUTILUS_AVAILABLE
+        from worker.config import build_trading_node_config, AXON_AVAILABLE
 
-        if not NAUTILUS_AVAILABLE:
-            pytest.skip("NautilusTrader 不可用")
+        if not AXON_AVAILABLE:
+            pytest.skip("axon_quant 不可用")
 
         result = build_trading_node_config(
             exchange="binance",
@@ -104,10 +104,10 @@ class TestTradingConfig:
 
     def test_build_trading_node_config_with_engines(self):
         """测试带引擎配置的配置构建（使用新版参数化 API）"""
-        from worker.config import build_trading_node_config, NAUTILUS_AVAILABLE
+        from worker.config import build_trading_node_config, AXON_AVAILABLE
 
-        if not NAUTILUS_AVAILABLE:
-            pytest.skip("NautilusTrader 不可用")
+        if not AXON_AVAILABLE:
+            pytest.skip("axon_quant 不可用")
 
         result = build_trading_node_config(
             exchange="binance",
@@ -119,10 +119,10 @@ class TestTradingConfig:
 
     def test_build_trading_node_config_with_clients(self):
         """测试带客户端配置的配置构建（使用新版参数化 API）"""
-        from worker.config import build_trading_node_config, NAUTILUS_AVAILABLE
+        from worker.config import build_trading_node_config, AXON_AVAILABLE
 
-        if not NAUTILUS_AVAILABLE:
-            pytest.skip("NautilusTrader 不可用")
+        if not AXON_AVAILABLE:
+            pytest.skip("axon_quant 不可用")
 
         result = build_trading_node_config(
             exchange="binance",
@@ -232,12 +232,12 @@ class TestTradingStrategyAdapter:
     @pytest.fixture
     def mock_trading_config(self):
         """创建模拟 TradingNode 配置"""
-        # 尝试创建真正的 Nautilus StrategyConfig
+        # 尝试创建真正的 axon_quant StrategyConfig
         try:
-            from nautilus_trader.trading.config import StrategyConfig
+            from axon_quant.trading.config import StrategyConfig
             return StrategyConfig()
         except ImportError:
-            # Nautilus 未安装，返回 None，测试会跳过
+            # axon_quant 未安装，返回 None，测试会跳过
             return None
 
     def test_adapter_initialization_valid(self, mock_qc_strategy, mock_trading_config):
@@ -246,15 +246,15 @@ class TestTradingStrategyAdapter:
 
         # 如果无法创建 StrategyConfig，跳过测试
         if mock_trading_config is None:
-            pytest.skip("Nautilus StrategyConfig 无法创建")
+            pytest.skip("axon_quant StrategyConfig 无法创建")
 
         try:
             adapter = TradingStrategyAdapter(mock_qc_strategy, mock_trading_config)
             assert adapter.qc_strategy is mock_qc_strategy
             assert adapter._is_paused is False
         except (TypeError, ImportError) as e:
-            # Nautilus 配置类型不匹配时跳过
-            pytest.skip(f"Nautilus StrategyConfig 类型不匹配: {e}")
+            # axon_quant 配置类型不匹配时跳过
+            pytest.skip(f"axon_quant StrategyConfig 类型不匹配: {e}")
 
     def test_adapter_initialization_invalid(self, mock_trading_config):
         """测试适配器无效初始化"""
@@ -262,7 +262,7 @@ class TestTradingStrategyAdapter:
 
         # 如果无法创建 StrategyConfig，跳过测试
         if mock_trading_config is None:
-            pytest.skip("Nautilus StrategyConfig 无法创建")
+            pytest.skip("axon_quant StrategyConfig 无法创建")
 
         # 现在我们的类型检查在父类初始化之前，所以会抛出 StrategyAdapterConfigError
         # 使用 type: ignore 来抑制类型检查错误，因为我们故意传入错误类型
@@ -275,7 +275,7 @@ class TestTradingStrategyAdapter:
 
         # 如果无法创建 StrategyConfig，跳过测试
         if mock_trading_config is None:
-            pytest.skip("Nautilus StrategyConfig 无法创建")
+            pytest.skip("axon_quant StrategyConfig 无法创建")
 
         try:
             adapter = TradingStrategyAdapter(mock_qc_strategy, mock_trading_config)
@@ -285,8 +285,8 @@ class TestTradingStrategyAdapter:
             assert adapter.bars_processed == 0
             assert adapter.ticks_processed == 0
         except (TypeError, ImportError) as e:
-            # Nautilus 配置类型不匹配时跳过
-            pytest.skip(f"Nautilus StrategyConfig 类型不匹配: {e}")
+            # axon_quant 配置类型不匹配时跳过
+            pytest.skip(f"axon_quant StrategyConfig 类型不匹配: {e}")
 
     def test_pause_and_resume(self, mock_qc_strategy, mock_trading_config):
         """测试暂停和恢复"""
@@ -294,7 +294,7 @@ class TestTradingStrategyAdapter:
 
         # 如果无法创建 StrategyConfig，跳过测试
         if mock_trading_config is None:
-            pytest.skip("Nautilus StrategyConfig 无法创建")
+            pytest.skip("axon_quant StrategyConfig 无法创建")
 
         try:
             adapter = TradingStrategyAdapter(mock_qc_strategy, mock_trading_config)
@@ -307,8 +307,8 @@ class TestTradingStrategyAdapter:
             adapter.resume()
             assert adapter.is_paused is False
         except (TypeError, ImportError) as e:
-            # Nautilus 配置类型不匹配时跳过
-            pytest.skip(f"Nautilus StrategyConfig 类型不匹配: {e}")
+            # axon_quant 配置类型不匹配时跳过
+            pytest.skip(f"axon_quant StrategyConfig 类型不匹配: {e}")
 
 
 # =============================================================================
@@ -536,7 +536,7 @@ class TestStrategyLoader:
         mock_strategy = MockStrategy(config)
 
         # 当传入空字典作为 config 时，应该抛出 StrategyAdapterConfigError
-        # 因为 Nautilus Strategy 要求 config 必须是 StrategyConfig 类型
+        # 因为 axon_quant Strategy 要求 config 必须是 StrategyConfig 类型
         with pytest.raises(StrategyAdapterConfigError) as exc_info:
             create_trading_strategy_adapter(mock_strategy, {})
 

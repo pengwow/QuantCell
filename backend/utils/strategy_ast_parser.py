@@ -352,20 +352,20 @@ class StrategyASTParser:
         
         return False
     
-    def is_nautilus_strategy(self, tree: ast.AST) -> bool:
+    def is_axon_strategy(self, tree: ast.AST) -> bool:
         """
-        检查是否为nautilus_trader策略
+        检查是否为axon_quant策略
         
         Args:
             tree: AST树
             
         Returns:
-            是否为nautilus_trader策略
+            是否为axon_quant策略
         """
         imports = self.find_imports(tree)
         
         for imp in imports:
-            if 'nautilus_trader' in imp:
+            if 'axon_quant' in imp or 'axon' in imp.lower():
                 return True
         
         return False

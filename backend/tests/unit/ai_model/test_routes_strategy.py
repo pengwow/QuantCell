@@ -17,7 +17,7 @@ test_file = Path(__file__).resolve()
 backend_dir = test_file.parent.parent.parent.parent  # tests/unit/ai_model -> tests/unit -> tests -> backend
 sys.path.insert(0, str(backend_dir))
 
-# mock数据库和worker相关模块，避免导入链触发nautilus_trader等重型依赖
+# mock数据库和worker相关模块，避免导入链触发axon_quant等重型依赖
 _mock_worker = MagicMock()
 _mock_worker.router = MagicMock()
 _mock_worker_routes = MagicMock()

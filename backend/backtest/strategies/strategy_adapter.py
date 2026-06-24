@@ -2,7 +2,7 @@
 """
 回测策略适配器
 
-将策略接口适配到 NautilusTrader 回测引擎。
+将策略接口适配到 axon_quant 回测引擎。
 策略脚本继承此适配器，可以在回测环境中运行。
 
 作者: QuantCell Team
@@ -33,12 +33,22 @@ from strategy.core import (
     PositionSide,
 )
 
-# 导入 NautilusTrader
-from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
-from nautilus_trader.trading.config import StrategyConfig as NautilusStrategyConfig
-from nautilus_trader.model.data import Bar as NautilusBar
-from nautilus_trader.model.identifiers import InstrumentId as NautilusInstrumentId
-from nautilus_trader.model.enums import OrderSide as NautilusOrderSide, TimeInForce as NautilusTimeInForce
+# 导入 axon_quant（可选）
+try:
+    from axon_quant.trading.strategy import Strategy as Strategy
+    from axon_quant.trading.config import StrategyConfig as StrategyConfig
+    from axon_quant.model.data import Bar as axon_quantBar
+    from axon_quant.model.identifiers import InstrumentId as InstrumentId
+    from axon_quant.model.enums import OrderSide as axon_quantOrderSide, TimeInForce as TimeInForce
+    AXON_AVAILABLE = True
+except ImportError:
+    AXON_AVAILABLE = False
+    Strategy = object
+    StrategyConfig = None
+    axon_quantBar = None
+    InstrumentId = None
+    axon_quantOrderSide = None
+    TimeInForce = None
 
 
 class StrategyConfig(CoreStrategyConfig):
@@ -51,11 +61,11 @@ class StrategyConfig(CoreStrategyConfig):
     pass
 
 
-class StrategyAdapter(NautilusStrategy):
+class StrategyAdapter(Strategy):
     """
     回测策略适配器
 
-    继承 NautilusTrader 的 Strategy，将策略接口调用转换为 NautilusTrader 实现。
+    继承 axon_quant 的 Strategy，将策略接口调用转换为 axon_quant 实现。
     这个适配器用于包装使用策略接口（StrategyBase）的策略，使其能够在回测环境中运行。
 
     Examples
@@ -78,17 +88,17 @@ class StrategyAdapter(NautilusStrategy):
         # 保存统一配置
         self._unified_config = config
 
-        # 创建 NautilusTrader 配置
-        nautilus_config = NautilusStrategyConfig(
+        # 创建 axon_quant 配置
+        axon_config = StrategyConfig(
             strategy_id=config.__class__.__name__,
             order_id_tag="001",
             oms_type="NETTING",
         )
 
-        # 初始化 NautilusTrader Strategy
-        NautilusStrategy.__init__(self, nautilus_config)
+        # 初始化 axon_quant Strategy
+        Strategy.__init__(self, axon_config)
 
-        # 初始化策略状态（使用不同的属性名避免与 NautilusTrader 冲突）
+        # 初始化策略状态（使用不同的属性名避免与 axon_quant 冲突）
         self._strategy_is_running = False
         self.bars_processed = 0
         self.start_time: Optional[dt.datetime] = None
@@ -99,11 +109,11 @@ class StrategyAdapter(NautilusStrategy):
         """获取策略配置"""
         return self._unified_config
 
-    # ==================== NautilusTrader 生命周期 ====================
+    # ==================== axon_quant 生命周期 ====================
 
     def on_start(self) -> None:
         """
-        策略启动（NautilusTrader 回调）
+        策略启动（axon_quant 回调）
 
         子类可以重写此方法添加自定义启动逻辑。
         """
@@ -114,22 +124,22 @@ class StrategyAdapter(NautilusStrategy):
         # 订阅所有品种的K线数据
         for i, bar_type in enumerate(self.config.bar_types):
             instrument_id = self.config.instrument_ids[i]
-            # 转换InstrumentId 到 NautilusTrader InstrumentId
-            nautilus_inst_id = self._to_nautilus_instrument_id(instrument_id)
+            # 转换InstrumentId 到 axon_quant InstrumentId
+            axon_inst_id = self._to_axon_instrument_id(instrument_id)
             self.subscribe_bars(bar_type)
             logger.info(f"已订阅K线数据: {instrument_id} -> {bar_type}")
 
-    def on_bar(self, bar: NautilusBar) -> None:
+    def on_bar(self, bar: axon_quantBar) -> None:
         """
-        收到K线数据（NautilusTrader 回调）
+        收到K线数据（axon_quant 回调）
 
-        将 NautilusTrader Bar 转换为Bar，然后调用子类的 on_bar。
+        将 axon_quant Bar 转换为Bar，然后调用子类的 on_bar。
         子类应该重写此方法实现具体的交易逻辑。
 
         Parameters
         ----------
-        bar : NautilusBar
-            NautilusTrader K线数据
+        bar : axon_quantBar
+            axon_quant K线数据
         """
         self.bars_processed += 1
 
@@ -154,7 +164,7 @@ class StrategyAdapter(NautilusStrategy):
 
     def on_stop(self) -> None:
         """
-        策略停止（NautilusTrader 回调）
+        策略停止（axon_quant 回调）
 
         子类可以重写此方法添加自定义停止逻辑。
         """
@@ -163,8 +173,8 @@ class StrategyAdapter(NautilusStrategy):
 
         # 取消所有订单
         for instrument_id in self.config.instrument_ids:
-            nautilus_inst_id = self._to_nautilus_instrument_id(instrument_id)
-            self.cancel_all_orders(nautilus_inst_id)
+            axon_inst_id = self._to_axon_instrument_id(instrument_id)
+            self.cancel_all_orders(axon_inst_id)
 
         logger.info(f"策略停止: {self.__class__.__name__}")
 
@@ -194,11 +204,11 @@ class StrategyAdapter(NautilusStrategy):
         time_in_force : TimeInForce
             订单有效期
         """
-        # 转换统一类型到 NautilusTrader 类型
-        nautilus_inst_id = self._to_nautilus_instrument_id(instrument_id)
+        # 转换统一类型到 axon_quant 类型
+        axon_inst_id = self._to_axon_instrument_id(instrument_id)
 
         # 从缓存获取品种信息
-        instrument = self.cache.instrument(nautilus_inst_id)
+        instrument = self.cache.instrument(axon_inst_id)
         if instrument is None:
             logger.error(f"无法找到交易品种: {instrument_id}")
             return
@@ -209,18 +219,18 @@ class StrategyAdapter(NautilusStrategy):
         # 创建订单
         if order_type == OrderType.MARKET:
             order = self.order_factory.market(
-                instrument_id=nautilus_inst_id,
-                order_side=NautilusOrderSide.BUY,
+                instrument_id=axon_inst_id,
+                order_side=axon_quantOrderSide.BUY,
                 quantity=order_qty,
             )
         else:
             order_price = instrument.make_price(price) if price else None
             order = self.order_factory.limit(
-                instrument_id=nautilus_inst_id,
-                order_side=NautilusOrderSide.BUY,
+                instrument_id=axon_inst_id,
+                order_side=axon_quantOrderSide.BUY,
                 quantity=order_qty,
                 price=order_price,
-                time_in_force=self._to_nautilus_time_in_force(time_in_force),
+                time_in_force=self._to_axon_time_in_force(time_in_force),
             )
 
         # 提交订单
@@ -251,11 +261,11 @@ class StrategyAdapter(NautilusStrategy):
         time_in_force : TimeInForce
             订单有效期
         """
-        # 转换统一类型到 NautilusTrader 类型
-        nautilus_inst_id = self._to_nautilus_instrument_id(instrument_id)
+        # 转换统一类型到 axon_quant 类型
+        axon_inst_id = self._to_axon_instrument_id(instrument_id)
 
         # 从缓存获取品种信息
-        instrument = self.cache.instrument(nautilus_inst_id)
+        instrument = self.cache.instrument(axon_inst_id)
         if instrument is None:
             logger.error(f"无法找到交易品种: {instrument_id}")
             return
@@ -266,18 +276,18 @@ class StrategyAdapter(NautilusStrategy):
         # 创建订单
         if order_type == OrderType.MARKET:
             order = self.order_factory.market(
-                instrument_id=nautilus_inst_id,
-                order_side=NautilusOrderSide.SELL,
+                instrument_id=axon_inst_id,
+                order_side=axon_quantOrderSide.SELL,
                 quantity=order_qty,
             )
         else:
             order_price = instrument.make_price(price) if price else None
             order = self.order_factory.limit(
-                instrument_id=nautilus_inst_id,
-                order_side=NautilusOrderSide.SELL,
+                instrument_id=axon_inst_id,
+                order_side=axon_quantOrderSide.SELL,
                 quantity=order_qty,
                 price=order_price,
-                time_in_force=self._to_nautilus_time_in_force(time_in_force),
+                time_in_force=self._to_axon_time_in_force(time_in_force),
             )
 
         # 提交订单
@@ -293,8 +303,8 @@ class StrategyAdapter(NautilusStrategy):
         instrument_id : InstrumentId
             品种标识
         """
-        nautilus_inst_id = self._to_nautilus_instrument_id(instrument_id)
-        self.close_all_positions(nautilus_inst_id)
+        axon_inst_id = self._to_axon_instrument_id(instrument_id)
+        self.close_all_positions(axon_inst_id)
         logger.info(f"平仓: {instrument_id}")
 
     def cancel_order(self, order_id: str) -> None:
@@ -306,7 +316,7 @@ class StrategyAdapter(NautilusStrategy):
         order_id : str
             订单ID
         """
-        # NautilusTrader 的订单取消逻辑
+        # axon_quant 的订单取消逻辑
         logger.info(f"取消订单: {order_id}")
 
     def cancel_all_orders(self, instrument_id: Optional[InstrumentId] = None) -> None:
@@ -319,12 +329,12 @@ class StrategyAdapter(NautilusStrategy):
             品种标识，None 表示取消所有品种的订单
         """
         if instrument_id:
-            nautilus_inst_id = self._to_nautilus_instrument_id(instrument_id)
-            NautilusStrategy.cancel_all_orders(self, nautilus_inst_id)
+            axon_inst_id = self._to_axon_instrument_id(instrument_id)
+            Strategy.cancel_all_orders(self, axon_inst_id)
         else:
             for inst_id in self.config.instrument_ids:
-                nautilus_inst_id = self._to_nautilus_instrument_id(inst_id)
-                NautilusStrategy.cancel_all_orders(self, nautilus_inst_id)
+                axon_inst_id = self._to_axon_instrument_id(inst_id)
+                Strategy.cancel_all_orders(self, axon_inst_id)
 
     # ==================== 持仓查询接口实现 ====================
 
@@ -342,8 +352,8 @@ class StrategyAdapter(NautilusStrategy):
         Optional[Position]
             持仓对象
         """
-        nautilus_inst_id = self._to_nautilus_instrument_id(instrument_id)
-        positions = self.cache.positions_for_instrument(nautilus_inst_id)
+        axon_inst_id = self._to_axon_instrument_id(instrument_id)
+        positions = self.cache.positions_for_instrument(axon_inst_id)
 
         if positions:
             position = positions[0]
@@ -396,8 +406,8 @@ class StrategyAdapter(NautilusStrategy):
         bool
             如果没有持仓返回 True
         """
-        nautilus_inst_id = self._to_nautilus_instrument_id(instrument_id)
-        return self.portfolio.is_flat(nautilus_inst_id)
+        axon_inst_id = self._to_axon_instrument_id(instrument_id)
+        return self.portfolio.is_flat(axon_inst_id)
 
     def is_long(self, instrument_id: InstrumentId) -> bool:
         """
@@ -413,8 +423,8 @@ class StrategyAdapter(NautilusStrategy):
         bool
             如果持有多头返回 True
         """
-        nautilus_inst_id = self._to_nautilus_instrument_id(instrument_id)
-        return self.portfolio.is_net_long(nautilus_inst_id)
+        axon_inst_id = self._to_axon_instrument_id(instrument_id)
+        return self.portfolio.is_net_long(axon_inst_id)
 
     def is_short(self, instrument_id: InstrumentId) -> bool:
         """
@@ -430,19 +440,19 @@ class StrategyAdapter(NautilusStrategy):
         bool
             如果持有空头返回 True
         """
-        nautilus_inst_id = self._to_nautilus_instrument_id(instrument_id)
-        return self.portfolio.is_net_short(nautilus_inst_id)
+        axon_inst_id = self._to_axon_instrument_id(instrument_id)
+        return self.portfolio.is_net_short(axon_inst_id)
 
     # ==================== 类型转换方法 ====================
 
-    def _to_unified_bar(self, bar: NautilusBar) -> Bar:
+    def _to_unified_bar(self, bar: axon_quantBar) -> Bar:
         """
-        将 NautilusTrader Bar 转换为Bar
+        将 axon_quant Bar 转换为Bar
 
         Parameters
         ----------
-        bar : NautilusBar
-            NautilusTrader K线数据
+        bar : axon_quantBar
+            axon_quant K线数据
 
         Returns
         -------
@@ -472,9 +482,9 @@ class StrategyAdapter(NautilusStrategy):
             ts_event=ts_event_ns,
         )
 
-    def _to_nautilus_instrument_id(self, instrument_id: InstrumentId) -> NautilusInstrumentId:
+    def _to_axon_instrument_id(self, instrument_id: InstrumentId) -> InstrumentId:
         """
-        将InstrumentId 转换为 NautilusTrader InstrumentId
+        将InstrumentId 转换为 axon_quant InstrumentId
 
         Parameters
         ----------
@@ -483,14 +493,14 @@ class StrategyAdapter(NautilusStrategy):
 
         Returns
         -------
-        NautilusInstrumentId
-            NautilusTrader 品种标识
+        InstrumentId
+            axon_quant 品种标识
         """
-        return NautilusInstrumentId.from_str(f"{instrument_id.symbol}.{instrument_id.venue}")
+        return InstrumentId.from_str(f"{instrument_id.symbol}.{instrument_id.venue}")
 
-    def _to_nautilus_time_in_force(self, tif: TimeInForce) -> NautilusTimeInForce:
+    def _to_axon_time_in_force(self, tif: TimeInForce) -> TimeInForce:
         """
-        将统一 TimeInForce 转换为 NautilusTrader TimeInForce
+        将统一 TimeInForce 转换为 axon_quant TimeInForce
 
         Parameters
         ----------
@@ -499,16 +509,16 @@ class StrategyAdapter(NautilusStrategy):
 
         Returns
         -------
-        NautilusTimeInForce
-            NautilusTrader 订单有效期
+        TimeInForce
+            axon_quant 订单有效期
         """
         mapping = {
-            TimeInForce.GTC: NautilusTimeInForce.GTC,
-            TimeInForce.IOC: NautilusTimeInForce.IOC,
-            TimeInForce.FOK: NautilusTimeInForce.FOK,
-            TimeInForce.DAY: NautilusTimeInForce.DAY,
+            TimeInForce.GTC: TimeInForce.GTC,
+            TimeInForce.IOC: TimeInForce.IOC,
+            TimeInForce.FOK: TimeInForce.FOK,
+            TimeInForce.DAY: TimeInForce.DAY,
         }
-        return mapping.get(tif, NautilusTimeInForce.GTC)
+        return mapping.get(tif, TimeInForce.GTC)
 
 
 # 向后兼容：Strategy 作为 StrategyAdapter 的别名
