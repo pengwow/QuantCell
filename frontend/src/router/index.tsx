@@ -19,6 +19,7 @@ import KlineReplayPage from '@/pages/data/KlineReplayPage';
 import Setting from '@/pages/setting/Setting';
 import Agent from '@/pages/agent/Agent';
 import EnsemblePage from '@/pages/ensemble/EnsemblePage';
+import RiskMonitorPage from '@/pages/risk/RiskMonitorPage';
 
 // 导入回测模块
 import BacktestLayout from '@/pages/backtest/BacktestLayout';
@@ -121,6 +122,10 @@ function createBaseRoutes(): RouteObject[] {
         {
           path: '/ensemble',
           element: <EnsemblePage />,
+        },
+        {
+          path: '/risk-monitor',
+          element: <RiskMonitorPage />,
         },
         {
           path: '/factor-analysis',
