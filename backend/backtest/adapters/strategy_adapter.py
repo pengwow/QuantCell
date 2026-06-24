@@ -20,9 +20,17 @@ from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-# 交易引擎导入
-from nautilus_trader.trading.strategy import Strategy, StrategyConfig
-from nautilus_trader.config import ImportableStrategyConfig
+
+# 交易引擎导入（可选）
+try:
+    from axon_quant.trading.strategy import Strategy, StrategyConfig
+    from axon_quant.config import ImportableStrategyConfig
+    AXON_AVAILABLE = True
+except ImportError:
+    AXON_AVAILABLE = False
+    Strategy = object
+    StrategyConfig = None
+    ImportableStrategyConfig = None
 
 # QuantCell 内部导入
 from strategy.core import StrategyBase

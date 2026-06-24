@@ -574,7 +574,7 @@ class WorkerTrade(Base):
     exit_time = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=func.now())
 
-    # 原始数据（存储完整的 NautilusTrader 事件数据）
+    # 原始数据（存储完整的 axon_quant 事件数据）
     raw_data = Column(Text, nullable=True)
 
     __table_args__ = (
@@ -677,7 +677,7 @@ class WorkerPosition(Base):
     worker_id = Column(Integer, ForeignKey('workers.id'), nullable=False, index=True)
 
     # 持仓标识
-    position_id = Column(String(100), unique=True, nullable=False)  # Nautilus PositionId
+    position_id = Column(String(100), unique=True, nullable=False)  # Axon PositionId
     symbol = Column(String(50), nullable=False)
 
     # 持仓方向和数量

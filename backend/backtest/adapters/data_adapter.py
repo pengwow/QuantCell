@@ -26,14 +26,24 @@ from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from nautilus_trader.model.data import QuoteTick, TradeTick, Bar
-from nautilus_trader.model.data import BarType, BarSpecification
-from nautilus_trader.model.objects import Price, Quantity
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue, TradeId
-from nautilus_trader.model.instruments import CurrencyPair
-from nautilus_trader.model.currencies import Currency
-from nautilus_trader.model.enums import CurrencyType, BarAggregation, PriceType
-from nautilus_trader.persistence.wranglers import BarDataWrangler
+
+# axon_quant 数据类型（可选）
+try:
+    from axon_quant.model.data import QuoteTick, TradeTick, Bar
+    from axon_quant.model.data import BarType, BarSpecification
+    from axon_quant.model.objects import Price, Quantity
+    from axon_quant.model.identifiers import InstrumentId, Symbol, Venue, TradeId
+    from axon_quant.model.instruments import CurrencyPair
+    from axon_quant.model.currencies import Currency
+    from axon_quant.model.enums import CurrencyType, BarAggregation, PriceType
+    from axon_quant.persistence.wranglers import BarDataWrangler
+    AXON_AVAILABLE = True
+except ImportError:
+    AXON_AVAILABLE = False
+    QuoteTick = TradeTick = Bar = BarType = BarSpecification = None
+    Price = Quantity = InstrumentId = Symbol = Venue = TradeId = None
+    CurrencyPair = Currency = CurrencyType = BarAggregation = PriceType = None
+    BarDataWrangler = None
 
 
 # 常用交易对配置
@@ -220,7 +230,7 @@ def kline_to_trade_ticks(
     """
     _validate_kline_df(df)
 
-    from nautilus_trader.model.enums import AggressorSide
+    from axon_quant.model.enums import AggressorSide
 
     ticks = []
     price_precision = instrument.price_precision
@@ -532,7 +542,7 @@ def kline_to_bars(
     timestamp_column: str = "timestamp",
 ) -> List[Bar]:
     """
-    将 K 线 DataFrame 转换为 NautilusTrader Bar 对象列表
+    将 K 线 DataFrame 转换为 axon_quant Bar 对象列表
 
     这是 Bar 数据转换的核心函数，使用 BarDataWrangler 将 DataFrame 转换为 Bar 对象。
 

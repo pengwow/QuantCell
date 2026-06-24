@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """网格挂单验证策略（axon 版本）
 
-使用 AxonStrategy 基类，不依赖 nautilus_trader。
+使用 AxonStrategy 基类，不依赖 axon_quant。
 用于验证 Worker 运行情况的功能性测试策略。
 """
 from __future__ import annotations

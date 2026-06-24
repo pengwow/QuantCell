@@ -21,8 +21,8 @@ from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-class NautilusJSONEncoder(json.JSONEncoder):
-    """自定义JSON编码器，处理NautilusTrader和pandas特殊类型"""
+class axon_quantJSONEncoder(json.JSONEncoder):
+    """自定义JSON编码器，处理axon_quant和pandas特殊类型"""
 
     def default(self, obj):
         # 处理 pandas NA/NaT
@@ -274,7 +274,7 @@ class ResultSerializer:
             
             # 写入文件，使用自定义编码器
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(serializable_results, f, indent=2, ensure_ascii=False, cls=NautilusJSONEncoder)
+                json.dump(serializable_results, f, indent=2, ensure_ascii=False, cls=axon_quantJSONEncoder)
             
             logger.info(f"结果已保存到: {file_path}")
             return True
@@ -440,7 +440,7 @@ class ResultSerializer:
             if not isinstance(order, dict):
                 continue
 
-            # 支持新的 trade_id 字段（NautilusTrader 原生 ID）
+            # 支持新的 trade_id 字段（axon_quant 原生 ID）
             # 如果不存在 trade_id，则使用 order_id 或自增索引
             trade_id = order.get('trade_id') or order.get('order_id') or str(idx + 1)
 

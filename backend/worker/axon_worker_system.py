@@ -2,7 +2,7 @@
 """
 Worker System — AxonTradingSystem 策略执行引擎
 
-基于 axon_quant 的策略生命周期管理引擎，替代原 NautilusTradingSystem。
+基于 axon_quant 的策略生命周期管理引擎，替代原 axon_quantTradingSystem。
 
 职责:
     - 策略生命周期管理（创建、启动、停止、删除）
@@ -49,7 +49,7 @@ class AxonTradingSystem:
     axon_quant 策略执行引擎（单例）
 
     作为整个 Worker 模块的核心，管理所有策略的完整生命周期。
-    使用 axon_quant 的 exchange adapter 替代 nautilus_trader 的 TradingNode。
+    使用 axon_quant 的 exchange adapter 替代 交易引擎的 TradingNode。
 
     架构层次:
         1. 全局单例层: 由 state.py 统一持有单例引用
@@ -255,7 +255,7 @@ class AxonTradingSystem:
     async def _do_start_strategy(self, worker_id: int, worker, db=None) -> bool:
         """实际执行策略启动操作
 
-        使用 axon_quant 的 exchange adapter 替代 nautilus_trader 的 TradingNode。
+        使用 axon_quant 的 exchange adapter 替代 交易引擎的 TradingNode。
 
         Args:
             worker_id: Worker ID
@@ -499,6 +499,25 @@ class AxonTradingSystem:
             "axon_available": AXON_AVAILABLE,
         }
 
+    def get_summary(self) -> Dict[str, Any]:
+        """获取系统摘要（用于日志和状态展示）"""
+        from .state import strategy_registry
+
+        strategies = strategy_registry.list_all()
+        running_count = sum(1 for s in strategies if s.is_running)
+        error_count = sum(1 for s in strategies if s.status == "error")
+
+        return {
+            "total_workers": len(strategies),
+            "running_workers": running_count,
+            "error_workers": error_count,
+            "status_breakdown": {
+                "running": running_count,
+                "error": error_count,
+                "stopped": len(strategies) - running_count - error_count,
+            },
+        }
+
     def shutdown(self) -> None:
         """关闭系统，释放资源"""
         start_time = time.monotonic()
@@ -549,8 +568,8 @@ def _register_to_state() -> None:
     """将实例注册到 state.py 的全局单例"""
     import worker.state as _state
 
-    if _state.nautilus_system is None:
-        _state.nautilus_system = worker_system
+    if _state.axon_system is None:
+        _state.axon_system = worker_system
         logger.info("[AxonTradingSystem] 已注册到 state.py 单例枢纽")
 
 

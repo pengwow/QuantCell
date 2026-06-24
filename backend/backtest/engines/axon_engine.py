@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """基于 axon_quant 的回测引擎
 
-替代原 nautilus_trader BacktestEngine，使用 axon_quant.backtest.BacktestEngine。
+替代原 axon_quant BacktestEngine，使用 axon_quant.backtest.BacktestEngine。
 当 axon_quant 不可用时提供清晰的错误信息。
 """
 from __future__ import annotations

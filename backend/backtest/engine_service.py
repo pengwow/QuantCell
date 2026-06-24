@@ -36,7 +36,7 @@ class EventDrivenBacktestService:
         service = EventDrivenBacktestService(provider)
         
         results = service.run_backtest(
-            strategy_name="sma_cross_nautilus",
+            strategy_name="sma_cross_axon",
             strategy_params={"fast_period": 10},
             symbols=["BTCUSDT"],
             timeframes=["1h"],
@@ -258,10 +258,10 @@ class EventDrivenBacktestService:
             tuple: (instruments字典, bar_types字典)
         """
         from decimal import Decimal
-        from nautilus_trader.model.enums import AccountType, OmsType
-        from nautilus_trader.test_kit.providers import TestInstrumentProvider
-        from nautilus_trader.model.data import BarType
-        from nautilus_trader.persistence.wranglers import BarDataWrangler
+        from axon_quant.model.enums import AccountType, OmsType
+        from axon_quant.test_kit.providers import TestInstrumentProvider
+        from axon_quant.model.data import BarType
+        from axon_quant.persistence.wranglers import BarDataWrangler
         from backtest.result_formatter_service import ResultFormatterService
         
         instruments = {}
@@ -321,7 +321,7 @@ class EventDrivenBacktestService:
             engine.add_instrument(instrument)
             instruments[symbol] = instrument
             
-            # 转换数据格式（确保与 NautilusTrader 兼容）
+            # 转换数据格式（确保与 axon_quant 兼容）
             df = df.copy()
             
             # 只保留 BarDataWrangler 需要的列（避免多余列导致错误）

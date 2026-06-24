@@ -163,7 +163,7 @@ def mock_strategy_base():
 @pytest.fixture
 def mock_default_strategy():
     """创建模拟的高级引擎 Strategy 子类"""
-    from nautilus_trader.trading.strategy import Strategy, StrategyConfig
+    from axon_quant.trading.strategy import Strategy, StrategyConfig
 
     class MockDefaultStrategy(Strategy):
         """模拟的高级引擎策略"""
@@ -313,7 +313,7 @@ class TestDataAdapter:
         @patch('backtest.adapters.data_adapter.TradeTick')
         @patch('backtest.adapters.data_adapter.Price')
         @patch('backtest.adapters.data_adapter.Quantity')
-        @patch('nautilus_trader.model.enums.AggressorSide')
+        @patch('axon_quant.model.enums.AggressorSide')
         def test_conversion_success_buy(
             self, mock_aggressor, mock_quantity, mock_price, mock_trade_tick,
             sample_kline_df, mock_currency_pair
@@ -331,7 +331,7 @@ class TestDataAdapter:
         @patch('backtest.adapters.data_adapter.TradeTick')
         @patch('backtest.adapters.data_adapter.Price')
         @patch('backtest.adapters.data_adapter.Quantity')
-        @patch('nautilus_trader.model.enums.AggressorSide')
+        @patch('axon_quant.model.enums.AggressorSide')
         def test_conversion_success_sell(
             self, mock_aggressor, mock_quantity, mock_price, mock_trade_tick,
             sample_kline_df, mock_currency_pair
@@ -682,7 +682,7 @@ class TestStrategyAdapter:
             # 创建临时策略文件
             strategy_file = tmp_path / "test_strategy.py"
             strategy_file.write_text("""
-from nautilus_trader.trading.strategy import Strategy, StrategyConfig
+from axon_quant.trading.strategy import Strategy, StrategyConfig
 
 class TestStrategy(Strategy):
     def __init__(self, config: StrategyConfig):
@@ -802,7 +802,7 @@ class TestStrategy(Strategy):
         @patch('backtest.adapters.strategy_adapter.issubclass')
         def test_detect_default(self, mock_issubclass):
             """测试检测高级引擎策略"""
-            from nautilus_trader.trading.strategy import Strategy
+            from axon_quant.trading.strategy import Strategy
 
             mock_issubclass.side_effect = lambda cls, base: base == Strategy
 

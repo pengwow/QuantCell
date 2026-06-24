@@ -17,11 +17,11 @@ class TestAxonStrategyTemplate:
     def test_template_exists(self, template_path):
         assert os.path.exists(template_path), f"模板文件不存在: {template_path}"
 
-    def test_template_no_nautilus_import(self, template_path):
+    def test_template_no_external_import(self, template_path):
         with open(template_path, "r") as f:
             content = f.read()
-        assert "from nautilus_trader" not in content, "模板不应包含 nautilus_trader 导入"
-        assert "import nautilus_trader" not in content, "模板不应包含 nautilus_trader 导入"
+        assert "from axon_quant" not in content, "模板不应包含 axon_quant 导入"
+        assert "import axon_quant" not in content, "模板不应包含 axon_quant 导入"
 
     def test_template_imports_axon(self, template_path):
         with open(template_path, "r") as f:

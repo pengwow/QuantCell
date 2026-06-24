@@ -156,8 +156,8 @@ class TestEventHandler:
         assert len(event_handler._event_buffer) == 0
 
 
-class TestNautilusEventHandler:
-    """测试 NautilusEventHandler 类"""
+class TestAxonEventHandler:
+    """测试 AxonEventHandler 类"""
 
     @pytest.fixture
     def mock_trader(self):
@@ -172,29 +172,29 @@ class TestNautilusEventHandler:
         return Mock()
 
     @pytest.fixture
-    def nautilus_handler(self, mock_trader, event_callback):
-        """创建 NautilusEventHandler 实例"""
-        from worker.event_handler import NautilusEventHandler
-        return NautilusEventHandler(mock_trader, event_callback)
+    def axon_handler(self, mock_trader, event_callback):
+        """创建 AxonEventHandler 实例"""
+        from worker.event_handler import AxonEventHandler
+        return AxonEventHandler(mock_trader, event_callback)
 
-    def test_subscribe_events(self, nautilus_handler, mock_trader):
+    def test_subscribe_events(self, axon_handler, mock_trader):
         """测试事件订阅"""
-        nautilus_handler.subscribe_events()
+        axon_handler.subscribe_events()
         
         # 验证订阅了正确的事件
         assert mock_trader.msg_bus.subscribe.call_count == 3
-        assert nautilus_handler._subscribed is True
+        assert axon_handler._subscribed is True
 
-    def test_unsubscribe_events(self, nautilus_handler, mock_trader):
+    def test_unsubscribe_events(self, axon_handler, mock_trader):
         """测试事件取消订阅"""
-        nautilus_handler.subscribe_events()
-        nautilus_handler.unsubscribe_events()
+        axon_handler.subscribe_events()
+        axon_handler.unsubscribe_events()
         
         # 验证取消了订阅
         assert mock_trader.msg_bus.unsubscribe.call_count == 3
-        assert nautilus_handler._subscribed is False
+        assert axon_handler._subscribed is False
 
-    def test_convert_order_event(self, nautilus_handler):
+    def test_convert_order_event(self, axon_handler):
         """测试转换订单事件"""
         event = Mock()
         event.order_id = "test-123"
@@ -205,13 +205,13 @@ class TestNautilusEventHandler:
         event.status = "FILLED"
         event.timestamp = datetime.now()
         
-        converted = nautilus_handler._convert_order_event(event)
+        converted = axon_handler._convert_order_event(event)
         
         assert converted["type"] == "order"
         assert converted["order_id"] == "test-123"
         assert converted["instrument_id"] == "BTCUSDT"
 
-    def test_convert_fill_event(self, nautilus_handler):
+    def test_convert_fill_event(self, axon_handler):
         """测试转换成交事件"""
         event = Mock()
         event.order_id = "test-123"
@@ -222,12 +222,12 @@ class TestNautilusEventHandler:
         event.commission = 1.0
         event.timestamp = datetime.now()
         
-        converted = nautilus_handler._convert_fill_event(event)
+        converted = axon_handler._convert_fill_event(event)
         
         assert converted["type"] == "fill"
         assert converted["order_id"] == "test-123"
 
-    def test_convert_position_event(self, nautilus_handler):
+    def test_convert_position_event(self, axon_handler):
         """测试转换持仓事件"""
         event = Mock()
         event.instrument_id = "BTCUSDT"
@@ -237,7 +237,7 @@ class TestNautilusEventHandler:
         event.unrealized_pnl = 100.0
         event.timestamp = datetime.now()
         
-        converted = nautilus_handler._convert_position_event(event)
+        converted = axon_handler._convert_position_event(event)
         
         assert converted["type"] == "position"
         assert converted["instrument_id"] == "BTCUSDT"

@@ -203,11 +203,15 @@ class EventDrivenStrategy:
     def _get_strategy_impl(self) -> Any:
         """获取底层策略实现（延迟加载）"""
         if self._strategy_impl is None:
-            from nautilus_trader.trading.strategy import Strategy
-            from nautilus_trader.trading.config import StrategyConfig
+            try:
+                from axon_quant.trading.strategy import Strategy
+                from axon_quant.trading.config import StrategyConfig
+            except ImportError:
+                logger.warning("axon_quant not available, strategy implementation limited")
+                return None
 
-            # 创建NautilusTrader兼容的配置
-            nautilus_config = StrategyConfig(
+            # 创建axon_quant兼容的配置
+            axon_config = StrategyConfig(
                 strategy_id=self.config.__class__.__name__,
                 order_id_tag="001",
                 oms_type="NETTING",
@@ -229,7 +233,7 @@ class EventDrivenStrategy:
                 def on_stop(inner_self) -> None:
                     self.on_stop()
 
-            self._strategy_impl = _StrategyImpl(nautilus_config, self)
+            self._strategy_impl = _StrategyImpl(axon_config, self)
         return self._strategy_impl
 
     def on_start(self) -> None:
@@ -245,7 +249,7 @@ class EventDrivenStrategy:
         子类可以重写此方法，但需要调用 super().on_start()
         """
         # 延迟导入底层实现
-        from nautilus_trader.common.enums import LogColor
+        from axon_quant.common.enums import LogColor
 
         # 记录策略启动时间
         self.start_time = dt.datetime.now()
@@ -388,7 +392,7 @@ class EventDrivenStrategy:
 
         # 创建订单
         if order_type == "MARKET":
-            from nautilus_trader.model.enums import OrderSide
+            from axon_quant.model.enums import OrderSide
 
             order = impl.order_factory.market(
                 instrument_id=target_id,
@@ -396,7 +400,7 @@ class EventDrivenStrategy:
                 quantity=order_qty,
             )
         else:
-            from nautilus_trader.model.enums import OrderSide, TimeInForce
+            from axon_quant.model.enums import OrderSide, TimeInForce
 
             order_price = instrument.make_price(price) if price else None
             order = impl.order_factory.limit(
@@ -456,7 +460,7 @@ class EventDrivenStrategy:
 
         # 创建订单
         if order_type == "MARKET":
-            from nautilus_trader.model.enums import OrderSide
+            from axon_quant.model.enums import OrderSide
 
             order = impl.order_factory.market(
                 instrument_id=target_id,
@@ -464,7 +468,7 @@ class EventDrivenStrategy:
                 quantity=order_qty,
             )
         else:
-            from nautilus_trader.model.enums import OrderSide, TimeInForce
+            from axon_quant.model.enums import OrderSide, TimeInForce
 
             order_price = instrument.make_price(price) if price else None
             order = impl.order_factory.limit(

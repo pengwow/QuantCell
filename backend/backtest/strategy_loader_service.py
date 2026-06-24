@@ -3,7 +3,7 @@
 
 从策略文件加载和实例化策略类，支持多种策略类型：
 - 策略接口（StrategyBase）
-- 事件驱动策略（StrategyAdapter/NautilusStrategy）
+- 事件驱动策略（StrategyAdapter/axon_quantStrategy）
 - 传统回测策略
 
 提供统一的策略加载接口，支持单品种和多品种场景。
@@ -35,7 +35,7 @@ class StrategyLoaderService:
     使用示例：
         # 加载事件驱动策略（多品种）
         strategy = StrategyLoaderService.load_event_strategy_multi(
-            "sma_cross_nautilus",
+            "sma_cross_axon",
             params={"fast_period": 10, "slow_period": 30},
             bar_types={"BTCUSDT": bar_type},
             instruments={"BTCUSDT": instrument}
@@ -152,7 +152,7 @@ class StrategyLoaderService:
                     EventDrivenStrategy = Strategy
                     EventDrivenStrategyConfig = StrategyConfig
                 except ImportError:
-                    from nautilus_trader.trading.strategy import Strategy
+                    from axon_quant.trading.strategy import Strategy
                     EventDrivenStrategy = Strategy
                     EventDrivenStrategyConfig = None
             
@@ -260,12 +260,19 @@ class StrategyLoaderService:
                     EventDrivenStrategyConfig = AdapterStrategyConfig
                 except ImportError as e:
                     logger.error(f"导入 backtest.strategies.strategy_adapter 失败: {e}")
-                    from nautilus_trader.trading.strategy import Strategy
-                    EventDrivenStrategy = Strategy
+                    try:
+                        from axon_quant.trading.strategy import Strategy
+                        EventDrivenStrategy = Strategy
+                    except ImportError:
+                        EventDrivenStrategy = object
                     EventDrivenStrategyConfig = None
             
-            from nautilus_trader.trading.strategy import Strategy as NautilusStrategy
-            from nautilus_trader.trading.config import StrategyConfig as NautilusStrategyConfig
+            try:
+                from axon_quant.trading.strategy import Strategy as axon_quantStrategy
+                from axon_quant.trading.config import StrategyConfig as axon_quantStrategyConfig
+            except ImportError:
+                axon_quantStrategy = object
+                axon_quantStrategyConfig = None
             
             for name in dir(module):
                 obj = getattr(module, name)
@@ -278,10 +285,10 @@ class StrategyLoaderService:
                         strategy_class = obj
                         is_core_strategy = False
                         logger.info(f"找到策略类: {name}")
-                    elif issubclass(obj, NautilusStrategy) and obj != NautilusStrategy:
+                    elif issubclass(obj, axon_quantStrategy) and obj != axon_quantStrategy:
                         strategy_class = obj
                         is_core_strategy = False
-                        logger.info(f"找到策略类(Nautilus): {name}")
+                        logger.info(f"找到策略类(axon_quant): {name}")
                     
                     if StrategyConfig and issubclass(obj, StrategyConfig) and obj != StrategyConfig:
                         config_class = obj
@@ -289,9 +296,9 @@ class StrategyLoaderService:
                     elif EventDrivenStrategyConfig and issubclass(obj, EventDrivenStrategyConfig) and obj != EventDrivenStrategyConfig:
                         config_class = obj
                         logger.info(f"找到配置类: {name}")
-                    elif issubclass(obj, NautilusStrategyConfig) and obj != NautilusStrategyConfig:
+                    elif issubclass(obj, axon_quantStrategyConfig) and obj != axon_quantStrategyConfig:
                         config_class = obj
-                        logger.info(f"找到配置类(Nautilus): {name}")
+                        logger.info(f"找到配置类(axon_quant): {name}")
             
             if strategy_class is None:
                 logger.info(f"在模块 {strategy_name} 中找不到策略类")

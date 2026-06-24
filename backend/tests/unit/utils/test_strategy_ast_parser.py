@@ -117,20 +117,20 @@ class MyStrategy:
         assert "on_bar" in methods
         assert "on_stop" in methods
     
-    def test_is_nautilus_strategy(self):
-        """测试是否为nautilus策略"""
-        code_with_nautilus = """
-from nautilus_trader.trading.strategy import Strategy
+    def test_is_axon_strategy(self):
+        """测试是否为axon策略"""
+        code_with_axon = """
+from axon_quant.rl import TradingEnv
 """
-        code_without_nautilus = """
+        code_without_axon = """
 from strategy.core import StrategyBase
 """
         
-        tree1 = self.parser.parse(code_with_nautilus)
-        tree2 = self.parser.parse(code_without_nautilus)
+        tree1 = self.parser.parse(code_with_axon)
+        tree2 = self.parser.parse(code_without_axon)
         
-        assert self.parser.is_nautilus_strategy(tree1) is True
-        assert self.parser.is_nautilus_strategy(tree2) is False
+        assert self.parser.is_axon_strategy(tree1) is True
+        assert self.parser.is_axon_strategy(tree2) is False
     
     def test_extract_params_from_config_class(self):
         """测试从配置类提取参数"""

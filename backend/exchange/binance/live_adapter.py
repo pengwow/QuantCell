@@ -2,11 +2,11 @@
 """
 Binance 实盘交易适配器模块
 
-提供 Binance 交易所与 NautilusTrader 框架之间的适配功能，包括：
+提供 Binance 交易所与 axon_quant 框架之间的适配功能，包括：
 - BinanceAdapterConfig: 统一的配置管理类
 - BinanceDataClientFactory: 数据客户端工厂
 - BinanceExecClientFactory: 执行客户端工厂
-- 配置构建函数: 构建 Nautilus Binance 配置
+- 配置构建函数: 构建 axon_quant Binance 配置
 - 辅助函数: 账户类型解析、环境解析、凭证验证
 
 支持多账户配置，支持现货和合约交易，支持测试网和生产网。
@@ -324,7 +324,7 @@ class BinanceDataClientFactory:
         Returns
         -------
         Any
-            Nautilus Binance 数据客户端实例
+            axon_quant Binance 数据客户端实例
 
         Raises
         ------
@@ -345,19 +345,19 @@ class BinanceDataClientFactory:
             raise BinanceClientError(f"配置验证失败: {e}") from e
 
         try:
-            # 延迟导入 Nautilus Binance 适配器
+            # 延迟导入 axon_quant Binance 适配器
             # 避免在模块加载时就导入，提高启动速度
-            from nautilus_trader.adapters.binance.factories import (
+            from axon_quant.adapters.binance.factories import (
                 BinanceLiveDataClientFactory,
             )
-            from nautilus_trader.adapters.binance.config import (
+            from axon_quant.adapters.binance.config import (
                 BinanceDataClientConfig,
             )
-            from nautilus_trader.adapters.binance.common.enums import (
-                BinanceAccountType as NautilusAccountType,
+            from axon_quant.adapters.binance.common.enums import (
+                BinanceAccountType as axon_quantAccountType,
             )
 
-            # 构建 Nautilus 数据客户端配置
+            # 构建 axon_quant 数据客户端配置
             data_config = build_binance_data_config(
                 config=self.config,
                 instrument_ids=instrument_ids,
@@ -365,7 +365,7 @@ class BinanceDataClientFactory:
             )
 
             # 创建数据客户端
-            # 注意：实际创建需要在 Nautilus Trader 环境中执行
+            # 注意：实际创建需要在 axon_quant Trader 环境中执行
             # 这里返回配置对象，由调用方在适当时机创建客户端
             self._client = data_config
 
@@ -378,9 +378,9 @@ class BinanceDataClientFactory:
             return self._client
 
         except ImportError as e:
-            logger.error(f"Nautilus Binance 适配器导入失败: {e}")
+            logger.error(f"axon_quant Binance 适配器导入失败: {e}")
             raise BinanceClientError(
-                "无法导入 Nautilus Binance 适配器，请确保已安装 nautilus_trader[binance]"
+                "无法导入 axon_quant Binance 适配器，请确保已安装 axon_quant[binance]"
             ) from e
 
         except Exception as e:
@@ -402,7 +402,7 @@ class BinanceDataClientFactory:
             创建失败时抛出异常
         """
         try:
-            from nautilus_trader.adapters.binance.config import (
+            from axon_quant.adapters.binance.config import (
                 BinanceInstrumentProviderConfig,
             )
 
@@ -422,9 +422,9 @@ class BinanceDataClientFactory:
             return self._instrument_provider
 
         except ImportError as e:
-            logger.error(f"Nautilus Binance 适配器导入失败: {e}")
+            logger.error(f"Binance 适配器导入失败: {e}")
             raise BinanceClientError(
-                "无法导入 Nautilus Binance 适配器"
+                "无法导入 Binance 适配器，请确保已安装相关依赖"
             ) from e
 
         except Exception as e:
@@ -598,7 +598,7 @@ class BinanceExecClientFactory:
         Returns
         -------
         Any
-            Nautilus Binance 执行客户端配置
+            axon_quant Binance 执行客户端配置
 
         Raises
         ------
@@ -619,15 +619,15 @@ class BinanceExecClientFactory:
             raise BinanceClientError(f"配置验证失败: {e}") from e
 
         try:
-            # 延迟导入 Nautilus Binance 适配器
-            from nautilus_trader.adapters.binance.factories import (
+            # 延迟导入 axon_quant Binance 适配器
+            from axon_quant.adapters.binance.factories import (
                 BinanceLiveExecClientFactory,
             )
-            from nautilus_trader.adapters.binance.config import (
+            from axon_quant.adapters.binance.config import (
                 BinanceExecClientConfig,
             )
 
-            # 构建 Nautilus 执行客户端配置
+            # 构建 axon_quant 执行客户端配置
             exec_config = build_binance_exec_config(
                 config=self.config,
                 max_retries=max_retries,
@@ -645,9 +645,9 @@ class BinanceExecClientFactory:
             return self._client
 
         except ImportError as e:
-            logger.error(f"Nautilus Binance 适配器导入失败: {e}")
+            logger.error(f"axon_quant Binance 适配器导入失败: {e}")
             raise BinanceClientError(
-                "无法导入 Nautilus Binance 适配器，请确保已安装 nautilus_trader[binance]"
+                "无法导入 axon_quant Binance 适配器，请确保已安装 axon_quant[binance]"
             ) from e
 
         except Exception as e:
@@ -709,7 +709,7 @@ def build_binance_data_config(
     """
     构建 BinanceDataClientConfig
 
-    根据 BinanceAdapterConfig 构建 Nautilus 数据客户端配置。
+    根据 BinanceAdapterConfig 构建 axon_quant 数据客户端配置。
 
     Parameters
     ----------
@@ -725,7 +725,7 @@ def build_binance_data_config(
     Returns
     -------
     Any
-        Nautilus BinanceDataClientConfig 实例
+        axon_quant BinanceDataClientConfig 实例
 
     Raises
     ------
@@ -745,29 +745,29 @@ def build_binance_data_config(
     ... )
     """
     try:
-        from nautilus_trader.adapters.binance.config import (
+        from axon_quant.adapters.binance.config import (
             BinanceDataClientConfig,
         )
-        from nautilus_trader.adapters.binance.common.enums import (
-            BinanceAccountType as NautilusAccountType,
+        from axon_quant.adapters.binance.common.enums import (
+            BinanceAccountType as axon_quantAccountType,
         )
 
         # 映射账户类型
         account_type_map = {
-            BinanceAccountType.SPOT: NautilusAccountType.SPOT,
-            BinanceAccountType.MARGIN: NautilusAccountType.MARGIN,
-            BinanceAccountType.USDT_FUTURE: NautilusAccountType.USDT_FUTURE,
-            BinanceAccountType.COIN_FUTURE: NautilusAccountType.COIN_FUTURE,
+            BinanceAccountType.SPOT: axon_quantAccountType.SPOT,
+            BinanceAccountType.MARGIN: axon_quantAccountType.MARGIN,
+            BinanceAccountType.USDT_FUTURE: axon_quantAccountType.USDT_FUTURE,
+            BinanceAccountType.COIN_FUTURE: axon_quantAccountType.COIN_FUTURE,
         }
 
-        nautilus_account_type = account_type_map.get(
+        axon_account_type = account_type_map.get(
             config.account_type,
-            NautilusAccountType.SPOT,
+            axon_quantAccountType.SPOT,
         )
 
         # 构建配置
         data_config = BinanceDataClientConfig(
-            account_type=nautilus_account_type,
+            account_type=axon_account_type,
             api_key=config.api_key,
             api_secret=config.api_secret,
             base_url=config.base_url,
@@ -778,15 +778,15 @@ def build_binance_data_config(
 
         logger.debug(
             f"BinanceDataClientConfig 构建成功: "
-            f"账户类型={nautilus_account_type.value}"
+            f"账户类型={axon_account_type.value}"
         )
 
         return data_config
 
     except ImportError as e:
-        logger.error(f"Nautilus Binance 配置导入失败: {e}")
+        logger.error(f"axon_quant Binance 配置导入失败: {e}")
         raise BinanceConfigError(
-            "无法导入 Nautilus Binance 配置模块"
+            "无法导入 axon_quant Binance 配置模块"
         ) from e
 
     except Exception as e:
@@ -803,7 +803,7 @@ def build_binance_exec_config(
     """
     构建 BinanceExecClientConfig
 
-    根据 BinanceAdapterConfig 构建 Nautilus 执行客户端配置。
+    根据 BinanceAdapterConfig 构建 axon_quant 执行客户端配置。
 
     Parameters
     ----------
@@ -819,7 +819,7 @@ def build_binance_exec_config(
     Returns
     -------
     Any
-        Nautilus BinanceExecClientConfig 实例
+        axon_quant BinanceExecClientConfig 实例
 
     Raises
     ------
@@ -839,24 +839,24 @@ def build_binance_exec_config(
     ... )
     """
     try:
-        from nautilus_trader.adapters.binance.config import (
+        from axon_quant.adapters.binance.config import (
             BinanceExecClientConfig,
         )
-        from nautilus_trader.adapters.binance.common.enums import (
-            BinanceAccountType as NautilusAccountType,
+        from axon_quant.adapters.binance.common.enums import (
+            BinanceAccountType as axon_quantAccountType,
         )
 
         # 映射账户类型
         account_type_map = {
-            BinanceAccountType.SPOT: NautilusAccountType.SPOT,
-            BinanceAccountType.MARGIN: NautilusAccountType.MARGIN,
-            BinanceAccountType.USDT_FUTURE: NautilusAccountType.USDT_FUTURE,
-            BinanceAccountType.COIN_FUTURE: NautilusAccountType.COIN_FUTURE,
+            BinanceAccountType.SPOT: axon_quantAccountType.SPOT,
+            BinanceAccountType.MARGIN: axon_quantAccountType.MARGIN,
+            BinanceAccountType.USDT_FUTURE: axon_quantAccountType.USDT_FUTURE,
+            BinanceAccountType.COIN_FUTURE: axon_quantAccountType.COIN_FUTURE,
         }
 
-        nautilus_account_type = account_type_map.get(
+        axon_account_type = account_type_map.get(
             config.account_type,
-            NautilusAccountType.SPOT,
+            axon_quantAccountType.SPOT,
         )
 
         # 使用传入的参数或配置中的默认值
@@ -865,7 +865,7 @@ def build_binance_exec_config(
 
         # 构建配置
         exec_config = BinanceExecClientConfig(
-            account_type=nautilus_account_type,
+            account_type=axon_account_type,
             api_key=config.api_key,
             api_secret=config.api_secret,
             base_url=config.base_url,
@@ -877,15 +877,15 @@ def build_binance_exec_config(
 
         logger.debug(
             f"BinanceExecClientConfig 构建成功: "
-            f"账户类型={nautilus_account_type.value}"
+            f"账户类型={axon_account_type.value}"
         )
 
         return exec_config
 
     except ImportError as e:
-        logger.error(f"Nautilus Binance 配置导入失败: {e}")
+        logger.error(f"axon_quant Binance 配置导入失败: {e}")
         raise BinanceConfigError(
-            "无法导入 Nautilus Binance 配置模块"
+            "无法导入 axon_quant Binance 配置模块"
         ) from e
 
     except Exception as e:
