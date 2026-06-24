@@ -13,6 +13,7 @@ import StrategyManagement from '@/pages/strategy/StrategyManagement';
 import StrategyEditor from '@/pages/strategy/StrategyEditor';
 import FactorAnalysis from '@/pages/factor/FactorAnalysis';
 import ModelManagement from '@/pages/model/ModelManagement';
+import ModelRegistry from '@/pages/model/ModelRegistry';
 import DataManagementPage from '@/pages/data/DataManagementPage';
 import KlineReplayPage from '@/pages/data/KlineReplayPage';
 import Setting from '@/pages/setting/Setting';
@@ -123,6 +124,10 @@ function createBaseRoutes(): RouteObject[] {
         {
           path: '/model-management',
           element: <ModelManagement />,
+        },
+        {
+          path: '/model-registry',
+          element: <ModelRegistry />,
         },
         {
           path: '/data-management',
