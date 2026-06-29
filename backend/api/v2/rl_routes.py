@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/v2/rl", tags=["RL Training"])
 
 class TrainRequest(BaseModel):
     algorithm: str = "ppo"
-    symbol: str = ""
+    symbol: str  # 必填：训练目标交易对
     interval: str = "1h"
     candle_type: str = "spot"
     start: str | None = None
@@ -21,7 +21,7 @@ class TrainRequest(BaseModel):
 
 
 class WalkForwardRequest(BaseModel):
-    symbol: str = ""
+    symbol: str  # 必填：训练目标交易对
     interval: str = "1h"
     candle_type: str = "spot"
     start: str | None = None

@@ -28,15 +28,26 @@ def test_train_endpoint_success():
 
 
 def test_train_endpoint_value_error():
+    """传 symbol 但后端抛 ValueError → 400"""
     client = _make_app()
     with patch("services.rl_service.RLService") as MockSvc:
         MockSvc.return_value.train.side_effect = ValueError("bad config")
-        resp = client.post("/api/v2/rl/train", json={"algorithm": "ppo"})
+        resp = client.post("/api/v2/rl/train", json={"symbol": "BTCUSDT"})
         assert resp.status_code == 400
         assert "bad config" in resp.json()["detail"]
 
 
+def test_train_endpoint_missing_symbol_returns_422():
+    """缺 symbol → Pydantic 必填校验失败 → 422"""
+    client = _make_app()
+    resp = client.post("/api/v2/rl/train", json={"algorithm": "ppo"})
+    assert resp.status_code == 422
+    body = resp.json()
+    assert any("symbol" in str(err).lower() for err in body.get("detail", []))
+
+
 def test_train_endpoint_defaults():
+    """传 symbol 时其他字段走默认值 → 200"""
     client = _make_app()
     mock_result = MagicMock()
     mock_result.model_id = "m1"
@@ -45,7 +56,7 @@ def test_train_endpoint_defaults():
 
     with patch("services.rl_service.RLService") as MockSvc:
         MockSvc.return_value.train.return_value = mock_result
-        resp = client.post("/api/v2/rl/train", json={})
+        resp = client.post("/api/v2/rl/train", json={"symbol": "BTCUSDT"})
         assert resp.status_code == 200
 
 

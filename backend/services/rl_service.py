@@ -73,7 +73,7 @@ try:
     class GymnasiumWrapper(gym.Env):
         """Wrap axon_quant TradingEnv to be Gymnasium-compatible for SB3."""
 
-        def __init__(self, env, max_steps: int = 0):
+        def __init__(self, env, max_steps: int = 0, n_features: int | None = None):
             super().__init__()
             self._env = env
             self._done = False
@@ -85,12 +85,65 @@ try:
             else:
                 self._max_steps = 50000
 
+            # 动态确定 observation_space 维度：
+            # 1) 调用方显式指定 → 直接采用
+            # 2) 否则探测一次 env.reset() 拿到首帧 obs 推断维度
+            if n_features is not None and n_features > 0:
+                inferred = n_features
+            else:
+                probe_obs = self._probe_obs(env)
+                inferred = self._infer_n_features(probe_obs)
             self.observation_space = gym.spaces.Box(
-                low=-np.inf, high=np.inf, shape=(2,), dtype=np.float32
+                low=-np.inf, high=np.inf, shape=(inferred,), dtype=np.float32
             )
             self.action_space = gym.spaces.Box(
                 low=0.0, high=1.0, shape=(1,), dtype=np.float32
             )
+
+        @staticmethod
+        def _probe_obs(env):
+            """探测性地调用一次 env.reset() 推断 obs 维度，复位后再 reset 一次保证初始状态干净。"""
+            try:
+                probe = env.reset()
+            except Exception:
+                # 探测失败时用占位单维 obs，避免构造阶段崩溃
+                return np.zeros(1, dtype=np.float32)
+            # 复位 env 到探测前的状态
+            try:
+                env.reset()
+            except Exception:
+                pass
+            return probe
+
+        @staticmethod
+        def _infer_n_features(obs) -> int:
+            """从 obs 推断特征维度：dict 走 'features' 键，其他走 len()。"""
+            if isinstance(obs, dict) and 'features' in obs:
+                features = obs['features']
+                return len(features) if features is not None and len(features) > 0 else 1
+            if hasattr(obs, '__len__'):
+                length = len(obs)
+                return length if length > 0 else 1
+            return 1
+
+        @staticmethod
+        def _coerce_obs(obs, observation_space) -> np.ndarray:
+            """统一 obs 转换：dict 取 'features'，array-like 直接转 ndarray，并按 space 形状校验。"""
+            if isinstance(obs, dict) and 'features' in obs:
+                arr = np.asarray(obs['features'], dtype=np.float32)
+            else:
+                arr = np.asarray(obs, dtype=np.float32)
+            expected = observation_space.shape[0]
+            if arr.shape[0] != expected:
+                # 维度不匹配时截断或零填充到正确形状，避免 SB3 训练时抛 shape 错误
+                flat = arr.flatten()
+                if flat.size >= expected:
+                    arr = flat[:expected]
+                else:
+                    padded = np.zeros(expected, dtype=np.float32)
+                    padded[: flat.size] = flat
+                    arr = padded
+            return arr
 
         def reset(self, seed=None, options=None):
             """Reset environment."""
@@ -98,10 +151,8 @@ try:
             self._done = False
             self._current_step = 0
             info = self._env.info if hasattr(self._env, 'info') and isinstance(self._env.info, dict) else {}
-            if isinstance(obs, dict):
-                features = obs.get('features', [0.0, 0.0])
-                return np.array(features, dtype=np.float32), info
-            return np.array(obs, dtype=np.float32), info
+            obs_arr = self._coerce_obs(obs, self.observation_space)
+            return obs_arr, info
 
         def step(self, action):
             """Take a step in the environment."""
@@ -127,12 +178,7 @@ try:
                 done = False
                 info = {}
 
-            if isinstance(obs, dict):
-                features = obs.get('features', [0.0, 0.0])
-                obs = np.array(features, dtype=np.float32)
-            else:
-                obs = np.array(obs, dtype=np.float32)
-
+            obs = self._coerce_obs(obs, self.observation_space)
             truncated = self._current_step >= self._max_steps
             self._done = done or truncated
 
