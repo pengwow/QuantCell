@@ -37,11 +37,27 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # axon_quant 导入（可选）
 try:
     from axond.exchange_config import build_exchange_config
+    from axond.paper_adapter import PaperExchangeAdapter, build_paper_adapter
     from axond.strategy_loop import StrategyLoop
     AXON_AVAILABLE = True
 except ImportError as e:
     AXON_AVAILABLE = False
     logger.warning(f"[AxonTradingSystem] axond 模块不可用: {e}")
+
+
+def _build_exchange_adapter(exchange: str, trading_mode: str):
+    """根据交易模式选择 exchange adapter。
+
+    paper 模式：使用内存 PaperExchangeAdapter（无外部依赖）
+    live/testnet：当前回退到 PaperExchangeAdapter（后续可替换为真实 adapter）
+
+    返回的 adapter 必须实现 StrategyLoop 约定的接口：
+    connect / disconnect / subscribe / get_ticker / place_order
+    """
+    if trading_mode == "paper" or not AXON_AVAILABLE:
+        return build_paper_adapter(exchange=exchange, trading_mode=trading_mode)
+    # live / testnet 占位：暂用 paper adapter，后续替换为真实交易所 adapter
+    return build_paper_adapter(exchange=exchange, trading_mode="paper")
 
 
 class AxonTradingSystem:
@@ -312,12 +328,63 @@ class AxonTradingSystem:
         strategy_class = None
         strategy_config = None
         try:
-            from .worker_system_legacy import load_strategy_from_path
-            strategy_class, strategy_config = load_strategy_from_path(worker, db)
-            logger.info(
-                f"[AxonTradingSystem] 策略已加载: worker_id={worker_id}, "
-                f"strategy_class={strategy_class.__name__ if strategy_class else None}"
+            from backtest.strategy_loader_service import StrategyLoaderService
+            from strategy.models import Strategy
+            from axond.types import InstrumentId
+
+            # 关联的策略对象
+            strategy = getattr(worker, "strategy", None)
+            if strategy is None and db is not None:
+                strategy = (
+                    db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
+                )
+
+            if strategy is None:
+                raise ValueError(f"无法找到 worker {worker_id} 关联的策略")
+
+            # 解析交易配置，获取品种和时间周期
+            trading_config = worker.get_trading_config_dict() if hasattr(worker, "get_trading_config_dict") else {}
+            symbols = worker.get_symbols() if hasattr(worker, "get_symbols") else []
+            timeframe = trading_config.get("timeframe", "1h")
+
+            if not symbols:
+                raise ValueError(f"worker {worker_id} 未配置交易品种")
+
+            # 解析策略参数
+            params = {}
+            if strategy.parameters:
+                try:
+                    raw_params = (
+                        json.loads(strategy.parameters)
+                        if isinstance(strategy.parameters, str)
+                        else strategy.parameters
+                    )
+                    if isinstance(raw_params, dict):
+                        params = raw_params
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(
+                        f"[AxonTradingSystem] 策略参数 JSON 解析失败: {e}"
+                    )
+
+            # 通过 axond 体系加载策略
+            instruments = {
+                symbol: InstrumentId(symbol, "BINANCE") for symbol in symbols
+            }
+            bar_types = {symbol: timeframe for symbol in symbols}
+
+            strategy_instance = StrategyLoaderService.load_event_strategy_multi(
+                strategy_name=strategy.strategy_name or strategy.name,
+                strategy_params=params,
+                bar_types=bar_types,
+                instruments=instruments,
             )
+
+            if strategy_instance is not None:
+                strategy_class = type(strategy_instance)
+                logger.info(
+                    f"[AxonTradingSystem] 策略已加载: worker_id={worker_id}, "
+                    f"strategy_class={strategy_class.__name__}"
+                )
         except Exception as e:
             logger.error(
                 f"[AxonTradingSystem] 策略加载失败: worker_id={worker_id}, "
@@ -325,25 +392,46 @@ class AxonTradingSystem:
             )
 
         # 创建策略实例
-        strategy_instance = None
-        if strategy_class is not None:
-            try:
-                strategy_instance = strategy_class(strategy_config)
-                logger.info(
-                    f"[AxonTradingSystem] 策略实例已创建: worker_id={worker_id}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"[AxonTradingSystem] 创建策略实例失败: worker_id={worker_id}, "
-                    f"error={e}\n{traceback.format_exc()}"
-                )
+        if strategy_instance is None:
+            # 加载失败时使用占位空策略，避免阻断启动流程
+            from axond.axon_strategy import AxonStrategy
+
+            class _PlaceholderStrategy(AxonStrategy):
+                """占位策略：策略加载失败时使用，不会触发任何交易"""
+
+                def on_bar(self, bar) -> None:  # type: ignore[override]
+                    pass
+
+            placeholder_cfg = type("PlaceholderConfig", (), {})()
+            placeholder_cfg.instrument_ids = []
+            placeholder_cfg.bar_types = []
+            strategy_instance = _PlaceholderStrategy(placeholder_cfg)
+            strategy_class = _PlaceholderStrategy
+            logger.warning(
+                f"[AxonTradingSystem] 使用占位策略，worker_id={worker_id}"
+            )
 
         # 获取交易对符号
         symbol = getattr(worker, 'symbol', 'BTCUSDT') or 'BTCUSDT'
 
+        # 构建 exchange adapter（按 trading_mode 选择真实/paper 实现）
+        try:
+            adapter = _build_exchange_adapter(exchange, trading_mode)
+            logger.info(
+                f"[AxonTradingSystem] Exchange adapter 已构建: "
+                f"worker_id={worker_id}, exchange={exchange}, "
+                f"trading_mode={trading_mode}, adapter_type={type(adapter).__name__}"
+            )
+        except Exception as e:
+            logger.error(
+                f"[AxonTradingSystem] 构建 exchange adapter 失败: "
+                f"worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
+            )
+            raise
+
         # 创建策略循环
         strategy_loop = StrategyLoop(
-            adapter=None,  # 需要实际的 exchange adapter
+            adapter=adapter,
             strategy=strategy_instance,
             symbol=symbol,
         )

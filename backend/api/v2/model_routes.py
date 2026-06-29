@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Any
+from common.schemas import ApiResponse
 
 router = APIRouter(prefix="/api/v2/models", tags=["Models"])
 
@@ -20,7 +21,7 @@ async def list_models():
     try:
         from services.model_registry import ModelRegistryService
         svc = ModelRegistryService()
-        return svc.list_models()
+        return ApiResponse(code=0, message="success", data=svc.list_models())
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -37,7 +38,7 @@ async def register_model(req: RegisterModelRequest):
             metadata=req.metadata,
             metrics=req.metrics,
         )
-        return {"model_id": model_id}
+        return ApiResponse(code=0, message="模型注册成功", data={"model_id": model_id})
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -49,6 +50,6 @@ async def promote_model(model_id: str):
         from services.model_registry import ModelRegistryService
         svc = ModelRegistryService()
         success = svc.promote_to_production(model_id)
-        return {"success": success}
+        return ApiResponse(code=0, message="晋升成功" if success else "晋升失败", data={"success": success})
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))

@@ -64,3 +64,7 @@ backend/_archive_20260515/*
 
 backend/tmp_deleted/*
 
+docs/compose/specs/*
+.mimocode/*
+.omo/*
+AGENTS.md

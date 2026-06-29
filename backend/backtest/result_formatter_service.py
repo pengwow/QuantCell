@@ -1,8 +1,13 @@
 """
-结果格式化服务模块
+结果格式化服务模块（基于 axond 体系）
 
 负责将回测引擎的原始结果转换为QuantCell标准格式，
 包括单品种和多品种场景的结果格式化、绩效指标计算等。
+支持 axond 回测引擎和事件驱动引擎的结果格式化。
+
+作者: QuantCell Team
+版本: 2.0.0
+日期: 2026-06-29
 """
 
 from datetime import datetime
@@ -387,5 +392,190 @@ class ResultFormatterService:
             
         except Exception as e:
             logger.warning(f"[ResultFormatterService] 计算组合指标失败: {e}")
-        
         return metrics
+
+    @staticmethod
+    def format_axon_results(
+        results: dict,
+        symbol: str,
+        timeframe: str,
+        strategy_name: str,
+    ) -> dict:
+        """
+        格式化 axond 回测引擎结果为 QuantCell 标准格式（单品种版本）
+
+        Args:
+            results: AxonBacktestEngine.run() 返回的结果字典
+            symbol: 品种符号
+            timeframe: 时间周期
+            strategy_name: 策略名称
+
+        Returns:
+            dict: 格式化的回测结果（与事件驱动格式兼容）
+        """
+        key = f"{symbol}_{timeframe}"
+
+        # axond 引擎结果通常包含: final_nav, total_pnl, max_drawdown,
+        # orders_accepted, orders_rejected, fills
+        metrics = {
+            'final_nav': results.get('final_nav', 0.0),
+            'total_pnl': results.get('total_pnl', 0.0),
+            'max_drawdown': results.get('max_drawdown', 0.0),
+            'orders_accepted': results.get('orders_accepted', 0),
+            'orders_rejected': results.get('orders_rejected', 0),
+            'fills': results.get('fills', 0),
+            'total_return': ResultFormatterService._calc_return_from_pnl(
+                results.get('total_pnl', 0.0),
+                results.get('initial_capital', 100000.0),
+            ),
+        }
+
+        formatted = {
+            key: {
+                'symbol': symbol,
+                'timeframe': timeframe,
+                'metrics': metrics,
+                'trades': results.get('trades', []),
+                'positions': results.get('positions', []),
+                'equity_curve': results.get('equity_curve', []),
+            }
+        }
+
+        # 全局账户信息
+        formatted['account'] = {
+            'starting_balance': results.get('initial_capital', 100000.0),
+            'final_nav': results.get('final_nav', 0.0),
+            'total_pnl': results.get('total_pnl', 0.0),
+        }
+
+        # 投资组合汇总
+        formatted['portfolio'] = {
+            'metrics': metrics,
+            'trades': results.get('trades', []),
+            'equity_curve': results.get('equity_curve', []),
+        }
+
+        # 元数据
+        now = datetime.now()
+        formatted['_meta'] = {
+            'engine': 'axon',
+            'strategy': strategy_name,
+            'timestamp': int(now.timestamp()),
+            'formatted_time': now.strftime('%Y-%m-%d %H:%M:%S'),
+        }
+
+        return formatted
+
+    @staticmethod
+    def format_axon_results_multi(
+        results_by_symbol: dict,
+        symbols: List[str],
+        timeframe: str,
+        strategy_name: str,
+    ) -> dict:
+        """
+        格式化 axond 回测引擎多品种结果
+
+        Args:
+            results_by_symbol: 每个品种的结果字典 {symbol: result_dict}
+            symbols: 品种列表
+            timeframe: 时间周期
+            strategy_name: 策略名称
+
+        Returns:
+            dict: 格式化的多品种回测结果
+        """
+        formatted = {}
+
+        # 组合级指标汇总
+        total_pnl = 0.0
+        max_drawdown = 0.0
+        total_nav = 0.0
+        total_orders_accepted = 0
+        total_orders_rejected = 0
+        total_fills = 0
+        total_initial_capital = 0.0
+        all_trades = []
+        all_positions = []
+        all_equity_curve = []
+
+        for symbol in symbols:
+            key = f"{symbol}_{timeframe}"
+            symbol_result = results_by_symbol.get(symbol, {})
+
+            # 格式化单品种结果
+            symbol_formatted = ResultFormatterService.format_axon_results(
+                results=symbol_result,
+                symbol=symbol,
+                timeframe=timeframe,
+                strategy_name=strategy_name,
+            )
+            formatted[key] = symbol_formatted[key]
+
+            # 累加组合级指标
+            total_pnl += symbol_result.get('total_pnl', 0.0)
+            max_drawdown = max(max_drawdown, symbol_result.get('max_drawdown', 0.0))
+            total_nav += symbol_result.get('final_nav', 0.0)
+            total_orders_accepted += symbol_result.get('orders_accepted', 0)
+            total_orders_rejected += symbol_result.get('orders_rejected', 0)
+            total_fills += symbol_result.get('fills', 0)
+            total_initial_capital += symbol_result.get('initial_capital', 100000.0)
+
+            all_trades.extend(symbol_result.get('trades', []))
+            all_positions.extend(symbol_result.get('positions', []))
+            all_equity_curve.extend(symbol_result.get('equity_curve', []))
+
+        # 计算组合级 metrics
+        portfolio_metrics = {
+            'final_nav': total_nav,
+            'total_pnl': total_pnl,
+            'max_drawdown': max_drawdown,
+            'orders_accepted': total_orders_accepted,
+            'orders_rejected': total_orders_rejected,
+            'fills': total_fills,
+            'symbols_count': len(symbols),
+            'total_return': ResultFormatterService._calc_return_from_pnl(
+                total_pnl, total_initial_capital
+            ),
+        }
+
+        # 投资组合汇总
+        formatted['account'] = {
+            'starting_balance': total_initial_capital,
+            'final_nav': total_nav,
+            'total_pnl': total_pnl,
+        }
+
+        formatted['portfolio'] = {
+            'metrics': portfolio_metrics,
+            'trades': all_trades,
+            'positions': all_positions,
+            'equity_curve': all_equity_curve,
+        }
+
+        # 元数据
+        now = datetime.now()
+        formatted['_meta'] = {
+            'engine': 'axon_multi',
+            'strategy': strategy_name,
+            'symbols_count': len(symbols),
+            'timestamp': int(now.timestamp()),
+            'formatted_time': now.strftime('%Y-%m-%d %H:%M:%S'),
+        }
+
+        return formatted
+
+    @staticmethod
+    def _calc_return_from_pnl(total_pnl: float, initial_capital: float) -> float:
+        """从 PnL 和初始资金计算回报率（百分比）
+
+        Args:
+            total_pnl: 总盈亏
+            initial_capital: 初始资金
+
+        Returns:
+            float: 回报率（百分比）
+        """
+        if initial_capital <= 0:
+            return 0.0
+        return round((total_pnl / initial_capital) * 100.0, 2)

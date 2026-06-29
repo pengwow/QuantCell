@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-事件驱动策略基类
+事件驱动策略基类（基于 axond 体系）
 
 提供事件驱动架构的策略基类，支持高性能回测和实盘交易。
+不依赖任何外部量化框架，纯 axond 实现。
 
 包含:
     - EventDrivenStrategyConfig: 事件驱动策略配置基类
     - EventDrivenStrategy: 事件驱动策略基类
 
 作者: QuantCell Team
-版本: 1.0.0
-日期: 2026-02-23
+版本: 2.0.0
+日期: 2026-06-29
 """
 
 from __future__ import annotations
@@ -18,12 +19,17 @@ from __future__ import annotations
 import datetime as dt
 from abc import abstractmethod
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Optional, List
 
+from axond.types import InstrumentId, Bar
+from axond.axon_strategy import AxonStrategy
+from axond.strategy_config import StrategyConfig
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
 class EventDrivenStrategyConfig:
     """
     事件驱动策略配置基类
@@ -35,48 +41,33 @@ class EventDrivenStrategyConfig:
 
     Parameters
     ----------
-    instrument_ids : list[Any]
+    instrument_ids : list[InstrumentId]
         策略交易的品种ID列表，单品种时传 [instrument_id]
-    bar_types : list[Any]
+    bar_types : list[str]
         策略订阅的K线类型列表，单品种时传 [bar_type]
     trade_size : Decimal
         每笔交易的数量
     log_level : str, default "INFO"
         日志级别，可选值: DEBUG, INFO, WARNING, ERROR
 
-    Attributes
-    ----------
-    instrument_ids : list[Any]
-        交易品种唯一标识符列表
-    bar_types : list[Any]
-        K线数据类型列表
-    instrument_id : Any
-        第一个交易品种ID（便捷访问，等同于 instrument_ids[0]）
-    bar_type : Any
-        第一个K线类型（便捷访问，等同于 bar_types[0]）
-    trade_size : Decimal
-        标准交易数量
-    log_level : str
-        日志输出级别
-
     Examples
     --------
     >>> # 单品种模式
     >>> config = EventDrivenStrategyConfig(
     ...     instrument_ids=[btc_instrument_id],
-    ...     bar_types=[btc_bar_type],
+    ...     bar_types=["1h"],
     ... )
     >>> # 多品种模式
     >>> config = EventDrivenStrategyConfig(
     ...     instrument_ids=[btc_id, eth_id],
-    ...     bar_types=[btc_bar_type, eth_bar_type],
+    ...     bar_types=["1h", "1h"],
     ... )
     """
 
     def __init__(
         self,
-        instrument_ids: list[Any],
-        bar_types: list[Any],
+        instrument_ids: List[InstrumentId],
+        bar_types: List[str],
         trade_size: Decimal = Decimal("1.0"),
         log_level: str = "INFO",
     ):
@@ -84,15 +75,18 @@ class EventDrivenStrategyConfig:
         if not instrument_ids or not bar_types:
             raise ValueError("instrument_ids 和 bar_types 不能为空列表")
         if len(instrument_ids) != len(bar_types):
-            raise ValueError(f"instrument_ids ({len(instrument_ids)}) 和 bar_types ({len(bar_types)}) 长度必须相同")
+            raise ValueError(
+                f"instrument_ids ({len(instrument_ids)}) 和 "
+                f"bar_types ({len(bar_types)}) 长度必须相同"
+            )
 
         # 统一使用列表存储
-        self.instrument_ids = list(instrument_ids)
-        self.bar_types = list(bar_types)
+        self.instrument_ids: List[InstrumentId] = list(instrument_ids)
+        self.bar_types: List[str] = list(bar_types)
 
-        # 便捷访问：第一个品种（向后兼容）
-        self.instrument_id = instrument_ids[0]
-        self.bar_type = bar_types[0]
+        # 便捷访问：第一个品种
+        self.instrument_id: InstrumentId = instrument_ids[0]
+        self.bar_type: str = bar_types[0]
 
         self.trade_size = trade_size
         self.log_level = log_level
@@ -102,139 +96,70 @@ class EventDrivenStrategyConfig:
         """是否为多品种模式"""
         return len(self.instrument_ids) > 1
 
-    def get_instrument_index(self, instrument_id: Any) -> int:
-        """
-        获取品种在列表中的索引
-
-        Parameters
-        ----------
-        instrument_id : Any
-            品种ID
-
-        Returns
-        -------
-        int
-            品种索引，未找到返回 -1
-        """
+    def get_instrument_index(self, instrument_id: InstrumentId) -> int:
+        """获取品种在列表中的索引，未找到返回 -1"""
         for i, inst_id in enumerate(self.instrument_ids):
             if inst_id == instrument_id:
                 return i
         return -1
 
-    def get_bar_type_for(self, instrument_id: Any) -> Any:
-        """
-        获取指定品种对应的K线类型
-
-        Parameters
-        ----------
-        instrument_id : Any
-            品种ID
-
-        Returns
-        -------
-        Any
-            K线类型，未找到返回 None
-        """
+    def get_bar_type_for(self, instrument_id: InstrumentId) -> Optional[str]:
+        """获取指定品种对应的K线类型，未找到返回 None"""
         idx = self.get_instrument_index(instrument_id)
         return self.bar_types[idx] if idx >= 0 else None
 
+    def to_strategy_config(self) -> StrategyConfig:
+        """转换为 axond StrategyConfig"""
+        return StrategyConfig(
+            instrument_ids=self.instrument_ids,
+            bar_types=self.bar_types,
+            trade_size=self.trade_size,
+            log_level=self.log_level,
+        )
 
-class EventDrivenStrategy:
+
+class EventDrivenStrategy(AxonStrategy):
     """
-    事件驱动策略基类
+    事件驱动策略基类（基于 axond 体系）
 
     为 QuantCell 项目提供统一的事件驱动策略封装
     封装了常用的交易操作和生命周期管理
 
     子类需要实现以下方法:
-    - `on_bar`: 处理K线数据的核心交易逻辑
-    - `calculate_indicators`: 计算技术指标
-    - `generate_signals`: 生成交易信号
+    - `_on_bar_impl`: 处理K线数据的核心交易逻辑
 
     Parameters
     ----------
     config : EventDrivenStrategyConfig
         策略配置对象
 
-    Attributes
-    ----------
-    config : EventDrivenStrategyConfig
-        策略配置
-    instrument : Any | None
-        交易品种对象，在 on_start 中初始化
-    bars_processed : int
-        已处理的K线数量
-    start_time : datetime | None
-        策略启动时间
-    end_time : datetime | None
-        策略停止时间
-
     Examples
     --------
     >>> config = EventDrivenStrategyConfig(
-    ...     instrument_id=instrument_id,
-    ...     bar_type=bar_type,
+    ...     instrument_ids=[InstrumentId("BTCUSDT", "binance")],
+    ...     bar_types=["1h"],
     ...     trade_size=Decimal("0.1"),
     ... )
     >>> strategy = MyStrategy(config)
     """
 
     def __init__(self, config: EventDrivenStrategyConfig) -> None:
-        """
-        初始化策略
+        """初始化策略
 
         Args:
             config: 策略配置对象
         """
-        self.config = config
+        # 转换配置为 axond StrategyConfig
+        axon_config = config.to_strategy_config()
+        super().__init__(axon_config)
 
-        # 交易品种对象，在 on_start 中从缓存加载
-        self.instrument: Any | None = None
+        # 保存原始配置（包含额外方法）
+        self.event_config = config
 
         # 统计信息
         self.bars_processed: int = 0
-        self.start_time: dt.datetime | None = None
-        self.end_time: dt.datetime | None = None
-
-        # 延迟导入底层实现
-        self._strategy_impl: Any = None
-        self._log_color: Any = None
-
-    def _get_strategy_impl(self) -> Any:
-        """获取底层策略实现（延迟加载）"""
-        if self._strategy_impl is None:
-            try:
-                from axon_quant.trading.strategy import Strategy
-                from axon_quant.trading.config import StrategyConfig
-            except ImportError:
-                logger.warning("axon_quant not available, strategy implementation limited")
-                return None
-
-            # 创建axon_quant兼容的配置
-            axon_config = StrategyConfig(
-                strategy_id=self.config.__class__.__name__,
-                order_id_tag="001",
-                oms_type="NETTING",
-            )
-
-            # 创建底层策略实现
-            class _StrategyImpl(Strategy):
-                def __init__(inner_self, config, outer_self):
-                    super().__init__(config)
-                    self._outer = outer_self
-                    outer_self._strategy_impl = inner_self
-
-                def on_start(inner_self) -> None:
-                    self.on_start()
-
-                def on_bar(inner_self, bar: Any) -> None:
-                    self.on_bar(bar)
-
-                def on_stop(inner_self) -> None:
-                    self.on_stop()
-
-            self._strategy_impl = _StrategyImpl(axon_config, self)
-        return self._strategy_impl
+        self.start_time: Optional[dt.datetime] = None
+        self.end_time: Optional[dt.datetime] = None
 
     def on_start(self) -> None:
         """
@@ -242,38 +167,14 @@ class EventDrivenStrategy:
 
         执行以下操作:
         1. 记录策略启动时间
-        2. 从缓存加载交易品种信息
-        3. 订阅指定的K线数据（支持多品种）
-        4. 输出启动日志
+        2. 初始化状态
 
         子类可以重写此方法，但需要调用 super().on_start()
         """
-        # 延迟导入底层实现
-        from axon_quant.common.enums import LogColor
-
-        # 记录策略启动时间
         self.start_time = dt.datetime.now()
         logger.info(f"策略启动时间: {self.start_time}")
 
-        # 获取底层策略实例
-        impl = self._get_strategy_impl()
-
-        # 从缓存加载交易品种信息（第一个品种作为主品种）
-        self.instrument = impl.cache.instrument(self.config.instrument_id)
-        if self.instrument is None:
-            logger.error(f"无法找到交易品种: {self.config.instrument_id}")
-            impl.stop()
-            return
-
-        logger.info(f"成功加载交易品种: {self.instrument.id}")
-
-        # 订阅所有品种的K线数据（支持多品种）
-        for i, bar_type in enumerate(self.config.bar_types):
-            instrument_id = self.config.instrument_ids[i]
-            impl.subscribe_bars(bar_type)
-            logger.info(f"已订阅K线数据: {instrument_id} -> {bar_type}")
-
-    def on_bar(self, bar: Any) -> None:
+    def on_bar(self, bar: Bar) -> None:
         """
         收到K线数据时调用
 
@@ -281,23 +182,15 @@ class EventDrivenStrategy:
         基类只负责统计处理过的K线数量
 
         Args:
-            bar: K线数据对象，包含开盘价、最高价、最低价、收盘价、成交量等信息
-
-        Raises
-        ------
-        NotImplementedError
-            如果子类没有实现此方法
+            bar: K线数据对象
         """
         self.bars_processed += 1
-
-        # 子类应该重写此方法实现具体的交易逻辑
-        logger.debug(f"处理K线数据: {bar.ts_event}, 收盘价: {bar.close}")
-
-        # 调用抽象方法执行子类的具体逻辑
+        logger.debug(f"处理K线数据: {bar.timestamp}, 收盘价: {bar.close}")
+        # 调用子类实现
         self._on_bar_impl(bar)
 
     @abstractmethod
-    def _on_bar_impl(self, bar: Any) -> None:
+    def _on_bar_impl(self, bar: Bar) -> None:
         """
         K线数据处理的具体实现（子类必须实现）
 
@@ -312,30 +205,11 @@ class EventDrivenStrategy:
 
         执行以下操作:
         1. 记录策略停止时间
-        2. 取消所有未成交订单
-        3. 平掉所有持仓
-        4. 取消数据订阅
-        5. 输出统计日志
+        2. 输出统计日志
 
         子类可以重写此方法，但需要调用 super().on_stop()
         """
-        # 记录策略停止时间
         self.end_time = dt.datetime.now()
-
-        # 获取底层策略实例
-        impl = self._get_strategy_impl()
-
-        # 取消所有订单
-        impl.cancel_all_orders(self.config.instrument_id)
-        logger.info("已取消所有未成交订单")
-
-        # 平掉所有持仓
-        impl.close_all_positions(self.config.instrument_id)
-        logger.info("已平掉所有持仓")
-
-        # 取消数据订阅
-        impl.unsubscribe_bars(self.config.bar_type)
-        logger.info(f"已取消K线订阅: {self.config.bar_type}")
 
         # 输出统计信息
         duration = self.end_time - self.start_time if self.start_time else None
@@ -349,328 +223,96 @@ class EventDrivenStrategy:
 
     def buy(
         self,
-        quantity: Decimal | None = None,
-        price: Decimal | None = None,
-        order_type: str = "MARKET",
-        time_in_force: str = "GTC",
-        instrument_id: Any | None = None,
-    ) -> None:
+        symbol: Optional[str] = None,
+        quantity: Optional[Decimal] = None,
+        price: Optional[float] = None,
+    ) -> dict:
         """
         买入下单封装
 
-        根据指定的参数创建并提交买入订单
-
         Args:
+            symbol: 交易对符号，默认为 None（使用配置中的第一个品种）
             quantity: 交易数量，默认为 None（使用配置中的 trade_size）
-            price: 订单价格，默认为 None（市价单不需要）
-            order_type: 订单类型，默认为 "MARKET"（市价单）
-            time_in_force: 订单有效时间，默认为 "GTC"（一直有效）
-            instrument_id: 品种ID，默认为 None（使用配置中的 instrument_id）
+            price: 限价价格，默认为 None（市价单）
 
-        Raises
-        ------
-        RuntimeError
-            如果交易品种未加载
+        Returns:
+            订单字典
         """
-        # 获取目标品种ID
-        target_id = instrument_id if instrument_id else self.config.instrument_id
-
-        # 获取底层策略实例
-        impl = self._get_strategy_impl()
-
-        # 从缓存获取品种信息
-        instrument = impl.cache.instrument(target_id)
-        if instrument is None:
-            logger.error(f"无法找到交易品种: {target_id}")
-            return
-
-        # 使用默认数量
-        qty = quantity if quantity else self.config.trade_size
-
-        # 创建数量对象
-        order_qty = instrument.make_qty(qty)
-
-        # 创建订单
-        if order_type == "MARKET":
-            from axon_quant.model.enums import OrderSide
-
-            order = impl.order_factory.market(
-                instrument_id=target_id,
-                order_side=OrderSide.BUY,
-                quantity=order_qty,
-            )
-        else:
-            from axon_quant.model.enums import OrderSide, TimeInForce
-
-            order_price = instrument.make_price(price) if price else None
-            order = impl.order_factory.limit(
-                instrument_id=target_id,
-                order_side=OrderSide.BUY,
-                quantity=order_qty,
-                price=order_price,
-                time_in_force=TimeInForce.GTC,
-            )
-
-        # 提交订单
-        impl.submit_order(order)
-        logger.info(f"买入下单: {target_id}, 数量: {qty}, 类型: {order_type}")
+        target_symbol = symbol or self.event_config.instrument_id.symbol
+        qty = quantity if quantity is not None else self.event_config.trade_size
+        return super().buy(target_symbol, float(qty), price)
 
     def sell(
         self,
-        quantity: Decimal | None = None,
-        price: Decimal | None = None,
-        order_type: str = "MARKET",
-        time_in_force: str = "GTC",
-        instrument_id: Any | None = None,
-    ) -> None:
+        symbol: Optional[str] = None,
+        quantity: Optional[Decimal] = None,
+        price: Optional[float] = None,
+    ) -> dict:
         """
         卖出下单封装
 
-        根据指定的参数创建并提交卖出订单
-
         Args:
+            symbol: 交易对符号，默认为 None（使用配置中的第一个品种）
             quantity: 交易数量，默认为 None（使用配置中的 trade_size）
-            price: 订单价格，默认为 None（市价单不需要）
-            order_type: 订单类型，默认为 "MARKET"（市价单）
-            time_in_force: 订单有效时间，默认为 "GTC"（一直有效）
-            instrument_id: 品种ID，默认为 None（使用配置中的 instrument_id）
+            price: 限价价格，默认为 None（市价单）
 
-        Raises
-        ------
-        RuntimeError
-            如果交易品种未加载
+        Returns:
+            订单字典
         """
-        # 获取目标品种ID
-        target_id = instrument_id if instrument_id else self.config.instrument_id
+        target_symbol = symbol or self.event_config.instrument_id.symbol
+        qty = quantity if quantity is not None else self.event_config.trade_size
+        return super().sell(target_symbol, float(qty), price)
 
-        # 获取底层策略实例
-        impl = self._get_strategy_impl()
-
-        # 从缓存获取品种信息
-        instrument = impl.cache.instrument(target_id)
-        if instrument is None:
-            logger.error(f"无法找到交易品种: {target_id}")
-            return
-
-        # 使用默认数量
-        qty = quantity if quantity else self.config.trade_size
-
-        # 创建数量对象
-        order_qty = instrument.make_qty(qty)
-
-        # 创建订单
-        if order_type == "MARKET":
-            from axon_quant.model.enums import OrderSide
-
-            order = impl.order_factory.market(
-                instrument_id=target_id,
-                order_side=OrderSide.SELL,
-                quantity=order_qty,
-            )
-        else:
-            from axon_quant.model.enums import OrderSide, TimeInForce
-
-            order_price = instrument.make_price(price) if price else None
-            order = impl.order_factory.limit(
-                instrument_id=target_id,
-                order_side=OrderSide.SELL,
-                quantity=order_qty,
-                price=order_price,
-                time_in_force=TimeInForce.GTC,
-            )
-
-        # 提交订单
-        impl.submit_order(order)
-        logger.info(f"卖出下单: {target_id}, 数量: {qty}, 类型: {order_type}")
-
-    def close_position(self, position: Any | None = None, instrument_id: Any | None = None) -> None:
+    def close_position(self, symbol: Optional[str] = None) -> dict:
         """
         平仓封装
 
-        平掉指定的持仓或指定品种的所有持仓
-
         Args:
-            position: 要平仓的持仓对象，默认为 None（平掉所有持仓）
-            instrument_id: 品种ID，默认为 None（使用配置中的 instrument_id）
-
-        Raises
-        ------
-        RuntimeError
-            如果交易品种未加载
-        """
-        # 获取目标品种ID
-        target_id = instrument_id if instrument_id else self.config.instrument_id
-
-        # 获取底层策略实例
-        impl = self._get_strategy_impl()
-
-        if position:
-            # 平掉指定持仓
-            impl.close_position_by_id(position.id)
-            logger.info(f"平掉持仓: {position.id}")
-        else:
-            # 平掉指定品种的所有持仓
-            impl.close_all_positions(target_id)
-            logger.info(f"平掉 {target_id} 的所有持仓")
-
-    def get_position(self, instrument_id: Any | None = None) -> Any | None:
-        """
-        获取持仓信息
-
-        获取指定品种的持仓信息
-
-        Args:
-            instrument_id: 品种ID，默认为 None（使用配置中的 instrument_id）
+            symbol: 交易对符号，默认为 None（使用配置中的第一个品种）
 
         Returns:
-            Any | None: 持仓对象，如果没有持仓则返回 None
+            订单字典
         """
-        target_id = instrument_id if instrument_id else self.config.instrument_id
+        target_symbol = symbol or self.event_config.instrument_id.symbol
+        return super().close_position(target_symbol)
 
-        # 获取底层策略实例
-        impl = self._get_strategy_impl()
-
-        # 从缓存获取持仓
-        positions = impl.cache.positions_for_instrument(target_id)
-
-        if positions:
-            # 返回第一个持仓（通常一个品种只有一个持仓）
-            return positions[0]
-
-        return None
-
-    def get_position_size(self, instrument_id: Any | None = None) -> Decimal:
+    def get_position_size(self, symbol: Optional[str] = None) -> float:
         """
         获取持仓数量
 
-        获取指定品种的持仓数量（正数表示多头，负数表示空头）
-
         Args:
-            instrument_id: 品种ID，默认为 None（使用配置中的 instrument_id）
+            symbol: 交易对符号
 
         Returns:
-            Decimal: 持仓数量，没有持仓返回 0
+            持仓数量
         """
-        target_id = instrument_id if instrument_id else self.config.instrument_id
+        target_symbol = symbol or self.event_config.instrument_id.symbol
+        return super().get_position_size(target_symbol)
 
-        # 获取底层策略实例
-        impl = self._get_strategy_impl()
+    def is_flat(self, symbol: Optional[str] = None) -> bool:
+        """检查是否空仓"""
+        return self.get_position_size(symbol) == 0.0
 
-        # 检查是否持有多头
-        if impl.portfolio.is_net_long(target_id):
-            position = self.get_position(target_id)
-            return position.quantity.as_decimal() if position else Decimal("0")
+    def is_long(self, symbol: Optional[str] = None) -> bool:
+        """检查是否持有多头"""
+        return self.get_position_size(symbol) > 0.0
 
-        # 检查是否持有空头
-        if impl.portfolio.is_net_short(target_id):
-            position = self.get_position(target_id)
-            return -position.quantity.as_decimal() if position else Decimal("0")
-
-        return Decimal("0")
-
-    def is_flat(self, instrument_id: Any | None = None) -> bool:
-        """
-        检查是否空仓
-
-        Args:
-            instrument_id: 品种ID，默认为 None（使用配置中的 instrument_id）
-
-        Returns:
-            bool: 如果没有持仓返回 True，否则返回 False
-        """
-        target_id = instrument_id if instrument_id else self.config.instrument_id
-        impl = self._get_strategy_impl()
-        return impl.portfolio.is_flat(target_id)
-
-    def is_long(self, instrument_id: Any | None = None) -> bool:
-        """
-        检查是否持有多头
-
-        Args:
-            instrument_id: 品种ID，默认为 None（使用配置中的 instrument_id）
-
-        Returns:
-            bool: 如果持有多头返回 True，否则返回 False
-        """
-        target_id = instrument_id if instrument_id else self.config.instrument_id
-        impl = self._get_strategy_impl()
-        return impl.portfolio.is_net_long(target_id)
-
-    def is_short(self, instrument_id: Any | None = None) -> bool:
-        """
-        检查是否持有空头
-
-        Args:
-            instrument_id: 品种ID，默认为 None（使用配置中的 instrument_id）
-
-        Returns:
-            bool: 如果持有空头返回 True，否则返回 False
-        """
-        target_id = instrument_id if instrument_id else self.config.instrument_id
-        impl = self._get_strategy_impl()
-        return impl.portfolio.is_net_short(target_id)
+    def is_short(self, symbol: Optional[str] = None) -> bool:
+        """检查是否持有空头"""
+        return self.get_position_size(symbol) < 0.0
 
     def log_info(self, message: str) -> None:
-        """
-        输出信息日志
-
-        Args:
-            message: 日志消息
-        """
+        """输出信息日志"""
         logger.info(message)
 
     def log_debug(self, message: str) -> None:
-        """
-        输出调试日志
-
-        Args:
-            message: 日志消息
-        """
+        """输出调试日志"""
         logger.debug(message)
 
     def log_warning(self, message: str) -> None:
-        """
-        输出警告日志
-
-        Args:
-            message: 日志消息
-        """
+        """输出警告日志"""
         logger.warning(message)
 
     def log_error(self, message: str) -> None:
-        """
-        输出错误日志
-
-        Args:
-            message: 日志消息
-        """
+        """输出错误日志"""
         logger.error(message)
-
-    def calculate_indicators(self, bar: Any) -> dict[str, Any]:
-        """
-        计算技术指标（子类可以重写）
-
-        Args:
-            bar: K线数据对象
-
-        Returns:
-            dict: 指标字典
-        """
-        return {}
-
-    def generate_signals(self, indicators: dict[str, Any]) -> dict[str, bool]:
-        """
-        生成交易信号（子类可以重写）
-
-        Args:
-            indicators: 指标字典
-
-        Returns:
-            dict: 信号字典，包含 entry_long, exit_long, entry_short, exit_short 等键
-        """
-        return {
-            "entry_long": False,
-            "exit_long": False,
-            "entry_short": False,
-            "exit_short": False,
-        }
