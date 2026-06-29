@@ -40,11 +40,11 @@ class WorkerAlreadyExistsException(WorkerException):
 
 class WorkerAlreadyRunningException(WorkerException):
     """Worker已在运行异常"""
-    
+
     def __init__(self, worker_id: int):
         super().__init__(
             message=f"Worker {worker_id} 已在运行中",
-            code=400,
+            code=409,
             details={"worker_id": worker_id, "status": "running"}
         )
 
@@ -125,12 +125,73 @@ class PermissionDeniedException(WorkerException):
         )
 
 
-class InvalidParameterException(WorkerException):
-    """参数无效异常"""
-    
-    def __init__(self, field: str, message: str):
+class WorkerOperationException(WorkerException):
+    """Worker操作失败异常（通用业务异常）"""
+
+    def __init__(self, operation: str, worker_id: int = None, message: str = None):
+        self.operation = operation
+        self.worker_id = worker_id
+        if worker_id:
+            message = message or f"Worker {worker_id} {operation} 操作失败"
+        else:
+            message = message or f"{operation} 操作失败"
         super().__init__(
-            message=f"参数 '{field}' 无效: {message}",
+            message=message,
             code=400,
-            details={"field": field, "message": message}
+            details={"operation": operation, "worker_id": worker_id},
         )
+
+
+class WorkerOperationError(WorkerOperationException):
+    """向后兼容别名：旧代码使用 WorkerOperationError 的场景"""
+
+    def __init__(self, operation: str, worker_id: int = None, message: str = None):
+        super().__init__(operation=operation, worker_id=worker_id, message=message)
+
+
+class WorkerNotFoundError(WorkerNotFoundException):
+    """向后兼容别名：旧代码使用 WorkerNotFoundError 的场景"""
+
+    def __init__(self, worker_id: int, message: str = None):
+        super().__init__(worker_id=worker_id)
+        if message:
+            self.message = message
+            self.details["custom_message"] = message
+
+
+class WorkerAlreadyRunningError(WorkerAlreadyRunningException):
+    """向后兼容别名：旧代码使用 WorkerAlreadyRunningError 的场景"""
+
+    def __init__(self, worker_id: int, message: str = None):
+        super().__init__(worker_id=worker_id)
+        if message:
+            self.message = message
+            self.details["custom_message"] = message
+
+
+class LogQueryException(WorkerOperationException):
+    """日志查询失败"""
+
+    def __init__(self, worker_id: int = None, message: str = None):
+        super().__init__("日志查询", worker_id, message or "日志查询失败")
+
+
+class MetricsException(WorkerOperationException):
+    """性能指标获取失败"""
+
+    def __init__(self, worker_id: int = None, message: str = None):
+        super().__init__("性能指标", worker_id, message or "获取性能指标失败")
+
+
+class LogQueryError(LogQueryException):
+    """向后兼容别名"""
+
+    def __init__(self, worker_id: int = None, message: str = None):
+        super().__init__(worker_id=worker_id, message=message)
+
+
+class MetricsError(MetricsException):
+    """向后兼容别名"""
+
+    def __init__(self, worker_id: int = None, message: str = None):
+        super().__init__(worker_id=worker_id, message=message)
