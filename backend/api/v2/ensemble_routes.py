@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Any
+from common.schemas import ApiResponse
 
 router = APIRouter(prefix="/api/v2/ensemble", tags=["Ensemble"])
 
@@ -22,7 +23,7 @@ async def create_ensemble(req: CreateEnsembleRequest):
         from services.ensemble_service import EnsembleService
         svc = EnsembleService()
         eid = svc.create_ensemble(strategy=req.strategy, model_paths=req.model_paths)
-        return {"ensemble_id": eid}
+        return ApiResponse(code=0, message="集成创建成功", data={"ensemble_id": eid})
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -33,7 +34,7 @@ async def predict(ensemble_id: str, req: PredictRequest):
         from services.ensemble_service import EnsembleService
         svc = EnsembleService()
         result = svc.predict(ensemble_id, req.observation)
-        return result
+        return ApiResponse(code=0, message="预测完成", data=result)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except RuntimeError as e:
@@ -45,6 +46,6 @@ async def list_ensembles():
     try:
         from services.ensemble_service import EnsembleService
         svc = EnsembleService()
-        return svc.list_ensembles()
+        return ApiResponse(code=0, message="success", data=svc.list_ensembles())
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))

@@ -49,6 +49,12 @@ from agent.api.routes import router as agent_router
 from api.system_ports import router as system_ports_router
 from plugins.routes import router as plugins_router
 
+# v2 API routes
+from api.v2.model_routes import router as v2_model_router
+from api.v2.ensemble_routes import router as v2_ensemble_router
+from api.v2.risk_routes import router as v2_risk_router
+from api.v2.rl_routes import router as v2_rl_router
+
 
 # 创建FastAPI应用实例
 app = FastAPI(
@@ -91,6 +97,12 @@ app.include_router(notification_router)
 app.include_router(agent_router)
 app.include_router(system_ports_router)
 app.include_router(plugins_router)
+
+# v2 API routes
+app.include_router(v2_model_router)
+app.include_router(v2_ensemble_router)
+app.include_router(v2_risk_router)
+app.include_router(v2_rl_router)
 
 # 注册 Worker WebSocket 端点
 app.websocket("/ws/worker")(websocket_endpoint)

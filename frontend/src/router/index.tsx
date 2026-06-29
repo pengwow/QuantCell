@@ -20,6 +20,7 @@ import Setting from '@/pages/setting/Setting';
 import Agent from '@/pages/agent/Agent';
 import EnsemblePage from '@/pages/ensemble/EnsemblePage';
 import RiskMonitorPage from '@/pages/risk/RiskMonitorPage';
+import RLTrainingPage from '@/pages/rl/RLTrainingPage';
 
 // 导入回测模块
 import BacktestLayout from '@/pages/backtest/BacktestLayout';
@@ -126,6 +127,10 @@ function createBaseRoutes(): RouteObject[] {
         {
           path: '/risk-monitor',
           element: <RiskMonitorPage />,
+        },
+        {
+          path: '/rl-training',
+          element: <RLTrainingPage />,
         },
         {
           path: '/factor-analysis',

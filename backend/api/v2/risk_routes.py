@@ -4,6 +4,7 @@ import math
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Any
+from common.schemas import ApiResponse
 
 router = APIRouter(prefix="/api/v2/risk", tags=["Risk"])
 
@@ -29,7 +30,8 @@ async def check_order(req: CheckOrderRequest):
     try:
         from services.risk_service import RiskService
         svc = RiskService()
-        return svc.check_order(req.order, req.portfolio)
+        result = svc.check_order(req.order, req.portfolio)
+        return ApiResponse(code=0, message="风控检查完成", data=result)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -39,7 +41,7 @@ async def get_metrics():
     try:
         from services.risk_service import RiskService
         svc = RiskService()
-        return _sanitize(svc.get_metrics())
+        return ApiResponse(code=0, message="success", data=_sanitize(svc.get_metrics()))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -50,6 +52,6 @@ async def reset_daily():
         from services.risk_service import RiskService
         svc = RiskService()
         svc.reset_daily()
-        return {"status": "ok"}
+        return ApiResponse(code=0, message="每日计数已重置", data={"status": "ok"})
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))

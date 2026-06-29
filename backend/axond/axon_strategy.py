@@ -7,6 +7,11 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from axond.types import Bar, InstrumentId, OrderType, Position, PositionSide
+from utils.logger import get_logger, LogType
+
+
+# 获取模块日志器
+_logger = get_logger("axond.strategy", LogType.APPLICATION)
 
 
 class AxonStrategy:
@@ -31,16 +36,30 @@ class AxonStrategy:
         self._orders: List[dict] = []
         self._engine: Any = None
 
-    def on_start(self) -> None:
-        """策略启动回调"""
+    def on_start(self, context: Any = None) -> None:
+        """策略启动回调。
+
+        Args:
+            context: 兼容 ``StrategyLoop`` 传入的 ``StrategyContext``，
+                旧版 ``AxonStrategy`` 子类可不使用该参数。
+        """
         self.start_time = datetime.now()
 
-    def on_stop(self) -> None:
-        """策略停止回调"""
+    def on_stop(self, context: Any = None) -> None:
+        """策略停止回调。
+
+        Args:
+            context: 兼容 ``StrategyLoop`` 传入的 ``StrategyContext``。
+        """
         self.end_time = datetime.now()
 
-    def on_bar(self, bar: Bar) -> None:
-        """收到 K 线数据回调。子类应重写此方法。"""
+    def on_bar(self, bar: Bar, context: Any = None) -> None:
+        """收到 K 线数据回调。子类应重写此方法。
+
+        Args:
+            bar: K 线数据。
+            context: 兼容 ``StrategyLoop`` 传入的 ``StrategyContext``。
+        """
         self.bars_processed += 1
 
     def buy(
@@ -130,3 +149,53 @@ class AxonStrategy:
             return self.sell(symbol, qty)
         else:
             return self.buy(symbol, qty)
+
+    # ============ 持仓状态便捷方法 ============
+
+    def is_flat(self, symbol: str) -> bool:
+        """判断指定品种是否无持仓"""
+        return self.get_position_size(symbol) == 0.0
+
+    def is_net_long(self, symbol: str) -> bool:
+        """判断指定品种是否净多头持仓"""
+        return self.get_position_size(symbol) > 0.0
+
+    def is_net_short(self, symbol: str) -> bool:
+        """判断指定品种是否净空头持仓"""
+        return self.get_position_size(symbol) < 0.0
+
+    def close_all_positions(self) -> List[dict]:
+        """关闭所有品种的持仓，返回操作结果列表"""
+        results = []
+        for symbol in list(self._positions.keys()):
+            results.append(self.close_position(symbol))
+        return results
+
+    def cancel_all_orders(self) -> int:
+        """取消所有未成交订单（占位实现）。
+
+        Returns:
+            取消的订单数量。真实实盘场景需要对接 exchange adapter。
+        """
+        if not self._engine:
+            return 0
+        # 占位：真实场景应调用 exchange 的取消订单接口
+        return 0
+
+    # ============ 日志便捷方法 ============
+
+    def log_info(self, msg: str) -> None:
+        """记录信息日志"""
+        _logger.info(f"[{self.__class__.__name__}] {msg}")
+
+    def log_warning(self, msg: str) -> None:
+        """记录警告日志"""
+        _logger.warning(f"[{self.__class__.__name__}] {msg}")
+
+    def log_error(self, msg: str) -> None:
+        """记录错误日志"""
+        _logger.error(f"[{self.__class__.__name__}] {msg}")
+
+    def log_debug(self, msg: str) -> None:
+        """记录调试日志"""
+        _logger.debug(f"[{self.__class__.__name__}] {msg}")

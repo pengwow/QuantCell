@@ -119,6 +119,59 @@ _mock_service_module.batch_operation = AsyncMock(return_value={
 sys.modules['worker.service'] = _mock_service_module
 
 
+# =============================================================================
+# axon_quant.core.events 存根（P4-live-trading 测试需要）
+# =============================================================================
+# 真实 axon_quant 不提供 OrderAccepted/OrderCanceled/OrderRejected/OrderFilled
+# 等事件类。测试代码（test_live_trade_recorder）通过 isinstance 识别事件类型，
+# 因此在测试期间向 sys.modules 注入轻量存根类。
+
+def _install_axon_events_stub() -> None:
+    """安装 axon_quant.core.events 存根模块（仅在缺失时）。"""
+    if 'axon_quant.core' in sys.modules and hasattr(
+        sys.modules['axon_quant.core'], 'events'
+    ):
+        return
+
+    import types
+
+    core_module = sys.modules.get('axon_quant.core')
+    if core_module is None:
+        core_module = types.ModuleType('axon_quant.core')
+        sys.modules['axon_quant.core'] = core_module
+
+    events_module = types.ModuleType('axon_quant.core.events')
+
+    class OrderEvent:  # noqa: D401 - 测试用基类
+        """axon_quant.core.events 事件基类（存根）。"""
+        pass
+
+    class OrderAccepted(OrderEvent):
+        """OrderAccepted 事件存根。"""
+        pass
+
+    class OrderCanceled(OrderEvent):
+        """OrderCanceled 事件存根。"""
+        pass
+
+    class OrderRejected(OrderEvent):
+        """OrderRejected 事件存根。"""
+        pass
+
+    class OrderFilled(OrderEvent):
+        """OrderFilled 事件存根。"""
+        pass
+
+    for cls in (OrderEvent, OrderAccepted, OrderCanceled,
+                OrderRejected, OrderFilled):
+        setattr(events_module, cls.__name__, cls)
+    setattr(core_module, 'events', events_module)
+    sys.modules['axon_quant.core.events'] = events_module
+
+
+_install_axon_events_stub()
+
+
 @pytest.fixture(scope="session")
 def event_loop():
     """创建事件循环 - 会话级别"""
