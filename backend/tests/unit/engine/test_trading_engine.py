@@ -47,10 +47,11 @@ def test_trading_engine_runs_backtest():
     strategy = BuyOnceStrategy()
 
     df = pd.DataFrame({
-        # backtest_loop 期望小写列名
-        "open": [100.0, 101.0], "high": [105.0, 106.0],
-        "low": [95.0, 96.0], "close": [102.0, 103.0],
-        "volume": [1000.0, 1100.0],
+        # 真实 Binance schema(大写列名)以匹配 backtest_data_provider
+        # _normalize_dataframe 输出,backtest_loop 内部用大写列名
+        "Open": [100.0, 101.0], "High": [105.0, 106.0],
+        "Low": [95.0, 96.0], "Close": [102.0, 103.0],
+        "Volume": [1000.0, 1100.0],
     }, index=pd.date_range("2024-01-01", periods=2, freq="h"))
 
     result = engine.run_backtest(strategy, df, symbol="BTCUSDT")

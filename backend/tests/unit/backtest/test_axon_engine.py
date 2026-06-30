@@ -22,11 +22,13 @@ def _make_series(n: int = 30, start: float = 100.0) -> pd.DataFrame:
         closes.append(closes[-1] * (1 + 0.001 * math.sin(i / 3.0)))
     close_series = pd.Series(closes)
     return pd.DataFrame({
-        "open": close_series.values,
-        "high": close_series.values * 1.001,
-        "low": close_series.values * 0.999,
-        "close": close_series.values,
-        "volume": [1000.0] * n,
+        # 真实 Binance schema(大写列名),与 backtest_data_provider._normalize_dataframe
+        # 输出一致,backtest_loop 期望大写列名
+        "Open": close_series.values,
+        "High": close_series.values * 1.001,
+        "Low": close_series.values * 0.999,
+        "Close": close_series.values,
+        "Volume": [1000.0] * n,
     }, index=idx)
 
 

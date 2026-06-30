@@ -20,13 +20,14 @@ def test_backtest_loop_runs():
     strategy = BuyAndHoldStrategy()
     loop = BacktestLoop(initial_cash=100_000.0)
 
-    # backtest_loop._run_with_axon 期望小写列名(open/high/low/close/volume)
+    # 真实 Binance schema(大写列名)以匹配 backtest_data_provider._normalize_dataframe
+    # 输出,backtest_loop 内部用大写列名
     df = pd.DataFrame({
-        "open": [100.0, 101.0, 102.0],
-        "high": [105.0, 106.0, 107.0],
-        "low": [95.0, 96.0, 97.0],
-        "close": [102.0, 103.0, 104.0],
-        "volume": [1000.0, 1100.0, 1200.0],
+        "Open": [100.0, 101.0, 102.0],
+        "High": [105.0, 106.0, 107.0],
+        "Low": [95.0, 96.0, 97.0],
+        "Close": [102.0, 103.0, 104.0],
+        "Volume": [1000.0, 1100.0, 1200.0],
     }, index=pd.date_range("2024-01-01", periods=3, freq="h"))
 
     result = loop.run(strategy, df, symbol="BTCUSDT")
