@@ -20,6 +20,7 @@ def test_backtest_loop_runs():
     strategy = BuyAndHoldStrategy()
     loop = BacktestLoop(initial_cash=100_000.0)
 
+    # backtest_loop._run_with_axon 期望小写列名(open/high/low/close/volume)
     df = pd.DataFrame({
         "open": [100.0, 101.0, 102.0],
         "high": [105.0, 106.0, 107.0],

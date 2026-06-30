@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import pandas as pd
@@ -35,7 +35,7 @@ except ImportError:
 
 @dataclass
 class BacktestResult:
-    """回测结果"""
+    """回测结果 — Stage 3 阶段 B 起扩展 RunResult 字段(从 axon_quant 直接读取)"""
     total_pnl: float = 0.0
     total_orders: int = 0
     fills: int = 0
@@ -45,6 +45,22 @@ class BacktestResult:
     orders_rejected: int = 0
     events_processed: int = 0
     duration_secs: float = 0.0
+    # 阶段 B 新增(从 axon_quant RunResult 直接读取,不再应用层手算)
+    total_fees: float = 0.0
+    win_rate: float = 0.0
+    sharpe_ratio: float = 0.0
+    nav_peak: float = 0.0
+    max_drawdown_pct: float = 0.0
+    # trade_records 序列(每个 dict 一个平仓记录,字段同 axon_quant)
+    trade_records: list = field(default_factory=list)
+    # equity_curve 序列:list[(ts_ns, equity)]
+    equity_curve: list = field(default_factory=list)
+    # 数据时间范围(从 data.index 提取)
+    data_start_ns: int = 0
+    data_end_ns: int = 0
+    bar_count: int = 0
+    # 终态持仓(symbol → qty)
+    final_positions: dict = field(default_factory=dict)
 
 
 class AxonStrategyContext(StrategyContext):
@@ -219,16 +235,35 @@ class BacktestLoop:
         result = engine.run()
 
         # 转换结果
+        # Stage 3 阶段 B:从 axon_quant.RunResult 直接读新字段,
+        # 不再应用层手算手续费/夏普/胜率/最大回撤百分比
+        # max_drawdown(USD 绝对值) = nav_peak * (max_drawdown_pct / 100)
+        max_drawdown_usd = result.nav_peak * (result.max_drawdown_pct / 100.0)
+        # 终态持仓 dict(symbol -> qty),axon 已暴露为 dict
+        final_positions = dict(result.positions) if hasattr(result, "positions") else {}
+
         return BacktestResult(
             total_pnl=result.total_pnl,
             total_orders=total_orders,
             fills=result.fills,
             final_nav=result.final_nav,
-            max_drawdown=result.max_drawdown,
+            max_drawdown=max_drawdown_usd,
             orders_accepted=result.orders_accepted,
             orders_rejected=result.orders_rejected,
             events_processed=result.events_processed,
             duration_secs=result.duration_secs,
+            # 阶段 B 字段(从 RunResult 直接读取)
+            total_fees=float(getattr(result, "total_fees", 0.0)),
+            win_rate=float(getattr(result, "win_rate", 0.0)),
+            sharpe_ratio=float(getattr(result, "sharpe_ratio", 0.0)),
+            nav_peak=float(getattr(result, "nav_peak", 0.0)),
+            max_drawdown_pct=float(getattr(result, "max_drawdown_pct", 0.0)),
+            trade_records=list(getattr(result, "trades", [])),
+            equity_curve=[list(p) for p in getattr(result, "equity_curve", [])],
+            data_start_ns=int(data.index[0].timestamp() * 1e9) if len(data) > 0 else 0,
+            data_end_ns=int(data.index[-1].timestamp() * 1e9) if len(data) > 0 else 0,
+            bar_count=len(data),
+            final_positions=final_positions,
         )
 
     def _run_simple(
