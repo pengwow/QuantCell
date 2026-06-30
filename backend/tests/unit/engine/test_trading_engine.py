@@ -47,6 +47,7 @@ def test_trading_engine_runs_backtest():
     strategy = BuyOnceStrategy()
 
     df = pd.DataFrame({
+        # backtest_loop 期望小写列名
         "open": [100.0, 101.0], "high": [105.0, 106.0],
         "low": [95.0, 96.0], "close": [102.0, 103.0],
         "volume": [1000.0, 1100.0],
