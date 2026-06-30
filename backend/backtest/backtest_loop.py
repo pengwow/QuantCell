@@ -194,13 +194,16 @@ class BacktestLoop:
             ts = int(pd.Timestamp(idx).timestamp() * 1_000_000_000)
 
             # 创建 Bar 对象
+            # 注意:backtest_data_provider._normalize_dataframe 默认把列名转大写
+            # (Open/High/Low/Close/Volume),backtest_loop 必须用大写列名与
+            # 实际数据流对齐(否则 CLI 报 KeyError 'open')
             bar = Bar(
                 timestamp=ts,
-                open=float(row["open"]),
-                high=float(row["high"]),
-                low=float(row["low"]),
-                close=float(row["close"]),
-                volume=float(row["volume"]),
+                open=float(row["Open"]),
+                high=float(row["High"]),
+                low=float(row["Low"]),
+                close=float(row["Close"]),
+                volume=float(row["Volume"]),
                 symbol=symbol,
             )
 
@@ -212,7 +215,7 @@ class BacktestLoop:
             for order in orders:
                 order_id_counter += 1
                 side = "Buy" if order.side == OrderSide.BUY else "Sell"
-                price = order.price if order.price > 0 else float(row["close"])
+                price = order.price if order.price > 0 else float(row["Close"])
 
                 axon_order = _limit_order(
                     order_id_counter,
@@ -281,11 +284,11 @@ class BacktestLoop:
             ts = int(pd.Timestamp(idx).timestamp() * 1_000_000_000)
             bar = Bar(
                 timestamp=ts,
-                open=float(row["open"]),
-                high=float(row["high"]),
-                low=float(row["low"]),
-                close=float(row["close"]),
-                volume=float(row["volume"]),
+                open=float(row["Open"]),
+                high=float(row["High"]),
+                low=float(row["Low"]),
+                close=float(row["Close"]),
+                volume=float(row["Volume"]),
                 symbol=symbol,
             )
             orders = strategy.on_bar(bar, ctx)
