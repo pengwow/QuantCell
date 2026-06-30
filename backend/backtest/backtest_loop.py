@@ -208,21 +208,37 @@ class BacktestLoop:
             )
 
             # 策略处理 Bar，生成订单
-            orders = strategy.on_bar(bar, ctx)
+            # 兼容两种策略风格:
+            # - UnifiedStrategy 子类:on_bar 返回 list[Order] 或 None
+            # - axond.AxonStrategy 子类:on_bar 返回 list[dict](self._orders)
+            # on_bar 抛 None / list[dict] / list[Order] 都需正常处理
+            orders = strategy.on_bar(bar, ctx) or []
             total_orders += len(orders)
 
             # 提交订单到 axon 引擎
             for order in orders:
+                # 兼容 dict order(axond 风格)与 Order 对象(UnifiedStrategy 风格)
+                if isinstance(order, dict):
+                    # axond dict 字段:id/symbol/side("Buy"/"Sell")/type/quantity/price
+                    side_str = order.get("side", "Buy")
+                    side = "Buy" if side_str in ("Buy", "BUY", "buy") else "Sell"
+                    symbol = order.get("symbol", symbol) or symbol
+                    quantity = float(order.get("quantity", 0))
+                    price = float(order.get("price", 0))
+                else:
+                    side = "Buy" if order.side == OrderSide.BUY else "Sell"
+                    symbol = order.symbol or symbol
+                    quantity = float(order.quantity)
+                    price = float(order.price)
                 order_id_counter += 1
-                side = "Buy" if order.side == OrderSide.BUY else "Sell"
-                price = order.price if order.price > 0 else float(row["Close"])
+                exec_price = price if price > 0 else float(row["Close"])
 
                 axon_order = _limit_order(
                     order_id_counter,
-                    order.symbol or symbol,
+                    symbol,
                     side,
-                    price,
-                    order.quantity
+                    exec_price,
+                    quantity
                 )
 
                 engine.push_event({
