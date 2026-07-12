@@ -1,39 +1,39 @@
-"""RL Backtest Strategy — wraps an RL model as an axon_quant strategy for backtesting."""
+# -*- coding: utf-8 -*-
+"""RL Backtest Strategy — 将 RL 模型包装为 axon_quant 策略用于回测"""
 
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
 from typing import Any
 
 import numpy as np
 
-from backtest.strategies.strategy_adapter import StrategyAdapter, StrategyConfig
-from strategy.core import Bar, OrderSide
+from axon_quant import Action
+from backtest.backtest_loop import RuleStrategy
 
 logger = logging.getLogger(__name__)
 
 
-class RLBacktestStrategy(StrategyAdapter):
-    """Run a trained RL model inside axon_quant's event-driven backtest engine.
+class RLBacktestStrategy(RuleStrategy):
+    """在 axon_quant 事件驱动回测引擎中运行训练好的 RL 模型
 
-    On each bar:
-      1. Build observation from bar features + current position
-      2. Call RLWorker.predict(observation)
-      3. Execute buy/sell/hold via axon_quant order system
+    每根 bar:
+      1. 从 bar 特征 + 当前持仓构建观测
+      2. 调用 RL 模型预测
+      3. 返回 Action (Buy/Sell/Hold)
     """
 
-    def __init__(self, config: StrategyConfig, model_path: str, trade_quantity: float = 0.01):
-        super().__init__(config)
-        from worker.rl_worker import RLWorker
-        self._worker = RLWorker(model_path)
-        self._trade_quantity = Decimal(str(trade_quantity))
+    def __init__(self, model_path: str, trade_quantity: float = 0.01):
+        from stable_baselines3 import PPO
+
+        self._model = PPO.load(model_path)
+        self._trade_quantity = trade_quantity
         self._returns: list[float] = []
         self._last_close: float | None = None
-        self._position_side: str = "flat"  # flat / long / short
+        self._position_side: str = "flat"
 
-    def _on_bar_impl(self, bar: Bar) -> None:
-        close = float(bar.close)
+    def on_bar(self, bar: dict) -> Action:
+        close = bar["close"]
 
         ret = 0.0
         if self._last_close is not None and self._last_close > 0:
@@ -49,21 +49,27 @@ class RLBacktestStrategy(StrategyAdapter):
             pos = -1.0
 
         obs = np.array([pos, ret, vol], dtype=np.float32)
-        result = self._worker.predict(obs)
-        side = result["side"]
+        action_logits, _ = self._model.predict(obs, deterministic=True)
 
-        inst_id = bar.instrument_id
+        action_type = "hold"
+        confidence = 0.5
+        target = 0.0
 
-        if side == "buy" and self._position_side != "long":
-            if self._position_side == "short":
-                self.close_position(inst_id)
-            self.buy(inst_id, self._trade_quantity)
+        if action_logits == 0 and self._position_side != "long":
+            action_type = "buy"
+            confidence = 0.8
+            target = self._trade_quantity
             self._position_side = "long"
-            logger.debug(f"[RL] BUY @ {close:.2f}, ret={ret:.4f}")
-
-        elif side == "sell" and self._position_side != "short":
-            if self._position_side == "long":
-                self.close_position(inst_id)
-            self.sell(inst_id, self._trade_quantity)
+        elif action_logits == 1 and self._position_side != "short":
+            action_type = "sell"
+            confidence = 0.8
+            target = self._trade_quantity
             self._position_side = "short"
-            logger.debug(f"[RL] SELL @ {close:.2f}, ret={ret:.4f}")
+
+        return Action(
+            action_type=action_type,
+            confidence=confidence,
+            target_position=target,
+            model_id="rl_ppo",
+            inference_time_us=0,
+        )

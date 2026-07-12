@@ -61,6 +61,7 @@ class AxonBacktestEngine:
         strategy: Any,
         data: pd.DataFrame,
         symbol: str = "BTCUSDT",
+        force_liquidate: bool = False,
     ) -> Dict[str, Any]:
         """执行回测 - 委派给 BacktestLoop
 
@@ -68,6 +69,9 @@ class AxonBacktestEngine:
             strategy: UnifiedStrategy 实例
             data: OHLCV DataFrame，索引为 DatetimeIndex
             symbol: 交易对符号
+            force_liquidate: 回测结束是否强制市价平仓所有未平仓持仓
+                (True = 末日单管理:所有 PnL 转为已实现,适合日报/对账;
+                False = 保留策略意图,equity_curve 末帧 mark 估值)
 
         Returns:
             结果字典，字段：
@@ -99,7 +103,12 @@ class AxonBacktestEngine:
         loop = BacktestLoop(initial_cash=initial_cash)
 
         try:
-            result = loop.run(strategy=strategy, data=data, symbol=symbol)
+            result = loop.run(
+                strategy=strategy,
+                data=data,
+                symbol=symbol,
+                force_liquidate=force_liquidate,
+            )
         except _AxonBacktestError as e:
             # 包装为业务异常，附带更多上下文
             raise RuntimeError(

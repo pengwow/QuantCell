@@ -417,17 +417,42 @@ class ResultFormatterService:
 
         # axond 引擎结果通常包含: final_nav, total_pnl, max_drawdown,
         # orders_accepted, orders_rejected, fills
+        # 字段命名规范:
+        # - initial_equity / final_equity: 与 result_analysis.output_results 期望一致
+        # - total_trades: 等价于 fills（撮合成交笔数,axon 没有"交易"概念
+        #   只有"成交",在回测里两者等价）
+        initial_capital = results.get('initial_capital', 100000.0)
+        final_nav = results.get('final_nav', 0.0)
+        fills = results.get('fills', 0)
+        # max_drawdown_pct 优先(单位:百分比),没有则回退 max_drawdown(USD 绝对值)
+        max_dd_pct = results.get('max_drawdown_pct')
+        max_dd = results.get('max_drawdown', 0.0)
         metrics = {
-            'final_nav': results.get('final_nav', 0.0),
+            'final_nav': final_nav,
             'total_pnl': results.get('total_pnl', 0.0),
-            'max_drawdown': results.get('max_drawdown', 0.0),
+            # 显示用百分比,fallback 到绝对值(此时 result_analysis 会把 USD
+            # 当百分比显示,这是已知问题,等所有结果都走 max_drawdown_pct 后
+            # 自然消失)
+            'max_drawdown': max_dd_pct if max_dd_pct is not None else max_dd,
+            'max_drawdown_usd': max_dd,  # 保留原始绝对值供需要方使用
             'orders_accepted': results.get('orders_accepted', 0),
             'orders_rejected': results.get('orders_rejected', 0),
-            'fills': results.get('fills', 0),
+            'fills': fills,
+            'initial_equity': initial_capital,
+            'final_equity': final_nav,
+            'total_trades': results.get('trade_count', fills),
             'total_return': ResultFormatterService._calc_return_from_pnl(
                 results.get('total_pnl', 0.0),
-                results.get('initial_capital', 100000.0),
+                initial_capital,
             ),
+            # trade-level 指标(由 backtest_loop 收集 fills 配对而成)
+            'win_rate': results.get('win_rate', 0.0),
+            'sharpe_ratio': results.get('sharpe_ratio', 0.0),
+            'total_fees': results.get('total_fees', 0.0),
+            # 回测数据时间范围(纳秒),供 CLI 显示回测覆盖的时间窗口
+            'data_start_ns': results.get('data_start_ns', 0),
+            'data_end_ns': results.get('data_end_ns', 0),
+            'bar_count': results.get('bar_count', 0),
         }
 
         formatted = {
@@ -460,105 +485,6 @@ class ResultFormatterService:
         formatted['_meta'] = {
             'engine': 'axon',
             'strategy': strategy_name,
-            'timestamp': int(now.timestamp()),
-            'formatted_time': now.strftime('%Y-%m-%d %H:%M:%S'),
-        }
-
-        return formatted
-
-    @staticmethod
-    def format_axon_results_multi(
-        results_by_symbol: dict,
-        symbols: List[str],
-        timeframe: str,
-        strategy_name: str,
-    ) -> dict:
-        """
-        格式化 axond 回测引擎多品种结果
-
-        Args:
-            results_by_symbol: 每个品种的结果字典 {symbol: result_dict}
-            symbols: 品种列表
-            timeframe: 时间周期
-            strategy_name: 策略名称
-
-        Returns:
-            dict: 格式化的多品种回测结果
-        """
-        formatted = {}
-
-        # 组合级指标汇总
-        total_pnl = 0.0
-        max_drawdown = 0.0
-        total_nav = 0.0
-        total_orders_accepted = 0
-        total_orders_rejected = 0
-        total_fills = 0
-        total_initial_capital = 0.0
-        all_trades = []
-        all_positions = []
-        all_equity_curve = []
-
-        for symbol in symbols:
-            key = f"{symbol}_{timeframe}"
-            symbol_result = results_by_symbol.get(symbol, {})
-
-            # 格式化单品种结果
-            symbol_formatted = ResultFormatterService.format_axon_results(
-                results=symbol_result,
-                symbol=symbol,
-                timeframe=timeframe,
-                strategy_name=strategy_name,
-            )
-            formatted[key] = symbol_formatted[key]
-
-            # 累加组合级指标
-            total_pnl += symbol_result.get('total_pnl', 0.0)
-            max_drawdown = max(max_drawdown, symbol_result.get('max_drawdown', 0.0))
-            total_nav += symbol_result.get('final_nav', 0.0)
-            total_orders_accepted += symbol_result.get('orders_accepted', 0)
-            total_orders_rejected += symbol_result.get('orders_rejected', 0)
-            total_fills += symbol_result.get('fills', 0)
-            total_initial_capital += symbol_result.get('initial_capital', 100000.0)
-
-            all_trades.extend(symbol_result.get('trades', []))
-            all_positions.extend(symbol_result.get('positions', []))
-            all_equity_curve.extend(symbol_result.get('equity_curve', []))
-
-        # 计算组合级 metrics
-        portfolio_metrics = {
-            'final_nav': total_nav,
-            'total_pnl': total_pnl,
-            'max_drawdown': max_drawdown,
-            'orders_accepted': total_orders_accepted,
-            'orders_rejected': total_orders_rejected,
-            'fills': total_fills,
-            'symbols_count': len(symbols),
-            'total_return': ResultFormatterService._calc_return_from_pnl(
-                total_pnl, total_initial_capital
-            ),
-        }
-
-        # 投资组合汇总
-        formatted['account'] = {
-            'starting_balance': total_initial_capital,
-            'final_nav': total_nav,
-            'total_pnl': total_pnl,
-        }
-
-        formatted['portfolio'] = {
-            'metrics': portfolio_metrics,
-            'trades': all_trades,
-            'positions': all_positions,
-            'equity_curve': all_equity_curve,
-        }
-
-        # 元数据
-        now = datetime.now()
-        formatted['_meta'] = {
-            'engine': 'axon_multi',
-            'strategy': strategy_name,
-            'symbols_count': len(symbols),
             'timestamp': int(now.timestamp()),
             'formatted_time': now.strftime('%Y-%m-%d %H:%M:%S'),
         }

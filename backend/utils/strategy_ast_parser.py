@@ -79,7 +79,7 @@ class StrategyASTParser:
     """策略代码AST解析器"""
     
     # 默认的策略基类名称
-    DEFAULT_STRATEGY_BASES = ['Strategy', 'StrategyBase']
+    DEFAULT_STRATEGY_BASES = ['Strategy', 'StrategyBase', 'RuleStrategy', 'DualMA', 'MACD']
     DEFAULT_CONFIG_SUFFIX = 'Config'
     
     def __init__(self, strategy_bases: Optional[List[str]] = None, config_suffix: Optional[str] = None):
@@ -454,15 +454,10 @@ class StrategyASTParser:
                         continue
                     
                     param_default = None
+                    # ast.Constant 是 ast.Num/Str/NameConstant/Bytes/Ellipsis 的统一替代品(Python 3.8+),
+                    # 单分支即可 cover 所有字面量场景。3.12+ 旧的 ast.Num/Str/NameConstant 已彻底删除。
                     if isinstance(item.value, ast.Constant):
                         param_default = item.value.value
-                    elif isinstance(item.value, ast.Num):
-                        param_default = item.value.n
-                    elif isinstance(item.value, ast.Str):
-                        param_default = item.value.s
-                    elif isinstance(item.value, ast.NameConstant):
-                        param_default = item.value.value
-                    
                     param_desc = ""
                     if hasattr(item, 'lineno'):
                         lines = file_content.split('\n')
@@ -496,18 +491,13 @@ class StrategyASTParser:
         """
         if isinstance(default_node, ast.Constant):
             return default_node.value
-        elif isinstance(default_node, ast.Num):
-            return default_node.n
-        elif isinstance(default_node, ast.Str):
-            return default_node.s
-        elif isinstance(default_node, ast.NameConstant):
-            return default_node.value
         elif isinstance(default_node, ast.Call):
             # 处理 Decimal("0.1") 这样的调用
+            # ast.Constant 同样覆盖了 "0.1" 字符串字面量(Python 3.8+)
             if isinstance(default_node.func, ast.Name) and default_node.func.id == 'Decimal':
-                if default_node.args and isinstance(default_node.args[0], ast.Str):
+                if default_node.args and isinstance(default_node.args[0], ast.Constant):
                     try:
-                        return float(default_node.args[0].s)
+                        return float(default_node.args[0].value)
                     except (ValueError, TypeError):
                         return None
             elif isinstance(default_node.func, ast.Attribute):

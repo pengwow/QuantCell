@@ -343,7 +343,7 @@ class UnifiedLogger:
             format=format_str,
             level=level,
             colorize=True,
-            enqueue=True,
+            enqueue=False,
             backtrace=True,
             diagnose=True,
         )
@@ -358,7 +358,7 @@ class UnifiedLogger:
                 rotation=LoggerConfig.ROTATION_SIZE,
                 retention=f"{LoggerConfig.RETENTION_DAYS} days",
                 encoding="utf-8",
-                enqueue=True,
+                enqueue=False,
                 backtrace=True,
                 diagnose=True,
             )
@@ -641,7 +641,7 @@ def set_log_level(level: str) -> None:
         format=LoggerConfig.DEFAULT_FORMAT,
         level=level.upper(),
         colorize=True,
-        enqueue=True,
+        enqueue=False,
     )
 
 

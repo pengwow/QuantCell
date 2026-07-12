@@ -34,15 +34,13 @@ from .worker_state import WorkerState, worker_state_manager, WorkerStateManager
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-# axon_quant 导入（可选）
+# axon_quant 导入
 try:
-    from axond.exchange_config import build_exchange_config
-    from axond.paper_adapter import PaperExchangeAdapter, build_paper_adapter
-    from axond.strategy_loop import StrategyLoop
+    from strategy.loop import StrategyLoop
     AXON_AVAILABLE = True
 except ImportError as e:
     AXON_AVAILABLE = False
-    logger.warning(f"[AxonTradingSystem] axond 模块不可用: {e}")
+    logger.warning(f"[AxonTradingSystem] strategy.loop 不可用: {e}")
 
 
 def _build_exchange_adapter(exchange: str, trading_mode: str):
@@ -330,7 +328,6 @@ class AxonTradingSystem:
         try:
             from backtest.strategy_loader_service import StrategyLoaderService
             from strategy.models import Strategy
-            from axond.types import InstrumentId
 
             # 关联的策略对象
             strategy = getattr(worker, "strategy", None)
@@ -366,9 +363,9 @@ class AxonTradingSystem:
                         f"[AxonTradingSystem] 策略参数 JSON 解析失败: {e}"
                     )
 
-            # 通过 axond 体系加载策略
+            # 通过策略加载器加载策略
             instruments = {
-                symbol: InstrumentId(symbol, "BINANCE") for symbol in symbols
+                symbol: {"symbol": symbol, "venue": "BINANCE"} for symbol in symbols
             }
             bar_types = {symbol: timeframe for symbol in symbols}
 
@@ -394,18 +391,16 @@ class AxonTradingSystem:
         # 创建策略实例
         if strategy_instance is None:
             # 加载失败时使用占位空策略，避免阻断启动流程
-            from axond.axon_strategy import AxonStrategy
+            from axon_quant import Action
+            from backtest.backtest_loop import RuleStrategy
 
-            class _PlaceholderStrategy(AxonStrategy):
+            class _PlaceholderStrategy(RuleStrategy):
                 """占位策略：策略加载失败时使用，不会触发任何交易"""
 
-                def on_bar(self, bar) -> None:  # type: ignore[override]
-                    pass
+                def on_bar(self, bar: dict) -> Action:
+                    return Action("hold", 0.0, 0.0, "placeholder", 0)
 
-            placeholder_cfg = type("PlaceholderConfig", (), {})()
-            placeholder_cfg.instrument_ids = []
-            placeholder_cfg.bar_types = []
-            strategy_instance = _PlaceholderStrategy(placeholder_cfg)
+            strategy_instance = _PlaceholderStrategy()
             strategy_class = _PlaceholderStrategy
             logger.warning(
                 f"[AxonTradingSystem] 使用占位策略，worker_id={worker_id}"

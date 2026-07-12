@@ -147,6 +147,8 @@ const ModelSettingsPage = () => {
   const [isAddModelModalOpen, setIsAddModelModalOpen] = useState(false);
   const [addModelForm] = Form.useForm();
   const [checkingProvider, setCheckingProvider] = useState<string | null>(null);
+  const [fetchedModels, setFetchedModels] = useState<Array<{ id: string; name: string; description?: string }>>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
 
   // 获取预设厂商列表（使用翻译）
   const PRESET_PROVIDERS = useMemo(() => getPresetProviders(t), [t]);
@@ -347,15 +349,16 @@ const ModelSettingsPage = () => {
     }
   };
 
-  // 检查可用性
+  // 检查可用性并获取模型列表
   const checkAvailability = async (providerId: string) => {
     const provider = providers.find((p) => p.id === providerId);
     if (!provider?.api_key) {
       message.warning(t("please_enter_api_key") || "请输入API密钥");
       return;
     }
-    
+
     setCheckingProvider(providerId);
+    setFetchingModels(true);
     try {
       const result = await aiModelApi.checkAvailability({
         provider: provider.id,
@@ -366,18 +369,34 @@ const ModelSettingsPage = () => {
         proxy_username: provider.proxy_username,
         proxy_password: provider.proxy_password,
       });
-      
+
       if (result?.available) {
         message.success(result.message || t("api_key_valid") || "API密钥有效");
+        // 将获取到的模型列表直接填入当前厂商的模型列表
+        if (result.models && Array.isArray(result.models)) {
+          const newModels: Model[] = result.models.map((m: any) => ({
+            id: m.id,
+            name: m.name || m.id,
+          }));
+          setFetchedModels(result.models);
+          setProviders((prev) =>
+            prev.map((p) =>
+              p.id === providerId ? { ...p, models: newModels } : p
+            )
+          );
+        }
       } else {
         message.error(result.message || t("api_key_invalid") || "API密钥无效");
+        setFetchedModels([]);
       }
     } catch (error: any) {
       console.error("检查可用性失败:", error);
       const errorMsg = error?.response?.data?.detail || error?.message || t("check_failed") || "检查失败";
       message.error(errorMsg);
+      setFetchedModels([]);
     } finally {
       setCheckingProvider(null);
+      setFetchingModels(false);
     }
   };
 
@@ -531,7 +550,10 @@ const ModelSettingsPage = () => {
                       ? "bg-gray-100 dark:bg-gray-800"
                       : "hover:bg-gray-50 dark:hover:bg-gray-900"
                   }`}
-                  onClick={() => setSelectedProviderId(provider.id)}
+                  onClick={() => {
+                    setSelectedProviderId(provider.id);
+                    setFetchedModels([]);
+                  }}
                 >
                   <span className="w-8 h-8 flex items-center justify-center shrink-0 overflow-hidden">
                     <img src={provider.icon} alt={provider.name} className="w-6 h-6 object-contain" />
@@ -751,9 +773,45 @@ const ModelSettingsPage = () => {
           addModelForm.resetFields();
         }}
         footer={null}
-        width={480}
+        width={560}
       >
         <Form form={addModelForm} onFinish={handleAddModel} layout="vertical" className="mt-4">
+          {/* 从API获取的模型列表 */}
+          {fetchedModels.length > 0 && (
+            <Form.Item label={<span className="font-medium">{t("available_models") || "可用模型"}</span>}>
+              <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-1">
+                {fetchedModels.map((model) => {
+                  const alreadyAdded = selectedProvider?.models.some((m) => m.id === model.id);
+                  return (
+                    <Button
+                      key={model.id}
+                      size="small"
+                      type={alreadyAdded ? "default" : "primary"}
+                      ghost={alreadyAdded}
+                      disabled={alreadyAdded}
+                      onClick={() => {
+                        addModelForm.setFieldsValue({
+                          model_id: model.id,
+                          name: model.name || model.id,
+                        });
+                      }}
+                      title={model.description || model.id}
+                    >
+                      {model.name || model.id}
+                      {alreadyAdded && ` ✓`}
+                    </Button>
+                  );
+                })}
+              </div>
+            </Form.Item>
+          )}
+
+          {fetchedModels.length === 0 && !fetchingModels && (
+            <div className="text-center py-3 text-gray-400 text-sm mb-4">
+              {t("click_check_to_fetch_models") || "请先点击「检查可用性」获取模型列表"}
+            </div>
+          )}
+
           <Form.Item
             name="model_id"
             label={<span className="font-medium">{t("model_id") || "模型ID"}</span>}
