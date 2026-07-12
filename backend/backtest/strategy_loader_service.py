@@ -59,57 +59,104 @@ class StrategyLoaderService:
 
     @classmethod
     def _get_axon_strategy_base(cls) -> Type:
-        """获取 axond.AxonStrategy 基类（延迟导入）"""
-        if cls._axon_strategy_base is None:
-            from axond.axon_strategy import AxonStrategy
-            cls._axon_strategy_base = AxonStrategy
-        return cls._axon_strategy_base
+        """获取策略基类（统一用 on_bar 方法检测）"""
+        return None
 
     @classmethod
     def _get_axon_strategy_config(cls) -> Type:
-        """获取 axond.StrategyConfig 基类（延迟导入）"""
-        if cls._axon_strategy_config is None:
-            from axond.strategy_config import StrategyConfig
-            cls._axon_strategy_config = StrategyConfig
-        return cls._axon_strategy_config
+        """获取策略配置基类（不再需要）"""
+        return None
 
     @classmethod
     def _get_event_strategy_base(cls) -> Type:
-        """获取 EventDrivenStrategy 基类（延迟导入）"""
-        if cls._event_strategy_base is None:
-            from backtest.strategies.event_strategy import EventDrivenStrategy
-            cls._event_strategy_base = EventDrivenStrategy
-        return cls._event_strategy_base
+        """获取策略基类（不再需要）"""
+        return None
 
     @staticmethod
     def _get_strategies_dir() -> Path:
-        """获取策略目录路径
+        """获取策略目录路径（向后兼容：返回第一个存在的目录）
 
         优先查找 strategy/example/strategies（示例策略），
         然后查找 strategies（旧版兼容）。
+
+        新代码请使用 _get_strategies_dirs() 获取所有目录列表。
         """
-        backend_path = Path(__file__).resolve().parent.parent
-
-        # 优先查找示例策略目录
-        example_dir = backend_path / "strategy" / "example" / "strategies"
-        if example_dir.exists():
-            return example_dir
-
-        # 兼容旧版 strategies 目录
-        legacy_dir = backend_path / "strategies"
-        if legacy_dir.exists():
-            return legacy_dir
-
-        raise StrategyLoadError(f"找不到策略目录: {example_dir} 或 {legacy_dir}")
+        dirs = StrategyLoaderService._get_strategies_dirs()
+        if not dirs:
+            raise StrategyLoadError("找不到任何策略目录")
+        return dirs[0]
 
     @staticmethod
-    def load_strategy(strategy_name: str, strategy_params: dict):
+    def _get_strategies_dirs() -> list[Path]:
+        """返回所有可能的策略目录（按优先级排序）
+
+        这是路径查找的**单一真相源**：
+        - list-strategies 用这个扫描所有目录
+        - load_strategy 用这个逐个查找策略文件
+
+        优先级顺序：
+        1. backend/strategy/example/strategies  （示例策略，axond 风格）
+        2. backend/strategies                  （旧版兼容，事件驱动风格）
+        """
+        backend_path = Path(__file__).resolve().parent.parent
+        candidates = [
+            backend_path / "strategy" / "example" / "strategies",
+            backend_path / "strategies",
+        ]
+        return [d for d in candidates if d.exists()]
+
+    @staticmethod
+    def _find_strategy_file(strategy_name: str) -> Optional[Path]:
+        """在所有候选目录里查找策略文件
+
+        Args:
+            strategy_name: 策略名称（不含 .py 后缀）
+
+        Returns:
+            找到的策略文件路径，未找到返回 None
+        """
+        for d in StrategyLoaderService._get_strategies_dirs():
+            f = d / f"{strategy_name}.py"
+            if f.exists():
+                return f
+        return None
+
+    @staticmethod
+    def get_all_strategy_files() -> list[Path]:
+        """列出所有策略目录中的策略文件
+
+        用于 list-strategies 命令，确保不会漏掉任何目录的策略。
+
+        Returns:
+            策略文件路径列表（去重后按文件名排序）
+        """
+        seen: set[Path] = set()
+        result: list[Path] = []
+        for d in StrategyLoaderService._get_strategies_dirs():
+            for f in sorted(d.glob("*.py")):
+                if f.name.startswith("_") or f.stem in ("__init__",):
+                    continue
+                if f not in seen:
+                    seen.add(f)
+                    result.append(f)
+        return result
+
+    @staticmethod
+    def load_strategy(
+        strategy_name: str,
+        strategy_params: dict,
+        instrument_ids: Optional[list] = None,
+        bar_types: Optional[list] = None,
+    ):
         """
         加载策略（通用入口）
 
         Args:
             strategy_name: 策略名称（文件名，不含 .py 后缀）
             strategy_params: 策略参数字典
+            instrument_ids: 可选品种 ID 列表（axond.StrategyConfig 必填；
+                           不传时使用空列表，CLI 单品种场景会后续传入）
+            bar_types: 可选 bar_type 列表（同上）
 
         Returns:
             策略实例
@@ -118,17 +165,19 @@ class StrategyLoaderService:
             StrategyLoadError: 当策略加载失败时
         """
         try:
-            strategies_dir = StrategyLoaderService._get_strategies_dir()
+            strategy_file = StrategyLoaderService._find_strategy_file(strategy_name)
+            if strategy_file is None:
+                dirs = StrategyLoaderService._get_strategies_dirs()
+                raise StrategyLoadError(
+                    f"策略文件不存在: {strategy_name}.py。已搜索: {[str(d) for d in dirs]}"
+                )
 
+            strategies_dir = strategy_file.parent
             if str(strategies_dir) not in sys.path:
                 sys.path.insert(0, str(strategies_dir))
 
             if strategy_name in sys.modules:
                 del sys.modules[strategy_name]
-
-            strategy_file = strategies_dir / f"{strategy_name}.py"
-            if not strategy_file.exists():
-                raise StrategyLoadError(f"策略文件不存在: {strategy_file}")
 
             module = importlib.import_module(strategy_name)
 
@@ -141,13 +190,21 @@ class StrategyLoaderService:
                 )
 
             # 实例化策略
+            # instrument_ids/bar_types 传 None 时 _instantiate_strategy 会用空列表
+            # （axond.StrategyConfig 的这两个字段是必填但允许空列表；
+            #  真实品种信息在 default 引擎走 data_dict，event 引擎走 load_event_strategy_multi）
             instance = StrategyLoaderService._instantiate_strategy(
-                strategy_class, strategy_params, None, None
+                strategy_class, strategy_params, instrument_ids, bar_types,
+                config_class=StrategyLoaderService._find_strategy_config_class(module, strategy_class),
             )
 
-            logger.info(f"成功加载策略: {strategy_class.__name__}")
+            logger.info(
+                f"成功加载策略: {strategy_class.__name__} (from {strategy_file})"
+            )
             return instance
 
+        except StrategyLoadError:
+            raise
         except Exception as e:
             logger.error(f"加载策略失败: {e}")
             raise StrategyLoadError(f"加载策略失败: {e}") from e
@@ -198,18 +255,19 @@ class StrategyLoaderService:
             策略实例或 None
         """
         try:
-            strategies_dir = StrategyLoaderService._get_strategies_dir()
+            strategy_file = StrategyLoaderService._find_strategy_file(strategy_name)
+            if strategy_file is None:
+                logger.info(
+                    f"策略文件不存在: {strategy_name}.py"
+                )
+                return None
 
+            strategies_dir = strategy_file.parent
             if str(strategies_dir) not in sys.path:
                 sys.path.insert(0, str(strategies_dir))
 
             if strategy_name in sys.modules:
                 del sys.modules[strategy_name]
-
-            strategy_file = strategies_dir / f"{strategy_name}.py"
-            if not strategy_file.exists():
-                logger.info(f"策略文件不存在: {strategy_file}")
-                return None
 
             module = importlib.import_module(strategy_name)
 
@@ -234,7 +292,7 @@ class StrategyLoaderService:
 
             logger.info(
                 f"成功加载多品种事件驱动策略: {strategy_class.__name__}"
-                f"（支持 {len(instruments)} 个品种）"
+                f"（支持 {len(instruments)} 个品种, from {strategy_file})"
             )
             return instance
 
@@ -262,52 +320,69 @@ class StrategyLoaderService:
         axon_base = StrategyLoaderService._get_axon_strategy_base()
         event_base = StrategyLoaderService._get_event_strategy_base()
 
-        # 策略核心基类（可选）
-        core_base = None
-        try:
-            from strategy.core.strategy_core import StrategyCore
-
-            core_base = StrategyCore
-        except ImportError:
-            pass
-
         found_class: Optional[Type] = None
-        found_priority = -1
 
         for name in dir(module):
             obj = getattr(module, name)
             if not isinstance(obj, type):
                 continue
-
-            # 跳过基类本身
-            if obj is axon_base or obj is event_base or obj is core_base:
+            if name.startswith("_"):
                 continue
 
-            # 检查是否是 AxonStrategy 子类（优先级 3）
-            if axon_base and issubclass(obj, axon_base):
-                if found_priority < 3:
-                    found_class = obj
-                    found_priority = 3
-                    logger.info(f"找到 axond 策略类: {name}")
-                continue
-
-            # 检查是否是 EventDrivenStrategy 子类（优先级 2）
-            if event_base and issubclass(obj, event_base):
-                if found_priority < 2:
-                    found_class = obj
-                    found_priority = 2
-                    logger.info(f"找到事件驱动策略类: {name}")
-                continue
-
-            # 检查是否是 StrategyCore 子类（优先级 1）
-            if core_base and issubclass(obj, core_base):
-                if found_priority < 1:
-                    found_class = obj
-                    found_priority = 1
-                    logger.info(f"找到策略核心类: {name}")
-                continue
+            # 检查是否有 on_bar 方法（axon_quant 策略统一接口）
+            if hasattr(obj, "on_bar") and callable(getattr(obj, "on_bar", None)):
+                found_class = obj
+                logger.info(f"找到策略类: {name}")
+                break
 
         return found_class
+
+    @staticmethod
+    def _find_strategy_config_class(module, strategy_class: Type) -> Type:
+        """查找策略对应的 Config 类（向后兼容）
+
+        Args:
+            module: 策略模块
+            strategy_class: 策略类
+
+        Returns:
+            Config 类或 None
+        """
+        strategy_name = strategy_class.__name__
+        candidate_name = strategy_name + "Config"
+
+        if hasattr(module, candidate_name):
+            candidate = getattr(module, candidate_name)
+            if isinstance(candidate, type):
+                return candidate
+
+        return None
+        candidate = getattr(module, candidate_name, None)
+        if (
+            candidate is not None
+            and isinstance(candidate, type)
+            and issubclass(candidate, axon_config_base)
+            and candidate is not axon_config_base
+        ):
+            logger.debug(f"找到策略 Config 类: {candidate_name}")
+            return candidate
+
+        # 2. 模糊匹配：模块内任何以 Config 结尾的 axond.StrategyConfig 子类
+        for name in dir(module):
+            obj = getattr(module, name)
+            if (
+                isinstance(obj, type)
+                and obj is not axon_config_base
+                and issubclass(obj, axon_config_base)
+                and name.endswith("Config")
+                and not name.startswith("_")
+            ):
+                logger.debug(f"模糊匹配到 Config 类: {name}")
+                return obj
+
+        # 3. 回退：基类
+        logger.debug(f"未找到 {strategy_name} 的 Config 子类，使用基类")
+        return axon_config_base
 
     @staticmethod
     def _instantiate_strategy(
@@ -315,6 +390,7 @@ class StrategyLoaderService:
         strategy_params: dict,
         instrument_ids_list: Optional[list],
         bar_types_list: Optional[list],
+        config_class: Optional[Type] = None,
     ):
         """实例化策略类
 
@@ -325,11 +401,17 @@ class StrategyLoaderService:
         Args:
             strategy_class: 策略类
             strategy_params: 策略参数
-            instrument_ids_list: 品种 ID 列表（可选）
-            bar_types_list: bar_type 列表（可选）
+            instrument_ids_list: 品种 ID 列表（axond.StrategyConfig 必填且非空，
+                                None 时会抛错告知调用方传入）
+            bar_types_list: bar_type 列表（同上）
+            config_class: 可选，策略专属的 Config 子类（来自 _find_strategy_config_class）；
+                         None 时回退到 axond.StrategyConfig 基类
 
         Returns:
             策略实例
+
+        Raises:
+            StrategyLoadError: 必填参数缺失时
         """
         import inspect
 
@@ -342,16 +424,27 @@ class StrategyLoaderService:
 
         # 检查是否需要 config 对象
         if "config" in param_names:
-            # 使用 axond.StrategyConfig
-            config_class = StrategyLoaderService._get_axon_strategy_config()
+            # 使用传入的 config_class；缺省回退到 axond.StrategyConfig 基类
+            if config_class is None:
+                config_class = StrategyLoaderService._get_axon_strategy_config()
 
             config_params = dict(strategy_params)
 
             # 添加品种和 bar_type
-            if instrument_ids_list is not None:
-                config_params["instrument_ids"] = instrument_ids_list
-            if bar_types_list is not None:
-                config_params["bar_types"] = bar_types_list
+            # axond.StrategyConfig 必填且非空；调用方应该传入
+            if instrument_ids_list is None or bar_types_list is None:
+                raise StrategyLoadError(
+                    f"策略 {strategy_class.__name__} 是 axond 风格，"
+                    f"需要传入 instrument_ids 和 bar_types。"
+                    f"请使用 load_strategy(name, params, instrument_ids, bar_types) "
+                    f"或 load_event_strategy_multi(...) 加载。"
+                )
+            if not instrument_ids_list or not bar_types_list:
+                raise StrategyLoadError(
+                    f"策略 {strategy_class.__name__} 要求 instrument_ids 和 bar_types 非空。"
+                )
+            config_params["instrument_ids"] = instrument_ids_list
+            config_params["bar_types"] = bar_types_list
 
             # 过滤 config 接受的参数
             config_field_names = []

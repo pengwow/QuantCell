@@ -21,6 +21,46 @@ from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
+def _format_ts_iso(ts_ns: int) -> str:
+    """纳秒时间戳 -> ISO 8601 字符串(本地时区)
+
+    优先用 fromtimestamp 兼容 timestamp;若 ts_ns 异常则原样返回
+    """
+    if not isinstance(ts_ns, (int, np.integer)) or ts_ns <= 0:
+        return "N/A"
+    try:
+        # 纳秒 -> 秒(保留 9 位精度)
+        return datetime.fromtimestamp(ts_ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")
+    except (OSError, OverflowError, ValueError):
+        return str(ts_ns)
+
+
+def _print_data_range(metrics_or_result: dict) -> None:
+    """打印回测数据的时间范围 + bar 数
+
+    输入可以是 metrics dict(含 data_start_ns/data_end_ns/bar_count)或
+    BacktestResult 原始 dict(axon 适配层),都从同一个三个字段读取
+    """
+    start_ns = metrics_or_result.get("data_start_ns", 0)
+    end_ns = metrics_or_result.get("data_end_ns", 0)
+    bar_count = metrics_or_result.get("bar_count", 0)
+    if start_ns <= 0 or end_ns <= 0:
+        return
+    start_iso = _format_ts_iso(start_ns)
+    end_iso = _format_ts_iso(end_ns)
+    # 跨度(秒)便于直观感受
+    duration_secs = (end_ns - start_ns) / 1e9
+    if duration_secs >= 86400:
+        duration_str = f"{duration_secs / 86400:.1f} 天"
+    elif duration_secs >= 3600:
+        duration_str = f"{duration_secs / 3600:.1f} 小时"
+    else:
+        duration_str = f"{duration_secs:.0f} 秒"
+    print(f"  数据范围: {start_iso} → {end_iso} (跨度 {duration_str}, {bar_count} 根 K 线)")
+
+
 class axon_quantJSONEncoder(json.JSONEncoder):
     """自定义JSON编码器，处理axon_quant和pandas特殊类型"""
 
@@ -365,9 +405,14 @@ class ResultSerializer:
                     serializable[key] = [self._serialize_value(item) for item in result]
                 else:
                     serializable[key] = self._serialize_value(result)
-            else:
+            elif isinstance(result, dict):
                 # 正常的回测结果字典
                 serializable[key] = self._serialize_single_result(result)
+            else:
+                # 顶层非 dict 的标量(str/int/bool/list),直接序列化
+                # 修复:多品种 results 顶层有 strategy_name/symbols/timeframe/is_multi_symbol
+                # 这些不是 dict,旧逻辑会调 .items() 崩溃('str' object has no attribute 'items')
+                serializable[key] = self._serialize_value(result)
 
         return serializable
     
@@ -408,13 +453,31 @@ class ResultSerializer:
 
         return serialized
 
-    def _serialize_equity_curve(self, equity_curve: List[Dict]) -> List[Dict]:
-        """序列化权益曲线"""
+    def _serialize_equity_curve(self, equity_curve) -> list:
+        """序列化权益曲线
+
+        兼容两种点格式：
+        - dict（事件驱动引擎）：{"timestamp": ..., "Equity": ...} — 走原逻辑
+        - list/tuple（axon 适配层）：(time_ns, equity) — 转为 {"timestamp": t, "equity": e}
+        """
         if not equity_curve:
             return []
 
         serialized = []
         for point in equity_curve:
+            # axon 适配层产出 (ts_ns, equity) tuple/list,序列化为标准 dict
+            if isinstance(point, (list, tuple)):
+                if len(point) < 2:
+                    continue
+                ts_val, eq_val = point[0], point[1]
+                serialized.append({
+                    "timestamp": int(ts_val) if isinstance(ts_val, (int, np.integer)) else ts_val,
+                    "equity": float(eq_val) if isinstance(eq_val, (float, np.floating, int, np.integer)) else eq_val,
+                })
+                continue
+            # 事件驱动引擎：dict 格式
+            if not isinstance(point, dict):
+                continue
             serialized_point = {}
             for key, value in point.items():
                 if hasattr(value, 'isoformat'):  # Timestamp 类型
@@ -731,45 +794,71 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
 
     # 检查是否是投资组合回测结果
     is_portfolio = 'portfolio' in normal_results
+    # 多品种回测(axon 适配层格式):顶层有 is_multi_symbol=True + results_by_symbol + 6 个其他键
+    # 旧逻辑把它当单品种,统计 len(normal_results) = 6 → 2 个品种显示 6 个货币对
+    is_multi_symbol = normal_results.get('is_multi_symbol', False) is True
+    # 多品种路径当作 portfolio-like 处理(共享 metrics 摘要 + 子 symbol 列表)
+    is_aggregated = is_portfolio or is_multi_symbol
 
     # 打印结果摘要
     print("\n" + "=" * 70)
     if is_portfolio:
         print("投资组合回测结果（多交易对共享资金池）")
+    elif is_multi_symbol:
+        print("多交易对回测结果（axond 汇总）")
     else:
         print("回测结果")
     print("=" * 70)
 
     # 投资组合回测：先打印组合整体信息
-    if is_portfolio:
-        portfolio = normal_results['portfolio']
-        portfolio_metrics = portfolio.get('metrics', {})
+    # 多品种(axond 汇总)也走这一段,但 metrics 从 normal_results['metrics'] 取
+    if is_aggregated:
+        if is_portfolio:
+            portfolio = normal_results['portfolio']
+            portfolio_metrics = portfolio.get('metrics', {})
+        else:
+            # 多品种路径 metrics 在 normal_results['metrics'],非 portfolio
+            portfolio_metrics = normal_results.get('metrics', {})
 
-        print("\n【投资组合整体表现】")
+        # 跨品种总交易次数:多品种累加输出 trade_count 字段,投资组合用 total_trades
+        # (axon 适配层没 total_trades 字段,实际数据放在 trade_count)
+        if is_multi_symbol:
+            total_trade_count = portfolio_metrics.get('trade_count', 0)
+        else:
+            total_trade_count = portfolio_metrics.get('total_trades', 0)
+
+        print("\n【整体表现】")
         print(f"  初始总资金: {portfolio_metrics.get('initial_equity', 0):.2f}")
         print(f"  最终总权益: {portfolio_metrics.get('final_equity', 0):.2f}")
         print(f"  总收益率: {portfolio_metrics.get('total_return', 0):.2f}%")
         print(f"  总盈亏: {portfolio_metrics.get('total_pnl', 0):.2f}")
-        print(f"  总交易次数: {portfolio_metrics.get('total_trades', 0)}")
-        print(f"  胜率: {portfolio_metrics.get('win_rate', 0):.2f}%")
-        print(f"  最大回撤: {portfolio_metrics.get('max_drawdown', 0):.2f}%")
+        print(f"  总交易次数: {total_trade_count}")
+        # max_drawdown / win_rate 在 axon 端是 0~1 小数,这里 *100 转百分比,
+        # 避免 0.3 直接当 30% 显示(应 30.00%)或 0.00035 显示成 0.00%
+        print(f"  胜率: {portfolio_metrics.get('win_rate', 0) * 100:.4f}%")
+        print(f"  最大回撤: {portfolio_metrics.get('max_drawdown', 0) * 100:.4f}%")
         print(f"  夏普比率: {portfolio_metrics.get('sharpe_ratio', 0):.4f}")
         print(f"  总手续费: {portfolio_metrics.get('total_fees', 0):.2f}")
+        _print_data_range(portfolio_metrics)
 
         print("\n" + "-" * 70)
         print("各交易对表现")
         print("-" * 70)
 
     # 打印成功回测的结果
-    # 对于投资组合回测，交易对数据在 'symbols' 键内部
+    # 多品种(axond 汇总):交易对数据在 normal_results['results_by_symbol']
+    # 投资组合回测：交易对数据在 'symbols' 键内部
     if is_portfolio and 'symbols' in normal_results:
         symbol_results = normal_results['symbols']
+    elif is_multi_symbol and 'results_by_symbol' in normal_results:
+        symbol_results = normal_results['results_by_symbol']
     else:
         symbol_results = normal_results
 
     for key, result in symbol_results.items():
-        # 跳过非交易对的键（如 portfolio, account, _meta 等）
-        if key in ('portfolio', 'account', '_meta'):
+        # 跳过非交易对的键（如 portfolio, account, _meta, framework 键等）
+        if key in ('portfolio', 'account', '_meta', 'strategy_name', 'symbols',
+                   'timeframe', 'is_multi_symbol', 'results_by_symbol', 'metrics'):
             continue
 
         # 检查结果是否包含交易对数据的基本字段
@@ -779,14 +868,24 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
         symbol_name = result.get('symbol', key)
         print(f"\n交易对: {symbol_name}")
 
-        # 投资组合回测显示不同的信息
-        if is_portfolio:
+        # 投资组合 / 多品种回测显示不同的信息
+        if is_aggregated:
             # 从该交易对的结果中获取交易记录和盈亏
             symbol_trades = result.get('trades', [])
             symbol_metrics = result.get('metrics', {})
             symbol_pnl = symbol_metrics.get('total_pnl', 0)
-            # 统一统计口径：统计所有交易（与portfolio的total_trades一致）
-            symbol_trade_count = len(symbol_trades)
+            # 统一统计口径:多品种路径 trades 顶层(由 _aggregate_multi_results 透传) +
+            # metrics.trade_count 双兜底;单投资组合只用 trades
+            if is_multi_symbol:
+                symbol_trade_count = (
+                    len(symbol_trades) if symbol_trades
+                    else symbol_metrics.get('trade_count', 0)
+                )
+            else:
+                symbol_trade_count = (
+                    len(symbol_trades) if symbol_trades
+                    else symbol_metrics.get('total_trades', 0)
+                )
             print(f"  贡献盈亏: {symbol_pnl:.2f}")
             print(f"  交易次数: {symbol_trade_count}")
         else:
@@ -806,9 +905,16 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
                 final_position = positions[-1] if len(positions) > 0 else 0.0
             print(f"  最终持仓: {final_position:.4f}")
 
-            # 交易数量
+            # 交易数量:
+            # 优先从 result.trades 取(事件驱动有 trade records);
+            # axon 适配层没 trade records,用 metrics.fills 替代(撮合成交笔数
+            # 在回测场景下 = 交易笔数)
             trades = result.get('trades', [])
-            print(f"  交易数量: {len(trades)}")
+            metrics_inner = result.get('metrics', {})
+            trade_count = len(trades) if trades else metrics_inner.get('total_trades', 0)
+            print(f"  交易数量: {trade_count}")
+            # 回测数据时间范围(纳秒 → ISO)
+            _print_data_range(metrics_inner)
 
             # 指标
             metrics = result.get('metrics', {})
@@ -859,10 +965,20 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
     print("\n" + "=" * 70)
     print("统计摘要")
     print("=" * 70)
-    if is_portfolio:
-        symbol_count = len([k for k in normal_results.keys() if k != 'portfolio'])
+    if is_aggregated:
+        if is_multi_symbol:
+            # 多品种(axond 汇总)symbol_count 直接读 results_by_symbol 长度
+            # 旧逻辑用 len(normal_results) = 6 (5 个框架键 + results_by_symbol) → 2 个品种显示 6 个
+            symbol_count = len(normal_results.get('results_by_symbol', {}))
+        else:
+            # 投资组合:排除 portfolio / account 框架键
+            symbol_count = len([
+                k for k in normal_results.keys()
+                if k not in ('portfolio', 'account')
+            ])
         print(f"  交易对数量: {symbol_count} 个")
-        print(f"  初始总资金: {portfolio_metrics.get('initial_equity', 0):.2f} (共享资金池)")
+        if is_portfolio:
+            print(f"  初始总资金: {portfolio_metrics.get('initial_equity', 0):.2f} (共享资金池)")
         print(f"  最终总权益: {portfolio_metrics.get('final_equity', 0):.2f}")
     else:
         print(f"  成功回测: {len(normal_results)} 个货币对")

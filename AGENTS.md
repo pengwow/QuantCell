@@ -98,25 +98,21 @@ class Order:
     order_id: str = ""
 ```
 
-### UnifiedStrategy — 统一策略基类
+### Action — 统一策略输出
 
 ```python
-# backend/strategy/core/unified_strategy.py
-from abc import ABC, abstractmethod
+# axon_quant (Rust 核心)
+from axon_quant import Action, ActionType
 
-class StrategyContext:
-    """策略上下文 — 注入交易接口"""
-    def get_position(self, symbol: str) -> float: ...
-
-class UnifiedStrategy(ABC):
-    """统一策略基类 — axon风格 (float/str)"""
-    
-    def on_start(self, ctx: StrategyContext) -> None: ...
-    
-    @abstractmethod
-    def on_bar(self, bar: Bar, ctx: StrategyContext) -> list[Order]: ...
-    
-    def on_stop(self, ctx: StrategyContext) -> None: ...
+# Action 是所有策略的统一输出
+# ActionType: Buy, Sell, Hold, ReduceLong, ReduceShort
+action = Action(
+    action_type=ActionType.Buy,
+    confidence=0.8,
+    target_position=0.1,
+    model_id="dual_ma",
+    inference_time_us=0,
+)
 ```
 
 ### TradingEngine — 核心引擎
@@ -126,9 +122,9 @@ class UnifiedStrategy(ABC):
 class TradingEngine:
     def __init__(self, config: EngineConfig): ...
     
-    def register_strategy(self, strategy: UnifiedStrategy, symbols: list[str]) -> str: ...
+    def register_strategy(self, strategy: RuleStrategy, symbols: list[str]) -> str: ...
     def list_strategies(self) -> list[dict]: ...
-    def run_backtest(self, strategy: UnifiedStrategy, data: pd.DataFrame, symbol: str) -> BacktestResult: ...
+    def run_backtest(self, strategy: RuleStrategy, data: pd.DataFrame, symbol: str) -> BacktestResult: ...
 ```
 
 ### BacktestLoop — 回测循环
@@ -145,64 +141,83 @@ class BacktestResult:
 
 class BacktestLoop:
     def __init__(self, initial_cash: float = 100_000.0): ...
-    def run(self, strategy: UnifiedStrategy, data: pd.DataFrame, symbol: str) -> BacktestResult: ...
+    def run(self, strategy: RuleStrategy, data: pd.DataFrame, symbol: str) -> BacktestResult: ...
 ```
 
 ### StrategyLoop — 实盘循环
 
 ```python
-# backend/axond/strategy_loop.py
+# backend/strategy/loop.py
 class StrategyLoop:
-    def __init__(self, adapter, strategy: UnifiedStrategy, symbol: str, interval: float = 1.0): ...
+    def __init__(self, adapter, strategy: RuleStrategy, symbol: str, interval: float = 1.0): ...
     def start(self): ...
     def stop(self): ...
 ```
 
 ## 策略编写示例
 
-```python
-from strategy.core.unified_strategy import UnifiedStrategy, StrategyContext
-from strategy.core.bar import Bar
-from strategy.core.order import Order, OrderSide
+### 规则策略（on_bar → Action）
 
-class DualMAStrategy(UnifiedStrategy):
-    def __init__(self, fast_period=5, slow_period=20):
-        self.fast_period = fast_period
-        self.slow_period = slow_period
+```python
+from axon_quant import Action, ActionType
+
+class DualMA:
+    def __init__(self, fast=10, slow=30):
+        self.fast, self.slow = fast, slow
         self.closes = []
-        self.position = 0.0
-    
-    def on_bar(self, bar: Bar, ctx: StrategyContext) -> list[Order]:
-        self.closes.append(bar.close)
-        if len(self.closes) < self.slow_period:
-            return []
-        
-        fast_ma = sum(self.closes[-self.fast_period:]) / self.fast_period
-        slow_ma = sum(self.closes[-self.slow_period:]) / self.slow_period
-        
-        if fast_ma > slow_ma and self.position == 0:
-            self.position = 0.1
-            return [Order(symbol=bar.symbol, side=OrderSide.BUY, quantity=0.1)]
-        elif fast_ma < slow_ma and self.position > 0:
-            self.position = 0.0
-            return [Order(symbol=bar.symbol, side=OrderSide.SELL, quantity=0.1)]
-        return []
+
+    def on_bar(self, bar: dict) -> Action:
+        self.closes.append(bar["close"])
+        if len(self.closes) < self.slow:
+            return Action(ActionType.Hold, 0.0, 0.0, "dual_ma", 0)
+
+        fast_ma = sum(self.closes[-self.fast:]) / self.fast
+        slow_ma = sum(self.closes[-self.slow:]) / self.slow
+
+        if fast_ma > slow_ma:
+            return Action(ActionType.Buy, 0.8, 0.1, "dual_ma", 0)
+        elif fast_ma < slow_ma:
+            return Action(ActionType.Sell, 0.8, 0.0, "dual_ma", 0)
+        return Action(ActionType.Hold, 0.0, 0.0, "dual_ma", 0)
+```
+
+### RL 策略（TradingEnv + Action）
+
+```python
+from axon_quant.rl import TradingEnv
+from stable_baselines3 import PPO
+
+env = TradingEnv(config={...}, action_space="discrete", market_data=df, reward="sharpe")
+model = PPO("MlpPolicy", env)
+model.learn(total_timesteps=10_000)
+```
+
+### 回测
+
+```python
+from backtest.backtest_loop import BacktestLoop, RuleStrategy
+
+loop = BacktestLoop(initial_cash=100_000)
+result = loop.run(strategy, data, symbol="BTCUSDT")
+print(f"PnL: {result.total_pnl}, Sharpe: {result.sharpe_ratio}")
 ```
 
 ## 关键文件
 
 | 文件 | 用途 |
 |------|------|
-| `strategy/core/bar.py` | Bar 数据类 |
-| `strategy/core/order.py` | Order + OrderSide |
-| `strategy/core/unified_strategy.py` | UnifiedStrategy + StrategyContext |
+| `strategy/core/__init__.py` | 导出 axon_quant 类型 |
+| `strategy/service.py` | 策略管理服务 |
+| `strategy/routes.py` | 策略 API 路由 |
+| `strategy/loop.py` | StrategyLoop 实盘 |
 | `engine/trading_engine.py` | TradingEngine 核心 |
 | `engine/config.py` | EngineConfig |
-| `backtest/backtest_loop.py` | BacktestLoop 回测 |
-| `axond/strategy_loop.py` | StrategyLoop 实盘 |
+| `backtest/backtest_loop.py` | BacktestLoop + RuleStrategy |
+| `rl/service.py` | RL 训练服务 |
+| `rl/routes.py` | RL API 路由 |
 
 ## 测试
 
 ```bash
-cd backend && .venv/bin/python -m pytest tests/unit/engine/ -v
+cd backend && .venv/bin/python -m pytest tests/unit/ai_model/ -v
 ```

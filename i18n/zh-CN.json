@@ -288,6 +288,8 @@
   "model_name": "模型名称",
   "please_enter_model_name": "请输入模型名称",
   "enter_model_name": "输入模型名称",
+  "available_models": "可用模型",
+  "click_check_to_fetch_models": "请先点击「检查可用性」获取模型列表",
   "select_model": "选择模型",
   "manage_models": "管理模型",
   "current_model": "当前模型",

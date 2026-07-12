@@ -14,301 +14,145 @@ export interface MockStrategyResponse {
 // 示例策略代码模板
 const strategyTemplates: Record<string, string> = {
   双均线: `# -*- coding: utf-8 -*-
-"""
-双均线交叉策略
-基于用户请求自动生成
-"""
+"""双均线交叉策略 — axon_quant 规则策略"""
 
-from __future__ import annotations
-from decimal import Decimal
-from typing import Any, Dict, List
-
-from strategy.core import (
-    StrategyBase,
-    StrategyConfig,
-    Bar,
-    InstrumentId,
-)
+from axon_quant import Action, ActionType
 
 
-class DualMAConfig(StrategyConfig):
-    """双均线策略配置"""
+class DualMA:
+    """双均线交叉策略"""
 
-    def __init__(
-        self,
-        instrument_ids: List[InstrumentId],
-        bar_types: List[str],
-        fast_period: int = 10,
-        slow_period: int = 20,
-        trade_size: Decimal = Decimal("0.1"),
-        log_level: str = "INFO",
-    ):
-        super().__init__(instrument_ids, bar_types, trade_size, log_level)
-        self.fast_period = fast_period
-        self.slow_period = slow_period
-
-
-class DualMAStrategy(StrategyBase):
-    """
-    双均线交叉策略
-    
-    当短期均线上穿长期均线时买入，下穿时卖出
-    """
-
-    def __init__(self, config: DualMAConfig) -> None:
-        super().__init__(config)
-        self._config = config
-        self.prices: Dict[InstrumentId, List[float]] = {}
-        self.fast_ma: Dict[InstrumentId, float] = {}
-        self.slow_ma: Dict[InstrumentId, float] = {}
-
-        for instrument_id in config.instrument_ids:
-            self.prices[instrument_id] = []
-
-    def calculate_ma(self, prices: List[float], period: int) -> float:
-        """计算移动平均线"""
-        if len(prices) < period:
-            return 0.0
-        return sum(prices[-period:]) / period
+    def __init__(self, fast: int = 10, slow: int = 20):
+        self.fast = fast
+        self.slow = slow
+        self.closes: list[float] = []
+        self._prev_fast_above_slow: bool | None = None
 
     def on_start(self) -> None:
-        """策略启动"""
-        self.log_info(f"双均线策略启动 - 快线周期:{self._config.fast_period}, 慢线周期:{self._config.slow_period}")
+        self.closes.clear()
+        self._prev_fast_above_slow = None
 
-    def on_bar(self, bar: Bar) -> None:
-        """K线数据处理"""
-        instrument_id = bar.instrument_id
-        close_price = float(bar.close)
-        self.prices[instrument_id].append(close_price)
+    def on_bar(self, bar: dict) -> Action:
+        self.closes.append(bar["close"])
 
-        # 保持历史数据
-        max_period = max(self._config.fast_period, self._config.slow_period) + 10
-        if len(self.prices[instrument_id]) > max_period:
-            self.prices[instrument_id] = self.prices[instrument_id][-max_period:]
+        if len(self.closes) < self.slow:
+            return Action(ActionType.Hold, 0.0, 0.0, "dual_ma", 0)
 
-        # 计算均线
-        if len(self.prices[instrument_id]) >= self._config.slow_period:
-            fast_ma = self.calculate_ma(self.prices[instrument_id], self._config.fast_period)
-            slow_ma = self.calculate_ma(self.prices[instrument_id], self._config.slow_period)
-            
-            prev_fast = self.fast_ma.get(instrument_id, 0)
-            prev_slow = self.slow_ma.get(instrument_id, 0)
-            
-            self.fast_ma[instrument_id] = fast_ma
-            self.slow_ma[instrument_id] = slow_ma
+        fast_ma = sum(self.closes[-self.fast:]) / self.fast
+        slow_ma = sum(self.closes[-self.slow:]) / self.slow
 
-            # 均线交叉判断
-            if prev_fast > 0 and prev_slow > 0:
-                if prev_fast <= prev_slow and fast_ma > slow_ma:
-                    # 金叉 - 买入信号
-                    if self.is_flat(instrument_id):
-                        self.log_info(f"[{instrument_id}] 金叉买入信号 - 快线:{fast_ma:.2f}, 慢线:{slow_ma:.2f}")
-                        self.buy(instrument_id, self._config.trade_size)
-                elif prev_fast >= prev_slow and fast_ma < slow_ma:
-                    # 死叉 - 卖出信号
-                    if self.is_long(instrument_id):
-                        self.log_info(f"[{instrument_id}] 死叉卖出信号 - 快线:{fast_ma:.2f}, 慢线:{slow_ma:.2f}")
-                        self.sell(instrument_id, self._config.trade_size)
+        fast_above_slow = fast_ma > slow_ma
 
-    def on_stop(self) -> None:
-        """策略停止"""
-        self.log_info("双均线策略停止")
+        if self._prev_fast_above_slow is None:
+            self._prev_fast_above_slow = fast_above_slow
+            return Action(ActionType.Hold, 0.0, 0.0, "dual_ma", 0)
+
+        if not self._prev_fast_above_slow and fast_above_slow:
+            self._prev_fast_above_slow = fast_above_slow
+            return Action(ActionType.Buy, 0.8, 0.1, "dual_ma", 0)
+
+        if self._prev_fast_above_slow and not fast_above_slow:
+            self._prev_fast_above_slow = fast_above_slow
+            return Action(ActionType.Sell, 0.8, 0.0, "dual_ma", 0)
+
+        self._prev_fast_above_slow = fast_above_slow
+        return Action(ActionType.Hold, 0.0, 0.0, "dual_ma", 0)
 `,
 
   MACD: `# -*- coding: utf-8 -*-
-"""
-MACD 策略
-基于用户请求自动生成
-"""
+"""MACD 策略 — axon_quant 规则策略"""
 
-from __future__ import annotations
-from decimal import Decimal
-from typing import Any, Dict, List
-
-from strategy.core import (
-    StrategyBase,
-    StrategyConfig,
-    Bar,
-    InstrumentId,
-)
+from axon_quant import Action, ActionType
 
 
-class MACDConfig(StrategyConfig):
-    """MACD策略配置"""
+class MACD:
+    """MACD 金叉死叉策略"""
 
-    def __init__(
-        self,
-        instrument_ids: List[InstrumentId],
-        bar_types: List[str],
-        fast_period: int = 12,
-        slow_period: int = 26,
-        signal_period: int = 9,
-        trade_size: Decimal = Decimal("0.1"),
-        log_level: str = "INFO",
-    ):
-        super().__init__(instrument_ids, bar_types, trade_size, log_level)
-        self.fast_period = fast_period
-        self.slow_period = slow_period
-        self.signal_period = signal_period
-
-
-class MACDStrategy(StrategyBase):
-    """
-    MACD 策略
-    
-    基于 MACD 指标的金叉死叉进行交易
-    """
-
-    def __init__(self, config: MACDConfig) -> None:
-        super().__init__(config)
-        self._config = config
-        self.prices: Dict[InstrumentId, List[float]] = {}
-        self.ema_fast: Dict[InstrumentId, float] = {}
-        self.ema_slow: Dict[InstrumentId, float] = {}
-        self.macd: Dict[InstrumentId, float] = {}
-        self.signal: Dict[InstrumentId, float] = {}
-
-        for instrument_id in config.instrument_ids:
-            self.prices[instrument_id] = []
-
-    def calculate_ema(self, prices: List[float], period: int) -> float:
-        """计算指数移动平均线"""
-        if len(prices) < period:
-            return sum(prices) / len(prices) if prices else 0.0
-        
-        multiplier = 2 / (period + 1)
-        ema = sum(prices[:period]) / period
-        
-        for price in prices[period:]:
-            ema = (price - ema) * multiplier + ema
-        
-        return ema
+    def __init__(self, fast: int = 12, slow: int = 26, signal: int = 9):
+        self.fast = fast
+        self.slow = slow
+        self.signal = signal
+        self.closes: list[float] = []
+        self._ema_fast = 0.0
+        self._ema_slow = 0.0
+        self._macd_values: list[float] = []
+        self._prev_macd = 0.0
+        self._prev_signal = 0.0
+        self._position_side = "flat"
 
     def on_start(self) -> None:
-        """策略启动"""
-        self.log_info("MACD策略启动")
+        self.closes.clear()
+        self._macd_values.clear()
 
-    def on_bar(self, bar: Bar) -> None:
-        """K线数据处理"""
-        instrument_id = bar.instrument_id
-        close_price = float(bar.close)
-        self.prices[instrument_id].append(close_price)
+    def on_bar(self, bar: dict) -> Action:
+        self.closes.append(bar["close"])
 
-        # 保持历史数据
-        max_period = self._config.slow_period + self._config.signal_period + 20
-        if len(self.prices[instrument_id]) > max_period:
-            self.prices[instrument_id] = self.prices[instrument_id][-max_period:]
+        if len(self.closes) < self.slow:
+            return Action(ActionType.Hold, 0.0, 0.0, "macd", 0)
 
-        # 计算 MACD
-        if len(self.prices[instrument_id]) >= self._config.slow_period:
-            ema_fast = self.calculate_ema(self.prices[instrument_id], self._config.fast_period)
-            ema_slow = self.calculate_ema(self.prices[instrument_id], self._config.slow_period)
-            macd = ema_fast - ema_slow
-            
-            # 计算信号线 (MACD的EMA)
-            macd_values = list(self.macd.values())[-self._config.signal_period:] + [macd]
-            signal = sum(macd_values[-self._config.signal_period:]) / min(len(macd_values), self._config.signal_period)
-            
-            prev_macd = self.macd.get(instrument_id, 0)
-            prev_signal = self.signal.get(instrument_id, 0)
-            
-            self.ema_fast[instrument_id] = ema_fast
-            self.ema_slow[instrument_id] = ema_slow
-            self.macd[instrument_id] = macd
-            self.signal[instrument_id] = signal
+        # EMA 计算
+        mult_f = 2 / (self.fast + 1)
+        mult_s = 2 / (self.slow + 1)
 
-            # MACD 交叉判断
-            if prev_macd != 0 and prev_signal != 0:
-                if prev_macd <= prev_signal and macd > signal:
-                    # MACD 上穿信号线 - 买入
-                    if self.is_flat(instrument_id):
-                        self.log_info(f"[{instrument_id}] MACD金叉买入信号")
-                        self.buy(instrument_id, self._config.trade_size)
-                elif prev_macd >= prev_signal and macd < signal:
-                    # MACD 下穿信号线 - 卖出
-                    if self.is_long(instrument_id):
-                        self.log_info(f"[{instrument_id}] MACD死叉卖出信号")
-                        self.sell(instrument_id, self._config.trade_size)
+        if self._ema_fast == 0:
+            self._ema_fast = sum(self.closes[:self.fast]) / self.fast
+            self._ema_slow = sum(self.closes[:self.slow]) / self.slow
+        else:
+            self._ema_fast = (bar["close"] - self._ema_fast) * mult_f + self._ema_fast
+            self._ema_slow = (bar["close"] - self._ema_slow) * mult_s + self._ema_slow
 
-    def on_stop(self) -> None:
-        """策略停止"""
-        self.log_info("MACD策略停止")
+        macd = self._ema_fast - self._ema_slow
+        self._macd_values.append(macd)
+
+        sig = sum(self._macd_values[-self.signal:]) / min(len(self._macd_values), self.signal)
+
+        if self._prev_macd != 0 and self._prev_signal != 0:
+            if self._prev_macd <= self._prev_signal and macd > sig and self._position_side == "flat":
+                self._position_side = "long"
+                self._prev_macd = macd
+                self._prev_signal = sig
+                return Action(ActionType.Buy, 0.8, 0.1, "macd", 0)
+            if self._prev_macd >= self._prev_signal and macd < sig and self._position_side == "long":
+                self._position_side = "flat"
+                self._prev_macd = macd
+                self._prev_signal = sig
+                return Action(ActionType.Sell, 0.8, 0.0, "macd", 0)
+
+        self._prev_macd = macd
+        self._prev_signal = sig
+        return Action(ActionType.Hold, 0.0, 0.0, "macd", 0)
 `,
 
   默认: `# -*- coding: utf-8 -*-
-"""
-AI 生成的策略
-基于用户请求自动生成
-"""
+"""AI 生成的策略 — axon_quant 规则策略"""
 
-from __future__ import annotations
-from decimal import Decimal
-from typing import Any, Dict, List
-
-from strategy.core import (
-    StrategyBase,
-    StrategyConfig,
-    Bar,
-    InstrumentId,
-)
+from axon_quant import Action, ActionType
 
 
-class AIGeneratedConfig(StrategyConfig):
-    """AI生成策略配置"""
+class AIStrategy:
+    """AI 生成的策略"""
 
-    def __init__(
-        self,
-        instrument_ids: List[InstrumentId],
-        bar_types: List[str],
-        trade_size: Decimal = Decimal("0.1"),
-        log_level: str = "INFO",
-    ):
-        super().__init__(instrument_ids, bar_types, trade_size, log_level)
-
-
-class AIGeneratedStrategy(StrategyBase):
-    """
-    AI 生成的策略
-    
-    根据您的需求自动生成的策略实现
-    """
-
-    def __init__(self, config: AIGeneratedConfig) -> None:
-        super().__init__(config)
-        self._config = config
-        self.prices: Dict[InstrumentId, List[float]] = {}
-
-        for instrument_id in config.instrument_ids:
-            self.prices[instrument_id] = []
+    def __init__(self):
+        self.closes: list[float] = []
 
     def on_start(self) -> None:
-        """策略启动"""
-        self.log_info("AI生成策略启动")
+        self.closes.clear()
 
-    def on_bar(self, bar: Bar) -> None:
-        """K线数据处理"""
-        instrument_id = bar.instrument_id
-        close_price = float(bar.close)
-        self.prices[instrument_id].append(close_price)
+    def on_bar(self, bar: dict) -> Action:
+        self.closes.append(bar["close"])
 
-        # 保持历史数据
-        if len(self.prices[instrument_id]) > 100:
-            self.prices[instrument_id] = self.prices[instrument_id][-100:]
+        if len(self.closes) < 2:
+            return Action(ActionType.Hold, 0.0, 0.0, "ai_strategy", 0)
 
-        # 简单的示例逻辑：价格高于前一期买入，低于卖出
-        if len(self.prices[instrument_id]) >= 2:
-            prev_price = self.prices[instrument_id][-2]
-            
-            if close_price > prev_price and self.is_flat(instrument_id):
-                self.log_info(f"[{instrument_id}] 价格上涨，买入信号")
-                self.buy(instrument_id, self._config.trade_size)
-            elif close_price < prev_price and self.is_long(instrument_id):
-                self.log_info(f"[{instrument_id}] 价格下跌，卖出信号")
-                self.sell(instrument_id, self._config.trade_size)
+        prev = self.closes[-2]
+        curr = bar["close"]
 
-    def on_stop(self) -> None:
-        """策略停止"""
-        self.log_info("AI生成策略停止")
+        if curr > prev:
+            return Action(ActionType.Buy, 0.6, 0.1, "ai_strategy", 0)
+        elif curr < prev:
+            return Action(ActionType.Sell, 0.6, 0.0, "ai_strategy", 0)
+
+        return Action(ActionType.Hold, 0.0, 0.0, "ai_strategy", 0)
 `,
 };
 
