@@ -14,6 +14,7 @@ from .api.scheduled_tasks import router as scheduled_tasks_router
 from .api.market_data import router as market_data_router
 from .api.exchanges import router as exchanges_router
 from .api.system import router as system_router
+from .api.archive import router as archive_router
 from .db.models import Task
 from .schemas import ApiResponse, DataConvertRequest, DataDownloadRequest
 # from .scripts.convert_to_qlib import convert_crypto_to_qlib
@@ -39,6 +40,9 @@ router.include_router(exchanges_router)
 
 # 注册系统管理API路由
 router.include_router(system_router)
+
+# 注册归档数据API路由
+router.include_router(archive_router)
 
 # 创建数据处理API路由子路由
 router_data = APIRouter(prefix="/data", tags=["data-processing"])
