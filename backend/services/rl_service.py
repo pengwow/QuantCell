@@ -224,8 +224,9 @@ class RLService:
 
         Requires axon_quant. Raises RuntimeError if not available.
         """
-        import axon_quant
-        if not hasattr(axon_quant, 'rl') or not hasattr(axon_quant.rl, 'TradingEnv'):
+        # 走适配层检查可用性,避免业务代码直连 axon_quant
+        from axon_bridge import rl as _rl_bridge
+        if not hasattr(_rl_bridge, 'TradingEnv'):
             raise RuntimeError(
                 "axon_quant.rl.TradingEnv 不可用，请安装 axon_quant: pip install axon_quant"
             )
@@ -237,7 +238,7 @@ class RLService:
 
         market_data = df.to_dict("records")
         config = _make_env_config(max_steps=len(df))
-        return axon_quant.rl.TradingEnv(config=config, market_data=market_data, reward=reward_type)
+        return _rl_bridge.TradingEnv(config=config, market_data=market_data, reward=reward_type)
 
     def train(self, config: RLTrainConfig) -> RLTrainResult:
         """Execute RL training with stable-baselines3 and save model.
