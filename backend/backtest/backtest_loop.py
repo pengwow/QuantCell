@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from axon_quant import (
+from axon_bridge import (
     Action,
     BacktestEngine as _AxonBacktestEngine,
 )

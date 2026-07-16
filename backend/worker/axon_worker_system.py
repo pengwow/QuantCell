@@ -391,7 +391,7 @@ class AxonTradingSystem:
         # 创建策略实例
         if strategy_instance is None:
             # 加载失败时使用占位空策略，避免阻断启动流程
-            from axon_quant import Action
+            from axon_bridge import Action
             from backtest.backtest_loop import RuleStrategy
 
             class _PlaceholderStrategy(RuleStrategy):

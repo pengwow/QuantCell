@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from axon_quant.risk import DefaultRiskEngine, make_order, make_portfolio, make_risk_config
+from axon_bridge.risk import DefaultRiskEngine, make_order, make_portfolio, make_risk_config
 
 
 class RiskMonitor:

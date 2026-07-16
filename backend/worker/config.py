@@ -23,7 +23,7 @@ logger = get_logger(__name__, LogType.SYSTEM)
 AXON_AVAILABLE = True
 
 try:
-    from axon_quant.exchange import (
+    from axon_bridge.exchange import (
         ExchangeConfig,
         ExchangeId,
         ExchangeError,

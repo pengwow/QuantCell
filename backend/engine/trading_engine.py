@@ -18,12 +18,12 @@ from .strategy_runtime import StrategyRuntime
 from backtest.backtest_loop import BacktestLoop, BacktestResult, RuleStrategy
 from strategy.loop import StrategyLoop
 
-from axon_quant.exchange import (
+from axon_bridge.exchange import (
     BinanceAdapter,
     OkxAdapter,
     ExchangeConfig,
 )
-from axon_quant.risk import (
+from axon_bridge.risk import (
     DefaultRiskEngine,
     RiskConfig,
 )

@@ -16,6 +16,8 @@ from ._credentials import credentials  # noqa: F401
 # 核心数据类(直接重导出,零转译)
 # 这些是 axon_quant 0.4.0 顶层实际暴露的类
 from axon_quant import (  # noqa: F401
+    # 核心动作 / 观测
+    Action, ActionType, Observation, RunResult,
     # data
     DataService, MockSource, Frequency, DataRequest, DataError,
     # backtest
