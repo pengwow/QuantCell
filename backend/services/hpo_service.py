@@ -11,10 +11,10 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# axon_quant 导入（可选）
+# 走适配层,而非直连 axon_quant
 try:
-    from axon_quant import hpo as _hpo
-    from axon_quant import walk_forward as _walk_forward
+    from axon_bridge import hpo as _hpo
+    from axon_bridge import walk_forward as _walk_forward
     AXON_AVAILABLE = True
 except ImportError:
     AXON_AVAILABLE = False
