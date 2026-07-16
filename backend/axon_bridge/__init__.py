@@ -11,6 +11,8 @@
 包名说明:本目录命名为 axon_bridge 而非 axon_quant,避免与
 site-packages 的 axon_quant 同名导致循环导入。
 """
+from ._credentials import credentials  # noqa: F401
+
 # 核心数据类(直接重导出,零转译)
 # 这些是 axon_quant 0.4.0 顶层实际暴露的类
 from axon_quant import (  # noqa: F401
