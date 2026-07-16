@@ -205,3 +205,94 @@ export interface QualityReport {
   start_time: string;
   end_time: string;
 }
+
+// ==================== Binance 归档采集类型 ====================
+
+/**
+ * 归档数据种类（共 7 种）
+ * - aggTrades/trades/bookDepth/bookTicker 为非 K 线类，无需 interval
+ * - markPriceKlines/indexPriceKlines/premiumIndexKlines 为 K 线类，必须传 interval
+ */
+export type ArchiveKind =
+  | 'aggTrades'
+  | 'trades'
+  | 'bookDepth'
+  | 'bookTicker'
+  | 'markPriceKlines'
+  | 'indexPriceKlines'
+  | 'premiumIndexKlines';
+
+/**
+ * 市场类型（spot=现货 / um=USDT 永续 / cm=币本位永续）
+ */
+export type MarketType = 'spot' | 'um' | 'cm';
+
+/** 全部 7 种归档种类，按 UI 展示顺序 */
+export const ARCHIVE_KINDS: ArchiveKind[] = [
+  'aggTrades',
+  'trades',
+  'bookDepth',
+  'bookTicker',
+  'markPriceKlines',
+  'indexPriceKlines',
+  'premiumIndexKlines',
+];
+
+/** 3 个 K 线类（需要 interval 参数） */
+export const KLINE_ARCHIVE_KINDS: ArchiveKind[] = [
+  'markPriceKlines',
+  'indexPriceKlines',
+  'premiumIndexKlines',
+];
+
+/** 3 个市场 */
+export const ARCHIVE_MARKETS: MarketType[] = ['spot', 'um', 'cm'];
+
+/** K 线类支持的 interval 列表 */
+export const ARCHIVE_INTERVALS: string[] = [
+  '1m',
+  '3m',
+  '5m',
+  '15m',
+  '30m',
+  '1h',
+  '2h',
+  '1d',
+];
+
+/**
+ * 创建归档下载任务的请求体（与后端 DownloadRequest 对齐）
+ */
+export interface ArchiveTaskRequest {
+  symbols: string[];
+  kind: ArchiveKind;
+  market: MarketType;
+  start_date: string; // YYYY-MM-DD
+  end_date: string; // YYYY-MM-DD
+  mode: 'inc' | 'full';
+  /** K 线类必填；非 K 线类传 undefined */
+  interval?: string;
+}
+
+/**
+ * 归档数据行（duck typing：aggTrades/trades/bookDepth 等字段不固定）
+ * 统一用宽松的 string|number|boolean|null 表示，避免每个 kind 写一套
+ */
+export interface ArchiveRow {
+  [key: string]: string | number | boolean | null;
+}
+
+/**
+ * _meta.json 内容（collector 写入的元信息）
+ */
+export interface ArchiveMeta {
+  symbol: string;
+  kind: string;
+  market: string;
+  earliest_date: string;
+  latest_date: string;
+  total_rows: number;
+  file_count: number;
+  corrupt_dates: string[];
+  updated_at: string;
+}
