@@ -16,7 +16,11 @@ import {
   Progress,
   Spin,
   Empty,
-  message
+  message,
+  Segmented,
+  Checkbox,
+  Radio,
+  Alert
 } from 'antd';
 import {
   IconDownload,
@@ -24,8 +28,15 @@ import {
 } from '@tabler/icons-react';
 import PageContainer from '@/components/PageContainer';
 import { dataApi } from '@/api/dataApi';
+import { archiveApi } from '@/api/archiveApi';
 import { wsService } from '@/services/websocketService';
-import type { Task } from '@/types/data';
+import type { Task, ArchiveKind, MarketType } from '@/types/data';
+import {
+  ARCHIVE_KINDS,
+  KLINE_ARCHIVE_KINDS,
+  ARCHIVE_MARKETS,
+  ARCHIVE_INTERVALS
+} from '@/types/data';
 import { setPageTitle } from '@/utils/pageTitle';
 
 const { Text } = Typography;
@@ -56,6 +67,21 @@ const DataCollectionPage = () => {
   // 品种选项数据
   const [symbolOptions, setSymbolOptions] = useState<Array<{ value: string; label: string; type: string; symbols?: string[] }>>([]);
   const [symbolOptionsLoading, setSymbolOptionsLoading] = useState(false);
+
+  // ==================== 归档采集状态 ====================
+  // 顶部 Segmented 切换：'kline' 走现有 K 线流程；'archive' 走归档 6 端点
+  const [taskType, setTaskType] = useState<'kline' | 'archive'>('kline');
+  // 7 种归档 kind 多选
+  const [archiveKinds, setArchiveKinds] = useState<ArchiveKind[]>(['aggTrades']);
+  // 3 个 market 单选
+  const [archiveMarket, setArchiveMarket] = useState<MarketType>('spot');
+  // K 线类必填的 interval（K 线类勾选时显示与提交）
+  const [archiveInterval, setArchiveInterval] = useState<string>('1h');
+  // 归档下载提交的 loading 态
+  const [archiveSubmitting, setArchiveSubmitting] = useState(false);
+
+  // 是否选中了 K 线类，决定 interval 字段是否显示
+  const hasKlineKind = archiveKinds.some((k) => KLINE_ARCHIVE_KINDS.includes(k));
 
   // 设置表单默认日期范围
   useEffect(() => {
@@ -188,8 +214,66 @@ const DataCollectionPage = () => {
         }
       }
 
+      const symbolList = Array.from(mergedSymbols);
+
+      // ============== 归档采集分支 ==============
+      // 多选 kind 时后端拆为多个并发子任务（每个 kind 一个 task，互不阻塞）
+      if (taskType === 'archive') {
+        if (archiveKinds.length === 0) {
+          message.warning('请至少选择一种归档数据种类');
+          return;
+        }
+        if (hasKlineKind && !archiveInterval) {
+          message.warning('K 线类归档必须选择 interval');
+          return;
+        }
+
+        setArchiveSubmitting(true);
+        try {
+          // 公共 start_date/end_date：从 Form 里的 start/end 提取
+          const startDate = values.start ? values.start.format('YYYY-MM-DD') : '';
+          const endDate = values.end ? values.end.format('YYYY-MM-DD') : '';
+          if (!startDate || !endDate) {
+            message.warning('请选择日期范围');
+            setArchiveSubmitting(false);
+            return;
+          }
+
+          // 并发提交，每个 kind 一个 task；失败不阻塞其他
+          const results = await Promise.allSettled(
+            archiveKinds.map((kind) =>
+              archiveApi.downloadTask({
+                symbols: symbolList,
+                kind,
+                market: archiveMarket,
+                start_date: startDate,
+                end_date: endDate,
+                mode: 'inc',
+                // K 线类才需要 interval；非 K 线类不传
+                interval: KLINE_ARCHIVE_KINDS.includes(kind) ? archiveInterval : undefined,
+              })
+            )
+          );
+
+          const success = results.filter((r) => r.status === 'fulfilled').length;
+          const failed = results.length - success;
+          if (failed === 0) {
+            message.success(`已提交 ${success} 个归档任务`);
+          } else {
+            message.warning(`提交完成: 成功 ${success} 个, 失败 ${failed} 个`);
+          }
+
+          // 刷新任务列表（归档任务类型在 list API 暂未分类，简单调一次）
+          getTasks();
+        } finally {
+          setArchiveSubmitting(false);
+        }
+        return;
+      }
+
+      // ============== 原 K 线下载分支（保持不变） ==============
       const response = await dataApi.downloadCryptoData({
-        symbols: Array.from(mergedSymbols),
+        symbols: symbolList,
         interval: values.interval || ['15m'],
         start: values.start ? values.start.format('YYYY-MM-DD') : '',
         end: values.end ? values.end.format('YYYY-MM-DD') : '',
@@ -223,16 +307,69 @@ const DataCollectionPage = () => {
       <div className="space-y-6">
         {/* 数据获取配置 */}
         <Card title="数据获取" className="shadow-sm">
+          {/* 顶部：数据源类型切换（K 线 / 归档） */}
+          <div className="mb-4">
+            <Segmented<'kline' | 'archive'>
+              value={taskType}
+              onChange={(v) => setTaskType(v)}
+              options={[
+                { label: 'K 线数据', value: 'kline' },
+                { label: '归档数据 (Binance)', value: 'archive' },
+              ]}
+            />
+          </div>
+
           <Form
             form={collectionForm}
             layout="vertical"
           >
-            {/* 第一行：品种和周期 */}
-            <Space.Compact className="w-full">
+            {/* 第一行：品种和周期（K 线模式显示） */}
+            {taskType === 'kline' && (
+              <Space.Compact className="w-full">
+                <Form.Item
+                  name="symbols"
+                  label="品种"
+                  className="flex-1 mr-4"
+                  rules={[{ required: true, message: '请选择品种' }]}
+                >
+                  <Select
+                    mode="multiple"
+                    options={symbolOptions}
+                    loading={symbolOptionsLoading}
+                    showSearch
+                    placeholder="请选择或搜索品种"
+                    filterOption={(input, option) => {
+                      if (!input) return true;
+                      const label = option?.label || '';
+                      return label.toLowerCase().includes(input.toLowerCase());
+                    }}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="interval"
+                  label="周期"
+                  className="flex-1"
+                  rules={[{ required: true, message: '请选择周期' }]}
+                >
+                  <Select mode="multiple" placeholder="选择周期">
+                    <Select.Option value="1m">1分钟</Select.Option>
+                    <Select.Option value="5m">5分钟</Select.Option>
+                    <Select.Option value="15m">15分钟</Select.Option>
+                    <Select.Option value="30m">30分钟</Select.Option>
+                    <Select.Option value="1h">1小时</Select.Option>
+                    <Select.Option value="4h">4小时</Select.Option>
+                    <Select.Option value="1d">1天</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Space.Compact>
+            )}
+
+            {/* 归档模式：品种（复用 K 线 symbols 选择，但用同一 Form 字段） */}
+            {taskType === 'archive' && (
               <Form.Item
                 name="symbols"
                 label="品种"
-                className="flex-1 mr-4"
                 rules={[{ required: true, message: '请选择品种' }]}
               >
                 <Select
@@ -248,26 +385,61 @@ const DataCollectionPage = () => {
                   }}
                 />
               </Form.Item>
+            )}
 
-              <Form.Item
-                name="interval"
-                label="周期"
-                className="flex-1"
-                rules={[{ required: true, message: '请选择周期' }]}
-              >
-                <Select mode="multiple" placeholder="选择周期">
-                  <Select.Option value="1m">1分钟</Select.Option>
-                  <Select.Option value="5m">5分钟</Select.Option>
-                  <Select.Option value="15m">15分钟</Select.Option>
-                  <Select.Option value="30m">30分钟</Select.Option>
-                  <Select.Option value="1h">1小时</Select.Option>
-                  <Select.Option value="4h">4小时</Select.Option>
-                  <Select.Option value="1d">1天</Select.Option>
-                </Select>
-              </Form.Item>
-            </Space.Compact>
+            {/* 归档模式：kind 多选 + market 单选 + interval */}
+            {taskType === 'archive' && (
+              <div className="archive-form">
+                <Form.Item label="数据种类（可多选）">
+                  <Checkbox.Group
+                    value={archiveKinds}
+                    onChange={(vals) => setArchiveKinds(vals as ArchiveKind[])}
+                    className="!grid grid-cols-2 md:grid-cols-4 gap-2"
+                  >
+                    {ARCHIVE_KINDS.map((k) => (
+                      <Checkbox key={k} value={k}>
+                        {k}
+                      </Checkbox>
+                    ))}
+                  </Checkbox.Group>
+                </Form.Item>
 
-            {/* 第二行：开始时间和结束时间 */}
+                <Form.Item label="市场">
+                  <Radio.Group
+                    value={archiveMarket}
+                    onChange={(e) => setArchiveMarket(e.target.value as MarketType)}
+                  >
+                    {ARCHIVE_MARKETS.map((m) => (
+                      <Radio.Button key={m} value={m}>
+                        {m === 'spot' ? '现货' : m === 'um' ? 'USDT 永续' : '币本位'}
+                      </Radio.Button>
+                    ))}
+                  </Radio.Group>
+                </Form.Item>
+
+                {/* K 线类勾选时才需要 interval；非 K 线类隐藏避免误填 */}
+                {hasKlineKind && (
+                  <Form.Item label="Interval（K 线类必选）">
+                    <Select
+                      value={archiveInterval}
+                      onChange={(v) => setArchiveInterval(v)}
+                      style={{ width: 200 }}
+                      options={ARCHIVE_INTERVALS.map((i) => ({ value: i, label: i }))}
+                    />
+                  </Form.Item>
+                )}
+
+                <Alert
+                  type="info"
+                  showIcon
+                  className="!mb-4"
+                  message="归档采集"
+                  description={`多选 kind 时后端会拆为 ${archiveKinds.length || 0} 个并发子任务，每个 kind 一个 task，可在归档浏览 Tab 查询进度。`}
+                />
+              </div>
+            )}
+
+            {/* 第二行：开始时间和结束时间（两种模式共用） */}
             <Space.Compact className="w-full mt-4">
               <Form.Item
                 name="start"
@@ -295,8 +467,9 @@ const DataCollectionPage = () => {
                   type="primary"
                   icon={<IconDownload size={16} />}
                   onClick={handleDownload}
+                  loading={archiveSubmitting}
                 >
-                  开始下载
+                  {taskType === 'archive' ? '开始归档下载' : '开始下载'}
                 </Button>
                 <Button
                   icon={<IconRefresh size={16} />}
