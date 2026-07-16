@@ -56,7 +56,7 @@ export interface StrategyInfo {
   id: number;
   name: string;
   description?: string;
-  strategy_type: string;  // default/legacy
+  strategy_type: string;  // rule/rl
   version: string;
 }
 
@@ -68,6 +68,7 @@ export interface Worker {
   status: WorkerStatus;
   strategy_id: number;
   strategy_info?: StrategyInfo;
+  strategy_type?: string;  // rule/rl
   // 交易配置（新格式）
   trading_config?: TradingConfig;
   // 兼容旧版本字段

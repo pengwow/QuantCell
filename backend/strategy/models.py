@@ -31,6 +31,9 @@ class Strategy(Base):
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
+    # 关联关系
+    workers = relationship("Worker", back_populates="strategy", lazy="dynamic")
+
     __table_args__ = (
         Index('idx_strategy_name', 'name'),
         Index('idx_strategy_status', 'status'),

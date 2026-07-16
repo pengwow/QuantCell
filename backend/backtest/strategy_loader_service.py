@@ -468,10 +468,9 @@ class StrategyLoaderService:
             config = config_class(**filtered)
             return strategy_class(config)
         else:
-            # 直接传递参数
+            # 直接传递参数（只传策略接受的参数）
             params = dict(strategy_params)
-            if instrument_ids_list is not None:
-                params["instrument_ids"] = instrument_ids_list
-            if bar_types_list is not None:
-                params["bar_types"] = bar_types_list
-            return strategy_class(**params)
+            # 过滤：只传策略构造函数实际接受的参数
+            valid_params = {k for k in param_names if k != "self"}
+            filtered = {k: v for k, v in params.items() if k in valid_params}
+            return strategy_class(**filtered)

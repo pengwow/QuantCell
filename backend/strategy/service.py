@@ -100,15 +100,20 @@ class StrategyService:
 
     def detect_strategy_type(self, content: str) -> str:
         """检测策略类型"""
+        # 源码级检测
+        rl_indicators = ["TradingEnv", "stable_baselines3", "model.predict", "from rl."]
+        for indicator in rl_indicators:
+            if indicator in content:
+                return StrategyType.RL
         try:
             tree = ast.parse(content)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     for alias in node.names:
-                        if "TradingEnv" in alias.name or "rl" in alias.name:
+                        if "rl" in alias.name.lower():
                             return StrategyType.RL
                 if isinstance(node, ast.ImportFrom):
-                    if node.module and ("rl" in node.module or "TradingEnv" in (node.names[0].name if node.names else "")):
+                    if node.module and "rl" in node.module.lower():
                         return StrategyType.RL
         except SyntaxError:
             pass

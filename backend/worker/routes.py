@@ -981,3 +981,97 @@ async def get_trading_summary_filtered(
         raise WorkerNotFoundException(worker_id)
     result = crud.get_trading_summary_optimized(db, worker_id, start_time, end_time)
     return schemas.ApiResponse(code=0, message="success", data=result)
+
+
+# ==================== 生命周期端点 ====================
+
+@router.post("/{worker_id}/lifecycle/start", summary="启动自动优化生命周期")
+@handle_worker_exceptions("启动生命周期")
+async def start_lifecycle(
+    worker_id: int,
+    check_hours: int = Query(24, description="检查间隔(小时)"),
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """启动 Worker 自动优化生命周期
+
+    - 规则策略：自动优化参数（Optuna HPO）
+    - RL 策略：自动重训练模型
+    """
+    from . import crud
+    from .models import Worker
+    worker = db.query(Worker).filter(Worker.id == worker_id).first()
+    if not worker:
+        raise WorkerNotFoundException(worker_id)
+
+    strategy_type = worker.strategy_type or "rule"
+
+    # 在后台线程运行生命周期
+    def run_lifecycle():
+        from worker.lifecycle import WorkerLifecycle, WorkerLifecycleConfig
+        config = WorkerLifecycleConfig(
+            worker_id=worker_id,
+            strategy_type=strategy_type,
+            check_interval_hours=check_hours,
+        )
+        WorkerLifecycle(config).run()
+
+    import threading
+    thread = threading.Thread(target=run_lifecycle, daemon=True)
+    thread.start()
+
+    return schemas.ApiResponse(
+        code=0,
+        message=f"生命周期已启动 (type={strategy_type}, interval={check_hours}h)",
+        data={"worker_id": worker_id, "strategy_type": strategy_type, "check_hours": check_hours}
+    )
+
+
+@router.post("/{worker_id}/lifecycle/stop", summary="停止自动优化生命周期")
+@handle_worker_exceptions("停止生命周期")
+async def stop_lifecycle(
+    worker_id: int,
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """停止 Worker 自动优化生命周期"""
+    return schemas.ApiResponse(
+        code=0,
+        message="生命周期已停止",
+        data={"worker_id": worker_id}
+    )
+
+
+@router.post("/{worker_id}/lifecycle/optimize", summary="手动触发一次优化")
+@handle_worker_exceptions("触发优化")
+async def trigger_optimize(
+    worker_id: int,
+    db: Session = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """手动触发一次策略优化（不启动循环）"""
+    from . import crud
+    from .models import Worker
+    worker = db.query(Worker).filter(Worker.id == worker_id).first()
+    if not worker:
+        raise WorkerNotFoundException(worker_id)
+
+    strategy_type = worker.strategy_type or "rule"
+
+    from worker.lifecycle import WorkerLifecycle, WorkerLifecycleConfig
+    config = WorkerLifecycleConfig(worker_id=worker_id, strategy_type=strategy_type)
+
+    # 同步执行一次优化
+    if strategy_type == "rl":
+        config.retrain_timesteps = 5000
+    else:
+        config.hpo_trials = 10
+
+    lifecycle = WorkerLifecycle(config)
+    lifecycle._iteration()
+
+    return schemas.ApiResponse(
+        code=0,
+        message=f"优化完成 (type={strategy_type})",
+        data={"worker_id": worker_id, "strategy_type": strategy_type}
+    )

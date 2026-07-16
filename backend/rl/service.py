@@ -35,13 +35,20 @@ ACTION_MAP = {0: "hold", 1: "buy", 2: "sell", 3: "close_long", 4: "close_short"}
 
 
 class TradingEnvWrapper(gym.Env):
-    """将 axon_quant TradingEnv 包装为标准 Gymnasium 环境"""
+    """将 axon_quant TradingEnv 包装为标准 Gymnasium 环境
+
+    支持自定义奖励函数：传入 reward_fn 参数覆盖 TradingEnv 内置奖励
+    """
 
     metadata = {"render_modes": []}
 
-    def __init__(self, trading_env: TradingEnv):
+    def __init__(self, trading_env: TradingEnv, reward_fn=None):
         super().__init__()
         self._env = trading_env
+        self._reward_fn = reward_fn  # 自定义奖励函数
+        self._prev_portfolio = None
+        self._step_count = 0
+        self._trades = 0
 
         # 动作空间：离散 5 个动作
         self.action_space = gym.spaces.Discrete(5)
@@ -65,6 +72,9 @@ class TradingEnvWrapper(gym.Env):
     def reset(self, seed=None, options=None):
         result = self._env.reset()
         obs, info = self._raw_obs_to_np(result)
+        self._prev_portfolio = self._env.portfolio_value
+        self._step_count = 0
+        self._trades = 0
         return obs, info
 
     def step(self, action):
@@ -72,15 +82,34 @@ class TradingEnvWrapper(gym.Env):
 
         # TradingEnv.step() 返回 5 元组
         if len(result) == 5:
-            obs_raw, reward, terminated, truncated, info = result
+            obs_raw, env_reward, terminated, truncated, info = result
         elif len(result) == 3:
-            obs_raw, reward, info = result
+            obs_raw, env_reward, info = result
             terminated = info.get("done", False)
             truncated = False
         else:
             raise ValueError(f"Unexpected step result length: {len(result)}")
 
         obs, _ = self._raw_obs_to_np(obs_raw)
+
+        # 计算自定义奖励
+        if self._reward_fn is not None:
+            current_portfolio = self._env.portfolio_value
+            reward = self._reward_fn(
+                prev_portfolio=self._prev_portfolio,
+                current_portfolio=current_portfolio,
+                action=action,
+                step=self._step_count,
+                info=info,
+            )
+            self._prev_portfolio = current_portfolio
+        else:
+            reward = float(env_reward)
+
+        self._step_count += 1
+        if action != 0:  # 非 hold
+            self._trades += 1
+
         return obs, float(reward), bool(terminated), bool(truncated), info
 
     def render(self):
@@ -93,11 +122,12 @@ class TradingEnvWrapper(gym.Env):
 class RLService:
     """RL 训练与推理服务"""
 
-    def train(self, config: Any) -> dict:
+    def train(self, config: Any, reward_fn=None) -> dict:
         """训练 RL 策略
 
         Args:
             config: RLTrainConfig (symbol, algorithm, timesteps, etc.)
+            reward_fn: 自定义奖励函数，签名 (prev_portfolio, current_portfolio, action, step, info) -> float
 
         Returns:
             训练结果 dict
@@ -125,7 +155,7 @@ class RLService:
             market_data=data_list,
             reward=config.reward,
         )
-        env = TradingEnvWrapper(trading_env)
+        env = TradingEnvWrapper(trading_env, reward_fn=reward_fn)
 
         # 4. 选择算法
         algo_map = {"ppo": PPO, "sac": SAC, "a2c": A2C}

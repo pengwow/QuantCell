@@ -90,6 +90,8 @@ class StrategyInfo(BaseSchema):
     updated_at: datetime = Field(default_factory=datetime.now, description="更新时间")
     code: Optional[str] = Field(default=None, description="策略代码")
     source: str = Field(default="files", description="策略来源")
+    strategy_type: Optional[str] = Field(default=None, description="策略类型 rule/rl")
+    strategy_class: Optional[str] = Field(default=None, description="策略类名")
 
 
 class StrategyListData(BaseModel):
@@ -141,6 +143,7 @@ class StrategyUploadRequest(BaseSchema):
         tags: 策略标签（可选）
         description: 策略描述（可选）
         params: 策略参数列表（可选）
+        strategy_type: 策略类型 rule/rl（可选）
     """
 
     id: Optional[int] = Field(default=None, description="策略ID（可选）")
@@ -150,6 +153,7 @@ class StrategyUploadRequest(BaseSchema):
     tags: Optional[List[str]] = Field(default=None, description="策略标签（可选）")
     description: Optional[str] = Field(default=None, description="策略描述（可选）")
     params: Optional[List[StrategyParam]] = Field(default=None, description="策略参数列表（可选）")
+    strategy_type: Optional[str] = Field(default="rule", description="策略类型 rule/rl（可选）")
 
 
 class StrategyDetailRequest(BaseSchema):
