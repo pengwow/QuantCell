@@ -27,16 +27,23 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import pytest
-from utils.logger import get_logger, LogType
 
 # 获取模块日志器
+from utils.logger import get_logger, LogType  # noqa: E402
+
 logger = get_logger(__name__, LogType.APPLICATION)
 # 确保能够导入后端模块
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from backtest.engines import LegacyEngine, Engine
-from backtest.config import EngineType
+# 这些测试在 commit 9866f56 中已经不再适用（向量化回测引擎 Engine/LegacyEngine 已删除）
+try:
+    from backtest.engines import Engine  # noqa: E402
+except ImportError:
+    pytest.skip("VectorEngine/LegacyEngine 在 commit 9866f56 中删除;事件驱动回测由 axon_quant 提供", allow_module_level=True)
+
+from backtest.engines import LegacyEngine  # noqa: E402
+from backtest.config import EngineType  # noqa: E402
 
 
 # =============================================================================
