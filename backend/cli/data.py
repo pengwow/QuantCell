@@ -2490,5 +2490,168 @@ def quality_resolve(
         raise typer.Exit(1)
 
 
+# ========== 归档数据 (Binance 历史 tick/K 线) 子命令 ==========
+
+# 创建归档数据子命令
+archive_app = typer.Typer(help="Binance 历史归档数据 (7 种 × 3 个市场) 下载与管理")
+
+
+def _split_symbols(raw: str) -> List[str]:
+    """把 'BTCUSDT,ETHUSDT' 拆成 ['BTCUSDT', 'ETHUSDT']."""
+    return [s.strip() for s in raw.split(',') if s.strip()]
+
+
+@archive_app.command("download")
+def archive_download(
+    kind: Annotated[str, typer.Option("--kind", "-k", help="数据种类: aggTrades/trades/bookDepth/bookTicker/markPriceKlines/indexPriceKlines/premiumIndexKlines")],
+    market: Annotated[str, typer.Option("--market", "-m", help="市场: spot/um/cm")],
+    symbols: Annotated[str, typer.Option("--symbols", "-s", help="交易对列表, 逗号分隔, 例如 BTCUSDT,ETHUSDT")],
+    start: Annotated[str, typer.Option("--start", help="起始日期 YYYY-MM-DD")],
+    end: Annotated[str, typer.Option("--end", help="结束日期 YYYY-MM-DD")],
+    mode: Annotated[str, typer.Option("--mode", help="下载模式: inc (增量) / full (全量)")] = "inc",
+    interval: Annotated[Optional[str], typer.Option("--interval", "-i", help="K 线类需要: 1m/3m/5m/15m/30m/1h/2h/1d")] = None,
+):
+    """
+    创建 Binance 历史归档下载任务 (后台异步执行)。
+
+    示例:
+      # 下载 spot/aggTrades
+      quantcell data archive download -k aggTrades -m spot -s BTCUSDT,ETHUSDT --start 2024-12-01 --end 2024-12-02
+
+      # 下载 um/markPriceKlines (1h)
+      quantcell data archive download -k markPriceKlines -m um -s BTCUSDT --start 2024-12-01 --end 2024-12-02 --interval 1h
+    """
+    try:
+        from collector.config import get_archive_base_dir, get_binance_proxy
+        from collector.services.archive_service import ArchiveService
+        from exchange.binance.archive.kinds import ArchiveKind, MarketType
+
+        kind_e = ArchiveKind(kind)
+        market_e = MarketType(market)
+    except ValueError as exc:
+        typer.echo(f"❌ 错误: {exc}", err=True)
+        raise typer.Exit(1)
+
+    symbol_list = _split_symbols(symbols)
+    if not symbol_list:
+        typer.echo("❌ 错误: --symbols 不能为空", err=True)
+        raise typer.Exit(1)
+
+    if mode not in ("inc", "full"):
+        typer.echo("❌ 错误: --mode 必须是 inc 或 full", err=True)
+        raise typer.Exit(1)
+
+    svc = ArchiveService(
+        base_dir=get_archive_base_dir(),
+        proxy=get_binance_proxy(),
+    )
+    try:
+        task_id = svc.create_download_task(
+            symbols=symbol_list,
+            kind=kind_e,
+            market=market_e,
+            start_date=start,
+            end_date=end,
+            mode=mode,
+            interval=interval,
+        )
+    except ValueError as exc:
+        typer.echo(f"❌ 错误: {exc}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"✓ 归档下载任务已创建")
+    typer.echo(f"  task_id   : {task_id}")
+    typer.echo(f"  kind      : {kind_e.value}")
+    typer.echo(f"  market    : {market_e.value}")
+    typer.echo(f"  symbols   : {', '.join(symbol_list)}")
+    typer.echo(f"  日期范围  : {start} ~ {end}")
+    typer.echo(f"  mode      : {mode}")
+    if interval:
+        typer.echo(f"  interval  : {interval}")
+    typer.echo(f"  base_dir  : {svc.base_dir}")
+    typer.echo("")
+    typer.echo(f"查询进度: quantcell data archive list-tasks")
+
+
+@archive_app.command("list")
+def archive_list(
+    kind: Annotated[str, typer.Option("--kind", "-k", help="数据种类: aggTrades/trades/...")],
+    market: Annotated[str, typer.Option("--market", "-m", help="市场: spot/um/cm")],
+):
+    """
+    列出 (kind, market) 下已采集到本地的交易对。
+
+    示例:
+      quantcell data archive list -k aggTrades -m spot
+    """
+    try:
+        from collector.config import get_archive_base_dir, get_binance_proxy
+        from collector.services.archive_service import ArchiveService
+        from exchange.binance.archive.kinds import ArchiveKind, MarketType
+
+        kind_e = ArchiveKind(kind)
+        market_e = MarketType(market)
+    except ValueError as exc:
+        typer.echo(f"❌ 错误: {exc}", err=True)
+        raise typer.Exit(1)
+
+    svc = ArchiveService(
+        base_dir=get_archive_base_dir(),
+        proxy=get_binance_proxy(),
+    )
+    symbols = svc.list_symbols(kind_e, market_e)
+
+    typer.echo(f"已采集 {kind_e.value}/{market_e.value}: {len(symbols)} 个交易对")
+    typer.echo(f"base_dir: {svc.base_dir}")
+    typer.echo("-" * 60)
+    if not symbols:
+        typer.echo("  (无)")
+        return
+    # 每行 6 个, 紧凑展示
+    for i in range(0, len(symbols), 6):
+        typer.echo("  " + "  ".join(f"{s:12}" for s in symbols[i:i + 6]))
+
+
+@archive_app.command("meta")
+def archive_meta(
+    kind: Annotated[str, typer.Option("--kind", "-k", help="数据种类")],
+    market: Annotated[str, typer.Option("--market", "-m", help="市场")],
+    symbol: Annotated[str, typer.Option("--symbol", "-s", help="交易对, 例如 BTCUSDT")],
+):
+    """
+    读取某 (kind, market, symbol) 的 _meta.json。
+
+    示例:
+      quantcell data archive meta -k aggTrades -m spot -s BTCUSDT
+    """
+    try:
+        from collector.config import get_archive_base_dir, get_binance_proxy
+        from collector.services.archive_service import ArchiveService
+        from exchange.binance.archive.kinds import ArchiveKind, MarketType
+
+        kind_e = ArchiveKind(kind)
+        market_e = MarketType(market)
+    except ValueError as exc:
+        typer.echo(f"❌ 错误: {exc}", err=True)
+        raise typer.Exit(1)
+
+    svc = ArchiveService(
+        base_dir=get_archive_base_dir(),
+        proxy=get_binance_proxy(),
+    )
+    meta = svc.get_meta(kind_e, market_e, symbol)
+    typer.echo(f"{kind_e.value}/{market_e.value}/{symbol} 的元数据:")
+    typer.echo("-" * 60)
+    if not meta:
+        typer.echo("  (无 _meta.json)")
+        return
+    import json as _json
+    typer.echo(_json.dumps(meta, ensure_ascii=False, indent=2))
+
+
+# 注册归档数据子命令
+app.add_typer(archive_app, name="archive", help="Binance 历史归档数据 (7 种 × 3 个市场)")
+
+
 if __name__ == "__main__":
     app()
