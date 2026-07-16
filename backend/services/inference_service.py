@@ -10,10 +10,9 @@ import logging
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
-
-# axon_quant 导入（可选）
+# axon_quant 导入(走适配层,业务代码不直接 import 第三方包)
 try:
-    from axon_quant.inference import (
+    from axon_bridge.inference import (
         InferenceEngine as _InferenceEngine,
         BatchInferencePipeline as _BatchInferencePipeline,
         ModelConfig as _ModelConfig,

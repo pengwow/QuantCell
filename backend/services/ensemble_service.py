@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 try:
-    from axon_quant.ensemble import (
+    from axon_bridge.ensemble import (
         EnsembleManager,
         HardVoteStrategy,
         ModelType,

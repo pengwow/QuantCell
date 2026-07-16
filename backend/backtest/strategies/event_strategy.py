@@ -7,7 +7,7 @@ import datetime as dt
 from abc import abstractmethod
 from typing import Any, Optional, List
 
-from axon_quant import Action
+from axon_bridge import Action
 from backtest.backtest_loop import RuleStrategy
 from utils.logger import get_logger, LogType
 

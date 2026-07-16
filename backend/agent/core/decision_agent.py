@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from axon_quant.trading import (
+from axon_bridge.trading import (
     PlaceOrderTool,
     QueryPortfolioTool,
     CancelOrderTool,

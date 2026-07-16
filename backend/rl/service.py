@@ -21,8 +21,7 @@ import gymnasium as gym
 import numpy as np
 import pandas as pd
 
-from axon_quant import Action
-from axon_quant.rl import TradingEnv
+from axon_bridge.rl import TradingEnv
 
 logger = logging.getLogger(__name__)
 

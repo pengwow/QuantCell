@@ -11,9 +11,9 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# axon_quant 导入（可选）
+# axon_bridge 导入（可选）
 try:
-    from axon_quant.trading import (
+    from axon_bridge.trading import (
         PlaceOrderTool as _PlaceOrderTool,
         QueryPortfolioTool as _QueryPortfolioTool,
         CancelOrderTool as _CancelOrderTool,

@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from axon_quant import Action
+from axon_bridge import Action
 from backtest.backtest_loop import RuleStrategy
 
 logger = logging.getLogger(__name__)

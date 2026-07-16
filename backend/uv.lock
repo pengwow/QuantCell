@@ -229,18 +229,18 @@ wheels = [
 
 [[package]]
 name = "axon-quant"
-version = "0.1.3"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "pyarrow" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c6/4f/b4dfe73251868be0258c815dfb5991ce2d7b83c0af3e76457e026078002f/axon_quant-0.1.3.tar.gz", hash = "sha256:f0c1b1dbf5ac9f02751c7e78554391c61c15958f1e44327b084ed638ef52a28c", size = 879369, upload-time = "2026-06-21T06:38:10.957Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/fc/dc7d2309769b3c9901145086af821d4b9f529ae7e3685fac6211edde5c18/axon_quant-0.4.0.tar.gz", hash = "sha256:0a837c7889ef74b4f005e1dda558fe134ced4cca823cea5cb7a4a7d199ce563f", size = 1116249, upload-time = "2026-07-11T10:29:30.315Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/35/f41c1458383cfef273ad797ca0f288c8f64e20cfcc8462b34dd29f15a18e/axon_quant-0.1.3-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:958d7c9c3fc77fde12aa3ab85b25b407cd1de1f0b9bca501fe938f2ab51c0712", size = 13512541, upload-time = "2026-06-21T06:38:01.716Z" },
-    { url = "https://files.pythonhosted.org/packages/58/4b/3a6a73b7c14f9f272263b7f961d47d634dbd4793afc703fddd81f4857263/axon_quant-0.1.3-cp314-cp314-manylinux_2_38_x86_64.whl", hash = "sha256:b239776a17e5a5389dff528b041dcd83175866e742cf7a997b4bbfa4bea78b64", size = 14823423, upload-time = "2026-06-21T06:38:04.747Z" },
-    { url = "https://files.pythonhosted.org/packages/2f/fb/5091d786ea2247f861b24cf71dc2cf93f8f3c913d7c91c886532938c27aa/axon_quant-0.1.3-cp314-cp314-win_amd64.whl", hash = "sha256:82e06c437f181a8429b0c5b37dc69e36b71c4ab838fed521762135a5bd51bd71", size = 13033937, upload-time = "2026-06-21T06:38:08.343Z" },
+    { url = "https://files.pythonhosted.org/packages/25/13/2b61dc1bc468b469755d7f37108b8e4039883f0531a0324391520f92c789/axon_quant-0.4.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:f36a6f95c3cc8eafda28ecae3030a634291c27a8c5d13e240b328179481d4df0", size = 8369021, upload-time = "2026-07-11T10:29:22.865Z" },
+    { url = "https://files.pythonhosted.org/packages/05/fd/7f6a33fc53fdb5d7c83c43198630fd149bc6992563527cef04ddd217dc5d/axon_quant-0.4.0-cp314-cp314-manylinux_2_38_x86_64.whl", hash = "sha256:e796c000663442131096b1c91b006ca3643f0b733e434cf37555129cd9891e6f", size = 9316139, upload-time = "2026-07-11T10:29:25.225Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/1b/a618b2e93b0e18fc4bdfb88ea5092d69aa4fe9c6e6d1bf0d9a83a116f9e7/axon_quant-0.4.0-cp314-cp314-win_amd64.whl", hash = "sha256:34614180bc972887703cc460e457564248d9636536f9cc7e225391916b1a908b", size = 8650765, upload-time = "2026-07-11T10:29:28.09Z" },
 ]
 
 [[package]]
@@ -320,7 +320,7 @@ requires-dist = [
     { name = "aiosmtplib", specifier = ">=4.0.0" },
     { name = "alembic", specifier = ">=1.17.2" },
     { name = "apscheduler", specifier = ">=3.11.1" },
-    { name = "axon-quant", specifier = ">=0.1.3" },
+    { name = "axon-quant", specifier = ">=0.2.0" },
     { name = "bcrypt", specifier = ">=5.0.0" },
     { name = "ccxt", specifier = ">=4.5.24" },
     { name = "certifi", specifier = ">=2025.11.12" },

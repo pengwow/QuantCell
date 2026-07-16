@@ -10,7 +10,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Any, Optional
 
-from axon_quant import Action
+from axon_bridge import Action
 from backtest.backtest_loop import RuleStrategy
 from utils.logger import get_logger, LogType
 

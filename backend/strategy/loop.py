@@ -12,7 +12,8 @@ import threading
 import time
 from typing import Any, Optional
 
-from axon_quant import Action, limit_order
+from axon_bridge import Action
+from axon_bridge.oms import limit_order
 
 logger = logging.getLogger(__name__)
 
