@@ -75,11 +75,11 @@ QuantCell 当前作为 Python + FastAPI 的量化交易平台,核心问题:
 └─────────────────────────┬───────────────────────────────────────────┘
                           │ Python import (无 gRPC / IPC)
 ┌─────────────────────────▼───────────────────────────────────────────┐
-│ ③ axon_quant 适配层 (Python 薄包装)                                   │
+│ ③ axon_bridge 适配层 (Python 薄包装,QuantCell 业务代码唯一入口)         │
 │   - 类型转译: Bar/Order/Position 统一为 axon_quant native             │
 │   - 异步桥接: tokio::block_on → asyncio.to_thread                    │
 │   - 错误规范: axon_quant.*Error → QuantCell HTTPException            │
-│   - 顶层重导出: from backend.axon_quant import X 避免深路径           │
+│   - 顶层重导出: from backend.axon_bridge import X 避免深路径           │
 │   - Agent 适配: axon_quant.llm.swarm.* 的薄包装,接 ②a 层            │
 └─────────────────────────┬───────────────────────────────────────────┘
                           │ PyO3 (CPython ABI)
@@ -251,20 +251,20 @@ backend/
 │   ├── compliance/              ← 包装 axon_quant.compliance
 │   └── monitor/                 ← 包装 axon_quant.monitor
 │
-└── tests/unit/axon_quant/       ← 适配层测试
+└── tests/unit/axon_bridge/       ← 适配层测试
 ```
 
 **关键约束**:
-- ② 层 `services/` **只能** `from backend.axon_quant import X`,**不能**直接 `from axon_quant import X`
+- ② 层 `services/` **只能** `from backend.axon_bridge import X`,**不能**直接 `from axon_quant import X`
 - ③ 层每个文件 ≤ 200 行,只做转译/包装,不加业务逻辑
 - 业务逻辑一律放 ② 层
 
 ### 4.2 顶层重导出样板
 
 ```python
-# backend/axon_quant/__init__.py
+# backend/axon_bridge/__init__.py
 """Axon_quant 适配层 — 顶层重导出,避免散落 import 路径。
-所有 QuantCell 业务代码统一 from backend.axon_quant import X。
+所有 QuantCell 业务代码统一 from backend.axon_bridge import X。
 """
 from axon_quant import (  # noqa: F401
     # data
@@ -293,7 +293,7 @@ from axon_quant import (  # noqa: F401
 ### 4.3 异步桥接样板
 
 ```python
-# backend/axon_quant/_async.py
+# backend/axon_bridge/_async.py
 import asyncio
 import functools
 from typing import Any, Callable, TypeVar
@@ -323,7 +323,7 @@ def async_class(cls: type) -> type:
 ### 4.4 错误规范样板
 
 ```python
-# backend/axon_quant/_errors.py
+# backend/axon_bridge/_errors.py
 from axon_quant import DataError, RiskError, OmsError, ExchangeError
 from fastapi import HTTPException
 
@@ -364,7 +364,7 @@ def map_error(e: Exception) -> Exception:
 ### 4.5 多 Agent 适配样板
 
 ```python
-# backend/axon_quant/llm/agent.py
+# backend/axon_bridge/llm/agent.py
 from dataclasses import dataclass, field
 from axon_quant import llm as _llm_native
 
@@ -394,7 +394,7 @@ class QuantCellAgent:
         )
     
     async def invoke(self, message: str, context: dict) -> "AgentResult":
-        from backend.axon_quant.llm.message import trace_agent_call
+        from backend.axon_bridge.llm.message import trace_agent_call
         trace_id = trace_agent_call(agent=self.config.name, input=message, context=context)
         result = await asyncio.to_thread(self._native.invoke, message, context)
         trace_agent_call(trace_id, result=result)
@@ -402,7 +402,7 @@ class QuantCellAgent:
 ```
 
 ```python
-# backend/axon_quant/llm/swarm.py
+# backend/axon_bridge/llm/swarm.py
 from axon_quant import llm as _llm_native
 from .agent import AgentConfig, QuantCellAgent
 
@@ -417,7 +417,7 @@ class QuantCellSwarm:
         )
     
     async def run(self, task: str) -> "SwarmResult":
-        from backend.axon_quant.llm.message import trace_swarm_run
+        from backend.axon_bridge.llm.message import trace_swarm_run
         trace_id = trace_swarm_run(
             topology=self._native.topology,
             agents=list(self.agents.keys()),
@@ -431,7 +431,7 @@ class QuantCellSwarm:
 ### 4.6 凭证管理样板
 
 ```python
-# backend/axon_quant/_credentials.py
+# backend/axon_bridge/_credentials.py
 from pydantic_settings import BaseSettings
 
 class AxonQuantCredentials(BaseSettings):
@@ -634,7 +634,7 @@ from pathlib import Path
 import typer
 from typing_extensions import Annotated
 from cli._output import print_table, print_json, print_streaming
-from backend.axon_quant.llm import QuantCellSwarm, AgentConfig
+from backend.axon_bridge.llm import QuantCellSwarm, AgentConfig
 from backend.services.agent_service import AgentService
 
 app = typer.Typer(help="多 Agent 协作")
@@ -738,8 +738,8 @@ def main():
 
 | # | Task | 验收 |
 |---|---|---|
-| T1.1 | 创建 `backend/axon_quant/` 适配层目录骨架 | 目录结构 + `__init__.py` 顶层重导出 |
-| T1.2 | 迁移 services → 统一 import 路径 | 4 个 service 改 `from backend.axon_quant import X` |
+| T1.1 | 创建 `backend/axon_bridge/` 适配层目录骨架 | 目录结构 + `__init__.py` 顶层重导出 |
+| T1.2 | 迁移 services → 统一 import 路径 | 4 个 service 改 `from backend.axon_bridge import X` |
 | T1.3 | 实现 `_errors.py` + `_async.py` + `_credentials.py` | 单测覆盖 8 个错误类型 + async_wrap |
 | T1.4 | `axon_quant.data` 全量包装(多源 + 缓存 + Parquet) | 6 个 wrapper, ≤200 行/文件 |
 | T1.5 | `axon_quant.backtest` 包装 + **完全删除所有向量化回测代码**(`backtest/engines/VectorEngine` 等) | `git grep "VectorEngine"` 0 命中;`git grep "from backtest.engines"` 0 命中;`ls backtest/engines/` 不存在 |
@@ -813,7 +813,7 @@ def main():
 
 | # | Task | 验收 |
 |---|---|---|
-| T2B.1 | `axon_quant.llm.swarm` 包装(orchestrator + vote) | `backend/axon_quant/llm/swarm.py` |
+| T2B.1 | `axon_quant.llm.swarm` 包装(orchestrator + vote) | `backend/axon_bridge/llm/swarm.py` |
 | T2B.2 | `QuantCellAgent` + `AgentConfig`(含版本) | 6 个预制 Agent(data/strategy/risk/execution/report/audit) |
 | T2B.3 | Agent 注册表 `axond_agents` | CRUD API + 版本管理 |
 | T2B.4 | 6-8 个预设 Agent 模板("双均线+风控"等) | `axond_agent_templates/` |

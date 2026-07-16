@@ -5,8 +5,8 @@
 **Goal:** 在 2 周内交付 axon_quant 适配层 ③ 骨架 + 4 个核心 service 包装(risk/oms/data/backtest) + 统一 CLI 入口 `quantcell` + 12 个旧 scripts 平迁/改 shim + **完全删除向量化回测代码**。
 
 **Architecture:** 4 层架构(①前端 ②QuantCell ③适配层 ④axon_quant Rust 引擎)。本 Sprint 在 ②③ 层落地:
-- ③ 层: `backend/axon_quant/` 适配层,集中转译/错误规范/异步桥接,所有 ② 层 service 强制经此
-- ② 层: `backend/services/{risk,oms,data,backtest}_service.py` 改 `from backend.axon_quant import X`
+- ③ 层: `backend/axon_bridge/` 适配层,集中转译/错误规范/异步桥接,所有 ② 层 service 强制经此
+- ② 层: `backend/services/{risk,oms,data,backtest}_service.py` 改 `from backend.axon_bridge import X`
 - ② 层: `backend/cli/` 统一 CLI 包,`quantcell` 命令
 - ② 层: `backend/scripts/*_cli.py` 改 shim 转发
 
@@ -36,7 +36,7 @@
 
 ### 新建文件
 ```
-backend/axon_quant/                  ← ③ 适配层
+backend/axon_bridge/                  ← ③ 适配层
 ├── __init__.py                      ← 顶层重导出
 ├── _errors.py                       ← 统一错误规范
 ├── _async.py                        ← 异步桥接装饰器
@@ -66,7 +66,7 @@ backend/cli/                          ← ② 统一 CLI
 ├── rl.py
 └── agent/__init__.py                ← 暂平迁 agent_cli
 
-backend/tests/unit/axon_quant/        ← 适配层测试
+backend/tests/unit/axon_bridge/        ← 适配层测试
 ├── __init__.py
 ├── test_errors.py
 ├── test_async.py
@@ -155,7 +155,7 @@ Expected: 列出删除文件
 cd /Users/liupeng/workspace/quant/QuantCell
 git grep -n "from backtest.engines\|import backtest.engines" -- backend/
 ```
-Expected: 仍可能有引用,需手动改这些文件为 `from backend.axon_quant.backtest import ...`
+Expected: 仍可能有引用,需手动改这些文件为 `from backend.axon_bridge.backtest import ...`
 
 - [ ] **Step 5: 跑现有测试,确保无 regression**
 
@@ -189,23 +189,23 @@ git commit -m "feat: 删除向量化回测代码,axon-quant 依赖更新到 >=0.
 ## Task 2: 创建适配层骨架 + 顶层重导出
 
 **Files:**
-- Create: `backend/axon_quant/__init__.py`
-- Create: `backend/axon_quant/_errors.py`
-- Test: `backend/tests/unit/axon_quant/__init__.py`
-- Test: `backend/tests/unit/axon_quant/test_errors.py`
+- Create: `backend/axon_bridge/__init__.py`
+- Create: `backend/axon_bridge/_errors.py`
+- Test: `backend/tests/unit/axon_bridge/__init__.py`
+- Test: `backend/tests/unit/axon_bridge/test_errors.py`
 
 - [ ] **Step 1: 创建测试目录和包**
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-mkdir -p tests/unit/axon_quant
-touch tests/unit/axon_quant/__init__.py
+mkdir -p tests/unit/axon_bridge
+touch tests/unit/axon_bridge/__init__.py
 mkdir -p axon_quant
 ```
 
 - [ ] **Step 2: 写失败测试 — test_errors.py**
 
-创建 `backend/tests/unit/axon_quant/test_errors.py`:
+创建 `backend/tests/unit/axon_bridge/test_errors.py`:
 ```python
 """适配层错误规范测试。"""
 import pytest
@@ -216,7 +216,7 @@ from axon_quant import DataError
 
 def test_data_error_maps_to_400():
     """DataError 应映射为 HTTP 400。"""
-    from backend.axon_quant._errors import map_error
+    from backend.axon_bridge._errors import map_error
 
     err = map_error(DataError("test"))
     assert err.http_status == 400
@@ -225,7 +225,7 @@ def test_data_error_maps_to_400():
 
 def test_map_error_returns_axon_quant_error():
     """未知错误应包装为 AxonQuantError(500)。"""
-    from backend.axon_quant._errors import map_error, AxonQuantError
+    from backend.axon_bridge._errors import map_error, AxonQuantError
 
     err = map_error(ValueError("xxx"))
     assert isinstance(err, AxonQuantError)
@@ -235,7 +235,7 @@ def test_map_error_returns_axon_quant_error():
 
 def test_to_http_creates_http_exception():
     """to_http() 应返回 FastAPI HTTPException。"""
-    from backend.axon_quant._errors import map_error
+    from backend.axon_bridge._errors import map_error
 
     err = map_error(DataError("bad request"))
     http = err.to_http()
@@ -248,13 +248,13 @@ def test_to_http_creates_http_exception():
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/test_errors.py -v 2>&1 | tail -20
+uv run pytest tests/unit/axon_bridge/test_errors.py -v 2>&1 | tail -20
 ```
-Expected: ModuleNotFoundError: No module named 'backend.axon_quant'
+Expected: ModuleNotFoundError: No module named 'backend.axon_bridge'
 
 - [ ] **Step 4: 实现 _errors.py**
 
-创建 `backend/axon_quant/_errors.py`:
+创建 `backend/axon_bridge/_errors.py`:
 ```python
 """axon_quant 异常 → QuantCell 异常的映射规范。
 
@@ -310,11 +310,11 @@ def map_error(e: Exception) -> AxonQuantError:
 
 - [ ] **Step 5: 创建 __init__.py 顶层重导出**
 
-创建 `backend/axon_quant/__init__.py`:
+创建 `backend/axon_bridge/__init__.py`:
 ```python
 """Axon_quant 适配层 — 顶层重导出,避免散落 import 路径。
 
-所有 QuantCell 业务代码统一 from backend.axon_quant import X。
+所有 QuantCell 业务代码统一 from backend.axon_bridge import X。
 
 依赖说明:
 - axon_quant 通过 PyPI 安装(`pip install --upgrade axon-quant`)
@@ -353,7 +353,7 @@ from axon_quant import (  # noqa: F401
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/test_errors.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/test_errors.py -v 2>&1 | tail -15
 ```
 Expected: 3 passed
 
@@ -361,7 +361,7 @@ Expected: 3 passed
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell
-git add backend/axon_quant/ backend/tests/unit/axon_quant/
+git add backend/axon_bridge/ backend/tests/unit/axon_bridge/
 git commit -m "feat(axon_quant): 适配层骨架 + 顶层重导出 + 错误规范"
 ```
 
@@ -370,19 +370,19 @@ git commit -m "feat(axon_quant): 适配层骨架 + 顶层重导出 + 错误规�
 ## Task 3: 实现 _async.py 异步桥接
 
 **Files:**
-- Create: `backend/axon_quant/_async.py`
-- Test: `backend/tests/unit/axon_quant/test_async.py`
+- Create: `backend/axon_bridge/_async.py`
+- Test: `backend/tests/unit/axon_bridge/test_async.py`
 
 - [ ] **Step 1: 写失败测试**
 
-创建 `backend/tests/unit/axon_quant/test_async.py`:
+创建 `backend/tests/unit/axon_bridge/test_async.py`:
 ```python
 """异步桥接装饰器测试。"""
 import asyncio
 import time
 import pytest
 
-from backend.axon_quant._async import async_wrap, async_class
+from backend.axon_bridge._async import async_wrap, async_class
 
 
 def test_async_wrap_runs_in_thread():
@@ -440,13 +440,13 @@ def test_async_class_preserves_functionality():
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/test_async.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/test_async.py -v 2>&1 | tail -15
 ```
-Expected: ModuleNotFoundError: No module named 'backend.axon_quant._async'
+Expected: ModuleNotFoundError: No module named 'backend.axon_bridge._async'
 
 - [ ] **Step 3: 实现 _async.py**
 
-创建 `backend/axon_quant/_async.py`:
+创建 `backend/axon_bridge/_async.py`:
 ```python
 """异步桥接装饰器。
 
@@ -488,7 +488,7 @@ def async_class(cls: type) -> type:
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/test_async.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/test_async.py -v 2>&1 | tail -15
 ```
 Expected: 3 passed
 
@@ -496,7 +496,7 @@ Expected: 3 passed
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell
-git add backend/axon_quant/_async.py backend/tests/unit/axon_quant/test_async.py
+git add backend/axon_bridge/_async.py backend/tests/unit/axon_bridge/test_async.py
 git commit -m "feat(axon_quant): 异步桥接装饰器(asyncio.to_thread)"
 ```
 
@@ -505,12 +505,12 @@ git commit -m "feat(axon_quant): 异步桥接装饰器(asyncio.to_thread)"
 ## Task 4: 实现 _credentials.py 凭证管理
 
 **Files:**
-- Create: `backend/axon_quant/_credentials.py`
-- Test: `backend/tests/unit/axon_quant/test_credentials.py`
+- Create: `backend/axon_bridge/_credentials.py`
+- Test: `backend/tests/unit/axon_bridge/test_credentials.py`
 
 - [ ] **Step 1: 写失败测试**
 
-创建 `backend/tests/unit/axon_quant/test_credentials.py`:
+创建 `backend/tests/unit/axon_bridge/test_credentials.py`:
 ```python
 """凭证管理测试。"""
 import os
@@ -531,7 +531,7 @@ def test_credentials_loads_from_env(monkeypatch):
     monkeypatch.setenv("AXON_OPENAI_API_KEY", "sk-test-123")
     monkeypatch.setenv("AXON_BINANCE_API_KEY", "bin-key")
 
-    from backend.axon_quant._credentials import AxonQuantCredentials
+    from backend.axon_bridge._credentials import AxonQuantCredentials
 
     creds = AxonQuantCredentials()
     assert creds.openai_api_key == "sk-test-123"
@@ -541,14 +541,14 @@ def test_credentials_loads_from_env(monkeypatch):
 
 def test_credentials_singleton_exists():
     """应导出全局 credentials 单例。"""
-    from backend.axon_quant import credentials
-    from backend.axon_quant._credentials import AxonQuantCredentials
+    from backend.axon_bridge import credentials
+    from backend.axon_bridge._credentials import AxonQuantCredentials
     assert isinstance(credentials, AxonQuantCredentials)
 
 
 def test_credentials_has_exchange_fields():
     """应包含 Exchange 凭证字段。"""
-    from backend.axon_quant._credentials import AxonQuantCredentials
+    from backend.axon_bridge._credentials import AxonQuantCredentials
     creds = AxonQuantCredentials()
     assert hasattr(creds, "binance_api_secret")
     assert hasattr(creds, "okx_passphrase")
@@ -559,13 +559,13 @@ def test_credentials_has_exchange_fields():
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/test_credentials.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/test_credentials.py -v 2>&1 | tail -15
 ```
-Expected: ModuleNotFoundError: No module named 'backend.axon_quant._credentials'
+Expected: ModuleNotFoundError: No module named 'backend.axon_bridge._credentials'
 
 - [ ] **Step 3: 实现 _credentials.py**
 
-创建 `backend/axon_quant/_credentials.py`:
+创建 `backend/axon_bridge/_credentials.py`:
 ```python
 """axon_quant LLM/Exchange 凭证集中管理(QuantCell 增值)。
 
@@ -605,7 +605,7 @@ class AxonQuantCredentials(BaseSettings):
 credentials = AxonQuantCredentials()
 ```
 
-同时在 `backend/axon_quant/__init__.py` 顶部添加:
+同时在 `backend/axon_bridge/__init__.py` 顶部添加:
 ```python
 from ._credentials import credentials  # noqa: F401
 ```
@@ -614,7 +614,7 @@ from ._credentials import credentials  # noqa: F401
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/test_credentials.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/test_credentials.py -v 2>&1 | tail -15
 ```
 Expected: 3 passed
 
@@ -622,7 +622,7 @@ Expected: 3 passed
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell
-git add backend/axon_quant/_credentials.py backend/axon_quant/__init__.py backend/tests/unit/axon_quant/test_credentials.py
+git add backend/axon_bridge/_credentials.py backend/axon_bridge/__init__.py backend/tests/unit/axon_bridge/test_credentials.py
 git commit -m "feat(axon_quant): 凭证管理(AXON_* 环境变量 + 单例)"
 ```
 
@@ -631,12 +631,12 @@ git commit -m "feat(axon_quant): 凭证管理(AXON_* 环境变量 + 单例)"
 ## Task 5: 包装 axon_quant.data
 
 **Files:**
-- Create: `backend/axon_quant/data/__init__.py`
-- Test: `backend/tests/unit/axon_quant/data/test_data_wrapper.py`
+- Create: `backend/axon_bridge/data/__init__.py`
+- Test: `backend/tests/unit/axon_bridge/data/test_data_wrapper.py`
 
 - [ ] **Step 1: 写失败测试**
 
-创建 `backend/tests/unit/axon_quant/data/test_data_wrapper.py`:
+创建 `backend/tests/unit/axon_bridge/data/test_data_wrapper.py`:
 ```python
 """axon_quant.data 适配层测试。"""
 import pytest
@@ -645,13 +645,13 @@ from datetime import datetime, timedelta
 
 def test_data_service_importable():
     """DataService 应从适配层可导入。"""
-    from backend.axon_quant import DataService
+    from backend.axon_bridge import DataService
     assert DataService is not None
 
 
 def test_data_request_creation():
     """DataRequest 应可用,且字段完整。"""
-    from backend.axon_quant import DataRequest
+    from backend.axon_bridge import DataRequest
     req = DataRequest(
         symbol="BTCUSDT",
         start=datetime(2024, 1, 1),
@@ -664,7 +664,7 @@ def test_data_request_creation():
 
 def test_frequency_enum_exposed():
     """Frequency 枚举应从适配层可导入。"""
-    from backend.axon_quant import Frequency
+    from backend.axon_bridge import Frequency
     # 至少有 1m 频率
     assert hasattr(Frequency, "M1") or "1m" in [a.name.lower() for a in Frequency]
 ```
@@ -673,7 +673,7 @@ def test_frequency_enum_exposed():
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/data/test_data_wrapper.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/data/test_data_wrapper.py -v 2>&1 | tail -15
 ```
 Expected: 失败(可能 DataRequest 字段名不匹配,按实际修正)
 
@@ -694,7 +694,7 @@ Expected: 打印 DataRequest 实际构造参数,Frequency 实际成员
 
 - [ ] **Step 4: 创建 data/__init__.py**
 
-根据 Step 3 探测的实际 API,创建 `backend/axon_quant/data/__init__.py`:
+根据 Step 3 探测的实际 API,创建 `backend/axon_bridge/data/__init__.py`:
 ```python
 """axon_quant.data 适配层 — 顶层重导出(零转译,数据类直传)。"""
 from axon_quant import (  # noqa: F401
@@ -714,7 +714,7 @@ from axon_quant import (  # noqa: F401
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/data/test_data_wrapper.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/data/test_data_wrapper.py -v 2>&1 | tail -15
 ```
 Expected: 3 passed
 
@@ -722,7 +722,7 @@ Expected: 3 passed
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell
-git add backend/axon_quant/data/ backend/tests/unit/axon_quant/data/
+git add backend/axon_bridge/data/ backend/tests/unit/axon_bridge/data/
 git commit -m "feat(axon_quant): data 适配层包装"
 ```
 
@@ -731,12 +731,12 @@ git commit -m "feat(axon_quant): data 适配层包装"
 ## Task 6: 包装 axon_quant.backtest(事件驱动)
 
 **Files:**
-- Create: `backend/axon_quant/backtest/__init__.py`
-- Test: `backend/tests/unit/axon_quant/backtest/test_backtest_wrapper.py`
+- Create: `backend/axon_bridge/backtest/__init__.py`
+- Test: `backend/tests/unit/axon_bridge/backtest/test_backtest_wrapper.py`
 
 - [ ] **Step 1: 写失败测试**
 
-创建 `backend/tests/unit/axon_quant/backtest/test_backtest_wrapper.py`:
+创建 `backend/tests/unit/axon_bridge/backtest/test_backtest_wrapper.py`:
 ```python
 """axon_quant.backtest 适配层测试(事件驱动,L1/L2/L3 撮合)。"""
 import pytest
@@ -744,13 +744,13 @@ import pytest
 
 def test_backtest_engine_importable():
     """BacktestEngine 应可从适配层导入。"""
-    from backend.axon_quant import BacktestEngine
+    from backend.axon_bridge import BacktestEngine
     assert BacktestEngine is not None
 
 
 def test_matching_engines_importable():
     """L1/L2/L3 撮合引擎应可从适配层导入。"""
-    from backend.axon_quant import L1MatchingEngine, L2MatchingEngine
+    from backend.axon_bridge import L1MatchingEngine, L2MatchingEngine
     assert L1MatchingEngine is not None
     assert L2MatchingEngine is not None
 
@@ -770,7 +770,7 @@ def test_no_vector_engine_anywhere():
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/backtest/test_backtest_wrapper.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/backtest/test_backtest_wrapper.py -v 2>&1 | tail -15
 ```
 Expected: 失败(适配层目录未建)
 
@@ -789,7 +789,7 @@ Expected: 列出 backtest 模块所有公开类
 
 - [ ] **Step 4: 创建 backtest/__init__.py**
 
-创建 `backend/axon_quant/backtest/__init__.py`:
+创建 `backend/axon_bridge/backtest/__init__.py`:
 ```python
 """axon_quant.backtest 适配层 — 事件驱动回测,唯一回测来源。
 
@@ -807,7 +807,7 @@ from axon_quant import (  # noqa: F401
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/backtest/test_backtest_wrapper.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/backtest/test_backtest_wrapper.py -v 2>&1 | tail -15
 ```
 Expected: 3 passed
 
@@ -815,7 +815,7 @@ Expected: 3 passed
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell
-git add backend/axon_quant/backtest/ backend/tests/unit/axon_quant/backtest/
+git add backend/axon_bridge/backtest/ backend/tests/unit/axon_bridge/backtest/
 git commit -m "feat(axon_quant): backtest 适配层包装(纯事件驱动)"
 ```
 
@@ -824,12 +824,12 @@ git commit -m "feat(axon_quant): backtest 适配层包装(纯事件驱动)"
 ## Task 7: 包装 axon_quant.risk(含 dry-run)
 
 **Files:**
-- Create: `backend/axon_quant/risk/__init__.py`
-- Test: `backend/tests/unit/axon_quant/risk/test_risk_wrapper.py`
+- Create: `backend/axon_bridge/risk/__init__.py`
+- Test: `backend/tests/unit/axon_bridge/risk/test_risk_wrapper.py`
 
 - [ ] **Step 1: 写失败测试**
 
-创建 `backend/tests/unit/axon_quant/risk/test_risk_wrapper.py`:
+创建 `backend/tests/unit/axon_bridge/risk/test_risk_wrapper.py`:
 ```python
 """axon_quant.risk 适配层测试。"""
 import pytest
@@ -837,19 +837,19 @@ import pytest
 
 def test_risk_engine_importable():
     """DefaultRiskEngine 应从适配层可导入。"""
-    from backend.axon_quant import DefaultRiskEngine
+    from backend.axon_bridge import DefaultRiskEngine
     assert DefaultRiskEngine is not None
 
 
 def test_circuit_breaker_importable():
     """CircuitBreaker 应从适配层可导入。"""
-    from backend.axon_quant import CircuitBreaker
+    from backend.axon_bridge import CircuitBreaker
     assert CircuitBreaker is not None
 
 
 def test_risk_config_creation():
     """RiskConfig 应可用。"""
-    from backend.axon_quant import RiskConfig
+    from backend.axon_bridge import RiskConfig
     config = RiskConfig(
         max_order_value=10000.0,
         max_leverage=2.0,
@@ -861,7 +861,7 @@ def test_risk_config_creation():
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/risk/test_risk_wrapper.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/risk/test_risk_wrapper.py -v 2>&1 | tail -15
 ```
 Expected: 失败
 
@@ -880,7 +880,7 @@ Expected: 列出 RiskConfig 实际字段(可能 max_order_value 叫其他名字)
 
 - [ ] **Step 4: 创建 risk/__init__.py**
 
-创建 `backend/axon_quant/risk/__init__.py`:
+创建 `backend/axon_bridge/risk/__init__.py`:
 ```python
 """axon_quant.risk 适配层 — 预交易风控 + 熔断器。"""
 from axon_quant import (  # noqa: F401
@@ -899,7 +899,7 @@ from axon_quant import (  # noqa: F401
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/risk/test_risk_wrapper.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/risk/test_risk_wrapper.py -v 2>&1 | tail -15
 ```
 Expected: 3 passed
 
@@ -907,7 +907,7 @@ Expected: 3 passed
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell
-git add backend/axon_quant/risk/ backend/tests/unit/axon_quant/risk/
+git add backend/axon_bridge/risk/ backend/tests/unit/axon_bridge/risk/
 git commit -m "feat(axon_quant): risk 适配层包装"
 ```
 
@@ -916,12 +916,12 @@ git commit -m "feat(axon_quant): risk 适配层包装"
 ## Task 8: 包装 axon_quant.oms
 
 **Files:**
-- Create: `backend/axon_quant/oms/__init__.py`
-- Test: `backend/tests/unit/axon_quant/oms/test_oms_wrapper.py`
+- Create: `backend/axon_bridge/oms/__init__.py`
+- Test: `backend/tests/unit/axon_bridge/oms/test_oms_wrapper.py`
 
 - [ ] **Step 1: 写失败测试**
 
-创建 `backend/tests/unit/axon_quant/oms/test_oms_wrapper.py`:
+创建 `backend/tests/unit/axon_bridge/oms/test_oms_wrapper.py`:
 ```python
 """axon_quant.oms 适配层测试。"""
 import pytest
@@ -929,13 +929,13 @@ import pytest
 
 def test_oms_importable():
     """OrderManager 应从适配层可导入。"""
-    from backend.axon_quant import OrderManager
+    from backend.axon_bridge import OrderManager
     assert OrderManager is not None
 
 
 def test_order_types_importable():
     """Order/OrderStatus/OrderType/Side 应从适配层可导入。"""
-    from backend.axon_quant import Order, OrderStatus, OrderType, Side
+    from backend.axon_bridge import Order, OrderStatus, OrderType, Side
     assert Order is not None
     assert OrderStatus is not None
     assert OrderType is not None
@@ -944,7 +944,7 @@ def test_order_types_importable():
 
 def test_portfolio_position_importable():
     """Portfolio/Position 应从适配层可导入。"""
-    from backend.axon_quant import Portfolio, Position
+    from backend.axon_bridge import Portfolio, Position
     assert Portfolio is not None
     assert Position is not None
 ```
@@ -953,12 +953,12 @@ def test_portfolio_position_importable():
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/oms/test_oms_wrapper.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/oms/test_oms_wrapper.py -v 2>&1 | tail -15
 ```
 
 - [ ] **Step 3: 创建 oms/__init__.py**
 
-创建 `backend/axon_quant/oms/__init__.py`:
+创建 `backend/axon_bridge/oms/__init__.py`:
 ```python
 """axon_quant.oms 适配层 — OrderManager + Order/Portfolio/Position。"""
 from axon_quant import (  # noqa: F401
@@ -973,7 +973,7 @@ from axon_quant import (  # noqa: F401
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/oms/test_oms_wrapper.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/oms/test_oms_wrapper.py -v 2>&1 | tail -15
 ```
 Expected: 3 passed
 
@@ -981,7 +981,7 @@ Expected: 3 passed
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell
-git add backend/axon_quant/oms/ backend/tests/unit/axon_quant/oms/
+git add backend/axon_bridge/oms/ backend/tests/unit/axon_bridge/oms/
 git commit -m "feat(axon_quant): oms 适配层包装"
 ```
 
@@ -991,7 +991,7 @@ git commit -m "feat(axon_quant): oms 适配层包装"
 
 **Files:**
 - Modify: `backend/services/risk_service.py`
-- Test: `backend/tests/unit/axon_quant/test_services_use_adaptation.py`
+- Test: `backend/tests/unit/axon_bridge/test_services_use_adaptation.py`
 
 - [ ] **Step 1: 检查当前 risk_service.py 的 import**
 
@@ -1003,7 +1003,7 @@ Expected: 查看现有 import
 
 - [ ] **Step 2: 写失败测试**
 
-创建 `backend/tests/unit/axon_quant/test_services_use_adaptation.py`:
+创建 `backend/tests/unit/axon_bridge/test_services_use_adaptation.py`:
 ```python
 """验证 services/ 不直接 import axon_quant 源码,必须经适配层。"""
 import ast
@@ -1033,16 +1033,16 @@ def _get_imports(filepath: str) -> list[str]:
     "backtest_service.py",
 ])
 def test_service_uses_adaptation_layer(service_file):
-    """services/* 禁止直接 import axon_quant,必须经 backend.axon_quant。"""
+    """services/* 禁止直接 import axon_quant,必须经 backend.axon_bridge。"""
     filepath = os.path.join(SERVICES_DIR, service_file)
     if not os.path.exists(filepath):
         pytest.skip(f"{service_file} not found")
     imports = _get_imports(filepath)
-    # 禁止直接 import axon_quant(必须经 backend.axon_quant)
+    # 禁止直接 import axon_quant(必须经 backend.axon_bridge)
     direct_axon_quant = [i for i in imports if i == "axon_quant" or i.startswith("axon_quant.")]
     assert len(direct_axon_quant) == 0, (
         f"{service_file} 直接 import axon_quant: {direct_axon_quant}; "
-        f"应改为 from backend.axon_quant import ..."
+        f"应改为 from backend.axon_bridge import ..."
     )
 ```
 
@@ -1050,7 +1050,7 @@ def test_service_uses_adaptation_layer(service_file):
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/test_services_use_adaptation.py -v 2>&1 | tail -20
+uv run pytest tests/unit/axon_bridge/test_services_use_adaptation.py -v 2>&1 | tail -20
 ```
 Expected: 至少 1 个失败(假设 risk_service.py 直接 import axon_quant)
 
@@ -1062,16 +1062,16 @@ from axon_quant import DefaultRiskEngine, ...
 ```
 改为:
 ```python
-from backend.axon_quant import DefaultRiskEngine, ...
+from backend.axon_bridge import DefaultRiskEngine, ...
 ```
 
-(如果原本是其他形式,统一改为 `from backend.axon_quant import ...`)
+(如果原本是其他形式,统一改为 `from backend.axon_bridge import ...`)
 
 - [ ] **Step 5: 跑测试,确认通过**
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/test_services_use_adaptation.py::test_service_uses_adaptation_layer -v 2>&1 | tail -20
+uv run pytest tests/unit/axon_bridge/test_services_use_adaptation.py::test_service_uses_adaptation_layer -v 2>&1 | tail -20
 ```
 Expected: 1 passed (risk_service),其他可能仍失败(后续 task 修复)
 
@@ -1087,8 +1087,8 @@ Expected: 全部通过或仅有少量失败(本 Sprint 内不修)
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell
-git add backend/services/risk_service.py backend/tests/unit/axon_quant/test_services_use_adaptation.py
-git commit -m "refactor(services): risk_service 改用 backend.axon_quant 适配层"
+git add backend/services/risk_service.py backend/tests/unit/axon_bridge/test_services_use_adaptation.py
+git commit -m "refactor(services): risk_service 改用 backend.axon_bridge 适配层"
 ```
 
 ---
@@ -1104,31 +1104,31 @@ git commit -m "refactor(services): risk_service 改用 backend.axon_quant 适配
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell
-sed -i '' 's/^from axon_quant /from backend.axon_quant /' backend/services/oms_service.py
-sed -i '' 's/^import axon_quant$/import backend.axon_quant/' backend/services/oms_service.py
+sed -i '' 's/^from axon_quant /from backend.axon_bridge /' backend/services/oms_service.py
+sed -i '' 's/^import axon_quant$/import backend.axon_bridge/' backend/services/oms_service.py
 ```
 
 - [ ] **Step 2: 修改 data_service.py**
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell
-sed -i '' 's/^from axon_quant /from backend.axon_quant /' backend/services/data_service.py
-sed -i '' 's/^import axon_quant$/import backend.axon_quant/' backend/services/data_service.py
+sed -i '' 's/^from axon_quant /from backend.axon_bridge /' backend/services/data_service.py
+sed -i '' 's/^import axon_quant$/import backend.axon_bridge/' backend/services/data_service.py
 ```
 
 - [ ] **Step 3: 修改 backtest_service.py**
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell
-sed -i '' 's/^from axon_quant /from backend.axon_quant /' backend/services/backtest_service.py
-sed -i '' 's/^import axon_quant$/import backend.axon_quant/' backend/services/backtest_service.py
+sed -i '' 's/^from axon_quant /from backend.axon_bridge /' backend/services/backtest_service.py
+sed -i '' 's/^import axon_quant$/import backend.axon_bridge/' backend/services/backtest_service.py
 ```
 
 - [ ] **Step 4: 跑全部 services 适配测试,确认 4 个全过**
 
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell/backend
-uv run pytest tests/unit/axon_quant/test_services_use_adaptation.py -v 2>&1 | tail -15
+uv run pytest tests/unit/axon_bridge/test_services_use_adaptation.py -v 2>&1 | tail -15
 ```
 Expected: 4 passed
 
@@ -1145,7 +1145,7 @@ Expected: 列出通过的测试,失败的用 后续 Sprint 修复(本 Sprint 接
 ```bash
 cd /Users/liupeng/workspace/quant/QuantCell
 git add backend/services/
-git commit -refactor(services): oms/data/backtest 改用 backend.axon_quant 适配层"
+git commit -refactor(services): oms/data/backtest 改用 backend.axon_bridge 适配层"
 ```
 
 ---
@@ -1839,7 +1839,7 @@ quantcell backtest run --strategy dualma --symbol BTCUSDT --timeframe 1h
 
 ### 切换到 L2 撮合
 \`\`\`python
-from backend.axon_quant import L2MatchingEngine, BacktestEngine
+from backend.axon_bridge import L2MatchingEngine, BacktestEngine
 engine = BacktestEngine(matching=L2MatchingEngine(...))
 \`\`\`
 
@@ -1849,7 +1849,7 @@ quantcell doctor  # 后续 P1-Sprint 2 实现
 \`\`\`
 
 ## 架构边界
-- ② 层 services/ **只能** `from backend.axon_quant import X`
+- ② 层 services/ **只能** `from backend.axon_bridge import X`
 - ③ 层 axon_quant/ 只做转译/包装,不加业务
 - ④ 层 axon_quant(Rust)零修改
 - 回测**只走事件驱动**,**完全摒弃向量化回测**
@@ -1900,7 +1900,7 @@ Expected: 看到 15 个 commit(T1-T15)
 - `AxonQuantError.http_status` / `.code` / `.to_http()`: T2 定义,T1-T14 全文一致
 - `credentials` 单例: T4 定义,T1-T14 引用一致
 - `print_table` / `print_json` / `print_streaming`: T11 定义,T13 引用一致
-- 适配层 import: T2-T8 全部 `from backend.axon_quant import X` 一致
+- 适配层 import: T2-T8 全部 `from backend.axon_bridge import X` 一致
 - shim 格式: T14 12 个 shim 全部用同一模板
 
 **通过**
