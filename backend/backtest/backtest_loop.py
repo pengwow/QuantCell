@@ -150,7 +150,7 @@ class BacktestLoop:
                 quantity = abs(action.target_position) if action.target_position else 0.1
 
                 order_id += 1
-                from axon_quant.backtest import market_order as _market_order
+                from axon_bridge.backtest import market_order as _market_order
 
                 axon_order = _market_order(order_id, symbol, side, quantity)
                 engine.push_event({

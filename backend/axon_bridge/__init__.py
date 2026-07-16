@@ -30,6 +30,14 @@ from axon_quant import (  # noqa: F401
     ComplianceError, DefiError,
 )
 
+# risk 顶层类(axon_quant 0.4.0 risk 子模块)
+from axon_quant.risk import (  # noqa: F401
+    DefaultRiskEngine, CircuitBreaker, RiskConfig, RiskError,
+    RiskResult, RiskReason, RiskMetrics,
+    make_risk_config, make_circuit_breaker,
+    make_order, make_portfolio, make_portfolio_with_positions,
+)
+
 # 子模块保留路径(供 deep use)
 # 注意:axon_quant 0.4.0 不暴露 monitor 子模块(从子模块 import 失败)
 from axon_quant import (  # noqa: F401
