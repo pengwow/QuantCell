@@ -60,15 +60,31 @@ import {
   UnorderedListOutlined,
   SettingOutlined,
   ImportOutlined,
+  FileSearchOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 
 import dayjs from 'dayjs';
 import PageContainer from '@/components/PageContainer';
 import { dataApi } from '@/api/dataApi';
+import { archiveApi } from '@/api/archiveApi';
 import { wsService } from '@/services/websocketService';
 import { useConfigStore } from '@/store';
-import type { Task, TaskStatus } from '@/types/data';
+import type {
+  Task,
+  TaskStatus,
+  ArchiveKind,
+  MarketType,
+  ArchiveMeta,
+  ArchiveRow,
+} from '@/types/data';
+import {
+  ARCHIVE_KINDS,
+  KLINE_ARCHIVE_KINDS,
+  ARCHIVE_MARKETS,
+  ARCHIVE_INTERVALS,
+} from '@/types/data';
 import { setPageTitle } from '@/utils/pageTitle';
 
 const { Text } = Typography;
@@ -297,7 +313,12 @@ const DataManagementPage = () => {
 
   // 从 URL 参数读取 Tab 状态，优先从恢复的状态读取
   const tabFromUrl = searchParams.get('tab');
-  const validTab = tabFromUrl === 'symbols' || tabFromUrl === 'tasks' ? tabFromUrl : 'symbols';
+  const validTab =
+    tabFromUrl === 'symbols' ||
+    tabFromUrl === 'tasks' ||
+    tabFromUrl === 'archive'
+      ? tabFromUrl
+      : 'symbols';
   const [activeTab, setActiveTab] = useState(restoredState?.pageState?.activeTab || validTab);
 
   // ==================== 自选组管理状态 ====================
@@ -391,6 +412,36 @@ const DataManagementPage = () => {
   useEffect(() => {
     currentTaskIdRef.current = currentTaskId;
   }, [currentTaskId]);
+
+  // ==================== 归档浏览 Tab 状态 ====================
+  // 左侧树形导航：kind 7 种 → market 3 种 → symbols
+  const [archiveKind, setArchiveKind] = useState<ArchiveKind>('aggTrades');
+  const [archiveMarket, setArchiveMarket] = useState<MarketType>('spot');
+  const [archiveSymbol, setArchiveSymbol] = useState<string>('');
+  // 树形展开状态（kind 节点）
+  const [archiveExpandedKinds, setArchiveExpandedKinds] = useState<ArchiveKind[]>(['aggTrades']);
+  // 当前 (kind, market) 已加载的 symbols 列表缓存：key = kind__market
+  const [archiveSymbolsMap, setArchiveSymbolsMap] = useState<Record<string, string[]>>({});
+  // 当前 (kind, market) 是否正在加载 symbols
+  const [archiveSymbolsLoading, setArchiveSymbolsLoading] = useState(false);
+  // 时间范围（毫秒元组；默认近 7 天）
+  const [archiveTimeRange, setArchiveTimeRange] = useState<[number, number]>(() => {
+    const end = Date.now();
+    return [end - 7 * 86400_000, end];
+  });
+  // 选中 symbol 的元数据（_meta.json）
+  const [archiveMeta, setArchiveMeta] = useState<ArchiveMeta | null>(null);
+  // 表格数据 + 分页
+  const [archiveRows, setArchiveRows] = useState<ArchiveRow[]>([]);
+  const [archiveTotal, setArchiveTotal] = useState<number>(0);
+  const [archiveTruncated, setArchiveTruncated] = useState<boolean>(false);
+  const [archiveQueryLoading, setArchiveQueryLoading] = useState(false);
+  const [archivePage, setArchivePage] = useState<number>(1);
+  const [archivePageSize, setArchivePageSize] = useState<number>(200);
+  // K 线类需要 interval 字段
+  const [archiveInterval, setArchiveInterval] = useState<string>('1h');
+  // 删除 loading
+  const [archiveDeleting, setArchiveDeleting] = useState(false);
 
   // 当前激活的自选组
   const activeGroup = useMemo(() => 
@@ -1189,6 +1240,127 @@ const DataManagementPage = () => {
     ];
   };
 
+  // ==================== 归档浏览方法 ====================
+
+  // 拉取 (kind, market) 下的 symbols 列表（带缓存）
+  const fetchArchiveSymbols = async (kind: ArchiveKind, market: MarketType) => {
+    const key = `${kind}__${market}`;
+    if (archiveSymbolsMap[key]) return;
+    setArchiveSymbolsLoading(true);
+    try {
+      const resp = await archiveApi.listSymbols(kind, market);
+      const list = Array.isArray(resp?.symbols) ? resp.symbols : [];
+      setArchiveSymbolsMap((prev) => ({ ...prev, [key]: list }));
+    } catch (error) {
+      console.error('获取归档 symbols 失败:', error);
+      message.error('获取归档 symbols 失败');
+      setArchiveSymbolsMap((prev) => ({ ...prev, [key]: [] }));
+    } finally {
+      setArchiveSymbolsLoading(false);
+    }
+  };
+
+  // 选中 (kind, market, symbol) 时拉取 _meta.json + 拉一页数据
+  const handleArchiveSelectSymbol = async (kind: ArchiveKind, market: MarketType, symbol: string) => {
+    setArchiveKind(kind);
+    setArchiveMarket(market);
+    setArchiveSymbol(symbol);
+    setArchivePage(1);
+    setArchiveMeta(null);
+    setArchiveRows([]);
+    setArchiveTotal(0);
+    setArchiveTruncated(false);
+
+    // 拉 _meta.json
+    try {
+      const resp = await archiveApi.getMeta(kind, market, symbol);
+      setArchiveMeta(resp?.meta ?? null);
+    } catch (error) {
+      console.error('读取 _meta.json 失败:', error);
+    }
+
+    // 默认拉第 1 页
+    await doArchiveQuery(kind, market, symbol, archiveTimeRange, 1, archivePageSize);
+  };
+
+  // 实际拉取数据
+  const doArchiveQuery = async (
+    kind: ArchiveKind,
+    market: MarketType,
+    symbol: string,
+    range: [number, number],
+    page: number,
+    size: number,
+  ) => {
+    if (!symbol) {
+      message.warning('请先选择 symbol');
+      return;
+    }
+    setArchiveQueryLoading(true);
+    try {
+      const resp = await archiveApi.queryData(
+        kind,
+        market,
+        symbol,
+        range[0],
+        range[1],
+        size,
+        (page - 1) * size,
+      );
+      setArchiveRows(Array.isArray(resp?.rows) ? resp.rows : []);
+      setArchiveTotal(resp?.total ?? 0);
+      setArchiveTruncated(Boolean(resp?.truncated));
+    } catch (error) {
+      console.error('查询归档数据失败:', error);
+      message.error('查询归档数据失败');
+    } finally {
+      setArchiveQueryLoading(false);
+    }
+  };
+
+  // 删除当前选中 (kind, market, symbol) 的全部数据
+  const handleArchiveDelete = async () => {
+    if (!archiveSymbol) return;
+    setArchiveDeleting(true);
+    try {
+      await archiveApi.deleteData(archiveKind, archiveMarket, archiveSymbol);
+      message.success(`已删除 ${archiveSymbol} 的归档数据`);
+      // 清空表格与 meta
+      setArchiveRows([]);
+      setArchiveTotal(0);
+      setArchiveMeta(null);
+      // 重新刷新该 (kind, market) 下的 symbols
+      const key = `${archiveKind}__${archiveMarket}`;
+      setArchiveSymbolsMap((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      await fetchArchiveSymbols(archiveKind, archiveMarket);
+    } catch (error) {
+      console.error('删除归档数据失败:', error);
+      message.error('删除归档数据失败');
+    } finally {
+      setArchiveDeleting(false);
+    }
+  };
+
+  // 当展开 kind 时，加载其下的 3 个 market 子树（仅 metadata）
+  const handleArchiveExpandKind = (kind: ArchiveKind, expanded: boolean) => {
+    if (expanded) {
+      setArchiveExpandedKinds((prev) => (prev.includes(kind) ? prev : [...prev, kind]));
+      // 三个 market 的 symbols 都先按需拉一次（带缓存，重复展开不重复请求）
+      ARCHIVE_MARKETS.forEach((m) => {
+        const key = `${kind}__${m}`;
+        if (!archiveSymbolsMap[key]) {
+          fetchArchiveSymbols(kind, m);
+        }
+      });
+    } else {
+      setArchiveExpandedKinds((prev) => prev.filter((k) => k !== kind));
+    }
+  };
+
   // ==================== 渲染方法 ====================
 
   // 渲染自选组侧边栏
@@ -1559,6 +1731,296 @@ const DataManagementPage = () => {
         </>
       )}
     </Modal>
+  );
+
+  // ==================== 归档浏览渲染 ====================
+
+  // 渲染左侧树形导航（kind 7 → market 3 → symbols）
+  const renderArchiveTree = () => (
+    <div style={{ maxHeight: 600, overflow: 'auto' }}>
+      {ARCHIVE_KINDS.map((kind) => {
+        const expanded = archiveExpandedKinds.includes(kind);
+        return (
+          <div key={kind} style={{ marginBottom: 4 }}>
+            <div
+              onClick={() => handleArchiveExpandKind(kind, !expanded)}
+              style={{
+                cursor: 'pointer',
+                padding: '6px 8px',
+                backgroundColor: expanded ? '#e6f4ff' : 'transparent',
+                borderRadius: 4,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontWeight: archiveKind === kind ? 600 : 400,
+              }}
+            >
+              {expanded ? <FolderOpenOutlined /> : <FolderOutlined />}
+              <span>{kind}</span>
+              {KLINE_ARCHIVE_KINDS.includes(kind) && <Tag color="blue">K线</Tag>}
+            </div>
+            {expanded && (
+              <div style={{ paddingLeft: 16, marginTop: 4 }}>
+                {ARCHIVE_MARKETS.map((m) => {
+                  const key = `${kind}__${m}`;
+                  const symList = archiveSymbolsMap[key];
+                  return (
+                    <div key={m} style={{ marginBottom: 4 }}>
+                      <div
+                        style={{
+                          padding: '4px 6px',
+                          backgroundColor: archiveKind === kind && archiveMarket === m ? '#f0f5ff' : 'transparent',
+                          borderRadius: 4,
+                          fontSize: 13,
+                          color: '#666',
+                        }}
+                      >
+                        <FolderOutlined style={{ marginRight: 4 }} />
+                        {m}
+                        <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
+                          {symList ? `(${symList.length})` : '(加载中...)'}
+                        </Text>
+                      </div>
+                      {symList && symList.length > 0 && (
+                        <div style={{ paddingLeft: 14, maxHeight: 200, overflow: 'auto' }}>
+                          {symList.map((s) => (
+                            <div
+                              key={s}
+                              onClick={() => handleArchiveSelectSymbol(kind, m, s)}
+                              style={{
+                                cursor: 'pointer',
+                                padding: '3px 6px',
+                                fontSize: 12,
+                                backgroundColor:
+                                  archiveKind === kind &&
+                                  archiveMarket === m &&
+                                  archiveSymbol === s
+                                    ? '#bae0ff'
+                                    : 'transparent',
+                                borderRadius: 3,
+                                color:
+                                  archiveKind === kind &&
+                                  archiveMarket === m &&
+                                  archiveSymbol === s
+                                    ? '#1890ff'
+                                    : '#333',
+                              }}
+                            >
+                              {s}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // 渲染右侧数据表
+  // 表格列根据当前 rows 的 key 动态生成（duck typing）
+  const archiveColumns = useMemo(() => {
+    if (archiveRows.length === 0) return [] as Array<{ title: string; dataIndex: string; key: string; width?: number; ellipsis?: boolean }>;
+    const keys = Object.keys(archiveRows[0] ?? {});
+    return keys.map((k) => ({
+      title: k,
+      dataIndex: k,
+      key: k,
+      width: k === 'symbol' ? 120 : 140,
+      ellipsis: true,
+    }));
+  }, [archiveRows]);
+
+  // 渲染主面板
+  const renderArchiveBrowser = () => (
+    <Row gutter={[16, 16]}>
+      {/* 左侧树形导航 */}
+      <Col xs={24} md={8} lg={6}>
+        <Card
+          size="small"
+          title={
+            <Space>
+              <DatabaseOutlined />
+              <span>数据源</span>
+            </Space>
+          }
+          extra={
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {archiveSymbolsLoading ? '加载中...' : ''}
+            </Text>
+          }
+        >
+          {renderArchiveTree()}
+        </Card>
+      </Col>
+
+      {/* 右侧内容 */}
+      <Col xs={24} md={16} lg={18}>
+        <Card
+          size="small"
+          title={
+            archiveSymbol ? (
+              <Space wrap>
+                <Tag color="blue">{archiveKind}</Tag>
+                <Tag color="purple">{archiveMarket}</Tag>
+                <Text strong>{archiveSymbol}</Text>
+                {KLINE_ARCHIVE_KINDS.includes(archiveKind) && (
+                  <Tag color="cyan">{archiveInterval}</Tag>
+                )}
+              </Space>
+            ) : (
+              <span>
+                <FileSearchOutlined /> 请在左侧选择 (kind / market / symbol)
+              </span>
+            )
+          }
+          extra={
+            archiveSymbol ? (
+              <Popconfirm
+                title="确定删除该 symbol 的全部归档数据？"
+                description="此操作不可恢复"
+                okText="确定删除"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+                onConfirm={handleArchiveDelete}
+              >
+                <Button
+                  danger
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  loading={archiveDeleting}
+                >
+                  删除该 symbol
+                </Button>
+              </Popconfirm>
+            ) : null
+          }
+        >
+          {!archiveSymbol ? (
+            <Empty description="请选择左侧 (kind / market / symbol) 后查询" />
+          ) : (
+            <Space orientation="vertical" style={{ width: '100%' }} size="middle">
+              {/* 元数据概览 */}
+              {archiveMeta && (
+                <Row gutter={[8, 8]}>
+                  <Col>
+                    <Text type="secondary">数据起始:</Text>{' '}
+                    <Text strong>{archiveMeta.earliest_date}</Text>
+                  </Col>
+                  <Col>
+                    <Text type="secondary">数据结束:</Text>{' '}
+                    <Text strong>{archiveMeta.latest_date}</Text>
+                  </Col>
+                  <Col>
+                    <Text type="secondary">总行数:</Text>{' '}
+                    <Text strong>{archiveMeta.total_rows.toLocaleString()}</Text>
+                  </Col>
+                  <Col>
+                    <Text type="secondary">文件数:</Text>{' '}
+                    <Text strong>{archiveMeta.file_count}</Text>
+                  </Col>
+                  {archiveMeta.corrupt_dates.length > 0 && (
+                    <Col span={24}>
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message={`损坏日期: ${archiveMeta.corrupt_dates.length} 个`}
+                        description={archiveMeta.corrupt_dates.slice(0, 10).join(', ')}
+                      />
+                    </Col>
+                  )}
+                </Row>
+              )}
+
+              {/* bookDepth 大数据量警告 */}
+              {archiveKind === 'bookDepth' && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="bookDepth 数据量较大"
+                  description="单天可展平为千万行，请务必缩小时间范围（建议 ≤ 1 天），并使用分页加载"
+                />
+              )}
+
+              {/* 查询控件 */}
+              <Row gutter={[8, 8]} align="middle">
+                <Col xs={24} sm={12} md={10}>
+                  <RangePicker
+                    showTime
+                    style={{ width: '100%' }}
+                    value={[dayjs(archiveTimeRange[0]), dayjs(archiveTimeRange[1])]}
+                    onChange={(dates) => {
+                      if (dates && dates[0] && dates[1]) {
+                        setArchiveTimeRange([dates[0].valueOf(), dates[1].valueOf()]);
+                      }
+                    }}
+                  />
+                </Col>
+                {KLINE_ARCHIVE_KINDS.includes(archiveKind) && (
+                  <Col xs={12} sm={6} md={4}>
+                    <Select
+                      style={{ width: '100%' }}
+                      value={archiveInterval}
+                      onChange={setArchiveInterval}
+                      options={ARCHIVE_INTERVALS.map((i) => ({ value: i, label: i }))}
+                      placeholder="interval"
+                    />
+                  </Col>
+                )}
+                <Col xs={12} sm={6} md={4}>
+                  <Button
+                    type="primary"
+                    icon={<SearchOutlined />}
+                    loading={archiveQueryLoading}
+                    block
+                    onClick={() =>
+                      doArchiveQuery(archiveKind, archiveMarket, archiveSymbol, archiveTimeRange, 1, archivePageSize)
+                    }
+                  >
+                    查询
+                  </Button>
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    共 {archiveTotal.toLocaleString()} 行
+                    {archiveTruncated && '（已截断到 1,000,000 上限）'}
+                  </Text>
+                </Col>
+              </Row>
+
+              {/* 数据表（固定列宽 + 高 y 滚动 + 分页避免一次性渲染 10w+ DOM） */}
+              <Table
+                size="small"
+                rowKey={(_r, idx) => String(idx)}
+                dataSource={archiveRows}
+                columns={archiveColumns}
+                loading={archiveQueryLoading}
+                scroll={{ x: 'max-content', y: 500 }}
+                pagination={{
+                  current: archivePage,
+                  pageSize: archivePageSize,
+                  total: archiveTotal,
+                  showSizeChanger: true,
+                  pageSizeOptions: [100, 200, 500, 1000],
+                  showTotal: (t) => `共 ${t.toLocaleString()} 行`,
+                  onChange: (p, s) => {
+                    setArchivePage(p);
+                    setArchivePageSize(s);
+                    doArchiveQuery(archiveKind, archiveMarket, archiveSymbol, archiveTimeRange, p, s);
+                  },
+                }}
+                bordered
+              />
+            </Space>
+          )}
+        </Card>
+      </Col>
+    </Row>
   );
 
   // 渲染货币对工具栏 - 参考策略回测页面风格
@@ -2826,6 +3288,15 @@ const DataManagementPage = () => {
               </span>
             ),
             children: renderQuality(),
+          },
+          {
+            key: 'archive',
+            label: (
+              <span>
+                <FileSearchOutlined /> 归档浏览
+              </span>
+            ),
+            children: renderArchiveBrowser(),
           },
         ]}
       />
