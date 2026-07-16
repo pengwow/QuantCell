@@ -294,6 +294,8 @@ git commit -m "feat(archive): add kinds enum + URL builder for 7 archive types �
 
 **目标:** 提供 90% 通用下载逻辑（URL 拼装、HTTP 下载、解压、Parquet 写入、增量/全量、并发、元数据更新），子类只重写 4 个钩子。
 
+> **调整说明（2026-07-16 critical review）**：原 plan 假设继承 `collector.base_collector.BaseCollector` 并提供 `proxy` 参数。实际 `BaseCollector` 在 `exchange.base`，且是按"逐 instrument + 区间"模式设计（抽象方法 `get_instrument_list` / `normalize_symbol` / `get_data`），与本归档"逐日 zip"模式不匹配。**改为独立基类，不继承 BaseCollector**。7 个 fetcher 接口保持不变。
+
 - [ ] **Step 1: 写测试**
 
 ```python
@@ -395,7 +397,6 @@ import io
 import logging
 import shutil
 import zipfile
-from abc import ABC
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Iterable
@@ -403,7 +404,6 @@ from typing import Callable, Iterable
 import aiohttp
 import pandas as pd
 
-from collector.base_collector import BaseCollector
 from exchange.binance.archive.archive_meta import write_meta
 from exchange.binance.archive.kinds import (
     ArchiveKind,
@@ -418,8 +418,8 @@ logger = logging.getLogger(__name__)
 _DISK_FREE_MIN_BYTES = 5 * 1024 ** 3
 
 
-class BaseBinanceArchiveDownloader(BaseCollector, ABC):
-    """所有 7 种归档数据的下载器基类。"""
+class BaseBinanceArchiveDownloader:
+    """所有 7 种归档数据的下载器基类（独立实现，不继承 BaseCollector）。"""
 
     # —— 子类必须重写 ——
     archive_kind: ArchiveKind
@@ -443,12 +443,11 @@ class BaseBinanceArchiveDownloader(BaseCollector, ABC):
         interval: str | None = None,
         proxy: str | None = None,
     ) -> None:
-        super().__init__(proxy=proxy)
         self.market = market
         self.base_dir = Path(base_dir)
         self.interval = interval
-        # 注意：save_dir 依赖具体 symbol，由调用方通过 bind_symbol 注入；
-        # 单 symbol 场景下直接传 symbol 即可
+        self.proxy = proxy
+        # save_dir 依赖具体 symbol；可在 collect_data 期间通过 bind_symbol 切换
         self._symbol: str | None = symbol
         self.save_dir: Path = get_save_dir(self.base_dir, market, self.archive_kind, symbol)
 
