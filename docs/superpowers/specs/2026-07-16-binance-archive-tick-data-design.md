@@ -49,7 +49,7 @@ QuantCell 当前数据管理模块（`backend/collector/` + 前端 `DataCollecti
 2. `data/source/archive/spot/aggTrades/BTCUSDT/` 下出现 2 个 parquet 文件 + 1 个 `_meta.json`
 3. `quantcell data archive meta --kind aggTrades --market spot --symbol BTCUSDT` 返回 `latest_date=2024-12-02, total_rows>1000`
 4. 前端 `DataCollectionPage` 创建任务对话框显示 7 种 kind 多选 + 3 种 market 单选
-5. 前端 `DataManagementPage` 新 Tab 能查到 BTCUSDT 2024-12-01 的 aggTrades 数据（≥100 行/页）
+5. 前端 `DataManagementPage` 新 Tab 能查到 BTCUSDT 2024-12-01 的 aggTrades 数据（默认分页 ≥1000 行/页，与 5.1 `limit` 默认对齐）
 6. 现有所有 K 线相关测试不破坏（**回归测试 0 新增 failure**）
 7. 删除 `archive/` 目录后 K 线系统完全不受影响
 
@@ -165,7 +165,24 @@ backend/data/source/archive/                  # 新根目录（独立于 klines/
 - Parquet 用 `snappy` 压缩，分区粒度 = `1 day / 1 symbol / 1 kind / 1 market`（小文件，但天然分片）
 - `bookDepth` 嵌套展平后单日文件可能 50–200MB；保留 zip 原始 CSV 不入库（避免二次膨胀）
 
-### 3.4 不入库 SQL 表的物证
+### 3.4 K 线类支持的 interval 范围
+
+仅 K 线类的 3 种（mark / index / premium Klines）需要选 `interval` 参数；本 spec **明确仅支持以下 8 个**（与 Binance 归档实际可获取的子集对齐，避免前端选了 1s/2h/4h/6h/8h/12h/3d/1w/1Mo 后端报 404）：
+
+| interval | URL 标识 |
+|---|---|
+| 1m | `1m` |
+| 3m | `3m` |
+| 5m | `5m` |
+| 15m | `15m` |
+| 30m | `30m` |
+| 1h | `1h` |
+| 2h | `2h` |
+| 1d | `1d` |
+
+非 K 线类的 4 种（aggTrades / trades / bookDepth / bookTicker）**不支持 interval 参数**，URL 中无 `interval` 段。
+
+### 3.5 不入库 SQL 表的物证
 
 - 7 种数据里**没有一张 SQL 元数据表**（用户确认全部只入 Parquet）
 - 元数据靠 `_meta.json` 文件，跟数据共目录
@@ -194,14 +211,15 @@ class BaseBinanceArchiveDownloader(BaseCollector):
     def needs_unzip(self) -> bool: return True
 
     # —— 基类提供 ——
-    def get_zip_url(self, symbol, date) -> str
-    def get_zip_name(self, symbol, date) -> str
-    async def get_daily_archive(self, symbol, date) -> pd.DataFrame
+    def get_zip_url(self, symbol, date) -> str           # 同步：URL 字符串拼装
+    def get_zip_name(self, symbol, date) -> str          # 同步：zip 文件名拼装
+    async def get_daily_archive(self, symbol, date) -> pd.DataFrame  # 异步：HTTP 下载+解压+解析
     def download_range(self, symbol, start, end, progress_cb) -> pd.DataFrame
     def save_instrument(self, symbol, df) -> None
     def _calculate_missing_ranges(self, existing_files) -> list[tuple]
     def collect_data(self, progress_cb) -> None
     def _update_meta(self, symbol, new_files_added)
+    def read_range(self, symbol, start_time, end_time, limit, offset) -> dict  # 前端查询入口（5.2 引用）
 ```
 
 **复用清单**：
