@@ -1,17 +1,26 @@
-"""RiskService — axon_quant.risk wrapper."""
+"""RiskService — axon_bridge.risk 业务封装。
 
+QuantCell 业务代码统一从 ``axon_bridge`` 入口拿 axon_quant 能力,
+不在 services 层直接 import 第三方包。
+"""
 from __future__ import annotations
 from typing import Any
 
 try:
-    from axon_quant.risk import DefaultRiskEngine, RiskConfig, make_order, make_portfolio
+    # 走适配层,不直接 import axon_quant
+    from axon_bridge.risk import (
+        DefaultRiskEngine,
+        RiskConfig,
+        make_order,
+        make_portfolio,
+    )
     AVAILABLE = True
 except ImportError:
     AVAILABLE = False
 
 
 class RiskService:
-    """Risk service wrapping axon_quant.risk.DefaultRiskEngine."""
+    """Risk service wrapping axon_quant.risk.DefaultRiskEngine (via axon_bridge)."""
 
     def __init__(self, config: dict[str, Any] | None = None):
         if not AVAILABLE:

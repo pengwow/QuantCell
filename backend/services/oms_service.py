@@ -11,9 +11,9 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# axon_quant 导入（可选）
+# axon_quant 导入(走适配层,业务代码不直接 import 第三方包)
 try:
-    from axon_quant.oms import (
+    from axon_bridge.oms import (
         OrderManager as _OrderManager,
         Order as _Order,
         Portfolio as _Portfolio,

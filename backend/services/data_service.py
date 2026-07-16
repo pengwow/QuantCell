@@ -11,9 +11,9 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# axon_quant 导入（可选）
+# axon_quant 导入(走适配层,业务代码不直接 import 第三方包)
 try:
-    from axon_quant.data import (
+    from axon_bridge.data import (
         DataService as _DataService,
         DataRequest as _DataRequest,
         MockSource as _MockSource,
