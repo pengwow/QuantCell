@@ -14,7 +14,7 @@
 QuantCell 当前作为 Python + FastAPI 的量化交易平台,核心问题:
 
 1. **回测方向错误** — 现有 `backtest/engines/engine.py:VectorEngine` 是纯 Python 向量化回测,设计方向错误,无法真实模拟撮合、滑点、撮合优先级等微观结构,应**完全摒弃向量化回测**;QuantCell 应**只走事件驱动回测(axon_quant.backtest)**,axon_quant 自身就提供 L1/L2/L3 三档撮合引擎
-2. **axon_quant 集成方式错误** — 当前把 [`/Users/liupeng/workspace/quant/axon`](file:///Users/liupeng/workspace/quant/axon) 仓库源码作为依赖(本地 maturin build),**应改为 PyPI 安装**:`pip install --upgrade axon-quant`(**永远使用最新版本,不锁版本**);源码只作参考,绝不直接 import 源码路径
+2. **axon_quant 集成方式错误** — 当前把 [`/Users/liupeng/workspace/quant/axon_quant`](file:///Users/liupeng/workspace/quant/axon_quant) 仓库源码作为依赖(本地 maturin build),**应改为 PyPI 安装**:`pip install --upgrade axon-quant`(**永远使用最新版本,不锁版本**);源码只作参考,绝不直接 import 源码路径
 3. **缺乏 AI 原生能力** — 现有 `rl_service.py` 仅 1 个简单的 GymnasiumWrapper,无 RL/HPO/LLM/可解释性/集成的完整链路
 4. **多 Agent 协作缺失** — 现有 `agent_cli.py` 走 `ProcessDirect` 模式,无多 Agent 拓扑、无 vote、无 trace
 5. **无统一 CLI 入口** — 12 个分散 `scripts/*_cli.py` 难记忆,无 bash/zsh 自动补全
@@ -37,7 +37,7 @@ QuantCell 当前作为 Python + FastAPI 的量化交易平台,核心问题:
 - **不重写 axon_cli** — 库内 CLI 是给运维/Axon 团队用,QuantCell 用户走 Web + 自家 CLI
 - **不重写 axon-core** — 纯 Rust 内部基础库,通过其他 crate 间接使用
 - **不实现向量化回测** — QuantCell 自身不写任何回测逻辑(不保留任何 VectorEngine / NumPy 向量化回测代码),回测 100% 走 axon_quant 事件驱动
-- **不加载 axon_quant 源码** — 全部依赖 `pip install --upgrade axon-quant` 安装的 PyPI 包(**永远使用最新版本,不锁版本**),**不** `import sys.path.insert(0, "/path/to/axon/python")` 加载本地源码;`/Users/liupeng/workspace/quant/axon` 仓库仅作参考文档,绝不在 QuantCell 运行时使用
+- **不加载 axon_quant 源码** — 全部依赖 `pip install --upgrade axon-quant` 安装的 PyPI 包(**永远使用最新版本,不锁版本**),**不** `import sys.path.insert(0, "/path/to/axon/python")` 加载本地源码;`/Users/liupeng/workspace/quant/axon_quant` 仓库仅作参考文档,绝不在 QuantCell 运行时使用
 
 ---
 
@@ -880,7 +880,7 @@ Day 0 (环境):`pip install --upgrade axon-quant`(**永远跟随最新版本,不
 | **R6** | axon-llm.trading 与 axon-oms 重复(都能下单) | 决策路径不唯一 | 强制:**所有下单走 axon-oms**,axon-llm.trading 只发"下单意图"信号,由 axon-oms 执行 |
 | **R7** | 模板策略在真实市场失效 | 非程序员用户亏损 | ① 模板标注"仅供学习";② 实盘前强制 walk-forward + dry-run;③ 单一模板最大资金上限 |
 | **R8** | PyO3 GIL 限制 — CPU 密集阻塞其他 Python 线程 | 高并发场景下推理/回测排队 | 单用户独占回测/RL 训练 worker;多用户走 Celery/RQ 队列(P3 引入) |
-| **R9** | axon_quant 版本漂移 — **永远跟随最新版本**意味着随时可能遇到上游 breaking change | 升级导致功能失效 | ① 升级前跑全量回归(单元 + 集成 + E2E);② 适配层 ③ 集中 import,即便 breaking change 也只改 1 个文件;③ `quantcell doctor` 子命令检测版本兼容(对比当前版本 vs 已知良好版本);④ 源码仓库 `/Users/liupeng/workspace/quant/axon` **仅作参考文档**,绝不 `sys.path.insert` 加载 |
+| **R9** | axon_quant 版本漂移 — **永远跟随最新版本**意味着随时可能遇到上游 breaking change | 升级导致功能失效 | ① 升级前跑全量回归(单元 + 集成 + E2E);② 适配层 ③ 集中 import,即便 breaking change 也只改 1 个文件;③ `quantcell doctor` 子命令检测版本兼容(对比当前版本 vs 已知良好版本);④ 源码仓库 `/Users/liupeng/workspace/quant/axon_quant` **仅作参考文档**,绝不 `sys.path.insert` 加载 |
 | **R10** | 6-8 个预设策略模板的"训练+回测"基线数据缺失 | 无法判定模板好坏 | P1-Sprint 2 末交付每个模板 1 份"基线回测报告"(BTC/ETH 过去 1 年) |
 | **R11** | CLI shim 兼容期 6 个月期间,新旧命令行为漂移 | 用户体验 | shim 阶段用 `subprocess.call` 转发,确保只有一份真业务代码 |
 | **R12** | CLI 启动慢(冷启动需加载 typer + 12 个 typer subapp) | 开发体验 | ① `cli/main.py` 顶层用 `lazy load`;② 提供 `quantcell --profile` 诊断冷启动 |
@@ -913,7 +913,7 @@ Day 0 (环境):`pip install --upgrade axon-quant`(**永远跟随最新版本,不
 
 1. ✅ 4 层架构 + 多 Agent 协作模式
 2. ✅ ② 层 services/ 必须经 ③ 层 axon_quant/,禁止直接 import
-3. ✅ axon_quant 通过 PyPI 安装,零源码依赖(`/Users/liupeng/workspace/quant/axon` 仅作参考文档),**永远跟随最新版本(`pip install --upgrade axon-quant`),不锁版本**
+3. ✅ axon_quant 通过 PyPI 安装,零源码依赖(`/Users/liupeng/workspace/quant/axon_quant` 仅作参考文档),**永远跟随最新版本(`pip install --upgrade axon-quant`),不锁版本**
 4. ✅ **回测完全走事件驱动(axon_quant.backtest)**,**完全删除所有向量化回测代码**
 5. ✅ CLI 是 ② 层第二种入口,统一为 `quantcell` 命令
 6. ✅ axon-defi / axon_cli 永久跳过
@@ -938,7 +938,7 @@ Q1-Q12 在对应阶段启动前 1 周内决定。
 - 性能基线:回测 1 年 1m < 30s,推理延迟 < 50ms
 - `quantcell --version` 工作,`quantcell agent swarm run` 工作
 - **回测纯事件驱动**:`git grep "VectorEngine"` 0 命中,`backtest/engines/` 目录已删除
-- **axon_quant 零源码依赖 + 永远最新**:`pip install --upgrade axon-quant`,`/Users/liupeng/workspace/quant/axon` 仓库未被任何 `sys.path` 引用;不锁版本,跟上游最新版
+- **axon_quant 零源码依赖 + 永远最新**:`pip install --upgrade axon-quant`,`/Users/liupeng/workspace/quant/axon_quant` 仓库未被任何 `sys.path` 引用;不锁版本,跟上游最新版
 
 ---
 
