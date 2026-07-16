@@ -6,17 +6,24 @@
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-from pathlib import Path
-from typing import Dict, Any
 
-import pandas as pd
-import numpy as np
+# 这些测试在 commit 9866f56 中已经不再适用（向量化回测引擎 Engine/LegacyEngine 已删除）
+# 整个文件已 deprecated,仅保留作为历史参考,本 Sprint 用 importorskip 跳过
+try:
+    from backtest.engines.engine import Engine  # noqa: E402
+    from backtest.engines.legacy_engine import LegacyEngine  # noqa: E402
+except ImportError:
+    pytest.skip("VectorEngine/LegacyEngine 在 commit 9866f56 中删除;事件驱动回测由 axon_quant 提供", allow_module_level=True)
 
-from backtest.engines.base import BacktestEngineBase, EngineType as BaseEngineType
-from backtest.engines.engine import Engine
-from backtest.engines.legacy_engine import LegacyEngine
-from backtest.config.settings import EngineType
+from unittest.mock import Mock, patch, MagicMock  # noqa: E402
+from pathlib import Path  # noqa: E402
+from typing import Dict, Any  # noqa: E402
+
+import pandas as pd  # noqa: E402
+import numpy as np  # noqa: E402
+
+from backtest.engines.base import BacktestEngineBase, EngineType as BaseEngineType  # noqa: E402
+from backtest.config.settings import EngineType  # noqa: E402
 
 
 # =============================================================================
