@@ -13,27 +13,31 @@
 
 QuantCell 当前作为 Python + FastAPI 的量化交易平台,核心问题:
 
-1. **核心计算性能瓶颈** — 现有 `backtest.engines.engine.VectorEngine` 是纯 Python 向量化,无法满足 1m 级别高频回测
-2. **缺乏 AI 原生能力** — 现有 `rl_service.py` 仅 1 个简单的 GymnasiumWrapper,无 RL/HPO/LLM/可解释性/集成的完整链路
-3. **多 Agent 协作缺失** — 现有 `agent_cli.py` 走 `ProcessDirect` 模式,无多 Agent 拓扑、无 vote、无 trace
-4. **无统一 CLI 入口** — 12 个分散 `scripts/*_cli.py` 难记忆,无 bash/zsh 自动补全
-5. **风控/合规/可解释/治理能力薄弱** — 缺乏 RBAC、SHAP 解释、合规报告
+1. **回测方向错误** — 现有 `backtest/engines/engine.py:VectorEngine` 是纯 Python 向量化回测,设计方向错误,无法真实模拟撮合、滑点、撮合优先级等微观结构,应**完全摒弃向量化回测**;QuantCell 应**只走事件驱动回测(axon_quant.backtest)**,axon_quant 自身就提供 L1/L2/L3 三档撮合引擎
+2. **axon_quant 集成方式错误** — 当前把 [`/Users/liupeng/workspace/quant/axon`](file:///Users/liupeng/workspace/quant/axon) 仓库源码作为依赖(本地 maturin build),**应改为 PyPI 安装**:`pip install axon-quant==0.2.0`;源码只作参考,绝不直接 import 源码路径
+3. **缺乏 AI 原生能力** — 现有 `rl_service.py` 仅 1 个简单的 GymnasiumWrapper,无 RL/HPO/LLM/可解释性/集成的完整链路
+4. **多 Agent 协作缺失** — 现有 `agent_cli.py` 走 `ProcessDirect` 模式,无多 Agent 拓扑、无 vote、无 trace
+5. **无统一 CLI 入口** — 12 个分散 `scripts/*_cli.py` 难记忆,无 bash/zsh 自动补全
+6. **风控/合规/可解释/治理能力薄弱** — 缺乏 RBAC、SHAP 解释、合规报告
 
 ### 1.2 目标
 
-将 [`axon_quant`](file:///Users/liupeng/workspace/quant/axon) 作为**底层量化交易引擎**,QuantCell 作为**上层应用**,具体目标:
+将 [axon_quant](file:///Users/liupeng/workspace/quant/axon_quant) 作为**底层量化交易引擎**,QuantCell 作为**上层应用**,具体目标:
 
 1. **axon_quant 全能力集成** — 23 个 crate 全部映射,清晰归属
 2. **AI 原生能力完整闭环** — RL 训练 → Registry → Walk-Forward → Inference → Ensemble → Explain
 3. **多 Agent 协作** — 6 个预制 Agent(Data/Strategy/Risk/Execution/Report/Audit)模板 + DAG 编排
 4. **统一 CLI 入口** — `quantcell` 命令覆盖全部功能(回测/训练/部署/Agent/Web),支持无界面启动
-5. **架构隔离清晰** — 4 层架构,axon_quant 源码零修改,QuantCell 不重写底座
+5. **架构隔离清晰** — 4 层架构,axon_quant 通过 PyPI 包消费(零源码依赖)
+6. **回测纯事件驱动** — QuantCell 自身**不实现任何回测逻辑**,完全委托 axon_quant.backtest(事件驱动 + L1/L2/L3 撮合),**所有向量化回测代码全量删除**
 
 ### 1.3 非目标
 
 - **不集成 axon-defi**(DeFi/Uniswap/桥/MEV) — 量化对冲基金场景以 CEX 为主,v3+ 评估
 - **不重写 axon_cli** — 库内 CLI 是给运维/Axon 团队用,QuantCell 用户走 Web + 自家 CLI
 - **不重写 axon-core** — 纯 Rust 内部基础库,通过其他 crate 间接使用
+- **不实现向量化回测** — QuantCell 自身不写任何回测逻辑(不保留任何 VectorEngine / NumPy 向量化回测代码),回测 100% 走 axon_quant 事件驱动
+- **不加载 axon_quant 源码** — 全部依赖 `pip install axon-quant==X.Y.Z` 安装的 PyPI 包,**不** `import sys.path.insert(0, "/path/to/axon/python")` 加载本地源码;`/Users/liupeng/workspace/quant/axon` 仓库仅作参考文档,绝不在 QuantCell 运行时使用
 
 ---
 
@@ -66,7 +70,8 @@ QuantCell 当前作为 Python + FastAPI 的量化交易平台,核心问题:
 │  ②e 资产层:       模板/用户/权限/审计(QuantCell 独占)                │
 │  ②f AI 编排:      train_orchestrator / explain_service / tracker_     │
 │                   adapter (接 axon-rl/registry/walk-forward/inference)│
-│  ②g CLI 入口:     quantcell 命令,无界面启动全功能                    │
+│ ②g CLI 入口:     quantcell 命令,无界面启动全功能                    │
+│ ②h ★ 反向回测:   **完全不实现回测逻辑**,回测 100% 委托 axon_quant   │
 └─────────────────────────┬───────────────────────────────────────────┘
                           │ Python import (无 gRPC / IPC)
 ┌─────────────────────────▼───────────────────────────────────────────┐
@@ -81,7 +86,7 @@ QuantCell 当前作为 Python + FastAPI 的量化交易平台,核心问题:
 ┌─────────────────────────▼───────────────────────────────────────────┐
 │ ④ axon_quant 核心引擎 (Rust) — 23 crate                              │
 │                                                                       │
-│  交易主线: data / backtest / risk / oms / exchange                    │
+│  交易主线: data / backtest(事件驱动,L1/L2/L3 撮合) / risk / oms / exchange                    │
 │  AI 主线:   rl / inference / llm / llm.trading / hpo / registry /    │
 │             distributed / ensemble / explain / walk_forward / tracker │
 │  治理主线: compliance / monitor / harness / defi / core / python /   │
@@ -163,7 +168,7 @@ axon_quant 的 [axon-llm/src/swarm/](file:///Users/liupeng/workspace/quant/Quant
 | Crate | Rust 现状 | QuantCell 现状 | 归属层 | v2.0 阶段 | Python/Rust 建议 |
 |---|---|---|---|---|---|
 | **axon-data** | ✅ 已暴露 | ⚠️ `data_service.py`(部分) | ③④ | **P1** | Rust 写,Python 薄包装 |
-| **axon-backtest** | ✅ BacktestEngine + L1/L2/L3 | ✅ `backtest_service.py` | ③④ | **P1** | Rust 写,**消除 Python 侧二次回测逻辑** |
+| **axon-backtest** | ✅ BacktestEngine(事件驱动)+ L1/L2/L3 撮合 | ❌ 现有 `backtest/engines/engine.py:VectorEngine` 是向量化(应**全量删除**),`backtest_service.py` 包装中 | ③④ | **P1** | **事件驱动回测(Rust 写,axon_quant 唯一来源)**;**完全删除所有向量化回测代码**(`backtest/engines/`、`VectorEngine`、任何 NumPy/pandas 向量化回测) |
 | **axon-risk** | ✅ `DefaultRiskEngine` | ✅ `risk_service.py` | ③④ | **P1** | Rust 写,QuantCell 补可视化表单/dry-run/审计 |
 | **axon-oms** | ✅ OrderManager | ✅ `oms_service.py` | ③④ | **P1** | Rust 写,QuantCell 补 UI 状态机/订单历史落库 |
 | **axon-exchange** | ✅ Binance/OKX | ✅ `exchange_service.py` | ③④ | **P1** | Rust 写,QuantCell 补多账号/凭证 vault/健康度 |
@@ -737,7 +742,7 @@ def main():
 | T1.2 | 迁移 services → 统一 import 路径 | 4 个 service 改 `from backend.axon_quant import X` |
 | T1.3 | 实现 `_errors.py` + `_async.py` + `_credentials.py` | 单测覆盖 8 个错误类型 + async_wrap |
 | T1.4 | `axon_quant.data` 全量包装(多源 + 缓存 + Parquet) | 6 个 wrapper, ≤200 行/文件 |
-| T1.5 | `axon_quant.backtest` 包装(消除所有 Python 侧二次回测逻辑) | `git grep "VectorEngine"` 0 命中 |
+| T1.5 | `axon_quant.backtest` 包装 + **完全删除所有向量化回测代码**(`backtest/engines/VectorEngine` 等) | `git grep "VectorEngine"` 0 命中;`git grep "from backtest.engines"` 0 命中;`ls backtest/engines/` 不存在 |
 | T1.6 | `axon_quant.risk` 包装 + dry-run 模式 | dry-run API 输入 Order 返回 RiskResult 不下单 |
 | T1.7 | `axon_quant.oms` 包装 + 订单状态机 UI 视图 | 订单历史落 `axond_orders` 表 |
 | T1.8 | 回归测试:`tests/unit/worker/` + `tests/unit/axond/` 全过 | 192+ passed,0 失败 |
@@ -849,13 +854,14 @@ def main():
 
 ```
 Day 1-2  :T1.1 适配层骨架 + T1.3 _errors / _async 基础
-Day 3-4  :T1.4 data 包装(全量) + T1.5 backtest 包装
+Day 3-4  :T1.4 data 包装(全量) + T1.5 backtest 包装 + **删除向量化回测代码**
 Day 5-7  :T1.6 risk 包装(含 dry-run) + T1.7 oms 包装
 Day 8-10 :T1.2 services 迁移到统一 import 路径
 Day 11-14:T1.8 回归测试 + 修复
 Day 1-2 (CLI 并行):T1.19 cli 包骨架 + T1.26 自动补全
 Day 3-10 (CLI 并行):T1.20 平迁 12 个 scripts + T1.21 pyproject 注册
 Day 11-14 (CLI 并行):T1.22 旧脚本 shim 化
+Day 0 (环境):`pip install axon-quant==0.2.0`(锁定 PyPI 版本,绝不加载本地源码)
 ```
 
 ---
@@ -874,7 +880,7 @@ Day 11-14 (CLI 并行):T1.22 旧脚本 shim 化
 | **R6** | axon-llm.trading 与 axon-oms 重复(都能下单) | 决策路径不唯一 | 强制:**所有下单走 axon-oms**,axon-llm.trading 只发"下单意图"信号,由 axon-oms 执行 |
 | **R7** | 模板策略在真实市场失效 | 非程序员用户亏损 | ① 模板标注"仅供学习";② 实盘前强制 walk-forward + dry-run;③ 单一模板最大资金上限 |
 | **R8** | PyO3 GIL 限制 — CPU 密集阻塞其他 Python 线程 | 高并发场景下推理/回测排队 | 单用户独占回测/RL 训练 worker;多用户走 Celery/RQ 队列(P3 引入) |
-| **R9** | axon-quant 不在 PyPI(目前用 maturin 本地安装) | 新人 onboarding 困难 | ① 写 `make python-install` 文档化;② 争取 axon 团队发布 PyPI 预编译 wheel |
+| **R9** | axon-quant PyPI 安装与版本管理 — 必须锁定 PyPI 版本,不可加载本地源码 | 安装/升级混乱 | ① `pyproject.toml` 锁 `axon-quant==0.2.0`;② 升级做全量回归(单元 + 集成 + E2E);③ 源码仓库 `/Users/liupeng/workspace/quant/axon` **仅作参考文档**,绝不 `sys.path.insert` 加载 |
 | **R10** | 6-8 个预设策略模板的"训练+回测"基线数据缺失 | 无法判定模板好坏 | P1-Sprint 2 末交付每个模板 1 份"基线回测报告"(BTC/ETH 过去 1 年) |
 | **R11** | CLI shim 兼容期 6 个月期间,新旧命令行为漂移 | 用户体验 | shim 阶段用 `subprocess.call` 转发,确保只有一份真业务代码 |
 | **R12** | CLI 启动慢(冷启动需加载 typer + 12 个 typer subapp) | 开发体验 | ① `cli/main.py` 顶层用 `lazy load`;② 提供 `quantcell --profile` 诊断冷启动 |
@@ -907,11 +913,12 @@ Day 11-14 (CLI 并行):T1.22 旧脚本 shim 化
 
 1. ✅ 4 层架构 + 多 Agent 协作模式
 2. ✅ ② 层 services/ 必须经 ③ 层 axon_quant/,禁止直接 import
-3. ✅ axon_quant 源码零修改(用户已确认)
-4. ✅ CLI 是 ② 层第二种入口,统一为 `quantcell` 命令
-5. ✅ axon-defi / axon-cli 永久跳过
-6. ✅ 适配层样板 6 个(目录/类型/异步/错误/Agent/凭证)
-7. ✅ 风险 15 条 + 开放问题 12 条
+3. ✅ axon_quant 通过 PyPI 安装,零源码依赖(`/Users/liupeng/workspace/quant/axon` 仅作参考文档)
+4. ✅ **回测完全走事件驱动(axon_quant.backtest)**,**完全删除所有向量化回测代码**
+5. ✅ CLI 是 ② 层第二种入口,统一为 `quantcell` 命令
+6. ✅ axon-defi / axon_cli 永久跳过
+7. ✅ 适配层样板 6 个(目录/类型/异步/错误/Agent/凭证)
+8. ✅ 风险 15 条 + 开放问题 12 条
 
 ### 8.2 待决策(见 §7.2)
 
@@ -930,6 +937,8 @@ Q1-Q12 在对应阶段启动前 1 周内决定。
 - 8 条 E2E 全链路用例通过
 - 性能基线:回测 1 年 1m < 30s,推理延迟 < 50ms
 - `quantcell --version` 工作,`quantcell agent swarm run` 工作
+- **回测纯事件驱动**:`git grep "VectorEngine"` 0 命中,`backtest/engines/` 目录已删除
+- **axon_quant 零源码依赖**:`pyproject.toml` 锁 `axon-quant==0.2.0`,`/Users/liupeng/workspace/quant/axon` 仓库未被任何 `sys.path` 引用
 
 ---
 
