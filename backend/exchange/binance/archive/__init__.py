@@ -11,6 +11,7 @@
 不修改现有 K 线数据流。
 """
 
+from exchange.binance.archive.factory import BinanceArchiveFactory
 from exchange.binance.archive.kinds import (
     ArchiveKind,
     MarketType,
@@ -21,6 +22,7 @@ from exchange.binance.archive.kinds import (
 
 __all__ = [
     "ArchiveKind",
+    "BinanceArchiveFactory",
     "MarketType",
     "build_zip_url",
     "get_save_dir",
