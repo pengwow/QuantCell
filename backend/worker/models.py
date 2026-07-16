@@ -36,6 +36,9 @@ class Worker(Base):
     # 当策略被删除或 ID 不存在时，可以通过此字段重新关联
     strategy_name = Column(String(200), nullable=True, index=True)
 
+    # 策略类型: rule(规则策略) / rl(RL策略)
+    strategy_type = Column(String(20), default='rule', index=True)
+
     # 交易配置 (JSON格式，支持复杂配置)
     # {
     #   "exchange": "binance",

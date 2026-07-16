@@ -9,6 +9,7 @@ import {
   Tabs,
   Modal,
   Input,
+  Select,
   Descriptions,
   Tooltip,
   Tag,
@@ -89,6 +90,7 @@ const StrategyEditor = () => {
 
   // AI生成策略状态
   const [aiModalVisible, setAiModalVisible] = useState<boolean>(false);
+  const [aiStrategyType, setAiStrategyType] = useState<'rule' | 'rl'>('rule');
 
   // 数据来源状态：'database' 表示来自数据库，'parsed' 表示来自策略解析
   const [dataSource, setDataSource] = useState<'database' | 'parsed'>('database');
@@ -103,6 +105,7 @@ const StrategyEditor = () => {
   // 使用 AI 生成的代码创建策略
   const handleCreateStrategyWithCode = (generatedCode: string, strategyName?: string) => {
     const name = strategyName || 'ai_generated_strategy';
+    const isRL = generatedCode.includes('TradingEnv') || generatedCode.includes('stable_baselines3') || generatedCode.includes('model.predict');
     const newStrategy: Strategy = {
       name: name,
       file_name: `${name}.py`,
@@ -114,6 +117,9 @@ const StrategyEditor = () => {
       updated_at: new Date().toISOString(),
       code: generatedCode,
     };
+
+    // 设置策略类型
+    (newStrategy as any).strategy_type = isRL ? 'rl' : 'rule';
 
     setSelectedStrategy(newStrategy);
     setCode(generatedCode);
@@ -619,7 +625,8 @@ class NewStrategy(StrategyBase):
             file_content: code,
             version: selectedStrategy.version,
             description: selectedStrategy.description,
-            params: selectedStrategy.params
+            params: selectedStrategy.params,
+            strategy_type: (selectedStrategy as any).strategy_type || 'rule',
           });
 
           message.success(t('strategy_saved') || '策略保存成功');
@@ -862,6 +869,16 @@ class NewStrategy(StrategyBase):
               {t('save') || '保存'}
             </Button>
           </Tooltip>
+          <Select
+            value={aiStrategyType}
+            onChange={setAiStrategyType}
+            size="small"
+            style={{ width: 100 }}
+            options={[
+              { value: 'rule', label: '规则策略' },
+              { value: 'rl', label: 'RL 策略' },
+            ]}
+          />
           <Button
             type="default"
             icon={<RobotOutlined />}
@@ -1091,7 +1108,7 @@ class NewStrategy(StrategyBase):
           // 思维链进度实时传输，代码内容一次性返回
           const cancelStream = aiModelApi.generateStrategyStream(
             {
-              requirement: content,
+              requirement: content + (aiStrategyType === 'rl' ? '\n[策略类型: RL策略，使用TradingEnv+stable-baselines3]' : '\n[策略类型: 规则策略，使用on_bar→Action]'),
               model_id: modelId || undefined,
               model_name: modelName || undefined,
             },

@@ -68,3 +68,4 @@ docs/compose/specs/*
 .mimocode/*
 .omo/*
 AGENTS.md
+backend/.mimocode/.cron-lock
