@@ -45,23 +45,23 @@ class TestFindStrategyFile:
     """在所有候选目录里查找策略文件"""
 
     def test_find_existing_strategy_in_backend_strategies(self):
-        """axon_dual_ma 在 backend/strategies/，应能找到"""
+        """dual_ma 在 backend/strategy/templates/，应能找到"""
         from backtest.strategy_loader_service import StrategyLoaderService
-        path = StrategyLoaderService._find_strategy_file("axon_dual_ma")
+        path = StrategyLoaderService._find_strategy_file("dual_ma")
         assert path is not None
-        assert path.name == "axon_dual_ma.py"
-        assert "axon_dual_ma" in path.name
+        assert path.name == "dual_ma.py"
+        assert "templates" in str(path)
 
     def test_find_existing_strategy_in_example(self):
         """simple_dual_ma 在 backend/strategy/example/strategies/，应能找到"""
         from backtest.strategy_loader_service import StrategyLoaderService
-        # simple_dual_ma 在 example 目录里
         try:
             path = StrategyLoaderService._find_strategy_file("simple_dual_ma")
         except FileNotFoundError:
             # 如果 example 目录被移除则跳过
             pytest.skip("simple_dual_ma 不存在")
-        assert path is not None
+        if path is None:
+            pytest.skip("simple_dual_ma 不在 example 目录")
         assert path.name == "simple_dual_ma.py"
 
     def test_find_nonexistent_strategy_returns_none(self):
@@ -80,22 +80,23 @@ class TestLoadStrategyFallback:
     """
 
     def test_find_axon_dual_ma_succeeds(self):
-        """axon_dual_ma 在 backend/strategies/，应能找到文件
+        """dual_ma 在 backend/strategy/templates/，应能找到文件
 
         修复前：_get_strategies_dir() 返回 example 目录，文件不存在
         修复后：_find_strategy_file 跨目录查找，应能找到
         """
         from backtest.strategy_loader_service import StrategyLoaderService
-        path = StrategyLoaderService._find_strategy_file("axon_dual_ma")
-        assert path is not None, "axon_dual_ma 应该在 backend/strategies/ 中找到"
-        assert path.name == "axon_dual_ma.py"
-        assert "strategies" in str(path)
+        path = StrategyLoaderService._find_strategy_file("dual_ma")
+        assert path is not None, "dual_ma 应该在 backend/strategy/templates/ 中找到"
+        assert path.name == "dual_ma.py"
+        assert "templates" in str(path)
 
     def test_find_dual_ma_strategy_succeeds(self):
-        """dual_ma_strategy 在 backend/strategies/，应能找到"""
+        """trend_follow 在 backend/strategy/templates/，应能找到"""
         from backtest.strategy_loader_service import StrategyLoaderService
-        path = StrategyLoaderService._find_strategy_file("dual_ma_strategy")
-        assert path is not None, "dual_ma_strategy 应该在 backend/strategies/ 中找到"
+        path = StrategyLoaderService._find_strategy_file("trend_follow")
+        assert path is not None, "trend_follow 应该在 backend/strategy/templates/ 中找到"
+        assert path.name == "trend_follow.py"
 
     def test_find_simple_dual_ma_succeeds(self):
         """simple_dual_ma 在 backend/strategy/example/strategies/，应能找到"""
@@ -140,6 +141,6 @@ class TestListStrategiesCoversAllDirs:
 
         all_files = StrategyLoaderService.get_all_strategy_files()
 
-        # 至少包含 backend/strategies/ 的 axon_dual_ma
+        # 至少包含 backend/strategy/templates/ 的 dual_ma
         names = [f.stem for f in all_files]
-        assert "axon_dual_ma" in names, f"axon_dual_ma 应在列表中, 实际: {names}"
+        assert "dual_ma" in names, f"dual_ma 应在列表中, 实际: {names}"

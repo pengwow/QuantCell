@@ -1,0 +1,14 @@
+{
+  "template": "momentum",
+  "symbol": "BTCUSDT",
+  "period": "2024-07-01~2025-07-01",
+  "interval": "1h",
+  "candle_type": "spot",
+  "total_pnl": 0.0,
+  "sharpe_ratio": 0.0,
+  "max_drawdown": 0.0,
+  "win_rate": 0.0,
+  "total_trades": 0,
+  "report_id": "d94f7350-53a9-4535-a42c-369820aae1e9",
+  "generated_at": "2026-07-17T03:33:56.380189000+00:00"
+}
