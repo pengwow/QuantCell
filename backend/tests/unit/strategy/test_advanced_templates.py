@@ -170,3 +170,79 @@ def test_funding_arbitrage_hold_counter_resets_on_noise():
         a = s.on_bar({"close": 50000.0, "funding_rate": 0.001, "timestamp": 100 + i}, ctx)
     # 状态应仍是 FLAT（5 bar 不够 min_hold_bars=8）
     assert s._state == FundingState.FLAT, f"噪声 reset 后只 5 bar, 应未入场, 实际 {s._state}"
+
+
+# ---- FundingArbitrage funding_cash 测试 ----
+
+def test_funding_arbitrage_accumulates_funding_cash_on_long_funding():
+    """LONG_FUNDING 持仓, funding 3 次 0.0001/0.0002/0.0003, 验证 funding_cash。
+
+    公式: cash_delta = -funding_rate × position_notional
+    position_notional = -0.5 × 50000 = -25000 (空头)
+    期望 funding_cash = (0.0001+0.0002+0.0003) × 0.5 × 50000 = 15.0
+    """
+    s = FundingArbitrage(StrategyConfig(
+        name="funding_arbitrage",
+        params={"entry_threshold": 0.0003, "min_hold_bars": 2, "target_position_pct": 0.1},
+    ))
+    ctx = StrategyContext(symbol="BTCUSDT", account_equity=100000.0)
+    ctx.positions[ctx.symbol] = -0.5
+    for i, fr in enumerate([0.0003, 0.0003, 0.0003]):
+        s.on_bar({"close": 50000.0, "funding_rate": fr, "timestamp": (i+1) * 1000}, ctx)
+    from strategy.templates.funding_arbitrage import FundingState
+    assert s._state == FundingState.LONG_FUNDING
+    expected = (0.0003 + 0.0003 + 0.0003) * 0.5 * 50000
+    assert ctx.funding_cash == pytest.approx(expected, rel=1e-6), \
+        f"funding_cash 不对, 期望 {expected}, 实际 {ctx.funding_cash}"
+
+
+def test_funding_arbitrage_spot_leg_disabled_single_leg():
+    """spot_leg_enabled=False → 现货目标=0, perp 仍动。"""
+    s = FundingArbitrage(StrategyConfig(
+        name="funding_arbitrage",
+        params={"entry_threshold": 0.0003, "min_hold_bars": 2,
+                "target_position_pct": 0.1, "spot_leg_enabled": False},
+    ))
+    ctx = StrategyContext(symbol="BTCUSDT", account_equity=100000.0)
+    for i in range(5):
+        a = s.on_bar({"close": 50000.0, "funding_rate": 0.001, "timestamp": i}, ctx)
+    from strategy.templates.funding_arbitrage import FundingState
+    assert s._state == FundingState.LONG_FUNDING
+    assert a.target_position < 0
+    assert ctx.spot_target_position == 0.0
+
+
+def test_funding_arbitrage_spot_margin_disabled_downgrades():
+    """spot_margin_enabled=False + funding < -entry → SHORT_FUNDING 但 spot=0。"""
+    s = FundingArbitrage(StrategyConfig(
+        name="funding_arbitrage",
+        params={"entry_threshold": 0.0003, "min_hold_bars": 2,
+                "target_position_pct": 0.1, "spot_margin_enabled": False},
+    ))
+    ctx = StrategyContext(symbol="BTCUSDT", account_equity=100000.0)
+    for i in range(5):
+        a = s.on_bar({"close": 50000.0, "funding_rate": -0.001, "timestamp": i}, ctx)
+    from strategy.templates.funding_arbitrage import FundingState
+    assert s._state == FundingState.SHORT_FUNDING
+    assert a.target_position > 0
+    assert ctx.spot_target_position == 0.0
+
+
+def test_funding_arbitrage_reverses_to_short_funding():
+    """LONG_FUNDING + funding 反号持续 N bar → 反转为 SHORT_FUNDING。"""
+    s = FundingArbitrage(StrategyConfig(
+        name="funding_arbitrage",
+        params={"entry_threshold": 0.0003, "min_hold_bars": 2,
+                "target_position_pct": 0.1, "spot_margin_enabled": True},
+    ))
+    ctx = StrategyContext(symbol="BTCUSDT", account_equity=100000.0)
+    for i in range(5):
+        s.on_bar({"close": 50000.0, "funding_rate": 0.001, "timestamp": i}, ctx)
+    from strategy.templates.funding_arbitrage import FundingState
+    assert s._state == FundingState.LONG_FUNDING
+    a = None
+    for i in range(3):
+        a = s.on_bar({"close": 50000.0, "funding_rate": -0.001, "timestamp": 100+i}, ctx)
+    assert s._state == FundingState.SHORT_FUNDING, f"应反转为 SHORT_FUNDING, 实际 {s._state}"
+    assert a.target_position > 0
+    assert ctx.spot_target_position < 0
