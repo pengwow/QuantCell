@@ -28,6 +28,7 @@ from .strategy import app as strategy_app
 from .tests_cmd import app as tests_app
 from .web import app as web_app
 from .worker import app as worker_app
+from .account import app as account_app
 
 # 顶层 typer app
 app = typer.Typer(
@@ -50,3 +51,4 @@ app.add_typer(strategy_app, name="strategy", help="策略 CRUD / 生成 / 分析
 app.add_typer(tests_app, name="tests", help="跑测试套件")
 app.add_typer(web_app, name="web", help="启动 / 停止 Web 服务")
 app.add_typer(worker_app, name="worker", help="Worker 工作进程管理")
+app.add_typer(account_app, name="account", help="凭证管理（add/list/remove）")
