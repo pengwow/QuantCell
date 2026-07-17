@@ -18,26 +18,34 @@ def _bars(prices: list[float], extra: dict | None = None) -> list[dict]:
 # ---- FundingArbitrage ----
 
 def test_funding_arbitrage_sell_on_positive_funding():
-    """funding > 0 → 卖（做空吃费率）。"""
-    s = FundingArbitrage(StrategyConfig(name="funding_arbitrage"))
+    """funding > 0 持续 N bar → 卖（做空吃费率）。"""
+    s = FundingArbitrage(StrategyConfig(name="funding_arbitrage", params={"min_hold_bars": 3}))
     ctx = StrategyContext(symbol="BTCUSDT")
-    a = s.on_bar({"close": 100.0, "funding_rate": 0.001}, ctx)
-    assert str(a.action_type) == "sell"
+    actions = [
+        s.on_bar({"close": 100.0, "funding_rate": 0.001, "timestamp": i}, ctx)
+        for i in range(5)
+    ]
+    assert any(str(a.action_type) == "sell" for a in actions), \
+        f"持续 5 bar funding > 0 应至少触发一次 sell: {actions}"
 
 
 def test_funding_arbitrage_buy_on_negative_funding():
-    """funding < 0 → 买（做多吃费率）。"""
-    s = FundingArbitrage(StrategyConfig(name="funding_arbitrage"))
+    """funding < 0 持续 N bar → 买（做多吃费率）。"""
+    s = FundingArbitrage(StrategyConfig(name="funding_arbitrage", params={"min_hold_bars": 3}))
     ctx = StrategyContext(symbol="BTCUSDT")
-    a = s.on_bar({"close": 100.0, "funding_rate": -0.001}, ctx)
-    assert str(a.action_type) == "buy"
+    actions = [
+        s.on_bar({"close": 100.0, "funding_rate": -0.001, "timestamp": i}, ctx)
+        for i in range(5)
+    ]
+    assert any(str(a.action_type) == "buy" for a in actions), \
+        f"持续 5 bar funding < 0 应至少触发一次 buy: {actions}"
 
 
 def test_funding_arbitrage_hold_on_zero_funding():
-    """funding ≈ 0 → 持仓不动。"""
+    """funding ≈ 0 → 持仓不动（FLAT）。"""
     s = FundingArbitrage(StrategyConfig(name="funding_arbitrage"))
     ctx = StrategyContext(symbol="BTCUSDT")
-    a = s.on_bar({"close": 100.0, "funding_rate": 0.0}, ctx)
+    a = s.on_bar({"close": 100.0, "funding_rate": 0.0, "timestamp": 0}, ctx)
     assert str(a.action_type) == "hold"
 
 
@@ -99,3 +107,66 @@ def test_mean_reversion_rl_sell_on_overbought():
     prices = [100.0] * 11 + [130.0]
     actions = [s.on_bar({"close": p}, ctx) for p in prices]
     assert any(str(a.action_type) == "sell" for a in actions), f"未触发 sell: {actions}"
+
+
+# ---- FundingArbitrage 升级测试 ----
+
+def test_funding_arbitrage_enters_long_funding_state():
+    """FLAT + funding >= entry_threshold 持续 min_hold_bars bar → LONG_FUNDING 状态。
+
+    验证：
+    1. state 变量进入 LONG_FUNDING
+    2. Action.target_position < 0（做空 perp）
+    3. ctx.spot_target_position > 0（做多 spot）
+    """
+    from strategy.templates.funding_arbitrage import FundingState
+    s = FundingArbitrage(StrategyConfig(
+        name="funding_arbitrage",
+        params={"entry_threshold": 0.0003, "min_hold_bars": 3, "target_position_pct": 0.1},
+    ))
+    ctx = StrategyContext(symbol="BTCUSDT", account_equity=100000.0)
+    for i in range(5):
+        a = s.on_bar({"close": 50000.0, "funding_rate": 0.001, "timestamp": i}, ctx)
+    assert s._state == FundingState.LONG_FUNDING, f"应进入 LONG_FUNDING, 实际 {s._state}"
+    assert a.target_position < 0, f"perp 应做空, target={a.target_position}"
+    assert ctx.spot_target_position > 0, f"spot 应做多, target={ctx.spot_target_position}"
+
+
+def test_funding_arbitrage_exits_on_threshold_drop():
+    """LONG_FUNDING + funding < exit_threshold → FLAT 状态。"""
+    from strategy.templates.funding_arbitrage import FundingState
+    s = FundingArbitrage(StrategyConfig(
+        name="funding_arbitrage",
+        params={"entry_threshold": 0.0003, "exit_threshold": 0.0001,
+                "min_hold_bars": 2, "target_position_pct": 0.1},
+    ))
+    ctx = StrategyContext(symbol="BTCUSDT", account_equity=100000.0)
+    # 5 bar funding > entry → LONG_FUNDING
+    for i in range(5):
+        s.on_bar({"close": 50000.0, "funding_rate": 0.001, "timestamp": i}, ctx)
+    assert s._state == FundingState.LONG_FUNDING
+    # 1 bar funding 跌破 exit_threshold
+    a = s.on_bar({"close": 50000.0, "funding_rate": 0.00005, "timestamp": 100}, ctx)
+    assert s._state == FundingState.FLAT, f"应退到 FLAT, 实际 {s._state}"
+    assert a.target_position == 0.0
+    assert ctx.spot_target_position == 0.0
+
+
+def test_funding_arbitrage_hold_counter_resets_on_noise():
+    """funding 在 entry 上方持续 7 bar, 第 8 bar 跌破, 计数器 reset, 不入场。"""
+    from strategy.templates.funding_arbitrage import FundingState
+    s = FundingArbitrage(StrategyConfig(
+        name="funding_arbitrage",
+        params={"entry_threshold": 0.0003, "min_hold_bars": 8, "target_position_pct": 0.1},
+    ))
+    ctx = StrategyContext(symbol="BTCUSDT", account_equity=100000.0)
+    # 7 bar funding > entry
+    for i in range(7):
+        s.on_bar({"close": 50000.0, "funding_rate": 0.001, "timestamp": i}, ctx)
+    # 第 8 bar 噪声
+    s.on_bar({"close": 50000.0, "funding_rate": 0.0001, "timestamp": 7}, ctx)
+    # 后续 funding 仍 > entry 但需要重数 8 bar
+    for i in range(5):
+        a = s.on_bar({"close": 50000.0, "funding_rate": 0.001, "timestamp": 100 + i}, ctx)
+    # 状态应仍是 FLAT（5 bar 不够 min_hold_bars=8）
+    assert s._state == FundingState.FLAT, f"噪声 reset 后只 5 bar, 应未入场, 实际 {s._state}"
