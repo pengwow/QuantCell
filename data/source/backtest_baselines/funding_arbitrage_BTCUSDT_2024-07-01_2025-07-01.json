@@ -1,0 +1,14 @@
+{
+  "template": "funding_arbitrage",
+  "symbol": "BTCUSDT",
+  "period": "2024-07-01~2025-07-01",
+  "interval": "1h",
+  "candle_type": "spot",
+  "total_pnl": 0.0,
+  "sharpe_ratio": 0.0,
+  "max_drawdown": 0.0,
+  "win_rate": 0.0,
+  "total_trades": 0,
+  "report_id": "2b7c7e77-a7d7-477a-a28c-44aad64a244b",
+  "generated_at": "2026-07-17T06:37:09.040758000+00:00"
+}
