@@ -667,5 +667,77 @@ def cli_deploy(
         raise typer.Exit(1)
 
 
+# === P1-Sprint 2 新增: 8 模板 + 校验 + 基线 ===
+
+@app.command("list-templates")
+def cli_list_templates():
+    """列出 8 策略模板。"""
+    from strategy.loader import StrategyLoader
+    names = StrategyLoader.list_all()
+    if not names:
+        typer.echo("(无模板)")
+        return
+    typer.echo("策略模板 (8 个):")
+    for n in names:
+        typer.echo(f"  - {n}")
+
+
+@app.command("validate")
+def cli_validate(
+    name: Annotated[str, typer.Option("--name", help="策略名")],
+):
+    """静态校验策略模板（on_bar 签名 + 可实例化）。"""
+    from strategy.loader import StrategyLoader
+    from strategy.base import StrategyConfig
+    try:
+        cls = StrategyLoader.get(name)
+        instance = cls(StrategyConfig(name=name))
+        # 检查 on_bar 存在
+        if not callable(getattr(instance, "on_bar", None)):
+            typer.echo(f"✗ {name}: on_bar 不可调用", err=True)
+            raise typer.Exit(1)
+        typer.echo(f"✓ {name}: 类={cls.__name__}, on_bar OK")
+    except ValueError as e:
+        typer.echo(f"✗ {name}: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command("baseline")
+def cli_baseline(
+    name: Annotated[str, typer.Option("--name", help="策略名")],
+    symbol: Annotated[str, typer.Option("--symbol", help="标的")] = "BTCUSDT",
+    start: Annotated[str, typer.Option("--start", help="开始日期 YYYY-MM-DD")] = "2024-07-01",
+    end: Annotated[str, typer.Option("--end", help="结束日期 YYYY-MM-DD")] = "2025-07-01",
+    interval: Annotated[str, typer.Option("--interval", help="K线周期")] = "1h",
+    candle_type: Annotated[str, typer.Option("--candle-type", help="市场类型")] = "spot",
+    output_dir: Annotated[str, typer.Option("--output-dir", help="输出目录")] = "data/source/backtest_baselines",
+):
+    """跑基线回测, 写 json + md 报告。"""
+    from pathlib import Path
+    from backtest.baseline import BaselineBacktestService
+    svc = BaselineBacktestService(
+        strategy_name=name,
+        symbol=symbol,
+        start=start,
+        end=end,
+        interval=interval,
+        candle_type=candle_type,
+        output_dir=Path(output_dir),
+    )
+    try:
+        report = svc.run()
+        typer.echo(f"✓ 基线回测完成")
+        typer.echo(f"  模板: {report.template}")
+        typer.echo(f"  标的: {report.symbol}")
+        typer.echo(f"  Total PnL: {report.total_pnl:.4f}")
+        typer.echo(f"  Sharpe: {report.sharpe_ratio:.4f}")
+        typer.echo(f"  Max DD: {report.max_drawdown:.4f}")
+        typer.echo(f"  Win Rate: {report.win_rate:.2%}")
+        typer.echo(f"  Trades: {report.total_trades}")
+    except Exception as e:
+        typer.echo(f"✗ {e}", err=True)
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
