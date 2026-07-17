@@ -6,6 +6,7 @@ ponytail: 8 模板都继承 BaseStrategy, 统一 on_bar(bar, ctx) -> Action 签�
 """
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -62,11 +63,36 @@ class StrategyContext:
         funding_time: int,
         position_notional: float,
     ) -> float:
-        """funding 结算入口(实现见 Task 3)。
+        """funding 结算：funding 时刻跨过时累加 cash_delta 到 funding_cash。
 
-        本任务只占位, Task 3 替换为完整实现。
+        Args:
+            funding_rate: 本期资金费率（decimal, e.g. 0.0003）
+            funding_time: 本期 funding 时间戳（毫秒）
+            position_notional: 当前 perp 持仓名义价值（USD, 带符号）
+                正数 = 多头, 负数 = 空头
+
+        Returns:
+            本次累加的 cash_delta（USD）。多空符号约定：
+            - 多头 + funding > 0 → 付出 funding（cash_delta < 0）
+            - 空头 + funding > 0 → 收入 funding（cash_delta > 0）
+            公式：cash_delta = -funding_rate × position_notional
+
+        边界：
+        - funding_time <= last_funding_time → 跳过（重复事件防御）
+        - funding_rate / position_notional 非 finite → 跳过
+        - funding_cash_settlement_enabled=False → 跳过（调试模式）
         """
-        return 0.0
+        if not self.funding_cash_settlement_enabled:
+            return 0.0
+        if funding_time <= self.last_funding_time:
+            return 0.0
+        if not math.isfinite(funding_rate) or not math.isfinite(position_notional):
+            return 0.0
+        cash_delta = -funding_rate * position_notional
+        self.funding_cash += cash_delta
+        self.last_funding_rate = funding_rate
+        self.last_funding_time = funding_time
+        return cash_delta
 
 
 class BaseStrategy(ABC):
