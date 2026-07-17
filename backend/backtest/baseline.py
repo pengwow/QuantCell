@@ -148,6 +148,23 @@ class BaselineBacktestService:
         self._funding_history = history
         return self._funding_history
 
+    def _row_timestamp_ms(self, row: pd.Series) -> int:
+        """从 row 提取毫秒时间戳。
+
+        ponytail: 优先 'timestamp' 列; 否则用 index name='timestamp' 或 DatetimeIndex
+                 老测试 fixture 用 DatetimeIndex (无列), 这里必须兜底
+        """
+        if "timestamp" in row.index and not isinstance(row["timestamp"], (int, float)):
+            try:
+                return int(pd.Timestamp(row["timestamp"]).timestamp() * 1000)
+            except (ValueError, TypeError):
+                pass
+        idx_name = row.name
+        if isinstance(idx_name, pd.Timestamp):
+            return int(idx_name.timestamp() * 1000)
+        # 兜底: 0
+        return 0
+
     def run(self) -> BaselineReport:
         """跑基线回测, 返回报告 dataclass。"""
         df = self._load_kline()
@@ -158,6 +175,7 @@ class BaselineBacktestService:
         config = StrategyConfig(name=self.strategy_name, symbol=self.symbol)
         strategy: BaseStrategy = strategy_cls(config)
         ctx = StrategyContext(symbol=self.symbol)
+        ctx.spot_target_position = 0.0  # 新增: 重置
         strategy.on_start(ctx)
 
         position = 0.0
@@ -167,20 +185,48 @@ class BaselineBacktestService:
         wins = 0
         equity_curve: list[float] = [0.0]
 
+        # 加载 funding 历史 (新增)
+        funding_history = self._load_funding_history()
+        prev_funding_cash = 0.0
+        initial_equity = 100000.0  # 默认初始资金
+
         for _, row in df.iterrows():
+            # 构造 bar (新增 timestamp 字段)
+            ts_ms = self._row_timestamp_ms(row)
             bar = {
                 "open": float(row.get("open", row["close"])),
                 "high": float(row.get("high", row["close"])),
                 "low": float(row.get("low", row["close"])),
                 "close": float(row["close"]),
                 "volume": float(row.get("volume", 0.0)),
+                "timestamp": ts_ms,  # 新增
             }
-            # 高级模板可能读取 funding/cross_sectional_rank(默认 0)
             bar.setdefault("funding_rate", 0.0)
+            bar.setdefault("funding_time", ts_ms)  # 新增
             bar.setdefault("cross_sectional_rank", 0)
+
+            # 新增: 查 funding 历史 (精确匹配 funding 时刻)
+            if funding_history and ts_ms in funding_history:
+                bar["funding_rate"] = funding_history[ts_ms]
+                bar["funding_time"] = ts_ms
+
+            # 新增: 注入 spot bar 字段 (单 symbol 模式下 spot=perp, 兼容老用法)
+            if self.spot_symbol:
+                ctx.spot_symbol = self.spot_symbol
+                ctx.spot_close = float(row["close"])
+                ctx.spot_volume = float(row.get("volume", 0.0))
+
+            # 新增: 注入账户净值 (策略层算 notional 用)
+            ctx.account_equity = initial_equity + pnl
 
             action = strategy.on_bar(bar, ctx)
             t = str(action.action_type)
+
+            # 新增: funding_cash 累加入 pnl
+            if hasattr(ctx, "funding_cash"):
+                funding_delta = ctx.funding_cash - prev_funding_cash
+                pnl += funding_delta
+                prev_funding_cash = ctx.funding_cash
 
             if t == "buy" and position <= 0:
                 if position < 0:
