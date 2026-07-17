@@ -61,17 +61,19 @@ class FundingArbitrage(BaseStrategy):
         funding_time = int(bar.get("timestamp", bar.get("funding_time", 0)))
         close_price = float(bar["close"])
 
-        # 1) settle funding
-        position_notional = float(ctx.positions.get(ctx.symbol, 0.0)) * close_price
+        # 1) 状态机更新 (先算 perp_target, 让 settle_funding 用 state 决定的 notional)
+        prev_state = self._state
+        perp_target, spot_target, new_state = self._compute_targets(funding_rate)
+
+        # 2) settle funding (用本 bar state 决定的 perp_target 作为 notional)
+        # 关键修复: 开仓后前 7 根 bar baseline 还没同步 ctx.positions[symbol],
+        #           ctx.positions 拿到的是上根的旧值, notional=0 → funding_cash 累计=0
+        #           用 perp_target 直接传 notional, 跳过 baseline 同步依赖
         ctx.settle_funding(
             funding_rate=funding_rate,
             funding_time=funding_time,
-            position_notional=position_notional,
+            position_notional=perp_target,
         )
-
-        # 2) 状态机更新
-        prev_state = self._state
-        perp_target, spot_target, new_state = self._compute_targets(funding_rate)
         if new_state != prev_state and self._param("log_state_transitions"):
             ctx.orders.append({
                 "type": "log",
