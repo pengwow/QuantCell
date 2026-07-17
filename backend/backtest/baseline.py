@@ -248,6 +248,9 @@ class BaselineBacktestService:
 
             # 持仓 PnL(标记到市场)
             unrealized = (bar["close"] - entry_price) * position if position > 0 else 0.0
+            # 同步持仓到 ctx (策略层 settle_funding 算 position_notional 用)
+            ctx.positions[ctx.symbol] = position
+
             equity_curve.append(pnl + unrealized)
 
         # 计算指标
