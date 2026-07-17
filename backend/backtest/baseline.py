@@ -7,6 +7,7 @@ ponytail: 简化版基线回测 — 不走 axon_quant 事件循环
 """
 from __future__ import annotations
 
+import csv
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -95,6 +96,8 @@ class BaselineBacktestService:
         candle_type: str = "spot",
         output_dir: Path | None = None,
         data: pd.DataFrame | None = None,
+        funding_history_path: str | None = None,
+        spot_symbol: str | None = None,
     ):
         self.strategy_name = strategy_name
         self.symbol = symbol
@@ -104,8 +107,10 @@ class BaselineBacktestService:
         self.candle_type = candle_type
         self.output_dir = Path(output_dir) if output_dir else Path("data/source/backtest_baselines")
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        # ponytail: data 可选,None 时生成合成 K 线,避免依赖外部 Parquet
         self.data = data
+        self.funding_history_path = funding_history_path
+        self.spot_symbol = spot_symbol
+        self._funding_history: dict[int, float] | None = None
 
     def _load_kline(self) -> pd.DataFrame:
         """加载 K 线;外部传入优先(允许空),None 时合成。
@@ -117,6 +122,31 @@ class BaselineBacktestService:
             return self.data
         # 合成 200 根小时 K 线(约 8 天)够触发所有策略信号
         return make_synthetic_kline(n=200, start_price=30000.0)
+
+    def _load_funding_history(self) -> dict[int, float]:
+        """加载 funding 历史 CSV → {funding_time_ms: funding_rate}。
+
+        CSV 格式: funding_time_ms,funding_rate
+        路径为空时返回空 dict (兼容老用法)。
+        懒加载: 多次调用只解析一次。
+        """
+        if self._funding_history is not None:
+            return self._funding_history
+        if not self.funding_history_path:
+            self._funding_history = {}
+            return self._funding_history
+        path = Path(self.funding_history_path)
+        if not path.exists():
+            # 静默回退, 不报错 (兼容缺数据场景)
+            self._funding_history = {}
+            return self._funding_history
+        history: dict[int, float] = {}
+        with path.open() as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                history[int(row["funding_time_ms"])] = float(row["funding_rate"])
+        self._funding_history = history
+        return self._funding_history
 
     def run(self) -> BaselineReport:
         """跑基线回测, 返回报告 dataclass。"""
