@@ -98,6 +98,7 @@ class BaselineBacktestService:
         data: pd.DataFrame | None = None,
         funding_history_path: str | None = None,
         spot_symbol: str | None = None,
+        funding_injection_window_hours: float = 8.0,  # 新增: funding 注入窗口 (小时)
     ):
         self.strategy_name = strategy_name
         self.symbol = symbol
@@ -110,6 +111,7 @@ class BaselineBacktestService:
         self.data = data
         self.funding_history_path = funding_history_path
         self.spot_symbol = spot_symbol
+        self.funding_injection_window_hours = funding_injection_window_hours  # 新增
         self._funding_history: dict[int, float] | None = None
 
     def _load_kline(self) -> pd.DataFrame:
@@ -147,6 +149,25 @@ class BaselineBacktestService:
                 history[int(row["funding_time_ms"])] = float(row["funding_rate"])
         self._funding_history = history
         return self._funding_history
+
+    def _compute_funding_periods(
+        self, funding_history: dict[int, float]
+    ) -> list[tuple[int, int, float]]:
+        """把 funding_history dict 展开为 (start_ms, end_ms, rate) periods。
+
+        每个 period 表示 funding 在 [funding_time - window, funding_time] 期间
+        内所有 bar 都能拿到这个 rate。用于 funding_injection_window_hours 修复:
+        让 funding 8h 期间内的所有 1h bar 都看到 funding_rate, 让策略
+        min_hold_bars=8 能在 1h K 线上连续命中 entry。
+        """
+        if not funding_history:
+            return []
+        window_ms = int(self.funding_injection_window_hours * 3600 * 1000)
+        periods: list[tuple[int, int, float]] = []
+        for funding_time_ms, rate in funding_history.items():
+            start_ms = funding_time_ms - window_ms
+            periods.append((start_ms, funding_time_ms, rate))
+        return sorted(periods)
 
     def _row_timestamp_ms(self, row: pd.Series) -> int:
         """从 row 提取毫秒时间戳。
