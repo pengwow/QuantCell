@@ -95,11 +95,13 @@ class StrategyLoaderService:
         - load_strategy 用这个逐个查找策略文件
 
         优先级顺序：
-        1. backend/strategy/example/strategies  （示例策略，axond 风格）
-        2. backend/strategies                  （旧版兼容，事件驱动风格）
+        1. backend/strategy/templates         （P1-Sprint 2 新位置，8 模板）
+        2. backend/strategy/example/strategies（示例策略，axond 风格）
+        3. backend/strategies                 （旧版兼容，事件驱动风格）
         """
         backend_path = Path(__file__).resolve().parent.parent
         candidates = [
+            backend_path / "strategy" / "templates",
             backend_path / "strategy" / "example" / "strategies",
             backend_path / "strategies",
         ]

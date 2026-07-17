@@ -1,0 +1,14 @@
+{
+  "template": "trend_follow",
+  "symbol": "BTCUSDT",
+  "period": "2024-07-01~2025-07-01",
+  "interval": "1h",
+  "candle_type": "spot",
+  "total_pnl": -90.7484,
+  "sharpe_ratio": -1.5086,
+  "max_drawdown": -154.6995,
+  "win_rate": 0.0,
+  "total_trades": 16,
+  "report_id": "c2fd0ee0-2c3d-4012-8c36-0780b1665877",
+  "generated_at": "2026-07-17T03:33:52.551269000+00:00"
+}

@@ -1,0 +1,14 @@
+{
+  "template": "mean_reversion_rl",
+  "symbol": "BTCUSDT",
+  "period": "2024-07-01~2025-07-01",
+  "interval": "1h",
+  "candle_type": "spot",
+  "total_pnl": -14.3576,
+  "sharpe_ratio": -0.0349,
+  "max_drawdown": -687.9448,
+  "win_rate": 0.0909,
+  "total_trades": 11,
+  "report_id": "586baba4-f8a5-4392-a110-6e319a752658",
+  "generated_at": "2026-07-17T03:34:00.220475000+00:00"
+}
