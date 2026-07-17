@@ -1,7 +1,7 @@
 # FundingArbitrage 升级 Changelog
 
 **Date:** 2026-07-17
-**Version:** v2.3.0
+**Version:** v2.3.1
 **Spec:** `docs/superpowers/specs/2026-07-17-funding-arbitrage-upgrade-design.md`
 **Plan:** `docs/superpowers/plans/2026-07-17-funding-arbitrage-upgrade.md`
 
@@ -78,20 +78,33 @@
 
 ## 已知限制
 
-### 1 年 baseline 报告 trades=0 (R3)
+### 1 年 baseline 报告 trades=0 (R3) — 已修复 (v2.3.1)
 
-**根因**：
+**原根因**:
 - 1 年 baseline K 线从 2024-07-01 起算 (4000 根 1h bar)
 - funding fixture 24 行 8h 间隔, funding_time 与 bar 1:8 错位
 - 策略 min_hold_bars=8 要求连续 8 根 bar 满足 entry_threshold
 - 8h 间隔的 funding 注入在 1h K 线上不可能 8 帧连续满足 0.0003
 
-**修复方向 (下一 sprint)**：
-- 选项 A: baseline 加 `funding_injection_window_hours=8` 参数, funding_rate 在 [funding_time - 8h, funding_time] 期间内所有 bar 都注入 (符合现实 funding 8h 期间内 funding_rate 已确定的事实)
-- 选项 B: 改 fixture 用 1h 间隔 funding_rate=0.0005 持续 24 行
-- 选项 C: 改策略 min_hold_bars=2 适应 funding 8h 间隔
+**修复 (2 处)**:
 
-**当前接受**: trades=0 报告作为 baseline 框架已就绪的标志, 不作为策略 PnL 参考。
+1) baseline 加 `funding_injection_window_hours=8.0` 参数:
+   - 把 funding_history dict 预计算为 funding_periods list
+     [(start_ms=funding_time-window, end_ms=funding_time, rate)]
+   - 每 bar 注入: ts_ms 落在任何 period 范围内则用该 period rate
+   - 8h 期间内所有 1h bar 都拿到 funding_rate, 策略可连续 8 帧满足 entry
+
+2) funding_arbitrage.py on_bar 顺序修复:
+   - 旧: settle_funding 用 ctx.positions[symbol] × close 算 notional
+     但 baseline 在 on_bar 后才同步 ctx.positions → 开仓后前 7 根 notional=0
+     → funding_cash 累计 0
+   - 新: 先 _compute_targets 算 perp_target, 再用 perp_target 作为 notional
+     → 跳过 baseline 同步依赖
+
+**修复效果**:
+- 1 年 baseline 报告: trades=49, total_pnl=155.12, sharpe=1.96
+- 8 天 baseline 报告: trades=49, total_pnl=155.12, sharpe=9.77
+- 82 baseline+strategy+integration 测试全过
 
 ### baseline Bug A 已修
 
@@ -130,7 +143,7 @@ ctx.positions[ctx.symbol] = position
 - [x] 4 个 baseline 新测试通过
 - [x] 4 个集成测试通过
 - [x] `scripts/check_funding_arb.py` 端到端自检通过
-- [x] 1 年 baseline 报告生成 (trades=0 见"已知限制")
+- [x] 1 年 baseline 报告生成 (v2.3.0: trades=0; v2.3.1: trades=49, pnl=155.12)
 - [x] axon_quant 47 + archive 117 + 8 strategy 老测试全部不破坏
 - [x] axon_quant 完全不动
 - [x] 不新建 SQL 表
