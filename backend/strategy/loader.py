@@ -13,6 +13,7 @@ from strategy.base import BaseStrategy
 
 
 _REGISTRY: dict[str, type[BaseStrategy]] = {}
+_AUTO_REGISTERED = False
 
 
 def register(name: str):
@@ -26,27 +27,31 @@ def register(name: str):
     return deco
 
 
+def _ensure_auto_registered() -> None:
+    """懒加载：首次访问时再扫描 templates 目录,避免循环 import。"""
+    global _AUTO_REGISTERED
+    if _AUTO_REGISTERED:
+        return
+    _AUTO_REGISTERED = True
+    import strategy.templates  # noqa: F401
+    for _, mod_name, _ in pkgutil.iter_modules(strategy.templates.__path__):
+        importlib.import_module(f"strategy.templates.{mod_name}")
+
+
 class StrategyLoader:
     @staticmethod
     def get(name: str) -> type[BaseStrategy]:
+        _ensure_auto_registered()
         if name not in _REGISTRY:
             raise ValueError(f"未知策略: {name}，可用: {list(_REGISTRY.keys())}")
         return _REGISTRY[name]
 
     @staticmethod
     def list_all() -> list[str]:
+        _ensure_auto_registered()
         return sorted(_REGISTRY.keys())
 
     @staticmethod
     def has(name: str) -> bool:
+        _ensure_auto_registered()
         return name in _REGISTRY
-
-
-# 自动导入 strategy.templates 触发 @register 装饰器
-def _auto_register():
-    import strategy.templates  # noqa: F401
-    for _, mod_name, _ in pkgutil.iter_modules(strategy.templates.__path__):
-        importlib.import_module(f"strategy.templates.{mod_name}")
-
-
-_auto_register()
