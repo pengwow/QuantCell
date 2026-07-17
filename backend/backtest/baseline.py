@@ -206,8 +206,9 @@ class BaselineBacktestService:
         wins = 0
         equity_curve: list[float] = [0.0]
 
-        # 加载 funding 历史 (新增)
+        # 加载 funding 历史 + 展开为 periods (支持 funding_injection_window_hours)
         funding_history = self._load_funding_history()
+        funding_periods = self._compute_funding_periods(funding_history)
         prev_funding_cash = 0.0
         initial_equity = 100000.0  # 默认初始资金
 
@@ -226,10 +227,12 @@ class BaselineBacktestService:
             bar.setdefault("funding_time", ts_ms)  # 新增
             bar.setdefault("cross_sectional_rank", 0)
 
-            # 新增: 查 funding 历史 (精确匹配 funding 时刻)
-            if funding_history and ts_ms in funding_history:
-                bar["funding_rate"] = funding_history[ts_ms]
-                bar["funding_time"] = ts_ms
+            # 查 funding_periods: ts_ms 落在 [period_start, period_end] 范围则用
+            for period_start_ms, period_end_ms, period_rate in funding_periods:
+                if period_start_ms <= ts_ms <= period_end_ms:
+                    bar["funding_rate"] = period_rate
+                    bar["funding_time"] = period_end_ms
+                    break
 
             # 新增: 注入 spot bar 字段 (单 symbol 模式下 spot=perp, 兼容老用法)
             if self.spot_symbol:

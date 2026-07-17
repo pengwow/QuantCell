@@ -175,23 +175,28 @@ def test_funding_arbitrage_hold_counter_resets_on_noise():
 # ---- FundingArbitrage funding_cash 测试 ----
 
 def test_funding_arbitrage_accumulates_funding_cash_on_long_funding():
-    """LONG_FUNDING 持仓, funding 3 次 0.0001/0.0002/0.0003, 验证 funding_cash。
+    """LONG_FUNDING 持仓, funding 3 bar, 验证 funding_cash 按 state 决定 notional 累加。
 
     公式: cash_delta = -funding_rate × position_notional
-    position_notional = -0.5 × 50000 = -25000 (空头)
-    期望 funding_cash = (0.0001+0.0002+0.0003) × 0.5 × 50000 = 15.0
+    perp_target (LONG_FUNDING) = -equity × pct = -100000 × 0.1 = -10000
+    每根 LONG_FUNDING bar cash_delta = -0.0003 × -10000 = +3.0
+
+    3 根 bar (funding_time 各异, 1000/2000/3000):
+    - bar 1: state=FLAT (hold_counter 0→1, 距 min_hold_bars=2 还差) → perp_target=0, cash_delta=0
+    - bar 2: state→LONG_FUNDING (hold_counter=2 触发) → perp_target=-10000, cash_delta=+3.0
+    - bar 3: state=LONG_FUNDING 维持 → perp_target=-10000, cash_delta=+3.0
+    总 funding_cash = 6.0
     """
     s = FundingArbitrage(StrategyConfig(
         name="funding_arbitrage",
         params={"entry_threshold": 0.0003, "min_hold_bars": 2, "target_position_pct": 0.1},
     ))
     ctx = StrategyContext(symbol="BTCUSDT", account_equity=100000.0)
-    ctx.positions[ctx.symbol] = -0.5
     for i, fr in enumerate([0.0003, 0.0003, 0.0003]):
         s.on_bar({"close": 50000.0, "funding_rate": fr, "timestamp": (i+1) * 1000}, ctx)
     from strategy.templates.funding_arbitrage import FundingState
     assert s._state == FundingState.LONG_FUNDING
-    expected = (0.0003 + 0.0003 + 0.0003) * 0.5 * 50000
+    expected = 2 * 0.0003 * 10000  # 2 根 LONG_FUNDING bar 各累加 3.0
     assert ctx.funding_cash == pytest.approx(expected, rel=1e-6), \
         f"funding_cash 不对, 期望 {expected}, 实际 {ctx.funding_cash}"
 
