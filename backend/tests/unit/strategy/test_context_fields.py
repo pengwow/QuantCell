@@ -54,46 +54,47 @@ def test_legacy_context_construction_still_works():
 
 
 def test_settle_funding_basic_long_position_pays():
-    """持仓多头 + funding > 0 → 付出 funding（cash_delta < 0）。"""
+    """DEPRECATED: 策略层不再累加 funding_cash (2026-07-18 0.6.0 升级后下沉到 axon_quant 引擎)。
+    settle_funding 已改为 no-op, 无论参数如何都返回 0.0, funding_cash 不变。
+    """
     ctx = StrategyContext(symbol="BTCUSDT")
     delta = ctx.settle_funding(
         funding_rate=0.0003, funding_time=1000, position_notional=50000.0
     )
-    assert delta == pytest.approx(-15.0, rel=1e-6)  # -0.0003 × 50000
-    assert ctx.funding_cash == pytest.approx(-15.0, rel=1e-6)
-    assert ctx.last_funding_rate == 0.0003
-    assert ctx.last_funding_time == 1000
+    assert delta == 0.0
+    assert ctx.funding_cash == 0.0
+    assert ctx.last_funding_rate == 0.0
+    assert ctx.last_funding_time == 0
 
 
 def test_settle_funding_basic_short_position_receives():
-    """持仓空头 + funding > 0 → 收入 funding（cash_delta > 0）。
-
-    约定：position_notional 是当前持仓名义价值（USD）。
-    实际策略中, funding cash 与持仓符号方向相反:
-        多头 + funding > 0 → 付出
-        空头 + funding > 0 → 收入
-    因此本测试传入负的 notional 模拟空头, 验证 cash > 0
+    """DEPRECATED: 策略层不再累加 funding_cash。
+    no-op 行为: 无论 long/short 持仓, settle_funding 都返回 0.0, funding_cash 不变。
     """
     ctx = StrategyContext(symbol="BTCUSDT")
     delta = ctx.settle_funding(
         funding_rate=0.0003, funding_time=1000, position_notional=-50000.0
     )
-    assert delta == pytest.approx(+15.0, rel=1e-6)  # -0.0003 × (-50000)
-    assert ctx.funding_cash == pytest.approx(+15.0, rel=1e-6)
+    assert delta == 0.0
+    assert ctx.funding_cash == 0.0
 
 
 def test_settle_funding_skips_duplicate_time():
-    """funding_time <= last_funding_time → 跳过累加（重复事件防御）。"""
+    """DEPRECATED: 重复时间防御已下沉到 PushFundingHelper (axon_bridge.backtest)。
+    no-op 行为: settle_funding 始终返回 0.0, 无累加。
+    """
     ctx = StrategyContext(symbol="BTCUSDT")
     ctx.settle_funding(funding_rate=0.0003, funding_time=1000, position_notional=50000.0)
     delta2 = ctx.settle_funding(funding_rate=0.0005, funding_time=1000, position_notional=50000.0)
     assert delta2 == 0.0
-    assert ctx.funding_cash == pytest.approx(-15.0, rel=1e-6)  # 仍是第一次
-    assert ctx.last_funding_time == 1000
+    assert ctx.funding_cash == 0.0
+    assert ctx.last_funding_time == 0
 
 
 def test_settle_funding_skips_nan():
-    """funding_rate 是 NaN/Inf → 跳过累加, 不污染 funding_cash。"""
+    """no-op 行为: 即使 funding_rate 是 NaN, settle_funding 也返回 0.0。
+    NaN 防御已下沉到 axon_quant 引擎 (RunResult.total_funding_pnl 在引擎层有 sanity check)。
+    """
     ctx = StrategyContext(symbol="BTCUSDT")
     delta = ctx.settle_funding(
         funding_rate=float("nan"), funding_time=1000, position_notional=50000.0
@@ -104,7 +105,8 @@ def test_settle_funding_skips_nan():
 
 
 def test_settle_funding_skips_when_disabled():
-    """funding_cash_settlement_enabled=False → 跳过累加（调试模式）。"""
+    """no-op 行为: funding_cash_settlement_enabled=False 时(且默认也是 False)也返回 0.0。
+    """
     ctx = StrategyContext(symbol="BTCUSDT", funding_cash_settlement_enabled=False)
     delta = ctx.settle_funding(
         funding_rate=0.0003, funding_time=1000, position_notional=50000.0
@@ -114,10 +116,11 @@ def test_settle_funding_skips_when_disabled():
 
 
 def test_settle_funding_accumulates_multiple_events():
-    """多次累加：funding_cash 累加正确。"""
+    """DEPRECATED: 多次累加 funding_cash 已下沉到 axon_quant 引擎的 total_funding_pnl。
+    no-op 行为: 多次调用 settle_funding 累加为 0, funding_cash 始终为 0.0。
+    """
     ctx = StrategyContext(symbol="BTCUSDT")
     ctx.settle_funding(funding_rate=0.0001, funding_time=1000, position_notional=50000.0)
     ctx.settle_funding(funding_rate=0.0003, funding_time=2000, position_notional=50000.0)
     ctx.settle_funding(funding_rate=0.0005, funding_time=3000, position_notional=50000.0)
-    expected = -(0.0001 + 0.0003 + 0.0005) * 50000  # = -45
-    assert ctx.funding_cash == pytest.approx(expected, rel=1e-6)
+    assert ctx.funding_cash == 0.0
