@@ -30,32 +30,39 @@ class StrategyContext:
 
     ponytail: 简洁接口, 模板只关心 closes/positions/orders
              不感知具体交易所/账户细节
-             新增字段(2026-07-17 funding arbitrage 升级)：
-             - spot_* : 现货腿支持
-             - funding_cash : funding 现金流累计
-             - settle_funding() : funding 结算入口
-             - account_equity : 账户净值(策略层用)
-             - last_funding_rate/time : 最近 funding 状态
+
+    字段:
+    - spot_* : 现货腿支持 (funding_arbitrage 用, baseline 读 spot_target_position)
+    - account_equity : 账户净值(策略层算 notional 用)
+
+    DEPRECATED 字段(2026-07-18 axon_quant 0.6.0 升级后保留读接口):
+    - funding_cash / settle_funding: 完全下沉到 axon_quant 引擎的
+      RunResult.total_funding_pnl, 策略层不再调用
+    - funding_cash_settlement_enabled 默认 False
+    - last_funding_rate / last_funding_time 保留为只读 0
     """
     symbol: str
     closes: list[float] = field(default_factory=list)
     positions: dict[str, float] = field(default_factory=dict)
     orders: list[dict] = field(default_factory=list)
 
-    # —— 新增：现货腿支持（2026-07-17 funding arbitrage 升级）——
+    # —— 现货腿支持 (funding_arbitrage 用) ——
     spot_symbol: str = ""
     spot_close: float = 0.0
     spot_volume: float = 0.0
-    spot_target_position: float = 0.0  # 现货目标仓位（策略 set, baseline 读）
+    spot_target_position: float = 0.0  # 现货目标仓位(策略 set, baseline 读)
 
-    # —— 新增：funding 现金流 ——
-    funding_cash: float = 0.0
-    last_funding_rate: float = 0.0
-    last_funding_time: int = 0
-    funding_cash_settlement_enabled: bool = True
-
-    # —— 新增：账户净值(策略层算 notional 用)——
+    # —— 账户净值(策略层算 notional 用)——
     account_equity: float = 0.0
+
+    # —— DEPRECATED 字段(2026-07-18 axon_quant 0.6.0 升级后保留读接口)——
+    # funding cash 已完全下沉到 axon_quant 引擎的 RunResult.total_funding_pnl,
+    # 策略层不再调用 settle_funding()。这些字段保留读接口以避免破坏外部代码,
+    # 默认值 0,settle_funding() 改为 no-op 返回 0.0。
+    funding_cash: float = 0.0  # DEPRECATED: 始终为 0
+    last_funding_rate: float = 0.0  # DEPRECATED
+    last_funding_time: int = 0  # DEPRECATED
+    funding_cash_settlement_enabled: bool = False  # DEPRECATED, 默认 False
 
     def settle_funding(
         self,
@@ -63,36 +70,12 @@ class StrategyContext:
         funding_time: int,
         position_notional: float,
     ) -> float:
-        """funding 结算：funding 时刻跨过时累加 cash_delta 到 funding_cash。
+        """DEPRECATED: funding cash 已下沉到 axon_quant 引擎 (RunResult.total_funding_pnl)。
 
-        Args:
-            funding_rate: 本期资金费率（decimal, e.g. 0.0003）
-            funding_time: 本期 funding 时间戳（毫秒）
-            position_notional: 当前 perp 持仓名义价值（USD, 带符号）
-                正数 = 多头, 负数 = 空头
-
-        Returns:
-            本次累加的 cash_delta（USD）。多空符号约定：
-            - 多头 + funding > 0 → 付出 funding（cash_delta < 0）
-            - 空头 + funding > 0 → 收入 funding（cash_delta > 0）
-            公式：cash_delta = -funding_rate × position_notional
-
-        边界：
-        - funding_time <= last_funding_time → 跳过（重复事件防御）
-        - funding_rate / position_notional 非 finite → 跳过
-        - funding_cash_settlement_enabled=False → 跳过（调试模式）
+        保留作 no-op 接口以避免破坏外部调用, 返回 0.0。
+        业务代码不应再调用此方法, 由 axon_quant.backtest.BacktestEngine.push_funding() 替代。
         """
-        if not self.funding_cash_settlement_enabled:
-            return 0.0
-        if funding_time <= self.last_funding_time:
-            return 0.0
-        if not math.isfinite(funding_rate) or not math.isfinite(position_notional):
-            return 0.0
-        cash_delta = -funding_rate * position_notional
-        self.funding_cash += cash_delta
-        self.last_funding_rate = funding_rate
-        self.last_funding_time = funding_time
-        return cash_delta
+        return 0.0
 
 
 class BaseStrategy(ABC):
