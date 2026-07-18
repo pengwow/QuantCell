@@ -14,7 +14,7 @@ site-packages 的 axon_quant 同名导致循环导入。
 from ._credentials import credentials  # noqa: F401
 
 # 核心数据类(直接重导出,零转译)
-# 这些是 axon_quant 0.4.0 顶层实际暴露的类
+# 这些是 axon_quant 顶层实际暴露的类
 from axon_quant import (  # noqa: F401
     # 核心动作 / 观测
     Action, ActionType, Observation, RunResult,
@@ -32,7 +32,7 @@ from axon_quant import (  # noqa: F401
     ComplianceError, DefiError,
 )
 
-# risk 顶层类(axon_quant 0.4.0 risk 子模块)
+# risk 顶层类(axon_quant risk 子模块)
 from axon_quant.risk import (  # noqa: F401
     DefaultRiskEngine, CircuitBreaker, RiskConfig, RiskError,
     RiskResult, RiskReason, RiskMetrics,
@@ -41,9 +41,18 @@ from axon_quant.risk import (  # noqa: F401
 )
 
 # 子模块保留路径(供 deep use)
-# 注意:axon_quant 0.4.0 不暴露 monitor 子模块(从子模块 import 失败)
+# 注意:axon_quant 不暴露 monitor 子模块(从子模块 import 失败)
 from axon_quant import (  # noqa: F401
     rl, llm, hpo, registry, ensemble, walk_forward,
     tracker, compliance, explain, distributed, harness,
     risk, exchange, data, backtest, oms, inference,
+)
+
+# —— axon_quant 0.6.0 多 leg API 重导出 ——
+# Instrument 工厂 + PushFundingHelper
+from .backtest import (  # noqa: F401
+    spot_instrument,
+    swap_instrument,
+    limit_order,
+    PushFundingHelper,
 )
