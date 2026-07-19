@@ -1,14 +1,14 @@
 """基线回测报告生成器。
 
-ponytail: 简化版基线回测 — 不走 axon_quant 事件循环
-         加载 K 线 DataFrame → 遍历调 on_bar → 累计 PnL → 写 json + md
-         真实集成 axon_quant BacktestEngine 见 backtest/backtest_loop.py
+ponytail: 0.7.1 起完全走 axon_quant 事件驱动回测 (BacktestEngine + 多 leg API)
+         旧版简化回测 (手写仓位状态机) 已删除,统一在引擎层算 PnL / 撮合 / funding
          8 策略模板的基线参考走这里,用于快速 sanity check
 """
 from __future__ import annotations
 
 import csv
 import json
+import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +19,14 @@ import pandas as pd
 
 from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 from strategy.loader import StrategyLoader
+from axon_bridge import (
+    BacktestEngine,
+    spot_instrument,
+    swap_instrument,
+)
+from axon_bridge.backtest import PushFundingHelper
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -76,8 +84,9 @@ class BaselineReport:
     max_drawdown: float
     win_rate: float
     total_trades: int
-    report_id: str
-    generated_at: str
+    total_funding_pnl: float = 0.0  # 0.7.1:funding 累计 PnL(perp short 收 funding)
+    report_id: str = ""
+    generated_at: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -186,108 +195,154 @@ class BaselineBacktestService:
         # 兜底: 0
         return 0
 
+    # axon_quant 0.7.0 默认 8h funding 周期(ns)
+    _FUNDING_INTERVAL_NS = 8 * 3600 * 1_000_000_000
+    # 虚拟流动性默认 seed 配线: 与 axon_quant 0.7.0 e2e 测试一致
+    _SEED_HALF_SPREAD = 0.0005
+    _SEED_DEPTH_LEVELS = 3
+    _SEED_SIZE_PER_LEVEL = 10.0
+    # auto_rebalance 阈值: 0.1% NAV delta
+    _AUTO_REBALANCE_THRESHOLD = 0.001
+
     def run(self) -> BaselineReport:
-        """跑基线回测, 返回报告 dataclass。"""
+        """跑基线回测, 返回报告 dataclass。
+
+        0.7.1 改: 完全走 axon_quant BacktestEngine 事件驱动,统一在引擎层
+        算 PnL / 撮合 / funding, 不再手写仓位状态机。
+        """
         df = self._load_kline()
         if df is None or df.empty:
             raise ValueError(f"K 线数据为空: {self.symbol} {self.interval} {self.start}~{self.end}")
 
+        # 1) 解析 instrument (spot + perp / 单 perp)
+        base, quote = self._parse_symbol(self.symbol)
+        perp = swap_instrument(base, quote, settle="usd_margin", contract_size=1.0)
+        spot = spot_instrument(base, quote) if self.spot_symbol else None
+
+        # 2) 构造 BacktestEngine + 虚拟流动性 + auto_rebalance
+        # ponytail: 不链式 (axon_quant 0.7.0 wheel 还没 PR-C chainable 改动)
+        #          0.7.1 wheel 发布后可改回链式
+        initial_cash = 100_000.0
+        engine = BacktestEngine(initial_cash=initial_cash)
+        engine.with_seed_liquidity(
+            half_spread=self._SEED_HALF_SPREAD,
+            depth_levels=self._SEED_DEPTH_LEVELS,
+            size_per_level=self._SEED_SIZE_PER_LEVEL,
+        )
+        engine.with_auto_rebalance(threshold=self._AUTO_REBALANCE_THRESHOLD)
+
+        # 3) funding 历史: 加载 funding_time→rate 映射,在主循环中精确匹配时 push
+        #    不依赖 with_funding_schedule (0.7.0 fixed_rate 不会自动 push 事件)
+        funding_history = self._load_funding_history()
+
+        # 4) 加载策略
         strategy_cls = StrategyLoader.get(self.strategy_name)
         config = StrategyConfig(name=self.strategy_name, symbol=self.symbol)
         strategy: BaseStrategy = strategy_cls(config)
         ctx = StrategyContext(symbol=self.symbol)
-        ctx.spot_target_position = 0.0  # 新增: 重置
+        ctx.spot_target_position = 0.0
+        if self.spot_symbol:
+            ctx.spot_symbol = self.spot_symbol
         strategy.on_start(ctx)
 
-        position = 0.0
-        entry_price = 0.0
-        pnl = 0.0
-        trade_count = 0
-        wins = 0
-        equity_curve: list[float] = [0.0]
-
-        # 加载 funding 历史 + 展开为 periods (支持 funding_injection_window_hours)
-        funding_history = self._load_funding_history()
+        # 5) 主循环: 每根 bar → begin_bar → strategy.on_bar → set_target_position
         funding_periods = self._compute_funding_periods(funding_history)
-        prev_funding_cash = 0.0
-        initial_equity = 100000.0  # 默认初始资金
-
         for _, row in df.iterrows():
-            # 构造 bar (新增 timestamp 字段)
             ts_ms = self._row_timestamp_ms(row)
+            ts_ns = ts_ms * 1_000_000
+            close = float(row["close"])
+
+            # 5a) 构造 bar dict 给 strategy
             bar = {
-                "open": float(row.get("open", row["close"])),
-                "high": float(row.get("high", row["close"])),
-                "low": float(row.get("low", row["close"])),
-                "close": float(row["close"]),
+                "open": float(row.get("open", close)),
+                "high": float(row.get("high", close)),
+                "low": float(row.get("low", close)),
+                "close": close,
                 "volume": float(row.get("volume", 0.0)),
-                "timestamp": ts_ms,  # 新增
+                "timestamp": ts_ms,
             }
             bar.setdefault("funding_rate", 0.0)
-            bar.setdefault("funding_time", ts_ms)  # 新增
+            bar.setdefault("funding_time", ts_ms)
             bar.setdefault("cross_sectional_rank", 0)
 
-            # 查 funding_periods: ts_ms 落在 [period_start, period_end] 范围则用
+            # 5b) 查 funding_periods: 注入 8h window 内的 funding_rate
             for period_start_ms, period_end_ms, period_rate in funding_periods:
                 if period_start_ms <= ts_ms <= period_end_ms:
                     bar["funding_rate"] = period_rate
                     bar["funding_time"] = period_end_ms
                     break
 
-            # 新增: 注入 spot bar 字段 (单 symbol 模式下 spot=perp, 兼容老用法)
+            # 5c) 注入 spot 字段 (单 symbol 模式: spot=perp)
             if self.spot_symbol:
-                ctx.spot_symbol = self.spot_symbol
-                ctx.spot_close = float(row["close"])
+                ctx.spot_close = close
                 ctx.spot_volume = float(row.get("volume", 0.0))
+            ctx.account_equity = initial_cash  # 简化: 固定 equity, ponytail
 
-            # 新增: 注入账户净值 (策略层算 notional 用)
-            ctx.account_equity = initial_equity + pnl
+            # 5d) 同步 begin_bar (单/多 leg)
+            # ponytail: 0.7.0 wheel 还没 PR-A 修复 (begin_bar_multi 接受 list[tuple])
+            #          多 leg 场景用连续 2 次 begin_bar workaround
+            #          0.7.1 wheel 发布后可改回 begin_bar_multi
+            engine.set_clock(ts_ns)
+            if spot:
+                engine.begin_bar(price=close, instrument=perp)
+                engine.begin_bar(price=close, instrument=spot)
+            else:
+                engine.begin_bar(price=close, instrument=perp)
 
+            # 5e) 策略决策
             action = strategy.on_bar(bar, ctx)
-            t = str(action.action_type)
 
-            # 新增: funding_cash 累加入 pnl
-            if hasattr(ctx, "funding_cash"):
-                funding_delta = ctx.funding_cash - prev_funding_cash
-                pnl += funding_delta
-                prev_funding_cash = ctx.funding_cash
+            # 5f) 应用 Action → engine.set_target_position (qty, not pct)
+            # strategy.target_position 语义: ratio(占 equity 比例,如 -0.1 = 做空 10% equity)
+            # axon_quant target_position 语义: 绝对 qty
+            # 转换: qty = ratio * equity / close
+            perp_ratio = float(getattr(action, "target_position", 0.0) or 0.0)
+            perp_qty = (perp_ratio * ctx.account_equity / close) if close > 0 else 0.0
+            engine.set_target_position(perp, perp_qty)
+            if spot:
+                # spot_target_position 同 perp 语义(ratio)
+                spot_ratio = float(getattr(ctx, "spot_target_position", 0.0) or 0.0)
+                spot_qty = (spot_ratio * ctx.account_equity / close) if close > 0 else 0.0
+                engine.set_target_position(spot, spot_qty)
 
-            if t == "buy" and position <= 0:
-                if position < 0:
-                    pnl += (entry_price - bar["close"]) * abs(position)
-                    if bar["close"] < entry_price:
-                        wins += 1
-                position = float(action.target_position) if action.target_position > 0 else 0.5
-                entry_price = bar["close"]
-                trade_count += 1
-            elif t == "sell" and position >= 0:
-                if position > 0:
-                    pnl += (bar["close"] - entry_price) * position
-                    if bar["close"] > entry_price:
-                        wins += 1
-                position = 0.0
-                trade_count += 1
-            elif t in ("reduce_long", "reduce_short"):
-                position = 0.0
+            # 5f.5) 手动 rebalance: 触发 set_target_position 累积的 leg 实际下单
+            # axon_quant 0.7.0 set_target_position 仅设目标,需调 rebalance_to_target
+            # 才发市价单。threshold 传 None 沿用 with_auto_rebalance 的配置。
+            engine.rebalance_to_target()
 
-            # 持仓 PnL(标记到市场)
-            unrealized = (bar["close"] - entry_price) * position if position > 0 else 0.0
-            # 同步持仓到 ctx (策略层 settle_funding 算 position_notional 用)
-            ctx.positions[ctx.symbol] = position
+            # 5g) funding 推送: 在 rebalance 之后,确保 push_funding
+            # 累计时 perp 持仓已建立(否则 funding_pnl=0)。
+            # 0.7.0 with_funding_schedule 不会自动 push 事件,需显式 push。
+            # ts 用 funding_time(原始资金费率时间) + 1ns 偏移,确保排在
+            # 同 bar rebalance fill event 之后被处理。
+            # 关键:push_funding 是 queue-based,事件入队后必须立刻 step() 处理,
+            # 否则 run() 末尾统一 drain 时 position 已被后续 bar 的 rebalance 清掉,
+            # handle_funding 读 position_states=0 → cash_delta=0 → funding_pnl 漏算。
+            if funding_history and ts_ms in funding_history:
+                rate_at = funding_history[ts_ms]
+                engine.push_funding(
+                    instrument=perp,
+                    funding_rate=rate_at,
+                    mark_price=close,
+                    timestamp_ns=ts_ns + 1,
+                )
+                # ponytail:0.7.0 wheel step() 实际可用(单步 dispatch 一个事件),
+                # drain 全部 pending 事件,确保 funding_pnl 在持仓未平前结算
+                while engine.pending_events > 0:
+                    engine.step()
 
-            equity_curve.append(pnl + unrealized)
+        # 6) 跑完拿 RunResult
+        result = engine.run()
 
-        # 计算指标
-        equity_series = pd.Series(equity_curve, dtype=float)
-        daily_returns = equity_series.diff().dropna()
-        if len(daily_returns) > 1 and daily_returns.std() and daily_returns.std() > 0:
-            sharpe = float(daily_returns.mean() / daily_returns.std() * np.sqrt(365))
-        else:
-            sharpe = 0.0
-        peak = equity_series.cummax()
-        drawdown = equity_series - peak
-        max_dd = float(drawdown.min()) if not drawdown.empty else 0.0
-        win_rate = (wins / trade_count) if trade_count > 0 else 0.0
+        # 7) 从 result 提指标
+        total_pnl = result.final_nav - initial_cash
+        total_trades = self._count_trades_via_engine(result)
+        total_funding_pnl = float(getattr(result, "total_funding_pnl", 0.0) or 0.0)
+        max_dd = float(getattr(result, "max_drawdown", 0.0) or 0.0)
+        sharpe = self._sharpe_from_bar_nav(getattr(result, "bar_nav_curve", []))
+
+        # 8) win_rate: 从 fills / trades 推 (axon_quant 没直接暴露 win_rate 字段)
+        win_rate = self._win_rate_from_trades(result)
 
         report = BaselineReport(
             template=self.strategy_name,
@@ -295,16 +350,75 @@ class BaselineBacktestService:
             period=f"{self.start}~{self.end}",
             interval=self.interval,
             candle_type=self.candle_type,
-            total_pnl=round(pnl, 4),
+            total_pnl=round(total_pnl, 4),
             sharpe_ratio=round(sharpe, 4),
             max_drawdown=round(max_dd, 4),
             win_rate=round(win_rate, 4),
-            total_trades=trade_count,
+            total_trades=total_trades,
+            total_funding_pnl=round(total_funding_pnl, 4),
             report_id=str(uuid4()),
             generated_at=_now_iso(),
         )
         self._write_reports(report)
         return report
+
+    @staticmethod
+    def _count_trades_via_engine(result) -> int:
+        """硬约束 (0.7.1): total_trades = len(result.trades), 不用 result.fills。
+
+        trades 字段是 round-trip 列表(开仓 + 平仓),fills 是每笔成交。
+        多 leg 策略同方向同数量 fills 算 1 trade(开 + 平)。
+        """
+        trades = getattr(result, "trades", None) or []
+        return len(trades)
+
+    @staticmethod
+    def _sharpe_from_bar_nav(bar_nav_curve) -> float:
+        """从 bar_nav_curve 重算 Sharpe (避免 0.7.0 equity_curve 失真)。
+
+        公式: sqrt(periods_per_year) * mean(log_return) / std(log_return)
+        默认按 1h bar 算 (periods_per_year = 8760)。
+        """
+        if not bar_nav_curve or len(bar_nav_curve) < 2:
+            return 0.0
+        try:
+            navs = np.array([float(nav) for _, nav in bar_nav_curve], dtype=float)
+            # log return
+            log_ret = np.diff(np.log(navs))
+            if log_ret.std() <= 0:
+                return 0.0
+            # 1h bar, periods_per_year = 24 * 365 = 8760
+            return float(log_ret.mean() / log_ret.std() * np.sqrt(8760))
+        except (ValueError, TypeError):
+            return 0.0
+
+    @staticmethod
+    def _win_rate_from_trades(result) -> float:
+        """从 result.trades 算 win_rate (盈利平仓笔数 / 总平仓笔数)。
+
+        TradeRecord 字段: realized_pnl (含费用), 其他 audit 字段
+        """
+        trades = getattr(result, "trades", None) or []
+        if not trades:
+            return 0.0
+        wins = sum(1 for t in trades if float(getattr(t, "realized_pnl", 0.0)) > 0)
+        return wins / len(trades)
+
+    @staticmethod
+    def _parse_symbol(symbol: str) -> tuple[str, str]:
+        """解析 'BTCUSDT' / 'BTC-USDT' / 'BTCUSDT-PERP' 为 (base, quote)。
+
+        ponytail: 简单规则, 不覆盖所有 symbol 格式; 错误回退到 'BTC'/'USDT'。
+        """
+        s = symbol.upper().replace("-", "").replace("_", "")
+        if s.endswith("PERP"):
+            s = s[:-4]
+        # 已知 quote 列表
+        for q in ("USDT", "USDC", "USD", "BTC", "ETH"):
+            if s.endswith(q) and len(s) > len(q):
+                return s[: -len(q)], q
+        # 兜底
+        return "BTC", "USDT"
 
     def _write_reports(self, report: BaselineReport) -> None:
         base = f"{report.template}_{report.symbol}_{report.period.replace('~', '_')}"

@@ -3,7 +3,8 @@
 ponytail:
 - 升级前: 单边简化版, funding > 0 直接 sell (没现货对冲, 不是真套利)
 - 升级后: 3 状态机 (FLAT / LONG_FUNDING / SHORT_FUNDING) + 持续时间计数器 (抗噪)
-- funding 现金流: 通过 ctx.settle_funding() 累加, 策略层维护
+- funding 现金流: 2026-07-19 完全下沉到 axon_quant 引擎 (RunResult.total_funding_pnl),
+  策略层不再调 ctx.settle_funding() (已 no-op, 保留以兼容旧代码)
 - 现货腿传递: 策略 set ctx.spot_target_position, baseline 读
 - 现货做空门控: spot_margin_enabled=False 时自动降级为单边
 """
@@ -58,22 +59,13 @@ class FundingArbitrage(BaseStrategy):
         if self._ctx is None:
             self._ctx = ctx
         funding_rate = float(bar.get("funding_rate", 0.0))
-        funding_time = int(bar.get("timestamp", bar.get("funding_time", 0)))
-        close_price = float(bar["close"])
 
-        # 1) 状态机更新 (先算 perp_target, 让 settle_funding 用 state 决定的 notional)
+        # 状态机更新: 算 (perp_target, spot_target, new_state)
+        # funding 现金流由 axon_quant 引擎通过 push_funding / with_funding_schedule
+        # 计算并累加到 RunResult.total_funding_pnl, 策略层不再调 settle_funding
         prev_state = self._state
         perp_target, spot_target, new_state = self._compute_targets(funding_rate)
 
-        # 2) settle funding (用本 bar state 决定的 perp_target 作为 notional)
-        # 关键修复: 开仓后前 7 根 bar baseline 还没同步 ctx.positions[symbol],
-        #           ctx.positions 拿到的是上根的旧值, notional=0 → funding_cash 累计=0
-        #           用 perp_target 直接传 notional, 跳过 baseline 同步依赖
-        ctx.settle_funding(
-            funding_rate=funding_rate,
-            funding_time=funding_time,
-            position_notional=perp_target,
-        )
         if new_state != prev_state and self._param("log_state_transitions"):
             ctx.orders.append({
                 "type": "log",
@@ -98,7 +90,12 @@ class FundingArbitrage(BaseStrategy):
         )
 
     def _compute_targets(self, funding: float) -> tuple[float, float, FundingState]:
-        """状态机核心: 决定 (perp_target, spot_target, new_state)。"""
+        """状态机核心: 决定 (perp_ratio, spot_ratio, new_state)。
+
+        返回 ratio 语义(占 equity 比例,如 -0.1 = 做空 10% equity)
+        与 StrategyConfig.position_limit 默认值 0.1 一致,便于 baseline
+        统一转换 qty = ratio * equity / close。
+        """
         entry = float(self._param("entry_threshold"))
         exit_ = float(self._param("exit_threshold"))
         min_bars = int(self._param("min_hold_bars"))
@@ -106,63 +103,61 @@ class FundingArbitrage(BaseStrategy):
         spot_leg = bool(self._param("spot_leg_enabled"))
         spot_margin = bool(self._param("spot_margin_enabled"))
 
-        # 算 notional
-        equity = self._ctx.account_equity if self._ctx else 0.0
-        notional = equity * pct
-
         # 已持仓状态的退场 / 维持
         if self._state == FundingState.LONG_FUNDING:
             # 强反转: funding 反号 + 持续 min_bars
             if funding <= -entry:
                 self._hold_counter += 1
                 if self._hold_counter >= min_bars:
-                    return self._short_funding_targets(notional, spot_leg, spot_margin)
-                return self._long_funding_targets(notional, spot_leg)  # 维持
+                    return self._short_funding_targets(pct, spot_leg, spot_margin)
+                return self._long_funding_targets(pct, spot_leg)  # 维持
             # 弱退场
             if funding < exit_:
                 self._hold_counter = 0
                 return 0.0, 0.0, FundingState.FLAT
             # 维持
             self._hold_counter = 0
-            return self._long_funding_targets(notional, spot_leg)
+            return self._long_funding_targets(pct, spot_leg)
 
         if self._state == FundingState.SHORT_FUNDING:
             if funding >= +entry:
                 self._hold_counter += 1
                 if self._hold_counter >= min_bars:
-                    return self._long_funding_targets(notional, spot_leg)
-                return self._short_funding_targets(notional, spot_leg, spot_margin)
+                    return self._long_funding_targets(pct, spot_leg)
+                return self._short_funding_targets(pct, spot_leg, spot_margin)
             if funding > -exit_:
                 self._hold_counter = 0
                 return 0.0, 0.0, FundingState.FLAT
             self._hold_counter = 0
-            return self._short_funding_targets(notional, spot_leg, spot_margin)
+            return self._short_funding_targets(pct, spot_leg, spot_margin)
 
         # FLAT 状态入场
         if funding >= +entry:
             self._hold_counter += 1
             if self._hold_counter >= min_bars:
-                return self._long_funding_targets(notional, spot_leg)
+                return self._long_funding_targets(pct, spot_leg)
             return 0.0, 0.0, FundingState.FLAT
         if funding <= -entry:
             self._hold_counter += 1
             if self._hold_counter >= min_bars:
-                return self._short_funding_targets(notional, spot_leg, spot_margin)
+                return self._short_funding_targets(pct, spot_leg, spot_margin)
             return 0.0, 0.0, FundingState.FLAT
         # funding 接近 0: 重置计数器
         self._hold_counter = 0
         return 0.0, 0.0, FundingState.FLAT
 
-    def _long_funding_targets(self, notional, spot_leg):
+    def _long_funding_targets(self, pct, spot_leg):
+        # 返回 ratio: 做空 perp 收 funding (负 perp ratio)
         if spot_leg:
-            return -notional, +notional, FundingState.LONG_FUNDING
-        return -notional, 0.0, FundingState.LONG_FUNDING
+            return -pct, +pct, FundingState.LONG_FUNDING
+        return -pct, 0.0, FundingState.LONG_FUNDING
 
-    def _short_funding_targets(self, notional, spot_leg, spot_margin):
+    def _short_funding_targets(self, pct, spot_leg, spot_margin):
+        # 返回 ratio: 做多 perp 付 funding (正 perp ratio)
         if spot_leg and spot_margin:
-            return +notional, -notional, FundingState.SHORT_FUNDING
+            return +pct, -pct, FundingState.SHORT_FUNDING
         # spot_margin=False: spot 降级为 0
-        return +notional, 0.0, FundingState.SHORT_FUNDING
+        return +pct, 0.0, FundingState.SHORT_FUNDING
 
     def _action_type_for(self, state: FundingState) -> str:
         """Action.action_type 字符串（兼容 axon_quant 枚举）。"""
