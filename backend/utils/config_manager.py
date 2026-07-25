@@ -1,31 +1,23 @@
 #!/usr/bin/env python3
-"""
-配置文件管理模块
+"""配置文件管理模块 — config.toml 读写，与系统配置表兼容"""
 
-用于处理config.toml配置文件的读写操作，与系统配置表兼容
-支持配置的导入导出、TOML与JSON格式转换
-使用tomli和tomli-w库进行TOML读写
-"""
-
-import sys
-import os
 import json
-import tomli
-import tomli_w
-from typing import Dict, List, Optional, Any
+import os
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-# 添加项目根目录到Python路径
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
+import tomli
+import tomli_w
 from sqlalchemy.orm import Session
+
 from collector.db.database import SessionLocal, init_database_config
 from collector.db.models import SystemConfig
 from utils.logger import get_logger, LogType
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+_BACKEND_DIR = Path(__file__).parent.parent  # backend/ 目录
 
 
 class ConfigManager:
@@ -219,7 +211,7 @@ class ConfigManager:
 
             # 确定输出路径
             if output_path is None:
-                output_file_path: Path = project_root / "config.toml"
+                output_file_path: Path = _BACKEND_DIR / "config.toml"
             else:
                 output_file_path = Path(output_path)
 
@@ -391,7 +383,7 @@ class ConfigManager:
         try:
             # 确定输入路径
             if input_path is None:
-                input_file_path: Path = project_root / "config.toml"
+                input_file_path: Path = _BACKEND_DIR / "config.toml"
             else:
                 input_file_path = Path(input_path)
             
