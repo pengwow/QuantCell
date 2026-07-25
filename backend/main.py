@@ -48,6 +48,7 @@ from common.notifications.routes import router as notification_router
 from agent.api.routes import router as agent_router
 from api.system_ports import router as system_ports_router
 from plugins.routes import router as plugins_router
+from engine.routes import router as engine_router
 
 # v2 API routes
 from api.v2.model_routes import router as v2_model_router
@@ -97,6 +98,7 @@ app.include_router(notification_router)
 app.include_router(agent_router)
 app.include_router(system_ports_router)
 app.include_router(plugins_router)
+app.include_router(engine_router)
 
 # v2 API routes
 app.include_router(v2_model_router)
@@ -195,26 +197,19 @@ async def health_check():
     """健康检查端点
 
     Returns:
-        dict: 服务状态信息
+        dict: 服务状态信息（含引擎状态）
     """
+    try:
+        from engine.trading_engine import get_trading_engine
+        engine = get_trading_engine()
+        engine_status = engine.engine_status()
+    except Exception:
+        engine_status = {"status": "not_initialized"}
     return {
         "status": "ok",
-        "service": "QuantCell API"
+        "service": "QuantCell API",
+        "engine": engine_status,
     }
-
-
-@app.get("/items/{item_id}")
-def read_item(item_id: int, q: str = None):
-    """获取指定item_id的项目信息
-
-    Args:
-        item_id: 项目ID
-        q: 可选的查询参数
-
-    Returns:
-        dict: 返回包含项目ID和查询参数的字典
-    """
-    return {"item_id": item_id, "q": q}
 
 
 def get_uvicorn_log_level() -> str:

@@ -1,9 +1,9 @@
 import pandas as pd
-from strategies.unified_dual_ma import DualMAStrategy
+from strategies.dual_ma import DualMA
 from backtest.backtest_loop import BacktestLoop
 
 def test_dual_ma_strategy_backtest():
-    strategy = DualMAStrategy(fast_period=3, slow_period=5)
+    strategy = DualMA(fast=3, slow=5)
     loop = BacktestLoop(initial_cash=100_000.0)
 
     closes = [100 + i * 0.5 for i in range(20)]
