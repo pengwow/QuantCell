@@ -415,52 +415,70 @@ class ResultFormatterService:
         """
         key = f"{symbol}_{timeframe}"
 
-        # axond 引擎结果通常包含: final_nav, total_pnl, max_drawdown,
-        # orders_accepted, orders_rejected, fills
-        # 字段命名规范:
-        # - initial_equity / final_equity: 与 result_analysis.output_results 期望一致
-        # - total_trades: 等价于 fills（撮合成交笔数,axon 没有"交易"概念
-        #   只有"成交",在回测里两者等价）
         initial_capital = results.get('initial_capital', 100000.0)
         final_nav = results.get('final_nav', 0.0)
+        total_pnl = results.get('total_pnl', 0.0)
         fills = results.get('fills', 0)
-        # max_drawdown_pct 优先(单位:百分比),没有则回退 max_drawdown(USD 绝对值)
-        max_dd_pct = results.get('max_drawdown_pct')
-        max_dd = results.get('max_drawdown', 0.0)
-        metrics = {
-            'final_nav': final_nav,
-            'total_pnl': results.get('total_pnl', 0.0),
-            # 显示用百分比,fallback 到绝对值(此时 result_analysis 会把 USD
-            # 当百分比显示,这是已知问题,等所有结果都走 max_drawdown_pct 后
-            # 自然消失)
-            'max_drawdown': max_dd_pct if max_dd_pct is not None else max_dd,
-            'max_drawdown_usd': max_dd,  # 保留原始绝对值供需要方使用
-            'orders_accepted': results.get('orders_accepted', 0),
-            'orders_rejected': results.get('orders_rejected', 0),
-            'fills': fills,
-            'initial_equity': initial_capital,
-            'final_equity': final_nav,
-            'total_trades': results.get('trade_count', fills),
-            'total_return': ResultFormatterService._calc_return_from_pnl(
-                results.get('total_pnl', 0.0),
-                initial_capital,
-            ),
-            # trade-level 指标(由 backtest_loop 收集 fills 配对而成)
-            'win_rate': results.get('win_rate', 0.0),
-            'sharpe_ratio': results.get('sharpe_ratio', 0.0),
-            'total_fees': results.get('total_fees', 0.0),
-            # 回测数据时间范围(纳秒),供 CLI 显示回测覆盖的时间窗口
-            'data_start_ns': results.get('data_start_ns', 0),
-            'data_end_ns': results.get('data_end_ns', 0),
-            'bar_count': results.get('bar_count', 0),
-        }
+        trade_count = results.get('trade_count', 0)
+        max_dd_pct = results.get('max_drawdown_pct', 0.0)
+        max_dd_usd = results.get('max_drawdown', 0.0)
+        win_rate = results.get('win_rate', 0.0)
+        sharpe_ratio = results.get('sharpe_ratio', 0.0)
+        total_fees = results.get('total_fees', 0.0)
+        nav_peak = results.get('nav_peak', initial_capital)
+        total_return_pct = ResultFormatterService._calc_return_from_pnl(total_pnl, initial_capital)
+
+        # 计算额外指标
+        trades = results.get('trades', [])
+        winning_trades = len([t for t in trades if isinstance(t, dict) and t.get('PnL', t.get('pnl', 0)) > 0])
+        losing_trades = trade_count - winning_trades if trade_count > 0 else 0
+        total_wins = sum(t.get('PnL', t.get('pnl', 0)) for t in trades if isinstance(t, dict) and t.get('PnL', t.get('pnl', 0)) > 0)
+        total_losses = abs(sum(t.get('PnL', t.get('pnl', 0)) for t in trades if isinstance(t, dict) and t.get('PnL', t.get('pnl', 0)) <= 0))
+        profit_factor = total_wins / total_losses if total_losses > 0 else (float('inf') if total_wins > 0 else 0.0)
+
+        # 构建 metrics 数组（前端期望格式：[{name, key, value, description, type}]）
+        metrics_list = [
+            {"name": "总收益率", "key": "total_return", "value": total_return_pct, "description": "总收益率", "type": "percentage"},
+            {"name": "年化收益率", "key": "cagr", "value": total_return_pct, "description": "年化收益率（简化）", "type": "percentage"},
+            {"name": "夏普比率", "key": "sharpe_ratio", "value": round(sharpe_ratio, 4), "description": "夏普比率", "type": "number"},
+            {"name": "最大回撤", "key": "max_drawdown", "value": round(max_dd_pct, 2), "description": "最大回撤百分比", "type": "percentage"},
+            {"name": "胜率", "key": "win_rate", "value": round(win_rate, 2), "description": "胜率", "type": "percentage"},
+            {"name": "盈亏比", "key": "profit_factor", "value": round(profit_factor, 4) if profit_factor != float('inf') else 999.99, "description": "盈亏比", "type": "number"},
+            {"name": "交易次数", "key": "total_trades", "value": trade_count, "description": "交易次数", "type": "number"},
+            {"name": "盈利交易", "key": "winning_trades", "value": winning_trades, "description": "盈利交易数", "type": "number"},
+            {"name": "亏损交易", "key": "losing_trades", "value": losing_trades, "description": "亏损交易数", "type": "number"},
+            {"name": "总盈亏", "key": "total_pnl", "value": round(total_pnl, 2), "description": "总盈亏", "type": "number"},
+            {"name": "初始权益", "key": "initial_equity", "value": initial_capital, "description": "初始权益", "type": "number"},
+            {"name": "最终权益", "key": "final_equity", "value": final_nav, "description": "最终权益", "type": "number"},
+            {"name": "权益峰值", "key": "equity_peak", "value": nav_peak, "description": "权益峰值", "type": "number"},
+            {"name": "索提诺比率", "key": "sortino_ratio", "value": 0.0, "description": "索提诺比率（待计算）", "type": "number"},
+            {"name": "卡尔马比率", "key": "calmar_ratio", "value": round((total_return_pct / max_dd_pct), 4) if max_dd_pct > 0 else 0.0, "description": "卡尔马比率", "type": "number"},
+            {"name": "平均回撤", "key": "avg_drawdown", "value": 0.0, "description": "平均回撤（待计算）", "type": "percentage"},
+            {"name": "年化波动率", "key": "volatility", "value": 0.0, "description": "年化波动率（待计算）", "type": "percentage"},
+            {"name": "期望收益", "key": "expectancy", "value": round(total_pnl / trade_count, 4) if trade_count > 0 else 0.0, "description": "每笔期望收益", "type": "number"},
+            {"name": "平均交易", "key": "avg_trade", "value": round(total_return_pct / trade_count, 4) if trade_count > 0 else 0.0, "description": "平均交易收益率", "type": "percentage"},
+            {"name": "最佳交易", "key": "best_trade", "value": round(max((t.get('PnL', t.get('pnl', 0)) / (t.get('EntryPrice', t.get('entry_price', 1)) * t.get('Size', t.get('size', 1))) * 100 for t in trades if isinstance(t, dict)), default=0.0), 2), "description": "最佳交易收益率", "type": "percentage"},
+            {"name": "最差交易", "key": "worst_trade", "value": round(min((t.get('PnL', t.get('pnl', 0)) / (t.get('EntryPrice', t.get('entry_price', 1)) * t.get('Size', t.get('size', 1))) * 100 for t in trades if isinstance(t, dict)), default=0.0), 2), "description": "最差交易收益率", "type": "percentage"},
+            {"name": "总手续费", "key": "total_commission", "value": round(total_fees, 2), "description": "总手续费", "type": "number"},
+            {"name": "阿尔法", "key": "alpha", "value": 0.0, "description": "阿尔法（待计算）", "type": "number"},
+            {"name": "贝塔", "key": "beta", "value": 0.0, "description": "贝塔（待计算）", "type": "number"},
+            {"name": "SQN", "key": "sqn", "value": 0.0, "description": "系统质量数（待计算）", "type": "number"},
+            {"name": "凯利准则", "key": "kelly_criterion", "value": 0.0, "description": "凯利准则（待计算）", "type": "number"},
+            {"name": "暴露时间", "key": "exposure_time", "value": 0.0, "description": "暴露时间（待计算）", "type": "percentage"},
+            {"name": "回测天数", "key": "duration_days", "value": 0, "description": "回测天数", "type": "number"},
+            {"name": "平均持仓时间", "key": "avg_trade_duration_hours", "value": 0.0, "description": "平均持仓时间（小时）", "type": "number"},
+            {"name": "最长持仓时间", "key": "max_trade_duration_hours", "value": 0.0, "description": "最长持仓时间（小时）", "type": "number"},
+        ]
+
+        # 同时保留 dict 格式供内部使用
+        metrics_dict = {m["key"]: m["value"] for m in metrics_list}
 
         formatted = {
             key: {
                 'symbol': symbol,
                 'timeframe': timeframe,
-                'metrics': metrics,
-                'trades': results.get('trades', []),
+                'metrics': metrics_list,
+                'trades': trades,
                 'positions': results.get('positions', []),
                 'equity_curve': results.get('equity_curve', []),
             }
@@ -468,15 +486,15 @@ class ResultFormatterService:
 
         # 全局账户信息
         formatted['account'] = {
-            'starting_balance': results.get('initial_capital', 100000.0),
-            'final_nav': results.get('final_nav', 0.0),
-            'total_pnl': results.get('total_pnl', 0.0),
+            'starting_balance': initial_capital,
+            'final_nav': final_nav,
+            'total_pnl': total_pnl,
         }
 
         # 投资组合汇总
         formatted['portfolio'] = {
-            'metrics': metrics,
-            'trades': results.get('trades', []),
+            'metrics': metrics_list,
+            'trades': trades,
             'equity_curve': results.get('equity_curve', []),
         }
 

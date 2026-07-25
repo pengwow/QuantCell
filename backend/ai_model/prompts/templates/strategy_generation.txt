@@ -9,216 +9,108 @@
    - 突破类 → 唐奇安通道、ATR、枢轴点
    - 动量类 → RSI、动量指标、Aroon
    - 套利类 → 价差、相关性、协整性
-3. **Config 参数必须合理**：参数名应反映策略含义（如 `rsi_period` 而非 `param1`），默认值符合行业实践。
-4. **on_bar 逻辑必须可解释**：每个 if/else 分支都要有清晰的交易含义，不能照抄模板。
+3. **参数必须合理**：参数名应反映策略含义（如 `rsi_period` 而非 `param1`），默认值符合行业实践。
+4. **on_bar 逻辑必须可解释**：每个 if/else 分支都要有清晰的交易含义。
 
 ### 框架规范
 
-你必须使用 axon_quant 框架的标准 API，遵循以下规范：
+你必须使用 QuantCell 的 axon_quant 集成 API，策略通过 `on_bar()` 方法返回 `Action` 对象来表达交易意图。
 
-#### 1. 配置类 (StrategyConfig)
+#### 1. 策略类结构
 
-- 继承自 `axond.strategy_config.StrategyConfig`
-- 使用标准 Python 类型注解（`int`, `float`, `Decimal` 等）
-- 必须包含 `instrument_ids` (List[InstrumentId]) 和 `bar_types` (List[str])
-- 必须包含 `trade_size` (Decimal) 定义每笔交易数量
-- 配置字段不要使用 `frozen=True`
-
-```python
-from decimal import Decimal
-from typing import List
-from axond.strategy_config import StrategyConfig
-from axond.types import InstrumentId
-
-
-class MyStrategyConfig(StrategyConfig):
-    """策略配置"""
-    instrument_ids: List[InstrumentId]
-    bar_types: List[str]
-    trade_size: Decimal = Decimal("0.1")
-    fast_period: int = 10
-    slow_period: int = 20
-```
-
-#### 2. 策略类 (AxonStrategy)
-
-- 继承自 `axond.axon_strategy.AxonStrategy`
-- `__init__` 接收配置对象，调用 `super().__init__(config)`
-- 在 `__init__` 中使用普通 Python 断言或 raise 验证参数合理性
-- 在 `__init__` 中初始化数据缓存和状态变量
+策略不需要继承特定基类，但必须实现以下生命周期方法：
+- `on_start(self) -> None`: 策略启动时初始化
+- `on_bar(self, bar: dict) -> Action`: 每根K线调用，返回交易动作
+- `on_stop(self) -> None`: 策略停止时清理（可选）
+- `on_fill(self, fill: dict) -> None`: 成交回报回调（可选）
 
 ```python
-from axond.axon_strategy import AxonStrategy
+class MyStrategy:
+    """策略描述"""
 
+    def __init__(self, fast_period: int = 10, slow_period: int = 20):
+        """初始化策略，参数为策略可配置参数"""
+        self.fast_period = fast_period
+        self.slow_period = slow_period
+        self.prices = []
 
-class MyStrategy(AxonStrategy):
-    def __init__(self, config: MyStrategyConfig) -> None:
-        if config.fast_period >= config.slow_period:
-            raise ValueError("fast_period 必须小于 slow_period")
-        super().__init__(config)
+    def on_start(self) -> None:
+        """策略启动"""
+        pass
 
-        self._fast_prices: List[float] = []
-        self._slow_prices: List[float] = []
+    def on_bar(self, bar: dict) -> Action:
+        """
+        处理K线数据，返回交易动作
+        
+        bar 字典字段:
+        - open, high, low, close, volume: K线数据
+        - symbol: 品种代码
+        - timestamp_ns: 纳秒时间戳
+        """
+        self.prices.append(bar["close"])
+        if len(self.prices) < self.slow_period:
+            return Action("hold", 0.0, 0.0, "my_strategy", 0)
+
+        # 计算指标
+        fast_ma = sum(self.prices[-self.fast_period:]) / self.fast_period
+        slow_ma = sum(self.prices[-self.slow_period:]) / self.slow_period
+
+        # 交易逻辑
+        if fast_ma > slow_ma:
+            # 做多：action_type="buy", target_position 是目标仓位比例(0.0-1.0)
+            return Action("buy", 0.8, 0.1, "my_strategy", 0)
+        elif fast_ma < slow_ma:
+            # 平仓或做空：action_type="sell" 或 "reduce_long"
+            return Action("reduce_long", 0.8, 0.0, "my_strategy", 0)
+        
+        return Action("hold", 0.0, 0.0, "my_strategy", 0)
+
+    def on_stop(self) -> None:
+        """策略停止"""
+        pass
 ```
 
-#### 3. 生命周期方法
+#### 2. Action 对象构造
 
-**必须实现：**
-
-- `on_start(self) -> None`: 策略启动时调用
-  - 调用 `super().on_start()` 保留基类行为
-  - 初始化指标、缓存数据
-  - 记录日志：`self.log_info("策略启动")`
-
-- `on_bar(self, bar: Bar) -> None`: 收到新 K 线时调用
-  - 调用 `super().on_bar(bar)` 保留基类行为
-  - 累积 K 线数据到缓存
-  - 数据不足时直接 return
-  - 计算指标、判断信号、执行交易
-
-- `on_stop(self) -> None`: 策略停止时调用（可选）
-  - 调用 `super().on_stop()` 保留基类行为
-  - 关闭所有持仓（可选）：`self.close_all_positions()`
-  - 记录日志：`self.log_info("策略停止")`
-
-#### 4. 订单管理
-
-- 使用 `self.buy(symbol, quantity, price, order_type)` 买入下单
-- 使用 `self.sell(symbol, quantity, price, order_type)` 卖出下单
-- 使用 `self.close_position(symbol)` 平仓指定品种
-- 使用 `self.close_all_positions()` 平仓所有品种
-- 使用 `self.cancel_all_orders()` 取消所有订单
+`Action(action_type, confidence, target_position, model_id, inference_time_us)`
 
 参数说明：
-- `symbol`: 品种代码字符串（如 "BTCUSDT"）
-- `quantity`: 数量（float）
-- `price`: 价格（float，0 表示市价单）
-- `order_type`: 订单类型（OrderType.MARKET / LIMIT / STOP_LOSS / STOP_LIMIT）
+- `action_type`: 动作类型字符串
+  - `"buy"`: 买入做多
+  - `"sell"`: 卖出做空
+  - `"hold"`: 持有/观望
+  - `"reduce_long"`: 平多仓
+  - `"reduce_short"`: 平空仓
+- `confidence`: 信号置信度 0.0-1.0
+- `target_position`: 目标仓位比例 0.0-1.0（0.0 表示空仓，0.1 表示 10% 仓位）
+- `model_id`: 策略标识字符串
+- `inference_time_us`: 推理耗时（微秒），通常填 0
 
+导入方式：
 ```python
-# 买入市价单
-self.buy("BTCUSDT", 0.1, 0.0, OrderType.MARKET)
-
-# 卖出限价单
-self.sell("BTCUSDT", 0.1, 50000.0, OrderType.LIMIT)
-
-# 平仓
-self.close_position("BTCUSDT")
+from axon_bridge import Action
 ```
 
-#### 5. 持仓查询
+#### 3. bar 数据访问
 
-- `self.get_position(symbol)`: 获取指定品种的持仓对象
-- `self.get_position_size(symbol)`: 获取指定品种的持仓数量
-- `self.is_flat(symbol)`: 是否无持仓
-- `self.is_net_long(symbol)`: 是否净多
-- `self.is_net_short(symbol)`: 是否净空
-
-#### 6. 日志系统
-
-- 使用 `self.log_info(msg)` 记录信息
-- 使用 `self.log_warning(msg)` 记录警告
-- 使用 `self.log_error(msg)` 记录错误
-- 使用 `self.log_debug(msg)` 记录调试信息
-
-#### 7. K 线数据访问
-
-通过 `bar` 对象访问：
-- `bar.open`: 开盘价
-- `bar.high`: 最高价
-- `bar.low`: 最低价
-- `bar.close`: 收盘价
-- `bar.volume`: 成交量
-- `bar.timestamp`: 纳秒时间戳
-- `bar.instrument_id`: 品种标识
-- `bar.symbol`: 品种代码（str）
+通过 `bar` 字典访问：
+- `bar["open"]`, `bar["high"]`, `bar["low"]`, `bar["close"]`, `bar["volume"]`: float
+- `bar["symbol"]`: str，品种代码（如 "BTCUSDT"）
+- `bar["timestamp_ns"]`: int，纳秒时间戳
 
 ### 输出要求（严格）
 
-1. **只输出代码**：直接输出 Python 代码，不要解释，不要描述，不要使用 markdown 代码块标记（如 ```python）。
-2. **完整可运行**：代码必须是完整的、可运行的策略类，包含配置类和策略类。
-3. **类型注解**：所有方法参数和返回值必须有类型注解。
-4. **导入完整**：所有使用的类必须有明确的 import 语句。
-5. **命名规范**：策略类名使用 PascalCase，配置类名为 `{StrategyName}Config`。
-6. **参数验证**：在 `__init__` 中使用 raise ValueError 验证参数合理性。
-7. **不要硬编码**：交易标的、参数等应通过配置传入，不要在代码中硬编码。
+1. **只输出代码**：直接输出 Python 代码，不要解释，不要描述，不要使用 markdown 代码块标记。
+2. **完整可运行**：代码必须是完整的、可运行的策略类。
+3. **导入完整**：所有使用的类必须有明确的 import 语句。
+4. **命名规范**：策略类名使用 PascalCase。
+5. **参数验证**：在 `__init__` 中验证参数合理性。
+6. **不要硬编码**：交易标的、参数等应通过构造函数传入。
 
-### 代码结构模板
+## 用户需求
 
-```python
-from __future__ import annotations
+{{user_requirement}}
 
-from decimal import Decimal
-from typing import List, Optional
+{{context}}
 
-from axond.axon_strategy import AxonStrategy
-from axond.strategy_config import StrategyConfig
-from axond.types import Bar, InstrumentId, OrderType
-
-
-class StrategyNameConfig(StrategyConfig):
-    """配置类"""
-    instrument_ids: List[InstrumentId]
-    bar_types: List[str]
-    trade_size: Decimal = Decimal("0.1")
-    param1: int = 10
-    param2: int = 20
-
-
-class StrategyName(AxonStrategy):
-    """策略类"""
-
-    def __init__(self, config: StrategyNameConfig) -> None:
-        if config.param1 >= config.param2:
-            raise ValueError("param1 必须小于 param2")
-        super().__init__(config)
-
-        self._prices: List[float] = []
-
-    def on_start(self) -> None:
-        super().on_start()
-        self.log_info(f"策略启动: {self.config.instrument_ids}")
-
-    def on_bar(self, bar: Bar) -> None:
-        super().on_bar(bar)
-
-        # 累积 K 线数据
-        self._prices.append(bar.close)
-        if len(self._prices) > self.config.param2 + 1:
-            self._prices.pop(0)
-
-        if len(self._prices) < self.config.param2:
-            return
-
-        # ====== 交易逻辑（请根据用户需求自由实现） ======
-        symbol = bar.symbol
-        pos_size = self.get_position_size(symbol)
-
-        # 示例：使用前 param1 周期和 param2 周期的均值进行比较
-        fast_ma = sum(self._prices[-self.config.param1:]) / self.config.param1
-        slow_ma = sum(self._prices[-self.config.param2:]) / self.config.param2
-
-        if fast_ma > slow_ma and pos_size <= 0:
-            if pos_size < 0:
-                self.close_position(symbol)
-            self.buy(symbol, float(self.config.trade_size), 0.0, OrderType.MARKET)
-        elif fast_ma < slow_ma and pos_size >= 0:
-            if pos_size > 0:
-                self.close_position(symbol)
-            self.sell(symbol, float(self.config.trade_size), 0.0, OrderType.MARKET)
-
-    def on_stop(self) -> None:
-        super().on_stop()
-        self.close_all_positions()
-        self.log_info("策略停止")
-```
-
-## 用户提示词
-
-请根据以下需求生成策略代码：
-
-{requirement}
-
-{context}
-
-{constraints}
+{{constraints}}

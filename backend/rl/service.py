@@ -21,6 +21,7 @@ import gymnasium as gym
 import numpy as np
 import pandas as pd
 
+from axon_bridge import Action
 from axon_bridge.rl import TradingEnv
 
 logger = logging.getLogger(__name__)
@@ -256,18 +257,18 @@ class RLService:
 
                 if action_type == "buy" and self._position <= 0:
                     self._position = 0.1
-                    return Action("buy", 0.8, 0.1, "rl_model", 0)
+                    return Action(action_type="buy", confidence=0.8, target_position=0.1, model_id="rl_model", inference_time_us=0)
                 elif action_type == "sell" and self._position >= 0:
                     self._position = -0.1
-                    return Action("sell", 0.8, 0.1, "rl_model", 0)
+                    return Action(action_type="sell", confidence=0.8, target_position=0.0, model_id="rl_model", inference_time_us=0)
                 elif action_type == "close_long" and self._position > 0:
                     self._position = 0.0
-                    return Action("sell", 0.9, 0.1, "rl_model", 0)
+                    return Action(action_type="sell", confidence=0.9, target_position=0.0, model_id="rl_model", inference_time_us=0)
                 elif action_type == "close_short" and self._position < 0:
                     self._position = 0.0
-                    return Action("buy", 0.9, 0.1, "rl_model", 0)
+                    return Action(action_type="buy", confidence=0.9, target_position=0.0, model_id="rl_model", inference_time_us=0)
 
-                return Action("hold", 0.0, 0.0, "rl_model", 0)
+                return Action(action_type="hold", confidence=0.0, target_position=0.0, model_id="rl_model", inference_time_us=0)
 
         strategy = RLStrategy(model)
         loop = BacktestLoop(initial_cash=100_000)
@@ -296,7 +297,7 @@ class RLService:
         return sorted(models, key=lambda x: x["name"])
 
     def _fetch_market_data(self, symbol: str, interval: str, lookback_days: int) -> pd.DataFrame:
-        """获取市场数据（优先本地 parquet，fallback 到 Binance API）"""
+        """获取市场数据（优先本地 parquet，fallback 到 Binance API），返回小写列名"""
         # 1. 尝试本地 parquet
         local_path = Path(__file__).parent.parent / "data" / "source" / "crypto" / "spot" / "klines" / interval / f"{symbol}.parquet"
         if local_path.exists():
@@ -306,11 +307,8 @@ class RLService:
             for col in ["open", "high", "low", "close", "volume"]:
                 if col in df.columns:
                     df[col] = df[col].astype(float)
-            # 标准化列名为大写
-            col_map = {c: c.capitalize() for c in ["open", "high", "low", "close", "volume"] if c in df.columns}
-            df = df.rename(columns=col_map)
             logger.info(f"从本地加载 {len(df)} 根K线: {local_path}")
-            return df[["Open", "High", "Low", "Close", "Volume"]]
+            return df[["open", "high", "low", "close", "volume"]]
 
         # 2. Fallback 到 Binance API
         limit = min(lookback_days * 96, 1000)  # 15min = 96根/天
@@ -322,15 +320,15 @@ class RLService:
                 data = json.loads(resp.read())
 
             df = pd.DataFrame(data, columns=[
-                "timestamp", "Open", "High", "Low", "Close", "Volume",
+                "timestamp", "open", "high", "low", "close", "volume",
                 "close_time", "quote_volume", "trades", "taker_buy_base",
                 "taker_buy_quote", "ignore",
             ])
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
             df.set_index("timestamp", inplace=True)
-            for col in ["Open", "High", "Low", "Close", "Volume"]:
+            for col in ["open", "high", "low", "close", "volume"]:
                 df[col] = df[col].astype(float)
-            return df[["Open", "High", "Low", "Close", "Volume"]]
+            return df[["open", "high", "low", "close", "volume"]]
         except Exception as e:
             logger.error(f"获取市场数据失败: {e}")
             raise
@@ -342,11 +340,11 @@ class RLService:
             ts = int(pd.Timestamp(idx).timestamp() * 1e9) if not isinstance(idx, (int, float)) else int(idx)
             data.append({
                 "timestamp": ts,
-                "open": float(row["Open"]),
-                "high": float(row["High"]),
-                "low": float(row["Low"]),
-                "close": float(row["Close"]),
-                "volume": float(row["Volume"]),
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": float(row["volume"]),
             })
         return data
 

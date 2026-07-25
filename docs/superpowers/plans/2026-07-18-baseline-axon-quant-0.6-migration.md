@@ -1537,6 +1537,24 @@ cb87672 docs: add spec for baseline axon_quant 0.6.0 multi-leg migration
 - PR-C: `with_*` 改回 `&mut Self` 链式
 - 字段: `result.bar_nav_curve` (bar-by-bar NAV) — Sharpe / max_drawdown 重算用
 
+### 0.7.0 → 0.7.1 升级完成 (2026-07-19)
+
+- [x] **axon-quant 0.7.0 → 0.7.1**:`cd backend && uv lock --upgrade-package axon-quant && uv sync` 自动同步
+- [x] **PR-A 合并实测**:`begin_bar_multi(legs=[(perp, close), (spot, close)])` 接受 `list[tuple]`,bar_id 仅 +1,funding schedule +1 合并
+- [x] **PR-C 合并实测**:全部 9 个 `with_*` 方法返回 `&mut Self` chainable,BaselineBacktestService 用 `BacktestEngine(...).with_seed_liquidity(...).with_auto_rebalance(...)` 链式构造
+- [x] **`bar_nav_curve` 字段可用**:`_sharpe_from_bar_nav(getattr(result, "bar_nav_curve", []))` 重算 Sharpe,无需本地维护 `bar_nav` 列表
+- ⚠️ **PR-B 半完成**:`with_funding_schedule` 确实在 `begin_bar` 收尾 auto-push FundingEvent (每 8h),但 dispatch 时 rebalance 之前 `handle_funding` 读 `position=0` → `total_funding_pnl=0.0`。**继续沿用手动 `push_funding` + `step()` work-around**。`baseline.py` 0.7.0 work-around 保留 100% 兼容 0.7.1
+- [x] **8 策略 baseline 报告重新生成** (16 个 json+md):funding_arbitrage 1y `total_pnl=5013.92, total_funding_pnl=5469.64, total_trades=3266` (与 0.7.0 报告数值一致,验证迁移后语义稳定)
+- [x] **全套测试通过 (41 passed, 2 skipped)**:`tests/unit/backtest/test_baseline_axon_engine.py` (5) + `tests/integration/test_baseline_axon_0_7_0.py` (5) + `test_baseline.py` (3) + `test_baseline_funding.py` (7) + `test_axon_data_adapter.py` (3) + `test_strategy_loader_paths.py` (8 skipped 1) + `test_funding_arb_backtest.py` (4)
+- [x] **`uv.lock` 更新到 axon-quant 0.7.1**
+- [x] **CHANGELOG_0_7_1_migration.md 创建** (`docs/superpowers/`):详细记录 0.7.1 API 决策、work-around、重构点
+
+### 0.7.1 → 0.7.2/0.8.0 等待 (axon_quant)
+
+- PR-B 后半:`with_funding_schedule` dispatch 时机修复 — funding event 触发改到 `end_bar` (所有 leg rebalance 后),或在 `handle_funding` 时等当前 bar 所有 order 结算完
+- `with_funding_schedule_disable` 显式 disable API 单元测试覆盖
+- `bar_nav_curve` 缓存机制 (每次 rebalance 都重算,大回测可能慢)
+
 ### 文档归档
 
 - `docs/superpowers/CHANGELOG_0_7_0_migration.md` — 详细 API 决策 + work-around + baseline metrics

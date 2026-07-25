@@ -120,12 +120,8 @@ class AxonBacktestEngine:
             "initial_capital": initial_cash,
             "final_nav": result.final_nav,
             "total_pnl": result.total_pnl,
-            # max_drawdown(USD 绝对值)= nav_peak * (max_drawdown_pct / 100)
-            # axon_quant 阶段 B 不暴露 USD 字段,这里用 pct 反算
-            "max_drawdown": result.nav_peak * (result.max_drawdown_pct / 100.0),
-            # max_drawdown_pct 优先于 max_drawdown(单位:百分比 vs USD 绝对值),
-            # formatter 用它,避免误把 USD 差当百分比显示
-            "max_drawdown_pct": result.max_drawdown_pct,
+            "max_drawdown": result.max_drawdown,  # 已经是 USD 绝对值（BacktestLoop 计算）
+            "max_drawdown_pct": result.max_drawdown_pct,  # 已经是百分比形式
             "nav_peak": result.nav_peak,
             "orders_accepted": result.orders_accepted,
             "orders_rejected": result.orders_rejected,
@@ -133,22 +129,13 @@ class AxonBacktestEngine:
             "total_orders": result.total_orders,
             "events_processed": result.events_processed,
             "duration_secs": result.duration_secs,
-            # trade-level 指标(由 backtest_loop 收集 fills 配对而成)
-            "win_rate": result.win_rate,
+            "win_rate": result.win_rate,  # 已经是百分比形式
             "sharpe_ratio": result.sharpe_ratio,
             "total_fees": result.total_fees,
             "trade_count": len(result.trade_records),
-            # 序列化 trade records:PyO3 暴露的 TradeRecord 类不一定有 __dict__,
-            # 不能直接 vars()(TypeError: vars() argument must have __dict__ attribute);
-            # 优先用对象自己的 to_dict() 方法(axon_quant.TradeRecord 暴露),
-            # 否则用 __dict__ 直接访问,最后兜底 str()
-            "trades": [
-                t.to_dict() if hasattr(t, "to_dict") and callable(t.to_dict)
-                else (dict(t.__dict__) if hasattr(t, "__dict__") else {"repr": str(t)})
-                for t in result.trade_records
-            ],
-            "equity_curve": [list(p) for p in result.equity_curve],
-            # 回测数据时间范围(供 CLI 显示,知道覆盖了哪个时间窗口)
+            # trades 和 equity_curve 已在 BacktestLoop 中格式化为前端期望格式
+            "trades": list(result.trade_records),
+            "equity_curve": list(result.equity_curve),
             "data_start_ns": result.data_start_ns,
             "data_end_ns": result.data_end_ns,
             "bar_count": result.bar_count,

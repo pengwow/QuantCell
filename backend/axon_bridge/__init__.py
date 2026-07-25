@@ -48,6 +48,20 @@ from axon_quant import (  # noqa: F401
     risk, exchange, data, backtest, oms, inference,
 )
 
+# —— axon_quant LLM/Agent 类型重导出 (0.10.0+) ——
+# ReAct Agent + 信号 + 轨迹
+from axon_quant.llm import (  # noqa: F401
+    LLMConfig, LLMMessage, make_backend,
+    OllamaBackend,
+    ReActAgent, TradingTools, TrajectoryRecorder,
+    MarketSignal, SignalType, AgentRole,
+)
+# 交易工具(PlaceOrder/Cancel/Query/Replace)在 trading 子模块
+from axon_quant.trading import (  # noqa: F401
+    PlaceOrderTool, CancelOrderTool, QueryPortfolioTool, ReplaceOrderTool,
+    MockTradingBackend,
+)
+
 # —— axon_quant 0.6.0 多 leg API 重导出 ——
 # Instrument 工厂 + PushFundingHelper
 from .backtest import (  # noqa: F401
