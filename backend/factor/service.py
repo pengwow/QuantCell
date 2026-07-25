@@ -1,64 +1,24 @@
-"""
-因子计算业务服务
+"""因子计算业务服务 — 因子管理/计算/分析"""
 
-实现因子计算的核心业务逻辑。
+from __future__ import annotations
 
-主要功能：
-    - 因子管理：获取、添加、删除因子
-    - 因子计算：单因子、多因子、所有因子计算
-    - 因子分析：IC分析、IR分析、分组分析、单调性检验、稳定性检验
-    - 因子验证：验证因子表达式有效性
-
-类说明：
-    FactorService: 因子服务类
-        - get_factor_list(): 获取因子列表
-        - get_factor_expression(): 获取因子表达式
-        - add_factor(): 添加自定义因子
-        - delete_factor(): 删除自定义因子
-        - calculate_factor(): 计算单因子
-        - calculate_factors(): 计算多因子
-        - calculate_all_factors(): 计算所有因子
-        - validate_factor_expression(): 验证因子表达式
-        - get_factor_correlation(): 计算因子相关性
-        - get_factor_descriptive_stats(): 获取因子统计
-        - calculate_ic(): 计算IC
-        - calculate_ir(): 计算IR
-        - group_analysis(): 分组分析
-        - factor_monotonicity_test(): 单调性检验
-        - factor_stability_test(): 稳定性检验
-
-异常：
-    FactorError: 因子模块基础异常
-    FactorNotFoundError: 因子不存在异常
-    FactorExpressionError: 因子表达式错误异常
-
-作者: QuantCell Team
-创建日期: 2024-01-01
-"""
-
-import sys
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+
 from utils.logger import get_logger, LogType
 
-# 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-# 添加项目根目录到Python路径
-project_root = Path(__file__).parent.parent.parent
-sys.path.append(str(project_root))
 
-# 导入QLib相关模块
+# QLib 仅用于因子计算（D.features），分析方法不依赖它
 try:
+    import qlib.data.ops as _qlib_ops  # noqa: F401  注册 qlib 表达式运算符
     from qlib.data import D
-    from qlib.data.dataset.handler import DataHandlerLP
-    from qlib.data.ops import *
 
     QLIB_AVAILABLE = True
 except ImportError:
     QLIB_AVAILABLE = False
-    logger.warning("QLib未安装，因子计算功能将受限")
+    logger.debug("QLib 未安装，因子计算（calculate_factor）将不可用，分析功能不受影响")
 
 
 class FactorError(Exception):
@@ -428,24 +388,24 @@ class FactorService:
     def calculate_ic(
         self,
         factor_data: pd.DataFrame,
-        return_data: pd.DataFrame,
+        return_data: pd.DataFrame | pd.Series,
         method: str = "spearman",
     ) -> Optional[pd.Series]:
-        """
-        计算因子的信息系数(IC)
-
-        Args:
-            factor_data: 因子值DataFrame
-            return_data: 收益率DataFrame
-            method: 相关性计算方法，默认为spearman
-
-        Returns:
-            IC值序列，失败返回None
-        """
+        """计算因子的信息系数(IC) — 因子值与未来收益的秩相关。"""
         try:
-            aligned_factor, aligned_return = factor_data.align(return_data, join="inner")
-            ic = aligned_factor.corrwith(aligned_return, method=method)
-            logger.info(f"成功计算IC值，方法: {method}")
+            if isinstance(return_data, pd.DataFrame):
+                return_series = return_data.iloc[:, 0]
+            else:
+                return_series = return_data
+
+            factor_df = factor_data.apply(pd.to_numeric, errors="coerce")
+            aligned = pd.concat([factor_df, return_series.rename("__ret__")], axis=1).dropna()
+            if len(aligned) < 3:
+                logger.warning("有效数据不足，无法计算IC")
+                return None
+
+            ic = aligned.iloc[:, :-1].corrwith(aligned["__ret__"], method=method)
+            logger.info(f"成功计算IC值，方法: {method}, IC均值: {ic.mean():.4f}")
             return ic
         except Exception as e:
             logger.error(f"计算IC值失败: {e}")
@@ -454,27 +414,21 @@ class FactorService:
     def calculate_ir(
         self,
         factor_data: pd.DataFrame,
-        return_data: pd.DataFrame,
+        return_data: pd.DataFrame | pd.Series,
         method: str = "spearman",
     ) -> Optional[float]:
-        """
-        计算因子的信息比率(IR)
-
-        Args:
-            factor_data: 因子值DataFrame
-            return_data: 收益率DataFrame
-            method: 相关性计算方法，默认为spearman
-
-        Returns:
-            IR值，失败返回None
-        """
+        """计算因子的信息比率(IR) = IC均值 / IC标准差。"""
         try:
             ic = self.calculate_ic(factor_data, return_data, method)
-            if ic is not None:
-                ir = ic.mean() / ic.std()
-                logger.info(f"成功计算IR值，方法: {method}, IR: {ir:.4f}")
-                return ir
-            return None
+            if ic is None or len(ic) == 0:
+                return None
+            ic_std = ic.std()
+            if ic_std is None or pd.isna(ic_std) or ic_std == 0:
+                logger.warning("IC标准差为0或NaN，无法计算IR（IC样本太少）")
+                return None
+            ir = float(ic.mean() / ic_std)
+            logger.info(f"成功计算IR值，方法: {method}, IR: {ir:.4f}")
+            return ir
         except Exception as e:
             logger.error(f"计算IR值失败: {e}")
             return None
@@ -482,42 +436,44 @@ class FactorService:
     def group_analysis(
         self,
         factor_data: pd.DataFrame,
-        return_data: pd.DataFrame,
+        return_data: pd.DataFrame | pd.Series,
         n_groups: int = 5,
     ) -> Optional[Dict[str, Any]]:
-        """
-        因子分组回测分析
+        """因子分组回测分析。
 
-        Args:
-            factor_data: 因子值DataFrame
-            return_data: 收益率DataFrame
-            n_groups: 分组数量，默认为5
-
-        Returns:
-            分组回测结果，失败返回None
+        对因子值按分位数分组，计算每组平均收益，评估因子的区分能力。
+        兼容 MultiIndex（QLib 格式：datetime×instrument）和普通 DataFrame/Series。
         """
         try:
-            aligned_factor, aligned_return = factor_data.align(return_data, join="inner")
+            factor_series = factor_data.iloc[:, 0] if factor_data.ndim > 1 else factor_data
+            if isinstance(return_data, pd.DataFrame):
+                return_series = return_data.iloc[:, 0]
+            else:
+                return_series = return_data
 
-            groups = aligned_factor.groupby(level=1).apply(
-                lambda x: pd.qcut(x, n_groups, labels=False, duplicates="drop") + 1
-            )
+            factor_series = factor_series.reindex(return_series.index).dropna()
+            return_series = return_series.reindex(factor_series.index)
 
-            group_returns = aligned_return.groupby(
-                [groups, aligned_return.index.get_level_values(1)]
-            ).mean()
+            if len(factor_series) < n_groups * 2:
+                logger.warning(f"数据量不足（{len(factor_series)} 条），分组数 {n_groups} 过大")
+                return None
 
-            cumulative_returns = group_returns.groupby(level=0).cumsum()
+            # ponytail: 使用 qcut 做截面/时序分组，跨标的 MultiIndex 场景需要 level=1
+            if isinstance(factor_series.index, pd.MultiIndex):
+                groups = factor_series.groupby(level=1).apply(
+                    lambda x: pd.qcut(x, n_groups, labels=False, duplicates="drop") + 1
+                )
+            else:
+                groups = pd.qcut(factor_series, n_groups, labels=False, duplicates="drop") + 1
 
-            long_short_return = group_returns.loc[n_groups] - group_returns.loc[1]
-            cumulative_long_short = long_short_return.cumsum()
+            group_returns = return_series.groupby(groups).mean()
+            long_short_ret = group_returns.iloc[-1] - group_returns.iloc[0]
 
-            logger.info(f"成功完成分组回测分析，分组数量: {n_groups}")
+            logger.info(f"分组分析完成，分组数: {n_groups}, 多空收益: {long_short_ret:.4f}")
             return {
                 "group_returns": group_returns,
-                "cumulative_returns": cumulative_returns,
-                "long_short_return": long_short_return,
-                "cumulative_long_short": cumulative_long_short,
+                "long_short_return": pd.Series([long_short_ret] * len(group_returns), index=group_returns.index),
+                "n_groups": n_groups,
             }
         except Exception as e:
             logger.error(f"分组回测分析失败: {e}")
@@ -526,43 +482,33 @@ class FactorService:
     def factor_monotonicity_test(
         self,
         factor_data: pd.DataFrame,
-        return_data: pd.DataFrame,
+        return_data: pd.DataFrame | pd.Series,
         n_groups: int = 5,
     ) -> Optional[Dict[str, Any]]:
-        """
-        因子单调性检验
-
-        Args:
-            factor_data: 因子值DataFrame
-            return_data: 收益率DataFrame
-            n_groups: 分组数量，默认为5
-
-        Returns:
-            单调性检验结果，失败返回None
-        """
+        """因子单调性检验 — 检验分组收益是否随因子值单调递增/递减。"""
         try:
             group_result = self.group_analysis(factor_data, return_data, n_groups)
+            if group_result is None:
+                return None
 
-            if group_result is not None:
-                group_returns = group_result["group_returns"].groupby(level=0).mean()
-                monotonicity_score = group_returns.loc[n_groups] - group_returns.loc[1]
+            group_returns = group_result["group_returns"]
 
-                from scipy.stats import spearmanr
+            from scipy.stats import spearmanr
 
-                groups = list(range(1, n_groups + 1))
-                monotonicity_corr, _ = spearmanr(groups, group_returns.values)
+            groups = list(range(1, len(group_returns) + 1))
+            monotonicity_corr, p_value = spearmanr(groups, group_returns.values)
+            monotonicity_score = float(group_returns.iloc[-1] - group_returns.iloc[0])
 
-                logger.info(
-                    f"成功完成因子单调性检验，"
-                    f"单调性得分: {monotonicity_score:.4f}, "
-                    f"相关性: {monotonicity_corr:.4f}"
-                )
-                return {
-                    "group_returns": group_returns.to_dict(),
-                    "monotonicity_score": monotonicity_score,
-                    "monotonicity_corr": monotonicity_corr,
-                }
-            return None
+            logger.info(
+                f"单调性检验完成，得分: {monotonicity_score:.4f}, "
+                f"spearman: {monotonicity_corr:.4f}, p-value: {p_value:.4f}"
+            )
+            return {
+                "group_returns": group_returns.to_dict(),
+                "monotonicity_score": monotonicity_score,
+                "monotonicity_corr": float(monotonicity_corr),
+                "p_value": float(p_value),
+            }
         except Exception as e:
             logger.error(f"因子单调性检验失败: {e}")
             return None
@@ -572,26 +518,24 @@ class FactorService:
         factor_data: pd.DataFrame,
         window: int = 20,
     ) -> Optional[Dict[str, Any]]:
-        """
-        因子稳定性检验
-
-        Args:
-            factor_data: 因子值DataFrame
-            window: 滚动窗口大小，默认为20
-
-        Returns:
-            稳定性检验结果，失败返回None
-        """
+        """因子稳定性检验 — 基于滚动自相关衡量因子值的时序稳定性。"""
         try:
-            rolling_autocorr = factor_data.rolling(window=window).corr(
-                factor_data.shift(1)
-            )
-            cross_std = factor_data.groupby(level=1).std()
+            if len(factor_data) < window + 1:
+                logger.warning(f"数据量不足（{len(factor_data)} 条），窗口 {window} 过大")
+                return None
 
-            logger.info(f"成功完成因子稳定性检验，窗口大小: {window}")
+            factor_series = factor_data.iloc[:, 0] if factor_data.ndim > 1 else factor_data
+            rolling_autocorr = factor_series.rolling(window=window).apply(
+                lambda x: x.autocorr() if len(x.dropna()) > 1 else float("nan"),
+                raw=False,
+            )
+            cross_std = factor_series.rolling(window=window).std()
+
+            logger.info(f"稳定性检验完成，窗口: {window}, 平均自相关: {rolling_autocorr.mean():.4f}")
             return {
                 "rolling_autocorr": rolling_autocorr,
                 "cross_std": cross_std,
+                "mean_autocorr": float(rolling_autocorr.dropna().mean()) if rolling_autocorr.dropna().any() else None,
             }
         except Exception as e:
             logger.error(f"因子稳定性检验失败: {e}")

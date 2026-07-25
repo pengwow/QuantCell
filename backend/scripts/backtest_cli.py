@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-QUANTCELL 回测命令行工具入口
+回测命令行工具(兼容 shim)
 
-此文件为入口转发文件，实际功能实现在 backtest.cli 模块中
+已迁移到 ``quantcell backtest`` 子命令,此文件仅作为兼容期转发。
+新代码请直接使用:
+
+    quantcell backtest --help
 """
-
 import sys
 from pathlib import Path
 
-# 添加后端目录到路径
-backend_path = Path(__file__).resolve().parent.parent
-if str(backend_path) not in sys.path:
-    sys.path.insert(0, str(backend_path))
+_BACKEND = Path(__file__).resolve().parent.parent
+if str(_BACKEND) not in sys.path:
+    sys.path.insert(0, str(_BACKEND))
 
-# 延迟导入，避免在--help时触发不必要的模块加载
-def main():
+
+def main() -> None:
     from backtest.cli import app
     app()
+
 
 if __name__ == '__main__':
     main()

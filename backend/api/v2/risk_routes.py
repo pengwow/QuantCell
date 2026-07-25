@@ -1,9 +1,12 @@
 """Risk Monitor API routes."""
 
 import math
+from functools import lru_cache
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Any
+
 from common.schemas import ApiResponse
 
 router = APIRouter(prefix="/api/v2/risk", tags=["Risk"])
@@ -20,6 +23,13 @@ def _sanitize(obj: Any) -> Any:
     return obj
 
 
+@lru_cache(maxsize=1)
+def _get_risk_service():
+    """模块级单例，避免每次请求重置风控引擎计数器。"""
+    from services.risk_service import RiskService
+    return RiskService()
+
+
 class CheckOrderRequest(BaseModel):
     order: dict[str, Any]
     portfolio: dict[str, Any]
@@ -28,8 +38,7 @@ class CheckOrderRequest(BaseModel):
 @router.post("/check")
 async def check_order(req: CheckOrderRequest):
     try:
-        from services.risk_service import RiskService
-        svc = RiskService()
+        svc = _get_risk_service()
         result = svc.check_order(req.order, req.portfolio)
         return ApiResponse(code=0, message="风控检查完成", data=result)
     except RuntimeError as e:
@@ -39,8 +48,7 @@ async def check_order(req: CheckOrderRequest):
 @router.get("/metrics")
 async def get_metrics():
     try:
-        from services.risk_service import RiskService
-        svc = RiskService()
+        svc = _get_risk_service()
         return ApiResponse(code=0, message="success", data=_sanitize(svc.get_metrics()))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -49,8 +57,7 @@ async def get_metrics():
 @router.post("/reset")
 async def reset_daily():
     try:
-        from services.risk_service import RiskService
-        svc = RiskService()
+        svc = _get_risk_service()
         svc.reset_daily()
         return ApiResponse(code=0, message="每日计数已重置", data={"status": "ok"})
     except RuntimeError as e:

@@ -1,30 +1,25 @@
-# 模型训练服务
-# 实现模型训练、评估、保存和加载等功能
+# 模型训练服务 — 模型训练、评估、保存、加载
 
 import json
 import pickle
-import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
+
 from utils.logger import get_logger, LogType
 
-# 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-# 添加项目根目录到Python路径
-project_root = Path(__file__).parent.parent.parent  
-sys.path.append(str(project_root))
 
-# 导入QLib相关模块
-# from qlib.data import D
-# from qlib.data.dataset import DatasetH
-# from qlib.data.dataset.handler import DataHandlerLP
-# from qlib.model.base import Model
-# from qlib.model.trainer import TrainerR
-# from qlib.utils import init_instance_by_config
-# from qlib.workflow import R
-# from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
+# QLib 仅用于模型训练/评估，save/load/list/delete 不依赖它
+try:
+    from qlib.utils import init_instance_by_config
+
+    QLIB_AVAILABLE = True
+except ImportError:
+    QLIB_AVAILABLE = False
+    init_instance_by_config = None  # type: ignore[assignment]
 
 
 class ModelService:
@@ -44,8 +39,8 @@ class ModelService:
             "transformer": "qlib.contrib.model.pytorch.TransformerModel"
         }
 
-        # 模型保存路径
-        self.model_save_dir = Path(project_root) / "backend" / "model" / "saved_models"
+        # 模型保存路径（相对于 backend/ 目录）
+        self.model_save_dir = Path(__file__).parent / "saved_models"
         self.model_save_dir.mkdir(parents=True, exist_ok=True)
 
     def get_model_list(self):
@@ -57,14 +52,9 @@ class ModelService:
         return list(self.models.keys())
 
     def train_model(self, model_config, dataset_config, trainer_config):
-        """
-        训练模型
-
-        :param model_config: 模型配置
-        :param dataset_config: 数据集配置
-        :param trainer_config: 训练器配置
-        :return: 训练结果
-        """
+        """训练模型（需要 QLib）"""
+        if not QLIB_AVAILABLE:
+            return {"status": "failed", "message": "QLib 未安装，无法训练模型"}
         try:
             logger.info(f"开始训练模型，模型类型: {model_config.get('class')}")
 
@@ -100,13 +90,9 @@ class ModelService:
             }
 
     def evaluate_model(self, model_name, dataset_config):
-        """
-        评估模型
-
-        :param model_name: 模型名称
-        :param dataset_config: 数据集配置
-        :return: 评估结果
-        """
+        """评估模型（需要 QLib）"""
+        if not QLIB_AVAILABLE:
+            return {"status": "failed", "message": "QLib 未安装，无法评估模型"}
         try:
             logger.info(f"开始评估模型，模型名称: {model_name}")
 
