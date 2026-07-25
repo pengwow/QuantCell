@@ -2,6 +2,7 @@
 import pytest
 import tempfile
 import os
+from unittest.mock import MagicMock, patch
 
 from engine.deployer import StrategyDeployer, WorkerHandle
 from credentials.service import CredentialsService
@@ -25,6 +26,9 @@ def test_deployer_dry_run_returns_handle(db_path):
     assert handle.status == "running"
     assert handle.strategy_name == "dual_ma"
     assert handle.symbol == "BTCUSDT"
+    # 干跑模式 engine_strategy_id 为空
+    assert handle.engine_strategy_id is None
+    assert handle.mode == "dry_run"
     deployer.stop(handle)
     assert handle.status == "stopped"
 
@@ -54,3 +58,37 @@ def test_deployer_list_active(db_path):
     active = deployer.list_active()
     assert len(active) == 1
     assert active[0].worker_id == h2.worker_id
+
+
+def test_live_mode_delegates_to_trading_engine(db_path):
+    """实盘模式委托给 TradingEngine.start_strategy"""
+    deployer = StrategyDeployer(dry_run=False, credentials_db=db_path)
+    with patch("engine.deployer.get_trading_engine") as mock_get_engine:
+        mock_engine = MagicMock()
+        mock_engine.start_strategy.return_value = "test_sid_123"
+        mock_get_engine.return_value = mock_engine
+
+        handle = deployer.deploy("dual_ma", "main", "BTCUSDT")
+        assert handle.engine_strategy_id == "test_sid_123"
+        assert handle.mode == "paper"
+        mock_engine.start_strategy.assert_called_once()
+
+
+def test_stop_delegates_to_engine(db_path):
+    """stop 委托给 TradingEngine.stop_strategy"""
+    deployer = StrategyDeployer(dry_run=False, credentials_db=db_path)
+    with patch("engine.deployer.get_trading_engine") as mock_get_engine:
+        mock_engine = MagicMock()
+        mock_get_engine.return_value = mock_engine
+
+        handle = WorkerHandle(
+            worker_id=__import__("uuid").uuid4(),
+            strategy_name="dual_ma",
+            account_name="main",
+            symbol="BTCUSDT",
+            status="running",
+            engine_strategy_id="sid_456",
+            mode="paper",
+        )
+        deployer.stop(handle)
+        mock_engine.stop_strategy.assert_called_once_with("sid_456")

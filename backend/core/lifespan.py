@@ -237,6 +237,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"WebSocket连接管理器或系统信息推送服务启动失败: {e}")
 
+    # 初始化 TradingEngine（paper 模式默认配置）
+    try:
+        from engine.trading_engine import get_trading_engine
+        from engine.config import EngineConfig
+        engine = get_trading_engine(EngineConfig(exchange="binance", trading_mode="paper"))
+        app.state.trading_engine = engine
+        logger.info(f"TradingEngine 初始化完成: {engine.engine_status()}")
+    except Exception as e:
+        logger.error(f"TradingEngine 初始化失败: {e}")
+
     # 初始化 Worker System（全局单例，统一管理所有 Worker）
     _worker_system_available = False
     try:
@@ -333,6 +343,20 @@ async def lifespan(app: FastAPI):
         raise
     except Exception as e:
         logger.error(f"停止系统状态推送服务失败: {e}")
+
+    # 步骤 4.5: 停止 TradingEngine 中所有运行的策略
+    try:
+        if hasattr(app.state, "trading_engine"):
+            engine = app.state.trading_engine
+            for rt in list(engine._strategies.values()):
+                if rt.status == "running" and rt.loop:
+                    try:
+                        engine.stop_strategy(rt.strategy_id)
+                    except Exception as stop_err:
+                        logger.error(f"停止策略 {rt.strategy_id} 失败: {stop_err}")
+            logger.info("TradingEngine 所有策略已停止")
+    except Exception as e:
+        logger.error(f"TradingEngine 关闭失败: {e}")
 
     # 步骤 5: 停止 WebSocket 连接管理器（带超时保护）
     try:
