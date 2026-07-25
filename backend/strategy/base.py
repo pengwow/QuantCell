@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 from axon_bridge import Action
 
@@ -85,16 +85,17 @@ class BaseStrategy(ABC):
         self.config = config
         self._ctx: StrategyContext | None = None
 
-    def on_start(self, ctx: StrategyContext) -> None:
+    def on_start(self, ctx: Optional[StrategyContext] = None) -> None:
         """可选：启动钩子（重置内部状态）。"""
-        self._ctx = ctx
+        if ctx is not None:
+            self._ctx = ctx
 
     @abstractmethod
-    def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
-        """必须实现：每根 K 线返回 Action。"""
+    def on_bar(self, bar: dict, ctx: Optional[StrategyContext] = None) -> Action:
+        """必须实现：每根 K 线返回 Action。ctx 可选，用于兼容新老调用方式。"""
 
-    def on_fill(self, fill: dict, ctx: StrategyContext) -> None:
+    def on_fill(self, fill: dict, ctx: Optional[StrategyContext] = None) -> None:
         """可选：成交回调。"""
 
-    def on_stop(self, ctx: StrategyContext) -> None:
+    def on_stop(self, ctx: Optional[StrategyContext] = None) -> None:
         """可选：停止钩子。"""

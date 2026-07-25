@@ -1,17 +1,18 @@
-"""重新生成 8 策略模板的 baseline 报告(Task 7)。
+"""重新生成 9 策略模板的 baseline 报告。
 
-调用 axon_quant 0.7.0 multi-leg API 跑 7 天 BTCUSDT 数据,输出到
+调用 axon_quant 0.10.0 multi-leg API 跑回测,输出到
 data/source/backtest_baselines/ 替换旧版基线报告。
 
 新基线特征:
 - 走 BacktestEngine 事件驱动(不再手写仓位状态机)
 - 多 leg API(spot + perp,spot_symbol 默认 None 表示单 perp)
 - funding_arbitrage 走多腿路径
-- 报告含 total_funding_pnl 字段(0.7.0 引擎层累计)
-- sharpe_ratio 走 bar_nav_curve 重算(0.7.1)
+- 报告含 total_funding_pnl / total_fees / max_drawdown_pct 字段(引擎层累计)
+- sharpe_ratio 走 bar_nav_curve 重算
+- 0.10.0 修复 funding dispatch 时机,同 bar push_funding 无需 ts+1 偏移
+- llm_signal: 基于 axon_quant MarketSignal 的 AI 信号模板(默认 heuristic=双均线,可注入 llm_provider)
 
-ponytail:每个策略 7 天 K 线够触发其信号窗口;不优化参数,
-        跑通即得基线,用作 regression baseline
+ponytail:每个策略跑通即得基线,用作 regression baseline
 """
 from __future__ import annotations
 
@@ -30,10 +31,16 @@ import pandas as pd  # noqa: E402
 from backtest.baseline import BaselineBacktestService, make_synthetic_kline  # noqa: E402
 
 
-# 8 策略模板 + 配置
+# 9 策略模板 + 配置
 STRATEGIES = [
     {
         "name": "dual_ma",
+        "symbol": "BTCUSDT",
+        "spot_symbol": None,
+        "funding_csv": None,
+    },
+    {
+        "name": "llm_signal",
         "symbol": "BTCUSDT",
         "spot_symbol": None,
         "funding_csv": None,

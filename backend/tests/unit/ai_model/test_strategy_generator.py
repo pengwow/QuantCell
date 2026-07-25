@@ -634,7 +634,7 @@ class TestStrategyGeneratorBuildPrompt:
             assert result == "rendered prompt"
             mock_render.assert_called_once()
             call_kwargs = mock_render.call_args.kwargs
-            assert call_kwargs["user_description"] == "my requirement"
+            assert call_kwargs["user_requirement"] == "my requirement"
             assert call_kwargs["strategy_name"] == "GeneratedStrategy"
             assert call_kwargs["symbol"] == "BTC/USDT"
 

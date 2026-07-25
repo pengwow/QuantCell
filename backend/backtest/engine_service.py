@@ -292,6 +292,8 @@ class EventDrivenBacktestService:
         Returns:
             多品种汇总 dict
         """
+        from backtest.result_formatter_service import ResultFormatterService
+
         # 计算 portfolio-level 指标(从 per_symbol_results 重算,不能简单 sum 百分比类)
         n = len(per_symbol_results)
         total_pnl = raw_results.get("total_pnl", 0.0)
@@ -371,20 +373,31 @@ class EventDrivenBacktestService:
             "timeframe": timeframe,
             "is_multi_symbol": True,
             "results_by_symbol": {
-                symbol: {
-                    "symbol": symbol,
-                    "timeframe": timeframe,
-                    "strategy_name": strategy_name,
-                    # 用 per_symbol_results[symbol] 给单 symbol 填自己真实的 metrics
-                    # 旧实现塞 raw_results(聚合后),导致 CLI 贡献盈亏显示聚合 PnL
-                    "metrics": per_symbol_results.get(symbol, raw_results),
-                    # 透传 trades / equity_curve 等 list 字段到顶层
-                    # (axon_engine 返回的 dict 里 trades 在顶层 metrics 同级;
-                    # output_results 读 result.get('trades', []),需要在顶层)
-                    "trades": per_symbol_results.get(symbol, {}).get("trades", []),
-                    "equity_curve": per_symbol_results.get(symbol, {}).get("equity_curve", []),
-                }
+                symbol: ResultFormatterService.format_axon_results(
+                    results=per_symbol_results.get(symbol, {}),
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    strategy_name=strategy_name,
+                ).get(f"{symbol}_{timeframe}", {})
                 for symbol in symbols
             },
-            "metrics": raw_results,
+            # portfolio 级别的 metrics 使用聚合数据格式化
+            "portfolio": ResultFormatterService.format_axon_results(
+                results={**raw_results, "trades": [], "equity_curve": []},
+                symbol=symbols[0] if symbols else "PORTFOLIO",
+                timeframe=timeframe,
+                strategy_name=strategy_name,
+            ).get("portfolio", {}),
+            # 保留 _meta 和 account 信息
+            "_meta": {
+                "engine": "axon",
+                "strategy": strategy_name,
+                "timestamp": int(datetime.now().timestamp()),
+                "formatted_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            },
+            "account": {
+                "starting_balance": initial_equity,
+                "final_nav": final_equity,
+                "total_pnl": total_pnl,
+            },
         }

@@ -190,6 +190,19 @@ async def read_root():
     }
 
 
+@app.get("/health")
+async def health_check():
+    """健康检查端点
+
+    Returns:
+        dict: 服务状态信息
+    """
+    return {
+        "status": "ok",
+        "service": "QuantCell API"
+    }
+
+
 @app.get("/items/{item_id}")
 def read_item(item_id: int, q: str = None):
     """获取指定item_id的项目信息

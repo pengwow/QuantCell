@@ -182,3 +182,43 @@ def test_baseline_sharpe_uses_bar_nav_curve(tmp_path: Path, trending_kline: pd.D
     # sharpe 应是 finite (即使 0 也合法)
     assert isinstance(report.sharpe_ratio, float)
     assert np.isfinite(report.sharpe_ratio), f"sharpe_ratio 应 finite,got {report.sharpe_ratio}"
+
+
+def test_baseline_axon_0_10_0_new_fields(tmp_path: Path) -> None:
+    """0.10.0: 验证引擎内置 total_fees / max_drawdown_pct 字段被正确提取。"""
+    dates = pd.date_range("2024-07-01", periods=200, freq="1h")
+    closes = [100.0 + i * 0.5 for i in range(200)]
+    df = pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c * 1.01 for c in closes],
+            "low": [c * 0.99 for c in closes],
+            "close": closes,
+            "volume": [1000.0] * 200,
+        },
+        index=dates,
+    )
+    svc = BaselineBacktestService(
+        strategy_name="dual_ma",
+        symbol="BTCUSDT",
+        start="2024-07-01",
+        end="2024-07-10",
+        output_dir=tmp_path,
+        data=df,
+    )
+    report = svc.run()
+    # 0.10.0 新增字段存在且为 finite float
+    assert isinstance(report.total_fees, float)
+    assert report.total_fees >= 0.0, f"total_fees 应 >= 0, got {report.total_fees}"
+    assert isinstance(report.max_drawdown_pct, float)
+    assert 0.0 <= report.max_drawdown_pct <= 1.0, (
+        f"max_drawdown_pct 应在 [0,1], got {report.max_drawdown_pct}"
+    )
+    # win_rate 由引擎直接计算,应在 [0,1]
+    assert 0.0 <= report.win_rate <= 1.0, f"win_rate 应在 [0,1], got {report.win_rate}"
+    # JSON 输出应包含新字段
+    import json
+    report_dict = report.to_dict()
+    assert "total_fees" in report_dict
+    assert "max_drawdown_pct" in report_dict
+
