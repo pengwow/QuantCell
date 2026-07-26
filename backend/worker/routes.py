@@ -746,10 +746,10 @@ async def shutdown_worker_manager():
     try:
         logger.info("[routes] 正在关闭 WorkerManager...")
 
-        from .axon_worker_system import worker_system
+        from .strategy_manager import worker_system
 
         if not worker_system._initialized:
-            logger.info("[routes] AxonTradingSystem 未初始化，跳过关闭")
+            logger.info("[routes] StrategyManager 未初始化，跳过关闭")
             return
 
         worker_system.shutdown()

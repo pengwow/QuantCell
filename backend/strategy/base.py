@@ -34,6 +34,7 @@ class StrategyContext:
     字段:
     - spot_* : 现货腿支持 (funding_arbitrage 用, baseline 读 spot_target_position)
     - account_equity : 账户净值(策略层算 notional 用)
+    - highs/lows/volumes : 历史 K 线数据(用于 ATR 等指标计算)
 
     DEPRECATED 字段(2026-07-18 axon_quant 0.6.0 升级后保留读接口):
     - funding_cash / settle_funding: 完全下沉到 axon_quant 引擎的
@@ -43,6 +44,9 @@ class StrategyContext:
     """
     symbol: str
     closes: list[float] = field(default_factory=list)
+    highs: list[float] = field(default_factory=list)
+    lows: list[float] = field(default_factory=list)
+    volumes: list[float] = field(default_factory=list)
     positions: dict[str, float] = field(default_factory=dict)
     orders: list[dict] = field(default_factory=list)
 

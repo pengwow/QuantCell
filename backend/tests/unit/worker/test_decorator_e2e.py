@@ -97,13 +97,13 @@ class TestDecoratorHTTPResponses:
 class TestDecoratorWithRealExceptions:
     """验证装饰器与真实服务异常的配合"""
 
-    def test_axon_worker_system_exception_handling(self):
-        """模拟 axon_worker_system 抛出的异常被装饰器正确处理"""
+    def test_strategy_manager_exception_handling(self):
+        """模拟 StrategyManager 抛出的异常被装饰器正确处理"""
         from worker.exceptions import WorkerNotFoundException
 
         @handle_worker_exceptions("启动策略")
         async def start_strategy_endpoint():
-            # 模拟 axon_worker_system 抛出的异常
+            # 模拟 StrategyManager 抛出的异常
             raise WorkerNotFoundException(worker_id=999)
 
         with pytest.raises(HTTPException) as exc_info:

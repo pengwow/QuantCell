@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Worker System — AxonTradingSystem 策略执行引擎
+StrategyManager — 统一策略执行引擎
 
-基于 axon_quant 的策略生命周期管理引擎，替代原 axon_quantTradingSystem。
+基于 axon_quant 的策略生命周期管理引擎，统一管理所有策略的完整生命周期。
 
 职责:
-    - 策略生命周期管理（创建、启动、停止、删除）
+    - 策略生命周期管理（创建、启动、停止、删除、注册）
     - axon_quant exchange adapter 的构建与运行
     - 回测执行
     - 启动时从数据库恢复策略状态
@@ -40,7 +40,7 @@ try:
     AXON_AVAILABLE = True
 except ImportError as e:
     AXON_AVAILABLE = False
-    logger.warning(f"[AxonTradingSystem] strategy.loop 不可用: {e}")
+    logger.warning(f"[StrategyManager] strategy.loop 不可用: {e}")
 
 
 def _build_exchange_adapter(exchange: str, trading_mode: str):
@@ -58,12 +58,12 @@ def _build_exchange_adapter(exchange: str, trading_mode: str):
     return build_paper_adapter(exchange=exchange, trading_mode="paper")
 
 
-class AxonTradingSystem:
+class StrategyManager:
     """
-    axon_quant 策略执行引擎（单例）
+    统一策略执行引擎（单例）
 
-    作为整个 Worker 模块的核心，管理所有策略的完整生命周期。
-    使用 axon_quant 的 exchange adapter 替代 交易引擎的 TradingNode。
+    作为整个系统的核心，管理所有策略的完整生命周期。
+    使用 axon_quant 的 exchange adapter 执行策略。
 
     架构层次:
         1. 全局单例层: 由 state.py 统一持有单例引用
@@ -85,7 +85,7 @@ class AxonTradingSystem:
             thread_name_prefix="axon-backtest",
         )
         self._strategy_loops: Dict[int, StrategyLoop] = {}
-        logger.info(f"[AxonTradingSystem] ThreadPoolExecutor 初始化: max_workers={max_workers}")
+        logger.info(f"[StrategyManager] ThreadPoolExecutor 初始化: max_workers={max_workers}")
 
     async def initialize(self) -> None:
         """初始化系统，从数据库恢复策略状态"""
@@ -94,17 +94,17 @@ class AxonTradingSystem:
                 return
             self._initialized = True
 
-        logger.info("[AxonTradingSystem] 正在初始化...")
+        logger.info("[StrategyManager] 正在初始化...")
 
         await worker_state_manager.initialize()
 
         if not AXON_AVAILABLE:
-            logger.warning("[AxonTradingSystem] axond 模块不可用，策略管理功能受限")
+            logger.warning("[StrategyManager] axond 模块不可用，策略管理功能受限")
             return
 
         await self._load_workers_from_db()
 
-        logger.info("[AxonTradingSystem] 初始化完成")
+        logger.info("[StrategyManager] 初始化完成")
 
     def _validate_worker_config(self, worker, db=None) -> None:
         """验证 worker 配置是否合法，不合法抛出 ValueError"""
@@ -146,7 +146,7 @@ class AxonTradingSystem:
 
         with get_db_session() as db:
             workers, total = crud.get_workers(db, skip=0, limit=1000)
-            logger.info(f"[AxonTradingSystem] 从数据库加载了 {total} 个策略配置")
+            logger.info(f"[StrategyManager] 从数据库加载了 {total} 个策略配置")
 
             config_errors = []
 
@@ -165,7 +165,7 @@ class AxonTradingSystem:
                     except ValueError as e:
                         error_msg = f"配置验证失败: {e}"
                         logger.error(
-                            f"[AxonTradingSystem] 策略配置异常，跳过启动: "
+                            f"[StrategyManager] 策略配置异常，跳过启动: "
                             f"worker_id={worker.id}, name={worker.name}, error={e}"
                         )
                         strategy_registry.update_status(
@@ -179,14 +179,14 @@ class AxonTradingSystem:
                         continue
 
                     logger.info(
-                        f"[AxonTradingSystem] 恢复启动运行中的策略: "
+                        f"[StrategyManager] 恢复启动运行中的策略: "
                         f"worker_id={worker.id}, name={worker.name}"
                     )
                     try:
                         await self._do_start_strategy(worker.id, worker)
                     except Exception as e:
                         logger.error(
-                            f"[AxonTradingSystem] 恢复启动策略失败: "
+                            f"[StrategyManager] 恢复启动策略失败: "
                             f"worker_id={worker.id}, error={e}"
                         )
                         strategy_registry.update_status(
@@ -195,7 +195,7 @@ class AxonTradingSystem:
 
             if config_errors:
                 logger.warning(
-                    f"[AxonTradingSystem] {len(config_errors)} 个策略配置异常，"
+                    f"[StrategyManager] {len(config_errors)} 个策略配置异常，"
                     f"已标记为 error 状态，请修复后重启"
                 )
 
@@ -225,7 +225,7 @@ class AxonTradingSystem:
         await worker_state_manager.transition(worker.id, "stopped")
 
         logger.info(
-            f"[AxonTradingSystem] 策略已创建: worker_id={worker.id}, "
+            f"[StrategyManager] 策略已创建: worker_id={worker.id}, "
             f"name={worker.name}"
         )
         return worker.id
@@ -246,7 +246,7 @@ class AxonTradingSystem:
                     raise WorkerNotFoundException(worker_id)
 
                 logger.info(
-                    f"[AxonTradingSystem] ===== start_strategy 被调用 ====="
+                    f"[StrategyManager] ===== start_strategy 被调用 ====="
                     f"\n  worker_id={worker_id} (type={type(worker_id).__name__})"
                     f"\n  数据库 name={worker.name}"
                 )
@@ -254,11 +254,11 @@ class AxonTradingSystem:
                 await worker_state_manager.transition(worker_id, "starting")
                 return await self._do_start_strategy(worker_id, worker, db)
         except WorkerNotFoundException as e:
-            logger.warning(f"[AxonTradingSystem] {e.message}")
+            logger.warning(f"[StrategyManager] {e.message}")
             return False
         except Exception as e:
             logger.error(
-                f"[AxonTradingSystem] 启动策略失败: worker_id={worker_id}, "
+                f"[StrategyManager] 启动策略失败: worker_id={worker_id}, "
                 f"error={e}\n{traceback.format_exc()}"
             )
             await worker_state_manager.transition(
@@ -282,7 +282,7 @@ class AxonTradingSystem:
         from .state import strategy_registry
 
         logger.info(
-            f"[AxonTradingSystem] ===== _do_start_strategy 开始 ====="
+            f"[StrategyManager] ===== _do_start_strategy 开始 ====="
             f"\n  入参 worker_id={worker_id} (type={type(worker_id).__name__})"
             f"\n  入参 worker.id={worker.id} (type={type(worker.id).__name__})"
             f"\n  入参 worker.name={worker.name}"
@@ -291,7 +291,7 @@ class AxonTradingSystem:
         runtime = strategy_registry.get(worker_id)
         if runtime is None:
             logger.warning(
-                f"[AxonTradingSystem] Worker {worker_id} 不在注册表中"
+                f"[StrategyManager] Worker {worker_id} 不在注册表中"
             )
             return False
 
@@ -317,7 +317,7 @@ class AxonTradingSystem:
             exchange_config = build_exchange_config(exchange, trading_mode)
         except Exception as e:
             logger.error(
-                f"[AxonTradingSystem] 构建交易所配置失败: worker_id={worker_id}, "
+                f"[StrategyManager] 构建交易所配置失败: worker_id={worker_id}, "
                 f"error={e}"
             )
             raise
@@ -360,7 +360,7 @@ class AxonTradingSystem:
                         params = raw_params
                 except (json.JSONDecodeError, TypeError) as e:
                     logger.warning(
-                        f"[AxonTradingSystem] 策略参数 JSON 解析失败: {e}"
+                        f"[StrategyManager] 策略参数 JSON 解析失败: {e}"
                     )
 
             # 通过策略加载器加载策略
@@ -379,12 +379,12 @@ class AxonTradingSystem:
             if strategy_instance is not None:
                 strategy_class = type(strategy_instance)
                 logger.info(
-                    f"[AxonTradingSystem] 策略已加载: worker_id={worker_id}, "
+                    f"[StrategyManager] 策略已加载: worker_id={worker_id}, "
                     f"strategy_class={strategy_class.__name__}"
                 )
         except Exception as e:
             logger.error(
-                f"[AxonTradingSystem] 策略加载失败: worker_id={worker_id}, "
+                f"[StrategyManager] 策略加载失败: worker_id={worker_id}, "
                 f"error={e}\n{traceback.format_exc()}"
             )
 
@@ -403,7 +403,7 @@ class AxonTradingSystem:
             strategy_instance = _PlaceholderStrategy()
             strategy_class = _PlaceholderStrategy
             logger.warning(
-                f"[AxonTradingSystem] 使用占位策略，worker_id={worker_id}"
+                f"[StrategyManager] 使用占位策略，worker_id={worker_id}"
             )
 
         # 获取交易对符号
@@ -413,13 +413,13 @@ class AxonTradingSystem:
         try:
             adapter = _build_exchange_adapter(exchange, trading_mode)
             logger.info(
-                f"[AxonTradingSystem] Exchange adapter 已构建: "
+                f"[StrategyManager] Exchange adapter 已构建: "
                 f"worker_id={worker_id}, exchange={exchange}, "
                 f"trading_mode={trading_mode}, adapter_type={type(adapter).__name__}"
             )
         except Exception as e:
             logger.error(
-                f"[AxonTradingSystem] 构建 exchange adapter 失败: "
+                f"[StrategyManager] 构建 exchange adapter 失败: "
                 f"worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
             )
             raise
@@ -439,7 +439,7 @@ class AxonTradingSystem:
             strategy_loop.start()
         except Exception as e:
             logger.error(
-                f"[AxonTradingSystem] 启动策略循环失败: worker_id={worker_id}, "
+                f"[StrategyManager] 启动策略循环失败: worker_id={worker_id}, "
                 f"error={e}\n{traceback.format_exc()}"
             )
             raise
@@ -460,7 +460,7 @@ class AxonTradingSystem:
         await worker_state_manager.transition(worker_id, "running")
 
         logger.info(
-            f"[AxonTradingSystem] 策略已启动: worker_id={worker_id}"
+            f"[StrategyManager] 策略已启动: worker_id={worker_id}"
         )
         return True
 
@@ -481,7 +481,7 @@ class AxonTradingSystem:
 
         if runtime.status == "stopped":
             logger.info(
-                f"[AxonTradingSystem] Worker {worker_id} 已经处于 stopped 状态"
+                f"[StrategyManager] Worker {worker_id} 已经处于 stopped 状态"
             )
             return True
 
@@ -494,7 +494,7 @@ class AxonTradingSystem:
                 strategy_loop.stop()
             except Exception as e:
                 logger.error(
-                    f"[AxonTradingSystem] 停止策略循环失败: worker_id={worker_id}, "
+                    f"[StrategyManager] 停止策略循环失败: worker_id={worker_id}, "
                     f"error={e}"
                 )
             del self._strategy_loops[worker_id]
@@ -508,13 +508,13 @@ class AxonTradingSystem:
                 db.commit()
         except Exception as e:
             logger.error(
-                f"[AxonTradingSystem] 更新数据库状态失败: "
+                f"[StrategyManager] 更新数据库状态失败: "
                 f"worker_id={worker_id}, error={e}"
             )
 
         await worker_state_manager.transition(worker_id, "stopped")
 
-        logger.info(f"[AxonTradingSystem] 策略已停止: worker_id={worker_id}")
+        logger.info(f"[StrategyManager] 策略已停止: worker_id={worker_id}")
         return True
 
     async def delete_strategy(self, worker_id: int) -> bool:
@@ -544,12 +544,12 @@ class AxonTradingSystem:
                 db.commit()
         except Exception as e:
             logger.error(
-                f"[AxonTradingSystem] 删除策略失败: "
+                f"[StrategyManager] 删除策略失败: "
                 f"worker_id={worker_id}, error={e}"
             )
             return False
 
-        logger.info(f"[AxonTradingSystem] 策略已删除: worker_id={worker_id}")
+        logger.info(f"[StrategyManager] 策略已删除: worker_id={worker_id}")
         return True
 
     def get_strategy_state(self, worker_id: int) -> Optional[Dict[str, Any]]:
@@ -601,16 +601,90 @@ class AxonTradingSystem:
             },
         }
 
+    def run_backtest(
+        self,
+        strategy: Any,
+        data: Any,
+        symbol: str = "BTCUSDT",
+        initial_cash: float = 100_000.0,
+    ) -> Any:
+        """运行回测"""
+        from backtest.backtest_loop import BacktestLoop
+
+        loop = BacktestLoop(initial_cash=initial_cash)
+        return loop.run(strategy, data, symbol)
+
+    def engine_status(self) -> Dict[str, Any]:
+        """获取引擎状态概览（兼容 TradingEngine API）"""
+        from .state import strategy_registry
+
+        strategies = strategy_registry.list_all()
+        running_count = sum(1 for s in strategies if s.status == "running")
+        return {
+            "exchange": "binance",
+            "mode": "paper",
+            "exchange_connected": True,
+            "risk_available": True,
+            "total_strategies": len(strategies),
+            "running_strategies": running_count,
+        }
+
+    def get_strategy_status(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        """获取策略状态（兼容 TradingEngine API，支持 string ID）"""
+        from .state import strategy_registry
+
+        # 支持 string 和 int 类型的 strategy_id
+        try:
+            worker_id = int(strategy_id)
+        except ValueError:
+            worker_id = strategy_id
+
+        runtime = strategy_registry.get(worker_id)
+        if runtime is None:
+            # 尝试按名称查找
+            for rt in strategy_registry.list_all():
+                if rt.name == strategy_id or str(rt.worker_id) == strategy_id:
+                    return rt.to_dict()
+            return None
+        return runtime.to_dict()
+
+    def register_strategy(
+        self,
+        strategy: Any,
+        symbols: list[str],
+        strategy_name: str = "",
+        params: dict[str, Any] | None = None,
+        mode: str = "paper",
+    ) -> str:
+        """注册策略（内存级别，无持久化，兼容 TradingEngine API）"""
+        from .state import strategy_registry, StrategyRuntime
+
+        # 生成临时 worker_id
+        temp_id = hash((id(strategy), time.monotonic())) % 1000000
+        runtime = StrategyRuntime(
+            worker_id=temp_id,
+            strategy_id=0,
+            name=strategy_name or strategy.__class__.__name__,
+            strategy=strategy,
+            symbols=list(symbols),
+            params=params or {},
+            mode=mode,
+        )
+        strategy_registry.register(runtime)
+
+        logger.info(f"[StrategyManager] 策略已注册: {temp_id} {symbols}")
+        return str(temp_id)
+
     def shutdown(self) -> None:
         """关闭系统，释放资源"""
         start_time = time.monotonic()
-        logger.info("[AxonTradingSystem] ========== shutdown 开始 ==========")
+        logger.info("[StrategyManager] ========== shutdown 开始 ==========")
 
         from .state import strategy_registry
 
         strategies = strategy_registry.list_all()
         logger.info(
-            f"[AxonTradingSystem] shutdown: 共 {len(strategies)} 个策略, "
+            f"[StrategyManager] shutdown: 共 {len(strategies)} 个策略, "
             f"其中运行中 {sum(1 for s in strategies if s.is_running)} 个"
         )
 
@@ -619,24 +693,24 @@ class AxonTradingSystem:
             try:
                 strategy_loop.stop()
                 logger.info(
-                    f"[AxonTradingSystem] shutdown: worker_id={worker_id} 策略循环已停止"
+                    f"[StrategyManager] shutdown: worker_id={worker_id} 策略循环已停止"
                 )
             except Exception as e:
                 logger.warning(
-                    f"[AxonTradingSystem] shutdown: worker_id={worker_id} "
+                    f"[StrategyManager] shutdown: worker_id={worker_id} "
                     f"停止策略循环失败: {e}"
                 )
 
         self._strategy_loops.clear()
 
         # 关闭线程池
-        logger.info("[AxonTradingSystem] shutdown: 开始关闭 ThreadPoolExecutor...")
+        logger.info("[StrategyManager] shutdown: 开始关闭 ThreadPoolExecutor...")
         self._executor.shutdown(wait=False)
 
         elapsed = time.monotonic() - start_time
         logger.info(
-            f"[AxonTradingSystem] shutdown: 总耗时 {elapsed:.3f}s\n"
-            f"[AxonTradingSystem] ========== shutdown 完成 =========="
+            f"[StrategyManager] shutdown: 总耗时 {elapsed:.3f}s\n"
+            f"[StrategyManager] ========== shutdown 完成 =========="
         )
 
 
@@ -644,16 +718,16 @@ class AxonTradingSystem:
 # 模块级单例：worker_system 供 lifespan 和其他模块直接导入使用
 # =============================================================================
 
-worker_system = AxonTradingSystem()
+worker_system = StrategyManager()
 
 
 def _register_to_state() -> None:
     """将实例注册到 state.py 的全局单例"""
     import worker.state as _state
 
-    if _state.axon_system is None:
-        _state.axon_system = worker_system
-        logger.info("[AxonTradingSystem] 已注册到 state.py 单例枢纽")
+    if _state.strategy_manager is None:
+        _state.strategy_manager = worker_system
+        logger.info("[StrategyManager] 已注册到 state.py 单例枢纽")
 
 
 _register_to_state()

@@ -13,7 +13,7 @@ import pandas as pd
 
 from axon_bridge import (
     Action,
-    BacktestEngine as _AxonBacktestEngine,
+    BacktestEngine as _NativeBacktestEngine,
 )
 from axon_bridge.backtest import spot_instrument
 
@@ -122,7 +122,7 @@ class BacktestLoop:
 
         # axon_quant 0.10.0: 链式配置 API
         engine = (
-            _AxonBacktestEngine(initial_cash=self._initial_cash)
+            _NativeBacktestEngine(initial_cash=self._initial_cash)
             .with_seed(42)
             .with_seed_liquidity(
                 half_spread=_DEFAULT_HALF_SPREAD_RATIO,

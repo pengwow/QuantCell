@@ -405,7 +405,7 @@ class ResultFormatterService:
         格式化 axond 回测引擎结果为 QuantCell 标准格式（单品种版本）
 
         Args:
-            results: AxonBacktestEngine.run() 返回的结果字典
+            results: BacktestEngine.run_with_strategy() 返回的结果字典
             symbol: 品种符号
             timeframe: 时间周期
             strategy_name: 策略名称

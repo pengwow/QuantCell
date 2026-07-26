@@ -250,7 +250,7 @@ async def lifespan(app: FastAPI):
     # 初始化 Worker System（全局单例，统一管理所有 Worker）
     _worker_system_available = False
     try:
-        from worker.axon_worker_system import worker_system
+        from worker.strategy_manager import worker_system
         _worker_system_available = True
         logger.info("正在初始化 Worker System...")
         try:
@@ -302,7 +302,7 @@ async def lifespan(app: FastAPI):
     # 步骤 1: 关闭 Worker System 全局单例（统一管理：停止进程 + 清理状态 + 关闭Manager后台任务）
     if _worker_system_available:
         try:
-            from worker.axon_worker_system import worker_system
+            from worker.strategy_manager import worker_system
             logger.info("正在关闭 Worker System...")
             try:
                 worker_system.shutdown()
