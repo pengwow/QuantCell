@@ -226,7 +226,7 @@ def _format_uptime(started_at: Optional[str]) -> str:
             return f"{minutes}m {seconds}s"
         else:
             return f"{seconds}s"
-    except:
+    except (ValueError, TypeError, OSError):
         return "N/A"
 
 
@@ -1188,7 +1188,7 @@ def logs(
                         dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
                         dt_local = dt.astimezone()
                         timestamp = dt_local.strftime("%Y-%m-%d %H:%M:%S")
-                    except:
+                    except (ValueError, TypeError, OSError):
                         pass
                 typer.echo(f"[{timestamp}] ", nl=False)
                 typer.secho("RAW     ", fg=typer.colors.WHITE, nl=False)
@@ -1201,7 +1201,7 @@ def logs(
                     dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
                     dt_local = dt.astimezone()
                     timestamp = dt_local.strftime("%Y-%m-%d %H:%M:%S")
-                except:
+                except (ValueError, TypeError, OSError):
                     pass
 
             log_level = log.get("level", "INFO")

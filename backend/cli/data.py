@@ -704,7 +704,7 @@ def export_csv(
                     """将纳秒级时间戳格式化为可读日期"""
                     try:
                         return format_nanoseconds(ts_value, "%Y-%m-%d %H:%M:%S")
-                    except:
+                    except (ValueError, TypeError, OSError):
                         return str(ts_value)
 
                 df['timestamp'] = df['timestamp'].apply(format_ts_readable)
@@ -896,7 +896,7 @@ def export_parquet(
             def format_ts_readable(ts_value):
                 try:
                     return format_nanoseconds(ts_value, "%Y-%m-%d %H:%M:%S")
-                except:
+                except (ValueError, TypeError, OSError):
                     return str(ts_value)
 
             df['timestamp'] = df['timestamp'].apply(format_ts_readable)

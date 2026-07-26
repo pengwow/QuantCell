@@ -29,7 +29,7 @@ import json
 import tempfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, asdict, field
 from threading import Lock
 from enum import Enum
@@ -140,7 +140,7 @@ class PortManager:
             self.allocated_ports[service_name] = PortConfig(
                 port=config["default"],
                 pid=os.getpid(),
-                start_time=datetime.utcnow().isoformat(),
+                start_time=datetime.now(timezone.utc).isoformat(),
                 status="static",
             )
         self.logger.info(f"已初始化 {len(self.allocated_ports)} 个静态端口配置")
@@ -202,7 +202,7 @@ class PortManager:
         with self._port_lock:
             if service_name in self.allocated_ports:
                 port_config = self.allocated_ports[service_name]
-                port_config.last_used = datetime.utcnow().isoformat()
+                port_config.last_used = datetime.now(timezone.utc).isoformat()
                 self.logger.debug(f"返回已分配端口 | 服务: {service_name} | 端口: {port_config.port}")
                 return port_config.port
 
@@ -272,8 +272,8 @@ class PortManager:
             self.allocated_ports[service_name] = PortConfig(
                 port=port,
                 pid=os.getpid(),
-                start_time=datetime.utcnow().isoformat(),
-                last_used=datetime.utcnow().isoformat(),
+                start_time=datetime.now(timezone.utc).isoformat(),
+                last_used=datetime.now(timezone.utc).isoformat(),
                 status="active",
             )
 
@@ -467,7 +467,7 @@ class PortManager:
 
             config_data = {
                 "version": "1.0",
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
                 "services": {
                     name: port_config.to_dict()
                     for name, port_config in self.allocated_ports.items()
