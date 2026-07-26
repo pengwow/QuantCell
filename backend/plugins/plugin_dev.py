@@ -1,24 +1,17 @@
-import os
-import sys
-import time
 import json
 import threading
-from pathlib import Path
-from typing import Optional, Dict
-
-backend_path = Path(__file__).resolve().parent.parent
-if str(backend_path) not in sys.path:
-    sys.path.insert(0, str(backend_path))
+import time
+from typing import Dict, Optional
 
 import typer
 import uvicorn
-from fastapi import FastAPI, APIRouter
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from utils.logger import get_logger, LogType
+from plugins.event_bus import EventBus
 from plugins.plugin_base import PluginBase
 from plugins.plugin_loader import HotPluginLoader
-from plugins.event_bus import EventBus
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 

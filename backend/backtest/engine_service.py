@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-回测引擎服务模块（基于 axond 体系）
+回测引擎服务模块（基于 axon_quant 体系）
 
 封装事件驱动回测引擎的初始化、数据加载、策略加载和执行流程。
 将原本分散在 cli.py 和 service.py 中的引擎操作逻辑统一到此模块。
-完全基于 axond.BacktestEngine，不依赖任何外部量化框架。
+完全基于 axon_quant + BacktestLoop，不依赖任何外部量化框架。
 
 作者: QuantCell Team
-版本: 2.0.0
-日期: 2026-06-29
+版本: 2.1.0
+日期: 2026-07-26
 """
 
 from datetime import datetime
@@ -28,7 +28,7 @@ class EventDrivenBacktestService:
 
     封装事件驱动引擎的完整生命周期管理：
     1. 数据加载（通过 BacktestDataProvider）
-    2. 引擎初始化（AxonBacktestEngine）
+    2. 引擎初始化（BacktestEngine）
     3. 数据转换并加载到引擎
     4. 策略加载和实例化
     5. 回测执行
@@ -152,12 +152,14 @@ class EventDrivenBacktestService:
             # True = 强制市价清仓(所有 PnL 转为已实现,适合日报/对账)
             force_liquidate = (engine_config or {}).get("force_liquidate", False)
 
-            raw_results = engine.run_with_strategy(
+            # 直接调用 BacktestLoop，不再通过中间包装层
+            result = engine.run(
                 strategy=strategy,
                 data=df,
                 symbol=symbol,
                 force_liquidate=force_liquidate,
             )
+            raw_results = self._convert_backtest_result(result)
         else:
             # 多品种：每个品种跑一次，结果合并
             # 白名单累加:只累加跨品种有可加性的字段(PnL/fills/trades/fees 等)
@@ -186,12 +188,14 @@ class EventDrivenBacktestService:
             for key, df in data_dict.items():
                 parts = key.rsplit("_", 1)
                 sym = parts[0] if len(parts) > 1 else key
-                result = engine.run_with_strategy(
+                # 直接调用 BacktestLoop，不再通过中间包装层
+                loop_result = engine.run(
                     strategy=strategy,
                     data=df,
                     symbol=sym,
                     force_liquidate=force_liquidate,
                 )
+                result = self._convert_backtest_result(loop_result)
                 per_symbol_results[sym] = result
                 for k, v in result.items():
                     if k in _SUM_KEYS and isinstance(v, (int, float)):
@@ -234,12 +238,35 @@ class EventDrivenBacktestService:
                 strategy_name=strategy_name,
             )
 
-        # 清理资源
-        engine.cleanup()
-
         logger.info(f"[EventDrivenBacktestService] 回测完成")
 
         return formatted_results
+
+    def _convert_backtest_result(self, result) -> dict:
+        """将 BacktestResult 对象转换为字典格式（兼容原有 API）"""
+        return {
+            "initial_capital": result.final_nav - result.total_pnl,
+            "final_nav": result.final_nav,
+            "total_pnl": result.total_pnl,
+            "max_drawdown": result.max_drawdown,
+            "max_drawdown_pct": result.max_drawdown_pct,
+            "nav_peak": result.nav_peak,
+            "orders_accepted": result.orders_accepted,
+            "orders_rejected": result.orders_rejected,
+            "fills": result.fills,
+            "total_orders": result.total_orders,
+            "events_processed": result.events_processed,
+            "duration_secs": result.duration_secs,
+            "win_rate": result.win_rate,
+            "sharpe_ratio": result.sharpe_ratio,
+            "total_fees": result.total_fees,
+            "trade_count": len(result.trade_records),
+            "trades": list(result.trade_records),
+            "equity_curve": list(result.equity_curve),
+            "data_start_ns": result.data_start_ns,
+            "data_end_ns": result.data_end_ns,
+            "bar_count": result.bar_count,
+        }
 
     def _initialize_engine(
         self,
@@ -248,7 +275,7 @@ class EventDrivenBacktestService:
         init_cash: float,
     ):
         """
-        初始化事件驱动引擎
+        初始化回测循环（直接使用 BacktestLoop，不再通过中间包装层）
 
         Args:
             engine_config: 引擎配置字典
@@ -256,20 +283,14 @@ class EventDrivenBacktestService:
             init_cash: 初始资金
 
         Returns:
-            AxonBacktestEngine: 已初始化的引擎实例
+            BacktestLoop: 已初始化的回测循环实例
         """
-        from backtest.engines.axon_engine import AxonBacktestEngine
+        from backtest.backtest_loop import BacktestLoop
 
-        config = {
-            "initial_capital": init_cash,
-            "log_level": (engine_config or {}).get("log_level", "INFO"),
-        }
+        loop = BacktestLoop(initial_cash=init_cash)
 
-        engine = AxonBacktestEngine(config)
-        engine.initialize()
-
-        logger.info(f"[EventDrivenBacktestService] 引擎初始化完成")
-        return engine
+        logger.info(f"[EventDrivenBacktestService] 回测循环初始化完成")
+        return loop
 
     def _aggregate_multi_results(
         self,

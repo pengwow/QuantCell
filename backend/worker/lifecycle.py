@@ -173,12 +173,18 @@ class WorkerLifecycle:
 
             # 用当前数据回测
             from rl.service import RLService
-            from strategies.sma_crossover import SMACrossover
+            from strategy.templates.sma_crossover import SMACrossover
+            from strategy.base import StrategyConfig
             from backtest.backtest_loop import BacktestLoop
 
             svc = RLService()
             df = svc._fetch_market_data("BTCUSDT", "15m", 30)
-            strategy = SMACrossover(fast=fast, slow=slow)
+            config = StrategyConfig(
+                name="sma_crossover",
+                symbol="BTCUSDT",
+                params={"fast": fast, "slow": slow}
+            )
+            strategy = SMACrossover(config)
             r = BacktestLoop(initial_cash=100_000).run(strategy, df.head(5000), "BTCUSDT")
             return r.total_pnl
 
@@ -213,13 +219,19 @@ class WorkerLifecycle:
 
     def _evaluate_params(self, params: dict) -> dict:
         """评估规则策略参数"""
-        from strategies.sma_crossover import SMACrossover
+        from strategy.templates.sma_crossover import SMACrossover
+        from strategy.base import StrategyConfig
         from backtest.backtest_loop import BacktestLoop
         from rl.service import RLService
 
         svc = RLService()
         df = svc._fetch_market_data("BTCUSDT", "15m", 30)
-        strategy = SMACrossover(fast=params.get("fast", 10), slow=params.get("slow", 30))
+        config = StrategyConfig(
+            name="sma_crossover",
+            symbol="BTCUSDT",
+            params={"fast": params.get("fast", 10), "slow": params.get("slow", 30)}
+        )
+        strategy = SMACrossover(config)
         r = BacktestLoop(initial_cash=100_000).run(strategy, df.head(5000), "BTCUSDT")
 
         return {

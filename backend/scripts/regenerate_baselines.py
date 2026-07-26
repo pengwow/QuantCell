@@ -21,14 +21,9 @@ import tempfile
 import time
 from pathlib import Path
 
-# backend 根目录加 path (scripts dir + parent)
-backend_root = Path(__file__).parent.parent
-if str(backend_root) not in sys.path:
-    sys.path.insert(0, str(backend_root))
+import pandas as pd
 
-import pandas as pd  # noqa: E402
-
-from backtest.baseline import BaselineBacktestService, make_synthetic_kline  # noqa: E402
+from backtest.baseline import BaselineBacktestService, make_synthetic_kline
 
 
 # 9 策略模板 + 配置

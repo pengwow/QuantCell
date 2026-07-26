@@ -5,7 +5,7 @@ Worker核心服务层
 - 同步模式：供CLI命令行工具使用
 - 异步模式：供FastAPI接口使用
 
-基于 state.py 单例枢纽的 axon_system + strategy_registry 进行策略管理。
+基于 state.py 单例枢纽的 strategy_manager + strategy_registry 进行策略管理。
 
 独立于FastAPI，可直接导入使用
 """
@@ -60,7 +60,7 @@ class WorkerCoreService:
     - 同步方法：以 create_worker、get_worker 等命名，适合CLI使用
     - 异步方法：以 async_create_worker、async_get_worker 等命名，适合API使用
 
-    策略启停通过 state.py 单例枢纽的 axon_system 执行，
+    策略启停通过 state.py 单例枢纽的 strategy_manager 执行，
     运行时状态通过 strategy_registry 查询。
     """
 
@@ -81,7 +81,7 @@ class WorkerCoreService:
         self._config = self._load_config()
 
         self._register_state_event_handlers()
-        logger.info("[WorkerCoreService] 初始化完成（单例枢纽模式），axon_system 已集成")
+        logger.info("[WorkerCoreService] 初始化完成（单例枢纽模式），strategy_manager 已集成")
 
     @classmethod
     def reset_instance(cls):
@@ -90,24 +90,24 @@ class WorkerCoreService:
 
     def _ensure_initialized(self) -> None:
         """
-        检查 axon_system 是否已初始化
+        检查 strategy_manager 是否已初始化
 
         Raises:
-            RuntimeError: 如果 axon_system 未完成初始化
+            RuntimeError: 如果 strategy_manager 未完成初始化
         """
-        if _ws.axon_system is None:
+        if _ws.strategy_manager is None:
             raise RuntimeError(
-                "WorkerCoreService: axon_system 单例未注册。"
-                "请检查 axon_worker_system 模块是否正常导入。"
+                "WorkerCoreService: strategy_manager 单例未注册。"
+                "请检查 strategy_manager 模块是否正常导入。"
             )
 
-        if not getattr(_ws.axon_system, '_initialized', False):
+        if not getattr(_ws.strategy_manager, '_initialized', False):
             raise RuntimeError(
-                "WorkerCoreService: axon_system 尚未完成初始化。"
-                "请先调用 await axon_system.initialize() 完成初始化。"
+                "WorkerCoreService: strategy_manager 尚未完成初始化。"
+                "请先调用 await strategy_manager.initialize() 完成初始化。"
             )
 
-        logger.debug("[WorkerCoreService] axon_system 初始化检查通过")
+        logger.debug("[WorkerCoreService] strategy_manager 初始化检查通过")
 
     def _load_config(self) -> Dict[str, Any]:
         """从环境变量和默认配置文件加载配置"""
@@ -625,7 +625,7 @@ class WorkerCoreService:
         """
         启动 Worker（同步版本，供 CLI 使用）
 
-        通过 axon_system.start_strategy() 执行策略启动。
+        通过 strategy_manager.start_strategy() 执行策略启动。
 
         Args:
             worker_id: Worker ID
@@ -650,9 +650,9 @@ class WorkerCoreService:
         logger.info(f"[WorkerCoreService] 同步启动 Worker {worker_id}")
 
         try:
-            success = asyncio.run(_ws.axon_system.start_strategy(worker_id))
+            success = asyncio.run(_ws.strategy_manager.start_strategy(worker_id))
             if not success:
-                raise WorkerOperationError("启动", worker_id, message="axon_system 启动策略失败")
+                raise WorkerOperationError("启动", worker_id, message="strategy_manager 启动策略失败")
 
             logger.info(f"[WorkerCoreService] Worker {worker_id} 启动成功")
             return {"worker_id": worker_id, "status": "running"}
@@ -719,21 +719,21 @@ class WorkerCoreService:
         """
         执行 Worker 启动的后台异步任务
 
-        直接调用 axon_system.start_strategy()，
-        由 AxonTradingSystem 内部处理策略配置加载和异步运行。
+        直接调用 strategy_manager.start_strategy()，
+        由 StrategyManager 内部处理策略配置加载和异步运行。
 
         Args:
             worker_id: Worker ID
         """
         try:
-            success = await _ws.axon_system.start_strategy(worker_id)
+            success = await _ws.strategy_manager.start_strategy(worker_id)
             if success:
                 logger.info(f"[_do_start_worker] Worker {worker_id} 启动成功")
             else:
                 logger.error(f"[_do_start_worker] Worker {worker_id} 启动失败")
                 await worker_state_manager.transition(
                     worker_id, "error",
-                    error_message="axon_system 启动策略失败"
+                    error_message="strategy_manager 启动策略失败"
                 )
         except Exception as e:
             logger.error(f"[_do_start_worker] Worker {worker_id} 启动过程异常: {e}")
@@ -747,7 +747,7 @@ class WorkerCoreService:
         """
         停止 Worker（同步版本，供 CLI 使用）
 
-        通过 axon_system.stop_strategy() 执行策略停止。
+        通过 strategy_manager.stop_strategy() 执行策略停止。
 
         Args:
             worker_id: Worker ID
@@ -764,9 +764,9 @@ class WorkerCoreService:
         logger.info(f"[WorkerCoreService] 同步停止 Worker {worker_id}")
 
         try:
-            success = asyncio.run(_ws.axon_system.stop_strategy(worker_id))
+            success = asyncio.run(_ws.strategy_manager.stop_strategy(worker_id))
             if not success:
-                raise WorkerOperationError("停止", worker_id, message="axon_system 停止策略失败")
+                raise WorkerOperationError("停止", worker_id, message="strategy_manager 停止策略失败")
 
             logger.info(f"[WorkerCoreService] Worker {worker_id} 停止成功")
             return {"worker_id": worker_id, "status": "stopped"}
@@ -833,8 +833,8 @@ class WorkerCoreService:
         """
         执行 Worker 停止的后台异步任务
 
-        直接调用 axon_system.stop_strategy()，
-        由 AxonTradingSystem 内部处理策略停止。
+        直接调用 strategy_manager.stop_strategy()，
+        由 StrategyManager 内部处理策略停止。
 
         注意：stop_strategy() 返回 False 不一定代表失败——
         可能因为运行时已经不存在（线程意外退出但状态已同步为 stopped），
@@ -844,7 +844,7 @@ class WorkerCoreService:
             worker_id: Worker ID
         """
         try:
-            success = await _ws.axon_system.stop_strategy(worker_id)
+            success = await _ws.strategy_manager.stop_strategy(worker_id)
             if success:
                 logger.info(f"[_do_stop_worker] Worker {worker_id} 停止成功")
             else:
@@ -1077,7 +1077,7 @@ class WorkerCoreService:
                     "db_status": worker.status,
                     "runtime_status": None,
                     "is_running": False,
-                    "message": "Worker 未在 strategy_registry 中注册（可能尚未通过 axon_system 创建）",
+                    "message": "Worker 未在 strategy_registry 中注册（可能尚未通过 strategy_manager 创建）",
                 }
 
         except WorkerNotFoundError:

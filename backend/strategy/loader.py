@@ -1,13 +1,22 @@
-"""策略加载器 — 按 name → class 全局注册表。
+"""策略加载器 — 按 name → class 全局注册表。（已废弃）
 
 ponytail: @register(name) 装饰器,模板 import 时自动注册
          加载器: StrategyLoader.get(name) -> class
          列出: StrategyLoader.list_all() -> [name, ...]
+
+警告：本模块已废弃，请使用 backtest.strategy_loader_service.StrategyLoaderService 替代。
 """
 from __future__ import annotations
 
 import importlib
 import pkgutil
+import warnings
+
+warnings.warn(
+    "strategy.loader is deprecated, use backtest.strategy_loader_service.StrategyLoaderService instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from strategy.base import BaseStrategy
 

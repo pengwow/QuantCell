@@ -110,7 +110,7 @@ def run(
                 "leverage": leverage,
                 "time_range": time_range,
                 "log_level": "WARNING",
-                # 透传到 EventDrivenBacktestService.run_backtest → AxonBacktestEngine → BacktestLoop
+                # 透传到 EventDrivenBacktestService.run_backtest → BacktestEngine → BacktestLoop
                 "force_liquidate": force_liquidate,
             },
             show_progress=True

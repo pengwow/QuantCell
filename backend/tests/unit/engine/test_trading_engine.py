@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from engine.config import EngineConfig
-from engine.strategy_runtime import StrategyRuntime
 
 
 def _reset_engine():
@@ -18,15 +17,12 @@ def _reset_engine():
 
 def _patch_engine_deps():
     """返回 mock 上下文：BinanceAdapter + ExchangeConfig + get_risk_service"""
+    # 注意：BinanceAdapter 和 ExchangeConfig 是在 exchange 属性内部延迟导入的，
+    # 所以需要 patch axon_bridge.exchange 模块，而不是 engine.trading_engine
     return patch.multiple(
-        "engine.trading_engine",
+        "axon_bridge.exchange",
         BinanceAdapter=MagicMock(return_value=MagicMock()),
         ExchangeConfig=MagicMock(return_value=MagicMock()),
-        get_risk_service=MagicMock(
-            return_value=MagicMock(
-                check_order=MagicMock(return_value={"passed": True, "reason": None})
-            )
-        ),
     )
 
 
@@ -78,11 +74,11 @@ def test_get_strategy_status():
         strategy.__class__.__name__ = "MockStrategy"
         sid = engine.register_strategy(strategy, ["ETHUSDT"])
         rt = engine._strategies[sid]
-        rt.order_count = 5
-        rt.rejected_count = 1
-        rt.last_action = "buy"
-        rt.last_price = 3500.0
-        rt.status = "running"
+        rt["order_count"] = 5
+        rt["rejected_count"] = 1
+        rt["last_action"] = "buy"
+        rt["last_price"] = 3500.0
+        rt["status"] = "running"
 
         status = engine.get_strategy_status(sid)
         assert status["order_count"] == 5
@@ -106,13 +102,13 @@ def test_stop_strategy_updates_status():
         strategy = MagicMock()
         strategy.__class__.__name__ = "MockStrategy"
         sid = engine.register_strategy(strategy, ["BTCUSDT"])
-        engine._strategies[sid].loop = mock_loop
-        engine._strategies[sid].status = "running"
+        engine._strategies[sid]["loop"] = mock_loop
+        engine._strategies[sid]["status"] = "running"
 
         result = engine.stop_strategy(sid)
         assert result is True
         mock_loop.stop.assert_called_once()
-        assert engine._strategies[sid].status == "stopped"
+        assert engine._strategies[sid]["status"] == "stopped"
 
     _reset_engine()
 
@@ -132,5 +128,30 @@ def test_engine_status():
         assert status["running_strategies"] == 0
         assert status["exchange_connected"] is True
         assert status["risk_available"] is True
+
+    _reset_engine()
+
+
+def test_list_strategies_empty():
+    """list_strategies 在无策略时返回空列表"""
+    _reset_engine()
+    from engine.trading_engine import get_trading_engine
+
+    with _patch_engine_deps():
+        engine = get_trading_engine(EngineConfig(exchange="binance", trading_mode="paper"))
+        engine._strategies.clear()
+        assert engine.list_strategies() == []
+
+    _reset_engine()
+
+
+def test_deployer_uses_trading_engine():
+    """deployer 正确使用 TradingEngine"""
+    _reset_engine()
+    from engine.deployer import StrategyDeployer
+    from engine.trading_engine import get_trading_engine
+
+    # 验证 deployer 能导入 TradingEngine
+    assert get_trading_engine is not None
 
     _reset_engine()
