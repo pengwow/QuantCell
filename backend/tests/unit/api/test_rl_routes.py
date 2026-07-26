@@ -1,6 +1,9 @@
+import os
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
+
+os.environ["DEBUG"] = "true"
 
 
 def _make_app():

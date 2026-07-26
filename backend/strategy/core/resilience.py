@@ -283,7 +283,8 @@ class ExceptionIsolation:
     def get_dead_letter_items(self, limit: int = 10) -> List[Dict[str, Any]]:
         """获取死信队列项"""
         with self._lock:
-            return self._dead_letter_queue[:limit]
+            from itertools import islice
+            return list(islice(self._dead_letter_queue, limit))
 
     def get_handler_stats(self) -> Dict[str, Dict[str, Any]]:
         """获取所有处理器统计"""
