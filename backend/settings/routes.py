@@ -24,9 +24,10 @@
 
 import os
 import sys
-import hashlib
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
+
+import bcrypt
 
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from utils.logger import get_logger, LogType
@@ -40,32 +41,31 @@ from utils.jwt_utils import create_jwt_token, generate_tokens, generate_guest_to
 
 
 def hash_password(password: str) -> str:
-    """对密码进行单向加密（SHA256）
-    
+    """对密码进行单向加密（bcrypt）
+
     Args:
         password: 原始密码
-        
+
     Returns:
-        str: 加密后的密码哈希值
+        str: bcrypt 哈希值
     """
     if not password:
         return ""
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
     """验证密码是否与存储的哈希值匹配
-    
-    Args:
-        password: 原始密码
-        hashed_password: 存储的密码哈希值
-        
-    Returns:
-        bool: 密码是否匹配
+
+    兼容旧版 sha256 哈希：对 64 字符 hex 回退到 sha256 比较。
     """
     if not password or not hashed_password:
         return False
-    return hash_password(password) == hashed_password
+    # ponytail: 旧用户密码可能是 sha256 hex，做一次回退
+    if len(hashed_password) == 64 and all(c in "0123456789abcdef" for c in hashed_password):
+        import hashlib
+        return hashlib.sha256(password.encode("utf-8")).hexdigest() == hashed_password
+    return bcrypt.checkpw(password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 # 导入配置管理相关模块
 from settings.models import SystemConfigBusiness as SystemConfig

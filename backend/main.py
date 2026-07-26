@@ -66,14 +66,22 @@ app = FastAPI(
 )
 
 # 添加CORS中间件配置
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+# ponytail: 通过环境变量 CORS_ORIGINS 配置，逗号分隔；开发阶段保留默认值
+import os as _os
+_cors_env = _os.environ.get("CORS_ORIGINS", "").strip()
+_cors_origins = (
+    [o.strip() for o in _cors_env.split(",") if o.strip()]
+    if _cors_env
+    else [
         "http://localhost:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
-    ],
+    ]
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

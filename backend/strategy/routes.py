@@ -4,6 +4,7 @@
 路由前缀: /api/strategy
 """
 
+import re
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Path, Request
@@ -25,6 +26,15 @@ from .service import StrategyService
 logger = get_logger(__name__, LogType.APPLICATION)
 
 _strategy_service: Optional[StrategyService] = None
+
+# ponytail: 策略名只允许字母、数字、下划线、连字符
+_SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$", re.ASCII)
+
+
+def _validate_strategy_name(name: str) -> None:
+    """拒绝路径遍历等不安全的策略名"""
+    if not name or not _SAFE_NAME_RE.match(name):
+        raise HTTPException(status_code=400, detail="策略名称不合法")
 
 
 def get_strategy_service() -> StrategyService:
@@ -56,6 +66,7 @@ def get_strategy_list() -> StrategyListResponse:
 
 @router.post("/detail", response_model=ApiResponse)
 def get_strategy_detail(request: StrategyDetailRequest) -> ApiResponse:
+    _validate_strategy_name(request.strategy_name)
     try:
         strategy_info = get_strategy_service().get_strategy(request.strategy_name)
         if not strategy_info:
@@ -69,16 +80,18 @@ def get_strategy_detail(request: StrategyDetailRequest) -> ApiResponse:
 
 
 @router.post("/upload", response_model=StrategyUploadResponse)
-def upload_strategy(request: StrategyUploadRequest) -> StrategyUploadResponse:
+@jwt_auth_required_sync
+def upload_strategy(request: Request, strategy_request: StrategyUploadRequest) -> StrategyUploadResponse:
+    _validate_strategy_name(strategy_request.strategy_name)
     try:
         info = get_strategy_service().save_strategy(
-            request.strategy_name,
-            request.file_content,
+            strategy_request.strategy_name,
+            strategy_request.file_content,
         )
         return StrategyUploadResponse(
             code=0,
             message="策略文件上传成功",
-            data={"strategy_name": request.strategy_name},
+            data={"strategy_name": strategy_request.strategy_name},
         )
     except Exception as e:
         logger.error(f"上传策略文件失败: {e}")
@@ -87,6 +100,7 @@ def upload_strategy(request: StrategyUploadRequest) -> StrategyUploadResponse:
 
 @router.post("/parse", response_model=ApiResponse)
 def parse_strategy(request: StrategyDetailRequest) -> ApiResponse:
+    _validate_strategy_name(request.strategy_name)
     if not request.file_content or not request.file_content.strip():
         raise HTTPException(status_code=400, detail="文件内容不能为空")
     try:
@@ -109,6 +123,7 @@ def delete_strategy(
     request: Request,
     strategy_name: str = Path(..., description="策略名称"),
 ) -> ApiResponse:
+    _validate_strategy_name(strategy_name)
     try:
         success = get_strategy_service().delete_strategy(strategy_name)
         if success:
