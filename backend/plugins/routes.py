@@ -2,6 +2,7 @@ import asyncio
 import json
 import mimetypes
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -11,6 +12,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
+from utils.auth import jwt_auth_required, jwt_auth_required_sync
 from utils.logger import get_logger, LogType
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -28,6 +30,10 @@ router = APIRouter(
 )
 
 _event_queues: List[asyncio.Queue] = []
+
+# ponytail: 插件名防路径遍历
+_SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$", re.ASCII)
+_MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
 class GitInstallRequest(BaseModel):
@@ -119,11 +125,14 @@ async def get_plugin(name: str):
 
 
 @router.post("/install/upload", response_model=ApiResponse)
+@jwt_auth_required
 async def install_plugin_upload(request: Request, file: UploadFile = File(...)):
     try:
         content = await file.read()
         if not content:
             raise HTTPException(status_code=400, detail="上传文件为空")
+        if len(content) > _MAX_UPLOAD_SIZE:
+            raise HTTPException(status_code=413, detail=f"文件大小超过{_MAX_UPLOAD_SIZE // 1024 // 1024}MB限制")
 
         suffix = ".zip"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -151,6 +160,7 @@ async def install_plugin_upload(request: Request, file: UploadFile = File(...)):
 
 
 @router.post("/install/git", response_model=ApiResponse)
+@jwt_auth_required
 async def install_plugin_git(request: Request, body: GitInstallRequest):
     try:
         pm = _get_plugin_manager(request)
@@ -170,6 +180,7 @@ async def install_plugin_git(request: Request, body: GitInstallRequest):
 
 
 @router.delete("/{name}", response_model=ApiResponse)
+@jwt_auth_required
 async def uninstall_plugin(request: Request, name: str):
     try:
         pm = _get_plugin_manager(request)
@@ -189,6 +200,7 @@ async def uninstall_plugin(request: Request, name: str):
 
 
 @router.post("/{name}/enable", response_model=ApiResponse)
+@jwt_auth_required
 async def enable_plugin(request: Request, name: str):
     try:
         pm = _get_plugin_manager(request)
@@ -208,6 +220,7 @@ async def enable_plugin(request: Request, name: str):
 
 
 @router.post("/{name}/disable", response_model=ApiResponse)
+@jwt_auth_required
 async def disable_plugin(request: Request, name: str):
     try:
         pm = _get_plugin_manager(request)
@@ -228,6 +241,8 @@ async def disable_plugin(request: Request, name: str):
 
 @router.get("/{name}/assets/{path:path}")
 async def serve_plugin_asset(name: str, path: str):
+    if not _SAFE_NAME_RE.match(name):
+        raise HTTPException(status_code=400, detail="插件名称不合法")
     try:
         # 使用绝对路径查找插件资源，避免工作目录不一致导致 404
         plugin_dir = _PLUGIN_ASSETS_BASE / name / "frontend" / "dist" / path

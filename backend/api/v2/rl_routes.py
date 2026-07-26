@@ -1,8 +1,9 @@
 """RL Training API routes."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from common.schemas import ApiResponse
+from utils.auth import jwt_auth_required
 
 router = APIRouter(prefix="/api/v2/rl", tags=["RL Training"])
 
@@ -34,7 +35,8 @@ class WalkForwardRequest(BaseModel):
 
 
 @router.post("/train")
-async def start_training(req: TrainRequest):
+@jwt_auth_required
+async def start_training(request: Request, req: TrainRequest):
     try:
         from services.rl_service import RLService, RLTrainConfig
         svc = RLService()
@@ -71,7 +73,8 @@ async def start_training(req: TrainRequest):
 
 
 @router.get("/models")
-async def list_models():
+@jwt_auth_required
+async def list_models(request: Request):
     try:
         from services.model_registry import ModelRegistryService
         svc = ModelRegistryService()
@@ -81,7 +84,8 @@ async def list_models():
 
 
 @router.post("/walk-forward")
-async def run_walk_forward(req: WalkForwardRequest):
+@jwt_auth_required
+async def run_walk_forward(request: Request, req: WalkForwardRequest):
     try:
         from services.rl_service import RLService, RLTrainConfig
         svc = RLService()

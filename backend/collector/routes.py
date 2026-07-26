@@ -16,7 +16,7 @@ from .api.exchanges import router as exchanges_router
 from .api.system import router as system_router
 from .api.archive import router as archive_router
 from .db.models import Task
-from .schemas import ApiResponse, DataConvertRequest, DataDownloadRequest
+from .schemas import ApiResponse, DataDownloadRequest
 # from .scripts.convert_to_qlib import convert_crypto_to_qlib
 from collector.services.data_service import GetData
 
@@ -48,9 +48,7 @@ router.include_router(archive_router)
 router_data = APIRouter(prefix="/data", tags=["data-processing"])
 
 
-
-
-
+@router_data.get("/status", response_model=ApiResponse)
 @router_data.post(
     "/convert/qlib", 
     response_model=ApiResponse,

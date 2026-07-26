@@ -4,10 +4,11 @@ import math
 from functools import lru_cache
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
+from utils.auth import jwt_auth_required
 
 router = APIRouter(prefix="/api/v2/risk", tags=["Risk"])
 
@@ -46,7 +47,8 @@ async def check_order(req: CheckOrderRequest):
 
 
 @router.get("/metrics")
-async def get_metrics():
+@jwt_auth_required
+async def get_metrics(request: Request):
     try:
         svc = _get_risk_service()
         return ApiResponse(code=0, message="success", data=_sanitize(svc.get_metrics()))
@@ -55,7 +57,8 @@ async def get_metrics():
 
 
 @router.post("/reset")
-async def reset_daily():
+@jwt_auth_required
+async def reset_daily(request: Request):
     try:
         svc = _get_risk_service()
         svc.reset_daily()
