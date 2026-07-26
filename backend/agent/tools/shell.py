@@ -88,6 +88,9 @@ class ExecTool(Tool):
             return "\n\n".join(result) + exit_info if result else exit_info
             
         except asyncio.TimeoutError:
+            # ponytail: 超时必须 kill 子进程，否则变僵尸
+            process.kill()
+            await process.wait()
             return f"错误: 命令执行超时（{cmd_timeout}秒）"
         except Exception as e:
             return f"错误: 命令执行失败: {e}"
