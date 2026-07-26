@@ -64,8 +64,9 @@ class StrategyLoaderService:
 
     @classmethod
     def _get_axon_strategy_config(cls) -> Type:
-        """获取策略配置基类（不再需要）"""
-        return None
+        """获取策略配置基类（strategy.base.StrategyConfig）"""
+        from strategy.base import StrategyConfig
+        return StrategyConfig
 
     @classmethod
     def _get_event_strategy_base(cls) -> Type:
@@ -309,9 +310,9 @@ class StrategyLoaderService:
         """在模块中查找策略类
 
         优先级：
-        1. axond.AxonStrategy 子类
-        2. backtest.strategies.event_strategy.EventDrivenStrategy 子类
-        3. strategy.core.StrategyBase 子类
+        1. 非抽象的具体策略类（有 on_bar 方法且不是抽象类）
+        2. 继承自 BaseStrategy 的子类
+        3. 其他有 on_bar 方法的类
 
         Args:
             module: 策略模块
@@ -319,10 +320,10 @@ class StrategyLoaderService:
         Returns:
             策略类或 None
         """
-        axon_base = StrategyLoaderService._get_axon_strategy_base()
-        event_base = StrategyLoaderService._get_event_strategy_base()
+        import abc
 
-        found_class: Optional[Type] = None
+        # 收集所有候选策略类
+        candidates: list[tuple[int, Type]] = []
 
         for name in dir(module):
             obj = getattr(module, name)
@@ -331,13 +332,30 @@ class StrategyLoaderService:
             if name.startswith("_"):
                 continue
 
-            # 检查是否有 on_bar 方法（axon_quant 策略统一接口）
-            if hasattr(obj, "on_bar") and callable(getattr(obj, "on_bar", None)):
-                found_class = obj
-                logger.info(f"找到策略类: {name}")
-                break
+            # 检查是否有 on_bar 方法（策略统一接口）
+            if not hasattr(obj, "on_bar") or not callable(getattr(obj, "on_bar", None)):
+                continue
 
-        return found_class
+            # 排除抽象基类（有抽象方法的类）
+            is_abstract = abc.ABC in obj.__bases__ or getattr(obj, "__abstractmethods__", set())
+
+            # 评分：具体类优先，非基类名称优先
+            score = 0
+            if not is_abstract:
+                score += 10  # 具体类优先级更高
+            if name != "BaseStrategy" and not name.endswith("Strategy"):
+                score += 5  # 非泛化名称优先
+
+            candidates.append((score, obj))
+
+        if not candidates:
+            return None
+
+        # 按评分排序，取最高分
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        best_class = candidates[0][1]
+        logger.info(f"找到策略类: {best_class.__name__} (评分: {candidates[0][0]})")
+        return best_class
 
     @staticmethod
     def _find_strategy_config_class(module, strategy_class: Type) -> Type:
@@ -348,43 +366,36 @@ class StrategyLoaderService:
             strategy_class: 策略类
 
         Returns:
-            Config 类或 None
+            Config 类或 None（None 时回退到 StrategyConfig 基类）
         """
         strategy_name = strategy_class.__name__
         candidate_name = strategy_name + "Config"
 
+        # 1. 精确匹配：策略名 + Config（如 DualMAConfig）
         if hasattr(module, candidate_name):
             candidate = getattr(module, candidate_name)
             if isinstance(candidate, type):
+                logger.debug(f"找到策略 Config 类: {candidate_name}")
                 return candidate
 
-        return None
-        candidate = getattr(module, candidate_name, None)
-        if (
-            candidate is not None
-            and isinstance(candidate, type)
-            and issubclass(candidate, axon_config_base)
-            and candidate is not axon_config_base
-        ):
-            logger.debug(f"找到策略 Config 类: {candidate_name}")
-            return candidate
+        # 2. 模糊匹配：模块内任何以 Config 结尾的 StrategyConfig 子类
+        axon_config_base = StrategyLoaderService._get_axon_strategy_config()
+        if axon_config_base is not None:
+            for name in dir(module):
+                obj = getattr(module, name)
+                if (
+                    isinstance(obj, type)
+                    and obj is not axon_config_base
+                    and issubclass(obj, axon_config_base)
+                    and name.endswith("Config")
+                    and not name.startswith("_")
+                ):
+                    logger.debug(f"模糊匹配到 Config 类: {name}")
+                    return obj
 
-        # 2. 模糊匹配：模块内任何以 Config 结尾的 axond.StrategyConfig 子类
-        for name in dir(module):
-            obj = getattr(module, name)
-            if (
-                isinstance(obj, type)
-                and obj is not axon_config_base
-                and issubclass(obj, axon_config_base)
-                and name.endswith("Config")
-                and not name.startswith("_")
-            ):
-                logger.debug(f"模糊匹配到 Config 类: {name}")
-                return obj
-
-        # 3. 回退：基类
+        # 3. 回退：返回 None（调用方会使用基类）
         logger.debug(f"未找到 {strategy_name} 的 Config 子类，使用基类")
-        return axon_config_base
+        return None
 
     @staticmethod
     def _instantiate_strategy(
@@ -430,7 +441,20 @@ class StrategyLoaderService:
             if config_class is None:
                 config_class = StrategyLoaderService._get_axon_strategy_config()
 
-            config_params = dict(strategy_params)
+            config_params = {}
+
+            # 添加策略名称（StrategyConfig 必填参数）
+            if "name" in strategy_params:
+                config_params["name"] = strategy_params["name"]
+            else:
+                config_params["name"] = strategy_class.__name__
+
+            # 从 instrument_ids 中提取第一个 symbol（StrategyConfig 需要）
+            if instrument_ids_list and isinstance(instrument_ids_list[0], dict) and "symbol" in instrument_ids_list[0]:
+                config_params["symbol"] = instrument_ids_list[0]["symbol"]
+
+            # 将策略参数放入 params 字段
+            config_params["params"] = dict(strategy_params)
 
             # 添加品种和 bar_type
             # axond.StrategyConfig 必填且非空；调用方应该传入

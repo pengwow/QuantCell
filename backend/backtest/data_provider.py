@@ -62,7 +62,7 @@ class BacktestDataProvider:
             base_dir: 数据根目录，默认使用 data_cli 的标准路径
         """
         if base_dir is None:
-            from scripts.data_cli import get_source_data_dir
+            from cli.data import get_source_data_dir
             base_dir = get_source_data_dir()
         
         self.base_dir = base_dir
