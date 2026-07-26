@@ -21,9 +21,10 @@ from .jwt_utils import (
     TokenDecodeError
 )
 
-# ponytail: debug 模式跳过认证，通过环境变量控制
-IS_DEBUG_MODE = os.environ.get('DEBUG', '').lower() in ('true', '1', 'yes') or \
-                os.environ.get('APP_ENV', '').lower() in ('development', 'dev', 'debug')
+# ponytail: debug 模式跳过认证，每次调用时检查以支持测试中动态设置
+def _is_debug_mode() -> bool:
+    return os.environ.get('DEBUG', '').lower() in ('true', '1', 'yes') or \
+           os.environ.get('APP_ENV', '').lower() in ('development', 'dev', 'debug')
 
 
 def _extract_bearer_token(request: Request) -> str:
@@ -100,7 +101,7 @@ def jwt_auth_required(func: Callable) -> Callable:
     """异步 JWT 认证装饰器，支持 debug 跳过 + token 自动续期。"""
     @wraps(func)
     async def wrapper(request: Request, *args, **kwargs):
-        if IS_DEBUG_MODE:
+        if _is_debug_mode():
             logger.debug(f"Debug模式：跳过JWT认证 - {request.url.path}")
             return await func(request, *args, **kwargs)
 
@@ -121,7 +122,7 @@ def jwt_auth_required_sync(func: Callable) -> Callable:
     """同步 JWT 认证装饰器，支持 debug 跳过 + token 自动续期。"""
     @wraps(func)
     def wrapper(request: Request, *args, **kwargs):
-        if IS_DEBUG_MODE:
+        if _is_debug_mode():
             logger.debug(f"Debug模式：跳过JWT认证 - {request.url.path}")
             return func(request, *args, **kwargs)
 

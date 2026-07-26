@@ -1,5 +1,8 @@
+import os
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
+
+os.environ["DEBUG"] = "true"
 
 
 def test_model_list_endpoint():
