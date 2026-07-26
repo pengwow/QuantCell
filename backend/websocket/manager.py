@@ -235,7 +235,7 @@ class ConnectionManager:
                     # 尝试发送错误响应
                     try:
                         await self._zmq_socket.send_json({"status": "error", "reason": str(e)})
-                    except:
+                    except Exception:
                         pass
                 await asyncio.sleep(0.1)
         logger.info("[ZMQ] 接收循环已停止")
@@ -335,7 +335,7 @@ class ConnectionManager:
         if client_id in self.active_connections:
             try:
                 await self.active_connections[client_id].close()
-            except:
+            except Exception:
                 pass
             del self.active_connections[client_id]
             

@@ -859,7 +859,7 @@ class DataService:
             "task_info": task_info
         }
     
-    def fetch_symbols_from_exchange(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Dict[str, Any] = {}, crypto_type: Optional[str] = None) -> Dict[str, Any]:
+    def fetch_symbols_from_exchange(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Optional[Dict[str, Any]] = None, crypto_type: Optional[str] = None) -> Dict[str, Any]:
         """从第三方交易所API获取货币对列表并同步到数据库
 
         先调用 sync_crypto_symbols() 同步数据，再从数据库分页返回。
@@ -867,6 +867,10 @@ class DataService:
         Args:
             exchange: 交易所名称，如binance、okx等
             filter: 过滤条件，如'USDT'表示只返回USDT交易对
+            limit: 每页数量
+            offset: 偏移量
+            configs: 交易所配置
+            crypto_type: 加密货币类型
             limit: 返回数量限制
             offset: 返回偏移量
             configs: 应用配置，包含代理信息等
@@ -875,6 +879,7 @@ class DataService:
         Returns:
             Dict[str, Any]: 包含货币对列表的数据
         """
+        configs = configs or {}
         logger.info(f"开始从交易所API获取加密货币对列表，交易所: {exchange}, 类型: {crypto_type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
 
         try:
@@ -926,7 +931,7 @@ class DataService:
                 "exchange": exchange
             }
     
-    def get_crypto_symbols(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Dict[str, Any] = {}, crypto_type: Optional[str] = None) -> Dict[str, Any]:
+    def get_crypto_symbols(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Optional[Dict[str, Any]] = None, crypto_type: Optional[str] = None) -> Dict[str, Any]:
         """获取加密货币对列表
 
         Args:
@@ -940,6 +945,7 @@ class DataService:
         Returns:
             Dict[str, Any]: 包含货币对列表的数据
         """
+        configs = configs or {}
         logger.info(f"开始获取加密货币对列表，交易所: {exchange}, 类型: {crypto_type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
 
         # 只从数据库读取货币对数据，不直接调用第三方API

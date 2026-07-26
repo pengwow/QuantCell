@@ -645,7 +645,7 @@ class ResultSerializer:
             try:
                 dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                 return int(dt.timestamp())
-            except:
+            except (ValueError, TypeError, OSError):
                 return 0
         else:
             # 保持原始时间戳值不变
@@ -671,7 +671,7 @@ class ResultSerializer:
                 
                 dt = datetime.fromtimestamp(ts_sec)
                 return dt.strftime('%Y-%m-%d %H:%M:%S')
-            except:
+            except (ValueError, TypeError, OSError):
                 return str(timestamp)
     
     def _serialize_value(self, value: Any) -> Any:
