@@ -146,25 +146,41 @@ class BacktestLoop:
 
         total_orders = 0
 
+        # ponytail: 循环前一次性标准化列名，避免每行重复 dict.get() + 大小写回退
+        _cols = data.columns
+        _col_map = {}
+        for canonical in ("open", "high", "low", "close", "volume", "timestamp"):
+            if canonical in _cols:
+                _col_map[canonical] = canonical
+            elif canonical.capitalize() in _cols:
+                _col_map[canonical] = canonical.capitalize()
+            elif canonical.upper() in _cols:
+                _col_map[canonical] = canonical.upper()
+        _open = _col_map.get("open", "close")
+        _high = _col_map.get("high", "close")
+        _low = _col_map.get("low", "close")
+        _close = _col_map.get("close", "Close")
+        _volume = _col_map.get("volume", "Volume")
+        _ts = _col_map.get("timestamp")
+
         for idx, row in data.iterrows():
             # 优先使用 timestamp 列（纳秒时间戳），否则从 DatetimeIndex 转换
-            if "timestamp" in row:
-                ts = int(row["timestamp"])
+            if _ts:
+                ts = int(row[_ts])
             else:
                 ts = int(pd.Timestamp(idx).timestamp() * 1_000_000_000)
-            # 兼容大小写列名
-            close_price = float(row.get("close", row.get("Close", 0.0)))
+            close_price = float(row[_close])
 
             # 0.10.0 API: begin_bar(price=, instrument=)
             engine.set_clock(ts)
             engine.begin_bar(price=close_price, instrument=instrument)
 
             bar = {
-                "open": float(row.get("open", row.get("Open", close_price))),
-                "high": float(row.get("high", row.get("High", close_price))),
-                "low": float(row.get("low", row.get("Low", close_price))),
+                "open": float(row[_open]),
+                "high": float(row[_high]),
+                "low": float(row[_low]),
                 "close": close_price,
-                "volume": float(row.get("volume", row.get("Volume", 0.0))),
+                "volume": float(row[_volume]),
                 "symbol": symbol,
                 "timestamp_ns": ts,
             }

@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-import asyncio
 from functools import lru_cache
 from typing import Any, Optional
 
@@ -70,6 +69,8 @@ class TradingEngine:
         if config is None:
             config = EngineConfig(exchange="binance", trading_mode="paper")
         self._config = config
+        # ponytail: 缓存 exchange adapter，避免每次 property 访问重建
+        self._exchange_cache: Optional[Any] = None
 
         # 使用已有的 worker_system 单例，避免重复初始化
         from worker.strategy_manager import worker_system
@@ -86,7 +87,9 @@ class TradingEngine:
 
     @property
     def exchange(self) -> Optional[Any]:
-        """返回 exchange adapter"""
+        """返回 exchange adapter（缓存）"""
+        if self._exchange_cache is not None:
+            return self._exchange_cache
         # 延迟导入以避免循环依赖
         try:
             from axon_bridge.exchange import BinanceAdapter, ExchangeConfig
@@ -94,7 +97,8 @@ class TradingEngine:
                 exchange_id=self._config.exchange,
                 testnet=self._config.trading_mode == "paper",
             )
-            return BinanceAdapter(exchange_config)
+            self._exchange_cache = BinanceAdapter(exchange_config)
+            return self._exchange_cache
         except Exception:
             return None
 

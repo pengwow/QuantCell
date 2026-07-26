@@ -224,9 +224,11 @@ class CircuitBreaker:
 class ExceptionIsolation:
     """异常隔离框架"""
 
-    def __init__(self):
+    def __init__(self, max_dead_letters: int = 1000):
         self._handlers: Dict[str, Any] = {}
-        self._dead_letter_queue: List[Dict[str, Any]] = []
+        # ponytail: deque 自动淘汰旧条目，防止 OOM
+        from collections import deque
+        self._dead_letter_queue: deque = deque(maxlen=max_dead_letters)
         self._lock = threading.Lock()
 
     def wrap_handler(
@@ -328,7 +330,9 @@ class AutoScaler:
         self._cooldown_period = cooldown_period
 
         self._current_workers = min_workers
-        self._load_history: list = []
+        # ponytail: deque(maxlen) 自动淘汰，O(1) 追加
+        from collections import deque
+        self._load_history: deque = deque(maxlen=100)
         self._last_scale_time = 0.0
         self._scale_history: list = []
         self._lock = threading.Lock()
@@ -341,9 +345,6 @@ class AutoScaler:
         """记录负载"""
         with self._lock:
             self._load_history.append(load)
-            # 只保留最近100条记录
-            if len(self._load_history) > 100:
-                self._load_history = self._load_history[-100:]
 
     def evaluate_scaling(self) -> tuple[Optional[str], Optional[int]]:
         """评估是否需要扩缩容"""

@@ -41,7 +41,12 @@ def _build_app(plugin_dir: str, host: str, port: int, enable_reload: bool) -> Fa
 
     dev_app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[
+            "http://localhost",
+            "http://localhost:9000",
+            "http://127.0.0.1:9000",
+            "http://127.0.0.1",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
