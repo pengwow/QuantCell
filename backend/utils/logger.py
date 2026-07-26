@@ -27,7 +27,7 @@ import threading
 import queue
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from dataclasses import dataclass, asdict
 from contextvars import ContextVar
@@ -535,7 +535,7 @@ class LoggerWrapper:
             exception_info = "".join(exception_info)
 
         record = LogRecord(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             level=level.value,
             message=str(message),
             module=module,

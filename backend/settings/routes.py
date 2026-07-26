@@ -950,7 +950,7 @@ def save_notification_channels(request: Request, channels: List[Dict[str, Any]] 
 
 @notification_router.post("/test", response_model=ApiResponse)
 @jwt_auth_required_sync
-def test_notification(request: Request, test_request: Dict[str, Any] = Body(...)):
+async def test_notification(request: Request, test_request: Dict[str, Any] = Body(...)):
     """测试通知渠道
 
     发送测试消息到指定的通知渠道。
@@ -961,14 +961,7 @@ def test_notification(request: Request, test_request: Dict[str, Any] = Body(...)
 
     Returns:
         ApiResponse: 包含测试结果的响应
-
-    Responses:
-        200: 测试完成
-        400: 请求数据格式错误
-        401: 未授权访问
-        500: 测试失败
     """
-    import asyncio
     from common.notifications import notification_service, NotificationChannel
 
     try:
@@ -1000,11 +993,8 @@ def test_notification(request: Request, test_request: Dict[str, Any] = Body(...)
                 data=None
             )
 
-        # 异步执行通知测试
-        loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(
-            notification_service.test_channel(channel_type, config if config else None)
-        )
+        # ponytail: async def + await，避免 run_until_complete 死锁
+        result = await notification_service.test_channel(channel_type, config if config else None)
 
         if result.get("success"):
             return ApiResponse(
