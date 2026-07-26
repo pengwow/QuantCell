@@ -1,166 +1,228 @@
-import { useState } from 'react';
-import {
-  Card,
-  Form,
-  Select,
-  InputNumber,
-  Button,
-  Space,
-  Typography,
-  Switch,
-  message,
-  Descriptions,
-  Alert,
-  Progress,
-  Statistic,
-  Row,
-  Col,
-} from 'antd';
-import {
-  PlayCircleOutlined,
-  ExperimentOutlined,
-  TrophyOutlined,
-  FieldTimeOutlined,
-  LineChartOutlined,
-} from '@ant-design/icons';
+import { useState, useEffect, useRef } from 'react';
+import { Card, Alert, message } from 'antd';
+import { ExperimentOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
-import { rlApi, type RLTrainResult } from '../../api/rlApi';
-
-const { Option } = Select;
-const { Text } = Typography;
-
-interface RLTrainConfig {
-  algorithm: string;
-  data_source: string;
-  total_timesteps: number;
-  reward_type: string;
-  walk_forward: boolean;
-  hpo: boolean;
-}
-
-const METRIC_LABELS: Record<string, string> = {
-  total_reward: '累计奖励',
-  steps: '训练步数',
-  algorithm: '算法',
-  episodes: '训练回合数',
-  avg_episode_reward: '平均回合奖励',
-  best_episode_reward: '最佳回合奖励',
-  elapsed_seconds: '耗时(秒)',
-};
+import RLTrainConfigForm, { RLTrainConfig } from './components/RLTrainConfigForm';
+import RLModelList, { RLModel } from './components/RLModelList';
+import RLTrainingProgress, { TrainingProgress } from './components/RLTrainingProgress';
+import RLTrainingResult, { TrainingResult } from './components/RLTrainingResult';
+import RLBacktestResult, { BacktestResult } from './components/RLBacktestResult';
 
 export default function RLTrainingPage() {
-  const [form] = Form.useForm<RLTrainConfig>();
   const [training, setTraining] = useState(false);
-  const [result, setResult] = useState<RLTrainResult | null>(null);
+  const [progress, setProgress] = useState<TrainingProgress | null>(null);
+  const [result, setResult] = useState<TrainingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [models, setModels] = useState<RLModel[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [backtesting, setBacktesting] = useState(false);
+  const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
+  const [totalTimesteps, setTotalTimesteps] = useState(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const handleStartTraining = async (values: RLTrainConfig) => {
-    setTraining(true);
-    setResult(null);
-    setError(null);
+  // 加载模型列表
+  useEffect(() => {
+    fetchModels();
+  }, []);
+
+  const fetchModels = async () => {
     try {
-      const data = await rlApi.train(values);
-      setResult(data);
-      message.success(`训练完成，模型ID: ${data.model_id}`);
-    } catch (err: any) {
-      const msg = err?.message || '训练失败';
-      setError(msg);
-      message.error(msg);
-    } finally {
-      setTraining(false);
+      const response = await fetch('/api/rl/models');
+      const data = await response.json();
+      if (data.code === 0) {
+        setModels(data.data?.models || []);
+      }
+    } catch (err) {
+      console.error('加载模型列表失败:', err);
     }
   };
 
-  const renderMetricValue = (key: string, value: number | string) => {
-    if (typeof value === 'number') {
-      if (key.includes('reward')) {
-        return <Text strong style={{ color: value >= 0 ? '#52c41a' : '#cf1322' }}>{value.toFixed(2)}</Text>;
+  const handleStartTraining = async (values: RLTrainConfig) => {
+    setTraining(true);
+    setProgress(null);
+    setResult(null);
+    setError(null);
+    setBacktestResult(null);
+    setTotalTimesteps(values.timesteps);
+
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const response = await fetch('/api/rl/train/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error('请求失败');
       }
-      if (key === 'elapsed_seconds') {
-        return <Text>{value.toFixed(1)}s</Text>;
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('无法读取响应流');
       }
-      return <Text>{value.toLocaleString()}</Text>;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = new TextDecoder().decode(value);
+        const rawEvents = chunk.split(/\n\n/).filter(e => e.trim());
+
+        for (const rawEvent of rawEvents) {
+          const lines = rawEvent.split('\n').map(l => l.trim()).filter(l => l);
+          let eventType = 'message';
+          let dataStr = '';
+
+          for (const line of lines) {
+            if (line.startsWith('event:')) {
+              eventType = line.slice(6).trim() || 'message';
+            } else if (line.startsWith('data:')) {
+              dataStr += line.slice(5).trim();
+            }
+          }
+
+          if (!dataStr) continue;
+
+          let data;
+          try {
+            data = JSON.parse(dataStr);
+          } catch {
+            continue;
+          }
+
+          const newProgress: TrainingProgress = {
+            type: eventType as TrainingProgress['type'],
+            ...data,
+          };
+          setProgress(newProgress);
+
+          if (eventType === 'complete') {
+            setResult(data.result);
+            message.success(`训练完成，模型: ${data.result?.model_name}`);
+          } else if (eventType === 'error') {
+            setError(data.error);
+            message.error(data.error);
+          }
+        }
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        setError('训练已取消');
+      } else {
+        const msg = err?.message || '训练失败';
+        setError(msg);
+        message.error(msg);
+      }
+    } finally {
+      setTraining(false);
+      abortControllerRef.current = null;
+      // 训练完成后刷新模型列表
+      fetchModels();
     }
-    return <Text>{String(value)}</Text>;
+  };
+
+  const handleCancelTraining = () => {
+    abortControllerRef.current?.abort();
+    setTraining(false);
+    setProgress(null);
+    message.info('训练已取消');
+  };
+
+  const handleBacktest = async () => {
+    if (!selectedModel) {
+      message.warning('请选择一个模型');
+      return;
+    }
+
+    setBacktesting(true);
+    setBacktestResult(null);
+
+    try {
+      const response = await fetch('/api/rl/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_path: selectedModel,
+          symbol: 'BTCUSDT',
+          interval: '1h',
+          lookback_days: 30,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.code === 0) {
+        setBacktestResult(data.data);
+        message.success('回测完成');
+      } else {
+        throw new Error(data.message || '回测失败');
+      }
+    } catch (err: any) {
+      message.error(err?.message || '回测失败');
+    } finally {
+      setBacktesting(false);
+    }
+  };
+
+  const handleDeleteModel = async (modelName: string) => {
+    try {
+      const response = await fetch(`/api/rl/models/${modelName}`, {
+        method: 'DELETE',
+      });
+      const data = await response.json();
+      if (data.code === 0) {
+        message.success(`模型 ${modelName} 已删除`);
+        fetchModels();
+        if (selectedModel.includes(modelName)) {
+          setSelectedModel('');
+        }
+      } else {
+        message.error(data.message || '删除失败');
+      }
+    } catch (err: any) {
+      message.error(err?.message || '删除失败');
+    }
   };
 
   return (
     <PageContainer title="RL 训练">
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        {/* 左侧: 训练配置 */}
-        <Card
-          title={
-            <Space>
-              <ExperimentOutlined />
-              强化学习训练配置
-            </Space>
-          }
-        >
-          <Form
-            form={form}
-            layout="vertical"
-            initialValues={{
-              algorithm: 'ppo',
-              data_source: 'BTCUSDT_1h',
-              total_timesteps: 1000,
-              reward_type: 'pnl',
-              walk_forward: false,
-              hpo: false,
-            }}
-            onFinish={handleStartTraining}
+        {/* 左侧: 训练配置 + 模型列表 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* 训练配置 */}
+          <Card
+            title={
+              <span>
+                <ExperimentOutlined /> 强化学习训练配置
+              </span>
+            }
           >
-            <Form.Item label="算法" name="algorithm" rules={[{ required: true }]}>
-              <Select>
-                <Option value="ppo">PPO (Proximal Policy Optimization)</Option>
-                <Option value="sac">SAC (Soft Actor-Critic)</Option>
-                <Option value="dqn">DQN (Deep Q-Network)</Option>
-              </Select>
-            </Form.Item>
+            <RLTrainConfigForm
+              onSubmit={handleStartTraining}
+              training={training}
+              backtesting={backtesting}
+              onCancel={handleCancelTraining}
+            />
+          </Card>
 
-            <Form.Item label="数据源" name="data_source">
-              <Select>
-                <Option value="BTCUSDT_1h">BTCUSDT 1h</Option>
-                <Option value="ETHUSDT_1h">ETHUSDT 1h</Option>
-                <Option value="BTCUSDT_4h">BTCUSDT 4h</Option>
-              </Select>
-            </Form.Item>
+          {/* 模型列表 */}
+          <RLModelList
+            models={models}
+            selectedModel={selectedModel}
+            onSelectModel={setSelectedModel}
+            onDeleteModel={handleDeleteModel}
+            onRefresh={fetchModels}
+            onBacktest={handleBacktest}
+            backtesting={backtesting}
+            training={training}
+          />
+        </div>
 
-            <Form.Item label="训练步数" name="total_timesteps" rules={[{ required: true }]}>
-              <InputNumber min={100} max={1000000} step={100} style={{ width: '100%' }} />
-            </Form.Item>
-
-            <Form.Item label="奖励函数" name="reward_type">
-              <Select>
-                <Option value="pnl">PnL (盈亏)</Option>
-                <Option value="sharpe">Sharpe Ratio (夏普比率)</Option>
-                <Option value="sortino">Sortino Ratio (索提诺比率)</Option>
-              </Select>
-            </Form.Item>
-
-            <Form.Item label="Walk-Forward 验证" name="walk_forward" valuePropName="checked">
-              <Switch />
-            </Form.Item>
-
-            <Form.Item label="超参数优化 (HPO)" name="hpo" valuePropName="checked">
-              <Switch />
-            </Form.Item>
-
-            <Form.Item>
-              <Button
-                type="primary"
-                htmlType="submit"
-                icon={<PlayCircleOutlined />}
-                loading={training}
-                block
-              >
-                {training ? '训练中...' : '开始训练'}
-              </Button>
-            </Form.Item>
-          </Form>
-        </Card>
-
-        {/* 右侧: 训练结果 */}
+        {/* 右侧: 训练进度 + 结果 */}
         <div>
+          {/* 错误提示 */}
           {error && (
             <Alert
               type="error"
@@ -172,74 +234,27 @@ export default function RLTrainingPage() {
             />
           )}
 
+          {/* 训练进度 */}
           {training && (
-            <Card style={{ marginBottom: 16 }}>
-              <div style={{ textAlign: 'center', padding: 20 }}>
-                <Progress type="circle" percent={50} status="active" />
-                <div style={{ marginTop: 16 }}>
-                  <Text type="secondary">训练进行中，请查看后端日志...</Text>
-                </div>
-              </div>
-            </Card>
+            <RLTrainingProgress
+              progress={progress}
+              totalTimesteps={totalTimesteps}
+            />
           )}
 
-          {result && (
-            <>
-              {/* 概览卡片 */}
-              <Card title="训练概览" style={{ marginBottom: 16 }}>
-                <Row gutter={16}>
-                  <Col span={8}>
-                    <Statistic
-                      title="累计奖励"
-                      value={result.metrics.total_reward || 0}
-                      precision={2}
-                      valueStyle={{ color: (result.metrics.total_reward || 0) >= 0 ? '#3f8600' : '#cf1322' }}
-                      prefix={<TrophyOutlined />}
-                    />
-                  </Col>
-                  <Col span={8}>
-                    <Statistic
-                      title="训练步数"
-                      value={result.metrics.steps || 0}
-                      prefix={<LineChartOutlined />}
-                    />
-                  </Col>
-                  <Col span={8}>
-                    <Statistic
-                      title="耗时"
-                      value={result.metrics.elapsed_seconds || 0}
-                      precision={1}
-                      suffix="秒"
-                      prefix={<FieldTimeOutlined />}
-                    />
-                  </Col>
-                </Row>
-              </Card>
+          {/* 训练结果 */}
+          {result && <RLTrainingResult result={result} />}
 
-              {/* 详细指标 */}
-              <Card title="详细指标">
-                <Descriptions column={1} bordered size="small">
-                  <Descriptions.Item label="模型 ID">
-                    <Text code>{result.model_id}</Text>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="状态">
-                    <Text type="success">{result.status}</Text>
-                  </Descriptions.Item>
-                  {Object.entries(result.metrics).map(([key, value]) => (
-                    <Descriptions.Item key={key} label={METRIC_LABELS[key] || key}>
-                      {renderMetricValue(key, value as number | string)}
-                    </Descriptions.Item>
-                  ))}
-                </Descriptions>
-              </Card>
-            </>
-          )}
+          {/* 回测结果 */}
+          {backtestResult && <RLBacktestResult result={backtestResult} />}
 
-          {!training && !result && !error && (
+          {/* 空状态 */}
+          {!training && !result && !error && !backtestResult && (
             <Card>
               <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
                 <ExperimentOutlined style={{ fontSize: 48, marginBottom: 16 }} />
                 <div>配置训练参数后点击"开始训练"</div>
+                <div style={{ marginTop: 8 }}>或从下方模型列表选择模型进行回测</div>
               </div>
             </Card>
           )}
