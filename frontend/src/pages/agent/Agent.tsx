@@ -51,6 +51,7 @@ import {
 } from '../../api/agentApi';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { IntentPanelRenderer } from './components/IntentPanels';
 import './Agent.css';
 
 const { Content } = Layout;
@@ -90,6 +91,16 @@ const ChatMessage = ({ message }: { message: Message }) => {
   const isTool = message.role === 'tool';
   const isError = message.isError;
   const [errorModalVisible, setErrorModalVisible] = useState(false);
+  const { message: antMessage } = App.useApp();
+
+  // 处理意图面板操作
+  const handleIntentAction = (actionType: string) => {
+    antMessage.info(`执行操作: ${actionType}`);
+    // TODO: 根据 actionType 跳转到相应功能页面或执行操作
+  };
+
+  // 判断是否为 AI 消息且有意图信息
+  const hasIntent = !isUser && !isTool && message.intent;
 
   return (
     <>
@@ -103,7 +114,7 @@ const ChatMessage = ({ message }: { message: Message }) => {
         <div className="message-content">
           <div className="message-header">
             <span className="message-role">
-              {isUser ? '用户' : isTool ? '工具' : isError ? '错误' : 'AI Agent'}
+              {isUser ? '用户' : isTool ? '工具' : isError ? '错误' : (message.roleName || 'AI Agent')}
             </span>
             <span className="message-time">
               {new Date(message.timestamp).toLocaleTimeString()}
@@ -143,6 +154,19 @@ const ChatMessage = ({ message }: { message: Message }) => {
           </div>
         </div>
       </div>
+
+      {/* 根据意图显示专属面板 */}
+      {hasIntent && (
+        <IntentPanelRenderer
+          intent={message.intent!}
+          roleName={message.roleName || 'AI 助手'}
+          content={message.content}
+          structuredData={message.structuredData || {}}
+          actions={message.actions || []}
+          onAction={handleIntentAction}
+        />
+      )}
+
       {isError && (
         <ErrorDetailModal
           visible={errorModalVisible}

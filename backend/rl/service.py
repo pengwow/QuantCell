@@ -12,10 +12,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any
+from queue import Queue
+from typing import Any, Callable
 
 import gymnasium as gym
 import numpy as np
@@ -32,6 +35,114 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 # 动作映射：离散动作 → 交易信号
 # 0=hold, 1=buy, 2=sell, 3=close_long, 4=close_short
 ACTION_MAP = {0: "hold", 1: "buy", 2: "sell", 3: "close_long", 4: "close_short"}
+
+
+class TrainingProgressCallback:
+    """SB3 训练回调类 — 捕获训练进度并推送
+    
+    使用方式：
+        callback = TrainingProgressCallback(on_progress=on_progress_fn)
+        model.learn(total_timesteps=N, callback=callback)
+    
+    或使用队列模式：
+        queue = Queue()
+        callback = TrainingProgressCallback(queue=queue)
+        model.learn(total_timesteps=N, callback=callback)
+        # 从队列读取进度
+        while True:
+            progress = queue.get()
+            if progress["type"] == "complete":
+                break
+            print(progress)
+    """
+    
+    def __init__(
+        self,
+        queue: Queue | None = None,
+        on_progress: Callable[[dict], None] | None = None,
+        log_interval: int = 1000,
+    ):
+        self.queue = queue
+        self.on_progress = on_progress
+        self.log_interval = log_interval
+        self.start_time = time.time()
+        self.episode_rewards = []
+        self.total_timesteps_done = 0
+        self.num_episodes = 0
+    
+    def _send_progress(self, data: dict):
+        """发送进度数据"""
+        if self.queue:
+            self.queue.put(data)
+        if self.on_progress:
+            self.on_progress(data)
+    
+    def on_step(self, locals_dict: dict, globals_dict: dict) -> bool:
+        """每步回调（不常用）"""
+        return True
+    
+    def on_rollout_start(self) -> None:
+        """每次 rollout 开始"""
+        pass
+    
+    def on_rollout_end(self) -> None:
+        """每次 rollout 结束（常用于记录指标）"""
+        pass
+    
+    def on_training_start(self) -> None:
+        """训练开始"""
+        self.start_time = time.time()
+        self.episode_rewards = []
+        self.total_timesteps_done = 0
+        self.num_episodes = 0
+        self._send_progress({
+            "type": "start",
+            "timestamp": time.time(),
+            "message": "训练开始",
+        })
+    
+    def on_training_end(self) -> None:
+        """训练结束"""
+        elapsed_time = time.time() - self.start_time
+        self._send_progress({
+            "type": "complete",
+            "timestamp": time.time(),
+            "elapsed_time": round(elapsed_time, 2),
+            "total_timesteps": self.total_timesteps_done,
+            "num_episodes": self.num_episodes,
+            "mean_reward": float(np.mean(self.episode_rewards)) if self.episode_rewards else 0.0,
+            "max_reward": float(np.max(self.episode_rewards)) if self.episode_rewards else 0.0,
+            "min_reward": float(np.min(self.episode_rewards)) if self.episode_rewards else 0.0,
+        })
+    
+    def on_policy_update(self) -> None:
+        """策略更新时（每 update_freq 步）"""
+        pass
+    
+    def on_step_end(self, step, done, info) -> None:
+        """每步结束（自定义方法，需手动调用）"""
+        self.total_timesteps_done = step + 1
+        
+        if done:
+            self.num_episodes += 1
+            if "episode" in info:
+                episode_reward = info["episode"]["r"]
+                self.episode_rewards.append(float(episode_reward))
+                
+                # 每 log_interval 步或每 episode 发送进度
+                if self.total_timesteps_done % self.log_interval == 0:
+                    elapsed_time = time.time() - self.start_time
+                    mean_reward = float(np.mean(self.episode_rewards[-10:])) if len(self.episode_rewards) >= 10 else float(np.mean(self.episode_rewards))
+                    
+                    self._send_progress({
+                        "type": "progress",
+                        "timestamp": time.time(),
+                        "timestep": self.total_timesteps_done,
+                        "episode": self.num_episodes,
+                        "episode_reward": float(episode_reward),
+                        "mean_reward": mean_reward,
+                        "elapsed_time": round(elapsed_time, 2),
+                    })
 
 
 class TradingEnvWrapper(gym.Env):
@@ -122,12 +233,22 @@ class TradingEnvWrapper(gym.Env):
 class RLService:
     """RL 训练与推理服务"""
 
-    def train(self, config: Any, reward_fn=None) -> dict:
-        """训练 RL 策略
+    def _train_internal(
+        self, 
+        config: Any, 
+        reward_fn=None, 
+        verbose: int = 1,
+        callback=None,
+        progress_callback=None,
+    ) -> dict:
+        """内部训练方法（被 train 和 train_stream 调用）
 
         Args:
             config: RLTrainConfig (symbol, algorithm, timesteps, etc.)
-            reward_fn: 自定义奖励函数，签名 (prev_portfolio, current_portfolio, action, step, info) -> float
+            reward_fn: 自定义奖励函数
+            verbose: SB3 日志级别
+            callback: SB3 回调对象
+            progress_callback: 进度回调函数 (dict) -> None
 
         Returns:
             训练结果 dict
@@ -140,6 +261,12 @@ class RLService:
         df = self._fetch_market_data(
             config.symbol, config.interval, config.lookback_days
         )
+        if progress_callback:
+            progress_callback({
+                "type": "info",
+                "message": f"加载数据完成: {len(df)} 条",
+                "timestamp": time.time(),
+            })
 
         # 2. 转换为 TradingEnv 格式（list of dicts）
         data_list = self._df_to_env_data(df)
@@ -161,22 +288,29 @@ class RLService:
         algo_map = {"ppo": PPO, "sac": SAC, "a2c": A2C}
         algo_cls = algo_map.get(config.algorithm, PPO)
 
-        # 5. 训练
+        # 5. 创建模型并训练
         start_time = time.time()
         model = algo_cls(
             "MlpPolicy",
             env,
             learning_rate=config.learning_rate,
-            verbose=1,
+            verbose=verbose,
             device="auto",
         )
-        model.learn(total_timesteps=config.timesteps)
+        model.learn(
+            total_timesteps=config.timesteps,
+            callback=callback,
+            progress_bar=False,
+        )
         training_time = time.time() - start_time
 
-        # 6. 保存模型
+        # 6. 保存模型和元数据
         output_name = config.output_name or f"{config.symbol}_{config.algorithm}_{int(time.time())}"
         model_path = str(MODELS_DIR / f"{output_name}.zip")
         model.save(model_path)
+        
+        # 保存模型元数据（用于 predict 时确定算法类型）
+        self._save_model_metadata(output_name, config.algorithm)
 
         # 7. 评估
         metrics = self._evaluate(model, env)
@@ -194,8 +328,79 @@ class RLService:
         logger.info(f"训练完成: {model_path}, 耗时 {training_time:.1f}s")
         return result
 
+    def train(self, config: Any, reward_fn=None) -> dict:
+        """训练 RL 策略
+
+        Args:
+            config: RLTrainConfig (symbol, algorithm, timesteps, etc.)
+            reward_fn: 自定义奖励函数，签名 (prev_portfolio, current_portfolio, action, step, info) -> float
+
+        Returns:
+            训练结果 dict
+        """
+        return self._train_internal(config, reward_fn=reward_fn, verbose=1)
+
+    def train_stream(self, config: Any, progress_queue: Queue, reward_fn=None) -> dict:
+        """流式训练 RL 策略（通过队列推送进度）
+
+        Args:
+            config: RLTrainConfig (symbol, algorithm, timesteps, etc.)
+            progress_queue: 进度队列，用于推送训练进度
+            reward_fn: 自定义奖励函数
+
+        Returns:
+            训练结果 dict
+        """
+        logger.info(f"开始流式训练: {config.symbol} {config.algorithm} {config.timesteps}步")
+
+        # 创建回调并开始训练
+        callback = TrainingProgressCallback(queue=progress_queue)
+        
+        def progress_callback(data: dict):
+            progress_queue.put(data)
+
+        return self._train_internal(
+            config,
+            reward_fn=reward_fn,
+            verbose=0,
+            callback=callback,
+            progress_callback=progress_callback,
+        )
+
+    def _save_model_metadata(self, model_name: str, algorithm: str) -> None:
+        """保存模型元数据（原子写入，防止并发竞争条件）"""
+        metadata_path = MODELS_DIR / f"{model_name}_metadata.json"
+        metadata = {
+            "algorithm": algorithm,
+            "created_at": time.time(),
+            "model_name": model_name,
+        }
+        
+        # 原子写入：先写临时文件，再重命名（POSIX 保证原子性）
+        fd, tmp_path = tempfile.mkstemp(dir=str(MODELS_DIR), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(metadata, f)
+            os.replace(tmp_path, str(metadata_path))
+        except Exception:
+            # 清理临时文件
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+            raise
+    
+    def _load_model_metadata(self, model_name: str) -> dict | None:
+        """加载模型元数据"""
+        metadata_path = MODELS_DIR / f"{model_name}_metadata.json"
+        if metadata_path.exists():
+            with open(metadata_path, "r") as f:
+                return json.load(f)
+        return None
+
     def predict(self, model_path: str, obs: np.ndarray) -> Action:
-        """模型推理
+        """模型推理（支持多种算法）
 
         Args:
             model_path: 模型路径（.zip）
@@ -203,10 +408,44 @@ class RLService:
 
         Returns:
             Action 对象
+        
+        Raises:
+            ValueError: 如果无法确定算法类型且没有元数据文件
         """
-        from stable_baselines3 import PPO
+        from stable_baselines3 import PPO, SAC, A2C
 
-        model = PPO.load(model_path)
+        # 从模型路径提取模型名称，查找元数据
+        model_name = Path(model_path).stem
+        metadata = self._load_model_metadata(model_name)
+        
+        # 根据元数据或路径推断算法类型
+        algo_map = {"ppo": PPO, "sac": SAC, "a2c": A2C}
+        algorithm = None
+        
+        # 优先使用元数据
+        if metadata and metadata.get("algorithm") in algo_map:
+            algorithm = metadata["algorithm"]
+        else:
+            # 从模型名称推断（格式：symbol_algorithm_timestamp 或 symbol_algorithm）
+            # 从末尾开始查找，因为交易对可能包含下划线（如 BTC_USDT）
+            parts = model_name.split("_")
+            # 检查倒数几个部分
+            for i in range(min(3, len(parts)), 0, -1):
+                candidate = parts[-i].lower()
+                if candidate in algo_map:
+                    algorithm = candidate
+                    break
+        
+        # 如果仍无法确定，抛出明确错误
+        if algorithm is None:
+            raise ValueError(
+                f"无法确定模型 '{model_name}' 的算法类型。"
+                f"请确保存在元数据文件 '{model_name}_metadata.json'，"
+                f"或模型名称包含算法类型（ppo/sac/a2c）。"
+            )
+        
+        algo_cls = algo_map[algorithm]
+        model = algo_cls.load(model_path)
         action_logits, _ = model.predict(obs.astype(np.float32), deterministic=True)
 
         action_int = int(action_logits)
@@ -295,6 +534,39 @@ class RLService:
                 "size_kb": round(f.stat().st_size / 1024, 1),
             })
         return sorted(models, key=lambda x: x["name"])
+
+    def delete_model(self, model_name: str) -> bool:
+        """删除模型（包括模型文件和元数据）
+        
+        Args:
+            model_name: 模型名称（不含扩展名）
+        
+        Returns:
+            True 如果删除成功，False 如果模型不存在
+        """
+        model_path = MODELS_DIR / f"{model_name}.zip"
+        metadata_path = MODELS_DIR / f"{model_name}_metadata.json"
+        
+        if not model_path.exists():
+            return False
+        
+        # 删除模型文件
+        try:
+            os.remove(model_path)
+            logger.info(f"删除模型文件: {model_path}")
+        except Exception as e:
+            logger.error(f"删除模型文件失败: {e}")
+            raise
+        
+        # 删除元数据文件（如果存在）
+        if metadata_path.exists():
+            try:
+                os.remove(metadata_path)
+                logger.info(f"删除元数据文件: {metadata_path}")
+            except Exception as e:
+                logger.warning(f"删除元数据文件失败: {e}")
+        
+        return True
 
     def _fetch_market_data(self, symbol: str, interval: str, lookback_days: int) -> pd.DataFrame:
         """获取市场数据（优先本地 parquet，fallback 到 Binance API），返回小写列名"""
