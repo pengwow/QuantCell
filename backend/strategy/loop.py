@@ -47,7 +47,7 @@ class StrategyLoop:
         self._risk_engine = risk_engine
         self._account_equity = account_equity
         self._event_callback = event_callback
-        self._running = False
+        self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._order_count = 0
         self._rejected_count = 0
@@ -61,7 +61,7 @@ class StrategyLoop:
 
     @property
     def is_running(self) -> bool:
-        return self._running
+        return not self._stop_event.is_set()
 
     @property
     def stats(self) -> dict[str, Any]:
@@ -79,15 +79,17 @@ class StrategyLoop:
             self._adapter.subscribe([self._symbol])
 
         self._strategy.on_start()
-        self._running = True
+        self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         logger.info(f"StrategyLoop 已启动: {self._symbol}")
 
     def stop(self) -> None:
-        self._running = False
+        self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=5)
+            if self._thread.is_alive():
+                logger.error(f"StrategyLoop 线程未能在 5s 内停止: {self._symbol}")
         self._strategy.on_stop()
         self._adapter.disconnect()
         logger.info(f"StrategyLoop 已停止: {self._symbol}")
@@ -101,7 +103,7 @@ class StrategyLoop:
                 logger.error(f"事件回调失败 ({event_type}): {e}")
 
     def _run_loop(self) -> None:
-        while self._running:
+        while not self._stop_event.is_set():
             try:
                 ticker = self._adapter.get_ticker(self._symbol)
                 close_price = float(ticker.get("last", 0.0))
@@ -132,7 +134,8 @@ class StrategyLoop:
             except Exception as e:
                 logger.error(f"StrategyLoop 错误: {e}", exc_info=True)
 
-            time.sleep(self._interval)
+            # ponytail: wait 替代 sleep，stop() 可即时唤醒
+            self._stop_event.wait(self._interval)
 
     def _execute_action(self, action: Action, current_price: float) -> None:
         """执行 Action：置信度过滤 → qty 计算 → 风控检查 → 下单"""

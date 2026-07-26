@@ -59,8 +59,11 @@ class CredentialsStore:
             conn.executescript(_SCHEMA)
 
     def _conn(self):
-        conn = sqlite3.connect(self.db_path)
+        # ponytail: WAL + busy_timeout 防止并发写入时 database is locked
+        conn = sqlite3.connect(self.db_path, timeout=10)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         return conn
 
     def create_credential(
