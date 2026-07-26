@@ -12,6 +12,16 @@
 或继续使用本 shim(行为完全一致)。
 """
 
+# 重新导出 cli.data 中的函数以保持向后兼容性
+from cli.data import (
+    get_source_data_dir,
+    scan_parquet_files,
+    _find_parquet_file,
+    filter_by_date_range,
+    _get_default_date_range,
+    get_parquet_info,
+)
+
 
 def main() -> None:
     """shim 入口 — 转发到 cli.data.app"""
