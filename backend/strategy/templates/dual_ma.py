@@ -18,9 +18,11 @@ class DualMA(BaseStrategy):
     def __init__(self, config: StrategyConfig):
         super().__init__(config)
         self._prev_fast_above_slow: bool | None = None
+        self._current_position: float = 0.0
 
     def on_start(self, ctx: StrategyContext) -> None:
         self._prev_fast_above_slow = None
+        self._current_position = 0.0
 
     def on_bar(self, bar: dict, ctx: StrategyContext) -> Action:
         ctx.closes.append(bar["close"])
@@ -47,16 +49,18 @@ class DualMA(BaseStrategy):
         # 金叉 → 买入
         if not self._prev_fast_above_slow and fast_above_slow:
             self._prev_fast_above_slow = fast_above_slow
+            self._current_position = limit
             return Action(action_type="buy", confidence=0.8, target_position=limit,
                           model_id=model_id, inference_time_us=0)
 
         # 死叉 → 卖出
         if self._prev_fast_above_slow and not fast_above_slow:
             self._prev_fast_above_slow = fast_above_slow
+            self._current_position = 0.0
             return Action(action_type="sell", confidence=0.8, target_position=0.0,
                           model_id=model_id, inference_time_us=0)
 
-        # 状态不变 → 持仓维持
+        # 状态不变 → 维持当前仓位
         self._prev_fast_above_slow = fast_above_slow
-        return Action(action_type="hold", confidence=0.0, target_position=0.0,
+        return Action(action_type="hold", confidence=0.5, target_position=self._current_position,
                       model_id=model_id, inference_time_us=0)
