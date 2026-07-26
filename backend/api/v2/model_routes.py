@@ -1,9 +1,10 @@
 """Model Registry API routes."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Any
 from common.schemas import ApiResponse
+from utils.auth import jwt_auth_required
 
 router = APIRouter(prefix="/api/v2/models", tags=["Models"])
 
@@ -16,7 +17,8 @@ class RegisterModelRequest(BaseModel):
 
 
 @router.get("/list")
-async def list_models():
+@jwt_auth_required
+async def list_models(request: Request):
     """List all registered models."""
     try:
         from services.model_registry import ModelRegistryService
@@ -27,7 +29,8 @@ async def list_models():
 
 
 @router.post("/register")
-async def register_model(req: RegisterModelRequest):
+@jwt_auth_required
+async def register_model(request: Request, req: RegisterModelRequest):
     """Register a new model."""
     try:
         from services.model_registry import ModelRegistryService
@@ -44,7 +47,8 @@ async def register_model(req: RegisterModelRequest):
 
 
 @router.post("/{model_id}/promote")
-async def promote_model(model_id: str):
+@jwt_auth_required
+async def promote_model(request: Request, model_id: str):
     """Promote model to production."""
     try:
         from services.model_registry import ModelRegistryService

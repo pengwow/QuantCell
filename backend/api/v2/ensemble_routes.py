@@ -2,11 +2,12 @@
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
 from services.ensemble_service import get_ensemble_service
+from utils.auth import jwt_auth_required
 
 router = APIRouter(prefix="/api/v2/ensemble", tags=["Ensemble"])
 
@@ -21,7 +22,8 @@ class PredictRequest(BaseModel):
 
 
 @router.post("/create")
-async def create_ensemble(req: CreateEnsembleRequest):
+@jwt_auth_required
+async def create_ensemble(request: Request, req: CreateEnsembleRequest):
     try:
         svc = get_ensemble_service()
         eid = svc.create_ensemble(strategy=req.strategy, model_paths=req.model_paths)
@@ -33,7 +35,8 @@ async def create_ensemble(req: CreateEnsembleRequest):
 
 
 @router.post("/{ensemble_id}/predict")
-async def predict(ensemble_id: str, req: PredictRequest):
+@jwt_auth_required
+async def predict(request: Request, ensemble_id: str, req: PredictRequest):
     try:
         svc = get_ensemble_service()
         result = svc.predict(ensemble_id, req.observation)
@@ -45,7 +48,8 @@ async def predict(ensemble_id: str, req: PredictRequest):
 
 
 @router.get("/list")
-async def list_ensembles():
+@jwt_auth_required
+async def list_ensembles(request: Request):
     try:
         svc = get_ensemble_service()
         return ApiResponse(code=0, message="success", data=svc.list_ensembles())
