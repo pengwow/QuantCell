@@ -10,6 +10,16 @@ from typing import Any, Callable
 
 import numpy as np
 
+
+# ponytail: 限制 pickle 反序列化范围，防止任意代码执行
+class _SafeUnpickler(pickle.Unpickler):
+    _ALLOWED_PREFIXES = ("sklearn.", "numpy.", "builtins.", "collections.", "datetime.")
+
+    def find_class(self, module: str, name: str):
+        if not any(module.startswith(p) for p in self._ALLOWED_PREFIXES):
+            raise pickle.UnpicklingError(f"不允许的类型: {module}.{name}")
+        return super().find_class(module, name)
+
 try:
     from axon_bridge.ensemble import (
         Action,
@@ -43,7 +53,7 @@ def _load_model_from_path(path: str) -> Callable[[dict[str, Any]], dict[str, Any
     if not p.exists():
         raise FileNotFoundError(f"模型文件不存在: {path}")
     with open(p, "rb") as f:
-        model = pickle.load(f)
+        model = _SafeUnpickler(f).load()
 
     def _predict(obs: dict[str, Any]) -> dict[str, Any]:
         # 拼接所有特征为一维向量

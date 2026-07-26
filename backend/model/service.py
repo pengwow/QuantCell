@@ -12,6 +12,15 @@ from utils.logger import get_logger, LogType
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
+
+class _SafeUnpickler(pickle.Unpickler):
+    _ALLOWED_PREFIXES = ("sklearn.", "numpy.", "builtins.", "collections.", "datetime.")
+
+    def find_class(self, module: str, name: str):
+        if not any(module.startswith(p) for p in self._ALLOWED_PREFIXES):
+            raise pickle.UnpicklingError(f"不允许的类型: {module}.{name}")
+        return super().find_class(module, name)
+
 # QLib 仅用于模型训练/评估，save/load/list/delete 不依赖它
 try:
     from qlib.utils import init_instance_by_config
@@ -206,7 +215,7 @@ class ModelService:
             # 加载模型文件
             model_path = self.model_save_dir / f"{model_name}.pkl"
             with open(model_path, "rb") as f:
-                model = pickle.load(f)
+                model = _SafeUnpickler(f).load()
 
             logger.info(f"模型加载成功，模型路径: {model_path}")
             return model
