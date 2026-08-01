@@ -63,73 +63,16 @@ class ConnectionManager:
         self.message_counters: Dict[str, List[float]] = {}
         # 批处理缓存: {client_id: List[Dict]}
         self.batch_cache: Dict[str, List[Dict[str, Any]]] = {}
-        
-        # ZMQ 相关 - 用于跨进程通信（现在从 PortManager 获取）
-        self._zmq_context = None
-        self._zmq_socket = None
-        self._zmq_publisher = None
-        self._zmq_port = None  # 延迟初始化，在 start() 中从 PortManager 获取
-        self._zmq_started = False
     
     async def start(self):
-        """启动消息处理任务和 ZMQ 服务"""
-        # 延迟导入 port_manager，避免模块加载时的循环依赖
-        from core.port_manager import port_manager as _pm, PortAllocationError
-        
+        """启动消息处理任务"""
         # 延迟初始化消息队列，确保在事件循环中创建
         if self.message_queue is None:
             self.message_queue = asyncio.Queue()
             logger.info("消息队列已初始化")
         
-        # 从 PortManager 获取 ZMQ Broadcast 端口
-        try:
-            self._zmq_port = _pm.get_port("zmq_broadcast")
-            logger.info(f"[ZMQ] 从 PortManager 获取广播端口: {self._zmq_port}")
-        except PortAllocationError as e:
-            logger.error(f"[ZMQ] 无法获取端口: {e}")
-            raise
-        
-        await self._start_zmq()
-        
         self.processing_task = asyncio.create_task(self.process_messages())
         logger.info("WebSocket连接管理器已启动")
-    
-    async def _start_zmq(self):
-        """启动 ZMQ 服务用于跨进程通信"""
-        if self._zmq_started:
-            return
-        
-        max_retries = 5
-        for attempt in range(max_retries):
-            try:
-                import zmq.asyncio
-                self._zmq_context = zmq.asyncio.Context()
-                
-                # 创建 REP socket 接收子进程的消息（支持 REQ 客户端）
-                self._zmq_socket = self._zmq_context.socket(zmq.REP)
-                self._zmq_socket.bind(f"tcp://127.0.0.1:{self._zmq_port}")
-                
-                # 启动 ZMQ 消息接收循环
-                asyncio.create_task(self._zmq_receive_loop())
-                
-                self._zmq_started = True
-                logger.info(f"[ZMQ] 服务已启动，端口: {self._zmq_port}，使用 REQ/REP 模式")
-                return
-                
-            except Exception as e:
-                logger.warning(f"[ZMQ] 端口 {self._zmq_port} 绑定失败 (尝试 {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    try:
-                        from core.port_manager import port_manager as _pm_retry
-                        # 调用 get_port 触发重新分配（会自动跳过已失败的端口）
-                        self._zmq_port = _pm_retry.get_port("zmq_broadcast")
-                        logger.info(f"[ZMQ] 尝试下一个端口: {self._zmq_port}")
-                    except Exception as port_error:
-                        logger.error(f"[ZMQ] 无法分配下一个端口: {port_error}")
-                        raise
-                else:
-                    logger.error(f"[ZMQ] 服务启动失败: 已重试 {max_retries} 次")
-                    raise
     
     async def process_messages(self):
         """处理消息队列中的消息（优化版：批量处理）"""
@@ -198,48 +141,6 @@ class ConnectionManager:
         else:
             logger.warning("消息队列未初始化，消息未加入队列")
 
-    async def _zmq_receive_loop(self):
-        """ZMQ 消息接收循环 - 接收子进程的消息并广播"""
-        logger.info("[ZMQ] 接收循环已启动，等待消息...")
-        while self._zmq_started:
-            try:
-                if self._zmq_socket:
-                    # 使用 poll 避免阻塞，允许检查 _zmq_started
-                    if await self._zmq_socket.poll(timeout=100):
-                        # REP 模式接收消息
-                        data = await self._zmq_socket.recv_json()
-                        logger.info(f"[ZMQ] 收到原始数据: {data}")
-                        message = data.get("message")
-                        topic = data.get("topic")
-
-                        if message and topic:
-                            logger.info(f"[ZMQ] 收到消息: type={message.get('type')}, topic={topic}")
-                            # 直接广播给 WebSocket 客户端
-                            await self.broadcast(message, topic)
-                            logger.info(f"[ZMQ] 消息已广播")
-                            # 发送响应
-                            await self._zmq_socket.send_json({"status": "ok"})
-                        else:
-                            logger.warning(f"[ZMQ] 收到的消息格式不正确: message={message}, topic={topic}")
-                            # 发送错误响应
-                            await self._zmq_socket.send_json({"status": "error", "reason": "invalid format"})
-                    else:
-                        # 超时，继续循环检查 _zmq_started
-                        await asyncio.sleep(0.01)
-            except asyncio.CancelledError:
-                # 正常取消，退出循环
-                break
-            except Exception as e:
-                if self._zmq_started:  # 只有在运行状态下才记录错误
-                    logger.error(f"[ZMQ] 接收消息错误: {e}")
-                    # 尝试发送错误响应
-                    try:
-                        await self._zmq_socket.send_json({"status": "error", "reason": str(e)})
-                    except Exception:
-                        pass
-                await asyncio.sleep(0.1)
-        logger.info("[ZMQ] 接收循环已停止")
-    
     def update_last_ping(self, client_id: str):
         """更新客户端最后心跳时间
 
@@ -250,28 +151,12 @@ class ConnectionManager:
             self.client_info[client_id]["last_ping"] = datetime.now()
 
     async def stop(self):
-        """停止消息处理任务和 ZMQ 服务"""
-        # 停止 ZMQ 接收循环
-        self._zmq_started = False
-
+        """停止消息处理任务"""
         if self.processing_task:
             self.processing_task.cancel()
             try:
                 await asyncio.wait_for(self.processing_task, timeout=2.0)
             except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
-
-        # 停止 ZMQ 服务
-        if self._zmq_socket:
-            try:
-                self._zmq_socket.close()
-            except Exception:
-                pass
-        if self._zmq_context:
-            try:
-                # 使用 term 的超时版本
-                self._zmq_context.term()
-            except Exception:
                 pass
 
         logger.info("WebSocket连接管理器已停止")

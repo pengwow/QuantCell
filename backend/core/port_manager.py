@@ -15,9 +15,6 @@
     # 获取 FastAPI 服务端口
     fastapi_port = port_manager.get_port("fastapi")
 
-    # 获取 ZMQ 数据通道端口
-    zmq_data_port = port_manager.get_port("zmq_data")
-
     # 获取所有端口配置
     all_ports = port_manager.get_all_ports()
 """
@@ -69,10 +66,6 @@ class PortConfig:
 
 PORT_RANGES: Dict[str, Dict[str, any]] = {
     "fastapi": {"default": 8000, "range": (8000, 8010)},
-    "zmq_data": {"default": 5555, "range": (5550, 5560)},
-    "zmq_control": {"default": 5556, "range": (5560, 5570)},
-    "zmq_status": {"default": 5557, "range": (5570, 5580)},
-    "zmq_broadcast": {"default": 5558, "range": (5580, 5590)},
 }
 
 
@@ -153,7 +146,7 @@ class PortManager:
         如果首选端口不可用，将自动在范围内查找其他可用端口。
 
         Args:
-            service_name: 服务名称（如 fastapi、zmq_data 等）
+            service_name: 服务名称（如 fastapi）
             preferred_port: 首选端口号
 
         Raises:
@@ -191,7 +184,7 @@ class PortManager:
         如果服务已分配端口则直接返回，否则自动分配新端口。
 
         Args:
-            service_name: 服务名称（如 fastapi、zmq_data 等）
+            service_name: 服务名称（如 fastapi）
 
         Returns:
             int: 分配的端口号

@@ -2,6 +2,7 @@
 回测数据提供者模块
 
 从本地Parquet文件加载回测所需的K线数据，支持单品种和多品种批量加载。
+支持通过数据适配器加载多种数据类型（K线/Tick/衍生/盘口）。
 为回测引擎提供统一的数据接口，替代原有的数据库查询和下载器逻辑。
 """
 
@@ -29,6 +30,15 @@ class DataDownloadResult:
     warnings: List[str] = field(default_factory=list)
     is_incomplete: bool = False
     coverage_percent: float = 100.0
+
+
+@dataclass
+class AdapterLoadResult:
+    """适配器加载结果（包含特征数据）"""
+    data: pd.DataFrame
+    features: Optional[pd.DataFrame] = None
+    metadata: dict = field(default_factory=dict)
+    data_type: str = "kline"
 
 
 class BacktestDataProvider:
@@ -262,7 +272,144 @@ class BacktestDataProvider:
         )
         
         return data_dict, download_results
-    
+
+    def load_data(
+        self,
+        symbol: str,
+        interval: str,
+        data_type: str = "kline",
+        market: str = "spot",
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+    ) -> AdapterLoadResult:
+        """通过数据适配器加载单品种数据。
+
+        Args:
+            symbol: 交易对符号
+            interval: 时间周期
+            data_type: 数据类型 (kline/aggTrades/fundingRate/bookDepth 等)
+            market: 市场类型 (spot/um/cm)
+            start: 开始时间
+            end: 结束时间
+
+        Returns:
+            AdapterLoadResult: 包含数据、特征和元数据
+        """
+        from backtest.data_adapters import DataAdapterFactory, LoadConfig
+
+        config = LoadConfig(
+            symbol=symbol,
+            data_type=data_type,
+            market=market,
+            interval=interval,
+            start=start,
+            end=end,
+        )
+
+        adapter = DataAdapterFactory.create(data_type)
+        result = adapter.load(config)
+
+        logger.info(
+            f"[BacktestDataProvider] 适配器加载成功: "
+            f"{symbol} {data_type} {market}, {len(result.data)} 行"
+        )
+
+        return AdapterLoadResult(
+            data=result.data,
+            features=result.features,
+            metadata=result.metadata,
+            data_type=data_type,
+        )
+
+    def load_multiple_data(
+        self,
+        symbols: List[str],
+        timeframes: List[str],
+        data_type: str = "kline",
+        market: str = "spot",
+        time_range: Optional[str] = None,
+        show_progress: bool = False,
+    ) -> Tuple[Dict[str, AdapterLoadResult], List[DataDownloadResult]]:
+        """通过数据适配器批量加载多品种数据。
+
+        Args:
+            symbols: 交易对列表
+            timeframes: 时间周期列表
+            data_type: 数据类型
+            market: 市场类型
+            time_range: 时间范围 (YYYYMMDD-YYYYMMDD)
+            show_progress: 是否显示进度
+
+        Returns:
+            (数据字典, 加载结果列表)
+        """
+        from utils.validation import parse_time_range
+
+        start_time = None
+        end_time = None
+        if time_range:
+            try:
+                start_dt, end_dt = parse_time_range(time_range)
+                start_time = start_dt.strftime("%Y-%m-%d")
+                end_time = end_dt.strftime("%Y-%m-%d")
+            except Exception as e:
+                logger.warning(f"解析时间范围失败: {e}")
+
+        data_dict: Dict[str, AdapterLoadResult] = {}
+        download_results: List[DataDownloadResult] = []
+        total_tasks = len(symbols) * len(timeframes)
+        current_task = 0
+
+        for symbol in symbols:
+            for timeframe in timeframes:
+                current_task += 1
+                if show_progress:
+                    print(
+                        f"\r[{current_task}/{total_tasks}] "
+                        f"正在加载 {symbol} {timeframe} ({data_type})...",
+                        end="",
+                        flush=True,
+                    )
+
+                result = DataDownloadResult(symbol=symbol, timeframe=timeframe)
+                try:
+                    key = f"{symbol}_{timeframe}"
+                    load_result = self.load_data(
+                        symbol=symbol,
+                        interval=timeframe,
+                        data_type=data_type,
+                        market=market,
+                        start=start_time,
+                        end=end_time,
+                    )
+                    if load_result.data.empty:
+                        result.success = False
+                        result.failure_type = "no_data"
+                        result.failure_reason = "数据文件为空"
+                    else:
+                        data_dict[key] = load_result
+                        result.data = load_result.data
+                except FileNotFoundError as e:
+                    result.success = False
+                    result.failure_type = "file_not_found"
+                    result.failure_reason = str(e)
+                except Exception as e:
+                    result.success = False
+                    result.failure_type = "parse_error"
+                    result.failure_reason = str(e)
+                    logger.exception(f"加载失败: {symbol} {timeframe}")
+
+                download_results.append(result)
+
+        if show_progress:
+            success_count = sum(1 for r in download_results if r.success)
+            print(
+                f"\r[✓] 加载完成: {success_count}/{total_tasks} 成功 "
+                f"(data_type={data_type})"
+            )
+
+        return data_dict, download_results
+
     def list_available_symbols(self, candle_type="spot") -> List[Dict]:
         """
         列出所有可用的交易对

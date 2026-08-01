@@ -221,7 +221,7 @@ export const RiskAssessmentPanel: React.FC<IntentPanelProps> = ({
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
     >
       <div style={{ marginBottom: 16 }}>
-        <Space direction="vertical" size="middle">
+        <Space orientation="vertical" size="middle">
           {riskInfo.map((item) => (
             <Space key={item.label}>
               <Text>{item.label}：</Text>
@@ -288,7 +288,7 @@ export const TradingDecisionPanel: React.FC<IntentPanelProps> = ({
       style={{ marginTop: 12, backgroundColor: theme.bgColor, borderColor: theme.color }}
     >
       <div style={{ marginBottom: 16 }}>
-        <Space direction="vertical" size="middle">
+        <Space orientation="vertical" size="middle">
           {tradeInfo.map((item) => (
             <Space key={item.label}>
               <Text>{item.label}：</Text>

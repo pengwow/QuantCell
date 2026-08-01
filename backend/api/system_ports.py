@@ -36,10 +36,6 @@ async def get_system_ports():
             "message": "success",
             "data": {
                 "fastapi": {"port": 8000, "service": "HTTP API Server"},
-                "zmq_data": {"port": 5555, "service": "ZMQ Data Channel"},
-                "zmq_control": {"port": 5556, "service": "ZMQ Control Channel"},
-                "zmq_status": {"port": 5557, "service": "ZMQ Status Channel"},
-                "zmq_broadcast": {"port": 5558, "service": "ZMQ Broadcast Channel"},
                 "metadata": {
                     "pid": 12345,
                     "start_time": "2026-05-13T10:30:00Z",
@@ -54,10 +50,6 @@ async def get_system_ports():
 
         service_descriptions = {
             "fastapi": "HTTP API Server",
-            "zmq_data": "ZMQ Data Channel",
-            "zmq_control": "ZMQ Control Channel",
-            "zmq_status": "ZMQ Status Channel",
-            "zmq_broadcast": "ZMQ Broadcast Channel",
         }
 
         result = {}
@@ -99,7 +91,7 @@ async def get_service_port(service_name: str):
     获取指定服务的端口配置
 
     Args:
-        service_name: 服务名称 (fastapi, zmq_data, zmq_control, zmq_status, zmq_broadcast)
+        service_name: 服务名称 (fastapi)
 
     Returns:
         dict: 指定服务的端口配置
@@ -107,7 +99,7 @@ async def get_service_port(service_name: str):
     Raises:
         HTTPException: 服务名称无效时返回 404
     """
-    valid_services = ["fastapi", "zmq_data", "zmq_control", "zmq_status", "zmq_broadcast"]
+    valid_services = ["fastapi"]
 
     if service_name not in valid_services:
         raise HTTPException(
@@ -120,10 +112,6 @@ async def get_service_port(service_name: str):
 
         service_descriptions = {
             "fastapi": "HTTP API Server",
-            "zmq_data": "ZMQ Data Channel",
-            "zmq_control": "ZMQ Control Channel",
-            "zmq_status": "ZMQ Status Channel",
-            "zmq_broadcast": "ZMQ Broadcast Channel",
         }
 
         return {
