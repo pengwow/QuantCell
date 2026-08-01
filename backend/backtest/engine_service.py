@@ -67,6 +67,8 @@ class EventDrivenBacktestService:
         timeframes: List[str],
         engine_config: Optional[Dict] = None,
         show_progress: bool = False,
+        data_type: str = "kline",
+        market: str = "spot",
     ) -> Dict:
         """
         执行完整的事件驱动回测流程
@@ -78,11 +80,16 @@ class EventDrivenBacktestService:
             timeframes: 时间周期列表
             engine_config: 引擎配置（可选）
             show_progress: 是否显示进度
+            data_type: 数据类型 (kline/aggTrades/fundingRate/bookDepth 等)
+            market: 市场类型 (spot/um/cm)
 
         Returns:
             dict: 格式化的回测结果
         """
-        logger.info(f"[EventDrivenBacktestService] 开始执行回测: {strategy_name}")
+        logger.info(
+            f"[EventDrivenBacktestService] 开始执行回测: {strategy_name}, "
+            f"data_type={data_type}, market={market}"
+        )
 
         # 解析默认配置
         init_cash = (engine_config or {}).get("initial_capital", 10000)
@@ -91,16 +98,45 @@ class EventDrivenBacktestService:
         if show_progress:
             print("\n[1/5] 正在加载数据...")
 
-        data_dict, _ = self.provider.load_multiple(
-            symbols=symbols,
-            timeframes=timeframes,
-            candle_type="spot",
-            time_range=(engine_config or {}).get("time_range"),
-            auto_download=False,
-            show_progress=show_progress,
-        )
+        if data_type == "kline":
+            # K线数据：使用原有加载逻辑
+            data_dict, _ = self.provider.load_multiple(
+                symbols=symbols,
+                timeframes=timeframes,
+                candle_type=market,
+                time_range=(engine_config or {}).get("time_range"),
+                auto_download=False,
+                show_progress=show_progress,
+            )
+            # 转换为统一格式
+            loaded_data: Dict[str, Any] = {}
+            for key, df in data_dict.items():
+                loaded_data[key] = {
+                    "data": df,
+                    "features": None,
+                    "feature_dataframe": None,
+                    "data_type": "kline",
+                }
+        else:
+            # 非K线数据：通过适配器加载
+            adapter_dict, _ = self.provider.load_multiple_data(
+                symbols=symbols,
+                timeframes=timeframes,
+                data_type=data_type,
+                market=market,
+                time_range=(engine_config or {}).get("time_range"),
+                show_progress=show_progress,
+            )
+            loaded_data: Dict[str, Any] = {}
+            for key, result in adapter_dict.items():
+                loaded_data[key] = {
+                    "data": result.data,
+                    "features": result.metadata.get("features_dict"),
+                    "feature_dataframe": result.features,
+                    "data_type": data_type,
+                }
 
-        if not data_dict:
+        if not loaded_data:
             raise ValueError("没有成功加载任何数据，回测无法继续")
 
         # 2. 初始化引擎
@@ -139,12 +175,13 @@ class EventDrivenBacktestService:
 
         # 4. 执行回测（axon_quant 适配层）
         if show_progress:
-            print(f"[4/5] 正在执行回测（{len(data_dict)} 个品种）...")
+            print(f"[4/5] 正在执行回测（{len(loaded_data)} 个品种）...")
 
         if len(symbols) == 1:
             # 单品种：直接调用 run_with_strategy
-            first_key = list(data_dict.keys())[0]
-            df = data_dict[first_key]
+            first_key = list(loaded_data.keys())[0]
+            entry = loaded_data[first_key]
+            df = entry["data"]
             parts = first_key.rsplit("_", 1)
             symbol = parts[0] if len(parts) > 1 else first_key
 
@@ -152,26 +189,19 @@ class EventDrivenBacktestService:
             # True = 强制市价清仓(所有 PnL 转为已实现,适合日报/对账)
             force_liquidate = (engine_config or {}).get("force_liquidate", False)
 
-            # 直接调用 BacktestLoop，不再通过中间包装层
+            # 直接调用 BacktestLoop，传递特征数据
             result = engine.run(
                 strategy=strategy,
                 data=df,
                 symbol=symbol,
                 force_liquidate=force_liquidate,
+                features=entry.get("features"),
+                feature_dataframe=entry.get("feature_dataframe"),
+                data_type=entry.get("data_type", "kline"),
             )
             raw_results = self._convert_backtest_result(result)
         else:
             # 多品种：每个品种跑一次，结果合并
-            # 白名单累加:只累加跨品种有可加性的字段(PnL/fills/trades/fees 等)
-            # 旧逻辑把所有 int/float 累加,data_start_ns/end_ns/bar_count 等
-            # per-symbol 字段也被累加,导致时间范围错乱、nav 倍增
-            #
-            # 字段策略:
-            # - _SUM_KEYS:累加(跨品种汇总有意义的,如 PnL、成交笔数、手续费)
-            # - _MIN_KEYS:取 min(如 data_start_ns,跨品种最早 bar)
-            # - _MAX_KEYS:取 max(如 data_end_ns,跨品种最晚 bar)
-            # - 其他 per-symbol 字段(initial_capital/final_nav/sharpe/max_dd/win_rate/
-            #   equity_curve/trades/nav_peak):跳过,后续由 formatter/单 symbol 报告展示
             force_liquidate = (engine_config or {}).get("force_liquidate", False)
             _SUM_KEYS = {
                 "total_pnl", "orders_accepted", "orders_rejected", "fills",
@@ -181,19 +211,19 @@ class EventDrivenBacktestService:
             _MIN_KEYS = {"data_start_ns"}
             _MAX_KEYS = {"data_end_ns"}
             aggregated_metrics: Dict[str, Any] = {}
-            # 保留 per-symbol 单独的结果,供 _aggregate_multi_results 给各 symbol 填自己的 metrics
-            # (否则 results_by_symbol[k].metrics 只能塞聚合后的 dict,output_results 显示的
-            # "贡献盈亏"会是聚合 PnL 而非单品种 PnL,用户看到的 ETH/BTC PnL 一样,误导)
             per_symbol_results: Dict[str, Dict[str, Any]] = {}
-            for key, df in data_dict.items():
+            for key, entry in loaded_data.items():
+                df = entry["data"]
                 parts = key.rsplit("_", 1)
                 sym = parts[0] if len(parts) > 1 else key
-                # 直接调用 BacktestLoop，不再通过中间包装层
                 loop_result = engine.run(
                     strategy=strategy,
                     data=df,
                     symbol=sym,
                     force_liquidate=force_liquidate,
+                    features=entry.get("features"),
+                    feature_dataframe=entry.get("feature_dataframe"),
+                    data_type=entry.get("data_type", "kline"),
                 )
                 result = self._convert_backtest_result(loop_result)
                 per_symbol_results[sym] = result
@@ -201,15 +231,11 @@ class EventDrivenBacktestService:
                     if k in _SUM_KEYS and isinstance(v, (int, float)):
                         aggregated_metrics[k] = aggregated_metrics.get(k, 0) + v
                     elif k in _MIN_KEYS and isinstance(v, (int, float)):
-                        # 取最早时间 = min(已见, 当前)
                         cur = aggregated_metrics.get(k, v)
                         aggregated_metrics[k] = min(cur, v) if cur else v
                     elif k in _MAX_KEYS and isinstance(v, (int, float)):
-                        # 取最晚时间 = max(已见, 当前)
                         cur = aggregated_metrics.get(k, v)
                         aggregated_metrics[k] = max(cur, v) if cur else v
-                    # 其他字段(int/float 但不是 per-portfolio 字段 / 非数值)
-                    # 一律丢弃:它们是 per-symbol 的状态,汇总会失真
             raw_results = aggregated_metrics
 
         # 5. 格式化结果

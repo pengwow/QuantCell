@@ -60,6 +60,9 @@ def run(
     time_range: Annotated[Optional[str], Option("--time-range", help="时间范围(YYYYMMDD-YYYYMMDD)")] = None,
     # 末日单管理(回测结束 EOD 强制平仓,适合日报/对账场景)
     force_liquidate: Annotated[bool, Option("--force-liquidate/--no-force-liquidate", help="回测结束强制市价平仓所有未平仓持仓(末日单管理,适合日报/对账)")] = False,
+    # 多数据类型支持
+    data_type: Annotated[str, Option("--data-type", "-dt", help="数据类型: kline/aggTrades/trades/bookDepth/bookTicker/fundingRate/openInterest/markPriceKlines/indexPriceKlines/premiumIndexKlines")] = "kline",
+    market: Annotated[str, Option("--market", "-mkt", help="市场类型: spot/um/cm")] = "spot",
     chart: Annotated[bool, Option("--chart/--no-chart", help="生成回测图表")] = False,
     output_format: Annotated[str, Option("--output-format", "-o", help="输出格式(json/table/both)")] = "table",
     output_file: Annotated[Optional[str], Option("--output-file", "-f", help="输出文件路径")] = None,
@@ -68,8 +71,14 @@ def run(
     运行回测
 
     示例:
-      # 默认(不强制平仓,保留策略意图)
+      # 默认 K线回测
       python backtest_cli.py run --strategy sma_cross_strategy --symbols BTCUSDT --timeframes 1h
+
+      # 使用 aggTrades Tick 数据回测
+      python backtest_cli.py run --strategy sma_cross_strategy --symbols BTCUSDT --data-type aggTrades
+
+      # 使用 fundingRate 衍生数据回测 (需先下载 markPriceKlines + fundingRate)
+      python backtest_cli.py run --strategy funding_arbitrage --symbols BTCUSDT --data-type fundingRate --market um
 
       # 启用 EOD 强制平仓(末日单管理:所有 PnL 转为已实现,适合日报/对账)
       python backtest_cli.py run --strategy sma_cross_strategy --symbols BTCUSDT --timeframes 1h --force-liquidate
@@ -89,6 +98,8 @@ def run(
         console.print(f"   策略: {strategy}")
         console.print(f"   品种: {', '.join(symbols_list)}")
         console.print(f"   周期: {', '.join(timeframes_list)}")
+        console.print(f"   数据类型: {data_type}")
+        console.print(f"   市场: {market}")
         # 末日单状态(便于用户确认回测语义)
         if force_liquidate:
             console.print(f"   末日单: [yellow]强制平仓[/yellow] (EOD 市价清仓,PnL 全部转为已实现)")
@@ -113,7 +124,9 @@ def run(
                 # 透传到 EventDrivenBacktestService.run_backtest → BacktestEngine → BacktestLoop
                 "force_liquidate": force_liquidate,
             },
-            show_progress=True
+            show_progress=True,
+            data_type=data_type,
+            market=market,
         )
 
         # 输出结果

@@ -2,6 +2,12 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
+
+backend_path = Path(__file__).resolve().parent.parent
+if str(backend_path) not in sys.path:
+    sys.path.insert(0, str(backend_path))
 
 import typer
 from rich.console import Console
@@ -65,3 +71,7 @@ def remove_cmd(name: str = typer.Option(..., "--name")):
     except AccountNotFoundError as e:
         console.print(f"[red]✗[/red] {e}")
         raise typer.Exit(code=1)
+
+
+if __name__ == "__main__":
+    app()

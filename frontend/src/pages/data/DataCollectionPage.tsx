@@ -539,7 +539,7 @@ const DataCollectionPage = () => {
                 <Empty description="暂无任务记录" />
               </div>
             ) : (
-              <Space direction="vertical" className="w-full">
+              <Space orientation="vertical" className="w-full">
                 {tasks.map(task => (
                   <Card key={task.task_id} className="w-full" size="small">
                     <div className="flex justify-between items-center mb-4">
@@ -563,7 +563,7 @@ const DataCollectionPage = () => {
                     </div>
 
                     <div className="mb-4">
-                      <Space direction="vertical" className="w-full">
+                      <Space orientation="vertical" className="w-full">
                         {task.params && (
                           <Space className="w-full">
                             <div className="flex-1">
@@ -609,7 +609,7 @@ const DataCollectionPage = () => {
                     </div>
 
                     <div>
-                      <Space direction="vertical" className="w-full">
+                      <Space orientation="vertical" className="w-full">
                         <div className="flex items-center gap-4 mb-2">
                           <Text strong className="w-16">进度:</Text>
                           <Progress

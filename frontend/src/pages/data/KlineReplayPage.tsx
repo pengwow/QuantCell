@@ -489,7 +489,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* 控制栏 */}
         <Card size="small" title="回放控制">
-          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Space orientation="vertical" style={{ width: '100%' }} size="middle">
             {/* 第一行：时间范围和周期选择 */}
             <Row align="middle" gutter={[16, 16]}>
               <Col xs={24} lg={12} xl={10}>

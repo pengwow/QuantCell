@@ -24,6 +24,10 @@ import httpx
 import typer
 from typing_extensions import Annotated
 
+backend_path = Path(__file__).resolve().parent.parent
+if str(backend_path) not in sys.path:
+    sys.path.insert(0, str(backend_path))
+
 from utils.logger import get_logger, LogType
 
 logger = get_logger(__name__, LogType.APPLICATION)

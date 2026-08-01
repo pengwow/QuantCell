@@ -49,3 +49,7 @@ def migrate_main(
     _migrate_main = _load_migrate_main()
     rc = _migrate_main()
     sys.exit(rc or 0)
+
+
+if __name__ == "__main__":
+    app()

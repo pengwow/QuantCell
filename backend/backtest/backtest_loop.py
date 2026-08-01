@@ -96,6 +96,9 @@ class BacktestLoop:
         data: pd.DataFrame,
         symbol: str = "BTCUSDT",
         force_liquidate: Optional[bool] = None,
+        features: Optional[dict] = None,
+        feature_dataframe: Optional[pd.DataFrame] = None,
+        data_type: str = "kline",
     ) -> BacktestResult:
         """执行回测
 
@@ -104,6 +107,9 @@ class BacktestLoop:
             data: OHLCV DataFrame，索引为 DatetimeIndex
             symbol: 交易对符号
             force_liquidate: 是否强制平仓（None 用构造默认值）
+            features: 特征字典（键值对，注入 StrategyContext）
+            feature_dataframe: 特征 DataFrame（序列特征）
+            data_type: 数据类型标识
 
         Returns:
             BacktestResult
@@ -139,7 +145,13 @@ class BacktestLoop:
         is_base_strategy = isinstance(strategy, BaseStrategy)
         ctx = None
         if is_base_strategy:
-            ctx = StrategyContext(symbol=symbol, account_equity=self._initial_cash)
+            ctx = StrategyContext(
+                symbol=symbol,
+                account_equity=self._initial_cash,
+                features=features or {},
+                feature_dataframe=feature_dataframe,
+                data_type=data_type,
+            )
             strategy.on_start(ctx)
         else:
             strategy.on_start()

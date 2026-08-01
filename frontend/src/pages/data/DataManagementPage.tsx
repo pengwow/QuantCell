@@ -2077,7 +2077,7 @@ const DataManagementPage = () => {
           {!archiveSymbol ? (
             <Empty
               description={
-                <Space direction="vertical" size={4}>
+                <Space orientation="vertical" size={4}>
                   <Text type="secondary">请在左侧选择数据浏览</Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     步骤：展开数据种类 → 选择市场 → 点击 symbol
@@ -2088,7 +2088,7 @@ const DataManagementPage = () => {
               style={{ padding: '48px 0' }}
             />
           ) : (
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <Space orientation="vertical" style={{ width: '100%' }} size="middle">
               {/* 元数据概览 */}
               {archiveMeta && (
                 <Descriptions size="small" column={{ xs: 2, sm: 4 }} bordered={false} style={{ background: '#fafafa', padding: '8px 12px', borderRadius: 6 }}>
@@ -2973,7 +2973,7 @@ const DataManagementPage = () => {
                   style={{ padding: '32px 0' }}
                 />
               ) : (
-                <Space direction="vertical" style={{ width: '100%' }} size={0}>
+                <Space orientation="vertical" style={{ width: '100%' }} size={0}>
                   {/* 当前任务放在最前面 */}
                   {currentTaskId && taskStatusFilter === 'all' || (currentTaskId && taskStatusFilter === taskStatus) ? (
                     <TaskCard

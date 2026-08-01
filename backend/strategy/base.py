@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+import pandas as pd
 from axon_bridge import Action
 
 
@@ -35,6 +36,7 @@ class StrategyContext:
     - spot_* : 现货腿支持 (funding_arbitrage 用, baseline 读 spot_target_position)
     - account_equity : 账户净值(策略层算 notional 用)
     - highs/lows/volumes : 历史 K 线数据(用于 ATR 等指标计算)
+    - features : 多数据源特征字典(从适配器注入的扩展特征)
 
     DEPRECATED 字段(2026-07-18 axon_quant 0.6.0 升级后保留读接口):
     - funding_cash / settle_funding: 完全下沉到 axon_quant 引擎的
@@ -58,6 +60,19 @@ class StrategyContext:
 
     # —— 账户净值(策略层算 notional 用)——
     account_equity: float = 0.0
+
+    # —— 多数据源特征支持 ——
+    features: dict[str, float] = field(default_factory=dict)
+    feature_dataframe: Optional[pd.DataFrame] = None
+    data_type: str = "kline"
+
+    def get_feature(self, name: str, default: float = 0.0) -> float:
+        """获取特征值。"""
+        return self.features.get(name, default)
+
+    def has_feature(self, name: str) -> bool:
+        """检查特征是否存在。"""
+        return name in self.features
 
     # —— DEPRECATED 字段(2026-07-18 axon_quant 0.6.0 升级后保留读接口)——
     # funding cash 已完全下沉到 axon_quant 引擎的 RunResult.total_funding_pnl,
