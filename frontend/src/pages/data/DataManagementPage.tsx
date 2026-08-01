@@ -39,6 +39,7 @@ import {
   Grid,
   Alert,
   App,
+  Descriptions,
 } from 'antd';
 import {
   StarOutlined,
@@ -69,6 +70,7 @@ import dayjs from 'dayjs';
 import PageContainer from '@/components/PageContainer';
 import { dataApi } from '@/api/dataApi';
 import { archiveApi } from '@/api/archiveApi';
+import { derivApi } from '@/api/derivApi';
 import { wsService } from '@/services/websocketService';
 import { useConfigStore } from '@/store';
 import type {
@@ -78,12 +80,17 @@ import type {
   MarketType,
   ArchiveMeta,
   ArchiveRow,
+  DerivKind,
+  DataKind,
 } from '@/types/data';
 import {
   ARCHIVE_KINDS,
   KLINE_ARCHIVE_KINDS,
   ARCHIVE_MARKETS,
   ARCHIVE_INTERVALS,
+  DERIV_KINDS,
+  DATA_KIND_LABEL,
+  INTERVAL_REQUIRED_KINDS,
 } from '@/types/data';
 import { setPageTitle } from '@/utils/pageTitle';
 
@@ -91,6 +98,37 @@ const { Text } = Typography;
 const { RangePicker } = DatePicker;
 const { Search } = Input;
 const { useBreakpoint } = Grid;
+
+// ==================== 采集任务状态/格式常量 ====================
+
+const TASK_STATUS_CONFIG: Record<TaskStatus, { color: string; label: string; badge: 'processing' | 'success' | 'error' | 'default' | 'warning' }> = {
+  running: { color: '#1677ff', label: '运行中', badge: 'processing' },
+  completed: { color: '#52c41a', label: '已完成', badge: 'success' },
+  failed: { color: '#ff4d4f', label: '失败', badge: 'error' },
+  pending: { color: '#d9d9d9', label: '等待中', badge: 'default' },
+  canceled: { color: '#faad14', label: '已取消', badge: 'warning' },
+};
+
+/** 数据类型 → 标签颜色 */
+const DATA_TYPE_TAG_COLOR: Record<string, string> = {
+  kline: 'blue',
+  aggTrades: 'cyan',
+  trades: 'geekblue',
+  bookDepth: 'purple',
+  bookTicker: 'magenta',
+  markPriceKlines: 'orange',
+  indexPriceKlines: 'gold',
+  premiumIndexKlines: 'lime',
+  fundingRate: 'green',
+  openInterest: 'volcano',
+};
+
+/** 市场 → 标签颜色 */
+const MARKET_TAG_COLOR: Record<string, string> = {
+  spot: 'blue',
+  um: 'orange',
+  cm: 'purple',
+};
 
 // 任务卡片组件
 interface TaskCardProps {
@@ -112,34 +150,14 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const [details, setDetails] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // 使用外部传入的进度列表（如果有）或从API获取的详情
   const displayList = externalProgressList.length > 0 ? externalProgressList : details;
+  const statusCfg = TASK_STATUS_CONFIG[task.status] || TASK_STATUS_CONFIG.pending;
+  const progress = task.progress || { percentage: 0, total: 0, completed: 0, failed: 0, current: '' };
 
-  const getStatusColor = (status: TaskStatus) => {
-    switch (status) {
-      case 'running':
-        return 'processing';
-      case 'completed':
-        return 'success';
-      case 'failed':
-        return 'error';
-      default:
-        return 'default';
-    }
-  };
-
-  const getStatusText = (status: TaskStatus) => {
-    switch (status) {
-      case 'running':
-        return '运行中';
-      case 'completed':
-        return '已完成';
-      case 'failed':
-        return '失败';
-      default:
-        return '等待中';
-    }
-  };
+  // 从 params 提取数据类型和市场
+  const dataType: string = task.params?.data_type || task.params?.dataType || 'kline';
+  const market: string = task.params?.market || task.params?.candle_type || 'spot';
+  const dataTypeLabel = DATA_KIND_LABEL[dataType as keyof typeof DATA_KIND_LABEL] || dataType;
 
   // 获取任务详情
   const fetchTaskDetails = async () => {
@@ -158,87 +176,119 @@ const TaskCard: React.FC<TaskCardProps> = ({
     }
   };
 
-  // 处理展开/收起
   const handleExpand = async () => {
     const newExpanded = !expanded;
     setExpanded(newExpanded);
-    // 展开时获取详情（如果还没有数据）
     if (newExpanded && details.length === 0) {
       await fetchTaskDetails();
     }
   };
 
   return (
-    <Card size="small" style={{ marginBottom: 8 }}>
-      <Row justify="space-between" align="middle">
-        <Space orientation="vertical" size={0}>
-          <Text strong>{task.task_id}</Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {task.created_at ? dayjs(task.created_at).format('YYYY-MM-DD HH:mm') : '-'}
-          </Text>
+    <Card
+      size="small"
+      style={{
+        marginBottom: 8,
+        borderLeft: `3px solid ${statusCfg.color}`,
+        opacity: task.status === 'completed' ? 0.85 : 1,
+      }}
+    >
+      {/* 第一行：类型/来源徽章 + 状态 */}
+      <Row justify="space-between" align="middle" style={{ marginBottom: 6 }}>
+        <Space size={4} wrap>
+          <Tag color={DATA_TYPE_TAG_COLOR[dataType] || 'default'} style={{ margin: 0 }}>
+            {dataTypeLabel}
+          </Tag>
+          <Tag color={MARKET_TAG_COLOR[market] || 'default'} style={{ margin: 0 }}>
+            {market.toUpperCase()}
+          </Tag>
+          {isCurrent && <Tag color="blue" style={{ margin: 0 }}>当前</Tag>}
         </Space>
-        <Space>
-          {isCurrent && <Tag color="blue">当前</Tag>}
-          <Tag color={getStatusColor(task.status)}>{getStatusText(task.status)}</Tag>
-        </Space>
+        <Badge status={statusCfg.badge} text={<Text style={{ fontSize: 12, color: statusCfg.color }}>{statusCfg.label}</Text>} />
       </Row>
-      <Progress
-        percent={task.progress?.percentage || 0}
-        size="small"
-        style={{ marginTop: 8 }}
-        status={task.status === 'running' ? 'active' : 'normal'}
-        format={(percent) => `${percent?.toFixed(2) || '0.00'}%`}
-      />
 
-      {/* 展开/收起按钮 */}
+      {/* 第二行：进度条 + 数量统计 */}
+      <Progress
+        percent={progress.percentage || 0}
+        size="small"
+        status={task.status === 'failed' ? 'exception' : task.status === 'running' ? 'active' : undefined}
+        format={(percent) => `${percent?.toFixed(1) || '0.0'}%`}
+      />
+      {(progress.total > 0 || progress.completed > 0) && (
+        <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2 }}>
+          已完成 {progress.completed}/{progress.total}
+          {progress.failed > 0 && <Text type="danger" style={{ fontSize: 11, marginLeft: 8 }}>失败 {progress.failed}</Text>}
+          {progress.current && <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>正在: {progress.current}</Text>}
+        </div>
+      )}
+
+      {/* 第三行：时间信息 */}
+      <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 4 }}>
+        <Space size={12}>
+          <span>创建: {task.created_at ? dayjs(task.created_at).format('MM-DD HH:mm') : '-'}</span>
+          {task.start_time && <span>开始: {dayjs(task.start_time).format('HH:mm:ss')}</span>}
+          {task.end_time && <span>结束: {dayjs(task.end_time).format('HH:mm:ss')}</span>}
+        </Space>
+      </div>
+
+      {/* 错误信息 */}
+      {task.status === 'failed' && task.error_message && (
+        <Alert
+          type="error"
+          showIcon
+          message={task.error_message}
+          style={{ marginTop: 6, padding: '4px 8px', fontSize: 12 }}
+          banner
+        />
+      )}
+
+      {/* 展开/收起子任务 */}
       <Button
         type="link"
+        size="small"
         onClick={handleExpand}
-        style={{ padding: 0, marginTop: 8 }}
+        style={{ padding: 0, marginTop: 4, fontSize: 12 }}
         loading={loading}
       >
-        {expanded ? '收起详情' : `展开详情 (${displayList.length || '...'})`}
+        {expanded ? '收起详情' : `子任务详情 (${displayList.length || '...'})`}
       </Button>
 
-      {/* 子任务详情 */}
       {expanded && (
-        <div style={{ marginTop: 12, padding: '12px', border: '1px solid #d9d9d9', borderRadius: '6px' }}>
-          <Space orientation="vertical" style={{ width: '100%' }}>
-            {displayList.length > 0 ? (
-              <>
-                {displayList.slice(0, isProgressExpanded ? undefined : 3).map((subTask: any) => (
-                  <div key={subTask.task_key} style={{ marginBottom: 8 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, alignItems: 'center' }}>
-                      <Space>
-                        <span style={{ fontWeight: 'bold' }}>{subTask.symbol}</span>
-                        <Tag color="blue">{subTask.interval}</Tag>
-                      </Space>
-                    </div>
-                    <Progress
-                      percent={subTask.percentage || 0}
-                      size="small"
-                      status={task.status === 'running' && subTask.percentage < 100 ? 'active' : 'normal'}
-                      format={(percent) => `${percent?.toFixed(2) || '0.00'}%`}
-                    />
+        <div style={{ marginTop: 8, padding: '8px 12px', background: '#fafafa', borderRadius: 6 }}>
+          {displayList.length > 0 ? (
+            <>
+              {displayList.slice(0, isProgressExpanded ? undefined : 5).map((subTask: any) => (
+                <div key={subTask.task_key || subTask.symbol} style={{ marginBottom: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                    <Space size={4}>
+                      <Text style={{ fontSize: 12, fontWeight: 500 }}>{subTask.symbol}</Text>
+                      {subTask.interval && <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>{subTask.interval}</Tag>}
+                    </Space>
+                    <Text style={{ fontSize: 11, color: '#8c8c8c' }}>{subTask.percentage?.toFixed(1)}%</Text>
                   </div>
-                ))}
-
-                {/* 展开/收起按钮 */}
-                {displayList.length > 3 && setIsProgressExpanded && (
-                  <Button
-                    type="link"
-                    onClick={() => setIsProgressExpanded(!isProgressExpanded)}
-                    style={{ padding: 0, marginTop: 8 }}
-                  >
-                    {isProgressExpanded ? '收起' : `展开 (${displayList.length - 3} 个)`}
-                  </Button>
-                )}
-
-              </>
-            ) : (
-              <Empty description="暂无子任务详情" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            )}
-          </Space>
+                  <Progress
+                    percent={subTask.percentage || 0}
+                    size="small"
+                    showInfo={false}
+                    status={task.status === 'running' && subTask.percentage < 100 ? 'active' : undefined}
+                    strokeColor={subTask.percentage >= 100 ? '#52c41a' : undefined}
+                  />
+                </div>
+              ))}
+              {displayList.length > 5 && setIsProgressExpanded && (
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => setIsProgressExpanded(!isProgressExpanded)}
+                  style={{ padding: 0, fontSize: 12 }}
+                >
+                  {isProgressExpanded ? '收起' : `展开全部 (${displayList.length} 个)`}
+                </Button>
+              )}
+            </>
+          ) : (
+            <Empty description="暂无子任务详情" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '8px 0' }} />
+          )}
         </div>
       )}
     </Card>
@@ -399,6 +449,8 @@ const DataManagementPage = () => {
 
   // ==================== 数据采集状态 ====================
   const [collectionForm] = Form.useForm();
+  // 监听采集表单中的 dataType 变化，用于动态控制 intervals / market 字段
+  const collectionDataType = Form.useWatch('dataType', collectionForm) ?? 'kline';
   const [collectionTasks, setCollectionTasks] = useState<Task[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string>('');
   const [taskStatus, setTaskStatus] = useState<TaskStatus>('pending');
@@ -407,6 +459,9 @@ const DataManagementPage = () => {
   const [taskProgressList, setTaskProgressList] = useState<any[]>([]);
   // 展开/收起状态
   const [isProgressExpanded, setIsProgressExpanded] = useState<boolean>(false);
+  // 任务列表加载状态 & 状态筛选
+  const [taskListLoading, setTaskListLoading] = useState(false);
+  const [taskStatusFilter, setTaskStatusFilter] = useState<string>('all');
   // 使用 ref 存储最新的 currentTaskId，避免 WebSocket 回调中的闭包问题
   const currentTaskIdRef = useRef<string>('');
   useEffect(() => {
@@ -415,11 +470,16 @@ const DataManagementPage = () => {
 
   // ==================== 归档浏览 Tab 状态 ====================
   // 左侧树形导航：kind 7 种 → market 3 种 → symbols
-  const [archiveKind, setArchiveKind] = useState<ArchiveKind>('aggTrades');
+  // ==================== 归档 / 衍生 浏览状态 ====================
+
+  // 'archive' 对应 7 种归档数据；'deriv' 对应 fundingRate/openInterest
+  type ArchiveBrowserCategory = 'archive' | 'deriv';
+  const [archiveBrowserCategory, setArchiveBrowserCategory] = useState<ArchiveBrowserCategory>('archive');
+  const [archiveKind, setArchiveKind] = useState<ArchiveKind | DerivKind>('aggTrades');
   const [archiveMarket, setArchiveMarket] = useState<MarketType>('spot');
   const [archiveSymbol, setArchiveSymbol] = useState<string>('');
   // 树形展开状态（kind 节点）
-  const [archiveExpandedKinds, setArchiveExpandedKinds] = useState<ArchiveKind[]>(['aggTrades']);
+  const [archiveExpandedKinds, setArchiveExpandedKinds] = useState<(ArchiveKind | DerivKind)[]>(['aggTrades']);
   // 当前 (kind, market) 已加载的 symbols 列表缓存：key = kind__market
   const [archiveSymbolsMap, setArchiveSymbolsMap] = useState<Record<string, string[]>>({});
   // 当前 (kind, market) 是否正在加载 symbols
@@ -442,6 +502,8 @@ const DataManagementPage = () => {
   const [archiveInterval, setArchiveInterval] = useState<string>('1h');
   // 删除 loading
   const [archiveDeleting, setArchiveDeleting] = useState(false);
+  // 左侧树 symbol 搜索
+  const [archiveSymbolSearch, setArchiveSymbolSearch] = useState<string>('');
 
   // 当前激活的自选组
   const activeGroup = useMemo(() => 
@@ -1030,15 +1092,19 @@ const DataManagementPage = () => {
   // ==================== 其他方法 ====================
 
   // 获取采集任务列表（自动恢复正在运行的任务）
-  const fetchCollectionTasks = async () => {
+  const fetchCollectionTasks = async (silent = false) => {
+    if (!silent) setTaskListLoading(true);
     try {
-      const params = {
+      const params: Record<string, any> = {
         page: 1,
-        page_size: 10,
+        page_size: 20,
         sort_by: 'created_at',
         sort_order: 'desc',
         task_type: 'download_crypto',
       };
+      if (taskStatusFilter !== 'all') {
+        params.status = taskStatusFilter;
+      }
       const response = await dataApi.getTasks(params);
       const taskList: Task[] = Array.isArray(response.tasks) ? response.tasks : [];
       setCollectionTasks(taskList);
@@ -1048,19 +1114,32 @@ const DataManagementPage = () => {
         task.status === 'running' || task.status === 'pending'
       );
       if (runningTask && runningTask.task_id) {
-        console.log('[DataManagement] 发现正在运行的任务:', runningTask.task_id, '状态:', runningTask.status);
-        // 只在 currentTaskId 为空时设置，避免覆盖用户手动选择的任务
         if (!currentTaskIdRef.current) {
           setCurrentTaskId(runningTask.task_id);
           setTaskStatus(runningTask.status);
-          setTaskProgress(0);  // 重置进度，等待 WebSocket 推送最新进度
-          console.log('[DataManagement] 已恢复任务ID:', runningTask.task_id);
+          setTaskProgress(runningTask.progress?.percentage || 0);
         }
       }
     } catch (error) {
       console.error('获取任务列表失败:', error);
+    } finally {
+      if (!silent) setTaskListLoading(false);
     }
   };
+
+  // 自动刷新：当有运行中任务时，每 5s 静默刷新任务列表
+  useEffect(() => {
+    const hasRunning = taskStatus === 'running' || taskStatus === 'pending'
+      || collectionTasks.some(t => t.status === 'running' || t.status === 'pending');
+    if (!hasRunning) return;
+    const timer = setInterval(() => fetchCollectionTasks(true), 5000);
+    return () => clearInterval(timer);
+  }, [taskStatus, collectionTasks]);
+
+  // 状态筛选变化时重新拉取
+  useEffect(() => {
+    fetchCollectionTasks();
+  }, [taskStatusFilter]);
 
   // 开始数据采集
   const startCollection = async (symbol: string) => {
@@ -1097,29 +1176,49 @@ const DataManagementPage = () => {
     try {
       const values = await collectionForm.validateFields();
       const selectedSymbols = values.symbols || [];
+      // 新增：数据类型（默认 kline，与旧行为一致）
+      const dataType: string = values.dataType || 'kline';
+      // 新增：市场（spot/um/cm）。kline 的 candle_type 与该值保持一致
+      const market: string = values.market || SYSTEM_CONFIG.crypto_trading_mode || 'spot';
 
       if (selectedSymbols.length === 0) {
         message.warning('请至少选择一个货币对');
         return;
       }
 
+      // 仅 K 线类 & 特殊 K 线类（mark/index/premium Klines）需要 interval
+      const KLINE_TYPES = new Set(['kline', 'markPriceKlines', 'indexPriceKlines', 'premiumIndexKlines']);
+      const interval = KLINE_TYPES.has(dataType)
+        ? (values.intervals || ['15m'])
+        : [];
+
+      // 衍生数据（fundingRate/openInterest）仅支持 um/cm（Binance 约定）
+      const DERIV_TYPES = new Set(['fundingRate', 'openInterest']);
+      if (DERIV_TYPES.has(dataType) && market === 'spot') {
+        message.warning(`数据类型 ${dataType} 仅支持合约市场（UM/CM）`);
+        return;
+      }
+
       const response = await dataApi.downloadCryptoData({
         symbols: selectedSymbols,
-        interval: values.intervals || ['15m'],
+        // data_type + market: 新统一入口的两个核心参数
+        data_type: dataType,
+        market,
+        interval,
         start: values.dateRange?.[0]?.format('YYYY-MM-DD') || dayjs().subtract(1, 'month').format('YYYY-MM-DD'),
         end: values.dateRange?.[1]?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD'),
         exchange: SYSTEM_CONFIG.exchange,
         max_workers: 2,
-        candle_type: SYSTEM_CONFIG.crypto_trading_mode,
+        // 兼容旧字段：K 线时保留 candle_type 以便原有逻辑继续工作
+        candle_type: KLINE_TYPES.has(dataType) ? market : undefined,
       });
 
       if (response.task_id) {
         setCurrentTaskId(response.task_id);
         setTaskStatus('running');
         setTaskProgress(0);
-        // 订阅已移至全局，此处不再需要
         fetchCollectionTasks();
-        message.success('批量采集任务已启动');
+        message.success(`采集任务已启动：${dataType} (${market})`);
       }
     } catch (error) {
       message.error('启动批量采集失败');
@@ -1240,28 +1339,34 @@ const DataManagementPage = () => {
     ];
   };
 
-  // ==================== 归档浏览方法 ====================
+  // ==================== 归档 / 衍生 浏览方法 ====================
+
+  // 判断 kind 属于 archive 还是 deriv
+  const isDerivKind = (kind: ArchiveKind | DerivKind): kind is DerivKind =>
+    DERIV_KINDS.includes(kind as DerivKind);
 
   // 拉取 (kind, market) 下的 symbols 列表（带缓存）
-  const fetchArchiveSymbols = async (kind: ArchiveKind, market: MarketType) => {
+  const fetchArchiveSymbols = async (kind: ArchiveKind | DerivKind, market: MarketType) => {
     const key = `${kind}__${market}`;
     if (archiveSymbolsMap[key]) return;
     setArchiveSymbolsLoading(true);
     try {
-      const resp = await archiveApi.listSymbols(kind, market);
+      const resp = isDerivKind(kind)
+        ? await derivApi.listSymbols(kind, market)
+        : await archiveApi.listSymbols(kind as ArchiveKind, market);
       const list = Array.isArray(resp?.symbols) ? resp.symbols : [];
       setArchiveSymbolsMap((prev) => ({ ...prev, [key]: list }));
     } catch (error) {
-      console.error('获取归档 symbols 失败:', error);
-      message.error('获取归档 symbols 失败');
+      console.error('获取 symbols 失败:', error);
+      message.error('获取 symbols 失败');
       setArchiveSymbolsMap((prev) => ({ ...prev, [key]: [] }));
     } finally {
       setArchiveSymbolsLoading(false);
     }
   };
 
-  // 选中 (kind, market, symbol) 时拉取 _meta.json + 拉一页数据
-  const handleArchiveSelectSymbol = async (kind: ArchiveKind, market: MarketType, symbol: string) => {
+  // 选中 (kind, market, symbol) 时拉取 meta + 拉一页数据
+  const handleArchiveSelectSymbol = async (kind: ArchiveKind | DerivKind, market: MarketType, symbol: string) => {
     setArchiveKind(kind);
     setArchiveMarket(market);
     setArchiveSymbol(symbol);
@@ -1271,21 +1376,21 @@ const DataManagementPage = () => {
     setArchiveTotal(0);
     setArchiveTruncated(false);
 
-    // 拉 _meta.json
     try {
-      const resp = await archiveApi.getMeta(kind, market, symbol);
+      const resp = isDerivKind(kind)
+        ? await derivApi.getMeta(kind, market, symbol)
+        : await archiveApi.getMeta(kind as ArchiveKind, market, symbol);
       setArchiveMeta(resp?.meta ?? null);
     } catch (error) {
-      console.error('读取 _meta.json 失败:', error);
+      console.error('读取元数据失败:', error);
     }
 
-    // 默认拉第 1 页
     await doArchiveQuery(kind, market, symbol, archiveTimeRange, 1, archivePageSize);
   };
 
   // 实际拉取数据
   const doArchiveQuery = async (
-    kind: ArchiveKind,
+    kind: ArchiveKind | DerivKind,
     market: MarketType,
     symbol: string,
     range: [number, number],
@@ -1298,21 +1403,15 @@ const DataManagementPage = () => {
     }
     setArchiveQueryLoading(true);
     try {
-      const resp = await archiveApi.queryData(
-        kind,
-        market,
-        symbol,
-        range[0],
-        range[1],
-        size,
-        (page - 1) * size,
-      );
+      const resp = isDerivKind(kind)
+        ? await derivApi.queryData(kind, market, symbol, range[0], range[1], size, (page - 1) * size)
+        : await archiveApi.queryData(kind as ArchiveKind, market, symbol, range[0], range[1], size, (page - 1) * size);
       setArchiveRows(Array.isArray(resp?.rows) ? resp.rows : []);
       setArchiveTotal(resp?.total ?? 0);
       setArchiveTruncated(Boolean(resp?.truncated));
     } catch (error) {
-      console.error('查询归档数据失败:', error);
-      message.error('查询归档数据失败');
+      console.error('查询数据失败:', error);
+      message.error('查询数据失败');
     } finally {
       setArchiveQueryLoading(false);
     }
@@ -1323,13 +1422,16 @@ const DataManagementPage = () => {
     if (!archiveSymbol) return;
     setArchiveDeleting(true);
     try {
-      await archiveApi.deleteData(archiveKind, archiveMarket, archiveSymbol);
-      message.success(`已删除 ${archiveSymbol} 的归档数据`);
-      // 清空表格与 meta
+      if (isDerivKind(archiveKind as DerivKind)) {
+        await derivApi.deleteData(archiveKind as DerivKind, archiveMarket, archiveSymbol);
+      } else {
+        await archiveApi.deleteData(archiveKind as ArchiveKind, archiveMarket, archiveSymbol);
+      }
+      message.success(`已删除 ${archiveSymbol} 的数据`);
       setArchiveRows([]);
       setArchiveTotal(0);
       setArchiveMeta(null);
-      // 重新刷新该 (kind, market) 下的 symbols
+      setArchiveSymbol('');
       const key = `${archiveKind}__${archiveMarket}`;
       setArchiveSymbolsMap((prev) => {
         const next = { ...prev };
@@ -1338,19 +1440,22 @@ const DataManagementPage = () => {
       });
       await fetchArchiveSymbols(archiveKind, archiveMarket);
     } catch (error) {
-      console.error('删除归档数据失败:', error);
-      message.error('删除归档数据失败');
+      console.error('删除数据失败:', error);
+      message.error('删除数据失败');
     } finally {
       setArchiveDeleting(false);
     }
   };
 
   // 当展开 kind 时，加载其下的 3 个 market 子树（仅 metadata）
-  const handleArchiveExpandKind = (kind: ArchiveKind, expanded: boolean) => {
+  const handleArchiveExpandKind = (kind: ArchiveKind | DerivKind, expanded: boolean) => {
     if (expanded) {
       setArchiveExpandedKinds((prev) => (prev.includes(kind) ? prev : [...prev, kind]));
-      // 三个 market 的 symbols 都先按需拉一次（带缓存，重复展开不重复请求）
-      ARCHIVE_MARKETS.forEach((m) => {
+      // 衍生数据仅支持 um/cm（spot 无意义），故只拉 2 个；archive 拉全 3 个
+      const markets: MarketType[] = isDerivKind(kind)
+        ? (['um', 'cm'] as MarketType[])
+        : ARCHIVE_MARKETS;
+      markets.forEach((m) => {
         const key = `${kind}__${m}`;
         if (!archiveSymbolsMap[key]) {
           fetchArchiveSymbols(kind, m);
@@ -1733,83 +1838,134 @@ const DataManagementPage = () => {
     </Modal>
   );
 
-  // ==================== 归档浏览渲染 ====================
+  // ==================== 归档 / 衍生 浏览渲染 ====================
 
-  // 渲染左侧树形导航（kind 7 → market 3 → symbols）
-  const renderArchiveTree = () => (
+  // 渲染左侧树形导航（archive 7 种 + deriv 2 种 → market → symbols）
+  const renderArchiveTree = () => {
+    const kinds = archiveBrowserCategory === 'archive' ? ARCHIVE_KINDS : DERIV_KINDS;
+    const marketsForKind = (k: ArchiveKind | DerivKind): MarketType[] =>
+      isDerivKind(k) ? (['um', 'cm'] as MarketType[]) : ARCHIVE_MARKETS;
+    const searchLower = archiveSymbolSearch.toLowerCase();
+
+    return (
     <div style={{ maxHeight: 600, overflow: 'auto' }}>
-      {ARCHIVE_KINDS.map((kind) => {
+      {/* 分类切换：归档数据（7 种） vs 衍生数据（2 种） */}
+      <div style={{ marginBottom: 8 }}>
+        <Segmented
+          block
+          size="small"
+          value={archiveBrowserCategory}
+          onChange={(v) => {
+            const cat = v as ArchiveBrowserCategory;
+            setArchiveBrowserCategory(cat);
+            const firstKind = cat === 'archive' ? ARCHIVE_KINDS[0] : DERIV_KINDS[0];
+            setArchiveKind(firstKind);
+            setArchiveSymbol('');
+            setArchiveExpandedKinds([firstKind]);
+          }}
+          options={[
+            { value: 'archive', label: `行情 (${ARCHIVE_KINDS.length})` },
+            { value: 'deriv', label: `指标 (${DERIV_KINDS.length})` },
+          ]}
+        />
+      </div>
+
+      {/* Symbol 搜索框 */}
+      <Input
+        size="small"
+        placeholder="搜索 symbol..."
+        prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+        allowClear
+        value={archiveSymbolSearch}
+        onChange={(e) => setArchiveSymbolSearch(e.target.value)}
+        style={{ marginBottom: 8 }}
+      />
+
+      {kinds.map((kind) => {
         const expanded = archiveExpandedKinds.includes(kind);
+        const kindLabel = (DATA_KIND_LABEL as Record<string, string>)[kind] ?? kind;
         return (
-          <div key={kind} style={{ marginBottom: 4 }}>
+          <div key={kind} style={{ marginBottom: 2 }}>
             <div
               onClick={() => handleArchiveExpandKind(kind, !expanded)}
               style={{
                 cursor: 'pointer',
-                padding: '6px 8px',
+                padding: '5px 8px',
                 backgroundColor: expanded ? '#e6f4ff' : 'transparent',
                 borderRadius: 4,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
                 fontWeight: archiveKind === kind ? 600 : 400,
+                fontSize: 13,
               }}
             >
               {expanded ? <FolderOpenOutlined /> : <FolderOutlined />}
-              <span>{kind}</span>
-              {KLINE_ARCHIVE_KINDS.includes(kind) && <Tag color="blue">K线</Tag>}
+              <span>{kindLabel}</span>
+              {archiveBrowserCategory === 'archive' && KLINE_ARCHIVE_KINDS.includes(kind as ArchiveKind) && (
+                <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>K线</Tag>
+              )}
+              {archiveBrowserCategory === 'deriv' && <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>衍生</Tag>}
             </div>
             {expanded && (
-              <div style={{ paddingLeft: 16, marginTop: 4 }}>
-                {ARCHIVE_MARKETS.map((m) => {
+              <div style={{ paddingLeft: 14, marginTop: 2 }}>
+                {marketsForKind(kind).map((m) => {
                   const key = `${kind}__${m}`;
                   const symList = archiveSymbolsMap[key];
+                  // 搜索过滤
+                  const filteredSyms = searchLower && symList
+                    ? symList.filter(s => s.toLowerCase().includes(searchLower))
+                    : symList;
                   return (
-                    <div key={m} style={{ marginBottom: 4 }}>
+                    <div key={m} style={{ marginBottom: 2 }}>
                       <div
                         style={{
-                          padding: '4px 6px',
+                          padding: '3px 6px',
                           backgroundColor: archiveKind === kind && archiveMarket === m ? '#f0f5ff' : 'transparent',
                           borderRadius: 4,
-                          fontSize: 13,
+                          fontSize: 12,
                           color: '#666',
                         }}
                       >
                         <FolderOutlined style={{ marginRight: 4 }} />
-                        {m}
+                        {m.toUpperCase()}
                         <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
-                          {symList ? `(${symList.length})` : '(加载中...)'}
+                          {symList ? `(${searchLower && filteredSyms ? `${filteredSyms.length}/${symList.length}` : symList.length})` : '...'}
                         </Text>
                       </div>
-                      {symList && symList.length > 0 && (
-                        <div style={{ paddingLeft: 14, maxHeight: 200, overflow: 'auto' }}>
-                          {symList.map((s) => (
+                      {filteredSyms && filteredSyms.length > 0 && (
+                        <div style={{ paddingLeft: 12, maxHeight: 180, overflow: 'auto' }}>
+                          {filteredSyms.slice(0, 100).map((s) => (
                             <div
                               key={s}
                               onClick={() => handleArchiveSelectSymbol(kind, m, s)}
                               style={{
                                 cursor: 'pointer',
-                                padding: '3px 6px',
+                                padding: '2px 6px',
                                 fontSize: 12,
                                 backgroundColor:
-                                  archiveKind === kind &&
-                                  archiveMarket === m &&
-                                  archiveSymbol === s
+                                  archiveKind === kind && archiveMarket === m && archiveSymbol === s
                                     ? '#bae0ff'
                                     : 'transparent',
                                 borderRadius: 3,
                                 color:
-                                  archiveKind === kind &&
-                                  archiveMarket === m &&
-                                  archiveSymbol === s
-                                    ? '#1890ff'
+                                  archiveKind === kind && archiveMarket === m && archiveSymbol === s
+                                    ? '#1677ff'
                                     : '#333',
                               }}
                             >
                               {s}
                             </div>
                           ))}
+                          {filteredSyms.length > 100 && (
+                            <Text type="secondary" style={{ fontSize: 11, padding: '2px 6px' }}>
+                              还有 {filteredSyms.length - 100} 个，请搜索缩小范围
+                            </Text>
+                          )}
                         </div>
+                      )}
+                      {searchLower && symList && filteredSyms && filteredSyms.length === 0 && (
+                        <Text type="secondary" style={{ fontSize: 11, paddingLeft: 12 }}>无匹配</Text>
                       )}
                     </div>
                   );
@@ -1820,24 +1976,40 @@ const DataManagementPage = () => {
         );
       })}
     </div>
-  );
+    );
+  };
 
-  // 渲染右侧数据表
-  // 表格列根据当前 rows 的 key 动态生成（duck typing）
+  // 表格列根据当前 rows 的 key 动态生成（duck typing）+ 智能列宽/对齐
   const archiveColumns = useMemo(() => {
-    if (archiveRows.length === 0) return [] as Array<{ title: string; dataIndex: string; key: string; width?: number; ellipsis?: boolean }>;
+    if (archiveRows.length === 0) return [] as Array<{ title: string; dataIndex: string; key: string; width?: number; ellipsis?: boolean; align?: 'left' | 'right' | 'center' }>;
     const keys = Object.keys(archiveRows[0] ?? {});
-    return keys.map((k) => ({
-      title: k,
-      dataIndex: k,
-      key: k,
-      width: k === 'symbol' ? 120 : 140,
-      ellipsis: true,
-    }));
+    // 时间类字段名
+    const TIME_KEYS = new Set(['timestamp', 'time', 'open_time', 'close_time', 'first_update_id', 'last_update_id']);
+    return keys.map((k) => {
+      // 判断是否为数值列（取前 5 行采样）
+      const sample = archiveRows.slice(0, 5).map(r => r[k]);
+      const isNumeric = sample.every(v => v === null || typeof v === 'number');
+      let width = 120;
+      if (TIME_KEYS.has(k) || k === 'symbol') width = 150;
+      else if (isNumeric) width = 130;
+      else if (k === 'side' || k === 'is_buyer_maker') width = 90;
+      return {
+        title: k,
+        dataIndex: k,
+        key: k,
+        width,
+        ellipsis: true,
+        align: (isNumeric ? 'right' : 'left') as 'left' | 'right',
+      };
+    });
   }, [archiveRows]);
 
-  // 渲染主面板
-  const renderArchiveBrowser = () => (
+  // 渲染主面板（统一浏览器：归档7种 + 衍生2种）
+  const renderArchiveBrowser = () => {
+    const kindLabel = (DATA_KIND_LABEL as Record<string, string>)[archiveKind as string] ?? archiveKind;
+    // 仅当 kind 是需要 interval 的 K 线类时显示 interval selector
+    const needInterval = INTERVAL_REQUIRED_KINDS.includes(archiveKind as any);
+    return (
     <Row gutter={[16, 16]}>
       {/* 左侧树形导航 */}
       <Col xs={24} md={8} lg={6}>
@@ -1846,7 +2018,7 @@ const DataManagementPage = () => {
           title={
             <Space>
               <DatabaseOutlined />
-              <span>数据源</span>
+              <span>历史行情浏览</span>
             </Space>
           }
           extra={
@@ -1866,12 +2038,13 @@ const DataManagementPage = () => {
           title={
             archiveSymbol ? (
               <Space wrap>
-                <Tag color="blue">{archiveKind}</Tag>
+                <Tag color="blue">{kindLabel}</Tag>
                 <Tag color="purple">{archiveMarket}</Tag>
                 <Text strong>{archiveSymbol}</Text>
-                {KLINE_ARCHIVE_KINDS.includes(archiveKind) && (
+                {needInterval && (
                   <Tag color="cyan">{archiveInterval}</Tag>
                 )}
+                {isDerivKind(archiveKind as DerivKind) && <Tag color="magenta">衍生</Tag>}
               </Space>
             ) : (
               <span>
@@ -1882,7 +2055,7 @@ const DataManagementPage = () => {
           extra={
             archiveSymbol ? (
               <Popconfirm
-                title="确定删除该 symbol 的全部归档数据？"
+                title={`确定删除 ${archiveSymbol} 的 ${kindLabel} 数据？`}
                 description="此操作不可恢复"
                 okText="确定删除"
                 cancelText="取消"
@@ -1902,39 +2075,37 @@ const DataManagementPage = () => {
           }
         >
           {!archiveSymbol ? (
-            <Empty description="请选择左侧 (kind / market / symbol) 后查询" />
+            <Empty
+              description={
+                <Space direction="vertical" size={4}>
+                  <Text type="secondary">请在左侧选择数据浏览</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    步骤：展开数据种类 → 选择市场 → 点击 symbol
+                  </Text>
+                </Space>
+              }
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              style={{ padding: '48px 0' }}
+            />
           ) : (
-            <Space orientation="vertical" style={{ width: '100%' }} size="middle">
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
               {/* 元数据概览 */}
               {archiveMeta && (
-                <Row gutter={[8, 8]}>
-                  <Col>
-                    <Text type="secondary">数据起始:</Text>{' '}
-                    <Text strong>{archiveMeta.earliest_date}</Text>
-                  </Col>
-                  <Col>
-                    <Text type="secondary">数据结束:</Text>{' '}
-                    <Text strong>{archiveMeta.latest_date}</Text>
-                  </Col>
-                  <Col>
-                    <Text type="secondary">总行数:</Text>{' '}
-                    <Text strong>{archiveMeta.total_rows.toLocaleString()}</Text>
-                  </Col>
-                  <Col>
-                    <Text type="secondary">文件数:</Text>{' '}
-                    <Text strong>{archiveMeta.file_count}</Text>
-                  </Col>
-                  {archiveMeta.corrupt_dates.length > 0 && (
-                    <Col span={24}>
-                      <Alert
-                        type="warning"
-                        showIcon
-                        message={`损坏日期: ${archiveMeta.corrupt_dates.length} 个`}
-                        description={archiveMeta.corrupt_dates.slice(0, 10).join(', ')}
-                      />
-                    </Col>
-                  )}
-                </Row>
+                <Descriptions size="small" column={{ xs: 2, sm: 4 }} bordered={false} style={{ background: '#fafafa', padding: '8px 12px', borderRadius: 6 }}>
+                  <Descriptions.Item label="数据起始">{archiveMeta.earliest_date}</Descriptions.Item>
+                  <Descriptions.Item label="数据结束">{archiveMeta.latest_date}</Descriptions.Item>
+                  <Descriptions.Item label="总行数">{archiveMeta.total_rows.toLocaleString()}</Descriptions.Item>
+                  <Descriptions.Item label="文件数">{archiveMeta.file_count}</Descriptions.Item>
+                </Descriptions>
+              )}
+              {archiveMeta && archiveMeta.corrupt_dates.length > 0 && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={`损坏日期: ${archiveMeta.corrupt_dates.length} 个`}
+                  description={archiveMeta.corrupt_dates.slice(0, 10).join(', ')}
+                  style={{ fontSize: 12 }}
+                />
               )}
 
               {/* bookDepth 大数据量警告 */}
@@ -1943,69 +2114,80 @@ const DataManagementPage = () => {
                   type="warning"
                   showIcon
                   message="bookDepth 数据量较大"
-                  description="单天可展平为千万行，请务必缩小时间范围（建议 ≤ 1 天），并使用分页加载"
+                  description="单天可展平为千万行，请缩小时间范围（建议 ≤ 1 天）"
                 />
               )}
 
               {/* 查询控件 */}
-              <Row gutter={[8, 8]} align="middle">
-                <Col xs={24} sm={12} md={10}>
-                  <RangePicker
-                    showTime
-                    style={{ width: '100%' }}
-                    value={[dayjs(archiveTimeRange[0]), dayjs(archiveTimeRange[1])]}
-                    onChange={(dates) => {
-                      if (dates && dates[0] && dates[1]) {
-                        setArchiveTimeRange([dates[0].valueOf(), dates[1].valueOf()]);
-                      }
-                    }}
-                  />
-                </Col>
-                {KLINE_ARCHIVE_KINDS.includes(archiveKind) && (
-                  <Col xs={12} sm={6} md={4}>
-                    <Select
-                      style={{ width: '100%' }}
-                      value={archiveInterval}
-                      onChange={setArchiveInterval}
-                      options={ARCHIVE_INTERVALS.map((i) => ({ value: i, label: i }))}
-                      placeholder="interval"
-                    />
-                  </Col>
-                )}
-                <Col xs={12} sm={6} md={4}>
-                  <Button
-                    type="primary"
-                    icon={<SearchOutlined />}
-                    loading={archiveQueryLoading}
-                    block
-                    onClick={() =>
-                      doArchiveQuery(archiveKind, archiveMarket, archiveSymbol, archiveTimeRange, 1, archivePageSize)
+              <Space wrap size={8} align="center">
+                {/* 快捷时间预设 */}
+                <Segmented
+                  size="small"
+                  value=""
+                  onChange={(v) => {
+                    const end = Date.now();
+                    const ranges: Record<string, number> = { '1d': 86400_000, '7d': 7 * 86400_000, '30d': 30 * 86400_000, 'all': 365 * 86400_000 };
+                    const ms = ranges[v as string] || 7 * 86400_000;
+                    setArchiveTimeRange([end - ms, end]);
+                  }}
+                  options={[
+                    { value: '1d', label: '近1天' },
+                    { value: '7d', label: '近7天' },
+                    { value: '30d', label: '近30天' },
+                    { value: 'all', label: '近1年' },
+                  ]}
+                />
+                <RangePicker
+                  showTime
+                  size="small"
+                  style={{ width: 320 }}
+                  value={[dayjs(archiveTimeRange[0]), dayjs(archiveTimeRange[1])]}
+                  onChange={(dates) => {
+                    if (dates && dates[0] && dates[1]) {
+                      setArchiveTimeRange([dates[0].valueOf(), dates[1].valueOf()]);
                     }
-                  >
-                    查询
-                  </Button>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    共 {archiveTotal.toLocaleString()} 行
-                    {archiveTruncated && '（已截断到 1,000,000 上限）'}
-                  </Text>
-                </Col>
-              </Row>
+                  }}
+                />
+                {needInterval && (
+                  <Select
+                    size="small"
+                    style={{ width: 80 }}
+                    value={archiveInterval}
+                    onChange={setArchiveInterval}
+                    options={ARCHIVE_INTERVALS.map((i) => ({ value: i, label: i }))}
+                  />
+                )}
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<SearchOutlined />}
+                  loading={archiveQueryLoading}
+                  onClick={() =>
+                    doArchiveQuery(archiveKind, archiveMarket, archiveSymbol, archiveTimeRange, 1, archivePageSize)
+                  }
+                >
+                  查询
+                </Button>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  共 {archiveTotal.toLocaleString()} 行
+                  {archiveTruncated && '（已截断）'}
+                </Text>
+              </Space>
 
-              {/* 数据表（固定列宽 + 高 y 滚动 + 分页避免一次性渲染 10w+ DOM） */}
+              {/* 数据表 */}
               <Table
                 size="small"
                 rowKey={(_r, idx) => String(idx)}
                 dataSource={archiveRows}
                 columns={archiveColumns}
                 loading={archiveQueryLoading}
-                scroll={{ x: 'max-content', y: 500 }}
+                scroll={{ x: 'max-content', y: 480 }}
                 pagination={{
                   current: archivePage,
                   pageSize: archivePageSize,
                   total: archiveTotal,
                   showSizeChanger: true,
+                  size: 'small',
                   pageSizeOptions: [100, 200, 500, 1000],
                   showTotal: (t) => `共 ${t.toLocaleString()} 行`,
                   onChange: (p, s) => {
@@ -2021,7 +2203,8 @@ const DataManagementPage = () => {
         </Card>
       </Col>
     </Row>
-  );
+    );
+  };
 
   // 渲染货币对工具栏 - 参考策略回测页面风格
   // 批量开启自动更新
@@ -2569,18 +2752,85 @@ const DataManagementPage = () => {
   );
 
   // 渲染数据采集
-  const renderCollection = () => (
+  const renderCollection = () => {
+    // 判断当前 data_type 是否需要 interval
+    const needInterval = INTERVAL_REQUIRED_KINDS.includes(collectionDataType as any);
+    // 衍生数据仅支持 um/cm，market 里 spot 要禁用
+    const FUTURES_ONLY = new Set(['fundingRate', 'openInterest']);
+    const spotDisabled = FUTURES_ONLY.has(collectionDataType);
+    // 当前默认 kline + spot，保持与旧行为一致
+    return (
     <Row gutter={[16, 16]}>
       <Col xs={24} lg={12}>
-        <Card title={t('batch_collect') || '批量数据采集'}>
+        <Card title={t('batch_collect') || '批量数据采集（支持全数据类型）'}>
           <Form
             form={collectionForm}
             layout="vertical"
             initialValues={{
               dateRange: [dayjs().subtract(1, 'month'), dayjs()],
               intervals: ['15m'],
+              dataType: 'kline',
+              market: 'spot',
             }}
           >
+            {/* 1) 数据类型（下拉选择，支持分组） */}
+            <Form.Item
+              name="dataType"
+              label="数据类型"
+              rules={[{ required: true, message: '请选择数据类型' }]}
+            >
+              <Select
+                placeholder="请选择数据类型"
+                style={{ width: '100%' }}
+                showSearch
+                optionFilterProp="label"
+                options={[
+                  {
+                    label: 'K 线数据',
+                    options: [
+                      { value: 'kline', label: 'Spot / UM / CM 现货及合约K线' },
+                      { value: 'markPriceKlines', label: '标记价格K线 (Mark Price)' },
+                      { value: 'indexPriceKlines', label: '指数价格K线 (Index Price)' },
+                      { value: 'premiumIndexKlines', label: '溢价指数K线 (Premium Index)' },
+                    ],
+                  },
+                  {
+                    label: '行情数据',
+                    options: [
+                      { value: 'aggTrades', label: '聚合成交 (Aggregated Trades)' },
+                      { value: 'trades', label: '逐笔成交 (Trades)' },
+                      { value: 'bookDepth', label: '订单簿深度 (Book Depth)' },
+                      { value: 'bookTicker', label: '最优挂单 (Book Ticker)' },
+                    ],
+                  },
+                  {
+                    label: '衍生品指标',
+                    options: [
+                      { value: 'fundingRate', label: '资金费率 (Funding Rate)' },
+                      { value: 'openInterest', label: '持仓量 (Open Interest)' },
+                    ],
+                  },
+                ]}
+              />
+            </Form.Item>
+
+            {/* 2) 市场选择（spot / um / cm） */}
+            <Form.Item
+              name="market"
+              label="市场"
+              rules={[{ required: true, message: '请选择市场' }]}
+              tooltip={spotDisabled ? '该数据类型仅支持合约市场（UM/CM）' : undefined}
+            >
+              <Segmented
+                options={[
+                  { label: '现货 Spot', value: 'spot', disabled: spotDisabled },
+                  { label: 'U本位 UM', value: 'um' },
+                  { label: '币本位 CM', value: 'cm' },
+                ]}
+              />
+            </Form.Item>
+
+            {/* 3) symbols 多选 */}
             <Form.Item
               name="symbols"
               label={t('select_symbol_or_group') || '选择货币对'}
@@ -2628,33 +2878,36 @@ const DataManagementPage = () => {
                       expandedSymbols.push(value);
                     }
                   });
-                  // 去重
                   const uniqueSymbols = [...new Set(expandedSymbols)];
                   collectionForm.setFieldsValue({ symbols: uniqueSymbols });
                 }}
               />
             </Form.Item>
 
-            <Form.Item
-              name="intervals"
-              label={t('interval') || '时间周期'}
-              rules={[{ required: true, message: t('please_select_interval') || '请至少选择一个时间周期' }]}
-            >
-              <Select
-                mode="multiple"
-                placeholder={t('select_interval_placeholder') || '选择时间周期'}
-                options={[
-                  { value: '1m', label: t('interval_1m') || '1分钟' },
-                  { value: '5m', label: t('interval_5m') || '5分钟' },
-                  { value: '15m', label: t('interval_15m') || '15分钟' },
-                  { value: '30m', label: t('interval_30m') || '30分钟' },
-                  { value: '1h', label: t('interval_1h') || '1小时' },
-                  { value: '4h', label: t('interval_4h') || '4小时' },
-                  { value: '1d', label: t('interval_1d') || '1天' },
-                ]}
-              />
-            </Form.Item>
+            {/* 4) 仅 K 线类显示 intervals */}
+            {needInterval && (
+              <Form.Item
+                name="intervals"
+                label={t('interval') || '时间周期'}
+                rules={[{ required: true, message: t('please_select_interval') || '请至少选择一个时间周期' }]}
+              >
+                <Select
+                  mode="multiple"
+                  placeholder={t('select_interval_placeholder') || '选择时间周期'}
+                  options={[
+                    { value: '1m', label: t('interval_1m') || '1分钟' },
+                    { value: '5m', label: t('interval_5m') || '5分钟' },
+                    { value: '15m', label: t('interval_15m') || '15分钟' },
+                    { value: '30m', label: t('interval_30m') || '30分钟' },
+                    { value: '1h', label: t('interval_1h') || '1小时' },
+                    { value: '4h', label: t('interval_4h') || '4小时' },
+                    { value: '1d', label: t('interval_1d') || '1天' },
+                  ]}
+                />
+              </Form.Item>
+            )}
 
+            {/* 5) 时间范围 */}
             <Form.Item
               name="dateRange"
               label={t('date_range') || '时间范围'}
@@ -2670,7 +2923,7 @@ const DataManagementPage = () => {
                 onClick={handleBatchCollection}
                 block
               >
-                {t('start_batch_collect') || '开始批量采集'}
+                {t('start_batch_collect') || `开始采集 · ${DATA_KIND_LABEL[collectionDataType as keyof typeof DATA_KIND_LABEL] || collectionDataType}`}
               </Button>
             </Form.Item>
           </Form>
@@ -2678,42 +2931,81 @@ const DataManagementPage = () => {
       </Col>
 
       <Col xs={24} lg={12}>
-        <Card title={t('collection_tasks') || '采集任务'}>
-          <div style={{ maxHeight: 600, overflow: 'auto' }}>
-            {collectionTasks.length === 0 && !currentTaskId ? (
-              <Empty description={t('no_collection_tasks') || '暂无采集任务'} />
-            ) : (
-              <Space orientation="vertical" style={{ width: '100%' }}>
-                {/* 当前任务放在最前面 */}
-                {currentTaskId && (
-                  <TaskCard
-                    task={{
-                      task_id: currentTaskId,
-                      status: taskStatus,
-                      task_type: 'download',
-                      params: {},
-                      progress: { percentage: taskProgress },
-                      created_at: new Date().toISOString(),
-                    }}
-                    isCurrent={true}
-                    taskProgressList={taskProgressList}
-                    isProgressExpanded={isProgressExpanded}
-                    setIsProgressExpanded={setIsProgressExpanded}
-                  />
-                )}
-                {/* 历史任务列表 */}
-                {collectionTasks
-                  .filter((task) => task.task_id !== currentTaskId)
-                  .map((task) => (
-                    <TaskCard key={task.task_id} task={task} isCurrent={false} />
-                  ))}
-              </Space>
-            )}
-          </div>
+        <Card
+          title={
+            <Space>
+              <span>{t('collection_tasks') || '采集任务'}</span>
+              <Badge count={collectionTasks.filter(t => t.status === 'running').length} size="small" color="#1677ff" />
+            </Space>
+          }
+          extra={
+            <Button
+              icon={<ReloadOutlined />}
+              size="small"
+              onClick={() => fetchCollectionTasks()}
+              loading={taskListLoading}
+            >
+              刷新
+            </Button>
+          }
+        >
+          {/* 状态筛选 */}
+          <Segmented
+            size="small"
+            value={taskStatusFilter}
+            onChange={(val) => { setTaskStatusFilter(val as string); }}
+            options={[
+              { label: '全部', value: 'all' },
+              { label: '运行中', value: 'running' },
+              { label: '已完成', value: 'completed' },
+              { label: '失败', value: 'failed' },
+            ]}
+            style={{ marginBottom: 12 }}
+            block
+          />
+
+          <Spin spinning={taskListLoading}>
+            <div style={{ maxHeight: 560, overflow: 'auto' }}>
+              {collectionTasks.length === 0 && !currentTaskId ? (
+                <Empty
+                  description={taskStatusFilter !== 'all' ? '无匹配该状态的任务' : (t('no_collection_tasks') || '暂无采集任务')}
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  style={{ padding: '32px 0' }}
+                />
+              ) : (
+                <Space direction="vertical" style={{ width: '100%' }} size={0}>
+                  {/* 当前任务放在最前面 */}
+                  {currentTaskId && taskStatusFilter === 'all' || (currentTaskId && taskStatusFilter === taskStatus) ? (
+                    <TaskCard
+                      task={{
+                        task_id: currentTaskId,
+                        status: taskStatus,
+                        task_type: 'download',
+                        params: {},
+                        progress: { percentage: taskProgress, total: taskProgressList.length, completed: taskProgressList.filter(t => (t.percentage || 0) >= 100).length, failed: 0, current: '' },
+                        created_at: new Date().toISOString(),
+                      }}
+                      isCurrent={true}
+                      taskProgressList={taskProgressList}
+                      isProgressExpanded={isProgressExpanded}
+                      setIsProgressExpanded={setIsProgressExpanded}
+                    />
+                  ) : null}
+                  {/* 历史任务列表 */}
+                  {collectionTasks
+                    .filter((task) => task.task_id !== currentTaskId)
+                    .map((task) => (
+                      <TaskCard key={task.task_id} task={task} isCurrent={false} />
+                    ))}
+                </Space>
+              )}
+            </div>
+          </Spin>
         </Card>
       </Col>
     </Row>
-  );
+    );
+  };
 
   // 渲染数据质量
   const renderQuality = () => (
@@ -3275,7 +3567,7 @@ const DataManagementPage = () => {
             key: 'collection',
             label: (
               <span>
-                <CloudDownloadOutlined /> {t('data_collection') || '数据采集'}
+                <CloudDownloadOutlined /> {t('data_collection') || '数据采集（全类型）'}
               </span>
             ),
             children: renderCollection(),
@@ -3293,7 +3585,7 @@ const DataManagementPage = () => {
             key: 'archive',
             label: (
               <span>
-                <FileSearchOutlined /> 归档浏览
+                <FileSearchOutlined /> 历史行情浏览
               </span>
             ),
             children: renderArchiveBrowser(),

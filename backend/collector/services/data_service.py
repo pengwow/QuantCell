@@ -1251,107 +1251,26 @@ class DataService:
     def async_download_crypto(self, task_id: str, request: DownloadCryptoRequest):
         """异步下载加密货币数据
 
-        Args:
-            task_id: 任务ID
-            request: 下载加密货币数据请求
+        根据 data_type 路由到不同的采集路径：
+        - K 线类（kline/markPriceKlines/indexPriceKlines/premiumIndexKlines）：
+          沿用原有 GetData 多周期遍历逻辑
+        - 归档/衍生类：通过 DataCollector.collect() 统一入口
         """
         try:
+            from ..schemas.data import _KLINE_TYPES
+            from ..services.data_collector import DataCollector
 
             logger.info(f"开始异步下载加密货币数据，任务ID: {task_id}, 请求参数: {request.model_dump()}")
 
             # 开始任务
             task_manager.start_task(task_id)
 
-            # 计算总任务数（时间周期数 × 货币对数）
-            total_intervals = len(request.interval)
-            total_symbols = len(request.symbols)
-            total_tasks = total_intervals * total_symbols
-            completed_tasks = 0
-
-            # 遍历所有时间周期
-            for interval_idx, interval in enumerate(request.interval):
-                logger.info(f"开始处理时间周期: {interval} ({interval_idx + 1}/{total_intervals})")
-
-                # 更新进度：开始处理当前时间周期
-                task_manager.update_progress(
-                    task_id=task_id,
-                    current=f"{interval}",
-                    completed=completed_tasks,
-                    total=total_tasks,
-                    status=f"正在下载 {interval} 数据 ({', '.join(request.symbols)})...",
-                    interval=interval
-                )
-
-                # 实例化GetData类并传入所有参数（支持多货币对批量下载）
-                get_data = GetData(
-                    symbols=",".join(request.symbols),  # 多个货币对用逗号连接
-                    exchange=request.exchange,
-                    candle_type=request.candle_type,
-                    start=request.start,
-                    end=request.end,
-                    interval=interval,
-                    max_workers=1,  # 强制使用单进程，避免 pickle 序列化错误
-                    mode=request.mode
-                )
-
-                # 创建实时进度回调函数（推送下载过程中的细粒度进度）
-                symbol_completed = 0  # ✅ 当前时间周期内已完成的货币对计数
-
-                def download_progress_callback(symbol, current, total_count, failed_count, status="downloading"):
-                    """下载过程中的实时进度回调"""
-                    nonlocal symbol_completed  # ✅ 使用 nonlocal 声明以修改外部变量
-                    try:
-                        # 计算当前货币对的独立进度百分比（0-100）
-                        symbol_progress_pct = (current / total_count * 100) if total_count > 0 else 0
-
-                        # ✅ 当货币对完成时，递增已完成计数
-                        if status in ["completed", "failed"]:
-                            if symbol_progress_pct >= 99.9:  # 避免重复计数
-                                symbol_completed += 1
-
-                        task_manager.update_progress(
-                            task_id=task_id,
-                            current=symbol,
-                            completed=symbol_progress_pct,   # ✅ 使用当前货币对的独立进度（0-100）
-                            total=100,                       # ✅ 总量固定为100（百分比模式）
-                            status=f"[{symbol_completed+1}/{total_symbols}] {symbol} {interval}: {status}",
-                            symbol_progress=round(symbol_progress_pct, 1),
-                            interval=interval
-                        )
-                    except Exception as e:
-                        logger.warning(f"推送下载进度失败: {e}")
-
-                # 调用run方法下载数据（传入进度回调以实现实时更新）
-                get_data.run(progress_callback=download_progress_callback)
-
-                # 更新计数：当前时间周期的所有货币对完成
-                completed_tasks += total_symbols
-
-                # 更新进度：显示100%完成
-                task_manager.update_progress(
-                    task_id=task_id,
-                    current=f"{interval}",
-                    completed=100,  # ✅ 显示100%（当前周期已完成）
-                    total=100,
-                    status=f"[{completed_tasks}/{total_symbols * len(request.interval)}] {interval} 数据下载完成",
-                    symbol_progress=100.0,
-                    interval=interval
-                )
-                logger.info(f"时间周期 {interval} 所有数据下载成功")
-
-            logger.info(f"所有时间周期数据下载成功，任务ID: {task_id}")
-
-            # ✅ 显式设置任务级别的统计信息（用于最终显示）
-            total_task_count = total_symbols * len(request.interval) if request.interval else total_symbols
-            task_manager.update_progress(
-                task_id=task_id,
-                current="完成",
-                completed=completed_tasks,      # ✅ 使用实际完成的任务数
-                total=total_task_count,         # ✅ 总任务数
-                status="全部下载完成",
-                symbol_progress=100.0,
-                interval="all"
-            )
+            # K 线类：沿用原有逻辑（遍历时间周期）
+            if request.data_type in _KLINE_TYPES:
+                self._async_download_kline(task_id, request)
+            else:
+                # 归档/衍生类：使用 DataCollector 统一入口
+                self._async_download_other(task_id, request)
 
             # 更新任务状态为已完成
             task_manager.complete_task(task_id)
@@ -1361,6 +1280,136 @@ class DataService:
             
             # 更新任务状态为失败
             task_manager.fail_task(task_id, error_message=str(e))
+
+    def _async_download_kline(self, task_id: str, request: DownloadCryptoRequest):
+        """K线类异步下载（原有逻辑）"""
+        # 计算总任务数（时间周期数 × 货币对数）
+        total_intervals = len(request.interval)
+        total_symbols = len(request.symbols)
+        total_tasks = total_intervals * total_symbols
+        completed_tasks = 0
+
+        # 遍历所有时间周期
+        for interval_idx, interval in enumerate(request.interval):
+            logger.info(f"开始处理时间周期: {interval} ({interval_idx + 1}/{total_intervals})")
+
+            # 更新进度：开始处理当前时间周期
+            task_manager.update_progress(
+                task_id=task_id,
+                current=f"{interval}",
+                completed=completed_tasks,
+                total=total_tasks,
+                status=f"正在下载 {interval} 数据 ({', '.join(request.symbols)})...",
+                interval=interval
+            )
+
+            # 实例化GetData类并传入所有参数
+            get_data = GetData(
+                symbols=",".join(request.symbols),
+                exchange=request.exchange,
+                candle_type=request.candle_type,
+                start=request.start,
+                end=request.end,
+                interval=interval,
+                max_workers=1,
+                mode=request.mode
+            )
+
+            # 创建实时进度回调
+            symbol_completed = 0
+
+            def download_progress_callback(symbol, current, total_count, failed_count, status="downloading"):
+                nonlocal symbol_completed
+                try:
+                    symbol_progress_pct = (current / total_count * 100) if total_count > 0 else 0
+
+                    if status in ["completed", "failed"]:
+                        if symbol_progress_pct >= 99.9:
+                            symbol_completed += 1
+
+                    task_manager.update_progress(
+                        task_id=task_id,
+                        current=symbol,
+                        completed=symbol_progress_pct,
+                        total=100,
+                        status=f"[{symbol_completed+1}/{total_symbols}] {symbol} {interval}: {status}",
+                        symbol_progress=round(symbol_progress_pct, 1),
+                        interval=interval
+                    )
+                except Exception as e:
+                    logger.warning(f"推送下载进度失败: {e}")
+
+            get_data.run(progress_callback=download_progress_callback)
+
+            completed_tasks += total_symbols
+
+            task_manager.update_progress(
+                task_id=task_id,
+                current=f"{interval}",
+                completed=100,
+                total=100,
+                status=f"[{completed_tasks}/{total_symbols * total_intervals}] {interval} 数据下载完成",
+                symbol_progress=100.0,
+                interval=interval
+            )
+            logger.info(f"时间周期 {interval} 所有数据下载成功")
+
+        logger.info(f"所有时间周期数据下载成功，任务ID: {task_id}")
+
+        total_task_count = total_symbols * total_intervals
+        task_manager.update_progress(
+            task_id=task_id,
+            current="完成",
+            completed=completed_tasks,
+            total=total_task_count,
+            status="全部下载完成",
+            symbol_progress=100.0,
+            interval="all"
+        )
+
+    def _async_download_other(self, task_id: str, request: DownloadCryptoRequest):
+        """归档/衍生类异步下载"""
+        from ..services.data_collector import DataCollector
+
+        logger.info(f"使用 DataCollector 下载 {request.data_type} 数据，市场: {request.market}")
+
+        total_symbols = len(request.symbols)
+        completed = 0
+
+        for symbol in request.symbols:
+            task_manager.update_progress(
+                task_id=task_id,
+                current=symbol,
+                completed=int(completed / max(total_symbols, 1) * 100),
+                total=100,
+                status=f"正在下载 {request.data_type} ({request.market}) {symbol}...",
+                interval=""
+            )
+
+            try:
+                collector = DataCollector()
+                collector.collect(
+                    data_type=request.data_type,
+                    market=request.market,
+                    symbols=[symbol],
+                    intervals=request.interval if request.interval else None,
+                    start=request.start,
+                    end=request.end,
+                )
+                logger.info(f"{symbol} {request.data_type} 下载成功")
+            except Exception as e:
+                logger.error(f"{symbol} {request.data_type} 下载失败: {e}")
+
+            completed += 1
+
+        task_manager.update_progress(
+            task_id=task_id,
+            current="完成",
+            completed=100,
+            total=100,
+            status=f"{request.data_type} 数据下载完成（{completed}/{total_symbols}）",
+            interval=""
+        )
 
     def export_crypto_data(self, request: ExportCryptoRequest) -> Dict[str, Any]:
         """导出加密货币数据
