@@ -28,8 +28,8 @@ from exchange.binance.archive.kinds import (
 
 logger = logging.getLogger(__name__)
 
-# 磁盘预警阈值：剩余空间小于 5GB 时停止（spec §6.2）
-_DISK_FREE_MIN_BYTES = 5 * 1024 ** 3
+# 磁盘预警阈值：剩余空间小于 1GB 时停止
+_DISK_FREE_MIN_BYTES = 1 * 1024 ** 3
 
 # 单次 read_range 硬上限 1M 行（spec §5.1）
 _READ_RANGE_MAX_ROWS = 1_000_000
@@ -92,10 +92,10 @@ class BaseBinanceArchiveDownloader:
         # 磁盘预警
         check_dir = self.save_dir if self.save_dir.exists() else self.base_dir
         if check_dir.exists() and shutil.disk_usage(check_dir).free < _DISK_FREE_MIN_BYTES:
-            raise IOError(f"Less than 5GB free disk space, aborting {symbol} {date_str}")
+            raise IOError(f"Less than 1GB free disk space, aborting {symbol} {date_str}")
 
         timeout = aiohttp.ClientTimeout(total=300)
-        async with session.get(url, proxy=self.proxy, timeout=timeout) as resp:
+        async with session.get(url, timeout=timeout) as resp:
             if resp.status == 404:
                 logger.info("%s: %s not found, skip", symbol, date_str)
                 return pd.DataFrame()
@@ -237,6 +237,31 @@ class BaseBinanceArchiveDownloader:
         return {'total': total, 'rows': df.to_dict(orient='records'), 'truncated': truncated}
 
     def _run_async(self, coro_func, *args) -> object:
-        """同步入口里驱动单次异步调用（asyncio.run）。"""
+        """同步入口里驱动单次异步调用（asyncio.run）。
+
+        自动创建 aiohttp ClientSession 并作为第一个参数注入 coro_func。
+        代理通过 trust_env（默认 True）从环境变量读取；若 self.proxy 已设置则临时注入环境变量。
+        """
         import asyncio
-        return asyncio.run(coro_func(*args))
+        import os
+
+        async def _wrap():
+            # 若通过参数传入了 proxy，临时写入环境变量供 trust_env 读取
+            saved = {}
+            if self.proxy:
+                for key in ("https_proxy", "http_proxy", "all_proxy"):
+                    saved[key] = os.environ.get(key)
+                os.environ["https_proxy"] = self.proxy
+                os.environ["http_proxy"] = self.proxy
+            try:
+                timeout = aiohttp.ClientTimeout(total=300)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    return await coro_func(session, *args)
+            finally:
+                for key, val in saved.items():
+                    if val is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = val
+
+        return asyncio.run(_wrap())

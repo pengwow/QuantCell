@@ -1295,11 +1295,13 @@ def download(
     save_dir: Annotated[Optional[str], typer.Option("--save-dir", help="保存目录(可选，默认从系统配置读取)")] = None,
     to_db: Annotated[bool, typer.Option("--to-db/--no-db", help="是否直接写入数据库")] = True,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="显示详细日志")] = False,
+    data_type: Annotated[str, typer.Option("--data-type", "-t", help="数据类型: kline/aggTrades/trades/bookDepth/bookTicker/markPriceKlines/indexPriceKlines/premiumIndexKlines/fundingRate/openInterest")] = "kline",
+    market: Annotated[str, typer.Option("--market", help="市场类型: spot/um/cm")] = "spot",
 ):
     """
-    下载K线数据
+    下载加密货币数据（支持K线、归档数据、衍生数据等多种类型）
 
-    支持多交易对、多时间周期批量下载，数据将保存到指定目录并可选写入数据库。
+    支持多交易对、多时间周期批量下载，数据将保存到指定目录。
     
     参数默认值逻辑：
     - 当--symbols和--pool均缺失时：自动获取全部可用货币对
@@ -1308,18 +1310,30 @@ def download(
     - 当仅--start缺失时：从--end往前推1个月作为开始时间
     - 当仅--end缺失时：使用当前时间作为结束时间
 
-    示例:
-      # 下载所有货币对的1小时数据（最近1个月）
-      python data_cli.py download
-      
-      # 下载指定货币对的1小时数据（最近1个月）
-      python data_cli.py download -s BTCUSDT -s ETHUSDT
-      
-      # 下载指定时间范围的数据
-      python data_cli.py download -s BTCUSDT -i 15m --start 20240101 --end 20241231
+    数据类型说明:
+      kline           K线数据（默认）
+      aggTrades        归集交易数据
+      trades           逐笔交易数据
+      bookDepth        深度数据
+      bookTicker       最优挂单数据
+      markPriceKlines  标记价格K线（仅期货）
+      indexPriceKlines 指数价格K线（仅期货）
+      premiumIndexKlines 溢价指数K线（仅期货）
+      fundingRate      资金费率（仅期货）
+      openInterest     持仓量（仅期货）
 
-      # 使用自选组合
-      python data_cli.py download --pool 我的自选组合 -i 15m --start 20240101 --end 20241231
+    示例:
+      # 下载K线数据（默认）
+      python data.py download -s BTCUSDT -i 1h
+
+      # 下载归档数据
+      python data.py download -s BTCUSDT -t aggTrades --market spot
+
+      # 下载资金费率
+      python data.py download -s BTCUSDT -t fundingRate --market um
+
+      # 下载标记价格K线
+      python data.py download -s BTCUSDT -t markPriceKlines --market um -i 1h
     """
     if verbose:
         logger.remove()
@@ -1449,6 +1463,58 @@ def download(
         typer.echo("错误: 模式必须是 'inc'(增量) 或 'full'(全量)", err=True)
         raise typer.Exit(1)
     
+    # —— 数据类型和市场校验 ——
+    from collector.schemas.data import (
+        VALID_DATA_TYPES, VALID_MARKETS, _FUTURES_ONLY_TYPES,
+        _KLINE_TYPES, _ARCHIVE_TYPES, _DERIV_TYPES,
+    )
+
+    if data_type not in VALID_DATA_TYPES:
+        typer.echo(f"错误: 无效的 data_type '{data_type}'", err=True)
+        typer.echo(f"可选值: {', '.join(sorted(VALID_DATA_TYPES))}", err=True)
+        raise typer.Exit(1)
+
+    if market not in VALID_MARKETS:
+        typer.echo(f"错误: 无效的 market '{market}'", err=True)
+        typer.echo(f"可选值: {', '.join(sorted(VALID_MARKETS))}", err=True)
+        raise typer.Exit(1)
+
+    if market == "spot" and data_type in _FUTURES_ONLY_TYPES:
+        typer.echo(f"错误: data_type '{data_type}' 仅支持 --market um 或 cm", err=True)
+        raise typer.Exit(1)
+
+    # interval 仅对 K线类型有效
+    need_interval = data_type in _KLINE_TYPES
+
+    # 非K线类型：使用 DataCollector 直接路由
+    if not need_interval:
+        if not symbols:
+            typer.echo(f"错误: 非K线数据类型必须指定 --symbols", err=True)
+            raise typer.Exit(1)
+
+        typer.echo(f"下载 {data_type} 数据 (market={market})...")
+        try:
+            from collector.services.data_collector import DataCollector
+            collector = DataCollector()
+            collector.collect(
+                data_type=data_type,
+                market=market,
+                symbols=symbols,
+                intervals=interval,
+                start=start_formatted,
+                end=end_formatted,
+                max_workers=max_workers,
+                mode=mode,
+            )
+            typer.echo("✓ 下载完成!")
+            return
+        except Exception as e:
+            logger.exception(f"下载失败: {e}")
+            typer.echo(f"错误: {e}", err=True)
+            raise typer.Exit(1)
+
+    # —— K线类型：使用原有 DataService 流程 ——
+    
     try:
         # 初始化数据库
         _init_db_for_task_manager()
@@ -1468,7 +1534,9 @@ def download(
             max_workers=max_workers,
             candle_type=candle_type,
             save_dir=save_dir,
-            mode=mode
+            mode=mode,
+            data_type=data_type,
+            market=market,
         )
         
         logger.info(f"创建下载任务，参数: {request.model_dump()}")
@@ -1486,6 +1554,8 @@ def download(
         task_id = result["task_id"]
         typer.echo(f"✓ 下载任务已创建")
         typer.echo(f"  任务ID: {task_id}")
+        typer.echo(f"  数据类型: {data_type}")
+        typer.echo(f"  市场: {market}")
         typer.echo(f"  交易对: {', '.join(symbols)}")
         typer.echo(f"  时间周期: {', '.join(interval)}")
         typer.echo(f"  时间范围: {start} ~ {end}")

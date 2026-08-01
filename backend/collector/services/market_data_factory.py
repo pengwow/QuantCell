@@ -144,8 +144,20 @@ class BinanceMarketDataFetcher(MarketDataFetcher):
         """获取币安客户端（延迟初始化）"""
         if self._client is None:
             from binance.client import Client
+            import os
 
+            # 优先使用数据库配置的代理，其次使用环境变量代理
             proxies = self._get_proxy_config()
+            if not proxies:
+                env_https = os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
+                env_http = os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
+                if env_https or env_http:
+                    proxies = {
+                        "http": env_http or env_https,
+                        "https": env_https or env_http,
+                    }
+                    logger.info(f"使用环境变量代理获取市场数据: {proxies}")
+
             logger.info(f"初始化币安客户端，代理: {proxies is not None}")
 
             if proxies:

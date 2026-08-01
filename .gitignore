@@ -70,3 +70,4 @@ docs/compose/specs/*
 AGENTS.md
 backend/.mimocode/.cron-lock
 backend/*.egg-info/
+docs/superpowers/*

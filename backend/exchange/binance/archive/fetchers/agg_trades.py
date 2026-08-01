@@ -1,11 +1,12 @@
-"""aggTrades 聚合成交下载器（Task 5 完整实现）。
+"""aggTrades 聚合成交下载器。
 
-aggTrades zip 内的 CSV **带 header**, 列名已经是 snake_case, 因此
-`column_mapping` 是 identity (原始列名 = 标准列名), `transform_df` 只负责
-强制列类型 (避免 pandas 推断为 object/nullable), 让最终 parquet schema 落
-到 AGG_TRADES_SCHEMA。
+aggTrades zip 内的 CSV **不带 header**, 列顺序固定为
+(agg_trade_id, price, quantity, first_trade_id, last_trade_id, transact_time, is_buyer_maker),
+因此子类重写 `_parse_csv_bytes` 强制指定列名。
 """
 from __future__ import annotations
+
+import io
 
 import pandas as pd
 import pyarrow as pa
@@ -21,35 +22,37 @@ AGG_TRADES_SCHEMA = pa.schema([
     pa.field('quantity', pa.float64()),
     pa.field('first_trade_id', pa.int64()),
     pa.field('last_trade_id', pa.int64()),
-    pa.field('transact_time', pa.int64()),  # 毫秒
+    pa.field('transact_time', pa.int64()),
     pa.field('is_buyer_maker', pa.bool_()),
 ])
+
+# Binance aggTrades zip 内的 CSV 列顺序 (无 header)
+_AGG_TRADES_COLS = [
+    'agg_trade_id', 'price', 'quantity',
+    'first_trade_id', 'last_trade_id',
+    'transact_time', 'is_buyer_maker',
+]
 
 
 class AggTradesFetcher(BaseBinanceArchiveDownloader):
     """聚合成交（Agg Trades）下载器。"""
 
     archive_kind = ArchiveKind.AGG_TRADES
-    # Binance 官方 zip 路径片段（与 ArchiveKind 值一致）
     url_subpath = 'aggTrades'
-    # 原始列名 → 标准化列名映射 (identity)
-    column_mapping = {
-        'agg_trade_id': 'agg_trade_id',
-        'price': 'price',
-        'quantity': 'quantity',
-        'first_trade_id': 'first_trade_id',
-        'last_trade_id': 'last_trade_id',
-        'transact_time': 'transact_time',
-        'is_buyer_maker': 'is_buyer_maker',
-    }
+    column_mapping = {col: col for col in _AGG_TRADES_COLS}
     parquet_schema = AGG_TRADES_SCHEMA
 
-    def transform_df(self, raw_df: pd.DataFrame) -> pd.DataFrame:
-        """aggTrades zip 内的 CSV 带 header, 列名已是 snake_case.
+    def _parse_csv_bytes(self, data: bytes) -> pd.DataFrame:
+        """aggTrades zip 内的 CSV 无 header, 强制指定列名。"""
+        return pd.read_csv(
+            io.BytesIO(data),
+            header=None,
+            names=_AGG_TRADES_COLS,
+            usecols=range(len(_AGG_TRADES_COLS)),
+        )
 
-        强制 7 列类型, 避免 pandas 推断为 object / nullable boolean (后者读回
-        parquet 后会变成 'boolean' 而非 'bool', 不利于下游统一处理).
-        """
+    def transform_df(self, raw_df: pd.DataFrame) -> pd.DataFrame:
+        """强制列类型, 确保 parquet schema 一致。"""
         return raw_df.assign(
             agg_trade_id=raw_df['agg_trade_id'].astype('int64'),
             price=raw_df['price'].astype('float64'),
