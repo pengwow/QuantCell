@@ -42,8 +42,11 @@ import typer
 from typing_extensions import Annotated
 
 from utils.logger import get_logger, LogType
+from utils import get_source_data_dir
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+_DEFAULT_BASELINE_DIR = str(get_source_data_dir() / "backtest_baselines")
 
 # 创建主应用
 app = typer.Typer(
@@ -710,7 +713,7 @@ def cli_baseline(
     end: Annotated[str, typer.Option("--end", help="结束日期 YYYY-MM-DD")] = "2025-07-01",
     interval: Annotated[str, typer.Option("--interval", help="K线周期")] = "1h",
     candle_type: Annotated[str, typer.Option("--candle-type", help="市场类型")] = "spot",
-    output_dir: Annotated[str, typer.Option("--output-dir", help="输出目录")] = "data/source/backtest_baselines",
+    output_dir: Annotated[str, typer.Option("--output-dir", help="输出目录")] = _DEFAULT_BASELINE_DIR,
 ):
     """跑基线回测, 写 json + md 报告。"""
     from pathlib import Path

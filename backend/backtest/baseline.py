@@ -28,6 +28,9 @@ from axon_bridge import (
     swap_instrument,
 )
 from axon_bridge.backtest import PushFundingHelper
+from utils import get_source_data_dir
+
+_DEFAULT_OUTPUT_DIR = get_source_data_dir() / "backtest_baselines"
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +123,7 @@ class BaselineBacktestService:
         self.end = end
         self.interval = interval
         self.candle_type = candle_type
-        self.output_dir = Path(output_dir) if output_dir else Path("data/source/backtest_baselines")
+        self.output_dir = Path(output_dir) if output_dir else _DEFAULT_OUTPUT_DIR
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.data = data
         self.funding_history_path = funding_history_path

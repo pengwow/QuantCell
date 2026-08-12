@@ -12,6 +12,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from utils.logger import get_logger, LogType
 from utils.timestamp_utils import convert_to_datetime
+from utils import get_source_data_dir
 
 
 # 获取模块日志器
@@ -72,7 +73,6 @@ class BacktestDataProvider:
             base_dir: 数据根目录，默认使用 data_cli 的标准路径
         """
         if base_dir is None:
-            from cli.data import get_source_data_dir
             base_dir = get_source_data_dir()
         
         self.base_dir = base_dir
