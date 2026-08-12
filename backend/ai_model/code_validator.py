@@ -402,7 +402,7 @@ class CodeValidator:
                 # 检查是否有策略相关的导入
                 strategy_imports = [
                     "strategy.core",
-                    "nautilus_trader",
+                    "axon_quant",
                     "backtrader",
                     "Strategy",
                 ]

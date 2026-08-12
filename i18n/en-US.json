@@ -99,6 +99,10 @@
   "strategy_management": "Strategy Management",
   "strategy_task": "Strategy Task",
   "strategy_task_title": "Strategy Task",
+  "rl_training": "RL Training",
+  "model_registry": "Model Registry",
+  "ensemble": "Ensemble",
+  "risk_monitor": "Risk Monitor",
   "not_found": "Resource not found",
   "internal_error": "Internal server error",
   "invalid_request": "Invalid request",
@@ -283,6 +287,8 @@
   "model_name": "Model Name",
   "please_enter_model_name": "Please enter model name",
   "enter_model_name": "Enter model name",
+  "available_models": "Available Models",
+  "click_check_to_fetch_models": "Click 'Check Availability' to fetch model list",
   "select_model": "Select Model",
   "manage_models": "Manage Models",
   "current_model": "Current Model",
@@ -1349,8 +1355,6 @@
     "invalid_token_desc": "This share link may have been revoked, expired, or was a one-time link that has already been used.",
     "back_home": "Back to Home",
 
-    "local_only_hint": "Local-only mode: the link is only visible on this device",
-
     "qr_code": "QR Code",
     "qr_downloaded": "QR code downloaded",
     "qr_download_failed": "Failed to download QR code",
@@ -1359,6 +1363,16 @@
     "copy_wechat_text": "Copy as WeChat share text (title + summary + link)",
     "wechat_copied": "WeChat share text copied",
     "wechat_text_title": "QuantCell Strategy Share: {name}",
-    "wechat_text_desc": "View the strategy's PnL curve, KPIs and position summary."
+    "wechat_text_desc": "View the strategy's PnL curve, KPIs and position summary.",
+
+    "remote_failed_hint": "Some links failed to upload. Click \"Retry\" in the list to re-publish to quantcell.top.",
+    "remote_status_label": "Distribution",
+    "remote_uploaded": "Published",
+    "remote_pending": "Publishing",
+    "remote_failed": "Publish failed",
+    "remote_revoked": "Revoked",
+    "retry": "Retry",
+    "retry_remote_success": "Re-published to quantcell.top",
+    "retry_remote_failed": "Retry failed"
   }
 }

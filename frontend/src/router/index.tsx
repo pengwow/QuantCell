@@ -13,10 +13,14 @@ import StrategyManagement from '@/pages/strategy/StrategyManagement';
 import StrategyEditor from '@/pages/strategy/StrategyEditor';
 import FactorAnalysis from '@/pages/factor/FactorAnalysis';
 import ModelManagement from '@/pages/model/ModelManagement';
+import ModelRegistry from '@/pages/model/ModelRegistry';
 import DataManagementPage from '@/pages/data/DataManagementPage';
 import KlineReplayPage from '@/pages/data/KlineReplayPage';
 import Setting from '@/pages/setting/Setting';
 import Agent from '@/pages/agent/Agent';
+import EnsemblePage from '@/pages/ensemble/EnsemblePage';
+import RiskMonitorPage from '@/pages/risk/RiskMonitorPage';
+import RLTrainingPage from '@/pages/rl/RLTrainingPage';
 
 // 导入回测模块
 import BacktestLayout from '@/pages/backtest/BacktestLayout';
@@ -34,8 +38,8 @@ import SystemInfoPage from '@/pages/setting/SystemInfoPage';
 import EnvironmentVariablesPage from '@/pages/setting/EnvironmentVariablesPage';
 import PluginManagement from '@/pages/setting/PluginManagement';
 
-// 公开分享页（无需登录）
-import SharePage from '@/pages/share/SharePage';
+// 公开分享页（无需登录）— 本地模式已下线，分享链接完全由远端 quantcell.top 提供
+// 访问远端链接不需要走前端路由，因此此处不注册 /share/:token 路由
 
 const isAuthenticated = (): boolean => {
   const token = localStorage.getItem('access_token');
@@ -56,11 +60,6 @@ function createBaseRoutes(): RouteObject[] {
     {
       path: '/login',
       element: <LoginPage />,
-    },
-    // 公开分享页（无需登录，使用 URL 中的 token 访问）
-    {
-      path: '/share/:token',
-      element: <SharePage />,
     },
     {
       path: '/',
@@ -122,12 +121,28 @@ function createBaseRoutes(): RouteObject[] {
           element: <Agent />,
         },
         {
+          path: '/ensemble',
+          element: <EnsemblePage />,
+        },
+        {
+          path: '/risk-monitor',
+          element: <RiskMonitorPage />,
+        },
+        {
+          path: '/rl-training',
+          element: <RLTrainingPage />,
+        },
+        {
           path: '/factor-analysis',
           element: <FactorAnalysis />,
         },
         {
           path: '/model-management',
           element: <ModelManagement />,
+        },
+        {
+          path: '/model-registry',
+          element: <ModelRegistry />,
         },
         {
           path: '/data-management',

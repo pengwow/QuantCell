@@ -1,7 +1,6 @@
 """
 Worker 模块全局单例状态枢纽
 
-参考 Nautilus-Web-Interface 的 state.py 模式设计，
 集中管理 Worker 模块所需的所有全局单例，
 确保所有 Router 和 Service 层操作同一实例。
 
@@ -9,7 +8,7 @@ Worker 模块全局单例状态枢纽
     - connection_manager: WebSocket 连接管理与消息广播
     - strategy_registry: 策略注册表（内存字典 + DB 持久化）
     - live_manager: 实盘交易管理器（Binance/OKX 连接）
-    - nautilus_system: NautilusTrader 策略执行引擎
+    - strategy_manager: 统一策略执行引擎（StrategyManager）
 """
 
 import asyncio
@@ -75,12 +74,26 @@ class StrategyRuntime:
     策略运行时对象
 
     记录单个策略在进程内的完整运行时状态，
-    包括配置、NautilusTrader 引擎实例、异步任务引用等。
+    包括配置、axon_quant 引擎实例、异步任务引用等。
     """
     worker_id: int
     strategy_id: int
     name: str
     status: str = "stopped"
+    
+    # 从 TradingEngine.StrategyRuntime 补充的字段
+    strategy: Any = None
+    symbols: list[str] = field(default_factory=list)
+    params: dict[str, Any] = field(default_factory=dict)
+    mode: str = "paper"
+    order_count: int = 0
+    fill_count: int = 0
+    rejected_count: int = 0
+    last_price: float = 0.0
+    last_action: Optional[str] = None
+    realized_pnl: float = 0.0
+    
+    # 原有字段
     trading_node: Optional[Any] = None
     _run_task: Optional[asyncio.Task] = None
     _run_thread: Optional[threading.Thread] = None
@@ -101,6 +114,17 @@ class StrategyRuntime:
             "error_message": self.error_message,
             "started_at": self.started_at,
             "stopped_at": self.stopped_at,
+            # 新增字段
+            "strategy_name": self.name,
+            "symbols": self.symbols,
+            "params": self.params,
+            "mode": self.mode,
+            "order_count": self.order_count,
+            "fill_count": self.fill_count,
+            "rejected_count": self.rejected_count,
+            "last_price": self.last_price,
+            "last_action": self.last_action,
+            "realized_pnl": self.realized_pnl,
         }
 
     def set_pid(self, pid: int) -> None:
@@ -312,8 +336,8 @@ connection_manager = ConnectionManager()
 strategy_registry = StrategyRegistry()
 live_manager = LiveTradingManager()
 
-# nautilus_system 延迟导入（避免循环依赖，由 worker_system 模块提供）
-nautilus_system: Optional[Any] = None
+# strategy_manager 延迟导入（避免循环依赖，由 strategy_manager 模块提供）
+strategy_manager: Optional[Any] = None
 
 
 # =============================================================================

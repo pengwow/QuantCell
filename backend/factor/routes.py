@@ -1,45 +1,17 @@
-"""
-因子计算模块API路由
+"""因子计算模块API路由 — 因子列表/CRUD/计算/分析"""
 
-提供因子计算相关的RESTful API端点。
+from __future__ import annotations
 
-路由前缀: /api/factor
-标签: factor
+import math
+from typing import Any
 
-端点列表：
-    GET    /api/factor/list              获取因子列表
-    GET    /api/factor/expression/{name} 获取因子表达式
-    POST   /api/factor/add               添加自定义因子
-    DELETE /api/factor/delete/{name}     删除自定义因子
-    POST   /api/factor/calculate         计算单因子
-    POST   /api/factor/calculate-multi   计算多因子
-    POST   /api/factor/calculate-all     计算所有因子
-    POST   /api/factor/validate          验证因子表达式
-    POST   /api/factor/correlation       计算因子相关性
-    POST   /api/factor/stats             获取因子统计
-    POST   /api/factor/ic                计算IC
-    POST   /api/factor/ir                计算IR
-    POST   /api/factor/group-analysis    分组分析
-    POST   /api/factor/monotonicity      单调性检验
-    POST   /api/factor/stability         稳定性检验
+import numpy as np
+import pandas as pd
+from fastapi import APIRouter, HTTPException, Request
 
-依赖：
-    - schemas: 请求/响应模型
-    - service: 业务逻辑
-
-作者: QuantCell Team
-创建日期: 2024-01-01
-"""
-
-from typing import Any, Dict, List
-
-from fastapi import APIRouter, HTTPException
+from common.schemas import ApiResponse
+from utils.auth import jwt_auth_required
 from utils.logger import get_logger, LogType
-
-# 获取模块日志器
-logger = get_logger(__name__, LogType.APPLICATION)
-from backend.common.schemas import ApiResponse
-
 from .schemas import (
     FactorAddRequest,
     FactorCalculateMultiRequest,
@@ -55,6 +27,52 @@ from .schemas import (
 )
 from .service import FactorService
 
+logger = get_logger(__name__, LogType.APPLICATION)
+
+
+def _sanitize(obj: Any) -> Any:
+    """递归替换 NaN/inf 为 None，确保 JSON 可序列化"""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, (np.floating, np.integer)):
+        v = float(obj)
+        return None if math.isnan(v) or math.isinf(v) else v
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize(v) for v in obj]
+    if isinstance(obj, pd.DataFrame):
+        return _sanitize(obj.to_dict(orient="records"))
+    if isinstance(obj, pd.Series):
+        return _sanitize(obj.to_dict())
+    if isinstance(obj, (pd.Timestamp,)):
+        return obj.isoformat()
+    return obj
+
+
+def _dict_to_df(data: dict[str, Any]) -> pd.DataFrame:
+    """将 {factor: {instrument: [values]}} 转为宽表 DataFrame（列=因子或标的）"""
+    frames = {}
+    for factor_name, instruments in data.items():
+        if isinstance(instruments, dict):
+            for inst, values in instruments.items():
+                col = f"{factor_name}__{inst}" if len(data) > 1 else inst
+                frames[col] = values
+        else:
+            frames[factor_name] = instruments
+    return pd.DataFrame(frames)
+
+
+def _returns_dict_to_series(data: dict[str, Any]) -> pd.Series:
+    """将 {instrument: [returns]} 转为扁平 Series"""
+    rows = []
+    for inst, values in data.items():
+        for v in values:
+            rows.append(v)
+    return pd.Series(rows, dtype=float)
+
 # 创建路由
 router = APIRouter(
     prefix="/api/factor",
@@ -69,8 +87,9 @@ router = APIRouter(
 factor_service = FactorService()
 
 
+@jwt_auth_required
 @router.get("/list", response_model=ApiResponse, summary="获取因子列表", description="获取所有支持的因子列表")
-def get_factor_list() -> ApiResponse:
+def get_factor_list(request: Request, ) -> ApiResponse:
     """获取所有支持的因子列表"""
     try:
         logger.info("获取因子列表请求")
@@ -86,8 +105,9 @@ def get_factor_list() -> ApiResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.get("/expression/{factor_name}", response_model=ApiResponse, summary="获取因子表达式", description="获取指定因子的表达式")
-def get_factor_expression(factor_name: str) -> ApiResponse:
+def get_factor_expression(request: Request, factor_name: str) -> ApiResponse:
     """获取因子的表达式"""
     try:
         logger.info(f"获取因子表达式请求，因子名称: {factor_name}")
@@ -111,8 +131,9 @@ def get_factor_expression(factor_name: str) -> ApiResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.post("/add", response_model=ApiResponse, summary="添加自定义因子", description="添加新的自定义因子")
-def add_factor(request: FactorAddRequest) -> ApiResponse:
+def add_factor(http_request: Request, request: FactorAddRequest) -> ApiResponse:
     """添加自定义因子"""
     try:
         logger.info(f"添加因子请求，因子名称: {request.factor_name}, 表达式: {request.expression}")
@@ -136,8 +157,9 @@ def add_factor(request: FactorAddRequest) -> ApiResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.delete("/delete/{factor_name}", response_model=ApiResponse, summary="删除自定义因子", description="删除指定的自定义因子")
-def delete_factor(factor_name: str) -> ApiResponse:
+def delete_factor(request: Request, factor_name: str) -> ApiResponse:
     """删除自定义因子"""
     try:
         logger.info(f"删除因子请求，因子名称: {factor_name}")
@@ -161,8 +183,9 @@ def delete_factor(factor_name: str) -> ApiResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.post("/calculate", response_model=ApiResponse, summary="计算单因子", description="计算指定因子的值")
-def calculate_factor(request: FactorCalculateRequest) -> ApiResponse:
+def calculate_factor(http_request: Request, request: FactorCalculateRequest) -> ApiResponse:
     """计算指定因子的值"""
     try:
         logger.info(f"计算因子请求，因子名称: {request.factor_name}")
@@ -197,8 +220,9 @@ def calculate_factor(request: FactorCalculateRequest) -> ApiResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.post("/calculate-multi", response_model=ApiResponse, summary="计算多因子", description="计算多个因子的值")
-def calculate_factors(request: FactorCalculateMultiRequest) -> ApiResponse:
+def calculate_factors(http_request: Request, request: FactorCalculateMultiRequest) -> ApiResponse:
     """计算多个因子的值"""
     try:
         logger.info(f"计算多个因子请求，因子数量: {len(request.factor_names)}")
@@ -233,8 +257,9 @@ def calculate_factors(request: FactorCalculateMultiRequest) -> ApiResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.post("/calculate-all", response_model=ApiResponse, summary="计算所有因子", description="计算所有内置因子的值")
-def calculate_all_factors(request: FactorCalculateRequest) -> ApiResponse:
+def calculate_all_factors(http_request: Request, request: FactorCalculateRequest) -> ApiResponse:
     """计算所有因子的值"""
     try:
         logger.info("计算所有因子请求")
@@ -268,8 +293,9 @@ def calculate_all_factors(request: FactorCalculateRequest) -> ApiResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.post("/validate", response_model=ApiResponse, summary="验证因子表达式", description="验证因子表达式是否有效")
-def validate_factor_expression(request: FactorValidateRequest) -> ApiResponse:
+def validate_factor_expression(http_request: Request, request: FactorValidateRequest) -> ApiResponse:
     """验证因子表达式是否有效"""
     try:
         logger.info(f"验证因子表达式请求，表达式: {request.expression}")
@@ -293,113 +319,178 @@ def validate_factor_expression(request: FactorValidateRequest) -> ApiResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.post("/correlation", response_model=ApiResponse, summary="计算因子相关性", description="计算因子之间的相关性矩阵")
-def get_factor_correlation(request: FactorCorrelationRequest) -> ApiResponse:
-    """计算因子之间的相关性"""
+def get_factor_correlation(http_request: Request, request: FactorCorrelationRequest) -> ApiResponse:
+    """计算因子之间的相关性矩阵"""
     try:
-        logger.info("计算因子相关性请求")
-        logger.info("成功计算因子相关性")
+        df = _dict_to_df(request.factor_data)
+        corr = factor_service.get_factor_correlation(df)
+        if corr is None:
+            raise HTTPException(status_code=400, detail="相关性计算失败，数据格式可能不正确")
         return ApiResponse(
             code=0,
             message="成功计算因子相关性",
-            data={"correlation": {}},
+            data={"correlation": _sanitize(corr)},
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"计算因子相关性失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.post("/stats", response_model=ApiResponse, summary="获取因子统计", description="获取因子的描述性统计信息")
-def get_factor_stats(request: FactorStatsRequest) -> ApiResponse:
+def get_factor_stats(http_request: Request, request: FactorStatsRequest) -> ApiResponse:
     """获取因子的描述性统计信息"""
     try:
-        logger.info("获取因子统计信息请求")
-        logger.info("成功获取因子统计信息")
+        df = _dict_to_df(request.factor_data)
+        stats = factor_service.get_factor_descriptive_stats(df)
+        if stats is None:
+            raise HTTPException(status_code=400, detail="统计计算失败，数据格式可能不正确")
         return ApiResponse(
             code=0,
             message="成功获取因子统计信息",
-            data={"stats": {}},
+            data={"stats": _sanitize(stats)},
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"获取因子统计信息失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.post("/ic", response_model=ApiResponse, summary="计算IC", description="计算因子的信息系数(IC)")
-def calculate_factor_ic(request: FactorICRequest) -> ApiResponse:
+def calculate_factor_ic(http_request: Request, request: FactorICRequest) -> ApiResponse:
     """计算因子的信息系数(IC)"""
     try:
-        logger.info("计算因子IC请求")
-        logger.info("成功计算因子IC")
+        factor_df = _dict_to_df(request.factor_data)
+        return_series = _returns_dict_to_series(request.return_data)
+        ic = factor_service.calculate_ic(factor_df, return_series, method=request.method)
+        if ic is None:
+            raise HTTPException(status_code=400, detail="IC计算失败，请检查数据格式")
         return ApiResponse(
             code=0,
             message="成功计算因子IC",
-            data={"ic": {}},
+            data={
+                "ic": _sanitize(ic),
+                "ic_mean": _sanitize(ic.mean()) if len(ic) > 0 else None,
+                "ic_std": _sanitize(ic.std()) if len(ic) > 1 else None,
+                "method": request.method,
+            },
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"计算因子IC失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.post("/ir", response_model=ApiResponse, summary="计算IR", description="计算因子的信息比率(IR)")
-def calculate_factor_ir(request: FactorIRRequest) -> ApiResponse:
+def calculate_factor_ir(http_request: Request, request: FactorIRRequest) -> ApiResponse:
     """计算因子的信息比率(IR)"""
     try:
-        logger.info("计算因子IR请求")
-        logger.info("成功计算因子IR")
+        factor_df = _dict_to_df(request.factor_data)
+        return_series = _returns_dict_to_series(request.return_data)
+        ir = factor_service.calculate_ir(factor_df, return_series, method=request.method)
+        if ir is None:
+            raise HTTPException(status_code=400, detail="IR计算失败，请检查数据格式")
+        ic = factor_service.calculate_ic(factor_df, return_series, method=request.method)
         return ApiResponse(
             code=0,
             message="成功计算因子IR",
-            data={"ir": 0.5},
+            data={
+                "ir": _sanitize(ir),
+                "ic_mean": _sanitize(ic.mean()) if ic is not None and len(ic) > 0 else None,
+                "ic_std": _sanitize(ic.std()) if ic is not None and len(ic) > 1 else None,
+                "method": request.method,
+            },
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"计算因子IR失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.post("/group-analysis", response_model=ApiResponse, summary="分组分析", description="因子分组回测分析")
-def factor_group_analysis(request: FactorGroupAnalysisRequest) -> ApiResponse:
+def factor_group_analysis(http_request: Request, request: FactorGroupAnalysisRequest) -> ApiResponse:
     """因子分组回测分析"""
     try:
-        logger.info("因子分组分析请求")
-        logger.info("成功完成因子分组分析")
+        factor_df = _dict_to_df(request.factor_data)
+        return_series = _returns_dict_to_series(request.return_data)
+        result = factor_service.group_analysis(factor_df, return_series, n_groups=request.n_groups)
+        if result is None:
+            raise HTTPException(status_code=400, detail="分组分析失败，请检查数据格式")
         return ApiResponse(
             code=0,
             message="成功完成因子分组分析",
-            data={"group_analysis": {}},
+            data={
+                "n_groups": request.n_groups,
+                "long_short_return": _sanitize(result["long_short_return"].sum()) if "long_short_return" in result else None,
+                "group_returns_mean": _sanitize(
+                    result["group_returns"].groupby(level=0).mean() if "group_returns" in result else {}
+                ),
+            },
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"因子分组分析失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.post("/monotonicity", response_model=ApiResponse, summary="单调性检验", description="因子单调性检验")
-def factor_monotonicity_test(request: FactorMonotonicityRequest) -> ApiResponse:
+def factor_monotonicity_test(http_request: Request, request: FactorMonotonicityRequest) -> ApiResponse:
     """因子单调性检验"""
     try:
-        logger.info("因子单调性检验请求")
-        logger.info("成功完成因子单调性检验")
+        factor_df = _dict_to_df(request.factor_data)
+        return_series = _returns_dict_to_series(request.return_data)
+        result = factor_service.factor_monotonicity_test(
+            factor_df, return_series, n_groups=request.n_groups
+        )
+        if result is None:
+            raise HTTPException(status_code=400, detail="单调性检验失败，请检查数据格式")
         return ApiResponse(
             code=0,
             message="成功完成因子单调性检验",
-            data={"monotonicity": {}},
+            data=_sanitize(result),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"因子单调性检验失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@jwt_auth_required
 @router.post("/stability", response_model=ApiResponse, summary="稳定性检验", description="因子稳定性检验")
-def factor_stability_test(request: FactorStabilityRequest) -> ApiResponse:
+def factor_stability_test(http_request: Request, request: FactorStabilityRequest) -> ApiResponse:
     """因子稳定性检验"""
     try:
-        logger.info("因子稳定性检验请求")
-        logger.info("成功完成因子稳定性检验")
+        factor_df = _dict_to_df(request.factor_data)
+        result = factor_service.factor_stability_test(factor_df, window=request.window)
+        if result is None:
+            raise HTTPException(status_code=400, detail="稳定性检验失败，请检查数据格式")
         return ApiResponse(
             code=0,
             message="成功完成因子稳定性检验",
-            data={"stability": {}},
+            data={
+                "window": request.window,
+                "mean_autocorr": _sanitize(
+                    result["rolling_autocorr"].mean().mean()
+                    if "rolling_autocorr" in result
+                    else None
+                ),
+            },
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"因子稳定性检验失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

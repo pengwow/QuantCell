@@ -27,7 +27,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from common.schemas import ApiResponse
-from utils.auth import jwt_auth_required_sync
+from utils.auth import jwt_auth_required
 from utils.logger import get_logger, LogType
 
 from .models import NotificationCategory, NotificationChannel, NotificationLevel
@@ -75,264 +75,97 @@ class SendTaskNotificationRequest(BaseModel):
 
 
 def parse_channels(channels: List[str]) -> List[NotificationChannel]:
-    """解析渠道字符串列表为NotificationChannel枚举列表
-    
-    Args:
-        channels: 渠道字符串列表
-        
-    Returns:
-        List[NotificationChannel]: 渠道枚举列表
-    """
     channel_map = {
         "email": NotificationChannel.EMAIL,
         "wecom": NotificationChannel.WECOM,
         "feishu": NotificationChannel.FEISHU,
         "websocket": NotificationChannel.WEBSOCKET,
     }
-    
-    result = []
-    for ch in channels:
-        channel = channel_map.get(ch.lower())
-        if channel:
-            result.append(channel)
-    return result
+    return [ch for ch in (channel_map.get(c.lower()) for c in channels) if ch]
 
 
+# ponytail: 全部改为 async def + await，避免 run_until_complete 死锁
 @router.post("/send", response_model=ApiResponse)
-@jwt_auth_required_sync
-def send_notification(request: Request, data: SendNotificationRequest = Body(...)):
-    """发送通用通知
-    
-    发送通知到指定的渠道
-    
-    Args:
-        request: FastAPI请求对象
-        data: 通知数据
-        
-    Returns:
-        ApiResponse: 发送结果
-    """
-    import asyncio
-    
+@jwt_auth_required
+async def send_notification(request: Request, data: SendNotificationRequest = Body(...)):
     try:
         logger.info(f"发送通知: {data.title}")
-        
-        # 解析渠道
         channels = parse_channels(data.channels) if data.channels else None
-        
-        # 异步发送通知
-        loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(
-            notification_service.send_notification(
-                title=data.title,
-                content=data.content,
-                level=data.level,
-                category=data.category,
-                channels=channels,
-                metadata=data.metadata,
-            )
+        result = await notification_service.send_notification(
+            title=data.title, content=data.content, level=data.level,
+            category=data.category, channels=channels, metadata=data.metadata,
         )
-        
-        if result.get("success"):
-            return ApiResponse(
-                code=0,
-                message="通知发送成功",
-                data=result
-            )
-        else:
-            return ApiResponse(
-                code=500,
-                message="通知发送失败",
-                data=result
-            )
-            
+        return ApiResponse(code=0 if result.get("success") else 500,
+                           message="通知发送成功" if result.get("success") else "通知发送失败",
+                           data=result)
     except Exception as e:
         logger.error(f"发送通知失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/system", response_model=ApiResponse)
-@jwt_auth_required_sync
-def send_system_notification(request: Request, data: SendSystemNotificationRequest = Body(...)):
-    """发送系统通知
-    
-    发送系统级别的通知
-    
-    Args:
-        request: FastAPI请求对象
-        data: 通知数据
-        
-    Returns:
-        ApiResponse: 发送结果
-    """
-    import asyncio
-    
+@jwt_auth_required
+async def send_system_notification(request: Request, data: SendSystemNotificationRequest = Body(...)):
     try:
         logger.info(f"发送系统通知: {data.title}")
-        
-        # 解析渠道
         channels = parse_channels(data.channels) if data.channels else None
-        
-        # 异步发送通知
-        loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(
-            notification_service.send_system_notification(
-                title=data.title,
-                message=data.message,
-                level=data.level,
-                channels=channels,
-            )
+        result = await notification_service.send_system_notification(
+            title=data.title, message=data.message, level=data.level, channels=channels,
         )
-        
-        if result.get("success"):
-            return ApiResponse(
-                code=0,
-                message="系统通知发送成功",
-                data=result
-            )
-        else:
-            return ApiResponse(
-                code=500,
-                message="系统通知发送失败",
-                data=result
-            )
-            
+        return ApiResponse(code=0 if result.get("success") else 500,
+                           message="系统通知发送成功" if result.get("success") else "系统通知发送失败",
+                           data=result)
     except Exception as e:
         logger.error(f"发送系统通知失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/alert", response_model=ApiResponse)
-@jwt_auth_required_sync
-def send_alert(request: Request, data: SendAlertRequest = Body(...)):
-    """发送告警通知
-    
-    发送告警级别的通知
-    
-    Args:
-        request: FastAPI请求对象
-        data: 告警数据
-        
-    Returns:
-        ApiResponse: 发送结果
-    """
-    import asyncio
-    
+@jwt_auth_required
+async def send_alert(request: Request, data: SendAlertRequest = Body(...)):
     try:
         logger.info(f"发送告警通知: {data.title}")
-        
-        # 解析渠道
         channels = parse_channels(data.channels) if data.channels else None
-        
-        # 异步发送通知
-        loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(
-            notification_service.send_alert(
-                title=data.title,
-                message=data.message,
-                level=data.level,
-                channels=channels,
-            )
+        result = await notification_service.send_alert(
+            title=data.title, message=data.message, level=data.level, channels=channels,
         )
-        
-        if result.get("success"):
-            return ApiResponse(
-                code=0,
-                message="告警通知发送成功",
-                data=result
-            )
-        else:
-            return ApiResponse(
-                code=500,
-                message="告警通知发送失败",
-                data=result
-            )
-            
+        return ApiResponse(code=0 if result.get("success") else 500,
+                           message="告警通知发送成功" if result.get("success") else "告警通知发送失败",
+                           data=result)
     except Exception as e:
         logger.error(f"发送告警通知失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/task", response_model=ApiResponse)
-@jwt_auth_required_sync
-def send_task_notification(request: Request, data: SendTaskNotificationRequest = Body(...)):
-    """发送任务通知
-    
-    发送任务相关的通知
-    
-    Args:
-        request: FastAPI请求对象
-        data: 任务通知数据
-        
-    Returns:
-        ApiResponse: 发送结果
-    """
-    import asyncio
-    
+@jwt_auth_required
+async def send_task_notification(request: Request, data: SendTaskNotificationRequest = Body(...)):
     try:
         logger.info(f"发送任务通知: {data.title}")
-        
-        # 解析渠道
         channels = parse_channels(data.channels) if data.channels else None
-        
-        # 异步发送通知
-        loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(
-            notification_service.send_task_notification(
-                title=data.title,
-                message=data.message,
-                task_id=data.task_id,
-                level=data.level,
-                channels=channels,
-            )
+        result = await notification_service.send_task_notification(
+            title=data.title, message=data.message, task_id=data.task_id,
+            level=data.level, channels=channels,
         )
-        
-        if result.get("success"):
-            return ApiResponse(
-                code=0,
-                message="任务通知发送成功",
-                data=result
-            )
-        else:
-            return ApiResponse(
-                code=500,
-                message="任务通知发送失败",
-                data=result
-            )
-            
+        return ApiResponse(code=0 if result.get("success") else 500,
+                           message="任务通知发送成功" if result.get("success") else "任务通知发送失败",
+                           data=result)
     except Exception as e:
         logger.error(f"发送任务通知失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/status", response_model=ApiResponse)
-@jwt_auth_required_sync
-def get_notification_status(request: Request):
-    """获取通知渠道状态
-    
-    获取所有通知渠道的当前状态
-    
-    Args:
-        request: FastAPI请求对象
-        
-    Returns:
-        ApiResponse: 渠道状态信息
-    """
+@jwt_auth_required
+async def get_notification_status(request: Request):
     try:
         logger.info("获取通知渠道状态")
-        
         status = notification_service.get_channel_status()
         enabled_channels = notification_service.get_enabled_channels()
-        
         return ApiResponse(
-            code=0,
-            message="获取通知渠道状态成功",
-            data={
-                "channels": status,
-                "enabled": [ch.value for ch in enabled_channels],
-            }
+            code=0, message="获取通知渠道状态成功",
+            data={"channels": status, "enabled": [ch.value for ch in enabled_channels]},
         )
-        
     except Exception as e:
         logger.error(f"获取通知渠道状态失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

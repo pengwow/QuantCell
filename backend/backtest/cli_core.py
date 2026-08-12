@@ -35,8 +35,7 @@ if str(strategies_dir) not in sys.path:
 
 from backtest.progress import ConsoleProgressBar, ProgressTracker
 from backtest.result_analysis import output_results
-from strategy.core import StrategyBase
-from strategy.adapters import VectorBacktestAdapter, PortfolioBacktestAdapter
+from backtest.backtest_loop import RuleStrategy
 from utils.time_parser import parse_time_range, datetime_to_timestamp
 from utils.validation import parse_symbols, parse_timeframes
 
@@ -455,7 +454,7 @@ class CLICore:
         self,
         strategy_name: str,
         strategy_params: Dict[str, Any]
-    ) -> StrategyBase:
+    ) -> Any:
         """
         加载策略
         
@@ -464,7 +463,7 @@ class CLICore:
             strategy_params: 策略参数
             
         返回：
-            StrategyBase: 策略实例
+            策略实例（实现 on_bar → Action）
             
         异常：
             StrategyLoadError: 策略加载失败
@@ -482,11 +481,11 @@ class CLICore:
             # 导入策略模块
             module = importlib.import_module(strategy_name)
             
-            # 查找策略类
+            # 查找策略类（有 on_bar 方法的类）
             strategy_class = None
             for name in dir(module):
                 obj = getattr(module, name)
-                if isinstance(obj, type) and issubclass(obj, StrategyBase) and obj != StrategyBase:
+                if isinstance(obj, type) and hasattr(obj, "on_bar") and not name.startswith("_"):
                     strategy_class = obj
                     logger.info(f"找到策略类: {name}")
                     break
@@ -505,7 +504,7 @@ class CLICore:
     
     def run_backtest(
         self,
-        strategy: StrategyBase,
+        strategy: Any,
         data_dict: Dict[str, pd.DataFrame],
         config: Dict[str, Any],
         show_progress: bool = True
@@ -562,8 +561,8 @@ class CLICore:
                     print(f"最终总权益: {metrics.get('final_equity', 0):.2f}")
                     print(f"总收益率: {metrics.get('total_return', 0):.2f}%")
                     print(f"总交易次数: {metrics.get('total_trades', 0)}")
-                    print(f"胜率: {metrics.get('win_rate', 0):.2f}%")
-                    print(f"最大回撤: {metrics.get('max_drawdown', 2):.2f}%")
+                    print(f"胜率: {metrics.get('win_rate', 0) * 100:.4f}%")
+                    print(f"最大回撤: {metrics.get('max_drawdown', 2) * 100:.4f}%")
                     print(f"夏普比率: {metrics.get('sharpe_ratio', 0):.4f}")
                     print(f"{'=' * 70}")
             

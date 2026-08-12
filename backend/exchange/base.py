@@ -269,6 +269,42 @@ class BaseCollector(abc.ABC):
         }
         return interval_seconds_map.get(self.interval, 86400)
 
+    # 常见时间列名映射：不同数据类型使用不同的时间列
+    _TIME_COLUMN_CANDIDATES = [
+        "timestamp", "date", "transact_time", "fundingTime",
+        "time", "open_time", "close_time", "T",
+    ]
+
+    @staticmethod
+    def _detect_time_column(df: pd.DataFrame) -> Optional[str]:
+        """检测 DataFrame 中的时间列名。
+
+        按优先级检查常见时间列名，返回第一个匹配的列名。
+        若未找到任何时间列，返回 None。
+        """
+        for col in BaseCollector._TIME_COLUMN_CANDIDATES:
+            if col in df.columns:
+                return col
+        return None
+
+    @staticmethod
+    def _normalize_timestamp_column(df: pd.DataFrame) -> pd.DataFrame:
+        """将任意时间列归一化为 'timestamp' 列。
+
+        如果数据已有 'timestamp' 列则直接返回；
+        否则将检测到的时间列重命名为 'timestamp'。
+        如果未检测到任何时间列，则新增全 0 的 timestamp 列。
+        """
+        if "timestamp" in df.columns:
+            return df
+        time_col = BaseCollector._detect_time_column(df)
+        if time_col:
+            return df.rename(columns={time_col: "timestamp"})
+        else:
+            df = df.copy()
+            df["timestamp"] = 0
+            return df
+
     def _simple_collector(self, symbol: str, progress_callback=None):
         """简单收集器，用于单个标的的数据收集"""
         self.sleep()
@@ -281,11 +317,19 @@ class BaseCollector(abc.ABC):
             try:
                 _old_df = pd.read_csv(instrument_path)
                 if not _old_df.empty:
-                    if 'date' in _old_df.columns and 'timestamp' not in _old_df.columns:
-                        _old_df = _old_df.rename(columns={'date': 'timestamp'})
-                    _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
-                    existing_timestamps = _old_df['timestamp'].dropna()
-                    logger.info(f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_timestamps)} 条有效记录")
+                    # 使用统一函数检测时间列（支持 transact_time, fundingTime 等）
+                    time_col = self._detect_time_column(_old_df)
+                    if time_col and time_col != "timestamp":
+                        _old_df = _old_df.rename(columns={time_col: "timestamp"})
+                    if "timestamp" in _old_df.columns:
+                        _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
+                        existing_timestamps = _old_df['timestamp'].dropna()
+                        logger.info(f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_timestamps)} 条有效记录")
+                    else:
+                        logger.warning(
+                            f"[增量模式] {symbol} 历史数据无时间列，"
+                            f"跳过增量检测。可用列: {list(_old_df.columns)}"
+                        )
             except Exception as e:
                 logger.error(f"[增量模式] 读取 {symbol} 历史数据失败: {e}")
                 logger.exception(e)
@@ -333,18 +377,22 @@ class BaseCollector(abc.ABC):
         instrument_path = self.save_dir.joinpath(f"{symbol}.csv")
         df["symbol"] = symbol
 
-        df['timestamp'] = df['timestamp']
+        # 归一化时间列为 timestamp
+        df = self._normalize_timestamp_column(df)
+        df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
+        df = df.dropna(subset=['timestamp'])
         df = df.drop_duplicates(subset=['timestamp'], keep='last')
         df = df.sort_values('timestamp')
 
         if self.mode != 'full' and instrument_path.exists():
             _old_df = pd.read_csv(instrument_path)
-            if 'date' in _old_df.columns and 'timestamp' not in _old_df.columns:
-                _old_df = _old_df.rename(columns={'date': 'timestamp'})
-            _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
-            df = pd.concat([_old_df, df], sort=False)
-            df = df.drop_duplicates(subset=['timestamp'], keep='last')
-            df = df.sort_values('timestamp')
+            _old_df = self._normalize_timestamp_column(_old_df)
+            if "timestamp" in _old_df.columns:
+                _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
+                _old_df = _old_df.dropna(subset=['timestamp'])
+                df = pd.concat([_old_df, df], sort=False)
+                df = df.drop_duplicates(subset=['timestamp'], keep='last')
+                df = df.sort_values('timestamp')
 
         df_for_save = df.copy()
         df_for_save['timestamp'] = df_for_save['timestamp'].astype(str)

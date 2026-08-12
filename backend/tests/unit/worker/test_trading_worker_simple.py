@@ -32,14 +32,14 @@ class TestTradingConfig:
         spec = importlib.util.spec_from_file_location("worker_config", config_path)
         config_module = importlib.util.module_from_spec(spec)
         
-        # Mock Nautilus 导入
-        sys.modules['nautilus_trader'] = Mock()
-        sys.modules['nautilus_trader.config'] = Mock()
-        sys.modules['nautilus_trader.live'] = Mock()
-        sys.modules['nautilus_trader.live.config'] = Mock()
-        sys.modules['nautilus_trader.common'] = Mock()
-        sys.modules['nautilus_trader.model'] = Mock()
-        sys.modules['nautilus_trader.model.identifiers'] = Mock()
+        # Mock axon_quant 导入
+        sys.modules['axon_quant'] = Mock()
+        sys.modules['axon_quant.config'] = Mock()
+        sys.modules['axon_quant.live'] = Mock()
+        sys.modules['axon_quant.live.config'] = Mock()
+        sys.modules['axon_quant.common'] = Mock()
+        sys.modules['axon_quant.model'] = Mock()
+        sys.modules['axon_quant.model.identifiers'] = Mock()
         
         spec.loader.exec_module(config_module)
         
@@ -64,14 +64,14 @@ class TestTradingConfig:
         spec = importlib.util.spec_from_file_location("worker_config", config_path)
         config_module = importlib.util.module_from_spec(spec)
         
-        # Mock Nautilus 导入
-        sys.modules['nautilus_trader'] = Mock()
-        sys.modules['nautilus_trader.config'] = Mock()
-        sys.modules['nautilus_trader.live'] = Mock()
-        sys.modules['nautilus_trader.live.config'] = Mock()
-        sys.modules['nautilus_trader.common'] = Mock()
-        sys.modules['nautilus_trader.model'] = Mock()
-        sys.modules['nautilus_trader.model.identifiers'] = Mock()
+        # Mock axon_quant 导入
+        sys.modules['axon_quant'] = Mock()
+        sys.modules['axon_quant.config'] = Mock()
+        sys.modules['axon_quant.live'] = Mock()
+        sys.modules['axon_quant.live.config'] = Mock()
+        sys.modules['axon_quant.common'] = Mock()
+        sys.modules['axon_quant.model'] = Mock()
+        sys.modules['axon_quant.model.identifiers'] = Mock()
         
         spec.loader.exec_module(config_module)
         
@@ -91,14 +91,14 @@ class TestTradingConfig:
         spec = importlib.util.spec_from_file_location("worker_config", config_path)
         config_module = importlib.util.module_from_spec(spec)
         
-        # Mock Nautilus 导入
-        sys.modules['nautilus_trader'] = Mock()
-        sys.modules['nautilus_trader.config'] = Mock()
-        sys.modules['nautilus_trader.live'] = Mock()
-        sys.modules['nautilus_trader.live.config'] = Mock()
-        sys.modules['nautilus_trader.common'] = Mock()
-        sys.modules['nautilus_trader.model'] = Mock()
-        sys.modules['nautilus_trader.model.identifiers'] = Mock()
+        # Mock axon_quant 导入
+        sys.modules['axon_quant'] = Mock()
+        sys.modules['axon_quant.config'] = Mock()
+        sys.modules['axon_quant.live'] = Mock()
+        sys.modules['axon_quant.live.config'] = Mock()
+        sys.modules['axon_quant.common'] = Mock()
+        sys.modules['axon_quant.model'] = Mock()
+        sys.modules['axon_quant.model.identifiers'] = Mock()
         
         spec.loader.exec_module(config_module)
         

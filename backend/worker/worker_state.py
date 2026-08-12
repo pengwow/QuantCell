@@ -338,19 +338,12 @@ class StateMachine:
         self._transition_handlers[target_state].append(handler)
 
     def _call_transition_handlers(self, old_state: WorkerState, new_state: WorkerState):
-        """
-        调用状态转换处理器
-
-        Args:
-            old_state: 旧状态
-            new_state: 新状态
-        """
         handlers = self._transition_handlers.get(new_state, [])
         for handler in handlers:
             try:
                 handler(old_state, new_state)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"状态转换处理器失败 {old_state.value}->{new_state.value}: {e}")
 
     def get_state_history(self) -> list:
         """

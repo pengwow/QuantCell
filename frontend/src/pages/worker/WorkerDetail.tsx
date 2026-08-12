@@ -233,6 +233,8 @@ const WorkerDetail = () => {
               <Space size="large" wrap>
                 <Space size="middle">
                   <span style={{ fontSize: 20, fontWeight: 600 }}>{currentWorker.name}</span>
+                  {currentWorker.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
+                  {currentWorker.strategy_type === 'rule' && <Tag color="green">规则</Tag>}
                   <Tag color={WorkerStatusColor[currentWorker.status]}>
                     {WorkerStatusText[currentWorker.status]}
                   </Tag>

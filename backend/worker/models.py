@@ -36,6 +36,9 @@ class Worker(Base):
     # 当策略被删除或 ID 不存在时，可以通过此字段重新关联
     strategy_name = Column(String(200), nullable=True, index=True)
 
+    # 策略类型: rule(规则策略) / rl(RL策略)
+    strategy_type = Column(String(20), default='rule', index=True)
+
     # 交易配置 (JSON格式，支持复杂配置)
     # {
     #   "exchange": "binance",
@@ -574,7 +577,7 @@ class WorkerTrade(Base):
     exit_time = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=func.now())
 
-    # 原始数据（存储完整的 NautilusTrader 事件数据）
+    # 原始数据（存储完整的 axon_quant 事件数据）
     raw_data = Column(Text, nullable=True)
 
     __table_args__ = (
@@ -677,7 +680,7 @@ class WorkerPosition(Base):
     worker_id = Column(Integer, ForeignKey('workers.id'), nullable=False, index=True)
 
     # 持仓标识
-    position_id = Column(String(100), unique=True, nullable=False)  # Nautilus PositionId
+    position_id = Column(String(100), unique=True, nullable=False)  # Axon PositionId
     symbol = Column(String(50), nullable=False)
 
     # 持仓方向和数量

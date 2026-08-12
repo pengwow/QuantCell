@@ -19,17 +19,17 @@ from worker.models import WorkerOrder, WorkerTrade, WorkerPosition
 
 # 自定义类模拟真实的 Trader 对象（不是 Mock）
 class FakeTrader:
-    """模拟真实的 NautilusTrader Trader 对象（不是 Mock）"""
+    """模拟真实的 axon_quant Trader 对象（不是 Mock）"""
     pass
 
 
 class FakeNode:
-    """模拟真实的 NautilusTrader TradingNode 对象（不是 Mock）"""
+    """模拟真实的 axon_quant TradingNode 对象（不是 Mock）"""
     pass
 
 
-class MockNautilusOrderAccepted:
-    """模拟 Nautilus 的 OrderAccepted 事件"""
+class Mockaxon_quantOrderAccepted:
+    """模拟 axon_quant 的 OrderAccepted 事件"""
     def __init__(self):
         self.client_order_id = "test-order-123"
         self.venue_order_id = "venue-123"
@@ -42,8 +42,8 @@ class MockNautilusOrderAccepted:
         self.timestamp = datetime.now()
 
 
-class MockNautilusOrderCanceled:
-    """模拟 Nautilus 的 OrderCanceled 事件"""
+class Mockaxon_quantOrderCanceled:
+    """模拟 axon_quant 的 OrderCanceled 事件"""
     def __init__(self):
         self.client_order_id = "test-order-123"
         self.venue_order_id = "venue-123"
@@ -52,8 +52,8 @@ class MockNautilusOrderCanceled:
         self.timestamp = datetime.now()
 
 
-class MockNautilusOrderRejected:
-    """模拟 Nautilus 的 OrderRejected 事件"""
+class Mockaxon_quantOrderRejected:
+    """模拟 axon_quant 的 OrderRejected 事件"""
     def __init__(self):
         self.client_order_id = "test-order-123"
         self.reason = "Insufficient balance"
@@ -61,8 +61,8 @@ class MockNautilusOrderRejected:
         self.timestamp = datetime.now()
 
 
-class MockNautilusOrderFilled:
-    """模拟 Nautilus 的 OrderFilled 事件"""
+class Mockaxon_quantOrderFilled:
+    """模拟 axon_quant 的 OrderFilled 事件"""
     def __init__(self):
         self.trade_id = "trade-456"
         self.client_order_id = "test-order-123"
@@ -80,8 +80,8 @@ class MockNautilusOrderFilled:
         self.liquidity_side = "TAKER"
 
 
-class MockNautilusPositionChanged:
-    """模拟 Nautilus 的 PositionChanged 事件"""
+class Mockaxon_quantPositionChanged:
+    """模拟 axon_quant 的 PositionChanged 事件"""
     def __init__(self):
         self.position_id = "pos-789"
         self.instrument_id = "BTCUSDT"
@@ -104,7 +104,7 @@ class TestLiveTradeRecorder:
 
     @pytest.fixture
     def mock_trader(self):
-        """创建模拟的 trader 对象（模拟真实的 NautilusTrader 对象结构）"""
+        """创建模拟的 trader 对象（模拟真实的 axon_quant 对象结构）"""
         # 使用 FakeTrader 而非 Mock，模拟真实的 Trader 对象
         fake_trader = FakeTrader()
         # msgbus 实际在 trader.kernel.msgbus
@@ -127,27 +127,27 @@ class TestLiveTradeRecorder:
     @pytest.fixture
     def mock_order_accepted_event(self):
         """创建模拟的 OrderAccepted 事件"""
-        return MockNautilusOrderAccepted()
+        return Mockaxon_quantOrderAccepted()
 
     @pytest.fixture
     def mock_order_canceled_event(self):
         """创建模拟的 OrderCanceled 事件"""
-        return MockNautilusOrderCanceled()
+        return Mockaxon_quantOrderCanceled()
 
     @pytest.fixture
     def mock_order_rejected_event(self):
         """创建模拟的 OrderRejected 事件"""
-        return MockNautilusOrderRejected()
+        return Mockaxon_quantOrderRejected()
 
     @pytest.fixture
     def mock_order_filled_event(self):
         """创建模拟的 OrderFilled 事件"""
-        return MockNautilusOrderFilled()
+        return Mockaxon_quantOrderFilled()
 
     @pytest.fixture
     def mock_position_event(self):
         """创建模拟的 PositionChanged 事件"""
-        return MockNautilusPositionChanged()
+        return Mockaxon_quantPositionChanged()
 
     @pytest.fixture
     def mock_db_session(self):
@@ -377,9 +377,9 @@ class TestLiveTradeRecorder:
         
         # 模拟各个订单事件
         with patch.object(recorder, '_handle_order_accepted') as mock_handle_accepted:
-            event = MockNautilusOrderAccepted()
+            event = Mockaxon_quantOrderAccepted()
             # 给event添加类型标识以便 _dispatch_order_event 可以识别
-            from nautilus_trader.core.events import OrderAccepted
+            from axon_quant.core.events import OrderAccepted
             event.__class__ = OrderAccepted
             # 使用 type('MockOrderAccepted', (OrderAccepted,), {})
             mock_order_accepted = type('MockOrderAccepted', (OrderAccepted,), {

@@ -62,18 +62,14 @@ class OpenAICompatibleAdapter(AIProviderAdapter):
         self.client = AsyncOpenAI(**client_kwargs)
     
     async def check_availability(self) -> Dict[str, Any]:
-        """检查服务可用性"""
+        """检查服务可用性 — 用 models.list() 验证连通性, 不依赖特定模型名"""
         try:
-            response = await self.client.chat.completions.create(
-                model=self.DEFAULT_MODEL,
-                messages=[{"role": "user", "content": "ping"}],
-                max_tokens=10,
-                timeout=30.0
-            )
+            models_response = await self.client.models.list(timeout=30.0)
+            model_ids = [m.id for m in models_response.data]
             return {
                 "available": True,
-                "message": f"{self.PROVIDER_NAME}服务可用",
-                "response": response.choices[0].message.content if response.choices else None
+                "message": f"{self.PROVIDER_NAME}服务可用 (发现 {len(model_ids)} 个模型)",
+                "model_count": len(model_ids)
             }
         except AuthenticationError:
             return {

@@ -23,15 +23,14 @@ class TestOpenAIAdapter:
         """测试OpenAI服务可用性检查成功"""
         from ai_model.services import OpenAIAdapter
 
-        mock_chat = AsyncMock()
-        mock_chat.choices = [MagicMock()]
-        mock_chat.choices[0].message.content = "pong"
+        mock_models_response = MagicMock()
+        mock_models_response.data = [MagicMock(id="gpt-4o"), MagicMock(id="gpt-4o-mini")]
 
-        mock_completions = AsyncMock()
-        mock_completions.create.return_value = mock_chat
+        mock_models = AsyncMock()
+        mock_models.list.return_value = mock_models_response
 
         mock_client = AsyncMock()
-        mock_client.chat.completions = mock_completions
+        mock_client.models = mock_models
 
         with patch("ai_model.services.AsyncOpenAI", return_value=mock_client):
             adapter = OpenAIAdapter("sk-test123")
@@ -46,15 +45,15 @@ class TestOpenAIAdapter:
         from ai_model.services import OpenAIAdapter
         from openai import AuthenticationError
 
-        mock_completions = AsyncMock()
-        mock_completions.create.side_effect = AuthenticationError(
+        mock_models = AsyncMock()
+        mock_models.list.side_effect = AuthenticationError(
             "Invalid API key",
             response=MagicMock(status_code=401),
             body={"error": {"message": "Invalid API key"}}
         )
 
         mock_client = AsyncMock()
-        mock_client.chat.completions = mock_completions
+        mock_client.models = mock_models
 
         with patch("ai_model.services.AsyncOpenAI", return_value=mock_client):
             adapter = OpenAIAdapter("sk-invalid")
@@ -69,11 +68,11 @@ class TestOpenAIAdapter:
         from ai_model.services import OpenAIAdapter
         from openai import APITimeoutError
 
-        mock_completions = AsyncMock()
-        mock_completions.create.side_effect = APITimeoutError("Timeout")
+        mock_models = AsyncMock()
+        mock_models.list.side_effect = APITimeoutError("Timeout")
 
         mock_client = AsyncMock()
-        mock_client.chat.completions = mock_completions
+        mock_client.models = mock_models
 
         with patch("ai_model.services.AsyncOpenAI", return_value=mock_client):
             adapter = OpenAIAdapter("sk-test123")
@@ -155,15 +154,14 @@ class TestDeepSeekAdapter:
         """测试DeepSeek服务可用性检查成功"""
         from ai_model.services import DeepSeekAdapter
 
-        mock_chat = AsyncMock()
-        mock_chat.choices = [MagicMock()]
-        mock_chat.choices[0].message.content = "pong"
+        mock_models_response = MagicMock()
+        mock_models_response.data = [MagicMock(id="deepseek-chat"), MagicMock(id="deepseek-coder")]
 
-        mock_completions = AsyncMock()
-        mock_completions.create.return_value = mock_chat
+        mock_models = AsyncMock()
+        mock_models.list.return_value = mock_models_response
 
         mock_client = AsyncMock()
-        mock_client.chat.completions = mock_completions
+        mock_client.models = mock_models
 
         with patch("ai_model.services.AsyncOpenAI", return_value=mock_client):
             adapter = DeepSeekAdapter("sk-test123")

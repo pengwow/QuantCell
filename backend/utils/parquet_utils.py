@@ -109,20 +109,14 @@ def append_to_parquet(
     file_path: Path,
     compression: str = 'snappy'
 ) -> bool:
-    """
-    追加数据到 Parquet 文件（读取-合并-重写策略）
+    """追加数据到 Parquet 文件（读取-合并-重写策略）
 
     由于 Parquet 不支持直接追加，采用以下策略：
     1. 如果文件不存在，直接创建新文件
     2. 如果文件已存在，读取现有数据 → 合并 → 去重 → 重写
 
-    Args:
-        df: 要追加的 DataFrame
-        file_path: 目标文件路径
-        compression: 压缩算法
-
-    Returns:
-        bool: 是否成功
+    注意：会自动检测历史文件中的时间列（如 ``open_time`` / ``transact_time``）并
+    归一化为 ``timestamp``，避免新老数据合并时出现 ``timestamp_x/timestamp_y`` 歧义。
     """
     try:
         if df is None or df.empty:
@@ -132,30 +126,63 @@ def append_to_parquet(
         # 确保目录存在
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # 先将新数据的时间列归一化为 timestamp
+        df = _normalize_timestamp_if_missing(df)
+
         if file_path.exists():
             # 读取现有数据
             existing_df = load_from_parquet(file_path)
-            
+
             if not existing_df.empty:
+                # 历史数据也归一化时间列
+                existing_df = _normalize_timestamp_if_missing(existing_df)
+
                 # 合并数据
                 combined_df = pd.concat([existing_df, df], ignore_index=True)
-                
-                # 按时间戳去重（保留最新的）
+
+                # 按时间戳去重（保留最新的）——仅在 timestamp 列存在时进行
                 if 'timestamp' in combined_df.columns:
                     combined_df = combined_df.drop_duplicates(
-                        subset=['timestamp'], 
+                        subset=['timestamp'],
                         keep='last'
-                    ).sort_values('timestamp').reset_index(drop=True)
-                
+                    )
+                    combined_df = combined_df.sort_values('timestamp').reset_index(drop=True)
+
                 logger.info(f"追加数据: {len(df)} 行 (合并后共 {len(combined_df)} 行)")
                 return save_to_parquet(combined_df, file_path, compression)
-        
+
         # 文件不存在或为空，直接保存
         return save_to_parquet(df, file_path, compression)
 
     except Exception as e:
         logger.error(f"追加数据到 Parquet 失败: {e}")
         return False
+
+
+# 常见时间列名候选（与 exchange.base 保持一致）
+_TIME_COLUMN_CANDIDATES = [
+    "timestamp", "date", "transact_time", "fundingTime",
+    "time", "open_time", "close_time", "T",
+]
+
+
+def _normalize_timestamp_if_missing(df: pd.DataFrame) -> pd.DataFrame:
+    """将候选时间列归一化为 ``timestamp``。
+
+    若已有 ``timestamp`` 列则原样返回；否则检测候选列并重命名/重建为
+    ``timestamp``（同时移除旧列以避免 ``concat`` 歧义）。
+    """
+    if df is None or df.empty or "timestamp" in df.columns:
+        return df
+    for col in _TIME_COLUMN_CANDIDATES:
+        if col in df.columns and col != "timestamp":
+            df = df.copy()
+            df["timestamp"] = df[col]
+            df = df.drop(columns=[col])
+            logger.info(f"将历史时间列 '{col}' 归一化为 'timestamp'")
+            return df
+    # 找不到时间列，返回原 DataFrame（由调用方决定是否继续）
+    return df
 
 
 def _optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
@@ -174,10 +201,15 @@ def _optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    # 确保 timestamp 是整数
+    # 确保 timestamp 是整数（先丢弃非有限值再转换，避免 NA → int64 报错）
     if 'timestamp' in df.columns:
-        df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce').astype('int64')
-    
+        ts = pd.to_numeric(df['timestamp'], errors='coerce')
+        valid_mask = ts.notna()
+        if not valid_mask.all():
+            df = df[valid_mask].copy()
+            ts = ts[valid_mask]
+        df['timestamp'] = ts.astype('int64').values
+
     # 确保 symbol 和 interval 是字符串类型
     string_cols = ['symbol', 'interval']
     for col in string_cols:

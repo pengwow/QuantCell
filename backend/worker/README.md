@@ -1,28 +1,28 @@
-# Worker Nautilus 集成增强
+# Worker axon_quant 集成增强
 
 ## 概述
 
-本模块增强了 Worker 进程，使其能够运行完整的 NautilusTrader，支持实盘交易、模拟盘交易和纸上交易三种模式。
+本模块增强了 Worker 进程，使其能够运行完整的 axon_quant，支持实盘交易、模拟盘交易和纸上交易三种模式。
 
 ## 主要功能
 
 - **多交易所支持**：Binance (现货/合约)、OKX
 - **三种交易模式**：实盘 (Live)、模拟盘 (Demo)、纸上交易 (Paper)
 - **余额检查**：自动检查账户余额，支持自动调整订单数量
-- **事件同步**：将 Nautilus 事件同步到主进程
+- **事件同步**：将 axon_quant 事件同步到主进程
 - **完整生命周期**：启动、暂停、恢复、停止
 
 ## 快速开始
 
-### 1. 使用 Worker 工厂创建 Nautilus Worker
+### 1. 使用 Worker 工厂创建 axon_quant Worker
 
 ```python
-from backend.worker.factory import create_nautilus_worker
+from backend.worker.factory import create_axon_worker
 
 # 创建 Binance 模拟盘 Worker
-worker = create_nautilus_worker(
+worker = create_axon_worker(
     worker_id="test-001",
-    strategy_path="strategies/sma_cross_nautilus.py",
+    strategy_path="strategies/sma_cross_axon.py",
     config={},
     exchange="binance",
     account_type="spot",  # spot, usdt_futures, coin_futures
@@ -59,7 +59,7 @@ export OKX_PASSPHRASE="your_passphrase"
 
 ```python
 config = {
-    "nautilus": {
+    "axon_quant": {
         "exchange": "binance",  # binance, okx
         "account_type": "spot",  # spot, usdt_futures, coin_futures
         "trading_mode": "demo",  # live, demo, paper
@@ -163,7 +163,7 @@ event_handler.unsubscribe_events()
 
 ```
 backend/worker/
-├── config.py                   # Nautilus 配置构建器
+├── config.py                   # axon_quant 配置构建器
 ├── balance_checker.py          # 余额检查模块
 ├── event_handler.py            # 事件处理器
 ├── factory.py                  # Worker 工厂
@@ -173,6 +173,6 @@ backend/worker/
 
 ## 参考
 
-- [NautilusTrader 文档](https://nautilustrader.io/docs/)
+- [axon_quant 文档](https://github.com/axon-quant/axon)
 - [Binance API 文档](https://binance-docs.github.io/apidocs/)
 - [OKX API 文档](https://www.okx.com/docs-v5/)
