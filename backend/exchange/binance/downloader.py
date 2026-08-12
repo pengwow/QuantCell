@@ -255,6 +255,28 @@ class BinanceDownloader(BaseCollector):
         else:
             logger.warning(f"数据为空，未保存到 {save_path}")
 
+    @staticmethod
+    def _archive_corrupted_file(file_path: Path, symbol: str):
+        """将损坏的历史 parquet 文件归档为 ``.bak``，避免每次运行重复报错。
+
+        遵循项目“使用 mv 替代 rm”的约定，不直接删除文件。
+        """
+        bak_path = file_path.with_suffix(".parquet.bak")
+        try:
+            file_path.rename(bak_path)
+            logger.warning(
+                f"[增量模式] {symbol} 历史文件无时间列，已归档为 {bak_path.name}"
+            )
+        except OSError:
+            try:
+                import shutil
+                shutil.move(str(file_path), str(bak_path))
+                logger.warning(
+                    f"[增量模式] {symbol} 历史文件无时间列，已归档为 {bak_path.name}"
+                )
+            except Exception as e:
+                logger.error(f"归档损坏文件 {file_path} 失败: {e}")
+
     def _simple_collector(self, symbol: str, progress_callback=None):
         """简单收集器，使用 Parquet 格式保存"""
         self.sleep()
@@ -268,11 +290,20 @@ class BinanceDownloader(BaseCollector):
             try:
                 _old_df = pd.read_parquet(instrument_path)
                 if not _old_df.empty:
-                    if 'date' in _old_df.columns and 'timestamp' not in _old_df.columns:
-                        _old_df = _old_df.rename(columns={'date': 'timestamp'})
-                    _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
-                    existing_timestamps = _old_df['timestamp'].dropna()
-                    logger.info(f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_timestamps)} 条有效记录")
+                    # 统一函数检测并归一化时间列（移除旧列，避免 concat 歧义）
+                    _old_df = self._normalize_timestamp_col_inplace(_old_df)
+                    if _old_df is not None and "timestamp" in _old_df.columns:
+                        _old_df['timestamp'] = pd.to_numeric(
+                            _old_df['timestamp'], errors='coerce'
+                        )
+                        existing_timestamps = _old_df['timestamp'].dropna()
+                        logger.info(
+                            f"[增量模式] 读取到 {symbol} 的现有数据，"
+                            f"包含 {len(existing_timestamps)} 条有效记录"
+                        )
+                    else:
+                        # 历史文件无可用时间列，归档损坏文件以便后续重建
+                        self._archive_corrupted_file(instrument_path, symbol)
             except Exception as e:
                 logger.error(f"[增量模式] 读取 {symbol} 历史数据失败: {e}")
                 logger.exception(e)
@@ -302,6 +333,52 @@ class BinanceDownloader(BaseCollector):
 
         return self.NORMAL_FLAG
 
+    @staticmethod
+    def _ensure_timestamp_col(df: pd.DataFrame, source: str) -> Optional[pd.DataFrame]:
+        """确保 DataFrame 存在 ``timestamp`` 列。
+
+        - 若已存在 ``timestamp`` 列，直接返回原 DataFrame；
+        - 否则尝试通过 ``BaseCollector._detect_time_column`` 检测并归一化；
+        - 归一化时会移除旧列，避免 ``concat`` 产生 ``timestamp_x/timestamp_y`` 等歧义；
+        - 若仍无法获得 ``timestamp``，记录错误并返回 ``None``（调用方需放弃处理）。
+        """
+        if df is None or df.empty:
+            return df
+        if "timestamp" in df.columns:
+            return df
+        time_col = BaseCollector._detect_time_column(df)
+        if time_col and time_col != "timestamp":
+            df = df.rename(columns={time_col: "timestamp"})
+            if "timestamp" in df.columns:
+                return df
+        logger.warning(
+            f"[{source}] 无法检测到时间列，可用列: {list(df.columns)}"
+        )
+        return None
+
+    @staticmethod
+    def _normalize_timestamp_col_inplace(df: pd.DataFrame) -> Optional[pd.DataFrame]:
+        """归一化时间列：将任何候选时间列重命名为 ``timestamp`` 并移除旧列。
+
+        解决 ``concat`` 时出现 ``timestamp_x/timestamp_y`` 的列歧义问题。
+        若完全找不到时间列，返回 ``None`` 表示历史文件不可用。
+        """
+        if df is None or df.empty:
+            return df
+        if "timestamp" in df.columns:
+            return df
+        time_col = BaseCollector._detect_time_column(df)
+        if not time_col or time_col == "timestamp":
+            logger.warning(
+                f"无法检测到时间列，可用列: {list(df.columns)}"
+            )
+            return None
+        # 构造新的 timestamp 列，再删除旧列，确保列名唯一
+        df = df.copy()
+        df["timestamp"] = df[time_col]
+        df = df.drop(columns=[time_col])
+        return df
+
     def save_instrument(self, symbol, df: pd.DataFrame):
         """保存标的数据到 Parquet 文件"""
         if df is None or df.empty:
@@ -316,28 +393,32 @@ class BinanceDownloader(BaseCollector):
         # 例如: backend/data/source/crypto/spot/klines/15m/BTCUSDT.parquet ✅
         df["symbol"] = symbol
 
-        # 统一列名：确保存在 timestamp 列（兼容 date/open_time 列名）
-        if 'date' in df.columns and 'timestamp' not in df.columns:
-            df = df.rename(columns={'date': 'timestamp'})
-        if 'open_time' in df.columns and 'timestamp' not in df.columns:
-            df = df.rename(columns={'open_time': 'timestamp'})
-        if 'timestamp' not in df.columns:
-            logger.error(f"{symbol} 数据缺少 timestamp/date/open_time 列，可用列: {list(df.columns)}")
+        # 统一列名：确保存在 timestamp 列（会移除旧时间列，避免 concat 歧义）
+        df = self._normalize_timestamp_col_inplace(df)
+        if df is None:
+            logger.error(f"{symbol} 下载数据无时间列，放弃保存")
             return
-        df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
-        df = df.dropna(subset=['timestamp'])
-        df = df.drop_duplicates(subset=['timestamp'], keep='last')
-        df = df.sort_values('timestamp')
+        df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
+        df = df.dropna(subset=["timestamp"])
+        df = df.drop_duplicates(subset=["timestamp"], keep="last")
+        df = df.sort_values("timestamp")
 
-        if self.mode != 'full' and instrument_path.exists():
+        if self.mode != "full" and instrument_path.exists():
             try:
                 _old_df = pd.read_parquet(instrument_path)
-                if 'date' in _old_df.columns and 'timestamp' not in _old_df.columns:
-                    _old_df = _old_df.rename(columns={'date': 'timestamp'})
-                _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
-                df = pd.concat([_old_df, df], sort=False)
-                df = df.drop_duplicates(subset=['timestamp'], keep='last')
-                df = df.sort_values('timestamp')
+                _old_df = self._normalize_timestamp_col_inplace(_old_df)
+                if _old_df is None:
+                    # 历史数据无法归一化，归档损坏文件，让新数据直接写入
+                    self._archive_corrupted_file(instrument_path, symbol)
+                else:
+                    _old_df["timestamp"] = pd.to_numeric(
+                        _old_df["timestamp"], errors="coerce"
+                    )
+                    df = pd.concat([_old_df, df], sort=False)
+                    df = df.drop_duplicates(
+                        subset=["timestamp"], keep="last"
+                    )
+                    df = df.sort_values("timestamp")
             except Exception as e:
                 logger.warning(f"读取现有 parquet 文件失败，将覆盖: {e}")
 
