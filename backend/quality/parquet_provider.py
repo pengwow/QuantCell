@@ -5,11 +5,11 @@ from .data_provider import DataProvider
 
 # 复用 cli/data.py 中的工具函数（避免代码重复）
 from cli.data import (
-    get_source_data_dir,
     scan_parquet_files,
     _find_parquet_file,
     filter_by_date_range
 )
+from utils import get_source_data_dir
 from utils.parquet_utils import load_from_parquet
 
 

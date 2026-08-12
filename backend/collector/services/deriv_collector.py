@@ -13,8 +13,11 @@ import aiohttp
 import pandas as pd
 
 from utils.logger import get_logger, LogType
+from utils import get_source_data_dir
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
+_DEFAULT_DATA_DIR = str(get_source_data_dir())
 
 # 市场 → API 基地址映射
 _API_BASE = {
@@ -128,7 +131,7 @@ class OpenInterestFetcher:
 class DerivCollector:
     """衍生数据采集器，支持资金费率和持仓量数据"""
 
-    def __init__(self, base_dir: str = "data/source"):
+    def __init__(self, base_dir: str = _DEFAULT_DATA_DIR):
         self.base_dir = Path(base_dir)
 
     def _build_save_dir(self, data_type: str, market: str, symbol: str) -> Path:

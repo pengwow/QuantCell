@@ -12,6 +12,7 @@ from typing import Optional, List
 import pandas as pd
 
 from utils.logger import get_logger, LogType
+from utils import get_source_data_dir
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -47,8 +48,6 @@ class BaseDataAdapter(ABC):
 
     def __init__(self, base_dir: Optional[Path] = None):
         if base_dir is None:
-            from cli.data import get_source_data_dir
-
             base_dir = get_source_data_dir()
         self.base_dir = base_dir
 
