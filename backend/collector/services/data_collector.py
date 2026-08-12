@@ -14,6 +14,9 @@ from collector.schemas.data import (
 )
 from exchange.binance.downloader import BinanceDownloader
 from exchange.binance.archive.factory import BinanceArchiveFactory
+from utils import get_source_data_dir
+
+_DEFAULT_DATA_DIR = str(get_source_data_dir())
 
 
 # —— 工具函数 ——
@@ -34,7 +37,7 @@ def _market_type_from_str(market: str):
 class KlineCollector:
     """K线数据采集器，封装现有 BinanceDownloader 实现"""
 
-    def __init__(self, base_dir: str = "data/source"):
+    def __init__(self, base_dir: str = _DEFAULT_DATA_DIR):
         self.base_dir = Path(base_dir)
 
     def collect(
@@ -69,7 +72,7 @@ class KlineCollector:
 class ArchiveCollector:
     """归档数据采集器，封装 BinanceArchiveFactory"""
 
-    def __init__(self, base_dir: str = "data/source"):
+    def __init__(self, base_dir: str = _DEFAULT_DATA_DIR):
         self.base_dir = base_dir
         self._factory = BinanceArchiveFactory()
 
@@ -102,7 +105,7 @@ class ArchiveCollector:
 class DataCollector:
     """数据采集门面类，根据 data_type 路由到对应的子采集器"""
 
-    def __init__(self, base_dir: str = "data/source"):
+    def __init__(self, base_dir: str = _DEFAULT_DATA_DIR):
         self.base_dir = base_dir
 
     def collect(

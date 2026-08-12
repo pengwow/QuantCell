@@ -26,6 +26,7 @@ from utils.timestamp_utils import (
     from_nanoseconds
 )
 from utils.parquet_utils import save_to_parquet, get_parquet_info, load_from_parquet
+from utils import get_source_data_dir, get_backend_root
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -73,11 +74,6 @@ import_app = typer.Typer(help="从文件导入数据到数据库")
 
 # 创建质量检查子命令
 quality_app = typer.Typer(help="数据质量管理命令")
-
-
-def get_source_data_dir() -> Path:
-    """获取源数据根目录: backend/data/source"""
-    return Path(__file__).parent.parent / "data" / "source"
 
 
 def scan_parquet_files(
