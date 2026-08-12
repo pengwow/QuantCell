@@ -628,22 +628,22 @@ def export_csv(
 
     示例:
       # 导出BTCUSDT的1小时数据
-      python data_cli.py export csv -s BTCUSDT -i 1h -o btc_1h.csv
+      uv run python -m cli.data export csv -s BTCUSDT -i 1h -o btc_1h.csv
 
       # 导出指定时间范围的数据
-      python data_cli.py export csv -s BTCUSDT -i 1d --start 20240101 --end 20241231 -o btc_2024.csv
+      uv run python -m cli.data export csv -s BTCUSDT -i 1d --start 20240101 --end 20241231 -o btc_2024.csv
 
       # 导出前1000条记录，并格式化时间戳
-      python data_cli.py export csv -s BTCUSDT -i 1h -o btc.csv -l 1000 -t
+      uv run python -m cli.data export csv -s BTCUSDT -i 1h -o btc.csv -l 1000 -t
 
       # 导出并压缩
-      python data_cli.py export csv -s BTCUSDT -i 1h -o btc.csv.gz -z
+      uv run python -m cli.data export csv -s BTCUSDT -i 1h -o btc.csv.gz -z
 
       # 只导出指定列
-      python data_cli.py export csv -s BTCUSDT -i 1h -o btc.csv -c timestamp,open,high,low,close
+      uv run python -m cli.data export csv -s BTCUSDT -i 1h -o btc.csv -c timestamp,open,high,low,close
 
       # 使用分号分隔符
-      python data_cli.py export csv -s BTCUSDT -i 1h -o btc.csv --delimiter ";"
+      uv run python -m cli.data export csv -s BTCUSDT -i 1h -o btc.csv --delimiter ";"
     """
     try:
         # 1. 定位 Parquet 文件
@@ -655,9 +655,9 @@ def export_csv(
             typer.echo("", err=True)
             typer.echo("提示:", err=True)
             typer.echo("  1. 请先使用 download 命令下载数据:", err=True)
-            typer.echo(f"     python data_cli.py download -s {symbol} -i {interval}", err=True)
+            typer.echo(f"     uv run python -m cli.data download -s {symbol} -i {interval}", err=True)
             typer.echo("  2. 或使用 list-local-data 查看可用数据:", err=True)
-            typer.echo("     python data_cli.py list-local-data", err=True)
+            typer.echo("     uv run python -m cli.data list-local-data", err=True)
             raise typer.Exit(1)
 
         # 2. 加载 Parquet 数据
@@ -804,25 +804,25 @@ def export_parquet(
 
     示例:
       # 基本用法 - 导出BTCUSDT的1小时数据
-      python data_cli.py export parquet -s BTCUSDT -i 1h
+      uv run python -m cli.data export parquet -s BTCUSDT -i 1h
 
       # 指定输出路径
-      python data_cli.py export parquet -s BTCUSDT -i 1h -o /tmp/btc.parquet
+      uv run python -m cli.data export parquet -s BTCUSDT -i 1h -o /tmp/btc.parquet
 
       # 指定时间范围的数据
-      python data_cli.py export parquet -s BTCUSDT -i 1d --start 20240101 --end 20241231
+      uv run python -m cli.data export parquet -s BTCUSDT -i 1d --start 20240101 --end 20241231
 
       # 使用 gzip 压缩以获得更高压缩率
-      python data_cli.py export parquet -s BTCUSDT -i 1h --compression gzip
+      uv run python -m cli.data export parquet -s BTCUSDT -i 1h --compression gzip
 
       # 只导出价格列（利用列式存储优势，减少文件大小）
-      python data_cli.py export parquet -s BTCUSDT -i 1h -c timestamp,open,high,low,close
+      uv run python -m cli.data export parquet -s BTCUSDT -i 1h -c timestamp,open,high,low,close
 
       # 导出前1000条记录，并格式化时间戳为可读日期
-      python data_cli.py export parquet -s BTCUSDT -i 1h -l 1000 -t
+      uv run python -m cli.data export parquet -s BTCUSDT -i 1h -l 1000 -t
 
       # 导出并验证文件完整性
-      python data_cli.py export parquet -s BTCUSDT -i 1h --validate --verbose
+      uv run python -m cli.data export parquet -s BTCUSDT -i 1h --validate --verbose
     """
     try:
         if verbose:
@@ -838,7 +838,7 @@ def export_parquet(
             typer.echo("", err=True)
             typer.echo("提示:", err=True)
             typer.echo("  1. 请先使用 download 命令下载数据:", err=True)
-            typer.echo(f"     python data_cli.py download -s {symbol} -i {interval}", err=True)
+            typer.echo(f"     uv run python -m cli.data download -s {symbol} -i {interval}", err=True)
             raise typer.Exit(1)
 
         # 2. 加载源数据
@@ -1020,13 +1020,13 @@ def import_csv(
     
     示例:
       # 导入CSV文件
-      python data_cli.py import csv data.csv -i 1h
+      uv run python -m cli.data import csv data.csv -i 1h
       
       # 导入合约数据
-      python data_cli.py import csv data.csv -i 1h --candle-type future
+      uv run python -m cli.data import csv data.csv -i 1h --candle-type future
       
       # 使用更大的批次导入
-      python data_cli.py import csv data.csv -i 1h --batch-size 1000
+      uv run python -m cli.data import csv data.csv -i 1h --batch-size 1000
     """
     try:
         _init_db_for_task_manager()
@@ -1244,22 +1244,22 @@ app = typer.Typer(
     epilog="""
 示例:
   # 下载BTCUSDT的日线数据
-  python data_cli.py download -s BTCUSDT -i 1d --start 20240101 --end 20241231
+  uv run python -m cli.data download -s BTCUSDT -i 1d --start 20240101 --end 20241231
 
   # 导出数据到CSV（传统格式）
-  python data_cli.py export csv -s BTCUSDT -i 1h -o btc_1h.csv
+  uv run python -m cli.data export csv -s BTCUSDT -i 1h -o btc_1h.csv
 
   # 导出数据到Parquet（推荐，更高压缩率和性能）
-  python data_cli.py export parquet -s BTCUSDT -i 1h -o btc_1h.parquet
+  uv run python -m cli.data export parquet -s BTCUSDT -i 1h -o btc_1h.parquet
 
   # 使用高压缩率算法并验证文件
-  python data_cli.py export parquet -s BTCUSDT -i 1d --compression zstd --validate -o btc_daily.parquet
+  uv run python -m cli.data export parquet -s BTCUSDT -i 1d --compression zstd --validate -o btc_daily.parquet
 
   # 从CSV导入数据
-  python data_cli.py import csv data.csv
+  uv run python -m cli.data import csv data.csv
 
   # 查看本地数据
-  python data_cli.py list-local-data
+  uv run python -m cli.data list-local-data
 
 常用参数:
   -s, --symbol:     交易对符号 (如 BTCUSDT)
@@ -1409,7 +1409,7 @@ def download(
                 typer.echo("", err=True)
                 typer.echo("解决方案:", err=True)
                 typer.echo("  1. 使用 -s 参数指定交易对，例如:", err=True)
-                typer.echo("     python data_cli.py download -s BTCUSDT -s ETHUSDT", err=True)
+                typer.echo("     uv run python -m cli.data download -s BTCUSDT -s ETHUSDT", err=True)
                 typer.echo("", err=True)
                 typer.echo("  2. 检查网络连接和交易所API是否正常", err=True)
                 raise typer.Exit(1)
@@ -1419,7 +1419,7 @@ def download(
             typer.echo(f"❌ 错误: 从交易所获取交易对列表失败 - {e}", err=True)
             typer.echo("", err=True)
             typer.echo("请使用 -s 参数手动指定交易对:", err=True)
-            typer.echo("  python data_cli.py download -s BTCUSDT -s ETHUSDT", err=True)
+            typer.echo("  uv run python -m cli.data download -s BTCUSDT -s ETHUSDT", err=True)
             raise typer.Exit(1)
     
     # 2. 处理 interval 参数（默认1h）
@@ -1647,9 +1647,9 @@ def download(
             typer.echo("✗ 下载可能未完成，请使用 status 命令查询任务状态")
         
         typer.echo(f"\n可使用以下命令查询任务状态:")
-        typer.echo(f"  python data_cli.py status -t {task_id}")
+        typer.echo(f"  uv run python -m cli.data status -t {task_id}")
         typer.echo(f"\n可使用以下命令查询本地数据:")
-        typer.echo(f"  python data_cli.py list-local-data -s {','.join(symbols)}")
+        typer.echo(f"  uv run python -m cli.data list-local-data -s {','.join(symbols)}")
     except Exception as e:
         logger.exception(f"下载数据时发生错误: {e}")
         typer.echo(f"错误: {e}", err=True)
@@ -1777,16 +1777,16 @@ def list_symbols(
 
     示例:
       # 列出所有货币对（默认限制50个）
-      python data_cli.py list-symbols
+      uv run python -m cli.data list-symbols
 
       # 列出前100个货币对
-      python data_cli.py list-symbols --limit 100
+      uv run python -m cli.data list-symbols --limit 100
 
       # 只列出现货货币对
-      python data_cli.py list-symbols --candle-type spot
+      uv run python -m cli.data list-symbols --candle-type spot
 
       # 只列出合约货币对
-      python data_cli.py list-symbols --candle-type future
+      uv run python -m cli.data list-symbols --candle-type future
     """
     try:
         # 根据 candle_type 扫描对应的 Parquet 文件
@@ -1907,19 +1907,19 @@ def list_local_data(
 
     示例:
       # 列出所有可用的数据
-      python data_cli.py list-local-data
+      uv run python -m cli.data list-local-data
 
       # 查看特定交易对的数据
-      python data_cli.py list-local-data -s BTCUSDT
+      uv run python -m cli.data list-local-data -s BTCUSDT
 
       # 筛选特定时间周期
-      python data_cli.py list-local-data -i 1h
+      uv run python -m cli.data list-local-data -i 1h
 
       # 查看合约数据
-      python data_cli.py list-local-data --candle-type future
+      uv run python -m cli.data list-local-data --candle-type future
 
       # 列出所有可用的时间周期
-      python data_cli.py list-local-data --list-intervals
+      uv run python -m cli.data list-local-data --list-intervals
     """
     try:
         # 如果需要列出所有时间周期
@@ -2031,16 +2031,16 @@ def delete_local_data(
 
     示例:
       # 删除 BTCUSDT 的所有周期数据（会提示确认）
-      python data_cli.py delete-local-data -s BTCUSDT
+      uv run python -m cli.data delete-local-data -s BTCUSDT
 
       # 删除 BTCUSDT 的1小时数据
-      python data_cli.py delete-local-data -s BTCUSDT -i 1h
+      uv run python -m cli.data delete-local-data -s BTCUSDT -i 1h
 
       # 跳过确认直接删除
-      python data_cli.py delete-local-data -s BTCUSDT -i 1h -y
+      uv run python -m cli.data delete-local-data -s BTCUSDT -i 1h -y
 
       # 删除合约数据
-      python data_cli.py delete-local-data -s BTCUSDT --candle-type future
+      uv run python -m cli.data delete-local-data -s BTCUSDT --candle-type future
     """
     import shutil
 
@@ -2238,13 +2238,13 @@ def quality_check(
 
     示例:
       # 检查BTCUSDT的15分钟数据质量
-      python data_cli.py quality check -s BTCUSDT -i 15m
+      uv run python -m cli.data quality check -s BTCUSDT -i 15m
 
       # 详细模式（显示缺口详情）
-      python data_cli.py quality check -s ETHUSDT -i 1h -v
+      uv run python -m cli.data quality check -s ETHUSDT -i 1h -v
 
       # 检查指定时间范围的数据
-      python data_cli.py quality check -s BTCUSDT -i 1d --start 2024-01-01 --end 2024-12-31
+      uv run python -m cli.data quality check -s BTCUSDT -i 1d --start 2024-01-01 --end 2024-12-31
     """
     try:
         from quality.kline_quality_service import KlineQualityService
@@ -2290,10 +2290,10 @@ def quality_options(
 
     示例:
       # 列出现货市场的所有选项
-      python data_cli.py quality options --candle-type spot
+      uv run python -m cli.data quality options --candle-type spot
 
       # 列出合约市场的所有选项
-      python data_cli.py quality options --candle-type future
+      uv run python -m cli.data quality options --candle-type future
     """
     try:
         from quality.parquet_provider import ParquetDataProvider
@@ -2336,13 +2336,13 @@ def quality_batch(
 
     示例:
       # 批量检查所有交易对的1小时数据（默认前50个）
-      python data_cli.py quality batch -i 1h
+      uv run python -m cli.data quality batch -i 1h
 
       # 批量检查前20个交易对的15分钟数据
-      python data_cli.py quality batch -i 15m --limit 20
+      uv run python -m cli.data quality batch -i 15m --limit 20
 
       # 批量检查合约数据
-      python data_cli.py quality batch -i 4h --candle-type future --limit 10
+      uv run python -m cli.data quality batch -i 4h --candle-type future --limit 10
     """
     try:
         from quality.kline_quality_service import KlineQualityService
@@ -2432,10 +2432,10 @@ def quality_duplicates(
 
     示例:
       # 查看BTCUSDT的1小时数据的重复记录
-      python data_cli.py quality duplicates -s BTCUSDT -i 1h
+      uv run python -m cli.data quality duplicates -s BTCUSDT -i 1h
 
       # 查看指定时间范围的重复记录
-      python data_cli.py quality duplicates -s ETHUSDT -i 15m --start 2024-01-01
+      uv run python -m cli.data quality duplicates -s ETHUSDT -i 15m --start 2024-01-01
     """
     try:
         from quality.kline_quality_service import KlineQualityService
@@ -2464,7 +2464,7 @@ def quality_duplicates(
                 typer.echo(f"  • {ts}")
 
             typer.echo(f"\n💡 提示: 使用 'quality resolve' 命令处理重复记录")
-            typer.echo(f"   python data_cli.py quality resolve -s {symbol} -i {interval} --strategy keep_first")
+            typer.echo(f"   uv run python -m cli.data quality resolve -s {symbol} -i {interval} --strategy keep_first")
 
         typer.echo(f"\n{'='*60}\n")
 
@@ -2496,13 +2496,13 @@ def quality_resolve(
 
     示例:
       # 预览将删除多少条重复记录（不实际执行）
-      python data_cli.py quality resolve -s BTCUSDT -i 1h --dry-run
+      uv run python -m cli.data quality resolve -s BTCUSDT -i 1h --dry-run
 
       # 使用保留第一条策略处理重复记录
-      python data_cli.py quality resolve -s BTCUSDT -i 1h --strategy keep_first
+      uv run python -m cli.data quality resolve -s BTCUSDT -i 1h --strategy keep_first
 
       # 使用保留最大成交量策略处理重复记录
-      python data_cli.py quality resolve -s ETHUSDT -i 15m --strategy keep_max_volume
+      uv run python -m cli.data quality resolve -s ETHUSDT -i 15m --strategy keep_max_volume
     """
     try:
         from quality.kline_quality_service import KlineQualityService

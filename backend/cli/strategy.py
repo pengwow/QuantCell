@@ -7,25 +7,25 @@
 
 使用示例:
     # 列出所有策略
-    python scripts/strategy_cli.py list
+    uv run python -m cli.strategy list
 
     # 查看策略详情
-    python scripts/strategy_cli.py info 1
+    uv run python -m cli.strategy info 1
 
     # 生成策略
-    python scripts/strategy_cli.py generate --requirement "双均线交叉策略" --name sma_cross
+    uv run python -m cli.strategy generate --requirement "双均线交叉策略" --name sma_cross
 
     # 分析回测结果
-    python scripts/strategy_cli.py analyze --backtest-id xxx
+    uv run python -m cli.strategy analyze --backtest-id xxx
 
     # 优化策略参数
-    python scripts/strategy_cli.py optimize --strategy sma_cross --params '{"fast": [5,10,15], "slow": [20,30,40]}'
+    uv run python -m cli.strategy optimize --strategy sma_cross --params '{"fast": [5,10,15], "slow": [20,30,40]}'
 
     # 诊断策略问题
-    python scripts/strategy_cli.py diagnose --strategy sma_cross
+    uv run python -m cli.strategy diagnose --strategy sma_cross
 
     # 部署策略到Worker
-    python scripts/strategy_cli.py deploy --strategy sma_cross --symbols BTCUSDT
+    uv run python -m cli.strategy deploy --strategy sma_cross --symbols BTCUSDT
 """
 
 import sys

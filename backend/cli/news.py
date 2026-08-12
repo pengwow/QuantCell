@@ -7,10 +7,10 @@
 
 使用示例:
     # 获取新闻
-    python scripts/news_cli.py news --query bitcoin --count 10
+    uv run python -m cli.news news --query bitcoin --count 10
 
     # 获取市场情绪
-    python scripts/news_cli.py sentiment
+    uv run python -m cli.news sentiment
 
 环境变量:
     NEWSAPI_KEY: NewsAPI密钥（可选，不配置则返回提示信息）

@@ -109,14 +109,9 @@ class TestStrategyLoaderIntegration:
 
     def test_get_source_data_dir_import(self):
         """测试 get_source_data_dir 导入路径"""
-        # 验证从 cli.data 导入成功
         from cli.data import get_source_data_dir
         assert callable(get_source_data_dir)
         assert get_source_data_dir().exists()
-
-        # 验证向后兼容性：从 scripts.data_cli 也能导入
-        from scripts.data_cli import get_source_data_dir as legacy_get_source_data_dir
-        assert callable(legacy_get_source_data_dir)
 
     def test_load_multiple_strategies(self):
         """测试加载多个不同类型的策略"""

@@ -23,7 +23,7 @@ class GetKlinesTool(Tool):
     }
 
     async def execute(self, symbol: str, timeframe: str, limit: int = 100, exchange: str = "binance", **kwargs: Any) -> str:
-        from scripts.market_cli import get_klines
+        from cli.market import get_klines
         return get_klines(symbol, timeframe, limit, exchange)
 
 
@@ -42,7 +42,7 @@ class GetTickerTool(Tool):
     }
 
     async def execute(self, symbol: str, exchange: str = "binance", **kwargs: Any) -> str:
-        from scripts.market_cli import get_ticker
+        from cli.market import get_ticker
         return get_ticker(symbol, exchange)
 
 
@@ -64,7 +64,7 @@ class GetCryptoSymbolsTool(Tool):
     param_template = {}
 
     async def execute(self, exchange: str = "binance", filter: str = "USDT", limit: int = 100, market_type: str = "spot", **kwargs: Any) -> str:
-        from scripts.market_cli import get_crypto_symbols
+        from cli.market import get_crypto_symbols
         return get_crypto_symbols(exchange, filter, limit, market_type)
 
 
@@ -91,7 +91,7 @@ class FetchMarketDataTool(Tool):
     param_template = {}
 
     async def execute(self, symbol: str, data_type: str, interval: str = "1h", limit: int = 100, market_type: str = "spot", **kwargs: Any) -> str:
-        from scripts.market_cli import fetch_market_data
+        from cli.market import fetch_market_data
         return fetch_market_data(symbol, data_type, interval, limit, market_type)
 
 

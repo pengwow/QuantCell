@@ -7,16 +7,16 @@
 
 使用示例:
     # 获取K线数据
-    python scripts/market_cli.py klines --symbol BTCUSDT --timeframe 1h
+    uv run python -m cli.market klines --symbol BTCUSDT --timeframe 1h
 
     # 获取最新行情
-    python scripts/market_cli.py ticker --symbol BTCUSDT
+    uv run python -m cli.market ticker --symbol BTCUSDT
 
     # 获取交易对列表
-    python scripts/market_cli.py symbols --exchange binance --filter USDT
+    uv run python -m cli.market symbols --exchange binance --filter USDT
 
     # 获取市场数据（综合接口）
-    python scripts/market_cli.py fetch --symbol BTCUSDT --data-type kline
+    uv run python -m cli.market fetch --symbol BTCUSDT --data-type kline
 """
 
 import sys

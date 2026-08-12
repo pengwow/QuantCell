@@ -107,8 +107,7 @@ class BacktestDataProvider:
         logger.info(f"[BacktestDataProvider] 开始加载: {symbol} {interval}")
         
         try:
-            # 复用 data_cli 的工具函数查找文件
-            from scripts.data_cli import _find_parquet_file, filter_by_date_range
+            from cli.data import _find_parquet_file, filter_by_date_range
             from utils.parquet_utils import load_from_parquet
             
             parquet_path = _find_parquet_file(symbol, interval, candle_type)
@@ -421,7 +420,7 @@ class BacktestDataProvider:
             List[Dict]: [{symbol: str, intervals: [str]}, ...]
         """
         try:
-            from scripts.data_cli import scan_parquet_files
+            from cli.data import scan_parquet_files
             
             files = scan_parquet_files(candle_type=candle_type)
             
@@ -451,7 +450,7 @@ class BacktestDataProvider:
             List[str]: 如 ['1m', '5m', '15m', '1h', '4h', '1d']
         """
         try:
-            from scripts.data_cli import scan_parquet_files
+            from cli.data import scan_parquet_files
             
             files = scan_parquet_files(symbol=symbol, candle_type=candle_type)
             return sorted(set(f['interval'] for f in files))

@@ -7,35 +7,35 @@
 
 使用示例:
     # 创建插件脚手架
-    python scripts/plugin_cli.py create my_plugin --output ./plugins --type fullstack
+    uv run python -m cli.plugin create my_plugin --output ./plugins --type fullstack
 
     # 从 ZIP 安装插件
-    python scripts/plugin_cli.py install --zip /path/to/plugin.zip
+    uv run python -m cli.plugin install --zip /path/to/plugin.zip
 
     # 从 Git 仓库安装
-    python scripts/plugin_cli.py install --git https://github.com/user/repo.git --branch main
+    uv run python -m cli.plugin install --git https://github.com/user/repo.git --branch main
 
     # 从本地目录安装
-    python scripts/plugin_cli.py install --dir /path/to/plugin_dir
+    uv run python -m cli.plugin install --dir /path/to/plugin_dir
 
     # 列出所有插件
-    python scripts/plugin_cli.py list
+    uv run python -m cli.plugin list
 
     # 查看插件详情
-    python scripts/plugin_cli.py info my_plugin
+    uv run python -m cli.plugin info my_plugin
 
     # 启用/禁用插件
-    python scripts/plugin_cli.py enable my_plugin
-    python scripts/plugin_cli.py disable my_plugin
+    uv run python -m cli.plugin enable my_plugin
+    uv run python -m cli.plugin disable my_plugin
 
     # 卸载插件
-    python scripts/plugin_cli.py uninstall my_plugin
+    uv run python -m cli.plugin uninstall my_plugin
 
     # 清理残留数据
-    python scripts/plugin_cli.py clean
+    uv run python -m cli.plugin clean
 
     # 打包插件
-    python scripts/plugin_cli.py pack /path/to/plugin_dir --output plugin.zip
+    uv run python -m cli.plugin pack /path/to/plugin_dir --output plugin.zip
 """
 
 import json
@@ -1231,7 +1231,7 @@ def cmd_create(
         typer.echo(f"  cd frontend && bun install && cd ..")
     typer.echo(f"  ./build.sh")
     typer.echo(f"  cd {backend_path.parent}")
-    typer.echo(f"  uv run python backend/scripts/plugin_cli.py install --zip {project_dir}/dist/{name}-0.1.0.zip")
+    typer.echo(f"  uv run python -m cli.plugin install --zip {project_dir}/dist/{name}-0.1.0.zip")
 
 
 if __name__ == "__main__":
