@@ -47,13 +47,13 @@ app = typer.Typer(
     help="Worker 管理命令行工具 - HTTP Client 模式",
     epilog="""
 示例:
-  python worker_cli.py list                            # 列出所有 Worker
-  python worker_cli.py create --name w1 --strategy-id 1
-  python worker_cli.py start 1                          # 启动（非阻塞）
-  python worker_cli.py start 1 --wait                   # 启动（等待完成）
-  python worker_cli.py status                           # 查看状态
-  python worker_cli.py summary                          # 系统摘要
-  python worker_cli.py --server http://remote:8000 list # 连接远程服务器
+  uv run python -m cli.worker list                            # 列出所有 Worker
+  uv run python -m cli.worker create --name w1 --strategy-id 1
+  uv run python -m cli.worker start 1                          # 启动（非阻塞）
+  uv run python -m cli.worker start 1 --wait                   # 启动（等待完成）
+  uv run python -m cli.worker status                           # 查看状态
+  uv run python -m cli.worker summary                          # 系统摘要
+  uv run python -m cli.worker --server http://remote:8000 list # 连接远程服务器
 
 注意: 此工具通过 HTTP 与 FastAPI 服务器通信，确保服务器正在运行。
 """,
@@ -321,7 +321,7 @@ def _print_start_result(result: Dict[str, Any], worker_id: int):
         typer.echo("")
         typer.secho("ℹ  Worker 正在后台初始化中...", fg=typer.colors.YELLOW)
         typer.echo("  查看日志:")
-        typer.echo(f"    python worker_cli.py logs {worker_id} --lines 20")
+        typer.echo(f"    uv run python -m cli.worker logs {worker_id} --lines 20")
 
 
 def _handle_general_error(e: Exception, verbose: bool = False):
@@ -407,7 +407,7 @@ def summary():
     从服务器获取 Worker 系统的整体状态，包括总数、状态分布等。
 
     示例:
-      python worker_cli.py summary
+      uv run python -m cli.worker summary
     """
     try:
         stats_data = _get("/api/workers/")
@@ -464,7 +464,7 @@ def create(
     创建新 Worker
 
     示例:
-      python worker_cli.py create --name worker_001 --strategy-id 1 --exchange binance --symbol BTCUSDT
+      uv run python -m cli.worker create --name worker_001 --strategy-id 1 --exchange binance --symbol BTCUSDT
     """
     try:
         body = {
@@ -495,7 +495,7 @@ def create(
         typer.echo(f"  交易模式: {trading_mode}")
         
         typer.echo(f"\n  下一步:")
-        typer.echo(f"    python worker_cli.py start {worker_id}   # 启动 Worker")
+        typer.echo(f"    uv run python -m cli.worker start {worker_id}   # 启动 Worker")
 
     except typer.Exit:
         raise
@@ -518,9 +518,9 @@ def delete(
     支持强制删除运行中的 Worker（会先停止再删除）。
 
     示例:
-      python worker_cli.py delete 1
-      python worker_cli.py delete 1 --force     # 强制删除（即使正在运行）
-      python worker_cli.py delete 1 --yes       # 跳过确认提示
+      uv run python -m cli.worker delete 1
+      uv run python -m cli.worker delete 1 --force     # 强制删除（即使正在运行）
+      uv run python -m cli.worker delete 1 --yes       # 跳过确认提示
     """
     try:
         worker_info = _get(f"/api/workers/{worker_id}")
@@ -564,8 +564,8 @@ def start(
       - 阻塞模式（--wait）：等待启动完成后返回最终状态
 
     示例:
-      python worker_cli.py start 1           # 非阻塞模式（默认）
-      python worker_cli.py start 1 --wait    # 等待启动完成
+      uv run python -m cli.worker start 1           # 非阻塞模式（默认）
+      uv run python -m cli.worker start 1 --wait    # 等待启动完成
     """
     try:
         worker_data = _get(f"/api/workers/{worker_id}")
@@ -586,7 +586,7 @@ def start(
                 typer.echo("")
                 typer.secho("ℹ  Worker 正在初始化中...", fg=typer.colors.YELLOW)
                 typer.echo("  查看日志:")
-                typer.echo(f"    python worker_cli.py logs {worker_id} --lines 20")
+                typer.echo(f"    uv run python -m cli.worker logs {worker_id} --lines 20")
             return
 
         if wait:
@@ -613,8 +613,8 @@ def start(
                 typer.echo(f"  PID: {pid}")
             
             typer.echo(f"\n  提示: 使用以下命令查看进度:")
-            typer.echo(f"    python worker_cli.py status {worker_id}")
-            typer.echo(f"    python worker_cli.py logs {worker_id} --lines 20")
+            typer.echo(f"    uv run python -m cli.worker status {worker_id}")
+            typer.echo(f"    uv run python -m cli.worker logs {worker_id} --lines 20")
 
     except typer.Exit:
         raise
@@ -639,9 +639,9 @@ def stop(
       - 阻塞模式（--wait）：等待停止完成后返回最终状态
 
     示例:
-      python worker_cli.py stop 1             # 非阻塞模式（默认）
-      python worker_cli.py stop 1 --wait      # 等待停止完成
-      python worker_cli.py stop 1 --force     # 强制停止
+      uv run python -m cli.worker stop 1             # 非阻塞模式（默认）
+      uv run python -m cli.worker stop 1 --wait      # 等待停止完成
+      uv run python -m cli.worker stop 1 --force     # 强制停止
     """
     try:
         body = {}
@@ -706,7 +706,7 @@ def restart(
     内部执行先停止再启动的操作。
 
     示例:
-      python worker_cli.py restart 1
+      uv run python -m cli.worker restart 1
     """
     try:
         start_time = time.time()
@@ -748,9 +748,9 @@ def status(
     通过 HTTP 从服务器获取状态信息。
 
     示例:
-      python worker_cli.py status              # 查看所有 Worker 状态
-      python worker_cli.py status 1            # 查看指定 Worker 状态
-      python worker_cli.py status --watch      # 持续监控
+      uv run python -m cli.worker status              # 查看所有 Worker 状态
+      uv run python -m cli.worker status 1            # 查看指定 Worker 状态
+      uv run python -m cli.worker status --watch      # 持续监控
     """
     try:
         if watch:
@@ -869,9 +869,9 @@ def list_workers(
     通过 HTTP 从服务器获取 Worker 列表，支持状态筛选。
 
     示例:
-      python worker_cli.py list_workers
-      python worker_cli.py list_workers --status running
-      python worker_cli.py list_workers --format json
+      uv run python -m cli.worker list_workers
+      uv run python -m cli.worker list_workers --status running
+      uv run python -m cli.worker list_workers --format json
     """
     try:
         params = {
@@ -921,9 +921,9 @@ def stats(
     支持 --local 模式直接查询本地数据库获取完整交易统计。
 
     示例:
-      python worker_cli.py stats              # 查看全局统计
-      python worker_cli.py stats 1            # 查看指定 Worker 统计
-      python worker_cli.py stats 1 --local    # 本地数据库直连模式
+      uv run python -m cli.worker stats              # 查看全局统计
+      uv run python -m cli.worker stats 1            # 查看指定 Worker 统计
+      uv run python -m cli.worker stats 1 --local    # 本地数据库直连模式
     """
     try:
         if worker_id:
@@ -1097,13 +1097,13 @@ def logs(
     查看或清理 Worker 日志
 
     示例:
-      python worker_cli.py logs 1                    # 查看日志
-      python worker_cli.py logs 1 --level ERROR --lines 100
-      python worker_cli.py logs 1 --keyword timeout     # 搜索关键词
-      python worker_cli.py logs 1 --clear            # 清理所有日志
-      python worker_cli.py logs 1 --clear --before-days 7  # 清理7天前的日志
-      python worker_cli.py logs 1 --show-path         # 显示日志文件路径
-      python worker_cli.py logs 1 --stats             # 显示统计信息
+      uv run python -m cli.worker logs 1                    # 查看日志
+      uv run python -m cli.worker logs 1 --level ERROR --lines 100
+      uv run python -m cli.worker logs 1 --keyword timeout     # 搜索关键词
+      uv run python -m cli.worker logs 1 --clear            # 清理所有日志
+      uv run python -m cli.worker logs 1 --clear --before-days 7  # 清理7天前的日志
+      uv run python -m cli.worker logs 1 --show-path         # 显示日志文件路径
+      uv run python -m cli.worker logs 1 --stats             # 显示统计信息
     """
     from pathlib import Path
 
@@ -1250,11 +1250,11 @@ def trades(
     支持 --local 模式直接查询本地数据库。
 
     示例:
-      python worker_cli.py trades 1                          # 查询最近50条成交记录
-      python worker_cli.py trades 1 --symbol BTCUSDT         # 筛选BTCUSDT交易对
-      python worker_cli.py trades 1 --side buy --pnl-status profit
-      python worker_cli.py trades 1 --start-time 2024-01-01 --end-time 2024-01-31
-      python worker_cli.py trades 1 --local                  # 本地数据库直连模式
+      uv run python -m cli.worker trades 1                          # 查询最近50条成交记录
+      uv run python -m cli.worker trades 1 --symbol BTCUSDT         # 筛选BTCUSDT交易对
+      uv run python -m cli.worker trades 1 --side buy --pnl-status profit
+      uv run python -m cli.worker trades 1 --start-time 2024-01-01 --end-time 2024-01-31
+      uv run python -m cli.worker trades 1 --local                  # 本地数据库直连模式
     """
     try:
         if _local_mode:
@@ -1350,9 +1350,9 @@ def positions(
     支持 --local 模式直接查询本地数据库。
 
     示例:
-      python worker_cli.py positions 1
-      python worker_cli.py positions 1 --status OPEN --symbol BTCUSDT
-      python worker_cli.py positions 1 --local
+      uv run python -m cli.worker positions 1
+      uv run python -m cli.worker positions 1 --status OPEN --symbol BTCUSDT
+      uv run python -m cli.worker positions 1 --local
     """
     try:
         if _local_mode:
@@ -1438,10 +1438,10 @@ def orders(
     支持多维度筛选和 --local 模式直接查询本地数据库。
 
     示例:
-      python worker_cli.py orders 1                          # 查询最近订单
-      python worker_cli.py orders 1 --side buy --symbol BTCUSDT
-      python worker_cli.py orders 1 --start-time 2024-01-01 --end-time 2024-01-31
-      python worker_cli.py orders 1 --local                   # 本地数据库直连
+      uv run python -m cli.worker orders 1                          # 查询最近订单
+      uv run python -m cli.worker orders 1 --side buy --symbol BTCUSDT
+      uv run python -m cli.worker orders 1 --start-time 2024-01-01 --end-time 2024-01-31
+      uv run python -m cli.worker orders 1 --local                   # 本地数据库直连
     """
     try:
         if _local_mode:

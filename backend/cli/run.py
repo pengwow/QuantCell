@@ -14,12 +14,12 @@ backend_path = Path(__file__).resolve().parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-# 从 cli 包拿聚合后的顶层 app,避免相对导入 __init__ 时与包名同名冲突
-from cli import app
+from cli import app, register_commands
 
 
 def cli() -> None:
     """Console entry point,registered as ``quantcell`` in pyproject."""
+    register_commands()
     app()
 
 

@@ -168,8 +168,7 @@ class ProjectInitializer:
         logger.info("初始化数据库表结构...")
         
         try:
-            # 复用 init_database.py 中的逻辑
-            from scripts.init_database import init_database
+            from core.lifespan import init_database
             init_database()
             logger.info("数据库表初始化完成")
             return True

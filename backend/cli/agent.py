@@ -7,22 +7,22 @@ Agent 管理命令行工具
 
 使用示例:
     # 列出所有会话
-    python scripts/agent_cli.py session list
+    uv run python -m cli.agent session list
 
     # 创建新会话
-    python scripts/agent_cli.py session create --name "测试会话"
+    uv run python -m cli.agent session create --name "测试会话"
 
     # 发送消息
-    python scripts/agent_cli.py chat send "Hello" --session default
+    uv run python -m cli.agent chat send "Hello" --session default
 
     # 交互式对话
-    python scripts/agent_cli.py chat interactive
+    uv run python -m cli.agent chat interactive
 
     # 列出所有工具
-    python scripts/agent_cli.py tool list
+    uv run python -m cli.agent tool list
 
     # 查看工作空间文件
-    python scripts/agent_cli.py workspace list
+    uv run python -m cli.agent workspace list
 
 环境变量:
     AGENT_API_URL: Agent API 地址，默认 http://localhost:8000

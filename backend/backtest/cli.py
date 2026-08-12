@@ -72,19 +72,19 @@ def run(
 
     示例:
       # 默认 K线回测
-      python backtest_cli.py run --strategy sma_cross_strategy --symbols BTCUSDT --timeframes 1h
+      uv run python -m cli.backtest run --strategy sma_cross_strategy --symbols BTCUSDT --timeframes 1h
 
       # 使用 aggTrades Tick 数据回测
-      python backtest_cli.py run --strategy sma_cross_strategy --symbols BTCUSDT --data-type aggTrades
+      uv run python -m cli.backtest run --strategy sma_cross_strategy --symbols BTCUSDT --data-type aggTrades
 
       # 使用 fundingRate 衍生数据回测 (需先下载 markPriceKlines + fundingRate)
-      python backtest_cli.py run --strategy funding_arbitrage --symbols BTCUSDT --data-type fundingRate --market um
+      uv run python -m cli.backtest run --strategy funding_arbitrage --symbols BTCUSDT --data-type fundingRate --market um
 
       # 启用 EOD 强制平仓(末日单管理:所有 PnL 转为已实现,适合日报/对账)
-      python backtest_cli.py run --strategy sma_cross_strategy --symbols BTCUSDT --timeframes 1h --force-liquidate
+      uv run python -m cli.backtest run --strategy sma_cross_strategy --symbols BTCUSDT --timeframes 1h --force-liquidate
 
       # 多品种回测
-      python backtest_cli.py run --strategy sma_cross_axon --symbols BTCUSDT,ETHUSDT --timeframes 1h
+      uv run python -m cli.backtest run --strategy sma_cross_axon --symbols BTCUSDT,ETHUSDT --timeframes 1h
     """
     console = Console()
 
@@ -149,7 +149,7 @@ def run(
     except FileNotFoundError as e:
         logger.error(f"数据文件未找到: {e}")
         console.print(f"[red]❌ 数据文件未找到: {e}[/red]")
-        console.print("[yellow]💡 提示: 请先使用 data_cli.py download 下载数据[/yellow]")
+        console.print("[yellow]💡 提示: 请先使用 cli.data download 下载数据[/yellow]")
         raise typer.Exit(1)
 
     except Exception as e:

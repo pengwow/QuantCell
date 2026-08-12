@@ -9,13 +9,13 @@ QuantCell 测试运行脚本
 - 并行运行测试以提高速度
 
 使用方法：
-    python scripts/run_tests.py                    # 运行所有测试
-    python scripts/run_tests.py --unit             # 仅运行单元测试
-    python scripts/run_tests.py --integration      # 仅运行集成测试
-    python scripts/run_tests.py --api              # 仅运行API测试
-    python scripts/run_tests.py --coverage         # 生成覆盖率报告
-    python scripts/run_tests.py --parallel         # 并行运行测试
-    python scripts/run_tests.py --verbose          # 详细输出
+    uv run python -m cli.tests                    # 运行所有测试
+    uv run python -m cli.tests --unit             # 仅运行单元测试
+    uv run python -m cli.tests --integration      # 仅运行集成测试
+    uv run python -m cli.tests --api              # 仅运行API测试
+    uv run python -m cli.tests --coverage         # 生成覆盖率报告
+    uv run python -m cli.tests --parallel         # 并行运行测试
+    uv run python -m cli.tests --verbose          # 详细输出
 """
 
 import subprocess
@@ -232,14 +232,14 @@ def main(
     QuantCell 测试运行脚本
 
     示例:
-        python scripts/run_tests.py                    # 运行所有测试
-        python scripts/run_tests.py --unit             # 仅运行单元测试
-        python scripts/run_tests.py --integration      # 仅运行集成测试
-        python scripts/run_tests.py --api              # 仅运行API测试
-        python scripts/run_tests.py --coverage         # 生成覆盖率报告
-        python scripts/run_tests.py --parallel         # 并行运行测试
-        python scripts/run_tests.py --verbose          # 详细输出
-        python scripts/run_tests.py tests/test_example.py  # 运行特定测试文件
+        uv run python -m cli.tests                    # 运行所有测试
+        uv run python -m cli.tests --unit             # 仅运行单元测试
+        uv run python -m cli.tests --integration      # 仅运行集成测试
+        uv run python -m cli.tests --api              # 仅运行API测试
+        uv run python -m cli.tests --coverage         # 生成覆盖率报告
+        uv run python -m cli.tests --parallel         # 并行运行测试
+        uv run python -m cli.tests --verbose          # 详细输出
+        uv run python -m cli.tests tests/test_example.py  # 运行特定测试文件
     """
     # 检查是否在项目根目录
     project_root = get_project_root()

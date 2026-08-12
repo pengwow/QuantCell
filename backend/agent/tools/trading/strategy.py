@@ -18,7 +18,7 @@ class ListStrategiesTool(Tool):
     }
 
     async def execute(self, **kwargs: Any) -> str:
-        from scripts.strategy_cli import list_strategies
+        from cli.strategy import list_strategies
         return list_strategies()
 
 
@@ -36,7 +36,7 @@ class GetStrategyDetailTool(Tool):
     }
 
     async def execute(self, strategy_id: int, **kwargs: Any) -> str:
-        from scripts.strategy_cli import get_strategy_detail
+        from cli.strategy import get_strategy_detail
         return get_strategy_detail(strategy_id)
 
 
@@ -117,7 +117,7 @@ class GenerateStrategyTool(Tool):
         indicators: str | None = None,
         **kwargs: Any,
     ) -> str:
-        from scripts.strategy_cli import generate_strategy
+        from cli.strategy import generate_strategy
         return generate_strategy(requirement, strategy_name, indicators)
 
 
@@ -145,7 +145,7 @@ class AnalyzeBacktestResultTool(Tool):
         result_data: str | None = None,
         **kwargs: Any,
     ) -> str:
-        from scripts.strategy_cli import analyze_backtest_result
+        from cli.strategy import analyze_backtest_result
         return analyze_backtest_result(backtest_id, result_file, result_data)
 
 
@@ -179,7 +179,7 @@ class OptimizeStrategyParamsTool(Tool):
         max_iterations: int = 50,
         **kwargs: Any,
     ) -> str:
-        from scripts.strategy_cli import optimize_strategy_params
+        from cli.strategy import optimize_strategy_params
         return optimize_strategy_params(strategy_name, param_ranges, symbols, timeframe, metric, max_iterations)
 
 
@@ -205,7 +205,7 @@ class DiagnoseStrategyTool(Tool):
         backtest_id: str | None = None,
         **kwargs: Any,
     ) -> str:
-        from scripts.strategy_cli import diagnose_strategy
+        from cli.strategy import diagnose_strategy
         return diagnose_strategy(strategy_name, backtest_id)
 
 
@@ -243,7 +243,7 @@ class DeployStrategyTool(Tool):
         auto_start: bool = False,
         **kwargs: Any,
     ) -> str:
-        from scripts.strategy_cli import deploy_strategy
+        from cli.strategy import deploy_strategy
         return deploy_strategy(
             strategy_name,
             symbols,

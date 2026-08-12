@@ -3,16 +3,16 @@
 
 使用示例:
     # 训练模型
-    python scripts/rl_cli.py train --symbol BTCUSDT --algorithm ppo --timesteps 5000
+    uv run python -m cli.rl train --symbol BTCUSDT --algorithm ppo --timesteps 5000
 
     # 列出已训练模型
-    python scripts/rl_cli.py models
+    uv run python -m cli.rl models
 
     # 回测模型
-    python scripts/rl_cli.py backtest --model data/rl_models/BTCUSDT_ppo_xxx.zip --symbol BTCUSDT
+    uv run python -m cli.rl backtest --model data/rl_models/BTCUSDT_ppo_xxx.zip --symbol BTCUSDT
 
     # 一键启动完整生命周期（训练→回测→评估→重训练）
-    python scripts/rl_cli.py lifecycle --symbol BTCUSDT
+    uv run python -m cli.rl lifecycle --symbol BTCUSDT
 """
 
 import sys

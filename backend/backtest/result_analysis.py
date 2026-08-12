@@ -435,12 +435,19 @@ class ResultSerializer:
                 # 权益曲线列表（包含字典，可能有Timestamp）
                 serialized[k] = self._serialize_equity_curve(v)
             elif k == 'metrics':
-                # 指标字典
-                serialized[k] = {
-                    mk: float(mv) if isinstance(mv, (np.floating, float)) else
-                       int(mv) if isinstance(mv, (np.integer, int)) else str(mv)
-                    for mk, mv in v.items()
-                }
+                # 指标字段 — 兼容两种格式:
+                # 1) {key: value, ...} dict 格式(旧/内部)
+                # 2) [{name, key, value, description, type}, ...] 列表格式(axon 前端展示)
+                if isinstance(v, list):
+                    serialized[k] = [self._serialize_value(item) for item in v]
+                elif isinstance(v, dict):
+                    serialized[k] = {
+                        mk: float(mv) if isinstance(mv, (np.floating, float)) else
+                           int(mv) if isinstance(mv, (np.integer, int)) else str(mv)
+                        for mk, mv in v.items()
+                    }
+                else:
+                    serialized[k] = self._serialize_value(v)
             elif k in ['orders', 'trades', 'strategy_trades']:
                 # 交易/订单列表
                 serialized[k] = self._serialize_orders(v)
@@ -815,7 +822,13 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
     if is_aggregated:
         if is_portfolio:
             portfolio = normal_results['portfolio']
-            portfolio_metrics = portfolio.get('metrics', {})
+            raw_metrics = portfolio.get('metrics', {})
+            # format_axon_results 返回的 metrics 是 [{key, value, ...}, ...] 列表格式
+            # 这里统一转为 {key: value} dict 格式
+            if isinstance(raw_metrics, list):
+                portfolio_metrics = {m['key']: m['value'] for m in raw_metrics if 'key' in m}
+            else:
+                portfolio_metrics = raw_metrics
         else:
             # 多品种路径 metrics 在 normal_results['metrics'],非 portfolio
             portfolio_metrics = normal_results.get('metrics', {})
@@ -833,10 +846,10 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
         print(f"  总收益率: {portfolio_metrics.get('total_return', 0):.2f}%")
         print(f"  总盈亏: {portfolio_metrics.get('total_pnl', 0):.2f}")
         print(f"  总交易次数: {total_trade_count}")
-        # max_drawdown / win_rate 在 axon 端是 0~1 小数,这里 *100 转百分比,
-        # 避免 0.3 直接当 30% 显示(应 30.00%)或 0.00035 显示成 0.00%
-        print(f"  胜率: {portfolio_metrics.get('win_rate', 0) * 100:.4f}%")
-        print(f"  最大回撤: {portfolio_metrics.get('max_drawdown', 0) * 100:.4f}%")
+        # win_rate / max_drawdown 在 format_axon_results 中已经是百分比值(如 47.83),
+        # 直接显示即可,不再 *100
+        print(f"  胜率: {portfolio_metrics.get('win_rate', 0):.4f}%")
+        print(f"  最大回撤: {portfolio_metrics.get('max_drawdown', 0):.4f}%")
         print(f"  夏普比率: {portfolio_metrics.get('sharpe_ratio', 0):.4f}")
         print(f"  总手续费: {portfolio_metrics.get('total_fees', 0):.2f}")
         _print_data_range(portfolio_metrics)
@@ -872,7 +885,11 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
         if is_aggregated:
             # 从该交易对的结果中获取交易记录和盈亏
             symbol_trades = result.get('trades', [])
-            symbol_metrics = result.get('metrics', {})
+            raw_symbol_metrics = result.get('metrics', {})
+            if isinstance(raw_symbol_metrics, list):
+                symbol_metrics = {m['key']: m['value'] for m in raw_symbol_metrics if 'key' in m}
+            else:
+                symbol_metrics = raw_symbol_metrics
             symbol_pnl = symbol_metrics.get('total_pnl', 0)
             # 统一统计口径:多品种路径 trades 顶层(由 _aggregate_multi_results 透传) +
             # metrics.trade_count 双兜底;单投资组合只用 trades
@@ -910,14 +927,21 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
             # axon 适配层没 trade records,用 metrics.fills 替代(撮合成交笔数
             # 在回测场景下 = 交易笔数)
             trades = result.get('trades', [])
-            metrics_inner = result.get('metrics', {})
+            raw_metrics_inner = result.get('metrics', {})
+            if isinstance(raw_metrics_inner, list):
+                metrics_inner = {m['key']: m['value'] for m in raw_metrics_inner if 'key' in m}
+            else:
+                metrics_inner = raw_metrics_inner
             trade_count = len(trades) if trades else metrics_inner.get('total_trades', 0)
             print(f"  交易数量: {trade_count}")
             # 回测数据时间范围(纳秒 → ISO)
             _print_data_range(metrics_inner)
 
             # 指标
-            metrics = result.get('metrics', {})
+            if isinstance(raw_metrics_inner, list):
+                metrics = {m['key']: m['value'] for m in raw_metrics_inner if 'key' in m}
+            else:
+                metrics = raw_metrics_inner
             print("\n  绩效指标:")
             for metric_key, metric_value in metrics.items():
                 if isinstance(metric_value, float):
