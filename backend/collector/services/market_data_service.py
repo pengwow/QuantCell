@@ -85,9 +85,11 @@ class MarketDataService:
             if db_data["expired"]:
                 logger.warning(f"以下货币对在数据库中也不存在或已过期: {db_data['expired']}")
 
-        # 如果没有任何数据，抛出异常
+        # 如果没有任何数据，返回空列表而不是抛出异常
+        # 市场数据是辅助信息，不应阻塞页面加载
         if not result:
-            raise Exception(f"无法从交易所官方接口或数据库缓存获取市场数据")
+            logger.warning(f"无法获取{len(symbols)}个货币对的市场数据（交易所不可达且数据库无缓存），返回空列表")
+            return []
 
         return result
 

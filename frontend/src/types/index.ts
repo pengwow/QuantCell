@@ -70,6 +70,10 @@ export interface Strategy {
   tradeRecords: TradeRecord[];
   returnRateData: ReturnRatePoint[];
   performance: StrategyPerformance;
+  // 策略类型: rule(规则策略) / rl(RL策略)
+  strategy_type?: 'rule' | 'rl';
+  strategy_class?: string;
+  code?: string;
 }
 
 /**

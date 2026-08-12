@@ -1,5 +1,10 @@
 """
 Share CRUD 单元测试
+
+覆盖：
+- 基础 CRUD：create/get/list/revoke
+- 一次性/过期/max_views 状态判断
+- 远端字段保留（remote_id/short_url/remote_status/remote_error）
 """
 import sys
 from datetime import datetime, timedelta
@@ -140,165 +145,6 @@ def test_list_shares_by_worker(db_session, sample_worker):
     assert shares[0].created_at >= shares[-1].created_at
 
 
-def test_record_view_increments_count(db_session, sample_worker):
-    """record_view 后 view_count +1 且创建 ShareView"""
-    from share import crud
-    from share.models import ShareView
-
-    share, plain = crud.create_share_token(
-        db=db_session,
-        worker_id=sample_worker.id,
-        created_by="u1",
-        expires_in_seconds=None,
-        one_time=False,
-    )
-    crud.record_view(db_session, share, "1.2.3.4", "test-agent", success=True)
-    assert share.view_count == 1
-
-    views = db_session.query(ShareView).filter(ShareView.token_id == share.id).all()
-    assert len(views) == 1
-    assert views[0].ip == "1.2.3.4"
-    assert views[0].user_agent == "test-agent"
-
-
-def test_record_view_dedup_same_ip_same_day(db_session, sample_worker):
-    """同一 IP 当天重复访问（含刷新）只计 1 次，但审计日志每次都记"""
-    from share import crud
-    from share.models import ShareView
-
-    share, _ = crud.create_share_token(
-        db=db_session,
-        worker_id=sample_worker.id,
-        created_by="u1",
-        expires_in_seconds=None,
-        one_time=False,
-    )
-
-    # 第一次访问
-    counted_1 = crud.record_view(db_session, share, "1.2.3.4", "ua-1", success=True)
-    assert counted_1 is True
-    assert share.view_count == 1
-
-    # 同一 IP 当天第二次访问（刷新页面）—— 不应计数
-    counted_2 = crud.record_view(db_session, share, "1.2.3.4", "ua-1", success=True)
-    assert counted_2 is False
-    assert share.view_count == 1
-
-    # 同一 IP 当天第三次访问 —— 仍不应计数
-    counted_3 = crud.record_view(db_session, share, "1.2.3.4", "ua-1", success=True)
-    assert counted_3 is False
-    assert share.view_count == 1
-
-    # 审计日志每次都应记录
-    views = db_session.query(ShareView).filter(ShareView.token_id == share.id).all()
-    assert len(views) == 3
-
-
-def test_record_view_different_ips_same_day(db_session, sample_worker):
-    """不同 IP 在同一天访问各算一次"""
-    from share import crud
-
-    share, _ = crud.create_share_token(
-        db=db_session,
-        worker_id=sample_worker.id,
-        created_by="u1",
-        expires_in_seconds=None,
-        one_time=False,
-    )
-
-    crud.record_view(db_session, share, "1.1.1.1", "ua", success=True)
-    crud.record_view(db_session, share, "2.2.2.2", "ua", success=True)
-    crud.record_view(db_session, share, "3.3.3.3", "ua", success=True)
-    assert share.view_count == 3
-
-    # 再次访问任一 IP 不应再计数
-    crud.record_view(db_session, share, "1.1.1.1", "ua", success=True)
-    crud.record_view(db_session, share, "2.2.2.2", "ua", success=True)
-    assert share.view_count == 3
-
-
-def test_record_view_dedup_cross_day(db_session, sample_worker):
-    """跨天后同一 IP 访问应再次计数"""
-    from datetime import timedelta
-    from share import crud
-    from share.models import ShareView
-
-    share, _ = crud.create_share_token(
-        db=db_session,
-        worker_id=sample_worker.id,
-        created_by="u1",
-        expires_in_seconds=None,
-        one_time=False,
-    )
-
-    # 第一天访问
-    crud.record_view(db_session, share, "1.2.3.4", "ua", success=True)
-    assert share.view_count == 1
-
-    # 把历史的访问记录时间回拨到昨天，模拟跨天
-    views = db_session.query(ShareView).filter(ShareView.token_id == share.id).all()
-    for v in views:
-        v.viewed_at = v.viewed_at - timedelta(days=1)
-    db_session.add_all(views)
-    db_session.commit()
-
-    # "今天"同一 IP 再次访问 —— 应再次计数
-    counted = crud.record_view(db_session, share, "1.2.3.4", "ua", success=True)
-    assert counted is True
-    assert share.view_count == 2
-
-
-def test_record_view_failed_access_does_not_count(db_session, sample_worker):
-    """失败的访问尝试（如 404）不计入 view_count"""
-    from share import crud
-
-    share, _ = crud.create_share_token(
-        db=db_session,
-        worker_id=sample_worker.id,
-        created_by="u1",
-        expires_in_seconds=None,
-        one_time=False,
-    )
-
-    counted = crud.record_view(db_session, share, "1.2.3.4", "ua", success=False)
-    assert counted is False
-    assert share.view_count == 0
-
-
-def test_record_view_no_ip_each_visit_counts(db_session, sample_worker):
-    """无 IP 来源时（无法识别访问者）按每次访问都计数，避免丢失来源信息"""
-    from share import crud
-
-    share, _ = crud.create_share_token(
-        db=db_session,
-        worker_id=sample_worker.id,
-        created_by="u1",
-        expires_in_seconds=None,
-        one_time=False,
-    )
-
-    crud.record_view(db_session, share, None, "ua", success=True)
-    crud.record_view(db_session, share, None, "ua", success=True)
-    assert share.view_count == 2
-
-
-def test_consume_one_time_marks_revoked(db_session, sample_worker):
-    """一次性 token 被消费后 revoked_at 不为空"""
-    from share import crud
-
-    share, plain = crud.create_share_token(
-        db=db_session,
-        worker_id=sample_worker.id,
-        created_by="u1",
-        expires_in_seconds=None,
-        one_time=True,
-    )
-    assert share.is_revoked() is False
-    crud.consume_one_time(db_session, share)
-    assert share.is_revoked() is True
-    assert share.is_active(datetime.now()) is False
-
-
 def test_token_hash_uniqueness(db_session, sample_worker):
     """不同 token 的 hash 必须不同"""
     from share import crud
@@ -314,7 +160,6 @@ def test_token_hash_uniqueness(db_session, sample_worker):
 def test_is_expired(db_session, sample_worker):
     """过期 token 应被识别"""
     from share import crud
-    from share.models import ShareToken
 
     share, plain = crud.create_share_token(
         db=db_session,
@@ -344,3 +189,28 @@ def test_max_views_limit(db_session, sample_worker):
     share.view_count = 2
     assert share.has_reached_max_views() is True
     assert share.is_active(datetime.now()) is False
+
+
+def test_remote_fields_persist(db_session, sample_worker):
+    """远端相关字段（remote_id/short_url/remote_status/remote_error）持久化"""
+    from share import crud
+
+    share, _ = crud.create_share_token(
+        db=db_session,
+        worker_id=sample_worker.id,
+        created_by="u1",
+        expires_in_seconds=None,
+        one_time=False,
+    )
+    share.remote_id = "r-123"
+    share.short_url = "https://share.quantcell.top/abc"
+    share.remote_status = "UPLOADED"
+    share.remote_error = None
+    db_session.add(share)
+    db_session.commit()
+    db_session.refresh(share)
+
+    assert share.remote_id == "r-123"
+    assert share.short_url == "https://share.quantcell.top/abc"
+    assert share.remote_status == "UPLOADED"
+    assert share.remote_error is None

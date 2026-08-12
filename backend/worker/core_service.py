@@ -5,8 +5,7 @@ Worker核心服务层
 - 同步模式：供CLI命令行工具使用
 - 异步模式：供FastAPI接口使用
 
-基于 state.py 单例枢纽的 nautilus_system + strategy_registry 进行策略管理，
-不再使用 multiprocessing 进程隔离和 ZMQ IPC 通信。
+基于 state.py 单例枢纽的 strategy_manager + strategy_registry 进行策略管理。
 
 独立于FastAPI，可直接导入使用
 """
@@ -20,10 +19,16 @@ import json
 import asyncio
 
 from . import models, crud, schemas, state as _ws
-from .exceptions import WorkerException
+from .exceptions import (
+    WorkerException,
+    WorkerOperationError,
+    WorkerNotFoundError,
+    WorkerAlreadyRunningError,
+    LogQueryError,
+    MetricsError,
+)
 from .worker_state import worker_state_manager, WorkerStateManager
 from .state import strategy_registry
-from .config import NAUTILUS_AVAILABLE
 from collector.db.database import SessionLocal, init_database_config
 from utils.db_session import get_db_session
 from utils.logger import get_logger, LogType
@@ -31,49 +36,20 @@ from utils.logger import get_logger, LogType
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
-class WorkerOperationError(WorkerException):
-    """Worker操作失败异常"""
-
-    def __init__(self, operation: str, worker_id: int = None, message: str = None):
-        self.operation = operation
-        self.worker_id = worker_id
-        if worker_id:
-            self.message = message or f"Worker {worker_id} {operation} 操作失败"
-        else:
-            self.message = message or f"{operation} 操作失败"
-        super().__init__(self.message)
+# 异常类已统一在 exceptions.py 中定义
+# 这里保留向后兼容的导入，不再重复定义
 
 
-class WorkerNotFoundError(WorkerException):
-    """Worker未找到异常"""
-
-    def __init__(self, worker_id: int, message: str = None):
-        self.worker_id = worker_id
-        self.message = message or f"Worker {worker_id} 不存在"
-        super().__init__(self.message)
-
-
-class WorkerAlreadyRunningError(WorkerException):
-    """Worker已在运行异常"""
-
-    def __init__(self, worker_id: int, message: str = None):
-        self.worker_id = worker_id
-        self.message = message or f"Worker {worker_id} 已在运行中"
-        super().__init__(self.message)
-
-
-class LogQueryError(WorkerOperationError):
-    """日志查询失败"""
-
-    def __init__(self, worker_id: int = None, message: str = None):
-        super().__init__("日志查询", worker_id, message or "日志查询失败")
-
-
-class MetricsError(WorkerOperationError):
-    """性能指标获取失败"""
-
-    def __init__(self, worker_id: int = None, message: str = None):
-        super().__init__("性能指标", worker_id, message or "获取性能指标失败")
+__all__ = [
+    "WorkerException",
+    "WorkerOperationError",
+    "WorkerNotFoundError",
+    "WorkerAlreadyRunningError",
+    "LogQueryError",
+    "MetricsError",
+    "WorkerCoreService",
+    "worker_core_service",
+]
 
 
 class WorkerCoreService:
@@ -84,7 +60,7 @@ class WorkerCoreService:
     - 同步方法：以 create_worker、get_worker 等命名，适合CLI使用
     - 异步方法：以 async_create_worker、async_get_worker 等命名，适合API使用
 
-    策略启停通过 state.py 单例枢纽的 nautilus_system 执行，
+    策略启停通过 state.py 单例枢纽的 strategy_manager 执行，
     运行时状态通过 strategy_registry 查询。
     """
 
@@ -105,7 +81,7 @@ class WorkerCoreService:
         self._config = self._load_config()
 
         self._register_state_event_handlers()
-        logger.info("[WorkerCoreService] 初始化完成（单例枢纽模式），nautilus_system 已集成")
+        logger.info("[WorkerCoreService] 初始化完成（单例枢纽模式），strategy_manager 已集成")
 
     @classmethod
     def reset_instance(cls):
@@ -114,24 +90,24 @@ class WorkerCoreService:
 
     def _ensure_initialized(self) -> None:
         """
-        检查 nautilus_system 是否已初始化
+        检查 strategy_manager 是否已初始化
 
         Raises:
-            RuntimeError: 如果 nautilus_system 未完成初始化
+            RuntimeError: 如果 strategy_manager 未完成初始化
         """
-        if _ws.nautilus_system is None:
+        if _ws.strategy_manager is None:
             raise RuntimeError(
-                "WorkerCoreService: nautilus_system 单例未注册。"
-                "请检查 worker_system 模块是否正常导入。"
+                "WorkerCoreService: strategy_manager 单例未注册。"
+                "请检查 strategy_manager 模块是否正常导入。"
             )
 
-        if not getattr(_ws.nautilus_system, '_initialized', False):
+        if not getattr(_ws.strategy_manager, '_initialized', False):
             raise RuntimeError(
-                "WorkerCoreService: nautilus_system 尚未完成初始化。"
-                "请先调用 await nautilus_system.initialize() 完成初始化。"
+                "WorkerCoreService: strategy_manager 尚未完成初始化。"
+                "请先调用 await strategy_manager.initialize() 完成初始化。"
             )
 
-        logger.debug("[WorkerCoreService] nautilus_system 初始化检查通过")
+        logger.debug("[WorkerCoreService] strategy_manager 初始化检查通过")
 
     def _load_config(self) -> Dict[str, Any]:
         """从环境变量和默认配置文件加载配置"""
@@ -649,7 +625,7 @@ class WorkerCoreService:
         """
         启动 Worker（同步版本，供 CLI 使用）
 
-        通过 nautilus_system.start_strategy() 执行策略启动。
+        通过 strategy_manager.start_strategy() 执行策略启动。
 
         Args:
             worker_id: Worker ID
@@ -664,9 +640,6 @@ class WorkerCoreService:
         """
         self._ensure_initialized()
 
-        if not NAUTILUS_AVAILABLE:
-            raise WorkerOperationError("启动", worker_id, message="NautilusTrader 未安装，无法启动策略")
-
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
@@ -677,9 +650,9 @@ class WorkerCoreService:
         logger.info(f"[WorkerCoreService] 同步启动 Worker {worker_id}")
 
         try:
-            success = asyncio.run(_ws.nautilus_system.start_strategy(worker_id))
+            success = asyncio.run(_ws.strategy_manager.start_strategy(worker_id))
             if not success:
-                raise WorkerOperationError("启动", worker_id, message="nautilus_system 启动策略失败")
+                raise WorkerOperationError("启动", worker_id, message="strategy_manager 启动策略失败")
 
             logger.info(f"[WorkerCoreService] Worker {worker_id} 启动成功")
             return {"worker_id": worker_id, "status": "running"}
@@ -703,9 +676,6 @@ class WorkerCoreService:
             dict: {"worker_id": int, "status": "starting", "message": str}
         """
         self._ensure_initialized()
-
-        if not NAUTILUS_AVAILABLE:
-            raise WorkerOperationError("启动", worker_id, message="NautilusTrader 未安装，无法启动策略")
 
         logger.info(f"[WorkerCoreService] 异步启动 Worker {worker_id}")
 
@@ -749,21 +719,21 @@ class WorkerCoreService:
         """
         执行 Worker 启动的后台异步任务
 
-        直接调用 nautilus_system.start_strategy()，
-        由 NautilusTradingSystem 内部处理策略配置加载、TradingNode 创建和异步运行。
+        直接调用 strategy_manager.start_strategy()，
+        由 StrategyManager 内部处理策略配置加载和异步运行。
 
         Args:
             worker_id: Worker ID
         """
         try:
-            success = await _ws.nautilus_system.start_strategy(worker_id)
+            success = await _ws.strategy_manager.start_strategy(worker_id)
             if success:
                 logger.info(f"[_do_start_worker] Worker {worker_id} 启动成功")
             else:
                 logger.error(f"[_do_start_worker] Worker {worker_id} 启动失败")
                 await worker_state_manager.transition(
                     worker_id, "error",
-                    error_message="nautilus_system 启动策略失败"
+                    error_message="strategy_manager 启动策略失败"
                 )
         except Exception as e:
             logger.error(f"[_do_start_worker] Worker {worker_id} 启动过程异常: {e}")
@@ -777,7 +747,7 @@ class WorkerCoreService:
         """
         停止 Worker（同步版本，供 CLI 使用）
 
-        通过 nautilus_system.stop_strategy() 执行策略停止。
+        通过 strategy_manager.stop_strategy() 执行策略停止。
 
         Args:
             worker_id: Worker ID
@@ -794,9 +764,9 @@ class WorkerCoreService:
         logger.info(f"[WorkerCoreService] 同步停止 Worker {worker_id}")
 
         try:
-            success = asyncio.run(_ws.nautilus_system.stop_strategy(worker_id))
+            success = asyncio.run(_ws.strategy_manager.stop_strategy(worker_id))
             if not success:
-                raise WorkerOperationError("停止", worker_id, message="nautilus_system 停止策略失败")
+                raise WorkerOperationError("停止", worker_id, message="strategy_manager 停止策略失败")
 
             logger.info(f"[WorkerCoreService] Worker {worker_id} 停止成功")
             return {"worker_id": worker_id, "status": "stopped"}
@@ -863,8 +833,8 @@ class WorkerCoreService:
         """
         执行 Worker 停止的后台异步任务
 
-        直接调用 nautilus_system.stop_strategy()，
-        由 NautilusTradingSystem 内部处理 asyncio Task 取消、TradingNode dispose。
+        直接调用 strategy_manager.stop_strategy()，
+        由 StrategyManager 内部处理策略停止。
 
         注意：stop_strategy() 返回 False 不一定代表失败——
         可能因为运行时已经不存在（线程意外退出但状态已同步为 stopped），
@@ -874,12 +844,11 @@ class WorkerCoreService:
             worker_id: Worker ID
         """
         try:
-            success = await _ws.nautilus_system.stop_strategy(worker_id)
+            success = await _ws.strategy_manager.stop_strategy(worker_id)
             if success:
                 logger.info(f"[_do_stop_worker] Worker {worker_id} 停止成功")
             else:
                 # 检查当前状态：如果已经 stopped，不需要转为 error
-                # 注意：get_state() 是异步方法，需要 await
                 current_state = await worker_state_manager.get_state(worker_id)
                 if current_state and current_state.status == "stopped":
                     logger.info(
@@ -1108,7 +1077,7 @@ class WorkerCoreService:
                     "db_status": worker.status,
                     "runtime_status": None,
                     "is_running": False,
-                    "message": "Worker 未在 strategy_registry 中注册（可能尚未通过 nautilus_system 创建）",
+                    "message": "Worker 未在 strategy_registry 中注册（可能尚未通过 strategy_manager 创建）",
                 }
 
         except WorkerNotFoundError:

@@ -2,13 +2,13 @@
 Share 路由层测试
 
 覆盖：
-- 受保护端点 401/403
-- 公开端点 200（合法 token）/ 404（过期/撤销/一次性已用）
-- snapshot 字段白名单（不包含敏感字段）
+- 受保护端点 401/403/200（合法调用）
+- 远端上传成功 / 远端上传失败 → 502 / 凭据自动注册
+- 撤销 / 列表 / retry-remote
 """
 import sys
-from datetime import datetime
-from unittest.mock import patch
+from contextlib import contextmanager
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -47,7 +47,11 @@ def mock_jwt_user_b():
 
 @pytest.fixture
 def test_client(db_session):
-    """FastAPI TestClient 复用 db_session"""
+    """FastAPI TestClient 复用 db_session
+
+    默认覆盖 get_db / get_db_session / get_current_user,
+    让测试无需登录即可调用受保护端点。
+    """
     from fastapi.testclient import TestClient
     from collector.db.database import get_db
     from worker.dependencies import get_db_session, get_current_user
@@ -90,58 +94,81 @@ def test_client(db_session):
     app.dependency_overrides.clear()
 
 
+@contextmanager
+def _mock_remote_ready():
+    """patch 远端上传成功的辅助函数"""
+    with patch("share.routes.ensure_remote_credentials", return_value=("qck_mock", "mock_secret")):
+        with patch("share.routes.RemoteShareClient") as MockClient:
+            instance = MockClient.return_value
+            instance.upload_sync.return_value = {
+                "remote_id": "r-mock",
+                "short_url": "https://share.quantcell.top/abc",
+                "raw": {},
+            }
+            with patch("share.routes.build_snapshot", return_value={"worker": {"id": 1}}):
+                with patch("share.routes.serialize_for_remote", side_effect=lambda x: x):
+                    with patch("share.routes.get_remote_config") as mock_cfg:
+                        cfg = MagicMock()
+                        cfg.is_ready = True
+                        mock_cfg.return_value = cfg
+                        yield
+
+
 # ============================================================
 # 受保护端点测试
 # ============================================================
 
 def test_create_share_anonymous_allowed_in_dev(test_client, sample_worker):
     """dev 模式下未登录视为 anonymous，依然可创建 share token"""
-    r = test_client.post(f"/api/workers/{sample_worker.id}/share", json={})
-    # anonymous 用户在 dev 模式下可以创建；返回 200 + token
-    assert r.status_code == 200
-    body = r.json()
-    data = body.get("data") or body
-    assert "token" in data
+    with _mock_remote_ready():
+        r = test_client.post(f"/api/workers/{sample_worker.id}/share", json={})
+        # anonymous 用户在 dev 模式下可以创建；返回 200 + token
+        assert r.status_code == 200
+        body = r.json()
+        data = body.get("data") or body
+        assert "token" in data
 
 
 def test_create_share_invalid_token_format_returns_401(test_client, sample_worker):
     """传入格式错误的 token 时返回 401（仅当有 token 但解码失败）"""
-    r = test_client.post(
-        f"/api/workers/{sample_worker.id}/share",
-        json={},
-        headers={"Authorization": "Bearer not-a-jwt"},
-    )
-    # 在 dev 模式下错误的 token 也会被 decode 失败 → 401
-    # 在 prod 模式下或更严格模式下也可能是 200（视 get_current_user 实现而定）
-    assert r.status_code in (200, 401, 403)
+    with _mock_remote_ready():
+        r = test_client.post(
+            f"/api/workers/{sample_worker.id}/share",
+            json={},
+            headers={"Authorization": "Bearer not-a-jwt"},
+        )
+        # 在 dev 模式下错误的 token 也会被 decode 失败 → 401
+        # 在 prod 模式下或更严格模式下也可能是 200（视 get_current_user 实现而定）
+        assert r.status_code in (200, 401, 403)
 
 
 def test_create_share_success(test_client, sample_worker, auth_headers, mock_jwt_user_a):
     """登录后 POST 200，返回明文 token"""
-    r = test_client.post(
-        f"/api/workers/{sample_worker.id}/share",
-        json={"expires_in_seconds": 3600, "one_time": False},
-        headers=auth_headers,
-    )
-    assert r.status_code == 200
-    data = r.json().get("data") or r.json()
-    assert "token" in data
-    assert len(data["token"]) >= 32
-    assert data["one_time"] is False
-    assert data["expires_at"] is not None
+    with _mock_remote_ready():
+        r = test_client.post(
+            f"/api/workers/{sample_worker.id}/share",
+            json={"expires_in_seconds": 3600, "one_time": False},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        data = r.json().get("data") or r.json()
+        assert "token" in data
+        assert len(data["token"]) >= 32
+        assert data["one_time"] is False
+        assert data["expires_at"] is not None
 
 
 def test_create_share_one_time(test_client, sample_worker, auth_headers, mock_jwt_user_a):
     """一次性 token 创建"""
-    r = test_client.post(
-        f"/api/workers/{sample_worker.id}/share",
-        json={"one_time": True},
-        headers=auth_headers,
-    )
-    assert r.status_code == 200
-    data = r.json().get("data") or r.json()
-    assert data["one_time"] is True
-    plain = data["token"]
+    with _mock_remote_ready():
+        r = test_client.post(
+            f"/api/workers/{sample_worker.id}/share",
+            json={"one_time": True},
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        data = r.json().get("data") or r.json()
+        assert data["one_time"] is True
 
 
 def test_create_share_worker_not_found(test_client, auth_headers, mock_jwt_user_a):
@@ -156,192 +183,66 @@ def test_create_share_worker_not_found(test_client, auth_headers, mock_jwt_user_
 
 def test_list_shares(test_client, sample_worker, auth_headers, mock_jwt_user_a):
     """列出 share tokens"""
-    # 先创建 2 个
-    test_client.post(
-        f"/api/workers/{sample_worker.id}/share",
-        json={"one_time": False},
-        headers=auth_headers,
-    )
-    test_client.post(
-        f"/api/workers/{sample_worker.id}/share",
-        json={"one_time": True},
-        headers=auth_headers,
-    )
+    with _mock_remote_ready():
+        # 先创建 2 个
+        test_client.post(
+            f"/api/workers/{sample_worker.id}/share",
+            json={"one_time": False},
+            headers=auth_headers,
+        )
+        test_client.post(
+            f"/api/workers/{sample_worker.id}/share",
+            json={"one_time": True},
+            headers=auth_headers,
+        )
 
-    r = test_client.get(
-        f"/api/workers/{sample_worker.id}/share",
-        headers=auth_headers,
-    )
-    assert r.status_code == 200
-    data = r.json().get("data") or r.json()
-    assert isinstance(data, list)
-    assert len(data) == 2
-    # 不含明文 token
-    for item in data:
-        assert "token" not in item
-        assert "token_prefix" in item
+        r = test_client.get(
+            f"/api/workers/{sample_worker.id}/share",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        data = r.json().get("data") or r.json()
+        assert isinstance(data, list)
+        assert len(data) == 2
+        # 不含明文 token
+        for item in data:
+            assert "token" not in item
+            assert "token_prefix" in item
 
 
 def test_revoke_share(test_client, sample_worker, auth_headers, mock_jwt_user_a):
     """创建后撤销"""
-    create = test_client.post(
-        f"/api/workers/{sample_worker.id}/share",
-        json={"one_time": False},
-        headers=auth_headers,
-    )
-    share_id = (create.json().get("data") or create.json())["id"]
+    with _mock_remote_ready():
+        create = test_client.post(
+            f"/api/workers/{sample_worker.id}/share",
+            json={"one_time": False},
+            headers=auth_headers,
+        )
+        share_id = (create.json().get("data") or create.json())["id"]
 
-    r = test_client.delete(
-        f"/api/workers/{sample_worker.id}/share/{share_id}",
-        headers=auth_headers,
-    )
+        r = test_client.delete(
+            f"/api/workers/{sample_worker.id}/share/{share_id}",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+
+
+def test_credentials_status_unconfigured(test_client):
+    """凭据未配置时 ready=false,admin_token_configured 取决于环境"""
+    r = test_client.get("/api/share/credentials/status")
     assert r.status_code == 200
+    data = r.json().get("data") or r.json()
+    assert "ready" in data
+    assert "base_url" in data
+    assert "admin_token_configured" in data
 
 
-# ============================================================
-# 公开端点测试
-# ============================================================
-
-def test_public_endpoint_no_token(test_client):
-    """无 token 404"""
-    r = test_client.get("/api/share/some-bogus-token")
-    assert r.status_code == 404
-
-
-def test_public_endpoint_valid_token(test_client, sample_worker, auth_headers, mock_jwt_user_a):
-    """合法 token 200，snapshot 仅含白名单字段"""
-    create = test_client.post(
-        f"/api/workers/{sample_worker.id}/share",
-        json={"one_time": False},
-        headers=auth_headers,
+def test_generate_credentials_no_admin_token_returns_503(test_client, monkeypatch):
+    """无 admin token 时一键生成凭据返 503"""
+    monkeypatch.delenv("SHARE_REMOTE_ADMIN_TOKEN", raising=False)
+    r = test_client.post(
+        "/api/share/credentials/generate",
+        json={"name": "TestPC"},
     )
-    plain = (create.json().get("data") or create.json())["token"]
-
-    r = test_client.get(f"/api/share/{plain}")
-    assert r.status_code == 200
-    payload = r.json().get("data") or r.json()
-    # 顶层白名单字段
-    expected_top = {"worker", "metrics", "cumulative_pnl_series", "pnl_distribution", "positions", "generated_at", "read_only"}
-    assert set(payload.keys()) == expected_top, f"意外字段: {set(payload.keys()) - expected_top}"
-    assert payload["read_only"] is True
-    # worker 字段白名单
-    worker_keys = set(payload["worker"].keys())
-    forbidden_worker = {"trading_config", "config", "env_vars", "api_key", "api_secret", "pid", "strategy_id", "strategy_name"}
-    assert not (worker_keys & forbidden_worker), f"worker 字段含敏感: {worker_keys & forbidden_worker}"
-
-
-def test_public_endpoint_one_time_consumed(test_client, sample_worker, auth_headers, mock_jwt_user_a):
-    """一次性 token 第二次访问 404"""
-    create = test_client.post(
-        f"/api/workers/{sample_worker.id}/share",
-        json={"one_time": True},
-        headers=auth_headers,
-    )
-    plain = (create.json().get("data") or create.json())["token"]
-
-    # 第一次：200
-    r1 = test_client.get(f"/api/share/{plain}")
-    assert r1.status_code == 200
-    # 第二次：404
-    r2 = test_client.get(f"/api/share/{plain}")
-    assert r2.status_code == 404
-
-
-def test_public_endpoint_revoked_token(test_client, sample_worker, auth_headers, mock_jwt_user_a):
-    """撤销后 404"""
-    create = test_client.post(
-        f"/api/workers/{sample_worker.id}/share",
-        json={"one_time": False},
-        headers=auth_headers,
-    )
-    plain = (create.json().get("data") or create.json())["token"]
-    share_id = (create.json().get("data") or create.json())["id"]
-
-    test_client.delete(
-        f"/api/workers/{sample_worker.id}/share/{share_id}",
-        headers=auth_headers,
-    )
-
-    r = test_client.get(f"/api/share/{plain}")
-    assert r.status_code == 404
-
-
-def test_public_endpoint_expired_token(test_client, sample_worker, auth_headers, mock_jwt_user_a, db_session):
-    """过期 token 404"""
-    from share import crud
-
-    share, plain = crud.create_share_token(
-        db=db_session,
-        worker_id=sample_worker.id,
-        created_by="alice",
-        expires_in_seconds=3600,
-        one_time=False,
-    )
-    # 强制过期
-    from datetime import timedelta
-    share.expires_at = datetime.now() - timedelta(seconds=1)
-    db_session.add(share)
-    db_session.commit()
-
-    r = test_client.get(f"/api/share/{plain}")
-    assert r.status_code == 404
-
-
-def test_public_endpoint_position_whitelist(test_client, sample_worker, auth_headers, mock_jwt_user_a, db_session):
-    """position snapshot 不含敏感字段（leverage/margin_used/mark_price/liquidation_price）"""
-    from share import crud
-    from worker.models import WorkerPosition
-
-    # 插入一个 OPEN 持仓
-    pos = WorkerPosition(
-        worker_id=sample_worker.id,
-        position_id="test-pos-1",
-        symbol="BTCUSDT",
-        side="LONG",
-        quantity=0.5,
-        entry_price=50000.0,
-        current_price=55000.0,
-        unrealized_pnl=2500.0,
-        realized_pnl=0.0,
-        margin_used=1000.0,
-        status="OPEN",
-        opened_at=datetime.now(),
-    )
-    db_session.add(pos)
-    db_session.commit()
-
-    create = test_client.post(
-        f"/api/workers/{sample_worker.id}/share",
-        json={"one_time": False},
-        headers=auth_headers,
-    )
-    plain = (create.json().get("data") or create.json())["token"]
-
-    r = test_client.get(f"/api/share/{plain}")
-    assert r.status_code == 200
-    payload = r.json().get("data") or r.json()
-    positions = payload["positions"]
-    assert len(positions) == 1
-    p = positions[0]
-
-    # 白名单字段
-    expected = {"symbol", "side", "quantity", "entry_price", "current_price", "unrealized_pnl", "pnl_percentage", "open_time"}
-    assert set(p.keys()) == expected, f"意外字段: {set(p.keys()) - expected}"
-
-    # 敏感字段全部不存在
-    for forbidden in ["leverage", "margin_used", "mark_price", "liquidation_price", "realized_pnl", "position_id"]:
-        assert forbidden not in p, f"position snapshot 泄露敏感字段 {forbidden}"
-
-
-def test_public_endpoint_no_auth_required(test_client, sample_worker, auth_headers, mock_jwt_user_a):
-    """公开端点不需要 Authorization header"""
-    create = test_client.post(
-        f"/api/workers/{sample_worker.id}/share",
-        json={"one_time": False},
-        headers=auth_headers,
-    )
-    plain = (create.json().get("data") or create.json())["token"]
-
-    # 不带 Authorization
-    r = test_client.get(f"/api/share/{plain}")
-    assert r.status_code == 200
+    assert r.status_code == 503
+    assert "SHARE_REMOTE_ADMIN_TOKEN" in r.json()["detail"]

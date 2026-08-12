@@ -2,32 +2,41 @@
 """
 回测引擎模块
 
-提供多种回测引擎实现，支持不同的回测需求。
+ponytail: 回测逻辑已统一到 BacktestLoop，BacktestEngine 仅作为向后兼容层。
+         新代码应直接使用 backtest.backtest_loop.BacktestLoop。
 
 包含:
     - BacktestEngineBase: 回测引擎抽象基类
     - EngineType: 引擎类型枚举
-    - Engine: 默认回测引擎
-    - LegacyEngine: 传统回测引擎适配器
-    - NautilusBacktestEngine: NautilusTrader 回测引擎
+    - BacktestEngine: 向后兼容层（已废弃，内部委托给 BacktestLoop）
+    - BacktestLoop: 统一回测循环入口（推荐使用）
+    - BacktestResult: 回测结果数据类
 
 作者: QuantCell Team
-版本: 1.0.0
-日期: 2026-02-15
+版本: 2.1.0
+日期: 2026-07-26
 """
 
-__version__ = "1.0.0"
+import warnings
+
+__version__ = "2.1.0"
 __author__ = "QuantCell Team"
 
 from .base import BacktestEngineBase, EngineType
-from .engine import Engine
-from .legacy_engine import LegacyEngine
-from .nautilus_engine import NautilusBacktestEngine
+from ..backtest_loop import BacktestLoop, BacktestResult
+
+# BacktestEngine 已废弃，导入时发出警告
+warnings.warn(
+    "backtest.engines.BacktestEngine 已废弃，请直接使用 BacktestLoop",
+    DeprecationWarning,
+    stacklevel=2,
+)
+from .engine import BacktestEngine
 
 __all__ = [
     "BacktestEngineBase",
     "EngineType",
-    "Engine",
-    "LegacyEngine",
-    "NautilusBacktestEngine",
+    "BacktestEngine",
+    "BacktestLoop",
+    "BacktestResult",
 ]

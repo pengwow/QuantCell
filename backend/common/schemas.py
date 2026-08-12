@@ -52,7 +52,7 @@ class PaginationRequest(BaseModel):
         default=1,
         description="页码，从1开始",
         examples=[1],
-        ge=0,  # 允许0页码用于测试
+        ge=1,  # 1-based pagination
     )
     limit: int = Field(
         default=10,

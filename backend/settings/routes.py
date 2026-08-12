@@ -24,9 +24,10 @@
 
 import os
 import sys
-import hashlib
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
+
+import bcrypt
 
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from utils.logger import get_logger, LogType
@@ -40,32 +41,31 @@ from utils.jwt_utils import create_jwt_token, generate_tokens, generate_guest_to
 
 
 def hash_password(password: str) -> str:
-    """对密码进行单向加密（SHA256）
-    
+    """对密码进行单向加密（bcrypt）
+
     Args:
         password: 原始密码
-        
+
     Returns:
-        str: 加密后的密码哈希值
+        str: bcrypt 哈希值
     """
     if not password:
         return ""
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
     """验证密码是否与存储的哈希值匹配
-    
-    Args:
-        password: 原始密码
-        hashed_password: 存储的密码哈希值
-        
-    Returns:
-        bool: 密码是否匹配
+
+    兼容旧版 sha256 哈希：对 64 字符 hex 回退到 sha256 比较。
     """
     if not password or not hashed_password:
         return False
-    return hash_password(password) == hashed_password
+    # ponytail: 旧用户密码可能是 sha256 hex，做一次回退
+    if len(hashed_password) == 64 and all(c in "0123456789abcdef" for c in hashed_password):
+        import hashlib
+        return hashlib.sha256(password.encode("utf-8")).hexdigest() == hashed_password
+    return bcrypt.checkpw(password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 # 导入配置管理相关模块
 from settings.models import SystemConfigBusiness as SystemConfig
@@ -950,7 +950,7 @@ def save_notification_channels(request: Request, channels: List[Dict[str, Any]] 
 
 @notification_router.post("/test", response_model=ApiResponse)
 @jwt_auth_required_sync
-def test_notification(request: Request, test_request: Dict[str, Any] = Body(...)):
+async def test_notification(request: Request, test_request: Dict[str, Any] = Body(...)):
     """测试通知渠道
 
     发送测试消息到指定的通知渠道。
@@ -961,14 +961,7 @@ def test_notification(request: Request, test_request: Dict[str, Any] = Body(...)
 
     Returns:
         ApiResponse: 包含测试结果的响应
-
-    Responses:
-        200: 测试完成
-        400: 请求数据格式错误
-        401: 未授权访问
-        500: 测试失败
     """
-    import asyncio
     from common.notifications import notification_service, NotificationChannel
 
     try:
@@ -1000,11 +993,8 @@ def test_notification(request: Request, test_request: Dict[str, Any] = Body(...)
                 data=None
             )
 
-        # 异步执行通知测试
-        loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(
-            notification_service.test_channel(channel_type, config if config else None)
-        )
+        # ponytail: async def + await，避免 run_until_complete 死锁
+        result = await notification_service.test_channel(channel_type, config if config else None)
 
         if result.get("success"):
             return ApiResponse(

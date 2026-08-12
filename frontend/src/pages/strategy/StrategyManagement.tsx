@@ -494,6 +494,8 @@ const StrategyManagement = () => {
         <Tooltip title={text} placement="topLeft">
           <Space>
             <span className="font-medium" style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{text}</span>
+            {(record as any).strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
+            {(record as any).strategy_type === 'rule' && <Tag color="green">规则</Tag>}
             <Tag color="blue">v{(record as any).version || '1.0.0'}</Tag>
           </Space>
         </Tooltip>
@@ -719,7 +721,15 @@ const StrategyManagement = () => {
                   <div className="mb-3">
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-gray-500 text-sm">{t('strategy_description') || '策略描述'}</span>
-                      <Tag color="blue">v{(strategy as any).version || '1.0.0'}</Tag>
+                      <Space size={4}>
+                        {(strategy as any).strategy_type === 'rl' && (
+                          <Tag color="purple">RL</Tag>
+                        )}
+                        {(strategy as any).strategy_type === 'rule' && (
+                          <Tag color="green">规则</Tag>
+                        )}
+                        <Tag color="blue">v{(strategy as any).version || '1.0.0'}</Tag>
+                      </Space>
                     </div>
                     <Tooltip title={strategy.description || t('no_description') || '暂无描述'} placement="topLeft">
                       <div

@@ -100,6 +100,49 @@ class RemoteShareClient:
             logger.warning("远端 healthz 失败: %s", e)
             return False
 
+    async def register_device(
+        self,
+        admin_token: str,
+        name: str = "PC-Client",
+        user_id: str = "anonymous",
+    ) -> Dict[str, Any]:
+        """调远端 POST /api/admin/devices/auto-register 拿到 api_key + hmac_secret
+
+        用于"一键启用远程分享模式"工作流:远端统一签发 per-device 凭据,
+        PC 端拿到后写入 config.local.toml,保证验签双方密钥一致。
+
+        Args:
+            admin_token: 远端 admin 鉴权 token(从 SHARE_REMOTE_ADMIN_TOKEN 读)
+            name: 设备显示名
+            user_id: 用户标识(用于归属)
+
+        Returns:
+            远端响应 JSON,典型字段: ``id, api_key, hmac_secret, user_id, created_at``
+
+        Raises:
+            RemoteShareError: 远端非 2xx 或返回非 JSON
+        """
+        url = f"{self.config.base_url}/api/admin/devices/auto-register"
+        body = {"name": name, "user_id": user_id}
+        headers = {
+            "Content-Type": "application/json",
+            "X-Admin-Token": admin_token,
+        }
+        timeout = aiohttp.ClientTimeout(total=self.config.timeout_seconds)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json=body, headers=headers) as resp:
+                text = await resp.text()
+                if 200 <= resp.status < 300:
+                    try:
+                        return json.loads(text)
+                    except json.JSONDecodeError as e:
+                        raise RemoteShareError(
+                            f"远端 auto-register 返回非 JSON (status={resp.status}): {e}"
+                        )
+                raise RemoteShareError(
+                    f"auto-register 失败 status={resp.status} body={text[:500]}"
+                )
+
     # ------------------------------------------------------------------ #
     # 同步包装（让 FastAPI 同步 handler 直接调用，无需自己管理 loop）
     # ------------------------------------------------------------------ #
@@ -111,6 +154,15 @@ class RemoteShareClient:
 
     def health_check_sync(self) -> bool:
         return asyncio.run(self.health_check())
+
+    def register_device_sync(
+        self,
+        admin_token: str,
+        name: str = "PC-Client",
+        user_id: str = "anonymous",
+    ) -> Dict[str, Any]:
+        """register_device 的同步包装,供 FastAPI 同步 handler 直接调用"""
+        return asyncio.run(self.register_device(admin_token, name, user_id))
 
     # ------------------------------------------------------------------ #
     # 内部：HMAC 签名 / HTTP 调用

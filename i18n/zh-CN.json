@@ -100,6 +100,10 @@
   "strategy_management": "策略管理",
   "strategy_task": "策略任务",
   "strategy_task_title": "策略任务",
+  "rl_training": "RL训练",
+  "model_registry": "模型注册",
+  "ensemble": "集成学习",
+  "risk_monitor": "风控监控",
   "not_found": "资源未找到",
   "internal_error": "内部服务器错误",
   "invalid_request": "无效的请求",
@@ -284,6 +288,8 @@
   "model_name": "模型名称",
   "please_enter_model_name": "请输入模型名称",
   "enter_model_name": "输入模型名称",
+  "available_models": "可用模型",
+  "click_check_to_fetch_models": "请先点击「检查可用性」获取模型列表",
   "select_model": "选择模型",
   "manage_models": "管理模型",
   "current_model": "当前模型",
@@ -1347,8 +1353,6 @@
     "invalid_token_desc": "该分享链接可能已被撤销、过期或仅允许一次性访问且已使用。",
     "back_home": "返回首页",
 
-    "local_only_hint": "当前为本地模式，链接仅本机可见",
-
     "qr_code": "二维码",
     "qr_downloaded": "二维码已下载",
     "qr_download_failed": "二维码下载失败",
@@ -1357,6 +1361,16 @@
     "copy_wechat_text": "复制为微信分享文案（标题 + 摘要 + 链接）",
     "wechat_copied": "微信分享文案已复制",
     "wechat_text_title": "QuantCell 策略分享：{name}",
-    "wechat_text_desc": "查看本策略的实时收益曲线、KPI 与持仓概况。"
+    "wechat_text_desc": "查看本策略的实时收益曲线、KPI 与持仓概况。",
+
+    "remote_failed_hint": "部分链接推送失败，可在列表中点击「重试」再次发布到 quantcell.top",
+    "remote_status_label": "分发",
+    "remote_uploaded": "已发布",
+    "remote_pending": "推送中",
+    "remote_failed": "推送失败",
+    "remote_revoked": "已撤销",
+    "retry": "重试",
+    "retry_remote_success": "已重新发布到 quantcell.top",
+    "retry_remote_failed": "重试失败"
   }
 }

@@ -4,7 +4,7 @@
 [thinking_chain]
 name = "策略生成思维链"
 chain_type = "strategy_generation"
-description = "基于 NautilusTrader 框架生成交易策略的标准思维链流程，包含需求分析、策略设计、代码生成、NautilusTrader API 验证和代码验证五个步骤"
+description = "基于 axon_quant 框架生成交易策略的标准思维链流程，包含需求分析、策略设计、代码生成、axon_quant API 验证和代码验证五个步骤"
 
 [[thinking_chain.steps]]
 title = "需求分析"
@@ -15,7 +15,7 @@ description = """
 3. 确定入场条件和出场条件
 4. 识别风险管理和资金管理要求
 5. 确认技术指标和参数需求
-6. 确定适用的 NautilusTrader 组件（指标、订单类型、事件等）
+6. 确定适用的 axon_quant 组件（指标、订单类型、事件等）
 
 输出：结构化的需求分析报告
 """
@@ -24,7 +24,7 @@ order = 1
 [[thinking_chain.steps]]
 title = "策略设计"
 description = """
-基于需求分析结果，设计符合 NautilusTrader 框架的策略架构：
+基于需求分析结果，设计符合 axon_quant 框架的策略架构：
 1. 确定策略类结构和继承关系（继承 Strategy 基类）
 2. 设计配置类（StrategyConfig + frozen=True）
 3. 设计指标计算和数据处理方法（register_indicator_for_bars）
@@ -41,7 +41,7 @@ order = 2
 [[thinking_chain.steps]]
 title = "代码生成"
 description = """
-根据策略设计文档，生成完整的 NautilusTrader 策略代码：
+根据策略设计文档，生成完整的 axon_quant 策略代码：
 1. 实现配置类，继承 StrategyConfig，使用 frozen=True
 2. 实现策略类，继承 Strategy 基类
 3. 实现 __init__ 方法，初始化参数和指标，使用 PyCondition 验证
@@ -53,14 +53,14 @@ description = """
 9. 添加必要的注释和文档字符串
 10. 确保所有 import 语句完整
 
-输出：完整的、符合 NautilusTrader 标准的策略代码
+输出：完整的、符合 axon_quant 标准的策略代码
 """
 order = 3
 
 [[thinking_chain.steps]]
-title = "NautilusTrader API 验证"
+title = "axon_quant API 验证"
 description = """
-验证生成的代码是否符合 NautilusTrader 框架规范：
+验证生成的代码是否符合 axon_quant 框架规范：
 1. 检查配置类是否正确继承 StrategyConfig 并使用 frozen=True
 2. 检查策略类是否正确继承 Strategy 基类
 3. 检查指标是否通过 register_indicator_for_bars 注册

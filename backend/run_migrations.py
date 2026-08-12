@@ -5,12 +5,6 @@
 用于执行所有数据库表结构更新，确保表结构与模型定义保持一致
 """
 
-import sys
-import os
-
-# 添加项目根目录到Python路径
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-
 from collector.db.migrations import run_migrations
 from utils.logger import get_logger, LogType
 

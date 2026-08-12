@@ -15,9 +15,6 @@
     # 获取 FastAPI 服务端口
     fastapi_port = port_manager.get_port("fastapi")
 
-    # 获取 ZMQ 数据通道端口
-    zmq_data_port = port_manager.get_port("zmq_data")
-
     # 获取所有端口配置
     all_ports = port_manager.get_all_ports()
 """
@@ -29,7 +26,7 @@ import json
 import tempfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, asdict, field
 from threading import Lock
 from enum import Enum
@@ -69,10 +66,6 @@ class PortConfig:
 
 PORT_RANGES: Dict[str, Dict[str, any]] = {
     "fastapi": {"default": 8000, "range": (8000, 8010)},
-    "zmq_data": {"default": 5555, "range": (5550, 5560)},
-    "zmq_control": {"default": 5556, "range": (5560, 5570)},
-    "zmq_status": {"default": 5557, "range": (5570, 5580)},
-    "zmq_broadcast": {"default": 5558, "range": (5580, 5590)},
 }
 
 
@@ -140,7 +133,7 @@ class PortManager:
             self.allocated_ports[service_name] = PortConfig(
                 port=config["default"],
                 pid=os.getpid(),
-                start_time=datetime.utcnow().isoformat(),
+                start_time=datetime.now(timezone.utc).isoformat(),
                 status="static",
             )
         self.logger.info(f"已初始化 {len(self.allocated_ports)} 个静态端口配置")
@@ -153,7 +146,7 @@ class PortManager:
         如果首选端口不可用，将自动在范围内查找其他可用端口。
 
         Args:
-            service_name: 服务名称（如 fastapi、zmq_data 等）
+            service_name: 服务名称（如 fastapi）
             preferred_port: 首选端口号
 
         Raises:
@@ -191,7 +184,7 @@ class PortManager:
         如果服务已分配端口则直接返回，否则自动分配新端口。
 
         Args:
-            service_name: 服务名称（如 fastapi、zmq_data 等）
+            service_name: 服务名称（如 fastapi）
 
         Returns:
             int: 分配的端口号
@@ -202,7 +195,7 @@ class PortManager:
         with self._port_lock:
             if service_name in self.allocated_ports:
                 port_config = self.allocated_ports[service_name]
-                port_config.last_used = datetime.utcnow().isoformat()
+                port_config.last_used = datetime.now(timezone.utc).isoformat()
                 self.logger.debug(f"返回已分配端口 | 服务: {service_name} | 端口: {port_config.port}")
                 return port_config.port
 
@@ -272,8 +265,8 @@ class PortManager:
             self.allocated_ports[service_name] = PortConfig(
                 port=port,
                 pid=os.getpid(),
-                start_time=datetime.utcnow().isoformat(),
-                last_used=datetime.utcnow().isoformat(),
+                start_time=datetime.now(timezone.utc).isoformat(),
+                last_used=datetime.now(timezone.utc).isoformat(),
                 status="active",
             )
 
@@ -467,7 +460,7 @@ class PortManager:
 
             config_data = {
                 "version": "1.0",
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
                 "services": {
                     name: port_config.to_dict()
                     for name, port_config in self.allocated_ports.items()

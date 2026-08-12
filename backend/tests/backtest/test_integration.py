@@ -30,9 +30,15 @@ backend_dir = Path(__file__).parent.parent.parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-from backtest.engines import BacktestEngineBase, EngineType, LegacyEngine, Engine
-from backtest.config import get_engine_config, load_engine_config
-from backtest.schemas import BacktestConfig, StrategyConfig
+# 这些测试在 commit 9866f56 中已经不再适用（向量化回测引擎 Engine/LegacyEngine 已删除）
+try:
+    from backtest.engines import Engine  # noqa: E402
+except ImportError:
+    pytest.skip("VectorEngine/LegacyEngine 在 commit 9866f56 中删除;事件驱动回测由 axon_quant 提供", allow_module_level=True)
+
+from backtest.engines import BacktestEngineBase, EngineType, LegacyEngine  # noqa: E402
+from backtest.config import get_engine_config, load_engine_config  # noqa: E402
+from backtest.schemas import BacktestConfig, StrategyConfig  # noqa: E402
 
 
 # =============================================================================

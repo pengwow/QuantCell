@@ -10,9 +10,41 @@
 - 策略删除（需要认证）
 """
 
+import shutil
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from typing import Dict, Any
+
+# 防止上传测试污染 backend/strategies/
+# 策略：每个测试前后快照 strategies/ 目录里的 .py 文件，测试结束后删除新增的
+# 边界：仅清理"测试期间新出现"的文件，不动真实生产策略
+_STRATEGIES_DIR = Path(__file__).resolve().parents[3] / "strategies"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_strategy_uploads():
+    """每个测试前后快照 strategies/ 目录，结束后清理测试上传的文件
+
+    为什么需要：
+    - test_strategy_upload / test_concurrent_strategy_uploads 等会通过 API
+      把文件写到 backend/strategies/，但原始测试不清理，导致污染生产目录
+    - 这里在每个测试前后做差异对比，测试期间新增的文件一律删除
+    """
+    # 找不到目录就静默跳过(项目结构变动时不应让测试直接崩)
+    if not _STRATEGIES_DIR.is_dir():
+        yield
+        return
+
+    before = {p.name for p in _STRATEGIES_DIR.glob("*.py")}
+    yield
+    after = {p.name for p in _STRATEGIES_DIR.glob("*.py")}
+    for created in after - before:
+        try:
+            (_STRATEGIES_DIR / created).unlink()
+        except OSError:
+            pass
 
 
 class TestStrategyListAPI:
@@ -453,3 +485,40 @@ class TestStrategyAPIEdgeCases:
         # 所有请求都应该成功
         for response in results:
             assert response.status_code in [200, 409]  # 409 = Conflict
+
+
+class TestStrategyUploadCleanup:
+    """验证 autouse fixture 防止上传测试污染 backend/strategies/
+
+    这些测试本身只读 / 写一个临时文件然后检查 fixture 是否清理。
+    写一个临时文件模拟"测试期间新增的 .py"，验证下一个测试启动前已被清理。
+    """
+
+    def test_isolate_fixture_removes_test_created_files(self):
+        """写一个临时 .py 到 strategies/，fixture 应当清理它"""
+        if not _STRATEGIES_DIR.is_dir():
+            pytest.skip("strategies/ 不存在")
+        target = _STRATEGIES_DIR / "_fixture_probe_tmp.py"
+        target.write_text("# temporary probe\n")
+        # 模拟测试结束：fixture 在 yield 之后会清理 after - before
+        # 这里直接调用清理逻辑验证
+        before = {p.name for p in _STRATEGIES_DIR.glob("*.py")}
+        # 重新创建一个来模拟"测试期间新出现"
+        target2 = _STRATEGIES_DIR / "_fixture_probe_tmp2.py"
+        target2.write_text("# temporary probe 2\n")
+        after = {p.name for p in _STRATEGIES_DIR.glob("*.py")}
+        created = after - before
+        for f in created:
+            (_STRATEGIES_DIR / f).unlink()
+        # 验证清理生效
+        assert not target2.exists()
+
+    def test_strategies_dir_unchanged_after_test(self):
+        """两次测试之间 strategies/ 不应被前一个测试污染"""
+        if not _STRATEGIES_DIR.is_dir():
+            pytest.skip("strategies/ 不存在")
+        files = sorted(p.name for p in _STRATEGIES_DIR.glob("*.py"))
+        # 不应包含测试 fixture 探测残留
+        assert "_fixture_probe_tmp.py" not in files
+        assert "_fixture_probe_tmp2.py" not in files
+

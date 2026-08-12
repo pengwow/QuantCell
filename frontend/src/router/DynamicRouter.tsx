@@ -16,6 +16,10 @@ import DataManagementPage from '@/pages/data/DataManagementPage';
 import KlineReplayPage from '@/pages/data/KlineReplayPage';
 import Setting from '@/pages/setting/Setting';
 import Agent from '@/pages/agent/Agent';
+import ModelRegistry from '@/pages/model/ModelRegistry';
+import EnsemblePage from '@/pages/ensemble/EnsemblePage';
+import RiskMonitorPage from '@/pages/risk/RiskMonitorPage';
+import RLTrainingPage from '@/pages/rl/RLTrainingPage';
 
 import BacktestLayout from '@/pages/backtest/BacktestLayout';
 import BacktestList from '@/pages/backtest/BacktestList';
@@ -34,19 +38,11 @@ import PluginManagement from '@/pages/setting/PluginManagement';
 import { pluginRegistry } from '@/plugins/PluginRegistry';
 import PluginPage from '@/pages/plugin/PluginPage';
 
-// 公开分享页（无需登录，使用 URL 中的 token 访问）
-import SharePage from '@/pages/share/SharePage';
-
 function createBaseRoutes(): RouteObject[] {
   return [
     {
       path: '/login',
       element: <LoginPage />,
-    },
-    // 公开分享页（无需登录，使用 URL 中的 token 访问）
-    {
-      path: '/share/:token',
-      element: <SharePage />,
     },
     {
       path: '/',
@@ -73,6 +69,10 @@ function createBaseRoutes(): RouteObject[] {
           ],
         },
         { path: '/agent', element: <Agent /> },
+        { path: '/rl-training', element: <RLTrainingPage /> },
+        { path: '/model-registry', element: <ModelRegistry /> },
+        { path: '/ensemble', element: <EnsemblePage /> },
+        { path: '/risk-monitor', element: <RiskMonitorPage /> },
         { path: '/factor-analysis', element: <FactorAnalysis /> },
         { path: '/model-management', element: <ModelManagement /> },
         { path: '/data-management', element: <DataManagementPage /> },

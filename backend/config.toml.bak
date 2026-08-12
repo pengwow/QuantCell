@@ -1,0 +1,25 @@
+[app]
+# ponytail: 留空时 secret_key_manager 会自动生成，切勿提交真实密钥
+secret_key = ""
+
+# ============================================================
+# 分享远端（quantcell.top）配置
+# ============================================================
+# 分享 token 会推送到 share.quantcell.top，由其提供公开只读访问。
+# 未配置 api_key / hmac_secret 时，share 系统自动降级为本地模式（仅本机可见）。
+#
+# 生产凭据请写入 backend/config.local.toml（已 .gitignore），
+# 切勿把真实 api_key / hmac_secret 提交到 git。
+#
+# 获取方式：登录 https://quantcell.top → 用户中心 → 设备 API Key → 新建设备
+# ============================================================
+[share_remote]
+enabled = true                                          # 灰度开关：true 后才会真正调远端
+base_url = "https://share.quantcell.top"                 # 远端 base URL（带 https，不带尾斜杠）
+timeout_seconds = 10                                     # HTTP 单次超时
+max_retries = 3                                          # 失败重试次数（指数退避）
+retry_backoff = 0.6                                      # 退避基数（秒）
+
+# 必填项（生产）：从 quantcell.top 用户中心生成后填入 config.local.toml
+# api_key = "qck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# hmac_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"

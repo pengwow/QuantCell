@@ -239,10 +239,10 @@ const BacktestReplay = () => {
       const mappedData = {
         klines: data.kline_data || [],
         trades: (data.trades || []).map((trade: any, index: number) => {
-          // nautilus 引擎返回的字段名: trade_id, side, direction, quantity, price, timestamp, formatted_time
+          // 回测引擎返回的字段名: trade_id, side, direction, quantity, price, timestamp, formatted_time
           // 需要映射到前端期望的字段名: EntryTime, ExitTime, EntryPrice, ExitPrice, PnL, Direction
 
-          // 时间字段 - nautilus 使用 timestamp (秒级) 或 formatted_time
+          // 时间字段 - 回测引擎使用 timestamp (秒级) 或 formatted_time
           // 交易ID
           const tradeId = trade.trade_id || `trade-${index}`;
 
@@ -459,7 +459,7 @@ const BacktestReplay = () => {
     }
 
     const visibleTrades = replayData.trades.filter((trade) => {
-      // nautilus 数据使用秒级 timestamp，需要转换为毫秒
+      // 回测数据使用秒级 timestamp，需要转换为毫秒
       const entryTime = trade.timestamp ? trade.timestamp * 1000 : 0;
       const isVisible = entryTime >= visibleStartTime && entryTime <= visibleEndTime;
       return isVisible;
@@ -468,7 +468,7 @@ const BacktestReplay = () => {
     console.log('[addTradeMarkers] 可见范围内的交易:', visibleTrades.length);
 
     visibleTrades.forEach((trade) => {
-      // nautilus 数据使用秒级 timestamp，需要转换为毫秒
+      // 回测数据使用秒级 timestamp，需要转换为毫秒
       const entryTime = trade.timestamp ? trade.timestamp * 1000 : 0;
 
       if (typeof chart.createOverlay === 'function') {
@@ -957,7 +957,7 @@ const BacktestReplay = () => {
               const currentTime = currentKline?.timestamp || 0;
               
               const visibleTrades = replayData.trades?.filter((trade: any) => {
-                // nautilus 数据使用 timestamp (秒级)，需要转换为毫秒
+                // 回测数据使用 timestamp (秒级)，需要转换为毫秒
                 const tradeTime = trade.timestamp ? trade.timestamp * 1000 : 0;
                 return tradeTime <= currentTime;
               }) || [];

@@ -157,6 +157,14 @@ export const healthCheck = (workerId: number): Promise<HealthCheckResponse> => {
   return apiRequest.get(`/workers/${workerId}/lifecycle/health`);
 };
 
+/**
+ * 手动触发一次策略优化
+ * @param workerId Worker ID
+ */
+export const triggerOptimize = (workerId: number): Promise<ApiResponse> => {
+  return apiRequest.post(`/workers/${workerId}/lifecycle/optimize`);
+};
+
 // ============================================
 // Worker Monitoring API
 // ============================================
@@ -805,6 +813,18 @@ export const revokeShareToken = (
   return apiRequest.delete(`/workers/${workerId}/share/${shareId}`);
 };
 
+/**
+ * 物理删除一个分享 token（与撤销不同：记录会从数据库彻底移除）
+ * @param workerId Worker ID
+ * @param shareId Share Token ID
+ */
+export const deleteShareToken = (
+  workerId: number,
+  shareId: number
+): Promise<{ id: number; deleted: boolean; remote_revoked: boolean }> => {
+  return apiRequest.post(`/workers/${workerId}/share/${shareId}/delete`);
+};
+
 // ============================================
 // Worker API 导出
 // ============================================
@@ -866,6 +886,7 @@ export const workerApi = {
   createShareToken,
   listShareTokens,
   revokeShareToken,
+  deleteShareToken,
   retryShareRemoteUpload,
 };
 
