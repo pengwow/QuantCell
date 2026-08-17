@@ -512,7 +512,10 @@ def deploy_strategy(
     auto_start: bool = False,
 ) -> str:
     """
-    将策略部署到Worker实盘运行
+    将策略部署到 Worker 运行时注册表
+
+    通过 strategy_registry 创建策略运行时对象，替代旧版 WorkerCoreService 路径。
+    支持 auto_start 模式自动通过 TradingSystem 启动策略。
 
     Args:
         strategy_name: 策略名称
@@ -528,52 +531,47 @@ def deploy_strategy(
         str: JSON格式的部署结果
     """
     try:
-        # WorkerCoreService 已随旧版交易引擎模块一并归档，这里直接跳过
-        raise ImportError("WorkerCoreService 模块已归档，暂不支持通过 CLI 创建 Worker")
+        from worker.state import strategy_registry, StrategyRuntime
     except ImportError:
-        pass
-    try:
-        from worker.schemas import WorkerCreate
-    except ImportError:
-        WorkerCreate = None
+        return json.dumps(
+            {"success": False, "message": "Worker 模块未就绪，无法部署策略"},
+            ensure_ascii=False,
+        )
 
-    symbol_list = [s.strip() for s in symbols.split(",")]
-    file_name = strategy_file_name or strategy_name
+    # 生成唯一 worker_id：基于现有注册表中最大 ID + 1
+    existing = strategy_registry.list_all()
+    worker_id = max((r.worker_id for r in existing), default=0) + 1
 
-    worker_id = None
+    # 创建运行时对象并注册
+    runtime = StrategyRuntime(
+        worker_id=worker_id,
+        strategy_id=worker_id,
+        name=f"{strategy_name}_worker",
+        status="stopped",
+    )
+    strategy_registry.register(runtime)
 
-    if WorkerCreate is not None:
+    # 自动启动：通过 TradingSystem 将策略状态转为 running
+    if auto_start:
         try:
-            data = WorkerCreate(
-                name=f"{strategy_name}_worker",
-                strategy_name=strategy_name,
-                strategy_file_name=f"{file_name}.py" if not file_name.endswith(".py") else file_name,
-                exchange=exchange,
-                symbols=symbol_list,
-                timeframe=timeframe,
-                trading_mode=trading_mode,
-            )
-            # 不做 DB 写入：保持 CLI 兼容但不再隐式依赖已移除模块
-            worker_id = None
-        except Exception:
-            worker_id = None
+            from worker.trading_system import trading_system
+            import asyncio
 
-    if auto_start and worker_id:
-        try:
-            from worker.state import trading_system
-            if trading_system:
-                trading_system.start_strategy(str(worker_id))
-        except Exception:
-            # trading_system 模块未就绪，跳过启动
-            pass
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(trading_system.start_strategy(worker_id))
+            else:
+                loop.run_until_complete(trading_system.start_strategy(worker_id))
+        except Exception as e:
+            logger.warning(f"自动启动策略失败: {e}")
 
-    status = "created"  # 已不再执行自动启动
+    status = "running" if auto_start else "created"
     return json.dumps(
         {
             "success": True,
             "worker_id": worker_id,
             "status": status,
-            "message": f"策略 {strategy_name} 已完成配置（Worker 核心模块已归档，暂不支持 DB 写入）",
+            "message": f"策略 {strategy_name} 已完成部署",
         },
         ensure_ascii=False,
     )

@@ -296,20 +296,61 @@ class TestDiagnoseStrategy:
 class TestDeployStrategy:
     """测试 deploy_strategy 函数"""
 
-    @patch("worker.core_service.WorkerCoreService")
-    def test_deploy_strategy_success(self, mock_service_cls):
+    @patch("worker.state.strategy_registry.register")
+    @patch("worker.state.strategy_registry.list_all", return_value=[])
+    def test_deploy_strategy_success(self, mock_list, mock_register):
         """测试成功部署策略"""
         from scripts.strategy_cli import deploy_strategy
-
-        # 模拟Worker服务
-        mock_service = MagicMock()
-        mock_service.create_worker.return_value = {"id": 123}
-        mock_service_cls.return_value = mock_service
 
         result = deploy_strategy("test_strategy", "BTCUSDT")
         data = json.loads(result)
         assert data["success"] is True
-        assert data["worker_id"] == 123
+        assert data["worker_id"] == 1
+        assert data["status"] == "created"
+        mock_register.assert_called_once()
+
+    @patch("worker.state.strategy_registry.register")
+    @patch("worker.state.strategy_registry.list_all", return_value=[])
+    def test_deploy_strategy_auto_start(self, mock_list, mock_register):
+        """测试自动启动部署"""
+        from scripts.strategy_cli import deploy_strategy
+
+        result = deploy_strategy("test_strategy", "BTCUSDT", auto_start=True)
+        data = json.loads(result)
+        assert data["success"] is True
+        assert data["worker_id"] == 1
+        assert data["status"] == "running"
+
+    @patch("worker.state.strategy_registry.register")
+    @patch("worker.state.strategy_registry.list_all")
+    def test_deploy_strategy_incremental_id(self, mock_list, mock_register):
+        """测试 worker_id 自增逻辑"""
+        from scripts.strategy_cli import deploy_strategy
+
+        # 模拟注册表中已有 worker_id=5
+        mock_existing = MagicMock()
+        mock_existing.worker_id = 5
+        mock_list.return_value = [mock_existing]
+
+        result = deploy_strategy("test_strategy", "BTCUSDT")
+        data = json.loads(result)
+        assert data["success"] is True
+        assert data["worker_id"] == 6
+
+    @patch("worker.state.strategy_registry.register")
+    @patch("worker.state.strategy_registry.list_all", return_value=[])
+    def test_deploy_strategy_registers_runtime(self, mock_list, mock_register):
+        """测试部署会将 StrategyRuntime 注册到注册表"""
+        from scripts.strategy_cli import deploy_strategy
+        from worker.state import StrategyRuntime
+
+        deploy_strategy("dual_ma", "BTCUSDT,ETHUSDT")
+
+        mock_register.assert_called_once()
+        runtime = mock_register.call_args[0][0]
+        assert isinstance(runtime, StrategyRuntime)
+        assert runtime.name == "dual_ma_worker"
+        assert runtime.status == "stopped"
 
 
 if __name__ == "__main__":

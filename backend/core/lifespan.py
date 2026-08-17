@@ -237,17 +237,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"WebSocket连接管理器或系统信息推送服务启动失败: {e}")
 
-    # 初始化 Worker System（全局单例，统一管理所有 Worker）
-    _worker_system_available = False
+    # 初始化策略执行引擎（TradingSystem，全局单例）
     try:
-        import worker.worker_system  # noqa: F401  避免在未安装交易引擎时 import 时报错（内部模块已按需移除）
-        _worker_system_available = False
-        logger.info("Worker System 模块暂未启用，跳过初始化")
-    except ImportError:
-        _worker_system_available = False
-        logger.info("Worker System 模块不可用，跳过初始化")
-    except Exception as import_err:
-        logger.error(f"Worker System 导入时发生意外错误: {import_err}")
+        from worker.trading_system import trading_system
+        await trading_system.initialize()
+        logger.info("策略执行引擎 (TradingSystem) 初始化完成")
+    except Exception as e:
+        logger.error(f"策略执行引擎初始化失败: {e}")
 
     yield
 
@@ -273,23 +269,22 @@ async def lifespan(app: FastAPI):
 
     logger.info("========== 应用开始关闭 ==========")
 
-    # 步骤 1: 关闭 Worker System 全局单例（统一管理：停止进程 + 清理状态 + 关闭Manager后台任务）
-    if _worker_system_available:
-        try:
-            from worker.worker_system import worker_system
-            logger.info("正在关闭 Worker System...")
-            try:
-                worker_system.shutdown()
-                logger.info("✓ Worker System 已优雅关闭")
-            except Exception as ws_err:
-                logger.error(f"Worker System 关闭失败: {ws_err}")
-        except ImportError:
-            logger.debug("Worker System 模块不可用，跳过关闭")
-        except asyncio.CancelledError:
-            logger.warning("Worker System 关闭被中断")
-            raise
-        except Exception as e:
-            logger.error(f"关闭 Worker System 时发生意外错误: {e}")
+    # 步骤 1: 停止所有运行中的策略（通过 TradingSystem）
+    try:
+        from worker.trading_system import trading_system
+        from worker.state import strategy_registry
+        for runtime in strategy_registry.list_all():
+            if runtime.is_running:
+                try:
+                    await asyncio.wait_for(
+                        trading_system.stop_strategy(runtime.worker_id),
+                        timeout=1.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"停止策略 {runtime.worker_id} 超时，强制跳过")
+        logger.info("✓ 所有策略已停止")
+    except Exception as e:
+        logger.error(f"停止策略时发生意外错误: {e}")
 
     # 步骤 3: 停止实时引擎（带超时保护）
     if realtime_engine:

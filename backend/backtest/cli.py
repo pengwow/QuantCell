@@ -56,6 +56,7 @@ def run(
     commission: Annotated[float, Option("--commission", "-c", help="手续费率")] = 0.001,
     base_currency: Annotated[str, Option("--base-currency", help="基础货币")] = "USDT",
     leverage: Annotated[float, Option("--leverage", help="杠杆倍数")] = 1.0,
+    trading_mode: Annotated[str, Option("--trading-mode", "--mode", help="交易模式: spot(现货) / futures(永续合约)")] = "spot",
     time_range: Annotated[Optional[str], Option("--time-range", help="时间范围(YYYYMMDD-YYYYMMDD)")] = None,
     output_format: Annotated[str, Option("--output-format", "-o", help="输出格式(json/table/both)")] = "table",
     output_file: Annotated[Optional[str], Option("--output-file", "-f", help="输出文件路径")] = None,
@@ -72,10 +73,18 @@ def run(
 
       # 多品种回测
       uv run python -m cli.backtest run --strategy sma_crossover --symbols BTCUSDT,ETHUSDT --timeframes 1h
+
+      # 永续合约回测（含资金费率结算）
+      uv run python -m cli.backtest run --strategy sma_crossover --symbols BTCUSDT --trading-mode futures
     """
     console = Console()
     
     try:
+        # 校验交易模式
+        if trading_mode not in ("spot", "futures"):
+            console.print(f"[red]❌ 无效的交易模式: {trading_mode}（仅支持 spot / futures）[/red]")
+            raise typer.Exit(1)
+
         # 解析参数
         strategy_params = json.loads(params)
         symbols_list = [s.strip() for s in symbols.split(",")]
@@ -85,6 +94,7 @@ def run(
         console.print(f"   策略: {strategy}")
         console.print(f"   品种: {', '.join(symbols_list)}")
         console.print(f"   周期: {', '.join(timeframes_list)}")
+        console.print(f"   模式: {'永续合约' if trading_mode == 'futures' else '现货'}")
         console.print(f"   引擎: 事件驱动 (axon-quant)")
         
         # 初始化服务
@@ -100,6 +110,7 @@ def run(
                 "initial_capital": initial_capital,
                 "base_currency": base_currency,
                 "leverage": leverage,
+                "trading_mode": trading_mode,
                 "time_range": time_range,
                 "log_level": "WARNING"
             },
