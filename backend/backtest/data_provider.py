@@ -313,6 +313,79 @@ class BacktestDataProvider:
             logger.error(f"[BacktestDataProvider] 获取可用周期失败: {e}")
             return []
 
+    def load_funding_rate(
+        self,
+        symbol: str,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        market: str = "um",
+    ) -> pd.DataFrame:
+        """
+        加载永续合约资金费率数据
+
+        数据源路径: data/source/fundingRate/{market}/{symbol}/{symbol}-fundingRate-*.parquet
+        原始列: symbol / timestamp(毫秒) / fundingRate / markPrice / rateType
+
+        Args:
+            symbol: 交易对符号（如 BTCUSDT）
+            start: 开始时间 (YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS)
+            end: 结束时间
+            market: 市场类型 ("um" U本位 / "cm" 币本位)
+
+        Returns:
+            pd.DataFrame: 资金费率数据，索引为 DatetimeIndex，
+                          包含 funding_rate / mark_price 列（按时间升序）
+        """
+        from utils.parquet_utils import load_from_parquet
+
+        normalized_symbol = symbol.upper().replace("/", "")
+        funding_dir = self.base_dir / "fundingRate" / market / normalized_symbol
+
+        if not funding_dir.exists():
+            logger.warning(f"[BacktestDataProvider] 资金费率目录不存在: {funding_dir}")
+            return pd.DataFrame()
+
+        # 合并该品种下所有资金费率分片文件
+        files = sorted(funding_dir.glob(f"{normalized_symbol}-fundingRate-*.parquet"))
+        if not files:
+            logger.warning(f"[BacktestDataProvider] 未找到资金费率文件: {funding_dir}")
+            return pd.DataFrame()
+
+        frames = []
+        for f in files:
+            try:
+                frames.append(load_from_parquet(f))
+            except Exception as e:
+                logger.warning(f"[BacktestDataProvider] 资金费率文件加载失败 {f.name}: {e}")
+
+        if not frames:
+            return pd.DataFrame()
+
+        df = pd.concat(frames, ignore_index=True)
+
+        # 时间戳为毫秒，转换为 datetime 索引
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+        df = df.set_index('timestamp').sort_index()
+
+        # 时间范围筛选
+        if start or end:
+            from scripts.data_cli import filter_by_date_range
+            df = filter_by_date_range(df, start, end)
+
+        # 标准化列名
+        df = df.rename(columns={'fundingRate': 'funding_rate', 'markPrice': 'mark_price'})
+        keep_cols = [c for c in ('funding_rate', 'mark_price', 'rateType') if c in df.columns]
+        df = df[keep_cols]
+
+        for col in ('funding_rate', 'mark_price'):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        logger.info(
+            f"[BacktestDataProvider] 资金费率加载成功: {normalized_symbol}, 共{len(df)}条记录"
+        )
+        return df
+
     def _normalize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         标准化DataFrame格式

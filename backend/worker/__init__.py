@@ -14,6 +14,7 @@ from .routes import router
 from .service import worker_service
 from .manager import TradingNodeWorkerManager
 from .event_handler import EventHandler, EventBufferConfig
+from .trading_system import TradingSystem, trading_system
 
 __all__ = [
     'router',
@@ -21,4 +22,6 @@ __all__ = [
     'TradingNodeWorkerManager',
     'EventHandler',
     'EventBufferConfig',
+    'TradingSystem',
+    'trading_system',
 ]

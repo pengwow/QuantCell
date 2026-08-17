@@ -18,7 +18,10 @@ class ListStrategiesTool(Tool):
     }
 
     async def execute(self, **kwargs: Any) -> str:
-        from scripts.strategy_cli import list_strategies
+        try:
+            from scripts.strategy_cli import list_strategies
+        except ImportError as e:
+            return f"错误: 无法加载策略模块: {e}"
         return list_strategies()
 
 

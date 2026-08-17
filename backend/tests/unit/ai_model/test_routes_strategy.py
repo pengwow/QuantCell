@@ -17,18 +17,13 @@ test_file = Path(__file__).resolve()
 backend_dir = test_file.parent.parent.parent.parent  # tests/unit/ai_model -> tests/unit -> tests -> backend
 sys.path.insert(0, str(backend_dir))
 
-# mock数据库和worker相关模块，避免导入链触发重型依赖
-_mock_worker = MagicMock()
-_mock_worker.router = MagicMock()
-_mock_worker_routes = MagicMock()
-_mock_worker_routes.websocket_endpoint = MagicMock()
-
+# mock数据库模块，避免导入链触发重型依赖
+# 注意：worker 模块不再 mock，因为 share/routes.py 需要导入 worker.dependencies，
+# 而 worker 模块已移除旧交易引擎依赖，可正常导入
 _MOCK_MODULES = {
     'settings.models': MagicMock(),
     'collector.db.database': MagicMock(),
     'collector.db.models': MagicMock(),
-    'worker': _mock_worker,
-    'worker.routes': _mock_worker_routes,
 }
 for _name, _mock in _MOCK_MODULES.items():
     sys.modules.setdefault(_name, _mock)
@@ -320,7 +315,8 @@ class TestAuthentication:
     def test_debug_mode_skips_auth(self):
         """测试debug模式跳过认证"""
         with patch("utils.auth.IS_DEBUG_MODE", True):
-            with patch("ai_model.routes_strategy.get_default_ai_config") as mock_get_config:
+            # mock 实际被调用的配置获取函数，返回 None 模拟未配置AI模型
+            with patch("ai_model.routes_strategy.get_default_provider_and_models") as mock_get_config:
                 mock_get_config.return_value = None
 
                 response = client.post(

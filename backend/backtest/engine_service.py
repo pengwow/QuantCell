@@ -82,7 +82,7 @@ class EventDrivenBacktestService:
             strategy_params: 策略参数
             symbols: 品种列表
             timeframes: 时间周期列表
-            engine_config: 引擎配置（可选）
+            engine_config: 引擎配置（可选），支持 trading_mode: "spot"/"futures"
             show_progress: 是否显示进度
             
         Returns:
@@ -95,6 +95,9 @@ class EventDrivenBacktestService:
         base_currency = (engine_config or {}).get("base_currency", "USDT")
         leverage = (engine_config or {}).get("leverage", 1.0)
         time_range = (engine_config or {}).get("time_range")
+        # 交易模式: spot(现货) / futures(永续合约)
+        trading_mode = (engine_config or {}).get("trading_mode", "spot")
+        candle_type = "future" if trading_mode == "futures" else "spot"
         
         # 1. 加载数据
         if show_progress:
@@ -103,7 +106,7 @@ class EventDrivenBacktestService:
         data_dict, _ = self.provider.load_multiple(
             symbols=symbols,
             timeframes=timeframes,
-            candle_type="spot",
+            candle_type=candle_type,
             time_range=time_range,
             auto_download=False,
             show_progress=show_progress
@@ -136,7 +139,9 @@ class EventDrivenBacktestService:
             timeframes=timeframes,
             base_currency=base_currency,
             leverage=leverage,
-            init_cash=init_cash
+            init_cash=init_cash,
+            trading_mode=trading_mode,
+            time_range=time_range
         )
         
         # 4. 加载策略
@@ -269,12 +274,15 @@ class EventDrivenBacktestService:
         timeframes: List[str],
         base_currency: str,
         leverage: float,
-        init_cash: float
+        init_cash: float,
+        trading_mode: str = "spot",
+        time_range: Optional[str] = None
     ):
         """
         加载数据到引擎并创建交易品种
 
-        使用 axon_bridge 创建现货品种，通过引擎的公共方法加载数据。
+        根据 trading_mode 使用 axon_bridge 创建现货或永续合约品种，
+        合约模式下同时加载资金费率数据用于资金费用结算。
 
         Args:
             engine: 已初始化的引擎实例
@@ -284,6 +292,8 @@ class EventDrivenBacktestService:
             base_currency: 基础货币
             leverage: 杠杆倍数
             init_cash: 初始资金
+            trading_mode: 交易模式 ("spot" / "futures")
+            time_range: 时间范围字符串（用于资金费率筛选）
 
         Returns:
             tuple: (instruments字典, bar_types字典)
@@ -294,6 +304,7 @@ class EventDrivenBacktestService:
 
         instruments = {}
         bar_types = {}
+        is_futures = trading_mode == "futures"
 
         # 创建交易所（简单配置）
         engine.add_venue(
@@ -302,6 +313,17 @@ class EventDrivenBacktestService:
             base_currency=base_currency,
             default_leverage=Decimal(str(leverage)),
         )
+
+        # 解析资金费率筛选的时间范围
+        funding_start = funding_end = None
+        if is_futures and time_range:
+            try:
+                from utils.validation import parse_time_range
+                start_dt, end_dt = parse_time_range(time_range)
+                funding_start = start_dt.strftime('%Y-%m-%d') if start_dt else None
+                funding_end = end_dt.strftime('%Y-%m-%d') if end_dt else None
+            except Exception as e:
+                logger.warning(f"解析资金费率时间范围失败: {e}")
 
         # 为每个品种创建 instrument 并加载数据
         for symbol in symbols:
@@ -314,11 +336,30 @@ class EventDrivenBacktestService:
 
             df = data_dict[key]
 
-            # 使用 axon_bridge 创建现货品种
+            # 根据交易模式创建品种：现货 / 永续合约
             base, quote = self._parse_symbol(symbol)
-            instrument = bridge.create_spot_instrument(base, quote)
+            if is_futures:
+                # 永续合约：U本位结算，合约乘数默认 1（1张=1个base币）
+                instrument = bridge.create_swap_instrument(
+                    base, quote, settle="usd_margin", contract_size=1.0
+                )
+            else:
+                instrument = bridge.create_spot_instrument(base, quote)
             engine.add_instrument(instrument)
             instruments[symbol] = instrument
+
+            # 合约模式：加载资金费率数据用于资金费用结算
+            if is_futures:
+                try:
+                    funding_df = self.provider.load_funding_rate(
+                        symbol, start=funding_start, end=funding_end
+                    )
+                    if not funding_df.empty:
+                        engine.add_funding_data(instrument, funding_df)
+                    else:
+                        logger.warning(f"{symbol} 无资金费率数据，将不进行资金费用结算")
+                except Exception as e:
+                    logger.warning(f"{symbol} 资金费率加载失败，跳过: {e}")
 
             # 处理 DataFrame
             df = df.copy()

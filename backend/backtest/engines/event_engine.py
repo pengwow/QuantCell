@@ -83,6 +83,9 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         self._strategies: List[Any] = []
         self._dataframes: Dict[str, pd.DataFrame] = {}
 
+        # 资金费率数据（合约回测用）: {instrument_id: [(ts_ns, rate, mark_price), ...]}
+        self._funding_events: Dict[str, List[tuple]] = {}
+
         # 回测结果缓存
         self._backtest_result: Optional[Any] = None
 
@@ -195,6 +198,41 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         instrument_id = self._instrument_id_from_dict(instrument)
         self._instruments[instrument_id] = instrument
         logger.debug(f"交易品种已添加: {instrument_id}")
+
+    def add_funding_data(
+        self,
+        instrument: Dict[str, Any],
+        funding_df: pd.DataFrame,
+    ) -> None:
+        """
+        添加资金费率数据（合约回测用）
+
+        回测主循环中，当 bar 时间戳越过某条资金费率记录时，
+        会通过 engine.push_funding() 推送给撮合引擎结算资金费用。
+
+        Args:
+            instrument: 品种字典（swap 类型）
+            funding_df: 资金费率 DataFrame，索引为 DatetimeIndex，
+                        需包含 funding_rate 列，可选 mark_price 列
+        """
+        if funding_df is None or funding_df.empty:
+            return
+
+        instrument_id = self._instrument_id_from_dict(instrument)
+
+        from axon_bridge import to_ns_timestamp
+
+        events = []
+        has_mark = 'mark_price' in funding_df.columns
+        for ts, row in funding_df.iterrows():
+            rate = float(row.get('funding_rate', 0.0))
+            mark = float(row.get('mark_price', 0.0)) if has_mark else 0.0
+            events.append((to_ns_timestamp(ts), rate, mark))
+
+        # 按时间升序排列，便于回测中顺序消费
+        events.sort(key=lambda x: x[0])
+        self._funding_events[instrument_id] = events
+        logger.info(f"资金费率数据已添加: {instrument_id}, 共{len(events)}条")
 
     def load_data_from_csv(
         self,
@@ -403,12 +441,18 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             total_bars = sum(len(df) for df in self._dataframes.values())
             processed = 0
 
+            # 每个品种的资金费率消费指针（顺序推送，避免重复）
+            funding_cursor: Dict[str, int] = {k: 0 for k in self._funding_events}
+
             # 逐品种逐 bar 驱动
             for instrument_id, df in self._dataframes.items():
                 instrument = self._instruments.get(instrument_id)
                 if instrument is None:
                     logger.warning(f"跳过 {instrument_id}，品种未注册")
                     continue
+
+                funding_list = self._funding_events.get(instrument_id, [])
+                cursor = funding_cursor.get(instrument_id, 0)
 
                 for idx in range(len(df)):
                     row = df.iloc[idx]
@@ -422,6 +466,20 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                     bar_ts = df.index[idx]
                     from axon_bridge import to_ns_timestamp
                     ts_ns = to_ns_timestamp(bar_ts)
+
+                    # 关键步骤 0: 推送时间戳已到达的资金费率事件（合约结算）
+                    while cursor < len(funding_list) and funding_list[cursor][0] <= ts_ns:
+                        f_ts, f_rate, f_mark = funding_list[cursor]
+                        # mark_price 缺失时回退使用当前 bar 收盘价
+                        mark_price = f_mark if f_mark > 0 else bar_close
+                        self._engine.push_funding(
+                            instrument=instrument,
+                            funding_rate=f_rate,
+                            mark_price=mark_price,
+                            timestamp_ns=f_ts,
+                        )
+                        cursor += 1
+                    funding_cursor[instrument_id] = cursor
 
                     # 关键步骤 1: 通知引擎新 bar 开始
                     self._engine.begin_bar(bar_close, instrument)
