@@ -339,6 +339,9 @@ live_manager = LiveTradingManager()
 # trading_system 延迟导入（避免循环依赖，由 trading 系统模块提供）
 trading_system: Optional[Any] = None
 
+# strategy_manager 延迟注册（由 strategy_manager 模块在运行时赋值）
+strategy_manager: Optional[Any] = None
+
 
 # =============================================================================
 # WebSocket 广播集成 — 策略状态变更时自动广播到所有连接的客户端

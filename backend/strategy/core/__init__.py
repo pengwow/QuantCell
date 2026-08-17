@@ -10,6 +10,20 @@ from axon_bridge import (
 )
 from axon_bridge.rl import TradingEnv
 
+
+class StrategyBase:
+    """Legacy 策略基类，兼容旧版策略接口"""
+
+    def on_bar(self, bar: dict) -> Action:
+        raise NotImplementedError
+
+    def on_start(self) -> None:
+        pass
+
+    def on_stop(self) -> None:
+        pass
+
+
 __all__ = [
     "Action",
     "ActionType",
@@ -17,4 +31,5 @@ __all__ = [
     "RunResult",
     "BacktestEngine",
     "TradingEnv",
+    "StrategyBase",
 ]
