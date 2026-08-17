@@ -27,6 +27,10 @@ def _is_debug_mode() -> bool:
            os.environ.get('APP_ENV', '').lower() in ('development', 'dev', 'debug')
 
 
+# 模块级变量，可被测试 patch
+IS_DEBUG_MODE = _is_debug_mode()
+
+
 def _extract_bearer_token(request: Request) -> str:
     """从 Authorization 头提取 Bearer token，失败抛 HTTP 401。"""
     auth = request.headers.get("Authorization")
@@ -101,7 +105,7 @@ def jwt_auth_required(func: Callable) -> Callable:
     """异步 JWT 认证装饰器，支持 debug 跳过 + token 自动续期。"""
     @wraps(func)
     async def wrapper(request: Request, *args, **kwargs):
-        if _is_debug_mode():
+        if IS_DEBUG_MODE:
             logger.debug(f"Debug模式：跳过JWT认证 - {request.url.path}")
             return await func(request, *args, **kwargs)
 
@@ -122,7 +126,7 @@ def jwt_auth_required_sync(func: Callable) -> Callable:
     """同步 JWT 认证装饰器，支持 debug 跳过 + token 自动续期。"""
     @wraps(func)
     def wrapper(request: Request, *args, **kwargs):
-        if _is_debug_mode():
+        if IS_DEBUG_MODE:
             logger.debug(f"Debug模式：跳过JWT认证 - {request.url.path}")
             return func(request, *args, **kwargs)
 

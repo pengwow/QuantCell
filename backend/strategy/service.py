@@ -1090,7 +1090,7 @@ class StrategyService:
         text = re.sub(r'\n{3,}', '\n\n', text)
 
         return text.strip()
-=======
+
     def _parse_strategy_file(self, name: str, content: str) -> Optional[Dict[str, Any]]:
         """解析策略文件，提取信息"""
         try:
@@ -1136,4 +1136,4 @@ class StrategyService:
             "strategy_type": strategy_type,
             "strategy_class": strategy_class,
         }
->>>>>>> aa68489ba76daab2e2ea6834ae9ee62c8ae5eb36
+

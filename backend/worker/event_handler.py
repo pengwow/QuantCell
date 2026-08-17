@@ -1129,3 +1129,7 @@ def create_event_handler(
         事件处理器实例
     """
     return TradingEventHandler(trader, send_event_func)
+
+
+# 兼容别名
+AxonEventHandler = TradingEventHandler
