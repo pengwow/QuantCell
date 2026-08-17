@@ -48,6 +48,13 @@ from common.notifications.routes import router as notification_router
 from agent.api.routes import router as agent_router
 from api.system_ports import router as system_ports_router
 from plugins.routes import router as plugins_router
+from engine.routes import router as engine_router
+
+# v2 API routes
+from api.v2.model_routes import router as v2_model_router
+from api.v2.ensemble_routes import router as v2_ensemble_router
+from api.v2.risk_routes import router as v2_risk_router
+from api.v2.rl_routes import router as v2_rl_router
 
 
 # 创建FastAPI应用实例
@@ -59,14 +66,22 @@ app = FastAPI(
 )
 
 # 添加CORS中间件配置
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+# ponytail: 通过环境变量 CORS_ORIGINS 配置，逗号分隔；开发阶段保留默认值
+import os as _os
+_cors_env = _os.environ.get("CORS_ORIGINS", "").strip()
+_cors_origins = (
+    [o.strip() for o in _cors_env.split(",") if o.strip()]
+    if _cors_env
+    else [
         "http://localhost:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
-    ],
+    ]
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -91,6 +106,13 @@ app.include_router(notification_router)
 app.include_router(agent_router)
 app.include_router(system_ports_router)
 app.include_router(plugins_router)
+app.include_router(engine_router)
+
+# v2 API routes
+app.include_router(v2_model_router)
+app.include_router(v2_ensemble_router)
+app.include_router(v2_risk_router)
+app.include_router(v2_rl_router)
 
 # 注册 Worker WebSocket 端点
 app.websocket("/ws/worker")(websocket_endpoint)
@@ -178,18 +200,24 @@ async def read_root():
     }
 
 
-@app.get("/items/{item_id}")
-def read_item(item_id: int, q: str = None):
-    """获取指定item_id的项目信息
-
-    Args:
-        item_id: 项目ID
-        q: 可选的查询参数
+@app.get("/health")
+async def health_check():
+    """健康检查端点
 
     Returns:
-        dict: 返回包含项目ID和查询参数的字典
+        dict: 服务状态信息（含引擎状态）
     """
-    return {"item_id": item_id, "q": q}
+    try:
+        from engine.trading_engine import get_trading_engine
+        engine = get_trading_engine()
+        engine_status = engine.engine_status()
+    except Exception:
+        engine_status = {"status": "not_initialized"}
+    return {
+        "status": "ok",
+        "service": "QuantCell API",
+        "engine": engine_status,
+    }
 
 
 def get_uvicorn_log_level() -> str:

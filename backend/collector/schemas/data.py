@@ -3,7 +3,17 @@
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+# —— 数据类型分类 ——
+_KLINE_TYPES = {"kline", "markPriceKlines", "indexPriceKlines", "premiumIndexKlines"}
+_ARCHIVE_TYPES = {"aggTrades", "trades", "bookDepth", "bookTicker"}
+_DERIV_TYPES = {"fundingRate", "openInterest"}
+
+_FUTURES_ONLY_TYPES = {"markPriceKlines", "indexPriceKlines", "premiumIndexKlines", "fundingRate", "openInterest"}
+
+VALID_DATA_TYPES = _KLINE_TYPES | _ARCHIVE_TYPES | _DERIV_TYPES
+VALID_MARKETS = {"spot", "um", "cm"}
 
 
 class DataInfoResponse(BaseModel):
@@ -115,9 +125,11 @@ class DownloadCryptoRequest(BaseModel):
         candle_type: 蜡烛图类型
         save_dir: 保存目录
         mode: 下载模式，可选'inc'（增量）或'full'（全量）
+        data_type: 数据类型
+        market: 市场类型
     """
     symbols: List[str] = Field(..., description="品种列表")
-    interval: List[str] = Field(..., description="时间间隔列表")
+    interval: List[str] = Field(default_factory=list, description="时间间隔列表（仅 K 线类必填）")
     start: Optional[str] = Field(None, description="开始时间")
     end: Optional[str] = Field(None, description="结束时间")
     exchange: str = Field(default="binance", description="交易所")
@@ -125,6 +137,21 @@ class DownloadCryptoRequest(BaseModel):
     candle_type: str = Field(default="spot", description="蜡烛图类型")
     save_dir: Optional[str] = Field(None, description="保存目录（内部参数，忽略）")
     mode: str = Field(default="inc", description="下载模式，可选'inc'（增量）或'full'（全量）")
+    data_type: str = Field(default="kline", description="数据类型：kline/aggTrades/trades/bookDepth/bookTicker/markPriceKlines/indexPriceKlines/premiumIndexKlines/fundingRate/openInterest")
+    market: str = Field(default="spot", description="市场类型：spot/um/cm")
+
+    @model_validator(mode='after')
+    def validate_data_type_market(self):
+        if self.data_type not in VALID_DATA_TYPES:
+            raise ValueError(f"无效的 data_type: {self.data_type}，可选值：{', '.join(sorted(VALID_DATA_TYPES))}")
+        if self.market not in VALID_MARKETS:
+            raise ValueError(f"无效的 market: {self.market}，可选值：{', '.join(sorted(VALID_MARKETS))}")
+        if self.market == "spot" and self.data_type in _FUTURES_ONLY_TYPES:
+            raise ValueError(f"data_type '{self.data_type}' 仅支持 market=um 或 cm")
+        # K 线类必须传 interval
+        if self.data_type in _KLINE_TYPES and not self.interval:
+            raise ValueError(f"data_type '{self.data_type}' 必须指定 interval (例如 ['15m'])")
+        return self
 
 
 class TaskStatusResponse(BaseModel):

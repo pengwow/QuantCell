@@ -65,7 +65,7 @@ def _db_get(key: str) -> Optional[str]:
     finally:
         try:
             db.close()
-        except:
+        except Exception:
             pass
 
 
@@ -108,7 +108,7 @@ def _db_set(key: str, value: str, description: str = "", plugin: str = None,
     finally:
         try:
             db.close()
-        except:
+        except Exception:
             pass
 
 
@@ -131,7 +131,7 @@ def _db_delete(key: str) -> bool:
     finally:
         try:
             db.close()
-        except:
+        except Exception:
             pass
 
 

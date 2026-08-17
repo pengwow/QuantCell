@@ -313,6 +313,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"停止系统状态推送服务失败: {e}")
 
+    # 步骤 4.5: 停止 TradingEngine 中所有运行的策略
+    try:
+        if hasattr(app.state, "trading_engine"):
+            engine = app.state.trading_engine
+            for rt in list(engine._strategies.values()):
+                if rt.status == "running" and rt.loop:
+                    try:
+                        engine.stop_strategy(rt.strategy_id)
+                    except Exception as stop_err:
+                        logger.error(f"停止策略 {rt.strategy_id} 失败: {stop_err}")
+            logger.info("TradingEngine 所有策略已停止")
+    except Exception as e:
+        logger.error(f"TradingEngine 关闭失败: {e}")
+
     # 步骤 5: 停止 WebSocket 连接管理器（带超时保护）
     try:
         await asyncio.wait_for(manager.stop(), timeout=1.0)

@@ -1,0 +1,117 @@
+# -*- coding: utf-8 -*-
+"""
+Worker 异常处理装饰器
+
+提供统一的异常处理装饰器，自动捕获 Worker 异常并转换为 HTTP 响应。
+支持同步和异步函数，自动处理日志记录和错误追踪。
+
+使用示例:
+    from .decorators import handle_worker_exceptions
+    from .exceptions import WorkerNotFoundException
+
+    @router.get("/{worker_id}")
+    @handle_worker_exceptions("获取Worker详情")
+    async def get_worker(worker_id: int):
+        result = await worker_core_service.async_get_worker(worker_id)
+        return result
+"""
+
+import asyncio
+import functools
+import traceback
+from typing import Callable, Optional
+
+from fastapi import HTTPException
+
+from utils.logger import get_logger, LogType
+
+from .exceptions import (
+    WorkerException,
+    WorkerNotFoundException,
+    WorkerAlreadyRunningException,
+    WorkerOperationException,
+)
+
+logger = get_logger(__name__, LogType.APPLICATION)
+
+
+def _handle_exception(operation_name: str, exc: Exception) -> HTTPException:
+    """
+    统一处理异常的辅助函数
+
+    Args:
+        operation_name: 操作名称
+        exc: 捕获的异常
+
+    Returns:
+        HTTPException: 转换后的HTTP异常
+    """
+    # 已知 Worker 异常：使用异常自带的 HTTP 状态码
+    if isinstance(exc, WorkerNotFoundException):
+        logger.warning(f"{operation_name}: {exc.message}")
+        return HTTPException(status_code=exc.code, detail=exc.message)
+
+    if isinstance(exc, WorkerAlreadyRunningException):
+        logger.warning(f"{operation_name}: {exc.message}")
+        return HTTPException(status_code=exc.code, detail=exc.message)
+
+    if isinstance(exc, WorkerOperationException):
+        logger.warning(f"{operation_name}: {exc.message}")
+        return HTTPException(status_code=exc.code, detail=exc.message)
+
+    if isinstance(exc, WorkerException):
+        logger.error(f"{operation_name}: {exc.message}")
+        return HTTPException(status_code=exc.code, detail=exc.message)
+
+    # FastAPI 的 HTTPException 直接传递
+    if isinstance(exc, HTTPException):
+        return exc
+
+    # 未知异常：使用 500 状态码
+    logger.error(f"{operation_name} 发生未预期异常: {exc}")
+    traceback.print_exc()
+    return HTTPException(status_code=500, detail=f"服务器内部错误: {str(exc)}")
+
+
+def handle_worker_exceptions(operation_name: Optional[str] = None) -> Callable:
+    """
+    Worker 异常处理装饰器
+
+    自动捕获 Worker 异常并转换为 HTTP 响应，统一处理日志记录。
+
+    Args:
+        operation_name: 操作名称，用于日志记录。若不传则使用被装饰函数的名称。
+
+    支持:
+        - 同步函数
+        - 异步函数
+        - FastAPI HTTPException 直接传递
+    """
+    def decorator(func: Callable) -> Callable:
+        op_name = operation_name or func.__name__
+
+        if asyncio.iscoroutinefunction(func):
+            @functools.wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as exc:
+                    raise _handle_exception(op_name, exc) from exc
+
+            return async_wrapper
+
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as exc:
+                raise _handle_exception(op_name, exc) from exc
+
+        return sync_wrapper
+
+    return decorator
+
+
+__all__ = [
+    "handle_worker_exceptions",
+]

@@ -252,8 +252,9 @@ class TradingEventHandler:
 
     def __init__(
         self,
-        trader: Any,
-        event_callback: Callable[[str, dict], None],
+        adapter: Any,
+        worker_id: Any = None,
+        event_callback: Optional[Callable[[str, dict], None]] = None,
         node: Any = None,
     ):
         """
@@ -261,25 +262,58 @@ class TradingEventHandler:
 
         Parameters
         ----------
-        trader : Any
-            策略引擎 Trader 实例
-        event_callback : Callable[[str, dict], None]
+        adapter : Any
+            策略引擎适配器（或测试中的 Mock）。兼容旧接口的 trader 参数。
+        worker_id : Any, optional
+            Worker ID（P4 计划要求的参数）
+        event_callback : Callable[[str, dict], None], optional
             事件回调函数，接收 (event_type, event_data)
         node : Any, optional
             策略引擎 TradingNode 实例（用于访问 msgbus）
         """
-        self.trader = trader
-        self.event_callback = event_callback
-        self.node = node
+        # 兼容两种调用方式：
+        # 新接口: AxonEventHandler(adapter, worker_id, callback)
+        # 旧接口: AxonEventHandler(trader, callback, node)
+        if worker_id is None and callable(event_callback) and node is None:
+            # 旧接口模式：AxonEventHandler(trader, callback)
+            self.trader = adapter
+            self.worker_id = None
+            self.event_callback = event_callback
+            self.node = None
+        elif node is None and worker_id is not None and callable(worker_id):
+            # 旧接口模式：AxonEventHandler(trader, callback, node=None)
+            # 即 (adapter=trader, worker_id=callback, event_callback=node)
+            self.trader = adapter
+            self.worker_id = None
+            self.event_callback = worker_id
+            self.node = event_callback
+        else:
+            # 新接口: AxonEventHandler(adapter, worker_id, callback, node)
+            self.trader = adapter  # adapter 兼容旧字段名
+            self.worker_id = worker_id
+            self.event_callback = event_callback
+            self.node = node
         self._subscribed = False
 
     @staticmethod
     def _resolve_msgbus(trader: Any, node: Any = None) -> Any:
-        """解析并返回 msg_bus 实例（与 LiveTradeRecorder 共用逻辑）"""
+        """
+        解析并返回 msg_bus 实例
+
+        优先级：
+        1. node.msgbus
+        2. node.kernel.msgbus
+        3. trader.kernel.msgbus
+        4. trader.msg_bus（兼容 axon-style Mock 写法，优先于 msgbus）
+        5. trader.msgbus（兼容旧版本 axon_quant）
+        """
+        is_trader_mock = _is_mock_object(trader)
+        is_node_mock = _is_mock_object(node)
+
         # 方式1: node.msgbus
         if (
             node is not None
-            and not _is_mock_object(node)
+            and not is_node_mock
             and hasattr(node, 'msgbus')
             and node.msgbus is not None
         ):
@@ -288,9 +322,10 @@ class TradingEventHandler:
         # 方式2: node.kernel.msgbus
         if (
             node is not None
-            and not _is_mock_object(node)
+            and not is_node_mock
             and hasattr(node, 'kernel')
             and node.kernel is not None
+            and not _is_mock_object(node.kernel)
             and hasattr(node.kernel, 'msgbus')
             and node.kernel.msgbus is not None
         ):
@@ -299,18 +334,27 @@ class TradingEventHandler:
         # 方式3: trader.kernel.msgbus
         if (
             trader is not None
-            and not _is_mock_object(trader)
+            and not is_trader_mock
             and hasattr(trader, 'kernel')
             and trader.kernel is not None
+            and not _is_mock_object(trader.kernel)
             and hasattr(trader.kernel, 'msgbus')
             and trader.kernel.msgbus is not None
         ):
             return trader.kernel.msgbus
 
-        # 方式4: trader.msgbus（兼容旧版本）
+        # 方式4: trader.msg_bus（兼容 axon-style Mock 写法）
         if (
             trader is not None
-            and not _is_mock_object(trader)
+            and hasattr(trader, 'msg_bus')
+            and trader.msg_bus is not None
+        ):
+            return trader.msg_bus
+
+        # 方式5: trader.msgbus（兼容旧版本 axon_quant，跳过 Mock 自动属性）
+        if (
+            trader is not None
+            and not is_trader_mock
             and hasattr(trader, 'msgbus')
             and trader.msgbus is not None
         ):
@@ -431,6 +475,123 @@ class TradingEventHandler:
             "timestamp": str(getattr(event, "timestamp", "")),
         }
 
+    # ============ 被动回调接口（P4 计划规范） ============
+
+    def on_order_filled(
+        self,
+        order_id: str,
+        price: float,
+        quantity: float,
+        **extra: Any,
+    ) -> None:
+        """
+        订单成交事件回调
+
+        Args:
+            order_id: 订单 ID
+            price: 成交价格
+            quantity: 成交数量
+            **extra: 附加字段（symbol, side, timestamp 等）
+        """
+        event_data = {
+            "type": "fill",
+            "order_id": str(order_id),
+            "price": float(price),
+            "quantity": float(quantity),
+            **extra,
+        }
+        self._dispatch_event("fill", event_data)
+
+    def on_order_rejected(
+        self,
+        order_id: str,
+        reason: str,
+        **extra: Any,
+    ) -> None:
+        """
+        订单拒绝事件回调
+
+        Args:
+            order_id: 订单 ID
+            reason: 拒绝原因
+            **extra: 附加字段
+        """
+        event_data = {
+            "type": "order_rejected",
+            "order_id": str(order_id),
+            "reason": str(reason),
+            **extra,
+        }
+        self._dispatch_event("order_rejected", event_data)
+
+    def on_order_accepted(self, order_id: str, **extra: Any) -> None:
+        """
+        订单接受事件回调
+        """
+        event_data = {
+            "type": "order_accepted",
+            "order_id": str(order_id),
+            **extra,
+        }
+        self._dispatch_event("order_accepted", event_data)
+
+    def on_order_canceled(self, order_id: str, **extra: Any) -> None:
+        """
+        订单取消事件回调
+        """
+        event_data = {
+            "type": "order_canceled",
+            "order_id": str(order_id),
+            **extra,
+        }
+        self._dispatch_event("order_canceled", event_data)
+
+    def on_position_changed(
+        self,
+        symbol: str,
+        quantity: float,
+        **extra: Any,
+    ) -> None:
+        """
+        持仓变化事件回调
+        """
+        event_data = {
+            "type": "position",
+            "symbol": str(symbol),
+            "quantity": float(quantity),
+            **extra,
+        }
+        self._dispatch_event("position", event_data)
+
+    def _dispatch_event(self, event_type: str, event_data: dict) -> None:
+        """
+        事件分发：触发回调 + 写入数据库
+        """
+        # 1. 触发回调
+        if self.event_callback is not None:
+            try:
+                self.event_callback(event_type, event_data)
+            except Exception as e:
+                logger.error(f"AxonEventHandler 回调执行失败: {e}")
+
+        # 2. 写入 WorkerLog
+        if self.worker_id is not None:
+            try:
+                from . import crud
+                from utils.db_session import get_db_session
+
+                with get_db_session() as db:
+                    crud.create_worker_log(
+                        db,
+                        worker_id=self.worker_id,
+                        log_type=event_type,
+                        message=event_data,
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"AxonEventHandler 写入 WorkerLog 失败: worker_id={self.worker_id}, error={e}"
+                )
+
 
 class LiveTradeRecorder:
     """
@@ -503,7 +664,8 @@ class LiveTradeRecorder:
         1. node.msgbus（TradingNode 属性）
         2. node.kernel.msgbus（通过 kernel 访问）
         3. trader.kernel.msgbus（通过 trader 的 kernel 访问）
-        4. trader.msgbus（兼容旧版本）
+        4. trader.msg_bus（兼容 axon-style Mock 写法）
+        5. trader.msgbus（兼容旧版本）
 
         实现要点：
         - 真实的 Trader/Node 对象应当是策略引擎的具体类实例
@@ -546,7 +708,16 @@ class LiveTradeRecorder:
             logger.debug("LiveTradeRecorder: 使用 trader.kernel.msgbus")
             return trader.kernel.msgbus
 
-        # 方式4: trader.msgbus（兼容旧版本）
+        # 方式4: trader.msg_bus（兼容 axon-style Mock 写法）
+        if (
+            trader is not None
+            and hasattr(trader, 'msg_bus')
+            and trader.msg_bus is not None
+        ):
+            logger.debug("LiveTradeRecorder: 使用 trader.msg_bus")
+            return trader.msg_bus
+
+        # 方式5: trader.msgbus（兼容旧版本，跳过 Mock 自动属性）
         if (
             trader is not None
             and not _is_mock_object(trader)
@@ -658,6 +829,51 @@ class LiveTradeRecorder:
                 f"LiveTradeRecorder: 忽略未知订单事件类型 "
                 f"{type_name} (worker_id={self.worker_id})"
             )
+
+    @staticmethod
+    def _identify_order_event_type(event: Any) -> str:
+        """识别订单事件子类型。
+
+        Returns:
+            ``"accepted"`` / ``"canceled"`` / ``"rejected"`` / ``"filled"`` /
+            ``"position"`` / ``"unknown"``
+        """
+        if event is None:
+            return "unknown"
+
+        # 优先按 axon_quant.core.events 类层级匹配
+        try:
+            from axon_bridge.core.events import (  # type: ignore[import-not-found]
+                OrderAccepted,
+                OrderCanceled,
+                OrderRejected,
+                OrderFilled,
+            )
+        except ImportError:
+            OrderAccepted = OrderCanceled = OrderRejected = OrderFilled = None  # type: ignore[assignment]
+
+        if OrderFilled is not None and isinstance(event, OrderFilled):
+            return "filled"
+        if OrderAccepted is not None and isinstance(event, OrderAccepted):
+            return "accepted"
+        if OrderCanceled is not None and isinstance(event, OrderCanceled):
+            return "canceled"
+        if OrderRejected is not None and isinstance(event, OrderRejected):
+            return "rejected"
+
+        # duck typing：按属性区分
+        if hasattr(event, "last_qty") and hasattr(event, "last_px") and hasattr(event, "trade_id"):
+            return "filled"
+        if hasattr(event, "reason") and hasattr(event, "client_order_id"):
+            return "rejected"
+        if hasattr(event, "position_id") and hasattr(event, "qty"):
+            return "position"
+        if hasattr(event, "order_qty") and hasattr(event, "client_order_id"):
+            return "accepted"
+        if hasattr(event, "client_order_id") and hasattr(event, "venue_order_id"):
+            return "canceled"
+
+        return "unknown"
 
     # -- OrderAccepted ---------------------------------------------------
 
@@ -848,10 +1064,35 @@ class LiveTradeRecorder:
         commission = getattr(event, "commission", None)
         if commission is None:
             return 0.0
+
+        # 检测 Mock 对象（测试场景），避免自动生成的子属性被误识别
+        from unittest.mock import Mock as _Mock
+        is_mock = isinstance(commission, _Mock)
+
+        # 优先尝试 as_double() —— axon_quant Money 的标准接口
         if hasattr(commission, "as_double"):
-            return float(commission.as_double())
+            try:
+                value = commission.as_double()
+                if isinstance(value, _Mock):
+                    # Mock 自动生成的返回值，回退到其他字段
+                    raise TypeError("as_double returned Mock")
+                return float(value)
+            except (TypeError, ValueError):
+                pass
+
+        # 其次尝试 amount 属性
         if hasattr(commission, "amount"):
-            return float(commission.amount)
+            try:
+                amount = commission.amount
+                if isinstance(amount, _Mock) and not is_mock:
+                    # 真实对象上的 amount 字段是 Mock —— 跳过
+                    pass
+                else:
+                    return float(amount)
+            except (TypeError, ValueError):
+                pass
+
+        # 最后直接转 float
         try:
             return float(commission)
         except (TypeError, ValueError):

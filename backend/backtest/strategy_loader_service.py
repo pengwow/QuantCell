@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 """
-策略加载服务模块
+策略加载服务模块（基于 axond 体系）
 
 从策略文件加载和实例化事件驱动策略类。
 支持 EventDrivenStrategy 类型的策略加载。
@@ -11,10 +12,10 @@
 
 import importlib
 import sys
-from typing import Any, Dict, Optional
 from pathlib import Path
-from utils.logger import get_logger, LogType
+from typing import Any, Dict, Optional, Type
 
+from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -37,17 +38,182 @@ class StrategyLoaderService:
         strategy = StrategyLoaderService.load_event_strategy_multi(
             "sma_crossover",
             params={"fast_period": 10, "slow_period": 30},
-            bar_types={"BTCUSDT": bar_type},
-            instruments={"BTCUSDT": instrument}
+            bar_types={"BTCUSDT": "1h"},
+            instruments={"BTCUSDT": InstrumentId("BTCUSDT", "binance")},
         )
     """
+
+    @staticmethod
+    def _get_strategies_dir() -> Path:
+        """获取策略目录路径（向后兼容：返回第一个存在的目录）
+
+        优先查找 strategy/example/strategies（示例策略），
+        然后查找 strategies（旧版兼容）。
+
+        新代码请使用 _get_strategies_dirs() 获取所有目录列表。
+        """
+        dirs = StrategyLoaderService._get_strategies_dirs()
+        if not dirs:
+            raise StrategyLoadError("找不到任何策略目录")
+        return dirs[0]
+
+    @staticmethod
+    def _get_strategies_dirs() -> list[Path]:
+        """返回所有可能的策略目录（按优先级排序）
+
+        这是路径查找的**单一真相源**：
+        - list-strategies 用这个扫描所有目录
+        - load_strategy 用这个逐个查找策略文件
+
+        优先级顺序：
+        1. backend/strategy/templates         （P1-Sprint 2 新位置，8 模板）
+        2. backend/strategy/example/strategies（示例策略，axond 风格）
+        3. backend/strategies                 （旧版兼容，事件驱动风格）
+        """
+        backend_path = Path(__file__).resolve().parent.parent
+        candidates = [
+            backend_path / "strategy" / "templates",
+            backend_path / "strategy" / "example" / "strategies",
+            backend_path / "strategies",
+        ]
+        return [d for d in candidates if d.exists()]
+
+    @staticmethod
+    def _find_strategy_file(strategy_name: str) -> Optional[Path]:
+        """在所有候选目录里查找策略文件
+
+        Args:
+            strategy_name: 策略名称（不含 .py 后缀）
+
+        Returns:
+            找到的策略文件路径，未找到返回 None
+        """
+        for d in StrategyLoaderService._get_strategies_dirs():
+            f = d / f"{strategy_name}.py"
+            if f.exists():
+                return f
+        return None
+
+    @staticmethod
+    def get_all_strategy_files() -> list[Path]:
+        """列出所有策略目录中的策略文件
+
+        用于 list-strategies 命令，确保不会漏掉任何目录的策略。
+
+        Returns:
+            策略文件路径列表（去重后按文件名排序）
+        """
+        seen: set[Path] = set()
+        result: list[Path] = []
+        for d in StrategyLoaderService._get_strategies_dirs():
+            for f in sorted(d.glob("*.py")):
+                if f.name.startswith("_") or f.stem in ("__init__",):
+                    continue
+                if f not in seen:
+                    seen.add(f)
+                    result.append(f)
+        return result
+
+    @staticmethod
+    def load_strategy(
+        strategy_name: str,
+        strategy_params: dict,
+        instrument_ids: Optional[list] = None,
+        bar_types: Optional[list] = None,
+    ):
+        """
+        加载策略（通用入口）
+
+        Args:
+            strategy_name: 策略名称（文件名，不含 .py 后缀）
+            strategy_params: 策略参数字典
+            instrument_ids: 可选品种 ID 列表（axond.StrategyConfig 必填；
+                           不传时使用空列表，CLI 单品种场景会后续传入）
+            bar_types: 可选 bar_type 列表（同上）
+
+        Returns:
+            策略实例
+
+        Raises:
+            StrategyLoadError: 当策略加载失败时
+        """
+        try:
+            strategy_file = StrategyLoaderService._find_strategy_file(strategy_name)
+            if strategy_file is None:
+                dirs = StrategyLoaderService._get_strategies_dirs()
+                raise StrategyLoadError(
+                    f"策略文件不存在: {strategy_name}.py。已搜索: {[str(d) for d in dirs]}"
+                )
+
+            strategies_dir = strategy_file.parent
+            if str(strategies_dir) not in sys.path:
+                sys.path.insert(0, str(strategies_dir))
+
+            if strategy_name in sys.modules:
+                del sys.modules[strategy_name]
+
+            module = importlib.import_module(strategy_name)
+
+            # 查找策略类
+            strategy_class = StrategyLoaderService._find_strategy_class(module)
+
+            if strategy_class is None:
+                raise StrategyLoadError(
+                    f"在模块 {strategy_name} 中找不到策略类"
+                )
+
+            # 实例化策略
+            # instrument_ids/bar_types 传 None 时 _instantiate_strategy 会用空列表
+            # （axond.StrategyConfig 的这两个字段是必填但允许空列表；
+            #  真实品种信息在 default 引擎走 data_dict，event 引擎走 load_event_strategy_multi）
+            instance = StrategyLoaderService._instantiate_strategy(
+                strategy_class, strategy_params, instrument_ids, bar_types,
+                config_class=StrategyLoaderService._find_strategy_config_class(module, strategy_class),
+            )
+
+            logger.info(
+                f"成功加载策略: {strategy_class.__name__} (from {strategy_file})"
+            )
+            return instance
+
+        except StrategyLoadError:
+            raise
+        except Exception as e:
+            logger.error(f"加载策略失败: {e}")
+            raise StrategyLoadError(f"加载策略失败: {e}") from e
+
+    @staticmethod
+    def load_event_strategy(
+        strategy_name: str,
+        strategy_params: dict,
+        bar_type: str,
+        instrument_id,
+    ):
+        """
+        加载事件驱动策略（单品种版本）
+
+        Args:
+            strategy_name: 策略名称
+            strategy_params: 策略参数
+            bar_type: K 线类型字符串
+            instrument_id: InstrumentId 对象
+
+        Returns:
+            策略实例或 None
+        """
+        return StrategyLoaderService.load_event_strategy_multi(
+            strategy_name=strategy_name,
+            strategy_params=strategy_params,
+            bar_types={"_default": bar_type},
+            instruments={"_default": instrument_id},
+        )
 
     @staticmethod
     def load_event_strategy_multi(
         strategy_name: str,
         strategy_params: dict,
         bar_types: dict,
-        instruments: dict
+        instruments: dict,
     ):
         """
         加载支持多品种的事件驱动策略
@@ -162,7 +328,7 @@ class StrategyLoaderService:
             return strategy
 
         except Exception as e:
-            logger.error(f"加载事件驱动策略失败: {e}")
+            logger.error(f"加载多品种事件驱动策略失败: {e}")
             import traceback
             traceback.print_exc()
             return None

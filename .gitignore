@@ -65,8 +65,15 @@ backend/_archive_20260515/*
 backend/tmp_deleted/*
 
 docs/*
+docs/compose/specs/*
 .mimocode/
+.mimocode/*
 .omo/
+.omo/*
+AGENTS.md
 
 backend/backend.egg-info/
+backend/.mimocode/.cron-lock
+backend/*.egg-info/
 .codegraph/
+docs/superpowers/*

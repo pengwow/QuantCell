@@ -44,10 +44,12 @@ import {
   MoreOutlined,
   CheckSquareOutlined,
   BorderOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { useWorkerStore } from '../../store/workerStore';
 import { WorkerCreateModal, WorkerEditModal, WorkerLogsPanel } from '../../components/worker';
+import { triggerOptimize } from '../../api/workerApi';
 import type { Worker as WorkerType } from '../../types/worker';
 import { WorkerStatusColor, WorkerStatusText } from '../../types/worker';
 import PageContainer from '@/components/PageContainer';
@@ -370,6 +372,17 @@ const Worker = () => {
       apiMessage.success(t('worker_restart_success'));
     }
   }, [restartWorker, t]);
+
+  const handleOptimize = useCallback(async (worker: WorkerType) => {
+    try {
+      const result = await triggerOptimize(worker.id);
+      const data = result as any;
+      apiMessage.success(`优化完成 (${data?.data?.strategy_type || 'rule'})`);
+      fetchWorkers();
+    } catch (error: any) {
+      apiMessage.error(`优化失败: ${error?.message || '未知错误'}`);
+    }
+  }, [triggerOptimize, t, apiMessage, fetchWorkers]);
 
   // ============================================
   // 批量操作处理函数
@@ -796,9 +809,13 @@ const Worker = () => {
                           {/* 头部：名称和状态 */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                             <span style={{ fontWeight: 500, fontSize: 16 }}>{worker.name}</span>
-                            <Tag color={WorkerStatusColor[worker.status]}>
-                              {WorkerStatusText[worker.status]}
-                            </Tag>
+                            <Space size={4}>
+                              {worker.strategy_type === 'rl' && <Tag color="purple">RL</Tag>}
+                              {worker.strategy_type === 'rule' && <Tag color="green">规则</Tag>}
+                              <Tag color={WorkerStatusColor[worker.status]}>
+                                {WorkerStatusText[worker.status]}
+                              </Tag>
+                            </Space>
                           </div>
 
                           {/* 信息区域 */}
@@ -876,6 +893,22 @@ const Worker = () => {
                               >
                                 {t('detail') || '详情'}
                               </Button>
+                            </Col>
+                            <Col span={24}>
+                              {worker.status === 'running' && (
+                                <Button
+                                  size="small"
+                                  type="dashed"
+                                  icon={<ThunderboltOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOptimize(worker);
+                                  }}
+                                  style={{ width: '100%' }}
+                                >
+                                  {t('auto_optimize') || '自动优化'}
+                                </Button>
+                              )}
                             </Col>
                             {worker.status !== 'stopped' && (
                               <>

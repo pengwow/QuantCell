@@ -13,10 +13,14 @@ import StrategyManagement from '@/pages/strategy/StrategyManagement';
 import StrategyEditor from '@/pages/strategy/StrategyEditor';
 import FactorAnalysis from '@/pages/factor/FactorAnalysis';
 import ModelManagement from '@/pages/model/ModelManagement';
+import ModelRegistry from '@/pages/model/ModelRegistry';
 import DataManagementPage from '@/pages/data/DataManagementPage';
 import KlineReplayPage from '@/pages/data/KlineReplayPage';
 import Setting from '@/pages/setting/Setting';
 import Agent from '@/pages/agent/Agent';
+import EnsemblePage from '@/pages/ensemble/EnsemblePage';
+import RiskMonitorPage from '@/pages/risk/RiskMonitorPage';
+import RLTrainingPage from '@/pages/rl/RLTrainingPage';
 
 // 导入回测模块
 import BacktestLayout from '@/pages/backtest/BacktestLayout';
@@ -117,12 +121,28 @@ function createBaseRoutes(): RouteObject[] {
           element: <Agent />,
         },
         {
+          path: '/ensemble',
+          element: <EnsemblePage />,
+        },
+        {
+          path: '/risk-monitor',
+          element: <RiskMonitorPage />,
+        },
+        {
+          path: '/rl-training',
+          element: <RLTrainingPage />,
+        },
+        {
           path: '/factor-analysis',
           element: <FactorAnalysis />,
         },
         {
           path: '/model-management',
           element: <ModelManagement />,
+        },
+        {
+          path: '/model-registry',
+          element: <ModelRegistry />,
         },
         {
           path: '/data-management',

@@ -27,7 +27,7 @@ import threading
 import queue
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from dataclasses import dataclass, asdict
 from contextvars import ContextVar
@@ -343,7 +343,7 @@ class UnifiedLogger:
             format=format_str,
             level=level,
             colorize=True,
-            enqueue=True,
+            enqueue=False,
             backtrace=True,
             diagnose=True,
         )
@@ -358,7 +358,7 @@ class UnifiedLogger:
                 rotation=LoggerConfig.ROTATION_SIZE,
                 retention=f"{LoggerConfig.RETENTION_DAYS} days",
                 encoding="utf-8",
-                enqueue=True,
+                enqueue=False,
                 backtrace=True,
                 diagnose=True,
             )
@@ -535,7 +535,7 @@ class LoggerWrapper:
             exception_info = "".join(exception_info)
 
         record = LogRecord(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             level=level.value,
             message=str(message),
             module=module,
@@ -641,7 +641,7 @@ def set_log_level(level: str) -> None:
         format=LoggerConfig.DEFAULT_FORMAT,
         level=level.upper(),
         colorize=True,
-        enqueue=True,
+        enqueue=False,
     )
 
 

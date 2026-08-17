@@ -1,20 +1,14 @@
 # -*- coding: utf-8 -*-
-"""
-axon_bridge: axon-quant 适配层
+"""axon_quant 适配层(③ 桥) — 顶层重导出 + 业务适配函数
 
-封装 axon-quant 库的核心 API，提供稳定的接口供业务代码使用。
-所有与 axon-quant 的交互都通过此模块进行，避免在业务代码中直接依赖底层库。
+所有 QuantCell 业务代码统一 `from axon_bridge import X`。
 
-主要功能:
-- BacktestEngine 引擎创建和配置
-- 交易品种创建（现货/合约）
-- 订单构建（市价单/限价单）
-- 事件构建和推送
-- 结果提取和标准化
+依赖说明:
+- axon_quant 通过 PyPI 安装(`pip install --upgrade axon-quant`)
+- 永远跟随最新版本,不锁版本
 
-作者: QuantCell Team
-版本: 2.0.0
-日期: 2026-08-14
+包名说明:本目录命名为 axon_bridge 而非 axon_quant,避免与
+site-packages 的 axon_quant 同名导致循环导入。
 """
 
 from __future__ import annotations
@@ -26,6 +20,53 @@ from utils.logger import get_logger, LogType
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
+# —— 远程版本: credentials ——
+from ._credentials import credentials  # noqa: F401
+
+# —— 远程版本: 核心类型重导出 ——
+from axon_quant import (  # noqa: F401
+    Action, ActionType, Observation, RunResult,
+    DataService, MockSource, Frequency, DataRequest, DataError,
+    BacktestEngine, BacktestError,
+    OrderManager, Order, OrderStatus, OrderType, Side, Portfolio, Position, OmsError,
+    ExchangeConfig, ExchangeId, ExchangeError,
+    InferenceEngine, InferenceError,
+    ComplianceError, DefiError,
+)
+
+from axon_quant.risk import (  # noqa: F401
+    DefaultRiskEngine, CircuitBreaker, RiskConfig, RiskError,
+    RiskResult, RiskReason, RiskMetrics,
+    make_risk_config, make_circuit_breaker,
+    make_order, make_portfolio, make_portfolio_with_positions,
+)
+
+from axon_quant import (  # noqa: F401
+    rl, llm, hpo, registry, ensemble, walk_forward,
+    tracker, compliance, explain, distributed, harness,
+    risk, exchange, data, backtest, oms, inference,
+)
+
+from axon_quant.llm import (  # noqa: F401
+    LLMConfig, LLMMessage, make_backend,
+    OllamaBackend,
+    ReActAgent, TradingTools, TrajectoryRecorder,
+    MarketSignal, SignalType, AgentRole,
+)
+
+from axon_quant.trading import (  # noqa: F401
+    PlaceOrderTool, CancelOrderTool, QueryPortfolioTool, ReplaceOrderTool,
+    MockTradingBackend,
+)
+
+# —— 远程版本: backtest 子模块重导出 ——
+from .backtest import (  # noqa: F401
+    spot_instrument,
+    swap_instrument,
+    limit_order,
+    PushFundingHelper,
+)
+
 
 # ========== 延迟导入 axon_quant ==========
 def _get_aq():
@@ -34,18 +75,9 @@ def _get_aq():
     return aq
 
 
-# ========== 交易品种创建 ==========
+# ========== 交易品种创建 (业务适配层) ==========
 def create_spot_instrument(base: str, quote: str) -> Dict[str, Any]:
-    """
-    创建现货交易品种
-
-    Args:
-        base: 基础货币代码 (如 "BTC")
-        quote: 计价货币代码 (如 "USDT")
-
-    Returns:
-        Dict: 品种字典，包含 kind/base/quote 信息
-    """
+    """创建现货交易品种"""
     aq = _get_aq()
     return aq.spot_instrument(base, quote)
 
@@ -56,22 +88,7 @@ def create_swap_instrument(
     settle: str = "usd_margin",
     contract_size: float = 1.0,
 ) -> Dict[str, Any]:
-    """
-    创建永续合约交易品种（完全对应 axon-quant 0.11+ 新签名）
-
-    Args:
-        base: 基础币种(交易标的)，如 "BTC"
-        quote: 计价币种，如 "USDT"
-        settle: 结算方式 —— "usd_margin" (默认, U本位 USD 保证金)
-                               或 "coin_margin" (币本位保证金)，大小写不敏感
-        contract_size: 合约乘数，每张合约代表多少 base 币。
-                       默认 1.0 即 1 张 = 1 BTC。
-                       Binance BTCUSDT 永续默认 1，部分小币种合约 0.001 / 0.01 / 100 等。
-
-    Returns:
-        Dict: 品种字典，形如 {"kind": "swap", "base": "BTC", "quote": "USDT",
-                             "settle": "usd_margin", "contract_size": 1.0, ...}
-    """
+    """创建永续合约交易品种（完全对应 axon-quant 0.11+ 新签名）"""
     aq = _get_aq()
     return aq.swap_instrument(base, quote, settle=settle, contract_size=contract_size)
 
@@ -84,19 +101,7 @@ def create_market_order(
     order_id: int,
     instrument: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """
-    创建市价订单字典
-
-    Args:
-        symbol: 交易对符号 (如 "BTCUSDT")
-        side: 方向 ("Buy" / "Sell")
-        quantity: 数量
-        order_id: 订单 ID (整数)
-        instrument: 品种字典
-
-    Returns:
-        Dict: 订单字典，包含所有必要字段
-    """
+    """创建市价订单字典"""
     return {
         'id': order_id,
         'order_id': str(order_id),
@@ -122,21 +127,7 @@ def create_limit_order(
     instrument: Dict[str, Any],
     tif: str = 'GTC',
 ) -> Dict[str, Any]:
-    """
-    创建限价订单字典
-
-    Args:
-        symbol: 交易对符号
-        side: 方向 ("Buy" / "Sell")
-        quantity: 数量
-        price: 限价
-        order_id: 订单 ID (整数)
-        instrument: 品种字典
-        tif: 有效时间 ("GTC" / "IOC" / "FOK")
-
-    Returns:
-        Dict: 订单字典
-    """
+    """创建限价订单字典"""
     return {
         'id': order_id,
         'order_id': str(order_id),
@@ -158,17 +149,7 @@ def create_cancel_order_event(
     instrument: Dict[str, Any],
     timestamp_ns: int,
 ) -> Dict[str, Any]:
-    """
-    创建取消订单事件字典
-
-    Args:
-        order_id: 订单 ID
-        instrument: 品种字典
-        timestamp_ns: 时间戳 (纳秒)
-
-    Returns:
-        Dict: 取消事件字典
-    """
+    """创建取消订单事件字典"""
     return {
         'id': order_id,
         'type': 'order_cancelled',
@@ -186,16 +167,7 @@ def build_order_submitted_event(
     order_dict: Dict[str, Any],
     timestamp_ns: int,
 ) -> Dict[str, Any]:
-    """
-    构建订单提交事件
-
-    Args:
-        order_dict: 订单字典 (由 create_market_order / create_limit_order 创建)
-        timestamp_ns: 时间戳 (纳秒)
-
-    Returns:
-        Dict: 事件字典，可直接用于 engine.push_event()
-    """
+    """构建订单提交事件"""
     return {
         'id': order_dict['id'],
         'type': 'order_submitted',
@@ -206,20 +178,7 @@ def build_order_submitted_event(
 
 # ========== BacktestEngine 配置 ==========
 class EngineConfig:
-    """
-    回测引擎配置
-
-    封装 BacktestEngine 的所有可配置项。
-
-    Attributes:
-        initial_cash: 初始资金
-        half_spread: 种子流动性的半价差
-        depth_levels: 种子流动性的深度层数
-        size_per_level: 每层的订单大小
-        auto_rebalance_threshold: 自动再平衡阈值
-        funding_interval_ns: 资金费率结算间隔 (纳秒)
-        funding_rate: 资金费率
-    """
+    """回测引擎配置"""
 
     def __init__(
         self,
@@ -228,7 +187,7 @@ class EngineConfig:
         depth_levels: int = 5,
         size_per_level: float = 1.0,
         auto_rebalance_threshold: float = 0.01,
-        funding_interval_ns: int = 8 * 3600 * 1_000_000_000,  # 8 小时
+        funding_interval_ns: int = 8 * 3600 * 1_000_000_000,
         funding_rate: float = 0.0001,
         mark_aware: bool = True,
     ):
@@ -242,17 +201,8 @@ class EngineConfig:
         self.mark_aware = mark_aware
 
 
-# ========== 回测引擎工厂 ==========
 def create_backtest_engine(config: Optional[EngineConfig] = None):
-    """
-    创建并配置回测引擎
-
-    Args:
-        config: 引擎配置，默认使用 EngineConfig 默认值
-
-    Returns:
-        BacktestEngine: 已配置的回测引擎实例
-    """
+    """创建并配置回测引擎"""
     aq = _get_aq()
     cfg = config or EngineConfig()
 
@@ -274,16 +224,7 @@ def add_funding_schedule(
     fixed_rate: float,
     mark_aware: bool = True,
 ):
-    """
-    为引擎添加资金费率调度
-
-    Args:
-        engine: BacktestEngine 实例
-        instrument: 品种字典
-        interval_ns: 结算间隔 (纳秒)
-        fixed_rate: 固定资金费率
-        mark_aware: 是否使用标记感知
-    """
+    """为引擎添加资金费率调度"""
     engine.with_funding_schedule(
         instrument=instrument,
         interval_ns=interval_ns,
@@ -294,15 +235,7 @@ def add_funding_schedule(
 
 # ========== 结果提取 ==========
 def extract_run_result(result: Any) -> Dict[str, Any]:
-    """
-    从 RunResult 提取回测结果
-
-    Args:
-        result: axon_quant.RunResult 实例 (由 engine.run() 返回)
-
-    Returns:
-        Dict: 标准化的结果字典
-    """
+    """从 RunResult 提取回测结果"""
     if result is None:
         return {}
 
@@ -331,15 +264,7 @@ def extract_run_result(result: Any) -> Dict[str, Any]:
 
 
 def extract_run_stats(stats: Any) -> Dict[str, Any]:
-    """
-    从 RunStats 提取统计信息
-
-    Args:
-        stats: axon_quant.RunStats 实例 (由 engine.step() 返回)
-
-    Returns:
-        Dict: 统计信息字典
-    """
+    """从 RunStats 提取统计信息"""
     if stats is None:
         return {}
 
@@ -361,15 +286,7 @@ def extract_run_stats(stats: Any) -> Dict[str, Any]:
 
 # ========== 辅助函数 ==========
 def to_ns_timestamp(ts: Any) -> int:
-    """
-    将时间戳转换为纳秒
-
-    Args:
-        ts: 时间戳，可以是 datetime、int、float 或字符串
-
-    Returns:
-        int: 纳秒时间戳
-    """
+    """将时间戳转换为纳秒"""
     if isinstance(ts, (int, float)):
         if ts > 1e18:
             return int(ts)
@@ -385,7 +302,7 @@ def to_ns_timestamp(ts: Any) -> int:
         return int(ts.timestamp() * 1_000_000_000)
     elif isinstance(ts, str):
         try:
-            from datetime import datetime, timezone
+            from datetime import datetime
             dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
             return int(dt.timestamp() * 1_000_000_000)
         except (ValueError, TypeError):
@@ -399,15 +316,7 @@ def get_current_ns_timestamp() -> int:
 
 
 def get_instrument_id(instrument: Dict[str, Any]) -> str:
-    """
-    从品种字典获取标识符
-
-    Args:
-        instrument: 品种字典
-
-    Returns:
-        str: 品种标识符 (如 "BTCUSDT")
-    """
+    """从品种字典获取标识符"""
     if isinstance(instrument, dict):
         base = instrument.get('base', '')
         quote = instrument.get('quote', '')
@@ -419,6 +328,7 @@ def get_instrument_id(instrument: Dict[str, Any]) -> str:
 
 # ========== 导出列表 ==========
 __all__ = [
+    # 业务适配层
     'create_spot_instrument',
     'create_swap_instrument',
     'create_market_order',
@@ -433,4 +343,11 @@ __all__ = [
     'to_ns_timestamp',
     'get_current_ns_timestamp',
     'get_instrument_id',
+    # 远程重导出
+    'Action', 'ActionType', 'Observation', 'RunResult',
+    'DataService', 'MockSource', 'Frequency', 'DataRequest', 'DataError',
+    'BacktestEngine', 'BacktestError',
+    'spot_instrument', 'swap_instrument', 'limit_order', 'PushFundingHelper',
+    'MarketSignal', 'SignalType',
+    'credentials',
 ]

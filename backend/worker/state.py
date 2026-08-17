@@ -80,6 +80,20 @@ class StrategyRuntime:
     strategy_id: int
     name: str
     status: str = "stopped"
+    
+    # 从 TradingEngine.StrategyRuntime 补充的字段
+    strategy: Any = None
+    symbols: list[str] = field(default_factory=list)
+    params: dict[str, Any] = field(default_factory=dict)
+    mode: str = "paper"
+    order_count: int = 0
+    fill_count: int = 0
+    rejected_count: int = 0
+    last_price: float = 0.0
+    last_action: Optional[str] = None
+    realized_pnl: float = 0.0
+    
+    # 原有字段
     trading_node: Optional[Any] = None
     _run_task: Optional[asyncio.Task] = None
     _run_thread: Optional[threading.Thread] = None
@@ -100,6 +114,17 @@ class StrategyRuntime:
             "error_message": self.error_message,
             "started_at": self.started_at,
             "stopped_at": self.stopped_at,
+            # 新增字段
+            "strategy_name": self.name,
+            "symbols": self.symbols,
+            "params": self.params,
+            "mode": self.mode,
+            "order_count": self.order_count,
+            "fill_count": self.fill_count,
+            "rejected_count": self.rejected_count,
+            "last_price": self.last_price,
+            "last_action": self.last_action,
+            "realized_pnl": self.realized_pnl,
         }
 
     def set_pid(self, pid: int) -> None:

@@ -27,7 +27,7 @@ class GetNewsTool(Tool):
         count: int = 5,
         **kwargs: Any
     ) -> str:
-        from scripts.news_cli import get_news
+        from cli.news import get_news
         return get_news(query, category, count)
 
 
@@ -43,5 +43,5 @@ class GetMarketSentimentTool(Tool):
     }
 
     async def execute(self, **kwargs: Any) -> str:
-        from scripts.news_cli import get_market_sentiment
+        from cli.news import get_market_sentiment
         return get_market_sentiment()
