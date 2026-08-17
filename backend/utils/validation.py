@@ -161,8 +161,6 @@ def parse_time_range(time_range: Optional[str]) -> Tuple[Optional[datetime], Opt
         return start_date, end_date
     except ValueError as e:
         raise ValueError(f"时间范围格式错误: {e}") from e
-    except Exception as e:
-        raise ValueError(f"时间范围格式错误: {time_range}，应为 YYYYMMDD-YYYYMMDD 或 ISO格式") from e
 
 
 def validate_symbols(symbols: Optional[str]) -> bool:
