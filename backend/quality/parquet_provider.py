@@ -3,13 +3,13 @@ import pandas as pd
 from pathlib import Path
 from .data_provider import DataProvider
 
-# 复用 data_cli.py 中的工具函数（避免代码重复）
-from scripts.data_cli import (
-    get_source_data_dir,
+# 复用 cli/data.py 中的工具函数（避免代码重复）
+from cli.data import (
     scan_parquet_files,
     _find_parquet_file,
     filter_by_date_range
 )
+from utils import get_source_data_dir
 from utils.parquet_utils import load_from_parquet
 
 
@@ -116,3 +116,13 @@ class ParquetDataProvider(DataProvider):
         """
         files = scan_parquet_files(symbol=symbol, candle_type=candle_type)
         return sorted(set(f['interval'] for f in files))
+
+    # DataProvider 抽象接口实现
+    def list_symbols(self, candle_type: str = "spot") -> list:
+        """列出可用的交易对（DataProvider 接口实现）"""
+        result = self.list_available_symbols(candle_type=candle_type)
+        return [item['symbol'] for item in result]
+
+    def list_intervals(self, symbol: str, candle_type: str = "spot") -> list:
+        """列出指定交易对可用的K线周期（DataProvider 接口实现）"""
+        return self.get_available_intervals(symbol=symbol, candle_type=candle_type)

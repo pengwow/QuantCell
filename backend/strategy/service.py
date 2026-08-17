@@ -1,5 +1,5 @@
-"""
-策略模块服务层
+# -*- coding: utf-8 -*-
+"""策略模块服务层
 
 实现策略的加载、管理和解析功能。
 
@@ -9,6 +9,10 @@
     - 策略列表获取
     - 策略详情获取
     - 策略文件上传
+
+支持两种策略类型：
+- 规则策略：实现 on_bar(bar) → Action 的 Python 类
+- RL 策略：使用 axon_quant.rl.TradingEnv 的训练/推理流程
 
 服务类:
     - StrategyService: 策略服务主类
@@ -25,7 +29,6 @@ import uuid
 from pathlib import Path
 from utils.logger import get_logger, LogType
 
-# 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Type
@@ -50,416 +53,85 @@ class StrategyType(Enum):
     EVENT_DRIVEN = "event_driven"  # 事件驱动策略 (EventDrivenStrategy)
     UNKNOWN = "unknown"        # 未知类型
 
+    RULE = "rule"
+    RL = "rl"
+
 class StrategyService:
-    """
-    策略服务类，用于管理和加载策略
-    """
-    
+    """策略服务类"""
+
     def __init__(self):
-        """初始化策略服务"""
-        # 策略存储路径 - 后端代码第一层的strategies目录
         self.strategy_dir = Path(__file__).parent.parent / "strategies"
         self.strategy_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 创建AST解析器实例
-        self.ast_parser = StrategyASTParser()
-        
-        # 策略实例缓存
         self.strategy_instances: Dict[str, Any] = {}
-        
-        # 策略执行状态
-        self.strategy_executions: Dict[str, Dict[str, Any]] = {}
-        
-        # logger.debug(f"策略服务初始化成功，策略目录: {self.strategy_dir}")
-    
-    def _parse_strategy_content(self, file_content, strategy_name):
-        """
-        解析策略文件内容，提取策略信息
-        
-        使用统一的AST解析工具，简化代码逻辑
-        
-        :param file_content: 策略文件内容
-        :param strategy_name: 策略名称
-        :return: 策略信息字典，如果没有找到策略类则返回None
-        """
-        try:
-            # 使用统一的AST解析器
-            tree = self.ast_parser.parse(file_content)
-            if not tree:
-                logger.error(f"策略代码解析失败: {strategy_name}")
-                return None
-            
-            # 获取文件修改时间
-            file_path = self.strategy_dir / f"{strategy_name}.py"
-            created_at = datetime.now()
-            updated_at = datetime.now()
-            
-            if file_path.exists():
-                try:
-                    mtime = file_path.stat().st_mtime
-                    created_at = datetime.fromtimestamp(mtime)
-                    updated_at = datetime.fromtimestamp(mtime)
-                except Exception as e:
-                    logger.warning(f"获取文件时间失败: {e}")
-            
-            # 初始化策略信息
-            strategy_info = {
-                "name": strategy_name,
-                "file_name": f"{strategy_name}.py",
-                "file_path": str(file_path),
-                "description": "",
-                "version": "1.0.0",
-                "tags": [],
-                "params": [],
-                "created_at": created_at,
-                "updated_at": updated_at,
-                "code": file_content
-            }
-            
-            # 查找配置类和策略类
-            config_classes = self.ast_parser.find_config_classes(tree)
-            strategy_classes = self.ast_parser.find_strategy_classes(tree)
-            
-            # 处理配置类（优先）
-            config_class = None
-            if config_classes:
-                config_class = config_classes[0]
-                logger.info(f"找到策略配置类: {config_class.class_name}")
-                # 提取配置类文档字符串作为策略描述
-                docstring = ast.get_docstring(config_class.class_node)
-                if docstring:
-                    strategy_info["description"] = docstring
-                
-                # 从配置类的__init__方法中提取参数
-                strategy_info["params"] = self.ast_parser.extract_params_from_config_class(
-                    config_class.class_node, file_content
-                )
-            
-            # 处理策略类
-            found_strategy_class = False
-            if strategy_classes:
-                strategy_class = strategy_classes[0]
-                found_strategy_class = True
-                logger.info(f"找到策略类: {strategy_class.class_name}")
-                
-                # 如果没有从配置类获取描述，使用策略类的文档字符串
-                if not strategy_info["description"]:
-                    strategy_info["description"] = ast.get_docstring(strategy_class.class_node) or ""
-                
-                # 如果没有找到配置类，从策略类的类属性中提取参数（Legacy格式）
-                if not config_class:
-                    logger.info("使用Legacy格式解析参数")
-                    strategy_info["params"] = self.ast_parser.extract_params_from_strategy_class(
-                        strategy_class.class_node, file_content
-                    )
-            
-            # 验证是否找到有效的策略类或配置类
-            if not found_strategy_class and not config_class:
-                logger.warning(f"未找到策略类或配置类: {strategy_name}")
-                return None
-            
-            logger.info(f"策略解析完成: {strategy_name}, 参数数量: {len(strategy_info['params'])}")
-            return strategy_info
-            
-        except Exception as e:
-            logger.error(f"解析策略内容失败: {strategy_name}, 错误: {e}")
-            logger.exception(e)
-            return None
-    
-    def _parse_strategy_file(self, file_path):
-        """
-        解析策略文件，提取策略信息
-        
-        :param file_path: 策略文件路径
-        :return: 策略信息字典
-        """
-        try:
-            # 读取文件内容
-            with open(file_path, 'r', encoding='utf-8') as f:
-                file_content = f.read()
-            
-            # 调用解析内容方法
-            strategy_info = self._parse_strategy_content(file_content, file_path.stem)
-            if strategy_info:
-                # 添加来源字段
-                strategy_info["source"] = "files"
-                # 为文件系统策略生成一个基于名称的ID（使用名称的哈希值）
-                import hashlib
-                name_hash = int(hashlib.md5(strategy_info["name"].encode()).hexdigest(), 16)
-                # 确保是正整数且在合理范围内，并转换为字符串
-                strategy_info["id"] = str((name_hash % 2147483647) + 1)
-            return strategy_info
-        except Exception as e:
-            logger.error(f"解析策略文件失败: {file_path}, 错误: {e}")
-            logger.exception(e)
-            return None
-    
-    def get_strategy_parameters(self, strategy_id: int) -> List[Dict[str, Any]]:
-        """根据策略ID获取参数列表（优先查库，无数据则从策略文件AST解析）"""
-        from utils.db_session import get_db_session
-        from .models import StrategyParameter, Strategy
 
-        # 1. 先查询 strategy_parameters 表
-        try:
-            with get_db_session() as db:
-                params = db.query(StrategyParameter).filter(
-                    StrategyParameter.strategy_id == strategy_id
-                ).all()
-
-                if params:
-                    result = [p.to_dict() for p in params]
-                    logger.info(f"根据策略ID {strategy_id} 从 parameters 表获取到 {len(result)} 个参数")
-                    return result
-        except Exception as e:
-            logger.warning(f"查询 strategy_parameters 表失败: {e}")
-
-        # 2. 表无数据，回退到 AST 解析策略文件
-        logger.info(f"strategy_parameters 表无数据 (id={strategy_id})，回退到 AST 解析")
-        try:
-            with get_db_session() as db:
-                strategy = db.query(Strategy).filter_by(id=strategy_id).first()
-                if not strategy or not strategy.content:
-                    logger.warning(f"策略 ID={strategy_id} 不存在或内容为空")
-                    return []
-
-                detail = self._parse_strategy_content(strategy.content, strategy.name)
-                if not detail or not detail.get("params"):
-                    logger.info(f"策略 {strategy.name} 未解析到参数")
-                    return []
-
-                raw_params = detail["params"]
-                result = []
-                for rp in raw_params:
-                    result.append({
-                        "param_name": rp.get("name", ""),
-                        "param_type": rp.get("type", "string"),
-                        "default_value": rp.get("default"),
-                        "description": rp.get("description", ""),
-                        "required": rp.get("required", False),
-                    })
-                logger.info(f"AST 解析策略 {strategy.name} 获取到 {len(result)} 个参数")
-                return result
-        except Exception as e:
-            logger.error(f"AST 解析策略参数失败 (strategy_id={strategy_id}): {e}")
-            return []
-
-    def get_strategy_list(self, source=None):
-        """
-        获取所有支持的策略列表
-        
-        :param source: 策略来源，"files"表示从实体文件获取，"db"表示从数据库表获取，None表示两者都获取
-        :return: 策略列表，每个策略包含完整的策略信息，并添加source字段区分来源
-        """
-        try:
-            strategies = []
-            
-            # 如果source为None或包含"files"，则从文件获取策略
-            if source is None or source == "files":
-                # 从策略目录中获取所有策略文件
-                strategy_files = list(self.strategy_dir.glob("*.py"))
-                
-                # 构建策略列表，包含完整的策略信息
-                for file in strategy_files:
-                    if file.stem == "__init__":
-                        continue
-                        
-                    strategy_info = self._parse_strategy_file(file)
-                    if strategy_info:
-                        # 移除code字段，列表接口不需要返回完整代码
-                        strategy_info.pop("code")
-                        # 添加source字段
-                        strategy_info["source"] = "files"
-                        strategies.append(strategy_info)
-                
-                logger.info(f"从文件获取策略列表成功，共 {len(strategies)} 个策略")
-            
-            # 如果source为None或包含"db"，则从数据库获取策略
-            if source is None or source == "db":
-                try:
-                    # 从数据库表中获取策略列表
-                    from utils.db_session import get_db_session
-                    from strategy.models import Strategy
-
-                    with get_db_session() as db:
-                        # 查询所有策略
-                        db_strategies = db.query(Strategy).all()
-
-                        # 构建策略列表
-                        db_strategies_list = []
-                        for strategy in db_strategies:
-                            # 安全解析tags
-                            tags = strategy.get_tags_list()
-
-                            # 安全解析params
-                            params = strategy.get_parameters_list()
-
-                            db_strategies_list.append({
-                                "id": str(strategy.id),  # 确保转换为字符串，前端需要调用 toLowerCase()
-                                "name": strategy.name,
-                                "file_name": strategy.file_name or strategy.filename,
-                                "file_path": strategy.file_path or str(self.strategy_dir / strategy.filename) if strategy.filename else "",
-                                "description": strategy.description or "",
-                                "version": strategy.version or "1.0.0",
-                                "tags": tags,
-                                "params": params,
-                                "created_at": strategy.created_at.isoformat() if strategy.created_at else None,
-                                "updated_at": strategy.updated_at.isoformat() if strategy.updated_at else None,
-                                "source": "db",
-                                "code": strategy.content or ""
-                            })
-
-                        strategies.extend(db_strategies_list)
-                        logger.info(f"从数据库获取策略列表成功，共 {len(db_strategies_list)} 个策略")
-                except ImportError:
-                    logger.warning("无法导入数据库模块，跳过从数据库获取策略")
-                except Exception as e:
-                    logger.error(f"从数据库获取策略列表失败: {e}")
-                    logger.exception(e)
-            
-            # 去重，优先保留数据库策略，因为数据库策略包含真实的创建时间
-            strategy_dict = {}
-            for strategy in strategies:
-                if strategy["name"] not in strategy_dict or strategy["source"] == "db":
-                    strategy_dict[strategy["name"]] = strategy
-            
-            final_strategies = list(strategy_dict.values())
-            logger.info(f"最终获取策略列表成功，共 {len(final_strategies)} 个策略")
-            return final_strategies
-        except Exception as e:
-            logger.error(f"获取策略列表失败: {e}")
-            logger.exception(e)
-            return []
-    
-    def get_strategy_detail(self, strategy_name, file_content=None):
-        """
-        获取单个策略的详细信息
-
-        :param strategy_name: 策略名称
-        :param file_content: 策略文件内容（可选），如果提供则直接解析
-        :return: 策略详细信息，如果获取失败返回None
-        """
-        try:
-            if file_content is not None:
-                # 如果提供了文件内容，直接解析
-                strategy_info = self._parse_strategy_content(file_content, strategy_name)
-                if strategy_info:
-                    # 添加来源字段
-                    strategy_info["source"] = "content"
-                    logger.info(f"通过内容获取策略详情成功: {strategy_name}")
-                    return strategy_info
-
-                logger.error(f"解析策略内容失败: {strategy_name}")
-                return None
-
-            # 1. 首先尝试从数据库获取
+    def list_strategies(self) -> List[Dict[str, Any]]:
+        """列出所有策略文件"""
+        strategies = []
+        for file_path in self.strategy_dir.glob("*.py"):
+            if file_path.name.startswith("_"):
+                continue
             try:
-                from utils.db_session import get_db_session
-                from strategy.models import Strategy
+                content = file_path.read_text(encoding="utf-8")
+                info = self._parse_strategy_file(file_path.stem, content)
+                if info:
+                    strategies.append(info)
+            except Exception as e:
+                logger.warning(f"解析策略文件失败 {file_path.name}: {e}")
+        return strategies
 
-                with get_db_session() as db:
-                    # 查询策略
-                    strategy = db.query(Strategy).filter_by(name=strategy_name).first()
-                    if strategy:
-                        logger.info(f"从数据库获取策略详情: {strategy_name}")
-
-                        # 检查数据库中是否已有描述或参数信息（之前解析并保存过）
-                        has_description = strategy.description and strategy.description.strip()
-                        has_params = strategy.parameters and strategy.parameters.strip() and strategy.parameters != "[]"
-
-                        if has_description or has_params:
-                            # 数据库中已有描述或参数信息，直接使用数据库数据，不再解析
-                            logger.info(f"数据库中已有策略信息，直接使用: {strategy_name}, has_description={bool(has_description)}, has_params={bool(has_params)}")
-                            return {
-                                "name": strategy.name,
-                                "file_name": strategy.file_name or strategy.filename,
-                                "file_path": strategy.file_path or str(self.strategy_dir / strategy.filename) if strategy.filename else "",
-                                "description": strategy.description or "",
-                                "version": strategy.version or "1.0.0",
-                                "params": strategy.get_parameters_list(),
-                                "created_at": strategy.created_at,
-                                "updated_at": strategy.updated_at,
-                                "code": strategy.content or "",
-                                "source": "db"
-                            }
-
-                        # 数据库中没有描述或参数信息，尝试解析策略内容
-                        if strategy.content:
-                            strategy_info = self._parse_strategy_content(strategy.content, strategy_name)
-                            if strategy_info:
-                                # 使用数据库中的版本值覆盖解析结果中的版本值
-                                strategy_info["version"] = strategy.version or "1.0.0"
-                                # 使用数据库中的创建时间和更新时间
-                                strategy_info["created_at"] = strategy.created_at
-                                strategy_info["updated_at"] = strategy.updated_at
-                                # 设置来源为db
-                                strategy_info["source"] = "db"
-                                logger.info(f"通过数据库内容解析策略详情成功: {strategy_name}")
-                                return strategy_info
-
-                        # 如果解析失败或没有内容，构建基本策略信息
-                        logger.info(f"构建基本策略信息: {strategy_name}")
-                        return {
-                            "name": strategy.name,
-                            "file_name": strategy.file_name or strategy.filename,
-                            "file_path": strategy.file_path or str(self.strategy_dir / strategy.filename) if strategy.filename else "",
-                            "description": strategy.description or "",
-                            "version": strategy.version or "1.0.0",
-                            "params": strategy.get_parameters_list(),
-                            "created_at": strategy.created_at,
-                            "updated_at": strategy.updated_at,
-                            "code": strategy.content or "",
-                            "source": "db"
-                        }
-            except Exception as db_e:
-                logger.error(f"从数据库获取策略详情失败: {db_e}")
-                logger.exception(db_e)
-
-            # 2. 数据库没有，则读取文件并解析（只解析，不存库）
-            logger.info(f"数据库中没有策略，尝试从文件读取: {strategy_name}")
-            strategy_file = self.strategy_dir / f"{strategy_name}.py"
-            if strategy_file.exists():
-                try:
-                    # 读取文件内容
-                    with open(strategy_file, "r", encoding="utf-8") as f:
-                        file_content = f.read()
-
-                    # 解析文件内容
-                    strategy_info = self._parse_strategy_content(file_content, strategy_name)
-                    if strategy_info:
-                        # 添加文件路径和来源
-                        strategy_info["file_path"] = str(strategy_file)
-                        strategy_info["source"] = "file"
-                        strategy_info["code"] = file_content
-                        # 添加默认时间戳
-                        from datetime import datetime
-                        now = datetime.now()
-                        strategy_info["created_at"] = now
-                        strategy_info["updated_at"] = now
-                        logger.info(f"从文件解析策略详情成功: {strategy_name}")
-                        return strategy_info
-
-                    logger.error(f"解析策略文件失败: {strategy_file}")
-                except Exception as file_e:
-                    logger.error(f"读取或解析策略文件失败: {file_e}")
-                    logger.exception(file_e)
-            else:
-                logger.error(f"策略文件不存在: {strategy_file}")
-
-            logger.error(f"获取策略详情失败: {strategy_name}")
+    def get_strategy(self, name: str) -> Optional[Dict[str, Any]]:
+        """获取单个策略详情"""
+        file_path = self.strategy_dir / f"{name}.py"
+        if not file_path.exists():
             return None
-        except Exception as e:
-            logger.error(f"获取策略详情失败: {e}")
-            logger.exception(e)
+        content = file_path.read_text(encoding="utf-8")
+        info = self._parse_strategy_file(name, content)
+        if info:
+            info["code"] = content
+        return info
+
+    def save_strategy(self, name: str, content: str) -> Dict[str, Any]:
+        """保存策略文件"""
+        file_path = self.strategy_dir / f"{name}.py"
+        file_path.write_text(content, encoding="utf-8")
+        info = self._parse_strategy_file(name, content)
+        logger.info(f"策略已保存: {name}")
+        return info or {"name": name, "file_name": f"{name}.py"}
+
+    def delete_strategy(self, name: str) -> bool:
+        """删除策略文件"""
+        file_path = self.strategy_dir / f"{name}.py"
+        if file_path.exists():
+            file_path.unlink()
+            logger.info(f"策略已删除: {name}")
+            return True
+        return False
+
+    def load_strategy_instance(self, name: str) -> Any:
+        """加载策略实例"""
+        file_path = self.strategy_dir / f"{name}.py"
+        if not file_path.exists():
             return None
-    
-    def detect_strategy_type(self, file_content: str) -> StrategyType:
+
+        # 通过分析策略文件内容，判断是 Legacy 风格还是事件驱动策略。
+        spec = importlib.util.spec_from_file_location(name, file_path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+
+        for attr_name in dir(module):
+            attr = getattr(module, attr_name)
+            if (
+                isinstance(attr, type)
+                and hasattr(attr, "on_bar")
+                and not attr_name.startswith("_")
+                and attr_name not in ("RuleStrategy", "ABC")
+            ):
+                return attr()
+
+    def _detect_strategy_type_from_content(self, file_content: str) -> StrategyType:
         """
-        检测策略类型
-
         通过分析策略文件内容，判断是 Legacy 风格还是事件驱动策略。
-
-        参数:
-            file_content: 策略文件内容
 
         返回:
             StrategyType: 策略类型 (LEGACY, EVENT_DRIVEN, 或 UNKNOWN)
@@ -544,9 +216,76 @@ class StrategyService:
                     return cls
         return None
 
-    def _detect_loaded_strategy_type(self, strategy_cls: Type) -> StrategyType:
+    def detect_strategy_type(self, content: str) -> str:
+        """检测策略类型"""
+        # 源码级检测
+        rl_indicators = ["TradingEnv", "stable_baselines3", "model.predict", "from rl."]
+        for indicator in rl_indicators:
+            if indicator in content:
+                return StrategyType.RL
+        try:
+            tree = ast.parse(content)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if "rl" in alias.name.lower():
+                            return StrategyType.RL
+                if isinstance(node, ast.ImportFrom):
+                    if node.module and "rl" in node.module.lower():
+                        return StrategyType.RL
+        except SyntaxError:
+            pass
+        return StrategyType.RULE
+
+    def _parse_strategy_file(self, name: str, content: str) -> Optional[Dict[str, Any]]:
+        """解析策略文件，提取信息"""
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return None
+
+        strategy_class = None
+        docstring = ""
+        params = []
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+                        for arg in item.args.args:
+                            if arg.arg != "self":
+                                param_info = {
+                                    "name": arg.arg,
+                                    "type": "Any",
+                                    "default": None,
+                                    "description": "",
+                                    "required": True,
+                                }
+                                params.append(param_info)
+                strategy_class = node.name
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+                docstring = node.value.value
+
+        strategy_type = self.detect_strategy_type(content)
+
+        return {
+            "name": name,
+            "file_name": f"{name}.py",
+            "file_path": str(self.strategy_dir / f"{name}.py"),
+            "description": docstring[:200] if docstring else "",
+            "version": "1.0.0",
+            "tags": [],
+            "params": params,
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+            "source": "files",
+            "strategy_type": strategy_type,
+            "strategy_class": strategy_class,
+        }
+
+    def _detect_strategy_type_from_class(self, strategy_cls):
         """
-        检测已加载的策略类类型
+        通过分析策略类的继承关系，判断是 Legacy 风格还是事件驱动策略。
 
         参数:
             strategy_cls: 已加载的策略类
@@ -1351,3 +1090,50 @@ class StrategyService:
         text = re.sub(r'\n{3,}', '\n\n', text)
 
         return text.strip()
+=======
+    def _parse_strategy_file(self, name: str, content: str) -> Optional[Dict[str, Any]]:
+        """解析策略文件，提取信息"""
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return None
+
+        strategy_class = None
+        docstring = ""
+        params = []
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+                        for arg in item.args.args:
+                            if arg.arg != "self":
+                                param_info = {
+                                    "name": arg.arg,
+                                    "type": "Any",
+                                    "default": None,
+                                    "description": "",
+                                    "required": True,
+                                }
+                                params.append(param_info)
+                strategy_class = node.name
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+                docstring = node.value.value
+
+        strategy_type = self.detect_strategy_type(content)
+
+        return {
+            "name": name,
+            "file_name": f"{name}.py",
+            "file_path": str(self.strategy_dir / f"{name}.py"),
+            "description": docstring[:200] if docstring else "",
+            "version": "1.0.0",
+            "tags": [],
+            "params": params,
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+            "source": "files",
+            "strategy_type": strategy_type,
+            "strategy_class": strategy_class,
+        }
+>>>>>>> aa68489ba76daab2e2ea6834ae9ee62c8ae5eb36

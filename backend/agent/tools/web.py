@@ -74,7 +74,7 @@ class WebSearchTool(Tool):
         return ToolParamResolver.resolve(self.name, "proxy")
 
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
-        from scripts.web_cli import web_search
+        from cli.web import web_search
         return web_search(
             query,
             count=count or self.max_results,
@@ -134,7 +134,7 @@ class WebFetchTool(Tool):
         return ToolParamResolver.resolve(self.name, "proxy")
 
     async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> str:
-        from scripts.web_cli import web_fetch
+        from cli.web import web_fetch
         return web_fetch(
             url,
             extract_mode=extractMode,

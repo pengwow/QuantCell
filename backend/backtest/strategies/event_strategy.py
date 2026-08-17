@@ -21,6 +21,8 @@ from abc import abstractmethod
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
+from axon_bridge import Action
+from backtest.backtest_loop import RuleStrategy
 from utils.logger import get_logger, LogType
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -55,9 +57,9 @@ class EventDrivenStrategyConfig:
 
     def __init__(
         self,
-        instrument_ids: list[Any],
-        bar_types: list[Any],
-        trade_size: Decimal = Decimal("1.0"),
+        instrument_ids: List[Any],
+        bar_types: List[Any],
+        trade_size: Decimal,
         log_level: str = "INFO",
     ):
         if not instrument_ids or not bar_types:

@@ -43,14 +43,14 @@ def _setup_chinese_font():
                 plt.rcParams['axes.unicode_minus'] = False
                 font_found = True
                 break
-            except:
+            except (OSError, ValueError):
                 continue
     
     if not font_found:
         try:
             plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial Unicode MS', 'SimHei', 'sans-serif']
             plt.rcParams['axes.unicode_minus'] = False
-        except:
+        except Exception:
             pass
     
     return font_found

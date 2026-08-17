@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-回测策略模块
+"""回测策略模块 — 基于 axon_quant
 
 为事件驱动回测引擎（axon-quant）提供策略基类：
 - EventDrivenStrategyConfig: 事件驱动策略配置基类
@@ -14,5 +13,4 @@ from .event_strategy import (
 
 __all__ = [
     "EventDrivenStrategy",
-    "EventDrivenStrategyConfig",
 ]

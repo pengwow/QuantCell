@@ -373,7 +373,7 @@ class KlineQualityService:
             }
 
         # 备份原文件
-        from scripts.data_cli import _find_parquet_file
+        from cli.data import _find_parquet_file
         parquet_path = _find_parquet_file(symbol, interval, candle_type)
         backup_path = parquet_path.with_suffix('.parquet.bak')
 

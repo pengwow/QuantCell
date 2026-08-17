@@ -148,7 +148,7 @@ class BacktestService:
                     }
                 )
             
-            # 调用事件驱动引擎服务执行回测
+# 调用事件驱动引擎服务执行回测
             from backtest.data_provider import BacktestDataProvider
             from backtest.engine_service import EventDrivenBacktestService
             
@@ -168,7 +168,6 @@ class BacktestService:
                 },
                 show_progress=False
             )
-
             # 将引擎原始结果包装为标准响应格式
             result = {
                 'status': 'completed',

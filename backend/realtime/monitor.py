@@ -1,5 +1,6 @@
 # 监控逻辑
 import time
+from collections import deque
 from typing import Dict, Any, Optional
 from utils.logger import get_logger, LogType
 
@@ -38,7 +39,7 @@ class RealtimeMonitor:
             'average_processing_time': 0,
             'max_processing_time': 0,
             'min_processing_time': float('inf'),
-            'processing_times': [],
+            'processing_times': deque(maxlen=1000),
             
             # 消费者统计
             'consumer_stats': {},
@@ -104,7 +105,7 @@ class RealtimeMonitor:
             'average_processing_time': 0,
             'max_processing_time': 0,
             'min_processing_time': float('inf'),
-            'processing_times': [],
+            'processing_times': deque(maxlen=1000),
             'consumer_stats': {},
         }
     

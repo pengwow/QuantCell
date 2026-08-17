@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import re
 import time
+from enum import StrEnum
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -20,10 +22,22 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+
 class ChatRequest(BaseModel):
     """聊天请求"""
     message: str
     session_id: str = "default"
+
+
+class IntentCategory(StrEnum):
+    """意图分类枚举"""
+    TRADING_DECISION = "trading_decision"
+    BACKTEST = "backtest"
+    RL_TRAINING = "rl_training"
+    STRATEGY_GENERATION = "strategy_generation"
+    DATA_QUERY = "data_query"
+    RISK_ASSESSMENT = "risk_assessment"
+    GENERAL = "general"
 
 
 class ChatResponse(BaseModel):
@@ -31,12 +45,159 @@ class ChatResponse(BaseModel):
     success: bool
     message: str
     session_id: str
+    intent: IntentCategory = IntentCategory.GENERAL
+    role: str = "assistant"
+    actions: list[dict] = []
+    structured_data: dict = {}
 
 
 class ToolInfo(BaseModel):
     """工具信息"""
     name: str
     description: str
+
+
+# 预编译正则表达式（缓存以提高性能）
+_CODE_BLOCK_REGEX = re.compile(r'```(python)?\s*\n(.*?)```', re.DOTALL)
+_STRATEGY_NAME_REGEX = re.compile(r'策略名称[：:]\s*(.+?)\n')
+_RISK_LEVEL_REGEX = re.compile(r'风险等级[：:]\s*(.+?)\n')
+
+
+# 意图关键词映射（按优先级排序，优先级高的在前）
+# 每个意图包含：(关键词, 权重)，权重越高匹配越优先
+_INTENT_KEYWORDS = [
+    # 风险评估（优先于策略生成，因为"评估策略风险"应该是风险评估）
+    (IntentCategory.RISK_ASSESSMENT, [
+        ("风险评估", 3), ("评估风险", 3), ("风控", 2), ("回撤", 2), ("止损", 2),
+        ("风险等级", 3), ("风险分析", 3), ("risk", 1), ("risk assessment", 2),
+    ]),
+    # 回测（完整短语优先）
+    (IntentCategory.BACKTEST, [
+        ("历史回测", 3), ("回测结果", 3), ("回测分析", 3), ("测试策略", 2),
+        ("backtest", 2), ("回测", 1),
+    ]),
+    # RL训练
+    (IntentCategory.RL_TRAINING, [
+        ("强化学习", 2), ("rl训练", 2), ("ppo", 2), ("sac", 2), ("dqn", 2),
+        ("train", 1), ("训练", 1),
+    ]),
+    # 交易决策
+    (IntentCategory.TRADING_DECISION, [
+        ("下单交易", 2), ("买入", 1), ("卖出", 1), ("buy", 1), ("sell", 1),
+        ("持仓", 1), ("平仓", 1), ("交易", 1),
+    ]),
+    # 策略生成（完整短语优先，避免被单独的"策略"关键词误匹配）
+    (IntentCategory.STRATEGY_GENERATION, [
+        ("生成策略", 3), ("写策略", 3), ("创建策略", 3), ("策略代码", 3), ("策略模板", 3),
+        ("strategy", 1),
+    ]),
+    # 数据查询
+    (IntentCategory.DATA_QUERY, [
+        ("查询数据", 2), ("查看行情", 2), ("k线", 2), ("走势", 1), ("价格", 1),
+        ("数据", 1), ("行情", 1), ("查询", 1),
+    ]),
+]
+
+
+def classify_intent(message: str) -> str:
+    """基于关键词分类用户意图（带权重的优先级匹配）
+    
+    规则：
+    1. 完整短语优先匹配（如"评估风险"优先于单独的"风险"）
+    2. 权重高的关键词优先
+    3. 风险评估优先于策略生成（解决"评估策略风险"的歧义）
+    """
+    message_lower = message.lower()
+    max_score = 0
+    best_category = IntentCategory.GENERAL
+    
+    for category, keyword_pairs in _INTENT_KEYWORDS:
+        for keyword, weight in keyword_pairs:
+            if keyword.lower() in message_lower:
+                # 完整词匹配权重翻倍
+                if re.search(rf'(?:^|\W){re.escape(keyword.lower())}(?:$|\W)', message_lower):
+                    weight *= 2
+                if weight > max_score:
+                    max_score = weight
+                    best_category = category
+    
+    return best_category
+
+
+def detect_role(intent: str) -> str:
+    """根据意图确定 AI 角色"""
+    role_mapping = {
+        IntentCategory.TRADING_DECISION: "交易助手",
+        IntentCategory.BACKTEST: "回测分析师",
+        IntentCategory.RL_TRAINING: "AI 训练师",
+        IntentCategory.STRATEGY_GENERATION: "策略工程师",
+        IntentCategory.DATA_QUERY: "数据分析师",
+        IntentCategory.RISK_ASSESSMENT: "风控顾问",
+        IntentCategory.GENERAL: "AI 助手",
+    }
+    return role_mapping.get(intent, "AI 助手")
+
+
+def extract_structured_data(message: str, intent: str) -> dict:
+    """从消息中提取结构化数据"""
+    data = {}
+    
+    if intent == IntentCategory.STRATEGY_GENERATION:
+        # 提取策略代码块（使用缓存的正则）
+        code_match = _CODE_BLOCK_REGEX.search(message)
+        if code_match:
+            data["code"] = code_match.group(2).strip()
+        
+        # 提取策略名称（使用缓存的正则）
+        name_match = _STRATEGY_NAME_REGEX.search(message)
+        if name_match:
+            data["strategy_name"] = name_match.group(1).strip()
+    
+    elif intent == IntentCategory.BACKTEST:
+        # 提取回测指标（预编译正则以提高性能）
+        _BACKTEST_METRIC_REGEX = re.compile(r'(年化收益率|夏普比率|最大回撤|总收益|胜率)[：:]\s*([\d.]+)')
+        for match in _BACKTEST_METRIC_REGEX.finditer(message):
+            data[match.group(1)] = float(match.group(2))
+    
+    elif intent == IntentCategory.RISK_ASSESSMENT:
+        # 提取风险等级（使用缓存的正则）
+        risk_match = _RISK_LEVEL_REGEX.search(message)
+        if risk_match:
+            data["risk_level"] = risk_match.group(1).strip()
+    
+    return data
+
+
+def build_actions(intent: str) -> list[dict]:
+    """根据意图构建建议操作"""
+    action_mapping = {
+        IntentCategory.TRADING_DECISION: [
+            {"type": "view_positions", "label": "查看持仓"},
+            {"type": "place_order", "label": "下单交易"},
+            {"type": "view_history", "label": "历史交易"},
+        ],
+        IntentCategory.BACKTEST: [
+            {"type": "view_chart", "label": "查看图表"},
+            {"type": "export_report", "label": "导出报告"},
+            {"type": "optimize_params", "label": "参数优化"},
+        ],
+        IntentCategory.STRATEGY_GENERATION: [
+            {"type": "view_code", "label": "查看代码"},
+            {"type": "deploy_strategy", "label": "部署策略"},
+            {"type": "backtest_strategy", "label": "回测策略"},
+        ],
+        IntentCategory.DATA_QUERY: [
+            {"type": "view_kline", "label": "查看K线"},
+            {"type": "export_data", "label": "导出数据"},
+            {"type": "compare_symbols", "label": "对比分析"},
+        ],
+        IntentCategory.RISK_ASSESSMENT: [
+            {"type": "view_risk_report", "label": "风险报告"},
+            {"type": "set_stop_loss", "label": "设置止损"},
+            {"type": "adjust_position", "label": "调整仓位"},
+        ],
+    }
+    return action_mapping.get(intent, [])
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -46,6 +207,8 @@ async def chat(request: ChatRequest):
     
     - **message**: 用户消息
     - **session_id**: 会话标识（可选，默认为 default）
+    
+    返回包含意图分类、角色类型、建议操作和结构化数据的响应
     """
     try:
         agent = get_agent()
@@ -54,10 +217,20 @@ async def chat(request: ChatRequest):
             session_key=request.session_id,
         )
         
+        # 意图检测和角色识别
+        intent = classify_intent(request.message)
+        role = detect_role(intent)
+        structured_data = extract_structured_data(response, intent)
+        actions = build_actions(intent)
+        
         return ChatResponse(
             success=True,
             message=response,
             session_id=request.session_id,
+            intent=intent,
+            role=role,
+            structured_data=structured_data,
+            actions=actions,
         )
     except Exception as e:
         logger.error(f"Agent 处理消息失败: {e}")
@@ -72,13 +245,13 @@ async def chat_stream(request: ChatRequest):
     返回 Server-Sent Events 格式的流式响应，实时推送 Agent 处理过程
 
     事件类型:
-    - start: 开始处理
+    - start: 开始处理（包含意图和角色信息）
     - content: 文本内容增量（实时显示）
     - reasoning: 推理过程（DeepSeek-R1 等模型）
     - tool_calls: LLM 返回工具调用
     - tool_start: 开始执行工具
     - tool_result: 工具执行完成
-    - complete: 全部处理完成
+    - complete: 全部处理完成（包含结构化数据和建议操作）
     - error: 错误信息
 
     使用示例:
@@ -92,14 +265,38 @@ async def chat_stream(request: ChatRequest):
         });
     """
     agent = get_agent()
+    
+    # 意图检测和角色识别（在流式处理开始前完成）
+    intent = classify_intent(request.message)
+    role = detect_role(intent)
+    accumulated_content = ""
 
     async def event_generator():
         """SSE 事件生成器"""
+        nonlocal accumulated_content
+        
         try:
+            # 发送 start 事件（包含意图和角色信息）
+            start_data = json.dumps({
+                "type": "start",
+                "data": {
+                    "intent": intent,
+                    "role": role,
+                    "message": request.message,
+                },
+                "timestamp": time.time(),
+            }, ensure_ascii=False)
+            yield f"event: start\ndata: {start_data}\n\n"
+            await asyncio.sleep(0)
+
             async for event in agent.process_message_stream(
                 content=request.message,
                 session_key=request.session_id,
             ):
+                # 累积内容用于后续结构化数据提取
+                if event.event_type == "content" and event.data:
+                    accumulated_content += event.data
+
                 # 格式化为 SSE 事件
                 event_data = json.dumps({
                     "type": event.event_type,
@@ -111,6 +308,22 @@ async def chat_stream(request: ChatRequest):
 
                 # 确保缓冲区刷新，让客户端能及时收到数据
                 await asyncio.sleep(0)
+
+            # 发送 complete 事件（包含结构化数据和建议操作）
+            structured_data = extract_structured_data(accumulated_content, intent)
+            actions = build_actions(intent)
+            
+            complete_data = json.dumps({
+                "type": "complete",
+                "data": {
+                    "intent": intent,
+                    "role": role,
+                    "structured_data": structured_data,
+                    "actions": actions,
+                },
+                "timestamp": time.time(),
+            }, ensure_ascii=False)
+            yield f"event: complete\ndata: {complete_data}\n\n"
 
         except Exception as e:
             # 发送错误事件

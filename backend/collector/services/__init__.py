@@ -17,6 +17,7 @@
     - MarketDataFetcherFactory: 市场数据获取器工厂
 """
 
+from .archive_service import ArchiveService
 from .data_service import DataService, CryptoSymbolService, sync_crypto_symbols, GetData, ExportData
 from .kline_factory import KlineDataFactory
 from .kline_health_service import KlineHealthChecker
@@ -38,6 +39,7 @@ from .exchange_connection_service import (
 )
 
 __all__ = [
+    "ArchiveService",
     "CryptoSymbolService",
     "DataService",
     "KlineDataFactory",

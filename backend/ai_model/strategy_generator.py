@@ -709,7 +709,9 @@ class StrategyGenerator:
         """
         # 默认变量
         default_vars = {
-            "user_description": requirement,
+            "user_requirement": requirement,
+            "context": "",
+            "constraints": "",
             "strategy_name": template_vars.get("strategy_name", "GeneratedStrategy"),
             "strategy_description": template_vars.get(
                 "strategy_description", "AI生成的策略"

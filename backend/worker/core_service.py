@@ -20,7 +20,14 @@ import json
 import asyncio
 
 from . import models, crud, schemas, state as _ws
-from .exceptions import WorkerException
+from .exceptions import (
+    WorkerException,
+    WorkerOperationError,
+    WorkerNotFoundError,
+    WorkerAlreadyRunningError,
+    LogQueryError,
+    MetricsError,
+)
 from .worker_state import worker_state_manager, WorkerStateManager
 from .state import strategy_registry
 from .config import AXON_QUANT_AVAILABLE
@@ -31,49 +38,20 @@ from utils.logger import get_logger, LogType
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
-class WorkerOperationError(WorkerException):
-    """Worker操作失败异常"""
-
-    def __init__(self, operation: str, worker_id: int = None, message: str = None):
-        self.operation = operation
-        self.worker_id = worker_id
-        if worker_id:
-            self.message = message or f"Worker {worker_id} {operation} 操作失败"
-        else:
-            self.message = message or f"{operation} 操作失败"
-        super().__init__(self.message)
+# 异常类已统一在 exceptions.py 中定义
+# 这里保留向后兼容的导入，不再重复定义
 
 
-class WorkerNotFoundError(WorkerException):
-    """Worker未找到异常"""
-
-    def __init__(self, worker_id: int, message: str = None):
-        self.worker_id = worker_id
-        self.message = message or f"Worker {worker_id} 不存在"
-        super().__init__(self.message)
-
-
-class WorkerAlreadyRunningError(WorkerException):
-    """Worker已在运行异常"""
-
-    def __init__(self, worker_id: int, message: str = None):
-        self.worker_id = worker_id
-        self.message = message or f"Worker {worker_id} 已在运行中"
-        super().__init__(self.message)
-
-
-class LogQueryError(WorkerOperationError):
-    """日志查询失败"""
-
-    def __init__(self, worker_id: int = None, message: str = None):
-        super().__init__("日志查询", worker_id, message or "日志查询失败")
-
-
-class MetricsError(WorkerOperationError):
-    """性能指标获取失败"""
-
-    def __init__(self, worker_id: int = None, message: str = None):
-        super().__init__("性能指标", worker_id, message or "获取性能指标失败")
+__all__ = [
+    "WorkerException",
+    "WorkerOperationError",
+    "WorkerNotFoundError",
+    "WorkerAlreadyRunningError",
+    "LogQueryError",
+    "MetricsError",
+    "WorkerCoreService",
+    "worker_core_service",
+]
 
 
 class WorkerCoreService:
@@ -879,7 +857,6 @@ class WorkerCoreService:
                 logger.info(f"[_do_stop_worker] Worker {worker_id} 停止成功")
             else:
                 # 检查当前状态：如果已经 stopped，不需要转为 error
-                # 注意：get_state() 是异步方法，需要 await
                 current_state = await worker_state_manager.get_state(worker_id)
                 if current_state and current_state.status == "stopped":
                     logger.info(

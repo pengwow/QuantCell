@@ -157,6 +157,14 @@ export const healthCheck = (workerId: number): Promise<HealthCheckResponse> => {
   return apiRequest.get(`/workers/${workerId}/lifecycle/health`);
 };
 
+/**
+ * 手动触发一次策略优化
+ * @param workerId Worker ID
+ */
+export const triggerOptimize = (workerId: number): Promise<ApiResponse> => {
+  return apiRequest.post(`/workers/${workerId}/lifecycle/optimize`);
+};
+
 // ============================================
 // Worker Monitoring API
 // ============================================
