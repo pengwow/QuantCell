@@ -21,8 +21,8 @@ from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-class NautilusJSONEncoder(json.JSONEncoder):
-    """自定义JSON编码器，处理NautilusTrader和pandas特殊类型"""
+class QuantCellJSONEncoder(json.JSONEncoder):
+    """自定义JSON编码器，处理pandas/numpy等特殊类型"""
 
     def default(self, obj):
         # 处理 pandas NA/NaT
@@ -274,7 +274,7 @@ class ResultSerializer:
             
             # 写入文件，使用自定义编码器
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(serializable_results, f, indent=2, ensure_ascii=False, cls=NautilusJSONEncoder)
+                json.dump(serializable_results, f, indent=2, ensure_ascii=False, cls=QuantCellJSONEncoder)
             
             logger.info(f"结果已保存到: {file_path}")
             return True
@@ -440,7 +440,7 @@ class ResultSerializer:
             if not isinstance(order, dict):
                 continue
 
-            # 支持新的 trade_id 字段（NautilusTrader 原生 ID）
+            # 支持新的 trade_id 字段；如果不存在则使用 order_id 或自增索引
             # 如果不存在 trade_id，则使用 order_id 或自增索引
             trade_id = order.get('trade_id') or order.get('order_id') or str(idx + 1)
 
@@ -722,7 +722,14 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
         default_output_dir = backend_dir / "logs" / "backtest"
         default_output_dir.mkdir(parents=True, exist_ok=True)
 
-        output_file = str(default_output_dir / f"backtest_results_{timestamp}.{output_format}")
+        # table/both 是「屏幕输出格式」，落盘统一使用 JSON
+        save_format = output_format.lower() if output_format.lower() in {'json', 'csv'} else 'json'
+        output_file = str(default_output_dir / f"backtest_results_{timestamp}.{save_format}")
+    else:
+        # 如果用户显式指定了文件，但 output_format 是 table，仍按 json 格式保存（因为 table 不是可序列化格式）
+        save_format = output_format.lower()
+        if save_format not in {'json', 'csv'}:
+            save_format = 'json'
 
     # 分离正常结果和失败信息
     normal_results = {k: v for k, v in results.items() if not k.startswith('_')}
@@ -874,8 +881,8 @@ def output_results(results: Dict[str, Any], output_format: str = 'json',
         print(f"    - 其他错误: {len([f for f in download_failures if f.get('failure_type') != 'no_data_available'])} 个")
     print("=" * 70)
 
-    # 保存结果
-    if save_results(results, output_file, output_format):
+    # 保存结果（使用 save_format，而非屏幕输出格式）
+    if save_results(results, output_file, save_format):
         output_path_full = Path(output_file).resolve()
         print(f"\n结果已保存到: {output_path_full}")
     else:

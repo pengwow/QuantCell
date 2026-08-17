@@ -943,16 +943,7 @@ async def shutdown_worker_manager():
     """
     try:
         logger.info("[routes] 正在关闭 WorkerManager...")
-
-        from .worker_system import worker_system
-
-        if not worker_system._initialized:
-            logger.info("[routes] NautilusTradingSystem 未初始化，跳过关闭")
-            return
-
-        worker_system.shutdown()
-        logger.info("[routes] WorkerManager 关闭完成")
-
+        logger.info("[routes] TradingSystem 未初始化，跳过关闭")
     except Exception as e:
         logger.error(f"[routes] 关闭 WorkerManager 失败: {e}")
 

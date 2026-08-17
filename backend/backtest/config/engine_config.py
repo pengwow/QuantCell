@@ -35,14 +35,14 @@ def get_engine_config(
         引擎配置字典
 
     Example:
-        >>> config = get_engine_config(EngineType.DEFAULT, {"log_level": "DEBUG"})
+        >>> config = get_engine_config(EngineType.EVENT_DRIVEN, {"log_level": "DEBUG"})
         >>> print(config["log_level"])
         DEBUG
     """
     engine_type = engine_type or DEFAULT_ENGINE
 
     # 根据引擎类型选择基础配置
-    if engine_type == EngineType.DEFAULT:
+    if engine_type in (EngineType.EVENT_DRIVEN, EngineType.VECTORIZED, EngineType.CONCURRENT, EngineType.ASYNC_EVENT):
         base_config = DEFAULT_CONFIG.copy()
     elif engine_type == EngineType.LEGACY:
         # 传统引擎配置

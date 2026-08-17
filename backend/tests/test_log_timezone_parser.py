@@ -441,8 +441,8 @@ class TestLogFileReaderIntegration:
             f.write("\n".join(lines) + "\n")
         return log_file
 
-    def test_parse_nautilus_format(self, temp_log_dir):
-        """测试解析 NautilusTrader 格式"""
+    def test_parse_trading_node_format(self, temp_log_dir):
+        """测试解析 TradingNode 标准格式"""
         from worker.log_utils import LogFileReader
 
         lines = [
@@ -531,8 +531,8 @@ class TestLogFileReaderIntegration:
         assert "message 19" in logs[-1]["message"]
 
 
-class TestNautilusTraderLogFormat:
-    """测试 NautilusTrader 特定日志格式"""
+class TestTradingNodeLogFormat:
+    """测试 TradingNode 特定日志格式"""
 
     def test_trader_id_component_format(self):
         """测试 trader_id.component 格式"""

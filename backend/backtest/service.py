@@ -148,71 +148,35 @@ class BacktestService:
                     }
                 )
             
-            # 调用引擎服务执行回测
+            # 调用事件驱动引擎服务执行回测
             from backtest.data_provider import BacktestDataProvider
-            from backtest.engine_service import EventDrivenBacktestService, DefaultBacktestService
+            from backtest.engine_service import EventDrivenBacktestService
             
             data_provider = BacktestDataProvider()
-            
             engine_config = task.get('config', {})
             
-            if task['engine_type'] == 'event':
-                service = EventDrivenBacktestService(data_provider)
+            service = EventDrivenBacktestService(data_provider)
 
-                raw_result = service.run_backtest(
-                    strategy_name=task['strategy_name'],
-                    strategy_params=task.get('strategy_params', {}),
-                    symbols=task['symbols'],
-                    timeframes=task['timeframes'],
-                    engine_config={
-                        **engine_config,
-                        'log_level': 'WARNING'
-                    },
-                    show_progress=False
-                )
+            raw_result = service.run_backtest(
+                strategy_name=task['strategy_name'],
+                strategy_params=task.get('strategy_params', {}),
+                symbols=task['symbols'],
+                timeframes=task['timeframes'],
+                engine_config={
+                    **engine_config,
+                    'log_level': 'WARNING'
+                },
+                show_progress=False
+            )
 
-                # 将引擎原始结果包装为标准响应格式
-                result = {
-                    'status': 'completed',
-                    'message': '回测执行成功',
-                    'successful_currencies': task['symbols'],
-                    'failed_currencies': [],
-                    'results': raw_result
-                }
-            else:
-                service = DefaultBacktestService(data_provider)
-                
-                data_dict, _ = data_provider.load_multiple(
-                    symbols=task['symbols'],
-                    timeframes=task['timeframes']
-                )
-                
-                if not data_dict:
-                    raise ValueError("没有可用的数据")
-                
-                from backtest.strategy_loader_service import StrategyLoaderService
-                
-                strategy = StrategyLoaderService.load_strategy(
-                    task['strategy_name'],
-                    task.get('strategy_params', {})
-                )
-                
-                result = service.run_backtest(
-                    strategy=strategy,
-                    data_dict=data_dict,
-                    config=engine_config,
-                    show_progress=False
-                )
-
-                # 将引擎原始结果包装为标准响应格式
-                raw_result = result
-                result = {
-                    'status': 'completed',
-                    'message': '回测执行成功',
-                    'successful_currencies': task['symbols'],
-                    'failed_currencies': [],
-                    'results': raw_result if isinstance(raw_result, dict) else {'stats': raw_result}
-                }
+            # 将引擎原始结果包装为标准响应格式
+            result = {
+                'status': 'completed',
+                'message': '回测执行成功',
+                'successful_currencies': task['symbols'],
+                'failed_currencies': [],
+                'results': raw_result
+            }
             
             if progress_tracker:
                 # 更新执行阶段完成（60% 权重）

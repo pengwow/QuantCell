@@ -117,20 +117,20 @@ class MyStrategy:
         assert "on_bar" in methods
         assert "on_stop" in methods
     
-    def test_is_nautilus_strategy(self):
-        """测试是否为nautilus策略"""
-        code_with_nautilus = """
-from nautilus_trader.trading.strategy import Strategy
+    def test_has_external_trading_import(self):
+        """测试是否含有第三方交易框架导入"""
+        code_with_external = """
+from external_trader.trading.strategy import Strategy
 """
-        code_without_nautilus = """
+        code_without_external = """
 from strategy.core import StrategyBase
 """
-        
-        tree1 = self.parser.parse(code_with_nautilus)
-        tree2 = self.parser.parse(code_without_nautilus)
-        
-        assert self.parser.is_nautilus_strategy(tree1) is True
-        assert self.parser.is_nautilus_strategy(tree2) is False
+
+        tree1 = self.parser.parse(code_with_external)
+        tree2 = self.parser.parse(code_without_external)
+
+        assert self.parser._has_external_trading_import(tree1) is True
+        assert self.parser._has_external_trading_import(tree2) is False
     
     def test_extract_params_from_config_class(self):
         """测试从配置类提取参数"""

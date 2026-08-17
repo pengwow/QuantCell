@@ -3,7 +3,7 @@ name = "backend"
 version = "0.1.0"
 description = "QuantCell Backend - Minimal Version"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 
 # 最小化核心依赖 - 仅包含运行系统必需的包
 dependencies = [
@@ -57,7 +57,7 @@ dependencies = [
     "python-binance>=1.0.34",            # Binance 官方 SDK
     
     # ==================== 回测框架 (精简) ====================
-    "nautilus_trader>=1.222.0",         # Nautilus Trader 回测引擎
+    "axon-quant>=0.11.0",         
     
     # ==================== 调度与通知 ====================
     "apscheduler>=3.11.1",             # 任务调度
@@ -138,7 +138,6 @@ ml = [
     "torchvision>=0.24.1",             # PyTorch 计算机视觉
     "catboost>=1.2.8",                 # CatBoost 梯度提升
     "xgboost>=3.1.2",                  # XGBoost 梯度提升
-    "pyqlib>=0.9.7",                   # Qlib 量化框架
     "statsmodels>=0.14.6",             # 统计模型
     "joblib>=1.5.2",                   # 并行计算
     "ta-lib>=0.6.8",                   # 技术分析库
@@ -157,7 +156,6 @@ exchanges = [
 # uv sync --extra backtesting
 backtesting = [
     "backtrader>=1.9.78.123",          # Backtrader 回测框架
-    "nautilus_trader>=1.222.0",        # Nautilus Trader 回测框架
 ]
 
 # 可选的开发工具依赖组

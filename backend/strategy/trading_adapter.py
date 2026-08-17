@@ -28,40 +28,6 @@ from utils.logger import get_logger, LogType
 # 获取模块日志器
 logger = get_logger(__name__, LogType.STRATEGY)
 
-# 尝试导入 NautilusTrader
-try:
-    from nautilus_trader.trading.strategy import Strategy
-    from nautilus_trader.config import StrategyConfig
-    from nautilus_trader.model.data import Bar as NautilusBar
-    from nautilus_trader.model.data import QuoteTick as NautilusQuoteTick
-    from nautilus_trader.model.data import TradeTick as NautilusTradeTick
-    from nautilus_trader.model.position import Position as NautilusPosition
-    from nautilus_trader.model.enums import OrderSide as NautilusOrderSide
-    from nautilus_trader.model.enums import OrderType as NautilusOrderType
-    from nautilus_trader.model.enums import TimeInForce as NautilusTimeInForce
-    from nautilus_trader.model.enums import PositionSide as NautilusPositionSide
-    from nautilus_trader.model.identifiers import InstrumentId as NautilusInstrumentId
-    from nautilus_trader.model.objects import Price, Quantity
-    from nautilus_trader.model.orders.base import Order as NautilusOrder
-    NAUTILUS_AVAILABLE = True
-except ImportError:
-    NAUTILUS_AVAILABLE = False
-    Strategy = object
-    StrategyConfig = None
-    NautilusBar = None
-    NautilusQuoteTick = None
-    NautilusTradeTick = None
-    NautilusPosition = None
-    NautilusOrderSide = None
-    NautilusOrderType = None
-    NautilusTimeInForce = None
-    NautilusPositionSide = None
-    NautilusInstrumentId = None
-    Price = None
-    Quantity = None
-    NautilusOrder = None
-    logger.warning("NautilusTrader 未安装，实盘交易功能将不可用")
-
 # QuantCell 内部导入
 from strategy.core.data_types import (
     Bar as QCBar,
@@ -99,7 +65,7 @@ class StrategyAdapterConfigError(TradingAdapterError):
 # TradingStrategyAdapter 类
 # =============================================================================
 
-class TradingStrategyAdapter(Strategy if NAUTILUS_AVAILABLE else object):
+class TradingStrategyAdapter:
     """
     实盘交易策略适配器类
 
@@ -110,7 +76,7 @@ class TradingStrategyAdapter(Strategy if NAUTILUS_AVAILABLE else object):
     ----------
     qc_strategy : QCStrategyBase
         QuantCell 策略实例
-    config : StrategyConfig
+    config : Any
         实盘交易框架策略配置
     is_paused : bool
         策略是否暂停
@@ -142,7 +108,7 @@ class TradingStrategyAdapter(Strategy if NAUTILUS_AVAILABLE else object):
         ----------
         qc_strategy : QCStrategyBase
             QuantCell 策略实例
-        config : StrategyConfig
+        config : Any
             实盘交易框架策略配置
 
         Raises
@@ -151,20 +117,13 @@ class TradingStrategyAdapter(Strategy if NAUTILUS_AVAILABLE else object):
             如果配置无效
         """
         # 首先验证 QuantCell 策略类型
-        # 注意：这个检查必须在调用父类 __init__ 之前进行
-        # 因为 Nautilus Strategy 对 config 参数有严格的类型检查
         if not isinstance(qc_strategy, QCStrategyBase):
             raise StrategyAdapterConfigError(
                 f"qc_strategy 必须是 QCStrategyBase 的子类，"
                 f"实际类型: {type(qc_strategy).__name__}"
             )
 
-        # 然后调用父类初始化
-        if NAUTILUS_AVAILABLE:
-            super().__init__(config)
-        else:
-            self.config = config
-
+        self.config = config
         self.qc_strategy = qc_strategy
         self._is_paused = False
         self._bars_processed = 0
@@ -207,7 +166,6 @@ class TradingStrategyAdapter(Strategy if NAUTILUS_AVAILABLE else object):
         )
 
         try:
-            # 调用 QuantCell 策略的 on_start
             self.qc_strategy.on_start()
             logger.debug("QuantCell 策略 on_start 执行完成")
         except Exception as e:
@@ -237,7 +195,6 @@ class TradingStrategyAdapter(Strategy if NAUTILUS_AVAILABLE else object):
         )
 
         try:
-            # 调用 QuantCell 策略的 on_stop
             self.qc_strategy.on_stop()
             logger.debug("QuantCell 策略 on_stop 执行完成")
         except Exception as e:
@@ -252,7 +209,7 @@ class TradingStrategyAdapter(Strategy if NAUTILUS_AVAILABLE else object):
 
         Parameters
         ----------
-        bar : Bar
+        bar : Any
             实盘交易框架 K线数据对象
 
         Raises
@@ -260,18 +217,12 @@ class TradingStrategyAdapter(Strategy if NAUTILUS_AVAILABLE else object):
         DataConversionError
             如果数据转换失败
         """
-        # 检查策略是否暂停
         if self._is_paused:
             return
 
         try:
-            # 转换数据格式
             qc_bar = convert_bar_to_qc(bar)
-
-            # 更新统计
             self._bars_processed += 1
-
-            # 调用 QuantCell 策略的 on_bar
             self.qc_strategy.on_bar(qc_bar)
 
             logger.debug(
@@ -292,26 +243,21 @@ class TradingStrategyAdapter(Strategy if NAUTILUS_AVAILABLE else object):
 
         Parameters
         ----------
-        tick : Tick
+        tick : Any
             实盘交易框架 Tick 数据对象
 
         Raises
         ------
         DataConversionError
-            如果数据转换失败
+            如果转换失败
         """
-        # 检查策略是否暂停
         if self._is_paused:
             return
 
         try:
-            # 转换数据格式
             qc_tick = convert_tick_to_qc(tick)
-
-            # 更新统计
             self._ticks_processed += 1
 
-            # 调用 QuantCell 策略的 on_tick（如果存在）
             if hasattr(self.qc_strategy, 'on_tick'):
                 self.qc_strategy.on_tick(qc_tick)
 
@@ -435,7 +381,7 @@ def convert_bar_to_qc(bar: Any) -> QCBar:
 
     Parameters
     ----------
-    bar : Bar
+    bar : Any
         实盘交易框架 K线数据对象
 
     Returns
@@ -456,50 +402,21 @@ def convert_bar_to_qc(bar: Any) -> QCBar:
     50000.0
     """
     try:
-        # 提取品种信息
-        if NAUTILUS_AVAILABLE and hasattr(bar, 'bar_type'):
-            # Nautilus Bar 格式
-            nautilus_instrument_id = bar.bar_type.instrument_id
-            qc_instrument_id = QCInstrumentId(
-                symbol=str(nautilus_instrument_id.symbol),
-                venue=str(nautilus_instrument_id.venue),
-            )
-
-            # 提取 K 线类型
-            bar_spec = bar.bar_type.spec
-            bar_type_str = f"{bar_spec.step}-{bar_spec.aggregation.name}"
-
-            # 转换时间戳
-            timestamp = datetime.fromtimestamp(bar.ts_event / 1e9)
-
-            # 创建 QuantCell Bar
-            qc_bar = QCBar(
-                instrument_id=qc_instrument_id,
-                bar_type=bar_type_str,
-                open=float(bar.open),
-                high=float(bar.high),
-                low=float(bar.low),
-                close=float(bar.close),
-                volume=float(bar.volume) if hasattr(bar, 'volume') else 0.0,
-                timestamp=timestamp,
-                ts_event=bar.ts_event,
-            )
-        else:
-            # 通用格式
-            qc_bar = QCBar(
-                instrument_id=QCInstrumentId(
-                    symbol=str(getattr(bar, 'symbol', 'UNKNOWN')),
-                    venue=str(getattr(bar, 'venue', 'BINANCE')),
-                ),
-                bar_type=getattr(bar, 'bar_type', '1-HOUR'),
-                open=float(getattr(bar, 'open', 0)),
-                high=float(getattr(bar, 'high', 0)),
-                low=float(getattr(bar, 'low', 0)),
-                close=float(getattr(bar, 'close', 0)),
-                volume=float(getattr(bar, 'volume', 0)),
-                timestamp=datetime.utcnow(),
-                ts_event=0,
-            )
+        # 通用格式：通过属性反射读取
+        qc_bar = QCBar(
+            instrument_id=QCInstrumentId(
+                symbol=str(getattr(bar, 'symbol', 'UNKNOWN')),
+                venue=str(getattr(bar, 'venue', 'BINANCE')),
+            ),
+            bar_type=getattr(bar, 'bar_type', '1-HOUR'),
+            open=float(getattr(bar, 'open', 0)),
+            high=float(getattr(bar, 'high', 0)),
+            low=float(getattr(bar, 'low', 0)),
+            close=float(getattr(bar, 'close', 0)),
+            volume=float(getattr(bar, 'volume', 0)),
+            timestamp=datetime.utcnow(),
+            ts_event=0,
+        )
 
         return qc_bar
 
@@ -514,7 +431,7 @@ def convert_tick_to_qc(tick: Any) -> Dict[str, Any]:
 
     Parameters
     ----------
-    tick : Tick
+    tick : Any
         实盘交易框架 Tick 数据对象
 
     Returns
@@ -545,10 +462,10 @@ def convert_tick_to_qc(tick: Any) -> Dict[str, Any]:
 
         # 提取品种信息
         if hasattr(tick, 'instrument_id'):
-            nautilus_instrument_id = tick.instrument_id
+            inst_id = tick.instrument_id
             qc_instrument_id = QCInstrumentId(
-                symbol=str(nautilus_instrument_id.symbol),
-                venue=str(nautilus_instrument_id.venue),
+                symbol=str(inst_id.symbol),
+                venue=str(inst_id.venue),
             )
         else:
             qc_instrument_id = QCInstrumentId(
@@ -556,48 +473,17 @@ def convert_tick_to_qc(tick: Any) -> Dict[str, Any]:
                 venue=str(getattr(tick, 'venue', 'BINANCE')),
             )
 
-        # 根据 Tick 类型转换
-        if NAUTILUS_AVAILABLE and hasattr(tick, 'bid_price'):
-            # QuoteTick 转换
-            return {
-                "type": "quote",
-                "instrument_id": qc_instrument_id,
-                "symbol": str(qc_instrument_id.symbol),
-                "venue": str(qc_instrument_id.venue),
-                "bid_price": float(tick.bid_price),
-                "bid_size": float(tick.bid_size),
-                "ask_price": float(tick.ask_price),
-                "ask_size": float(tick.ask_size),
-                "timestamp": timestamp.isoformat(),
-                "ts_event": ts_event,
-            }
-        elif NAUTILUS_AVAILABLE and hasattr(tick, 'price'):
-            # TradeTick 转换
-            aggressor_side = OrderSide.BUY if tick.aggressor_side == NautilusOrderSide.BUY else OrderSide.SELL
-
-            return {
-                "type": "trade",
-                "instrument_id": qc_instrument_id,
-                "symbol": str(qc_instrument_id.symbol),
-                "venue": str(qc_instrument_id.venue),
-                "price": float(tick.price),
-                "size": float(tick.size),
-                "aggressor_side": aggressor_side.value,
-                "timestamp": timestamp.isoformat(),
-                "ts_event": ts_event,
-            }
-        else:
-            # 通用格式
-            return {
-                "type": "tick",
-                "instrument_id": qc_instrument_id,
-                "symbol": str(qc_instrument_id.symbol),
-                "venue": str(qc_instrument_id.venue),
-                "price": float(getattr(tick, 'price', 0)),
-                "size": float(getattr(tick, 'size', 0)),
-                "timestamp": timestamp.isoformat(),
-                "ts_event": ts_event,
-            }
+        # 通用格式
+        return {
+            "type": "tick",
+            "instrument_id": qc_instrument_id,
+            "symbol": str(qc_instrument_id.symbol),
+            "venue": str(qc_instrument_id.venue),
+            "price": float(getattr(tick, 'price', 0)),
+            "size": float(getattr(tick, 'size', 0)),
+            "timestamp": timestamp.isoformat(),
+            "ts_event": ts_event,
+        }
 
     except Exception as e:
         logger.error(f"Tick 转换失败: {e}")
@@ -649,10 +535,7 @@ def convert_order_to_trading(order: Dict[str, Any]) -> Dict[str, Any]:
 
         # 转换品种标识
         instrument_id = order["instrument_id"]
-        if isinstance(instrument_id, QCInstrumentId):
-            instrument_id_str = str(instrument_id)
-        else:
-            instrument_id_str = str(instrument_id)
+        instrument_id_str = str(instrument_id)
 
         # 转换订单方向
         side_str = order["side"].upper() if isinstance(order["side"], str) else order["side"].value
@@ -697,7 +580,7 @@ def convert_position_to_qc(position: Any) -> Dict[str, Any]:
 
     Parameters
     ----------
-    position : Position
+    position : Any
         实盘交易框架持仓对象
 
     Returns
@@ -720,10 +603,10 @@ def convert_position_to_qc(position: Any) -> Dict[str, Any]:
     try:
         # 转换品种标识
         if hasattr(position, 'instrument_id'):
-            nautilus_instrument_id = position.instrument_id
+            inst_id = position.instrument_id
             qc_instrument_id = QCInstrumentId(
-                symbol=str(nautilus_instrument_id.symbol),
-                venue=str(nautilus_instrument_id.venue),
+                symbol=str(inst_id.symbol),
+                venue=str(inst_id.venue),
             )
         else:
             qc_instrument_id = QCInstrumentId(
@@ -732,15 +615,7 @@ def convert_position_to_qc(position: Any) -> Dict[str, Any]:
             )
 
         # 转换持仓方向
-        if NAUTILUS_AVAILABLE and hasattr(position, 'side'):
-            if position.side == NautilusPositionSide.LONG:
-                side = PositionSide.LONG
-            elif position.side == NautilusPositionSide.SHORT:
-                side = PositionSide.SHORT
-            else:
-                side = PositionSide.FLAT
-        else:
-            side = PositionSide.LONG if getattr(position, 'quantity', 0) > 0 else PositionSide.FLAT
+        side = PositionSide.LONG if getattr(position, 'quantity', 0) > 0 else PositionSide.FLAT
 
         # 转换时间戳
         if hasattr(position, 'ts_opened') and position.ts_opened:
@@ -849,7 +724,7 @@ def load_quantcell_strategy(
                 inspect.isclass(obj)
                 and issubclass(obj, QCStrategyBase)
                 and obj is not QCStrategyBase
-                and not name.endswith("Base")  # 排除基类
+                and not name.endswith("Base")
             ):
                 strategy_class = obj
                 logger.info(f"找到 QuantCell 策略类: {name}")
@@ -927,10 +802,6 @@ def create_trading_strategy_adapter(
     >>> adapter = create_trading_strategy_adapter(qc_strategy, config)
     """
     try:
-        # 验证必要配置
-        if not NAUTILUS_AVAILABLE:
-            logger.warning("NautilusTrader 未安装，创建基础适配器")
-
         # 创建适配器
         adapter = TradingStrategyAdapter(
             qc_strategy=qc_strategy,
@@ -985,12 +856,8 @@ def adapt_strategy(
     ...     trading_config={"instrument_id": ..., "bar_type": ...},
     ... )
     """
-    # 加载 QuantCell 策略
     qc_strategy = load_quantcell_strategy(strategy_path, qc_config)
-
-    # 创建适配器
     adapter = create_trading_strategy_adapter(qc_strategy, trading_config)
-
     return adapter
 
 

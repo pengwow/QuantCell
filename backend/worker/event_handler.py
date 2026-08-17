@@ -32,7 +32,7 @@ def _is_mock_object(obj: Any) -> bool:
     """
     检查对象是否是 Mock 对象
 
-    用于区分真实的 nautilus_trader 对象和测试中的 Mock 对象，
+    用于区分真实的策略引擎对象和测试中的 Mock 对象，
     避免在 Mock 上错误地匹配自动生成的子属性。
     """
     if obj is None:
@@ -233,21 +233,21 @@ class EventHandler:
 __all__ = [
     "EventHandler",
     "EventBufferConfig",
-    "NautilusEventHandler",
+    "TradingEventHandler",
     "LiveTradeRecorder",
     "create_event_handler",
 ]
 
 
 # ============================================================================
-# Nautilus 事件处理器
+# Trading 事件处理器
 # ============================================================================
 
-class NautilusEventHandler:
+class TradingEventHandler:
     """
-    Nautilus 事件处理器
+    策略引擎事件处理器
 
-    订阅 Nautilus 事件并通过回调函数发送到主进程。
+    订阅策略引擎事件并通过回调函数发送到主进程。
     """
 
     def __init__(
@@ -262,11 +262,11 @@ class NautilusEventHandler:
         Parameters
         ----------
         trader : Any
-            Nautilus Trader 实例
+            策略引擎 Trader 实例
         event_callback : Callable[[str, dict], None]
             事件回调函数，接收 (event_type, event_data)
         node : Any, optional
-            Nautilus TradingNode 实例（用于访问 msgbus）
+            策略引擎 TradingNode 实例（用于访问 msgbus）
         """
         self.trader = trader
         self.event_callback = event_callback
@@ -319,7 +319,7 @@ class NautilusEventHandler:
         return None
 
     def subscribe_events(self) -> None:
-        """订阅 Nautilus 事件"""
+        """订阅策略引擎事件"""
         if self._subscribed:
             return
         # 获取消息总线（支持多种访问方式）
@@ -329,19 +329,19 @@ class NautilusEventHandler:
                 "无法访问 msg_bus：请传入 TradingNode 实例，"
                 "或确保 trader 有 kernel.msgbus 属性"
             )
-        # 订阅订单事件 (nautilus msg_bus topic: events.order.{strategy_id})
+        # 订阅订单事件 (msg_bus topic: events.order.{strategy_id})
         msg_bus.subscribe(
             topic="events.order.*",
             handler=self._handle_order_event,
         )
 
-        # 订阅成交事件 (nautilus msg_bus topic: events.fills.{instrument_id})
+        # 订阅成交事件 (msg_bus topic: events.fills.{instrument_id})
         msg_bus.subscribe(
             topic="events.fills.*",
             handler=self._handle_fill_event,
         )
 
-        # 订阅持仓事件 (nautilus msg_bus topic: events.position.{strategy_id})
+        # 订阅持仓事件 (msg_bus topic: events.position.{strategy_id})
         msg_bus.subscribe(
             topic="events.position.*",
             handler=self._handle_position_event,
@@ -349,7 +349,7 @@ class NautilusEventHandler:
         self._subscribed = True
 
     def unsubscribe_events(self) -> None:
-        """取消订阅 Nautilus 事件"""
+        """取消订阅策略引擎事件"""
         if not self._subscribed:
             return
         msg_bus = self._resolve_msgbus(self.trader, self.node)
@@ -434,9 +434,9 @@ class NautilusEventHandler:
 
 class LiveTradeRecorder:
     """
-    Nautilus 事件到数据库的持久化记录器。
+    策略引擎事件到数据库的持久化记录器。
 
-    在 daemon 线程中运行，订阅 nautilus_trader 的 msg_bus 事件，
+    在 daemon 线程中运行，订阅策略引擎的 msg_bus 事件，
     将 OrderFilled / OrderAccepted / OrderCanceled / OrderRejected / Position* 事件
     转换为 dict 并调用 crud 操作写入 worker_trades / worker_orders / worker_positions 表。
 
@@ -465,9 +465,9 @@ class LiveTradeRecorder:
         Parameters
         ----------
         trader : Any
-            Nautilus Trader 实例（保留以兼容旧调用方式）
+            策略引擎 Trader 实例（保留以兼容旧调用方式）
         node : Any, optional
-            Nautilus TradingNode 实例（用于访问 msgbus）
+            策略引擎 TradingNode 实例（用于访问 msgbus）
             如果不提供，将尝试从 trader.kernel.msgbus 获取
         """
         if self._subscribed:
@@ -506,7 +506,7 @@ class LiveTradeRecorder:
         4. trader.msgbus（兼容旧版本）
 
         实现要点：
-        - 真实的 Trader/Node 对象应当是 nautilus_trader 的具体类实例
+        - 真实的 Trader/Node 对象应当是策略引擎的具体类实例
         - 通过检查类型模块路径来区分真实对象和测试 Mock
         - 容器对象（kernel/trader）必须是真实的，最终的 msgbus 可以是 Mock
         """
@@ -642,27 +642,21 @@ class LiveTradeRecorder:
     # ------------------------------------------------------------------
 
     def _dispatch_order_event(self, db: Any, event: Any) -> None:
-        """根据事件子类型分发到对应的处理方法"""
-        from nautilus_trader.core.events import (
-            OrderAccepted,
-            OrderCanceled,
-            OrderRejected,
-            OrderFilled,
-        )
-
+        """根据事件子类型分发到对应的处理方法（按类型名判断，避免强依赖具体库）"""
         # OrderFilled 同时也会出现在 order topic，优先走 fill 路径
-        if isinstance(event, OrderFilled):
+        type_name = type(event).__name__
+        if type_name == "OrderFilled":
             self._handle_fill(db, event)
-        elif isinstance(event, OrderAccepted):
+        elif type_name == "OrderAccepted":
             self._handle_order_accepted(db, event)
-        elif isinstance(event, OrderCanceled):
+        elif type_name == "OrderCanceled":
             self._handle_order_canceled(db, event)
-        elif isinstance(event, OrderRejected):
+        elif type_name == "OrderRejected":
             self._handle_order_rejected(db, event)
         else:
             logger.debug(
                 f"LiveTradeRecorder: 忽略未知订单事件类型 "
-                f"{type(event).__name__} (worker_id={self.worker_id})"
+                f"{type_name} (worker_id={self.worker_id})"
             )
 
     # -- OrderAccepted ---------------------------------------------------
@@ -877,20 +871,20 @@ class LiveTradeRecorder:
 def create_event_handler(
     trader: Any,
     send_event_func: Callable[[str, dict], None],
-) -> NautilusEventHandler:
+) -> TradingEventHandler:
     """
     创建事件处理器的便捷函数
 
     Parameters
     ----------
     trader : Any
-        Nautilus Trader 实例
+        策略引擎 Trader 实例
     send_event_func : Callable[[str, dict], None]
         发送事件的函数
 
     Returns
     -------
-    NautilusEventHandler
+    TradingEventHandler
         事件处理器实例
     """
-    return NautilusEventHandler(trader, send_event_func)
+    return TradingEventHandler(trader, send_event_func)

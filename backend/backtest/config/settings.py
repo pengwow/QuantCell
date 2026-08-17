@@ -19,8 +19,8 @@ from typing import Any, Dict
 from backtest.engines.base import EngineType
 
 
-# 默认引擎类型
-DEFAULT_ENGINE: EngineType = EngineType.DEFAULT
+# 默认引擎类型（基于 axon-quant 事件驱动）
+DEFAULT_ENGINE: EngineType = EngineType.EVENT_DRIVEN
 
 # 默认引擎配置
 DEFAULT_CONFIG: Dict[str, Any] = {

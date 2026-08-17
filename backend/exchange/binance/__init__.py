@@ -9,7 +9,7 @@ Binance交易所模块
     - PaperTradingAccount: 模拟交易账户
     - BinanceDownloader: 数据下载器
     - BinanceExchange: 交易所连接器
-    - live_adapter: 实盘交易适配器模块
+    - live_adapter: 实盘交易适配器模块（已废弃）
 
 作者: QuantCell Team
 版本: 1.0.0

@@ -78,8 +78,8 @@ class StrategyParseResult:
 class StrategyASTParser:
     """策略代码AST解析器"""
     
-    # 默认的策略基类名称
-    DEFAULT_STRATEGY_BASES = ['Strategy', 'StrategyBase']
+    # 默认的策略基类名称（包含事件驱动策略基类）
+    DEFAULT_STRATEGY_BASES = ['Strategy', 'StrategyBase', 'EventDrivenStrategy', 'EventDrivenStrategyConfig']
     DEFAULT_CONFIG_SUFFIX = 'Config'
     
     def __init__(self, strategy_bases: Optional[List[str]] = None, config_suffix: Optional[str] = None):
@@ -87,7 +87,7 @@ class StrategyASTParser:
         初始化AST解析器
         
         Args:
-            strategy_bases: 策略基类名称列表，默认为['Strategy', 'StrategyBase']
+            strategy_bases: 策略基类名称列表，默认为['Strategy', 'StrategyBase', 'EventDrivenStrategy', 'EventDrivenStrategyConfig']
             config_suffix: 配置类后缀，默认为'Config'
         """
         self.strategy_bases = strategy_bases or self.DEFAULT_STRATEGY_BASES
@@ -352,22 +352,25 @@ class StrategyASTParser:
         
         return False
     
-    def is_nautilus_strategy(self, tree: ast.AST) -> bool:
+    def _has_external_trading_import(self, tree: ast.AST) -> bool:
         """
-        检查是否为nautilus_trader策略
-        
+        检查是否引入了外部交易框架模块
+
+        用于兼容识别历史上的第三方交易框架导入代码。
+
         Args:
             tree: AST树
-            
+
         Returns:
-            是否为nautilus_trader策略
+            是否包含外部交易框架模块引用
         """
         imports = self.find_imports(tree)
-        
+
         for imp in imports:
-            if 'nautilus_trader' in imp:
+            # 历史第三方交易框架模块名
+            if 'trader' in imp or '_trader' in imp:
                 return True
-        
+
         return False
     
     def extract_params_from_config_class(self, config_class_node: ast.ClassDef, file_content: str) -> List[Dict[str, Any]]:

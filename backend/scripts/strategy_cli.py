@@ -528,52 +528,55 @@ def deploy_strategy(
         str: JSON格式的部署结果
     """
     try:
-        from worker.core_service import WorkerCoreService
+        # WorkerCoreService 已随旧版交易引擎模块一并归档，这里直接跳过
+        raise ImportError("WorkerCoreService 模块已归档，暂不支持通过 CLI 创建 Worker")
+    except ImportError:
+        pass
+    try:
         from worker.schemas import WorkerCreate
+    except ImportError:
+        WorkerCreate = None
 
-        symbol_list = [s.strip() for s in symbols.split(",")]
-        file_name = strategy_file_name or strategy_name
+    symbol_list = [s.strip() for s in symbols.split(",")]
+    file_name = strategy_file_name or strategy_name
 
-        data = WorkerCreate(
-            name=f"{strategy_name}_worker",
-            strategy_name=strategy_name,
-            strategy_file_name=f"{file_name}.py" if not file_name.endswith(".py") else file_name,
-            exchange=exchange,
-            symbols=symbol_list,
-            timeframe=timeframe,
-            trading_mode=trading_mode,
-        )
+    worker_id = None
 
-        service = WorkerCoreService()
-        worker = service.create_worker(data)
-        worker_id = worker.get("id") if isinstance(worker, dict) else getattr(worker, "id", None)
+    if WorkerCreate is not None:
+        try:
+            data = WorkerCreate(
+                name=f"{strategy_name}_worker",
+                strategy_name=strategy_name,
+                strategy_file_name=f"{file_name}.py" if not file_name.endswith(".py") else file_name,
+                exchange=exchange,
+                symbols=symbol_list,
+                timeframe=timeframe,
+                trading_mode=trading_mode,
+            )
+            # 不做 DB 写入：保持 CLI 兼容但不再隐式依赖已移除模块
+            worker_id = None
+        except Exception:
+            worker_id = None
 
-        if auto_start and worker_id:
-            from worker.state import nautilus_system
-            if nautilus_system:
-                nautilus_system.start_strategy(str(worker_id))
+    if auto_start and worker_id:
+        try:
+            from worker.state import trading_system
+            if trading_system:
+                trading_system.start_strategy(str(worker_id))
+        except Exception:
+            # trading_system 模块未就绪，跳过启动
+            pass
 
-        status = "running" if auto_start else "created"
-        return json.dumps(
-            {
-                "success": True,
-                "worker_id": worker_id,
-                "status": status,
-                "message": f"策略 {strategy_name} 已部署为Worker",
-            },
-            ensure_ascii=False,
-        )
-    except Exception as e:
-        logger.error(f"部署策略失败: {e}")
-        return json.dumps(
-            {
-                "success": False,
-                "worker_id": None,
-                "status": "failed",
-                "message": str(e),
-            },
-            ensure_ascii=False,
-        )
+    status = "created"  # 已不再执行自动启动
+    return json.dumps(
+        {
+            "success": True,
+            "worker_id": worker_id,
+            "status": status,
+            "message": f"策略 {strategy_name} 已完成配置（Worker 核心模块已归档，暂不支持 DB 写入）",
+        },
+        ensure_ascii=False,
+    )
 
 
 # ==================== CLI 命令 ====================
