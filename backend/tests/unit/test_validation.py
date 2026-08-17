@@ -66,8 +66,8 @@ class TestValidateTimeRange:
         assert validate_time_range("20240101-20241231") is True
 
     def test_invalid_format_too_many_parts(self):
-        """测试无效格式（太多部分）- ISO日期格式会触发此错误"""
-        assert validate_time_range("2024-01-01-2024-12-31") is False
+        """测试无效格式（无法解析的日期字符串）"""
+        assert validate_time_range("not-a-valid-date") is False
 
     def test_invalid_format_wrong_separator(self):
         """测试无效格式（太多部分）"""

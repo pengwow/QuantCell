@@ -208,6 +208,10 @@ class BacktestLoop:
                 action = strategy.on_bar(bar)
             total_orders += 1
 
+            # EventDrivenStrategy 可能返回 None（无引擎引用时）
+            if action is None:
+                continue
+
             # 应用 Action: target_position 是 ratio (占 equity 比例)
             # 转换为绝对 qty = ratio * equity / price
             if str(action.action_type) in ("buy", "sell"):
