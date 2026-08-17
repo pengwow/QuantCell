@@ -7,27 +7,29 @@
 包含:
     - BacktestEngineBase: 回测引擎抽象基类
     - EngineType: 引擎类型枚举
-    - Engine: 默认回测引擎
-    - LegacyEngine: 传统回测引擎适配器
-    - NautilusBacktestEngine: NautilusTrader 回测引擎
+    - EventDrivenBacktestEngine: 事件驱动引擎 (axon-quant)
 
 作者: QuantCell Team
-版本: 1.0.0
-日期: 2026-02-15
+版本: 2.0.0
+日期: 2026-08-13
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __author__ = "QuantCell Team"
 
 from .base import BacktestEngineBase, EngineType
-from .engine import Engine
-from .legacy_engine import LegacyEngine
-from .nautilus_engine import NautilusBacktestEngine
+
+
+def __getattr__(name):
+    # 懒加载：EventDrivenBacktestEngine 与 axon-quant 相关，按需导入避免 --help 变慢
+    if name == "EventDrivenBacktestEngine":
+        from .event_engine import EventDrivenBacktestEngine
+        return EventDrivenBacktestEngine
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 __all__ = [
     "BacktestEngineBase",
     "EngineType",
-    "Engine",
-    "LegacyEngine",
-    "NautilusBacktestEngine",
+    "EventDrivenBacktestEngine",
 ]

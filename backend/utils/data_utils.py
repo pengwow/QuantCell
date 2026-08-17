@@ -11,11 +11,70 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
+# ---------------------------------------------------------------------------
+# 路径工具函数（统一基于 backend/ 根目录解析，避免 cwd 依赖）
+# ---------------------------------------------------------------------------
+
+def get_backend_root() -> Path:
+    """返回 backend/ 目录的绝对路径"""
+    return Path(__file__).resolve().parent.parent
+
+
+def get_data_dir() -> Path:
+    """返回 backend/data 目录的绝对路径"""
+    return get_backend_root() / "data"
+
+
+def get_source_data_dir() -> Path:
+    """返回 backend/data/source 目录的绝对路径（存储原始下载数据）"""
+    return get_data_dir() / "source"
+
+
+def get_symbols_from_data_pool(pool_name: str) -> List[str]:
+    """
+    从数据池获取自选组合的货币对列表
+
+    Args:
+        pool_name: 自选组合名称
+
+    Returns:
+        List[str]: 货币对列表（空表示组合中无资产或未找到）
+    """
+    try:
+        from collector.db.database import SessionLocal, init_database_config
+        from collector.db.models import DataPool, DataPoolAsset
+
+        init_database_config()
+        db = SessionLocal()
+
+        try:
+            pool = db.query(DataPool).filter_by(name=pool_name).first()
+            if not pool:
+                logger.warning(f"自选组合不存在: {pool_name}")
+                return []
+
+            assets = db.query(DataPoolAsset).filter_by(pool_id=pool.id).all()
+            symbols = [asset.asset_id for asset in assets]
+
+            if not symbols:
+                logger.warning(f"自选组合 '{pool_name}' 中没有货币对")
+                return []
+
+            logger.info(f"从自选组合 '{pool_name}' 获取到 {len(symbols)} 个货币对: {symbols}")
+            return symbols
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"从数据池获取货币对失败: {e}")
+        return []
 
 
 def sanitize_for_json(data: Any) -> Any:

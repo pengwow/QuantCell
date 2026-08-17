@@ -9,14 +9,13 @@
     - 策略列表获取
     - 策略详情获取
     - 策略文件上传
-    - 支持 trading engine 和 Legacy 两种策略类型
 
 服务类:
     - StrategyService: 策略服务主类
 
 作者: QuantCell Team
-版本: 1.1.0
-日期: 2026-02-15
+版本: 1.2.0
+日期: 2026-08-13
 """
 
 import sys
@@ -38,14 +37,8 @@ from utils.strategy_ast_parser import StrategyASTParser
 # 导入策略基类（从 strategy.core 统一导入）
 from .core import StrategyBase
 
-# 尝试导入 trading engine 的 Strategy 类
-try:
-    from nautilus_trader.trading.strategy import Strategy as DefaultStrategy
-    default_AVAILABLE = True
-except ImportError:
-    DefaultStrategy = None
-    default_AVAILABLE = False
-    logger.warning("trading engine 未安装，trading engine 策略支持不可用")
+# 导入事件驱动策略基类
+from backtest.strategies.event_strategy import EventDrivenStrategy, EventDrivenStrategyConfig
 
 # 策略基类别名，用于兼容性检查
 Strategy = StrategyBase
@@ -53,8 +46,8 @@ Strategy = StrategyBase
 
 class StrategyType(Enum):
     """策略类型枚举"""
-    advanced = "default"      # trading engine 策略
     LEGACY = "legacy"          # Legacy 策略 (StrategyBase)
+    EVENT_DRIVEN = "event_driven"  # 事件驱动策略 (EventDrivenStrategy)
     UNKNOWN = "unknown"        # 未知类型
 
 class StrategyService:
@@ -463,13 +456,13 @@ class StrategyService:
         """
         检测策略类型
 
-        通过分析策略文件内容，判断策略是 trading engine 风格还是 Legacy 风格。
+        通过分析策略文件内容，判断是 Legacy 风格还是事件驱动策略。
 
         参数:
             file_content: 策略文件内容
 
         返回:
-            StrategyType: 策略类型 (advanced, LEGACY, 或 UNKNOWN)
+            StrategyType: 策略类型 (LEGACY, EVENT_DRIVEN, 或 UNKNOWN)
         """
         try:
             tree = ast.parse(file_content)
@@ -482,44 +475,35 @@ class StrategyService:
                         # 直接继承，如 class MyStrategy(Strategy)
                         if isinstance(base, ast.Name):
                             base_name = base.id
-                        # 属性继承，如 class MyStrategy(trading_engine.trading.strategy.Strategy)
+                        # 属性继承
                         elif isinstance(base, ast.Attribute):
                             base_name = base.attr
 
-                        if base_name:
-                            # 检查是否为 trading engine 策略
-                            if base_name == 'Strategy' or 'advanced' in file_content.lower():
-                                # 进一步确认是否从 nautilus_trader 导入
-                                for stmt in ast.walk(tree):
-                                    if isinstance(stmt, ast.ImportFrom):
-                                        if stmt.module and 'nautilus_trader' in stmt.module:
-                                            for alias in stmt.names:
-                                                if alias.name == 'Strategy':
-                                                    logger.info(f"检测到 trading engine 策略: {node.name}")
-                                                    return StrategyType.DEFAULT
-
-                            # 检查是否为 Legacy 策略
-                            if base_name in ('StrategyBase', 'Strategy'):
-                                # 检查是否从 strategy_base 或 strategy 模块导入
-                                for stmt in ast.walk(tree):
-                                    if isinstance(stmt, ast.ImportFrom):
-                                        if stmt.module and 'strategy_base' in stmt.module:
-                                            logger.info(f"检测到 Legacy 策略: {node.name}")
-                                            return StrategyType.LEGACY
-                                        # 检查相对导入
-                                        if stmt.module is None or '.' in str(stmt.module):
-                                            for alias in stmt.names:
-                                                if alias.name in ('StrategyBase', 'Strategy'):
-                                                    logger.info(f"检测到 Legacy 策略: {node.name}")
-                                                    return StrategyType.LEGACY
+                        if base_name and base_name in ('StrategyBase', 'Strategy'):
+                            # 检查是否从 strategy_base 或 strategy 模块导入
+                            for stmt in ast.walk(tree):
+                                if isinstance(stmt, ast.ImportFrom):
+                                    if stmt.module and 'strategy_base' in stmt.module:
+                                        logger.info(f"检测到 Legacy 策略: {node.name}")
+                                        return StrategyType.LEGACY
+                                    # 检查相对导入
+                                    if stmt.module is None or '.' in str(stmt.module):
+                                        for alias in stmt.names:
+                                            if alias.name in ('StrategyBase', 'Strategy'):
+                                                logger.info(f"检测到 Legacy 策略: {node.name}")
+                                                return StrategyType.LEGACY
+                        elif base_name and base_name in ('EventDrivenStrategy', 'EventDrivenStrategyConfig'):
+                            # 检测事件驱动策略
+                            logger.info(f"检测到 Event Driven 策略: {node.name}")
+                            return StrategyType.EVENT_DRIVEN
 
             # 如果通过 AST 无法确定，尝试通过文本内容判断
-            if 'nautilus_trader' in file_content.lower():
-                logger.info("通过文本内容检测到 trading engine 策略")
-                return StrategyType.DEFAULT
-            elif 'StrategyBase' in file_content:
+            if 'StrategyBase' in file_content:
                 logger.info("通过文本内容检测到 Legacy 策略")
                 return StrategyType.LEGACY
+            if 'EventDrivenStrategy' in file_content:
+                logger.info("通过文本内容检测到 Event Driven 策略")
+                return StrategyType.EVENT_DRIVEN
 
             logger.warning(f"无法识别策略类型")
             return StrategyType.UNKNOWN
@@ -534,8 +518,8 @@ class StrategyService:
         """
         for name, cls in module.__dict__.items():
             if isinstance(cls, type):
-                # 检查是否继承自Strategy或StrategyBase
-                # 注意：这里需要确保Strategy和StrategyBase在当前作用域可用
+                # 检查是否继承自Strategy或StrategyBase或EventDrivenStrategy
+                # 注意：这里需要确保基类在当前作用域可用
                 is_strategy = False
                 try:
                     if (issubclass(cls, Strategy) and cls != Strategy):
@@ -549,13 +533,11 @@ class StrategyService:
                 except TypeError:
                     pass
 
-                # 检查是否为 trading engine 策略
-                if default_AVAILABLE:
-                    try:
-                        if (issubclass(cls, DefaultStrategy) and cls != DefaultStrategy):
-                            is_strategy = True
-                    except TypeError:
-                        pass
+                try:
+                    if (issubclass(cls, EventDrivenStrategy) and cls != EventDrivenStrategy):
+                        is_strategy = True
+                except TypeError:
+                    pass
 
                 if is_strategy:
                     logger.info(f"成功加载策略类: {strategy_name}.{name}")
@@ -572,65 +554,12 @@ class StrategyService:
         返回:
             StrategyType: 策略类型
         """
-        if default_AVAILABLE and issubclass(strategy_cls, DefaultStrategy):
-            return StrategyType.DEFAULT
-        elif issubclass(strategy_cls, StrategyBase):
+        if issubclass(strategy_cls, EventDrivenStrategy):
+            return StrategyType.EVENT_DRIVEN
+        if issubclass(strategy_cls, StrategyBase):
             return StrategyType.LEGACY
         else:
             return StrategyType.UNKNOWN
-
-    def load_advanced_strategy(self, strategy_name: str, file_path: Optional[Path] = None,
-                               file_content: Optional[str] = None) -> Optional[Type[Any]]:
-        """
-        加载 trading engine 格式的策略
-
-        参数:
-            strategy_name: 策略名称
-            file_path: 策略文件路径（可选）
-            file_content: 策略文件内容（可选）
-
-        返回:
-            Optional[Type[Any]]: 策略类，如果加载失败返回 None
-        """
-        if not default_AVAILABLE:
-            logger.error("trading engine 未安装，无法加载 trading engine 策略")
-            return None
-
-        try:
-            from backtest.adapters.strategy_adapter import load_advanced_strategy as adapter_load
-
-            if file_path and file_path.exists():
-                logger.info(f"从文件加载 trading engine 策略: {strategy_name}")
-                strategy_cls = adapter_load(file_path, strategy_name)
-            elif file_content:
-                logger.info(f"从内容加载 trading engine 策略: {strategy_name}")
-                # 创建临时模块
-                module = type(sys)(strategy_name)
-                module.__file__ = str(file_path or self.strategy_dir / f"{strategy_name}.py")
-                sys.modules[strategy_name] = module
-                exec(file_content, module.__dict__)
-
-                # 查找策略类
-                strategy_cls = None
-                for name, cls in module.__dict__.items():
-                    if isinstance(cls, type) and issubclass(cls, DefaultStrategy) and cls != DefaultStrategy:
-                        strategy_cls = cls
-                        break
-
-                if strategy_cls is None:
-                    logger.error(f"在模块中找不到 trading engine 策略类: {strategy_name}")
-                    return None
-            else:
-                logger.error(f"加载 trading engine 策略失败: 未提供文件路径或内容")
-                return None
-
-            logger.info(f"成功加载 trading engine 策略: {strategy_name}")
-            return strategy_cls
-
-        except Exception as e:
-            logger.error(f"加载 trading engine 策略失败: {strategy_name}, 错误: {e}")
-            logger.exception(e)
-            return None
 
     def load_legacy_strategy(self, strategy_name: str, file_path: Optional[Path] = None,
                              file_content: Optional[str] = None) -> Optional[Type[Any]]:
@@ -682,8 +611,7 @@ class StrategyService:
         """
         从文件或数据库中加载策略类
 
-        自动检测策略类型（trading engine 或 Legacy），并路由到相应的加载器。
-        返回统一的策略接口。
+        自动检测策略类型并加载 Legacy 策略，返回统一的策略接口。
 
         参数:
             strategy_name: 策略名称
@@ -727,25 +655,12 @@ class StrategyService:
             strategy_type = self.detect_strategy_type(file_content)
             logger.info(f"策略类型检测结果: {strategy_name} -> {strategy_type.value}")
 
-            # 4. 根据策略类型路由到相应的加载器
-            if strategy_type == StrategyType.DEFAULT:
-                if not default_AVAILABLE:
-                    logger.error(f"无法加载 trading engine 策略 {strategy_name}: trading engine 未安装")
-                    return None
-                return self.load_advanced_strategy(
-                    strategy_name,
-                    file_path=strategy_file if strategy_file.exists() else None,
-                    file_content=file_content
-                )
-            elif strategy_type == StrategyType.LEGACY:
-                return self.load_legacy_strategy(
-                    strategy_name,
-                    file_path=strategy_file if strategy_file.exists() else None,
-                    file_content=file_content
-                )
-            else:
-                # 未知类型，尝试 Legacy 加载器作为默认
-                logger.warning(f"策略类型未知，尝试使用 Legacy 加载器: {strategy_name}")
+            # 4. 根据策略类型路由到加载器（统一使用 Legacy 加载器，未知类型和事件驱动也走该路径）
+            if strategy_type == StrategyType.LEGACY or strategy_type == StrategyType.EVENT_DRIVEN or strategy_type == StrategyType.UNKNOWN:
+                if strategy_type == StrategyType.UNKNOWN:
+                    logger.warning(f"策略类型未知，尝试使用 Legacy 加载器: {strategy_name}")
+                if strategy_type == StrategyType.EVENT_DRIVEN:
+                    logger.info(f"事件驱动策略，使用加载器加载: {strategy_name}")
                 return self.load_legacy_strategy(
                     strategy_name,
                     file_path=strategy_file if strategy_file.exists() else None,

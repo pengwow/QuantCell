@@ -64,3 +64,9 @@ backend/_archive_20260515/*
 
 backend/tmp_deleted/*
 
+docs/*
+.mimocode/
+.omo/
+
+backend/backend.egg-info/
+.codegraph/

@@ -20,7 +20,6 @@ class EngineType(Enum):
     VECTORIZED = "vectorized"          # 向量化引擎
     CONCURRENT = "concurrent"          # 并发引擎
     ASYNC_EVENT = "async_event"        # 异步事件引擎
-    DEFAULT = "default"                # 默认回测引擎
     LEGACY = "legacy"                  # 传统回测引擎
 
 

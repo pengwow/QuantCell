@@ -318,7 +318,7 @@ class BacktestDataProvider:
         标准化DataFrame格式
         
         处理内容：
-        1. 列名转换：open→Open, high→High等
+        1. 列名统一为小写（event_engine 要求）
         2. 时间戳处理：设置datetime索引（自动检测精度）
         3. 数据类型确保：价格列为float64
         
@@ -330,17 +330,8 @@ class BacktestDataProvider:
         """
         df = df.copy()
         
-        # 列名映射（小写→标准格式）
-        column_mapping = {
-            'open': 'Open',
-            'high': 'High',
-            'low': 'Low',
-            'close': 'Close',
-            'volume': 'Volume'
-        }
-        
-        # 重命名列
-        df.rename(columns=column_mapping, inplace=True)
+        # 统一列名为小写（event_engine 使用小写列名）
+        df.columns = [col.lower() for col in df.columns]
 
         # 设置时间索引（使用统一的工具函数自动检测时间戳精度）
         if 'timestamp' in df.columns:
@@ -353,7 +344,7 @@ class BacktestDataProvider:
             df.index = convert_to_datetime(df.index)
         
         # 确保价格列为float64
-        price_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+        price_columns = ['open', 'high', 'low', 'close', 'volume']
         for col in price_columns:
             if col in df.columns:
                 df[col] = df[col].astype('float64')

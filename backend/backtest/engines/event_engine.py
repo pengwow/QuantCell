@@ -2,187 +2,149 @@
 """
 事件驱动回测引擎
 
-高性能事件驱动回测引擎实现，支持完整的回测功能。
+基于 axon-quant 事件驱动架构的高性能回测引擎实现，
+支持从 CSV/Parquet 加载数据、添加交易品种、运行策略等功能。
 
-包含:
-    - EventDrivenBacktestEngine: 事件驱动回测引擎类
+核心流程:
+    1. 初始化 BacktestEngine（通过 axon_bridge 适配层）
+    2. 添加交易品种（spot_instrument / swap_instrument）
+    3. 加载 K 线数据
+    4. 添加策略（注入引擎引用）
+    5. 逐 bar 驱动：begin_bar → strategy.on_bar → engine.step()
+    6. 提取回测结果
 
 作者: QuantCell Team
-版本: 1.0.0
-日期: 2026-02-23
+版本: 3.0.0
+日期: 2026-08-14
 """
 
-from decimal import Decimal
-from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
+from pathlib import Path
+
 from utils.logger import get_logger, LogType
 
-# 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-try:
-    from backend.utils import safe_float
-except ImportError:
-    from utils import safe_float
+
+# 安全的浮点数转换
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    """安全地转换为浮点数"""
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
 
 from .base import BacktestEngineBase, EngineType
 
 
 class EventDrivenBacktestEngine(BacktestEngineBase):
     """
-    事件驱动回测引擎
+    事件驱动回测引擎（基于 axon-quant）
 
-    基于事件驱动架构的高性能回测引擎，支持从 CSV/Parquet 加载数据、
-    添加交易所、添加交易品种、运行策略等功能。
+    使用 axon_quant.BacktestEngine 作为底层撮合引擎，
+    通过事件驱动模型处理订单提交、撮合和成交。
 
-    Attributes:
-        engine_type: 引擎类型标识为 EVENT_DRIVEN
-        venues: 已添加的交易所字典
-        instruments: 已添加的交易品种字典
-        strategies: 已添加的策略列表
-        data: 已加载的数据列表
-        bar_types: 已定义的 K 线类型字典
+    回测流程:
+        1. initialize(): 创建 BacktestEngine 实例
+        2. add_venue(): 配置交易所（兼容接口）
+        3. add_instrument(): 添加交易品种
+        4. load_data_from_csv/parquet(): 加载 K 线数据
+        5. add_strategy(): 添加策略（注入引擎引用）
+        6. run_backtest(): 执行回测
+        7. get_results(): 获取结果
+        8. cleanup(): 清理资源
 
     Example:
-        >>> config = {
-        ...     "trader_id": "BACKTEST-001",
-        ...     "log_level": "INFO",
-        ...     "initial_capital": 100000.0,
-        ...     "start_date": "2023-01-01",
-        ...     "end_date": "2023-12-31",
-        ... }
+        >>> config = {"initial_capital": 100000.0}
         >>> engine = EventDrivenBacktestEngine(config)
         >>> engine.initialize()
-        >>> engine.add_venue("SIM", starting_capital=100000.0)
-        >>> engine.add_instrument(instrument)
-        >>> engine.load_data_from_csv("data.csv", bar_type, instrument)
+        >>> engine.add_instrument(instrument_dict)
+        >>> engine.load_data_from_parquet("data.parquet", instrument_dict)
         >>> engine.add_strategy(strategy)
         >>> results = engine.run_backtest()
         >>> engine.cleanup()
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """
-        初始化事件驱动回测引擎
-
-        Args:
-            config: 引擎配置字典，包含:
-                - trader_id: 交易者ID（可选，默认 "BACKTEST-001"）
-                - log_level: 日志级别（可选，默认 "INFO"）
-                - initial_capital: 初始资金（可选，默认 100000.0）
-                - start_date: 回测开始日期（可选）
-                - end_date: 回测结束日期（可选）
-                - cache_database: 缓存数据库配置（可选）
-                - streaming: 流式配置（可选）
-        """
         super().__init__(config)
 
-        # 核心组件（延迟导入避免启动时加载）
+        # axon-quant BacktestEngine 实例
         self._engine: Optional[Any] = None
-        self._engine_config: Optional[Any] = None
 
         # 交易所和品种管理
-        self._venues: Dict[str, Any] = {}
-        self._instruments: Dict[str, Any] = {}
-        self._bar_types: Dict[str, Any] = {}
+        self._venue_name: str = "BINANCE"
+        self._instruments: Dict[str, Dict] = {}
 
         # 策略和数据管理
         self._strategies: List[Any] = []
-        self._data: List[Any] = []
+        self._dataframes: Dict[str, pd.DataFrame] = {}
 
         # 回测结果缓存
         self._backtest_result: Optional[Any] = None
+
+        # 订单 ID 计数器（用于生成唯一订单 ID）
+        self._order_id_counter: int = 0
+
+        # 累计统计
+        self._total_fills: int = 0
+        self._total_events: int = 0
 
         logger.debug("事件驱动回测引擎实例已创建")
 
     @property
     def engine_type(self) -> EngineType:
-        """
-        引擎类型属性
-
-        Returns:
-            EngineType: 返回 EngineType.EVENT_DRIVEN
-        """
         return EngineType.EVENT_DRIVEN
 
     @property
     def engine(self) -> Optional[Any]:
-        """
-        获取底层引擎实例
-
-        Returns:
-            Optional[Any]: 引擎实例，如果未初始化则返回 None
-        """
+        """获取底层 BacktestEngine 实例"""
         return self._engine
 
     def initialize(self) -> None:
         """
         初始化回测引擎
 
-        执行引擎启动前的准备工作，包括:
-        - 验证配置有效性
-        - 创建引擎配置
-        - 初始化核心引擎
-
-        Raises:
-            RuntimeError: 初始化失败时抛出
-            ValueError: 配置参数无效时抛出
+        通过 axon_bridge 适配层创建并配置 BacktestEngine 实例。
+        配置包括初始资金、种子流动性、自动再平衡等。
         """
         try:
             logger.info("开始初始化事件驱动回测引擎...")
 
-            # 验证配置
             if not self._validate_config():
                 raise ValueError("引擎配置验证失败")
 
-            # 创建引擎配置
-            self._setup_engine_config()
+            from axon_bridge import create_backtest_engine, EngineConfig
 
-            # 延迟导入底层实现
-            from nautilus_trader.backtest.engine import BacktestEngine
-            self._engine = BacktestEngine(config=self._engine_config)
+            initial_capital = float(self._config.get("initial_capital", 100000.0))
+            half_spread = float(self._config.get("half_spread", 0.01))
+            depth_levels = int(self._config.get("depth_levels", 5))
+            size_per_level = float(self._config.get("size_per_level", 1.0))
+            auto_rebalance_threshold = float(
+                self._config.get("auto_rebalance_threshold", 0.01)
+            )
 
+            bridge_config = EngineConfig(
+                initial_cash=initial_capital,
+                half_spread=half_spread,
+                depth_levels=depth_levels,
+                size_per_level=size_per_level,
+                auto_rebalance_threshold=auto_rebalance_threshold,
+            )
+
+            self._engine = create_backtest_engine(bridge_config)
             self._is_initialized = True
-            logger.info("事件驱动回测引擎初始化完成")
+
+            logger.info(
+                f"事件驱动回测引擎初始化完成 (initial_capital={initial_capital})"
+            )
 
         except Exception as e:
             logger.error(f"事件驱动回测引擎初始化失败: {e}")
             raise RuntimeError(f"引擎初始化失败: {e}") from e
-
-    def _setup_engine_config(self) -> None:
-        """
-        设置引擎配置
-
-        创建引擎配置，配置回测引擎的核心参数，包括:
-        - 交易者ID
-        - 日志配置（禁用 PyO3 日志避免重复初始化 panic）
-        - 缓存数据库配置（可选）
-        - 流式配置（可选）
-        """
-        import os
-
-        # 延迟导入底层实现
-        from nautilus_trader.config import BacktestEngineConfig, LoggingConfig
-        from nautilus_trader.model import TraderId
-
-        # 获取配置参数
-        trader_id_str = self._config.get("trader_id", "BACKTEST-001")
-        log_level = self._config.get("log_level", "WARNING")
-
-        # 创建日志配置：禁用 use_pyo3 避免 Rust 日志系统重复初始化 panic
-        # 参考: https://blog.gitcode.com/b5893efea7062a911d655a93cd54ded5.html
-        logging_config = LoggingConfig(
-            log_level=log_level,
-            use_pyo3=False,  # 关键：禁用 PyO3 日志后端，避免重复初始化崩溃
-        )
-
-        # 创建引擎配置
-        self._engine_config = BacktestEngineConfig(
-            trader_id=TraderId(trader_id_str),
-            logging=logging_config,
-        )
-        logger.debug(f"引擎配置已创建: trader_id={trader_id_str}, log_level={log_level}")
 
     def add_venue(
         self,
@@ -191,143 +153,74 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         account_type: Any = None,
         starting_capital: float = 100000.0,
         base_currency: str = "USD",
-        default_leverage: Decimal = Decimal(1),
-    ) -> Any:
+        default_leverage: Any = None,
+    ) -> str:
         """
-        添加交易所配置
+        添加交易所配置（兼容接口）
 
-        向回测引擎添加一个模拟交易所，配置交易环境参数。
+        axon-quant 中交易所概念已简化为撮合引擎配置，
+        此方法保留用于向后兼容。
 
         Args:
-            venue_name: 交易所名称（如 "SIM", "XCME", "NYSE" 等）
-            oms_type: 订单管理系统类型（默认 NETTING）
-            account_type: 账户类型（默认 MARGIN）
-            starting_capital: 初始资金（默认 100000.0）
-            base_currency: 基础货币代码（默认 "USD"）
-            default_leverage: 默认杠杆倍数（默认 1，表示无杠杆）
+            venue_name: 交易所名称
+            oms_type: 未使用（兼容接口）
+            account_type: 未使用（兼容接口）
+            starting_capital: 初始资金
+            base_currency: 基础货币代码
+            default_leverage: 默认杠杆倍数
 
         Returns:
-            Any: 创建的交易所标识符
-
-        Raises:
-            RuntimeError: 引擎未初始化时抛出
-            ValueError: 交易所名称无效时抛出
+            str: 交易所名称
         """
-        if not self._is_initialized or not self._engine:
+        if not self._is_initialized:
             raise RuntimeError("引擎未初始化，请先调用 initialize()")
 
-        if not venue_name:
-            raise ValueError("交易所名称不能为空")
+        self._venue_name = venue_name
+        logger.debug(f"交易所已配置: {venue_name}")
+        return venue_name
 
-        try:
-            # 延迟导入底层实现
-            from nautilus_trader.model import Venue
-            from nautilus_trader.model.enums import AccountType, OmsType
-            from nautilus_trader.model.objects import Currency, Money
-
-            # 使用默认值
-            if oms_type is None:
-                oms_type = OmsType.NETTING
-            if account_type is None:
-                account_type = AccountType.MARGIN
-
-            # 创建交易所标识符
-            venue = Venue(venue_name)
-
-            # 创建初始资金
-            currency = Currency.from_str(base_currency)
-            starting_balances = [Money(starting_capital, currency)]
-
-            # 添加交易所到引擎
-            self._engine.add_venue(
-                venue=venue,
-                oms_type=oms_type,
-                account_type=account_type,
-                starting_balances=starting_balances,
-                base_currency=currency,
-                default_leverage=default_leverage,
-            )
-
-            # 缓存交易所
-            self._venues[venue_name] = venue
-
-            logger.debug(f"交易所已添加: {venue_name}, 初始资金: {starting_capital} {base_currency}")
-            return venue
-
-        except Exception as e:
-            logger.error(f"添加交易所失败: {e}")
-            raise RuntimeError(f"添加交易所失败: {e}") from e
-
-    def add_instrument(self, instrument: Any) -> None:
+    def add_instrument(self, instrument: Dict[str, Any]) -> None:
         """
         添加交易品种
 
-        向回测引擎添加一个交易品种定义。
-
         Args:
-            instrument: 交易品种定义对象
-
-        Raises:
-            RuntimeError: 引擎未初始化时抛出
-            ValueError: 交易品种无效时抛出
+            instrument: 品种字典（由 axon_bridge.create_spot_instrument 创建）
         """
-        if not self._is_initialized or not self._engine:
+        if not self._is_initialized:
             raise RuntimeError("引擎未初始化，请先调用 initialize()")
 
         if not instrument:
             raise ValueError("交易品种不能为空")
 
-        try:
-            # 添加交易品种到引擎
-            self._engine.add_instrument(instrument)
-
-            # 缓存交易品种
-            instrument_id_str = str(instrument.id)
-            self._instruments[instrument_id_str] = instrument
-
-            logger.debug(f"交易品种已添加: {instrument_id_str}")
-
-        except Exception as e:
-            logger.error(f"添加交易品种失败: {e}")
-            raise RuntimeError(f"添加交易品种失败: {e}") from e
+        instrument_id = self._instrument_id_from_dict(instrument)
+        self._instruments[instrument_id] = instrument
+        logger.debug(f"交易品种已添加: {instrument_id}")
 
     def load_data_from_csv(
         self,
         csv_path: Union[str, Path],
-        bar_type: Any,
-        instrument: Any,
+        instrument: Dict[str, Any],
         timestamp_column: str = "timestamp",
         timestamp_format: str = "%Y-%m-%d %H:%M:%S",
         columns_mapping: Optional[Dict[str, str]] = None,
         sep: str = ";",
         decimal: str = ".",
-    ) -> List[Any]:
+    ) -> pd.DataFrame:
         """
         从 CSV 文件加载 K 线数据
 
-        读取 CSV 文件，将数据转换为内部 Bar 对象，并添加到引擎。
-
         Args:
             csv_path: CSV 文件路径
-            bar_type: K 线类型定义
-            instrument: 交易品种定义
-            timestamp_column: 时间戳列名（默认 "timestamp"）
-            timestamp_format: 时间戳格式（默认 "%Y-%m-%d %H:%M:%S"）
+            instrument: 品种字典
+            timestamp_column: 时间戳列名
+            timestamp_format: 时间戳格式
             columns_mapping: 列名映射字典
-            sep: CSV 分隔符（默认 ";"）
-            decimal: 小数点符号（默认 "."）
+            sep: CSV 分隔符
+            decimal: 小数点符号
 
         Returns:
-            List[Any]: 加载的 K 线数据列表
-
-        Raises:
-            RuntimeError: 引擎未初始化时抛出
-            FileNotFoundError: CSV 文件不存在时抛出
-            ValueError: 数据格式无效时抛出
+            pd.DataFrame: 加载的 K 线数据
         """
-        if not self._is_initialized or not self._engine:
-            raise RuntimeError("引擎未初始化，请先调用 initialize()")
-
         csv_path = Path(csv_path)
         if not csv_path.exists():
             raise FileNotFoundError(f"CSV 文件不存在: {csv_path}")
@@ -335,44 +228,30 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         try:
             logger.info(f"开始从 CSV 加载数据: {csv_path}")
 
-            # 延迟导入底层实现
-            from nautilus_trader.persistence.wranglers import BarDataWrangler
-
-            # 读取 CSV 文件
             df = pd.read_csv(csv_path, sep=sep, decimal=decimal, header=0, index_col=False)
 
-            # 应用列名映射
             if columns_mapping:
                 df = df.rename(columns=columns_mapping)
 
-            # 处理时间戳列
             if timestamp_column in df.columns:
-                df[timestamp_column] = pd.to_datetime(df[timestamp_column], format=timestamp_format)
+                df[timestamp_column] = pd.to_datetime(
+                    df[timestamp_column], format=timestamp_format
+                )
                 df = df.rename(columns={timestamp_column: "timestamp"})
 
-            # 设置时间戳为索引
             if "timestamp" in df.columns:
                 df = df.set_index("timestamp")
 
-            # 确保必需的列存在
             for col in ["open", "high", "low", "close"]:
                 if col not in df.columns:
                     raise ValueError(f"CSV 文件缺少必需的列: {col}")
 
-            # 使用数据处理器转换数据
-            wrangler = BarDataWrangler(bar_type, instrument)
-            bars: List[Any] = wrangler.process(df)
+            instrument_id = self._instrument_id_from_dict(instrument)
+            self._dataframes[instrument_id] = df
+            self._instruments[instrument_id] = instrument
 
-            # 添加数据到引擎
-            self._engine.add_data(bars)
-            self._data.extend(bars)
-
-            # 缓存 BarType
-            bar_type_str = str(bar_type)
-            self._bar_types[bar_type_str] = bar_type
-
-            logger.info(f"CSV 数据加载完成: {len(bars)} 条 K 线")
-            return bars
+            logger.info(f"CSV 数据加载完成: {len(df)} 条 K 线")
+            return df
 
         except Exception as e:
             logger.error(f"从 CSV 加载数据失败: {e}")
@@ -381,32 +260,20 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
     def load_data_from_parquet(
         self,
         parquet_path: Union[str, Path],
-        bar_type: Any,
-        instrument: Any,
+        instrument: Dict[str, Any],
         timestamp_column: str = "timestamp",
-    ) -> List[Any]:
+    ) -> pd.DataFrame:
         """
         从 Parquet 文件加载 K 线数据
 
-        读取 Parquet 文件，将数据转换为内部 Bar 对象，并添加到引擎。
-
         Args:
             parquet_path: Parquet 文件路径
-            bar_type: K 线类型定义
-            instrument: 交易品种定义
-            timestamp_column: 时间戳列名（默认 "timestamp"）
+            instrument: 品种字典
+            timestamp_column: 时间戳列名
 
         Returns:
-            List[Any]: 加载的 K 线数据列表
-
-        Raises:
-            RuntimeError: 引擎未初始化时抛出
-            FileNotFoundError: Parquet 文件不存在时抛出
-            ValueError: 数据格式无效时抛出
+            pd.DataFrame: 加载的 K 线数据
         """
-        if not self._is_initialized or not self._engine:
-            raise RuntimeError("引擎未初始化，请先调用 initialize()")
-
         parquet_path = Path(parquet_path)
         if not parquet_path.exists():
             raise FileNotFoundError(f"Parquet 文件不存在: {parquet_path}")
@@ -414,40 +281,25 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         try:
             logger.info(f"开始从 Parquet 加载数据: {parquet_path}")
 
-            # 延迟导入底层实现
-            from nautilus_trader.persistence.wranglers import BarDataWrangler
-
-            # 读取 Parquet 文件
             df = pd.read_parquet(parquet_path)
 
-            # 处理时间戳列
             if timestamp_column in df.columns:
                 df[timestamp_column] = pd.to_datetime(df[timestamp_column])
                 df = df.rename(columns={timestamp_column: "timestamp"})
 
-            # 设置时间戳为索引
             if "timestamp" in df.columns:
                 df = df.set_index("timestamp")
 
-            # 确保必需的列存在
             for col in ["open", "high", "low", "close"]:
                 if col not in df.columns:
                     raise ValueError(f"Parquet 文件缺少必需的列: {col}")
 
-            # 使用数据处理器转换数据
-            wrangler = BarDataWrangler(bar_type, instrument)
-            bars: List[Any] = wrangler.process(df)
+            instrument_id = self._instrument_id_from_dict(instrument)
+            self._dataframes[instrument_id] = df
+            self._instruments[instrument_id] = instrument
 
-            # 添加数据到引擎
-            self._engine.add_data(bars)
-            self._data.extend(bars)
-
-            # 缓存 BarType
-            bar_type_str = str(bar_type)
-            self._bar_types[bar_type_str] = bar_type
-
-            logger.info(f"Parquet 数据加载完成: {len(bars)} 条 K 线")
-            return bars
+            logger.info(f"Parquet 数据加载完成: {len(df)} 条 K 线")
+            return df
 
         except Exception as e:
             logger.error(f"从 Parquet 加载数据失败: {e}")
@@ -457,149 +309,212 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         """
         添加策略到引擎
 
-        将交易策略添加到回测引擎中。
+        将引擎引用注入到策略中，使策略可以通过 submit_order() 方法提交订单。
 
         Args:
-            strategy: 策略实例
-
-        Raises:
-            RuntimeError: 引擎未初始化时抛出
-            ValueError: 策略无效时抛出
+            strategy: EventDrivenStrategy 实例
         """
-        if not self._is_initialized or not self._engine:
+        if not self._is_initialized:
             raise RuntimeError("引擎未初始化，请先调用 initialize()")
 
         if not strategy:
             raise ValueError("策略不能为空")
 
         try:
-            # 检查策略是否有底层实现（EventDrivenStrategy包装器）
-            if hasattr(strategy, '_get_strategy_impl'):
-                # 使用底层NautilusTrader策略实现
-                strategy_impl = strategy._get_strategy_impl()
-                self._engine.add_strategy(strategy_impl)
-                self._strategies.append(strategy_impl)
-                logger.debug(f"策略已添加: {strategy_impl.id}")
-            else:
-                # 直接使用策略
-                self._engine.add_strategy(strategy)
-                self._strategies.append(strategy)
-                logger.debug(f"策略已添加: {strategy.id}")
+            # 注入引擎引用
+            strategy._engine_ref = self
+            self._strategies.append(strategy)
+            logger.debug("策略已添加")
 
         except Exception as e:
             logger.error(f"添加策略失败: {e}")
             raise RuntimeError(f"添加策略失败: {e}") from e
 
+    def submit_order(
+        self,
+        order_dict: Dict[str, Any],
+        timestamp_ns: int,
+    ) -> None:
+        """
+        提交订单或取消事件到引擎
+
+        根据事件类型构建对应的事件字典，然后推送到 BacktestEngine 事件队列。
+        此方法供 EventDrivenStrategy 及其子类调用。
+
+        Args:
+            order_dict: 订单/事件字典
+            timestamp_ns: 事件时间戳（纳秒）
+        """
+        if not self._engine:
+            raise RuntimeError("引擎未初始化")
+
+        from axon_bridge import build_order_submitted_event
+
+        # 判断事件类型
+        event_type = order_dict.get('type', '')
+
+        if event_type == 'order_cancelled':
+            # 取消订单事件，已经是完整格式
+            event = order_dict
+        else:
+            # 普通订单，需要构建 submitted 事件
+            event = build_order_submitted_event(order_dict, timestamp_ns)
+
+        self._engine.push_event(event)
+
     def run_backtest(self) -> Dict[str, Any]:
         """
         运行回测
 
-        执行完整的回测流程，处理所有历史数据并生成交易记录。
+        逐根 K 线驱动引擎和策略:
+            1. 调用所有策略的 on_start()
+            2. 对每根 bar:
+                a. engine.begin_bar(price, instrument)
+                b. 调用所有策略的 on_bar(bar_data)
+                c. engine.step() 执行事件队列中的事件
+            3. 调用所有策略的 on_stop()
+            4. 提取回测结果
 
         Returns:
-            Dict[str, Any]: 回测结果字典，包含:
-                - trades: 交易记录列表
-                - equity_curve: 权益曲线
-                - metrics: 绩效指标
-                - positions: 持仓记录
-                - orders: 订单记录
-                - account: 账户记录
-
-        Raises:
-            RuntimeError: 引擎未初始化或未添加策略时抛出
+            Dict[str, Any]: 回测结果字典
         """
-        if not self._is_initialized or not self._engine:
+        if not self._is_initialized:
             raise RuntimeError("引擎未初始化，请先调用 initialize()")
 
         if not self._strategies:
             raise RuntimeError("未添加策略，请先调用 add_strategy()")
 
-        if not self._data:
+        if not self._dataframes:
             raise RuntimeError("未加载数据，请先调用 load_data_from_csv() 或 load_data_from_parquet()")
 
         try:
             logger.info("开始执行回测...")
 
-            # 运行回测
-            self._engine.run()
+            # 重置统计
+            self._total_fills = 0
+            self._total_events = 0
+            self._order_id_counter = 0
 
-            # 处理并返回结果
+            # 启动所有策略
+            for strategy in self._strategies:
+                strategy.on_start()
+
+            # 计算总 bar 数用于进度显示
+            total_bars = sum(len(df) for df in self._dataframes.values())
+            processed = 0
+
+            # 逐品种逐 bar 驱动
+            for instrument_id, df in self._dataframes.items():
+                instrument = self._instruments.get(instrument_id)
+                if instrument is None:
+                    logger.warning(f"跳过 {instrument_id}，品种未注册")
+                    continue
+
+                for idx in range(len(df)):
+                    row = df.iloc[idx]
+                    bar_close = float(row.get("close", 0))
+                    bar_open = float(row.get("open", 0))
+                    bar_high = float(row.get("high", 0))
+                    bar_low = float(row.get("low", 0))
+                    bar_volume = float(row.get("volume", 0))
+
+                    # 转换时间戳
+                    bar_ts = df.index[idx]
+                    from axon_bridge import to_ns_timestamp
+                    ts_ns = to_ns_timestamp(bar_ts)
+
+                    # 关键步骤 1: 通知引擎新 bar 开始
+                    self._engine.begin_bar(bar_close, instrument)
+
+                    # 构建 bar 数据字典
+                    bar = {
+                        "instrument_id": instrument_id,
+                        "open": bar_open,
+                        "high": bar_high,
+                        "low": bar_low,
+                        "close": bar_close,
+                        "volume": bar_volume,
+                        "timestamp": ts_ns,
+                        "datetime": bar_ts,
+                        "ts_event": ts_ns,
+                    }
+
+                    # 关键步骤 2: 通知策略处理 bar
+                    for strategy in self._strategies:
+                        strategy.on_bar(bar)
+
+                    # 关键步骤 3: 执行事件队列中的所有事件
+                    # 策略的 on_bar 可能通过 submit_order 推送了订单事件
+                    # 需要调用 step() 来撮合这些订单
+                    stats = self._engine.step()
+                    if stats:
+                        self._total_fills += getattr(stats, 'fills', 0)
+                        self._total_events += getattr(stats, 'events_processed', 0)
+
+                    processed += 1
+                    if processed % 1000 == 0:
+                        progress = (processed / total_bars) * 100
+                        logger.info(
+                            f"回测进度: {processed}/{total_bars} bars ({progress:.1f}%)"
+                        )
+
+            # 停止所有策略
+            for strategy in self._strategies:
+                strategy.on_stop()
+
+            # 获取最终结果
             results = self._process_results()
 
-            logger.info("回测执行完成")
+            logger.info(
+                f"回测执行完成: fills={self._total_fills}, "
+                f"events={self._total_events}"
+            )
             return results
 
         except Exception as e:
             logger.error(f"回测执行失败: {e}")
+            import traceback
+            logger.error(f"错误堆栈:\n{traceback.format_exc()}")
             raise RuntimeError(f"回测执行失败: {e}") from e
 
     def _process_results(self) -> Dict[str, Any]:
         """
-        处理回测结果
+        从 BacktestEngine 提取回测结果
 
-        将底层回测结果转换为内部标准格式。
+        调用 engine.run() 获取 RunResult，然后通过 axon_bridge 提取标准化结果。
 
         Returns:
-            Dict[str, Any]: 标准格式的回测结果
+            Dict[str, Any]: 标准化的回测结果
         """
         if not self._engine:
             return {}
 
         try:
-            # 获取交易报告
-            orders_df = self._engine.trader.generate_order_fills_report()
-            positions_df = self._engine.trader.generate_positions_report()
+            from axon_bridge import extract_run_result
 
-            # 获取账户报告（使用第一个添加的交易所）
-            account_df = None
-            account_obj = None
-            if self._venues:
-                first_venue = list(self._venues.values())[0]
-                account_df = self._engine.trader.generate_account_report(first_venue)
-                # 获取 Account 对象以提取更多信息
-                account_obj = self._engine.trader._cache.account_for_venue(first_venue)
+            # 确保引擎完成
+            if not self._engine.is_finished:
+                result = self._engine.run()
+            else:
+                result = self._engine.run()  # run() 可多次调用
 
-            # 调试输出：打印原始数据
-            logger.debug(f"订单数据列: {orders_df.columns.tolist() if orders_df is not None else 'None'}")
-            logger.debug(f"持仓数据列: {positions_df.columns.tolist() if positions_df is not None else 'None'}")
-            logger.debug(f"账户数据列: {account_df.columns.tolist() if account_df is not None else 'None'}")
+            if result is None:
+                logger.warning("引擎返回结果为空")
+                return {}
 
-            # 调试输出：打印前3行数据样本
-            if orders_df is not None and not orders_df.empty:
-                logger.debug(f"订单数据前3行:\n{orders_df.head(3).to_string()}")
-            if positions_df is not None and not positions_df.empty:
-                logger.debug(f"持仓数据前3行:\n{positions_df.head(3).to_string()}")
-            if account_df is not None and not account_df.empty:
-                logger.debug(f"账户数据前3行:\n{account_df.head(3).to_string()}")
+            # 使用适配层提取结果
+            raw_results = extract_run_result(result)
 
-            # 转换为标准格式
-            trades = self._convert_orders_to_trades(orders_df)
-            positions = self._convert_positions(positions_df)
-
-            # 建立 Trade-Position 关联映射
-            # 1. 创建 position_id -> position 的映射
-            position_map = {pos["position_id"]: pos for pos in positions}
-
-            # 2. 遍历 trades，建立双向关联
-            for trade in trades:
-                position_id = trade.get("position_id")
-                if position_id and position_id in position_map:
-                    position = position_map[position_id]
-                    # 确保 trade_id 在 position 的 trade_ids 列表中
-                    trade_id = trade.get("trade_id")
-                    if trade_id and trade_id not in position.get("trade_ids", []):
-                        position.setdefault("trade_ids", []).append(trade_id)
-
+            # 构建完整的结果字典
             results = {
-                "trades": trades,
-                "positions": positions,
-                "account": self._convert_account(account_df, account_obj),
-                "metrics": self._calculate_metrics(
-                    positions_df=positions_df,
-                    account_df=account_df,
-                    trade_count=len(trades) if trades else 0  # ✅ 传入实际交易次数
+                "trades": self._normalize_trades(raw_results.get("trades", [])),
+                "positions": self._normalize_positions(raw_results.get("positions", [])),
+                "equity_curve": self._normalize_equity_curve(
+                    raw_results.get("equity_curve", [])
                 ),
-                "equity_curve": self._build_equity_curve(account_df),
+                "account": self._build_account_info(raw_results),
+                "metrics": self._build_metrics(raw_results),
+                "_raw": raw_results,
             }
 
             self._results = results
@@ -607,681 +522,254 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         except Exception as e:
             logger.error(f"处理回测结果失败: {e}")
-            # 输出详细的错误上下文
             import traceback
             logger.error(f"错误堆栈:\n{traceback.format_exc()}")
-
-            # 尝试输出原始数据以便调试
-            try:
-                if self._engine:
-                    orders_df = self._engine.trader.generate_order_fills_report()
-                    if orders_df is not None and not orders_df.empty:
-                        logger.error(f"订单数据样本:\n{orders_df.head(3).to_string()}")
-                        logger.error(f"订单数据类型:\n{orders_df.dtypes.to_string()}")
-
-                    positions_df = self._engine.trader.generate_positions_report()
-                    if positions_df is not None and not positions_df.empty:
-                        logger.error(f"持仓数据样本:\n{positions_df.head(3).to_string()}")
-                        logger.error(f"持仓数据类型:\n{positions_df.dtypes.to_string()}")
-
-                    if self._venues:
-                        first_venue = list(self._venues.values())[0]
-                        account_df = self._engine.trader.generate_account_report(first_venue)
-                        if account_df is not None and not account_df.empty:
-                            logger.error(f"账户数据样本:\n{account_df.head(3).to_string()}")
-                            logger.error(f"账户数据类型:\n{account_df.dtypes.to_string()}")
-            except Exception as debug_e:
-                logger.error(f"输出调试信息时出错: {debug_e}")
-
             return {}
 
-    def _convert_orders_to_trades(self, orders_df: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
-        """
-        将订单数据转换为交易记录格式
-
-        Args:
-            orders_df: 订单 DataFrame
-
-        Returns:
-            List[Dict[str, Any]]: 交易记录列表
-        """
-        if orders_df is None or orders_df.empty:
-            return []
-
-        # 打印列名用于调试
-        logger.info(f"订单数据列名: {orders_df.columns.tolist()}")
-        logger.info(f"订单数据前3行:\n{orders_df.head(3).to_string()}")
-
+    def _normalize_trades(self, raw_trades: List) -> List[Dict[str, Any]]:
+        """标准化交易记录格式"""
         trades = []
-        for idx, row in orders_df.iterrows():
-            # 尝试多种可能的时间戳列名
-            ts = None
-            for ts_col in ["timestamp", "ts_init", "ts_event", "created_time", "order_time"]:
-                if ts_col in row.index and row.get(ts_col):
-                    ts = row.get(ts_col)
-                    break
-            if ts is None:
-                ts = ""
+        for i, trade in enumerate(raw_trades):
+            if isinstance(trade, dict):
+                ts = trade.get("ts", trade.get("timestamp", 0))
+                formatted_time = ""
+                timestamp_val = 0
 
-            # 解析时间戳 (NautilusTrader 使用纳秒时间戳)
-            formatted_time = ""
-            timestamp_val = 0
-            from datetime import datetime, timezone
-
-            if isinstance(ts, (int, float)) and ts > 0:
-                # 处理纳秒/毫秒时间戳
-                # NautilusTrader 使用纳秒时间戳 (19位)
-                if ts > 1e18:  # 纳秒时间戳
-                    ts_sec = int(ts / 1e9)
-                elif ts > 1e12:  # 毫秒时间戳
-                    ts_sec = int(ts / 1000)
-                else:  # 秒时间戳
-                    ts_sec = int(ts)
-                dt = datetime.fromtimestamp(ts_sec, tz=timezone.utc)
-                formatted_time = dt.strftime('%Y-%m-%d %H:%M:%S')
-                timestamp_val = ts_sec
-            elif isinstance(ts, str) and ts:
-                try:
-                    dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                    formatted_time = dt.strftime('%Y-%m-%d %H:%M:%S')
-                    timestamp_val = int(dt.timestamp())
-                except:
-                    formatted_time = ts
-            elif ts and not isinstance(ts, (int, float)) and hasattr(ts, 'strftime') and hasattr(ts, 'timestamp'):
-                # pandas Timestamp or datetime object
-                formatted_time = ts.strftime('%Y-%m-%d %H:%M:%S')
-                timestamp_val = int(ts.timestamp())
-
-            # 尝试多种可能的价格列名
-            price = 0.0
-            for price_col in ["avg_price", "price", "fill_price", "last_price", "avg_px"]:
-                if price_col in row.index:
-                    val = row.get(price_col)
-                    if val and safe_float(val) > 0:
-                        price = safe_float(val)
-                        break
-
-            # 尝试多种可能的数量列名
-            quantity = 0.0
-            for qty_col in ["quantity", "filled_qty", "last_qty", "qty"]:
-                if qty_col in row.index:
-                    val = row.get(qty_col)
-                    if val and safe_float(val) > 0:
-                        quantity = safe_float(val)
-                        break
-
-            # 确定方向
-            side = ""
-            for side_col in ["side", "order_side"]:
-                if side_col in row.index and row.get(side_col):
-                    side = str(row.get(side_col)).upper()
-                    break
-            direction = "买入" if side == "BUY" else "卖出" if side == "SELL" else side
-
-            # 尝试多种可能的状态列名
-            status = "filled"
-            for status_col in ["status", "order_status", "state"]:
-                if status_col in row.index and row.get(status_col):
-                    status = str(row.get(status_col))
-                    break
-
-            # ✅ 提取 NautilusTrader 原生 ID
-            trade_id = str(row.get("trade_id", row.get("id", idx)))
-            client_order_id = str(row.get("client_order_id", row.get("order_id", "")))
-            venue_order_id = str(row.get("venue_order_id", ""))
-            position_id = str(row.get("position_id", ""))
-            commission = str(row.get("commission", row.get("commissions", "0")))
-
-            # ✅ 提取品种标识（支持多种列名格式）
-            instrument_id = ""
-            for inst_col in ["instrument_id", "InstrumentID", "instrument", "symbol", "Symbol"]:
-                if inst_col in row.index and row.get(inst_col):
-                    val = str(row.get(inst_col))
-                    # 标准化格式：ETHUSDT.BINANCE 或 ETH/USDT -> ETHUSDT
-                    if "." in val:
-                        # 移除交易所后缀：ETHUSDT.BINANCE -> ETHUSDT
-                        instrument_id = val.split(".")[0]
-                    elif "/" in val:
-                        instrument_id = val.replace("/", "")
+                if isinstance(ts, (int, float)) and ts > 0:
+                    if ts > 1e18:
+                        ts_sec = int(ts / 1e9)
+                    elif ts > 1e12:
+                        ts_sec = int(ts / 1000)
                     else:
-                        instrument_id = val
-                    break
+                        ts_sec = int(ts)
+                    try:
+                        dt = datetime.fromtimestamp(ts_sec, tz=timezone.utc)
+                        formatted_time = dt.strftime('%Y-%m-%d %H:%M:%S')
+                    except (ValueError, OSError):
+                        formatted_time = str(ts)
+                    timestamp_val = ts_sec
 
-            trade = {
-                "trade_id": trade_id,
-                "client_order_id": client_order_id,
-                "venue_order_id": venue_order_id,
-                "position_id": position_id,
-                "symbol": instrument_id,  # ✅ 使用标准化的品种标识
-                "side": side,
-                "direction": direction,
-                "quantity": quantity,
-                "price": price,
-                "volume": quantity * price,
-                "commission": commission,
-                "timestamp": timestamp_val,
-                "formatted_time": formatted_time,
-                "status": status,
-            }
-            trades.append(trade)
+                price = _safe_float(trade.get("price", trade.get("avg_px", 0)))
+                quantity = _safe_float(trade.get("quantity", trade.get("qty", 0)))
+                side = str(trade.get("side", "")).upper()
+                direction = "买入" if side in ("BUY", "0") else "卖出" if side in ("SELL", "1") else side
+                status = str(trade.get("status", "filled"))
+                trade_id = str(trade.get("trade_id", trade.get("id", f"trade_{i}")))
+                order_id = str(trade.get("order_id", trade.get("client_order_id", "")))
+                instrument_id = str(trade.get("instrument_id", trade.get("symbol", "")))
+                commission = str(trade.get("commission", trade.get("fees", "0")))
 
+                trades.append({
+                    "trade_id": trade_id,
+                    "client_order_id": order_id,
+                    "venue_order_id": "",
+                    "position_id": str(trade.get("position_id", "")),
+                    "symbol": instrument_id,
+                    "side": side,
+                    "direction": direction,
+                    "quantity": quantity,
+                    "price": price,
+                    "volume": quantity * price,
+                    "commission": commission,
+                    "timestamp": timestamp_val,
+                    "formatted_time": formatted_time,
+                    "status": status,
+                })
         return trades
 
-    def _convert_positions(self, positions_df: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
-        """
-        将持仓数据转换为标准格式
-
-        Args:
-            positions_df: 持仓 DataFrame
-
-        Returns:
-            List[Dict[str, Any]]: 持仓记录列表
-        """
-        if positions_df is None or positions_df.empty:
-            return []
-
+    def _normalize_positions(self, raw_positions: List) -> List[Dict[str, Any]]:
+        """标准化持仓记录格式"""
         positions = []
-        for idx, row in positions_df.iterrows():
-            # 尝试多种可能的position_id列名
-            pos_id = ""
-            for id_col in ["position_id", "id", "pos_id"]:
-                if id_col in row.index and row.get(id_col):
-                    pos_id = str(row.get(id_col))
-                    break
-            if not pos_id:
-                pos_id = f"POS_{idx}"
+        for pos in raw_positions:
+            if isinstance(pos, dict):
+                pos_id = str(pos.get("position_id", pos.get("id", "")))
+                if not pos_id:
+                    pos_id = f"POS_{len(positions)}"
 
-            # 提取 NautilusTrader 原生 ID 和属性
-            # opening_order_id: 开仓订单ID
-            opening_order_id = str(row.get("opening_order_id", ""))
-            # closing_order_id: 平仓订单ID
-            closing_order_id = str(row.get("closing_order_id", ""))
-            # trade_ids: 关联的所有 trade IDs（逗号分隔的字符串或列表）
-            trade_ids_raw = row.get("trade_ids", row.get("fills", ""))
-            if isinstance(trade_ids_raw, str) and trade_ids_raw:
-                trade_ids = [tid.strip() for tid in trade_ids_raw.split(",") if tid.strip()]
-            elif isinstance(trade_ids_raw, list):
-                trade_ids = [str(tid) for tid in trade_ids_raw]
-            else:
-                trade_ids = []
+                instrument_id = str(pos.get("instrument_id", pos.get("symbol", "")))
+                quantity = _safe_float(pos.get("quantity", pos.get("qty", 0)))
+                avg_px = _safe_float(pos.get("avg_price", pos.get("avg_px", 0)))
+                realized_pnl = str(pos.get("realized_pnl", "0"))
 
-            # 提取时间戳（纳秒）
-            ts_opened = row.get("ts_opened", 0)
-            ts_closed = row.get("ts_closed", 0)
-            duration_ns = row.get("duration_ns", 0)
-
-            # 提取交易量信息
-            # quantity: 当前持仓量（平仓后为0）
-            current_qty = safe_float(row.get("quantity", row.get("pos_qty", 0)), "quantity")
-            # peak_qty: 最大持仓量（实际交易量）
-            peak_qty = safe_float(row.get("peak_qty", row.get("max_quantity", current_qty)), "peak_qty")
-            # signed_qty: 有符号数量
-            signed_qty = safe_float(row.get("signed_qty", row.get("signed_quantity", current_qty)), "signed_qty")
-
-            # ✅ 提取品种标识（支持多种列名格式，与 trades 保持一致）
-            position_instrument_id = ""
-            for inst_col in ["instrument_id", "InstrumentID", "instrument", "symbol", "Symbol"]:
-                if inst_col in row.index and row.get(inst_col):
-                    val = str(row.get(inst_col))
-                    # 标准化格式：ETHUSDT.BINANCE 或 ETH/USDT -> ETHUSDT
-                    if "." in val:
-                        position_instrument_id = val.split(".")[0]
-                    elif "/" in val:
-                        position_instrument_id = val.replace("/", "")
-                    else:
-                        position_instrument_id = val
-                    break
-
-            position = {
-                "position_id": pos_id,
-                "symbol": position_instrument_id,  # ✅ 使用标准化的品种标识
-                "side": str(row.get("side", row.get("position_side", ""))),
-                "quantity": current_qty,  # 当前持仓量（平仓后为0）
-                "trade_quantity": peak_qty,  # 实际交易量（使用 peak_qty）
-                "signed_quantity": signed_qty,  # 有符号数量
-                "avg_px_open": safe_float(row.get("avg_px_open", row.get("avg_price", 0)), "avg_px_open"),
-                "avg_px_close": safe_float(row.get("avg_px_close", row.get("close_price", 0)), "avg_px_close"),
-                "realized_pnl": str(row.get("realized_pnl", "0")),  # 保留字符串格式
-                "opening_order_id": opening_order_id,
-                "closing_order_id": closing_order_id,
-                "trade_ids": trade_ids,
-                "ts_opened": ts_opened,
-                "ts_closed": ts_closed,
-                "duration_ns": duration_ns,
-            }
-            positions.append(position)
-
+                positions.append({
+                    "position_id": pos_id,
+                    "symbol": instrument_id,
+                    "side": str(pos.get("side", "")),
+                    "quantity": quantity,
+                    "trade_quantity": abs(quantity),
+                    "signed_quantity": quantity,
+                    "avg_px_open": avg_px,
+                    "avg_px_close": avg_px,
+                    "realized_pnl": realized_pnl,
+                    "opening_order_id": str(pos.get("opening_order_id", "")),
+                    "closing_order_id": str(pos.get("closing_order_id", "")),
+                    "trade_ids": [],
+                    "ts_opened": pos.get("ts_opened", 0),
+                    "ts_closed": pos.get("ts_closed", 0),
+                    "duration_ns": pos.get("duration_ns", 0),
+                })
         return positions
 
-    def _convert_account(self, account_df: Optional[pd.DataFrame], account_obj=None) -> Dict[str, Any]:
-        """
-        将账户数据转换为标准格式，包含丰富的账户信息
-
-        Args:
-            account_df: 账户 DataFrame
-            account_obj: NautilusTrader Account 对象（可选）
-
-        Returns:
-            Dict[str, Any]: 账户信息字典
-        """
-        if account_df is None or account_df.empty:
-            return {}
-
-        # 从 DataFrame 计算统计数据
-        # total 列包含权益曲线数据
-        total_series = account_df.get("total", account_df.get("equity", pd.Series()))
-        free_series = account_df.get("free", account_df.get("balance", pd.Series()))
-        locked_series = account_df.get("locked", account_df.get("margin", pd.Series(dtype=float)))
-
-        # 计算统计数据
-        initial_balance = safe_float(total_series.iloc[0]) if len(total_series) > 0 else 0.0
-        final_balance = safe_float(total_series.iloc[-1]) if len(total_series) > 0 else 0.0
-        max_balance = safe_float(total_series.max()) if len(total_series) > 0 else 0.0
-        min_balance = safe_float(total_series.min()) if len(total_series) > 0 else 0.0
-
-        # 获取最后一行作为最终账户状态
-        last_row = account_df.iloc[-1]
-
-        # 构建基础账户信息
-        account_info = {
-            # 基础信息
-            "balance": safe_float(free_series.iloc[-1] if len(free_series) > 0 else 0),
-            "margin": safe_float(locked_series.iloc[-1] if len(locked_series) > 0 else 0),
-            "equity": safe_float(final_balance),
-
-            # 统计数据
-            "initial_balance": initial_balance,
-            "final_balance": final_balance,
-            "max_balance": max_balance,
-            "min_balance": min_balance,
-            "peak_equity": max_balance,
-            "trough_equity": min_balance,
-        }
-
-        # 如果提供了 Account 对象，提取更多信息
-        if account_obj is not None:
-            try:
-                # 基础属性
-                account_info["id"] = str(account_obj.id) if hasattr(account_obj, 'id') else ""
-                account_info["type"] = str(account_obj.type) if hasattr(account_obj, 'type') else ""
-                account_info["base_currency"] = str(account_obj.base_currency) if hasattr(account_obj, 'base_currency') and account_obj.base_currency else ""
-
-                # 事件计数
-                if hasattr(account_obj, 'event_count'):
-                    account_info["event_count"] = account_obj.event_count
-
-                # 起始余额
-                if hasattr(account_obj, 'starting_balances'):
-                    try:
-                        starting_balances = account_obj.starting_balances()
-                        if starting_balances:
-                            # 获取基础货币的起始余额
-                            base_currency = account_obj.base_currency
-                            if base_currency and base_currency in starting_balances:
-                                account_info["starting_balance"] = float(starting_balances[base_currency])
-                            else:
-                                # 使用第一个可用货币
-                                first_currency = list(starting_balances.keys())[0]
-                                account_info["starting_balance"] = float(starting_balances[first_currency])
-                    except Exception as e:
-                        logger.debug(f"获取起始余额失败: {e}")
-
-                # 手续费
-                if hasattr(account_obj, 'commissions'):
-                    try:
-                        commissions = account_obj.commissions()
-                        total_commission = sum(float(money) for money in commissions.values()) if commissions else 0.0
-                        account_info["total_commissions"] = total_commission
-                    except Exception as e:
-                        logger.debug(f"获取手续费失败: {e}")
-
-            except Exception as e:
-                logger.warning(f"提取 Account 对象信息失败: {e}")
-
-        return account_info
-
-    def _calculate_metrics(
-        self,
-        positions_df: Optional[pd.DataFrame],
-        account_df: Optional[pd.DataFrame],
-        trade_count: int = 0,  # ✅ 新增：实际交易次数
-    ) -> Dict[str, Any]:
-        """
-        计算绩效指标（支持传入实际交易次数）
-
-        Args:
-            positions_df: 持仓 DataFrame
-            account_df: 账户 DataFrame
-            trade_count: 实际交易次数（可选，默认为0）
-
-        Returns:
-            Dict[str, Any]: 绩效指标字典（包含完整的投资组合统计信息）
-        """
-        # 从账户数据提取初始/最终权益
-        initial_equity = 0.0
-        final_equity = 0.0
-        total_fees = 0.0
-
-        if account_df is not None and not account_df.empty:
-            # NautilusTrader 账户报告使用 total 列表示总权益
-            total_series = account_df.get("total", account_df.get("equity", pd.Series()))
-            if len(total_series) > 0:
-                initial_equity = safe_float(total_series.iloc[0])
-                final_equity = safe_float(total_series.iloc[-1])
-
-            # 尝试从账户对象获取手续费信息
-            if self._venues:
-                try:
-                    first_venue = list(self._venues.values())[0]
-                    account_obj = self._engine.trader._cache.account_for_venue(first_venue)
-                    if account_obj and hasattr(account_obj, 'commissions'):
-                        commissions = account_obj.commissions()
-                        if commissions:
-                            total_fees = sum(float(money) for money in commissions.values())
-                except Exception as e:
-                    logger.debug(f"获取手续费信息失败: {e}")
-
-        # 如果没有持仓数据，返回基础账户信息
-        if positions_df is None or positions_df.empty:
-            return {
-                "total_return": 0.0,
-                "sharpe_ratio": 0.0,
-                "max_drawdown": 0.0,
-                "win_rate": 0.0,
-                "profit_factor": 0.0,
-                "total_trades": 0,
-                # 投资组合关键字段：保留8位小数精度
-                "initial_equity": round(initial_equity, 8),
-                "final_equity": round(final_equity, 8),
-                "total_fees": round(total_fees, 8),
-            }
-
-        # 提取 PnL 数值
-        pnls = []
-        for _, row in positions_df.iterrows():
-            pnl_raw = row.get("realized_pnl", "0")
-            if isinstance(pnl_raw, str):
-                import re
-                match = re.match(r'^([+-]?\d+\.?\d*)', pnl_raw.strip())
-                if match:
-                    try:
-                        pnl = float(match.group(1))
-                    except ValueError:
-                        logger.warning(f"无法转换 realized_pnl 数值: {pnl_raw}")
-                        pnl = 0.0
-                else:
-                    pnl = 0.0
-            else:
-                try:
-                    pnl = float(pnl_raw) if pnl_raw is not None else 0.0
-                except (ValueError, TypeError):
-                    pnl = 0.0
-            pnls.append(pnl)
-
-        pnls = [p for p in pnls if p != 0]
-
-        if not pnls:
-            return {
-                "total_return": 0.0,
-                "sharpe_ratio": 0.0,
-                "max_drawdown": 0.0,
-                "win_rate": 0.0,
-                "profit_factor": 0.0,
-                "total_trades": 0,
-                # 投资组合关键字段：保留8位小数精度
-                "initial_equity": round(initial_equity, 8),
-                "final_equity": round(final_equity, 8),
-                "total_fees": round(total_fees, 8),
-            }
-
-        winning_trades = [p for p in pnls if p > 0]
-        losing_trades = [p for p in pnls if p < 0]
-
-        total_pnl = sum(pnls)
-        win_rate = len(winning_trades) / len(pnls) * 100 if pnls else 0
-
-        profit_factor = 0.0
-        if losing_trades:
-            gross_profit = sum(winning_trades) if winning_trades else 0
-            gross_loss = abs(sum(losing_trades))
-            profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0.0
-
-        # 计算总收益率（基于实际权益变化）
-        if initial_equity > 0:
-            total_return = ((final_equity - initial_equity) / initial_equity) * 100
-        else:
-            initial_capital = self._config.get("initial_capital", 100000.0)
-            total_return = (total_pnl / initial_capital) * 100 if initial_capital > 0 else 0.0
-
-        # 计算夏普比率 (使用权益曲线数据)
-        sharpe_ratio = 0.0
-        max_drawdown = 0.0
-        if account_df is not None and not account_df.empty:
-            equity_curve = self._build_equity_curve(account_df)
-            if equity_curve:
-                equities = [point.get("equity", 0) for point in equity_curve]
-
-                if len(equities) > 1:
-                    returns = []
-                    for i in range(1, len(equities)):
-                        if equities[i-1] > 0:
-                            ret = (equities[i] - equities[i-1]) / equities[i-1]
-                            returns.append(ret)
-
-                    if len(returns) > 1:
-                        import numpy as np
-                        avg_return = np.mean(returns)
-                        std_return = np.std(returns, ddof=1)
-                        periods_per_year = 252 * 24  # 假设15分钟K线，每年252个交易日，每天24小时
-                        if std_return > 0:
-                            sharpe_ratio = (avg_return / std_return) * np.sqrt(periods_per_year)
-
-                    # 计算最大回撤
-                    peak = equities[0]
-                    for equity in equities:
-                        if equity > peak:
-                            peak = equity
-                        drawdown = (peak - equity) / peak if peak > 0 else 0
-                        if drawdown > max_drawdown:
-                            max_drawdown = drawdown
-                    max_drawdown = max_drawdown * 100  # 转换为百分比
-
-        return {
-            "total_return": round(total_return, 2),
-            "sharpe_ratio": round(sharpe_ratio, 2),
-            "max_drawdown": round(max_drawdown, 2),
-            "win_rate": round(win_rate, 2),
-            "profit_factor": round(profit_factor, 4),  # 盈亏比保留4位
-            "total_trades": trade_count if trade_count > 0 else len(pnls),  # ✅ 使用传入的实际交易次数
-            "total_closed_positions": len(pnls) if pnls else 0,              # ✅ 新增：已平仓持仓数
-            "winning_trades": len(winning_trades),
-            "losing_trades": len(losing_trades),
-            "total_pnl": round(total_pnl, 8),  # PnL保留8位精度
-            # 投资组合完整统计字段：保留8位小数精度
-            "initial_equity": round(initial_equity, 8),
-            "final_equity": round(final_equity, 8),
-            "total_fees": round(total_fees, 8),
-        }
-
-    def _build_equity_curve(self, account_df: Optional[pd.DataFrame]) -> List[Dict[str, Any]]:
-        """
-        构建权益曲线
-
-        Args:
-            account_df: 账户 DataFrame
-
-        Returns:
-            List[Dict[str, Any]]: 权益曲线数据点列表
-        """
-        if account_df is None or account_df.empty:
-            return []
-
+    def _normalize_equity_curve(self, raw_curve: List) -> List[Dict[str, Any]]:
+        """标准化权益曲线格式"""
         equity_curve = []
-        for _, row in account_df.iterrows():
-            # NautilusTrader 使用 total/free/locked 列名
-            # total = free + locked (locked 是保证金占用)
-
-            # 处理时间戳 - 从DataFrame索引或timestamp列获取
-            ts = None
-            # 首先尝试从timestamp列获取
-            if "timestamp" in account_df.columns:
-                ts = row.get("timestamp")
-            # 如果为空，使用DataFrame索引
-            if ts is None or (isinstance(ts, float) and pd.isna(ts)):
-                ts = row.name  # DataFrame索引
-
-            # 处理时间戳 - 统一转换为秒级Unix时间戳和格式化字符串
-            ts_numeric = 0  # 数值型Unix时间戳（秒）
-            ts_str = ""     # 格式化时间字符串
-            
-            if isinstance(ts, (int, float)) and ts > 0:
-                from datetime import datetime, timezone
-                # 根据时间戳位数判断精度并统一转换为秒
-                if ts > 1e18:  # 纳秒时间戳 (19位+)
-                    ts_numeric = int(ts / 1e9)
-                elif ts > 1e15:  # 微秒时间戳 (16-18位)
-                    ts_numeric = int(ts / 1e6)
-                elif ts > 1e12:  # 毫秒时间戳 (13-15位)
-                    ts_numeric = int(ts / 1e3)
-                else:  # 秒时间戳 (10-12位)
-                    ts_numeric = int(ts)
-                
-                dt = datetime.fromtimestamp(ts_numeric, tz=timezone.utc)
-                ts_str = dt.strftime('%Y-%m-%d %H:%M:%S')
-            elif isinstance(ts, str):
-                # 字符串时间戳，尝试解析
-                ts_str = ts
-                try:
-                    from datetime import datetime
-                    dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                    ts_numeric = int(dt.timestamp())
-                except:
-                    # 如果解析失败，保持原样
-                    ts_numeric = 0
-            elif hasattr(ts, 'timestamp') and callable(getattr(ts, 'timestamp', None)):
-                # pandas Timestamp or datetime object
-                try:
-                    ts_numeric = int(ts.timestamp())
-                    ts_str = ts.strftime('%Y-%m-%d %H:%M:%S')
-                except:
-                    ts_str = str(ts)
-                    ts_numeric = 0
-
-            point = {
-                "timestamp": ts_numeric,  # Unix时间戳（秒，数值型）
-                "formatted_time": ts_str,  # 格式化时间字符串
-                "equity": safe_float(row.get("total", row.get("equity", 0))),
-                "balance": safe_float(row.get("free", row.get("balance", 0))),
-                "margin": safe_float(row.get("locked", row.get("margin", 0))),
-            }
-            equity_curve.append(point)
-
+        for i, point in enumerate(raw_curve):
+            if isinstance(point, dict):
+                nav = _safe_float(point.get("nav", point.get("equity", 0)))
+                equity_curve.append({
+                    "timestamp": i,
+                    "formatted_time": "",
+                    "equity": nav,
+                    "balance": nav,
+                    "margin": 0.0,
+                })
+            elif isinstance(point, (int, float)):
+                nav = _safe_float(point)
+                equity_curve.append({
+                    "timestamp": i,
+                    "formatted_time": "",
+                    "equity": nav,
+                    "balance": nav,
+                    "margin": 0.0,
+                })
         return equity_curve
 
+    def _build_account_info(self, raw_results: Dict[str, Any]) -> Dict[str, Any]:
+        """构建账户信息"""
+        final_nav = _safe_float(raw_results.get("final_nav", 0))
+        nav_peak = _safe_float(raw_results.get("nav_peak", 0))
+        total_fees = _safe_float(raw_results.get("total_fees", 0))
+
+        return {
+            "balance": final_nav,
+            "margin": 0.0,
+            "equity": final_nav,
+            "initial_balance": nav_peak,
+            "final_balance": final_nav,
+            "max_balance": nav_peak,
+            "min_balance": 0.0,
+            "peak_equity": nav_peak,
+            "trough_equity": 0.0,
+            "total_commissions": total_fees,
+        }
+
+    def _build_metrics(self, raw_results: Dict[str, Any]) -> Dict[str, Any]:
+        """构建绩效指标
+
+        axon_quant 原始字段语义：
+        - max_drawdown_pct: 百分比表示（例如 2.5 → 2.5%）
+        - win_rate: 0~1 小数（自动 *100 转为百分比）
+        - fills: 成交次数（单次交易可能对应多次成交）
+        - trades: 已完成的交易记录列表；按 project_memory 必须优先使用 len(trades)
+        - initial_cash / nav_peak: 初始资金（两者皆可取其一）
+        """
+        try:
+            total_pnl = _safe_float(raw_results.get("total_pnl", 0))
+            total_fees = _safe_float(raw_results.get("total_fees", 0))
+            sharpe_ratio = _safe_float(raw_results.get("sharpe_ratio", 0))
+            max_drawdown = _safe_float(raw_results.get("max_drawdown_pct", 0))
+            win_rate = _safe_float(raw_results.get("win_rate", 0))
+
+            # 胜率：若原始值为 0~1 区间的小数，自动 *100 转百分比表示
+            if 0.0 < win_rate <= 1.0:
+                win_rate = win_rate * 100.0
+
+            # 交易笔数：按 project_memory 强制要求，优先使用 len(trades)
+            raw_trades = raw_results.get("trades") or []
+            if hasattr(raw_trades, "__len__") and len(raw_trades) > 0:
+                total_trades = len(raw_trades)
+            elif "total_trades" in raw_results:
+                total_trades = int(raw_results["total_trades"])
+            else:
+                total_trades = int(raw_results.get("fills", 0))
+
+            final_nav = _safe_float(raw_results.get("final_nav", 0))
+            initial_cash = _safe_float(
+                raw_results.get("initial_cash", raw_results.get("nav_peak", 0))
+            )
+            total_return = 0.0
+            if initial_cash > 0:
+                total_return = ((final_nav - initial_cash) / initial_cash) * 100
+
+            winning_count = int(round(total_trades * win_rate / 100)) if total_trades else 0
+            losing_count = total_trades - winning_count
+
+            return {
+                "total_return": round(total_return, 2),
+                "sharpe_ratio": round(sharpe_ratio, 4),
+                "max_drawdown": round(max_drawdown, 2),
+                "win_rate": round(win_rate, 2),
+                "profit_factor": 0.0,
+                "total_trades": total_trades,
+                "total_closed_positions": 0,
+                "winning_trades": winning_count,
+                "losing_trades": losing_count,
+                "total_pnl": round(total_pnl, 8),
+                "initial_equity": round(initial_cash, 8),
+                "final_equity": round(final_nav, 8),
+                "total_fees": round(total_fees, 8),
+            }
+        except Exception as e:
+            logger.warning(f"计算绩效指标失败: {e}")
+            return {
+                "total_return": 0.0,
+                "sharpe_ratio": 0.0,
+                "max_drawdown": 0.0,
+                "win_rate": 0.0,
+                "profit_factor": 0.0,
+                "total_trades": 0,
+                "total_closed_positions": 0,
+                "winning_trades": 0,
+                "losing_trades": 0,
+                "total_pnl": 0.0,
+                "initial_equity": 0.0,
+                "final_equity": 0.0,
+                "total_fees": 0.0,
+            }
+
     def get_results(self) -> Dict[str, Any]:
-        """
-        获取回测结果
-
-        返回最近一次回测的完整结果。
-
-        Returns:
-            Dict[str, Any]: 回测结果字典
-
-        Raises:
-            RuntimeError: 尚未执行回测时抛出
-        """
+        """获取回测结果"""
         if not self._results:
             raise RuntimeError("尚未执行回测，请先调用 run_backtest()")
-
         return self._results
 
     def cleanup(self) -> None:
-        """
-        清理资源
-
-        释放引擎占用的所有资源，包括:
-        - 释放底层引擎资源
-        - 关闭数据连接
-        - 释放内存缓存
-        - 重置内部状态
-
-        此方法应在回测完成后调用，确保资源正确释放。
-        """
+        """清理引擎资源"""
         logger.info("开始清理回测引擎资源...")
 
-        # 释放底层引擎资源
-        if self._engine:
-            try:
-                self._engine.dispose()
-                logger.debug("底层引擎已释放")
-            except Exception as e:
-                logger.warning(f"释放引擎时出错: {e}")
-
-        # 重置所有状态
         self._engine = None
-        self._engine_config = None
-        self._venues.clear()
         self._instruments.clear()
-        self._bar_types.clear()
+        self._dataframes.clear()
         self._strategies.clear()
-        self._data.clear()
         self._backtest_result = None
+        self._order_id_counter = 0
 
-        # 调用基类的状态重置
         self._reset_state()
-
         logger.info("回测引擎资源清理完成")
 
-    def get_venue(self, venue_name: str) -> Optional[Any]:
-        """
-        获取已添加的交易所
+    def get_venue(self, venue_name: str) -> Optional[str]:
+        """获取交易所名称"""
+        return self._venue_name
 
-        Args:
-            venue_name: 交易所名称
-
-        Returns:
-            Optional[Any]: 交易所标识符，如果不存在则返回 None
-        """
-        return self._venues.get(venue_name)
-
-    def get_instrument(self, instrument_id: str) -> Optional[Any]:
-        """
-        获取已添加的交易品种
-
-        Args:
-            instrument_id: 交易品种ID
-
-        Returns:
-            Optional[Any]: 交易品种定义，如果不存在则返回 None
-        """
+    def get_instrument(self, instrument_id: str) -> Optional[Dict]:
+        """获取品种信息"""
         return self._instruments.get(instrument_id)
 
-    def get_bar_type(self, bar_type_str: str) -> Optional[Any]:
-        """
-        获取已定义的 K 线类型
-
-        Args:
-            bar_type_str: K 线类型字符串表示
-
-        Returns:
-            Optional[Any]: K 线类型对象，如果不存在则返回 None
-        """
-        return self._bar_types.get(bar_type_str)
-
     def get_strategies(self) -> List[Any]:
-        """
-        获取已添加的策略列表
-
-        Returns:
-            List[Any]: 策略列表
-        """
+        """获取策略列表"""
         return self._strategies.copy()
 
     def get_data_count(self) -> int:
-        """
-        获取已加载的数据条数
+        """获取数据总数"""
+        return sum(len(df) for df in self._dataframes.values())
 
-        Returns:
-            int: 数据条数
-        """
-        return len(self._data)
+    @staticmethod
+    def _instrument_id_from_dict(instrument: Dict) -> str:
+        """从品种字典提取标识符"""
+        if isinstance(instrument, dict):
+            base = instrument.get("base", "")
+            quote = instrument.get("quote", "")
+            if base and quote:
+                return f"{base}{quote}"
+            return str(instrument)
+        return str(instrument)

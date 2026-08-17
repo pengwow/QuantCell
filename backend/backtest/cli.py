@@ -3,13 +3,13 @@
 
 提供命令行界面用于运行和管理回测任务。
 本模块只负责参数解析和调用服务层，不包含复杂业务逻辑。
+所有回测均使用事件驱动引擎（axon-quant）。
 """
 
 import json
 import sys
 from pathlib import Path
 from typing import Optional
-from enum import Enum
 
 import typer
 from typer import Typer, Option
@@ -28,17 +28,11 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # 创建Typer应用实例
 app = typer.Typer(
     name="backtest",
-    help="QuantCell 回测工具",
+    help="QuantCell 回测工具（事件驱动引擎 axon-quant）",
     no_args_is_help=True,
     add_completion=False,
     rich_markup_mode="rich"
 )
-
-
-class EngineType(str, Enum):
-    """引擎类型枚举"""
-    DEFAULT = "default"
-    EVENT = "event"
 
 
 # 导入服务层（延迟导入避免循环依赖）
@@ -48,11 +42,8 @@ def _get_data_provider():
 
 
 def _get_engine_service(data_provider):
-    from backtest.engine_service import EventDrivenBacktestService, DefaultBacktestService
-    return {
-        EngineType.EVENT: EventDrivenBacktestService(data_provider),
-        EngineType.DEFAULT: DefaultBacktestService(data_provider)
-    }
+    from backtest.engine_service import EventDrivenBacktestService
+    return EventDrivenBacktestService(data_provider)
 
 
 @app.command()
@@ -61,7 +52,6 @@ def run(
     params: Annotated[str, Option("--params", "-p", help="策略参数JSON字符串")] = "{}",
     symbols: Annotated[str, Option("--symbols", "--sym", help="交易对列表，逗号分隔")] = "BTCUSDT",
     timeframes: Annotated[str, Option("--timeframes", "--tf", help="时间周期列表，逗号分隔")] = "1h",
-    engine_type: Annotated[EngineType, Option("--engine", "-e", help="引擎类型")] = EngineType.DEFAULT,
     initial_capital: Annotated[float, Option("--initial-capital", "--cash", help="初始资金")] = 10000,
     commission: Annotated[float, Option("--commission", "-c", help="手续费率")] = 0.001,
     base_currency: Annotated[str, Option("--base-currency", help="基础货币")] = "USDT",
@@ -71,17 +61,17 @@ def run(
     output_file: Annotated[Optional[str], Option("--output-file", "-f", help="输出文件路径")] = None,
 ):
     """
-    运行回测
+    运行回测（使用事件驱动引擎 axon-quant）
     
     示例:
-      # 使用默认引擎
-      python backtest_cli.py run --strategy sma_cross_strategy --symbols BTCUSDT --timeframes 1h
-      
-      # 使用事件驱动引擎
-      python backtest_cli.py run --strategy sma_cross_nautilus --engine event --init-cash 100000
-      
+      # 基本回测
+      uv run python -m cli.backtest run --strategy sma_crossover --symbols BTCUSDT --timeframes 1h
+
+      # 自定义初始资金
+      uv run python -m cli.backtest run --strategy sma_crossover --initial-capital 100000
+
       # 多品种回测
-      python backtest_cli.py run --strategy sma_cross_nautilus --engine event --symbols BTCUSDT,ETHUSDT --timeframes 1h
+      uv run python -m cli.backtest run --strategy sma_crossover --symbols BTCUSDT,ETHUSDT --timeframes 1h
     """
     console = Console()
     
@@ -95,58 +85,26 @@ def run(
         console.print(f"   策略: {strategy}")
         console.print(f"   品种: {', '.join(symbols_list)}")
         console.print(f"   周期: {', '.join(timeframes_list)}")
-        console.print(f"   引擎: {engine_type.value}")
+        console.print(f"   引擎: 事件驱动 (axon-quant)")
         
         # 初始化服务
         data_provider = _get_data_provider()
-        services = _get_engine_service(data_provider)
+        service = _get_engine_service(data_provider)
         
-        if engine_type == EngineType.EVENT:
-            service = services[EngineType.EVENT]
-            
-            results = service.run_backtest(
-                strategy_name=strategy,
-                strategy_params=strategy_params,
-                symbols=symbols_list,
-                timeframes=timeframes_list,
-                engine_config={
-                    "initial_capital": initial_capital,
-                    "base_currency": base_currency,
-                    "leverage": leverage,
-                    "time_range": time_range,
-                    "log_level": "WARNING"
-                },
-                show_progress=True
-            )
-        else:
-            service = services[EngineType.DEFAULT]
-            
-            data_dict, _ = data_provider.load_multiple(
-                symbols=symbols_list,
-                timeframes=timeframes_list,
-                show_progress=True
-            )
-            
-            if not data_dict:
-                console.print("[red]❌ 没有可用的数据[/red]")
-                raise typer.Exit(1)
-            
-            from backtest.strategy_loader_service import StrategyLoaderService
-            
-            loaded_strategy = StrategyLoaderService.load_strategy(strategy, strategy_params)
-            
-            config = {
-                "initial_cash": initial_capital,
-                "commission": commission,
+        results = service.run_backtest(
+            strategy_name=strategy,
+            strategy_params=strategy_params,
+            symbols=symbols_list,
+            timeframes=timeframes_list,
+            engine_config={
+                "initial_capital": initial_capital,
                 "base_currency": base_currency,
-            }
-            
-            results = service.run_backtest(
-                strategy=loaded_strategy,
-                data_dict=data_dict,
-                config=config,
-                show_progress=True
-            )
+                "leverage": leverage,
+                "time_range": time_range,
+                "log_level": "WARNING"
+            },
+            show_progress=True
+        )
         
         # 输出结果
         _output_results(results, output_format, output_file, console)
@@ -191,46 +149,58 @@ def list_strategies(
     table.add_column("策略名称", style="cyan")
     table.add_column("类型", style="green")
     table.add_column("描述", style="white")
-    
+
+    # 延迟导入基类，避免启动时加载依赖
+    try:
+        from backtest.strategies.event_strategy import EventDrivenStrategy
+    except Exception:
+        EventDrivenStrategy = None
+
     for strategy_file in strategy_files:
         strategy_name = strategy_file.stem
-        
+
         strategy_type = "未知"
         description = ""
-        
+
         try:
             module_path = str(strategy_file.parent)
             if module_path not in sys.path:
                 sys.path.insert(0, module_path)
-            
+
             import importlib
             spec = importlib.util.spec_from_file_location(strategy_name, str(strategy_file))
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            
-            has_base = hasattr(module, 'StrategyBase') or any(
-                isinstance(getattr(module, attr), type) and 
-                issubclass(getattr(module, attr), type) and 
-                'strategy' in attr.lower()
-                for attr in dir(module)
-            )
-            
-            if has_base:
-                strategy_type = "[green]策略接口[/green]"
-            elif hasattr(module, 'Strategy'):
+
+            # 检查是否包含 EventDrivenStrategy 子类（实际策略）
+            has_event_strategy = False
+            has_base_class = False
+
+            for attr_name in dir(module):
+                attr_val = getattr(module, attr_name)
+                if isinstance(attr_val, type):
+                    if EventDrivenStrategy is not None:
+                        if issubclass(attr_val, EventDrivenStrategy) and attr_val is not EventDrivenStrategy:
+                            has_event_strategy = True
+                    if attr_name in ('EventDrivenStrategy', 'EventDrivenStrategyConfig'):
+                        has_base_class = True
+
+            if has_event_strategy:
                 strategy_type = "[cyan]事件驱动[/cyan]"
+            elif has_base_class:
+                strategy_type = "[green]策略基类[/green]"
             else:
-                strategy_type = "[blue]默认引擎[/blue]"
-                
+                strategy_type = "[yellow]未分类[/yellow]"
+
             doc = getattr(module, '__doc__', '')
             if doc:
                 first_line = doc.strip().split('\n')[0]
                 description = first_line[:60] + ('...' if len(first_line) > 60 else '')
-                
+
         except Exception as e:
             if verbose:
                 description = f"[red]加载错误: {str(e)[:40]}...[/red]"
-        
+
         table.add_row(strategy_name, strategy_type, description)
     
     console.print(table)
@@ -410,7 +380,7 @@ def _output_results(results: dict, output_format: str, output_file: Optional[str
             strategy_name = results.get("_meta", {}).get("strategy", "unknown")
             symbols = results.get("_meta", {}).get("symbols", ["unknown"])
             if isinstance(symbols, list):
-                symbols = "_".join(symbols[:3])  # 取前3个品种
+                symbols = "_".join(symbols[:3])
             elif isinstance(symbols, str):
                 symbols = symbols.replace(",", "_")[:20]
 
@@ -422,12 +392,10 @@ def _output_results(results: dict, output_format: str, output_file: Optional[str
         logger.info(f"[回测结果] 自动保存到: {output_file}")
 
     else:
-        # 用户指定了路径，确保目录存在
         output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    from backtest.result_analysis import output_results
-
+    # 保存JSON（直接序列化，兼容不同格式）
     if output_format in ("json", "both"):
         try:
             with open(output_file, 'w', encoding='utf-8') as f:
@@ -438,8 +406,51 @@ def _output_results(results: dict, output_format: str, output_file: Optional[str
             logger.error(f"[回测结果] 保存失败: {e}")
             console.print(f"\n[red]❌ 保存失败: {e}[/red]")
 
+    # 表格输出（兼容扁平结构和嵌套结构）
     if output_format in ("table", "both"):
-        output_results(results)
+        _print_results_table(results, console)
+
+
+def _print_results_table(results: dict, console: Console):
+    """以表格形式输出回测结果，兼容不同的结果结构"""
+    if not isinstance(results, dict):
+        console.print(f"[yellow]无效的结果格式[/yellow]")
+        return
+
+    # 检查是否为扁平结构（新的简单引擎结果）
+    if 'total_return' in results or 'final_equity' in results:
+        # 扁平结构：直接显示指标
+        _print_flat_results(results, console)
+        return
+
+    # 嵌套结构（事件驱动引擎结果）
+    try:
+        from backtest.result_analysis import output_results as ra_output
+        ra_output(results, output_format='table', output_file=None)
+    except Exception as e:
+        logger.warning(f"使用标准输出失败: {e}")
+        # 降级输出
+        console.print_json(data=results)
+
+
+def _print_flat_results(results: dict, console: Console):
+    """输出扁平结构的回测结果表格"""
+    table = Table(title="回测结果", show_header=True, header_style="bold magenta")
+    table.add_column("指标", style="cyan")
+    table.add_column("数值", style="green")
+
+    table.add_row("初始资金", f"{results.get('initial_cash', 0):.2f}")
+    table.add_row("最终权益", f"{results.get('final_equity', 0):.2f}")
+    table.add_row("总收益率", f"{results.get('total_return', 0):.2%}")
+    table.add_row("最大回撤", f"{results.get('max_drawdown', 0):.2%}")
+    table.add_row("夏普比率", f"{results.get('sharpe_ratio', 0):.4f}")
+    table.add_row("总交易次数", str(results.get('total_trades', 0)))
+    table.add_row("盈利次数", str(results.get('winning_trades', 0)))
+    table.add_row("亏损次数", str(results.get('losing_trades', 0)))
+    table.add_row("胜率", f"{results.get('win_rate', 0):.2%}")
+    table.add_row("处理K线数", str(results.get('bars_processed', 0)))
+
+    console.print(table)
 
 
 if __name__ == "__main__":

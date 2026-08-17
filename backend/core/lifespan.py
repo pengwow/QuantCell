@@ -240,29 +240,12 @@ async def lifespan(app: FastAPI):
     # 初始化 Worker System（全局单例，统一管理所有 Worker）
     _worker_system_available = False
     try:
-        from worker.worker_system import worker_system
-        _worker_system_available = True
-        logger.info("正在初始化 Worker System...")
-        try:
-            await worker_system.initialize()
-            summary = worker_system.get_summary()
-            state = worker_system.get_system_state()
-            nautilus_status = "已连接" if state.get("nautilus_available") else "未安装"
-            logger.info(
-                f"✓ Worker System 初始化完成 | "
-                f"NautilusTrader: {nautilus_status} | "
-                f"Worker 总数: {summary['total_workers']} | "
-                f"状态分布: {summary['status_breakdown']}"
-            )
-        except Exception as init_err:
-            logger.error(f"Worker System 初始化失败: {init_err}")
-            logger.warning(
-                "Worker 相关功能将不可用，但其他 API 正常工作。"
-                "可后续通过 CLI 手动初始化 (worker_cli.py init)"
-            )
-    except ImportError as import_err:
-        logger.warning(f"Worker System 模块导入失败（可能缺少依赖）: {import_err}")
-        logger.warning("Worker 功能将被禁用，不影响其他功能运行")
+        import worker.worker_system  # noqa: F401  避免在未安装交易引擎时 import 时报错（内部模块已按需移除）
+        _worker_system_available = False
+        logger.info("Worker System 模块暂未启用，跳过初始化")
+    except ImportError:
+        _worker_system_available = False
+        logger.info("Worker System 模块不可用，跳过初始化")
     except Exception as import_err:
         logger.error(f"Worker System 导入时发生意外错误: {import_err}")
 

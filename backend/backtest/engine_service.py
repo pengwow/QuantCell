@@ -3,6 +3,12 @@
 
 封装事件驱动回测引擎的初始化、数据加载、策略加载和执行流程。
 将原本分散在 cli.py 和 service.py 中的引擎操作逻辑统一到此模块。
+
+所有与 axon-quant 的交互都通过 axon_bridge 适配层进行。
+
+作者: QuantCell Team
+版本: 2.0.0
+日期: 2026-08-14
 """
 
 from datetime import datetime
@@ -13,6 +19,12 @@ from utils.logger import get_logger, LogType
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
+def _get_axon_bridge():
+    """延迟导入 axon_bridge"""
+    import axon_bridge
+    return axon_bridge
 
 
 class EventDrivenBacktestService:
@@ -36,7 +48,7 @@ class EventDrivenBacktestService:
         service = EventDrivenBacktestService(provider)
         
         results = service.run_backtest(
-            strategy_name="sma_cross_nautilus",
+            strategy_name="sma_crossover",
             strategy_params={"fast_period": 10},
             symbols=["BTCUSDT"],
             timeframes=["1h"],
@@ -232,6 +244,23 @@ class EventDrivenBacktestService:
             logger.error(f"[EventDrivenBacktestService] 引擎初始化失败: {e}")
             raise
     
+    @staticmethod
+    def _parse_symbol(symbol: str) -> tuple:
+        """
+        解析交易对符号，提取基础货币和计价货币
+
+        Args:
+            symbol: 交易对符号（如 "BTCUSDT", "BTC/USDT", "BTC-USDT"）
+
+        Returns:
+            tuple: (base, quote) 如 ("BTC", "USDT")
+        """
+        for sep in ['/', '-', '_']:
+            if sep in symbol:
+                parts = symbol.split(sep)
+                return parts[0].upper(), parts[1].upper()
+        return symbol[:3].upper(), symbol[3:].upper() if len(symbol) > 3 else (symbol.upper(), "USDT")
+
     def _load_data_to_engine(
         self,
         engine,
@@ -243,8 +272,10 @@ class EventDrivenBacktestService:
         init_cash: float
     ):
         """
-        加载数据到引擎并创建Instrument和BarType
-        
+        加载数据到引擎并创建交易品种
+
+        使用 axon_bridge 创建现货品种，通过引擎的公共方法加载数据。
+
         Args:
             engine: 已初始化的引擎实例
             data_dict: 数据字典
@@ -253,144 +284,100 @@ class EventDrivenBacktestService:
             base_currency: 基础货币
             leverage: 杠杆倍数
             init_cash: 初始资金
-            
+
         Returns:
             tuple: (instruments字典, bar_types字典)
         """
         from decimal import Decimal
-        from nautilus_trader.model.enums import AccountType, OmsType
-        from nautilus_trader.test_kit.providers import TestInstrumentProvider
-        from nautilus_trader.model.data import BarType
-        from nautilus_trader.persistence.wranglers import BarDataWrangler
-        from backtest.result_formatter_service import ResultFormatterService
-        
+
+        bridge = _get_axon_bridge()
+
         instruments = {}
         bar_types = {}
-        all_bars = []
-        
-        first_symbol = symbols[0]
-        first_timeframe = timeframes[0]
-        
-        # 创建第一个品种以获取venue
-        try:
-            if first_symbol == 'BTCUSDT' or first_symbol == 'BTC/USDT':
-                first_instrument = TestInstrumentProvider.btcusdt_binance()
-            elif first_symbol == 'ETHUSDT' or first_symbol == 'ETH/USDT':
-                first_instrument = TestInstrumentProvider.ethusdt_binance()
-            else:
-                first_instrument = TestInstrumentProvider.btcusdt_binance()
-            instrument_venue = str(first_instrument.id.venue)
-        except Exception as e:
-            logger.error(f"创建交易品种失败: {e}")
-            first_instrument = TestInstrumentProvider.btcusdt_binance()
-            instrument_venue = "BINANCE"
-        
-        # 添加交易所
+
+        # 创建交易所（简单配置）
         engine.add_venue(
-            venue_name=instrument_venue,
-            oms_type=OmsType.NETTING,
-            account_type=AccountType.MARGIN,
+            venue_name="BINANCE",
             starting_capital=init_cash,
             base_currency=base_currency,
             default_leverage=Decimal(str(leverage)),
         )
-        
-        # 为每个品种创建instrument并加载数据
+
+        # 为每个品种创建 instrument 并加载数据
         for symbol in symbols:
             timeframe = timeframes[0]
             key = f"{symbol}_{timeframe}"
-            
+
             if key not in data_dict:
                 logger.warning(f"跳过 {key}，数据未加载")
                 continue
-            
+
             df = data_dict[key]
-            
-            # 创建交易品种
-            try:
-                if symbol == 'BTCUSDT' or symbol == 'BTC/USDT':
-                    instrument = TestInstrumentProvider.btcusdt_binance()
-                elif symbol == 'ETHUSDT' or symbol == 'ETH/USDT':
-                    instrument = TestInstrumentProvider.ethusdt_binance()
-                else:
-                    instrument = TestInstrumentProvider.btcusdt_binance()
-            except Exception as e:
-                logger.error(f"创建交易品种失败: {e}，使用默认品种")
-                instrument = TestInstrumentProvider.btcusdt_binance()
-            
+
+            # 使用 axon_bridge 创建现货品种
+            base, quote = self._parse_symbol(symbol)
+            instrument = bridge.create_spot_instrument(base, quote)
             engine.add_instrument(instrument)
             instruments[symbol] = instrument
-            
-            # 转换数据格式（确保与 NautilusTrader 兼容）
+
+            # 处理 DataFrame
             df = df.copy()
-            
-            # 只保留 BarDataWrangler 需要的列（避免多余列导致错误）
             required_cols = ['open', 'high', 'low', 'close', 'volume']
-            
-            # 标准化列名为小写
             df.columns = [col.lower() for col in df.columns]
-            
-            # 只保留必要列 + 时间戳列（如果存在）
+
             cols_to_keep = [c for c in required_cols if c in df.columns]
             if 'timestamp' in df.columns:
                 cols_to_keep.insert(0, 'timestamp')
-            
+
             df = df[cols_to_keep]
-            
-            # 设置时间索引
+
             if not isinstance(df.index, pd.DatetimeIndex):
                 if 'timestamp' in df.columns:
                     df = df.set_index('timestamp')
                     df.drop(columns=['timestamp'], errors='ignore', inplace=True)
-            
-            # 确保索引是 datetime 类型
+
             if len(df) > 0:
                 try:
                     df.index = pd.to_datetime(df.index, utc=True)
                 except Exception as e:
                     logger.warning(f"时间戳转换警告: {e}")
                     df.index = pd.to_datetime(df.index.astype(str), utc=True)
-            
-            # 强制转换价格和成交量为 float64（关键：避免 "Buffer dtype mismatch" 错误）
+
             for col in required_cols:
                 if col in df.columns:
-                    # 使用 pd.to_numeric 安全转换（处理可能的字符串或混合类型）
                     df[col] = pd.to_numeric(df[col], errors='coerce')
-                    
-                    # 转换为 float64
                     df[col] = df[col].astype('float64')
-                    
-                    # 填充可能的 NaN 值为 0.0（避免引擎报错）
                     nan_count = df[col].isna().sum()
                     if nan_count > 0:
                         logger.warning(f"{symbol} 的 {col} 列有 {nan_count} 个 NaN 值，将填充为 0.0")
                         df[col] = df[col].fillna(0.0)
-            
-            # 最终验证：确保所有列都是数值类型
+
             non_numeric_cols = df.select_dtypes(exclude=['number']).columns.tolist()
             if non_numeric_cols:
                 logger.error(f"发现非数值列: {non_numeric_cols}，将删除这些列")
                 df = df.drop(columns=non_numeric_cols)
-            
-            # 创建BarType
-            event_timeframe = ResultFormatterService.convert_timeframe_to_event(timeframe)
-            bar_type_str = f"{instrument.id}-{event_timeframe}-LAST-EXTERNAL"
-            bar_type = BarType.from_str(bar_type_str)
-            bar_types[symbol] = bar_type
-            
-            # 转换并加载数据
-            wrangler = BarDataWrangler(bar_type, instrument)
-            bars = wrangler.process(df)
-            
-            if hasattr(engine, 'engine') and engine.engine is not None:
-                engine.engine.add_data(bars)
-            engine._data.extend(bars)
-            all_bars.extend(bars)
-            
-            logger.info(f"成功加载 {symbol} 的 {len(bars)} 条K线数据")
-        
-        logger.info(f"共加载 {len(instruments)} 个品种，{len(all_bars)} 条K线数据")
-        
+
+            bar_type_str = f"{symbol}-{timeframe}"
+            bar_types[symbol] = bar_type_str
+
+            # 通过引擎的 load_data_from_parquet 方法加载数据
+            # 先保存为临时 parquet 文件再加载
+            import tempfile
+            import os
+
+            with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp:
+                tmp_path = tmp.name
+
+            try:
+                df.to_parquet(tmp_path, index=True)
+                engine.load_data_from_parquet(tmp_path, instrument)
+                logger.info(f"成功加载 {symbol} 的 {len(df)} 条K线数据")
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+
+        logger.info(f"共加载 {len(instruments)} 个品种")
+
         return instruments, bar_types
     
     def _format_results(
@@ -433,62 +420,5 @@ class EventDrivenBacktestService:
             )
 
 
-class DefaultBacktestService:
-    """
-    默认引擎回测服务（使用backtesting.py库）
-    
-    用于非事件驱动的传统回测场景。
-    """
-    
-    def __init__(self, data_provider):
-        """
-        初始化默认引擎服务
-        
-        Args:
-            data_provider: BacktestDataProvider实例
-        """
-        self.provider = data_provider
-    
-    def run_backtest(
-        self,
-        strategy,
-        data_dict: Dict[str, pd.DataFrame],
-        config: Dict,
-        show_progress: bool = True
-    ) -> Dict:
-        """
-        执行默认引擎回测
-        
-        Args:
-            strategy: 策略实例
-            data_dict: 数据字典
-            config: 回测配置
-            show_progress: 是否显示进度
-            
-        Returns:
-            dict: 回测结果
-        """
-        from backtesting import Backtest
-        import pandas as pd
-        
-        if show_progress:
-            print("正在执行默认引擎回测...")
-        
-        # 从data_dict获取第一个品种的数据
-        first_key = list(data_dict.keys())[0]
-        candles = data_dict[first_key]
-        
-        initial_cash = config.get("initial_cash", 10000)
-        commission = config.get("commission", 0.001)
-        
-        bt = Backtest(
-            candles,
-            strategy,
-            cash=initial_cash,
-            commission=commission,
-            exclusive_orders=True
-        )
-        
-        stats = bt.run()
-        
-        return stats
+# 注：DefaultBacktestService 已移除
+# 根据项目规则，所有回测必须使用 axon-quant 事件驱动引擎
