@@ -51,7 +51,7 @@ def test_validate_function():
         save_to_parquet(test_df, output_path)
 
         # 验证文件
-        result = _validate_parquet_export(output_path, test_df, verbose=True)
+        result = _validate_parquet_export(output_path, test_df)
         if result:
             pass
         else:

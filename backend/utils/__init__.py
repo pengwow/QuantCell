@@ -26,6 +26,22 @@ def get_source_data_dir() -> Path:
     return get_backend_root() / "data" / "source"
 
 
+from .data_utils import (
+    _find_parquet_file,
+    _get_default_date_range,
+    _normalize_symbol,
+    _parse_interval_minutes,
+    _ts_to_datetime,
+    _validate_parquet_export,
+    calculate_data_completeness,
+    filter_by_date_range,
+    format_completeness,
+    format_size,
+    format_time_range,
+    get_parquet_info,
+    load_from_parquet,
+    scan_parquet_files,
+)
 from .decorators import async_deco_retry, deco_retry
 from .i18n import extract_lang, get_translation_dict
 from .jwt_utils import create_jwt_token, verify_jwt_token
@@ -65,13 +81,22 @@ from .timezone import format_datetime as tz_format_datetime
 from .timezone import to_local_time, to_utc_time
 
 __all__ = [
+    # types
     "LogLevel",
     "LogType",
     "LoggerWrapper",
+    # data_utils (parquet tools)
+    "_find_parquet_file",
+    "_get_default_date_range",
+    "_normalize_symbol",
+    "_parse_interval_minutes",
+    "_ts_to_datetime",
+    "_validate_parquet_export",
     # time_parser
     "align_to_interval",
     # decorators
     "async_deco_retry",
+    "calculate_data_completeness",
     "calculate_expected_klines",
     "clear_trace_id",
     # jwt_utils
@@ -79,8 +104,12 @@ __all__ = [
     "datetime_to_timestamp",
     "deco_retry",
     "extract_lang",
+    "filter_by_date_range",
+    "format_completeness",
     "format_date",
     "format_datetime",
+    "format_size",
+    "format_time_range",
     # path utilities
     "get_backend_root",
     "get_data_dir",
@@ -89,18 +118,21 @@ __all__ = [
     "get_interval_ms",
     # logger
     "get_logger",
+    "get_parquet_info",
     "get_source_data_dir",
     "get_strategy_logger",
     "get_time_range_for_download",
     "get_trace_id",
     # i18n
     "get_translation_dict",
+    "load_from_parquet",
     "parse_percentage",
     "parse_time_range",
-    "safe_decimal",
     # number_utils
+    "safe_decimal",
     "safe_float",
     "safe_int",
+    "scan_parquet_files",
     "set_log_level",
     "set_trace_id",
     "shutdown_logger",
