@@ -178,7 +178,8 @@ def regenerate_all_baselines() -> int:
                     )
                     t0 = time.time()
                     svc.run()
-                    time.time() - t0
+                    elapsed = time.time() - t0
+                    print(f"[baseline] {name} backtest completed in {elapsed:.2f}s")
                 except Exception:
                     fail_count += 1
     return 0 if fail_count == 0 else 1
