@@ -27,156 +27,27 @@ import pandas as pd
 
 task_manager = None
 
-
-# === 数据目录工具 ===
-
-
-def get_source_data_dir() -> Path:
-    """获取数据源目录路径"""
-    data_dir = backend_path.parent / "data" / "source"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir
-
-
-def _normalize_symbol(symbol: str) -> str:
-    """标准化交易对名称"""
-    return symbol.replace("/", "").replace("\\", "").replace(" ", "")
-
-
-def _find_parquet_file(symbol: str, interval: str, market_type: str = "spot") -> Path | None:
-    """查找指定交易对和时间框架的parquet文件"""
-    data_dir = get_source_data_dir()
-    norm_symbol = _normalize_symbol(symbol)
-    return data_dir / market_type / interval / f"{norm_symbol}.parquet"
-
-
-def _get_default_date_range(end_date=None) -> tuple[str, str]:
-    """获取默认日期范围"""
-    from datetime import datetime, timedelta
-
-    if end_date is None:
-        end = datetime.now()
-    elif isinstance(end_date, datetime):
-        end = end_date
-    else:
-        end = datetime.now()
-    start = end - timedelta(days=30)
-    return start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
-
-
-def filter_by_date_range(df, start_date=None, end_date=None):
-    """按日期范围过滤DataFrame"""
-    if df is None or df.empty:
-        return df
-    if "timestamp" not in df.columns:
-        return df
-    mask = pd.Series(True, index=df.index)
-    if start_date:
-        start_ts = pd.Timestamp(start_date)
-        if df["timestamp"].dtype == "int64" or df["timestamp"].dtype == "int32":
-            if df["timestamp"].max() > 1e12:
-                start_ts = int(start_ts.timestamp() * 1_000_000_000)
-            else:
-                start_ts = int(start_ts.timestamp())
-        mask &= df["timestamp"] >= start_ts
-    if end_date:
-        end_ts = pd.Timestamp(end_date)
-        if df["timestamp"].dtype == "int64" or df["timestamp"].dtype == "int32":
-            if df["timestamp"].max() > 1e12:
-                end_ts = int(end_ts.timestamp() * 1_000_000_000)
-            else:
-                end_ts = int(end_ts.timestamp())
-        mask &= df["timestamp"] <= end_ts
-    return df[mask]
-
-
-def load_from_parquet(file_path) -> pd.DataFrame:
-    """从parquet加载数据"""
-    return pd.read_parquet(file_path)
-
-
-def get_parquet_info(file_path: Path) -> dict:
-    """获取parquet文件信息"""
-    try:
-        df = load_from_parquet(file_path)
-        return {
-            "file": str(file_path),
-            "rows": len(df),
-            "columns": list(df.columns),
-            "size": file_path.stat().st_size if file_path.exists() else 0,
-            "num_rows": len(df),
-            "file_size_bytes": file_path.stat().st_size if file_path.exists() else 0,
-        }
-    except Exception as e:
-        return {"file": str(file_path), "error": str(e)}
-
-
-def scan_parquet_files(symbol=None, interval=None, base_dir=None) -> list:
-    """扫描parquet文件"""
-    if base_dir is None:
-        base_dir = get_source_data_dir()
-    if not base_dir.exists():
-        return []
-
-    results = []
-    klines_dir = base_dir / "klines"
-
-    if not klines_dir.exists():
-        for f in sorted(base_dir.glob("*.parquet")):
-            results.append((f.stem, f))
-        return results
-
-    if symbol and interval:
-        interval_dir = klines_dir / symbol / interval
-        if interval_dir.is_dir():
-            for f in interval_dir.iterdir():
-                if f.suffix == ".parquet":
-                    info = get_parquet_info(f)
-                    results.append(
-                        {
-                            "symbol": symbol,
-                            "interval": interval,
-                            "file": f,
-                            "info": info,
-                        }
-                    )
-    elif symbol:
-        symbol_dir = klines_dir / symbol
-        if symbol_dir.is_dir():
-            for interval_dir in symbol_dir.iterdir():
-                if interval_dir.is_dir():
-                    for f in interval_dir.iterdir():
-                        if f.suffix == ".parquet":
-                            info = get_parquet_info(f)
-                            results.append(
-                                {
-                                    "symbol": symbol,
-                                    "interval": interval_dir.name,
-                                    "file": f,
-                                    "info": info,
-                                }
-                            )
-    else:
-        for sym_dir in klines_dir.iterdir():
-            if sym_dir.is_dir():
-                for interval_dir in sym_dir.iterdir():
-                    if interval_dir.is_dir():
-                        for f in interval_dir.iterdir():
-                            if f.suffix == ".parquet":
-                                info = get_parquet_info(f)
-                                results.append(
-                                    {
-                                        "symbol": sym_dir.name,
-                                        "interval": interval_dir.name,
-                                        "file": f,
-                                        "info": info,
-                                    }
-                                )
-    return results
+# 从 utils 重导出工具函数（保持向后兼容）
+from utils.data_utils import (
+    _find_parquet_file,
+    _get_default_date_range,
+    _normalize_symbol,
+    _parse_interval_minutes,
+    _ts_to_datetime,
+    calculate_data_completeness,
+    filter_by_date_range,
+    format_completeness,
+    format_size,
+    format_time_range,
+    get_parquet_info,
+    get_source_data_dir,
+    load_from_parquet,
+    scan_parquet_files,
+)
 
 
 def _validate_parquet_export(file_path, df) -> bool:
-    """验证parquet导出"""
+    """验证parquet导出（覆盖版本，确保使用cli.data命名空间的load_from_parquet以便测试patch生效）"""
     if not file_path.exists():
         return False
     if file_path.stat().st_size == 0:
@@ -188,113 +59,6 @@ def _validate_parquet_export(file_path, df) -> bool:
     if len(loaded_df) != len(df):
         return False
     return list(loaded_df.columns) == list(df.columns)
-
-
-# === 格式化工具 ===
-
-
-def format_size(size_bytes: float) -> str:
-    """格式化文件大小"""
-    if size_bytes < 1024:
-        return f"{size_bytes:.1f} B"
-    elif size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    elif size_bytes < 1024 * 1024 * 1024:
-        return f"{size_bytes / (1024 * 1024):.1f} MB"
-    else:
-        return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
-
-
-def calculate_data_completeness(bar_count, start_ts, end_ts, interval) -> dict:
-    """计算数据完整率"""
-    if bar_count == 0 or start_ts is None or end_ts is None:
-        return {"completeness_pct": 0, "status": "-"}
-
-    interval_minutes = _parse_interval_minutes(interval)
-    if interval_minutes <= 0:
-        return {"completeness_pct": 0, "status": "-"}
-
-    is_nanoseconds = start_ts > 1e12
-
-    duration_seconds = (end_ts - start_ts) / 1000000000 if is_nanoseconds else end_ts - start_ts
-
-    expected_bars = duration_seconds / (interval_minutes * 60)
-
-    if expected_bars <= 0:
-        return {"completeness_pct": 0, "status": "-"}
-
-    pct = min(100.0, (bar_count / expected_bars) * 100.0)
-
-    if pct >= 100.0:
-        status = "✓"
-    elif pct >= 70:
-        status = "⚠️"
-    else:
-        status = "✗"
-
-    return {"completeness_pct": round(pct, 1), "status": status}
-
-
-def _parse_interval_minutes(interval: str) -> float:
-    """解析时间框架为分钟"""
-    interval = interval.lower().strip()
-    mappings = {
-        "1m": 1,
-        "3m": 3,
-        "5m": 5,
-        "15m": 15,
-        "30m": 30,
-        "1h": 60,
-        "2h": 120,
-        "4h": 240,
-        "6h": 360,
-        "8h": 480,
-        "12h": 720,
-        "1d": 1440,
-        "3d": 4320,
-        "1w": 10080,
-    }
-    if interval in mappings:
-        return mappings[interval]
-    return 0
-
-
-def format_completeness(info: dict) -> str:
-    """格式化完整率"""
-    if info.get("status") == "-":
-        return "-"
-    pct = info.get("completeness_pct", 0)
-    status = info.get("status", "-")
-    return f"{int(pct)}% {status}"
-
-
-def format_time_range(start, end) -> str:
-    """格式化时间范围"""
-    if start is None and end is None:
-        return "-"
-    try:
-        if start is not None:
-            start_dt = _ts_to_datetime(start)
-            start_str = start_dt.strftime("%Y-%m-%d")
-        else:
-            start_str = "?"
-        if end is not None:
-            end_dt = _ts_to_datetime(end)
-            end_str = end_dt.strftime("%Y-%m-%d")
-        else:
-            end_str = "?"
-        return f"{start_str} ~ {end_str}"
-    except Exception:
-        return "-"
-
-
-def _ts_to_datetime(ts):
-    """时间戳转datetime"""
-    from datetime import datetime
-
-    if ts > 1e12:
-        return datetime.fromtimestamp(ts / 1_000_000_000)
-    return datetime.fromtimestamp(ts)
 
 
 # === CLI 命令 ===
@@ -639,7 +403,7 @@ def archive_download(
     from exchange.binance.archive.kinds import ArchiveKind, MarketType
 
     sym_list = _parse_symbols(symbols)
-    svc = ArchiveService(base_dir=str(backend_path / "data" / "source"))
+    svc = ArchiveService(base_dir=get_source_data_dir())
     try:
         task_id = svc.create_download_task(
             symbols=sym_list,
@@ -669,7 +433,7 @@ def archive_list(
     from collector.services.archive_service import ArchiveService
     from exchange.binance.archive.kinds import ArchiveKind, MarketType
 
-    svc = ArchiveService(base_dir=str(backend_path / "data" / "source"))
+    svc = ArchiveService(base_dir=get_source_data_dir())
     symbols_list = svc.list_symbols(
         kind=ArchiveKind(kind),
         market=MarketType(market),
@@ -693,7 +457,7 @@ def archive_meta(
     from collector.services.archive_service import ArchiveService
     from exchange.binance.archive.kinds import ArchiveKind, MarketType
 
-    svc = ArchiveService(base_dir=str(backend_path / "data" / "source"))
+    svc = ArchiveService(base_dir=get_source_data_dir())
     meta = svc.get_meta(
         kind=ArchiveKind(kind),
         market=MarketType(market),
