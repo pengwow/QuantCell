@@ -19,7 +19,7 @@ except ImportError:
     pytest.skip("axon_quant 未安装,跳过 risk 适配层测试", allow_module_level=True)
 
 
-from axon_bridge.risk import (
+from axon_bridge import (
     CircuitBreaker,
     DefaultRiskEngine,
     RiskConfig,

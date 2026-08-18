@@ -13,19 +13,19 @@ logger = logging.getLogger(__name__)
 
 # axon_quant 导入(走适配层,业务代码不直接 import 第三方包)
 try:
-    from axon_bridge.data import (
+    from axon_bridge import (
         DataRequest as _DataRequest,
     )
-    from axon_bridge.data import (
+    from axon_bridge import (
         DataService as _DataService,
     )
-    from axon_bridge.data import (
+    from axon_bridge import (
         Dataset as _Dataset,
     )
-    from axon_bridge.data import (
+    from axon_bridge import (
         Frequency as _Frequency,
     )
-    from axon_bridge.data import (
+    from axon_bridge import (
         MockSource as _MockSource,
     )
 

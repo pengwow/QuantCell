@@ -6,8 +6,8 @@ from axon_bridge import (
     BacktestEngine,
     Observation,
     RunResult,
+    TradingEnv,
 )
-from axon_bridge.rl import TradingEnv
 
 
 class StrategyBase:

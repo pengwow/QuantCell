@@ -66,6 +66,44 @@ from axon_quant import (
     tracker,
     walk_forward,
 )
+
+# —— 合并自 8 个空壳子模块的重导出 ——
+from axon_quant.ensemble import (
+    ActionProbabilities,
+    EnsembleError,
+    EnsembleManager,
+    EnsembleStrategy,
+    HardVoteStrategy,
+    MetaModel,
+    ModelType,
+    ModelWeight,
+    SoftVoteStrategy,
+    StackingEnsemble,
+    WeightedVoteStrategy,
+)
+from axon_quant.exchange import (
+    AxonError,
+    BinanceAdapter,
+    OkxAdapter,
+    OrderLifecycleManager,
+    RateLimitConfig,
+    ReconnectConfig,
+    TokenBucketRateLimiter,
+    binance_testnet_config,
+    okx_testnet_config,
+)
+from axon_quant.inference import (
+    BatchConfig,
+    BatchInferencePipeline,
+    Device,
+    InferenceBackend,
+    InferenceStats,
+    ModelConfig,
+    ModelHotReloader,
+    create_candle_engine,
+    create_inference_engine,
+    create_onnx_engine,
+)
 from axon_quant.llm import (
     AgentRole,
     LLMConfig,
@@ -78,19 +116,33 @@ from axon_quant.llm import (
     TrajectoryRecorder,
     make_backend,
 )
+from axon_quant.oms import (
+    make_order_status,
+    market_order,
+)
 from axon_quant.risk import (
     CircuitBreaker,
     DefaultRiskEngine,
+    OrderDict,
+    OrderTypeStr,
+    PortfolioDict,
     RiskConfig,
     RiskError,
     RiskMetrics,
     RiskReason,
+    RiskReasonKindStr,
     RiskResult,
+    SideStr,
+    TifStr,
     make_circuit_breaker,
     make_order,
     make_portfolio,
     make_portfolio_with_positions,
     make_risk_config,
+)
+from axon_quant.rl import (
+    VERSION,
+    TradingEnv,
 )
 from axon_quant.trading import (
     CancelOrderTool,
@@ -98,17 +150,36 @@ from axon_quant.trading import (
     PlaceOrderTool,
     QueryPortfolioTool,
     ReplaceOrderTool,
+    RiskLimits,
+    TradingMetrics,
 )
 
 from ._credentials import credentials
 
-# —— 远程版本: backtest 子模块重导出 ——
+# —— backtest 子模块重导出 ——
 from .backtest import (
     PushFundingHelper,
     limit_order,
     spot_instrument,
     swap_instrument,
 )
+
+
+# —— core.events shim (上游 axon_quant 尚未暴露这些事件类) ——
+class OrderAccepted:
+    """Shim — 等 axon_quant 真正提供时替换为重导出。"""
+
+
+class OrderCanceled:
+    """Shim — 等 axon_quant 真正提供时替换为重导出。"""
+
+
+class OrderRejected:
+    """Shim — 等 axon_quant 真正提供时替换为重导出。"""
+
+
+class OrderFilled:
+    """Shim — 等 axon_quant 真正提供时替换为重导出。"""
 
 
 # ========== 延迟导入 axon_quant ==========
@@ -375,29 +446,116 @@ def get_instrument_id(instrument: dict[str, Any]) -> str:
 
 # ========== 导出列表 ==========
 __all__ = [
-    # 远程重导出
+    # —— RL (合并) ——
+    "VERSION",
+    # —— 顶层重导出 (原始) ——
     "Action",
+    # —— Ensemble (合并) ——
+    "ActionProbabilities",
     "ActionType",
+    # —— LLM ——
+    "AgentRole",
+    # —— Exchange (合并) ——
+    "AxonError",
     "BacktestEngine",
     "BacktestError",
+    # —— Inference (合并) ——
+    "BatchConfig",
+    "BatchInferencePipeline",
+    "BinanceAdapter",
+    # —— Trading ——
+    "CancelOrderTool",
+    # —— Risk ——
+    "CircuitBreaker",
+    "ComplianceError",
     "DataError",
     "DataRequest",
     "DataService",
+    "DefaultRiskEngine",
+    "DefiError",
+    "Device",
+    # —— 业务适配层 ——
     "EngineConfig",
+    "EnsembleError",
+    "EnsembleManager",
+    "EnsembleStrategy",
+    "ExchangeConfig",
+    "ExchangeError",
+    "ExchangeId",
     "Frequency",
+    "HardVoteStrategy",
+    "InferenceBackend",
+    "InferenceEngine",
+    "InferenceError",
+    "InferenceStats",
+    "LLMConfig",
+    "LLMMessage",
     "MarketSignal",
+    "MetaModel",
     "MockSource",
+    "MockTradingBackend",
+    "ModelConfig",
+    "ModelHotReloader",
+    "ModelType",
+    "ModelWeight",
     "Observation",
+    "OkxAdapter",
+    "OllamaBackend",
+    "OmsError",
+    "Order",
+    # —— core.events shim ——
+    "OrderAccepted",
+    "OrderCanceled",
+    # —— Risk 类型别名 (合并) ——
+    "OrderDict",
+    "OrderFilled",
+    "OrderLifecycleManager",
+    "OrderManager",
+    "OrderRejected",
+    "OrderStatus",
+    "OrderType",
+    "OrderTypeStr",
+    "PlaceOrderTool",
+    "Portfolio",
+    "PortfolioDict",
+    "Position",
+    # —— Backtest ——
     "PushFundingHelper",
+    "QueryPortfolioTool",
+    "RateLimitConfig",
+    "ReActAgent",
+    "ReconnectConfig",
+    "ReplaceOrderTool",
+    "RiskConfig",
+    "RiskError",
+    "RiskLimits",
+    "RiskMetrics",
+    "RiskReason",
+    "RiskReasonKindStr",
+    "RiskResult",
     "RunResult",
+    "Side",
+    "SideStr",
     "SignalType",
+    "SoftVoteStrategy",
+    "StackingEnsemble",
+    "TifStr",
+    "TokenBucketRateLimiter",
+    "TradingEnv",
+    "TradingMetrics",
+    "TradingTools",
+    "TrajectoryRecorder",
+    "WeightedVoteStrategy",
     "add_funding_schedule",
+    "binance_testnet_config",
     "build_order_submitted_event",
     "create_backtest_engine",
     "create_cancel_order_event",
+    "create_candle_engine",
+    "create_inference_engine",
     "create_limit_order",
     "create_market_order",
-    # 业务适配层
+    "create_onnx_engine",
     "create_spot_instrument",
     "create_swap_instrument",
     "credentials",
@@ -406,6 +564,16 @@ __all__ = [
     "get_current_ns_timestamp",
     "get_instrument_id",
     "limit_order",
+    "make_backend",
+    "make_circuit_breaker",
+    "make_order",
+    # —— OMS (合并) ——
+    "make_order_status",
+    "make_portfolio",
+    "make_portfolio_with_positions",
+    "make_risk_config",
+    "market_order",
+    "okx_testnet_config",
     "spot_instrument",
     "swap_instrument",
     "to_ns_timestamp",

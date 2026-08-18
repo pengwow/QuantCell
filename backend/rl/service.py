@@ -23,8 +23,7 @@ import gymnasium as gym
 import numpy as np
 import pandas as pd
 
-from axon_bridge import Action
-from axon_bridge.rl import TradingEnv
+from axon_bridge import Action, TradingEnv
 
 if TYPE_CHECKING:
     from collections.abc import Callable

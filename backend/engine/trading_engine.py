@@ -92,7 +92,7 @@ class TradingEngine:
             return self._exchange_cache
         # 延迟导入以避免循环依赖
         try:
-            from axon_bridge.exchange import BinanceAdapter, ExchangeConfig
+            from axon_bridge import BinanceAdapter, ExchangeConfig
 
             exchange_config = ExchangeConfig(
                 exchange_id=self._config.exchange,

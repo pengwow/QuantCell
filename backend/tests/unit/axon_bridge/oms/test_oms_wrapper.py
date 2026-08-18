@@ -18,7 +18,7 @@ except ImportError:
     pytest.skip("axon_quant 未安装,跳过 oms 适配层测试", allow_module_level=True)
 
 
-from axon_bridge.oms import (
+from axon_bridge import (
     OmsError,
     Order,
     OrderManager,
@@ -30,6 +30,7 @@ from axon_bridge.oms import (
     limit_order,
     make_order_status,
     market_order,
+    spot_instrument,
 )
 
 # =============================================================================
@@ -77,12 +78,16 @@ class TestOrderFactories:
         assert d["side"] in ("Buy", "buy")
 
     def test_limit_order_returns_order(self):
-        order = limit_order(symbol="BTCUSDT", side="Sell", quantity=0.5, price=50_000.0)
-        assert isinstance(order, Order)
-        d = order.to_dict()
-        assert d["symbol"] == "BTCUSDT"
-        # 内部以 Decimal 字符串存,50_000.0 序列化为 "50000.0"
-        assert d["price"] == "50000.0"
+        """limit_order 现在返回 dict (OrderDict),不再是 Order 对象。"""
+        inst = spot_instrument("BTC", "USDT")
+        order = limit_order(1, inst, "Sell", 50_000.0, 0.5)
+        assert isinstance(order, dict)
+        assert order["id"] == 1
+        assert order["instrument"]["kind"] == "spot"
+        assert order["side"] == "Sell"
+        assert order["price"] == 50_000.0
+        assert order["quantity"] == 0.5
+        assert order["tif"] == "GTC"
 
     def test_order_to_dict_uses_decimal_strings(self):
         """quantity/price 字段在 to_dict 中以字符串形式返回(Decimal 精度)。"""
@@ -104,8 +109,8 @@ class TestOrderManager:
         mgr = OrderManager()
         mgr.deposit("USDT", 100_000.0)
 
-        # 1) 提交订单
-        oid = mgr.submit(limit_order("BTCUSDT", "Buy", 0.1, 50_000.0, idempotency_key="k1"))
+        # 1) 提交订单 (limit_order 返回 dict, submit 接受 Order 对象;用 market_order)
+        oid = mgr.submit(market_order(symbol="BTCUSDT", side="Buy", quantity=0.1, idempotency_key="k1"))
         assert isinstance(oid, str) and len(oid) > 0
         assert mgr.active_count() == 1
         assert mgr.get_order_status(oid).kind == "Submitted"
@@ -155,7 +160,7 @@ class TestOrderManager:
         """submit 后 history_count 至少为 1(订单进入 history)。"""
         mgr = OrderManager()
         mgr.deposit("USDT", 100_000.0)
-        oid = mgr.submit(limit_order("BTCUSDT", "Buy", 0.1, 50_000.0, idempotency_key="k4"))
+        oid = mgr.submit(market_order(symbol="BTCUSDT", side="Buy", quantity=0.1, idempotency_key="k4"))
         mgr.update_status(oid, make_order_status("Acknowledged"))
         # submit 之后订单就进入 history, history_count >= 1
         assert mgr.history_count() >= 1

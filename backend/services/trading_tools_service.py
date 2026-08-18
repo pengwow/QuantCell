@@ -13,25 +13,25 @@ logger = logging.getLogger(__name__)
 
 # axon_bridge 导入（可选）
 try:
-    from axon_bridge.trading import (
+    from axon_bridge import (
         CancelOrderTool as _CancelOrderTool,
     )
-    from axon_bridge.trading import (
+    from axon_bridge import (
         MockTradingBackend as _MockTradingBackend,
     )
-    from axon_bridge.trading import (
+    from axon_bridge import (
         PlaceOrderTool as _PlaceOrderTool,
     )
-    from axon_bridge.trading import (
+    from axon_bridge import (
         QueryPortfolioTool as _QueryPortfolioTool,
     )
-    from axon_bridge.trading import (
+    from axon_bridge import (
         ReplaceOrderTool as _ReplaceOrderTool,
     )
-    from axon_bridge.trading import (
+    from axon_bridge import (
         RiskLimits as _RiskLimits,
     )
-    from axon_bridge.trading import (
+    from axon_bridge import (
         TradingMetrics as _TradingMetrics,
     )
 

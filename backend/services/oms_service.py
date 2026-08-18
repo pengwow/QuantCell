@@ -13,25 +13,25 @@ logger = logging.getLogger(__name__)
 
 # axon_quant 导入(走适配层,业务代码不直接 import 第三方包)
 try:
-    from axon_bridge.oms import (
+    from axon_bridge import (
         Order as _Order,
     )
-    from axon_bridge.oms import (
+    from axon_bridge import (
         OrderManager as _OrderManager,
     )
-    from axon_bridge.oms import (
+    from axon_bridge import (
         OrderStatus as _OrderStatus,
     )
-    from axon_bridge.oms import (
+    from axon_bridge import (
         OrderType as _OrderType,
     )
-    from axon_bridge.oms import (
+    from axon_bridge import (
         Portfolio as _Portfolio,
     )
-    from axon_bridge.oms import (
+    from axon_bridge import (
         Position as _Position,
     )
-    from axon_bridge.oms import (
+    from axon_bridge import (
         Side as _Side,
     )
 

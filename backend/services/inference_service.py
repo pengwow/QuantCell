@@ -12,25 +12,25 @@ from typing import Any
 logger = logging.getLogger(__name__)
 # axon_quant 导入(走适配层,业务代码不直接 import 第三方包)
 try:
-    from axon_bridge.inference import (
+    from axon_bridge import (
         BatchConfig as _BatchConfig,
     )
-    from axon_bridge.inference import (
+    from axon_bridge import (
         BatchInferencePipeline as _BatchInferencePipeline,
     )
-    from axon_bridge.inference import (
+    from axon_bridge import (
         InferenceEngine as _InferenceEngine,
     )
-    from axon_bridge.inference import (
+    from axon_bridge import (
         ModelConfig as _ModelConfig,
     )
-    from axon_bridge.inference import (
+    from axon_bridge import (
         create_candle_engine as _create_candle_engine,
     )
-    from axon_bridge.inference import (
+    from axon_bridge import (
         create_inference_engine as _create_inference_engine,
     )
-    from axon_bridge.inference import (
+    from axon_bridge import (
         create_onnx_engine as _create_onnx_engine,
     )
 
