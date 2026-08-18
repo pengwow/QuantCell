@@ -1,32 +1,33 @@
 import json
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
-from sqlalchemy.orm import Session
 
 from collector.db.database import SessionLocal, init_database_config
 from collector.db.models import SystemConfig
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 def _parse_config_value(value: str):
     try:
         return json.loads(value)
-    except (json.JSONDecodeError, TypeError):
-        if value == '1':
+    except json.JSONDecodeError, TypeError:
+        if value == "1":
             return True
-        elif value == '0':
+        elif value == "0":
             return False
         elif value.isdigit():
             return int(value)
-        elif value.replace('.', '', 1).isdigit():
+        elif value.replace(".", "", 1).isdigit():
             return float(value)
         return value
 
 
 class SystemConfigBusiness:
-
     @staticmethod
     def get(key: str, default: Any = None) -> Any:
         init_database_config()
@@ -41,17 +42,20 @@ class SystemConfigBusiness:
             db.close()
 
     @staticmethod
-    def set(key: str, value: str, description: str = "", plugin: Optional[str] = None, name: Optional[str] = None,
-            is_sensitive: bool = False) -> bool:
+    def set(
+        key: str,
+        value: str,
+        description: str = "",
+        plugin: str | None = None,
+        name: str | None = None,
+        is_sensitive: bool = False,
+    ) -> bool:
         init_database_config()
         db: Session = SessionLocal()
         try:
             config = db.query(SystemConfig).filter_by(key=key).first()
 
-            if isinstance(value, bool):
-                str_value = '1' if value else '0'
-            else:
-                str_value = str(value)
+            str_value = ("1" if value else "0") if isinstance(value, bool) else str(value)
 
             if config:
                 config.value = str_value
@@ -69,12 +73,13 @@ class SystemConfigBusiness:
                     description=description,
                     plugin=plugin,
                     name=name,
-                    is_sensitive=is_sensitive
+                    is_sensitive=is_sensitive,
                 )
                 db.add(config)
             db.commit()
-            logger.info(f"配置已更新: key={key}, value={value}, plugin={plugin}, name={name}, "
-                       f"is_sensitive={is_sensitive}")
+            logger.info(
+                f"配置已更新: key={key}, value={value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}"
+            )
             return True
         except Exception as e:
             db.rollback()
@@ -102,7 +107,7 @@ class SystemConfigBusiness:
             db.close()
 
     @staticmethod
-    def get_all() -> Dict[str, str]:
+    def get_all() -> dict[str, str]:
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -116,17 +121,19 @@ class SystemConfigBusiness:
             db.close()
 
     @staticmethod
-    def get_all_with_details() -> Dict[str, Dict[str, Any]]:
+    def get_all_with_details() -> dict[str, dict[str, Any]]:
         import pytz
+
         init_database_config()
         db: Session = SessionLocal()
         try:
+
             def format_datetime(dt):
                 if dt is None:
                     return None
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=pytz.utc)
-                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+                return dt.astimezone(pytz.timezone("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
 
             configs = db.query(SystemConfig).all()
             result = {}
@@ -139,7 +146,7 @@ class SystemConfigBusiness:
                     "name": config.name,
                     "is_sensitive": config.is_sensitive,
                     "created_at": format_datetime(config.created_at),
-                    "updated_at": format_datetime(config.updated_at)
+                    "updated_at": format_datetime(config.updated_at),
                 }
             return result
         except Exception as e:
@@ -149,19 +156,21 @@ class SystemConfigBusiness:
             db.close()
 
     @staticmethod
-    def get_with_details(key: str) -> Optional[Dict[str, Any]]:
+    def get_with_details(key: str) -> dict[str, Any] | None:
         import pytz
+
         init_database_config()
         db: Session = SessionLocal()
         try:
             config = db.query(SystemConfig).filter_by(key=key).first()
             if config:
+
                 def format_datetime(dt):
                     if dt is None:
                         return None
                     if dt.tzinfo is None:
                         dt = dt.replace(tzinfo=pytz.utc)
-                    return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+                    return dt.astimezone(pytz.timezone("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
 
                 return {
                     "key": config.key,
@@ -171,7 +180,7 @@ class SystemConfigBusiness:
                     "name": config.name,
                     "is_sensitive": config.is_sensitive,
                     "created_at": format_datetime(config.created_at),
-                    "updated_at": format_datetime(config.updated_at)
+                    "updated_at": format_datetime(config.updated_at),
                 }
             return None
         except Exception as e:
@@ -181,7 +190,7 @@ class SystemConfigBusiness:
             db.close()
 
     @staticmethod
-    def get_name_with_details(name: str) -> Optional[Dict[str, Any]]:
+    def get_name_with_details(name: str) -> dict[str, Any] | None:
         result = {}
         init_database_config()
         db: Session = SessionLocal()
@@ -199,7 +208,7 @@ class SystemConfigBusiness:
             db.close()
 
     @staticmethod
-    def set_flattened(prefix: str, config_dict: dict, name: Optional[str] = None, description: str = "") -> bool:
+    def set_flattened(prefix: str, config_dict: dict, name: str | None = None, description: str = "") -> bool:
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -210,7 +219,7 @@ class SystemConfigBusiness:
                 key = f"{prefix}.{field_name}"
 
                 if isinstance(value, bool):
-                    str_value = '1' if value else '0'
+                    str_value = "1" if value else "0"
                 elif isinstance(value, (dict, list)):
                     str_value = json.dumps(value, ensure_ascii=False)
                 else:
@@ -230,7 +239,7 @@ class SystemConfigBusiness:
                         value=str_value,
                         description=description,
                         name=name,
-                        is_sensitive=False
+                        is_sensitive=False,
                     )
                     db.add(config)
                 success_count += 1
@@ -250,9 +259,7 @@ class SystemConfigBusiness:
         init_database_config()
         db: Session = SessionLocal()
         try:
-            configs = db.query(SystemConfig).filter(
-                SystemConfig.key.like(f"{prefix}.%")
-            ).all()
+            configs = db.query(SystemConfig).filter(SystemConfig.key.like(f"{prefix}.%")).all()
 
             result = {}
             prefix_len = len(prefix) + 1
@@ -270,20 +277,18 @@ class SystemConfigBusiness:
             db.close()
 
     @staticmethod
-    def get_all_flattened_by_prefix(base_prefix: str) -> Dict[str, dict]:
+    def get_all_flattened_by_prefix(base_prefix: str) -> dict[str, dict]:
         init_database_config()
         db: Session = SessionLocal()
         try:
             base_prefix_len = len(base_prefix) + 1
 
-            configs = db.query(SystemConfig).filter(
-                SystemConfig.key.like(f"{base_prefix}.%")
-            ).all()
+            configs = db.query(SystemConfig).filter(SystemConfig.key.like(f"{base_prefix}.%")).all()
 
-            result: Dict[str, dict] = {}
+            result: dict[str, dict] = {}
             for config in configs:
                 key_without_base = config.key[base_prefix_len:]
-                parts = key_without_base.split('.', 1)
+                parts = key_without_base.split(".", 1)
                 if len(parts) < 1:
                     continue
                 sub_prefix = parts[0]
@@ -305,9 +310,7 @@ class SystemConfigBusiness:
         init_database_config()
         db: Session = SessionLocal()
         try:
-            configs = db.query(SystemConfig).filter(
-                SystemConfig.key.like(f"{prefix}.%")
-            ).all()
+            configs = db.query(SystemConfig).filter(SystemConfig.key.like(f"{prefix}.%")).all()
 
             for config in configs:
                 db.delete(config)

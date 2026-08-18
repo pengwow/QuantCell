@@ -1,5 +1,5 @@
 """BaselineBacktestService 新参数测试。"""
-import pytest
+
 from backtest.baseline import BaselineBacktestService
 
 
@@ -57,6 +57,7 @@ def test_baseline_load_funding_history():
 
 
 # ---- funding_injection_window_hours 修复测试 (2026-07-17) ----
+
 
 def test_baseline_accepts_funding_injection_window_hours():
     """构造器接受 funding_injection_window_hours 参数, 默认 8.0。"""

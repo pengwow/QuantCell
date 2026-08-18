@@ -8,19 +8,21 @@ ponytail:
 - 现货腿传递: 策略 set ctx.spot_target_position, baseline 读
 - 现货做空门控: spot_margin_enabled=False 时自动降级为单边
 """
+
 from __future__ import annotations
 
 from enum import Enum
 
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 from axon_bridge import Action
+from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 
 
 class FundingState(Enum):
     """funding 套利状态机。"""
+
     FLAT = "flat"
-    LONG_FUNDING = "long_funding"      # perp=short, spot=long
-    SHORT_FUNDING = "short_funding"    # perp=long, spot=short (需 spot_margin)
+    LONG_FUNDING = "long_funding"  # perp=short, spot=long
+    SHORT_FUNDING = "short_funding"  # perp=long, spot=short (需 spot_margin)
 
 
 class FundingArbitrage(BaseStrategy):
@@ -67,10 +69,12 @@ class FundingArbitrage(BaseStrategy):
         perp_target, spot_target, new_state = self._compute_targets(funding_rate)
 
         if new_state != prev_state and self._param("log_state_transitions"):
-            ctx.orders.append({
-                "type": "log",
-                "msg": f"state: {prev_state.value} -> {new_state.value} (funding={funding_rate:.6f})",
-            })
+            ctx.orders.append(
+                {
+                    "type": "log",
+                    "msg": f"state: {prev_state.value} -> {new_state.value} (funding={funding_rate:.6f})",
+                }
+            )
         self._state = new_state
         self._current_side = {
             FundingState.FLAT: "flat",

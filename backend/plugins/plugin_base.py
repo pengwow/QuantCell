@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional
+from typing import Any
+
 from utils.logger import get_plugin_logger
 
 
@@ -29,18 +30,18 @@ class PluginBase:
     def on_disable(self) -> None:
         pass
 
-    def get_frontend_assets(self) -> Optional[dict]:
+    def get_frontend_assets(self) -> dict | None:
         return None
 
-    def get_config_schema(self) -> Optional[dict]:
+    def get_config_schema(self) -> dict | None:
         return None
 
-    def get_info(self) -> Dict[str, str]:
+    def get_info(self) -> dict[str, str]:
         return {
             "name": self.name,
             "version": self.version,
             "load_type": self.load_type,
-            "is_active": self.is_active
+            "is_active": self.is_active,
         }
 
     def get_metadata(self) -> dict:
@@ -51,5 +52,5 @@ class PluginBase:
             "author": "",
             "load_type": self.load_type,
             "frontend_assets": self.get_frontend_assets(),
-            "config_schema": self.get_config_schema()
+            "config_schema": self.get_config_schema(),
         }

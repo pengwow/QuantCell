@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 """TradingEngine 单例和生命周期测试"""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -10,6 +10,7 @@ from engine.config import EngineConfig
 def _reset_engine():
     """重置 TradingEngine 单例（用于测试隔离）"""
     from engine import trading_engine
+
     trading_engine._trading_engine_instance = None
     # 同时重置 risk_service 单例
     trading_engine.get_risk_service.cache_clear()
@@ -148,7 +149,6 @@ def test_list_strategies_empty():
 def test_deployer_uses_trading_engine():
     """deployer 正确使用 TradingEngine"""
     _reset_engine()
-    from engine.deployer import StrategyDeployer
     from engine.trading_engine import get_trading_engine
 
     # 验证 deployer 能导入 TradingEngine

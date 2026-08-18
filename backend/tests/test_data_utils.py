@@ -8,19 +8,19 @@
 日期: 2026-03-24
 """
 
-import unittest
-import pandas as pd
-import numpy as np
-from datetime import datetime
-
 import sys
+import unittest
+from datetime import datetime
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from utils.data_utils import sanitize_for_json, DataSanitizer
+from utils.data_utils import DataSanitizer, sanitize_for_json
 
 
 class TestSanitizeForJson(unittest.TestCase):
@@ -33,10 +33,7 @@ class TestSanitizeForJson(unittest.TestCase):
             "key2": pd.Timestamp("2023-01-01"),
             "key3": np.nan,
             "key4": np.inf,
-            "nested": {
-                "key5": pd.Timestamp("2023-06-01"),
-                "key6": np.nan
-            }
+            "nested": {"key5": pd.Timestamp("2023-06-01"), "key6": np.nan},
         }
         result = sanitize_for_json(data)
 
@@ -49,13 +46,7 @@ class TestSanitizeForJson(unittest.TestCase):
 
     def test_list_sanitization(self):
         """测试列表清理"""
-        data = [
-            pd.Timestamp("2023-01-01"),
-            np.nan,
-            np.inf,
-            "string",
-            123
-        ]
+        data = [pd.Timestamp("2023-01-01"), np.nan, np.inf, "string", 123]
         result = sanitize_for_json(data)
 
         self.assertEqual(result[0], "2023-01-01 00:00:00")
@@ -157,10 +148,7 @@ class TestDataSanitizer(unittest.TestCase):
 
     def test_sanitize_for_json_method(self):
         """测试 sanitize_for_json 方法"""
-        data = {
-            "timestamp": pd.Timestamp("2023-01-01"),
-            "value": np.nan
-        }
+        data = {"timestamp": pd.Timestamp("2023-01-01"), "value": np.nan}
         result = self.sanitizer.sanitize_for_json(data)
         self.assertEqual(result["timestamp"], "2023-01-01 00:00:00")
         self.assertIsNone(result["value"])
@@ -174,7 +162,7 @@ class TestDataSanitizer(unittest.TestCase):
             "Start": pd.Timestamp("2023-01-01"),
             "Duration": pd.Timedelta(days=30),
             "_strategy": "should be skipped",
-            "_equity_curve": pd.DataFrame()
+            "_equity_curve": pd.DataFrame(),
         }
 
         # 使用默认语言（zh-CN）

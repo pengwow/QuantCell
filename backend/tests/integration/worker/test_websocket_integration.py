@@ -6,13 +6,14 @@ WebSocket 和策略生命周期集成测试
 
 要求运行中的 FastAPI 服务（通过 --run-integration 标志启用）
 """
-import pytest
+
 import asyncio
 import json
 from unittest.mock import AsyncMock
 
-from worker.state import connection_manager, strategy_registry, StrategyRuntime
+import pytest
 
+from worker.state import StrategyRuntime, connection_manager, strategy_registry
 
 pytestmark = [
     pytest.mark.integration,
@@ -99,10 +100,7 @@ class TestStrategyLifecycle:
             runtimes.append(rt)
 
         all_strategies = strategy_registry.list_all()
-        test_strategies = [
-            s for s in all_strategies
-            if s.worker_id >= 1000 and s.worker_id < 1005
-        ]
+        test_strategies = [s for s in all_strategies if s.worker_id >= 1000 and s.worker_id < 1005]
         assert len(test_strategies) == 5
 
         for rt in runtimes:
@@ -112,12 +110,14 @@ class TestStrategyLifecycle:
         error_captured = []
 
         def error_callback(worker_id, old_status, new_status, error_msg):
-            error_captured.append({
-                "worker_id": worker_id,
-                "old_status": old_status,
-                "new_status": new_status,
-                "error_message": error_msg,
-            })
+            error_captured.append(
+                {
+                    "worker_id": worker_id,
+                    "old_status": old_status,
+                    "new_status": new_status,
+                    "error_message": error_msg,
+                }
+            )
 
         strategy_registry.on_change(error_callback)
 

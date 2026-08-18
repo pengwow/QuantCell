@@ -6,21 +6,21 @@
 """
 
 import asyncio
-from typing import Optional
+import contextlib
 
-from utils.logger import get_logger, LogType
-from .worker_state import worker_state_manager
+from utils.logger import LogType, get_logger
+
 from .state import strategy_registry
+from .worker_state import worker_state_manager
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
 class TradingNodeWorkerManager:
-
     def __init__(self, enable_monitoring: bool = True):
         self.enable_monitoring = enable_monitoring
         self._running = False
-        self._health_check_task: Optional[asyncio.Task] = None
+        self._health_check_task: asyncio.Task | None = None
 
         worker_state_manager.register_handler("state_changed", self._on_state_changed)
         logger.info("TradingNodeWorkerManager 已初始化为纯 asyncio 策略协调器")
@@ -42,10 +42,8 @@ class TradingNodeWorkerManager:
         self._running = False
         if self._health_check_task:
             self._health_check_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._health_check_task
-            except asyncio.CancelledError:
-                pass
         logger.info("策略协调器已停止")
         return True
 
@@ -60,10 +58,7 @@ class TradingNodeWorkerManager:
         new_status = event_data["new_status"]
         old_status = event_data.get("old_status", "unknown")
 
-        logger.info(
-            f"[事件观察] 状态变更 | worker_id={worker_id} | "
-            f"{old_status} -> {new_status}"
-        )
+        logger.info(f"[事件观察] 状态变更 | worker_id={worker_id} | {old_status} -> {new_status}")
 
     async def _health_check_loop(self):
         logger.info("[健康检查] 循环已启动，间隔 30 秒")
@@ -89,15 +84,10 @@ class TradingNodeWorkerManager:
                     strategy_registry.update_status(runtime.worker_id, "stopped")
                     # 同步修正 worker_state_manager（防止 stop 时进入 error 状态）
                     try:
-                        await worker_state_manager.transition(
-                            runtime.worker_id, "stopped"
-                        )
+                        await worker_state_manager.transition(runtime.worker_id, "stopped")
                     except Exception as e:
                         logger.warning(
-                            f"[健康检查] 同步 worker_state_manager 失败: "
-                            f"worker_id={runtime.worker_id}, error={e}"
+                            f"[健康检查] 同步 worker_state_manager 失败: worker_id={runtime.worker_id}, error={e}"
                         )
             except Exception as e:
-                logger.error(
-                    f"[健康检查] 检查 Worker {runtime.worker_id} 失败: {e}"
-                )
+                logger.error(f"[健康检查] 检查 Worker {runtime.worker_id} 失败: {e}")

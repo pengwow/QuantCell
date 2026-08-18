@@ -16,25 +16,24 @@ axon_quant 0.6.0 提供:
   - BacktestEngine.push_mark            mark 价缓存
   - BacktestEngine.with_auto_rebalance  bar 末自动 rebalance
 """
-from axon_quant import (  # noqa: F401
+
+from axon_quant import (
     BacktestEngine,
     BacktestError,
-)
-from axon_quant.backtest import (  # noqa: F401
-    L1MatchingEngine,
-    L2MatchingEngine,
-    ImpactedMatchingEngine,
-    ImpactedMatchingEngineBuilder,
-    MultiAssetMatchingEngine,
 )
 
 # —— axon_quant 0.6.0 多 leg API 重导出 ——
 # Instrument dict 工厂:把"symbol 字符串"升级为"品种 dict"
-from axon_quant.backtest import (  # noqa: F401
+from axon_quant.backtest import (
+    ImpactedMatchingEngine,
+    ImpactedMatchingEngineBuilder,
+    InstrumentDict,
+    L1MatchingEngine,
+    L2MatchingEngine,
+    MultiAssetMatchingEngine,
+    limit_order,
     spot_instrument,
     swap_instrument,
-    limit_order,
-    InstrumentDict,
 )
 
 

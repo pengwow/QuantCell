@@ -7,7 +7,7 @@ TickAdapter、DerivAdapter、OrderBookAdapter。
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -112,8 +112,8 @@ class TestDataAdapterFactory:
         assert isinstance(adapter, TickAdapter)
 
     def test_create_deriv_adapter(self):
-        from backtest.data_adapters.factory import DataAdapterFactory
         from backtest.data_adapters.deriv_adapter import DerivAdapter
+        from backtest.data_adapters.factory import DataAdapterFactory
 
         adapter = DataAdapterFactory.create("fundingRate")
         assert isinstance(adapter, DerivAdapter)
@@ -231,14 +231,10 @@ class TestTickAdapter:
                 "quantity": np.random.uniform(0.1, 1.0, 100),
             }
         )
-        mock_load.return_value["timestamp"] = (
-            mock_load.return_value["timestamp"].astype("int64") // 1_000_000
-        )
+        mock_load.return_value["timestamp"] = mock_load.return_value["timestamp"].astype("int64") // 1_000_000
 
         adapter = TickAdapter()
-        config = LoadConfig(
-            symbol="BTCUSDT", data_type="aggTrades", interval="10s"
-        )
+        config = LoadConfig(symbol="BTCUSDT", data_type="aggTrades", interval="10s")
         result = adapter.load(config)
 
         assert "Open" in result.data.columns
@@ -278,9 +274,7 @@ class TestDerivAdapter:
         from backtest.data_adapters.deriv_adapter import DerivAdapter
 
         adapter = DerivAdapter(base_dir=Path("/nonexistent"))
-        config = LoadConfig(
-            symbol="BTCUSDT", data_type="fundingRate", market="um", interval="8h"
-        )
+        config = LoadConfig(symbol="BTCUSDT", data_type="fundingRate", market="um", interval="8h")
         with pytest.raises(ValueError, match="需要 markPriceKlines"):
             adapter._process_funding_rate(config)
 
@@ -302,10 +296,7 @@ class TestDerivAdapter:
                         "low": [99.0, 100.0, 101.0],
                         "close": [103.0, 104.0, 105.0],
                         "volume": [1000.0, 2000.0, 1500.0],
-                        "timestamp": pd.date_range(
-                            "2025-01-01", periods=3, freq="8h"
-                        ).astype("int64")
-                        // 1_000_000,
+                        "timestamp": pd.date_range("2025-01-01", periods=3, freq="8h").astype("int64") // 1_000_000,
                     }
                 )
             else:
@@ -313,10 +304,7 @@ class TestDerivAdapter:
                 return pd.DataFrame(
                     {
                         "fundingRate": [0.0001, -0.0002, 0.00015],
-                        "fundingTime": pd.date_range(
-                            "2025-01-01", periods=3, freq="8h"
-                        ).astype("int64")
-                        // 1_000_000,
+                        "fundingTime": pd.date_range("2025-01-01", periods=3, freq="8h").astype("int64") // 1_000_000,
                     }
                 )
 
@@ -328,9 +316,7 @@ class TestDerivAdapter:
         ]
 
         adapter = DerivAdapter()
-        config = LoadConfig(
-            symbol="BTCUSDT", data_type="fundingRate", market="um", interval="8h"
-        )
+        config = LoadConfig(symbol="BTCUSDT", data_type="fundingRate", market="um", interval="8h")
         result = adapter.load(config)
 
         assert "feature_funding_rate" in result.data.columns
@@ -375,9 +361,7 @@ class TestOrderBookAdapter:
         )
 
         adapter = OrderBookAdapter()
-        config = LoadConfig(
-            symbol="BTCUSDT", data_type="bookTicker", interval="10s"
-        )
+        config = LoadConfig(symbol="BTCUSDT", data_type="bookTicker", interval="10s")
         result = adapter.load(config)
 
         assert "feature_mid_price" in result.data.columns

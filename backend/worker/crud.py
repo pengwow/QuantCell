@@ -4,71 +4,92 @@ Worker模块CRUD操作
 数据库增删改查操作
 """
 
-from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_, func, cast, Date, case
-from typing import List, Optional, Tuple, Dict, Any
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
+from sqlalchemy import and_, case, desc, func
 
-from .models import Worker, WorkerLog, WorkerMetric, WorkerPerformance, WorkerParameter, WorkerTrade, WorkerOrder, WorkerPosition
-from . import schemas
+from .models import (
+    Worker,
+    WorkerLog,
+    WorkerMetric,
+    WorkerOrder,
+    WorkerParameter,
+    WorkerPerformance,
+    WorkerPosition,
+    WorkerTrade,
+)
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from . import schemas
 
 
-def find_strategy_by_name_or_id(db: Session, strategy_id: Optional[int] = None, strategy_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def find_strategy_by_name_or_id(
+    db: Session, strategy_id: int | None = None, strategy_name: str | None = None
+) -> dict[str, Any] | None:
     """
     通过 strategy_id 或 strategy_name 查找策略信息
-    
+
     容错逻辑：
     1. 优先使用 strategy_id 查找
     2. 如果 strategy_id 找不到，尝试使用 strategy_name 查找
     3. 返回策略信息字典（包含 id, name, file_name 等）
-    
+
     Args:
         db: 数据库会话
         strategy_id: 策略 ID（可选）
         strategy_name: 策略名称（可选）
-    
+
     Returns:
         dict: 策略信息，如果找不到返回 None
     """
     try:
         from ..strategy.models import Strategy
-        
+
         # 优先通过 ID 查找
         if strategy_id:
             strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
             if strategy:
                 return {
-                    'id': strategy.id,
-                    'name': strategy.name,
-                    'file_name': getattr(strategy, 'file_name', None),
+                    "id": strategy.id,
+                    "name": strategy.name,
+                    "file_name": getattr(strategy, "file_name", None),
                 }
             else:
                 # ID 找不到，记录警告并尝试通过名称查找
                 import logging
+
                 logger = logging.getLogger(__name__)
                 logger.warning(f"策略 ID {strategy_id} 未找到，尝试通过名称查找...")
-        
+
         # 通过名称查找（容错机制）
         if strategy_name:
-            strategy = db.query(Strategy).filter(
-                and_(
-                    Strategy.name == strategy_name,
-                    Strategy.is_deleted == False if hasattr(Strategy, 'is_deleted') else True
+            strategy = (
+                db.query(Strategy)
+                .filter(
+                    and_(
+                        Strategy.name == strategy_name,
+                        not Strategy.is_deleted if hasattr(Strategy, "is_deleted") else True,
+                    )
                 )
-            ).first()
-            
+                .first()
+            )
+
             if strategy:
                 return {
-                    'id': strategy.id,
-                    'name': strategy.name,
-                    'file_name': getattr(strategy, 'file_name', None),
+                    "id": strategy.id,
+                    "name": strategy.name,
+                    "file_name": getattr(strategy, "file_name", None),
                 }
-        
+
         return None
-        
+
     except Exception as e:
         import logging
+
         logger = logging.getLogger(__name__)
         logger.error(f"查找策略失败: {e}")
         return None
@@ -93,24 +114,31 @@ def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
             "type": "symbols",  # 默认为直接货币对模式
             "symbols": symbols,
             "pool_id": None,
-            "pool_name": None
+            "pool_name": None,
         },
         "timeframe": worker_data.timeframe or "1h",
         "market_type": worker_data.market_type or "spot",
-        "trading_mode": worker_data.trading_mode or "paper"
+        "trading_mode": worker_data.trading_mode or "paper",
     }
 
     db_worker = Worker(
         name=worker_data.name,
         description=worker_data.description,
         strategy_id=worker_data.strategy_id,
-        strategy_name=getattr(worker_data, 'strategy_name', None),  # 新增：策略名称（冗余存储）
+        strategy_name=getattr(worker_data, "strategy_name", None),  # 新增：策略名称（冗余存储）
         trading_config=json.dumps(trading_config),
-        env_vars=json.dumps(worker_data.env_vars) if worker_data.env_vars else '{}',
-        config=json.dumps({**(worker_data.config or {}), 'strategy_file_name': worker_data.strategy_file_name}) if (worker_data.config or worker_data.strategy_file_name) else '{}',
+        env_vars=json.dumps(worker_data.env_vars) if worker_data.env_vars else "{}",
+        config=json.dumps(
+            {
+                **(worker_data.config or {}),
+                "strategy_file_name": worker_data.strategy_file_name,
+            }
+        )
+        if (worker_data.config or worker_data.strategy_file_name)
+        else "{}",
         status="stopped",
         created_at=datetime.now(),
-        updated_at=datetime.now()
+        updated_at=datetime.now(),
     )
     db.add(db_worker)
     db.commit()
@@ -118,32 +146,32 @@ def create_worker(db: Session, worker_data: schemas.WorkerCreate) -> Worker:
     return db_worker
 
 
-def get_worker(db: Session, worker_id: int) -> Optional[Worker]:
+def get_worker(db: Session, worker_id: int) -> Worker | None:
     """获取Worker"""
     return db.query(Worker).filter(Worker.id == worker_id).first()
 
 
 def get_workers(
     db: Session,
-    status: Optional[str] = None,
-    strategy_id: Optional[int] = None,
+    status: str | None = None,
+    strategy_id: int | None = None,
     skip: int = 0,
-    limit: int = 20
-) -> Tuple[List[Worker], int]:
+    limit: int = 20,
+) -> tuple[list[Worker], int]:
     """获取Worker列表"""
     query = db.query(Worker)
-    
+
     if status:
         query = query.filter(Worker.status == status)
     if strategy_id:
         query = query.filter(Worker.strategy_id == strategy_id)
-    
+
     total = query.count()
     workers = query.order_by(desc(Worker.created_at)).offset(skip).limit(limit).all()
     return workers, total
 
 
-def update_worker(db: Session, worker_id: int, worker_data: schemas.WorkerUpdate) -> Optional[Worker]:
+def update_worker(db: Session, worker_id: int, worker_data: schemas.WorkerUpdate) -> Worker | None:
     """更新Worker"""
     import json
 
@@ -154,15 +182,15 @@ def update_worker(db: Session, worker_id: int, worker_data: schemas.WorkerUpdate
     update_data = worker_data.model_dump(exclude_unset=True)
 
     # 特殊处理 trading_mode：需要合并到 trading_config JSON 中
-    if 'trading_mode' in update_data:
-        trading_mode = update_data.pop('trading_mode')
+    if "trading_mode" in update_data:
+        trading_mode = update_data.pop("trading_mode")
         current_trading_config = worker.get_trading_config_dict()
-        current_trading_config['trading_mode'] = trading_mode
+        current_trading_config["trading_mode"] = trading_mode
         worker.trading_config = json.dumps(current_trading_config)
 
     for field, value in update_data.items():
         # 特殊处理 config 和 trading_config 字段（需要 JSON 序列化）
-        if field in ('config', 'trading_config') and isinstance(value, dict):
+        if field in ("config", "trading_config") and isinstance(value, dict):
             setattr(worker, field, json.dumps(value))
         else:
             setattr(worker, field, value)
@@ -173,13 +201,14 @@ def update_worker(db: Session, worker_id: int, worker_data: schemas.WorkerUpdate
     return worker
 
 
-def update_worker_config(db: Session, worker_id: int, config: Dict[str, Any]) -> Optional[Worker]:
+def update_worker_config(db: Session, worker_id: int, config: dict[str, Any]) -> Worker | None:
     """更新Worker配置"""
     import json
+
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not worker:
         return None
-    
+
     current_config = worker.get_config_dict()
     current_config.update(config)
     worker.config = json.dumps(current_config)
@@ -194,7 +223,7 @@ def delete_worker(db: Session, worker_id: int) -> bool:
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not worker:
         return False
-    
+
     db.delete(worker)
     db.commit()
     return True
@@ -204,18 +233,19 @@ def clone_worker(db: Session, worker_id: int, request: schemas.WorkerCloneReques
     """克隆Worker"""
     source_worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not source_worker:
-        raise ValueError("源Worker不存在")
+        msg = "源Worker不存在"
+        raise ValueError(msg)
 
     new_worker = Worker(
         name=request.new_name,
         description=source_worker.description,
         strategy_id=source_worker.strategy_id,
-        trading_config=source_worker.trading_config if request.copy_config else '{}',
-        env_vars=source_worker.env_vars if request.copy_config else '{}',
-        config=source_worker.config if request.copy_config else '{}',
+        trading_config=source_worker.trading_config if request.copy_config else "{}",
+        env_vars=source_worker.env_vars if request.copy_config else "{}",
+        config=source_worker.config if request.copy_config else "{}",
         status="stopped",
         created_at=datetime.now(),
-        updated_at=datetime.now()
+        updated_at=datetime.now(),
     )
     db.add(new_worker)
     db.commit()
@@ -230,7 +260,7 @@ def clone_worker(db: Session, worker_id: int, request: schemas.WorkerCloneReques
                 param_name=param.param_name,
                 param_value=param.param_value,
                 param_type=param.param_type,
-                description=param.description
+                description=param.description,
             )
             db.add(new_param)
         db.commit()
@@ -238,21 +268,21 @@ def clone_worker(db: Session, worker_id: int, request: schemas.WorkerCloneReques
     return new_worker
 
 
-def update_worker_status(db: Session, worker_id: int, status: str, pid: Optional[int] = None) -> Optional[Worker]:
+def update_worker_status(db: Session, worker_id: int, status: str, pid: int | None = None) -> Worker | None:
     """更新Worker状态"""
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not worker:
         return None
-    
+
     worker.status = status
     if pid is not None:
         worker.pid = pid
-    
+
     if status == "running":
         worker.started_at = datetime.now()
     elif status == "stopped":
         worker.stopped_at = datetime.now()
-    
+
     worker.updated_at = datetime.now()
     db.commit()
     db.refresh(worker)
@@ -261,14 +291,22 @@ def update_worker_status(db: Session, worker_id: int, status: str, pid: Optional
 
 # Worker日志操作
 
-def create_worker_log(db: Session, worker_id: int, level: str, message: str, source: str = "worker", timestamp: Optional[datetime] = None) -> WorkerLog:
+
+def create_worker_log(
+    db: Session,
+    worker_id: int,
+    level: str,
+    message: str,
+    source: str = "worker",
+    timestamp: datetime | None = None,
+) -> WorkerLog:
     """创建Worker日志"""
     log = WorkerLog(
         worker_id=worker_id,
         level=level,
         message=message,
         source=source,
-        timestamp=timestamp if timestamp else datetime.now()
+        timestamp=timestamp or datetime.now(),
     )
     db.add(log)
     db.commit()
@@ -279,11 +317,11 @@ def create_worker_log(db: Session, worker_id: int, level: str, message: str, sou
 def get_worker_logs(
     db: Session,
     worker_id: int,
-    level: Optional[str] = None,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    limit: int = 100
-) -> List[WorkerLog]:
+    level: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    limit: int = 100,
+) -> list[WorkerLog]:
     """获取Worker日志"""
     query = db.query(WorkerLog).filter(WorkerLog.worker_id == worker_id)
 
@@ -297,7 +335,7 @@ def get_worker_logs(
     return query.order_by(desc(WorkerLog.timestamp)).limit(limit).all()
 
 
-def clear_worker_logs(db: Session, worker_id: int, before_days: Optional[int] = None) -> int:
+def clear_worker_logs(db: Session, worker_id: int, before_days: int | None = None) -> int:
     """清理Worker日志
 
     Args:
@@ -323,14 +361,15 @@ def clear_worker_logs(db: Session, worker_id: int, before_days: Optional[int] = 
 
 # Worker指标操作
 
-def create_worker_metric(db: Session, worker_id: int, metrics: Dict[str, Any]) -> WorkerMetric:
+
+def create_worker_metric(db: Session, worker_id: int, metrics: dict[str, Any]) -> WorkerMetric:
     """创建Worker指标记录"""
     metric = WorkerMetric(
         worker_id=worker_id,
         network_in=metrics.get("network_in", 0),
         network_out=metrics.get("network_out", 0),
         active_tasks=metrics.get("active_tasks", 0),
-        timestamp=datetime.now()
+        timestamp=datetime.now(),
     )
     db.add(metric)
     db.commit()
@@ -341,52 +380,63 @@ def create_worker_metric(db: Session, worker_id: int, metrics: Dict[str, Any]) -
 def get_metrics_history(
     db: Session,
     worker_id: int,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    interval: str = "1m"
-) -> List[Dict[str, Any]]:
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    interval: str = "1m",
+) -> list[dict[str, Any]]:
     """获取历史指标"""
     query = db.query(WorkerMetric).filter(WorkerMetric.worker_id == worker_id)
-    
+
     if start_time:
         query = query.filter(WorkerMetric.timestamp >= start_time)
     if end_time:
         query = query.filter(WorkerMetric.timestamp <= end_time)
-    
+
     metrics = query.order_by(WorkerMetric.timestamp).all()
     return [m.to_dict() for m in metrics]
 
 
 # Worker绩效操作
 
-def get_worker_performance(db: Session, worker_id: int, days: int = 30) -> List[WorkerPerformance]:
+
+def get_worker_performance(db: Session, worker_id: int, days: int = 30) -> list[WorkerPerformance]:
     """获取Worker绩效"""
     start_date = datetime.now() - timedelta(days=days)
-    return db.query(WorkerPerformance).filter(
-        and_(
-            WorkerPerformance.worker_id == worker_id,
-            WorkerPerformance.date >= start_date
+    return (
+        db.query(WorkerPerformance)
+        .filter(
+            and_(
+                WorkerPerformance.worker_id == worker_id,
+                WorkerPerformance.date >= start_date,
+            )
         )
-    ).order_by(WorkerPerformance.date).all()
+        .order_by(WorkerPerformance.date)
+        .all()
+    )
 
 
 # Worker参数操作
 
-def get_worker_parameters(db: Session, worker_id: int) -> List[WorkerParameter]:
+
+def get_worker_parameters(db: Session, worker_id: int) -> list[WorkerParameter]:
     """获取Worker参数"""
     return db.query(WorkerParameter).filter(WorkerParameter.worker_id == worker_id).all()
 
 
-def update_worker_parameters(db: Session, worker_id: int, parameters: Dict[str, Any]) -> None:
+def update_worker_parameters(db: Session, worker_id: int, parameters: dict[str, Any]) -> None:
     """更新Worker参数"""
     for name, value in parameters.items():
-        param = db.query(WorkerParameter).filter(
-            and_(
-                WorkerParameter.worker_id == worker_id,
-                WorkerParameter.param_name == name
+        param = (
+            db.query(WorkerParameter)
+            .filter(
+                and_(
+                    WorkerParameter.worker_id == worker_id,
+                    WorkerParameter.param_name == name,
+                )
             )
-        ).first()
-        
+            .first()
+        )
+
         if param:
             param.param_value = value
         else:
@@ -395,41 +445,42 @@ def update_worker_parameters(db: Session, worker_id: int, parameters: Dict[str, 
                 param_name=name,
                 param_value=value,
                 param_type=type(value).__name__,
-                editable=True
+                editable=True,
             )
             db.add(param)
-    
+
     db.commit()
 
 
 # Worker交易操作
 
+
 def get_worker_trades(
     db: Session,
     worker_id: int,
-    symbol: Optional[str] = None,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
+    symbol: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
     skip: int = 0,
-    limit: int = 20
-) -> Tuple[List[WorkerTrade], int]:
+    limit: int = 20,
+) -> tuple[list[WorkerTrade], int]:
     """获取Worker交易记录"""
     query = db.query(WorkerTrade).filter(WorkerTrade.worker_id == worker_id)
-    
+
     if symbol:
         query = query.filter(WorkerTrade.symbol == symbol)
     if start_time:
         query = query.filter(WorkerTrade.created_at >= start_time)
     if end_time:
         query = query.filter(WorkerTrade.created_at <= end_time)
-    
+
     total = query.count()
     trades = query.order_by(desc(WorkerTrade.created_at)).offset(skip).limit(limit).all()
     return trades, total
 
 
 def create_trade_if_not_exists(db: Session, trade_data: dict) -> WorkerTrade:
-    existing = db.query(WorkerTrade).filter(WorkerTrade.trade_id == trade_data['trade_id']).first()
+    existing = db.query(WorkerTrade).filter(WorkerTrade.trade_id == trade_data["trade_id"]).first()
     if existing:
         return existing
     db_trade = WorkerTrade(**trade_data)
@@ -440,7 +491,7 @@ def create_trade_if_not_exists(db: Session, trade_data: dict) -> WorkerTrade:
 
 
 def create_order_if_not_exists(db: Session, order_data: dict) -> WorkerOrder:
-    existing = db.query(WorkerOrder).filter(WorkerOrder.client_order_id == order_data['client_order_id']).first()
+    existing = db.query(WorkerOrder).filter(WorkerOrder.client_order_id == order_data["client_order_id"]).first()
     if existing:
         return existing
     db_order = WorkerOrder(**order_data)
@@ -451,7 +502,7 @@ def create_order_if_not_exists(db: Session, order_data: dict) -> WorkerOrder:
 
 
 def create_position_if_not_exists(db: Session, position_data: dict) -> WorkerPosition:
-    existing = db.query(WorkerPosition).filter(WorkerPosition.position_id == position_data['position_id']).first()
+    existing = db.query(WorkerPosition).filter(WorkerPosition.position_id == position_data["position_id"]).first()
     if existing:
         return existing
     db_position = WorkerPosition(**position_data)
@@ -461,7 +512,7 @@ def create_position_if_not_exists(db: Session, position_data: dict) -> WorkerPos
     return db_position
 
 
-def update_position(db: Session, position_id: str, position_data: dict) -> Optional[WorkerPosition]:
+def update_position(db: Session, position_id: str, position_data: dict) -> WorkerPosition | None:
     position = db.query(WorkerPosition).filter(WorkerPosition.position_id == position_id).first()
     if not position:
         return None
@@ -477,11 +528,11 @@ def update_position(db: Session, position_id: str, position_data: dict) -> Optio
 def get_all_worker_trades(
     db: Session,
     worker_id: int,
-    symbol: Optional[str] = None,
-    side: Optional[str] = None,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-) -> List[WorkerTrade]:
+    symbol: str | None = None,
+    side: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+) -> list[WorkerTrade]:
     query = db.query(WorkerTrade).filter(WorkerTrade.worker_id == worker_id)
     if symbol:
         query = query.filter(WorkerTrade.symbol == symbol)
@@ -494,13 +545,17 @@ def get_all_worker_trades(
     return query.order_by(desc(WorkerTrade.created_at)).all()
 
 
-def get_worker_order_by_id(db: Session, worker_id: int, client_order_id: str) -> Optional[WorkerOrder]:
-    return db.query(WorkerOrder).filter(
-        and_(
-            WorkerOrder.worker_id == worker_id,
-            WorkerOrder.client_order_id == client_order_id,
+def get_worker_order_by_id(db: Session, worker_id: int, client_order_id: str) -> WorkerOrder | None:
+    return (
+        db.query(WorkerOrder)
+        .filter(
+            and_(
+                WorkerOrder.worker_id == worker_id,
+                WorkerOrder.client_order_id == client_order_id,
+            )
         )
-    ).first()
+        .first()
+    )
 
 
 def update_worker_order_status(
@@ -511,7 +566,7 @@ def update_worker_order_status(
     avg_fill_price: float,
     commission: float,
     venue_order_id: str,
-) -> Optional[WorkerOrder]:
+) -> WorkerOrder | None:
     order = db.query(WorkerOrder).filter(WorkerOrder.id == order_id).first()
     if not order:
         return None
@@ -530,12 +585,12 @@ def update_worker_order_status(
 def get_trading_summary(
     db: Session,
     worker_id: int,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
 ) -> dict:
     """
     获取交易汇总统计（优化版 - 使用 SQL 聚合）
-    
+
     Uses SQLAlchemy aggregate functions to compute statistics at the database level,
     avoiding loading all trade records into memory.
     """
@@ -564,7 +619,7 @@ def get_trade_history_chart(db: Session, worker_id: int, days: int = 30) -> dict
             "trade_count": [],
         }
 
-    daily_data: Dict[str, Dict[str, float]] = {}
+    daily_data: dict[str, dict[str, float]] = {}
     for t in trades:
         if not t.created_at:
             continue
@@ -599,24 +654,21 @@ def get_trade_history_chart(db: Session, worker_id: int, days: int = 30) -> dict
 def get_pnl_distribution(db: Session, worker_id: int) -> dict:
     """
     获取 PNL 分布统计（优化版 - 使用 SQL 聚合计算统计量）
-    
+
     使用 SQLAlchemy 聚合函数在数据库层面计算 mean、std，
     仅加载 pnl_values 用于直方图计算。
     """
     # 使用 SQL 聚合计算统计量
     stats_query = db.query(
-        func.count(WorkerTrade.id).label('count'),
-        func.sum(WorkerTrade.realized_pnl).label('sum_pnl'),
-        func.avg(WorkerTrade.realized_pnl).label('mean_pnl'),
-        func.min(WorkerTrade.realized_pnl).label('min_pnl'),
-        func.max(WorkerTrade.realized_pnl).label('max_pnl'),
-    ).filter(
-        WorkerTrade.worker_id == worker_id,
-        WorkerTrade.realized_pnl.isnot(None)
-    )
-    
+        func.count(WorkerTrade.id).label("count"),
+        func.sum(WorkerTrade.realized_pnl).label("sum_pnl"),
+        func.avg(WorkerTrade.realized_pnl).label("mean_pnl"),
+        func.min(WorkerTrade.realized_pnl).label("min_pnl"),
+        func.max(WorkerTrade.realized_pnl).label("max_pnl"),
+    ).filter(WorkerTrade.worker_id == worker_id, WorkerTrade.realized_pnl.isnot(None))
+
     stats_row = stats_query.first()
-    
+
     if not stats_row or not stats_row.count:
         return {
             "bins": [],
@@ -625,20 +677,21 @@ def get_pnl_distribution(db: Session, worker_id: int) -> dict:
             "median": 0.0,
             "std": 0.0,
         }
-    
+
     # 仅加载 pnl_values 用于直方图和标准差计算
-    pnl_values = db.query(WorkerTrade.realized_pnl).filter(
-        WorkerTrade.worker_id == worker_id,
-        WorkerTrade.realized_pnl.isnot(None)
-    ).all()
+    pnl_values = (
+        db.query(WorkerTrade.realized_pnl)
+        .filter(WorkerTrade.worker_id == worker_id, WorkerTrade.realized_pnl.isnot(None))
+        .all()
+    )
     pnl_values = [p[0] for p in pnl_values]
-    
+
     pnl_array = np.array(pnl_values)
     counts, bin_edges = np.histogram(pnl_array, bins=20)
-    
+
     # 使用 SQL 计算的 mean，Python 计算 median 和 std
     mean_pnl = float(stats_row.mean_pnl) if stats_row.mean_pnl else 0.0
-    
+
     return {
         "bins": [round(float(b), 2) for b in bin_edges.tolist()],
         "counts": [int(c) for c in counts.tolist()],
@@ -651,15 +704,15 @@ def get_pnl_distribution(db: Session, worker_id: int) -> dict:
 def get_worker_orders_paginated(
     db: Session,
     worker_id: int,
-    status: Optional[str] = None,
-    symbol: Optional[str] = None,
-    side: Optional[str] = None,
-    order_type: Optional[str] = None,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
+    status: str | None = None,
+    symbol: str | None = None,
+    side: str | None = None,
+    order_type: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
     skip: int = 0,
     limit: int = 50,
-) -> Tuple[List[WorkerOrder], int]:
+) -> tuple[list[WorkerOrder], int]:
     query = db.query(WorkerOrder).filter(WorkerOrder.worker_id == worker_id)
 
     if status:
@@ -683,10 +736,10 @@ def get_worker_orders_paginated(
 def get_worker_positions_filtered(
     db: Session,
     worker_id: int,
-    status: Optional[str] = "OPEN",
-    symbol: Optional[str] = None,
-    side: Optional[str] = None,
-) -> List[WorkerPosition]:
+    status: str | None = "OPEN",
+    symbol: str | None = None,
+    side: str | None = None,
+) -> list[WorkerPosition]:
     query = db.query(WorkerPosition).filter(WorkerPosition.worker_id == worker_id)
 
     if status:
@@ -702,21 +755,21 @@ def get_worker_positions_filtered(
 def get_trading_summary_optimized(
     db: Session,
     worker_id: int,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
 ) -> dict:
     query = db.query(
-        func.count(WorkerTrade.id).label('total_trades'),
-        func.sum(case((WorkerTrade.realized_pnl > 0, 1), else_=0)).label('winning_trades'),
-        func.sum(case((WorkerTrade.realized_pnl < 0, 1), else_=0)).label('losing_trades'),
-        func.sum(WorkerTrade.realized_pnl).label('total_pnl'),
-        func.sum(case((WorkerTrade.realized_pnl > 0, WorkerTrade.realized_pnl), else_=0)).label('total_profit'),
-        func.sum(case((WorkerTrade.realized_pnl < 0, WorkerTrade.realized_pnl), else_=0)).label('total_loss'),
-        func.max(WorkerTrade.realized_pnl).label('largest_profit'),
-        func.min(WorkerTrade.realized_pnl).label('largest_loss'),
-        func.sum(WorkerTrade.amount).label('total_volume'),
-        func.sum(WorkerTrade.fee).label('total_fees'),
-        func.count(func.distinct(func.date(WorkerTrade.created_at))).label('trading_days'),
+        func.count(WorkerTrade.id).label("total_trades"),
+        func.sum(case((WorkerTrade.realized_pnl > 0, 1), else_=0)).label("winning_trades"),
+        func.sum(case((WorkerTrade.realized_pnl < 0, 1), else_=0)).label("losing_trades"),
+        func.sum(WorkerTrade.realized_pnl).label("total_pnl"),
+        func.sum(case((WorkerTrade.realized_pnl > 0, WorkerTrade.realized_pnl), else_=0)).label("total_profit"),
+        func.sum(case((WorkerTrade.realized_pnl < 0, WorkerTrade.realized_pnl), else_=0)).label("total_loss"),
+        func.max(WorkerTrade.realized_pnl).label("largest_profit"),
+        func.min(WorkerTrade.realized_pnl).label("largest_loss"),
+        func.sum(WorkerTrade.amount).label("total_volume"),
+        func.sum(WorkerTrade.fee).label("total_fees"),
+        func.count(func.distinct(func.date(WorkerTrade.created_at))).label("trading_days"),
     ).filter(WorkerTrade.worker_id == worker_id)
 
     if start_time:
@@ -787,15 +840,15 @@ def get_trading_summary_optimized(
 def get_worker_trades_paginated(
     db: Session,
     worker_id: int,
-    symbol: Optional[str] = None,
-    side: Optional[str] = None,
-    order_type: Optional[str] = None,
-    pnl_status: Optional[str] = None,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
+    symbol: str | None = None,
+    side: str | None = None,
+    order_type: str | None = None,
+    pnl_status: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
     skip: int = 0,
     limit: int = 50,
-) -> Tuple[List[WorkerTrade], int]:
+) -> tuple[list[WorkerTrade], int]:
     query = db.query(WorkerTrade).filter(WorkerTrade.worker_id == worker_id)
 
     if symbol:
@@ -805,11 +858,11 @@ def get_worker_trades_paginated(
     if order_type:
         query = query.filter(WorkerTrade.order_type == order_type)
     if pnl_status is not None:
-        if pnl_status == 'profit':
+        if pnl_status == "profit":
             query = query.filter(WorkerTrade.realized_pnl > 0)
-        elif pnl_status == 'loss':
+        elif pnl_status == "loss":
             query = query.filter(WorkerTrade.realized_pnl < 0)
-        elif pnl_status == 'flat':
+        elif pnl_status == "flat":
             query = query.filter(WorkerTrade.realized_pnl == 0)
     if start_time:
         query = query.filter(WorkerTrade.created_at >= start_time)

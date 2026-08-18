@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 回测命令行工具
 
@@ -18,10 +17,12 @@ backend_path = Path(__file__).resolve().parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
+
 def main():
     from backtest.cli import app
+
     app()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

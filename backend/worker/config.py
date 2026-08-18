@@ -6,7 +6,8 @@ Worker 配置模块
 
 # axon-quant 可用性检测
 try:
-    import axon_quant  # noqa: F401
+    import axon_quant
+
     AXON_QUANT_AVAILABLE = True
 except ImportError:
     AXON_QUANT_AVAILABLE = False

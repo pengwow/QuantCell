@@ -1,8 +1,8 @@
-# -*- coding: utf-8 -*-
 """Engine API routes — 交易引擎管理和策略运行控制"""
 
 from __future__ import annotations
 
+import contextlib
 import math
 from typing import Any
 
@@ -11,8 +11,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from common.schemas import ApiResponse
-from strategy.loader import StrategyLoader
 from strategy.base import StrategyConfig
+from strategy.loader import StrategyLoader
 from utils.auth import jwt_auth_required
 
 router = APIRouter(prefix="/api/engine", tags=["Engine"])
@@ -33,6 +33,7 @@ def _sanitize(obj: Any) -> Any:
 
 # ---------- 请求模型 ----------
 
+
 class StartStrategyRequest(BaseModel):
     strategy_name: str = Field(..., description="策略模板名（已注册）")
     symbols: list[str] = Field(default_factory=lambda: ["BTCUSDT"])
@@ -45,7 +46,11 @@ class StartStrategyRequest(BaseModel):
 class BacktestRequest(BaseModel):
     strategy_name: str = Field(..., description="策略模板名")
     symbol: str = Field(default="BTCUSDT")
-    data: list[dict[str, Any]] = Field(..., min_length=1, description="OHLCV 数据列表，每条必须包含 open/high/low/close/volume")
+    data: list[dict[str, Any]] = Field(
+        ...,
+        min_length=1,
+        description="OHLCV 数据列表，每条必须包含 open/high/low/close/volume",
+    )
     params: dict[str, Any] = Field(default_factory=dict)
     initial_cash: float = Field(default=100_000.0, gt=0)
     # ponytail: v1 仅支持请求体传入 data，数据库查询数据源后续接入
@@ -53,11 +58,13 @@ class BacktestRequest(BaseModel):
 
 # ---------- 端点 ----------
 
+
 @router.get("/status")
 @jwt_auth_required
 async def engine_status(request: Request) -> ApiResponse:
     """获取引擎状态概览"""
     from engine.trading_engine import get_trading_engine
+
     engine = get_trading_engine()
     return ApiResponse(code=0, message="ok", data=engine.engine_status())
 
@@ -67,6 +74,7 @@ async def engine_status(request: Request) -> ApiResponse:
 async def list_strategies(request: Request) -> ApiResponse:
     """列出所有策略及其运行状态"""
     from engine.trading_engine import get_trading_engine
+
     engine = get_trading_engine()
     return ApiResponse(code=0, message="ok", data=engine.list_strategies())
 
@@ -76,6 +84,7 @@ async def list_strategies(request: Request) -> ApiResponse:
 async def start_strategy(request: Request, req: StartStrategyRequest) -> ApiResponse:
     """启动策略（paper 或 live 模式）"""
     from engine.trading_engine import get_trading_engine
+
     engine = get_trading_engine()
 
     # 加载策略类
@@ -110,6 +119,7 @@ async def start_strategy(request: Request, req: StartStrategyRequest) -> ApiResp
 async def stop_strategy(request: Request, sid: str) -> ApiResponse:
     """停止运行中的策略"""
     from engine.trading_engine import get_trading_engine
+
     engine = get_trading_engine()
     ok = engine.stop_strategy(sid)
     if not ok:
@@ -122,6 +132,7 @@ async def stop_strategy(request: Request, sid: str) -> ApiResponse:
 async def get_strategy_status(request: Request, sid: str) -> ApiResponse:
     """获取单个策略运行详情"""
     from engine.trading_engine import get_trading_engine
+
     engine = get_trading_engine()
     status = engine.get_strategy_status(sid)
     if status is None:
@@ -134,6 +145,7 @@ async def get_strategy_status(request: Request, sid: str) -> ApiResponse:
 async def run_backtest(request: Request, req: BacktestRequest) -> ApiResponse:
     """运行回测"""
     from engine.trading_engine import get_trading_engine
+
     engine = get_trading_engine()
 
     # 加载策略
@@ -148,7 +160,13 @@ async def run_backtest(request: Request, req: BacktestRequest) -> ApiResponse:
     # 数据加载：v1 要求请求体直接提供 OHLCV data 列表
     df = pd.DataFrame(req.data)
     # 兼容大小写列名
-    col_map = {"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"}
+    col_map = {
+        "Open": "open",
+        "High": "high",
+        "Low": "low",
+        "Close": "close",
+        "Volume": "volume",
+    }
     for upper, lower in col_map.items():
         if lower not in df.columns and upper in df.columns:
             df[lower] = df[upper]
@@ -159,10 +177,8 @@ async def run_backtest(request: Request, req: BacktestRequest) -> ApiResponse:
 
     # 若有 timestamp 列，尝试设为索引以兼容 BacktestLoop 的 DatetimeIndex 处理
     if "timestamp" in df.columns:
-        try:
+        with contextlib.suppress(Exception):
             df.index = pd.to_datetime(df["timestamp"], unit="ns", utc=True)
-        except Exception:
-            pass
 
     if len(df) == 0:
         raise HTTPException(status_code=400, detail="数据为空，无法回测")
@@ -177,19 +193,21 @@ async def run_backtest(request: Request, req: BacktestRequest) -> ApiResponse:
     return ApiResponse(
         code=0,
         message="回测完成",
-        data=_sanitize({
-            "total_pnl": result.total_pnl,
-            "total_orders": result.total_orders,
-            "fills": result.fills,
-            "final_nav": result.final_nav,
-            "max_drawdown": result.max_drawdown,
-            "max_drawdown_pct": result.max_drawdown_pct,
-            "win_rate": result.win_rate,
-            "sharpe_ratio": result.sharpe_ratio,
-            "total_fees": result.total_fees,
-            "nav_peak": result.nav_peak,
-            "bar_count": result.bar_count,
-            "equity_curve": result.equity_curve,
-            "trade_records": result.trade_records,
-        }),
+        data=_sanitize(
+            {
+                "total_pnl": result.total_pnl,
+                "total_orders": result.total_orders,
+                "fills": result.fills,
+                "final_nav": result.final_nav,
+                "max_drawdown": result.max_drawdown,
+                "max_drawdown_pct": result.max_drawdown_pct,
+                "win_rate": result.win_rate,
+                "sharpe_ratio": result.sharpe_ratio,
+                "total_fees": result.total_fees,
+                "nav_peak": result.nav_peak,
+                "bar_count": result.bar_count,
+                "equity_curve": result.equity_curve,
+                "trade_records": result.trade_records,
+            }
+        ),
     )

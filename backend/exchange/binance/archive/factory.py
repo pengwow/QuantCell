@@ -1,8 +1,13 @@
 """7 种归档数据 × 3 个市场的工厂装配。"""
+
 from __future__ import annotations
 
-from exchange.binance.archive.base import BaseBinanceArchiveDownloader
+from typing import TYPE_CHECKING
+
 from exchange.binance.archive.kinds import ArchiveKind, MarketType
+
+if TYPE_CHECKING:
+    from exchange.binance.archive.base import BaseBinanceArchiveDownloader
 
 
 class BinanceArchiveFactory:
@@ -47,9 +52,7 @@ class BinanceArchiveFactory:
         }
         # 7 × 3 = 21 项；market 不影响类选择，但保持显式映射便于诊断
         cls._REGISTRY = {
-            (kind, market): fetcher_cls
-            for kind, fetcher_cls in cls._KIND_TO_FETCHER.items()
-            for market in MarketType
+            (kind, market): fetcher_cls for kind, fetcher_cls in cls._KIND_TO_FETCHER.items() for market in MarketType
         }
 
     @classmethod
@@ -84,12 +87,14 @@ class BinanceArchiveFactory:
             try:
                 kind = ArchiveKind(kind)
             except ValueError as exc:
-                raise ValueError(f"Unknown ArchiveKind: {kind!r}") from exc
+                msg = f"Unknown ArchiveKind: {kind!r}"
+                raise ValueError(msg) from exc
 
         fetcher_cls = cls._REGISTRY.get((kind, market))
         if fetcher_cls is None:
             # 走到这里说明 _build_registry 出错或 kind 拼写异常
-            raise ValueError(f"No fetcher registered for kind={kind!r}, market={market!r}")
+            msg = f"No fetcher registered for kind={kind!r}, market={market!r}"
+            raise ValueError(msg)
         return fetcher_cls(
             market=market,
             base_dir=base_dir,

@@ -16,7 +16,6 @@
     ... )
 """
 
-from .manager import PromptCategory
-from .manager import PromptManager
+from .manager import PromptCategory, PromptManager
 
-__all__ = ["PromptManager", "PromptCategory"]
+__all__ = ["PromptCategory", "PromptManager"]

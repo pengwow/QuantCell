@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Worker 分享系统 CRUD
 
@@ -11,15 +10,18 @@ token 生成遵循：
 - 本地不再记录 ShareView 访问审计（远端 quantcell.top 端负责统计）
 - view_count 仍保留但不再自增，仅作为兼容字段
 """
+
 import hashlib
 import secrets
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import desc
-from sqlalchemy.orm import Session
 
 from .models import ShareToken
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 def _hash_token(token: str) -> str:
@@ -35,10 +37,10 @@ def generate_token() -> str:
 def create_share_token(
     db: Session,
     worker_id: int,
-    created_by: Optional[str],
-    expires_in_seconds: Optional[int],
+    created_by: str | None,
+    expires_in_seconds: int | None,
     one_time: bool,
-    max_views: Optional[int] = None,
+    max_views: int | None = None,
 ) -> tuple[ShareToken, str]:
     """创建分享 token
 
@@ -68,12 +70,12 @@ def create_share_token(
     return share, token
 
 
-def get_share_by_id(db: Session, share_id: int) -> Optional[ShareToken]:
+def get_share_by_id(db: Session, share_id: int) -> ShareToken | None:
     """通过 id 查询"""
     return db.query(ShareToken).filter(ShareToken.id == share_id).first()
 
 
-def get_share_by_token(db: Session, token: str) -> Optional[ShareToken]:
+def get_share_by_token(db: Session, token: str) -> ShareToken | None:
     """通过明文 token 查询（内部哈希匹配）"""
     if not token:
         return None
@@ -81,14 +83,9 @@ def get_share_by_token(db: Session, token: str) -> Optional[ShareToken]:
     return db.query(ShareToken).filter(ShareToken.token_hash == token_hash).first()
 
 
-def list_shares_by_worker(db: Session, worker_id: int) -> List[ShareToken]:
+def list_shares_by_worker(db: Session, worker_id: int) -> list[ShareToken]:
     """列出指定 worker 的所有分享 token（按创建时间倒序）"""
-    return (
-        db.query(ShareToken)
-        .filter(ShareToken.worker_id == worker_id)
-        .order_by(desc(ShareToken.created_at))
-        .all()
-    )
+    return db.query(ShareToken).filter(ShareToken.worker_id == worker_id).order_by(desc(ShareToken.created_at)).all()
 
 
 def revoke_share(db: Session, share: ShareToken) -> ShareToken:

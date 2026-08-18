@@ -2,13 +2,15 @@
 
 所有 cli/<name>.py 都从这里拿共享行为,不要各自重复定义。
 """
+
 from __future__ import annotations
 
 import functools
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 # === 路径注入:确保 from utils.xxx / from services.xxx 等能 import ===
 # 必须在任何 backend import 之前执行
@@ -19,7 +21,7 @@ if str(_BACKEND_DIR) not in sys.path:
 # 暴露 backend_dir 供子模块使用(原 scripts 用的 backend_path)
 backend_dir = _BACKEND_DIR
 
-import typer  # noqa: E402
+import typer
 
 # 延迟到用到时才 import,避免无谓的启动开销
 _logger = None
@@ -29,7 +31,8 @@ def get_logger(name: str = "cli"):
     """获取 QuantCell 标准 logger(走 utils.logger)。"""
     global _logger
     if _logger is None:
-        from utils.logger import get_logger as _get_logger, LogType
+        from utils.logger import LogType
+        from utils.logger import get_logger as _get_logger
 
         _logger = _get_logger(name, LogType.APPLICATION)
     return _logger
@@ -57,7 +60,7 @@ def echo_success(message: str) -> None:
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def handle_errors(func: F) -> F:
+def handle_errors[F: Callable[..., Any]](func: F) -> F:
     """统一异常处理:捕获异常 → 输出错误 JSON / log → exit 1。
 
     用法:

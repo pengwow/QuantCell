@@ -3,21 +3,22 @@
 薄编排层，不做实际下载逻辑。所有下载走 fetcher；
 任务调度走现有 task_manager；元数据走 archive_meta。
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
 
+from collector.utils.task_manager import task_manager
 from exchange.binance.archive.archive_meta import read_meta
 from exchange.binance.archive.factory import BinanceArchiveFactory
 from exchange.binance.archive.kinds import (
+    KIND_INTERVALS,
     ArchiveKind,
     MarketType,
     get_save_dir,
-    KIND_INTERVALS,
 )
-from collector.utils.task_manager import task_manager
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -25,13 +26,13 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 # 7 个 kind → task_type 枚举, 跟 scheduled_tasks.task_type 字段对齐
 KIND_TASK_TYPE: dict[ArchiveKind, str] = {
-    ArchiveKind.AGG_TRADES: 'archive_agg_trades',
-    ArchiveKind.TRADES: 'archive_trades',
-    ArchiveKind.BOOK_DEPTH: 'archive_book_depth',
-    ArchiveKind.BOOK_TICKER: 'archive_book_ticker',
-    ArchiveKind.MARK_KLINES: 'archive_mark_klines',
-    ArchiveKind.INDEX_KLINES: 'archive_index_klines',
-    ArchiveKind.PREMIUM_KLINES: 'archive_premium_klines',
+    ArchiveKind.AGG_TRADES: "archive_agg_trades",
+    ArchiveKind.TRADES: "archive_trades",
+    ArchiveKind.BOOK_DEPTH: "archive_book_depth",
+    ArchiveKind.BOOK_TICKER: "archive_book_ticker",
+    ArchiveKind.MARK_KLINES: "archive_mark_klines",
+    ArchiveKind.INDEX_KLINES: "archive_index_klines",
+    ArchiveKind.PREMIUM_KLINES: "archive_premium_klines",
 }
 
 
@@ -62,7 +63,7 @@ class ArchiveService:
         market: MarketType,
         start_date: str,
         end_date: str,
-        mode: Literal['inc', 'full'] = 'inc',
+        mode: Literal["inc", "full"] = "inc",
         interval: str | None = None,
     ) -> str:
         """创建归档下载任务。
@@ -88,20 +89,19 @@ class ArchiveService:
         # K 线类必须传 interval
         allowed_intervals = KIND_INTERVALS[kind]
         if allowed_intervals is not None and interval not in allowed_intervals:
-            raise ValueError(
-                f"kind={kind.value} requires interval in {allowed_intervals}, got {interval!r}"
-            )
+            msg = f"kind={kind.value} requires interval in {allowed_intervals}, got {interval!r}"
+            raise ValueError(msg)
 
         task_type = KIND_TASK_TYPE[kind]
         task_id = task_manager.create_task(
             task_type=task_type,
             params={
-                'symbols': symbols,
-                'market': market.value,
-                'start_date': start_date,
-                'end_date': end_date,
-                'mode': mode,
-                'interval': interval,
+                "symbols": symbols,
+                "market": market.value,
+                "start_date": start_date,
+                "end_date": end_date,
+                "mode": mode,
+                "interval": interval,
             },
         )
         logger.info(

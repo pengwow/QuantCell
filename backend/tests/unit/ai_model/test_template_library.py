@@ -16,9 +16,7 @@ _backend_dir = _test_file.parent.parent.parent.parent  # tests/unit/ai_model -> 
 _ai_model_dir = _backend_dir / "ai_model"
 
 # 加载 template_library 模块
-spec = importlib.util.spec_from_file_location(
-    "template_library", _ai_model_dir / "template_library.py"
-)
+spec = importlib.util.spec_from_file_location("template_library", _ai_model_dir / "template_library.py")
 assert spec is not None and spec.loader is not None, "无法加载 template_library 模块"
 library_module = importlib.util.module_from_spec(spec)
 sys.modules["template_library"] = library_module
@@ -105,7 +103,7 @@ templates:
 """
 
     def _create():
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False, encoding='utf-8') as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
             f.write(yaml_content)
             return Path(f.name)
 
@@ -349,7 +347,7 @@ class TestTemplateLibraryRendering:
             strategy_name="CustomStrategy",
             fast_period=20,
             slow_period=50,
-            trade_size=1.0
+            trade_size=1.0,
         )
 
         assert "class CustomStrategy:" in code
@@ -416,11 +414,7 @@ class TestTemplateParameterValidation:
         library = TemplateLibrary(library_file)
         template = library.get_template("dual_ma")
 
-        is_valid, errors = template.validate_params({
-            "fast_period": 15,
-            "slow_period": 40,
-            "trade_size": 0.5
-        })
+        is_valid, errors = template.validate_params({"fast_period": 15, "slow_period": 40, "trade_size": 0.5})
 
         assert is_valid is True
         assert len(errors) == 0
@@ -436,9 +430,11 @@ class TestTemplateParameterValidation:
         library = TemplateLibrary(library_file)
         template = library.get_template("dual_ma")
 
-        is_valid, errors = template.validate_params({
-            "fast_period": 1,  # 小于最小值2
-        })
+        is_valid, errors = template.validate_params(
+            {
+                "fast_period": 1,  # 小于最小值2
+            }
+        )
 
         assert is_valid is False
         assert any("不能小于" in e for e in errors)
@@ -454,9 +450,11 @@ class TestTemplateParameterValidation:
         library = TemplateLibrary(library_file)
         template = library.get_template("dual_ma")
 
-        is_valid, errors = template.validate_params({
-            "fast_period": 200,  # 大于最大值100
-        })
+        is_valid, errors = template.validate_params(
+            {
+                "fast_period": 200,  # 大于最大值100
+            }
+        )
 
         assert is_valid is False
         assert any("不能大于" in e for e in errors)
@@ -472,9 +470,11 @@ class TestTemplateParameterValidation:
         library = TemplateLibrary(library_file)
         template = library.get_template("dual_ma")
 
-        is_valid, errors = template.validate_params({
-            "unknown_param": 100,
-        })
+        is_valid, errors = template.validate_params(
+            {
+                "unknown_param": 100,
+            }
+        )
 
         assert is_valid is False
         assert any("未知参数" in e for e in errors)

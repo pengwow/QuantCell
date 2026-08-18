@@ -1,15 +1,19 @@
-# -*- coding: utf-8 -*-
 """弹性机制模块 — 熔断器、优雅降级、自动扩缩容"""
+
 from __future__ import annotations
 
-import time
 import threading
+import time
 from enum import Enum
-from typing import Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class EventPriority(Enum):
     """事件优先级"""
+
     CRITICAL = 0
     HIGH = 1
     NORMAL = 2
@@ -19,6 +23,7 @@ class EventPriority(Enum):
 
 class DegradationLevel(Enum):
     """降级级别"""
+
     NORMAL = 0
     LIGHT = 1
     MEDIUM = 2
@@ -28,6 +33,7 @@ class DegradationLevel(Enum):
 
 class CircuitBreakerState(Enum):
     """熔断器状态"""
+
     CLOSED = "closed"
     OPEN = "open"
     HALF_OPEN = "half_open"
@@ -35,6 +41,7 @@ class CircuitBreakerState(Enum):
 
 class DegradationConfig:
     """降级配置"""
+
     def __init__(self, max_priority: int):
         self.max_priority = max_priority
 
@@ -42,7 +49,7 @@ class DegradationConfig:
 class GracefulDegradation:
     """优雅降级机制"""
 
-    def __init__(self, on_level_change: Optional[Callable] = None):
+    def __init__(self, on_level_change: Callable | None = None):
         self.current_level = DegradationLevel.NORMAL
         self._level_change_count = 0
         self._on_level_change = on_level_change
@@ -84,7 +91,7 @@ class GracefulDegradation:
             # 恢复时每次只降级一级（逐步恢复）
             current_value = self.current_level.value
             target_value = target.value
-            
+
             if target_value < current_value:
                 # 降级（恢复）：每次只降一级
                 target = DegradationLevel(current_value - 1)
@@ -112,7 +119,7 @@ class GracefulDegradation:
             self.current_level = DegradationLevel.NORMAL
             self._level_change_count = 0
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
         with self._lock:
             return {
@@ -130,7 +137,7 @@ class CircuitBreaker:
         failure_threshold: int = 5,
         recovery_timeout: float = 60.0,
         half_open_max_calls: int = 2,
-        success_threshold: int = 2
+        success_threshold: int = 2,
     ):
         self.name = name
         self._failure_threshold = failure_threshold
@@ -177,10 +184,9 @@ class CircuitBreaker:
             self._total_successes += 1
             self._failures = 0
 
-            if self.state == CircuitBreakerState.HALF_OPEN:
-                if self._successes >= self._success_threshold:
-                    self.state = CircuitBreakerState.CLOSED
-                    self._successes = 0
+            if self.state == CircuitBreakerState.HALF_OPEN and self._successes >= self._success_threshold:
+                self.state = CircuitBreakerState.CLOSED
+                self._successes = 0
 
     def record_failure(self) -> None:
         """记录失败"""
@@ -208,7 +214,7 @@ class CircuitBreaker:
             self._open_timestamp = 0.0
             self._half_open_calls = 0
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
         with self._lock:
             return {
@@ -225,9 +231,10 @@ class ExceptionIsolation:
     """异常隔离框架"""
 
     def __init__(self, max_dead_letters: int = 1000):
-        self._handlers: Dict[str, Any] = {}
+        self._handlers: dict[str, Any] = {}
         # ponytail: deque 自动淘汰旧条目，防止 OOM
         from collections import deque
+
         self._dead_letter_queue: deque = deque(maxlen=max_dead_letters)
         self._lock = threading.Lock()
 
@@ -236,13 +243,13 @@ class ExceptionIsolation:
         event_type: str,
         handler: Callable,
         failure_threshold: int = 5,
-        recovery_timeout: float = 60.0
+        recovery_timeout: float = 60.0,
     ) -> Callable:
         """包装处理器，添加异常隔离和熔断器"""
         breaker = CircuitBreaker(
             name=f"{event_type}_breaker",
             failure_threshold=failure_threshold,
-            recovery_timeout=recovery_timeout
+            recovery_timeout=recovery_timeout,
         )
 
         def wrapped(data: Any) -> bool:
@@ -252,7 +259,7 @@ class ExceptionIsolation:
                 return False
 
             try:
-                result = handler(data)
+                handler(data)
                 breaker.record_success()
                 return True
             except Exception:
@@ -269,24 +276,27 @@ class ExceptionIsolation:
     def _add_dead_letter(self, event_type: str, data: Any) -> None:
         """添加到死信队列"""
         with self._lock:
-            self._dead_letter_queue.append({
-                "event_type": event_type,
-                "data": data,
-                "timestamp": time.time(),
-            })
+            self._dead_letter_queue.append(
+                {
+                    "event_type": event_type,
+                    "data": data,
+                    "timestamp": time.time(),
+                }
+            )
 
     def get_dead_letter_queue_size(self) -> int:
         """获取死信队列大小"""
         with self._lock:
             return len(self._dead_letter_queue)
 
-    def get_dead_letter_items(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_dead_letter_items(self, limit: int = 10) -> List[dict[str, Any]]:
         """获取死信队列项"""
         with self._lock:
             from itertools import islice
+
             return list(islice(self._dead_letter_queue, limit))
 
-    def get_handler_stats(self) -> Dict[str, Dict[str, Any]]:
+    def get_handler_stats(self) -> dict[str, dict[str, Any]]:
         """获取所有处理器统计"""
         stats = {}
         with self._lock:
@@ -322,7 +332,7 @@ class AutoScaler:
         max_workers: int = 8,
         scale_up_threshold: float = 0.7,
         scale_down_threshold: float = 0.3,
-        cooldown_period: float = 60.0
+        cooldown_period: float = 60.0,
     ):
         self.min_workers = min_workers
         self.max_workers = max_workers
@@ -333,6 +343,7 @@ class AutoScaler:
         self._current_workers = min_workers
         # ponytail: deque(maxlen) 自动淘汰，O(1) 追加
         from collections import deque
+
         self._load_history: deque = deque(maxlen=100)
         self._last_scale_time = 0.0
         self._scale_history: list = []
@@ -347,7 +358,7 @@ class AutoScaler:
         with self._lock:
             self._load_history.append(load)
 
-    def evaluate_scaling(self) -> tuple[Optional[str], Optional[int]]:
+    def evaluate_scaling(self) -> tuple[str | None, int | None]:
         """评估是否需要扩缩容"""
         with self._lock:
             # 检查冷却期
@@ -381,11 +392,13 @@ class AutoScaler:
 
             self._last_scale_time = time.time()
             self._current_workers = target
-            self._scale_history.append({
-                "operation": operation,
-                "target": target,
-                "timestamp": time.time(),
-            })
+            self._scale_history.append(
+                {
+                    "operation": operation,
+                    "target": target,
+                    "timestamp": time.time(),
+                }
+            )
 
             return True
 
@@ -397,7 +410,7 @@ class AutoScaler:
             self._last_scale_time = 0.0
             self._scale_history.clear()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
         with self._lock:
             return {
@@ -413,8 +426,8 @@ def create_resilience_manager(
     enable_graceful_degradation: bool = True,
     enable_circuit_breaker: bool = True,
     enable_exception_isolation: bool = True,
-    enable_auto_scaling: bool = True
-) -> Dict[str, Any]:
+    enable_auto_scaling: bool = True,
+) -> dict[str, Any]:
     """创建弹性管理器集合"""
     managers = {}
 
@@ -431,12 +444,12 @@ def create_resilience_manager(
 
 
 __all__ = [
-    "GracefulDegradation",
+    "AutoScaler",
     "CircuitBreaker",
     "CircuitBreakerState",
-    "ExceptionIsolation",
-    "AutoScaler",
-    "EventPriority",
     "DegradationLevel",
+    "EventPriority",
+    "ExceptionIsolation",
+    "GracefulDegradation",
     "create_resilience_manager",
 ]

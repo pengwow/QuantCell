@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 JWT工具模块单元测试
 
@@ -9,33 +8,33 @@ JWT工具模块单元测试
 日期: 2026-05-09
 """
 
-import time
-import pytest
 from datetime import timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import pytest
 
 from utils.jwt_utils import (
-    create_jwt_token,
-    decode_jwt_token,
-    verify_jwt_token,
-    refresh_jwt_token,
-    get_token_remaining_time,
-    should_refresh_token,
-    generate_tokens,
-    generate_guest_tokens,
     JWTError,
+    TokenDecodeError,
     TokenExpiredError,
     TokenInvalidError,
-    TokenDecodeError,
     TokenRefreshError,
+    create_jwt_token,
+    decode_jwt_token,
+    generate_guest_tokens,
+    generate_tokens,
+    get_token_remaining_time,
+    refresh_jwt_token,
+    should_refresh_token,
+    verify_jwt_token,
 )
 
 
 @pytest.fixture
 def mock_secret_key():
     """Mock secret key for testing"""
-    with patch('utils.jwt_utils.get_secret_key') as mock:
-        mock.return_value = 'test-secret-key-for-testing-purposes'
+    with patch("utils.jwt_utils.get_secret_key") as mock:
+        mock.return_value = "test-secret-key-for-testing-purposes"
         yield mock
 
 
@@ -45,10 +44,11 @@ def mock_jwt_secret():
     original_key = None
     try:
         import utils.jwt_utils as jwt_module
+
         original_key = jwt_module.JWT_SECRET_KEY
-        jwt_module.JWT_SECRET_KEY = 'test-secret-key-for-testing-purposes'
-        jwt_module.JWT_ALGORITHM = 'HS256'
-        yield 'test-secret-key-for-testing-purposes'
+        jwt_module.JWT_SECRET_KEY = "test-secret-key-for-testing-purposes"
+        jwt_module.JWT_ALGORITHM = "HS256"
+        yield "test-secret-key-for-testing-purposes"
     finally:
         if original_key:
             jwt_module.JWT_SECRET_KEY = original_key
@@ -65,10 +65,7 @@ class TestCreateJWTToken:
 
     def test_create_token_with_custom_expiry(self, mock_jwt_secret):
         """测试创建带自定义过期时间的令牌"""
-        token = create_jwt_token(
-            {"sub": "user123"},
-            expires_delta=timedelta(hours=1)
-        )
+        token = create_jwt_token({"sub": "user123"}, expires_delta=timedelta(hours=1))
         assert isinstance(token, str)
 
     def test_create_refresh_token(self, mock_jwt_secret):
@@ -104,10 +101,7 @@ class TestDecodeJWTToken:
 
     def test_decode_expired_token(self, mock_jwt_secret):
         """测试解码过期令牌"""
-        token = create_jwt_token(
-            {"sub": "user123"},
-            expires_delta=timedelta(seconds=-1)
-        )
+        token = create_jwt_token({"sub": "user123"}, expires_delta=timedelta(seconds=-1))
         with pytest.raises(TokenExpiredError, match="令牌已过期"):
             decode_jwt_token(token)
 
@@ -132,10 +126,7 @@ class TestVerifyJWTToken:
 
     def test_verify_expired_token(self, mock_jwt_secret):
         """测试验证过期令牌"""
-        token = create_jwt_token(
-            {"sub": "user123"},
-            expires_delta=timedelta(seconds=-1)
-        )
+        token = create_jwt_token({"sub": "user123"}, expires_delta=timedelta(seconds=-1))
         assert verify_jwt_token(token) is False
 
     def test_verify_invalid_token(self, mock_jwt_secret):
@@ -166,10 +157,7 @@ class TestRefreshJWTToken:
 
     def test_refresh_expired_token_fails(self, mock_jwt_secret):
         """测试刷新过期令牌失败"""
-        expired_refresh = create_jwt_token(
-            {"sub": "user123", "refresh": True},
-            expires_delta=timedelta(seconds=-1)
-        )
+        expired_refresh = create_jwt_token({"sub": "user123", "refresh": True}, expires_delta=timedelta(seconds=-1))
         with pytest.raises((TokenExpiredError, TokenRefreshError)):
             refresh_jwt_token(expired_refresh)
 
@@ -185,20 +173,14 @@ class TestGetTokenRemainingTime:
 
     def test_get_remaining_time(self, mock_jwt_secret):
         """测试获取令牌剩余时间"""
-        token = create_jwt_token(
-            {"sub": "user123"},
-            expires_delta=timedelta(hours=1)
-        )
+        token = create_jwt_token({"sub": "user123"}, expires_delta=timedelta(hours=1))
         remaining = get_token_remaining_time(token)
         assert remaining > 0
         assert remaining <= 3600
 
     def test_expired_token_returns_negative_one(self, mock_jwt_secret):
         """测试过期令牌返回-1"""
-        expired_token = create_jwt_token(
-            {"sub": "user123"},
-            expires_delta=timedelta(seconds=-1)
-        )
+        expired_token = create_jwt_token({"sub": "user123"}, expires_delta=timedelta(seconds=-1))
         remaining = get_token_remaining_time(expired_token)
         assert remaining == -1
 
@@ -212,34 +194,22 @@ class TestShouldRefreshToken:
 
     def test_token_near_expiry_should_refresh(self, mock_jwt_secret):
         """测试接近过期的令牌应该刷新"""
-        token = create_jwt_token(
-            {"sub": "user123"},
-            expires_delta=timedelta(minutes=5)
-        )
+        token = create_jwt_token({"sub": "user123"}, expires_delta=timedelta(minutes=5))
         assert should_refresh_token(token, threshold_minutes=10) is True
 
     def test_token_not_near_expiry_should_not_refresh(self, mock_jwt_secret):
         """测试远离过期的令牌不应该刷新"""
-        token = create_jwt_token(
-            {"sub": "user123"},
-            expires_delta=timedelta(hours=1)
-        )
+        token = create_jwt_token({"sub": "user123"}, expires_delta=timedelta(hours=1))
         assert should_refresh_token(token, threshold_minutes=10) is False
 
     def test_expired_token_should_not_refresh(self, mock_jwt_secret):
         """测试过期令牌不应该刷新"""
-        expired_token = create_jwt_token(
-            {"sub": "user123"},
-            expires_delta=timedelta(seconds=-1)
-        )
+        expired_token = create_jwt_token({"sub": "user123"}, expires_delta=timedelta(seconds=-1))
         assert should_refresh_token(expired_token) is False
 
     def test_custom_threshold(self, mock_jwt_secret):
         """测试自定义阈值"""
-        token = create_jwt_token(
-            {"sub": "user123"},
-            expires_delta=timedelta(minutes=15)
-        )
+        token = create_jwt_token({"sub": "user123"}, expires_delta=timedelta(minutes=15))
         assert should_refresh_token(token, threshold_minutes=20) is True
         assert should_refresh_token(token, threshold_minutes=10) is False
 
@@ -326,7 +296,8 @@ class TestJWTExceptions:
     def test_exception_messages(self):
         """测试异常消息"""
         with pytest.raises(TokenExpiredError, match="令牌已过期"):
-            raise TokenExpiredError("令牌已过期")
+            msg = "令牌已过期"
+            raise TokenExpiredError(msg)
 
 
 class TestTokenSecurity:
@@ -335,18 +306,19 @@ class TestTokenSecurity:
     def test_different_secrets_produce_different_tokens(self):
         """测试不同密钥生成不同令牌"""
         import utils.jwt_utils as jwt_module
+
         original_key = jwt_module.JWT_SECRET_KEY
 
         try:
-            jwt_module.JWT_SECRET_KEY = 'secret-key-1'
+            jwt_module.JWT_SECRET_KEY = "secret-key-1"
             token1 = create_jwt_token({"sub": "user123"})
 
-            jwt_module.JWT_SECRET_KEY = 'secret-key-2'
+            jwt_module.JWT_SECRET_KEY = "secret-key-2"
             token2 = create_jwt_token({"sub": "user123"})
 
             assert token1 != token2
 
-            jwt_module.JWT_SECRET_KEY = 'secret-key-1'
+            jwt_module.JWT_SECRET_KEY = "secret-key-1"
             assert verify_jwt_token(token1) is True
             assert verify_jwt_token(token2) is False
         finally:
@@ -355,8 +327,8 @@ class TestTokenSecurity:
     def test_token_tampering_detection(self, mock_jwt_secret):
         """测试令牌篡改检测"""
         token = create_jwt_token({"sub": "user123", "role": "user"})
-        parts = token.split('.')
-        tampered = parts[0] + '.tampered.' + parts[2]
+        parts = token.split(".")
+        tampered = parts[0] + ".tampered." + parts[2]
         assert verify_jwt_token(tampered) is False
 
 
@@ -371,21 +343,19 @@ class TestEdgeCases:
 
     def test_special_characters_in_data(self, mock_jwt_secret):
         """测试数据中包含特殊字符"""
-        token = create_jwt_token({
-            "sub": "user123",
-            "name": "Test User <script>alert('xss')</script>",
-            "email": "test@example.com"
-        })
+        token = create_jwt_token(
+            {
+                "sub": "user123",
+                "name": "Test User <script>alert('xss')</script>",
+                "email": "test@example.com",
+            }
+        )
         payload = decode_jwt_token(token)
         assert "<script>" in payload["name"]
 
     def test_unicode_in_data(self, mock_jwt_secret):
         """测试数据中包含Unicode"""
-        token = create_jwt_token({
-            "sub": "user123",
-            "name": "测试用户",
-            "locale": "中文"
-        })
+        token = create_jwt_token({"sub": "user123", "name": "测试用户", "locale": "中文"})
         payload = decode_jwt_token(token)
         assert payload["name"] == "测试用户"
 

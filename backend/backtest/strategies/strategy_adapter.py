@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """回测策略适配器
 
 将策略接口适配到 axon_quant 回测引擎。
@@ -8,11 +7,10 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Any, Optional
 
 from axon_bridge import Action
 from backtest.backtest_loop import RuleStrategy
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -52,33 +50,30 @@ class StrategyAdapter(RuleStrategy):
         return self._on_bar_impl(bar)
 
     @abstractmethod
-    def _on_bar_impl(self, bar: dict) -> Action:
-        ...
+    def _on_bar_impl(self, bar: dict) -> Action: ...
 
     def on_stop(self) -> None:
         pass
 
-    def buy(self, symbol: Optional[str] = None, quantity: Optional[float] = None) -> Action:
-        target = symbol or self._config.symbol
+    def buy(self, symbol: str | None = None, quantity: float | None = None) -> Action:
         qty = quantity or self._config.trade_size
         self._position_side = "long"
         return Action("buy", 0.8, qty, "adapter", 0)
 
-    def sell(self, symbol: Optional[str] = None, quantity: Optional[float] = None) -> Action:
-        target = symbol or self._config.symbol
+    def sell(self, symbol: str | None = None, quantity: float | None = None) -> Action:
         qty = quantity or self._config.trade_size
         self._position_side = "short"
         return Action("sell", 0.8, qty, "adapter", 0)
 
-    def close_position(self, symbol: Optional[str] = None) -> Action:
+    def close_position(self, symbol: str | None = None) -> Action:
         self._position_side = "flat"
         return Action("sell", 0.9, 0.0, "adapter", 0)
 
-    def is_flat(self, symbol: Optional[str] = None) -> bool:
+    def is_flat(self, symbol: str | None = None) -> bool:
         return self._position_side == "flat"
 
-    def is_long(self, symbol: Optional[str] = None) -> bool:
+    def is_long(self, symbol: str | None = None) -> bool:
         return self._position_side == "long"
 
-    def is_short(self, symbol: Optional[str] = None) -> bool:
+    def is_short(self, symbol: str | None = None) -> bool:
         return self._position_side == "short"

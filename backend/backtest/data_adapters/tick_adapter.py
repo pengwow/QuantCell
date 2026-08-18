@@ -4,12 +4,10 @@
 将逐笔成交数据按时间窗口聚合为 OHLCV bar。
 """
 
-from typing import Optional
-
 import pandas as pd
-import numpy as np
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
 from .base_adapter import AdapterResult, BaseDataAdapter, LoadConfig
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -34,9 +32,7 @@ class TickAdapter(BaseDataAdapter):
 
     def load(self, config: LoadConfig) -> AdapterResult:
         """加载 Tick 数据并聚合为 OHLCV。"""
-        interval = config.interval or self.DEFAULT_INTERVALS.get(
-            config.data_type, "5m"
-        )
+        interval = config.interval or self.DEFAULT_INTERVALS.get(config.data_type, "5m")
 
         path = self._find_parquet(config.data_type, config.market, config.symbol)
         df = self._load_parquet(path)
@@ -58,14 +54,13 @@ class TickAdapter(BaseDataAdapter):
             },
         )
 
-    def _detect_column(
-        self, df: pd.DataFrame, candidates: list, col_type: str
-    ) -> str:
+    def _detect_column(self, df: pd.DataFrame, candidates: list, col_type: str) -> str:
         """检测列名。"""
         for col in candidates:
             if col in df.columns:
                 return col
-        raise ValueError(f"未找到{col_type}列，可用列: {list(df.columns)}")
+        msg = f"未找到{col_type}列，可用列: {list(df.columns)}"
+        raise ValueError(msg)
 
     def _aggregate_to_ohlcv(
         self,
@@ -91,14 +86,10 @@ class TickAdapter(BaseDataAdapter):
 
         resampled = resampled.dropna(subset=["Close"])
 
-        resampled["timestamp"] = resampled.index.map(
-            lambda ts: to_nanoseconds(ts.value)
-        )
+        resampled["timestamp"] = resampled.index.map(lambda ts: to_nanoseconds(ts.value))
 
         result = resampled.reset_index(drop=True)
 
-        logger.info(
-            f"Tick 聚合: {len(df)} ticks → {len(result)} bars (interval={interval})"
-        )
+        logger.info(f"Tick 聚合: {len(df)} ticks → {len(result)} bars (interval={interval})")
 
         return result

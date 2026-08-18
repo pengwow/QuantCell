@@ -1,5 +1,4 @@
 """8 策略模板冒烟测试。"""
-import pytest
 
 from strategy.base import StrategyConfig, StrategyContext
 from strategy.templates.dual_ma import DualMA

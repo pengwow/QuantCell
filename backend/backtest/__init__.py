@@ -35,74 +35,99 @@
 __version__ = "1.2.0"
 __author__ = "QuantCell Team"
 
+
 # 延迟导入，避免在--help时触发不必要的模块加载
 def __getattr__(name):
     if name == "BacktestService":
         from .service import BacktestService
+
         return BacktestService
     if name == "router":
         from .routes import router
+
         return router
     if name == "EventDrivenBacktestEngine":
         from .engines.event_engine import EventDrivenBacktestEngine
+
         return EventDrivenBacktestEngine
     if name == "EventDrivenStrategy":
         from .strategies.event_strategy import EventDrivenStrategy
+
         return EventDrivenStrategy
     if name == "EventDrivenStrategyConfig":
         from .strategies.event_strategy import EventDrivenStrategyConfig
+
         return EventDrivenStrategyConfig
     if name == "kline_to_bars":
         from .adapters.data_adapter import kline_to_bars
+
         return kline_to_bars
     if name == "load_bars_from_csv":
         from .adapters.data_adapter import load_bars_from_csv
+
         return load_bars_from_csv
     if name == "load_bars_from_parquet":
         from .adapters.data_adapter import load_bars_from_parquet
+
         return load_bars_from_parquet
     # schemas 中的类
     if name in [
-        "BacktestConfig", "StrategyConfig", "BacktestRunRequest",
-        "BacktestRunResponse", "BacktestAnalyzeRequest", "BacktestAnalyzeResponse",
-        "BacktestListRequest", "BacktestListResponse", "BacktestDeleteRequest",
-        "BacktestStopRequest", "StrategyConfigRequest", "BacktestReplayRequest",
-        "DataIntegrityCheckRequest", "DataIntegrityCheckResponse",
-        "DataDownloadResponse", "TradeItem", "EquityPoint", "BacktestResult",
-        "MultiBacktestResult", "ReplayData"
+        "BacktestConfig",
+        "StrategyConfig",
+        "BacktestRunRequest",
+        "BacktestRunResponse",
+        "BacktestAnalyzeRequest",
+        "BacktestAnalyzeResponse",
+        "BacktestListRequest",
+        "BacktestListResponse",
+        "BacktestDeleteRequest",
+        "BacktestStopRequest",
+        "StrategyConfigRequest",
+        "BacktestReplayRequest",
+        "DataIntegrityCheckRequest",
+        "DataIntegrityCheckResponse",
+        "DataDownloadResponse",
+        "TradeItem",
+        "EquityPoint",
+        "BacktestResult",
+        "MultiBacktestResult",
+        "ReplayData",
     ]:
         from . import schemas
+
         return getattr(schemas, name)
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+    msg = f"module '{__name__}' has no attribute '{name}'"
+    raise AttributeError(msg)
+
 
 __all__ = [
-    "BacktestService",
-    "router",
-    "BacktestConfig",
-    "StrategyConfig",
-    "BacktestRunRequest",
-    "BacktestRunResponse",
     "BacktestAnalyzeRequest",
     "BacktestAnalyzeResponse",
+    "BacktestConfig",
+    "BacktestDeleteRequest",
     "BacktestListRequest",
     "BacktestListResponse",
-    "BacktestDeleteRequest",
-    "BacktestStopRequest",
-    "StrategyConfigRequest",
     "BacktestReplayRequest",
+    "BacktestResult",
+    "BacktestRunRequest",
+    "BacktestRunResponse",
+    "BacktestService",
+    "BacktestStopRequest",
+    "DataDownloadResponse",
     "DataIntegrityCheckRequest",
     "DataIntegrityCheckResponse",
-    "DataDownloadResponse",
-    "TradeItem",
     "EquityPoint",
-    "BacktestResult",
-    "MultiBacktestResult",
-    "ReplayData",
     # 事件驱动组件（延迟加载）
     "EventDrivenBacktestEngine",
     "EventDrivenStrategy",
     "EventDrivenStrategyConfig",
+    "MultiBacktestResult",
+    "ReplayData",
+    "StrategyConfig",
+    "StrategyConfigRequest",
+    "TradeItem",
     "kline_to_bars",
     "load_bars_from_csv",
     "load_bars_from_parquet",
+    "router",
 ]

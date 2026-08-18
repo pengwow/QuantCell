@@ -4,12 +4,10 @@
 提取 mid-price 和 spread 特征，聚合为 OHLCV。
 """
 
-from typing import Optional
-
 import pandas as pd
-import numpy as np
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
 from .base_adapter import AdapterResult, BaseDataAdapter, LoadConfig
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -33,7 +31,8 @@ class OrderBookAdapter(BaseDataAdapter):
         elif config.data_type == "bookDepth":
             processed_df = self._process_book_depth(df, config.interval)
         else:
-            raise ValueError(f"不支持的盘口类型: {config.data_type}")
+            msg = f"不支持的盘口类型: {config.data_type}"
+            raise ValueError(msg)
 
         return AdapterResult(
             data=processed_df,
@@ -47,9 +46,7 @@ class OrderBookAdapter(BaseDataAdapter):
             },
         )
 
-    def _process_book_ticker(
-        self, df: pd.DataFrame, interval: str
-    ) -> pd.DataFrame:
+    def _process_book_ticker(self, df: pd.DataFrame, interval: str) -> pd.DataFrame:
         """处理 bookTicker 数据。"""
         from utils.timestamp_utils import convert_to_datetime, to_nanoseconds
 
@@ -71,29 +68,21 @@ class OrderBookAdapter(BaseDataAdapter):
                 "High": df["mid_price"].resample(agg_interval).max(),
                 "Low": df["mid_price"].resample(agg_interval).min(),
                 "Close": df["mid_price"].resample(agg_interval).last(),
-                "Volume": df.get("bidQty", pd.Series(0, index=df.index))
-                .resample(agg_interval)
-                .sum(),
+                "Volume": df.get("bidQty", pd.Series(0, index=df.index)).resample(agg_interval).sum(),
                 "feature_mid_price": df["mid_price"].resample(agg_interval).mean(),
                 "feature_spread": df["spread"].resample(agg_interval).mean(),
             }
         )
 
         result = result.dropna(subset=["Close"])
-        result["timestamp"] = result.index.map(
-            lambda ts: to_nanoseconds(ts.value)
-        )
+        result["timestamp"] = result.index.map(lambda ts: to_nanoseconds(ts.value))
         result = result.reset_index(drop=True)
 
-        logger.info(
-            f"bookTicker 聚合: {len(df)} ticks → {len(result)} bars"
-        )
+        logger.info(f"bookTicker 聚合: {len(df)} ticks → {len(result)} bars")
 
         return result
 
-    def _process_book_depth(
-        self, df: pd.DataFrame, interval: str
-    ) -> pd.DataFrame:
+    def _process_book_depth(self, df: pd.DataFrame, interval: str) -> pd.DataFrame:
         """处理 bookDepth 数据。"""
         from utils.timestamp_utils import convert_to_datetime, to_nanoseconds
 
@@ -132,14 +121,10 @@ class OrderBookAdapter(BaseDataAdapter):
         )
 
         result = result.dropna(subset=["Close"])
-        result["timestamp"] = result.index.map(
-            lambda ts: to_nanoseconds(ts.value)
-        )
+        result["timestamp"] = result.index.map(lambda ts: to_nanoseconds(ts.value))
         result = result.reset_index(drop=True)
 
-        logger.info(
-            f"bookDepth 聚合: {len(df)} ticks → {len(result)} bars"
-        )
+        logger.info(f"bookDepth 聚合: {len(df)} ticks → {len(result)} bars")
 
         return result
 
@@ -148,4 +133,5 @@ class OrderBookAdapter(BaseDataAdapter):
         for col in candidates:
             if col in df.columns:
                 return col
-        raise ValueError(f"未找到列: {candidates}，可用列: {list(df.columns)}")
+        msg = f"未找到列: {candidates}，可用列: {list(df.columns)}"
+        raise ValueError(msg)

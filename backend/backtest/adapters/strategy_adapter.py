@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """策略适配器模块
 
 提供策略适配功能，支持：
@@ -8,11 +7,9 @@
 """
 
 import importlib
-import inspect
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -21,23 +18,26 @@ from backtest.backtest_loop import RuleStrategy
 
 class StrategyAdapterError(Exception):
     """策略适配器异常基类"""
+
     pass
 
 
 class StrategyLoadError(StrategyAdapterError):
     """策略加载异常"""
+
     pass
 
 
 class StrategyConfigError(StrategyAdapterError):
     """策略配置异常"""
+
     pass
 
 
 def load_strategy_from_file(
     file_path: str,
-    strategy_name: Optional[str] = None,
-) -> Type:
+    strategy_name: str | None = None,
+) -> type:
     """从文件加载策略类
 
     Args:
@@ -52,12 +52,14 @@ def load_strategy_from_file(
     """
     path = Path(file_path)
     if not path.exists():
-        raise StrategyLoadError(f"策略文件不存在: {file_path}")
+        msg = f"策略文件不存在: {file_path}"
+        raise StrategyLoadError(msg)
 
     module_name = path.stem
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
-        raise StrategyLoadError(f"无法加载策略模块: {file_path}")
+        msg = f"无法加载策略模块: {file_path}"
+        raise StrategyLoadError(msg)
 
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -67,8 +69,8 @@ def load_strategy_from_file(
 
 def load_strategy_from_code(
     code: str,
-    strategy_name: Optional[str] = None,
-) -> Type:
+    strategy_name: str | None = None,
+) -> type:
     """从代码字符串加载策略类
 
     Args:
@@ -80,35 +82,33 @@ def load_strategy_from_code(
     """
     module_name = "dynamic_strategy"
     import types
+
     module = types.ModuleType(module_name)
     exec(compile(code, "<string>", "exec"), module.__dict__)
 
     return _find_strategy_class(module, strategy_name)
 
 
-def _find_strategy_class(module, strategy_name: Optional[str] = None) -> Type:
+def _find_strategy_class(module, strategy_name: str | None = None) -> type:
     """从模块中查找策略类"""
     if strategy_name:
         if hasattr(module, strategy_name):
             cls = getattr(module, strategy_name)
             if isinstance(cls, type) and hasattr(cls, "on_bar"):
                 return cls
-        raise StrategyLoadError(f"未找到策略类: {strategy_name}")
+        msg = f"未找到策略类: {strategy_name}"
+        raise StrategyLoadError(msg)
 
     for name in dir(module):
         obj = getattr(module, name)
-        if (
-            isinstance(obj, type)
-            and hasattr(obj, "on_bar")
-            and not name.startswith("_")
-            and obj is not RuleStrategy
-        ):
+        if isinstance(obj, type) and hasattr(obj, "on_bar") and not name.startswith("_") and obj is not RuleStrategy:
             return obj
 
-    raise StrategyLoadError("未找到策略类（需要实现 on_bar 方法）")
+    msg = "未找到策略类（需要实现 on_bar 方法）"
+    raise StrategyLoadError(msg)
 
 
-def validate_strategy(strategy_class: Type) -> bool:
+def validate_strategy(strategy_class: type) -> bool:
     """验证策略类是否有效"""
     if not isinstance(strategy_class, type):
         return False

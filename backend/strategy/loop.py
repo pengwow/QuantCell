@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """StrategyLoop — 实盘策略循环
 
 使用 axon_quant.exchange adapter 获取行情，
@@ -10,9 +9,12 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any
 
-from axon_bridge import Action
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from axon_bridge import Action
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ class StrategyLoop:
         interval: float = 1.0,
         risk_engine: Any = None,
         account_equity: float = 100_000.0,
-        event_callback: Optional[Callable[[str, dict[str, Any]], None]] = None,
+        event_callback: Callable[[str, dict[str, Any]], None] | None = None,
     ):
         self._adapter = adapter
         self._strategy = strategy
@@ -48,12 +50,12 @@ class StrategyLoop:
         self._account_equity = account_equity
         self._event_callback = event_callback
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._order_count = 0
         self._rejected_count = 0
         self._fill_count = 0
         self._last_price = 0.0
-        self._last_action: Optional[str] = None
+        self._last_action: str | None = None
 
     @property
     def symbol(self) -> str:
@@ -124,12 +126,15 @@ class StrategyLoop:
                 if action_type_str in ("buy", "sell"):
                     self._execute_action(action, close_price)
 
-                self._emit("bar.processed", {
-                    "symbol": self._symbol,
-                    "price": close_price,
-                    "action": action_type_str,
-                    "timestamp": bar["timestamp_ns"],
-                })
+                self._emit(
+                    "bar.processed",
+                    {
+                        "symbol": self._symbol,
+                        "price": close_price,
+                        "action": action_type_str,
+                        "timestamp": bar["timestamp_ns"],
+                    },
+                )
 
             except Exception as e:
                 logger.error(f"StrategyLoop 错误: {e}", exc_info=True)
@@ -173,13 +178,16 @@ class StrategyLoop:
                 if not check.get("passed"):
                     self._rejected_count += 1
                     reason = check.get("reason", "unknown")
-                    self._emit("order.rejected", {
-                        "symbol": self._symbol,
-                        "side": side,
-                        "quantity": qty,
-                        "price": current_price,
-                        "reason": reason,
-                    })
+                    self._emit(
+                        "order.rejected",
+                        {
+                            "symbol": self._symbol,
+                            "side": side,
+                            "quantity": qty,
+                            "price": current_price,
+                            "reason": reason,
+                        },
+                    )
                     logger.warning(f"风控拒绝订单: {reason}")
                     return
 
@@ -187,14 +195,17 @@ class StrategyLoop:
             result = self._adapter.place_order(order_dict)
             self._order_count += 1
 
-            self._emit("order.placed", {
-                "symbol": self._symbol,
-                "side": side,
-                "quantity": qty,
-                "price": current_price,
-                "order_id": result.get("order_id", "") if isinstance(result, dict) else "",
-                "confidence": confidence,
-            })
+            self._emit(
+                "order.placed",
+                {
+                    "symbol": self._symbol,
+                    "side": side,
+                    "quantity": qty,
+                    "price": current_price,
+                    "order_id": result.get("order_id", "") if isinstance(result, dict) else "",
+                    "confidence": confidence,
+                },
+            )
             logger.info(f"订单已执行: {order_dict} -> {result}")
 
         except Exception as e:

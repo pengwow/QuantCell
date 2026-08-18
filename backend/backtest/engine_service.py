@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 回测引擎服务模块（基于 axon_quant 体系）
 
@@ -13,11 +12,11 @@
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import pandas as pd
 
-from utils.logger import get_logger, LogType
-
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -26,6 +25,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 def _get_axon_bridge():
     """延迟导入 axon_bridge"""
     import axon_bridge
+
     return axon_bridge
 
 
@@ -69,14 +69,14 @@ class EventDrivenBacktestService:
     def run_backtest(
         self,
         strategy_name: str,
-        strategy_params: Dict[str, Any],
-        symbols: List[str],
-        timeframes: List[str],
-        engine_config: Optional[Dict] = None,
+        strategy_params: dict[str, Any],
+        symbols: list[str],
+        timeframes: list[str],
+        engine_config: dict | None = None,
         show_progress: bool = False,
         data_type: str = "kline",
         market: str = "spot",
-    ) -> Dict:
+    ) -> dict:
         """
         执行完整的事件驱动回测流程
 
@@ -94,8 +94,7 @@ class EventDrivenBacktestService:
             dict: 格式化的回测结果
         """
         logger.info(
-            f"[EventDrivenBacktestService] 开始执行回测: {strategy_name}, "
-            f"data_type={data_type}, market={market}"
+            f"[EventDrivenBacktestService] 开始执行回测: {strategy_name}, data_type={data_type}, market={market}"
         )
 
         # 解析默认配置
@@ -109,7 +108,7 @@ class EventDrivenBacktestService:
 
         # 1. 加载数据
         if show_progress:
-            print("\n[1/5] 正在加载数据...")
+            pass
 
         if data_type == "kline":
             # K线数据：使用原有加载逻辑
@@ -122,7 +121,7 @@ class EventDrivenBacktestService:
                 show_progress=show_progress,
             )
             # 转换为统一格式
-            loaded_data: Dict[str, Any] = {}
+            loaded_data: dict[str, Any] = {}
             for key, df in data_dict.items():
                 loaded_data[key] = {
                     "data": df,
@@ -140,7 +139,7 @@ class EventDrivenBacktestService:
                 time_range=time_range,
                 show_progress=show_progress,
             )
-            loaded_data: Dict[str, Any] = {}
+            loaded_data: dict[str, Any] = {}
             for key, result in adapter_dict.items():
                 loaded_data[key] = {
                     "data": result.data,
@@ -150,11 +149,12 @@ class EventDrivenBacktestService:
                 }
 
         if not loaded_data:
-            raise ValueError("没有成功加载任何数据，回测无法继续")
+            msg = "没有成功加载任何数据，回测无法继续"
+            raise ValueError(msg)
 
         # 2. 初始化引擎
         if show_progress:
-            print("[2/5] 正在初始化引擎...")
+            pass
 
         engine = self._initialize_engine(
             engine_config=engine_config,
@@ -164,9 +164,9 @@ class EventDrivenBacktestService:
 
         # 3. 加载数据到引擎
         if show_progress:
-            print("[3/5] 正在加载数据到引擎...")
+            pass
 
-        instruments, bar_types = self._load_data_to_engine(
+        _instruments, bar_types = self._load_data_to_engine(
             engine=engine,
             data_dict=data_dict,
             symbols=symbols,
@@ -175,12 +175,12 @@ class EventDrivenBacktestService:
             leverage=leverage,
             init_cash=init_cash,
             trading_mode=trading_mode,
-            time_range=time_range
+            time_range=time_range,
         )
 
         # 4. 加载策略
         if show_progress:
-            print(f"[4/5] 正在加载策略: {strategy_name}...")
+            pass
 
         from backtest.strategy_loader_service import StrategyLoaderService
 
@@ -200,15 +200,16 @@ class EventDrivenBacktestService:
         )
 
         if strategy is None:
-            raise ValueError(f"无法加载策略: {strategy_name}")
+            msg = f"无法加载策略: {strategy_name}"
+            raise ValueError(msg)
 
         # 4. 执行回测（axon_quant 适配层）
         if show_progress:
-            print(f"[4/5] 正在执行回测（{len(loaded_data)} 个品种）...")
+            pass
 
         if len(symbols) == 1:
             # 单品种：直接调用 run_with_strategy
-            first_key = list(loaded_data.keys())[0]
+            first_key = next(iter(loaded_data.keys()))
             entry = loaded_data[first_key]
             df = entry["data"]
             parts = first_key.rsplit("_", 1)
@@ -233,14 +234,21 @@ class EventDrivenBacktestService:
             # 多品种：每个品种跑一次，结果合并
             force_liquidate = (engine_config or {}).get("force_liquidate", False)
             _SUM_KEYS = {
-                "total_pnl", "orders_accepted", "orders_rejected", "fills",
-                "total_orders", "total_fees", "events_processed",
-                "duration_secs", "trade_count", "bar_count",
+                "total_pnl",
+                "orders_accepted",
+                "orders_rejected",
+                "fills",
+                "total_orders",
+                "total_fees",
+                "events_processed",
+                "duration_secs",
+                "trade_count",
+                "bar_count",
             }
             _MIN_KEYS = {"data_start_ns"}
             _MAX_KEYS = {"data_end_ns"}
-            aggregated_metrics: Dict[str, Any] = {}
-            per_symbol_results: Dict[str, Dict[str, Any]] = {}
+            aggregated_metrics: dict[str, Any] = {}
+            per_symbol_results: dict[str, dict[str, Any]] = {}
             for key, entry in loaded_data.items():
                 df = entry["data"]
                 parts = key.rsplit("_", 1)
@@ -269,7 +277,7 @@ class EventDrivenBacktestService:
 
         # 5. 格式化结果
         if show_progress:
-            print("[5/5] 正在格式化结果...")
+            pass
 
         if len(symbols) == 1:
             # axon 引擎结果格式（final_nav/total_pnl/...）,
@@ -293,7 +301,7 @@ class EventDrivenBacktestService:
                 strategy_name=strategy_name,
             )
 
-        logger.info(f"[EventDrivenBacktestService] 回测完成")
+        logger.info("[EventDrivenBacktestService] 回测完成")
 
         return formatted_results
 
@@ -325,7 +333,7 @@ class EventDrivenBacktestService:
 
     def _initialize_engine(
         self,
-        engine_config: Optional[Dict],
+        engine_config: dict | None,
         strategy_name: str,
         init_cash: float,
     ):
@@ -349,20 +357,21 @@ class EventDrivenBacktestService:
             # 解析时间范围
             if time_range:
                 from utils.validation import parse_time_range
+
                 start_dt, end_dt = parse_time_range(time_range)
-                start_date = start_dt.strftime('%Y-%m-%d') if start_dt else '2023-01-01'
-                end_date = end_dt.strftime('%Y-%m-%d') if end_dt else '2023-12-31'
+                start_date = start_dt.strftime("%Y-%m-%d") if start_dt else "2023-01-01"
+                end_date = end_dt.strftime("%Y-%m-%d") if end_dt else "2023-12-31"
             else:
-                first_key = list(data_dict.keys())[0]
+                first_key = next(iter(data_dict.keys()))
                 first_df = data_dict[first_key]
                 if len(first_df) > 0:
                     first_idx = first_df.index[0]
                     last_idx = first_df.index[-1]
-                    start_date = str(first_idx)[:10] if first_idx is not None else '2023-01-01'
-                    end_date = str(last_idx)[:10] if last_idx is not None else '2023-12-31'
+                    start_date = str(first_idx)[:10] if first_idx is not None else "2023-01-01"
+                    end_date = str(last_idx)[:10] if last_idx is not None else "2023-12-31"
                 else:
-                    start_date = '2023-01-01'
-                    end_date = '2023-12-31'
+                    start_date = "2023-01-01"
+                    end_date = "2023-12-31"
 
             full_config = {
                 "trader_id": f"BACKTEST-{strategy_name.upper()}",
@@ -375,7 +384,7 @@ class EventDrivenBacktestService:
             engine = EventDrivenBacktestEngine(full_config)
             engine.initialize()
 
-            logger.info(f"[EventDrivenBacktestService] 引擎初始化完成")
+            logger.info("[EventDrivenBacktestService] 引擎初始化完成")
             return engine
 
         except Exception as e:
@@ -393,23 +402,26 @@ class EventDrivenBacktestService:
         Returns:
             tuple: (base, quote) 如 ("BTC", "USDT")
         """
-        for sep in ['/', '-', '_']:
+        for sep in ["/", "-", "_"]:
             if sep in symbol:
                 parts = symbol.split(sep)
                 return parts[0].upper(), parts[1].upper()
-        return symbol[:3].upper(), symbol[3:].upper() if len(symbol) > 3 else (symbol.upper(), "USDT")
+        return symbol[:3].upper(), symbol[3:].upper() if len(symbol) > 3 else (
+            symbol.upper(),
+            "USDT",
+        )
 
     def _load_data_to_engine(
         self,
         engine,
-        data_dict: Dict[str, pd.DataFrame],
-        symbols: List[str],
-        timeframes: List[str],
+        data_dict: dict[str, pd.DataFrame],
+        symbols: list[str],
+        timeframes: list[str],
         base_currency: str,
         leverage: float,
         init_cash: float,
         trading_mode: str = "spot",
-        time_range: Optional[str] = None
+        time_range: str | None = None,
     ):
         """
         加载数据到引擎并创建交易品种
@@ -452,9 +464,10 @@ class EventDrivenBacktestService:
         if is_futures and time_range:
             try:
                 from utils.validation import parse_time_range
+
                 start_dt, end_dt = parse_time_range(time_range)
-                funding_start = start_dt.strftime('%Y-%m-%d') if start_dt else None
-                funding_end = end_dt.strftime('%Y-%m-%d') if end_dt else None
+                funding_start = start_dt.strftime("%Y-%m-%d") if start_dt else None
+                funding_end = end_dt.strftime("%Y-%m-%d") if end_dt else None
             except Exception as e:
                 logger.warning(f"解析资金费率时间范围失败: {e}")
 
@@ -473,9 +486,7 @@ class EventDrivenBacktestService:
             base, quote = self._parse_symbol(symbol)
             if is_futures:
                 # 永续合约：U本位结算，合约乘数默认 1（1张=1个base币）
-                instrument = bridge.create_swap_instrument(
-                    base, quote, settle="usd_margin", contract_size=1.0
-                )
+                instrument = bridge.create_swap_instrument(base, quote, settle="usd_margin", contract_size=1.0)
             else:
                 instrument = bridge.create_spot_instrument(base, quote)
             engine.add_instrument(instrument)
@@ -484,9 +495,7 @@ class EventDrivenBacktestService:
             # 合约模式：加载资金费率数据用于资金费用结算
             if is_futures:
                 try:
-                    funding_df = self.provider.load_funding_rate(
-                        symbol, start=funding_start, end=funding_end
-                    )
+                    funding_df = self.provider.load_funding_rate(symbol, start=funding_start, end=funding_end)
                     if not funding_df.empty:
                         engine.add_funding_data(instrument, funding_df)
                     else:
@@ -496,19 +505,18 @@ class EventDrivenBacktestService:
 
             # 处理 DataFrame
             df = df.copy()
-            required_cols = ['open', 'high', 'low', 'close', 'volume']
+            required_cols = ["open", "high", "low", "close", "volume"]
             df.columns = [col.lower() for col in df.columns]
 
             cols_to_keep = [c for c in required_cols if c in df.columns]
-            if 'timestamp' in df.columns:
-                cols_to_keep.insert(0, 'timestamp')
+            if "timestamp" in df.columns:
+                cols_to_keep.insert(0, "timestamp")
 
             df = df[cols_to_keep]
 
-            if not isinstance(df.index, pd.DatetimeIndex):
-                if 'timestamp' in df.columns:
-                    df = df.set_index('timestamp')
-                    df.drop(columns=['timestamp'], errors='ignore', inplace=True)
+            if not isinstance(df.index, pd.DatetimeIndex) and "timestamp" in df.columns:
+                df = df.set_index("timestamp")
+                df.drop(columns=["timestamp"], errors="ignore", inplace=True)
 
             if len(df) > 0:
                 try:
@@ -519,14 +527,14 @@ class EventDrivenBacktestService:
 
             for col in required_cols:
                 if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-                    df[col] = df[col].astype('float64')
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                    df[col] = df[col].astype("float64")
                     nan_count = df[col].isna().sum()
                     if nan_count > 0:
                         logger.warning(f"{symbol} 的 {col} 列有 {nan_count} 个 NaN 值，将填充为 0.0")
                         df[col] = df[col].fillna(0.0)
 
-            non_numeric_cols = df.select_dtypes(exclude=['number']).columns.tolist()
+            non_numeric_cols = df.select_dtypes(exclude=["number"]).columns.tolist()
             if non_numeric_cols:
                 logger.error(f"发现非数值列: {non_numeric_cols}，将删除这些列")
                 df = df.drop(columns=non_numeric_cols)
@@ -536,10 +544,10 @@ class EventDrivenBacktestService:
 
             # 通过引擎的 load_data_from_parquet 方法加载数据
             # 先保存为临时 parquet 文件再加载
-            import tempfile
             import os
+            import tempfile
 
-            with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
                 tmp_path = tmp.name
 
             try:
@@ -557,7 +565,7 @@ class EventDrivenBacktestService:
     def _format_results(
         self,
         results: dict,
-        symbols: List[str],
+        symbols: list[str],
         timeframe: str,
         strategy_name: str,
     ) -> dict:
@@ -581,7 +589,7 @@ class EventDrivenBacktestService:
         total_pnl = raw_results.get("total_pnl", 0.0)
         total_trades = raw_results.get("trade_count", 0)
         total_fills = raw_results.get("fills", 0)
-        total_fees = raw_results.get("total_fees", 0.0)
+        raw_results.get("total_fees", 0.0)
 
         # initial_equity / final_equity:每品种独立资金池(每 run 都 initial_cash 起步)
         # 假设所有品种用同一 initial_cash,从第一个结果读
@@ -597,7 +605,7 @@ class EventDrivenBacktestService:
         # 没 trade records 数据时 fallback 到 fills 兜底(撮合成交笔数 = 交易笔数近似)
         winning_trades = 0
         losing_trades = 0
-        for sym, r in per_symbol_results.items():
+        for r in per_symbol_results.values():
             sym_trades = r.get("trades", [])
             if sym_trades:
                 # 有 trade records(开平仓配对)
@@ -612,14 +620,11 @@ class EventDrivenBacktestService:
                 sym_wr = r.get("win_rate", 0.0)
                 sym_fills = r.get("fills", 0)
                 winning_trades += int(sym_wr * sym_fills)
-        win_rate = (
-            winning_trades / total_trades * 100.0
-            if total_trades > 0 else 0.0
-        )
+        win_rate = winning_trades / total_trades * 100.0 if total_trades > 0 else 0.0
 
         # max_drawdown:取最大回撤品种的 pct(独立资金池不该 sum)
         max_dd_pct = 0.0
-        for sym, r in per_symbol_results.items():
+        for r in per_symbol_results.values():
             sym_dd = r.get("max_drawdown_pct", 0.0)
             if sym_dd > max_dd_pct:
                 max_dd_pct = sym_dd
@@ -630,15 +635,12 @@ class EventDrivenBacktestService:
             sharpe_ratio = first_result.get("sharpe_ratio", 0.0)
         else:
             if total_fills > 0:
-                sharpe_ratio = sum(
-                    r.get("sharpe_ratio", 0.0) * r.get("fills", 0)
-                    for r in per_symbol_results.values()
-                ) / total_fills
+                sharpe_ratio = (
+                    sum(r.get("sharpe_ratio", 0.0) * r.get("fills", 0) for r in per_symbol_results.values())
+                    / total_fills
+                )
             else:
-                sharpe_ratio = sum(
-                    r.get("sharpe_ratio", 0.0)
-                    for r in per_symbol_results.values()
-                ) / n
+                sharpe_ratio = sum(r.get("sharpe_ratio", 0.0) for r in per_symbol_results.values()) / n
 
         # 填充 raw_results 的 portfolio-level 字段,让 output_results 能读到
         # (原本只有 sum/min/max 字段,initial_equity/win_rate 等需显式计算)
@@ -669,14 +671,14 @@ class EventDrivenBacktestService:
                 symbol=symbols[0] if symbols else "PORTFOLIO",
                 timeframe=timeframe,
                 strategy_name=strategy_name,
-                instruments=instruments
+                instruments=instruments,
             ).get("portfolio", {}),
             # 保留 _meta 和 account 信息
             "_meta": {
                 "engine": "axon",
                 "strategy": strategy_name,
                 "timestamp": int(datetime.now().timestamp()),
-                "formatted_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "formatted_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             },
             "account": {
                 "starting_balance": initial_equity,

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """RL 数据模型"""
 
 from pydantic import BaseModel, Field
@@ -6,6 +5,7 @@ from pydantic import BaseModel, Field
 
 class RLTrainConfig(BaseModel):
     """RL 训练配置"""
+
     symbol: str = Field(..., description="交易对符号，如 BTCUSDT")
     algorithm: str = Field(default="ppo", description="算法 (ppo/sac/a2c)")
     timesteps: int = Field(default=10_000, description="训练步数")

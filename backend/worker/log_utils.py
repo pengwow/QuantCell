@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Worker 日志工具集
 
@@ -25,25 +24,22 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import contextlib
 import json
 import os
 import re
-import shutil
 import threading
-from dataclasses import dataclass, asdict, field
-from datetime import datetime, timezone, timedelta, tzinfo
-from pathlib import Path
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from typing import (
+    TYPE_CHECKING,
     Any,
-    AsyncIterator,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Tuple,
 )
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Callable
 
 logger = get_logger(__name__, LogType.SYSTEM)
 
@@ -54,13 +50,9 @@ logger = get_logger(__name__, LogType.SYSTEM)
 
 TIMESTAMP_PATTERNS = [
     re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,9})Z"),
-    re.compile(
-        r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,9})([+-]\d{2}:\d{2})"
-    ),
+    re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,9})([+-]\d{2}:\d{2})"),
     re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z"),
-    re.compile(
-        r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})([+-]\d{2}:\d{2})"
-    ),
+    re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})([+-]\d{2}:\d{2})"),
     re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,9})"),
     re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"),
     re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{1,6})"),
@@ -68,8 +60,8 @@ TIMESTAMP_PATTERNS = [
 ]
 
 TZ_INDICATORS = {
-    "UTC": timezone.utc,
-    "GMT": timezone.utc,
+    "UTC": UTC,
+    "GMT": UTC,
     "CST": timezone(timedelta(hours=8)),
     "CET": timezone(timedelta(hours=1)),
     "EST": timezone(timedelta(hours=-5)),
@@ -88,18 +80,15 @@ TZ_TEXT_PATTERN = re.compile(
 # 日志行匹配模式 (来自原 log_file_reader.py)
 # =============================================================================
 
-LOG_PATTERN = re.compile(
-    r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,9}Z)\s+\[(\w+)\]\s+(\S+?):\s*(.*)$"
-)
+LOG_PATTERN = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,9}Z)\s+\[(\w+)\]\s+(\S+?):\s*(.*)$")
 
-RAW_TIMESTAMP_PATTERN = re.compile(
-    r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})?)"
-)
+RAW_TIMESTAMP_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})?)")
 
 
 # =============================================================================
 # 统一的 LogEntry 数据类
 # =============================================================================
+
 
 @dataclass
 class LogEntry:
@@ -109,19 +98,20 @@ class LogEntry:
     level: str = "INFO"
     message: str = ""
     logger: str = ""
-    worker_id: Optional[str] = None
-    request_id: Optional[str] = None
-    module: Optional[str] = None
-    function: Optional[str] = None
-    line: Optional[int] = None
-    extras: Optional[Dict[str, Any]] = None
-    raw_line: Optional[str] = None
-    source: Optional[str] = None
+    worker_id: str | None = None
+    request_id: str | None = None
+    module: str | None = None
+    function: str | None = None
+    line: int | None = None
+    extras: dict[str, Any] | None = None
+    raw_line: str | None = None
+    source: str | None = None
 
 
 # =============================================================================
 # LogTimezoneParser — 日志时区解析器
 # =============================================================================
+
 
 class LogTimezoneParser:
     """
@@ -130,9 +120,9 @@ class LogTimezoneParser:
     自动识别日志文件中的时区信息，并提供时间戳解析和转换功能。
     """
 
-    def __init__(self, default_tz: Optional[tzinfo] = None):
-        self.default_tz = default_tz or timezone.utc
-        self._detected_tz: Optional[tzinfo] = None
+    def __init__(self, default_tz: tzinfo | None = None):
+        self.default_tz = default_tz or UTC
+        self._detected_tz: tzinfo | None = None
 
     @property
     def detected_timezone(self) -> tzinfo:
@@ -152,9 +142,7 @@ class LogTimezoneParser:
         self._detected_tz = self.default_tz
         return self.default_tz
 
-    def detect_timezone_from_lines(
-        self, lines: list[str], sample_count: int = 10
-    ) -> tzinfo:
+    def detect_timezone_from_lines(self, lines: list[str], sample_count: int = 10) -> tzinfo:
         sample = lines[:sample_count]
         tz_votes: dict[str, int] = {}
         for line in sample:
@@ -179,9 +167,7 @@ class LogTimezoneParser:
         self._detected_tz = self.default_tz
         return self.default_tz
 
-    def parse_timestamp(
-        self, timestamp_str: str, assume_utc: bool = True
-    ) -> datetime:
+    def parse_timestamp(self, timestamp_str: str, assume_utc: bool = True) -> datetime:
         timestamp_str = timestamp_str.strip()
         for pattern in TIMESTAMP_PATTERNS:
             match = pattern.match(timestamp_str)
@@ -191,44 +177,41 @@ class LogTimezoneParser:
                 tz_str = groups[1] if len(groups) > 1 else None
                 dt = self._parse_datetime_string(dt_str)
                 if tz_str == "Z" or (not tz_str and "Z" in timestamp_str):
-                    return dt.replace(tzinfo=timezone.utc)
-                elif tz_str and tz_str not in ("Z",):
+                    return dt.replace(tzinfo=UTC)
+                elif tz_str and tz_str != "Z":
                     tz = self._parse_tz_suffix(tz_str)
                     if tz:
                         return dt.replace(tzinfo=tz)
                 elif assume_utc:
-                    return dt.replace(tzinfo=timezone.utc)
+                    return dt.replace(tzinfo=UTC)
                 else:
                     return dt.replace(tzinfo=self.detected_timezone)
         try:
             dt = datetime.fromisoformat(timestamp_str)
             if dt.tzinfo is None:
-                if assume_utc:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                else:
-                    dt = dt.replace(tzinfo=self.detected_timezone)
+                dt = dt.replace(tzinfo=UTC) if assume_utc else dt.replace(tzinfo=self.detected_timezone)
             return dt
         except ValueError:
             pass
-        raise ValueError(f"无法解析时间戳: {timestamp_str}")
+        msg = f"无法解析时间戳: {timestamp_str}"
+        raise ValueError(msg)
 
-    def convert_timezone(
-        self, dt: datetime, target_tz: Optional[tzinfo] = None
-    ) -> datetime:
+    def convert_timezone(self, dt: datetime, target_tz: tzinfo | None = None) -> datetime:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=self.detected_timezone)
         if target_tz is None:
             return dt.astimezone()
         return dt.astimezone(target_tz)
 
-    def parse_and_convert(
-        self, timestamp_str: str, target_tz: Optional[tzinfo] = None
-    ) -> datetime:
+    def parse_and_convert(self, timestamp_str: str, target_tz: tzinfo | None = None) -> datetime:
         dt = self.parse_timestamp(timestamp_str)
         return self.convert_timezone(dt, target_tz)
 
     def normalize_timestamp(
-        self, timestamp_str: str, target_tz: Optional[tzinfo] = None, output_format: str = "iso"
+        self,
+        timestamp_str: str,
+        target_tz: tzinfo | None = None,
+        output_format: str = "iso",
     ) -> str:
         dt = self.parse_and_convert(timestamp_str, target_tz)
         if output_format == "iso":
@@ -237,7 +220,7 @@ class LogTimezoneParser:
             return dt.strftime("%Y-%m-%d %H:%M:%S")
         return dt.isoformat()
 
-    def _extract_tz_from_text(self, text: str) -> Optional[tzinfo]:
+    def _extract_tz_from_text(self, text: str) -> tzinfo | None:
         match = TZ_TEXT_PATTERN.search(text)
         if match:
             tz_str = match.group(1).upper()
@@ -248,11 +231,11 @@ class LogTimezoneParser:
                     sign = 1 if tz_str[0] == "+" else -1
                     hours, minutes = map(int, tz_str[1:].split(":"))
                     return timezone(timedelta(hours=sign * hours, minutes=sign * minutes))
-            except (ValueError, IndexError):
+            except ValueError, IndexError:
                 pass
         return None
 
-    def _extract_tz_from_timestamp_suffix(self, line: str) -> Optional[tzinfo]:
+    def _extract_tz_from_timestamp_suffix(self, line: str) -> tzinfo | None:
         for pattern in TIMESTAMP_PATTERNS[:4]:
             match = pattern.match(line.strip())
             if match:
@@ -260,13 +243,13 @@ class LogTimezoneParser:
                 if len(groups) > 1 and groups[1]:
                     return self._parse_tz_suffix(groups[1])
                 elif "Z" in match.group(0):
-                    return timezone.utc
+                    return UTC
         return None
 
     @staticmethod
-    def _parse_tz_suffix(suffix: str) -> Optional[tzinfo]:
+    def _parse_tz_suffix(suffix: str) -> tzinfo | None:
         if suffix == "Z":
-            return timezone.utc
+            return UTC
         match = re.match(r"([+-])(\d{2}):(\d{2})", suffix)
         if match:
             sign = 1 if match.group(1) == "+" else -1
@@ -296,12 +279,14 @@ class LogTimezoneParser:
                 return datetime.strptime(dt_str, fmt)
             except ValueError:
                 continue
-        raise ValueError(f"无法解析日期时间字符串: {dt_str}")
+        msg = f"无法解析日期时间字符串: {dt_str}"
+        raise ValueError(msg)
 
 
 # =============================================================================
 # LogRingBuffer — 内存环形缓冲区
 # =============================================================================
+
 
 class LogRingBuffer:
     MAX_ENTRIES = 10000
@@ -324,13 +309,11 @@ class LogRingBuffer:
             self._stats["total_appended"] += 1
             self._stats["last_timestamp"] = entry.timestamp
             level = entry.level.upper()
-            self._stats["level_distribution"][level] = (
-                self._stats["level_distribution"].get(level, 0) + 1
-            )
+            self._stats["level_distribution"][level] = self._stats["level_distribution"].get(level, 0) + 1
             if prev_len == self.maxlen:
                 self._stats["total_evicted"] += 1
 
-    def append_from_dict(self, data: Dict[str, Any]) -> None:
+    def append_from_dict(self, data: dict[str, Any]) -> None:
         entry = LogEntry(
             timestamp=data.get("timestamp", datetime.now().isoformat()),
             level=data.get("level", "INFO"),
@@ -346,7 +329,11 @@ class LogRingBuffer:
         self.append(entry)
 
     def append_raw(
-        self, message: str, level: str = "INFO", logger_name: str = "", worker_id: Optional[str] = None
+        self,
+        message: str,
+        level: str = "INFO",
+        logger_name: str = "",
+        worker_id: str | None = None,
     ) -> None:
         detected_level = level
         if "[ERROR]" in message or "ERROR" in message:
@@ -367,12 +354,12 @@ class LogRingBuffer:
     def get_recent(
         self,
         limit: int = 100,
-        level: Optional[str] = None,
-        worker_id: Optional[str] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        keyword: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        level: str | None = None,
+        worker_id: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        keyword: str | None = None,
+    ) -> list[dict[str, Any]]:
         with self._lock:
             entries = list(self._buffer)
         filtered = []
@@ -386,21 +373,21 @@ class LogRingBuffer:
                     entry_ts = datetime.fromisoformat(entry.timestamp)
                     if entry_ts < start_time:
                         continue
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
             if end_time:
                 try:
                     entry_ts = datetime.fromisoformat(entry.timestamp)
                     if entry_ts > end_time:
                         continue
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
             if keyword and keyword.lower() not in entry.message.lower():
                 continue
             filtered.append(asdict(entry))
         return filtered[-limit:]
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         with self._lock:
             current_size = len(self._buffer)
             utilization = round(current_size / self.maxlen * 100, 2) if self.maxlen > 0 else 0
@@ -419,9 +406,7 @@ class LogRingBuffer:
             self._stats["total_evicted"] += cleared_count
             self._stats["last_timestamp"] = None
 
-    def search(
-        self, query: str, limit: int = 100, case_sensitive: bool = False
-    ) -> List[Dict[str, Any]]:
+    def search(self, query: str, limit: int = 100, case_sensitive: bool = False) -> list[dict[str, Any]]:
         with self._lock:
             entries = list(self._buffer)
         results = []
@@ -437,22 +422,26 @@ class LogRingBuffer:
                 break
         return results
 
-    def get_level_counts(self) -> Dict[str, int]:
+    def get_level_counts(self) -> dict[str, int]:
         with self._lock:
             return dict(self._stats["level_distribution"])
 
     def export_json(self, indent: int = 2) -> str:
         with self._lock:
             entries = [asdict(e) for e in self._buffer]
-        return json.dumps({
-            "exported_at": datetime.now().isoformat(),
-            "total_entries": len(entries),
-            "entries": entries,
-        }, indent=indent, ensure_ascii=False)
+        return json.dumps(
+            {
+                "exported_at": datetime.now().isoformat(),
+                "total_entries": len(entries),
+                "entries": entries,
+            },
+            indent=indent,
+            ensure_ascii=False,
+        )
 
 
 # 全局单例（懒初始化）
-_global_buffer: Optional[LogRingBuffer] = None
+_global_buffer: LogRingBuffer | None = None
 _buffer_lock = threading.Lock()
 
 
@@ -475,6 +464,7 @@ def reset_global_buffer():
 # LogFileReader — 磁盘日志文件读取器
 # =============================================================================
 
+
 class LogFileReader:
     """
     日志文件读取器
@@ -482,7 +472,7 @@ class LogFileReader:
     职责：读取 Worker 日志文件、多维度查询、实时监控、文件清理统计。
     """
 
-    def __init__(self, log_directory: Optional[str] = None):
+    def __init__(self, log_directory: str | None = None):
         if log_directory is None:
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             log_directory = os.path.join(project_root, "logs", "worker")
@@ -490,7 +480,7 @@ class LogFileReader:
         self.tz_parser = LogTimezoneParser()
         os.makedirs(log_directory, exist_ok=True)
 
-    def _get_log_files(self, worker_id: str) -> List[str]:
+    def _get_log_files(self, worker_id: str) -> list[str]:
         files = []
         main_file = os.path.join(self.log_directory, f"worker_{worker_id}.log")
         if not os.path.exists(main_file):
@@ -507,9 +497,9 @@ class LogFileReader:
     @staticmethod
     def _parse_line(
         line: str,
-        tz_parser: Optional[LogTimezoneParser] = None,
-        default_timestamp: Optional[datetime] = None,
-    ) -> Optional[Dict[str, Any]]:
+        tz_parser: LogTimezoneParser | None = None,
+        default_timestamp: datetime | None = None,
+    ) -> dict[str, Any] | None:
         line = line.strip()
         if not line:
             return None
@@ -522,41 +512,43 @@ class LogFileReader:
             try:
                 ts = tz_parser.parse_timestamp(timestamp_str)
             except ValueError:
-                ts = datetime.now(timezone.utc)
-            return asdict(LogEntry(
-                timestamp=ts.isoformat(),
-                level=level,
-                message=message,
-                logger=source,
-                raw_line=line,
-                source=source,
-            ))
+                ts = datetime.now(UTC)
+            return asdict(
+                LogEntry(
+                    timestamp=ts.isoformat(),
+                    level=level,
+                    message=message,
+                    logger=source,
+                    raw_line=line,
+                    source=source,
+                )
+            )
 
         extracted_level = "INFO"
-        level_match = re.search(r'\b(DEBUG|INFO|WARN|ERROR)\b', line)
+        level_match = re.search(r"\b(DEBUG|INFO|WARN|ERROR)\b", line)
         if level_match:
             extracted_level = level_match.group(1)
-        timestamp = default_timestamp or datetime.now(timezone.utc)
+        timestamp = default_timestamp or datetime.now(UTC)
         ts_match = RAW_TIMESTAMP_PATTERN.search(line)
         if ts_match:
-            try:
+            with contextlib.suppress(ValueError):
                 timestamp = tz_parser.parse_timestamp(ts_match.group(1))
-            except ValueError:
-                pass
-        return asdict(LogEntry(
-            timestamp=timestamp.isoformat(),
-            level=extracted_level,
-            message=line,
-            raw_line=line,
-            source="raw",
-        ))
+        return asdict(
+            LogEntry(
+                timestamp=timestamp.isoformat(),
+                level=extracted_level,
+                message=line,
+                raw_line=line,
+                source="raw",
+            )
+        )
 
     def _detect_timezone(self, worker_id: str) -> None:
         log_files = self._get_log_files(worker_id)
         if not log_files:
             return
         try:
-            with open(log_files[0], "r", encoding="utf-8", errors="ignore") as f:
+            with open(log_files[0], encoding="utf-8", errors="ignore") as f:
                 lines = [f.readline() for _ in range(20)]
                 lines = [l for l in lines if l.strip()]
                 self.tz_parser.detect_timezone_from_lines(lines)
@@ -566,31 +558,27 @@ class LogFileReader:
     def query_logs(
         self,
         worker_id: str,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        level: Optional[str] = None,
-        keyword: Optional[str] = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        level: str | None = None,
+        keyword: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> Tuple[List[Dict], int]:
+    ) -> tuple[list[dict], int]:
         log_files = self._get_log_files(worker_id)
-        all_entries: List[Dict] = []
+        all_entries: list[dict] = []
         self._detect_timezone(worker_id)
-        last_parsed_ts: Optional[datetime] = None
+        last_parsed_ts: datetime | None = None
         for log_file in reversed(log_files):
             try:
-                with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                with open(log_file, encoding="utf-8", errors="ignore") as f:
                     for line in f:
-                        entry = self._parse_line(
-                            line, self.tz_parser, default_timestamp=last_parsed_ts
-                        )
+                        entry = self._parse_line(line, self.tz_parser, default_timestamp=last_parsed_ts)
                         if entry is None:
                             continue
                         if entry.get("source") != "raw":
-                            try:
+                            with contextlib.suppress(ValueError):
                                 last_parsed_ts = datetime.fromisoformat(entry["timestamp"])
-                            except ValueError:
-                                pass
                         entry_ts = datetime.fromisoformat(entry["timestamp"])
                         if start_time and entry_ts < start_time:
                             continue
@@ -608,12 +596,12 @@ class LogFileReader:
         paginated = all_entries[offset : offset + limit]
         return paginated, total
 
-    def tail_logs(self, worker_id: str, lines: int = 100) -> List[Dict]:
+    def tail_logs(self, worker_id: str, lines: int = 100) -> list[dict]:
         main_log_file = os.path.join(self.log_directory, f"worker_{worker_id}.log")
         if not os.path.exists(main_log_file):
             return []
         self._detect_timezone(worker_id)
-        entries: List[Dict] = []
+        entries: list[dict] = []
         try:
             with open(main_log_file, "rb") as f:
                 f.seek(0, 2)
@@ -641,15 +629,12 @@ class LogFileReader:
     async def watch_logs(
         self,
         worker_id: str,
-        callback: Optional[Callable[[Dict], None]] = None,
+        callback: Callable[[dict], None] | None = None,
         poll_interval: float = 0.1,
-    ) -> AsyncIterator[Dict]:
+    ) -> AsyncIterator[dict]:
         main_log_file = os.path.join(self.log_directory, f"worker_{worker_id}.log")
         self._detect_timezone(worker_id)
-        if os.path.exists(main_log_file):
-            file_position = os.path.getsize(main_log_file)
-        else:
-            file_position = 0
+        file_position = os.path.getsize(main_log_file) if os.path.exists(main_log_file) else 0
         while True:
             try:
                 if os.path.exists(main_log_file):
@@ -657,7 +642,7 @@ class LogFileReader:
                     if current_size < file_position:
                         file_position = 0
                     if current_size > file_position:
-                        with open(main_log_file, "r", encoding="utf-8", errors="ignore") as f:
+                        with open(main_log_file, encoding="utf-8", errors="ignore") as f:
                             f.seek(file_position)
                             new_content = f.read()
                             file_position = f.tell()
@@ -676,16 +661,16 @@ class LogFileReader:
                 logger.error(f"监控日志文件错误: {e}")
             await asyncio.sleep(poll_interval)
 
-    def clear_logs(self, worker_id: str, before_days: Optional[int] = None) -> int:
+    def clear_logs(self, worker_id: str, before_days: int | None = None) -> int:
         deleted_count = 0
         log_files = self._get_log_files(worker_id)
         cutoff_time = None
         if before_days is not None:
-            cutoff_time = datetime.now(timezone.utc) - timedelta(days=before_days)
+            cutoff_time = datetime.now(UTC) - timedelta(days=before_days)
         for log_file in log_files:
             try:
                 if cutoff_time:
-                    mtime = datetime.fromtimestamp(os.path.getmtime(log_file), tz=timezone.utc)
+                    mtime = datetime.fromtimestamp(os.path.getmtime(log_file), tz=UTC)
                     if mtime > cutoff_time:
                         continue
                 os.remove(log_file)
@@ -695,19 +680,24 @@ class LogFileReader:
                 logger.error(f"删除日志文件失败 {log_file}: {e}")
         return deleted_count
 
-    def get_log_stats(self, worker_id: str) -> Dict:
-        stats: Dict = {"worker_id": worker_id, "files": [], "total_size": 0, "total_lines": 0}
+    def get_log_stats(self, worker_id: str) -> dict:
+        stats: dict = {
+            "worker_id": worker_id,
+            "files": [],
+            "total_size": 0,
+            "total_lines": 0,
+        }
         log_files = self._get_log_files(worker_id)
         for log_file in log_files:
             try:
                 size = os.path.getsize(log_file)
-                mtime = datetime.fromtimestamp(os.path.getmtime(log_file), tz=timezone.utc)
+                mtime = datetime.fromtimestamp(os.path.getmtime(log_file), tz=UTC)
                 if size < 10 * 1024 * 1024:
-                    with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                    with open(log_file, encoding="utf-8", errors="ignore") as f:
                         lines_count = sum(1 for _ in f)
                 else:
                     lines_count = size // 200
-                file_info: Dict = {
+                file_info: dict = {
                     "path": log_file,
                     "size": size,
                     "size_human": self._format_size(size),
@@ -730,7 +720,7 @@ class LogFileReader:
             size_bytes /= 1024
         return f"{size_bytes:.2f} TB"
 
-    def list_workers_with_logs(self) -> List[str]:
+    def list_workers_with_logs(self) -> list[str]:
         workers = []
         pattern = re.compile(r"^worker_(\d+|[\w-]+)\.log$")
         try:
@@ -747,19 +737,23 @@ class LogFileReader:
 # LogFileManager — 日志文件管理器（单例）
 # =============================================================================
 
-class LogFileManager:
-    _instance: Optional["LogFileManager"] = None
 
-    def __init__(self, log_directory: Optional[str] = None):
+class LogFileManager:
+    _instance: LogFileManager | None = None
+
+    def __init__(self, log_directory: str | None = None):
         if LogFileManager._instance is not None:
-            raise RuntimeError("LogFileManager 是单例，请使用 get_instance()")
+            msg = "LogFileManager 是单例，请使用 get_instance()"
+            raise RuntimeError(msg)
         self.log_directory = log_directory or os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs", "worker"
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "logs",
+            "worker",
         )
-        self._readers: Dict[str, LogFileReader] = {}
+        self._readers: dict[str, LogFileReader] = {}
 
     @classmethod
-    def get_instance(cls, log_directory: Optional[str] = None) -> "LogFileManager":
+    def get_instance(cls, log_directory: str | None = None) -> LogFileManager:
         if cls._instance is None:
             cls._instance = cls(log_directory=log_directory)
         return cls._instance
@@ -782,7 +776,7 @@ class LogFileManager:
             del self._readers[worker_id]
             logger.debug(f"注销Worker日志: {worker_id}")
 
-    def list_all_workers(self) -> List[str]:
+    def list_all_workers(self) -> list[str]:
         reader = LogFileReader(log_directory=self.log_directory)
         return reader.list_workers_with_logs()
 
@@ -792,20 +786,20 @@ def get_log_file_manager() -> LogFileManager:
 
 
 __all__ = [
-    # 时区解析
-    "LogTimezoneParser",
+    # 正则模式（供测试使用）
+    "LOG_PATTERN",
+    "RAW_TIMESTAMP_PATTERN",
     "TIMESTAMP_PATTERNS",
     "TZ_INDICATORS",
     # 条目与缓冲
     "LogEntry",
-    "LogRingBuffer",
-    "get_global_buffer",
-    "reset_global_buffer",
+    "LogFileManager",
     # 文件读取
     "LogFileReader",
-    "LogFileManager",
+    "LogRingBuffer",
+    # 时区解析
+    "LogTimezoneParser",
+    "get_global_buffer",
     "get_log_file_manager",
-    # 正则模式（供测试使用）
-    "LOG_PATTERN",
-    "RAW_TIMESTAMP_PATTERN",
+    "reset_global_buffer",
 ]

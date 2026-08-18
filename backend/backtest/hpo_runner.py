@@ -5,10 +5,14 @@ Uses axon_quant.hpo when available, otherwise provides a basic implementation.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 try:
     from axon_quant.hpo import HPOEngine
+
     AXON_AVAILABLE = True
 except ImportError:
     AXON_AVAILABLE = False
@@ -73,7 +77,7 @@ class HPORunner:
         import random
 
         best_params = None
-        best_value = float('-inf')
+        best_value = float("-inf")
         trials = []
 
         for _ in range(n_trials):

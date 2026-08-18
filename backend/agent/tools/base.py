@@ -7,7 +7,7 @@ from typing import Any
 class Tool(ABC):
     """
     Agent 工具抽象基类
-    
+
     所有工具必须继承此类并实现必要的方法
     """
 
@@ -42,10 +42,10 @@ class Tool(ABC):
     async def execute(self, **kwargs: Any) -> str:
         """
         执行工具
-        
+
         Args:
             **kwargs: 工具特定参数
-            
+
         Returns:
             执行结果的字符串表示
         """
@@ -57,7 +57,8 @@ class Tool(ABC):
             return [f"参数必须是对象，得到 {type(params).__name__}"]
         schema = self.parameters or {}
         if schema.get("type", "object") != "object":
-            raise ValueError(f"Schema 必须是 object 类型，得到 {schema.get('type')!r}")
+            msg = f"Schema 必须是 object 类型，得到 {schema.get('type')!r}"
+            raise ValueError(msg)
         return self._validate(params, {**schema, "type": "object"}, "")
 
     def _validate(self, val: Any, schema: dict[str, Any], path: str) -> list[str]:
@@ -88,9 +89,7 @@ class Tool(ABC):
                     errors.extend(self._validate(v, props[k], path + "." + k if path else k))
         if t == "array" and "items" in schema:
             for i, item in enumerate(val):
-                errors.extend(
-                    self._validate(item, schema["items"], f"{path}[{i}]" if path else f"[{i}]")
-                )
+                errors.extend(self._validate(item, schema["items"], f"{path}[{i}]" if path else f"[{i}]"))
         return errors
 
     def to_schema(self) -> dict[str, Any]:

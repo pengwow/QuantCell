@@ -6,18 +6,20 @@ Share 路由层测试
 - 远端上传成功 / 远端上传失败 → 502 / 凭据自动注册
 - 撤销 / 列表 / retry-remote
 """
+
 import sys
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, '/Users/liupeng/workspace/quant/QuantCell/backend')
+sys.path.insert(0, "/Users/liupeng/workspace/quant/QuantCell/backend")
 
 
 # ============================================================
 # 共享 fixtures
 # ============================================================
+
 
 @pytest.fixture
 def auth_headers():
@@ -33,7 +35,11 @@ def other_auth_headers():
 def mock_jwt_user_a():
     """用户 A：user_id=alice"""
     with patch("worker.dependencies.decode_jwt_token") as m:
-        m.return_value = {"user_id": "alice", "user_name": "Alice", "email": "alice@example.com"}
+        m.return_value = {
+            "user_id": "alice",
+            "user_name": "Alice",
+            "email": "alice@example.com",
+        }
         yield m
 
 
@@ -41,7 +47,11 @@ def mock_jwt_user_a():
 def mock_jwt_user_b():
     """用户 B：user_id=bob"""
     with patch("worker.dependencies.decode_jwt_token") as m:
-        m.return_value = {"user_id": "bob", "user_name": "Bob", "email": "bob@example.com"}
+        m.return_value = {
+            "user_id": "bob",
+            "user_name": "Bob",
+            "email": "bob@example.com",
+        }
         yield m
 
 
@@ -53,14 +63,14 @@ def test_client(db_session):
     让测试无需登录即可调用受保护端点。
     """
     from fastapi.testclient import TestClient
-    from collector.db.database import get_db
-    from worker.dependencies import get_db_session, get_current_user
 
     # 显式触发 share 模块加载，确保 router 被注册
-    import share.models  # noqa: F401
-    import share.routes  # noqa: F401
-    from share import router as share_router
+    import share.models
+    import share.routes
+    from collector.db.database import get_db
     from main import app
+    from share import router as share_router
+    from worker.dependencies import get_current_user, get_db_session
 
     def override_get_db():
         try:
@@ -97,26 +107,34 @@ def test_client(db_session):
 @contextmanager
 def _mock_remote_ready():
     """patch 远端上传成功的辅助函数"""
-    with patch("share.routes.ensure_remote_credentials", return_value=("qck_mock", "mock_secret")):
-        with patch("share.routes.RemoteShareClient") as MockClient:
-            instance = MockClient.return_value
-            instance.upload_sync.return_value = {
-                "remote_id": "r-mock",
-                "short_url": "https://share.quantcell.top/abc",
-                "raw": {},
-            }
-            with patch("share.routes.build_snapshot", return_value={"worker": {"id": 1}}):
-                with patch("share.routes.serialize_for_remote", side_effect=lambda x: x):
-                    with patch("share.routes.get_remote_config") as mock_cfg:
-                        cfg = MagicMock()
-                        cfg.is_ready = True
-                        mock_cfg.return_value = cfg
-                        yield
+    with (
+        patch(
+            "share.routes.ensure_remote_credentials",
+            return_value=("qck_mock", "mock_secret"),
+        ),
+        patch("share.routes.RemoteShareClient") as MockClient,
+    ):
+        instance = MockClient.return_value
+        instance.upload_sync.return_value = {
+            "remote_id": "r-mock",
+            "short_url": "https://share.quantcell.top/abc",
+            "raw": {},
+        }
+        with (
+            patch("share.routes.build_snapshot", return_value={"worker": {"id": 1}}),
+            patch("share.routes.serialize_for_remote", side_effect=lambda x: x),
+            patch("share.routes.get_remote_config") as mock_cfg,
+        ):
+            cfg = MagicMock()
+            cfg.is_ready = True
+            mock_cfg.return_value = cfg
+            yield
 
 
 # ============================================================
 # 受保护端点测试
 # ============================================================
+
 
 def test_create_share_anonymous_allowed_in_dev(test_client, sample_worker):
     """dev 模式下未登录视为 anonymous，依然可创建 share token"""

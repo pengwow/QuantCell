@@ -8,50 +8,51 @@ axon_quant 0.4.0 暴露:
         make_order / make_portfolio / make_portfolio_with_positions
 - 类型: OrderDict / PortfolioDict / SideStr / TifStr / OrderTypeStr / RiskReasonKindStr
 """
-from axon_quant.risk import (  # noqa: F401
+
+from axon_quant.risk import (
     # 核心类
     CircuitBreaker,
     DefaultRiskEngine,
+    # 类型别名(给 IDE / type checker 用,运行时是字符串)
+    OrderDict,
+    OrderTypeStr,
+    PortfolioDict,
     RiskConfig,
     RiskError,
     RiskMetrics,
     RiskReason,
+    RiskReasonKindStr,
     RiskResult,
+    SideStr,
+    TifStr,
     # 工厂
     make_circuit_breaker,
     make_order,
     make_portfolio,
     make_portfolio_with_positions,
     make_risk_config,
-    # 类型别名(给 IDE / type checker 用,运行时是字符串)
-    OrderDict,
-    OrderTypeStr,
-    PortfolioDict,
-    RiskReasonKindStr,
-    SideStr,
-    TifStr,
 )
 
 __all__ = [
     # 核心类
     "CircuitBreaker",
     "DefaultRiskEngine",
+    # 类型别名
+    "OrderDict",
+    "OrderTypeStr",
+    "PortfolioDict",
     "RiskConfig",
     "RiskError",
     "RiskMetrics",
     "RiskReason",
+    "RiskReasonKindStr",
     "RiskResult",
+    "SideStr",
+    "TifStr",
     # 工厂
     "make_circuit_breaker",
     "make_order",
     "make_portfolio",
     "make_portfolio_with_positions",
     "make_risk_config",
-    # 类型别名
-    "OrderDict",
-    "OrderTypeStr",
-    "PortfolioDict",
-    "RiskReasonKindStr",
-    "SideStr",
-    "TifStr",
 ]

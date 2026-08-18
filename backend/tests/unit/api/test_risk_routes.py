@@ -1,12 +1,14 @@
 import os
-from fastapi.testclient import TestClient
+
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 os.environ["DEBUG"] = "true"
 
 
 def _make_app():
     from api.v2.risk_routes import router
+
     app = FastAPI()
     app.include_router(router)
     return TestClient(app)
@@ -14,10 +16,18 @@ def _make_app():
 
 def test_risk_check_endpoint():
     client = _make_app()
-    resp = client.post("/api/v2/risk/check", json={
-        "order": {"symbol": "BTC-USDT", "side": "Buy", "quantity": 0.1, "price": 50000},
-        "portfolio": {"cash": {"USD": 200000}},
-    })
+    resp = client.post(
+        "/api/v2/risk/check",
+        json={
+            "order": {
+                "symbol": "BTC-USDT",
+                "side": "Buy",
+                "quantity": 0.1,
+                "price": 50000,
+            },
+            "portfolio": {"cash": {"USD": 200000}},
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["code"] == 0

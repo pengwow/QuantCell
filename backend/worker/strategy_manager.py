@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 StrategyManager — 统一策略执行引擎
 
@@ -15,28 +14,28 @@ StrategyManager — 统一策略执行引擎
 import asyncio
 import json
 import os
-import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from utils.db_session import get_db_session
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 from . import crud
 from .exceptions import (
-    WorkerNotFoundException,
     WorkerAlreadyRunningException,
+    WorkerNotFoundException,
 )
-from .worker_state import WorkerState, worker_state_manager, WorkerStateManager
+from .worker_state import worker_state_manager
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
 # axon_quant 导入
 try:
     from strategy.loop import StrategyLoop
+
     AXON_AVAILABLE = True
 except ImportError as e:
     AXON_AVAILABLE = False
@@ -71,20 +70,20 @@ class StrategyManager:
         3. 数据库持久化层: crud.py 操作 SQLite
     """
 
-    def __init__(self, max_workers: Optional[int] = None):
+    def __init__(self, max_workers: int | None = None):
         self._lock = asyncio.Lock()
         self._initialized = False
-        
+
         # 线程池大小：优先使用配置值，否则根据 CPU 核心数自适应
         if max_workers is None:
             cpu_count = os.cpu_count() or 4
             max_workers = min(cpu_count, 8)
-        
+
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers,
             thread_name_prefix="axon-backtest",
         )
-        self._strategy_loops: Dict[int, StrategyLoop] = {}
+        self._strategy_loops: dict[int, StrategyLoop] = {}
         logger.info(f"[StrategyManager] ThreadPoolExecutor 初始化: max_workers={max_workers}")
 
     async def initialize(self) -> None:
@@ -109,40 +108,42 @@ class StrategyManager:
     def _validate_worker_config(self, worker, db=None) -> None:
         """验证 worker 配置是否合法，不合法抛出 ValueError"""
         if not worker.strategy_id:
-            raise ValueError(f"worker {worker.id} 未关联策略 (strategy_id 为空)")
+            msg = f"worker {worker.id} 未关联策略 (strategy_id 为空)"
+            raise ValueError(msg)
 
         if worker.config:
             try:
                 config = json.loads(worker.config) if isinstance(worker.config, str) else worker.config
                 if not isinstance(config, dict):
-                    raise ValueError(
-                        f"worker.config 类型异常: {type(config).__name__}，期望 dict"
-                    )
+                    msg = f"worker.config 类型异常: {type(config).__name__}，期望 dict"
+                    raise ValueError(msg)
             except (json.JSONDecodeError, TypeError) as e:
-                raise ValueError(f"worker.config JSON 解析失败: {e}")
+                msg = f"worker.config JSON 解析失败: {e}"
+                raise ValueError(msg)
 
         strategy = getattr(worker, "strategy", None)
         if strategy is None and db is not None:
             from strategy.models import Strategy
+
             strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
         if strategy and strategy.parameters:
             try:
-                params = json.loads(strategy.parameters) if isinstance(strategy.parameters, str) else strategy.parameters
+                params = (
+                    json.loads(strategy.parameters) if isinstance(strategy.parameters, str) else strategy.parameters
+                )
                 if isinstance(params, list):
-                    raise ValueError(
-                        f"策略 {strategy.id} 的 parameters 是 list 类型，"
-                        f"期望 dict。请将参数改为 dict 格式后重启"
-                    )
+                    msg = f"策略 {strategy.id} 的 parameters 是 list 类型，期望 dict。请将参数改为 dict 格式后重启"
+                    raise ValueError(msg)
                 if not isinstance(params, dict):
-                    raise ValueError(
-                        f"策略 {strategy.id} 的 parameters 类型异常: {type(params).__name__}"
-                    )
+                    msg = f"策略 {strategy.id} 的 parameters 类型异常: {type(params).__name__}"
+                    raise ValueError(msg)
             except (json.JSONDecodeError, TypeError) as e:
-                raise ValueError(f"策略 parameters JSON 解析失败: {e}")
+                msg = f"策略 parameters JSON 解析失败: {e}"
+                raise ValueError(msg)
 
     async def _load_workers_from_db(self) -> None:
         """从数据库加载 worker 配置到内存注册表"""
-        from .state import strategy_registry, StrategyRuntime
+        from .state import StrategyRuntime, strategy_registry
 
         with get_db_session() as db:
             workers, total = crud.get_workers(db, skip=0, limit=1000)
@@ -168,38 +169,29 @@ class StrategyManager:
                             f"[StrategyManager] 策略配置异常，跳过启动: "
                             f"worker_id={worker.id}, name={worker.name}, error={e}"
                         )
-                        strategy_registry.update_status(
-                            worker.id, "error", error_message=error_msg
+                        strategy_registry.update_status(worker.id, "error", error_message=error_msg)
+                        config_errors.append(
+                            {
+                                "worker_id": worker.id,
+                                "name": worker.name,
+                                "error": str(e),
+                            }
                         )
-                        config_errors.append({
-                            "worker_id": worker.id,
-                            "name": worker.name,
-                            "error": str(e),
-                        })
                         continue
 
-                    logger.info(
-                        f"[StrategyManager] 恢复启动运行中的策略: "
-                        f"worker_id={worker.id}, name={worker.name}"
-                    )
+                    logger.info(f"[StrategyManager] 恢复启动运行中的策略: worker_id={worker.id}, name={worker.name}")
                     try:
                         await self._do_start_strategy(worker.id, worker)
                     except Exception as e:
-                        logger.error(
-                            f"[StrategyManager] 恢复启动策略失败: "
-                            f"worker_id={worker.id}, error={e}"
-                        )
-                        strategy_registry.update_status(
-                            worker.id, "error", error_message=str(e)
-                        )
+                        logger.error(f"[StrategyManager] 恢复启动策略失败: worker_id={worker.id}, error={e}")
+                        strategy_registry.update_status(worker.id, "error", error_message=str(e))
 
             if config_errors:
                 logger.warning(
-                    f"[StrategyManager] {len(config_errors)} 个策略配置异常，"
-                    f"已标记为 error 状态，请修复后重启"
+                    f"[StrategyManager] {len(config_errors)} 个策略配置异常，已标记为 error 状态，请修复后重启"
                 )
 
-    async def create_strategy(self, db, worker_config: Dict[str, Any]) -> int:
+    async def create_strategy(self, db, worker_config: dict[str, Any]) -> int:
         """创建策略
 
         Args:
@@ -209,7 +201,7 @@ class StrategyManager:
         Returns:
             worker_id
         """
-        from .state import strategy_registry, StrategyRuntime
+        from .state import StrategyRuntime, strategy_registry
 
         worker = crud.create_worker(db, worker_config)
         db.commit()
@@ -224,10 +216,7 @@ class StrategyManager:
 
         await worker_state_manager.transition(worker.id, "stopped")
 
-        logger.info(
-            f"[StrategyManager] 策略已创建: worker_id={worker.id}, "
-            f"name={worker.name}"
-        )
+        logger.info(f"[StrategyManager] 策略已创建: worker_id={worker.id}, name={worker.name}")
         return worker.id
 
     async def start_strategy(self, worker_id: int) -> bool:
@@ -257,13 +246,8 @@ class StrategyManager:
             logger.warning(f"[StrategyManager] {e.message}")
             return False
         except Exception as e:
-            logger.error(
-                f"[StrategyManager] 启动策略失败: worker_id={worker_id}, "
-                f"error={e}\n{traceback.format_exc()}"
-            )
-            await worker_state_manager.transition(
-                worker_id, "error", error_message=str(e)
-            )
+            logger.error(f"[StrategyManager] 启动策略失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}")
+            await worker_state_manager.transition(worker_id, "error", error_message=str(e))
             return False
 
     async def _do_start_strategy(self, worker_id: int, worker, db=None) -> bool:
@@ -290,21 +274,19 @@ class StrategyManager:
 
         runtime = strategy_registry.get(worker_id)
         if runtime is None:
-            logger.warning(
-                f"[StrategyManager] Worker {worker_id} 不在注册表中"
-            )
+            logger.warning(f"[StrategyManager] Worker {worker_id} 不在注册表中")
             return False
 
         if runtime.is_running:
             raise WorkerAlreadyRunningException(worker_id)
 
         # 获取交易所配置
-        exchange = getattr(worker, 'exchange', 'binance') or 'binance'
-        if hasattr(exchange, 'value'):
+        exchange = getattr(worker, "exchange", "binance") or "binance"
+        if hasattr(exchange, "value"):
             exchange = exchange.value
 
-        trading_mode = getattr(worker, 'trading_mode', 'testnet') or 'testnet'
-        if hasattr(trading_mode, 'value'):
+        trading_mode = getattr(worker, "trading_mode", "testnet") or "testnet"
+        if hasattr(trading_mode, "value"):
             trading_mode = trading_mode.value
 
         # 创建日志目录
@@ -314,17 +296,13 @@ class StrategyManager:
 
         # 构建交易所配置
         try:
-            exchange_config = build_exchange_config(exchange, trading_mode)
+            build_exchange_config(exchange, trading_mode)
         except Exception as e:
-            logger.error(
-                f"[StrategyManager] 构建交易所配置失败: worker_id={worker_id}, "
-                f"error={e}"
-            )
+            logger.error(f"[StrategyManager] 构建交易所配置失败: worker_id={worker_id}, error={e}")
             raise
 
         # 加载策略
         strategy_class = None
-        strategy_config = None
         try:
             from backtest.strategy_loader_service import StrategyLoaderService
             from strategy.models import Strategy
@@ -332,12 +310,11 @@ class StrategyManager:
             # 关联的策略对象
             strategy = getattr(worker, "strategy", None)
             if strategy is None and db is not None:
-                strategy = (
-                    db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
-                )
+                strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
 
             if strategy is None:
-                raise ValueError(f"无法找到 worker {worker_id} 关联的策略")
+                msg = f"无法找到 worker {worker_id} 关联的策略"
+                raise ValueError(msg)
 
             # 解析交易配置，获取品种和时间周期
             trading_config = worker.get_trading_config_dict() if hasattr(worker, "get_trading_config_dict") else {}
@@ -345,28 +322,23 @@ class StrategyManager:
             timeframe = trading_config.get("timeframe", "1h")
 
             if not symbols:
-                raise ValueError(f"worker {worker_id} 未配置交易品种")
+                msg = f"worker {worker_id} 未配置交易品种"
+                raise ValueError(msg)
 
             # 解析策略参数
             params = {}
             if strategy.parameters:
                 try:
                     raw_params = (
-                        json.loads(strategy.parameters)
-                        if isinstance(strategy.parameters, str)
-                        else strategy.parameters
+                        json.loads(strategy.parameters) if isinstance(strategy.parameters, str) else strategy.parameters
                     )
                     if isinstance(raw_params, dict):
                         params = raw_params
                 except (json.JSONDecodeError, TypeError) as e:
-                    logger.warning(
-                        f"[StrategyManager] 策略参数 JSON 解析失败: {e}"
-                    )
+                    logger.warning(f"[StrategyManager] 策略参数 JSON 解析失败: {e}")
 
             # 通过策略加载器加载策略
-            instruments = {
-                symbol: {"symbol": symbol, "venue": "BINANCE"} for symbol in symbols
-            }
+            instruments = {symbol: {"symbol": symbol, "venue": "BINANCE"} for symbol in symbols}
             bar_types = {symbol: timeframe for symbol in symbols}
 
             strategy_instance = StrategyLoaderService.load_event_strategy_multi(
@@ -379,14 +351,10 @@ class StrategyManager:
             if strategy_instance is not None:
                 strategy_class = type(strategy_instance)
                 logger.info(
-                    f"[StrategyManager] 策略已加载: worker_id={worker_id}, "
-                    f"strategy_class={strategy_class.__name__}"
+                    f"[StrategyManager] 策略已加载: worker_id={worker_id}, strategy_class={strategy_class.__name__}"
                 )
         except Exception as e:
-            logger.error(
-                f"[StrategyManager] 策略加载失败: worker_id={worker_id}, "
-                f"error={e}\n{traceback.format_exc()}"
-            )
+            logger.error(f"[StrategyManager] 策略加载失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}")
 
         # 创建策略实例
         if strategy_instance is None:
@@ -402,12 +370,10 @@ class StrategyManager:
 
             strategy_instance = _PlaceholderStrategy()
             strategy_class = _PlaceholderStrategy
-            logger.warning(
-                f"[StrategyManager] 使用占位策略，worker_id={worker_id}"
-            )
+            logger.warning(f"[StrategyManager] 使用占位策略，worker_id={worker_id}")
 
         # 获取交易对符号
-        symbol = getattr(worker, 'symbol', 'BTCUSDT') or 'BTCUSDT'
+        symbol = getattr(worker, "symbol", "BTCUSDT") or "BTCUSDT"
 
         # 构建 exchange adapter（按 trading_mode 选择真实/paper 实现）
         try:
@@ -439,8 +405,7 @@ class StrategyManager:
             strategy_loop.start()
         except Exception as e:
             logger.error(
-                f"[StrategyManager] 启动策略循环失败: worker_id={worker_id}, "
-                f"error={e}\n{traceback.format_exc()}"
+                f"[StrategyManager] 启动策略循环失败: worker_id={worker_id}, error={e}\n{traceback.format_exc()}"
             )
             raise
 
@@ -450,7 +415,7 @@ class StrategyManager:
         runtime.set_pid(os.getpid())
 
         if runtime.started_at is None:
-            runtime.started_at = datetime.now(timezone.utc).isoformat()
+            runtime.started_at = datetime.now(UTC).isoformat()
 
         # 更新数据库状态
         if db is not None:
@@ -459,9 +424,7 @@ class StrategyManager:
 
         await worker_state_manager.transition(worker_id, "running")
 
-        logger.info(
-            f"[StrategyManager] 策略已启动: worker_id={worker_id}"
-        )
+        logger.info(f"[StrategyManager] 策略已启动: worker_id={worker_id}")
         return True
 
     async def stop_strategy(self, worker_id: int) -> bool:
@@ -480,9 +443,7 @@ class StrategyManager:
             raise WorkerNotFoundException(worker_id)
 
         if runtime.status == "stopped":
-            logger.info(
-                f"[StrategyManager] Worker {worker_id} 已经处于 stopped 状态"
-            )
+            logger.info(f"[StrategyManager] Worker {worker_id} 已经处于 stopped 状态")
             return True
 
         await worker_state_manager.transition(worker_id, "stopping")
@@ -493,13 +454,10 @@ class StrategyManager:
             try:
                 strategy_loop.stop()
             except Exception as e:
-                logger.error(
-                    f"[StrategyManager] 停止策略循环失败: worker_id={worker_id}, "
-                    f"error={e}"
-                )
+                logger.error(f"[StrategyManager] 停止策略循环失败: worker_id={worker_id}, error={e}")
             del self._strategy_loops[worker_id]
 
-        runtime.stopped_at = datetime.now(timezone.utc).isoformat()
+        runtime.stopped_at = datetime.now(UTC).isoformat()
         strategy_registry.update_status(worker_id, "stopped")
 
         try:
@@ -507,10 +465,7 @@ class StrategyManager:
                 crud.update_worker_status(db, worker_id, "stopped")
                 db.commit()
         except Exception as e:
-            logger.error(
-                f"[StrategyManager] 更新数据库状态失败: "
-                f"worker_id={worker_id}, error={e}"
-            )
+            logger.error(f"[StrategyManager] 更新数据库状态失败: worker_id={worker_id}, error={e}")
 
         await worker_state_manager.transition(worker_id, "stopped")
 
@@ -543,16 +498,13 @@ class StrategyManager:
                 crud.delete_worker(db, worker_id)
                 db.commit()
         except Exception as e:
-            logger.error(
-                f"[StrategyManager] 删除策略失败: "
-                f"worker_id={worker_id}, error={e}"
-            )
+            logger.error(f"[StrategyManager] 删除策略失败: worker_id={worker_id}, error={e}")
             return False
 
         logger.info(f"[StrategyManager] 策略已删除: worker_id={worker_id}")
         return True
 
-    def get_strategy_state(self, worker_id: int) -> Optional[Dict[str, Any]]:
+    def get_strategy_state(self, worker_id: int) -> dict[str, Any] | None:
         """获取策略运行时状态"""
         from .state import strategy_registry
 
@@ -561,13 +513,13 @@ class StrategyManager:
             return None
         return runtime.to_dict()
 
-    def list_strategies(self) -> List[Dict[str, Any]]:
+    def list_strategies(self) -> list[dict[str, Any]]:
         """列出所有策略摘要"""
         from .state import strategy_registry
 
         return [rt.to_dict() for rt in strategy_registry.list_all()]
 
-    def get_system_state(self) -> Dict[str, Any]:
+    def get_system_state(self) -> dict[str, Any]:
         """获取系统整体状态"""
         from .state import strategy_registry
 
@@ -582,7 +534,7 @@ class StrategyManager:
             "axon_available": AXON_AVAILABLE,
         }
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """获取系统摘要（用于日志和状态展示）"""
         from .state import strategy_registry
 
@@ -614,7 +566,7 @@ class StrategyManager:
         loop = BacktestLoop(initial_cash=initial_cash)
         return loop.run(strategy, data, symbol)
 
-    def engine_status(self) -> Dict[str, Any]:
+    def engine_status(self) -> dict[str, Any]:
         """获取引擎状态概览（兼容 TradingEngine API）"""
         from .state import strategy_registry
 
@@ -629,7 +581,7 @@ class StrategyManager:
             "running_strategies": running_count,
         }
 
-    def get_strategy_status(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+    def get_strategy_status(self, strategy_id: str) -> dict[str, Any] | None:
         """获取策略状态（兼容 TradingEngine API，支持 string ID）"""
         from .state import strategy_registry
 
@@ -657,7 +609,7 @@ class StrategyManager:
         mode: str = "paper",
     ) -> str:
         """注册策略（内存级别，无持久化，兼容 TradingEngine API）"""
-        from .state import strategy_registry, StrategyRuntime
+        from .state import StrategyRuntime, strategy_registry
 
         # 生成临时 worker_id
         temp_id = hash((id(strategy), time.monotonic())) % 1000000
@@ -692,14 +644,9 @@ class StrategyManager:
         for worker_id, strategy_loop in self._strategy_loops.items():
             try:
                 strategy_loop.stop()
-                logger.info(
-                    f"[StrategyManager] shutdown: worker_id={worker_id} 策略循环已停止"
-                )
+                logger.info(f"[StrategyManager] shutdown: worker_id={worker_id} 策略循环已停止")
             except Exception as e:
-                logger.warning(
-                    f"[StrategyManager] shutdown: worker_id={worker_id} "
-                    f"停止策略循环失败: {e}"
-                )
+                logger.warning(f"[StrategyManager] shutdown: worker_id={worker_id} 停止策略循环失败: {e}")
 
         self._strategy_loops.clear()
 
@@ -709,8 +656,7 @@ class StrategyManager:
 
         elapsed = time.monotonic() - start_time
         logger.info(
-            f"[StrategyManager] shutdown: 总耗时 {elapsed:.3f}s\n"
-            f"[StrategyManager] ========== shutdown 完成 =========="
+            f"[StrategyManager] shutdown: 总耗时 {elapsed:.3f}s\n[StrategyManager] ========== shutdown 完成 =========="
         )
 
 

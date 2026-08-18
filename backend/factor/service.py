@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
 # QLib 仅用于因子计算（D.features），分析方法不依赖它
 try:
-    import qlib.data.ops as _qlib_ops  # noqa: F401  注册 qlib 表达式运算符
+    import qlib.data.ops as _qlib_ops
     from qlib.data import D
 
     QLIB_AVAILABLE = True
@@ -63,7 +63,7 @@ class FactorService:
         self.factors = self._load_builtin_factors()
         logger.info(f"FactorService初始化完成，共加载 {len(self.factors)} 个因子")
 
-    def _load_builtin_factors(self) -> Dict[str, str]:
+    def _load_builtin_factors(self) -> dict[str, str]:
         """
         加载内置因子
 
@@ -110,7 +110,7 @@ class FactorService:
             "profit_growth": "$Ref($net_profit, 1) / $Ref($net_profit, 2) - 1",
         }
 
-    def get_factor_list(self) -> List[str]:
+    def get_factor_list(self) -> list[str]:
         """
         获取所有支持的因子列表
 
@@ -119,7 +119,7 @@ class FactorService:
         """
         return list(self.factors.keys())
 
-    def get_factor_expression(self, factor_name: str) -> Optional[str]:
+    def get_factor_expression(self, factor_name: str) -> str | None:
         """
         获取因子的表达式
 
@@ -134,7 +134,8 @@ class FactorService:
         """
         expression = self.factors.get(factor_name)
         if expression is None:
-            raise FactorNotFoundError(f"因子不存在: {factor_name}")
+            msg = f"因子不存在: {factor_name}"
+            raise FactorNotFoundError(msg)
         return expression
 
     def add_factor(self, factor_name: str, factor_expression: str) -> bool:
@@ -152,10 +153,12 @@ class FactorService:
             FactorExpressionError: 表达式无效时抛出
         """
         if not factor_name or not factor_name.strip():
-            raise FactorExpressionError("因子名称不能为空")
+            msg = "因子名称不能为空"
+            raise FactorExpressionError(msg)
 
         if not factor_expression or not factor_expression.strip():
-            raise FactorExpressionError("因子表达式不能为空")
+            msg = "因子表达式不能为空"
+            raise FactorExpressionError(msg)
 
         if factor_name in self.factors:
             logger.warning(f"因子 {factor_name} 已存在，将覆盖现有因子")
@@ -178,7 +181,8 @@ class FactorService:
             FactorNotFoundError: 因子不存在时抛出
         """
         if factor_name not in self.factors:
-            raise FactorNotFoundError(f"因子不存在: {factor_name}")
+            msg = f"因子不存在: {factor_name}"
+            raise FactorNotFoundError(msg)
 
         del self.factors[factor_name]
         logger.info(f"成功删除因子: {factor_name}")
@@ -187,11 +191,11 @@ class FactorService:
     def calculate_factor(
         self,
         factor_name: str,
-        instruments: List[str],
+        instruments: list[str],
         start_time: str,
         end_time: str,
         freq: str = "day",
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """
         计算指定因子的值
 
@@ -210,15 +214,14 @@ class FactorService:
             FactorError: 计算失败时抛出
         """
         if not QLIB_AVAILABLE:
-            raise FactorError("QLib未安装，无法计算因子")
+            msg = "QLib未安装，无法计算因子"
+            raise FactorError(msg)
 
         try:
             factor_expr = self.get_factor_expression(factor_name)
 
             logger.info(
-                f"开始计算因子 {factor_name}，"
-                f"标的数量: {len(instruments)}, "
-                f"时间范围: {start_time} 至 {end_time}"
+                f"开始计算因子 {factor_name}，标的数量: {len(instruments)}, 时间范围: {start_time} 至 {end_time}"
             )
 
             factor_data = D.features(
@@ -238,16 +241,17 @@ class FactorService:
             raise
         except Exception as e:
             logger.error(f"计算因子 {factor_name} 失败: {e}")
-            raise FactorError(f"计算因子失败: {e}")
+            msg = f"计算因子失败: {e}"
+            raise FactorError(msg)
 
     def calculate_factors(
         self,
-        factor_names: List[str],
-        instruments: List[str],
+        factor_names: list[str],
+        instruments: list[str],
         start_time: str,
         end_time: str,
         freq: str = "day",
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """
         计算多个因子的值
 
@@ -265,7 +269,8 @@ class FactorService:
             FactorError: 计算失败时抛出
         """
         if not QLIB_AVAILABLE:
-            raise FactorError("QLib未安装，无法计算因子")
+            msg = "QLib未安装，无法计算因子"
+            raise FactorError(msg)
 
         try:
             factor_exprs = []
@@ -280,7 +285,8 @@ class FactorService:
                     logger.warning(f"因子 {factor_name} 不存在，将跳过")
 
             if not factor_exprs:
-                raise FactorError("没有有效的因子表达式")
+                msg = "没有有效的因子表达式"
+                raise FactorError(msg)
 
             logger.info(
                 f"开始计算多个因子，"
@@ -304,15 +310,16 @@ class FactorService:
 
         except Exception as e:
             logger.error(f"计算多个因子失败: {e}")
-            raise FactorError(f"计算多个因子失败: {e}")
+            msg = f"计算多个因子失败: {e}"
+            raise FactorError(msg)
 
     def calculate_all_factors(
         self,
-        instruments: List[str],
+        instruments: list[str],
         start_time: str,
         end_time: str,
         freq: str = "day",
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """
         计算所有因子的值
 
@@ -353,7 +360,7 @@ class FactorService:
             logger.error(f"因子表达式验证失败: {e}")
             return False
 
-    def get_factor_correlation(self, factor_data: pd.DataFrame) -> Optional[pd.DataFrame]:
+    def get_factor_correlation(self, factor_data: pd.DataFrame) -> pd.DataFrame | None:
         """
         计算因子之间的相关性
 
@@ -369,7 +376,7 @@ class FactorService:
             logger.error(f"计算因子相关性失败: {e}")
             return None
 
-    def get_factor_descriptive_stats(self, factor_data: pd.DataFrame) -> Optional[pd.DataFrame]:
+    def get_factor_descriptive_stats(self, factor_data: pd.DataFrame) -> pd.DataFrame | None:
         """
         获取因子的描述性统计信息
 
@@ -390,13 +397,10 @@ class FactorService:
         factor_data: pd.DataFrame,
         return_data: pd.DataFrame | pd.Series,
         method: str = "spearman",
-    ) -> Optional[pd.Series]:
+    ) -> pd.Series | None:
         """计算因子的信息系数(IC) — 因子值与未来收益的秩相关。"""
         try:
-            if isinstance(return_data, pd.DataFrame):
-                return_series = return_data.iloc[:, 0]
-            else:
-                return_series = return_data
+            return_series = return_data.iloc[:, 0] if isinstance(return_data, pd.DataFrame) else return_data
 
             factor_df = factor_data.apply(pd.to_numeric, errors="coerce")
             aligned = pd.concat([factor_df, return_series.rename("__ret__")], axis=1).dropna()
@@ -416,7 +420,7 @@ class FactorService:
         factor_data: pd.DataFrame,
         return_data: pd.DataFrame | pd.Series,
         method: str = "spearman",
-    ) -> Optional[float]:
+    ) -> float | None:
         """计算因子的信息比率(IR) = IC均值 / IC标准差。"""
         try:
             ic = self.calculate_ic(factor_data, return_data, method)
@@ -438,7 +442,7 @@ class FactorService:
         factor_data: pd.DataFrame,
         return_data: pd.DataFrame | pd.Series,
         n_groups: int = 5,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """因子分组回测分析。
 
         对因子值按分位数分组，计算每组平均收益，评估因子的区分能力。
@@ -446,10 +450,7 @@ class FactorService:
         """
         try:
             factor_series = factor_data.iloc[:, 0] if factor_data.ndim > 1 else factor_data
-            if isinstance(return_data, pd.DataFrame):
-                return_series = return_data.iloc[:, 0]
-            else:
-                return_series = return_data
+            return_series = return_data.iloc[:, 0] if isinstance(return_data, pd.DataFrame) else return_data
 
             factor_series = factor_series.reindex(return_series.index).dropna()
             return_series = return_series.reindex(factor_series.index)
@@ -484,7 +485,7 @@ class FactorService:
         factor_data: pd.DataFrame,
         return_data: pd.DataFrame | pd.Series,
         n_groups: int = 5,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """因子单调性检验 — 检验分组收益是否随因子值单调递增/递减。"""
         try:
             group_result = self.group_analysis(factor_data, return_data, n_groups)
@@ -517,7 +518,7 @@ class FactorService:
         self,
         factor_data: pd.DataFrame,
         window: int = 20,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """因子稳定性检验 — 基于滚动自相关衡量因子值的时序稳定性。"""
         try:
             if len(factor_data) < window + 1:

@@ -1,32 +1,29 @@
-# -*- coding: utf-8 -*-
 """
 EventBus 模块单元测试
 """
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 
 class TestEventBus:
-    """测试 EventBus 类
-    """
+    """测试 EventBus 类"""
 
     @pytest.fixture
     def event_bus(self):
-        """创建 EventBus 实例用于测试
-        """
+        """创建 EventBus 实例用于测试"""
         from plugins.event_bus import EventBus
+
         return EventBus()
 
     def test_initial_state(self, event_bus):
-        """测试初始状态
-        """
+        """测试初始状态"""
         assert len(event_bus._subscribers) == 0
         assert event_bus.get_subscribers("test.event") == []
 
     def test_subscribe(self, event_bus):
-        """测试订阅功能
-        """
+        """测试订阅功能"""
         callback = MagicMock()
         event_bus.subscribe("test.event", callback)
 
@@ -35,8 +32,7 @@ class TestEventBus:
         assert callback.__name__ in subscribers
 
     def test_unsubscribe(self, event_bus):
-        """测试取消订阅功能
-        """
+        """测试取消订阅功能"""
         callback = MagicMock()
         event_bus.subscribe("test.event", callback)
 
@@ -44,15 +40,13 @@ class TestEventBus:
         assert len(event_bus.get_subscribers("test.event")) == 0
 
     def test_unsubscribe_nonexistent(self, event_bus):
-        """测试取消不存在的订阅
-        """
+        """测试取消不存在的订阅"""
         callback = MagicMock()
         # 不应该抛出异常
         event_bus.unsubscribe("test.event", callback)
 
     def test_publish(self, event_bus):
-        """测试发布事件
-        """
+        """测试发布事件"""
         callback1 = MagicMock()
         callback2 = MagicMock()
 
@@ -66,14 +60,12 @@ class TestEventBus:
         callback2.assert_called_once_with(event_data)
 
     def test_publish_no_subscribers(self, event_bus):
-        """测试发布没有订阅者的事件
-        """
+        """测试发布没有订阅者的事件"""
         # 不应该抛出异常
         event_bus.publish("test.event", {"key": "value"})
 
     def test_publish_with_exception(self, event_bus):
-        """测试发布事件时订阅者抛出异常
-        """
+        """测试发布事件时订阅者抛出异常"""
         callback = MagicMock(side_effect=Exception("Test exception"))
         event_bus.subscribe("test.event", callback)
 
@@ -82,8 +74,7 @@ class TestEventBus:
         callback.assert_called_once()
 
     def test_multiple_events(self, event_bus):
-        """测试多个不同事件
-        """
+        """测试多个不同事件"""
         callback1 = MagicMock()
         callback2 = MagicMock()
 
@@ -97,8 +88,7 @@ class TestEventBus:
         callback2.assert_called_once_with("data2")
 
     def test_clear(self, event_bus):
-        """测试清除所有订阅
-        """
+        """测试清除所有订阅"""
         callback1 = MagicMock()
         callback2 = MagicMock()
 
@@ -109,8 +99,7 @@ class TestEventBus:
         assert len(event_bus._subscribers) == 0
 
     def test_duplicate_subscription(self, event_bus):
-        """测试重复订阅同一个回调
-        """
+        """测试重复订阅同一个回调"""
         callback = MagicMock()
 
         event_bus.subscribe("test.event", callback)

@@ -6,12 +6,15 @@
 包名说明:本目录命名为 axon_bridge 而非 axon_quant,避免与
 site-packages 的 axon_quant 同名导致循环导入。
 """
+
 from typing import Any
+
 from fastapi import HTTPException
 
 
 class AxonQuantError(Exception):
     """axon_quant 异常的 QuantCell 包装基类。"""
+
     http_status: int = 500
     code: str = "axon_quant_error"
 
@@ -31,19 +34,25 @@ class AxonQuantError(Exception):
 # 延迟导入避免循环依赖
 def _build_mapping() -> dict[type, tuple[int, str]]:
     from axon_quant import (
-        DataError, OmsError, ExchangeError,
-        BacktestError, ComplianceError, InferenceError, DefiError,
+        BacktestError,
+        ComplianceError,
+        DataError,
+        DefiError,
+        ExchangeError,
+        InferenceError,
+        OmsError,
     )
     from axon_quant.risk import RiskError
+
     return {
-        DataError:        (400, "data_error"),
-        OmsError:         (409, "oms_conflict"),
-        ExchangeError:    (502, "exchange_error"),
-        BacktestError:    (500, "backtest_error"),
-        ComplianceError:  (500, "compliance_error"),
-        InferenceError:   (500, "inference_error"),
-        DefiError:        (500, "defi_error"),
-        RiskError:        (403, "risk_rejected"),
+        DataError: (400, "data_error"),
+        OmsError: (409, "oms_conflict"),
+        ExchangeError: (502, "exchange_error"),
+        BacktestError: (500, "backtest_error"),
+        ComplianceError: (500, "compliance_error"),
+        InferenceError: (500, "inference_error"),
+        DefiError: (500, "defi_error"),
+        RiskError: (403, "risk_rejected"),
     }
 
 

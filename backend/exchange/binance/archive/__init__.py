@@ -13,18 +13,18 @@
 
 from exchange.binance.archive.factory import BinanceArchiveFactory
 from exchange.binance.archive.kinds import (
+    KIND_INTERVALS,
     ArchiveKind,
     MarketType,
     build_zip_url,
     get_save_dir,
-    KIND_INTERVALS,
 )
 
 __all__ = [
+    "KIND_INTERVALS",
     "ArchiveKind",
     "BinanceArchiveFactory",
     "MarketType",
     "build_zip_url",
     "get_save_dir",
-    "KIND_INTERVALS",
 ]

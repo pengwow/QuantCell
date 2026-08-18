@@ -4,13 +4,13 @@ ponytail: accounts + credentials 拆表（凭证可独立轮换）
          list_accounts 不返回 secret 字段（仅 id/name/exchange/created_at）
          软删除（deleted_at），保留 30 天可恢复
 """
+
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from credentials.exceptions import AccountNotFoundError, AccountAlreadyExistsError
-
+from credentials.exceptions import AccountAlreadyExistsError, AccountNotFoundError
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS credentials (
@@ -43,7 +43,7 @@ def _now_iso() -> str:
     ponytail: Python 3.14.0 的 datetime.isoformat(timespec='nanoseconds') 实际未实现,
              所以手写格式化。UTC 时区 + 9 位小数,确保 1.0 ns 精度。
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     # 微秒部分补 0 到 9 位（即纳秒精度，末 3 位为 0）
     micro = now.microsecond * 1000
     return now.strftime("%Y-%m-%dT%H:%M:%S") + f".{micro:09d}+00:00"
@@ -66,9 +66,7 @@ class CredentialsStore:
         conn.execute("PRAGMA busy_timeout=5000")
         return conn
 
-    def create_credential(
-        self, api_key_enc: bytes, api_secret_enc: bytes, fingerprint_hash: str
-    ) -> str:
+    def create_credential(self, api_key_enc: bytes, api_secret_enc: bytes, fingerprint_hash: str) -> str:
         """新增凭证行，返回 credential_id（UUID4）。"""
         with self._conn() as conn:
             cred_id = str(uuid.uuid4())
@@ -90,11 +88,11 @@ class CredentialsStore:
                 (name,),
             ).fetchone()
             if existing:
-                raise AccountAlreadyExistsError(f"账号已存在: {name}")
+                msg = f"账号已存在: {name}"
+                raise AccountAlreadyExistsError(msg)
             acct_id = str(uuid.uuid4())
             conn.execute(
-                "INSERT INTO accounts (id, name, exchange, credential_id, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO accounts (id, name, exchange, credential_id, created_at) VALUES (?, ?, ?, ?, ?)",
                 (acct_id, name, exchange, credential_id, _now_iso()),
             )
         return acct_id
@@ -108,7 +106,8 @@ class CredentialsStore:
                 (name,),
             ).fetchone()
             if not row:
-                raise AccountNotFoundError(f"账号不存在: {name}")
+                msg = f"账号不存在: {name}"
+                raise AccountNotFoundError(msg)
             return dict(row)
 
     def get_credential_by_account(self, name: str) -> dict:
@@ -122,15 +121,15 @@ class CredentialsStore:
                 (name,),
             ).fetchone()
             if not row:
-                raise AccountNotFoundError(f"账号或凭证不存在: {name}")
+                msg = f"账号或凭证不存在: {name}"
+                raise AccountNotFoundError(msg)
             return dict(row)
 
     def list_accounts(self) -> list[dict]:
         """列出所有账号（不含 secret 字段）。"""
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT id, name, exchange, created_at FROM accounts "
-                "WHERE deleted_at IS NULL ORDER BY created_at"
+                "SELECT id, name, exchange, created_at FROM accounts WHERE deleted_at IS NULL ORDER BY created_at"
             ).fetchall()
             return [dict(r) for r in rows]
 
@@ -142,4 +141,5 @@ class CredentialsStore:
                 (_now_iso(), name),
             )
             if result.rowcount == 0:
-                raise AccountNotFoundError(f"账号不存在: {name}")
+                msg = f"账号不存在: {name}"
+                raise AccountNotFoundError(msg)

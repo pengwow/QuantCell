@@ -6,13 +6,15 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional, List
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from utils.logger import get_logger, LogType
 from utils import get_source_data_dir
+from utils.logger import LogType, get_logger
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -25,8 +27,8 @@ class LoadConfig:
     data_type: str
     market: str = "spot"
     interval: str = "1h"
-    start: Optional[str] = None
-    end: Optional[str] = None
+    start: str | None = None
+    end: str | None = None
 
 
 @dataclass
@@ -34,7 +36,7 @@ class AdapterResult:
     """适配器输出结果。"""
 
     data: pd.DataFrame
-    features: Optional[pd.DataFrame] = None
+    features: pd.DataFrame | None = None
     metadata: dict = field(default_factory=dict)
 
 
@@ -46,7 +48,7 @@ class BaseDataAdapter(ABC):
 
     _SUPPORTED_TYPES: set = set()
 
-    def __init__(self, base_dir: Optional[Path] = None):
+    def __init__(self, base_dir: Path | None = None):
         if base_dir is None:
             base_dir = get_source_data_dir()
         self.base_dir = base_dir
@@ -66,7 +68,7 @@ class BaseDataAdapter(ABC):
         market: str,
         symbol: str,
         interval: str = "",
-    ) -> Optional[Path]:
+    ) -> Path | None:
         """查找 Parquet 文件。
 
         按多个模式顺序搜索，返回最新匹配的文件。
@@ -74,16 +76,10 @@ class BaseDataAdapter(ABC):
         search_patterns = []
         if interval:
             search_patterns.append(
-                self.base_dir / data_type / market / symbol /
-                f"{symbol}-{data_type}-{interval}-*.parquet"
+                self.base_dir / data_type / market / symbol / f"{symbol}-{data_type}-{interval}-*.parquet"
             )
-        search_patterns.append(
-            self.base_dir / data_type / market / symbol /
-            f"{symbol}-{data_type}-*.parquet"
-        )
-        search_patterns.append(
-            self.base_dir / data_type / market / symbol / "*.parquet"
-        )
+        search_patterns.append(self.base_dir / data_type / market / symbol / f"{symbol}-{data_type}-*.parquet")
+        search_patterns.append(self.base_dir / data_type / market / symbol / "*.parquet")
 
         for pattern in search_patterns:
             if pattern.parent.exists():
@@ -91,10 +87,8 @@ class BaseDataAdapter(ABC):
                 if matched:
                     return matched[-1]
 
-        raise FileNotFoundError(
-            f"未找到数据文件: type={data_type}, market={market}, "
-            f"symbol={symbol}, interval={interval}"
-        )
+        msg = f"未找到数据文件: type={data_type}, market={market}, symbol={symbol}, interval={interval}"
+        raise FileNotFoundError(msg)
 
     def _load_parquet(self, path: Path) -> pd.DataFrame:
         """加载 Parquet 文件。"""
@@ -106,8 +100,8 @@ class BaseDataAdapter(ABC):
     def _filter_by_date(
         self,
         df: pd.DataFrame,
-        start: Optional[str],
-        end: Optional[str],
+        start: str | None,
+        end: str | None,
     ) -> pd.DataFrame:
         """按日期筛选。"""
         if not start and not end:

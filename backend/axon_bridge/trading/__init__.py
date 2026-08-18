@@ -7,7 +7,8 @@ axon_quant 0.4.0 暴露:
 - 配置:  RiskLimits
 - 指标:  TradingMetrics
 """
-from axon_quant.trading import (  # noqa: F401
+
+from axon_quant.trading import (
     CancelOrderTool,
     MockTradingBackend,
     PlaceOrderTool,

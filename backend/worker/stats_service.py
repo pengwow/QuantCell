@@ -1,9 +1,11 @@
-from sqlalchemy.orm import Session
-from typing import Optional
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
 from . import crud
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -52,6 +54,7 @@ def _compute_sharpe_ratio(daily_pnl: list, risk_free_rate: float = 0.0) -> float
         return 0.0
 
     import math
+
     n = len(daily_pnl)
     mean = sum(daily_pnl) / n
     variance = sum((x - mean) ** 2 for x in daily_pnl) / n
@@ -64,17 +67,17 @@ def _compute_sharpe_ratio(daily_pnl: list, risk_free_rate: float = 0.0) -> float
 
 
 class TradingStatsService:
-
     def __init__(self, db: Session):
         self.db = db
 
-    def get_trading_summary(self, worker_id: int, window: Optional[str] = "30d") -> dict:
+    def get_trading_summary(self, worker_id: int, window: str | None = "30d") -> dict:
         """获取交易汇总，支持时间窗口过滤"""
         from .routes import _resolve_window
+
         start_time = _resolve_window(window or "30d")
         return crud.get_trading_summary(self.db, worker_id, start_time=start_time)
 
-    def get_overview(self, worker_id: int, window: Optional[str] = "30d") -> dict:
+    def get_overview(self, worker_id: int, window: str | None = "30d") -> dict:
         """获取总览（Overview）数据：聚合指标 + 累计收益曲线 + 盈亏分布
 
         一次性返回前端总览 tab 所需的全部数据，避免多次轮询。
@@ -137,10 +140,11 @@ class TradingStatsService:
     def get_position_summary(self, worker_id: int) -> dict:
         from .models import WorkerPosition
 
-        positions = self.db.query(WorkerPosition).filter(
-            WorkerPosition.worker_id == worker_id,
-            WorkerPosition.status == "OPEN"
-        ).all()
+        positions = (
+            self.db.query(WorkerPosition)
+            .filter(WorkerPosition.worker_id == worker_id, WorkerPosition.status == "OPEN")
+            .all()
+        )
 
         total_positions = len(positions)
         long_positions = sum(1 for p in positions if p.side == "LONG")

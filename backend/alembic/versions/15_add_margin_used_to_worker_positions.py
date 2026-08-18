@@ -9,29 +9,31 @@ Revises: 14
 Create Date: 2026-06-06 22:30:00.000000
 
 """
-from typing import Sequence, Union
 
-from alembic import op
+from typing import TYPE_CHECKING
+
 import sqlalchemy as sa
 
+from alembic import op
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 # revision identifiers, used by Alembic.
-revision: str = '15'
-down_revision: Union[str, Sequence[str], None] = '14'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+revision: str = "15"
+down_revision: str | Sequence[str] | None = "14"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     """为 worker_positions 表添加 margin_used 列"""
     # 使用 IF NOT EXISTS 模式兼容 SQLite 多次执行
-    with op.batch_alter_table('worker_positions', schema=None) as batch_op:
-        batch_op.add_column(
-            sa.Column('margin_used', sa.Float(), nullable=True, server_default='0.0')
-        )
+    with op.batch_alter_table("worker_positions", schema=None) as batch_op:
+        batch_op.add_column(sa.Column("margin_used", sa.Float(), nullable=True, server_default="0.0"))
 
 
 def downgrade() -> None:
     """回滚：移除 margin_used 列"""
-    with op.batch_alter_table('worker_positions', schema=None) as batch_op:
-        batch_op.drop_column('margin_used')
+    with op.batch_alter_table("worker_positions", schema=None) as batch_op:
+        batch_op.drop_column("margin_used")

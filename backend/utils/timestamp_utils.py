@@ -29,9 +29,9 @@
     ns_timestamp = to_nanoseconds(original_timestamp)
 """
 
-from typing import Literal, Optional, Union
-from datetime import datetime
 import logging
+from datetime import UTC, datetime
+from typing import Literal
 
 try:
     import pandas as pd
@@ -42,10 +42,10 @@ logger = logging.getLogger(__name__)
 
 
 # 时间戳精度类型
-Precision = Literal['s', 'ms', 'us', 'ns', 'auto']
+Precision = Literal["s", "ms", "us", "ns", "auto"]
 
 
-def detect_precision(timestamp: Union[str, int]) -> str:
+def detect_precision(timestamp: str | int) -> str:
     """
     检测时间戳的精度
 
@@ -68,17 +68,16 @@ def detect_precision(timestamp: Union[str, int]) -> str:
     ts_int = int(timestamp)
 
     if ts_int > 10**18:  # 纳秒级 (19位+)
-        return 'ns'
+        return "ns"
     elif ts_int > 10**15:  # 微秒级 (16-18位)
-        return 'us'
+        return "us"
     elif ts_int > 10**12:  # 毫秒级 (13-15位)
-        return 'ms'
+        return "ms"
     else:  # 秒级 (10位)
-        return 's'
+        return "s"
 
 
-def to_nanoseconds(timestamp: Union[str, int, float],
-                   input_precision: Precision = 'auto') -> int:
+def to_nanoseconds(timestamp: str | int | float, input_precision: Precision = "auto") -> int:
     """
     将任意精度的时间戳转换为纳秒级
 
@@ -105,25 +104,26 @@ def to_nanoseconds(timestamp: Union[str, int, float],
     try:
         ts = int(float(timestamp))
     except (ValueError, TypeError) as e:
-        raise ValueError(f"无效的时间戳格式: {timestamp}") from e
+        msg = f"无效的时间戳格式: {timestamp}"
+        raise ValueError(msg) from e
 
-    if input_precision == 'auto':
+    if input_precision == "auto":
         input_precision = detect_precision(ts)
 
-    if input_precision == 's':
+    if input_precision == "s":
         return ts * 1_000_000_000
-    elif input_precision == 'ms':
+    elif input_precision == "ms":
         return ts * 1_000_000
-    elif input_precision == 'us':
+    elif input_precision == "us":
         return ts * 1_000
-    elif input_precision == 'ns':
+    elif input_precision == "ns":
         return ts
     else:
-        raise ValueError(f"未知的精度类型: {input_precision}")
+        msg = f"未知的精度类型: {input_precision}"
+        raise ValueError(msg)
 
 
-def from_nanoseconds(timestamp: Union[str, int],
-                     output_precision: Precision = 'ns') -> int:
+def from_nanoseconds(timestamp: str | int, output_precision: Precision = "ns") -> int:
     """
     将纳秒级时间戳转换为指定精度
 
@@ -146,20 +146,20 @@ def from_nanoseconds(timestamp: Union[str, int],
     """
     ts = int(timestamp)
 
-    if output_precision == 's':
+    if output_precision == "s":
         return ts // 1_000_000_000
-    elif output_precision == 'ms':
+    elif output_precision == "ms":
         return ts // 1_000_000
-    elif output_precision == 'us':
+    elif output_precision == "us":
         return ts // 1_000
-    elif output_precision == 'ns':
+    elif output_precision == "ns":
         return ts
     else:
-        raise ValueError(f"未知的精度类型: {output_precision}")
+        msg = f"未知的精度类型: {output_precision}"
+        raise ValueError(msg)
 
 
-def normalize_to_nanoseconds(timestamp: Union[str, int, float],
-                             input_precision: Precision = 'auto') -> str:
+def normalize_to_nanoseconds(timestamp: str | int | float, input_precision: Precision = "auto") -> str:
     """
     标准化时间戳为纳秒级字符串 (用于数据库存储)
 
@@ -179,7 +179,7 @@ def normalize_to_nanoseconds(timestamp: Union[str, int, float],
     return str(to_nanoseconds(timestamp, input_precision))
 
 
-def nanoseconds_to_datetime(timestamp: Union[str, int]) -> datetime:
+def nanoseconds_to_datetime(timestamp: str | int) -> datetime:
     """
     将纳秒级时间戳转换为datetime对象
 
@@ -193,10 +193,9 @@ def nanoseconds_to_datetime(timestamp: Union[str, int]) -> datetime:
         >>> nanoseconds_to_datetime(1767830400000000000)
         datetime.datetime(2026, 1, 8, 0, 0)
     """
-    from datetime import timezone
     ts = int(timestamp)
     seconds = ts / 1_000_000_000
-    return datetime.fromtimestamp(seconds, tz=timezone.utc)
+    return datetime.fromtimestamp(seconds, tz=UTC)
 
 
 def datetime_to_nanoseconds(dt: datetime) -> int:
@@ -214,14 +213,12 @@ def datetime_to_nanoseconds(dt: datetime) -> int:
         >>> datetime_to_nanoseconds(datetime(2026, 1, 8, 0, 0))
         1767830400000000000
     """
-    from datetime import timezone
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return int(dt.timestamp() * 1_000_000_000)
 
 
-def format_nanoseconds(timestamp: Union[str, int],
-                       fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+def format_nanoseconds(timestamp: str | int, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     """
     将纳秒级时间戳格式化为可读字符串
 
@@ -240,8 +237,7 @@ def format_nanoseconds(timestamp: Union[str, int],
     return dt.strftime(fmt)
 
 
-def parse_to_nanoseconds(time_str: str,
-                         fmt: str = "%Y-%m-%d %H:%M:%S") -> int:
+def parse_to_nanoseconds(time_str: str, fmt: str = "%Y-%m-%d %H:%M:%S") -> int:
     """
     将时间字符串解析为纳秒级时间戳
 
@@ -261,7 +257,7 @@ def parse_to_nanoseconds(time_str: str,
 
 
 # 便捷函数，用于交易所API交互
-def milliseconds_to_nanoseconds(ms: Union[str, int]) -> int:
+def milliseconds_to_nanoseconds(ms: str | int) -> int:
     """
     毫秒转纳秒 (用于交易所API数据转换)
 
@@ -274,7 +270,7 @@ def milliseconds_to_nanoseconds(ms: Union[str, int]) -> int:
     return int(ms) * 1_000_000
 
 
-def nanoseconds_to_milliseconds(ns: Union[str, int]) -> int:
+def nanoseconds_to_milliseconds(ns: str | int) -> int:
     """
     纳秒转毫秒 (用于交易所API交互)
 
@@ -288,8 +284,7 @@ def nanoseconds_to_milliseconds(ns: Union[str, int]) -> int:
 
 
 # 批量转换函数
-def batch_to_nanoseconds(timestamps: list,
-                         input_precision: Precision = 'auto') -> list:
+def batch_to_nanoseconds(timestamps: list, input_precision: Precision = "auto") -> list:
     """
     批量将时间戳转换为纳秒级
 
@@ -303,8 +298,7 @@ def batch_to_nanoseconds(timestamps: list,
     return [to_nanoseconds(ts, input_precision) for ts in timestamps]
 
 
-def batch_normalize_to_nanoseconds(timestamps: list,
-                                   input_precision: Precision = 'auto') -> list:
+def batch_normalize_to_nanoseconds(timestamps: list, input_precision: Precision = "auto") -> list:
     """
     批量标准化时间戳为纳秒级字符串
 
@@ -319,7 +313,7 @@ def batch_normalize_to_nanoseconds(timestamps: list,
 
 
 # 验证函数
-def is_valid_nanoseconds(timestamp: Union[str, int]) -> bool:
+def is_valid_nanoseconds(timestamp: str | int) -> bool:
     """
     验证是否为有效的纳秒级时间戳
 
@@ -335,12 +329,11 @@ def is_valid_nanoseconds(timestamp: Union[str, int]) -> bool:
         # 合理的范围: 2000-01-01 到 2100-01-01
         # 946684800000000000 (2000年) 到 4102444800000000000 (2100年)
         return 10**18 <= ts < 10**19
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
 
 
-def validate_nanoseconds(timestamp: Union[str, int],
-                         field_name: str = "timestamp") -> None:
+def validate_nanoseconds(timestamp: str | int, field_name: str = "timestamp") -> None:
     """
     验证纳秒级时间戳，无效时抛出异常
 
@@ -352,15 +345,14 @@ def validate_nanoseconds(timestamp: Union[str, int],
         ValueError: 当时间戳无效时
     """
     if not is_valid_nanoseconds(timestamp):
-        raise ValueError(
-            f"{field_name} 必须是有效的纳秒级时间戳 (19位整数), "
-            f"实际值: {timestamp}"
-        )
+        msg = f"{field_name} 必须是有效的纳秒级时间戳 (19位整数), 实际值: {timestamp}"
+        raise ValueError(msg)
 
 
 # ============================================================
 # Pandas 集成函数（统一的 timestamp → datetime 转换入口）
 # ============================================================
+
 
 def detect_timestamp_precision(data) -> str:
     """
@@ -385,33 +377,33 @@ def detect_timestamp_precision(data) -> str:
         >>> detect_timestamp_precision(pd.Series([17760384, 17760393]))  # 10位秒
         's'
     """
-    if data is None or (hasattr(data, '__len__') and len(data) == 0):
-        return 'unknown'
+    if data is None or (hasattr(data, "__len__") and len(data) == 0):
+        return "unknown"
 
     try:
-        if hasattr(data, 'iloc'):
+        if hasattr(data, "iloc"):
             first_val = data.iloc[0]
-        elif hasattr(data, '__iter__') and not isinstance(data, (str, bytes)):
+        elif hasattr(data, "__iter__") and not isinstance(data, (str, bytes)):
             first_val = next(iter(data))
         else:
             first_val = data
 
         if first_val is None or (isinstance(first_val, float) and pd.isna(first_val)):
-            return 'unknown'
+            return "unknown"
 
         return detect_precision(first_val)
 
     except (ValueError, TypeError, StopIteration) as e:
         logger.debug(f"时间戳精度检测失败: {e}")
-        return 'unknown'
+        return "unknown"
 
 
 def convert_to_datetime(
     data,
-    precision: str = 'auto',
-    timezone: str = 'utc',
-    errors: str = 'coerce',
-    validate_year_range: tuple = (2000, 2050)
+    precision: str = "auto",
+    timezone: str = "utc",
+    errors: str = "coerce",
+    validate_year_range: tuple = (2000, 2050),
 ):
     """
     智能转换时间戳为 datetime（自动检测精度）
@@ -475,12 +467,13 @@ def convert_to_datetime(
         Timestamp('2026-04-13 08:00:00+0000', tz='UTC')
     """
     if pd is None:
-        raise ImportError("pandas 未安装，无法使用 convert_to_datetime()")
+        msg = "pandas 未安装，无法使用 convert_to_datetime()"
+        raise ImportError(msg)
 
     if data is None:
         return pd.NaT
 
-    is_sequence = hasattr(data, '__len__') and not isinstance(data, (str, bytes))
+    is_sequence = hasattr(data, "__len__") and not isinstance(data, (str, bytes))
 
     if is_sequence and len(data) == 0:
         return pd.DatetimeIndex([])
@@ -494,19 +487,19 @@ def convert_to_datetime(
 
     if isinstance(first_val, (pd.Timestamp, datetime)):
         logger.debug("输入已经是 datetime 类型，直接转换")
-        tz = 'utc' if timezone == 'utc' else None
-        result = pd.to_datetime(data, utc=(timezone == 'utc'))
+        tz = "utc" if timezone == "utc" else None
+        result = pd.to_datetime(data, utc=(timezone == "utc"))
         return result
 
-    detected_precision = precision if precision != 'auto' else detect_timestamp_precision(data)
+    detected_precision = precision if precision != "auto" else detect_timestamp_precision(data)
 
-    if detected_precision == 'unknown':
-        logger.warning(f"无法自动检测时间戳精度，使用默认的 pd.to_datetime() 处理")
+    if detected_precision == "unknown":
+        logger.warning("无法自动检测时间戳精度，使用默认的 pd.to_datetime() 处理")
         try:
-            result = pd.to_datetime(data, errors=errors, utc=(timezone == 'utc'))
+            result = pd.to_datetime(data, errors=errors, utc=(timezone == "utc"))
             return result
         except Exception as e:
-            if errors == 'raise':
+            if errors == "raise":
                 raise
             logger.warning(f"时间戳转换失败（降级处理）: {e}")
             if is_sequence:
@@ -516,15 +509,10 @@ def convert_to_datetime(
     logger.debug(f"检测到 {detected_precision} 级时间戳")
 
     try:
-        tz = 'utc' if timezone == 'utc' else None
-        result = pd.to_datetime(
-            data,
-            unit=detected_precision,
-            errors=errors,
-            utc=bool(tz)
-        )
+        tz = "utc" if timezone == "utc" else None
+        result = pd.to_datetime(data, unit=detected_precision, errors=errors, utc=bool(tz))
 
-        if is_sequence and len(result) > 0 and hasattr(result, '__getitem__'):
+        if is_sequence and len(result) > 0 and hasattr(result, "__getitem__"):
             year = result[0].year
             min_year, max_year = validate_year_range
             if year < min_year or year > max_year:
@@ -537,8 +525,9 @@ def convert_to_datetime(
         return result
 
     except (ValueError, TypeError, OverflowError) as e:
-        if errors == 'raise':
-            raise ValueError(f"时间戳转换失败（precision={detected_precision}）: {e}") from e
+        if errors == "raise":
+            msg = f"时间戳转换失败（precision={detected_precision}）: {e}"
+            raise ValueError(msg) from e
 
         logger.warning(f"时间戳转换失败（{errors}模式）: {e}")
 
@@ -564,12 +553,12 @@ def _get_first_valid_value(data):
         return data
 
     try:
-        if hasattr(data, 'iloc'):
+        if hasattr(data, "iloc"):
             for val in data.iloc[:10]:
                 if _is_valid_timestamp(val):
                     return val
             return None
-        elif hasattr(data, '__iter__') and not isinstance(data, (str, bytes)):
+        elif hasattr(data, "__iter__") and not isinstance(data, (str, bytes)):
             for val in data:
                 if _is_valid_timestamp(val):
                     return val
@@ -577,7 +566,7 @@ def _get_first_valid_value(data):
         else:
             return data if _is_valid_timestamp(data) else None
 
-    except (TypeError, AttributeError):
+    except TypeError, AttributeError:
         return data
 
 
@@ -603,9 +592,5 @@ def _is_valid_timestamp(value):
     try:
         int(float(value))
         return True
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
-
-
-
-

@@ -1,25 +1,30 @@
+import contextlib
 import importlib.util
 import json
 import os
 import re
 import shutil
 import sys
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING
 
-from fastapi import FastAPI
+from utils.logger import LogType, get_logger
 
-from utils.logger import get_logger, LogType
-from .plugin_base import PluginBase
-from .plugin_store import PluginStore
-from .plugin_loader import HotPluginLoader, RestartPluginLoader, unload_plugin
 from .event_bus import EventBus
+from .plugin_base import PluginBase
 from .plugin_installer import PluginInstaller
+from .plugin_loader import HotPluginLoader, RestartPluginLoader, unload_plugin
+from .plugin_store import PluginStore
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 try:
     from .plugin_security import validate_permissions
 except ImportError:
+
     def validate_permissions(permissions: list) -> tuple:
         return True, ""
+
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -32,24 +37,24 @@ def _parse_version(version_str: str) -> tuple:
 
 
 class PluginManager:
-
-    def __init__(self, app: Optional[FastAPI] = None, plugin_dir: Optional[str] = None):
+    def __init__(self, app: FastAPI | None = None, plugin_dir: str | None = None):
         self._app = app
         if plugin_dir is None:
             plugin_dir = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "data", "installed_plugins"
+                "data",
+                "installed_plugins",
             )
         self.plugin_dir = plugin_dir
-        self.plugins: Dict[str, PluginBase] = {}
-        self.plugin_configs: Dict[str, dict] = {}
-        self._loaded_modules: Dict[str, object] = {}
+        self.plugins: dict[str, PluginBase] = {}
+        self.plugin_configs: dict[str, dict] = {}
+        self._loaded_modules: dict[str, object] = {}
         self._hot_loader = HotPluginLoader()
         self._restart_loader = RestartPluginLoader()
         self._event_bus = EventBus()
         self._store = PluginStore
 
-    def scan_plugins(self) -> List[str]:
+    def scan_plugins(self) -> list[str]:
         if not os.path.exists(self.plugin_dir):
             logger.warning(f"插件目录不存在: {self.plugin_dir}")
             return []
@@ -95,7 +100,7 @@ class PluginManager:
             if plugin is None:
                 self._store.update_status(name, "error", "加载失败")
 
-    def load_plugin(self, plugin_name: str) -> Optional[PluginBase]:
+    def load_plugin(self, plugin_name: str) -> PluginBase | None:
         plugin_info = self._store.get_plugin(plugin_name)
         if plugin_info is None:
             plugin_dir_path = os.path.join(self.plugin_dir, plugin_name)
@@ -122,7 +127,9 @@ class PluginManager:
 
         plugin.plugin_manager = self
         self.plugins[plugin_name] = plugin
-        self._loaded_modules[plugin_name] = sys.modules.get(f"plugins.hot.{plugin_name}") or sys.modules.get(f"plugins.restart.{plugin_name}")
+        self._loaded_modules[plugin_name] = sys.modules.get(f"plugins.hot.{plugin_name}") or sys.modules.get(
+            f"plugins.restart.{plugin_name}"
+        )
 
         if plugin_info:
             self._store.update_status(plugin_name, "enabled")
@@ -134,6 +141,7 @@ class PluginManager:
     def _ensure_plugin_namespace(self, load_type: str, plugin_dir: str):
         """确保 plugins.hot / plugins.restart 命名空间包存在，并将插件目录加入 __path__ 以支持相对导入"""
         import types
+
         if "plugins" not in sys.modules:
             plugins_pkg = types.ModuleType("plugins")
             plugins_pkg.__path__ = []
@@ -147,13 +155,13 @@ class PluginManager:
         if plugin_dir not in ns_pkg.__path__:
             ns_pkg.__path__.append(plugin_dir)
 
-    def _load_plugin_without_app(self, plugin_dir: str, load_type: str) -> Optional[PluginBase]:
+    def _load_plugin_without_app(self, plugin_dir: str, load_type: str) -> PluginBase | None:
         manifest_path = os.path.join(plugin_dir, "manifest.json")
         if not os.path.exists(manifest_path):
             logger.error(f"manifest.json 不存在: {manifest_path}")
             return None
         try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
+            with open(manifest_path, encoding="utf-8") as f:
                 manifest = json.load(f)
 
             main_file = manifest.get("main", "main.py")
@@ -205,10 +213,8 @@ class PluginManager:
         else:
             plugin = self.plugins.get(plugin_name)
             if plugin:
-                try:
+                with contextlib.suppress(Exception):
                     plugin.stop()
-                except Exception:
-                    pass
             self.plugins.pop(plugin_name, None)
             self._loaded_modules.pop(plugin_name, None)
             result = True
@@ -222,8 +228,11 @@ class PluginManager:
         name = manifest.get("name")
         if not name:
             return False, "manifest 缺少 name 字段"
-        if not re.match(r'^[a-zA-Z0-9_-]+$', name):
-            return False, f"插件名称格式不合法: {name}，仅允许字母、数字、下划线、连字符"
+        if not re.match(r"^[a-zA-Z0-9_-]+$", name):
+            return (
+                False,
+                f"插件名称格式不合法: {name}，仅允许字母、数字、下划线、连字符",
+            )
 
         version = manifest.get("version")
         if not version:
@@ -241,7 +250,7 @@ class PluginManager:
             return True
         try:
             return _parse_version(SYSTEM_VERSION) >= _parse_version(min_version)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             logger.warning(f"版本号解析失败: min_system_version={min_version}")
             return False
 
@@ -296,10 +305,9 @@ class PluginManager:
         return True
 
     def uninstall_plugin(self, plugin_name: str) -> bool:
-        if plugin_name in self.plugins:
-            if not self.unload_plugin(plugin_name):
-                logger.error(f"卸载插件 {plugin_name} 失败，取消卸载操作")
-                return False
+        if plugin_name in self.plugins and not self.unload_plugin(plugin_name):
+            logger.error(f"卸载插件 {plugin_name} 失败，取消卸载操作")
+            return False
 
         plugin_info = self._store.get_plugin(plugin_name)
         install_path = None
@@ -355,10 +363,10 @@ class PluginManager:
         logger.info(f"插件 {plugin_name} 已禁用")
         return True
 
-    def get_plugin(self, plugin_name: str) -> Optional[PluginBase]:
+    def get_plugin(self, plugin_name: str) -> PluginBase | None:
         return self.plugins.get(plugin_name)
 
-    def get_all_plugins_info(self) -> List[dict]:
+    def get_all_plugins_info(self) -> list[dict]:
         return self._store.get_all_plugins()
 
     def stop_all_plugins(self):
@@ -373,7 +381,7 @@ class PluginManager:
             except Exception as e:
                 logger.error(f"停止插件 {name} 失败: {e}")
 
-    def register_plugins(self, app: Optional[FastAPI] = None):
+    def register_plugins(self, app: FastAPI | None = None):
         target_app = app or self._app
         if target_app is None:
             logger.error("未提供 FastAPI 实例，无法注册路由")
@@ -404,6 +412,6 @@ class PluginManager:
         installer = PluginInstaller(self.plugin_dir, self)
         return installer.install_from_zip_bytes(zip_bytes, filename)
 
-    def install_from_git(self, git_url: str, branch: Optional[str] = None) -> tuple[bool, str]:
+    def install_from_git(self, git_url: str, branch: str | None = None) -> tuple[bool, str]:
         installer = PluginInstaller(self.plugin_dir, self)
         return installer.install_from_git(git_url, branch)

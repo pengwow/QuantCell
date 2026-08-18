@@ -1,27 +1,40 @@
-# -*- coding: utf-8 -*-
 """Trading Tools Service — axon_quant.trading 交易工具服务
 
 包装 axon_quant.trading，提供 PlaceOrderTool、QueryPortfolioTool 等工具。
 当 axon_quant 不可用时提供清晰的错误信息。
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # axon_bridge 导入（可选）
 try:
     from axon_bridge.trading import (
-        PlaceOrderTool as _PlaceOrderTool,
-        QueryPortfolioTool as _QueryPortfolioTool,
         CancelOrderTool as _CancelOrderTool,
-        ReplaceOrderTool as _ReplaceOrderTool,
+    )
+    from axon_bridge.trading import (
         MockTradingBackend as _MockTradingBackend,
+    )
+    from axon_bridge.trading import (
+        PlaceOrderTool as _PlaceOrderTool,
+    )
+    from axon_bridge.trading import (
+        QueryPortfolioTool as _QueryPortfolioTool,
+    )
+    from axon_bridge.trading import (
+        ReplaceOrderTool as _ReplaceOrderTool,
+    )
+    from axon_bridge.trading import (
         RiskLimits as _RiskLimits,
+    )
+    from axon_bridge.trading import (
         TradingMetrics as _TradingMetrics,
     )
+
     AXON_AVAILABLE = True
 except ImportError:
     AXON_AVAILABLE = False
@@ -50,9 +63,8 @@ class TradingToolsServiceWrapper:
     def __init__(self):
         """初始化交易工具服务"""
         if not AXON_AVAILABLE:
-            raise RuntimeError(
-                "axon_quant.trading 不可用，请安装 axon_quant: pip install axon_quant"
-            )
+            msg = "axon_quant.trading 不可用，请安装 axon_quant: pip install axon_quant"
+            raise RuntimeError(msg)
         logger.info("TradingToolsService 已初始化")
 
     def create_mock_backend(self) -> Any:
@@ -65,7 +77,7 @@ class TradingToolsServiceWrapper:
 
     def create_risk_limits(
         self,
-        allowed_symbols: Optional[list[str]] = None,
+        allowed_symbols: list[str] | None = None,
     ) -> Any:
         """创建风控限制
 
@@ -83,7 +95,7 @@ class TradingToolsServiceWrapper:
         self,
         backend: Any,
         mode: str = "dry_run",
-        risk: Optional[Any] = None,
+        risk: Any | None = None,
     ) -> Any:
         """创建下单工具
 
@@ -155,7 +167,7 @@ class TradingToolsServiceProxy:
         """axon_quant.trading 是否可用"""
         return self._available
 
-    def create_mock_backend(self) -> Optional[Any]:
+    def create_mock_backend(self) -> Any | None:
         """创建 Mock 交易后端"""
         if not self._available or not self._service:
             return None
@@ -163,8 +175,8 @@ class TradingToolsServiceProxy:
 
     def create_risk_limits(
         self,
-        allowed_symbols: Optional[list[str]] = None,
-    ) -> Optional[Any]:
+        allowed_symbols: list[str] | None = None,
+    ) -> Any | None:
         """创建风控限制"""
         if not self._available or not self._service:
             return None
@@ -174,26 +186,26 @@ class TradingToolsServiceProxy:
         self,
         backend: Any,
         mode: str = "dry_run",
-        risk: Optional[Any] = None,
-    ) -> Optional[Any]:
+        risk: Any | None = None,
+    ) -> Any | None:
         """创建下单工具"""
         if not self._available or not self._service:
             return None
         return self._service.create_place_order_tool(backend, mode, risk)
 
-    def create_query_portfolio_tool(self, backend: Any) -> Optional[Any]:
+    def create_query_portfolio_tool(self, backend: Any) -> Any | None:
         """创建查询持仓工具"""
         if not self._available or not self._service:
             return None
         return self._service.create_query_portfolio_tool(backend)
 
-    def create_cancel_order_tool(self, backend: Any) -> Optional[Any]:
+    def create_cancel_order_tool(self, backend: Any) -> Any | None:
         """创建撤单工具"""
         if not self._available or not self._service:
             return None
         return self._service.create_cancel_order_tool(backend)
 
-    def create_replace_order_tool(self, backend: Any) -> Optional[Any]:
+    def create_replace_order_tool(self, backend: Any) -> Any | None:
         """创建改单工具"""
         if not self._available or not self._service:
             return None

@@ -5,6 +5,7 @@ ponytail: 机器指纹 = SHA256(/etc/machine-id + hostname + MAC)[:32 hex]
          用 cryptography.fernet.Fernet 包装
          升级到 AES-256：换 Fernet44（cryptography 不支持）或自行实现 AES-GCM
 """
+
 import base64
 import hashlib
 import socket
@@ -14,7 +15,6 @@ from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 
 from credentials.exceptions import CredentialsError
-
 
 _SALT = b"quantcell-salt-v1"
 
@@ -63,4 +63,5 @@ def decrypt_secret(cipher: bytes) -> str:
     try:
         return Fernet(_derive_key()).decrypt(cipher).decode()
     except InvalidToken as e:
-        raise CredentialsError("密文无效或机器指纹不匹配") from e
+        msg = "密文无效或机器指纹不匹配"
+        raise CredentialsError(msg) from e

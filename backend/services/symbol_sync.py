@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 货币对同步服务模块
 
@@ -11,12 +10,11 @@
 import asyncio
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -24,13 +22,17 @@ from collector.db.database import SessionLocal, init_database_config
 from collector.db.models import CryptoSymbol
 from collector.services.data_service import sync_crypto_symbols
 
+if TYPE_CHECKING:
+    from apscheduler.schedulers.background import BackgroundScheduler
+
 
 class SyncStatus(Enum):
     """同步状态枚举"""
-    IDLE = "idle"           # 空闲状态
-    RUNNING = "running"     # 正在同步
-    FAILED = "failed"       # 同步失败
-    SUCCESS = "success"     # 同步成功
+
+    IDLE = "idle"  # 空闲状态
+    RUNNING = "running"  # 正在同步
+    FAILED = "failed"  # 同步失败
+    SUCCESS = "success"  # 同步成功
 
 
 class SymbolSyncManager:
@@ -44,14 +46,14 @@ class SymbolSyncManager:
         self._lock = threading.Lock()
         self._consecutive_failures = 0
         self._max_retries = 3
-        self._last_sync_time: Optional[datetime] = None
+        self._last_sync_time: datetime | None = None
         self._sync_event = threading.Event()
-        self._scheduler: Optional[BackgroundScheduler] = None
+        self._scheduler: BackgroundScheduler | None = None
         self._proxy_config = {
             "enabled": False,
             "url": "",
             "username": "",
-            "password": ""
+            "password": "",
         }
 
     @property
@@ -73,7 +75,7 @@ class SymbolSyncManager:
             return self._consecutive_failures
 
     @property
-    def last_sync_time(self) -> Optional[datetime]:
+    def last_sync_time(self) -> datetime | None:
         """获取最后同步时间"""
         with self._lock:
             return self._last_sync_time
@@ -88,7 +90,7 @@ class SymbolSyncManager:
             "enabled": enabled,
             "url": url,
             "username": username,
-            "password": password
+            "password": password,
         }
         logger.info(f"代理配置已设置: enabled={enabled}, url={url}")
 
@@ -107,7 +109,7 @@ class SymbolSyncManager:
             if job and job.next_run_time:
                 # 计算距离下次执行的时间
                 # 使用带时区的当前时间进行比较
-                now_aware = datetime.now(timezone.utc)
+                now_aware = datetime.now(UTC)
                 time_until_next = (job.next_run_time - now_aware).total_seconds()
                 # 如果下次执行在5分钟内，暂停该任务
                 if time_until_next < 300:
@@ -151,10 +153,7 @@ class SymbolSyncManager:
             db = SessionLocal()
             try:
                 # 检查是否存在任何货币对数据
-                count = db.query(CryptoSymbol).filter(
-                    CryptoSymbol.is_deleted == False,
-                    CryptoSymbol.active == True
-                ).count()
+                count = db.query(CryptoSymbol).filter(not CryptoSymbol.is_deleted, CryptoSymbol.active).count()
 
                 logger.info(f"当前有效货币对数量: {count}")
                 return count > 0
@@ -164,7 +163,7 @@ class SymbolSyncManager:
             logger.error(f"检查货币对数据存在性失败: {e}")
             return False
 
-    def perform_sync(self, exchange: str = 'binance') -> Dict[str, Any]:
+    def perform_sync(self, exchange: str = "binance") -> dict[str, Any]:
         """执行同步操作（带重试机制）
 
         Args:
@@ -215,7 +214,7 @@ class SymbolSyncManager:
                 if self._status == SyncStatus.RUNNING:
                     self._status = SyncStatus.IDLE
 
-    def _do_sync_with_retry(self, exchange: str) -> Dict[str, Any]:
+    def _do_sync_with_retry(self, exchange: str) -> dict[str, Any]:
         """执行同步（带重试）
 
         Args:
@@ -265,7 +264,7 @@ class SymbolSyncManager:
         logger.error(error_msg)
         return {"success": False, "message": error_msg}
 
-    async def async_perform_sync(self, exchange: str = 'binance') -> Dict[str, Any]:
+    async def async_perform_sync(self, exchange: str = "binance") -> dict[str, Any]:
         """异步执行同步操作
 
         Args:
@@ -286,13 +285,15 @@ def require_symbols_data(func):
 
     如果数据不存在，返回友好的错误提示
     """
+
     async def wrapper(*args, **kwargs):
         if not symbol_sync_manager.check_symbols_exist():
             return {
                 "code": 503,
                 "message": "货币对数据尚未初始化，请稍后重试",
                 "data": None,
-                "sync_status": symbol_sync_manager.status.value
+                "sync_status": symbol_sync_manager.status.value,
             }
         return await func(*args, **kwargs)
+
     return wrapper

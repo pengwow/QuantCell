@@ -14,9 +14,21 @@ class ReadFileTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "文件路径（相对于工作空间或绝对路径）"},
-            "offset": {"type": "integer", "description": "起始行号（从1开始）", "minimum": 1},
-            "limit": {"type": "integer", "description": "读取行数", "minimum": 1, "maximum": 500},
+            "path": {
+                "type": "string",
+                "description": "文件路径（相对于工作空间或绝对路径）",
+            },
+            "offset": {
+                "type": "integer",
+                "description": "起始行号（从1开始）",
+                "minimum": 1,
+            },
+            "limit": {
+                "type": "integer",
+                "description": "读取行数",
+                "minimum": 1,
+                "maximum": 500,
+            },
         },
         "required": ["path"],
     }
@@ -28,7 +40,7 @@ class ReadFileTool(Tool):
             "default": 200,
             "env_key": None,
             "description": "默认读取行数",
-            "validation": {"min": 1, "max": 500}
+            "validation": {"min": 1, "max": 500},
         }
     }
 
@@ -42,34 +54,35 @@ class ReadFileTool(Tool):
         if not p.is_absolute():
             p = self.workspace / p
         p = p.resolve()
-        
+
         # 检查路径是否在允许范围内
         if self.allowed_dir and not str(p).startswith(str(self.allowed_dir.resolve())):
-            raise ValueError(f"路径 {path} 超出允许范围")
+            msg = f"路径 {path} 超出允许范围"
+            raise ValueError(msg)
         return p
 
     async def execute(self, path: str, offset: int = 1, limit: int = 200, **kwargs: Any) -> str:
         try:
             file_path = self._resolve_path(path)
-            
+
             if not file_path.exists():
                 return f"错误: 文件不存在: {path}"
-            
+
             if not file_path.is_file():
                 return f"错误: 不是文件: {path}"
 
             content = file_path.read_text(encoding="utf-8")
             lines = content.split("\n")
-            
+
             # 应用 offset 和 limit
             start = offset - 1
             end = start + limit
             selected_lines = lines[start:end]
-            
+
             result = "\n".join(selected_lines)
             if end < len(lines):
                 result += f"\n\n... ({len(lines) - end} 行更多内容)"
-            
+
             return result
         except Exception as e:
             return f"错误: 读取文件失败: {e}"
@@ -101,7 +114,8 @@ class WriteFileTool(Tool):
             p = self.workspace / p
         p = p.resolve()
         if self.allowed_dir and not str(p).startswith(str(self.allowed_dir.resolve())):
-            raise ValueError(f"路径 {path} 超出允许范围")
+            msg = f"路径 {path} 超出允许范围"
+            raise ValueError(msg)
         return p
 
     async def execute(self, path: str, content: str, **kwargs: Any) -> str:
@@ -122,7 +136,10 @@ class ListDirTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "目录路径（默认: 工作空间根目录）"},
+            "path": {
+                "type": "string",
+                "description": "目录路径（默认: 工作空间根目录）",
+            },
         },
         "required": [],
     }
@@ -141,16 +158,17 @@ class ListDirTool(Tool):
             p = self.workspace / p
         p = p.resolve()
         if self.allowed_dir and not str(p).startswith(str(self.allowed_dir.resolve())):
-            raise ValueError(f"路径 {path} 超出允许范围")
+            msg = f"路径 {path} 超出允许范围"
+            raise ValueError(msg)
         return p
 
     async def execute(self, path: str | None = None, **kwargs: Any) -> str:
         try:
             dir_path = self._resolve_path(path)
-            
+
             if not dir_path.exists():
                 return f"错误: 目录不存在: {path or '.'}"
-            
+
             if not dir_path.is_dir():
                 return f"错误: 不是目录: {path or '.'}"
 
@@ -158,7 +176,7 @@ class ListDirTool(Tool):
             for item in sorted(dir_path.iterdir()):
                 item_type = "📁" if item.is_dir() else "📄"
                 items.append(f"{item_type} {item.name}")
-            
+
             return "\n".join(items) if items else "(空目录)"
         except Exception as e:
             return f"错误: 列出目录失败: {e}"

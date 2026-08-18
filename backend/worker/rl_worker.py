@@ -35,7 +35,7 @@ class RLWorker:
             self._load_onnx(model_path)
 
     def _load_sb3(self, path: str):
-        from stable_baselines3 import PPO, SAC, DQN
+        from stable_baselines3 import DQN, PPO, SAC
 
         algo_map = {"ppo": PPO, "sac": SAC, "dqn": DQN}
         for name, cls in algo_map.items():
@@ -48,6 +48,7 @@ class RLWorker:
 
     def _load_onnx(self, path: str):
         from axon_quant.inference import create_onnx_engine
+
         self._engine = create_onnx_engine(path)
         logger.info(f"[RLWorker] 已加载 ONNX 模型: {path}")
 
@@ -71,7 +72,7 @@ class RLWorker:
             obs = np.asarray(observation, dtype=np.float32)
 
         action, _ = self._model.predict(obs, deterministic=True)
-        raw = float(action[0]) if hasattr(action, '__len__') else float(action)
+        raw = float(action[0]) if hasattr(action, "__len__") else float(action)
 
         if raw > 0.05:
             side = "buy"

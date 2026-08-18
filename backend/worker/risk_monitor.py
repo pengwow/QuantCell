@@ -8,7 +8,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from axon_bridge.risk import DefaultRiskEngine, make_order, make_portfolio, make_risk_config
+from axon_bridge.risk import (
+    DefaultRiskEngine,
+    make_order,
+    make_portfolio,
+    make_risk_config,
+)
 
 
 class RiskMonitor:
@@ -52,12 +57,14 @@ class RiskMonitor:
 
         result = self._engine.check_order(axon_order, axon_portfolio)
         if not result.is_allow:
-            self.alerts.append({
-                "type": "order_rejected",
-                "order": order,
-                "reason": str(result.reason),
-                "timestamp": datetime.now().isoformat(),
-            })
+            self.alerts.append(
+                {
+                    "type": "order_rejected",
+                    "order": order,
+                    "reason": str(result.reason),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
         return result.is_allow
 
     def get_portfolio_risk(self, portfolio: dict[str, Any]) -> dict[str, Any]:

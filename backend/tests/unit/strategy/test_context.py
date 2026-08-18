@@ -1,7 +1,6 @@
 """StrategyContext 多数据源特征支持测试。"""
 
 import pandas as pd
-import pytest
 
 from strategy.base import StrategyContext
 

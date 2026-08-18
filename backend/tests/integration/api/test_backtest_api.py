@@ -1,10 +1,12 @@
 # 回测服务API集成测试
 # 测试回测相关的所有API端点
 
-import pytest
-from fastapi.testclient import TestClient
-from typing import Dict, Any, List
 from datetime import datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
+
 
 class TestBacktestListAPI:
     """回测列表API测试类"""
@@ -27,10 +29,7 @@ class TestBacktestListAPI:
 
     def test_get_backtest_list_empty(self, client: TestClient, mocker, assert_api_response):
         """测试获取空回测列表"""
-        mocker.patch(
-            "backtest.routes.backtest_service.get_result_list",
-            return_value=[]
-        )
+        mocker.patch("backtest.routes.backtest_service.get_result_list", return_value=[])
         response = client.get("/api/backtest/list")
         assert_api_response(response)
         data = response.json()
@@ -40,11 +39,12 @@ class TestBacktestListAPI:
         """测试回测列表服务异常"""
         mocker.patch(
             "backtest.routes.backtest_service.get_result_list",
-            side_effect=Exception("Database connection failed")
+            side_effect=Exception("Database connection failed"),
         )
         response = client.get("/api/backtest/list")
         assert response.status_code == 500
         assert "Database connection failed" in str(response.json().get("detail", ""))
+
 
 class TestBacktestStrategiesAPI:
     """策略类型列表API测试类"""
@@ -66,6 +66,7 @@ class TestBacktestStrategiesAPI:
         assert data["code"] == 0
         assert data["data"]["strategies"] == []
 
+
 class TestBacktestRunAPI:
     """回测执行API测试类"""
 
@@ -74,17 +75,14 @@ class TestBacktestRunAPI:
         mock_result = {
             "task_id": "bt_1234567890",
             "status": "completed",
-            "message": "回测完成"
+            "message": "回测完成",
         }
-        mocker.patch(
-            "backtest.routes.backtest_service.run_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
 
         request_data = {
             "strategy_config": {
                 "strategy_name": "SmaCross",
-                "params": {"n1": 10, "n2": 20}
+                "params": {"n1": 10, "n2": 20},
             },
             "backtest_config": {
                 "symbols": ["BTCUSDT"],
@@ -92,8 +90,8 @@ class TestBacktestRunAPI:
                 "start_time": "2023-01-01 00:00:00",
                 "end_time": "2023-12-31 23:59:59",
                 "initial_cash": 10000.0,
-                "commission": 0.001
-            }
+                "commission": 0.001,
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -104,26 +102,17 @@ class TestBacktestRunAPI:
 
     def test_run_backtest_failed(self, client: TestClient, mocker):
         """测试执行回测 - 即使策略参数无效也会创建任务"""
-        mock_result = {
-            "status": "failed",
-            "message": "策略参数无效"
-        }
-        mocker.patch(
-            "backtest.routes.backtest_service.run_backtest",
-            return_value=mock_result
-        )
+        mock_result = {"status": "failed", "message": "策略参数无效"}
+        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
 
         request_data = {
-            "strategy_config": {
-                "strategy_name": "InvalidStrategy",
-                "params": {}
-            },
+            "strategy_config": {"strategy_name": "InvalidStrategy", "params": {}},
             "backtest_config": {
                 "symbols": ["BTCUSDT"],
                 "interval": "1d",
                 "start_time": "2023-01-01 00:00:00",
-                "end_time": "2023-12-31 23:59:59"
-            }
+                "end_time": "2023-12-31 23:59:59",
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -134,11 +123,7 @@ class TestBacktestRunAPI:
 
     def test_run_backtest_missing_required_fields(self, client: TestClient):
         """测试执行回测缺少必填字段"""
-        request_data = {
-            "strategy_config": {
-                "strategy_name": "SmaCross"
-            }
-        }
+        request_data = {"strategy_config": {"strategy_name": "SmaCross"}}
 
         response = client.post("/api/backtest/run", json=request_data)
         assert response.status_code == 422
@@ -149,16 +134,13 @@ class TestBacktestRunAPI:
     def test_run_backtest_invalid_strategy_config(self, client: TestClient):
         """测试执行回测无效的策略配置"""
         request_data = {
-            "strategy_config": {
-                "strategy_name": "",
-                "params": "invalid"
-            },
+            "strategy_config": {"strategy_name": "", "params": "invalid"},
             "backtest_config": {
                 "symbols": ["BTCUSDT"],
                 "interval": "1d",
                 "start_time": "2023-01-01 00:00:00",
-                "end_time": "2023-12-31 23:59:59"
-            }
+                "end_time": "2023-12-31 23:59:59",
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -167,16 +149,13 @@ class TestBacktestRunAPI:
     def test_run_backtest_invalid_date_format(self, client: TestClient):
         """测试执行回测无效的日期格式"""
         request_data = {
-            "strategy_config": {
-                "strategy_name": "SmaCross",
-                "params": {}
-            },
+            "strategy_config": {"strategy_name": "SmaCross", "params": {}},
             "backtest_config": {
                 "symbols": ["BTCUSDT"],
                 "interval": "1d",
                 "start_time": "invalid-date",
-                "end_time": "2023-12-31 23:59:59"
-            }
+                "end_time": "2023-12-31 23:59:59",
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -187,17 +166,14 @@ class TestBacktestRunAPI:
         mock_result = {
             "task_id": "bt_multi_123",
             "status": "completed",
-            "message": "回测完成"
+            "message": "回测完成",
         }
-        mocker.patch(
-            "backtest.routes.backtest_service.run_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
 
         request_data = {
             "strategy_config": {
                 "strategy_name": "SmaCross",
-                "params": {"n1": 10, "n2": 20}
+                "params": {"n1": 10, "n2": 20},
             },
             "backtest_config": {
                 "symbols": ["BTCUSDT", "ETHUSDT", "ADAUSDT"],
@@ -205,8 +181,8 @@ class TestBacktestRunAPI:
                 "start_time": "2023-01-01 00:00:00",
                 "end_time": "2023-03-31 23:59:59",
                 "initial_cash": 50000.0,
-                "commission": 0.0005
-            }
+                "commission": 0.0005,
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -215,10 +191,7 @@ class TestBacktestRunAPI:
     def test_run_backtest_different_intervals(self, client: TestClient, mocker, assert_api_response):
         """测试不同时间周期的回测"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch(
-            "backtest.routes.backtest_service.run_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
 
         intervals = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
         for interval in intervals:
@@ -228,11 +201,12 @@ class TestBacktestRunAPI:
                     "symbols": ["BTCUSDT"],
                     "interval": interval,
                     "start_time": "2023-01-01 00:00:00",
-                    "end_time": "2023-01-31 23:59:59"
-                }
+                    "end_time": "2023-01-31 23:59:59",
+                },
             }
             response = client.post("/api/backtest/run", json=request_data)
             assert response.status_code == 200, f"Failed for interval {interval}"
+
 
 class TestBacktestStopAPI:
     """回测终止API测试类"""
@@ -240,10 +214,7 @@ class TestBacktestStopAPI:
     def test_stop_backtest_success(self, client: TestClient, mocker, assert_api_response):
         """测试终止回测成功"""
         mock_result = {"status": "success", "message": "回测已终止"}
-        mocker.patch(
-            "backtest.routes.backtest_service.stop_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.stop_backtest", return_value=mock_result)
 
         request_data = {"task_id": "bt_1234567890"}
         response = client.post("/api/backtest/stop", json=request_data)
@@ -254,10 +225,7 @@ class TestBacktestStopAPI:
     def test_stop_backtest_not_found(self, client: TestClient, mocker):
         """测试终止不存在的回测任务"""
         mock_result = {"status": "error", "message": "回测任务不存在"}
-        mocker.patch(
-            "backtest.routes.backtest_service.stop_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.stop_backtest", return_value=mock_result)
 
         request_data = {"task_id": "bt_nonexistent"}
         response = client.post("/api/backtest/stop", json=request_data)
@@ -278,6 +246,7 @@ class TestBacktestStopAPI:
         response = client.post("/api/backtest/stop", json=request_data)
         assert response.status_code == 422
 
+
 class TestBacktestAnalyzeAPI:
     """回测分析API测试类"""
 
@@ -288,14 +257,14 @@ class TestBacktestAnalyzeAPI:
             "metrics": {
                 "Return [%]": 15.5,
                 "Sharpe Ratio": 1.2,
-                "Max Drawdown [%]": -5.4
+                "Max Drawdown [%]": -5.4,
             },
             "trades": [],
-            "equity_curve": []
+            "equity_curve": [],
         }
         mocker.patch(
             "backtest.routes.backtest_service.analyze_backtest",
-            return_value=mock_result
+            return_value=mock_result,
         )
 
         request_data = {"backtest_id": "bt_1234567890"}
@@ -309,7 +278,7 @@ class TestBacktestAnalyzeAPI:
         mock_result = {"status": "error", "message": "回测结果不存在"}
         mocker.patch(
             "backtest.routes.backtest_service.analyze_backtest",
-            return_value=mock_result
+            return_value=mock_result,
         )
 
         request_data = {"backtest_id": "bt_nonexistent"}
@@ -322,31 +291,41 @@ class TestBacktestAnalyzeAPI:
         response = client.post("/api/backtest/analyze", json=request_data)
         assert response.status_code == 422
 
+
 class TestBacktestDeleteAPI:
     """回测删除API测试类（需要认证）"""
 
-    def test_delete_backtest_success(self, client: TestClient, auth_headers: Dict[str, str], mocker, assert_api_response):
+    def test_delete_backtest_success(
+        self,
+        client: TestClient,
+        auth_headers: dict[str, str],
+        mocker,
+        assert_api_response,
+    ):
         """测试删除回测结果成功"""
         mocker.patch("backtest.routes.is_guest_user", return_value=False)
-        mocker.patch("utils.auth.decode_jwt_token", return_value={"sub": "test_user", "name": "test_user", "role": "user"})
         mocker.patch(
-            "backtest.routes.backtest_service.delete_backtest_result",
-            return_value=True
+            "utils.auth.decode_jwt_token",
+            return_value={"sub": "test_user", "name": "test_user", "role": "user"},
         )
+        mocker.patch("backtest.routes.backtest_service.delete_backtest_result", return_value=True)
 
         response = client.delete("/api/backtest/delete/bt_1234567890", headers=auth_headers)
         assert_api_response(response)
         data = response.json()
         assert data["data"]["backtest_id"] == "bt_1234567890"
-        assert data["data"]["result"] == True
+        assert data["data"]["result"]
 
-    def test_delete_backtest_not_found(self, client: TestClient, auth_headers: Dict[str, str], mocker):
+    def test_delete_backtest_not_found(self, client: TestClient, auth_headers: dict[str, str], mocker):
         """测试删除不存在的回测结果"""
         mocker.patch("backtest.routes.is_guest_user", return_value=False)
-        mocker.patch("utils.auth.decode_jwt_token", return_value={"sub": "test_user", "name": "test_user", "role": "user"})
+        mocker.patch(
+            "utils.auth.decode_jwt_token",
+            return_value={"sub": "test_user", "name": "test_user", "role": "user"},
+        )
         mocker.patch(
             "backtest.routes.backtest_service.delete_backtest_result",
-            return_value=False
+            return_value=False,
         )
 
         response = client.delete("/api/backtest/delete/bt_nonexistent", headers=auth_headers)
@@ -359,10 +338,11 @@ class TestBacktestDeleteAPI:
         response = client.delete("/api/backtest/delete/bt_1234567890")
         assert response.status_code == 401
 
-    def test_delete_backtest_invalid_id(self, client: TestClient, auth_headers: Dict[str, str]):
+    def test_delete_backtest_invalid_id(self, client: TestClient, auth_headers: dict[str, str]):
         """测试删除无效ID的回测"""
         response = client.delete("/api/backtest/delete/", headers=auth_headers)
         assert response.status_code == 307
+
 
 class TestBacktestDetailAPI:
     """回测详情API测试类"""
@@ -386,6 +366,7 @@ class TestBacktestDetailAPI:
         response = client.get("/api/backtest/")
         assert response.status_code in [404, 307]
 
+
 class TestBacktestSymbolsAPI:
     """回测货币对列表API测试类"""
 
@@ -396,14 +377,14 @@ class TestBacktestSymbolsAPI:
             "data": {
                 "symbols": [
                     {"symbol": "BTCUSDT", "status": "success", "message": "回测成功"},
-                    {"symbol": "ETHUSDT", "status": "success", "message": "回测成功"}
+                    {"symbol": "ETHUSDT", "status": "success", "message": "回测成功"},
                 ],
-                "total": 2
-            }
+                "total": 2,
+            },
         }
         mocker.patch(
             "backtest.routes.backtest_service.get_backtest_symbols",
-            return_value=mock_result
+            return_value=mock_result,
         )
 
         response = client.get("/api/backtest/bt_1234567890/symbols")
@@ -417,13 +398,14 @@ class TestBacktestSymbolsAPI:
         mock_result = {"status": "error", "message": "回测不存在"}
         mocker.patch(
             "backtest.routes.backtest_service.get_backtest_symbols",
-            return_value=mock_result
+            return_value=mock_result,
         )
 
         response = client.get("/api/backtest/bt_nonexistent/symbols")
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
+
 
 class TestBacktestReplayAPI:
     """回测回放API测试类"""
@@ -434,20 +416,28 @@ class TestBacktestReplayAPI:
             "status": "success",
             "data": {
                 "kline_data": [
-                    {"timestamp": 1672531200000, "open": 100.0, "high": 105.0, "low": 95.0, "close": 102.0, "volume": 1000.0}
+                    {
+                        "timestamp": 1672531200000,
+                        "open": 100.0,
+                        "high": 105.0,
+                        "low": 95.0,
+                        "close": 102.0,
+                        "volume": 1000.0,
+                    }
                 ],
                 "trade_signals": [
-                    {"time": "2024-01-01 10:00:00", "type": "buy", "price": 100.0, "size": 1.0, "trade_id": "123"}
+                    {
+                        "time": "2024-01-01 10:00:00",
+                        "type": "buy",
+                        "price": 100.0,
+                        "size": 1.0,
+                        "trade_id": "123",
+                    }
                 ],
-                "equity_data": [
-                    {"time": "2024-01-01 00:00:00", "equity": 10000.0}
-                ]
-            }
+                "equity_data": [{"time": "2024-01-01 00:00:00", "equity": 10000.0}],
+            },
         }
-        mocker.patch(
-            "backtest.routes.backtest_service.get_replay_data",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.get_replay_data", return_value=mock_result)
 
         response = client.get("/api/backtest/bt_1234567890/replay")
         assert_api_response(response)
@@ -460,16 +450,9 @@ class TestBacktestReplayAPI:
         """测试获取指定货币对的回放数据"""
         mock_result = {
             "status": "success",
-            "data": {
-                "kline_data": [],
-                "trade_signals": [],
-                "equity_data": []
-            }
+            "data": {"kline_data": [], "trade_signals": [], "equity_data": []},
         }
-        mocker.patch(
-            "backtest.routes.backtest_service.get_replay_data",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.get_replay_data", return_value=mock_result)
 
         response = client.get("/api/backtest/bt_1234567890/replay?symbol=BTCUSDT")
         assert_api_response(response)
@@ -477,25 +460,20 @@ class TestBacktestReplayAPI:
     def test_get_replay_data_not_found(self, client: TestClient, mocker):
         """测试获取不存在的回放数据"""
         mock_result = {"status": "error", "message": "回测不存在"}
-        mocker.patch(
-            "backtest.routes.backtest_service.get_replay_data",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.get_replay_data", return_value=mock_result)
 
         response = client.get("/api/backtest/bt_nonexistent/replay")
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1
 
+
 class TestStrategyConfigAPI:
     """策略配置API测试类"""
 
     def test_create_strategy_config_success(self, client: TestClient, assert_api_response):
         """测试创建策略配置成功"""
-        request_data = {
-            "strategy_name": "SmaCross",
-            "params": {"n1": 10, "n2": 20}
-        }
+        request_data = {"strategy_name": "SmaCross", "params": {"n1": 10, "n2": 20}}
 
         response = client.post("/api/backtest/strategy/config", json=request_data)
         assert_api_response(response)
@@ -505,9 +483,7 @@ class TestStrategyConfigAPI:
 
     def test_create_strategy_config_minimal(self, client: TestClient, assert_api_response):
         """测试创建最小策略配置"""
-        request_data = {
-            "strategy_name": "TestStrategy"
-        }
+        request_data = {"strategy_name": "TestStrategy"}
 
         response = client.post("/api/backtest/strategy/config", json=request_data)
         assert_api_response(response)
@@ -516,36 +492,29 @@ class TestStrategyConfigAPI:
 
     def test_create_strategy_config_missing_name(self, client: TestClient):
         """测试创建策略配置缺少名称"""
-        request_data = {
-            "params": {"n1": 10}
-        }
+        request_data = {"params": {"n1": 10}}
 
         response = client.post("/api/backtest/strategy/config", json=request_data)
         assert response.status_code == 422
 
     def test_create_strategy_config_empty_name(self, client: TestClient):
         """测试创建策略配置空名称"""
-        request_data = {
-            "strategy_name": "",
-            "params": {}
-        }
+        request_data = {"strategy_name": "", "params": {}}
 
         response = client.post("/api/backtest/strategy/config", json=request_data)
         assert response.status_code == 422
+
 
 class TestBacktestUploadAPI:
     """策略上传API测试类"""
 
     def test_upload_strategy_success(self, client: TestClient, mocker, assert_api_response):
         """测试上传策略文件成功"""
-        mocker.patch(
-            "backtest.routes.backtest_service.upload_strategy_file",
-            return_value=True
-        )
+        mocker.patch("backtest.routes.backtest_service.upload_strategy_file", return_value=True)
 
         request_data = {
             "strategy_name": "MyCustomStrategy",
-            "file_content": "class MyCustomStrategy:\n    pass"
+            "file_content": "class MyCustomStrategy:\n    pass",
         }
 
         response = client.post("/api/backtest/strategy", json=request_data)
@@ -555,14 +524,11 @@ class TestBacktestUploadAPI:
 
     def test_upload_strategy_failed(self, client: TestClient, mocker):
         """测试上传策略文件失败"""
-        mocker.patch(
-            "backtest.routes.backtest_service.upload_strategy_file",
-            return_value=False
-        )
+        mocker.patch("backtest.routes.backtest_service.upload_strategy_file", return_value=False)
 
         request_data = {
             "strategy_name": "InvalidStrategy",
-            "file_content": "invalid python code"
+            "file_content": "invalid python code",
         }
 
         response = client.post("/api/backtest/strategy", json=request_data)
@@ -572,12 +538,11 @@ class TestBacktestUploadAPI:
 
     def test_upload_strategy_missing_content(self, client: TestClient):
         """测试上传策略缺少文件内容"""
-        request_data = {
-            "strategy_name": "TestStrategy"
-        }
+        request_data = {"strategy_name": "TestStrategy"}
 
         response = client.post("/api/backtest/strategy", json=request_data)
         assert response.status_code == 422
+
 
 class TestDataIntegrityAPI:
     """数据完整性检查API测试类"""
@@ -605,20 +570,19 @@ class TestDataIntegrityAPI:
             "start_time": "2023-01-01 00:00:00",
             "end_time": "2023-12-31 23:59:59",
             "market_type": "crypto",
-            "crypto_type": "spot"
+            "crypto_type": "spot",
         }
 
         response = client.post("/api/backtest/check-data", json=request_data)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
-        assert data["data"]["is_complete"] == True
+        assert data["data"]["is_complete"]
         assert data["data"]["coverage_percent"] == 100.0
 
     def test_check_data_integrity_incomplete(self, client: TestClient, mocker):
         """测试数据完整性检查发现缺失数据"""
         from unittest.mock import MagicMock
-        from datetime import datetime
 
         mock_checker = MagicMock()
         mock_result = MagicMock()
@@ -637,23 +601,22 @@ class TestDataIntegrityAPI:
             "symbol": "BTCUSDT",
             "interval": "1d",
             "start_time": "2023-01-01 00:00:00",
-            "end_time": "2023-12-31 23:59:59"
+            "end_time": "2023-12-31 23:59:59",
         }
 
         response = client.post("/api/backtest/check-data", json=request_data)
         assert response.status_code == 200
         data = response.json()
-        assert data["data"]["is_complete"] == False
+        assert not data["data"]["is_complete"]
         assert data["data"]["missing_count"] == 100
 
     def test_check_data_integrity_missing_required(self, client: TestClient):
         """测试数据完整性检查缺少必填字段"""
-        request_data = {
-            "symbol": "BTCUSDT"
-        }
+        request_data = {"symbol": "BTCUSDT"}
 
         response = client.post("/api/backtest/check-data", json=request_data)
         assert response.status_code == 422
+
 
 class TestDataDownloadAPI:
     """数据下载API测试类"""
@@ -662,13 +625,16 @@ class TestDataDownloadAPI:
         """测试下载缺失数据成功"""
         mock_downloader = mocker.MagicMock()
         mock_downloader.ensure_data_complete.return_value = (True, {})
-        mocker.patch("backtest.data_downloader.BacktestDataDownloader", return_value=mock_downloader)
+        mocker.patch(
+            "backtest.data_downloader.BacktestDataDownloader",
+            return_value=mock_downloader,
+        )
 
         request_data = {
             "symbol": "BTCUSDT",
             "interval": "1d",
             "start_time": "2023-01-01 00:00:00",
-            "end_time": "2023-12-31 23:59:59"
+            "end_time": "2023-12-31 23:59:59",
         }
 
         response = client.post("/api/backtest/download-data", json=request_data)
@@ -681,13 +647,16 @@ class TestDataDownloadAPI:
         """测试下载缺失数据失败"""
         mock_downloader = mocker.MagicMock()
         mock_downloader.ensure_data_complete.return_value = (False, {})
-        mocker.patch("backtest.data_downloader.BacktestDataDownloader", return_value=mock_downloader)
+        mocker.patch(
+            "backtest.data_downloader.BacktestDataDownloader",
+            return_value=mock_downloader,
+        )
 
         request_data = {
             "symbol": "BTCUSDT",
             "interval": "1d",
             "start_time": "2023-01-01 00:00:00",
-            "end_time": "2023-12-31 23:59:59"
+            "end_time": "2023-12-31 23:59:59",
         }
 
         response = client.post("/api/backtest/download-data", json=request_data)
@@ -696,16 +665,14 @@ class TestDataDownloadAPI:
         assert data["code"] == 1
         assert data["data"]["status"] == "failed"
 
+
 class TestBacktestEdgeCases:
     """回测API边界条件测试类"""
 
     def test_run_backtest_zero_initial_cash(self, client: TestClient, mocker):
         """测试初始资金为0的回测"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch(
-            "backtest.routes.backtest_service.run_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "SmaCross", "params": {}},
@@ -714,8 +681,8 @@ class TestBacktestEdgeCases:
                 "interval": "1d",
                 "start_time": "2023-01-01 00:00:00",
                 "end_time": "2023-12-31 23:59:59",
-                "initial_cash": 0.0
-            }
+                "initial_cash": 0.0,
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -724,10 +691,7 @@ class TestBacktestEdgeCases:
     def test_run_backtest_large_commission(self, client: TestClient, mocker):
         """测试高手续费率的回测"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch(
-            "backtest.routes.backtest_service.run_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "SmaCross", "params": {}},
@@ -736,8 +700,8 @@ class TestBacktestEdgeCases:
                 "interval": "1d",
                 "start_time": "2023-01-01 00:00:00",
                 "end_time": "2023-12-31 23:59:59",
-                "commission": 0.5
-            }
+                "commission": 0.5,
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -746,10 +710,7 @@ class TestBacktestEdgeCases:
     def test_run_backtest_same_start_end_time(self, client: TestClient, mocker):
         """测试开始结束时间相同的回测"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch(
-            "backtest.routes.backtest_service.run_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "SmaCross", "params": {}},
@@ -757,8 +718,8 @@ class TestBacktestEdgeCases:
                 "symbols": ["BTCUSDT"],
                 "interval": "1d",
                 "start_time": "2023-01-01 00:00:00",
-                "end_time": "2023-01-01 00:00:00"
-            }
+                "end_time": "2023-01-01 00:00:00",
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -767,10 +728,7 @@ class TestBacktestEdgeCases:
     def test_run_backtest_special_chars_in_symbol(self, client: TestClient, mocker):
         """测试特殊字符交易对"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch(
-            "backtest.routes.backtest_service.run_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "SmaCross", "params": {}},
@@ -778,8 +736,8 @@ class TestBacktestEdgeCases:
                 "symbols": ["BTC-USDT", "ETH_USDT"],
                 "interval": "1d",
                 "start_time": "2023-01-01 00:00:00",
-                "end_time": "2023-12-31 23:59:59"
-            }
+                "end_time": "2023-12-31 23:59:59",
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -788,10 +746,7 @@ class TestBacktestEdgeCases:
     def test_run_backtest_very_long_time_range(self, client: TestClient, mocker):
         """测试超长回测时间范围"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch(
-            "backtest.routes.backtest_service.run_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "SmaCross", "params": {}},
@@ -799,8 +754,8 @@ class TestBacktestEdgeCases:
                 "symbols": ["BTCUSDT"],
                 "interval": "1d",
                 "start_time": "2010-01-01 00:00:00",
-                "end_time": "2024-12-31 23:59:59"
-            }
+                "end_time": "2024-12-31 23:59:59",
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -809,10 +764,7 @@ class TestBacktestEdgeCases:
     def test_run_backtest_unicode_strategy_name(self, client: TestClient, mocker):
         """测试Unicode策略名称"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch(
-            "backtest.routes.backtest_service.run_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
 
         request_data = {
             "strategy_config": {"strategy_name": "策略_中文", "params": {}},
@@ -820,8 +772,8 @@ class TestBacktestEdgeCases:
                 "symbols": ["BTCUSDT"],
                 "interval": "1d",
                 "start_time": "2023-01-01 00:00:00",
-                "end_time": "2023-12-31 23:59:59"
-            }
+                "end_time": "2023-12-31 23:59:59",
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -830,25 +782,22 @@ class TestBacktestEdgeCases:
     def test_run_backtest_nested_params(self, client: TestClient, mocker):
         """测试嵌套参数策略"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch(
-            "backtest.routes.backtest_service.run_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
 
         request_data = {
             "strategy_config": {
                 "strategy_name": "ComplexStrategy",
                 "params": {
                     "ma": {"fast": 10, "slow": 20},
-                    "rsi": {"period": 14, "overbought": 70}
-                }
+                    "rsi": {"period": 14, "overbought": 70},
+                },
             },
             "backtest_config": {
                 "symbols": ["BTCUSDT"],
                 "interval": "1d",
                 "start_time": "2023-01-01 00:00:00",
-                "end_time": "2023-12-31 23:59:59"
-            }
+                "end_time": "2023-12-31 23:59:59",
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -862,8 +811,8 @@ class TestBacktestEdgeCases:
                 "symbols": [],
                 "interval": "1d",
                 "start_time": "2023-01-01 00:00:00",
-                "end_time": "2023-12-31 23:59:59"
-            }
+                "end_time": "2023-12-31 23:59:59",
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -877,8 +826,8 @@ class TestBacktestEdgeCases:
                 "symbols": ["BTCUSDT"],
                 "interval": "invalid",
                 "start_time": "2023-01-01 00:00:00",
-                "end_time": "2023-12-31 23:59:59"
-            }
+                "end_time": "2023-12-31 23:59:59",
+            },
         }
 
         response = client.post("/api/backtest/run", json=request_data)
@@ -894,10 +843,7 @@ class TestBacktestEdgeCases:
     def test_concurrent_backtest_requests(self, client: TestClient, mocker):
         """测试并发回测请求"""
         mock_result = {"task_id": "bt_123", "status": "completed"}
-        mocker.patch(
-            "backtest.routes.backtest_service.run_backtest",
-            return_value=mock_result
-        )
+        mocker.patch("backtest.routes.backtest_service.run_backtest", return_value=mock_result)
 
         import concurrent.futures
 
@@ -908,8 +854,8 @@ class TestBacktestEdgeCases:
                     "symbols": ["BTCUSDT"],
                     "interval": "1d",
                     "start_time": "2023-01-01 00:00:00",
-                    "end_time": "2023-12-31 23:59:59"
-                }
+                    "end_time": "2023-12-31 23:59:59",
+                },
             }
             return client.post("/api/backtest/run", json=request_data)
 

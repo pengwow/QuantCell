@@ -5,12 +5,14 @@ Uses axon_quant.walk_forward when available, otherwise provides a basic implemen
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pandas as pd
+if TYPE_CHECKING:
+    import pandas as pd
 
 try:
     from axon_quant.walk_forward import TimeSeriesSplitter
+
     AXON_AVAILABLE = True
 except ImportError:
     AXON_AVAILABLE = False
@@ -70,10 +72,12 @@ class WalkForwardService:
         for train_idx, test_idx in splits:
             train_data = data.iloc[train_idx]
             test_data = data.iloc[test_idx]
-            results.append({
-                "train_size": len(train_data),
-                "test_size": len(test_data),
-            })
+            results.append(
+                {
+                    "train_size": len(train_data),
+                    "test_size": len(test_data),
+                }
+            )
         return {"splits": results, "mode": mode, "n_splits": n_splits}
 
     def _validate_basic(
@@ -107,13 +111,15 @@ class WalkForwardService:
             if test_start >= total_len:
                 break
 
-            splits.append({
-                "train_start": train_start,
-                "train_end": train_end,
-                "test_start": test_start,
-                "test_end": test_end,
-                "train_size": train_end - train_start,
-                "test_size": test_end - test_start,
-            })
+            splits.append(
+                {
+                    "train_start": train_start,
+                    "train_end": train_end,
+                    "test_start": test_start,
+                    "test_end": test_end,
+                    "train_size": train_end - train_start,
+                    "test_size": test_end - test_start,
+                }
+            )
 
         return {"splits": splits, "mode": mode, "n_splits": len(splits)}

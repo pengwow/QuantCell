@@ -1,27 +1,40 @@
-# -*- coding: utf-8 -*-
 """OMS Service — axon_quant.oms 订单管理服务
 
 包装 axon_quant.oms.OrderManager，提供订单提交、取消、查询、持仓快照等功能。
 当 axon_quant 不可用时提供清晰的错误信息。
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # axon_quant 导入(走适配层,业务代码不直接 import 第三方包)
 try:
     from axon_bridge.oms import (
-        OrderManager as _OrderManager,
         Order as _Order,
-        Portfolio as _Portfolio,
-        Position as _Position,
-        Side as _Side,
-        OrderType as _OrderType,
+    )
+    from axon_bridge.oms import (
+        OrderManager as _OrderManager,
+    )
+    from axon_bridge.oms import (
         OrderStatus as _OrderStatus,
     )
+    from axon_bridge.oms import (
+        OrderType as _OrderType,
+    )
+    from axon_bridge.oms import (
+        Portfolio as _Portfolio,
+    )
+    from axon_bridge.oms import (
+        Position as _Position,
+    )
+    from axon_bridge.oms import (
+        Side as _Side,
+    )
+
     AXON_AVAILABLE = True
 except ImportError:
     AXON_AVAILABLE = False
@@ -55,9 +68,8 @@ class OMSService:
     def __init__(self):
         """初始化 OMS 服务"""
         if not AXON_AVAILABLE:
-            raise RuntimeError(
-                "axon_quant.oms 不可用，请安装 axon_quant: pip install axon_quant"
-            )
+            msg = "axon_quant.oms 不可用，请安装 axon_quant: pip install axon_quant"
+            raise RuntimeError(msg)
         self._manager = _OrderManager()
         logger.info("OMS 服务已初始化")
 
@@ -78,11 +90,7 @@ class OMSService:
         """
         # 创建 Order 对象
         side = _Side.BUY if order_dict.get("side", "Buy") == "Buy" else _Side.SELL
-        order_type = (
-            _OrderType.LIMIT
-            if order_dict.get("type", "limit") == "limit"
-            else _OrderType.MARKET
-        )
+        order_type = _OrderType.LIMIT if order_dict.get("type", "limit") == "limit" else _OrderType.MARKET
 
         order = _Order(
             symbol=order_dict.get("symbol", ""),
@@ -94,8 +102,9 @@ class OMSService:
 
         # 提交订单
         order_id = self._manager.submit(order)
-        logger.info(f"订单已提交: {order_id} {order_dict.get('symbol')} "
-                    f"{order_dict.get('side')} {order_dict.get('quantity')}")
+        logger.info(
+            f"订单已提交: {order_id} {order_dict.get('symbol')} {order_dict.get('side')} {order_dict.get('quantity')}"
+        )
         return order_id
 
     def cancel_order(self, order_id: str) -> bool:
@@ -114,7 +123,7 @@ class OMSService:
             logger.warning(f"订单取消失败: {order_id}")
         return result
 
-    def get_order_status(self, order_id: str) -> Optional[dict[str, Any]]:
+    def get_order_status(self, order_id: str) -> dict[str, Any] | None:
         """获取订单状态
 
         Args:
@@ -188,7 +197,7 @@ class OMSService:
         price: float,
         quantity: float,
         fee: float,
-        timestamp: Optional[int] = None,
+        timestamp: int | None = None,
     ) -> None:
         """添加成交记录
 
@@ -201,9 +210,7 @@ class OMSService:
             fee: 手续费
             timestamp: 时间戳（纳秒）
         """
-        self._manager.add_fill(
-            order_id, fill_id, symbol, price, quantity, fee, timestamp
-        )
+        self._manager.add_fill(order_id, fill_id, symbol, price, quantity, fee, timestamp)
         logger.info(f"成交记录已添加: {order_id} {symbol} {quantity}@{price}")
 
 
@@ -239,7 +246,7 @@ class OMSServiceProxy:
             return False
         return self._service.cancel_order(order_id)
 
-    def get_order_status(self, order_id: str) -> Optional[dict[str, Any]]:
+    def get_order_status(self, order_id: str) -> dict[str, Any] | None:
         """获取订单状态"""
         if not self._available:
             return None
@@ -289,7 +296,7 @@ class OMSServiceProxy:
         price: float,
         quantity: float,
         fee: float,
-        timestamp: Optional[int] = None,
+        timestamp: int | None = None,
     ) -> None:
         """添加成交记录"""
         if not self._available:

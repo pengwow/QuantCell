@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 实盘交易适配器模块
 
@@ -20,10 +19,10 @@ import sys
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # 使用项目日志系统
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.STRATEGY)
@@ -31,19 +30,22 @@ logger = get_logger(__name__, LogType.STRATEGY)
 # QuantCell 内部导入
 from strategy.core.data_types import (
     Bar as QCBar,
-    InstrumentId as QCInstrumentId,
-    OrderSide,
-    OrderType,
-    TimeInForce,
-    PositionSide,
 )
-from strategy.core.strategy import StrategyConfig as QCStrategyConfig
+from strategy.core.data_types import (
+    InstrumentId as QCInstrumentId,
+)
+from strategy.core.data_types import (
+    OrderType,
+    PositionSide,
+    TimeInForce,
+)
 from strategy.core.strategy import StrategyBase as QCStrategyBase
-
+from strategy.core.strategy import StrategyConfig as QCStrategyConfig
 
 # =============================================================================
 # 异常定义
 # =============================================================================
+
 
 class TradingAdapterError(Exception):
     """交易适配器异常基类"""
@@ -64,6 +66,7 @@ class StrategyAdapterConfigError(TradingAdapterError):
 # =============================================================================
 # TradingStrategyAdapter 类
 # =============================================================================
+
 
 class TradingStrategyAdapter:
     """
@@ -118,22 +121,17 @@ class TradingStrategyAdapter:
         """
         # 首先验证 QuantCell 策略类型
         if not isinstance(qc_strategy, QCStrategyBase):
-            raise StrategyAdapterConfigError(
-                f"qc_strategy 必须是 QCStrategyBase 的子类，"
-                f"实际类型: {type(qc_strategy).__name__}"
-            )
+            msg = f"qc_strategy 必须是 QCStrategyBase 的子类，实际类型: {type(qc_strategy).__name__}"
+            raise StrategyAdapterConfigError(msg)
 
         self.config = config
         self.qc_strategy = qc_strategy
         self._is_paused = False
         self._bars_processed = 0
         self._ticks_processed = 0
-        self._start_time: Optional[datetime] = None
+        self._start_time: datetime | None = None
 
-        logger.info(
-            f"实盘交易策略适配器已初始化: "
-            f"策略类={type(qc_strategy).__name__}"
-        )
+        logger.info(f"实盘交易策略适配器已初始化: 策略类={type(qc_strategy).__name__}")
 
     @property
     def is_paused(self) -> bool:
@@ -160,10 +158,7 @@ class TradingStrategyAdapter:
         3. 输出启动日志
         """
         self._start_time = datetime.utcnow()
-        logger.info(
-            f"策略启动: {type(self.qc_strategy).__name__}, "
-            f"时间={self._start_time.isoformat()}"
-        )
+        logger.info(f"策略启动: {type(self.qc_strategy).__name__}, 时间={self._start_time.isoformat()}")
 
         try:
             self.qc_strategy.on_start()
@@ -226,14 +221,13 @@ class TradingStrategyAdapter:
             self.qc_strategy.on_bar(qc_bar)
 
             logger.debug(
-                f"处理 K 线: {qc_bar.instrument_id}, "
-                f"时间={qc_bar.timestamp.isoformat()}, "
-                f"收盘价={qc_bar.close}"
+                f"处理 K 线: {qc_bar.instrument_id}, 时间={qc_bar.timestamp.isoformat()}, 收盘价={qc_bar.close}"
             )
 
         except Exception as e:
             logger.error(f"处理 K 线数据失败: {e}")
-            raise DataConversionError(f"K 线数据处理失败: {e}") from e
+            msg = f"K 线数据处理失败: {e}"
+            raise DataConversionError(msg) from e
 
     def on_tick(self, tick: Any) -> None:
         """
@@ -258,17 +252,15 @@ class TradingStrategyAdapter:
             qc_tick = convert_tick_to_qc(tick)
             self._ticks_processed += 1
 
-            if hasattr(self.qc_strategy, 'on_tick'):
+            if hasattr(self.qc_strategy, "on_tick"):
                 self.qc_strategy.on_tick(qc_tick)
 
-            logger.debug(
-                f"处理 Tick: {qc_tick['instrument_id']}, "
-                f"时间={qc_tick['timestamp']}"
-            )
+            logger.debug(f"处理 Tick: {qc_tick['instrument_id']}, 时间={qc_tick['timestamp']}")
 
         except Exception as e:
             logger.error(f"处理 Tick 数据失败: {e}")
-            raise DataConversionError(f"Tick 数据处理失败: {e}") from e
+            msg = f"Tick 数据处理失败: {e}"
+            raise DataConversionError(msg) from e
 
     def pause(self) -> None:
         """
@@ -295,7 +287,7 @@ class TradingStrategyAdapter:
         self,
         instrument_id: QCInstrumentId,
         quantity: Decimal,
-        price: Optional[Decimal] = None,
+        price: Decimal | None = None,
         order_type: OrderType = OrderType.MARKET,
         time_in_force: TimeInForce = TimeInForce.GTC,
     ) -> None:
@@ -326,7 +318,7 @@ class TradingStrategyAdapter:
         self,
         instrument_id: QCInstrumentId,
         quantity: Decimal,
-        price: Optional[Decimal] = None,
+        price: Decimal | None = None,
         order_type: OrderType = OrderType.MARKET,
         time_in_force: TimeInForce = TimeInForce.GTC,
     ) -> None:
@@ -353,7 +345,7 @@ class TradingStrategyAdapter:
             logger.error(f"卖出下单失败: {e}")
             raise
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         获取适配器统计信息
 
@@ -374,6 +366,7 @@ class TradingStrategyAdapter:
 # =============================================================================
 # 数据转换函数
 # =============================================================================
+
 
 def convert_bar_to_qc(bar: Any) -> QCBar:
     """
@@ -405,15 +398,15 @@ def convert_bar_to_qc(bar: Any) -> QCBar:
         # 通用格式：通过属性反射读取
         qc_bar = QCBar(
             instrument_id=QCInstrumentId(
-                symbol=str(getattr(bar, 'symbol', 'UNKNOWN')),
-                venue=str(getattr(bar, 'venue', 'BINANCE')),
+                symbol=str(getattr(bar, "symbol", "UNKNOWN")),
+                venue=str(getattr(bar, "venue", "BINANCE")),
             ),
-            bar_type=getattr(bar, 'bar_type', '1-HOUR'),
-            open=float(getattr(bar, 'open', 0)),
-            high=float(getattr(bar, 'high', 0)),
-            low=float(getattr(bar, 'low', 0)),
-            close=float(getattr(bar, 'close', 0)),
-            volume=float(getattr(bar, 'volume', 0)),
+            bar_type=getattr(bar, "bar_type", "1-HOUR"),
+            open=float(getattr(bar, "open", 0)),
+            high=float(getattr(bar, "high", 0)),
+            low=float(getattr(bar, "low", 0)),
+            close=float(getattr(bar, "close", 0)),
+            volume=float(getattr(bar, "volume", 0)),
             timestamp=datetime.utcnow(),
             ts_event=0,
         )
@@ -422,10 +415,11 @@ def convert_bar_to_qc(bar: Any) -> QCBar:
 
     except Exception as e:
         logger.error(f"Bar 转换失败: {e}")
-        raise DataConversionError(f"无法将 Bar 转换为 QCBar: {e}") from e
+        msg = f"无法将 Bar 转换为 QCBar: {e}"
+        raise DataConversionError(msg) from e
 
 
-def convert_tick_to_qc(tick: Any) -> Dict[str, Any]:
+def convert_tick_to_qc(tick: Any) -> dict[str, Any]:
     """
     将实盘交易框架 Tick 转换为 QuantCell Tick 格式
 
@@ -453,7 +447,7 @@ def convert_tick_to_qc(tick: Any) -> Dict[str, Any]:
     """
     try:
         # 转换时间戳
-        if hasattr(tick, 'ts_event'):
+        if hasattr(tick, "ts_event"):
             timestamp = datetime.fromtimestamp(tick.ts_event / 1e9)
             ts_event = tick.ts_event
         else:
@@ -461,7 +455,7 @@ def convert_tick_to_qc(tick: Any) -> Dict[str, Any]:
             ts_event = 0
 
         # 提取品种信息
-        if hasattr(tick, 'instrument_id'):
+        if hasattr(tick, "instrument_id"):
             inst_id = tick.instrument_id
             qc_instrument_id = QCInstrumentId(
                 symbol=str(inst_id.symbol),
@@ -469,8 +463,8 @@ def convert_tick_to_qc(tick: Any) -> Dict[str, Any]:
             )
         else:
             qc_instrument_id = QCInstrumentId(
-                symbol=str(getattr(tick, 'symbol', 'UNKNOWN')),
-                venue=str(getattr(tick, 'venue', 'BINANCE')),
+                symbol=str(getattr(tick, "symbol", "UNKNOWN")),
+                venue=str(getattr(tick, "venue", "BINANCE")),
             )
 
         # 通用格式
@@ -479,18 +473,19 @@ def convert_tick_to_qc(tick: Any) -> Dict[str, Any]:
             "instrument_id": qc_instrument_id,
             "symbol": str(qc_instrument_id.symbol),
             "venue": str(qc_instrument_id.venue),
-            "price": float(getattr(tick, 'price', 0)),
-            "size": float(getattr(tick, 'size', 0)),
+            "price": float(getattr(tick, "price", 0)),
+            "size": float(getattr(tick, "size", 0)),
             "timestamp": timestamp.isoformat(),
             "ts_event": ts_event,
         }
 
     except Exception as e:
         logger.error(f"Tick 转换失败: {e}")
-        raise DataConversionError(f"无法将 Tick 转换为 QC 格式: {e}") from e
+        msg = f"无法将 Tick 转换为 QC 格式: {e}"
+        raise DataConversionError(msg) from e
 
 
-def convert_order_to_trading(order: Dict[str, Any]) -> Dict[str, Any]:
+def convert_order_to_trading(order: dict[str, Any]) -> dict[str, Any]:
     """
     将 QuantCell 订单转换为实盘交易框架 Order 格式
 
@@ -531,7 +526,8 @@ def convert_order_to_trading(order: Dict[str, Any]) -> Dict[str, Any]:
         required_fields = ["instrument_id", "side", "order_type", "quantity"]
         for field in required_fields:
             if field not in order:
-                raise ValueError(f"缺少必要字段: {field}")
+                msg = f"缺少必要字段: {field}"
+                raise ValueError(msg)
 
         # 转换品种标识
         instrument_id = order["instrument_id"]
@@ -541,14 +537,13 @@ def convert_order_to_trading(order: Dict[str, Any]) -> Dict[str, Any]:
         side_str = order["side"].upper() if isinstance(order["side"], str) else order["side"].value
 
         # 转换订单类型
-        order_type_str = order["order_type"].upper() if isinstance(order["order_type"], str) else order["order_type"].value
+        order_type_str = (
+            order["order_type"].upper() if isinstance(order["order_type"], str) else order["order_type"].value
+        )
 
         # 转换有效期
         tif_str = order.get("time_in_force", "GTC")
-        if isinstance(tif_str, str):
-            tif_str = tif_str.upper()
-        else:
-            tif_str = tif_str.value
+        tif_str = tif_str.upper() if isinstance(tif_str, str) else tif_str.value
 
         # 构建实盘交易框架订单参数
         trading_order = {
@@ -571,10 +566,11 @@ def convert_order_to_trading(order: Dict[str, Any]) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"订单转换失败: {e}")
-        raise DataConversionError(f"无法将 QC 订单转换为实盘交易格式: {e}") from e
+        msg = f"无法将 QC 订单转换为实盘交易格式: {e}"
+        raise DataConversionError(msg) from e
 
 
-def convert_position_to_qc(position: Any) -> Dict[str, Any]:
+def convert_position_to_qc(position: Any) -> dict[str, Any]:
     """
     将实盘交易框架 Position 转换为 QuantCell 持仓格式
 
@@ -602,7 +598,7 @@ def convert_position_to_qc(position: Any) -> Dict[str, Any]:
     """
     try:
         # 转换品种标识
-        if hasattr(position, 'instrument_id'):
+        if hasattr(position, "instrument_id"):
             inst_id = position.instrument_id
             qc_instrument_id = QCInstrumentId(
                 symbol=str(inst_id.symbol),
@@ -610,15 +606,15 @@ def convert_position_to_qc(position: Any) -> Dict[str, Any]:
             )
         else:
             qc_instrument_id = QCInstrumentId(
-                symbol=str(getattr(position, 'symbol', 'UNKNOWN')),
-                venue=str(getattr(position, 'venue', 'BINANCE')),
+                symbol=str(getattr(position, "symbol", "UNKNOWN")),
+                venue=str(getattr(position, "venue", "BINANCE")),
             )
 
         # 转换持仓方向
-        side = PositionSide.LONG if getattr(position, 'quantity', 0) > 0 else PositionSide.FLAT
+        side = PositionSide.LONG if getattr(position, "quantity", 0) > 0 else PositionSide.FLAT
 
         # 转换时间戳
-        if hasattr(position, 'ts_opened') and position.ts_opened:
+        if hasattr(position, "ts_opened") and position.ts_opened:
             timestamp = datetime.fromtimestamp(position.ts_opened / 1e9)
             ts_opened = position.ts_opened
         else:
@@ -631,30 +627,32 @@ def convert_position_to_qc(position: Any) -> Dict[str, Any]:
             "symbol": str(qc_instrument_id.symbol),
             "venue": str(qc_instrument_id.venue),
             "side": side.value,
-            "quantity": getattr(position, 'quantity', Decimal('0')),
-            "avg_price": float(getattr(position, 'avg_px_open', 0)),
-            "unrealized_pnl": float(getattr(position, 'unrealized_pnl', 0)),
-            "realized_pnl": float(getattr(position, 'realized_pnl', 0)),
+            "quantity": getattr(position, "quantity", Decimal(0)),
+            "avg_price": float(getattr(position, "avg_px_open", 0)),
+            "unrealized_pnl": float(getattr(position, "unrealized_pnl", 0)),
+            "realized_pnl": float(getattr(position, "realized_pnl", 0)),
             "timestamp": timestamp.isoformat(),
             "ts_opened": ts_opened,
-            "ts_closed": getattr(position, 'ts_closed', None),
-            "is_open": getattr(position, 'is_open', False),
+            "ts_closed": getattr(position, "ts_closed", None),
+            "is_open": getattr(position, "is_open", False),
         }
 
         return qc_position
 
     except Exception as e:
         logger.error(f"持仓转换失败: {e}")
-        raise DataConversionError(f"无法将 Position 转换为 QC 格式: {e}") from e
+        msg = f"无法将 Position 转换为 QC 格式: {e}"
+        raise DataConversionError(msg) from e
 
 
 # =============================================================================
 # 策略加载器函数
 # =============================================================================
 
+
 def load_quantcell_strategy(
     strategy_path: str,
-    config: Dict[str, Any],
+    config: dict[str, Any],
 ) -> QCStrategyBase:
     """
     动态加载 QuantCell 策略
@@ -731,9 +729,8 @@ def load_quantcell_strategy(
                 break
 
         if strategy_class is None:
-            raise StrategyLoadError(
-                f"在模块 {module_name} 中找不到 QuantCell 策略类"
-            )
+            msg = f"在模块 {module_name} 中找不到 QuantCell 策略类"
+            raise StrategyLoadError(msg)
 
         # 创建策略配置
         if "instrument_ids" in config:
@@ -758,12 +755,13 @@ def load_quantcell_strategy(
 
     except Exception as e:
         logger.error(f"加载 QuantCell 策略失败: {e}")
-        raise StrategyLoadError(f"无法加载策略 {strategy_path}: {e}") from e
+        msg = f"无法加载策略 {strategy_path}: {e}"
+        raise StrategyLoadError(msg) from e
 
 
 def create_trading_strategy_adapter(
     qc_strategy: QCStrategyBase,
-    config: Dict[str, Any],
+    config: dict[str, Any],
 ) -> TradingStrategyAdapter:
     """
     创建实盘交易适配器实例
@@ -808,26 +806,25 @@ def create_trading_strategy_adapter(
             config=config,
         )
 
-        logger.info(
-            f"成功创建实盘交易策略适配器: "
-            f"策略={type(qc_strategy).__name__}"
-        )
+        logger.info(f"成功创建实盘交易策略适配器: 策略={type(qc_strategy).__name__}")
 
         return adapter
 
     except Exception as e:
         logger.error(f"创建实盘交易策略适配器失败: {e}")
-        raise StrategyAdapterConfigError(f"无法创建适配器: {e}") from e
+        msg = f"无法创建适配器: {e}"
+        raise StrategyAdapterConfigError(msg) from e
 
 
 # =============================================================================
 # 便捷函数
 # =============================================================================
 
+
 def adapt_strategy(
     strategy_path: str,
-    qc_config: Dict[str, Any],
-    trading_config: Dict[str, Any],
+    qc_config: dict[str, Any],
+    trading_config: dict[str, Any],
 ) -> TradingStrategyAdapter:
     """
     一站式策略适配函数
@@ -863,21 +860,21 @@ def adapt_strategy(
 
 # 模块导出
 __all__ = [
-    # 适配器类
-    "TradingStrategyAdapter",
-    # 异常类
-    "TradingAdapterError",
-    "StrategyLoadError",
     "DataConversionError",
     "StrategyAdapterConfigError",
-    # 数据转换函数
-    "convert_bar_to_qc",
-    "convert_tick_to_qc",
-    "convert_order_to_trading",
-    "convert_position_to_qc",
-    # 策略加载器函数
-    "load_quantcell_strategy",
-    "create_trading_strategy_adapter",
+    "StrategyLoadError",
+    # 异常类
+    "TradingAdapterError",
+    # 适配器类
+    "TradingStrategyAdapter",
     # 便捷函数
     "adapt_strategy",
+    # 数据转换函数
+    "convert_bar_to_qc",
+    "convert_order_to_trading",
+    "convert_position_to_qc",
+    "convert_tick_to_qc",
+    "create_trading_strategy_adapter",
+    # 策略加载器函数
+    "load_quantcell_strategy",
 ]

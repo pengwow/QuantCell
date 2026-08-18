@@ -10,35 +10,31 @@ Worker 优化功能单元测试
     cd backend && python -m pytest tests/test_worker_optimizations.py -v
 """
 
-import pytest
 import asyncio
-from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, AsyncMock
 
-# 导入被测模块
-from worker.state_guard import (
-    StateMachineGuard,
-    OperationResult,
-    BatchOperationResult,
-    WorkerState,
-    StateMachine,
-)
+import pytest
+
 from worker.graceful_shutdown import (
     GracefulShutdownManager,
     ShutdownConfig,
-    ShutdownStatus,
     ShutdownPhase,
     reset_shutdown_manager,
 )
 from worker.log_utils import (
-    LogRingBuffer,
     LogEntry,
+    LogRingBuffer,
     get_global_buffer,
     reset_global_buffer,
 )
 
+# 导入被测模块
+from worker.state_guard import (
+    StateMachineGuard,
+    WorkerState,
+)
 
 # ==================== StateMachineGuard 测试 ====================
+
 
 class TestStateMachineGuard:
     """状态机守卫器测试套件"""
@@ -136,6 +132,7 @@ class TestStateMachineGuard:
 
 # ==================== GracefulShutdownManager 测试 ====================
 
+
 class TestGracefulShutdownManager:
     """优雅停机管理器测试套件"""
 
@@ -214,6 +211,7 @@ class TestGracefulShutdownManager:
     @pytest.mark.asyncio
     async def test_status_to_dict_conversion(self):
         """状态报告应可序列化为字典"""
+
         async def noop():
             pass
 
@@ -230,8 +228,10 @@ class TestGracefulShutdownManager:
     @pytest.mark.asyncio
     async def test_error_handling_in_phase(self):
         """阶段异常不应导致整个流程崩溃"""
+
         async def failing_phase():
-            raise RuntimeError("Test error")
+            msg = "Test error"
+            raise RuntimeError(msg)
 
         async def successful_phase():
             pass
@@ -249,6 +249,7 @@ class TestGracefulShutdownManager:
 
 
 # ==================== LogRingBuffer 测试 ====================
+
 
 class TestLogRingBuffer:
     """日志环形缓冲区测试套件"""
@@ -283,11 +284,13 @@ class TestLogRingBuffer:
         buffer = LogRingBuffer(max_entries=5)
 
         for i in range(10):
-            buffer.append(LogEntry(
-                timestamp=f"2024-01-01T00:00:{i:02d}",
-                level="INFO",
-                message=f"Message {i}",
-            ))
+            buffer.append(
+                LogEntry(
+                    timestamp=f"2024-01-01T00:00:{i:02d}",
+                    level="INFO",
+                    message=f"Message {i}",
+                )
+            )
 
         stats = buffer.get_stats()
         assert stats["current_size"] == 5
@@ -364,11 +367,13 @@ class TestLogRingBuffer:
         """JSON导出功能"""
         buffer = LogRingBuffer()
 
-        buffer.append(LogEntry(
-            timestamp="2024-01-01T00:00:00",
-            level="INFO",
-            message="Test",
-        ))
+        buffer.append(
+            LogEntry(
+                timestamp="2024-01-01T00:00:00",
+                level="INFO",
+                message="Test",
+            )
+        )
 
         json_str = buffer.export_json()
 
@@ -377,6 +382,7 @@ class TestLogRingBuffer:
 
 
 # ==================== 集成测试 ====================
+
 
 class TestIntegration:
     """集成测试：验证组件协同工作"""
@@ -402,7 +408,7 @@ class TestIntegration:
         guard.transition(1, WorkerState.RUNNING)
 
         # 执行优雅停机
-        status = await mgr.shutdown()
+        await mgr.shutdown()
 
         assert state_changed is True
         final_state = guard.get_current_state(1)
@@ -414,9 +420,9 @@ class TestIntegration:
         buffer = LogRingBuffer()
 
         # 模拟状态转换并记录日志
-        buffer.append_raw(f"[INFO] Starting transition to STARTING")
+        buffer.append_raw("[INFO] Starting transition to STARTING")
         guard.transition(1, WorkerState.STARTING)
-        buffer.append_raw(f"[SUCCESS] Transition completed: STOPPED -> STARTING")
+        buffer.append_raw("[SUCCESS] Transition completed: STOPPED -> STARTING")
 
         logs = buffer.get_recent(limit=10)
 

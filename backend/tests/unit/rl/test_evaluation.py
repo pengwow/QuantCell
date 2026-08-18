@@ -1,6 +1,6 @@
 """Tests for rl/evaluation.py — _compute_metrics."""
 
-from rl.evaluation import _compute_metrics, EvaluationMetrics
+from rl.evaluation import EvaluationMetrics, _compute_metrics
 
 
 def test_compute_metrics_flat_nav():
@@ -47,6 +47,7 @@ def test_compute_metrics_trade_count():
 def test_compute_metrics_profit_factor():
     """Mix of positive and negative returns → finite profit_factor."""
     import math
+
     nav = [100.0]
     for i in range(50):
         nav.append(nav[-1] * (1.01 if i % 3 != 0 else 0.99))

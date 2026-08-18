@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Worker 异常处理装饰器
 
@@ -19,18 +18,21 @@ Worker 异常处理装饰器
 import asyncio
 import functools
 import traceback
-from typing import Callable, Optional
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 from .exceptions import (
+    WorkerAlreadyRunningException,
     WorkerException,
     WorkerNotFoundException,
-    WorkerAlreadyRunningException,
     WorkerOperationException,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -70,10 +72,10 @@ def _handle_exception(operation_name: str, exc: Exception) -> HTTPException:
     # 未知异常：使用 500 状态码
     logger.error(f"{operation_name} 发生未预期异常: {exc}")
     traceback.print_exc()
-    return HTTPException(status_code=500, detail=f"服务器内部错误: {str(exc)}")
+    return HTTPException(status_code=500, detail=f"服务器内部错误: {exc!s}")
 
 
-def handle_worker_exceptions(operation_name: Optional[str] = None) -> Callable:
+def handle_worker_exceptions(operation_name: str | None = None) -> Callable:
     """
     Worker 异常处理装饰器
 
@@ -87,10 +89,12 @@ def handle_worker_exceptions(operation_name: Optional[str] = None) -> Callable:
         - 异步函数
         - FastAPI HTTPException 直接传递
     """
+
     def decorator(func: Callable) -> Callable:
         op_name = operation_name or func.__name__
 
         if asyncio.iscoroutinefunction(func):
+
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
                 try:

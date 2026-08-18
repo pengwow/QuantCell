@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 统一文件日志器 (UnifiedFileLogger)
 
@@ -12,27 +11,27 @@
         max_bytes=100*1024*1024,  # 100MB
         backup_count=10,
     )
-    
+
     logger.install_stdout_capture()
     logger.install_logging_handler()
     logger.install_loguru_sink()
-    
+
     # 所有日志现在会同时输出到终端和 logs/worker_001.log 文件
 """
 
 from __future__ import annotations
 
-import os
-import sys
-import io
+import contextlib
 import logging
+import os
 import re
+import sys
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
-from typing import Optional, TextIO
+from typing import TextIO
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.SYSTEM)
 
@@ -48,7 +47,7 @@ class StdoutCapture:
     def __init__(
         self,
         original_stdout: TextIO,
-        unified_logger: "UnifiedFileLogger",
+        unified_logger: UnifiedFileLogger,
     ):
         self._original_stdout = original_stdout
         self._unified_logger = unified_logger
@@ -60,15 +59,13 @@ class StdoutCapture:
             return 0
         try:
             result = self._original_stdout.write(data)
-        except (ValueError, OSError):
+        except ValueError, OSError:
             self._closed = True
             return 0
 
         if data and self._unified_logger:
-            try:
+            with contextlib.suppress(Exception):
                 self._unified_logger.write_raw(data)
-            except Exception:
-                pass
 
         return result
 
@@ -78,13 +75,11 @@ class StdoutCapture:
             return
         try:
             self._original_stdout.flush()
-        except (ValueError, OSError):
+        except ValueError, OSError:
             self._closed = True
         if self._unified_logger:
-            try:
+            with contextlib.suppress(Exception):
                 self._unified_logger.flush()
-            except Exception:
-                pass
 
     def close(self):
         """关闭捕获器（不关闭底层 stdout）"""
@@ -121,7 +116,7 @@ class StderrCapture:
     def __init__(
         self,
         original_stderr: TextIO,
-        unified_logger: "UnifiedFileLogger",
+        unified_logger: UnifiedFileLogger,
     ):
         self._original_stderr = original_stderr
         self._unified_logger = unified_logger
@@ -133,15 +128,13 @@ class StderrCapture:
             return 0
         try:
             result = self._original_stderr.write(data)
-        except (ValueError, OSError):
+        except ValueError, OSError:
             self._closed = True
             return 0
 
         if data and self._unified_logger:
-            try:
+            with contextlib.suppress(Exception):
                 self._unified_logger.write_raw(data)
-            except Exception:
-                pass
 
         return result
 
@@ -151,13 +144,11 @@ class StderrCapture:
             return
         try:
             self._original_stderr.flush()
-        except (ValueError, OSError):
+        except ValueError, OSError:
             self._closed = True
         if self._unified_logger:
-            try:
+            with contextlib.suppress(Exception):
                 self._unified_logger.flush()
-            except Exception:
-                pass
 
     def close(self):
         """关闭捕获器（不关闭底层 stderr）"""
@@ -199,14 +190,12 @@ class UnifiedFileLogger:
         2026-04-28T10:30:45.123456789Z [INFO] [TradingNode] TradingNode started successfully
     """
 
-    GENERIC_LOG_PATTERN = re.compile(
-        r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+\[(\w+)\]\s+(.+?):(.*)$"
-    )
+    GENERIC_LOG_PATTERN = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+\[(\w+)\]\s+(.+?):(.*)$")
 
     def __init__(
         self,
         worker_id: str,
-        log_directory: Optional[str] = None,
+        log_directory: str | None = None,
         max_bytes: int = 100 * 1024 * 1024,  # 默认 100MB
         backup_count: int = 10,
     ):
@@ -238,7 +227,7 @@ class UnifiedFileLogger:
 
         self.log_file_path = os.path.join(log_directory, f"worker_{worker_id}.log")
 
-        self._file_handler: Optional[RotatingFileHandler] = None
+        self._file_handler: RotatingFileHandler | None = None
         self._buffer: list[str] = []
         self._buffer_size: int = 0
         self._max_buffer_size: int = 1024 * 1024  # 1MB 缓冲区
@@ -249,7 +238,7 @@ class UnifiedFileLogger:
         self._installed: bool = False
         self._stderr_installed: bool = False  # 标记 stderr 捕获是否已安装
         self._closed: bool = False
-        self._loguru_sink_id: Optional[int] = None
+        self._loguru_sink_id: int | None = None
 
         self._setup_file_handler()
 
@@ -262,7 +251,7 @@ class UnifiedFileLogger:
                 backupCount=self.backup_count,
                 encoding="utf-8",
             )
-            
+
             formatter = logging.Formatter(
                 "%(asctime)s.%(msecs)03dZ [%(levelname)s] [%(name)s] %(message)s",
                 datefmt="%Y-%m-%dT%H:%M:%S",
@@ -307,10 +296,10 @@ class UnifiedFileLogger:
         """安装 logging 模块 Handler"""
         try:
             root_logger = logging.getLogger()
-            
+
             if self._file_handler and self._file_handler not in root_logger.handlers:
                 root_logger.addHandler(self._file_handler)
-                
+
             logger.info(f"[UnifiedFileLogger] logging Handler已安装: {self.worker_id}")
         except Exception as e:
             logger.error(f"[UnifiedFileLogger] 安装logging Handler失败: {e}")
@@ -336,12 +325,7 @@ class UnifiedFileLogger:
                     return
                 record = message.record
                 timestamp_str = record["time"].strftime("%Y-%m-%dT%H:%M:%S.%f")
-                log_line = (
-                    f"{timestamp_str}Z "
-                    f"[{record['level'].name}] "
-                    f"[{record['name']}] "
-                    f"{message}\n"
-                )
+                log_line = f"{timestamp_str}Z [{record['level'].name}] [{record['name']}] {message}\n"
                 self._write_to_buffer(log_line)
 
             self._loguru_sink_id = loguru_logger.add(
@@ -360,7 +344,7 @@ class UnifiedFileLogger:
         level: str,
         message: str,
         source: str = "worker",
-        timestamp: Optional[datetime] = None,
+        timestamp: datetime | None = None,
     ):
         """
         写入结构化日志条目
@@ -380,12 +364,9 @@ class UnifiedFileLogger:
             return
 
         if timestamp is None:
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
 
-        timestamp_str = (
-            timestamp.strftime("%Y-%m-%dT%H:%M:%S.")
-            + f"{timestamp.microsecond:06d}Z"
-        )
+        timestamp_str = timestamp.strftime("%Y-%m-%dT%H:%M:%S.") + f"{timestamp.microsecond:06d}Z"
 
         log_line = f"{timestamp_str} [{level.upper()}] [{source}] {message}\n"
         self._write_to_buffer(log_line)
@@ -404,6 +385,7 @@ class UnifiedFileLogger:
 
         try:
             from .log_utils import get_global_buffer
+
             buffer = get_global_buffer()
             buffer.append_raw(
                 message=data,
@@ -465,9 +447,7 @@ class UnifiedFileLogger:
             if os.path.exists(self.log_file_path):
                 os.rename(self.log_file_path, f"{self.log_file_path}.1")
 
-            logger.debug(
-                f"[UnifiedFileLogger] 日志轮转完成: {self.log_file_path}"
-            )
+            logger.debug(f"[UnifiedFileLogger] 日志轮转完成: {self.log_file_path}")
         except Exception as e:
             logger.error(f"[UnifiedFileLogger] 日志轮转失败: {e}")
 
@@ -488,6 +468,7 @@ class UnifiedFileLogger:
         if self._loguru_sink_id is not None:
             try:
                 from loguru import logger as loguru_logger
+
                 loguru_logger.remove(self._loguru_sink_id)
             except Exception:
                 pass
@@ -515,10 +496,8 @@ class UnifiedFileLogger:
         self.uninstall_logging_handler()
 
         if self._file_handler:
-            try:
+            with contextlib.suppress(Exception):
                 self._file_handler.close()
-            except Exception:
-                pass
             self._file_handler = None
 
         self.uninstall_stderr_capture()  # 先卸载 stderr
@@ -548,8 +527,8 @@ def create_unified_logger(
 
 
 __all__ = [
-    "UnifiedFileLogger",
-    "StdoutCapture",
     "StderrCapture",
+    "StdoutCapture",
+    "UnifiedFileLogger",
     "create_unified_logger",
 ]

@@ -5,15 +5,15 @@
 日志查询基于文件日志系统实现。
 """
 
-from typing import Optional
+import contextlib
 from datetime import datetime
-from pydantic import BaseModel, Field
+
 from fastapi import APIRouter, Query
+from pydantic import BaseModel, Field
 
 from collector.schemas import ApiResponse
 from collector.services.system_service import SystemService
 from utils.log_query_engine import get_log_query_engine
-
 
 router = APIRouter(prefix="/system", tags=["system"])
 
@@ -23,6 +23,7 @@ system_service = SystemService()
 
 class SystemMetrics(BaseModel):
     """系统指标模型"""
+
     connectionStatus: str = Field(..., description="连接状态")
     cpuUsage: float = Field(..., description="CPU使用率")
     memoryUsed: str = Field(..., description="已用内存")
@@ -34,23 +35,25 @@ class SystemMetrics(BaseModel):
 
 class LogEntry(BaseModel):
     """日志条目模型"""
+
     id: int = Field(..., description="日志ID")
     timestamp: str = Field(..., description="日志时间")
     level: str = Field(..., description="日志级别")
     message: str = Field(..., description="日志内容")
-    module: Optional[str] = Field(None, description="模块名称")
-    function: Optional[str] = Field(None, description="函数名称")
-    line: Optional[int] = Field(None, description="代码行号")
-    logger_name: Optional[str] = Field(None, description="日志器名称")
-    log_type: Optional[str] = Field(None, description="日志类型")
-    extra_data: Optional[dict] = Field(None, description="额外数据")
-    exception_info: Optional[str] = Field(None, description="异常信息")
-    trace_id: Optional[str] = Field(None, description="跟踪ID")
-    created_at: Optional[str] = Field(None, description="创建时间")
+    module: str | None = Field(None, description="模块名称")
+    function: str | None = Field(None, description="函数名称")
+    line: int | None = Field(None, description="代码行号")
+    logger_name: str | None = Field(None, description="日志器名称")
+    log_type: str | None = Field(None, description="日志类型")
+    extra_data: dict | None = Field(None, description="额外数据")
+    exception_info: str | None = Field(None, description="异常信息")
+    trace_id: str | None = Field(None, description="跟踪ID")
+    created_at: str | None = Field(None, description="创建时间")
 
 
 class LogQueryResponse(BaseModel):
     """日志查询响应模型"""
+
     records: list[LogEntry] = Field(..., description="日志列表")
     total: int = Field(..., description="总日志数")
     page: int = Field(..., description="当前页码")
@@ -88,31 +91,23 @@ async def get_system_metrics():
             memoryTotal=memory_parts[1] if len(memory_parts) > 1 else "0 GB",
             diskUsed=disk_parts[0] if len(disk_parts) > 0 else "0 GB",
             diskTotal=disk_parts[1] if len(disk_parts) > 1 else "0 GB",
-            lastUpdated=system_status.get("timestamp", datetime.now().isoformat())
+            lastUpdated=system_status.get("timestamp", datetime.now().isoformat()),
         )
 
-        return ApiResponse(
-            code=0,
-            message="获取系统指标成功",
-            data=metrics.model_dump()
-        )
+        return ApiResponse(code=0, message="获取系统指标成功", data=metrics.model_dump())
 
     except Exception as e:
-        return ApiResponse(
-            code=500,
-            message=f"获取系统指标失败: {str(e)}",
-            data=None
-        )
+        return ApiResponse(code=500, message=f"获取系统指标失败: {e!s}", data=None)
 
 
 @router.get("/logs", response_model=ApiResponse)
 async def get_system_logs(
-    level: Optional[str] = Query(None, description="日志级别过滤 (DEBUG, INFO, WARNING, ERROR)"),
-    start_time: Optional[str] = Query(None, description="开始时间 (ISO格式)"),
-    end_time: Optional[str] = Query(None, description="结束时间 (ISO格式)"),
-    source: Optional[str] = Query(None, description="日志来源过滤"),
+    level: str | None = Query(None, description="日志级别过滤 (DEBUG, INFO, WARNING, ERROR)"),
+    start_time: str | None = Query(None, description="开始时间 (ISO格式)"),
+    end_time: str | None = Query(None, description="结束时间 (ISO格式)"),
+    source: str | None = Query(None, description="日志来源过滤"),
     page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=100, description="每页大小")
+    page_size: int = Query(20, ge=1, le=100, description="每页大小"),
 ):
     """
     获取系统日志
@@ -133,46 +128,44 @@ async def get_system_logs(
         parsed_end_time = None
 
         if start_time:
-            try:
-                parsed_start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-            except ValueError:
-                pass
+            with contextlib.suppress(ValueError):
+                parsed_start_time = datetime.fromisoformat(start_time)
 
         if end_time:
-            try:
-                parsed_end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
-            except ValueError:
-                pass
+            with contextlib.suppress(ValueError):
+                parsed_end_time = datetime.fromisoformat(end_time)
 
         # 使用文件日志查询引擎查询日志
         query_engine = get_log_query_engine()
         result = query_engine.query_logs(
-            level=level if level else None,
-            log_type=source if source else None,
+            level=level or None,
+            log_type=source or None,
             start_time=parsed_start_time,
             end_time=parsed_end_time,
             page=page,
-            page_size=page_size
+            page_size=page_size,
         )
 
         # 转换日志数据
         logs = []
         for log in result.logs:
-            logs.append(LogEntry(
-                id=log.get("id", 0),
-                timestamp=log.get("timestamp", ""),
-                level=log.get("level", "INFO"),
-                message=log.get("message", ""),
-                module=log.get("module"),
-                function=log.get("function"),
-                line=log.get("line"),
-                logger_name=log.get("logger_name"),
-                log_type=log.get("log_type"),
-                extra_data=log.get("extra_data"),
-                exception_info=log.get("exception_info"),
-                trace_id=log.get("trace_id"),
-                created_at=log.get("created_at")
-            ))
+            logs.append(
+                LogEntry(
+                    id=log.get("id", 0),
+                    timestamp=log.get("timestamp", ""),
+                    level=log.get("level", "INFO"),
+                    message=log.get("message", ""),
+                    module=log.get("module"),
+                    function=log.get("function"),
+                    line=log.get("line"),
+                    logger_name=log.get("logger_name"),
+                    log_type=log.get("log_type"),
+                    extra_data=log.get("extra_data"),
+                    exception_info=log.get("exception_info"),
+                    trace_id=log.get("trace_id"),
+                    created_at=log.get("created_at"),
+                )
+            )
 
         # 计算是否有更多数据
         pagination = result.pagination
@@ -186,18 +179,10 @@ async def get_system_logs(
             total=total,
             page=current_page,
             page_size=pagination.get("page_size", page_size),
-            hasMore=has_more
+            hasMore=has_more,
         )
 
-        return ApiResponse(
-            code=0,
-            message="获取系统日志成功",
-            data=response_data.model_dump()
-        )
+        return ApiResponse(code=0, message="获取系统日志成功", data=response_data.model_dump())
 
     except Exception as e:
-        return ApiResponse(
-            code=500,
-            message=f"获取系统日志失败: {str(e)}",
-            data=None
-        )
+        return ApiResponse(code=500, message=f"获取系统日志失败: {e!s}", data=None)

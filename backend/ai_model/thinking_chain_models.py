@@ -2,13 +2,25 @@
 
 定义 ThinkingChain SQLAlchemy 模型，用于存储 AI 思维链配置
 """
+
 import json
 import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String, Text, func, Index
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Enum,
+    Index,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import declarative_base
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 # 创建独立的 Base 避免循环导入
 Base = declarative_base()
@@ -16,6 +28,7 @@ Base = declarative_base()
 
 class ThinkingChainType(str, Enum):
     """思维链类型枚举"""
+
     STRATEGY_GENERATION = "strategy_generation"
     INDICATOR_GENERATION = "indicator_generation"
 
@@ -26,6 +39,7 @@ class ThinkingChain(Base):
     对应 thinking_chains 表的 SQLAlchemy 模型定义
     用于存储 AI 思维链配置
     """
+
     __tablename__ = "thinking_chains"
 
     # 主键 ID，使用 UUID
@@ -55,12 +69,12 @@ class ThinkingChain(Base):
     # 添加索引优化查询性能
     __table_args__ = (
         # 联合索引：类型 + 是否激活，用于查询激活的思维链
-        Index('idx_thinking_chain_type_active', 'chain_type', 'is_active'),
+        Index("idx_thinking_chain_type_active", "chain_type", "is_active"),
         # 联合索引：类型 + 创建时间，用于分页查询
-        Index('idx_thinking_chain_type_created', 'chain_type', 'created_at'),
+        Index("idx_thinking_chain_type_created", "chain_type", "created_at"),
     )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """将模型转换为字典
 
         Returns:
@@ -78,7 +92,7 @@ class ThinkingChain(Base):
         }
 
     @staticmethod
-    def _format_datetime(dt: Optional[datetime]) -> Optional[str]:
+    def _format_datetime(dt: datetime | None) -> str | None:
         """格式化 datetime 对象为字符串
 
         Args:
@@ -91,7 +105,7 @@ class ThinkingChain(Base):
             return None
         return dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    def set_steps(self, steps: List[Dict[str, Any]]) -> None:
+    def set_steps(self, steps: list[dict[str, Any]]) -> None:
         """设置思维链步骤
 
         Args:
@@ -99,7 +113,7 @@ class ThinkingChain(Base):
         """
         self.steps = json.dumps(steps, ensure_ascii=False) if steps else json.dumps([])
 
-    def get_steps(self) -> List[Dict[str, Any]]:
+    def get_steps(self) -> list[dict[str, Any]]:
         """获取思维链步骤
 
         Returns:
@@ -110,7 +124,7 @@ class ThinkingChain(Base):
 
         try:
             raw_steps = json.loads(self.steps)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return []
 
         # 标准化步骤字段，兼容 name/title, description/content 等多种命名
@@ -126,12 +140,7 @@ class ThinkingChain(Base):
                 or step.get("step_name")
                 or f"步骤 {step.get('step', step.get('step_number', idx + 1))}"
             )
-            description = (
-                step.get("description")
-                or step.get("content")
-                or step.get("detail")
-                or ""
-            )
+            description = step.get("description") or step.get("content") or step.get("detail") or ""
 
             normalized_step = {
                 "step": step.get("step", step.get("step_number", idx + 1)),

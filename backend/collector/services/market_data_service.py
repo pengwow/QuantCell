@@ -2,14 +2,16 @@
 
 基于工厂模式的市场数据获取服务，支持多交易所和代理配置
 """
-from typing import List, Dict
+
 from datetime import datetime, timedelta
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from collector.db.database import get_db
 from collector.db.models import MarketData
+
 from .market_data_factory import market_data_fetcher_factory
 
 
@@ -24,9 +26,9 @@ class MarketDataService:
         """初始化市场数据服务"""
         self.cache_ttl = timedelta(minutes=5)  # 缓存5分钟
 
-    async def get_market_data(self, symbols: List[str],
-                              exchange: str = "binance",
-                              force_refresh: bool = False) -> List[Dict]:
+    async def get_market_data(
+        self, symbols: list[str], exchange: str = "binance", force_refresh: bool = False
+    ) -> list[dict]:
         """获取市场数据
 
         优先从交易所官方接口获取，失败时回退到数据库缓存
@@ -53,20 +55,21 @@ class MarketDataService:
             # 使用工厂获取对应交易所的获取器
             fetcher = market_data_fetcher_factory.get_fetcher(exchange)
             if not fetcher:
-                raise Exception(f"不支持的交易所或未启用: {exchange}")
+                msg = f"不支持的交易所或未启用: {exchange}"
+                raise Exception(msg)
 
             logger.info(f"从{exchange}官方接口获取市场数据: {len(symbols)}个货币对")
             fresh_data = await fetcher.fetch_market_data(symbols)
-            
+
             # 记录成功获取的数据
             fetched_symbols = {item.get("symbol") for item in fresh_data if item.get("symbol")}
             result.extend(fresh_data)
-            
+
             # 找出获取失败的货币对
             failed_symbols = [s for s in symbols if s not in fetched_symbols]
             if failed_symbols:
                 logger.warning(f"以下货币对从官方接口获取失败: {failed_symbols}")
-                
+
         except Exception as e:
             logger.error(f"从交易所官方接口获取市场数据失败: {e}")
             failed_symbols = symbols  # 全部失败
@@ -75,12 +78,12 @@ class MarketDataService:
         if failed_symbols:
             logger.info(f"从数据库缓存获取失败的货币对: {len(failed_symbols)}个")
             db_data = await self._get_market_data_from_db(failed_symbols, exchange)
-            
+
             # 添加数据库中的有效数据
             if db_data["valid"]:
                 logger.info(f"从数据库缓存获取到{len(db_data['valid'])}条数据")
                 result.extend(db_data["valid"])
-            
+
             # 记录数据库中也没有的货币对
             if db_data["expired"]:
                 logger.warning(f"以下货币对在数据库中也不存在或已过期: {db_data['expired']}")
@@ -93,8 +96,7 @@ class MarketDataService:
 
         return result
 
-    async def _get_market_data_from_db(self, symbols: List[str],
-                                       exchange: str) -> Dict:
+    async def _get_market_data_from_db(self, symbols: list[str], exchange: str) -> dict:
         """从数据库获取市场数据，返回有效和过期的"""
         db = next(get_db())
         try:
@@ -102,25 +104,27 @@ class MarketDataService:
             expired_symbols = []
 
             for symbol in symbols:
-                record = db.query(MarketData).filter(
-                    MarketData.symbol == symbol,
-                    MarketData.exchange == exchange
-                ).first()
+                record = (
+                    db.query(MarketData).filter(MarketData.symbol == symbol, MarketData.exchange == exchange).first()
+                )
 
                 if record:
                     # 检查是否过期
-                    if (record.last_update and
-                        datetime.utcnow() - record.last_update < self.cache_ttl):
-                        valid_data.append({
-                            "symbol": record.symbol,
-                            "price": float(record.price) if record.price else None,
-                            "price_change_24h": float(record.price_change_24h) if record.price_change_24h else None,
-                            "price_change_percent_24h": float(record.price_change_percent_24h) if record.price_change_percent_24h else None,
-                            "volume_24h": float(record.volume_24h) if record.volume_24h else None,
-                            "high_24h": float(record.high_24h) if record.high_24h else None,
-                            "low_24h": float(record.low_24h) if record.low_24h else None,
-                            "last_update": record.last_update.isoformat() if record.last_update else None
-                        })
+                    if record.last_update and datetime.utcnow() - record.last_update < self.cache_ttl:
+                        valid_data.append(
+                            {
+                                "symbol": record.symbol,
+                                "price": float(record.price) if record.price else None,
+                                "price_change_24h": float(record.price_change_24h) if record.price_change_24h else None,
+                                "price_change_percent_24h": float(record.price_change_percent_24h)
+                                if record.price_change_percent_24h
+                                else None,
+                                "volume_24h": float(record.volume_24h) if record.volume_24h else None,
+                                "high_24h": float(record.high_24h) if record.high_24h else None,
+                                "low_24h": float(record.low_24h) if record.low_24h else None,
+                                "last_update": record.last_update.isoformat() if record.last_update else None,
+                            }
+                        )
                     else:
                         expired_symbols.append(symbol)
                 else:
@@ -143,7 +147,8 @@ class MarketDataService:
             # 使用工厂获取对应交易所的获取器
             fetcher = market_data_fetcher_factory.get_fetcher(exchange)
             if not fetcher:
-                raise Exception(f"不支持的交易所或未启用: {exchange}")
+                msg = f"不支持的交易所或未启用: {exchange}"
+                raise Exception(msg)
 
             logger.info(f"开始同步{exchange}所有货币对的市场数据")
             all_data = await fetcher.fetch_all_tickers()

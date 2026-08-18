@@ -7,15 +7,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent.core.interaction_agent import AgentResponse, Intent
 from axon_bridge.trading import (
-    PlaceOrderTool,
-    QueryPortfolioTool,
     CancelOrderTool,
     MockTradingBackend,
+    PlaceOrderTool,
+    QueryPortfolioTool,
     RiskLimits,
 )
-
-from agent.core.interaction_agent import AgentResponse, Intent
 
 
 class DecisionAgent:

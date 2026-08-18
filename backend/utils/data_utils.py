@@ -8,12 +8,14 @@
 日期: 2026-03-24
 """
 
-import pandas as pd
-import numpy as np
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from utils.logger import get_logger, LogType
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -22,6 +24,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # ---------------------------------------------------------------------------
 # 路径工具函数（统一基于 backend/ 根目录解析，避免 cwd 依赖）
 # ---------------------------------------------------------------------------
+
 
 def get_backend_root() -> Path:
     """返回 backend/ 目录的绝对路径"""
@@ -38,7 +41,7 @@ def get_source_data_dir() -> Path:
     return get_data_dir() / "source"
 
 
-def get_symbols_from_data_pool(pool_name: str) -> List[str]:
+def get_symbols_from_data_pool(pool_name: str) -> list[str]:
     """
     从数据池获取自选组合的货币对列表
 
@@ -116,7 +119,7 @@ def sanitize_for_json(data: Any) -> Any:
         elif isinstance(data, (pd.Timestamp, datetime)):
             if pd.isna(data):
                 return None
-            return data.strftime('%Y-%m-%d %H:%M:%S')
+            return data.strftime("%Y-%m-%d %H:%M:%S")
 
         # 处理 Timedelta 对象
         elif isinstance(data, pd.Timedelta):
@@ -168,11 +171,7 @@ class DataSanitizer:
         """
         return sanitize_for_json(data)
 
-    def translate_metrics(
-        self,
-        stats: Dict[str, Any],
-        language: str = "zh-CN"
-    ) -> List[Dict[str, Any]]:
+    def translate_metrics(self, stats: dict[str, Any], language: str = "zh-CN") -> list[dict[str, Any]]:
         """
         翻译回测结果指标为多语言
 
@@ -191,7 +190,7 @@ class DataSanitizer:
         translated_metrics = []
         for key, value in stats.items():
             # 跳过内部字段
-            if key in ['_strategy', '_equity_curve', '_trade_list', '_trades']:
+            if key in ["_strategy", "_equity_curve", "_trade_list", "_trades"]:
                 continue
 
             # 获取翻译
@@ -203,17 +202,19 @@ class DataSanitizer:
             if metric_info is None:
                 continue
 
-            translated_metrics.append({
-                'name': name,
-                'key': key,
-                'value': metric_info['value'],
-                'description': desc,
-                'type': metric_info['type']
-            })
+            translated_metrics.append(
+                {
+                    "name": name,
+                    "key": key,
+                    "value": metric_info["value"],
+                    "description": desc,
+                    "type": metric_info["type"],
+                }
+            )
 
         return translated_metrics
 
-    def _process_metric_value(self, key: str, value: Any) -> Optional[Dict[str, Any]]:
+    def _process_metric_value(self, key: str, value: Any) -> dict[str, Any] | None:
         """
         处理指标值，返回处理后的值和类型
 
@@ -226,17 +227,11 @@ class DataSanitizer:
         """
         # 处理 Timestamp
         if isinstance(value, pd.Timestamp):
-            return {
-                'value': self.sanitize_for_json(value),
-                'type': 'datetime'
-            }
+            return {"value": self.sanitize_for_json(value), "type": "datetime"}
 
         # 处理 Timedelta
         if isinstance(value, pd.Timedelta):
-            return {
-                'value': self.sanitize_for_json(value),
-                'type': 'duration'
-            }
+            return {"value": self.sanitize_for_json(value), "type": "duration"}
 
         # 跳过复杂数据结构
         if isinstance(value, (pd.Series, pd.DataFrame)):
@@ -244,19 +239,13 @@ class DataSanitizer:
 
         # 处理数值类型
         if isinstance(value, (int, float)):
-            metric_type = 'number'
-            if '[%]' in key:
-                metric_type = 'percentage'
-            elif '[$]' in key:
-                metric_type = 'currency'
+            metric_type = "number"
+            if "[%]" in key:
+                metric_type = "percentage"
+            elif "[$]" in key:
+                metric_type = "currency"
 
-            return {
-                'value': value,
-                'type': metric_type
-            }
+            return {"value": value, "type": metric_type}
 
         # 其他类型
-        return {
-            'value': value,
-            'type': 'string'
-        }
+        return {"value": value, "type": "string"}

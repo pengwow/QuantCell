@@ -15,7 +15,12 @@ class ExecTool(Tool):
         "type": "object",
         "properties": {
             "command": {"type": "string", "description": "要执行的 shell 命令"},
-            "timeout": {"type": "integer", "description": "超时时间（秒）", "minimum": 1, "maximum": 300},
+            "timeout": {
+                "type": "integer",
+                "description": "超时时间（秒）",
+                "minimum": 1,
+                "maximum": 300,
+            },
         },
         "required": ["command"],
     }
@@ -27,15 +32,15 @@ class ExecTool(Tool):
             "default": 60,
             "env_key": None,
             "description": "命令执行超时时间（秒）",
-            "validation": {"min": 1, "max": 300}
+            "validation": {"min": 1, "max": 300},
         },
         "path_append": {
             "type": "string",
             "required": False,
             "default": "",
             "env_key": None,
-            "description": "附加到PATH环境变量的路径"
-        }
+            "description": "附加到PATH环境变量的路径",
+        },
     }
 
     def __init__(
@@ -53,11 +58,12 @@ class ExecTool(Tool):
     async def execute(self, command: str, timeout: int | None = None, **kwargs: Any) -> str:
         """执行 shell 命令"""
         cmd_timeout = timeout or self.timeout
-        
+
         # 构建环境变量
         env = None
         if self.path_append:
             import os
+
             env = {"PATH": f"{self.path_append}:{os.environ.get('PATH', '')}"}
 
         try:
@@ -68,26 +74,23 @@ class ExecTool(Tool):
                 cwd=self.working_dir,
                 env=env,
             )
-            
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=cmd_timeout
-            )
-            
+
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=cmd_timeout)
+
             stdout_str = stdout.decode("utf-8", errors="replace")
             stderr_str = stderr.decode("utf-8", errors="replace")
-            
+
             result = []
             if stdout_str:
                 result.append(f"[stdout]\n{stdout_str}")
             if stderr_str:
                 result.append(f"[stderr]\n{stderr_str}")
-            
+
             exit_info = f"\n[退出码: {process.returncode}]"
-            
+
             return "\n\n".join(result) + exit_info if result else exit_info
-            
-        except asyncio.TimeoutError:
+
+        except TimeoutError:
             # ponytail: 超时必须 kill 子进程，否则变僵尸
             process.kill()
             await process.wait()

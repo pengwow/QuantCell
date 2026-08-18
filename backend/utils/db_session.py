@@ -18,17 +18,20 @@
 """
 
 from contextlib import contextmanager
-from typing import Generator, Optional
+from typing import TYPE_CHECKING
 
-from sqlalchemy.orm import Session
+from utils.logger import LogType, get_logger
 
-from utils.logger import get_logger, LogType
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
 @contextmanager
-def get_db_session() -> Generator[Session, None, None]:
+def get_db_session() -> Generator[Session]:
     """
     获取数据库会话的上下文管理器
 
@@ -75,7 +78,7 @@ def get_db_session() -> Generator[Session, None, None]:
 
 
 @contextmanager
-def use_db_session(db_session: Optional[Session] = None) -> Generator[Session, None, None]:
+def use_db_session(db_session: Session | None = None) -> Generator[Session]:
     """
     使用已有会话或创建新会话的上下文管理器
 

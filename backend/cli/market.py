@@ -19,20 +19,22 @@
     uv run python -m cli.market fetch --symbol BTCUSDT --data-type kline
 """
 
-import sys
 import json
+import sys
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any
 
 # 添加后端目录到路径
 backend_path = Path(__file__).resolve().parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-import typer
-from typing_extensions import Annotated
+from datetime import UTC
+from typing import Annotated
 
-from utils.logger import get_logger, LogType
+import typer
+
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -44,7 +46,7 @@ app = typer.Typer(
 )
 
 
-def _get_exchange_config(exchange: str = "binance") -> Dict[str, Any]:
+def _get_exchange_config(exchange: str = "binance") -> dict[str, Any]:
     """获取交易所配置"""
     try:
         from utils.config_manager import load_system_configs
@@ -90,9 +92,21 @@ def get_klines(
 
         # 转换时间周期格式
         tf_map = {
-            "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
-            "1h": "1h", "2h": "2h", "4h": "4h", "6h": "6h", "8h": "8h",
-            "12h": "12h", "1d": "1d", "3d": "3d", "1w": "1w", "1M": "1M",
+            "1m": "1m",
+            "3m": "3m",
+            "5m": "5m",
+            "15m": "15m",
+            "30m": "30m",
+            "1h": "1h",
+            "2h": "2h",
+            "4h": "4h",
+            "6h": "6h",
+            "8h": "8h",
+            "12h": "12h",
+            "1d": "1d",
+            "3d": "3d",
+            "1w": "1w",
+            "1M": "1M",
         }
         tf = tf_map.get(timeframe, timeframe)
 
@@ -103,12 +117,12 @@ def get_klines(
             return f"未找到 {symbol} 的 K 线数据"
 
         # 格式化输出
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         lines = [f"{symbol} {timeframe} K线数据（最近 {len(ohlcv)} 条）:\n"]
         for item in ohlcv[-10:]:  # 只显示最近10条
             timestamp, open_price, high, low, close, volume = item
-            dt = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+            dt = datetime.fromtimestamp(timestamp / 1000, tz=UTC)
             time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
             lines.append(
                 f"时间: {time_str} ({timestamp}), "
@@ -196,25 +210,30 @@ def get_crypto_symbols(
         symbols = []
         for symbol, market in ex.markets.items():
             if market.get("quote") == filter:
-                symbols.append({
-                    "symbol": symbol.replace("/", ""),
-                    "base": market.get("base"),
-                    "quote": market.get("quote"),
-                    "active": market.get("active", True),
-                    "type": market.get("type", "spot"),
-                })
+                symbols.append(
+                    {
+                        "symbol": symbol.replace("/", ""),
+                        "base": market.get("base"),
+                        "quote": market.get("quote"),
+                        "active": market.get("active", True),
+                        "type": market.get("type", "spot"),
+                    }
+                )
 
         if market_type:
             symbols = [s for s in symbols if s.get("type") == market_type]
 
         symbols = symbols[:limit]
 
-        return json.dumps({
-            "success": True,
-            "exchange": exchange,
-            "total": len(symbols),
-            "symbols": symbols,
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "success": True,
+                "exchange": exchange,
+                "total": len(symbols),
+                "symbols": symbols,
+            },
+            ensure_ascii=False,
+        )
     except Exception as e:
         logger.error(f"获取交易对列表失败: {e}")
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
@@ -242,8 +261,8 @@ def fetch_market_data(
     """
     try:
         if data_type == "kline":
-            from collector.services.kline_factory import KlineDataFactory
             from collector.db.database import SessionLocal, init_database_config
+            from collector.services.kline_factory import KlineDataFactory
 
             init_database_config()
             crypto_type = "spot" if market_type == "spot" else "future"
@@ -252,13 +271,16 @@ def fetch_market_data(
             try:
                 result = fetcher.fetch_kline_data(db, symbol, interval, limit=limit)
                 kline_data = result.get("kline_data", [])[-limit:]
-                return json.dumps({
-                    "success": True,
-                    "symbol": symbol,
-                    "interval": interval,
-                    "count": len(kline_data),
-                    "klines": kline_data,
-                }, ensure_ascii=False)
+                return json.dumps(
+                    {
+                        "success": True,
+                        "symbol": symbol,
+                        "interval": interval,
+                        "count": len(kline_data),
+                        "klines": kline_data,
+                    },
+                    ensure_ascii=False,
+                )
             finally:
                 db.close()
 
@@ -269,30 +291,37 @@ def fetch_market_data(
             ex = binance_exchange(config)
             ticker = ex.fetch_ticker(symbol)
 
-            return json.dumps({
-                "success": True,
-                "symbol": symbol,
-                "ticker": {
-                    "last": ticker.get("last"),
-                    "change": ticker.get("change"),
-                    "percentage": ticker.get("percentage"),
-                    "baseVolume": ticker.get("baseVolume"),
-                    "quoteVolume": ticker.get("quoteVolume"),
-                    "high": ticker.get("high"),
-                    "low": ticker.get("low"),
-                    "bid": ticker.get("bid"),
-                    "ask": ticker.get("ask"),
+            return json.dumps(
+                {
+                    "success": True,
+                    "symbol": symbol,
+                    "ticker": {
+                        "last": ticker.get("last"),
+                        "change": ticker.get("change"),
+                        "percentage": ticker.get("percentage"),
+                        "baseVolume": ticker.get("baseVolume"),
+                        "quoteVolume": ticker.get("quoteVolume"),
+                        "high": ticker.get("high"),
+                        "low": ticker.get("low"),
+                        "bid": ticker.get("bid"),
+                        "ask": ticker.get("ask"),
+                    },
                 },
-            }, ensure_ascii=False)
+                ensure_ascii=False,
+            )
 
         else:
-            return json.dumps({"success": False, "error": f"不支持的数据类型: {data_type}"}, ensure_ascii=False)
+            return json.dumps(
+                {"success": False, "error": f"不支持的数据类型: {data_type}"},
+                ensure_ascii=False,
+            )
     except Exception as e:
         logger.error(f"获取市场数据失败: {e}")
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
 
 # ==================== CLI 命令 ====================
+
 
 @app.command("klines")
 def cli_klines(

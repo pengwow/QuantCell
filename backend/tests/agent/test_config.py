@@ -1,7 +1,8 @@
 """配置管理测试 - ToolParamManager 和相关组件"""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from agent.config.manager import ToolParamManager, mask_sensitive_value
 
@@ -47,7 +48,7 @@ class TestToolParamManager:
     @pytest.fixture
     def mock_db(self):
         """Mock数据库会话"""
-        with patch('agent.config.manager._get_db_session') as mock:
+        with patch("agent.config.manager._get_db_session") as mock:
             mock_db = MagicMock()
             mock.return_value = (mock_db, MagicMock)
             yield mock_db
@@ -58,9 +59,9 @@ class TestToolParamManager:
         mock_config = MagicMock()
         mock_config.value = "test-value"
         mock_db.query.return_value.filter_by.return_value.first.return_value = mock_config
-        
+
         # Mock模板
-        with patch('agent.config.templates.get_tool_template') as mock_template:
+        with patch("agent.config.templates.get_tool_template") as mock_template:
             mock_template.return_value = {
                 "api_key": {
                     "type": "string",
@@ -70,9 +71,9 @@ class TestToolParamManager:
                     "description": "Test API key",
                 }
             }
-            
+
             params = ToolParamManager.get_tool_params("test_tool")
-            
+
             assert "api_key" in params
             # 脱敏后的值应该是前4个字符 + 星号
             assert params["api_key"]["value"].startswith("test")
@@ -85,8 +86,8 @@ class TestToolParamManager:
         mock_config = MagicMock()
         mock_config.value = "secret-key-12345"
         mock_db.query.return_value.filter_by.return_value.first.return_value = mock_config
-        
-        with patch('agent.config.templates.get_tool_template') as mock_template:
+
+        with patch("agent.config.templates.get_tool_template") as mock_template:
             mock_template.return_value = {
                 "api_key": {
                     "type": "string",
@@ -96,17 +97,17 @@ class TestToolParamManager:
                     "description": "Test API key",
                 }
             }
-            
+
             params = ToolParamManager.get_tool_params("test_tool", include_sensitive=True)
-            
+
             assert params["api_key"]["value"] == "secret-key-12345"
 
     def test_get_tool_params_from_env(self, mock_db, monkeypatch):
         """测试从环境变量获取参数"""
         mock_db.query.return_value.filter_by.return_value.first.return_value = None
         monkeypatch.setenv("TEST_API_KEY", "env-key-value")
-        
-        with patch('agent.config.templates.get_tool_template') as mock_template:
+
+        with patch("agent.config.templates.get_tool_template") as mock_template:
             mock_template.return_value = {
                 "api_key": {
                     "type": "string",
@@ -116,9 +117,9 @@ class TestToolParamManager:
                     "description": "Test API key",
                 }
             }
-            
+
             params = ToolParamManager.get_tool_params("test_tool")
-            
+
             assert params["api_key"]["value"] == "env-key-value"
             assert params["api_key"]["source"] == "environment"
 
@@ -126,8 +127,8 @@ class TestToolParamManager:
         """测试获取默认参数"""
         mock_db.query.return_value.filter_by.return_value.first.return_value = None
         monkeypatch.delenv("TEST_API_KEY", raising=False)
-        
-        with patch('agent.config.templates.get_tool_template') as mock_template:
+
+        with patch("agent.config.templates.get_tool_template") as mock_template:
             mock_template.return_value = {
                 "api_key": {
                     "type": "string",
@@ -137,17 +138,17 @@ class TestToolParamManager:
                     "description": "Test API key",
                 }
             }
-            
+
             params = ToolParamManager.get_tool_params("test_tool")
-            
+
             assert params["api_key"]["value"] == "default-key"
             assert params["api_key"]["source"] == "default"
 
     def test_set_tool_param(self, mock_db):
         """测试设置工具参数"""
         mock_db.query.return_value.filter_by.return_value.first.return_value = None
-        
-        with patch('agent.config.templates.get_tool_template') as mock_template:
+
+        with patch("agent.config.templates.get_tool_template") as mock_template:
             mock_template.return_value = {
                 "api_key": {
                     "type": "string",
@@ -157,33 +158,33 @@ class TestToolParamManager:
                     "description": "Test API key",
                 }
             }
-            
-            with patch('agent.config.tool_params.ToolParamResolver.validate') as mock_validate:
+
+            with patch("agent.config.tool_params.ToolParamResolver.validate") as mock_validate:
                 mock_validate.return_value = (True, "")
-                
+
                 result = ToolParamManager.set_tool_param("test_tool", "api_key", "new-key")
-                
+
                 assert result is True
                 mock_db.add.assert_called_once()
                 mock_db.commit.assert_called_once()
 
     def test_set_tool_param_invalid(self, mock_db):
         """测试设置无效参数"""
-        with patch('agent.config.templates.get_tool_template') as mock_template:
+        with patch("agent.config.templates.get_tool_template") as mock_template:
             mock_template.return_value = None
-            
+
             with pytest.raises(ValueError) as exc_info:
                 ToolParamManager.set_tool_param("test_tool", "api_key", "new-key")
-            
+
             assert "未知参数" in str(exc_info.value)
 
     def test_delete_tool_param(self, mock_db):
         """测试删除工具参数"""
         mock_config = MagicMock()
         mock_db.query.return_value.filter_by.return_value.first.return_value = mock_config
-        
+
         result = ToolParamManager.delete_tool_param("test_tool", "api_key")
-        
+
         assert result is True
         mock_db.delete.assert_called_once()
         mock_db.commit.assert_called_once()
@@ -191,21 +192,36 @@ class TestToolParamManager:
     def test_batch_update(self, mock_db):
         """测试批量更新"""
         mock_db.query.return_value.filter_by.return_value.first.return_value = None
-        
-        with patch('agent.config.templates.get_tool_template') as mock_template:
+
+        with patch("agent.config.templates.get_tool_template") as mock_template:
             mock_template.return_value = {
-                "param1": {"type": "string", "sensitive": False, "default": "", "env_key": None, "description": ""},
-                "param2": {"type": "string", "sensitive": False, "default": "", "env_key": None, "description": ""},
+                "param1": {
+                    "type": "string",
+                    "sensitive": False,
+                    "default": "",
+                    "env_key": None,
+                    "description": "",
+                },
+                "param2": {
+                    "type": "string",
+                    "sensitive": False,
+                    "default": "",
+                    "env_key": None,
+                    "description": "",
+                },
             }
-            
-            with patch('agent.config.tool_params.ToolParamResolver.validate') as mock_validate:
+
+            with patch("agent.config.tool_params.ToolParamResolver.validate") as mock_validate:
                 mock_validate.return_value = (True, "")
-                
-                result = ToolParamManager.batch_update("test_tool", {
-                    "param1": "value1",
-                    "param2": "value2",
-                })
-                
+
+                result = ToolParamManager.batch_update(
+                    "test_tool",
+                    {
+                        "param1": "value1",
+                        "param2": "value2",
+                    },
+                )
+
                 assert "param1" in result["updated"]
                 assert "param2" in result["updated"]
                 assert result["errors"] == []
@@ -215,8 +231,8 @@ class TestToolParamManager:
         mock_config = MagicMock()
         mock_config.value = "test-value"
         mock_db.query.return_value.filter_by.return_value.first.return_value = mock_config
-        
-        with patch('agent.config.templates.get_all_tools') as mock_tools:
+
+        with patch("agent.config.templates.get_all_tools") as mock_tools:
             mock_tools.return_value = {
                 "test_tool": {
                     "api_key": {
@@ -228,9 +244,9 @@ class TestToolParamManager:
                     }
                 }
             }
-            
+
             config = ToolParamManager.export_config("test_tool")
-            
+
             assert "export_time" in config
             assert "version" in config
             assert "tools" in config
@@ -239,23 +255,31 @@ class TestToolParamManager:
     def test_import_config(self, mock_db):
         """测试导入配置"""
         mock_db.query.return_value.filter_by.return_value.first.return_value = None
-        
-        with patch('agent.config.templates.get_tool_template') as mock_template:
+
+        with patch("agent.config.templates.get_tool_template") as mock_template:
             mock_template.return_value = {
-                "api_key": {"type": "string", "sensitive": True, "default": "", "env_key": None, "description": ""},
+                "api_key": {
+                    "type": "string",
+                    "sensitive": True,
+                    "default": "",
+                    "env_key": None,
+                    "description": "",
+                },
             }
-            
-            with patch('agent.config.tool_params.ToolParamResolver.validate') as mock_validate:
+
+            with patch("agent.config.tool_params.ToolParamResolver.validate") as mock_validate:
                 mock_validate.return_value = (True, "")
-                
-                imported, skipped, errors = ToolParamManager.import_config({
-                    "tools": {
-                        "test_tool": {
-                            "api_key": "imported-key",
+
+                imported, skipped, errors = ToolParamManager.import_config(
+                    {
+                        "tools": {
+                            "test_tool": {
+                                "api_key": "imported-key",
+                            }
                         }
                     }
-                })
-                
+                )
+
                 assert imported == 1
                 assert skipped == 0
                 assert errors == []
@@ -267,24 +291,24 @@ class TestToolParamValidator:
     def test_validate_string(self):
         """测试字符串验证"""
         from agent.config.manager import ToolParamValidator
-        
-        with patch('agent.config.tool_params.ToolParamResolver.validate') as mock_validate:
+
+        with patch("agent.config.tool_params.ToolParamResolver.validate") as mock_validate:
             mock_validate.return_value = (True, "")
-            
+
             is_valid, error = ToolParamValidator.validate("test_tool", "param", "value")
-            
+
             assert is_valid is True
             assert error == ""
 
     def test_validate_invalid(self):
         """测试无效参数验证"""
         from agent.config.manager import ToolParamValidator
-        
-        with patch('agent.config.tool_params.ToolParamResolver.validate') as mock_validate:
+
+        with patch("agent.config.tool_params.ToolParamResolver.validate") as mock_validate:
             mock_validate.return_value = (False, "Invalid parameter")
-            
+
             is_valid, error = ToolParamValidator.validate("test_tool", "param", "invalid")
-            
+
             assert is_valid is False
             assert error == "Invalid parameter"
 
@@ -295,7 +319,7 @@ class TestConfigSchemas:
     def test_param_template_item(self):
         """测试参数模板项"""
         from agent.config.schemas import ParamTemplateItem
-        
+
         item = ParamTemplateItem(
             type="string",
             required=True,
@@ -304,7 +328,7 @@ class TestConfigSchemas:
             env_key="TEST_KEY",
             description="Test parameter",
         )
-        
+
         assert item.type == "string"
         assert item.required is True
         assert item.sensitive is False
@@ -314,8 +338,8 @@ class TestConfigSchemas:
 
     def test_tool_param_template(self):
         """测试工具参数模板"""
-        from agent.config.schemas import ToolParamTemplate, ParamTemplateItem
-        
+        from agent.config.schemas import ParamTemplateItem, ToolParamTemplate
+
         template = ToolParamTemplate(
             name="test_tool",
             description="Test tool",
@@ -325,9 +349,9 @@ class TestConfigSchemas:
                     required=True,
                     sensitive=True,
                 )
-            }
+            },
         )
-        
+
         assert template.name == "test_tool"
         assert template.description == "Test tool"
         assert "api_key" in template.params
@@ -335,7 +359,7 @@ class TestConfigSchemas:
     def test_param_value_info(self):
         """测试参数值信息"""
         from agent.config.schemas import ParamValueInfo
-        
+
         info = ParamValueInfo(
             value="test-value",
             configured=True,
@@ -344,7 +368,7 @@ class TestConfigSchemas:
             type="string",
             description="Test parameter",
         )
-        
+
         assert info.value == "test-value"
         assert info.configured is True
         assert info.source == "database"
@@ -352,8 +376,8 @@ class TestConfigSchemas:
 
     def test_tool_params_response(self):
         """测试工具参数响应"""
-        from agent.config.schemas import ToolParamsResponse, ParamValueInfo
-        
+        from agent.config.schemas import ParamValueInfo, ToolParamsResponse
+
         response = ToolParamsResponse(
             tool_name="test_tool",
             params={
@@ -363,34 +387,34 @@ class TestConfigSchemas:
                     source="database",
                     sensitive=True,
                 )
-            }
+            },
         )
-        
+
         assert response.tool_name == "test_tool"
         assert "api_key" in response.params
 
     def test_batch_update_request(self):
         """测试批量更新请求"""
         from agent.config.schemas import BatchUpdateRequest
-        
+
         request = BatchUpdateRequest(
             params={"param1": "value1", "param2": "value2"},
             overwrite=True,
         )
-        
+
         assert request.params["param1"] == "value1"
         assert request.overwrite is True
 
     def test_import_export_result(self):
         """测试导入导出结果"""
         from agent.config.schemas import ImportExportResult
-        
+
         result = ImportExportResult(
             imported=5,
             skipped=2,
             errors=["Error 1", "Error 2"],
         )
-        
+
         assert result.imported == 5
         assert result.skipped == 2
         assert len(result.errors) == 2

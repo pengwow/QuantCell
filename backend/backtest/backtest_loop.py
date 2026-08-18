@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """BacktestLoop — 使用 axon_quant.backtest.BacktestEngine 的回测循环"""
 
 from __future__ import annotations
@@ -6,13 +5,14 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
 
 import pandas as pd
 
 from axon_bridge import (
     Action,
+)
+from axon_bridge import (
     BacktestEngine as _NativeBacktestEngine,
 )
 from axon_bridge.backtest import spot_instrument
@@ -28,6 +28,7 @@ _DEFAULT_AUTO_REBALANCE_THRESHOLD = 0.001
 @dataclass
 class BacktestResult:
     """回测结果"""
+
     total_pnl: float = 0.0
     total_orders: int = 0
     fills: int = 0
@@ -95,9 +96,9 @@ class BacktestLoop:
         strategy: RuleStrategy,
         data: pd.DataFrame,
         symbol: str = "BTCUSDT",
-        force_liquidate: Optional[bool] = None,
-        features: Optional[dict] = None,
-        feature_dataframe: Optional[pd.DataFrame] = None,
+        force_liquidate: bool | None = None,
+        features: dict | None = None,
+        feature_dataframe: pd.DataFrame | None = None,
         data_type: str = "kline",
     ) -> BacktestResult:
         """执行回测
@@ -116,11 +117,7 @@ class BacktestLoop:
         """
         from strategy.base import BaseStrategy, StrategyContext
 
-        effective_force_liquidate = (
-            self._default_force_liquidate
-            if force_liquidate is None
-            else force_liquidate
-        )
+        effective_force_liquidate = self._default_force_liquidate if force_liquidate is None else force_liquidate
 
         # 解析 instrument: 从 symbol 如 BTCUSDT 提取 base/quote
         base, quote = self._parse_symbol(symbol)
@@ -177,10 +174,7 @@ class BacktestLoop:
 
         for idx, row in data.iterrows():
             # 优先使用 timestamp 列（纳秒时间戳），否则从 DatetimeIndex 转换
-            if _ts:
-                ts = int(row[_ts])
-            else:
-                ts = int(pd.Timestamp(idx).timestamp() * 1_000_000_000)
+            ts = int(row[_ts]) if _ts else int(pd.Timestamp(idx).timestamp() * 1000000000)
             close_price = float(row[_close])
 
             # 0.10.0 API: begin_bar(price=, instrument=)
@@ -202,10 +196,7 @@ class BacktestLoop:
                 ctx.account_equity = self._initial_cash
 
             # 策略决策
-            if is_base_strategy:
-                action = strategy.on_bar(bar, ctx)
-            else:
-                action = strategy.on_bar(bar)
+            action = strategy.on_bar(bar, ctx) if is_base_strategy else strategy.on_bar(bar)
             total_orders += 1
 
             # EventDrivenStrategy 可能返回 None（无引擎引用时）
@@ -245,23 +236,23 @@ class BacktestLoop:
         equity_curve = []
         bar_nav = list(getattr(result, "bar_nav_curve", []))
         for ts_ns, nav in bar_nav:
-            dt = datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc)
+            dt = datetime.fromtimestamp(ts_ns / 1e9, tz=UTC)
             dt_str = dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
             nav_float = float(nav)
-            equity_curve.append({
-                # 大写字段（EquityChart 组件支持）
-                "datetime": dt_str,
-                "Equity": nav_float,
-                # 小写兼容字段
-                "equity": nav_float,
-                "formatted_time": dt_str,
-                "timestamp": int(ts_ns / 1e6),  # 毫秒级时间戳
-            })
+            equity_curve.append(
+                {
+                    # 大写字段（EquityChart 组件支持）
+                    "datetime": dt_str,
+                    "Equity": nav_float,
+                    # 小写兼容字段
+                    "equity": nav_float,
+                    "formatted_time": dt_str,
+                    "timestamp": int(ts_ns / 1e6),  # 毫秒级时间戳
+                }
+            )
 
         # 构建 round-trip trades: 从 fills_detail 配对开平仓
-        trade_records = self._build_round_trip_trades(
-            list(getattr(result, "fills_detail", []))
-        )
+        trade_records = self._build_round_trip_trades(list(getattr(result, "fills_detail", [])))
 
         # 获取数据时间范围：优先使用 timestamp 列
         if "timestamp" in data.columns and len(data) > 0:
@@ -316,12 +307,14 @@ class BacktestLoop:
             ts_ns = int(fill.get("timestamp_ns", 0))
 
             if side == "Buy":
-                open_positions.append({
-                    "entry_time_ns": ts_ns,
-                    "entry_price": price,
-                    "quantity": qty,
-                    "remaining": qty,
-                })
+                open_positions.append(
+                    {
+                        "entry_time_ns": ts_ns,
+                        "entry_price": price,
+                        "quantity": qty,
+                        "remaining": qty,
+                    }
+                )
             elif side == "Sell" and open_positions:
                 # FIFO 配对平仓
                 remaining_to_close = qty
@@ -329,8 +322,8 @@ class BacktestLoop:
                     open_pos = open_positions[0]
                     matched_qty = min(open_pos["remaining"], remaining_to_close)
 
-                    entry_dt = datetime.fromtimestamp(open_pos["entry_time_ns"] / 1e9, tz=timezone.utc)
-                    exit_dt = datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc)
+                    entry_dt = datetime.fromtimestamp(open_pos["entry_time_ns"] / 1e9, tz=UTC)
+                    exit_dt = datetime.fromtimestamp(ts_ns / 1e9, tz=UTC)
                     pnl = matched_qty * (price - open_pos["entry_price"])
                     entry_value = matched_qty * open_pos["entry_price"]
                     return_pct = (pnl / entry_value * 100.0) if entry_value > 0 else 0.0
@@ -338,28 +331,30 @@ class BacktestLoop:
                     # 同时提供大写字段（回测表格）和小写字段兼容（其他组件）
                     entry_time_str = entry_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
                     exit_time_str = exit_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                    trades.append({
-                        # 大写字段（前端 types/backtest.ts 中 Trade 接口）
-                        "EntryTime": entry_time_str,
-                        "ExitTime": exit_time_str,
-                        "EntryPrice": open_pos["entry_price"],
-                        "ExitPrice": price,
-                        "Size": matched_qty,
-                        "PnL": pnl,
-                        "ReturnPct": return_pct,
-                        "Direction": "long",
-                        # 小写兼容字段（部分组件可能使用）
-                        "entry_time": entry_time_str,
-                        "exit_time": exit_time_str,
-                        "entry_price": open_pos["entry_price"],
-                        "exit_price": price,
-                        "size": matched_qty,
-                        "pnl": pnl,
-                        "return_pct": return_pct,
-                        "direction": "long",
-                        "side": "sell",
-                        "status": "FILLED",
-                    })
+                    trades.append(
+                        {
+                            # 大写字段（前端 types/backtest.ts 中 Trade 接口）
+                            "EntryTime": entry_time_str,
+                            "ExitTime": exit_time_str,
+                            "EntryPrice": open_pos["entry_price"],
+                            "ExitPrice": price,
+                            "Size": matched_qty,
+                            "PnL": pnl,
+                            "ReturnPct": return_pct,
+                            "Direction": "long",
+                            # 小写兼容字段（部分组件可能使用）
+                            "entry_time": entry_time_str,
+                            "exit_time": exit_time_str,
+                            "entry_price": open_pos["entry_price"],
+                            "exit_price": price,
+                            "size": matched_qty,
+                            "pnl": pnl,
+                            "return_pct": return_pct,
+                            "direction": "long",
+                            "side": "sell",
+                            "status": "FILLED",
+                        }
+                    )
 
                     open_pos["remaining"] -= matched_qty
                     remaining_to_close -= matched_qty
@@ -374,5 +369,5 @@ class BacktestLoop:
         s = symbol.upper().replace("-", "").replace("_", "")
         for q in ("USDT", "USDC", "USD", "BTC", "ETH"):
             if s.endswith(q) and len(s) > len(q):
-                return s[:-len(q)], q
+                return s[: -len(q)], q
         return "BTC", "USDT"

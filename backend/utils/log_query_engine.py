@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 日志查询引擎
 
@@ -6,15 +5,13 @@
 包含结果缓存、并行处理等优化机制。
 """
 
-import time
 import hashlib
 import threading
+import time
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Callable
-from functools import wraps
+from typing import Any
 
 from utils.file_log_manager import (
-    FileLogManager,
     LogFilters,
     PaginatedResult,
     get_file_log_manager,
@@ -37,7 +34,7 @@ class QueryCache:
             max_size: 最大缓存条目数
             ttl_seconds: 缓存有效期（秒）
         """
-        self._cache: Dict[str, tuple] = {}
+        self._cache: dict[str, tuple] = {}
         self._max_size = max_size
         self._ttl = ttl_seconds
         self._lock = threading.Lock()
@@ -47,20 +44,20 @@ class QueryCache:
     def _generate_key(self, filters: LogFilters, page: int, page_size: int) -> str:
         """生成缓存键"""
         key_data = {
-            'level': filters.level,
-            'log_type': filters.log_type,
-            'module': filters.module,
-            'trace_id': filters.trace_id,
-            'start_time': filters.start_time.isoformat() if filters.start_time else None,
-            'end_time': filters.end_time.isoformat() if filters.end_time else None,
-            'keyword': filters.keyword,
-            'page': page,
-            'page_size': page_size,
+            "level": filters.level,
+            "log_type": filters.log_type,
+            "module": filters.module,
+            "trace_id": filters.trace_id,
+            "start_time": filters.start_time.isoformat() if filters.start_time else None,
+            "end_time": filters.end_time.isoformat() if filters.end_time else None,
+            "keyword": filters.keyword,
+            "page": page,
+            "page_size": page_size,
         }
         key_str = str(sorted(key_data.items()))
         return hashlib.md5(key_str.encode()).hexdigest()
 
-    def get(self, filters: LogFilters, page: int, page_size: int) -> Optional[PaginatedResult]:
+    def get(self, filters: LogFilters, page: int, page_size: int) -> PaginatedResult | None:
         """
         获取缓存的查询结果
 
@@ -84,13 +81,7 @@ class QueryCache:
             self._misses += 1
             return None
 
-    def set(
-        self,
-        filters: LogFilters,
-        page: int,
-        page_size: int,
-        result: PaginatedResult
-    ) -> None:
+    def set(self, filters: LogFilters, page: int, page_size: int, result: PaginatedResult) -> None:
         """
         缓存查询结果
 
@@ -115,7 +106,7 @@ class QueryCache:
         with self._lock:
             self._cache.clear()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         获取缓存统计信息
 
@@ -126,12 +117,12 @@ class QueryCache:
         hit_rate = (self._hits / total * 100) if total > 0 else 0
 
         return {
-            'size': len(self._cache),
-            'max_size': self._max_size,
-            'hits': self._hits,
-            'misses': self._misses,
-            'hit_rate': f'{hit_rate:.1f}%',
-            'ttl_seconds': self._ttl,
+            "size": len(self._cache),
+            "max_size": self._max_size,
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": f"{hit_rate:.1f}%",
+            "ttl_seconds": self._ttl,
         }
 
 
@@ -145,10 +136,10 @@ class LogQueryEngine:
     - 并行查询优化（未来可扩展）
     """
 
-    _instance: Optional["LogQueryEngine"] = None
+    _instance: LogQueryEngine | None = None
     _lock = threading.Lock()
 
-    def __new__(cls) -> "LogQueryEngine":
+    def __new__(cls) -> LogQueryEngine:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -157,7 +148,7 @@ class LogQueryEngine:
         return cls._instance
 
     def __init__(self):
-        if getattr(self, '_initialized', False):
+        if getattr(self, "_initialized", False):
             return
 
         self._initialized = True
@@ -169,21 +160,21 @@ class LogQueryEngine:
         self.cache = QueryCache(max_size=100, ttl_seconds=30.0)
 
         # 性能统计
-        self._query_stats: Dict[str, Dict[str, float]] = {}
+        self._query_stats: dict[str, dict[str, float]] = {}
         self._stats_lock = threading.Lock()
 
     def query_logs(
         self,
-        level: Optional[str] = None,
-        log_type: Optional[str] = None,
-        module: Optional[str] = None,
-        trace_id: Optional[str] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        keyword: Optional[str] = None,
+        level: str | None = None,
+        log_type: str | None = None,
+        module: str | None = None,
+        trace_id: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        keyword: str | None = None,
         page: int = 1,
         page_size: int = 50,
-        use_cache: bool = True
+        use_cache: bool = True,
     ) -> PaginatedResult:
         """
         执行日志查询（带缓存）
@@ -220,7 +211,7 @@ class LogQueryEngine:
         if use_cache:
             cached_result = self.cache.get(filters, page, page_size)
             if cached_result is not None:
-                self._record_query_stats('query_logs_cached', time.perf_counter() - start_time_perf)
+                self._record_query_stats("query_logs_cached", time.perf_counter() - start_time_perf)
                 return cached_result
 
         # 执行实际查询
@@ -232,16 +223,11 @@ class LogQueryEngine:
 
         # 记录性能统计
         elapsed = time.perf_counter() - start_time_perf
-        self._record_query_stats('query_logs', elapsed)
+        self._record_query_stats("query_logs", elapsed)
 
         return result
 
-    def get_recent_logs(
-        self,
-        minutes: int = 60,
-        limit: int = 100,
-        level: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    def get_recent_logs(self, minutes: int = 60, limit: int = 100, level: str | None = None) -> list[dict[str, Any]]:
         """
         获取最近的日志记录
 
@@ -258,16 +244,11 @@ class LogQueryEngine:
         result = self.file_manager.get_recent_logs(minutes=minutes, limit=limit, level=level)
 
         elapsed = time.perf_counter() - start_time_perf
-        self._record_query_stats('get_recent_logs', elapsed)
+        self._record_query_stats("get_recent_logs", elapsed)
 
         return result
 
-    def get_logs_by_trace_id(
-        self,
-        trace_id: str,
-        page: int = 1,
-        page_size: int = 50
-    ) -> PaginatedResult:
+    def get_logs_by_trace_id(self, trace_id: str, page: int = 1, page_size: int = 50) -> PaginatedResult:
         """
         根据跟踪ID获取相关日志
 
@@ -284,15 +265,11 @@ class LogQueryEngine:
         result = self.file_manager.get_logs_by_trace_id(trace_id, page=page, page_size=page_size)
 
         elapsed = time.perf_counter() - start_time_perf
-        self._record_query_stats('get_logs_by_trace_id', elapsed)
+        self._record_query_stats("get_logs_by_trace_id", elapsed)
 
         return result
 
-    def get_statistics(
-        self,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None
-    ) -> Dict[str, Any]:
+    def get_statistics(self, start_time: datetime | None = None, end_time: datetime | None = None) -> dict[str, Any]:
         """
         获取日志统计信息
 
@@ -308,15 +285,15 @@ class LogQueryEngine:
         stats = self.file_manager.get_statistics(start_time=start_time, end_time=end_time)
 
         elapsed = time.perf_counter() - start_time_perf
-        self._record_query_stats('get_statistics', elapsed)
+        self._record_query_stats("get_statistics", elapsed)
 
         return {
-            'total_count': stats.total_count,
-            'by_level': stats.by_level,
-            'by_type': stats.by_type,
+            "total_count": stats.total_count,
+            "by_level": stats.by_level,
+            "by_type": stats.by_type,
         }
 
-    def cleanup_old_logs(self, days: int = 30) -> Dict[str, Any]:
+    def cleanup_old_logs(self, days: int = 30) -> dict[str, Any]:
         """
         清理旧日志文件
 
@@ -331,15 +308,15 @@ class LogQueryEngine:
         deleted_count = self.file_manager.cleanup_old_logs(days=days)
 
         elapsed = time.perf_counter() - start_time_perf
-        self._record_query_stats('cleanup_old_logs', elapsed)
+        self._record_query_stats("cleanup_old_logs", elapsed)
 
         return {
-            'success': True,
-            'deleted_count': deleted_count,
-            'retention_days': days,
+            "success": True,
+            "deleted_count": deleted_count,
+            "retention_days": days,
         }
 
-    def get_dashboard_data(self, hours: int = 24) -> Dict[str, Any]:
+    def get_dashboard_data(self, hours: int = 24) -> dict[str, Any]:
         """
         获取仪表板数据
 
@@ -362,36 +339,36 @@ class LogQueryEngine:
 
         # 获取错误日志
         error_result = self.query_logs(
-            level='ERROR',
+            level="ERROR",
             start_time=start_time,
             end_time=end_time,
             page=1,
             page_size=10,
-            use_cache=False  # 仪表板数据不缓存
+            use_cache=False,  # 仪表板数据不缓存
         )
 
         # 获取警告日志
         warning_result = self.query_logs(
-            level='WARNING',
+            level="WARNING",
             start_time=start_time,
             end_time=end_time,
             page=1,
             page_size=10,
-            use_cache=False
+            use_cache=False,
         )
 
         elapsed = time.perf_counter() - start_time_perf
-        self._record_query_stats('get_dashboard_data', elapsed)
+        self._record_query_stats("get_dashboard_data", elapsed)
 
         return {
-            'time_range': {
-                'start': start_time.isoformat(),
-                'end': end_time.isoformat(),
-                'hours': hours,
+            "time_range": {
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+                "hours": hours,
             },
-            'statistics': stats,
-            'recent_errors': error_result.logs,
-            'recent_warnings': warning_result.logs,
+            "statistics": stats,
+            "recent_errors": error_result.logs,
+            "recent_warnings": warning_result.logs,
         }
 
     def _record_query_stats(self, operation: str, elapsed: float) -> None:
@@ -399,19 +376,19 @@ class LogQueryEngine:
         with self._stats_lock:
             if operation not in self._query_stats:
                 self._query_stats[operation] = {
-                    'count': 0,
-                    'total_time': 0.0,
-                    'min_time': float('inf'),
-                    'max_time': 0.0,
+                    "count": 0,
+                    "total_time": 0.0,
+                    "min_time": float("inf"),
+                    "max_time": 0.0,
                 }
 
             stats = self._query_stats[operation]
-            stats['count'] += 1
-            stats['total_time'] += elapsed
-            stats['min_time'] = min(stats['min_time'], elapsed)
-            stats['max_time'] = max(stats['max_time'], elapsed)
+            stats["count"] += 1
+            stats["total_time"] += elapsed
+            stats["min_time"] = min(stats["min_time"], elapsed)
+            stats["max_time"] = max(stats["max_time"], elapsed)
 
-    def get_performance_stats(self) -> Dict[str, Any]:
+    def get_performance_stats(self) -> dict[str, Any]:
         """
         获取性能统计信息
 
@@ -422,20 +399,20 @@ class LogQueryEngine:
             result = {}
 
             for op, stats in self._query_stats.items():
-                count = stats['count']
-                avg_time = stats['total_time'] / count if count > 0 else 0
+                count = stats["count"]
+                avg_time = stats["total_time"] / count if count > 0 else 0
 
                 result[op] = {
-                    'count': count,
-                    'total_time_ms': round(stats['total_time'] * 1000, 2),
-                    'avg_time_ms': round(avg_time * 1000, 2),
-                    'min_time_ms': round(stats['min_time'] * 1000, 2) if stats['min_time'] != float('inf') else 0,
-                    'max_time_ms': round(stats['max_time'] * 1000, 2),
+                    "count": count,
+                    "total_time_ms": round(stats["total_time"] * 1000, 2),
+                    "avg_time_ms": round(avg_time * 1000, 2),
+                    "min_time_ms": round(stats["min_time"] * 1000, 2) if stats["min_time"] != float("inf") else 0,
+                    "max_time_ms": round(stats["max_time"] * 1000, 2),
                 }
 
             return {
-                'operations': result,
-                'cache': self.cache.get_stats(),
+                "operations": result,
+                "cache": self.cache.get_stats(),
             }
 
     def clear_cache(self) -> None:
@@ -444,7 +421,7 @@ class LogQueryEngine:
 
 
 # 全局实例
-_log_query_engine_instance: Optional[LogQueryEngine] = None
+_log_query_engine_instance: LogQueryEngine | None = None
 _engine_lock = threading.Lock()
 
 

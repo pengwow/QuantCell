@@ -22,22 +22,20 @@
 日期: 2026-02-12
 """
 
-import os
-import sys
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import bcrypt
-
 from fastapi import APIRouter, Body, HTTPException, Path, Request
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 # 导入JWT认证装饰器
 from utils.auth import jwt_auth_required_sync
-from utils.jwt_utils import create_jwt_token, generate_tokens, generate_guest_tokens
+from utils.jwt_utils import generate_tokens
 
 
 def hash_password(password: str) -> str:
@@ -64,28 +62,27 @@ def verify_password(password: str, hashed_password: str) -> bool:
     # ponytail: 旧用户密码可能是 sha256 hex，做一次回退
     if len(hashed_password) == 64 and all(c in "0123456789abcdef" for c in hashed_password):
         import hashlib
+
         return hashlib.sha256(password.encode("utf-8")).hexdigest() == hashed_password
     return bcrypt.checkpw(password.encode("utf-8"), hashed_password.encode("utf-8"))
 
+
 # 导入配置管理相关模块
-from settings.models import SystemConfigBusiness as SystemConfig
+
 from collector.db.models import SystemConfig as SystemConfigModel
-from utils.db_session import get_db_session
-from sqlalchemy.orm import Session
 from collector.db.models import UserBusiness
-from settings.services import SystemService
 
 # 导入统一的ApiResponse模型
 from common.schemas import ApiResponse
+from settings.models import SystemConfigBusiness as SystemConfig
 
 # 导入详细的Schema模型
 from settings.schemas import (
     ConfigBatchUpdateRequest,
     ConfigUpdateRequest,
-    SystemConfigItem,
-    SystemConfigSimple,
-    SystemInfo
 )
+from settings.services import SystemService
+from utils.db_session import get_db_session
 
 # 创建API路由实例
 router = APIRouter()
@@ -101,7 +98,7 @@ system_router = APIRouter(prefix="/api/system", tags=["system-info"])
 
 
 @auth_router.post("/api/auth/login", response_model=ApiResponse)
-def login(request: Request, credentials: Dict[str, str] = Body(...)):
+def login(request: Request, credentials: dict[str, str] = Body(...)):
     """用户登录
 
     仅支持注册用户登录，不再支持访客模式。
@@ -118,28 +115,16 @@ def login(request: Request, credentials: Dict[str, str] = Body(...)):
         password = credentials.get("password", "").strip()
 
         if not username or not password:
-            return ApiResponse(
-                code=400,
-                message="请输入用户名和密码",
-                data=None
-            )
+            return ApiResponse(code=400, message="请输入用户名和密码", data=None)
 
         logger.info(f"用户登录尝试: {username}")
 
         user_info = UserBusiness.authenticate(username, password)
         if not user_info:
             logger.warning(f"用户登录失败: {username}")
-            return ApiResponse(
-                code=401,
-                message="用户名或密码错误",
-                data=None
-            )
+            return ApiResponse(code=401, message="用户名或密码错误", data=None)
 
-        tokens = generate_tokens(
-            str(user_info["id"]),
-            user_info.get("nickname") or username,
-            role="user"
-        )
+        tokens = generate_tokens(str(user_info["id"]), user_info.get("nickname") or username, role="user")
 
         logger.info(f"用户登录成功: {username} (id={user_info['id']})")
         return ApiResponse(
@@ -153,8 +138,8 @@ def login(request: Request, credentials: Dict[str, str] = Body(...)):
                 "username": username,
                 "nickname": user_info.get("nickname"),
                 "is_guest": False,
-                "role": "user"
-            }
+                "role": "user",
+            },
         )
     except Exception as e:
         logger.error(f"登录失败: {e}")
@@ -162,7 +147,7 @@ def login(request: Request, credentials: Dict[str, str] = Body(...)):
 
 
 @auth_router.post("/api/auth/register", response_model=ApiResponse)
-def register(request: Request, credentials: Dict[str, str] = Body(...)):
+def register(request: Request, credentials: dict[str, str] = Body(...)):
     """用户注册
 
     创建新用户账号，注册后可直接使用用户名密码登录。
@@ -194,11 +179,7 @@ def register(request: Request, credentials: Dict[str, str] = Body(...)):
         user_info = UserBusiness.create(username, password)
         if not user_info:
             logger.warning(f"用户注册失败，用户已存在: {username}")
-            return ApiResponse(
-                code=409,
-                message="用户名已被注册",
-                data=None
-            )
+            return ApiResponse(code=409, message="用户名已被注册", data=None)
 
         logger.info(f"用户注册成功: {username} (id={user_info['id']})")
         return ApiResponse(
@@ -208,7 +189,7 @@ def register(request: Request, credentials: Dict[str, str] = Body(...)):
                 "user_id": user_info["id"],
                 "username": user_info["username"],
                 "nickname": user_info["nickname"],
-            }
+            },
         )
     except Exception as e:
         logger.error(f"注册失败: {e}")
@@ -231,14 +212,10 @@ def logout(request: Request):
     try:
         auth_header = request.headers.get("Authorization", "")
         token = auth_header.split(" ")[1] if " " in auth_header else auth_header
-        
+
         logger.info(f"用户注销请求: token={token[:20]}..." if token else "无token注销")
 
-        return ApiResponse(
-            code=0,
-            message="注销成功",
-            data=None
-        )
+        return ApiResponse(code=0, message="注销成功", data=None)
     except Exception as e:
         logger.error(f"注销失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -268,7 +245,7 @@ def get_all_configs(request: Request):
         configs = SystemConfig.get_all_with_details()
 
         # 按 name 字段分组构建配置数据
-        grouped_configs: Dict[str, Dict[str, str]] = {}
+        grouped_configs: dict[str, dict[str, str]] = {}
         for key, config in configs.items():
             name = config.get("name") or "default"  # 如果没有 name，使用 "default"
 
@@ -284,26 +261,24 @@ def get_all_configs(request: Request):
 
         logger.info(f"成功获取所有系统配置，共 {len(configs)} 项，分为 {len(grouped_configs)} 组")
 
-        return ApiResponse(
-            code=0,
-            message="获取所有配置成功",
-            data=grouped_configs
-        )
+        return ApiResponse(code=0, message="获取所有配置成功", data=grouped_configs)
     except Exception as e:
         logger.error(f"获取所有配置失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @config_router.get("/{key}", response_model=ApiResponse)
-def get_config(key: str = Path(..., description="配置项的键名，用于唯一标识一个配置项")):
+def get_config(
+    key: str = Path(..., description="配置项的键名，用于唯一标识一个配置项"),
+):
     """获取指定键的系统配置
-    
+
     Args:
         key: 配置键名，用于唯一标识一个配置项
-        
+
     Returns:
         ApiResponse[SystemConfigItem]: 包含指定配置详细信息的响应
-        
+
     Responses:
         200: 成功获取配置
         404: 配置不存在
@@ -311,27 +286,19 @@ def get_config(key: str = Path(..., description="配置项的键名，用于唯�
     """
     try:
         logger.info(f"开始获取配置: {key}")
-        
+
         # 获取配置
         config = SystemConfig.get_with_details(key)
-        
+
         if config:
             # 如果是敏感配置，返回空字符串
             if config.get("is_sensitive", False):
                 config["value"] = ""
             logger.info(f"成功获取配置: {key}")
-            return ApiResponse(
-                code=0,
-                message="获取配置成功",
-                data=config
-            )
+            return ApiResponse(code=0, message="获取配置成功", data=config)
         else:
             logger.warning(f"配置不存在: {key}")
-            return ApiResponse(
-                code=1,
-                message="配置不存在",
-                data={"key": key}
-            )
+            return ApiResponse(code=1, message="配置不存在", data={"key": key})
     except Exception as e:
         logger.error(f"获取配置失败: key={key}, error={e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -340,14 +307,14 @@ def get_config(key: str = Path(..., description="配置项的键名，用于唯�
 @config_router.post("/", response_model=ApiResponse)
 def update_config(request: Request, config: ConfigUpdateRequest):
     """更新或创建系统配置
-    
+
     Args:
         request: FastAPI请求对象，用于访问应用实例
         config: 配置更新请求体，包含配置的详细信息
-    
+
     Returns:
         ApiResponse[SystemConfigItem]: 包含更新结果的响应
-        
+
     Responses:
         200: 成功更新配置
         400: 请求数据格式错误
@@ -363,7 +330,7 @@ def update_config(request: Request, config: ConfigUpdateRequest):
             code=401,
             message="请先登录",
             data={"detail": "请登录后再修改系统配置"},
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
     try:
@@ -374,16 +341,19 @@ def update_config(request: Request, config: ConfigUpdateRequest):
         plugin = config.plugin
         name = config.name
         is_sensitive = config.is_sensitive
-        
-        logger.info(f"开始更新配置: key={key}, value={value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}")
-        
+
+        logger.info(
+            f"开始更新配置: key={key}, value={value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}"
+        )
+
         # 更新配置
         success = SystemConfig.set(key, value, description, plugin, name, is_sensitive)
-        
+
         if success:
             logger.info(f"成功更新配置: key={key}")
             # 刷新应用上下文配置
             from utils.config_manager import load_system_configs
+
             request.app.state.configs = load_system_configs()
             logger.info("系统配置上下文已刷新")
 
@@ -399,8 +369,8 @@ def update_config(request: Request, config: ConfigUpdateRequest):
                     "description": description,
                     "plugin": plugin,
                     "name": name,
-                    "is_sensitive": is_sensitive
-                }
+                    "is_sensitive": is_sensitive,
+                },
             )
         else:
             logger.error(f"更新配置失败: key={key}")
@@ -416,36 +386,33 @@ def update_config(request: Request, config: ConfigUpdateRequest):
 @jwt_auth_required_sync
 def delete_config(request: Request, key: str = Path(..., description="要删除的配置项键名")):
     """删除指定键的系统配置
-    
+
     Args:
         request: FastAPI请求对象，用于访问应用实例
         key: 要删除的配置项键名
-        
+
     Returns:
         ApiResponse: 包含删除结果的响应
-        
+
     Responses:
         200: 成功删除配置
         500: 删除配置失败
     """
     try:
         logger.info(f"开始删除配置: {key}")
-        
+
         # 删除配置
         success = SystemConfig.delete(key)
-        
+
         if success:
             logger.info(f"成功删除配置: {key}")
             # 刷新应用上下文配置
             from utils.config_manager import load_system_configs
+
             request.app.state.configs = load_system_configs()
             logger.info("系统配置上下文已刷新")
-            
-            return ApiResponse(
-                code=0,
-                message="删除配置成功",
-                data={"key": key}
-            )
+
+            return ApiResponse(code=0, message="删除配置成功", data={"key": key})
         else:
             logger.error(f"删除配置失败: {key}")
             raise HTTPException(status_code=500, detail="删除配置失败")
@@ -455,7 +422,10 @@ def delete_config(request: Request, key: str = Path(..., description="要删除�
 
 
 @config_router.post("/batch", response_model=ApiResponse)
-def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[Dict[str, Any]], ConfigBatchUpdateRequest] = Body(...)):
+def update_configs_batch(
+    request: Request,
+    configs: dict[str, str] | list[dict[str, Any]] | ConfigBatchUpdateRequest = Body(...),
+):
     """批量更新系统配置
 
     Args:
@@ -508,18 +478,18 @@ def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[D
             code=401,
             message="请先登录",
             data={"detail": "请登录后再修改系统配置"},
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
     try:
         logger.info("开始批量更新系统配置")
         updated_count = 0
         batch_configs = configs
-        
+
         # 处理不同格式的请求体
         if isinstance(batch_configs, ConfigBatchUpdateRequest):
             batch_configs = batch_configs.configs
-        
+
         if isinstance(batch_configs, dict):
             for key, value in batch_configs.items():
                 if not key.startswith("__v"):
@@ -537,12 +507,14 @@ def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[D
                 is_sensitive = config_item.get("is_sensitive", False)
 
                 # 如果是用户密码配置，进行单向加密
-                if key == 'user.password' and value:
+                if key == "user.password" and value:
                     value = hash_password(value)
                     is_sensitive = True
-                    logger.info(f"用户密码已加密存储")
+                    logger.info("用户密码已加密存储")
 
-                logger.info(f"更新配置: key={key}, value={'******' if is_sensitive else value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}")
+                logger.info(
+                    f"更新配置: key={key}, value={'******' if is_sensitive else value}, plugin={plugin}, name={name}, is_sensitive={is_sensitive}"
+                )
                 # 系统配置不使用user_id隔离，确保能按key精确匹配并更新已有记录
                 SystemConfig.set(
                     key=key,
@@ -553,7 +525,7 @@ def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[D
                     is_sensitive=is_sensitive,
                 )
                 updated_count += 1
-        
+
         logger.info(f"批量更新的配置数量: {updated_count}")
 
         # is_default互斥处理：确保ai_model.*.is_default只有一条为'1'
@@ -561,14 +533,11 @@ def update_configs_batch(request: Request, configs: Union[Dict[str, str], List[D
 
         # 刷新应用上下文配置
         from utils.config_manager import load_system_configs
+
         request.app.state.configs = load_system_configs()
         logger.info("系统配置上下文已刷新")
-        
-        return ApiResponse(
-            code=0,
-            message="批量更新配置成功",
-            data={"updated_count": updated_count}
-        )
+
+        return ApiResponse(code=0, message="批量更新配置成功", data={"updated_count": updated_count})
     except Exception as e:
         logger.error(f"批量更新配置失败: error={e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -600,9 +569,7 @@ def _ensure_single_default_provider(batch_configs: Any) -> None:
 
         with get_db_session() as db:
             default_records = (
-                db.query(SystemConfigModel)
-                .filter(SystemConfigModel.key.like("ai_model.%.is_default"))
-                .all()
+                db.query(SystemConfigModel).filter(SystemConfigModel.key.like("ai_model.%.is_default")).all()
             )
             enabled_records = [r for r in default_records if r.value == "1"]
 
@@ -621,7 +588,9 @@ def _ensure_single_default_provider(batch_configs: Any) -> None:
 
 
 @config_router.get("/plugin/{plugin_name}", response_model=ApiResponse)
-def get_plugin_config(plugin_name: str = Path(..., description="插件的名称，用于过滤插件相关的配置项")):
+def get_plugin_config(
+    plugin_name: str = Path(..., description="插件的名称，用于过滤插件相关的配置项"),
+):
     """获取指定插件的所有配置
 
     Args:
@@ -629,17 +598,17 @@ def get_plugin_config(plugin_name: str = Path(..., description="插件的名称�
 
     Returns:
         ApiResponse[Dict[str, str]]: 包含指定插件配置的响应，值为敏感配置时返回空字符串
-        
+
     Responses:
         200: 成功获取插件配置
         500: 获取插件配置失败
     """
     try:
         logger.info(f"开始获取插件配置: {plugin_name}")
-        
+
         # 获取所有配置的详细信息
         all_configs = SystemConfig.get_all_with_details()
-        
+
         # 过滤出与指定插件相关的配置
         plugin_configs = {}
         for key, config in all_configs.items():
@@ -649,14 +618,10 @@ def get_plugin_config(plugin_name: str = Path(..., description="插件的名称�
                     plugin_configs[key] = ""
                 else:
                     plugin_configs[key] = config["value"]
-        
+
         logger.info(f"成功获取插件配置，共 {len(plugin_configs)} 项")
-        
-        return ApiResponse(
-            code=0,
-            message="获取插件配置成功",
-            data=plugin_configs
-        )
+
+        return ApiResponse(code=0, message="获取插件配置成功", data=plugin_configs)
     except Exception as e:
         logger.error(f"获取插件配置失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -678,24 +643,12 @@ def get_system_info():
         result = system_service.get_system_info()
 
         if result["success"]:
-            return ApiResponse(
-                code=0,
-                message=result["message"],
-                data=result["system_info"]
-            )
+            return ApiResponse(code=0, message=result["message"], data=result["system_info"])
         else:
-            return ApiResponse(
-                code=1,
-                message=result["message"],
-                data=result["error"]
-            )
+            return ApiResponse(code=1, message=result["message"], data=result["error"])
     except Exception as e:
         logger.error(f"获取系统信息失败: {e}")
-        return ApiResponse(
-            code=1,
-            message="获取系统信息失败",
-            data=str(e)
-        )
+        return ApiResponse(code=1, message="获取系统信息失败", data=str(e))
 
 
 @system_router.get("/sync-status", response_model=ApiResponse)
@@ -714,9 +667,11 @@ async def get_sync_status():
             "status": symbol_sync_manager.status.value,
             "is_syncing": symbol_sync_manager.is_syncing,
             "consecutive_failures": symbol_sync_manager.consecutive_failures,
-            "last_sync_time": symbol_sync_manager.last_sync_time.isoformat() if symbol_sync_manager.last_sync_time else None,
-            "has_symbols_data": symbol_sync_manager.check_symbols_exist()
-        }
+            "last_sync_time": symbol_sync_manager.last_sync_time.isoformat()
+            if symbol_sync_manager.last_sync_time
+            else None,
+            "has_symbols_data": symbol_sync_manager.check_symbols_exist(),
+        },
     }
 
 
@@ -735,16 +690,12 @@ async def trigger_sync_symbols(exchange: str = "binance"):
     result = await symbol_sync_manager.async_perform_sync(exchange=exchange)
 
     if result.get("success"):
-        return {
-            "code": 0,
-            "message": "同步任务已启动",
-            "data": result
-        }
+        return {"code": 0, "message": "同步任务已启动", "data": result}
     else:
         return {
             "code": 500,
             "message": result.get("message", "同步失败"),
-            "data": result
+            "data": result,
         }
 
 
@@ -763,8 +714,8 @@ async def health_check():
         "data": {
             "status": "healthy",
             "sync_status": symbol_sync_manager.status.value,
-            "has_symbols_data": symbol_sync_manager.check_symbols_exist()
-        }
+            "has_symbols_data": symbol_sync_manager.check_symbols_exist(),
+        },
     }
 
 
@@ -811,8 +762,8 @@ def get_notification_channels(request: Request):
                     "password": "",
                     "senderEmail": "",
                     "senderName": "",
-                    "recipientEmail": ""
-                }
+                    "recipientEmail": "",
+                },
             },
             "wecom": {
                 "id": "wecom",
@@ -823,8 +774,8 @@ def get_notification_channels(request: Request):
                 "config": {
                     "webhookUrl": "",
                     "useCustomFormat": False,
-                    "messageFormat": '{"msgtype": "text", "text": {"content": "${NOTIFIER_SUBJECT}\\n\\n${NOTIFIER_MESSAGE}"}}'
-                }
+                    "messageFormat": '{"msgtype": "text", "text": {"content": "${NOTIFIER_SUBJECT}\\n\\n${NOTIFIER_MESSAGE}"}}',
+                },
             },
             "feishu": {
                 "id": "feishu",
@@ -835,9 +786,9 @@ def get_notification_channels(request: Request):
                 "config": {
                     "webhookUrl": "",
                     "useCustomFormat": False,
-                    "messageFormat": '{"msg_type": "text", "content": {"text": "${NOTIFIER_SUBJECT}\\n\\n${NOTIFIER_MESSAGE}"}}'
-                }
-            }
+                    "messageFormat": '{"msg_type": "text", "content": {"text": "${NOTIFIER_SUBJECT}\\n\\n${NOTIFIER_MESSAGE}"}}',
+                },
+            },
         }
 
         channels = []
@@ -861,11 +812,7 @@ def get_notification_channels(request: Request):
                 # 使用默认配置
                 channels.append(default_config)
 
-        return ApiResponse(
-            code=0,
-            message="获取通知渠道配置成功",
-            data={"channels": channels}
-        )
+        return ApiResponse(code=0, message="获取通知渠道配置成功", data={"channels": channels})
     except Exception as e:
         logger.error(f"获取通知渠道配置失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -873,7 +820,7 @@ def get_notification_channels(request: Request):
 
 @notification_router.post("/channels", response_model=ApiResponse)
 @jwt_auth_required_sync
-def save_notification_channels(request: Request, channels: List[Dict[str, Any]] = Body(...)):
+def save_notification_channels(request: Request, channels: list[dict[str, Any]] = Body(...)):
     """保存通知渠道配置
 
     将每个通知渠道配置保存为一条系统配置记录，name=渠道名称，key=notification_channel。
@@ -909,7 +856,7 @@ def save_notification_channels(request: Request, channels: List[Dict[str, Any]] 
                 "name": channel_id,
                 "enabled": channel.get("enabled", False),
                 "isDefault": channel.get("isDefault", False),
-                "config": channel.get("config", {})
+                "config": channel.get("config", {}),
             }
             config_json = json.dumps(channel_config, ensure_ascii=False)
 
@@ -918,7 +865,7 @@ def save_notification_channels(request: Request, channels: List[Dict[str, Any]] 
                 key=channel_id,
                 value=config_json,
                 description=f"{channel_id}通知配置",
-                name="notification_channel"
+                name="notification_channel",
             )
 
             if success:
@@ -931,17 +878,13 @@ def save_notification_channels(request: Request, channels: List[Dict[str, Any]] 
             # 刷新应用上下文配置
             request.app.state.configs = load_system_configs()
             logger.info("所有通知渠道配置保存成功")
-            return ApiResponse(
-                code=0,
-                message="保存通知渠道配置成功",
-                data={"channels": channels}
-            )
+            return ApiResponse(code=0, message="保存通知渠道配置成功", data={"channels": channels})
         else:
             logger.warning(f"部分渠道配置保存失败: {success_count}/{len(channels)}")
             return ApiResponse(
                 code=0,
                 message=f"部分配置保存成功 ({success_count}/{len(channels)})",
-                data={"channels": channels}
+                data={"channels": channels},
             )
     except Exception as e:
         logger.error(f"保存通知渠道配置失败: {e}")
@@ -950,7 +893,7 @@ def save_notification_channels(request: Request, channels: List[Dict[str, Any]] 
 
 @notification_router.post("/test", response_model=ApiResponse)
 @jwt_auth_required_sync
-async def test_notification(request: Request, test_request: Dict[str, Any] = Body(...)):
+async def test_notification(request: Request, test_request: dict[str, Any] = Body(...)):
     """测试通知渠道
 
     发送测试消息到指定的通知渠道。
@@ -962,7 +905,7 @@ async def test_notification(request: Request, test_request: Dict[str, Any] = Bod
     Returns:
         ApiResponse: 包含测试结果的响应
     """
-    from common.notifications import notification_service, NotificationChannel
+    from common.notifications import NotificationChannel, notification_service
 
     try:
         channel_id = test_request.get("channel_id")
@@ -971,11 +914,7 @@ async def test_notification(request: Request, test_request: Dict[str, Any] = Bod
         logger.info(f"测试通知渠道: {channel_id}")
 
         if not channel_id:
-            return ApiResponse(
-                code=400,
-                message="缺少channel_id参数",
-                data=None
-            )
+            return ApiResponse(code=400, message="缺少channel_id参数", data=None)
 
         # 将channel_id转换为NotificationChannel枚举
         channel_map = {
@@ -987,26 +926,22 @@ async def test_notification(request: Request, test_request: Dict[str, Any] = Bod
 
         channel_type = channel_map.get(channel_id)
         if not channel_type:
-            return ApiResponse(
-                code=400,
-                message=f"未知的通知渠道: {channel_id}",
-                data=None
-            )
+            return ApiResponse(code=400, message=f"未知的通知渠道: {channel_id}", data=None)
 
         # ponytail: async def + await，避免 run_until_complete 死锁
-        result = await notification_service.test_channel(channel_type, config if config else None)
+        result = await notification_service.test_channel(channel_type, config or None)
 
         if result.get("success"):
             return ApiResponse(
                 code=0,
                 message=f"测试消息已成功发送到 {channel_id}",
-                data={"channel_id": channel_id, "result": result}
+                data={"channel_id": channel_id, "result": result},
             )
         else:
             return ApiResponse(
                 code=500,
                 message=f"测试发送失败: {result.get('error', '未知错误')}",
-                data={"channel_id": channel_id, "error": result.get("error")}
+                data={"channel_id": channel_id, "error": result.get("error")},
             )
 
     except Exception as e:
@@ -1039,28 +974,30 @@ def get_exchange_configs(request: Request):
         exchange_configs = []
 
         for exchange_id, config_data in exchanges_data.items():
-            exchange_configs.append({
-                "id": exchange_id,
-                "key": exchange_id,
-                "name": config_data.get("name", exchange_id),
-                "exchange_id": exchange_id,
-                "trading_mode": config_data.get("trading_mode", "spot"),
-                "quote_currency": config_data.get("quote_currency", "USDT"),
-                "commission_rate": config_data.get("commission_rate", 0.001),
-                "api_key": config_data.get("api_key", ""),
-                "api_secret": config_data.get("api_secret", ""),
-                "proxy_enabled": config_data.get("proxy_enabled", False),
-                "proxy_url": config_data.get("proxy_url", ""),
-                "proxy_username": config_data.get("proxy_username", ""),
-                "proxy_password": config_data.get("proxy_password", ""),
-                "is_enabled": config_data.get("is_enabled", False),
-                "is_default": config_data.get("is_default", False),
-            })
+            exchange_configs.append(
+                {
+                    "id": exchange_id,
+                    "key": exchange_id,
+                    "name": config_data.get("name", exchange_id),
+                    "exchange_id": exchange_id,
+                    "trading_mode": config_data.get("trading_mode", "spot"),
+                    "quote_currency": config_data.get("quote_currency", "USDT"),
+                    "commission_rate": config_data.get("commission_rate", 0.001),
+                    "api_key": config_data.get("api_key", ""),
+                    "api_secret": config_data.get("api_secret", ""),
+                    "proxy_enabled": config_data.get("proxy_enabled", False),
+                    "proxy_url": config_data.get("proxy_url", ""),
+                    "proxy_username": config_data.get("proxy_username", ""),
+                    "proxy_password": config_data.get("proxy_password", ""),
+                    "is_enabled": config_data.get("is_enabled", False),
+                    "is_default": config_data.get("is_default", False),
+                }
+            )
 
         return ApiResponse(
             code=0,
             message="获取交易所配置成功",
-            data={"items": exchange_configs, "total": len(exchange_configs)}
+            data={"items": exchange_configs, "total": len(exchange_configs)},
         )
     except Exception as e:
         logger.error(f"获取交易所配置失败: {e}")
@@ -1069,7 +1006,7 @@ def get_exchange_configs(request: Request):
 
 @exchange_router.post("/", response_model=ApiResponse)
 @jwt_auth_required_sync
-def create_exchange_config(request: Request, config: Dict[str, Any] = Body(...)):
+def create_exchange_config(request: Request, config: dict[str, Any] = Body(...)):
     """创建交易所配置（扁平化存储）
 
     将交易所配置以扁平化方式保存，key格式为：exchange.{exchange_id}.{field}。
@@ -1120,7 +1057,7 @@ def create_exchange_config(request: Request, config: Dict[str, Any] = Body(...))
             return ApiResponse(
                 code=0,
                 message="交易所配置创建成功",
-                data={"key": exchange_id, "exchange_id": exchange_id, **config_data}
+                data={"key": exchange_id, "exchange_id": exchange_id, **config_data},
             )
         else:
             logger.error(f"交易所配置创建失败: {exchange_id}")
@@ -1132,7 +1069,7 @@ def create_exchange_config(request: Request, config: Dict[str, Any] = Body(...))
 
 @exchange_router.put("/{key}", response_model=ApiResponse)
 @jwt_auth_required_sync
-def update_exchange_config(request: Request, key: str, config: Dict[str, Any] = Body(...)):
+def update_exchange_config(request: Request, key: str, config: dict[str, Any] = Body(...)):
     """更新交易所配置（扁平化存储）
 
     以扁平化方式更新交易所配置。
@@ -1180,7 +1117,7 @@ def update_exchange_config(request: Request, key: str, config: Dict[str, Any] = 
             return ApiResponse(
                 code=0,
                 message="交易所配置更新成功",
-                data={"key": key, "exchange_id": key, **config_data}
+                data={"key": key, "exchange_id": key, **config_data},
             )
         else:
             logger.error(f"交易所配置更新失败: {key}")
@@ -1215,11 +1152,7 @@ def delete_exchange_config(request: Request, key: str):
             # 刷新应用上下文配置
             request.app.state.configs = load_system_configs()
             logger.info(f"交易所配置删除成功: {key}")
-            return ApiResponse(
-                code=0,
-                message="交易所配置删除成功",
-                data={"key": key}
-            )
+            return ApiResponse(code=0, message="交易所配置删除成功", data={"key": key})
         else:
             logger.error(f"交易所配置删除失败: {key}")
             raise HTTPException(status_code=500, detail="删除配置失败")
@@ -1238,19 +1171,35 @@ def get_supported_exchanges(request: Request):
     """
     try:
         exchanges = [
-            {"id": "binance", "name": "币安", "description": "全球最大的加密货币交易所"},
+            {
+                "id": "binance",
+                "name": "币安",
+                "description": "全球最大的加密货币交易所",
+            },
             {"id": "okx", "name": "OKX", "description": "全球领先的数字资产交易平台"},
-            {"id": "bybit", "name": "Bybit", "description": "全球领先的加密货币衍生品交易所"},
-            {"id": "gate", "name": "Gate.io", "description": "全球领先的数字资产交易平台"},
-            {"id": "kucoin", "name": "KuCoin", "description": "全球知名的加密货币交易所"},
-            {"id": "bitget", "name": "Bitget", "description": "全球领先的加密货币交易平台"},
+            {
+                "id": "bybit",
+                "name": "Bybit",
+                "description": "全球领先的加密货币衍生品交易所",
+            },
+            {
+                "id": "gate",
+                "name": "Gate.io",
+                "description": "全球领先的数字资产交易平台",
+            },
+            {
+                "id": "kucoin",
+                "name": "KuCoin",
+                "description": "全球知名的加密货币交易所",
+            },
+            {
+                "id": "bitget",
+                "name": "Bitget",
+                "description": "全球领先的加密货币交易平台",
+            },
         ]
 
-        return ApiResponse(
-            code=0,
-            message="获取支持的交易所列表成功",
-            data={"exchanges": exchanges}
-        )
+        return ApiResponse(code=0, message="获取支持的交易所列表成功", data={"exchanges": exchanges})
     except Exception as e:
         logger.error(f"获取支持的交易所列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1302,7 +1251,7 @@ def get_env_variables(request: Request):
         return ApiResponse(
             code=0,
             message="获取环境变量配置成功",
-            data={"items": items, "total": len(items)}
+            data={"items": items, "total": len(items)},
         )
     except Exception as e:
         logger.error(f"获取环境变量配置失败: {e}")
@@ -1310,7 +1259,7 @@ def get_env_variables(request: Request):
 
 
 @env_var_router.post("/", response_model=ApiResponse)
-def save_env_variables(request: Request, items: List[Dict[str, Any]] = Body(...)):
+def save_env_variables(request: Request, items: list[dict[str, Any]] = Body(...)):
     """批量保存环境变量配置
 
     接受环境变量列表，以 name="env" 存储到 system_config 表中
@@ -1328,7 +1277,7 @@ def save_env_variables(request: Request, items: List[Dict[str, Any]] = Body(...)
             code=401,
             message="请先登录",
             data={"detail": "请登录后再修改环境变量配置"},
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
     try:
@@ -1336,13 +1285,15 @@ def save_env_variables(request: Request, items: List[Dict[str, Any]] = Body(...)
 
         batch_configs = []
         for item in items:
-            batch_configs.append({
-                "key": item.get("key", ""),
-                "value": str(item.get("value", "")),
-                "description": item.get("description", ""),
-                "name": "env",
-                "is_sensitive": item.get("is_sensitive", False),
-            })
+            batch_configs.append(
+                {
+                    "key": item.get("key", ""),
+                    "value": str(item.get("value", "")),
+                    "description": item.get("description", ""),
+                    "name": "env",
+                    "is_sensitive": item.get("is_sensitive", False),
+                }
+            )
 
         from utils.config_manager import load_system_configs
 
@@ -1366,7 +1317,7 @@ def save_env_variables(request: Request, items: List[Dict[str, Any]] = Body(...)
         return ApiResponse(
             code=0,
             message="环境变量配置保存成功",
-            data={"updated_count": updated_count}
+            data={"updated_count": updated_count},
         )
     except Exception as e:
         logger.error(f"保存环境变量配置失败: {e}")
@@ -1393,6 +1344,7 @@ def delete_env_variable(request: Request, key: str = Path(..., description="要�
             success = SystemConfig.delete(key)
             if success:
                 from utils.config_manager import load_system_configs
+
                 request.app.state.configs = load_system_configs()
                 logger.info(f"环境变量已删除: {key}")
                 return ApiResponse(code=0, message="环境变量删除成功", data={"key": key})

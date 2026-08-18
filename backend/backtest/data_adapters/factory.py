@@ -1,8 +1,6 @@
 """DataAdapterFactory — 根据数据类型创建对应的适配器实例。"""
 
-from typing import List
-
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -13,7 +11,12 @@ class DataAdapterFactory:
     根据 data_type 创建对应的适配器实例。
     """
 
-    _KLINE_TYPES = {"kline", "markPriceKlines", "indexPriceKlines", "premiumIndexKlines"}
+    _KLINE_TYPES = {
+        "kline",
+        "markPriceKlines",
+        "indexPriceKlines",
+        "premiumIndexKlines",
+    }
     _TICK_TYPES = {"aggTrades", "trades"}
     _ORDERBOOK_TYPES = {"bookDepth", "bookTicker"}
     _DERIV_TYPES = {"fundingRate", "openInterest"}
@@ -38,28 +41,21 @@ class DataAdapterFactory:
 
             return DerivAdapter()
         else:
-            raise ValueError(
-                f"不支持的数据类型: {data_type}\n"
-                f"支持的类型: {cls.list_supported_types()}"
-            )
+            msg = f"不支持的数据类型: {data_type}\n支持的类型: {cls.list_supported_types()}"
+            raise ValueError(msg)
 
     @classmethod
-    def list_supported_types(cls) -> List[str]:
+    def list_supported_types(cls) -> list[str]:
         """列出所有支持的数据类型。"""
-        return sorted(
-            cls._KLINE_TYPES
-            | cls._TICK_TYPES
-            | cls._ORDERBOOK_TYPES
-            | cls._DERIV_TYPES
-        )
+        return sorted(cls._KLINE_TYPES | cls._TICK_TYPES | cls._ORDERBOOK_TYPES | cls._DERIV_TYPES)
 
     @classmethod
     def get_adapter_class(cls, data_type: str):
         """获取适配器类（用于检查）。"""
-        from .kline_adapter import KlineAdapter
-        from .tick_adapter import TickAdapter
-        from .orderbook_adapter import OrderBookAdapter
         from .deriv_adapter import DerivAdapter
+        from .kline_adapter import KlineAdapter
+        from .orderbook_adapter import OrderBookAdapter
+        from .tick_adapter import TickAdapter
 
         mapping = {}
         mapping.update({t: KlineAdapter for t in cls._KLINE_TYPES})

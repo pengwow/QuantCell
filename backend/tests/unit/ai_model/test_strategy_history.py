@@ -2,11 +2,11 @@
 
 测试 StrategyHistoryManager 的 CRUD 操作、分页查询和重新生成功能
 """
+
 import json
 import os
 import sys
 import uuid
-from datetime import datetime, timedelta
 
 import pytest
 
@@ -17,7 +17,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 os.environ["DB_TYPE"] = "sqlite"
 os.environ["DB_FILE"] = ":memory:"
 
-from sqlalchemy import Boolean, Column, DateTime, Float, String, Text, func, Index, create_engine, and_, desc
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    Index,
+    String,
+    Text,
+    and_,
+    create_engine,
+    desc,
+    func,
+)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # 创建独立的 Base
@@ -26,6 +38,7 @@ Base = declarative_base()
 
 class StrategyHistory(Base):
     """策略历史记录 SQLAlchemy 模型"""
+
     __tablename__ = "strategy_history"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
@@ -44,8 +57,8 @@ class StrategyHistory(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
     __table_args__ = (
-        Index('idx_strategy_history_user_created', 'user_id', 'created_at'),
-        Index('idx_strategy_history_user_valid', 'user_id', 'is_valid'),
+        Index("idx_strategy_history_user_created", "user_id", "created_at"),
+        Index("idx_strategy_history_user_valid", "user_id", "is_valid"),
     )
 
     def to_dict(self):
@@ -115,9 +128,19 @@ class StrategyHistoryManager:
         return SessionLocal()
 
     @staticmethod
-    def create(user_id, title, requirement, code, explanation=None, model_id=None,
-               temperature=None, tokens_used=None, generation_time=None,
-               is_valid=True, tags=None):
+    def create(
+        user_id,
+        title,
+        requirement,
+        code,
+        explanation=None,
+        model_id=None,
+        temperature=None,
+        tokens_used=None,
+        generation_time=None,
+        is_valid=True,
+        tags=None,
+    ):
         db = StrategyHistoryManager._get_db()
         try:
             history = StrategyHistory(
@@ -138,7 +161,7 @@ class StrategyHistoryManager:
             db.commit()
             db.refresh(history)
             return history.to_dict()
-        except Exception as e:
+        except Exception:
             db.rollback()
             return None
         finally:
@@ -152,13 +175,20 @@ class StrategyHistoryManager:
             if history:
                 return history.to_dict()
             return None
-        except Exception as e:
+        except Exception:
             return None
         finally:
             db.close()
 
     @staticmethod
-    def list_by_user(user_id, page=1, page_size=10, filters=None, sort_by="created_at", sort_order="desc"):
+    def list_by_user(
+        user_id,
+        page=1,
+        page_size=10,
+        filters=None,
+        sort_by="created_at",
+        sort_order="desc",
+    ):
         db = StrategyHistoryManager._get_db()
         try:
             query = db.query(StrategyHistory).filter(StrategyHistory.user_id == user_id)
@@ -177,15 +207,17 @@ class StrategyHistoryManager:
 
             total = query.count()
 
-            allowed_sort_fields = ["created_at", "updated_at", "title", "generation_time"]
+            allowed_sort_fields = [
+                "created_at",
+                "updated_at",
+                "title",
+                "generation_time",
+            ]
             if sort_by not in allowed_sort_fields:
                 sort_by = "created_at"
 
             sort_column = getattr(StrategyHistory, sort_by)
-            if sort_order == "desc":
-                query = query.order_by(desc(sort_column))
-            else:
-                query = query.order_by(sort_column)
+            query = query.order_by(desc(sort_column)) if sort_order == "desc" else query.order_by(sort_column)
 
             offset = (page - 1) * page_size
             histories = query.offset(offset).limit(page_size).all()
@@ -199,7 +231,7 @@ class StrategyHistoryManager:
                 "page_size": page_size,
                 "pages": pages,
             }
-        except Exception as e:
+        except Exception:
             return {
                 "items": [],
                 "total": 0,
@@ -220,7 +252,7 @@ class StrategyHistoryManager:
                 db.commit()
                 return True
             return False
-        except Exception as e:
+        except Exception:
             db.rollback()
             return False
         finally:
@@ -234,12 +266,16 @@ class StrategyHistoryManager:
             failed_count = 0
 
             for history_id in history_ids:
-                history = db.query(StrategyHistory).filter(
-                    and_(
-                        StrategyHistory.id == history_id,
-                        StrategyHistory.user_id == user_id
+                history = (
+                    db.query(StrategyHistory)
+                    .filter(
+                        and_(
+                            StrategyHistory.id == history_id,
+                            StrategyHistory.user_id == user_id,
+                        )
                     )
-                ).first()
+                    .first()
+                )
                 if history:
                     db.delete(history)
                     deleted_count += 1
@@ -252,7 +288,7 @@ class StrategyHistoryManager:
                 "failed": failed_count,
                 "total": len(history_ids),
             }
-        except Exception as e:
+        except Exception:
             db.rollback()
             return {
                 "deleted": 0,
@@ -292,7 +328,7 @@ class StrategyHistoryManager:
             db.commit()
             db.refresh(new_history)
             return new_history.to_dict()
-        except Exception as e:
+        except Exception:
             db.rollback()
             return None
         finally:
@@ -320,7 +356,7 @@ class StrategyHistoryManager:
             db.commit()
             db.refresh(history)
             return history.to_dict()
-        except Exception as e:
+        except Exception:
             db.rollback()
             return None
         finally:
@@ -329,26 +365,33 @@ class StrategyHistoryManager:
     @staticmethod
     def get_user_stats(user_id):
         from sqlalchemy import func as sql_func
+
         db = StrategyHistoryManager._get_db()
         try:
-            total_count = db.query(sql_func.count(StrategyHistory.id)).filter(
-                StrategyHistory.user_id == user_id
-            ).scalar() or 0
+            total_count = (
+                db.query(sql_func.count(StrategyHistory.id)).filter(StrategyHistory.user_id == user_id).scalar() or 0
+            )
 
-            valid_count = db.query(sql_func.count(StrategyHistory.id)).filter(
-                and_(
-                    StrategyHistory.user_id == user_id,
-                    StrategyHistory.is_valid == True
-                )
-            ).scalar() or 0
+            valid_count = (
+                db.query(sql_func.count(StrategyHistory.id))
+                .filter(and_(StrategyHistory.user_id == user_id, StrategyHistory.is_valid))
+                .scalar()
+                or 0
+            )
 
-            avg_generation_time = db.query(sql_func.avg(StrategyHistory.generation_time)).filter(
-                StrategyHistory.user_id == user_id
-            ).scalar() or 0
+            avg_generation_time = (
+                db.query(sql_func.avg(StrategyHistory.generation_time))
+                .filter(StrategyHistory.user_id == user_id)
+                .scalar()
+                or 0
+            )
 
-            latest = db.query(StrategyHistory).filter(
-                StrategyHistory.user_id == user_id
-            ).order_by(desc(StrategyHistory.created_at)).first()
+            latest = (
+                db.query(StrategyHistory)
+                .filter(StrategyHistory.user_id == user_id)
+                .order_by(desc(StrategyHistory.created_at))
+                .first()
+            )
 
             return {
                 "total_count": total_count,
@@ -357,7 +400,7 @@ class StrategyHistoryManager:
                 "avg_generation_time": round(avg_generation_time, 2) if avg_generation_time else 0,
                 "latest_created_at": latest.to_dict()["created_at"] if latest else None,
             }
-        except Exception as e:
+        except Exception:
             return {
                 "total_count": 0,
                 "valid_count": 0,
@@ -458,7 +501,8 @@ class TestStrategyHistoryCreate:
             uuid.UUID(result["id"])
             assert True
         except ValueError:
-            assert False, "ID 不是有效的 UUID"
+            msg = "ID 不是有效的 UUID"
+            raise AssertionError(msg)
 
 
 class TestStrategyHistoryGet:
@@ -540,9 +584,7 @@ class TestStrategyHistoryList:
         assert titles == ["策略3", "策略2", "策略1"]
 
         result = StrategyHistoryManager.list_by_user(
-            sample_history_data["user_id"],
-            sort_by="created_at",
-            sort_order="asc"
+            sample_history_data["user_id"], sort_by="created_at", sort_order="asc"
         )
         titles = [item["title"] for item in result["items"]]
         assert titles == ["策略1", "策略2", "策略3"]
@@ -555,10 +597,7 @@ class TestStrategyHistoryList:
         data2["title"] = "另一个策略"
         StrategyHistoryManager.create(**data2)
 
-        result = StrategyHistoryManager.list_by_user(
-            sample_history_data["user_id"],
-            filters={"title": "双均线"}
-        )
+        result = StrategyHistoryManager.list_by_user(sample_history_data["user_id"], filters={"title": "双均线"})
 
         assert len(result["items"]) == 1
         assert "双均线" in result["items"][0]["title"]
@@ -572,17 +611,11 @@ class TestStrategyHistoryList:
         data2["is_valid"] = False
         StrategyHistoryManager.create(**data2)
 
-        result = StrategyHistoryManager.list_by_user(
-            sample_history_data["user_id"],
-            filters={"is_valid": True}
-        )
+        result = StrategyHistoryManager.list_by_user(sample_history_data["user_id"], filters={"is_valid": True})
         assert len(result["items"]) == 1
         assert result["items"][0]["is_valid"] is True
 
-        result = StrategyHistoryManager.list_by_user(
-            sample_history_data["user_id"],
-            filters={"is_valid": False}
-        )
+        result = StrategyHistoryManager.list_by_user(sample_history_data["user_id"], filters={"is_valid": False})
         assert len(result["items"]) == 1
         assert result["items"][0]["is_valid"] is False
 
@@ -656,11 +689,7 @@ class TestStrategyHistoryRegenerate:
         created = StrategyHistoryManager.create(**sample_history_data)
 
         new_requirement = "创建一个基于MACD指标的策略"
-        result = StrategyHistoryManager.regenerate(
-            created["id"],
-            new_requirement=new_requirement,
-            new_title="MACD策略"
-        )
+        result = StrategyHistoryManager.regenerate(created["id"], new_requirement=new_requirement, new_title="MACD策略")
 
         assert result is not None
         assert result["requirement"] == new_requirement
@@ -675,11 +704,7 @@ class TestStrategyHistoryRegenerate:
         """测试传递额外参数重新生成"""
         created = StrategyHistoryManager.create(**sample_history_data)
 
-        result = StrategyHistoryManager.regenerate(
-            created["id"],
-            model_id="gpt-3.5-turbo",
-            temperature=0.5
-        )
+        result = StrategyHistoryManager.regenerate(created["id"], model_id="gpt-3.5-turbo", temperature=0.5)
 
         assert result is not None
         assert result["model_id"] == "gpt-3.5-turbo"
@@ -694,10 +719,7 @@ class TestStrategyHistoryUpdate:
         created = StrategyHistoryManager.create(**sample_history_data)
 
         result = StrategyHistoryManager.update(
-            created["id"],
-            title="更新后的标题",
-            is_valid=False,
-            tags=["更新", "测试"]
+            created["id"], title="更新后的标题", is_valid=False, tags=["更新", "测试"]
         )
 
         assert result is not None

@@ -2,12 +2,16 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 @dataclass
 class LLMResponse:
     """LLM 响应数据结构"""
+
     content: str | None
     has_tool_calls: bool
     tool_calls: list[Any]
@@ -19,13 +23,14 @@ class LLMResponse:
 @dataclass
 class StreamChunk:
     """流式响应数据块"""
-    content: str | None = None           # 累积的完整文本内容
-    delta: str | None = None             # 本次增量文本（用于实时显示）
-    finish_reason: str | None = None     # 完成原因 (stop/tool_calls/error)
-    is_tool_call: bool = False           # 是否包含工具调用
-    tool_calls: list[dict] | None = None # 工具调用信息列表
-    usage: dict | None = None            # Token 使用量统计
-    reasoning_content: str | None = None # 推理过程内容（DeepSeek-R1 等）
+
+    content: str | None = None  # 累积的完整文本内容
+    delta: str | None = None  # 本次增量文本（用于实时显示）
+    finish_reason: str | None = None  # 完成原因 (stop/tool_calls/error)
+    is_tool_call: bool = False  # 是否包含工具调用
+    tool_calls: list[dict] | None = None  # 工具调用信息列表
+    usage: dict | None = None  # Token 使用量统计
+    reasoning_content: str | None = None  # 推理过程内容（DeepSeek-R1 等）
 
     @property
     def chunk_type(self) -> str:
@@ -44,9 +49,10 @@ class StreamChunk:
 @dataclass
 class StreamEvent:
     """流式事件 - 用于 Agent Loop 向上层传递事件"""
+
     event_type: str  # start | content | reasoning | tool_calls | tool_start | tool_result | complete | error
-    data: dict       # 事件数据
-    timestamp: float = field(default_factory=lambda: __import__('time').time())
+    data: dict  # 事件数据
+    timestamp: float = field(default_factory=lambda: __import__("time").time())
 
 
 class LLMProvider(ABC):

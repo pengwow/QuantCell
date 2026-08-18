@@ -1,173 +1,120 @@
 #!/usr/bin/env python3
 """
-新闻资讯命令行工具
+新闻与市场情绪 CLI
 
-提供财经新闻获取、市场情绪查询等功能。
-此模块为薄封装层，核心逻辑调用外部API。
-
-使用示例:
-    # 获取新闻
-    uv run python -m cli.news news --query bitcoin --count 10
-
-    # 获取市场情绪
-    uv run python -m cli.news sentiment
-
-环境变量:
-    NEWSAPI_KEY: NewsAPI密钥（可选，不配置则返回提示信息）
+提供新闻搜索（NewsAPI）和市场情绪指数查询功能。
 """
 
-import sys
 import os
-import json
-from pathlib import Path
-from typing import Optional, Dict, Any
-
-# 添加后端目录到路径
-backend_path = Path(__file__).resolve().parent.parent
-if str(backend_path) not in sys.path:
-    sys.path.insert(0, str(backend_path))
+import sys
+from datetime import datetime
 
 import httpx
 import typer
-from typing_extensions import Annotated
 
-from utils.logger import get_logger, LogType
+backend_path = __import__("pathlib").Path(__file__).resolve().parent.parent
+if str(backend_path) not in sys.path:
+    sys.path.insert(0, str(backend_path))
 
-logger = get_logger(__name__, LogType.APPLICATION)
-
-# 创建主应用
-app = typer.Typer(
-    name="news-cli",
-    help="新闻资讯命令行工具",
-    add_completion=False,
-)
+app = typer.Typer(help="新闻与市场情绪工具")
 
 
-def get_news(
-    query: Optional[str] = None,
-    category: str = "business",
-    count: int = 5,
-) -> str:
-    """
-    获取财经新闻
-
-    Args:
-        query: 搜索关键词，如 bitcoin, ethereum
-        category: 新闻类别：business, technology, general
-        count: 返回条数（1-20）
-
-    Returns:
-        str: 新闻列表或错误信息
-    """
-    from utils.config_manager import load_env_to_os_environ
-    load_env_to_os_environ()
-
+def get_news(query: str, category: str = "general", count: int = 10) -> str:
+    """从 NewsAPI 获取新闻"""
     api_key = os.environ.get("NEWSAPI_KEY", "")
 
     if not api_key:
-        return (
-            "新闻 API 未配置。请在环境变量中设置 NEWSAPI_KEY。\n\n"
-            "或者访问以下网站获取最新资讯:\n"
-            "- https://www.coindesk.com\n"
-            "- https://cointelegraph.com\n"
-            "- https://www.reuters.com/business/finance/"
-        )
+        return "错误: 未配置 NEWSAPI_KEY 环境变量"
 
     try:
-        # 同步请求
+        url = "https://newsapi.org/v2/everything"
         params = {
-            "apiKey": api_key,
-            "category": category,
+            "q": query,
+            "sortBy": "publishedAt",
+            "pageSize": count,
             "language": "en",
-            "pageSize": min(count, 20),
+            "apiKey": api_key,
         }
-        if query:
-            params["q"] = query
-        else:
-            params["q"] = "cryptocurrency"
 
-        r = httpx.get(
-            "https://newsapi.org/v2/everything",
-            params=params,
-            timeout=10.0
-        )
-        r.raise_for_status()
+        if category and category != "general":
+            params["category"] = category
 
-        data = r.json()
+        response = httpx.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+
         articles = data.get("articles", [])
-
         if not articles:
-            return "未找到相关新闻"
+            return f"未找到关于 '{query}' 的新闻"
 
-        lines = [f"最新新闻 ({query or 'cryptocurrency'}):\n"]
-        for i, article in enumerate(articles[:count], 1):
-            lines.append(f"{i}. {article.get('title', '')}")
-            lines.append(f"   来源: {article.get('source', {}).get('name', 'N/A')}")
-            lines.append(f"   时间: {article.get('publishedAt', 'N/A')[:10]}")
-            lines.append(f"   链接: {article.get('url', 'N/A')}\n")
+        lines = [f"新闻列表 ({len(articles)} 条):\n"]
+        for i, article in enumerate(articles, 1):
+            title = article.get("title", "无标题")
+            source = article.get("source", {}).get("name", "未知来源")
+            published = article.get("publishedAt", "")
+            link = article.get("url", "")
+            description = article.get("description", "")
+
+            lines.append(f"{i}. [{source}] {title}")
+            lines.append(f"   时间: {published}")
+            lines.append(f"   链接: {link}")
+            if description:
+                lines.append(f"   描述: {description}")
+            lines.append("")
 
         return "\n".join(lines)
     except Exception as e:
-        logger.error(f"获取新闻失败: {e}")
-        return f"错误: 获取新闻失败: {e}"
+        return f"错误: {e}"
 
 
 def get_market_sentiment() -> str:
-    """
-    获取市场情绪指标（恐惧/贪婪指数）
-
-    Returns:
-        str: 市场情绪数据或错误信息
-    """
+    """获取市场情绪指数（恐惧与贪婪指数）"""
     try:
-        # 获取恐惧贪婪指数
-        r = httpx.get(
-            "https://api.alternative.me/fng/",
-            timeout=10.0
-        )
-        r.raise_for_status()
-        data = r.json()
+        url = "https://api.alternative.me/fng/"
+        params = {
+            "limit": 1,
+            "format": "json",
+        }
 
-        if data and "data" in data:
-            latest = data["data"][0]
-            value = latest.get("value", "N/A")
-            classification = latest.get("value_classification", "N/A")
-            timestamp = latest.get("timestamp", "N/A")
+        response = httpx.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
 
-            return (
-                f"加密货币恐惧 & 贪婪指数:\n"
-                f"当前值: {value}\n"
-                f"情绪: {classification}\n"
-                f"更新时间: {timestamp}\n\n"
-                f"指数解读:\n"
-                f"0-24: 极度恐惧\n"
-                f"25-49: 恐惧\n"
-                f"50-74: 贪婪\n"
-                f"75-100: 极度贪婪"
-            )
+        if not data or "data" not in data or not data["data"]:
+            return "无法获取市场情绪数据"
 
-        return "无法获取市场情绪数据"
+        item = data["data"][0]
+        value = item.get("value", "N/A")
+        classification = item.get("value_classification", "N/A")
+        timestamp = item.get("timestamp", "")
+
+        try:
+            dt = datetime.fromtimestamp(int(timestamp))
+            time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError, TypeError, OSError:
+            time_str = str(timestamp)
+
+        result = f"市场情绪指数 (恐惧与贪婪指数):\n  数值: {value}\n  分类: {classification}\n  时间: {time_str}"
+
+        return result
     except Exception as e:
-        logger.error(f"获取市场情绪失败: {e}")
-        return f"错误: 获取市场情绪失败: {e}"
+        return f"错误: {e}"
 
-
-# ==================== CLI 命令 ====================
 
 @app.command("news")
 def cli_news(
-    query: Annotated[Optional[str], typer.Option("--query", "-q", help="搜索关键词")] = None,
-    category: Annotated[str, typer.Option("--category", "-c", help="新闻类别")] = "business",
-    count: Annotated[int, typer.Option("--count", "-n", help="返回条数")] = 5,
+    query: str = typer.Argument(..., help="搜索关键词"),
+    category: str = typer.Option("general", "--category", "-c", help="新闻分类"),
+    count: int = typer.Option(10, "--count", "-n", help="返回条数"),
 ):
-    """获取财经新闻"""
+    """获取相关新闻"""
     result = get_news(query, category, count)
     typer.echo(result)
 
 
 @app.command("sentiment")
 def cli_sentiment():
-    """获取市场情绪（恐惧/贪婪指数）"""
+    """获取市场情绪指数"""
     result = get_market_sentiment()
     typer.echo(result)
 

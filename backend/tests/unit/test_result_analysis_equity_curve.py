@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
 """回测结果分析模块测试 — 覆盖 equity_curve tuple/list 序列化路径
 
 回归测试:axon 适配层产出 [(time_ns, equity), ...] 格式的 equity_curve,
 旧 _serialize_equity_curve 只支持 dict,会抛 'list' object has no attribute 'items'
 """
-import pytest
 
 
 class TestEquityCurveSerialization:
@@ -13,6 +11,7 @@ class TestEquityCurveSerialization:
     def test_equity_curve_tuple_format(self):
         """axon 适配层产物：(time_ns, equity) tuple 列表 → 转 dict"""
         from backtest.result_analysis import ResultSerializer
+
         ser = ResultSerializer()
         # axon 适配层 backtest_loop 产出的格式
         curve = [
@@ -29,6 +28,7 @@ class TestEquityCurveSerialization:
     def test_equity_curve_list_format(self):
         """list 格式也应支持(list(t) for t in equity_curve)"""
         from backtest.result_analysis import ResultSerializer
+
         ser = ResultSerializer()
         curve = [[100, 1.0], [200, 2.0]]
         result = ser._serialize_equity_curve(curve)
@@ -38,7 +38,9 @@ class TestEquityCurveSerialization:
     def test_equity_curve_dict_format_unchanged(self):
         """事件驱动引擎 dict 格式仍按原逻辑序列化"""
         from datetime import datetime
+
         from backtest.result_analysis import ResultSerializer
+
         ser = ResultSerializer()
         ts = datetime(2024, 1, 1)
         curve = [{"timestamp": ts, "equity": 100.0}]
@@ -49,12 +51,14 @@ class TestEquityCurveSerialization:
     def test_equity_curve_empty(self):
         """空列表安全返回 []"""
         from backtest.result_analysis import ResultSerializer
+
         ser = ResultSerializer()
         assert ser._serialize_equity_curve([]) == []
 
     def test_equity_curve_short_tuple_skipped(self):
         """长度 < 2 的元组跳过(数据不完整)"""
         from backtest.result_analysis import ResultSerializer
+
         ser = ResultSerializer()
         curve = [(100, 1.0), (200,), (300, 3.0)]
         result = ser._serialize_equity_curve(curve)
@@ -67,6 +71,7 @@ class TestEquityCurveSerialization:
         import json
         import os
         import tempfile
+
         from backtest.result_analysis import save_results
 
         results = {
@@ -83,7 +88,11 @@ class TestEquityCurveSerialization:
                 "trades": [],
                 "equity_curve": [(100, 1.0), (200, 2.0)],
             },
-            "account": {"starting_balance": 100000, "final_nav": 99000, "total_pnl": -1000},
+            "account": {
+                "starting_balance": 100000,
+                "final_nav": 99000,
+                "total_pnl": -1000,
+            },
             "_meta": {"engine": "axon", "strategy": "test"},
         }
 
@@ -92,9 +101,12 @@ class TestEquityCurveSerialization:
         try:
             ok = save_results(results, tmp_path, "json")
             assert ok is True
-            with open(tmp_path, "r", encoding="utf-8") as f:
+            with open(tmp_path, encoding="utf-8") as f:
                 saved = json.load(f)
-            assert saved["ETHUSDT_15m"]["equity_curve"][0] == {"timestamp": 100, "equity": 1.0}
+            assert saved["ETHUSDT_15m"]["equity_curve"][0] == {
+                "timestamp": 100,
+                "equity": 1.0,
+            }
             assert saved["ETHUSDT_15m"]["metrics"]["win_rate"] == 0.35
         finally:
             if os.path.exists(tmp_path):

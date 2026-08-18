@@ -1,25 +1,34 @@
-# -*- coding: utf-8 -*-
 """Data Service — axon_quant.data 数据服务
 
 包装 axon_quant.data.DataService，提供数据加载、缓存、流式访问等功能。
 当 axon_quant 不可用时提供清晰的错误信息。
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # axon_quant 导入(走适配层,业务代码不直接 import 第三方包)
 try:
     from axon_bridge.data import (
-        DataService as _DataService,
         DataRequest as _DataRequest,
-        MockSource as _MockSource,
-        Frequency as _Frequency,
+    )
+    from axon_bridge.data import (
+        DataService as _DataService,
+    )
+    from axon_bridge.data import (
         Dataset as _Dataset,
     )
+    from axon_bridge.data import (
+        Frequency as _Frequency,
+    )
+    from axon_bridge.data import (
+        MockSource as _MockSource,
+    )
+
     AXON_AVAILABLE = True
 except ImportError:
     AXON_AVAILABLE = False
@@ -50,9 +59,8 @@ class DataServiceWrapper:
             cache_capacity: 缓存容量
         """
         if not AXON_AVAILABLE:
-            raise RuntimeError(
-                "axon_quant.data 不可用，请安装 axon_quant: pip install axon_quant"
-            )
+            msg = "axon_quant.data 不可用，请安装 axon_quant: pip install axon_quant"
+            raise RuntimeError(msg)
 
         self._service = _DataService.new().with_cache_capacity(cache_capacity)
         logger.info(f"DataService 已初始化: cache_capacity={cache_capacity}")
@@ -201,13 +209,13 @@ class DataServiceProxy:
         start: Any,
         end: Any,
         frequency: str = "Hour1",
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """加载数据"""
         if not self._available or not self._service:
             return None
         return self._service.load(symbol, start, end, frequency)
 
-    def stream(self, source_name: str, req: Any) -> Optional[Any]:
+    def stream(self, source_name: str, req: Any) -> Any | None:
         """流式加载数据"""
         if not self._available or not self._service:
             return None
@@ -219,7 +227,7 @@ class DataServiceProxy:
             return {}
         return self._service.cache_stats()
 
-    def cache_control(self) -> Optional[Any]:
+    def cache_control(self) -> Any | None:
         """获取缓存控制器"""
         if not self._available or not self._service:
             return None

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 回测测试模块配置
 
@@ -9,7 +8,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
@@ -26,11 +25,11 @@ class PerformanceReportCollector:
     """
 
     def __init__(self):
-        self.results: Dict[str, Any] = {}
+        self.results: dict[str, Any] = {}
         self.report_dir = project_root / "performance_reports"
         self.report_dir.mkdir(parents=True, exist_ok=True)
 
-    def add_result(self, test_name: str, engine_type: str, metrics: Dict[str, Any]):
+    def add_result(self, test_name: str, engine_type: str, metrics: dict[str, Any]):
         """
         添加测试结果
 
@@ -71,7 +70,7 @@ class PerformanceReportCollector:
 
         return report_path
 
-    def _calculate_comparison(self) -> Dict[str, Any]:
+    def _calculate_comparison(self) -> dict[str, Any]:
         """
         计算引擎对比指标
 
@@ -85,10 +84,7 @@ class PerformanceReportCollector:
                 default_time = engines["default"].get("elapsed_time", 0)
                 legacy_time = engines["legacy"].get("elapsed_time", 0)
 
-                if legacy_time > 0:
-                    speedup = legacy_time / default_time if default_time > 0 else 0
-                else:
-                    speedup = 0
+                speedup = (legacy_time / default_time if default_time > 0 else 0) if legacy_time > 0 else 0
 
                 default_memory = engines["default"].get("peak_memory_mb", 0)
                 legacy_memory = engines["legacy"].get("peak_memory_mb", 0)
@@ -118,4 +114,3 @@ def performance_collector():
     # 测试会话结束时生成报告
     if collector.results:
         report_path = collector.generate_comparison_report()
-        print(f"\n性能对比报告已生成: {report_path}")

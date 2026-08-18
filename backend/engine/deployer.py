@@ -4,22 +4,23 @@ ponytail: deploy 流程 = 取凭证 + 加载策略 + 启动策略循环
          干跑模式: 不真下单,仅验证凭证 + 策略可加载
          实盘模式: 委托 TradingEngine.start_strategy()
 """
+
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from credentials.service import CredentialsService
-from credentials.exceptions import AccountNotFoundError
+from engine.trading_engine import get_trading_engine
 from strategy.base import BaseStrategy, StrategyConfig
 from strategy.loader import StrategyLoader
-from engine.trading_engine import get_trading_engine
 
 
 @dataclass
 class WorkerHandle:
     """worker 句柄,表示一个运行中的策略实例。"""
+
     worker_id: UUID
     strategy_name: str
     account_name: str
@@ -46,7 +47,7 @@ class StrategyDeployer:
             ValueError: 策略名未知
         """
         # 1. 验证凭证存在
-        api_key, api_secret = self.credentials.get_credential(account_name)
+        _api_key, _api_secret = self.credentials.get_credential(account_name)
 
         # 2. 加载策略类
         strategy_cls = StrategyLoader.get(strategy_name)

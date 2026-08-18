@@ -1,7 +1,8 @@
 """工具基类测试 - Tool"""
 
-import pytest
 from typing import Any
+
+import pytest
 
 from agent.tools.base import Tool
 
@@ -15,11 +16,24 @@ class MockTool(Tool):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "User name"},
-            "age": {"type": "integer", "description": "User age", "minimum": 0, "maximum": 150},
+            "age": {
+                "type": "integer",
+                "description": "User age",
+                "minimum": 0,
+                "maximum": 150,
+            },
             "email": {"type": "string", "description": "Email address"},
             "active": {"type": "boolean", "description": "Is active"},
-            "tags": {"type": "array", "description": "Tags list", "items": {"type": "string"}},
-            "role": {"type": "string", "description": "User role", "enum": ["admin", "user", "guest"]},
+            "tags": {
+                "type": "array",
+                "description": "Tags list",
+                "items": {"type": "string"},
+            },
+            "role": {
+                "type": "string",
+                "description": "User role",
+                "enum": ["admin", "user", "guest"],
+            },
         },
         "required": ["name", "email"],
     }
@@ -55,7 +69,7 @@ class TestTool:
     def test_to_schema(self, tool):
         """测试转换为OpenAI格式"""
         schema = tool.to_schema()
-        
+
         assert schema["type"] == "function"
         assert schema["function"]["name"] == "mock_tool"
         assert schema["function"]["description"] == "A mock tool for testing"
@@ -67,9 +81,9 @@ class TestTool:
             "name": "John",
             "email": "john@example.com",
         }
-        
+
         errors = tool.validate_params(params)
-        
+
         assert errors == []
 
     def test_validate_params_all_fields(self, tool):
@@ -82,9 +96,9 @@ class TestTool:
             "tags": ["developer", "python"],
             "role": "admin",
         }
-        
+
         errors = tool.validate_params(params)
-        
+
         assert errors == []
 
     def test_validate_params_missing_required(self, tool):
@@ -93,9 +107,9 @@ class TestTool:
             "name": "John",
             # 缺少 email
         }
-        
+
         errors = tool.validate_params(params)
-        
+
         assert len(errors) > 0
         assert any("email" in e for e in errors)
 
@@ -105,9 +119,9 @@ class TestTool:
             "name": 123,  # 应该是字符串
             "email": "john@example.com",
         }
-        
+
         errors = tool.validate_params(params)
-        
+
         assert len(errors) > 0
         assert any("string" in e for e in errors)
 
@@ -118,9 +132,9 @@ class TestTool:
             "email": "john@example.com",
             "age": "thirty",  # 应该是整数
         }
-        
+
         errors = tool.validate_params(params)
-        
+
         assert len(errors) > 0
         assert any("integer" in e for e in errors)
 
@@ -131,9 +145,9 @@ class TestTool:
             "email": "john@example.com",
             "age": -5,  # 小于最小值0
         }
-        
+
         errors = tool.validate_params(params)
-        
+
         assert len(errors) > 0
         assert any(">=" in e for e in errors)
 
@@ -144,9 +158,9 @@ class TestTool:
             "email": "john@example.com",
             "age": 200,  # 大于最大值150
         }
-        
+
         errors = tool.validate_params(params)
-        
+
         assert len(errors) > 0
         assert any("<=" in e for e in errors)
 
@@ -157,9 +171,9 @@ class TestTool:
             "email": "john@example.com",
             "role": "superadmin",  # 不在枚举中
         }
-        
+
         errors = tool.validate_params(params)
-        
+
         assert len(errors) > 0
         # 检查是否有枚举相关的错误
         assert any("必须是以下之一" in e or "enum" in e for e in errors)
@@ -171,9 +185,9 @@ class TestTool:
             "email": "john@example.com",
             "role": "admin",
         }
-        
+
         errors = tool.validate_params(params)
-        
+
         assert errors == []
 
     def test_validate_params_array(self, tool):
@@ -183,9 +197,9 @@ class TestTool:
             "email": "john@example.com",
             "tags": ["tag1", "tag2"],
         }
-        
+
         errors = tool.validate_params(params)
-        
+
         assert errors == []
 
     def test_validate_params_array_invalid(self, tool):
@@ -195,17 +209,17 @@ class TestTool:
             "email": "john@example.com",
             "tags": [123, 456],  # 应该是字符串数组
         }
-        
+
         errors = tool.validate_params(params)
-        
+
         assert len(errors) > 0
 
     def test_validate_params_not_dict(self, tool):
         """测试非字典参数"""
         params = "invalid"
-        
+
         errors = tool.validate_params(params)
-        
+
         assert len(errors) > 0
         assert any("对象" in e for e in errors)
 
@@ -216,28 +230,28 @@ class TestTool:
             "email": "john@example.com",
             "extra_field": "value",
         }
-        
+
         errors = tool.validate_params(params)
-        
+
         # 额外字段不应该导致错误
         assert errors == []
 
     def test_execute(self, tool):
         """测试工具执行"""
         import asyncio
-        
+
         result = asyncio.run(tool.execute(name="John", email="john@example.com"))
-        
+
         assert "Executed" in result
         assert "John" in result
 
     def test_tool_no_params(self):
         """测试无参数工具"""
         tool = MockToolNoParams()
-        
+
         schema = tool.to_schema()
         assert schema["function"]["parameters"] == {}
-        
+
         errors = tool.validate_params({})
         assert errors == []
 
@@ -247,6 +261,7 @@ class TestToolValidation:
 
     def test_validate_string_min_length(self):
         """测试字符串最小长度"""
+
         class MinLengthTool(Tool):
             name = "min_length"
             description = "Test"
@@ -257,21 +272,23 @@ class TestToolValidation:
                 },
                 "required": ["text"],
             }
+
             async def execute(self, **kwargs):
                 return "ok"
-        
+
         tool = MinLengthTool()
-        
+
         # 太短
         errors = tool.validate_params({"text": "abc"})
         assert len(errors) > 0
-        
+
         # 足够长
         errors = tool.validate_params({"text": "abcdef"})
         assert errors == []
 
     def test_validate_string_max_length(self):
         """测试字符串最大长度"""
+
         class MaxLengthTool(Tool):
             name = "max_length"
             description = "Test"
@@ -282,21 +299,23 @@ class TestToolValidation:
                 },
                 "required": ["text"],
             }
+
             async def execute(self, **kwargs):
                 return "ok"
-        
+
         tool = MaxLengthTool()
-        
+
         # 太长
         errors = tool.validate_params({"text": "a" * 20})
         assert len(errors) > 0
-        
+
         # 足够短
         errors = tool.validate_params({"text": "short"})
         assert errors == []
 
     def test_validate_nested_object(self):
         """测试嵌套对象验证"""
+
         class NestedTool(Tool):
             name = "nested"
             description = "Test"
@@ -314,25 +333,27 @@ class TestToolValidation:
                 },
                 "required": ["user"],
             }
+
             async def execute(self, **kwargs):
                 return "ok"
-        
+
         tool = NestedTool()
-        
+
         # 有效嵌套对象
         errors = tool.validate_params({"user": {"name": "John", "age": 30}})
         assert errors == []
-        
+
         # 缺少必需字段
         errors = tool.validate_params({"user": {"age": 30}})
         assert len(errors) > 0
-        
+
         # 类型错误
         errors = tool.validate_params({"user": {"name": 123}})
         assert len(errors) > 0
 
     def test_validate_array_items(self):
         """测试数组项验证"""
+
         class ArrayTool(Tool):
             name = "array"
             description = "Test"
@@ -346,21 +367,23 @@ class TestToolValidation:
                 },
                 "required": ["numbers"],
             }
+
             async def execute(self, **kwargs):
                 return "ok"
-        
+
         tool = ArrayTool()
-        
+
         # 有效数组
         errors = tool.validate_params({"numbers": [1, 2, 3]})
         assert errors == []
-        
+
         # 无效数组项
         errors = tool.validate_params({"numbers": [1, "two", 3]})
         assert len(errors) > 0
 
     def test_validate_enum(self):
         """测试枚举验证"""
+
         class EnumTool(Tool):
             name = "enum"
             description = "Test"
@@ -371,15 +394,16 @@ class TestToolValidation:
                 },
                 "required": ["status"],
             }
+
             async def execute(self, **kwargs):
                 return "ok"
-        
+
         tool = EnumTool()
-        
+
         # 有效枚举
         errors = tool.validate_params({"status": "active"})
         assert errors == []
-        
+
         # 无效枚举
         errors = tool.validate_params({"status": "deleted"})
         assert len(errors) > 0

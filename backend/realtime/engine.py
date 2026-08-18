@@ -1,16 +1,17 @@
 # 实时引擎核心类
 import asyncio
-from typing import Dict, Any, List
-from utils.logger import get_logger, LogType
+from typing import Any
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from .factory import ExchangeClientFactory
-from .websocket_manager import WebSocketManager
-from .data_processor import DataProcessor
-from .data_distributor import DataDistributor
 from .config import RealtimeConfig
+from .data_distributor import DataDistributor
+from .data_processor import DataProcessor
+from .factory import ExchangeClientFactory
 from .monitor import RealtimeMonitor
+from .websocket_manager import WebSocketManager
 
 
 class RealtimeEngine:
@@ -24,7 +25,7 @@ class RealtimeEngine:
         self.data_processor = DataProcessor()
         self.data_distributor = DataDistributor()
         self.config = RealtimeConfig()
-        self.monitor = RealtimeMonitor(interval=self.config.get_config('monitor_interval'))
+        self.monitor = RealtimeMonitor(interval=self.config.get_config("monitor_interval"))
 
         # 运行状态
         self.running = False
@@ -43,7 +44,7 @@ class RealtimeEngine:
         # 注册监控器到数据处理器（可选，用于性能监控）
         # 注意：这里需要根据实际情况调整，可能需要修改DataProcessor来支持监控
 
-    def _handle_message(self, message: Dict[str, Any]) -> None:
+    def _handle_message(self, message: dict[str, Any]) -> None:
         """
         处理接收到的消息
 
@@ -52,19 +53,20 @@ class RealtimeEngine:
         """
         try:
             import time
+
             start_time = time.time()
 
             # 【KlinePush】自动识别并添加必要字段
             # 从币安消息中识别交易所和数据类型
-            if 'e' in message:
+            if "e" in message:
                 # 币安消息格式
-                message['exchange'] = 'binance'
-                message['data_type'] = message['e']
-            elif 'exchange' not in message or 'data_type' not in message:
+                message["exchange"] = "binance"
+                message["data_type"] = message["e"]
+            elif "exchange" not in message or "data_type" not in message:
                 logger.warning(f"[KlinePush] 消息缺少exchange/data_type字段，无法处理: {message}")
                 return
 
-            data_type = message.get('data_type', 'unknown')
+            data_type = message.get("data_type", "unknown")
 
             # 处理消息
             processed_message = self.data_processor.process_message(message)
@@ -73,11 +75,7 @@ class RealtimeEngine:
 
             if processed_message:
                 # 记录处理成功的消息
-                self.monitor.record_message(
-                    processed_message.get('data_type', 'unknown'),
-                    True,
-                    processing_time
-                )
+                self.monitor.record_message(processed_message.get("data_type", "unknown"), True, processing_time)
 
                 # 分发处理后的消息
                 self.data_distributor.distribute(processed_message)
@@ -90,12 +88,12 @@ class RealtimeEngine:
             logger.error(f"[KlinePush] 处理消息失败: {e}")
             logger.exception(e)
             # 记录处理失败的消息
-            self.monitor.record_message(message.get('data_type', 'unknown'), False)
+            self.monitor.record_message(message.get("data_type", "unknown"), False)
 
         # 更新监控信息
         self.monitor.monitor()
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """
         获取实时引擎状态
 
@@ -114,10 +112,10 @@ class RealtimeEngine:
             "connected_exchanges": connected_clients,
             "total_exchanges": len(self.ws_manager.get_all_clients()),
             "config": self.config.get_config(),
-            "stats": monitor_stats
+            "stats": monitor_stats,
         }
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """
         获取实时引擎配置
 
@@ -126,7 +124,7 @@ class RealtimeEngine:
         """
         return self.config.get_config()
 
-    def update_config(self, config_dict: Dict[str, Any]) -> bool:
+    def update_config(self, config_dict: dict[str, Any]) -> bool:
         """
         更新实时引擎配置
 
@@ -149,7 +147,7 @@ class RealtimeEngine:
         根据新配置更新组件
         """
         # 更新监控间隔
-        self.monitor.interval = self.config.get_config('monitor_interval')
+        self.monitor.interval = self.config.get_config("monitor_interval")
 
         # 更新其他组件配置...
 
@@ -213,7 +211,7 @@ class RealtimeEngine:
 
         try:
             # 获取默认交易所客户端
-            default_exchange = self.config.get_config('default_exchange')
+            default_exchange = self.config.get_config("default_exchange")
             client = self.ws_manager.get_client(default_exchange)
 
             if not client:
@@ -280,7 +278,7 @@ class RealtimeEngine:
             bool: 创建是否成功
         """
         # 获取配置
-        default_exchange = self.config.get_config('default_exchange')
+        default_exchange = self.config.get_config("default_exchange")
 
         # 创建交易所客户端
         client = self.factory.create_client(default_exchange, self.config.get_config())
@@ -357,7 +355,7 @@ class RealtimeEngine:
         # 启动引擎
         return await self.start()
 
-    async def subscribe(self, channels: List[str]) -> bool:
+    async def subscribe(self, channels: list[str]) -> bool:
         """
         订阅频道（如果未连接会自动连接）
 
@@ -380,7 +378,7 @@ class RealtimeEngine:
                 return False
 
         # 获取默认交易所客户端
-        default_exchange = self.config.get_config('default_exchange')
+        default_exchange = self.config.get_config("default_exchange")
         client = self.ws_manager.get_client(default_exchange)
 
         if not client:
@@ -390,7 +388,7 @@ class RealtimeEngine:
         # 订阅频道
         return await client.subscribe(channels)
 
-    async def unsubscribe(self, channels: List[str]) -> bool:
+    async def unsubscribe(self, channels: list[str]) -> bool:
         """
         取消订阅频道
 
@@ -409,7 +407,7 @@ class RealtimeEngine:
             return True
 
         # 获取默认交易所客户端
-        default_exchange = self.config.get_config('default_exchange')
+        default_exchange = self.config.get_config("default_exchange")
         client = self.ws_manager.get_client(default_exchange)
 
         if not client:
@@ -419,7 +417,7 @@ class RealtimeEngine:
         # 取消订阅频道
         return await client.unsubscribe(channels)
 
-    def get_available_symbols(self) -> List[str]:
+    def get_available_symbols(self) -> list[str]:
         """
         获取可用交易对
 
@@ -427,7 +425,7 @@ class RealtimeEngine:
             List[str]: 可用交易对
         """
         # 从配置中获取所有交易对
-        symbols = self.config.get_config('symbols', [])
+        symbols = self.config.get_config("symbols", [])
         return symbols
 
     def register_consumer(self, data_type: str, consumer: callable) -> bool:

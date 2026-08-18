@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 事件驱动回测引擎
 
@@ -18,15 +17,16 @@
 日期: 2026-08-14
 """
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
-from pathlib import Path
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
+
 
 # 安全的浮点数转换
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -35,8 +35,9 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         if value is None:
             return default
         return float(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return default
+
 
 from .base import BacktestEngineBase, EngineType
 
@@ -69,25 +70,25 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         >>> engine.cleanup()
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config)
 
         # axon-quant BacktestEngine 实例
-        self._engine: Optional[Any] = None
+        self._engine: Any | None = None
 
         # 交易所和品种管理
         self._venue_name: str = "BINANCE"
-        self._instruments: Dict[str, Dict] = {}
+        self._instruments: dict[str, dict] = {}
 
         # 策略和数据管理
-        self._strategies: List[Any] = []
-        self._dataframes: Dict[str, pd.DataFrame] = {}
+        self._strategies: list[Any] = []
+        self._dataframes: dict[str, pd.DataFrame] = {}
 
         # 资金费率数据（合约回测用）: {instrument_id: [(ts_ns, rate, mark_price), ...]}
-        self._funding_events: Dict[str, List[tuple]] = {}
+        self._funding_events: dict[str, list[tuple]] = {}
 
         # 回测结果缓存
-        self._backtest_result: Optional[Any] = None
+        self._backtest_result: Any | None = None
 
         # 订单 ID 计数器（用于生成唯一订单 ID）
         self._order_id_counter: int = 0
@@ -103,7 +104,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         return EngineType.EVENT_DRIVEN
 
     @property
-    def engine(self) -> Optional[Any]:
+    def engine(self) -> Any | None:
         """获取底层 BacktestEngine 实例"""
         return self._engine
 
@@ -118,17 +119,16 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             logger.info("开始初始化事件驱动回测引擎...")
 
             if not self._validate_config():
-                raise ValueError("引擎配置验证失败")
+                msg = "引擎配置验证失败"
+                raise ValueError(msg)
 
-            from axon_bridge import create_backtest_engine, EngineConfig
+            from axon_bridge import EngineConfig, create_backtest_engine
 
             initial_capital = float(self._config.get("initial_capital", 100000.0))
             half_spread = float(self._config.get("half_spread", 0.01))
             depth_levels = int(self._config.get("depth_levels", 5))
             size_per_level = float(self._config.get("size_per_level", 1.0))
-            auto_rebalance_threshold = float(
-                self._config.get("auto_rebalance_threshold", 0.01)
-            )
+            auto_rebalance_threshold = float(self._config.get("auto_rebalance_threshold", 0.01))
 
             bridge_config = EngineConfig(
                 initial_cash=initial_capital,
@@ -141,13 +141,12 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             self._engine = create_backtest_engine(bridge_config)
             self._is_initialized = True
 
-            logger.info(
-                f"事件驱动回测引擎初始化完成 (initial_capital={initial_capital})"
-            )
+            logger.info(f"事件驱动回测引擎初始化完成 (initial_capital={initial_capital})")
 
         except Exception as e:
             logger.error(f"事件驱动回测引擎初始化失败: {e}")
-            raise RuntimeError(f"引擎初始化失败: {e}") from e
+            msg = f"引擎初始化失败: {e}"
+            raise RuntimeError(msg) from e
 
     def add_venue(
         self,
@@ -176,13 +175,14 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             str: 交易所名称
         """
         if not self._is_initialized:
-            raise RuntimeError("引擎未初始化，请先调用 initialize()")
+            msg = "引擎未初始化，请先调用 initialize()"
+            raise RuntimeError(msg)
 
         self._venue_name = venue_name
         logger.debug(f"交易所已配置: {venue_name}")
         return venue_name
 
-    def add_instrument(self, instrument: Dict[str, Any]) -> None:
+    def add_instrument(self, instrument: dict[str, Any]) -> None:
         """
         添加交易品种
 
@@ -190,10 +190,12 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             instrument: 品种字典（由 axon_bridge.create_spot_instrument 创建）
         """
         if not self._is_initialized:
-            raise RuntimeError("引擎未初始化，请先调用 initialize()")
+            msg = "引擎未初始化，请先调用 initialize()"
+            raise RuntimeError(msg)
 
         if not instrument:
-            raise ValueError("交易品种不能为空")
+            msg = "交易品种不能为空"
+            raise ValueError(msg)
 
         instrument_id = self._instrument_id_from_dict(instrument)
         self._instruments[instrument_id] = instrument
@@ -201,7 +203,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
     def add_funding_data(
         self,
-        instrument: Dict[str, Any],
+        instrument: dict[str, Any],
         funding_df: pd.DataFrame,
     ) -> None:
         """
@@ -223,10 +225,10 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         from axon_bridge import to_ns_timestamp
 
         events = []
-        has_mark = 'mark_price' in funding_df.columns
+        has_mark = "mark_price" in funding_df.columns
         for ts, row in funding_df.iterrows():
-            rate = float(row.get('funding_rate', 0.0))
-            mark = float(row.get('mark_price', 0.0)) if has_mark else 0.0
+            rate = float(row.get("funding_rate", 0.0))
+            mark = float(row.get("mark_price", 0.0)) if has_mark else 0.0
             events.append((to_ns_timestamp(ts), rate, mark))
 
         # 按时间升序排列，便于回测中顺序消费
@@ -236,11 +238,11 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
     def load_data_from_csv(
         self,
-        csv_path: Union[str, Path],
-        instrument: Dict[str, Any],
+        csv_path: str | Path,
+        instrument: dict[str, Any],
         timestamp_column: str = "timestamp",
         timestamp_format: str = "%Y-%m-%d %H:%M:%S",
-        columns_mapping: Optional[Dict[str, str]] = None,
+        columns_mapping: dict[str, str] | None = None,
         sep: str = ";",
         decimal: str = ".",
     ) -> pd.DataFrame:
@@ -261,7 +263,8 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         """
         csv_path = Path(csv_path)
         if not csv_path.exists():
-            raise FileNotFoundError(f"CSV 文件不存在: {csv_path}")
+            msg = f"CSV 文件不存在: {csv_path}"
+            raise FileNotFoundError(msg)
 
         try:
             logger.info(f"开始从 CSV 加载数据: {csv_path}")
@@ -272,9 +275,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 df = df.rename(columns=columns_mapping)
 
             if timestamp_column in df.columns:
-                df[timestamp_column] = pd.to_datetime(
-                    df[timestamp_column], format=timestamp_format
-                )
+                df[timestamp_column] = pd.to_datetime(df[timestamp_column], format=timestamp_format)
                 df = df.rename(columns={timestamp_column: "timestamp"})
 
             if "timestamp" in df.columns:
@@ -282,7 +283,8 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
             for col in ["open", "high", "low", "close"]:
                 if col not in df.columns:
-                    raise ValueError(f"CSV 文件缺少必需的列: {col}")
+                    msg = f"CSV 文件缺少必需的列: {col}"
+                    raise ValueError(msg)
 
             instrument_id = self._instrument_id_from_dict(instrument)
             self._dataframes[instrument_id] = df
@@ -293,12 +295,13 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         except Exception as e:
             logger.error(f"从 CSV 加载数据失败: {e}")
-            raise RuntimeError(f"从 CSV 加载数据失败: {e}") from e
+            msg = f"从 CSV 加载数据失败: {e}"
+            raise RuntimeError(msg) from e
 
     def load_data_from_parquet(
         self,
-        parquet_path: Union[str, Path],
-        instrument: Dict[str, Any],
+        parquet_path: str | Path,
+        instrument: dict[str, Any],
         timestamp_column: str = "timestamp",
     ) -> pd.DataFrame:
         """
@@ -314,7 +317,8 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         """
         parquet_path = Path(parquet_path)
         if not parquet_path.exists():
-            raise FileNotFoundError(f"Parquet 文件不存在: {parquet_path}")
+            msg = f"Parquet 文件不存在: {parquet_path}"
+            raise FileNotFoundError(msg)
 
         try:
             logger.info(f"开始从 Parquet 加载数据: {parquet_path}")
@@ -330,7 +334,8 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
             for col in ["open", "high", "low", "close"]:
                 if col not in df.columns:
-                    raise ValueError(f"Parquet 文件缺少必需的列: {col}")
+                    msg = f"Parquet 文件缺少必需的列: {col}"
+                    raise ValueError(msg)
 
             instrument_id = self._instrument_id_from_dict(instrument)
             self._dataframes[instrument_id] = df
@@ -341,7 +346,8 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         except Exception as e:
             logger.error(f"从 Parquet 加载数据失败: {e}")
-            raise RuntimeError(f"从 Parquet 加载数据失败: {e}") from e
+            msg = f"从 Parquet 加载数据失败: {e}"
+            raise RuntimeError(msg) from e
 
     def add_strategy(self, strategy: Any) -> None:
         """
@@ -353,10 +359,12 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             strategy: EventDrivenStrategy 实例
         """
         if not self._is_initialized:
-            raise RuntimeError("引擎未初始化，请先调用 initialize()")
+            msg = "引擎未初始化，请先调用 initialize()"
+            raise RuntimeError(msg)
 
         if not strategy:
-            raise ValueError("策略不能为空")
+            msg = "策略不能为空"
+            raise ValueError(msg)
 
         try:
             # 注入引擎引用
@@ -366,11 +374,12 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         except Exception as e:
             logger.error(f"添加策略失败: {e}")
-            raise RuntimeError(f"添加策略失败: {e}") from e
+            msg = f"添加策略失败: {e}"
+            raise RuntimeError(msg) from e
 
     def submit_order(
         self,
-        order_dict: Dict[str, Any],
+        order_dict: dict[str, Any],
         timestamp_ns: int,
     ) -> None:
         """
@@ -384,14 +393,15 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             timestamp_ns: 事件时间戳（纳秒）
         """
         if not self._engine:
-            raise RuntimeError("引擎未初始化")
+            msg = "引擎未初始化"
+            raise RuntimeError(msg)
 
         from axon_bridge import build_order_submitted_event
 
         # 判断事件类型
-        event_type = order_dict.get('type', '')
+        event_type = order_dict.get("type", "")
 
-        if event_type == 'order_cancelled':
+        if event_type == "order_cancelled":
             # 取消订单事件，已经是完整格式
             event = order_dict
         else:
@@ -400,7 +410,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
 
         self._engine.push_event(event)
 
-    def run_backtest(self) -> Dict[str, Any]:
+    def run_backtest(self) -> dict[str, Any]:
         """
         运行回测
 
@@ -417,13 +427,16 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             Dict[str, Any]: 回测结果字典
         """
         if not self._is_initialized:
-            raise RuntimeError("引擎未初始化，请先调用 initialize()")
+            msg = "引擎未初始化，请先调用 initialize()"
+            raise RuntimeError(msg)
 
         if not self._strategies:
-            raise RuntimeError("未添加策略，请先调用 add_strategy()")
+            msg = "未添加策略，请先调用 add_strategy()"
+            raise RuntimeError(msg)
 
         if not self._dataframes:
-            raise RuntimeError("未加载数据，请先调用 load_data_from_csv() 或 load_data_from_parquet()")
+            msg = "未加载数据，请先调用 load_data_from_csv() 或 load_data_from_parquet()"
+            raise RuntimeError(msg)
 
         try:
             logger.info("开始执行回测...")
@@ -442,7 +455,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             processed = 0
 
             # 每个品种的资金费率消费指针（顺序推送，避免重复）
-            funding_cursor: Dict[str, int] = {k: 0 for k in self._funding_events}
+            funding_cursor: dict[str, int] = {k: 0 for k in self._funding_events}
 
             # 逐品种逐 bar 驱动
             for instrument_id, df in self._dataframes.items():
@@ -465,6 +478,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                     # 转换时间戳
                     bar_ts = df.index[idx]
                     from axon_bridge import to_ns_timestamp
+
                     ts_ns = to_ns_timestamp(bar_ts)
 
                     # 关键步骤 0: 推送时间戳已到达的资金费率事件（合约结算）
@@ -506,15 +520,13 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                     # 需要调用 step() 来撮合这些订单
                     stats = self._engine.step()
                     if stats:
-                        self._total_fills += getattr(stats, 'fills', 0)
-                        self._total_events += getattr(stats, 'events_processed', 0)
+                        self._total_fills += getattr(stats, "fills", 0)
+                        self._total_events += getattr(stats, "events_processed", 0)
 
                     processed += 1
                     if processed % 1000 == 0:
                         progress = (processed / total_bars) * 100
-                        logger.info(
-                            f"回测进度: {processed}/{total_bars} bars ({progress:.1f}%)"
-                        )
+                        logger.info(f"回测进度: {processed}/{total_bars} bars ({progress:.1f}%)")
 
             # 停止所有策略
             for strategy in self._strategies:
@@ -523,19 +535,18 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             # 获取最终结果
             results = self._process_results()
 
-            logger.info(
-                f"回测执行完成: fills={self._total_fills}, "
-                f"events={self._total_events}"
-            )
+            logger.info(f"回测执行完成: fills={self._total_fills}, events={self._total_events}")
             return results
 
         except Exception as e:
             logger.error(f"回测执行失败: {e}")
             import traceback
-            logger.error(f"错误堆栈:\n{traceback.format_exc()}")
-            raise RuntimeError(f"回测执行失败: {e}") from e
 
-    def _process_results(self) -> Dict[str, Any]:
+            logger.error(f"错误堆栈:\n{traceback.format_exc()}")
+            msg = f"回测执行失败: {e}"
+            raise RuntimeError(msg) from e
+
+    def _process_results(self) -> dict[str, Any]:
         """
         从 BacktestEngine 提取回测结果
 
@@ -567,9 +578,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             results = {
                 "trades": self._normalize_trades(raw_results.get("trades", [])),
                 "positions": self._normalize_positions(raw_results.get("positions", [])),
-                "equity_curve": self._normalize_equity_curve(
-                    raw_results.get("equity_curve", [])
-                ),
+                "equity_curve": self._normalize_equity_curve(raw_results.get("equity_curve", [])),
                 "account": self._build_account_info(raw_results),
                 "metrics": self._build_metrics(raw_results),
                 "_raw": raw_results,
@@ -581,10 +590,11 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         except Exception as e:
             logger.error(f"处理回测结果失败: {e}")
             import traceback
+
             logger.error(f"错误堆栈:\n{traceback.format_exc()}")
             return {}
 
-    def _normalize_trades(self, raw_trades: List) -> List[Dict[str, Any]]:
+    def _normalize_trades(self, raw_trades: list) -> list[dict[str, Any]]:
         """标准化交易记录格式"""
         trades = []
         for i, trade in enumerate(raw_trades):
@@ -601,9 +611,9 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                     else:
                         ts_sec = int(ts)
                     try:
-                        dt = datetime.fromtimestamp(ts_sec, tz=timezone.utc)
-                        formatted_time = dt.strftime('%Y-%m-%d %H:%M:%S')
-                    except (ValueError, OSError):
+                        dt = datetime.fromtimestamp(ts_sec, tz=UTC)
+                        formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
+                    except ValueError, OSError:
                         formatted_time = str(ts)
                     timestamp_val = ts_sec
 
@@ -617,25 +627,27 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 instrument_id = str(trade.get("instrument_id", trade.get("symbol", "")))
                 commission = str(trade.get("commission", trade.get("fees", "0")))
 
-                trades.append({
-                    "trade_id": trade_id,
-                    "client_order_id": order_id,
-                    "venue_order_id": "",
-                    "position_id": str(trade.get("position_id", "")),
-                    "symbol": instrument_id,
-                    "side": side,
-                    "direction": direction,
-                    "quantity": quantity,
-                    "price": price,
-                    "volume": quantity * price,
-                    "commission": commission,
-                    "timestamp": timestamp_val,
-                    "formatted_time": formatted_time,
-                    "status": status,
-                })
+                trades.append(
+                    {
+                        "trade_id": trade_id,
+                        "client_order_id": order_id,
+                        "venue_order_id": "",
+                        "position_id": str(trade.get("position_id", "")),
+                        "symbol": instrument_id,
+                        "side": side,
+                        "direction": direction,
+                        "quantity": quantity,
+                        "price": price,
+                        "volume": quantity * price,
+                        "commission": commission,
+                        "timestamp": timestamp_val,
+                        "formatted_time": formatted_time,
+                        "status": status,
+                    }
+                )
         return trades
 
-    def _normalize_positions(self, raw_positions: List) -> List[Dict[str, Any]]:
+    def _normalize_positions(self, raw_positions: list) -> list[dict[str, Any]]:
         """标准化持仓记录格式"""
         positions = []
         for pos in raw_positions:
@@ -649,50 +661,56 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 avg_px = _safe_float(pos.get("avg_price", pos.get("avg_px", 0)))
                 realized_pnl = str(pos.get("realized_pnl", "0"))
 
-                positions.append({
-                    "position_id": pos_id,
-                    "symbol": instrument_id,
-                    "side": str(pos.get("side", "")),
-                    "quantity": quantity,
-                    "trade_quantity": abs(quantity),
-                    "signed_quantity": quantity,
-                    "avg_px_open": avg_px,
-                    "avg_px_close": avg_px,
-                    "realized_pnl": realized_pnl,
-                    "opening_order_id": str(pos.get("opening_order_id", "")),
-                    "closing_order_id": str(pos.get("closing_order_id", "")),
-                    "trade_ids": [],
-                    "ts_opened": pos.get("ts_opened", 0),
-                    "ts_closed": pos.get("ts_closed", 0),
-                    "duration_ns": pos.get("duration_ns", 0),
-                })
+                positions.append(
+                    {
+                        "position_id": pos_id,
+                        "symbol": instrument_id,
+                        "side": str(pos.get("side", "")),
+                        "quantity": quantity,
+                        "trade_quantity": abs(quantity),
+                        "signed_quantity": quantity,
+                        "avg_px_open": avg_px,
+                        "avg_px_close": avg_px,
+                        "realized_pnl": realized_pnl,
+                        "opening_order_id": str(pos.get("opening_order_id", "")),
+                        "closing_order_id": str(pos.get("closing_order_id", "")),
+                        "trade_ids": [],
+                        "ts_opened": pos.get("ts_opened", 0),
+                        "ts_closed": pos.get("ts_closed", 0),
+                        "duration_ns": pos.get("duration_ns", 0),
+                    }
+                )
         return positions
 
-    def _normalize_equity_curve(self, raw_curve: List) -> List[Dict[str, Any]]:
+    def _normalize_equity_curve(self, raw_curve: list) -> list[dict[str, Any]]:
         """标准化权益曲线格式"""
         equity_curve = []
         for i, point in enumerate(raw_curve):
             if isinstance(point, dict):
                 nav = _safe_float(point.get("nav", point.get("equity", 0)))
-                equity_curve.append({
-                    "timestamp": i,
-                    "formatted_time": "",
-                    "equity": nav,
-                    "balance": nav,
-                    "margin": 0.0,
-                })
+                equity_curve.append(
+                    {
+                        "timestamp": i,
+                        "formatted_time": "",
+                        "equity": nav,
+                        "balance": nav,
+                        "margin": 0.0,
+                    }
+                )
             elif isinstance(point, (int, float)):
                 nav = _safe_float(point)
-                equity_curve.append({
-                    "timestamp": i,
-                    "formatted_time": "",
-                    "equity": nav,
-                    "balance": nav,
-                    "margin": 0.0,
-                })
+                equity_curve.append(
+                    {
+                        "timestamp": i,
+                        "formatted_time": "",
+                        "equity": nav,
+                        "balance": nav,
+                        "margin": 0.0,
+                    }
+                )
         return equity_curve
 
-    def _build_account_info(self, raw_results: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_account_info(self, raw_results: dict[str, Any]) -> dict[str, Any]:
         """构建账户信息"""
         final_nav = _safe_float(raw_results.get("final_nav", 0))
         nav_peak = _safe_float(raw_results.get("nav_peak", 0))
@@ -711,7 +729,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
             "total_commissions": total_fees,
         }
 
-    def _build_metrics(self, raw_results: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_metrics(self, raw_results: dict[str, Any]) -> dict[str, Any]:
         """构建绩效指标
 
         axon_quant 原始字段语义：
@@ -742,14 +760,12 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 total_trades = int(raw_results.get("fills", 0))
 
             final_nav = _safe_float(raw_results.get("final_nav", 0))
-            initial_cash = _safe_float(
-                raw_results.get("initial_cash", raw_results.get("nav_peak", 0))
-            )
+            initial_cash = _safe_float(raw_results.get("initial_cash", raw_results.get("nav_peak", 0)))
             total_return = 0.0
             if initial_cash > 0:
                 total_return = ((final_nav - initial_cash) / initial_cash) * 100
 
-            winning_count = int(round(total_trades * win_rate / 100)) if total_trades else 0
+            winning_count = round(total_trades * win_rate / 100) if total_trades else 0
             losing_count = total_trades - winning_count
 
             return {
@@ -785,10 +801,11 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
                 "total_fees": 0.0,
             }
 
-    def get_results(self) -> Dict[str, Any]:
+    def get_results(self) -> dict[str, Any]:
         """获取回测结果"""
         if not self._results:
-            raise RuntimeError("尚未执行回测，请先调用 run_backtest()")
+            msg = "尚未执行回测，请先调用 run_backtest()"
+            raise RuntimeError(msg)
         return self._results
 
     def cleanup(self) -> None:
@@ -805,15 +822,15 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         self._reset_state()
         logger.info("回测引擎资源清理完成")
 
-    def get_venue(self, venue_name: str) -> Optional[str]:
+    def get_venue(self, venue_name: str) -> str | None:
         """获取交易所名称"""
         return self._venue_name
 
-    def get_instrument(self, instrument_id: str) -> Optional[Dict]:
+    def get_instrument(self, instrument_id: str) -> dict | None:
         """获取品种信息"""
         return self._instruments.get(instrument_id)
 
-    def get_strategies(self) -> List[Any]:
+    def get_strategies(self) -> list[Any]:
         """获取策略列表"""
         return self._strategies.copy()
 
@@ -822,7 +839,7 @@ class EventDrivenBacktestEngine(BacktestEngineBase):
         return sum(len(df) for df in self._dataframes.values())
 
     @staticmethod
-    def _instrument_id_from_dict(instrument: Dict) -> str:
+    def _instrument_id_from_dict(instrument: dict) -> str:
         """从品种字典提取标识符"""
         if isinstance(instrument, dict):
             base = instrument.get("base", "")

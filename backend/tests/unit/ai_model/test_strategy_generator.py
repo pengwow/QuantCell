@@ -6,7 +6,7 @@
 import importlib.util
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -18,9 +18,7 @@ _ai_model_dir = _backend_dir / "ai_model"
 _prompts_dir = _ai_model_dir / "prompts"
 
 # 加载 prompts.manager 模块
-spec = importlib.util.spec_from_file_location(
-    "prompts.manager", _prompts_dir / "manager.py"
-)
+spec = importlib.util.spec_from_file_location("prompts.manager", _prompts_dir / "manager.py")
 assert spec is not None and spec.loader is not None, "无法加载 prompts.manager 模块"
 manager_module = importlib.util.module_from_spec(spec)
 sys.modules["prompts.manager"] = manager_module
@@ -30,21 +28,19 @@ PromptCategory = manager_module.PromptCategory
 PromptManager = manager_module.PromptManager
 
 # 创建 prompts 包模块
-prompts_module = type(sys)('prompts')
+prompts_module = type(sys)("prompts")
 prompts_module.PromptCategory = PromptCategory
 prompts_module.PromptManager = PromptManager
 sys.modules["prompts"] = prompts_module
 
 # 设置 ai_model 包
-ai_model_module = type(sys)('ai_model')
+ai_model_module = type(sys)("ai_model")
 ai_model_module.prompts = prompts_module
 sys.modules["ai_model"] = ai_model_module
 sys.modules["ai_model.prompts"] = prompts_module
 
 # 加载 performance_monitor 模块
-spec_pm = importlib.util.spec_from_file_location(
-    "performance_monitor", _ai_model_dir / "performance_monitor.py"
-)
+spec_pm = importlib.util.spec_from_file_location("performance_monitor", _ai_model_dir / "performance_monitor.py")
 assert spec_pm is not None and spec_pm.loader is not None, "无法加载 performance_monitor 模块"
 pm_module = importlib.util.module_from_spec(spec_pm)
 sys.modules["performance_monitor"] = pm_module
@@ -55,7 +51,7 @@ ai_model_module.performance_monitor = pm_module
 sys.modules["ai_model.performance_monitor"] = pm_module
 
 # 模拟 thinking_chain 模块
-thinking_chain_module = type(sys)('thinking_chain')
+thinking_chain_module = type(sys)("thinking_chain")
 
 
 # 创建模拟的 ThinkingChainManager 类
@@ -69,9 +65,21 @@ class MockThinkingChainManager:
             "name": "默认思维链",
             "description": "默认思维链配置",
             "steps": [
-                {"key": "analyze_requirement", "title": "分析需求", "description": "分析用户策略需求"},
-                {"key": "design_strategy", "title": "设计策略", "description": "设计交易策略逻辑"},
-                {"key": "generate_code", "title": "生成代码", "description": "生成策略代码"},
+                {
+                    "key": "analyze_requirement",
+                    "title": "分析需求",
+                    "description": "分析用户策略需求",
+                },
+                {
+                    "key": "design_strategy",
+                    "title": "设计策略",
+                    "description": "设计交易策略逻辑",
+                },
+                {
+                    "key": "generate_code",
+                    "title": "生成代码",
+                    "description": "生成策略代码",
+                },
                 {"key": "optimize", "title": "优化完善", "description": "优化代码结构"},
             ],
             "is_active": True,
@@ -84,9 +92,7 @@ sys.modules["ai_model.thinking_chain"] = thinking_chain_module
 ai_model_module.thinking_chain = thinking_chain_module
 
 # 加载 strategy_generator 模块
-spec_sg = importlib.util.spec_from_file_location(
-    "strategy_generator", _ai_model_dir / "strategy_generator.py"
-)
+spec_sg = importlib.util.spec_from_file_location("strategy_generator", _ai_model_dir / "strategy_generator.py")
 assert spec_sg is not None and spec_sg.loader is not None, "无法加载 strategy_generator 模块"
 sg_module = importlib.util.module_from_spec(spec_sg)
 
@@ -212,12 +218,12 @@ class TestStrategyGeneratorCodeExtraction:
 
     def test_extract_code_with_python_markers(self, generator):
         """测试提取带 python 标记的代码块"""
-        content = '''Some text
+        content = """Some text
 ```python
 class MyStrategy:
     pass
 ```
-More text'''
+More text"""
 
         code = generator._extract_code(content)
         assert "class MyStrategy:" in code
@@ -225,12 +231,12 @@ More text'''
 
     def test_extract_code_with_generic_markers(self, generator):
         """测试提取通用代码块"""
-        content = '''Some text
+        content = """Some text
 ```
 def hello():
     pass
 ```
-More text'''
+More text"""
 
         code = generator._extract_code(content)
         assert "def hello():" in code
@@ -238,41 +244,41 @@ More text'''
 
     def test_extract_code_single_line(self, generator):
         """测试提取单行代码块"""
-        content = '```python\nclass Test: pass\n```'
+        content = "```python\nclass Test: pass\n```"
 
         code = generator._extract_code(content)
         assert "class Test: pass" in code
 
     def test_extract_code_python_indicators(self, generator):
         """测试通过 Python 关键字识别代码"""
-        content = '''class MyStrategy:
+        content = """class MyStrategy:
     def __init__(self):
-        pass'''
+        pass"""
 
         code = generator._extract_code(content)
         assert "class MyStrategy:" in code
 
     def test_extract_code_import_indicator(self, generator):
         """测试通过 import 关键字识别代码"""
-        content = '''import numpy as np
-from typing import List'''
+        content = """import numpy as np
+from typing import List"""
 
         code = generator._extract_code(content)
         assert "import numpy" in code
 
     def test_extract_code_def_indicator(self, generator):
         """测试通过 def 关键字识别代码"""
-        content = '''def calculate():
-    return 42'''
+        content = """def calculate():
+    return 42"""
 
         code = generator._extract_code(content)
         assert "def calculate():" in code
 
     def test_extract_code_comment_indicator(self, generator):
         """测试通过注释识别代码"""
-        content = '''# This is a comment
+        content = """# This is a comment
 class Strategy:
-    pass'''
+    pass"""
 
         code = generator._extract_code(content)
         assert "# This is a comment" in code
@@ -304,12 +310,12 @@ class MyStrategy:
 
     def test_extract_code_multiple_code_blocks(self, generator):
         """测试多个代码块时提取第一个"""
-        content = '''```python
+        content = """```python
 first block
 ```
 ```python
 second block
-```'''
+```"""
 
         code = generator._extract_code(content)
         assert "first block" in code
@@ -329,11 +335,11 @@ class TestStrategyGeneratorResponseParsing:
 
     def test_parse_response_success(self, generator):
         """测试成功解析响应"""
-        content = '''```python
+        content = """```python
 class MyStrategy:
     def __init__(self):
         pass
-```'''
+```"""
 
         result = generator._parse_response(content)
 
@@ -394,11 +400,7 @@ class TestStrategyGeneratorErrorHandling:
         from openai import AuthenticationError
 
         with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = AuthenticationError(
-                "Invalid API key",
-                response=MagicMock(),
-                body=None
-            )
+            mock_create.side_effect = AuthenticationError("Invalid API key", response=MagicMock(), body=None)
 
             chunks = []
             async for chunk in generator.generate_strategy_stream("test requirement"):
@@ -408,7 +410,7 @@ class TestStrategyGeneratorErrorHandling:
             assert len(chunks) >= 2
             # 最后一个chunk应该是错误
             assert chunks[-1]["type"] == "error"
-            assert "api_authentication_error" == chunks[-1]["error_code"]
+            assert chunks[-1]["error_code"] == "api_authentication_error"
             assert "API密钥无效" in chunks[-1]["error"]
             # 检查思维链事件
             thinking_chain_chunks = [c for c in chunks if c["type"] == "thinking_chain"]
@@ -420,11 +422,7 @@ class TestStrategyGeneratorErrorHandling:
         from openai import RateLimitError
 
         with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = RateLimitError(
-                "Rate limit exceeded",
-                response=MagicMock(),
-                body=None
-            )
+            mock_create.side_effect = RateLimitError("Rate limit exceeded", response=MagicMock(), body=None)
 
             chunks = []
             async for chunk in generator.generate_strategy_stream("test requirement"):
@@ -434,7 +432,7 @@ class TestStrategyGeneratorErrorHandling:
             assert len(chunks) >= 2
             # 最后一个chunk应该是错误
             assert chunks[-1]["type"] == "error"
-            assert "api_rate_limit_error" == chunks[-1]["error_code"]
+            assert chunks[-1]["error_code"] == "api_rate_limit_error"
             assert "请求过于频繁" in chunks[-1]["error"]
 
     @pytest.mark.asyncio
@@ -453,7 +451,7 @@ class TestStrategyGeneratorErrorHandling:
             assert len(chunks) >= 2
             # 最后一个chunk应该是错误
             assert chunks[-1]["type"] == "error"
-            assert "api_connection_error" == chunks[-1]["error_code"]
+            assert chunks[-1]["error_code"] == "api_connection_error"
             assert "超时" in chunks[-1]["error"]
 
     @pytest.mark.asyncio
@@ -486,7 +484,7 @@ class TestStrategyGeneratorErrorHandling:
             assert len(chunks) >= 2
             # 最后一个chunk应该是错误
             assert chunks[-1]["type"] == "error"
-            assert "generation_failed" == chunks[-1]["error_code"]
+            assert chunks[-1]["error_code"] == "generation_failed"
             assert "策略生成失败" in chunks[-1]["error"]
 
     def test_generate_strategy_authentication_error(self, generator):
@@ -494,11 +492,7 @@ class TestStrategyGeneratorErrorHandling:
         from openai import AuthenticationError
 
         with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = AuthenticationError(
-                "Invalid API key",
-                response=MagicMock(),
-                body=None
-            )
+            mock_create.side_effect = AuthenticationError("Invalid API key", response=MagicMock(), body=None)
 
             with pytest.raises(APIAuthenticationError) as exc_info:
                 generator.generate_strategy("test requirement")
@@ -511,11 +505,7 @@ class TestStrategyGeneratorErrorHandling:
         from openai import RateLimitError
 
         with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = RateLimitError(
-                "Rate limit exceeded",
-                response=MagicMock(),
-                body=None
-            )
+            mock_create.side_effect = RateLimitError("Rate limit exceeded", response=MagicMock(), body=None)
 
             with pytest.raises(APIRateLimitError) as exc_info:
                 generator.generate_strategy("test requirement")
@@ -561,12 +551,12 @@ class TestStrategyGeneratorValidation:
 
     def test_validate_code_valid(self, generator):
         """测试验证有效代码"""
-        code = '''class MyStrategy:
+        code = """class MyStrategy:
     def __init__(self):
         pass
 
     def on_bar(self, data):
-        return data'''
+        return data"""
 
         result = generator.validate_code(code)
 
@@ -582,9 +572,9 @@ class TestStrategyGeneratorValidation:
 
     def test_validate_code_syntax_error(self, generator):
         """测试验证语法错误代码"""
-        code = '''class MyStrategy
+        code = """class MyStrategy
     def __init__(self):
-        pass'''
+        pass"""
 
         result = generator.validate_code(code)
 
@@ -593,8 +583,8 @@ class TestStrategyGeneratorValidation:
 
     def test_validate_code_missing_class_warning(self, generator):
         """测试验证缺少类定义的警告"""
-        code = '''def standalone_function():
-    return 42'''
+        code = """def standalone_function():
+    return 42"""
 
         result = generator.validate_code(code)
 
@@ -603,7 +593,7 @@ class TestStrategyGeneratorValidation:
 
     def test_validate_code_missing_function_warning(self, generator):
         """测试验证缺少函数定义的警告"""
-        code = '''x = 42'''
+        code = """x = 42"""
 
         result = generator.validate_code(code)
 
@@ -626,10 +616,7 @@ class TestStrategyGeneratorBuildPrompt:
         with patch.object(generator._prompt_manager, "render") as mock_render:
             mock_render.return_value = "rendered prompt"
 
-            result = generator._build_prompt(
-                "my requirement",
-                PromptCategory.STRATEGY_GENERATION
-            )
+            result = generator._build_prompt("my requirement", PromptCategory.STRATEGY_GENERATION)
 
             assert result == "rendered prompt"
             mock_render.assert_called_once()
@@ -643,12 +630,12 @@ class TestStrategyGeneratorBuildPrompt:
         with patch.object(generator._prompt_manager, "render") as mock_render:
             mock_render.return_value = "rendered prompt"
 
-            result = generator._build_prompt(
+            generator._build_prompt(
                 "my requirement",
                 PromptCategory.STRATEGY_GENERATION,
                 strategy_name="CustomStrategy",
                 symbol="ETH/USDT",
-                timeframe="4h"
+                timeframe="4h",
             )
 
             call_kwargs = mock_render.call_args.kwargs

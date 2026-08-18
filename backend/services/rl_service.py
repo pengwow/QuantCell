@@ -5,17 +5,20 @@ Unified entry point for RL training, HPO, Walk-Forward, and model registry.
 
 from __future__ import annotations
 
-import time
+import contextlib
 import logging
+import time
 from dataclasses import dataclass, field
-from typing import Any
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import pandas as pd
 
 from backtest.hpo_runner import HPORunner
 from backtest.walk_forward import WalkForwardService
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +28,7 @@ MODELS_DIR = Path(__file__).parent.parent / "data" / "models"
 @dataclass
 class RLTrainConfig:
     """RL training configuration."""
+
     algorithm: str = "ppo"
     data: pd.DataFrame | None = None
     symbol: str = ""
@@ -43,6 +47,7 @@ class RLTrainConfig:
 @dataclass
 class RLTrainResult:
     """RL training result."""
+
     model_id: str | None = None
     model_path: str | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
@@ -80,7 +85,7 @@ try:
             self._current_step = 0
             if max_steps > 0:
                 self._max_steps = max_steps
-            elif hasattr(env, 'info') and isinstance(env.info, dict):
+            elif hasattr(env, "info") and isinstance(env.info, dict):
                 self._max_steps = 999_999_999
             else:
                 self._max_steps = 50000
@@ -93,12 +98,8 @@ try:
             else:
                 probe_obs = self._probe_obs(env)
                 inferred = self._infer_n_features(probe_obs)
-            self.observation_space = gym.spaces.Box(
-                low=-np.inf, high=np.inf, shape=(inferred,), dtype=np.float32
-            )
-            self.action_space = gym.spaces.Box(
-                low=0.0, high=1.0, shape=(1,), dtype=np.float32
-            )
+            self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(inferred,), dtype=np.float32)
+            self.action_space = gym.spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
 
         @staticmethod
         def _probe_obs(env):
@@ -109,19 +110,17 @@ try:
                 # 探测失败时用占位单维 obs，避免构造阶段崩溃
                 return np.zeros(1, dtype=np.float32)
             # 复位 env 到探测前的状态
-            try:
+            with contextlib.suppress(Exception):
                 env.reset()
-            except Exception:
-                pass
             return probe
 
         @staticmethod
         def _infer_n_features(obs) -> int:
             """从 obs 推断特征维度：dict 走 'features' 键，其他走 len()。"""
-            if isinstance(obs, dict) and 'features' in obs:
-                features = obs['features']
+            if isinstance(obs, dict) and "features" in obs:
+                features = obs["features"]
                 return len(features) if features is not None and len(features) > 0 else 1
-            if hasattr(obs, '__len__'):
+            if hasattr(obs, "__len__"):
                 length = len(obs)
                 return length if length > 0 else 1
             return 1
@@ -129,8 +128,8 @@ try:
         @staticmethod
         def _coerce_obs(obs, observation_space) -> np.ndarray:
             """统一 obs 转换：dict 取 'features'，array-like 直接转 ndarray，并按 space 形状校验。"""
-            if isinstance(obs, dict) and 'features' in obs:
-                arr = np.asarray(obs['features'], dtype=np.float32)
+            if isinstance(obs, dict) and "features" in obs:
+                arr = np.asarray(obs["features"], dtype=np.float32)
             else:
                 arr = np.asarray(obs, dtype=np.float32)
             expected = observation_space.shape[0]
@@ -150,7 +149,7 @@ try:
             obs = self._env.reset()
             self._done = False
             self._current_step = 0
-            info = self._env.info if hasattr(self._env, 'info') and isinstance(self._env.info, dict) else {}
+            info = self._env.info if hasattr(self._env, "info") and isinstance(self._env.info, dict) else {}
             obs_arr = self._coerce_obs(obs, self.observation_space)
             return obs_arr, info
 
@@ -207,12 +206,17 @@ class RLService:
             return config.data
         if config.symbol:
             from backtest.data_provider import BacktestDataProvider
+
             provider = BacktestDataProvider()
             return provider.load_klines(
-                config.symbol, config.interval, config.candle_type,
-                config.start, config.end,
+                config.symbol,
+                config.interval,
+                config.candle_type,
+                config.start,
+                config.end,
             )
-        raise ValueError("需要 config.data 或 config.symbol")
+        msg = "需要 config.data 或 config.symbol"
+        raise ValueError(msg)
 
     def create_env(
         self,
@@ -226,15 +230,15 @@ class RLService:
         """
         # 走适配层检查可用性,避免业务代码直连 axon_quant
         from axon_bridge import rl as _rl_bridge
-        if not hasattr(_rl_bridge, 'TradingEnv'):
-            raise RuntimeError(
-                "axon_quant.rl.TradingEnv 不可用，请安装 axon_quant: pip install axon_quant"
-            )
+
+        if not hasattr(_rl_bridge, "TradingEnv"):
+            msg = "axon_quant.rl.TradingEnv 不可用，请安装 axon_quant: pip install axon_quant"
+            raise RuntimeError(msg)
 
         df = data.copy()
         df.columns = [c.lower() for c in df.columns]
-        if 'timestamp' not in df.columns:
-            df['timestamp'] = range(len(df))
+        if "timestamp" not in df.columns:
+            df["timestamp"] = range(len(df))
 
         market_data = df.to_dict("records")
         config = _make_env_config(max_steps=len(df))
@@ -248,12 +252,15 @@ class RLService:
         """
         data = self._load_data(config)
 
-        logger.info(f"[RLService] 开始训练: algorithm={config.algorithm}, timesteps={config.total_timesteps}, reward={config.reward_type}")
+        logger.info(
+            f"[RLService] 开始训练: algorithm={config.algorithm}, timesteps={config.total_timesteps}, reward={config.reward_type}"
+        )
         start_time = time.time()
 
         wf_result = None
         if config.walk_forward:
             from rl.walk_forward_rl import RLWalkForwardService
+
             wf_svc = RLWalkForwardService()
 
             def env_factory(d: pd.DataFrame):
@@ -261,16 +268,16 @@ class RLService:
                 return GymnasiumWrapper(env)
 
             try:
-                from stable_baselines3 import PPO, SAC, DQN
+                from stable_baselines3 import DQN, PPO, SAC
             except ImportError:
-                raise RuntimeError(
-                    "缺少RL训练依赖，请安装: pip install stable-baselines3 gymnasium torch"
-                )
+                msg = "缺少RL训练依赖，请安装: pip install stable-baselines3 gymnasium torch"
+                raise RuntimeError(msg)
 
             algo_map = {"ppo": PPO, "sac": SAC, "dqn": DQN}
             algo_cls = algo_map.get(config.algorithm)
             if algo_cls is None:
-                raise ValueError(f"Unknown algorithm: {config.algorithm}")
+                msg = f"Unknown algorithm: {config.algorithm}"
+                raise ValueError(msg)
 
             wf_result = wf_svc.validate(
                 data=data,
@@ -283,16 +290,16 @@ class RLService:
         env = self.create_env(data, config.features, config.reward_type)
 
         try:
-            from stable_baselines3 import PPO, SAC, DQN
+            from stable_baselines3 import DQN, PPO, SAC
         except ImportError:
-            raise RuntimeError(
-                "缺少RL训练依赖，请安装: pip install stable-baselines3 gymnasium torch"
-            )
+            msg = "缺少RL训练依赖，请安装: pip install stable-baselines3 gymnasium torch"
+            raise RuntimeError(msg)
 
         algo_map = {"ppo": PPO, "sac": SAC, "dqn": DQN}
         algo_cls = algo_map.get(config.algorithm)
         if algo_cls is None:
-            raise ValueError(f"Unknown algorithm: {config.algorithm}")
+            msg = f"Unknown algorithm: {config.algorithm}"
+            raise ValueError(msg)
 
         logger.info(f"[RLService] 使用 {algo_cls.__name__} 训练...")
 
@@ -325,7 +332,8 @@ class RLService:
     def load_model(self, model_path: str) -> Any:
         """Load a trained model from path."""
         try:
-            from stable_baselines3 import PPO, SAC, DQN
+            from stable_baselines3 import DQN, PPO, SAC
+
             if "ppo" in model_path.lower():
                 return PPO.load(model_path)
             elif "sac" in model_path.lower():
@@ -343,22 +351,30 @@ class RLService:
         models = []
         if MODELS_DIR.exists():
             for f in MODELS_DIR.glob("*.zip"):
-                models.append({
-                    "name": f.stem,
-                    "path": str(f),
-                    "size_mb": round(f.stat().st_size / (1024 * 1024), 2),
-                    "created": f.stat().st_ctime,
-                })
+                models.append(
+                    {
+                        "name": f.stem,
+                        "path": str(f),
+                        "size_mb": round(f.stat().st_size / (1024 * 1024), 2),
+                        "created": f.stat().st_ctime,
+                    }
+                )
         return models
 
     def optimize_hyperparameters(
-        self, objective_fn: Any, param_space: dict[str, Any], n_trials: int = 10,
+        self,
+        objective_fn: Any,
+        param_space: dict[str, Any],
+        n_trials: int = 10,
     ) -> dict[str, Any]:
         """Execute hyperparameter optimization."""
         return self._hpo.optimize(objective_fn, param_space, n_trials)
 
     def walk_forward_validate(
-        self, data: pd.DataFrame, n_splits: int = 5, mode: str = "rolling",
+        self,
+        data: pd.DataFrame,
+        n_splits: int = 5,
+        mode: str = "rolling",
     ) -> dict[str, Any]:
         """Execute Walk-Forward validation."""
         return self._wf.validate(strategy_fn=None, data=data, n_splits=n_splits, mode=mode)
@@ -383,14 +399,16 @@ class RLService:
         provider = BacktestDataProvider()
         data = provider.load_klines(symbol, interval, candle_type)
         if data.empty:
-            raise ValueError(f"无法加载 {symbol} {interval} 数据")
+            msg = f"无法加载 {symbol} {interval} 数据"
+            raise ValueError(msg)
 
         env = self.create_env(data, reward_type=reward_type)
         wrapped_env = GymnasiumWrapper(env)
 
         model = self.load_model(model_path)
         if model is None:
-            raise RuntimeError(f"无法加载模型: {model_path}")
+            msg = f"无法加载模型: {model_path}"
+            raise RuntimeError(msg)
 
         metrics = evaluate_model(model, wrapped_env)
         wrapped_env.close()

@@ -8,10 +8,11 @@ ponytail: 用 close 历史计算布林带 (20, 2) + RSI (14)
          上轨 = mean + 2*std, 下轨 = mean - 2*std
          RSI 简化：gain/loss 平均
 """
+
 from __future__ import annotations
 
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 from axon_bridge import Action
+from strategy.base import BaseStrategy, StrategyContext
 
 
 def _mean(xs: list[float]) -> float:
@@ -60,8 +61,13 @@ class MeanReversion(BaseStrategy):
         model_id = self.config.name
 
         if len(ctx.closes) < max(bb_period, rsi_period + 1):
-            return Action(action_type="hold", confidence=0.0, target_position=0.0,
-                          model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="hold",
+                confidence=0.0,
+                target_position=0.0,
+                model_id=model_id,
+                inference_time_us=0,
+            )
 
         recent = ctx.closes[-bb_period:]
         m, s = _mean(recent), _std(recent)
@@ -72,12 +78,27 @@ class MeanReversion(BaseStrategy):
 
         # 价格破下轨 + RSI 超卖 → 买入反转
         if close < lower and rsi < rsi_oversold:
-            return Action(action_type="buy", confidence=0.7, target_position=limit,
-                          model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="buy",
+                confidence=0.7,
+                target_position=limit,
+                model_id=model_id,
+                inference_time_us=0,
+            )
         # 价格破上轨 + RSI 超买 → 卖出反转
         if close > upper and rsi > rsi_overbought:
-            return Action(action_type="sell", confidence=0.7, target_position=0.0,
-                          model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="sell",
+                confidence=0.7,
+                target_position=0.0,
+                model_id=model_id,
+                inference_time_us=0,
+            )
 
-        return Action(action_type="hold", confidence=0.0, target_position=0.0,
-                      model_id=model_id, inference_time_us=0)
+        return Action(
+            action_type="hold",
+            confidence=0.0,
+            target_position=0.0,
+            model_id=model_id,
+            inference_time_us=0,
+        )

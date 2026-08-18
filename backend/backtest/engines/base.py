@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 回测引擎抽象基类模块
 
@@ -6,21 +5,25 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
 from enum import Enum
-from utils.logger import get_logger, LogType
+from typing import Any
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
 class EngineType(Enum):
     """
     回测引擎类型枚举
     """
-    EVENT_DRIVEN = "event_driven"      # 事件驱动引擎
-    VECTORIZED = "vectorized"          # 向量化引擎
-    CONCURRENT = "concurrent"          # 并发引擎
-    ASYNC_EVENT = "async_event"        # 异步事件引擎
-    LEGACY = "legacy"                  # 传统回测引擎
+
+    EVENT_DRIVEN = "event_driven"  # 事件驱动引擎
+    VECTORIZED = "vectorized"  # 向量化引擎
+    CONCURRENT = "concurrent"  # 并发引擎
+    ASYNC_EVENT = "async_event"  # 异步事件引擎
+    LEGACY = "legacy"  # 传统回测引擎
 
 
 class BacktestEngineBase(ABC):
@@ -36,7 +39,7 @@ class BacktestEngineBase(ABC):
         is_initialized: 引擎是否已初始化
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         初始化回测引擎基类
 
@@ -59,7 +62,7 @@ class BacktestEngineBase(ABC):
         pass
 
     @property
-    def config(self) -> Dict[str, Any]:
+    def config(self) -> dict[str, Any]:
         """
         引擎配置属性
 
@@ -69,7 +72,7 @@ class BacktestEngineBase(ABC):
         return self._config
 
     @config.setter
-    def config(self, value: Dict[str, Any]):
+    def config(self, value: dict[str, Any]):
         """
         设置引擎配置
 
@@ -105,7 +108,7 @@ class BacktestEngineBase(ABC):
         pass
 
     @abstractmethod
-    def run_backtest(self) -> Dict[str, Any]:
+    def run_backtest(self) -> dict[str, Any]:
         """
         执行回测
 
@@ -124,7 +127,7 @@ class BacktestEngineBase(ABC):
         pass
 
     @abstractmethod
-    def get_results(self) -> Dict[str, Any]:
+    def get_results(self) -> dict[str, Any]:
         """
         获取回测结果
 
@@ -168,7 +171,7 @@ class BacktestEngineBase(ABC):
         Returns:
             bool: 配置是否有效
         """
-        required_keys = ['initial_capital', 'start_date', 'end_date']
+        required_keys = ["initial_capital", "start_date", "end_date"]
         for key in required_keys:
             if key not in self._config:
                 logger.error(f"配置缺少必需参数: {key}")

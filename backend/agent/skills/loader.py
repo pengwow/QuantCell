@@ -39,7 +39,13 @@ class SkillsLoader:
                 if skill_dir.is_dir():
                     skill_file = skill_dir / "SKILL.md"
                     if skill_file.exists():
-                        skills.append({"name": skill_dir.name, "path": str(skill_file), "source": "workspace"})
+                        skills.append(
+                            {
+                                "name": skill_dir.name,
+                                "path": str(skill_file),
+                                "source": "workspace",
+                            }
+                        )
 
         # 内置技能
         if self.builtin_skills and self.builtin_skills.exists():
@@ -47,7 +53,13 @@ class SkillsLoader:
                 if skill_dir.is_dir():
                     skill_file = skill_dir / "SKILL.md"
                     if skill_file.exists() and not any(s["name"] == skill_dir.name for s in skills):
-                        skills.append({"name": skill_dir.name, "path": str(skill_file), "source": "builtin"})
+                        skills.append(
+                            {
+                                "name": skill_dir.name,
+                                "path": str(skill_file),
+                                "source": "builtin",
+                            }
+                        )
 
         # 按依赖过滤
         if filter_unavailable:
@@ -136,7 +148,7 @@ class SkillsLoader:
         if content.startswith("---"):
             match = re.match(r"^---\n.*?\n---\n", content, re.DOTALL)
             if match:
-                return content[match.end():].strip()
+                return content[match.end() :].strip()
         return content
 
     def _parse_metadata(self, raw: str) -> dict:
@@ -144,7 +156,7 @@ class SkillsLoader:
         try:
             data = json.loads(raw)
             return data.get("quantcell", {}) if isinstance(data, dict) else {}
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return {}
 
     def _check_requirements(self, skill_meta: dict) -> bool:
@@ -153,10 +165,7 @@ class SkillsLoader:
         for b in requires.get("bins", []):
             if not shutil.which(b):
                 return False
-        for env in requires.get("env", []):
-            if not os.environ.get(env):
-                return False
-        return True
+        return all(os.environ.get(env) for env in requires.get("env", []))
 
     def _get_skill_meta(self, name: str) -> dict:
         """获取技能元数据"""
@@ -186,7 +195,7 @@ class SkillsLoader:
                 for line in match.group(1).split("\n"):
                     if ":" in line:
                         key, value = line.split(":", 1)
-                        metadata[key.strip()] = value.strip().strip('"\'')
+                        metadata[key.strip()] = value.strip().strip("\"'")
                 return metadata
 
         return None

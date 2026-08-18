@@ -6,23 +6,17 @@
 所有回测均使用事件驱动引擎（axon-quant）。
 """
 
-import importlib
-import importlib.util
 import json
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Annotated
 
 import typer
-from typer import Typer, Option
-from typing import Annotated
 from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from typer import Option
 
-from utils.logger import get_logger, LogType
-
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -33,18 +27,20 @@ app = typer.Typer(
     help="QuantCell 回测工具（事件驱动引擎 axon-quant）",
     no_args_is_help=True,
     add_completion=False,
-    rich_markup_mode="rich"
+    rich_markup_mode="rich",
 )
 
 
 # 导入服务层（延迟导入避免循环依赖）
 def _get_data_provider():
     from backtest.data_provider import BacktestDataProvider
+
     return BacktestDataProvider()
 
 
 def _get_engine_service(data_provider):
     from backtest.engine_service import EventDrivenBacktestService
+
     return EventDrivenBacktestService(data_provider)
 
 
@@ -58,20 +54,36 @@ def run(
     commission: Annotated[float, Option("--commission", "-c", help="手续费率")] = 0.001,
     base_currency: Annotated[str, Option("--base-currency", help="基础货币")] = "USDT",
     leverage: Annotated[float, Option("--leverage", help="杠杆倍数")] = 1.0,
-    trading_mode: Annotated[str, Option("--trading-mode", "--mode", help="交易模式: spot(现货) / futures(永续合约)")] = "spot",
-    time_range: Annotated[Optional[str], Option("--time-range", help="时间范围(YYYYMMDD-YYYYMMDD)")] = None,
+    trading_mode: Annotated[
+        str,
+        Option("--trading-mode", "--mode", help="交易模式: spot(现货) / futures(永续合约)"),
+    ] = "spot",
+    time_range: Annotated[str | None, Option("--time-range", help="时间范围(YYYYMMDD-YYYYMMDD)")] = None,
     # 末日单管理(回测结束 EOD 强制平仓,适合日报/对账场景)
-    force_liquidate: Annotated[bool, Option("--force-liquidate/--no-force-liquidate", help="回测结束强制市价平仓所有未平仓持仓(末日单管理,适合日报/对账)")] = False,
+    force_liquidate: Annotated[
+        bool,
+        Option(
+            "--force-liquidate/--no-force-liquidate",
+            help="回测结束强制市价平仓所有未平仓持仓(末日单管理,适合日报/对账)",
+        ),
+    ] = False,
     # 多数据类型支持
-    data_type: Annotated[str, Option("--data-type", "-dt", help="数据类型: kline/aggTrades/trades/bookDepth/bookTicker/fundingRate/openInterest/markPriceKlines/indexPriceKlines/premiumIndexKlines")] = "kline",
+    data_type: Annotated[
+        str,
+        Option(
+            "--data-type",
+            "-dt",
+            help="数据类型: kline/aggTrades/trades/bookDepth/bookTicker/fundingRate/openInterest/markPriceKlines/indexPriceKlines/premiumIndexKlines",
+        ),
+    ] = "kline",
     market: Annotated[str, Option("--market", "-mkt", help="市场类型: spot/um/cm")] = "spot",
     chart: Annotated[bool, Option("--chart/--no-chart", help="生成回测图表")] = False,
     output_format: Annotated[str, Option("--output-format", "-o", help="输出格式(json/table/both)")] = "table",
-    output_file: Annotated[Optional[str], Option("--output-file", "-f", help="输出文件路径")] = None,
+    output_file: Annotated[str | None, Option("--output-file", "-f", help="输出文件路径")] = None,
 ):
     """
     运行回测（使用事件驱动引擎 axon-quant）
-    
+
     示例:
       # 基本回测
       uv run python -m cli.backtest run --strategy sma_crossover --symbols BTCUSDT --timeframes 1h
@@ -98,19 +110,19 @@ def run(
         symbols_list = [s.strip() for s in symbols.split(",")]
         timeframes_list = [t.strip() for t in timeframes.split(",")]
 
-        console.print(f"\n[bold blue]🚀 开始执行回测[/bold blue]")
+        console.print("\n[bold blue]🚀 开始执行回测[/bold blue]")
         console.print(f"   策略: {strategy}")
         console.print(f"   品种: {', '.join(symbols_list)}")
         console.print(f"   周期: {', '.join(timeframes_list)}")
         console.print(f"   模式: {'永续合约' if trading_mode == 'futures' else '现货'}")
-        console.print(f"   引擎: 事件驱动 (axon-quant)")
+        console.print("   引擎: 事件驱动 (axon-quant)")
         console.print(f"   数据类型: {data_type}")
         console.print(f"   市场: {market}")
         # 末日单状态(便于用户确认回测语义)
         if force_liquidate:
-            console.print(f"   末日单: [yellow]强制平仓[/yellow] (EOD 市价清仓,PnL 全部转为已实现)")
+            console.print("   末日单: [yellow]强制平仓[/yellow] (EOD 市价清仓,PnL 全部转为已实现)")
         else:
-            console.print(f"   末日单: [green]保留持仓[/green] (按末帧 mark 估值,忠实策略意图)")
+            console.print("   末日单: [green]保留持仓[/green] (按末帧 mark 估值,忠实策略意图)")
 
         # 初始化服务
         data_provider = _get_data_provider()
@@ -207,6 +219,7 @@ def list_strategies(
                 sys.path.insert(0, module_path)
 
             import importlib
+
             location = strategy_file.parent.name
             spec = importlib.util.spec_from_file_location(strategy_name, str(strategy_file))
             module = importlib.util.module_from_spec(spec)
@@ -219,10 +232,14 @@ def list_strategies(
             for attr_name in dir(module):
                 attr_val = getattr(module, attr_name)
                 if isinstance(attr_val, type):
-                    if EventDrivenStrategy is not None:
-                        if issubclass(attr_val, EventDrivenStrategy) and attr_val is not EventDrivenStrategy:
-                            has_event_strategy = True
-                    if attr_name in ('EventDrivenStrategy', 'EventDrivenStrategyConfig'):
+                    if EventDrivenStrategy is not None and (
+                        issubclass(attr_val, EventDrivenStrategy) and attr_val is not EventDrivenStrategy
+                    ):
+                        has_event_strategy = True
+                    if attr_name in (
+                        "EventDrivenStrategy",
+                        "EventDrivenStrategyConfig",
+                    ):
                         has_base_class = True
 
             if has_event_strategy:
@@ -232,10 +249,10 @@ def list_strategies(
             else:
                 strategy_type = "[yellow]未分类[/yellow]"
 
-            doc = getattr(module, '__doc__', '')
+            doc = getattr(module, "__doc__", "")
             if doc:
-                first_line = doc.strip().split('\n')[0]
-                description = first_line[:60] + ('...' if len(first_line) > 60 else '')
+                first_line = doc.strip().split("\n")[0]
+                description = first_line[:60] + ("..." if len(first_line) > 60 else "")
 
         except Exception as e:
             if verbose:
@@ -256,29 +273,29 @@ def plot(
 ):
     """绘制回测结果图表"""
     console = Console()
-    
+
     input_path = Path(input_file)
-    
+
     if not input_path.exists():
         console.print(f"[red]❌ 输入文件不存在: {input_file}[/red]")
         raise typer.Exit(1)
-    
+
     try:
-        with open(input_path, 'r', encoding='utf-8') as f:
+        with open(input_path, encoding="utf-8") as f:
             results = json.load(f)
-        
+
         from backtest.plot_utils import plot_backtest_results
-        from backtest.result_analysis import output_results
-        
+
         plot_path = plot_backtest_results(results, output_format=output_format, output_dir=output_dir)
-        
-        console.print(f"\n[bold green]✅ 图表生成成功![/bold green]")
+
+        console.print("\n[bold green]✅ 图表生成成功![/bold green]")
         console.print(f"📍 输出路径: {plot_path}")
-        
+
         if output_format == "html":
             import webbrowser
-            webbrowser.open('file://' + str(Path(plot_path).absolute()))
-            
+
+            webbrowser.open("file://" + str(Path(plot_path).absolute()))
+
     except Exception as e:
         logger.error(f"绘制图表失败: {e}")
         console.print(f"[red]❌ 绘制失败: {e}[/red]")
@@ -287,49 +304,50 @@ def plot(
 
 @app.command()
 def show(
-    result_id: Annotated[int, Option("--id", help="结果ID")] = None,
+    result_id: Annotated[int | None, Option("--id", help="结果ID")] = None,
     latest: Annotated[bool, Option("--latest/-l", help="显示最新结果")] = True,
 ):
     """显示回测结果详情"""
     console = Console()
-    
+
     try:
         from backtest.service import BacktestService
+
         service = BacktestService()
-        
+
         if result_id:
             result = service.get_result(result_id)
         elif latest:
             result = service.get_latest_result()
         else:
             results = service.get_result_list(limit=10)
-            
+
             table = Table(title="最近10次回测结果")
             table.add_column("ID", style="cyan")
             table.add_column("策略", style="green")
             table.add_column("品种", style="white")
             table.add_column("时间", style="yellow")
             table.add_column("状态", style="magenta")
-            
+
             for r in results[:10]:
-                status_style = "green" if r.get('status') == 'completed' else "red"
+                status_style = "green" if r.get("status") == "completed" else "red"
                 table.add_row(
-                    str(r.get('id', '-')),
-                    r.get('strategy_name', '-'),
-                    r.get('symbols', '-'),
-                    r.get('created_at', '-')[:19],
-                    f"[{status_style}]{r.get('status', '-')}[/{status_style}]"
+                    str(r.get("id", "-")),
+                    r.get("strategy_name", "-"),
+                    r.get("symbols", "-"),
+                    r.get("created_at", "-")[:19],
+                    f"[{status_style}]{r.get('status', '-')}[/{status_style}]",
                 )
-            
+
             console.print(table)
             return
-        
+
         if not result:
             console.print("[yellow]⚠️ 未找到回测结果[/yellow]")
             return
-        
+
         _output_results(result, "table", None, console)
-        
+
     except Exception as e:
         logger.error(f"显示结果失败: {e}")
         console.print(f"[red]❌ 显示失败: {e}[/red]")
@@ -343,23 +361,24 @@ def compare(
 ):
     """对比多个回测结果"""
     console = Console()
-    
+
     try:
         from backtest.service import BacktestService
+
         service = BacktestService()
-        
+
         if result_ids:
             ids = [int(id.strip()) for id in result_ids.split(",")]
         else:
             all_results = service.get_result_list(limit=latest_n)
-            ids = [r['id'] for r in all_results]
-        
+            ids = [r["id"] for r in all_results]
+
         if len(ids) < 2:
             console.print("[yellow]⚠️ 至少需要2个结果才能进行对比[/yellow]")
             return
-        
+
         results = [service.get_result(id) for id in ids]
-        
+
         table = Table(title=f"📊 回测结果对比 ({len(ids)}个)")
         table.add_column("ID", style="cyan")
         table.add_column("策略", style="green")
@@ -367,28 +386,28 @@ def compare(
         table.add_column("胜率%", justify="right", style="yellow")
         table.add_column("交易次数", justify="right", style="magenta")
         table.add_column("最大回撤%", justify="right", style="red")
-        
+
         for r in results:
-            metrics = r.get('portfolio', {}).get('metrics', {})
-            
+            metrics = r.get("portfolio", {}).get("metrics", {})
+
             table.add_row(
-                str(r.get('_meta', {}).get('timestamp', '-')),
-                r.get('_meta', {}).get('strategy', '-'),
+                str(r.get("_meta", {}).get("timestamp", "-")),
+                r.get("_meta", {}).get("strategy", "-"),
                 f"{metrics.get('total_return', 0):.2f}",
                 f"{metrics.get('win_rate', 0) * 100:.4f}",
-                str(metrics.get('total_trades', 0)),
-                f"{metrics.get('max_drawdown', 0) * 100:.4f}"
+                str(metrics.get("total_trades", 0)),
+                f"{metrics.get('max_drawdown', 0) * 100:.4f}",
             )
-        
+
         console.print(table)
-        
+
     except Exception as e:
         logger.error(f"对比结果失败: {e}")
         console.print(f"[red]❌ 对比失败: {e}[/red]")
         raise typer.Exit(1)
 
 
-def _generate_chart(results: dict, console: Console) -> Optional[str]:
+def _generate_chart(results: dict, console: Console) -> str | None:
     """
     生成回测图表（资金曲线、回撤、月度交易、单笔盈亏）
 
@@ -400,10 +419,11 @@ def _generate_chart(results: dict, console: Console) -> Optional[str]:
         图表文件路径，失败返回 None
     """
     try:
+        import matplotlib
         import numpy as np
         import pandas as pd
-        import matplotlib
-        matplotlib.use('Agg')
+
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
         console.print("[yellow]⚠️ 需要安装 matplotlib: pip install matplotlib[/yellow]")
@@ -434,7 +454,7 @@ def _generate_chart(results: dict, console: Console) -> Optional[str]:
 
     # 转换时间戳为日期
     try:
-        ts_dates = pd.to_datetime(timestamps, unit='ns')
+        ts_dates = pd.to_datetime(timestamps, unit="ns")
     except Exception:
         ts_dates = pd.RangeIndex(len(equity))
 
@@ -455,83 +475,105 @@ def _generate_chart(results: dict, console: Console) -> Optional[str]:
     sharpe = returns.mean() / (returns.std() + 1e-8) * np.sqrt(96 * 365) if len(returns) > 1 else 0
 
     # 创建图表
-    fig, axes = plt.subplots(4, 1, figsize=(14, 16),
-                             gridspec_kw={'height_ratios': [3, 1.5, 1, 1]})
+    fig, axes = plt.subplots(4, 1, figsize=(14, 16), gridspec_kw={"height_ratios": [3, 1.5, 1, 1]})
     fig.suptitle(
-        f'{symbol} PPO Backtest\n'
-        f'PnL: {"+" if total_pnl >= 0 else ""}{total_pnl:,.0f} ({pnl_pct:+.1f}%) | '
-        f'Sharpe: {sharpe:.2f} | MaxDD: {abs(max_dd):.2f}%',
-        fontsize=14, fontweight='bold'
+        f"{symbol} PPO Backtest\n"
+        f"PnL: {'+' if total_pnl >= 0 else ''}{total_pnl:,.0f} ({pnl_pct:+.1f}%) | "
+        f"Sharpe: {sharpe:.2f} | MaxDD: {abs(max_dd):.2f}%",
+        fontsize=14,
+        fontweight="bold",
     )
 
     # 1. 资金曲线
     ax1 = axes[0]
-    ax1.plot(ts_dates, equity, color='#2ecc71', linewidth=1.2, label='Portfolio')
-    ax1.axhline(y=equity[0], color='black', linestyle='--', alpha=0.3)
-    ax1.fill_between(ts_dates, equity[0], equity,
-                      where=equity >= equity[0], alpha=0.1, color='green')
-    ax1.fill_between(ts_dates, equity[0], equity,
-                      where=equity < equity[0], alpha=0.1, color='red')
-    ax1.set_ylabel('Value ($)')
-    ax1.set_title('Equity Curve')
-    ax1.legend(loc='upper left')
+    ax1.plot(ts_dates, equity, color="#2ecc71", linewidth=1.2, label="Portfolio")
+    ax1.axhline(y=equity[0], color="black", linestyle="--", alpha=0.3)
+    ax1.fill_between(ts_dates, equity[0], equity, where=equity >= equity[0], alpha=0.1, color="green")
+    ax1.fill_between(ts_dates, equity[0], equity, where=equity < equity[0], alpha=0.1, color="red")
+    ax1.set_ylabel("Value ($)")
+    ax1.set_title("Equity Curve")
+    ax1.legend(loc="upper left")
 
     # 标注极值
     peak_i = np.argmax(equity)
     trough_i = np.argmin(equity)
-    ax1.annotate(f'Peak ${equity[peak_i]:,.0f}',
-                 xy=(ts_dates[peak_i], equity[peak_i]),
-                 xytext=(10, 10), textcoords='offset points', fontsize=8,
-                 color='green', arrowprops=dict(arrowstyle='->', color='green'))
-    ax1.annotate(f'Low ${equity[trough_i]:,.0f}',
-                 xy=(ts_dates[trough_i], equity[trough_i]),
-                 xytext=(10, -15), textcoords='offset points', fontsize=8,
-                 color='red', arrowprops=dict(arrowstyle='->', color='red'))
+    ax1.annotate(
+        f"Peak ${equity[peak_i]:,.0f}",
+        xy=(ts_dates[peak_i], equity[peak_i]),
+        xytext=(10, 10),
+        textcoords="offset points",
+        fontsize=8,
+        color="green",
+        arrowprops=dict(arrowstyle="->", color="green"),
+    )
+    ax1.annotate(
+        f"Low ${equity[trough_i]:,.0f}",
+        xy=(ts_dates[trough_i], equity[trough_i]),
+        xytext=(10, -15),
+        textcoords="offset points",
+        fontsize=8,
+        color="red",
+        arrowprops=dict(arrowstyle="->", color="red"),
+    )
 
     # 2. 回撤
     ax2 = axes[1]
-    ax2.fill_between(ts_dates, 0, drawdown.values, color='crimson', alpha=0.3)
-    ax2.plot(ts_dates, drawdown.values, color='crimson', linewidth=0.6)
-    ax2.set_ylabel('Drawdown (%)')
-    ax2.set_title('Drawdown')
+    ax2.fill_between(ts_dates, 0, drawdown.values, color="crimson", alpha=0.3)
+    ax2.plot(ts_dates, drawdown.values, color="crimson", linewidth=0.6)
+    ax2.set_ylabel("Drawdown (%)")
+    ax2.set_title("Drawdown")
     ax2.set_ylim(min(drawdown.values) * 1.3, 0.5)
 
     # 3. 月度交易
     ax3 = axes[2]
-    if not trades_df.empty and 'time' in trades_df.columns:
-        trades_df['time'] = pd.to_datetime(trades_df['time'])
-        trades_df['month'] = trades_df['time'].dt.to_period('M')
-        monthly = trades_df.groupby('month').agg(
-            buys=('action', lambda x: (x == 'BUY').sum()),
-            sells=('action', lambda x: (x == 'SELL').sum()),
+    if not trades_df.empty and "time" in trades_df.columns:
+        trades_df["time"] = pd.to_datetime(trades_df["time"])
+        trades_df["month"] = trades_df["time"].dt.to_period("M")
+        monthly = trades_df.groupby("month").agg(
+            buys=("action", lambda x: (x == "BUY").sum()),
+            sells=("action", lambda x: (x == "SELL").sum()),
         )
         x = np.arange(len(monthly))
-        ax3.bar(x - 0.2, monthly['buys'].values, 0.4, label='BUY', color='#2ecc71', alpha=0.7)
-        ax3.bar(x + 0.2, monthly['sells'].values, 0.4, label='SELL', color='#e74c3c', alpha=0.7)
+        ax3.bar(
+            x - 0.2,
+            monthly["buys"].values,
+            0.4,
+            label="BUY",
+            color="#2ecc71",
+            alpha=0.7,
+        )
+        ax3.bar(
+            x + 0.2,
+            monthly["sells"].values,
+            0.4,
+            label="SELL",
+            color="#e74c3c",
+            alpha=0.7,
+        )
         ax3.set_xticks(x)
         ax3.set_xticklabels([str(p) for p in monthly.index], rotation=45, fontsize=7)
-        ax3.set_ylabel('Count')
-        ax3.set_title('Monthly Trades')
+        ax3.set_ylabel("Count")
+        ax3.set_title("Monthly Trades")
         ax3.legend()
     else:
-        ax3.text(0.5, 0.5, 'No trade data', ha='center', va='center', transform=ax3.transAxes)
-        ax3.set_title('Monthly Trades')
+        ax3.text(0.5, 0.5, "No trade data", ha="center", va="center", transform=ax3.transAxes)
+        ax3.set_title("Monthly Trades")
 
     # 4. 单笔盈亏
     ax4 = axes[3]
-    if not trades_df.empty and 'portfolio' in trades_df.columns:
-        pnl = trades_df['portfolio'].diff().fillna(0).values
-        colors = ['#2ecc71' if x >= 0 else '#e74c3c' for x in pnl]
+    if not trades_df.empty and "portfolio" in trades_df.columns:
+        pnl = trades_df["portfolio"].diff().fillna(0).values
+        colors = ["#2ecc71" if x >= 0 else "#e74c3c" for x in pnl]
         ax4.bar(range(len(pnl)), pnl, color=colors, alpha=0.5, width=1.0)
-        ax4.axhline(0, color='black', linestyle='--', alpha=0.3)
+        ax4.axhline(0, color="black", linestyle="--", alpha=0.3)
         if len(pnl) > 20:
             ma = pd.Series(pnl).rolling(20).mean()
-            ax4.plot(range(len(ma)), ma.values, color='blue', linewidth=1, label='MA20')
+            ax4.plot(range(len(ma)), ma.values, color="blue", linewidth=1, label="MA20")
             ax4.legend()
     else:
-        ax4.text(0.5, 0.5, 'No trade data', ha='center', va='center', transform=ax4.transAxes)
-    ax4.set_ylabel('PnL ($)')
-    ax4.set_title('Per-Trade PnL')
+        ax4.text(0.5, 0.5, "No trade data", ha="center", va="center", transform=ax4.transAxes)
+    ax4.set_ylabel("PnL ($)")
+    ax4.set_title("Per-Trade PnL")
 
     plt.tight_layout()
 
@@ -541,17 +583,18 @@ def _generate_chart(results: dict, console: Console) -> Optional[str]:
     chart_dir.mkdir(parents=True, exist_ok=True)
 
     from datetime import datetime
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_name = "".join(c for c in strategy_name if c.isalnum() or c in ['_', '-'])[:20]
+    safe_name = "".join(c for c in strategy_name if c.isalnum() or c in ["_", "-"])[:20]
     chart_path = str(chart_dir / f"{timestamp}_{safe_name}_{symbol}_chart.png")
 
-    plt.savefig(chart_path, dpi=150, bbox_inches='tight')
+    plt.savefig(chart_path, dpi=150, bbox_inches="tight")
     plt.close()
 
     return chart_path
 
 
-def _output_results(results: dict, output_format: str, output_file: Optional[str], console: Console):
+def _output_results(results: dict, output_format: str, output_file: str | None, console: Console):
     """
     格式化并输出回测结果
 
@@ -586,8 +629,8 @@ def _output_results(results: dict, output_format: str, output_file: Optional[str
             elif isinstance(symbols, str):
                 symbols = symbols.replace(",", "_")[:20]
 
-        safe_strategy = "".join(c for c in str(strategy_name) if c.isalnum() or c in ['_', '-'])[:30]
-        safe_symbols = "".join(c for c in str(symbols) if c.isalnum() or c in ['_', '-'])[:20]
+        safe_strategy = "".join(c for c in str(strategy_name) if c.isalnum() or c in ["_", "-"])[:30]
+        safe_symbols = "".join(c for c in str(symbols) if c.isalnum() or c in ["_", "-"])[:20]
 
         output_file = str(default_output_dir / f"{timestamp}_{safe_strategy}_{safe_symbols}.json")
 
@@ -600,7 +643,7 @@ def _output_results(results: dict, output_format: str, output_file: Optional[str
     # 保存JSON（直接序列化，兼容不同格式）
     if output_format in ("json", "both"):
         try:
-            with open(output_file, 'w', encoding='utf-8') as f:
+            with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(results, f, indent=2, ensure_ascii=False, default=str)
             output_path_full = Path(output_file).resolve()
             console.print(f"\n[bold green]✅ 结果已保存到: {output_path_full}[/bold green]")
@@ -616,11 +659,11 @@ def _output_results(results: dict, output_format: str, output_file: Optional[str
 def _print_results_table(results: dict, console: Console):
     """以表格形式输出回测结果，兼容不同的结果结构"""
     if not isinstance(results, dict):
-        console.print(f"[yellow]无效的结果格式[/yellow]")
+        console.print("[yellow]无效的结果格式[/yellow]")
         return
 
     # 检查是否为扁平结构（新的简单引擎结果）
-    if 'total_return' in results or 'final_equity' in results:
+    if "total_return" in results or "final_equity" in results:
         # 扁平结构：直接显示指标
         _print_flat_results(results, console)
         return
@@ -628,7 +671,8 @@ def _print_results_table(results: dict, console: Console):
     # 嵌套结构（事件驱动引擎结果）
     try:
         from backtest.result_analysis import output_results as ra_output
-        ra_output(results, output_format='table', output_file=None)
+
+        ra_output(results, output_format="table", output_file=None)
     except Exception as e:
         logger.warning(f"使用标准输出失败: {e}")
         # 降级输出
@@ -646,11 +690,11 @@ def _print_flat_results(results: dict, console: Console):
     table.add_row("总收益率", f"{results.get('total_return', 0):.2%}")
     table.add_row("最大回撤", f"{results.get('max_drawdown', 0):.2%}")
     table.add_row("夏普比率", f"{results.get('sharpe_ratio', 0):.4f}")
-    table.add_row("总交易次数", str(results.get('total_trades', 0)))
-    table.add_row("盈利次数", str(results.get('winning_trades', 0)))
-    table.add_row("亏损次数", str(results.get('losing_trades', 0)))
+    table.add_row("总交易次数", str(results.get("total_trades", 0)))
+    table.add_row("盈利次数", str(results.get("winning_trades", 0)))
+    table.add_row("亏损次数", str(results.get("losing_trades", 0)))
     table.add_row("胜率", f"{results.get('win_rate', 0):.2%}")
-    table.add_row("处理K线数", str(results.get('bars_processed', 0)))
+    table.add_row("处理K线数", str(results.get("bars_processed", 0)))
 
     console.print(table)
 

@@ -8,10 +8,11 @@
 
 ponytail: ATR 计算用 TR 最大值,移动止损只上移不下移
 """
+
 from __future__ import annotations
 
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 from axon_bridge import Action
+from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 
 
 class SMACrossover(BaseStrategy):
@@ -76,8 +77,13 @@ class SMACrossover(BaseStrategy):
         model_id = self.config.name
 
         if len(ctx.closes) < slow:
-            return Action(action_type="hold", confidence=0.0, target_position=0.0,
-                          model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="hold",
+                confidence=0.0,
+                target_position=0.0,
+                model_id=model_id,
+                inference_time_us=0,
+            )
 
         atr = self._calc_atr(ctx)
 
@@ -90,26 +96,46 @@ class SMACrossover(BaseStrategy):
                 self._entry_price = close
                 self._stop_loss = close - atr * atr_sl_mult if atr > 0 else close * 0.97
                 self._take_profit = close + atr * atr_tp_mult if atr > 0 else close * 1.05
-                return Action(action_type="buy", confidence=0.8, target_position=limit,
-                              model_id=model_id, inference_time_us=0)
+                return Action(
+                    action_type="buy",
+                    confidence=0.8,
+                    target_position=limit,
+                    model_id=model_id,
+                    inference_time_us=0,
+                )
             elif act == "open_short":
                 self._position = -limit
                 self._entry_price = close
                 self._stop_loss = close + atr * atr_sl_mult if atr > 0 else close * 1.03
                 self._take_profit = close - atr * atr_tp_mult if atr > 0 else close * 0.95
-                return Action(action_type="sell", confidence=0.8, target_position=limit,
-                              model_id=model_id, inference_time_us=0)
+                return Action(
+                    action_type="sell",
+                    confidence=0.8,
+                    target_position=limit,
+                    model_id=model_id,
+                    inference_time_us=0,
+                )
 
         # 多头持仓：检查止损止盈
         if self._position > 0:
             if low <= self._stop_loss:
                 self._position = 0.0
-                return Action(action_type="sell", confidence=1.0, target_position=0.0,
-                              model_id=f"{model_id}_sl", inference_time_us=0)
+                return Action(
+                    action_type="sell",
+                    confidence=1.0,
+                    target_position=0.0,
+                    model_id=f"{model_id}_sl",
+                    inference_time_us=0,
+                )
             if high >= self._take_profit:
                 self._position = 0.0
-                return Action(action_type="sell", confidence=1.0, target_position=0.0,
-                              model_id=f"{model_id}_tp", inference_time_us=0)
+                return Action(
+                    action_type="sell",
+                    confidence=1.0,
+                    target_position=0.0,
+                    model_id=f"{model_id}_tp",
+                    inference_time_us=0,
+                )
             if atr > 0:
                 new_sl = close - atr * atr_sl_mult
                 if new_sl > self._stop_loss:
@@ -119,12 +145,22 @@ class SMACrossover(BaseStrategy):
         if self._position < 0:
             if high >= self._stop_loss:
                 self._position = 0.0
-                return Action(action_type="buy", confidence=1.0, target_position=0.0,
-                              model_id=f"{model_id}_sl", inference_time_us=0)
+                return Action(
+                    action_type="buy",
+                    confidence=1.0,
+                    target_position=0.0,
+                    model_id=f"{model_id}_sl",
+                    inference_time_us=0,
+                )
             if low <= self._take_profit:
                 self._position = 0.0
-                return Action(action_type="buy", confidence=1.0, target_position=0.0,
-                              model_id=f"{model_id}_tp", inference_time_us=0)
+                return Action(
+                    action_type="buy",
+                    confidence=1.0,
+                    target_position=0.0,
+                    model_id=f"{model_id}_tp",
+                    inference_time_us=0,
+                )
             if atr > 0:
                 new_sl = close + atr * atr_sl_mult
                 if new_sl < self._stop_loss:
@@ -139,28 +175,53 @@ class SMACrossover(BaseStrategy):
             if self._position < 0:
                 self._position = 0.0
                 self._pending_action = "open_long"
-                return Action(action_type="buy", confidence=0.9, target_position=limit,
-                              model_id=f"{model_id}_close_short", inference_time_us=0)
+                return Action(
+                    action_type="buy",
+                    confidence=0.9,
+                    target_position=limit,
+                    model_id=f"{model_id}_close_short",
+                    inference_time_us=0,
+                )
             self._position = limit
             self._entry_price = close
             self._stop_loss = close - atr * atr_sl_mult if atr > 0 else close * 0.97
             self._take_profit = close + atr * atr_tp_mult if atr > 0 else close * 1.05
-            return Action(action_type="buy", confidence=0.8, target_position=limit,
-                          model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="buy",
+                confidence=0.8,
+                target_position=limit,
+                model_id=model_id,
+                inference_time_us=0,
+            )
 
         # 死叉 → 做空
         if fast_ma < slow_ma and self._position >= 0 and self._trend_down(ctx):
             if self._position > 0:
                 self._position = 0.0
                 self._pending_action = "open_short"
-                return Action(action_type="sell", confidence=0.9, target_position=limit,
-                              model_id=f"{model_id}_close_long", inference_time_us=0)
+                return Action(
+                    action_type="sell",
+                    confidence=0.9,
+                    target_position=limit,
+                    model_id=f"{model_id}_close_long",
+                    inference_time_us=0,
+                )
             self._position = -limit
             self._entry_price = close
             self._stop_loss = close + atr * atr_sl_mult if atr > 0 else close * 1.03
             self._take_profit = close - atr * atr_tp_mult if atr > 0 else close * 0.95
-            return Action(action_type="sell", confidence=0.8, target_position=limit,
-                          model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="sell",
+                confidence=0.8,
+                target_position=limit,
+                model_id=model_id,
+                inference_time_us=0,
+            )
 
-        return Action(action_type="hold", confidence=0.0, target_position=0.0,
-                      model_id=model_id, inference_time_us=0)
+        return Action(
+            action_type="hold",
+            confidence=0.0,
+            target_position=0.0,
+            model_id=model_id,
+            inference_time_us=0,
+        )

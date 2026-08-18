@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 异常处理重构端到端验证
 
@@ -10,14 +9,14 @@
 """
 
 import asyncio
+
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi import HTTPException
 
 from worker.decorators import handle_worker_exceptions
 from worker.exceptions import (
-    WorkerNotFoundException,
     WorkerAlreadyRunningException,
+    WorkerNotFoundException,
     WorkerOperationException,
 )
 
@@ -27,6 +26,7 @@ class TestDecoratorHTTPResponses:
 
     def test_404_response_shape(self):
         """验证 404 响应的结构"""
+
         @handle_worker_exceptions("测试")
         async def endpoint():
             raise WorkerNotFoundException(123)
@@ -40,6 +40,7 @@ class TestDecoratorHTTPResponses:
 
     def test_409_response_shape(self):
         """验证 409 响应的结构"""
+
         @handle_worker_exceptions("测试")
         async def endpoint():
             raise WorkerAlreadyRunningException(456)
@@ -53,9 +54,11 @@ class TestDecoratorHTTPResponses:
 
     def test_400_response_shape(self):
         """验证 400 响应的结构"""
+
         @handle_worker_exceptions("测试")
         async def endpoint():
-            raise WorkerOperationException("启动", worker_id=789)
+            msg = "启动"
+            raise WorkerOperationException(msg, worker_id=789)
 
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(endpoint())
@@ -67,9 +70,11 @@ class TestDecoratorHTTPResponses:
 
     def test_500_response_shape(self):
         """验证 500 响应的结构"""
+
         @handle_worker_exceptions("测试")
         async def endpoint():
-            raise ConnectionError("数据库连接失败")
+            msg = "数据库连接失败"
+            raise ConnectionError(msg)
 
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(endpoint())
@@ -113,9 +118,11 @@ class TestDecoratorWithRealExceptions:
 
     def test_unexpected_value_error_handling(self):
         """验证未预期的 ValueError 被正确处理为 500"""
+
         @handle_worker_exceptions("测试")
         async def endpoint():
-            raise ValueError("invalid value")
+            msg = "invalid value"
+            raise ValueError(msg)
 
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(endpoint())

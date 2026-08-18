@@ -9,29 +9,28 @@
 - 内存使用优化
 """
 
-import pytest
-import time
 import threading
-import numpy as np
-from unittest.mock import Mock, patch, MagicMock
+import time
+
+import pytest
 
 from strategy.core.memory_pool import (
-    ObjectPool,
-    TickEvent,
     BarEvent,
-    SharedMemoryMarketData,
+    ObjectPool,
     PreallocatedBuffers,
-    PooledObject
+    SharedMemoryMarketData,
+    TickEvent,
 )
-
 
 # =============================================================================
 # Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def object_pool():
     """创建对象池实例"""
+
     def factory():
         return {"data": None}
 
@@ -39,23 +38,13 @@ def object_pool():
         obj["data"] = None
         return obj
 
-    return ObjectPool(
-        factory=factory,
-        reset_func=reset_func,
-        initial_size=10,
-        max_size=100
-    )
+    return ObjectPool(factory=factory, reset_func=reset_func, initial_size=10, max_size=100)
 
 
 @pytest.fixture
 def tick_event():
     """创建Tick事件实例"""
-    return TickEvent(
-        symbol="BTCUSDT",
-        price=50000.0,
-        volume=1.5,
-        timestamp=time.time()
-    )
+    return TickEvent(symbol="BTCUSDT", price=50000.0, volume=1.5, timestamp=time.time())
 
 
 @pytest.fixture
@@ -68,7 +57,7 @@ def bar_event():
         low_price=49000.0,
         close_price=50500.0,
         volume=100.0,
-        timestamp=time.time()
+        timestamp=time.time(),
     )
 
 
@@ -77,22 +66,20 @@ def shared_memory():
     """创建共享内存实例"""
     return SharedMemoryMarketData(
         buffer_size=1024 * 1024,  # 1MB
-        num_symbols=100
+        num_symbols=100,
     )
 
 
 @pytest.fixture
 def preallocated_buffers():
     """创建预分配缓冲区实例"""
-    return PreallocatedBuffers(
-        buffer_sizes=[1024, 4096, 16384],
-        buffers_per_size=10
-    )
+    return PreallocatedBuffers(buffer_sizes=[1024, 4096, 16384], buffers_per_size=10)
 
 
 # =============================================================================
 # ObjectPool 测试
 # =============================================================================
+
 
 class TestObjectPool:
     """对象池测试类"""
@@ -122,15 +109,11 @@ class TestObjectPool:
 
     def test_pool_expansion(self):
         """测试对象池扩展"""
+
         def factory():
             return {"id": 0}
 
-        pool = ObjectPool(
-            factory=factory,
-            reset_func=lambda x: x,
-            initial_size=2,
-            max_size=10
-        )
+        pool = ObjectPool(factory=factory, reset_func=lambda x: x, initial_size=2, max_size=10)
 
         # 获取超过初始大小的对象
         objects = [pool.acquire() for _ in range(5)]
@@ -141,15 +124,11 @@ class TestObjectPool:
 
     def test_pool_max_size_limit(self):
         """测试对象池最大大小限制"""
+
         def factory():
             return {"id": 0}
 
-        pool = ObjectPool(
-            factory=factory,
-            reset_func=lambda x: x,
-            initial_size=2,
-            max_size=5
-        )
+        pool = ObjectPool(factory=factory, reset_func=lambda x: x, initial_size=2, max_size=5)
 
         # 获取超过最大大小的对象
         objects = [pool.acquire() for _ in range(10)]
@@ -165,12 +144,7 @@ class TestObjectPool:
         def factory():
             return {"thread": None}
 
-        pool = ObjectPool(
-            factory=factory,
-            reset_func=lambda x: x,
-            initial_size=10,
-            max_size=100
-        )
+        pool = ObjectPool(factory=factory, reset_func=lambda x: x, initial_size=10, max_size=100)
 
         def worker():
             for _ in range(50):
@@ -223,6 +197,7 @@ class TestObjectPool:
 # TickEvent 测试
 # =============================================================================
 
+
 class TestTickEvent:
     """Tick事件测试类"""
 
@@ -248,7 +223,7 @@ class TestTickEvent:
             "symbol": "ETHUSDT",
             "price": 3000.0,
             "volume": 10.0,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
 
         event = TickEvent.from_dict(data)
@@ -278,6 +253,7 @@ class TestTickEvent:
 # =============================================================================
 # BarEvent 测试
 # =============================================================================
+
 
 class TestBarEvent:
     """Bar事件测试类"""
@@ -311,7 +287,7 @@ class TestBarEvent:
             "low": 2900.0,
             "close": 3050.0,
             "volume": 500.0,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
 
         event = BarEvent.from_dict(data)
@@ -344,6 +320,7 @@ class TestBarEvent:
 # SharedMemoryMarketData 测试
 # =============================================================================
 
+
 class TestSharedMemoryMarketData:
     """共享内存市场数据测试类"""
 
@@ -354,12 +331,7 @@ class TestSharedMemoryMarketData:
 
     def test_write_and_read_tick(self, shared_memory):
         """测试写入和读取Tick数据"""
-        tick = TickEvent(
-            symbol="BTCUSDT",
-            price=50000.0,
-            volume=1.5,
-            timestamp=time.time()
-        )
+        tick = TickEvent(symbol="BTCUSDT", price=50000.0, volume=1.5, timestamp=time.time())
 
         shared_memory.write_tick(tick)
         retrieved = shared_memory.read_tick("BTCUSDT")
@@ -377,7 +349,7 @@ class TestSharedMemoryMarketData:
             low_price=2900.0,
             close_price=3050.0,
             volume=500.0,
-            timestamp=time.time()
+            timestamp=time.time(),
         )
 
         shared_memory.write_bar(bar)
@@ -392,12 +364,7 @@ class TestSharedMemoryMarketData:
         symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT"]
 
         for i, symbol in enumerate(symbols):
-            tick = TickEvent(
-                symbol=symbol,
-                price=1000.0 * (i + 1),
-                volume=1.0,
-                timestamp=time.time()
-            )
+            tick = TickEvent(symbol=symbol, price=1000.0 * (i + 1), volume=1.0, timestamp=time.time())
             shared_memory.write_tick(tick)
 
         # 读取所有数据
@@ -460,6 +427,7 @@ class TestSharedMemoryMarketData:
 # PreallocatedBuffers 测试
 # =============================================================================
 
+
 class TestPreallocatedBuffers:
     """预分配缓冲区测试类"""
 
@@ -519,10 +487,7 @@ class TestPreallocatedBuffers:
 
     def test_buffer_thread_safety(self):
         """测试缓冲区线程安全"""
-        buffers = PreallocatedBuffers(
-            buffer_sizes=[1024],
-            buffers_per_size=20
-        )
+        buffers = PreallocatedBuffers(buffer_sizes=[1024], buffers_per_size=20)
 
         acquired = []
         lock = threading.Lock()
@@ -561,12 +526,14 @@ class TestPreallocatedBuffers:
 # 性能基准测试
 # =============================================================================
 
+
 class TestMemoryPoolPerformanceBenchmarks:
     """内存池性能基准测试类"""
 
     @pytest.mark.slow
     def test_object_pool_performance(self):
         """测试对象池性能"""
+
         def factory():
             return {"data": None, "timestamp": 0}
 
@@ -575,12 +542,7 @@ class TestMemoryPoolPerformanceBenchmarks:
             obj["timestamp"] = 0
             return obj
 
-        pool = ObjectPool(
-            factory=factory,
-            reset_func=reset_func,
-            initial_size=1000,
-            max_size=10000
-        )
+        pool = ObjectPool(factory=factory, reset_func=reset_func, initial_size=1000, max_size=10000)
 
         # 测试获取/释放性能
         iterations = 100000
@@ -592,9 +554,6 @@ class TestMemoryPoolPerformanceBenchmarks:
 
         elapsed = time.time() - start_time
         ops_per_sec = iterations / elapsed
-
-        print(f"\n对象池操作性能: {ops_per_sec:.0f} 操作/秒")
-        print(f"单次操作耗时: {elapsed/iterations*1e6:.2f} μs")
 
         assert ops_per_sec > 100000  # 应该达到10万+操作/秒
 
@@ -608,7 +567,7 @@ class TestMemoryPoolPerformanceBenchmarks:
             factory=lambda: {"data": None, "timestamp": 0},
             reset_func=lambda x: x,
             initial_size=100,
-            max_size=1000
+            max_size=1000,
         )
 
         # 验证对象池能够正确获取和释放对象
@@ -628,10 +587,6 @@ class TestMemoryPoolPerformanceBenchmarks:
         # 验证对象池大小
         assert pool._size >= iterations
 
-        print(f"\n对象池功能测试通过")
-        print(f"对象池大小: {pool._size}")
-        print(f"可用对象数: {len(pool._available)}")
-
     @pytest.mark.slow
     def test_tick_event_memory_usage(self):
         """测试Tick事件内存使用"""
@@ -641,20 +596,16 @@ class TestMemoryPoolPerformanceBenchmarks:
         events = []
         for i in range(10000):
             event = TickEvent(
-                symbol=f"SYM{i%100}USDT",
+                symbol=f"SYM{i % 100}USDT",
                 price=50000.0 + i,
                 volume=1.0,
-                timestamp=time.time()
+                timestamp=time.time(),
             )
             events.append(event)
 
         # 计算单个事件大小
         single_size = sys.getsizeof(events[0])
-        total_size = sum(sys.getsizeof(e) for e in events)
-
-        print(f"\n单个Tick事件大小: {single_size} bytes")
-        print(f"10000个事件总大小: {total_size / 1024:.2f} KB")
-        print(f"平均每个事件: {total_size / len(events):.2f} bytes")
+        sum(sys.getsizeof(e) for e in events)
 
         # 使用__slots__应该显著减少内存使用
         # 放宽阈值以适应不同Python版本和平台
@@ -665,7 +616,7 @@ class TestMemoryPoolPerformanceBenchmarks:
         """测试共享内存吞吐量"""
         shared = SharedMemoryMarketData(
             buffer_size=10 * 1024 * 1024,  # 10MB
-            num_symbols=400
+            num_symbols=400,
         )
 
         iterations = 10000
@@ -678,25 +629,19 @@ class TestMemoryPoolPerformanceBenchmarks:
                 symbol=symbols[i % len(symbols)],
                 price=50000.0 + i,
                 volume=1.0,
-                timestamp=time.time()
+                timestamp=time.time(),
             )
             shared.write_tick(tick)
 
         elapsed = time.time() - start_time
         throughput = iterations / elapsed
 
-        print(f"\n共享内存写入吞吐量: {throughput:.0f} 操作/秒")
-        print(f"单次写入耗时: {elapsed/iterations*1e6:.2f} μs")
-
         assert throughput > 10000
 
     @pytest.mark.slow
     def test_preallocated_buffer_performance(self):
         """测试预分配缓冲区性能"""
-        buffers = PreallocatedBuffers(
-            buffer_sizes=[1024, 4096, 16384],
-            buffers_per_size=100
-        )
+        buffers = PreallocatedBuffers(buffer_sizes=[1024, 4096, 16384], buffers_per_size=100)
 
         iterations = 50000
 
@@ -711,8 +656,5 @@ class TestMemoryPoolPerformanceBenchmarks:
 
         elapsed = time.time() - start_time
         ops_per_sec = iterations / elapsed
-
-        print(f"\n预分配缓冲区操作性能: {ops_per_sec:.0f} 操作/秒")
-        print(f"单次操作耗时: {elapsed/iterations*1e6:.2f} μs")
 
         assert ops_per_sec > 50000

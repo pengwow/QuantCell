@@ -5,34 +5,34 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import tomli
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
 class ConfigManager:
     """配置管理器类
-    
+
     负责加载和合并配置，实现配置优先级逻辑
     """
-    
-    def __init__(self, config_path: str = None):
+
+    def __init__(self, config_path: str | None = None):
         """初始化配置管理器
-        
+
         Args:
             config_path: 配置文件路径，默认使用backend/config.toml
         """
         # 默认配置文件路径
-        if config_path is None:
-            config_path = Path(__file__).parent.parent / "config.toml"
-        else:
-            config_path = Path(config_path)
-        
+        config_path = Path(__file__).parent.parent / "config.toml" if config_path is None else Path(config_path)
+
         self.config_path = config_path
         self.config = self._load_config()
-    
-    def _load_config(self) -> Dict[str, Any]:
+
+    def _load_config(self) -> dict[str, Any]:
         """加载配置文件
-        
+
         Returns:
             Dict[str, Any]: 配置字典
         """
@@ -48,43 +48,42 @@ class ConfigManager:
         except Exception as e:
             logger.error(f"加载配置文件失败: {e}")
             return {}
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         """获取配置值
-        
+
         Args:
             key: 配置键名，支持点分隔符，如 "database.host"
             default: 默认值，如果配置不存在则返回默认值
-        
+
         Returns:
             Any: 配置值
         """
         try:
             keys = key.split(".")
             value = self.config
-            
+
             for k in keys:
                 if isinstance(value, dict) and k in value:
                     value = value[k]
                 else:
                     return default
-            
+
             return value
         except Exception as e:
             logger.error(f"获取配置失败: key={key}, error={e}")
             return default
-    
-    def get_all(self) -> Dict[str, Any]:
+
+    def get_all(self) -> dict[str, Any]:
         """获取所有配置
-        
+
         Returns:
             Dict[str, Any]: 所有配置的字典
         """
         return self.config
-    
+
     def reload(self) -> None:
-        """重新加载配置
-        """
+        """重新加载配置"""
         self.config = self._load_config()
 
 
@@ -94,20 +93,20 @@ config_manager = ConfigManager()
 
 def get_config(key: str, default: Any = None) -> Any:
     """获取配置值的便捷函数
-    
+
     Args:
         key: 配置键名，支持点分隔符，如 "database.host"
         default: 默认值，如果配置不存在则返回默认值
-    
+
     Returns:
         Any: 配置值
     """
     return config_manager.get(key, default)
 
 
-def get_all_configs() -> Dict[str, Any]:
+def get_all_configs() -> dict[str, Any]:
     """获取所有配置的便捷函数
-    
+
     Returns:
         Dict[str, Any]: 所有配置的字典
     """
@@ -115,6 +114,5 @@ def get_all_configs() -> Dict[str, Any]:
 
 
 def reload_config() -> None:
-    """重新加载配置的便捷函数
-    """
+    """重新加载配置的便捷函数"""
     config_manager.reload()

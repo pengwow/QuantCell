@@ -6,12 +6,11 @@ Share CRUD 单元测试
 - 一次性/过期/max_views 状态判断
 - 远端字段保留（remote_id/short_url/remote_status/remote_error）
 """
+
 import sys
 from datetime import datetime, timedelta
 
-import pytest
-
-sys.path.insert(0, '/Users/liupeng/workspace/quant/QuantCell/backend')
+sys.path.insert(0, "/Users/liupeng/workspace/quant/QuantCell/backend")
 
 
 def test_create_share_token_basic(db_session, sample_worker):
@@ -42,7 +41,7 @@ def test_create_share_token_with_expires(db_session, sample_worker):
     """expires_in_seconds 应正确转换为 expires_at"""
     from share import crud
 
-    share, plain = crud.create_share_token(
+    share, _plain = crud.create_share_token(
         db=db_session,
         worker_id=sample_worker.id,
         created_by="user-1",
@@ -59,7 +58,7 @@ def test_create_share_token_one_time(db_session, sample_worker):
     """一次性 token 创建时 view_count 为 0"""
     from share import crud
 
-    share, plain = crud.create_share_token(
+    share, _plain = crud.create_share_token(
         db=db_session,
         worker_id=sample_worker.id,
         created_by=None,
@@ -101,7 +100,7 @@ def test_revoke_share(db_session, sample_worker):
     """撤销后 is_active 返回 False"""
     from share import crud
 
-    share, plain = crud.create_share_token(
+    share, _plain = crud.create_share_token(
         db=db_session,
         worker_id=sample_worker.id,
         created_by="user-1",
@@ -118,7 +117,7 @@ def test_revoke_share_idempotent(db_session, sample_worker):
     """重复撤销不应报错"""
     from share import crud
 
-    share, plain = crud.create_share_token(
+    share, _plain = crud.create_share_token(
         db=db_session,
         worker_id=sample_worker.id,
         created_by="user-1",
@@ -161,7 +160,7 @@ def test_is_expired(db_session, sample_worker):
     """过期 token 应被识别"""
     from share import crud
 
-    share, plain = crud.create_share_token(
+    share, _plain = crud.create_share_token(
         db=db_session,
         worker_id=sample_worker.id,
         created_by="u1",
@@ -178,7 +177,7 @@ def test_max_views_limit(db_session, sample_worker):
     """达到 max_views 后 token 不再 active"""
     from share import crud
 
-    share, plain = crud.create_share_token(
+    share, _plain = crud.create_share_token(
         db=db_session,
         worker_id=sample_worker.id,
         created_by="u1",

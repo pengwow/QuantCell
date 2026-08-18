@@ -31,37 +31,37 @@ __version__ = "1.0.0"
 __author__ = "QuantCell Team"
 
 # 导出主要组件
-from .service import FactorService
 from .routes import router
 from .schemas import (
     FactorAddRequest,
-    FactorCalculateRequest,
     FactorCalculateMultiRequest,
-    FactorStatsRequest,
+    FactorCalculateRequest,
+    FactorCorrelationRequest,
+    FactorGroupAnalysisRequest,
     FactorICRequest,
     FactorIRRequest,
-    FactorCorrelationRequest,
-    FactorValidateRequest,
-    FactorStabilityRequest,
     FactorMonotonicityRequest,
-    FactorGroupAnalysisRequest,
+    FactorStabilityRequest,
+    FactorStatsRequest,
+    FactorValidateRequest,
 )
+from .service import FactorService
 
 __all__ = [
-    # 服务
-    "FactorService",
-    # 路由
-    "router",
     # 请求模型
     "FactorAddRequest",
-    "FactorCalculateRequest",
     "FactorCalculateMultiRequest",
-    "FactorStatsRequest",
+    "FactorCalculateRequest",
+    "FactorCorrelationRequest",
+    "FactorGroupAnalysisRequest",
     "FactorICRequest",
     "FactorIRRequest",
-    "FactorCorrelationRequest",
-    "FactorValidateRequest",
-    "FactorStabilityRequest",
     "FactorMonotonicityRequest",
-    "FactorGroupAnalysisRequest",
+    # 服务
+    "FactorService",
+    "FactorStabilityRequest",
+    "FactorStatsRequest",
+    "FactorValidateRequest",
+    # 路由
+    "router",
 ]

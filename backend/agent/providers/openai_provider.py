@@ -1,5 +1,6 @@
 """OpenAI API 提供者实现"""
 
+import contextlib
 import json
 import os
 import time
@@ -11,10 +12,12 @@ from .base import LLMProvider, LLMResponse
 
 logger = None
 
+
 def _get_logger():
     global logger
     if logger is None:
-        from utils.logger import get_logger, LogType
+        from utils.logger import LogType, get_logger
+
         logger = get_logger(__name__, LogType.APPLICATION)
     return logger
 
@@ -32,6 +35,7 @@ class OpenAIProvider(LLMProvider):
         """懒加载客户端"""
         if self._client is None:
             from openai import Timeout
+
             self._client = AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
@@ -54,7 +58,9 @@ class OpenAIProvider(LLMProvider):
         log = _get_logger()
         model = model or self.get_default_model()
 
-        log.info(f"[OpenAIProvider] 准备调用API: model={model}, messages={len(messages)}, tools={len(tools) if tools else 0}")
+        log.info(
+            f"[OpenAIProvider] 准备调用API: model={model}, messages={len(messages)}, tools={len(tools) if tools else 0}"
+        )
 
         kwargs: dict[str, Any] = {
             "model": model,
@@ -106,7 +112,7 @@ class OpenAIProvider(LLMProvider):
                 log.info(f"  {idx}. [{role}] {content_preview}")
 
             if msg.get("tool_calls"):
-                log.info(f"      🔧 工具调用:")
+                log.info("      🔧 工具调用:")
                 for tc in msg.get("tool_calls", []):
                     func = tc.get("function", {})
                     args_preview = json.dumps(func.get("arguments", {}), ensure_ascii=False)[:150]
@@ -130,7 +136,7 @@ class OpenAIProvider(LLMProvider):
                 if props:
                     param_list = [f"{k}" for k in list(props.keys())[:5]]
                     if len(props) > 5:
-                        param_list.append(f"...+{len(props)-5}")
+                        param_list.append(f"...+{len(props) - 5}")
                     req_marker = " [必填]" if name in required else ""
                     log.info(f"     参数: {', '.join(param_list)}{req_marker}")
 
@@ -153,14 +159,18 @@ class OpenAIProvider(LLMProvider):
             log.info("\n[OpenAIProvider] 📥 API 响应详情")
             log.info("-" * 80)
             log.info(f"完成原因: {choice.finish_reason}")
-            log.info(f"Token 使用: prompt={response.usage.prompt_tokens}, completion={response.usage.completion_tokens}, total={response.usage.total_tokens}")
+            log.info(
+                f"Token 使用: prompt={response.usage.prompt_tokens}, completion={response.usage.completion_tokens}, total={response.usage.total_tokens}"
+            )
 
             if message.content:
                 content_preview = message.content[:300] + ("..." if len(message.content) > 300 else "")
                 log.info(f"响应内容: {content_preview}")
 
-            if hasattr(message, 'reasoning_content') and message.reasoning_content:
-                reasoning_preview = message.reasoning_content[:200] + ("..." if len(message.reasoning_content) > 200 else "")
+            if hasattr(message, "reasoning_content") and message.reasoning_content:
+                reasoning_preview = message.reasoning_content[:200] + (
+                    "..." if len(message.reasoning_content) > 200 else ""
+                )
                 log.info(f"推理过程: {reasoning_preview}")
 
             # 提取工具调用
@@ -171,11 +181,13 @@ class OpenAIProvider(LLMProvider):
                 has_tool_calls = True
                 log.info(f"\n🔧 返回的工具调用 ({len(message.tool_calls)} 个):")
                 for tc in message.tool_calls:
-                    tool_calls.append({
-                        "id": tc.id,
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    })
+                    tool_calls.append(
+                        {
+                            "id": tc.id,
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        }
+                    )
                     args_preview = json.dumps(tc.function.arguments, ensure_ascii=False)[:200]
                     log.info(f"  - {tc.function.name}({args_preview})")
 
@@ -208,7 +220,9 @@ class OpenAIProvider(LLMProvider):
         log = _get_logger()
         model = model or self.get_default_model()
 
-        log.info(f"[OpenAIProvider] 准备调用流式API: model={model}, messages={len(messages)}, tools={len(tools) if tools else 0}")
+        log.info(
+            f"[OpenAIProvider] 准备调用流式API: model={model}, messages={len(messages)}, tools={len(tools) if tools else 0}"
+        )
 
         kwargs = {
             "model": model,
@@ -251,7 +265,7 @@ class OpenAIProvider(LLMProvider):
                     )
 
                 # 提取推理过程（DeepSeek-R1 等）
-                if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                if hasattr(delta, "reasoning_content") and delta.reasoning_content:
                     yield StreamChunk(
                         reasoning_content=delta.reasoning_content,
                     )
@@ -283,10 +297,8 @@ class OpenAIProvider(LLMProvider):
                     for idx in sorted(accumulated_tool_calls.keys()):
                         tc_data = accumulated_tool_calls[idx]
                         # 尝试解析 arguments JSON
-                        try:
+                        with contextlib.suppress(json.JSONDecodeError, TypeError):
                             tc_data["arguments"] = json.loads(tc_data["arguments"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
                         tool_calls_list.append(tc_data)
 
                     usage_info = None
@@ -304,7 +316,7 @@ class OpenAIProvider(LLMProvider):
                         content=full_content,
                         finish_reason=finish_reason,
                         is_tool_call=len(tool_calls_list) > 0,
-                        tool_calls=tool_calls_list if tool_calls_list else None,
+                        tool_calls=tool_calls_list or None,
                         usage=usage_info,
                     )
 

@@ -6,12 +6,12 @@
 from __future__ import annotations
 
 import re
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 
-class PromptCategory(str, Enum):
+class PromptCategory(StrEnum):
     """提示词模板分类"""
 
     STRATEGY_GENERATION = "strategy_generation"
@@ -43,10 +43,7 @@ class PromptManager:
         if hasattr(self, "_initialized"):
             return
 
-        if templates_dir is None:
-            templates_dir = Path(__file__).parent / "templates"
-        else:
-            templates_dir = Path(templates_dir)
+        templates_dir = Path(__file__).parent / "templates" if templates_dir is None else Path(templates_dir)
 
         self._templates_dir = templates_dir
         self._initialized = True
@@ -74,7 +71,8 @@ class PromptManager:
             KeyError: 如果指定分类的模板不存在
         """
         if category not in self._templates:
-            raise KeyError(f"模板分类 '{category.value}' 不存在或未加载")
+            msg = f"模板分类 '{category.value}' 不存在或未加载"
+            raise KeyError(msg)
         return self._templates[category]
 
     def render(self, category: PromptCategory, **variables: Any) -> str:
@@ -121,7 +119,7 @@ class PromptManager:
 
     def list_available_templates(self) -> list[str]:
         """获取所有可用的模板分类名称列表"""
-        return [cat.value for cat in self._templates.keys()]
+        return [cat.value for cat in self._templates]
 
     def has_template(self, category: PromptCategory) -> bool:
         """检查指定分类的模板是否存在

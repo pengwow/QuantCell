@@ -9,33 +9,28 @@
 - 性能指标收集
 """
 
-import pytest
-import time
 import threading
-import numpy as np
-from unittest.mock import Mock, patch, MagicMock
+import time
 
+import numpy as np
+import pytest
 from strategy.core.batching_engine import (
     BatchingEngine,
-    EventBatch,
+    BatchMetrics,
     BatchStrategy,
+    EventBatch,
     VectorizedBatchProcessor,
-    BatchMetrics
 )
-
 
 # =============================================================================
 # Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def batching_engine():
     """创建批处理引擎实例"""
-    engine = BatchingEngine(
-        max_batch_size=100,
-        max_wait_time_ms=50,
-        max_queue_size=1000
-    )
+    engine = BatchingEngine(max_batch_size=100, max_wait_time_ms=50, max_queue_size=1000)
     yield engine
     # 清理
     if engine.running:
@@ -45,11 +40,7 @@ def batching_engine():
 @pytest.fixture
 def running_batching_engine():
     """创建并启动的批处理引擎"""
-    engine = BatchingEngine(
-        max_batch_size=100,
-        max_wait_time_ms=50,
-        max_queue_size=1000
-    )
+    engine = BatchingEngine(max_batch_size=100, max_wait_time_ms=50, max_queue_size=1000)
     engine.start()
     yield engine
     engine.stop()
@@ -64,10 +55,7 @@ def event_batch():
 @pytest.fixture
 def batch_strategy():
     """创建批处理策略实例"""
-    return BatchStrategy(
-        max_batch_size=100,
-        max_wait_time_ms=50
-    )
+    return BatchStrategy(max_batch_size=100, max_wait_time_ms=50)
 
 
 @pytest.fixture
@@ -79,6 +67,7 @@ def vectorized_processor():
 # =============================================================================
 # BatchingEngine 测试
 # =============================================================================
+
 
 class TestBatchingEngine:
     """批处理引擎测试类"""
@@ -113,7 +102,7 @@ class TestBatchingEngine:
         engine = BatchingEngine(
             max_batch_size=5,
             max_wait_time_ms=5000,  # 长时间等待，确保由大小触发
-            max_queue_size=1000
+            max_queue_size=1000,
         )
         engine.register("TEST", handler)
         engine.start()
@@ -142,7 +131,7 @@ class TestBatchingEngine:
         engine = BatchingEngine(
             max_batch_size=1000,  # 大批次大小，确保由时间触发
             max_wait_time_ms=100,  # 100ms等待
-            max_queue_size=1000
+            max_queue_size=1000,
         )
         engine.register("TEST", handler)
         engine.start()
@@ -213,6 +202,7 @@ class TestBatchingEngine:
 
     def test_metrics_collection(self, batching_engine):
         """测试指标收集"""
+
         def handler(batch):
             time.sleep(0.01)
 
@@ -238,7 +228,8 @@ class TestBatchingEngine:
         results = []
 
         def failing_handler(batch):
-            raise ValueError("测试异常")
+            msg = "测试异常"
+            raise ValueError(msg)
 
         def good_handler(batch):
             results.append(len(batch))
@@ -322,6 +313,7 @@ class TestBatchingEngine:
 
     def test_get_all_handlers(self, batching_engine):
         """测试获取所有处理器"""
+
         def handler1(batch):
             pass
 
@@ -374,6 +366,7 @@ class TestBatchingEngine:
 # =============================================================================
 # EventBatch 测试
 # =============================================================================
+
 
 class TestEventBatch:
     """事件批次测试类"""
@@ -438,6 +431,7 @@ class TestEventBatch:
 # BatchStrategy 测试
 # =============================================================================
 
+
 class TestBatchStrategy:
     """批处理策略测试类"""
 
@@ -494,6 +488,7 @@ class TestBatchStrategy:
 # =============================================================================
 # VectorizedBatchProcessor 测试
 # =============================================================================
+
 
 class TestVectorizedBatchProcessor:
     """向量化批处理器测试类"""
@@ -555,6 +550,7 @@ class TestVectorizedBatchProcessor:
 # BatchMetrics 测试
 # =============================================================================
 
+
 class TestBatchMetrics:
     """批次指标测试类"""
 
@@ -584,7 +580,7 @@ class TestBatchMetrics:
         """测试记录单个事件"""
         metrics = BatchMetrics()
 
-        for i in range(100):
+        for _i in range(100):
             metrics.record_event()
 
         stats = metrics.get_stats()
@@ -608,10 +604,7 @@ class TestBatchMetrics:
             for _ in range(100):
                 metrics.record_batch(10, 0.01)
 
-        threads = [
-            threading.Thread(target=record_many)
-            for _ in range(5)
-        ]
+        threads = [threading.Thread(target=record_many) for _ in range(5)]
 
         for t in threads:
             t.start()
@@ -641,17 +634,14 @@ class TestBatchMetrics:
 # 性能基准测试
 # =============================================================================
 
+
 class TestBatchingPerformanceBenchmarks:
     """批处理性能基准测试类"""
 
     @pytest.mark.slow
     def test_batching_throughput_benchmark(self):
         """测试批处理吞吐量基准"""
-        engine = BatchingEngine(
-            max_batch_size=100,
-            max_wait_time_ms=100,
-            max_queue_size=10000
-        )
+        engine = BatchingEngine(max_batch_size=100, max_wait_time_ms=100, max_queue_size=10000)
         event_count = 10000
         processed_events = 0
         lock = threading.Lock()
@@ -678,9 +668,6 @@ class TestBatchingPerformanceBenchmarks:
             elapsed = time.time() - start_time
             throughput = processed_events / elapsed
 
-            print(f"\n批处理吞吐量: {throughput:.0f} 事件/秒")
-            print(f"处理事件数: {processed_events}/{event_count}")
-
             assert processed_events == event_count
             assert throughput > 5000
         finally:
@@ -696,7 +683,7 @@ class TestBatchingPerformanceBenchmarks:
             engine = BatchingEngine(
                 max_batch_size=batch_size,
                 max_wait_time_ms=1000,  # 长时间等待，确保由大小触发
-                max_queue_size=10000
+                max_queue_size=10000,
             )
             batch_count = 0
             lock = threading.Lock()
@@ -719,15 +706,14 @@ class TestBatchingPerformanceBenchmarks:
                 time.sleep(0.1)
 
                 results[batch_size] = batch_count
-                print(f"\n批次大小 {batch_size}: {batch_count} 个批次")
             finally:
                 engine.stop()
 
         # 验证批次数量符合预期
         assert results[10] >= 100  # 1000/10 = 100
-        assert results[50] >= 20   # 1000/50 = 20
+        assert results[50] >= 20  # 1000/50 = 20
         assert results[100] >= 10  # 1000/100 = 10
-        assert results[200] >= 5   # 1000/200 = 5
+        assert results[200] >= 5  # 1000/200 = 5
 
     @pytest.mark.slow
     def test_vectorized_processing_benchmark(self):
@@ -736,19 +722,13 @@ class TestBatchingPerformanceBenchmarks:
 
         # 创建大批量价格数据
         batch_size = 10000
-        batch = [
-            {"symbol": "BTCUSDT", "price": 50000.0 + i, "volume": 1.0}
-            for i in range(batch_size)
-        ]
+        batch = [{"symbol": "BTCUSDT", "price": 50000.0 + i, "volume": 1.0} for i in range(batch_size)]
 
         start_time = time.time()
         result = processor.process_prices(batch)
         elapsed = time.time() - start_time
 
-        throughput = batch_size / elapsed
-
-        print(f"\n向量化处理吞吐量: {throughput:.0f} 事件/秒")
-        print(f"处理时间: {elapsed*1000:.2f} ms")
+        batch_size / elapsed
 
         assert result["count"] == batch_size
         assert elapsed < 1.0  # 应该在1秒内完成
@@ -762,7 +742,7 @@ class TestBatchingPerformanceBenchmarks:
             engine = BatchingEngine(
                 max_batch_size=batch_size,
                 max_wait_time_ms=1000,  # 长时间等待
-                max_queue_size=1000
+                max_queue_size=1000,
             )
             latencies_list = []
             lock = threading.Lock()
@@ -779,10 +759,10 @@ class TestBatchingPerformanceBenchmarks:
             engine.start()
 
             try:
-                start_time = time.time()
+                time.time()
 
                 # 发送事件
-                for i in range(batch_size):
+                for _i in range(batch_size):
                     engine.put("LATENCY", {"timestamp": time.time()})
 
                 # 等待批次处理
@@ -793,7 +773,6 @@ class TestBatchingPerformanceBenchmarks:
                 if latencies_list:
                     avg_latency = sum(latencies_list) / len(latencies_list) * 1000
                     latencies[batch_size] = avg_latency
-                    print(f"\n批次大小 {batch_size}: 平均延迟 {avg_latency:.2f} ms")
             finally:
                 engine.stop()
 

@@ -6,13 +6,17 @@ Trains and evaluates RL models across time-series splits for OOS validation.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import pandas as pd
 
 from backtest.walk_forward import WalkForwardService
 from rl.evaluation import EvaluationMetrics, evaluate_model
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +61,11 @@ class RLWalkForwardService:
             algo_kwargs = {}
 
         splits_result = self._wf.validate(
-            strategy_fn=None, data=data, n_splits=n_splits,
-            train_ratio=train_ratio, mode=mode,
+            strategy_fn=None,
+            data=data,
+            n_splits=n_splits,
+            train_ratio=train_ratio,
+            mode=mode,
         )
         splits = splits_result["splits"]
 
@@ -88,20 +95,24 @@ class RLWalkForwardService:
                 metrics = evaluate_model(model, test_env)
                 test_env.close()
 
-                folds.append({
-                    "fold": i,
-                    "train_size": len(train_data),
-                    "test_size": len(test_data),
-                    "oos_metrics": _metrics_to_dict(metrics),
-                })
+                folds.append(
+                    {
+                        "fold": i,
+                        "train_size": len(train_data),
+                        "test_size": len(test_data),
+                        "oos_metrics": _metrics_to_dict(metrics),
+                    }
+                )
             except Exception as e:
                 logger.error(f"[WF] Fold {i} 失败: {e}")
-                folds.append({
-                    "fold": i,
-                    "train_size": len(train_data),
-                    "test_size": len(test_data),
-                    "error": str(e),
-                })
+                folds.append(
+                    {
+                        "fold": i,
+                        "train_size": len(train_data),
+                        "test_size": len(test_data),
+                        "error": str(e),
+                    }
+                )
 
         aggregate = _aggregate_folds(folds)
 
@@ -127,8 +138,13 @@ def _metrics_to_dict(m: EvaluationMetrics) -> dict[str, Any]:
 
 def _aggregate_folds(folds: list[dict]) -> dict[str, Any]:
     metric_keys = [
-        "total_pnl", "total_return_pct", "sharpe_ratio",
-        "max_drawdown_pct", "win_rate", "num_trades", "profit_factor",
+        "total_pnl",
+        "total_return_pct",
+        "sharpe_ratio",
+        "max_drawdown_pct",
+        "win_rate",
+        "num_trades",
+        "profit_factor",
     ]
 
     valid_folds = [f for f in folds if "oos_metrics" in f]

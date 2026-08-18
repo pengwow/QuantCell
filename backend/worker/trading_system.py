@@ -8,13 +8,10 @@
 实盘交易执行将在后续版本中接入 axon-quant 的实盘适配器。
 """
 
-import asyncio
-import os
-import threading
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
 from .state import strategy_registry
 from .worker_state import worker_state_manager
 
@@ -76,7 +73,7 @@ class TradingSystem:
             await worker_state_manager.transition(worker_id, "starting")
 
             # 更新运行时状态
-            runtime.started_at = datetime.now(timezone.utc).isoformat()
+            runtime.started_at = datetime.now(UTC).isoformat()
             runtime.error_message = None
             strategy_registry.update_status(worker_id, "running")
 
@@ -87,9 +84,7 @@ class TradingSystem:
 
         except Exception as e:
             logger.error(f"[TradingSystem] 启动策略失败: worker_id={worker_id}, error={e}")
-            await worker_state_manager.transition(
-                worker_id, "error", error_message=str(e)
-            )
+            await worker_state_manager.transition(worker_id, "error", error_message=str(e))
             return False
 
     async def stop_strategy(self, worker_id: int) -> bool:
@@ -121,7 +116,7 @@ class TradingSystem:
                 runtime._run_task.cancel()
 
             # 更新运行时状态
-            runtime.stopped_at = datetime.now(timezone.utc).isoformat()
+            runtime.stopped_at = datetime.now(UTC).isoformat()
             strategy_registry.update_status(worker_id, "stopped")
 
             await worker_state_manager.transition(worker_id, "stopped")
@@ -147,6 +142,7 @@ def _register_into_state() -> None:
     改为在本模块加载完成后反向写入 state.trading_system。
     """
     from . import state as _ws
+
     _ws.trading_system = trading_system
 
 

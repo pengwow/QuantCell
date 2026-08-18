@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 进度显示模块
 
@@ -8,31 +7,36 @@
 - 多任务进度管理
 """
 
+import contextlib
 import sys
 import time
-from typing import Optional, Callable, List, Dict, Any
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @dataclass
 class ProgressInfo:
     """进度信息数据类"""
+
     current: int = 0
     total: int = 0
     message: str = ""
     status: str = "pending"  # pending, running, completed, failed
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    error: Optional[str] = None
-    
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    error: str | None = None
+
     @property
     def percentage(self) -> float:
         """获取进度百分比"""
         if self.total == 0:
             return 0.0
         return (self.current / self.total) * 100
-    
+
     @property
     def elapsed_time(self) -> float:
         """获取已用时间（秒）"""
@@ -40,7 +44,7 @@ class ProgressInfo:
             return 0.0
         end = self.end_time or datetime.now()
         return (end - self.start_time).total_seconds()
-    
+
     @property
     def estimated_time(self) -> float:
         """获取预估剩余时间（秒）"""
@@ -70,13 +74,13 @@ class ConsoleProgressBar:
         self.current = 0
         self.start_time = time.time()
         self.last_update_time = self.start_time
-        self.animation_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+        self.animation_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         self.animation_idx = 0
         self.current_message = ""
         self._stop_animation = False
         self._animation_thread = None
 
-    def update(self, n: int = 1, message: Optional[str] = None):
+    def update(self, n: int = 1, message: str | None = None):
         """
         更新进度 - 只显示百分比，不显示命令行进度条
 
@@ -108,17 +112,13 @@ class ConsoleProgressBar:
             time_info = f"[{elapsed_str}<--:--]"
 
         # 状态信息：转圈动画 + 状态文字
-        if self.current_message:
-            status = f"{spinner} {self.current_message}"
-        else:
-            status = spinner
+        status = f"{spinner} {self.current_message}" if self.current_message else spinner
 
         # 输出格式：描述 + 百分比(两位小数) + 数量 + 时间 + 状态（不显示进度条）
-        output = f"\r{self.desc}: {percentage:.2f}% " \
-                 f"({self.current}/{self.total}) {time_info} {status}"
+        output = f"\r{self.desc}: {percentage:.2f}% ({self.current}/{self.total}) {time_info} {status}"
 
         # 清屏并重新输出，避免残留字符
-        sys.stdout.write('\r' + ' ' * 120 + '\r')  # 清空当前行
+        sys.stdout.write("\r" + " " * 120 + "\r")  # 清空当前行
         sys.stdout.write(output)
         sys.stdout.flush()
 
@@ -152,23 +152,23 @@ class ConsoleProgressBar:
         self._stop_animation = True
         if self._animation_thread:
             self._animation_thread.join(timeout=1)
-        
+
     def finish(self, message: str = "完成"):
         """
         完成显示
-        
+
         参数：
             message: 完成消息
         """
         if self.current < self.total:
             self.update(self.total - self.current)
-        
+
         elapsed = time.time() - self.start_time
         elapsed_str = self._format_time(elapsed)
-        
+
         sys.stdout.write(f"\n{message} (用时: {elapsed_str})\n")
         sys.stdout.flush()
-        
+
     def _format_time(self, seconds: float) -> str:
         """格式化时间"""
         if seconds < 60:
@@ -183,34 +183,34 @@ class ConsoleProgressBar:
 
 class ProgressTracker:
     """进度追踪器"""
-    
+
     def __init__(self, total: int, desc: str = "任务"):
         """
         初始化进度追踪器
-        
+
         参数：
             total: 总任务数
             desc: 任务描述
         """
         self.info = ProgressInfo(total=total)
         self.desc = desc
-        self.callbacks: List[Callable[[ProgressInfo], None]] = []
-        
+        self.callbacks: list[Callable[[ProgressInfo], None]] = []
+
     def register_callback(self, callback: Callable[[ProgressInfo], None]):
         """注册进度回调函数"""
         self.callbacks.append(callback)
-        
+
     def start(self, message: str = "开始"):
         """开始任务"""
         self.info.status = "running"
         self.info.start_time = datetime.now()
         self.info.message = message
         self._notify()
-        
-    def update(self, current: int, message: Optional[str] = None):
+
+    def update(self, current: int, message: str | None = None):
         """
         更新进度
-        
+
         参数：
             current: 当前进度
             message: 进度消息
@@ -219,11 +219,11 @@ class ProgressTracker:
         if message:
             self.info.message = message
         self._notify()
-        
-    def increment(self, n: int = 1, message: Optional[str] = None):
+
+    def increment(self, n: int = 1, message: str | None = None):
         """
         增加进度
-        
+
         参数：
             n: 增加的数量
             message: 进度消息
@@ -232,7 +232,7 @@ class ProgressTracker:
         if message:
             self.info.message = message
         self._notify()
-        
+
     def complete(self, message: str = "完成"):
         """完成任务"""
         self.info.status = "completed"
@@ -240,11 +240,11 @@ class ProgressTracker:
         self.info.current = self.info.total
         self.info.message = message
         self._notify()
-        
+
     def fail(self, error: str):
         """
         标记失败
-        
+
         参数：
             error: 错误信息
         """
@@ -253,22 +253,20 @@ class ProgressTracker:
         self.info.error = error
         self.info.message = f"失败: {error}"
         self._notify()
-        
+
     def _notify(self):
         """通知所有回调"""
         for callback in self.callbacks:
-            try:
+            with contextlib.suppress(Exception):
                 callback(self.info)
-            except Exception as e:
-                print(f"进度回调执行失败: {e}")
-                
+
     def get_percentage(self, decimals: int = 2) -> float:
         """
         获取进度百分比
-        
+
         参数：
             decimals: 小数位数
-            
+
         返回：
             float: 进度百分比
         """
@@ -277,21 +275,21 @@ class ProgressTracker:
 
 class MultiTaskProgressManager:
     """多任务进度管理器"""
-    
+
     def __init__(self):
         """初始化多任务进度管理器"""
-        self.tasks: Dict[str, ProgressTracker] = {}
+        self.tasks: dict[str, ProgressTracker] = {}
         self.overall_progress = ProgressTracker(total=0, desc="总体进度")
-        
+
     def add_task(self, task_id: str, total: int, desc: str = "任务") -> ProgressTracker:
         """
         添加任务
-        
+
         参数：
             task_id: 任务ID
             total: 总任务数
             desc: 任务描述
-            
+
         返回：
             ProgressTracker: 进度追踪器
         """
@@ -299,67 +297,52 @@ class MultiTaskProgressManager:
         self.tasks[task_id] = tracker
         self.overall_progress.info.total += total
         return tracker
-        
-    def get_task(self, task_id: str) -> Optional[ProgressTracker]:
+
+    def get_task(self, task_id: str) -> ProgressTracker | None:
         """
         获取任务进度追踪器
-        
+
         参数：
             task_id: 任务ID
-            
+
         返回：
             Optional[ProgressTracker]: 进度追踪器
         """
         return self.tasks.get(task_id)
-        
+
     def update_overall(self):
         """更新总体进度"""
         total_current = sum(task.info.current for task in self.tasks.values())
         self.overall_progress.update(total_current)
-        
+
     def get_overall_percentage(self, decimals: int = 2) -> float:
         """
         获取总体进度百分比
-        
+
         参数：
             decimals: 小数位数
-            
+
         返回：
             float: 总体进度百分比
         """
         return self.overall_progress.get_percentage(decimals)
-        
+
     def print_summary(self):
         """打印进度摘要"""
-        print("\n" + "=" * 60)
-        print("任务进度摘要")
-        print("=" * 60)
-        
-        for task_id, tracker in self.tasks.items():
+
+        for tracker in self.tasks.values():
             info = tracker.info
-            status_icon = {
-                "pending": "⏳",
-                "running": "🔄",
-                "completed": "✅",
-                "failed": "❌"
-            }.get(info.status, "❓")
-            
-            print(f"{status_icon} {tracker.desc}: {info.current}/{info.total} "
-                  f"({tracker.get_percentage(1)}%) - {info.status}")
-            
-        print("-" * 60)
-        print(f"总体进度: {self.get_overall_percentage(1)}%")
-        print("=" * 60)
+            {"pending": "⏳", "running": "🔄", "completed": "✅", "failed": "❌"}.get(info.status, "❓")
 
 
 def format_progress(percentage: float, decimals: int = 2) -> str:
     """
     格式化进度百分比
-    
+
     参数：
         percentage: 百分比数值
         decimals: 小数位数
-        
+
     返回：
         str: 格式化后的百分比字符串
     """
@@ -369,11 +352,11 @@ def format_progress(percentage: float, decimals: int = 2) -> str:
 def create_progress_bar(total: int, desc: str = "进度") -> ConsoleProgressBar:
     """
     创建控制台进度条
-    
+
     参数：
         total: 总任务数
         desc: 进度条描述
-        
+
     返回：
         ConsoleProgressBar: 进度条实例
     """

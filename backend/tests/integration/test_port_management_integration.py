@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 PortManager 集成测试
 
@@ -10,31 +9,30 @@ PortManager 集成测试
 日期: 2026-05-13
 """
 
-import os
-import sys
+import asyncio
 import json
+import os
 import socket
 import subprocess
-import asyncio
+import sys
 import tempfile
 import threading
 import time
-from pathlib import Path
-from unittest.mock import patch, MagicMock, AsyncMock, PropertyMock
 from contextlib import contextmanager
-from typing import Dict, Generator, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
 
 import pytest
-import pytest_asyncio
 
 from core.port_manager import (
-    PortManager,
-    PortAllocationError,
-    PortConfig,
     PORT_RANGES,
-    port_manager,
+    PortAllocationError,
+    PortManager,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 # ============================================================
 # Fixtures - 测试基础设施
@@ -45,7 +43,7 @@ from core.port_manager import (
 def reset_port_manager_singleton():
     """自动重置 PortManager 单例，确保每个测试独立运行"""
     original_instance = PortManager._instance
-    original_initialized = getattr(PortManager._instance, '_initialized', False) if PortManager._instance else False
+    original_initialized = getattr(PortManager._instance, "_initialized", False) if PortManager._instance else False
 
     PortManager._instance = None
 
@@ -59,34 +57,34 @@ def reset_port_manager_singleton():
 @pytest.fixture(autouse=True)
 def clean_env():
     """清理环境变量 - 确保每个测试不受之前的环境变量影响"""
-    original_static = os.environ.get('USE_STATIC_PORTS')
-    original_config = os.environ.get('PORT_CONFIG_PATH')
+    original_static = os.environ.get("USE_STATIC_PORTS")
+    original_config = os.environ.get("PORT_CONFIG_PATH")
 
-    os.environ.pop('USE_STATIC_PORTS', None)
-    os.environ.pop('PORT_CONFIG_PATH', None)
+    os.environ.pop("USE_STATIC_PORTS", None)
+    os.environ.pop("PORT_CONFIG_PATH", None)
 
     yield
 
     if original_static:
-        os.environ['USE_STATIC_PORTS'] = original_static
+        os.environ["USE_STATIC_PORTS"] = original_static
     else:
-        os.environ.pop('USE_STATIC_PORTS', None)
+        os.environ.pop("USE_STATIC_PORTS", None)
 
     if original_config:
-        os.environ['PORT_CONFIG_PATH'] = original_config
+        os.environ["PORT_CONFIG_PATH"] = original_config
     else:
-        os.environ.pop('PORT_CONFIG_PATH', None)
+        os.environ.pop("PORT_CONFIG_PATH", None)
 
 
 @pytest.fixture
 def temp_config_dir():
     """创建临时目录用于测试配置文件"""
     with tempfile.TemporaryDirectory() as tmpdir:
-        config_path = os.path.join(tmpdir, 'test_port_config.json')
-        os.environ['PORT_CONFIG_PATH'] = config_path
+        config_path = os.path.join(tmpdir, "test_port_config.json")
+        os.environ["PORT_CONFIG_PATH"] = config_path
         yield tmpdir
-        if os.environ.get('PORT_CONFIG_PATH') == config_path:
-            os.environ.pop('PORT_CONFIG_PATH', None)
+        if os.environ.get("PORT_CONFIG_PATH") == config_path:
+            os.environ.pop("PORT_CONFIG_PATH", None)
 
 
 @pytest.fixture
@@ -100,22 +98,21 @@ def event_loop():
 @pytest.fixture
 def mock_subprocess():
     """Mock subprocess 调用，避免真实进程操作"""
-    with patch('subprocess.run') as mock_run, \
-         patch('subprocess.Popen') as mock_popen:
-        yield {'run': mock_run, 'popen': mock_popen}
+    with patch("subprocess.run") as mock_run, patch("subprocess.Popen") as mock_popen:
+        yield {"run": mock_run, "popen": mock_popen}
 
 
 @pytest.fixture
 def mock_socket_operations():
     """Mock socket 操作，避免真实网络绑定"""
-    with patch('socket.socket') as mock_sock_class:
+    with patch("socket.socket") as mock_sock_class:
         mock_socket = MagicMock()
         mock_sock_class.return_value = mock_socket
         yield mock_socket
 
 
 @contextmanager
-def reserve_port(port: int) -> Generator[None, None, None]:
+def reserve_port(port: int) -> Generator[None]:
     """
     占用指定端口的上下文管理器
 
@@ -124,7 +121,7 @@ def reserve_port(port: int) -> Generator[None, None, None]:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        sock.bind(('0.0.0.0', port))
+        sock.bind(("0.0.0.0", port))
         sock.listen(1)
         yield
     finally:
@@ -136,11 +133,12 @@ def find_available_port(start: int = 19000, end: int = 20000) -> int:
     for port in range(start, end):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('127.0.0.1', port))
+                s.bind(("127.0.0.1", port))
                 return port
         except OSError:
             continue
-    raise RuntimeError(f"在范围 {start}-{end} 内找不到可用端口")
+    msg = f"在范围 {start}-{end} 内找不到可用端口"
+    raise RuntimeError(msg)
 
 
 # ============================================================
@@ -171,7 +169,7 @@ class TestSystemStartupFlow:
 
         # 验证配置文件已保存
         assert manager.config_path.exists()
-        with open(manager.config_path, 'r', encoding='utf-8') as f:
+        with open(manager.config_path, encoding="utf-8") as f:
             config_data = json.load(f)
 
         assert "services" in config_data
@@ -211,7 +209,7 @@ class TestSystemStartupFlow:
         """
         occupied_port = 8000
 
-        with patch.object(PortManager, '_is_port_available') as mock_available:
+        with patch.object(PortManager, "_is_port_available") as mock_available:
             # 模拟 8000 被占用，8001 可用
             def check_availability(port):
                 return port != occupied_port
@@ -225,7 +223,7 @@ class TestSystemStartupFlow:
             assert fastapi_port != 8000
             assert 8001 <= fastapi_port < 8010
 
-    @patch('core.port_manager.port_manager')
+    @patch("core.port_manager.port_manager")
     def test_main_py_startup_flow_integration(self, mock_pm, temp_config_dir):
         """集成测试：模拟 main.py 完整启动流程
 
@@ -291,12 +289,16 @@ class TestSystemStartupFlow:
             # 端口应该是默认端口或在范围内
             is_valid = port == default_port or (start <= port < end)
             assert is_valid, (
-                f"{service_name} 端口 {port} 无效: "
-                f"既不是默认端口 {default_port}，也不在范围 {start}-{end-1} 内"
+                f"{service_name} 端口 {port} 无效: 既不是默认端口 {default_port}，也不在范围 {start}-{end - 1} 内"
             )
 
         # 验证各服务使用不同端口
-        zmq_ports = [zmq_data_port, zmq_control_port, zmq_status_port, zmq_broadcast_port]
+        zmq_ports = [
+            zmq_data_port,
+            zmq_control_port,
+            zmq_status_port,
+            zmq_broadcast_port,
+        ]
         assert len(set(zmq_ports)) == len(zmq_ports), "ZMQ 服务应使用不同端口"
 
         # 验证配置文件包含所有 ZMQ 服务
@@ -353,15 +355,14 @@ class TestSystemStartupFlow:
             start, end = config["range"]
             is_valid = port == default_port or (start <= port < end)
             assert is_valid, (
-                f"{service_name} 端口 {port} 无效: "
-                f"既不是默认端口 {default_port}，也不在范围 {start}-{end-1} 内"
+                f"{service_name} 端口 {port} 无效: 既不是默认端口 {default_port}，也不在范围 {start}-{end - 1} 内"
             )
 
         # 验证所有服务都已分配
         assert len(allocated_ports) == len(PORT_RANGES)
 
         # 验证配置文件完整性
-        with open(manager.config_path, 'r', encoding='utf-8') as f:
+        with open(manager.config_path, encoding="utf-8") as f:
             saved_config = json.load(f)
 
         assert len(saved_config["services"]) == len(PORT_RANGES)
@@ -383,21 +384,21 @@ class TestMultiInstancePortIsolation:
 
         通过不同配置路径实现隔离。
         """
-        config_path_1 = os.path.join(temp_config_dir, 'instance1_config.json')
-        config_path_2 = os.path.join(temp_config_dir, 'instance2_config.json')
+        config_path_1 = os.path.join(temp_config_dir, "instance1_config.json")
+        config_path_2 = os.path.join(temp_config_dir, "instance2_config.json")
 
         # 实例 1
-        os.environ['PORT_CONFIG_PATH'] = config_path_1
+        os.environ["PORT_CONFIG_PATH"] = config_path_1
         manager1 = PortManager()
-        port1 = manager1.get_port("fastapi")
+        manager1.get_port("fastapi")
 
         # 重置单例以创建新实例
         PortManager._instance = None
 
         # 实例 2
-        os.environ['PORT_CONFIG_PATH'] = config_path_2
+        os.environ["PORT_CONFIG_PATH"] = config_path_2
         manager2 = PortManager()
-        port2 = manager2.get_port("fastapi")
+        manager2.get_port("fastapi")
 
         # 两个实例可以独立操作
         assert manager1.config_path != manager2.config_path
@@ -491,7 +492,7 @@ class TestMultiInstancePortIsolation:
         """
         manager = PortManager()
 
-        for cycle in range(10):
+        for _cycle in range(10):
             # 分配端口
             port = manager.get_port("fastapi")
             assert port > 0
@@ -519,7 +520,7 @@ class TestMultiInstancePortIsolation:
 class TestAbnormalExitRecovery:
     """测试异常退出后的恢复机制"""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_zombie_process_detection_and_cleanup(self, mock_run, temp_config_dir):
         """检测并清理僵尸进程后重用端口
 
@@ -529,18 +530,16 @@ class TestAbnormalExitRecovery:
         target_port = 8000
 
         # 配置 lsof 返回僵尸进程 PID
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=f'{zombie_pid}\n'
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=f"{zombie_pid}\n")
 
         manager = PortManager()
 
         # Mock 端口可用性检查和僵尸进程判断
-        with patch.object(manager, '_is_port_available', return_value=False), \
-             patch.object(manager, '_is_zombie_process', return_value=True), \
-             patch.object(manager, '_terminate_process', return_value=True):
-
+        with (
+            patch.object(manager, "_is_port_available", return_value=False),
+            patch.object(manager, "_is_zombie_process", return_value=True),
+            patch.object(manager, "_terminate_process", return_value=True),
+        ):
             # 执行僵尸进程检测和清理
             cleaned = manager.detect_and_cleanup_zombie_process(target_port)
 
@@ -550,7 +549,7 @@ class TestAbnormalExitRecovery:
             # 验证调用了终止进程方法
             manager._terminate_process.assert_called_once_with(zombie_pid)
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_non_zombie_process_not_cleaned(self, mock_run, temp_config_dir):
         """非僵尸进程不被清理
 
@@ -560,20 +559,17 @@ class TestAbnormalExitRecovery:
         target_port = 8000
 
         # 配置 lsof 返回正常进程 PID
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=f'{normal_pid}\n'
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=f"{normal_pid}\n")
 
         manager = PortManager()
 
-        with patch.object(manager, '_is_zombie_process', return_value=False):
+        with patch.object(manager, "_is_zombie_process", return_value=False):
             cleaned = manager.detect_and_cleanup_zombie_process(target_port)
 
             # 非僵尸进程不应被清理
             assert cleaned is False
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_zombie_cleanup_failure_handling(self, mock_run, temp_config_dir):
         """僵尸进程清理失败时的处理
 
@@ -582,17 +578,15 @@ class TestAbnormalExitRecovery:
         zombie_pid = 12345
         target_port = 8000
 
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=f'{zombie_pid}\n'
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=f"{zombie_pid}\n")
 
         manager = PortManager()
 
-        with patch.object(manager, '_is_port_available', return_value=False), \
-             patch.object(manager, '_is_zombie_process', return_value=True), \
-             patch.object(manager, '_terminate_process', return_value=False):
-
+        with (
+            patch.object(manager, "_is_port_available", return_value=False),
+            patch.object(manager, "_is_zombie_process", return_value=True),
+            patch.object(manager, "_terminate_process", return_value=False),
+        ):
             # 清理失败不应抛出异常
             cleaned = manager.detect_and_cleanup_zombie_process(target_port)
 
@@ -605,7 +599,7 @@ class TestAbnormalExitRecovery:
         模拟：配置文件记录了端口但实际进程不存在的情况。
         """
         # 创建一个残留的配置文件（模拟崩溃前的状态）
-        config_file = Path(temp_config_dir) / 'test_port_config.json'
+        config_file = Path(temp_config_dir) / "test_port_config.json"
         stale_config = {
             "version": "1.0",
             "updated_at": "2024-01-01T00:00:00",
@@ -615,12 +609,12 @@ class TestAbnormalExitRecovery:
                     "pid": 99999,  # 已不存在的进程
                     "start_time": "2024-01-01T00:00:00",
                     "last_used": "2024-01-01T00:00:00",
-                    "status": "active"
+                    "status": "active",
                 }
-            }
+            },
         }
 
-        with open(config_file, 'w', encoding='utf-8') as f:
+        with open(config_file, "w", encoding="utf-8") as f:
             json.dump(stale_config, f)
 
         # 加载残留配置
@@ -646,7 +640,7 @@ class TestAbnormalExitRecovery:
         损坏 port_config.json 后验证系统能正常启动。
         """
         # 创建损坏的配置文件
-        config_file = Path(temp_config_dir) / 'test_port_config.json'
+        config_file = Path(temp_config_dir) / "test_port_config.json"
 
         # 写入各种损坏的内容
         corruption_cases = [
@@ -657,7 +651,7 @@ class TestAbnormalExitRecovery:
         ]
 
         for corrupted_content in corruption_cases:
-            with open(config_file, 'w', encoding='utf-8') as f:
+            with open(config_file, "w", encoding="utf-8") as f:
                 f.write(corrupted_content)
 
             # 重置单例
@@ -680,10 +674,10 @@ class TestAbnormalExitRecovery:
         验证系统能处理配置目录缺失的情况。
         """
         # 设置一个不存在的目录路径
-        nonexistent_dir = os.path.join(temp_config_dir, 'nonexistent', 'subdir')
-        config_path = os.path.join(nonexistent_dir, 'config.json')
+        nonexistent_dir = os.path.join(temp_config_dir, "nonexistent", "subdir")
+        config_path = os.path.join(nonexistent_dir, "config.json")
 
-        os.environ['PORT_CONFIG_PATH'] = config_path
+        os.environ["PORT_CONFIG_PATH"] = config_path
 
         # 应该能正常初始化并自动创建目录
         try:
@@ -696,7 +690,7 @@ class TestAbnormalExitRecovery:
         finally:
             PortManager._instance = None
 
-    @patch('subprocess.run', side_effect=FileNotFoundError())
+    @patch("subprocess.run", side_effect=FileNotFoundError())
     def test_lsof_unavailable_graceful_degradation(self, mock_run, temp_config_dir):
         """lsof 命令不可用时优雅降级
 
@@ -710,13 +704,12 @@ class TestAbnormalExitRecovery:
         # 应返回 False 表示无法检测
         assert result is False
 
-    @patch('subprocess.run', side_effect=subprocess.TimeoutExpired(cmd='lsof', timeout=5))
+    @patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="lsof", timeout=5))
     def test_zombie_detection_timeout_handling(self, mock_run, temp_config_dir):
         """僵尸进程检测超时时的处理
 
         lsof 命令超时不应导致系统异常。
         """
-        import subprocess
 
         manager = PortManager()
 
@@ -777,9 +770,7 @@ class TestFrontendBackendPortSync:
         manager.get_port("fastapi")
 
         # 查询存在的服务
-        response = asyncio.get_event_loop().run_until_complete(
-            get_service_port("fastapi")
-        )
+        response = asyncio.get_event_loop().run_until_complete(get_service_port("fastapi"))
 
         assert response["code"] == 0
         assert response["data"]["service"] == "fastapi"
@@ -790,14 +781,13 @@ class TestFrontendBackendPortSync:
 
         验证查询不存在服务时的错误响应。
         """
-        from api.system_ports import get_service_port
         from fastapi import HTTPException
+
+        from api.system_ports import get_service_port
 
         # 查询不存在的服务应抛出 HTTPException
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.get_event_loop().run_until_complete(
-                get_service_port("invalid_service")
-            )
+            asyncio.get_event_loop().run_until_complete(get_service_port("invalid_service"))
 
         assert exc_info.value.status_code == 404
 
@@ -833,7 +823,13 @@ class TestFrontendBackendPortSync:
         data = response["data"]
 
         # 验证前端需要的字段都存在
-        required_fields_for_frontend = ["fastapi", "zmq_data", "zmq_control", "zmq_status", "zmq_broadcast"]
+        required_fields_for_frontend = [
+            "fastapi",
+            "zmq_data",
+            "zmq_control",
+            "zmq_status",
+            "zmq_broadcast",
+        ]
 
         for field in required_fields_for_frontend:
             assert field in data, f"缺少前端所需字段: {field}"
@@ -874,8 +870,9 @@ class TestFrontendBackendPortSync:
         for service in services_to_allocate:
             assert service in api_data, f"API 缺少服务: {service}"
             assert service in manager_ports, f"Manager 缺少服务: {service}"
-            assert api_data[service]["port"] == manager_ports[service], \
+            assert api_data[service]["port"] == manager_ports[service], (
                 f"{service} 端口不一致: API={api_data[service]['port']} vs Manager={manager_ports[service]}"
+            )
 
 
 # ============================================================
@@ -886,7 +883,7 @@ class TestFrontendBackendPortSync:
 class TestEdgeCasesAndStress:
     """边界条件和压力测试"""
 
-    @patch.object(PortManager, '_is_port_available', return_value=False)
+    @patch.object(PortManager, "_is_port_available", return_value=False)
     def test_all_ports_occupied_scenario(self, mock_available, temp_config_dir):
         """所有端口都被占用的极端情况
 
@@ -911,7 +908,7 @@ class TestEdgeCasesAndStress:
         num_cycles = 20
         allocated_ports = []
 
-        for i in range(num_cycles):
+        for _i in range(num_cycles):
             # 启动：分配端口
             port = manager.get_port("fastapi")
             allocated_ports.append(port)
@@ -930,7 +927,7 @@ class TestEdgeCasesAndStress:
         assert "fastapi" in manager.allocated_ports
 
         # 验证配置文件最终状态正确
-        with open(manager.config_path, 'r', encoding='utf-8') as f:
+        with open(manager.config_path, encoding="utf-8") as f:
             final_config = json.load(f)
 
         assert "fastapi" in final_config["services"]
@@ -1014,16 +1011,13 @@ class TestEdgeCasesAndStress:
             ("zmq_data", 5559),
         ]
 
-        with patch.object(PortManager, '_is_port_available', return_value=True):
+        with patch.object(PortManager, "_is_port_available", return_value=True):
             for service_name, port in boundary_tests:
                 try:
                     manager.set_preferred_port(service_name, port)
                     allocated = manager.get_port(service_name)
 
-                    assert allocated == port, (
-                        f"边界端口 {service_name}:{port} 应该分配成功，"
-                        f"实际分配: {allocated}"
-                    )
+                    assert allocated == port, f"边界端口 {service_name}:{port} 应该分配成功，实际分配: {allocated}"
 
                     manager.release_port(service_name)
                 except ValueError:
@@ -1050,7 +1044,7 @@ class TestEdgeCasesAndStress:
         # 验证配置文件仍然有效
         assert manager.config_path.exists()
 
-        with open(manager.config_path, 'r', encoding='utf-8') as f:
+        with open(manager.config_path, encoding="utf-8") as f:
             try:
                 config = json.load(f)
                 assert "version" in config
@@ -1081,7 +1075,7 @@ class TestEdgeCasesAndStress:
             test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             test_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
-                test_sock.bind(('127.0.0.1', port))
+                test_sock.bind(("127.0.0.1", port))
                 test_sock.close()
                 # 绑定成功说明端口确实可用
                 assert True
@@ -1192,23 +1186,26 @@ class TestErrorHandling:
         manager.get_port("fastapi")
         manager.get_port("zmq_data")
 
-        initial_state = dict(manager.allocated_ports)
+        dict(manager.allocated_ports)
 
         # 修改配置文件
-        with open(manager.config_path, 'w', encoding='utf-8') as f:
-            json.dump({
-                "version": "1.0",
-                "updated_at": "2024-01-01T00:00:00",
-                "services": {
-                    "zmq_control": {
-                        "port": 5565,
-                        "pid": 11111,
-                        "start_time": "2024-01-01T00:00:00",
-                        "last_used": "2024-01-01T00:00:00",
-                        "status": "active"
-                    }
-                }
-            }, f)
+        with open(manager.config_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "version": "1.0",
+                    "updated_at": "2024-01-01T00:00:00",
+                    "services": {
+                        "zmq_control": {
+                            "port": 5565,
+                            "pid": 11111,
+                            "start_time": "2024-01-01T00:00:00",
+                            "last_used": "2024-01-01T00:00:00",
+                            "status": "active",
+                        }
+                    },
+                },
+                f,
+            )
 
         # 重新加载
         manager.reload_config()

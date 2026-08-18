@@ -3,9 +3,10 @@
 ⚠️ 本模块只做直传重导出,不在 Python 侧实现任何 RL 逻辑。
 axon_quant 0.4.0 暴露: TradingEnv / VERSION
 """
-from axon_quant.rl import (  # noqa: F401
-    TradingEnv,
+
+from axon_quant.rl import (
     VERSION,
+    TradingEnv,
 )
 
-__all__ = ["TradingEnv", "VERSION"]
+__all__ = ["VERSION", "TradingEnv"]

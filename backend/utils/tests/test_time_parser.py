@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Time parser utilities unit tests
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
+
 import pytest
 
 from utils.time_parser import (
-    parse_time_range,
-    datetime_to_timestamp,
-    timestamp_to_datetime,
-    format_datetime,
-    format_date,
-    get_interval_minutes,
-    calculate_expected_klines,
     align_to_interval,
-    get_time_range_for_download,
+    calculate_expected_klines,
+    datetime_to_timestamp,
+    format_date,
+    format_datetime,
     get_date_range,
+    get_interval_minutes,
     get_interval_ms,
+    get_time_range_for_download,
+    parse_time_range,
     str_to_timestamp,
+    timestamp_to_datetime,
 )
 
 

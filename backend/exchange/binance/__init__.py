@@ -17,69 +17,72 @@ Binance交易所模块
 """
 
 from .client import BinanceClient
-from .websocket import BinanceWebSocketManager
-from .paper_trading import PaperTradingAccount
-from .exceptions import (
-    BinanceConnectionError,
-    BinanceAPIError,
-    BinanceWebSocketError,
-    BinanceOrderError,
-)
 from .config import BinanceConfig
+from .exceptions import (
+    BinanceAPIError,
+    BinanceConnectionError,
+    BinanceOrderError,
+    BinanceWebSocketError,
+)
+from .paper_trading import PaperTradingAccount
+from .websocket import BinanceWebSocketManager
 
 # 从 live_adapter 导入实盘交易相关组件
 try:
     from .live_adapter import (
         BinanceAccountType,
-        BinanceEnvironment,
         BinanceAdapterConfig,
+        # 异常类
+        BinanceAdapterError,
+        BinanceClientError,
+        BinanceConfigError,
+        BinanceCredentialError,
         BinanceDataClientFactory,
+        BinanceEnvironment,
         BinanceExecClientFactory,
         build_binance_data_config,
         build_binance_exec_config,
+        create_binance_config_from_dict,
         get_binance_venue,
         resolve_binance_account_type,
         resolve_binance_environment,
         validate_binance_credentials,
-        create_binance_config_from_dict,
-        # 异常类
-        BinanceAdapterError,
-        BinanceConfigError,
-        BinanceCredentialError,
-        BinanceClientError,
     )
+
     LIVE_ADAPTER_AVAILABLE = True
 except ImportError:
     LIVE_ADAPTER_AVAILABLE = False
 
 __all__ = [
+    "BinanceAPIError",
     "BinanceClient",
+    "BinanceConfig",
+    "BinanceConnectionError",
+    "BinanceOrderError",
+    "BinanceWebSocketError",
     "BinanceWebSocketManager",
     "PaperTradingAccount",
-    "BinanceConnectionError",
-    "BinanceAPIError",
-    "BinanceWebSocketError",
-    "BinanceOrderError",
-    "BinanceConfig",
 ]
 
 # 如果 live_adapter 可用，添加到导出列表
 if LIVE_ADAPTER_AVAILABLE:
-    __all__.extend([
-        "BinanceAccountType",
-        "BinanceEnvironment",
-        "BinanceAdapterConfig",
-        "BinanceDataClientFactory",
-        "BinanceExecClientFactory",
-        "build_binance_data_config",
-        "build_binance_exec_config",
-        "get_binance_venue",
-        "resolve_binance_account_type",
-        "resolve_binance_environment",
-        "validate_binance_credentials",
-        "create_binance_config_from_dict",
-        "BinanceAdapterError",
-        "BinanceConfigError",
-        "BinanceCredentialError",
-        "BinanceClientError",
-    ])
+    __all__.extend(
+        [
+            "BinanceAccountType",
+            "BinanceAdapterConfig",
+            "BinanceAdapterError",
+            "BinanceClientError",
+            "BinanceConfigError",
+            "BinanceCredentialError",
+            "BinanceDataClientFactory",
+            "BinanceEnvironment",
+            "BinanceExecClientFactory",
+            "build_binance_data_config",
+            "build_binance_exec_config",
+            "create_binance_config_from_dict",
+            "get_binance_venue",
+            "resolve_binance_account_type",
+            "resolve_binance_environment",
+            "validate_binance_credentials",
+        ]
+    )

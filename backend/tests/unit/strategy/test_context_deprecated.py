@@ -1,5 +1,4 @@
 """StrategyContext.funding_cash/settle_funding 标 DEPRECATED no-op。"""
-import pytest
 
 from strategy.base import StrategyContext
 

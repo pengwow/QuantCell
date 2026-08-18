@@ -1,10 +1,12 @@
 """工具注册表 - 管理所有可用工具"""
 
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .base import Tool
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
+if TYPE_CHECKING:
+    from .base import Tool
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -12,7 +14,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 class ToolRegistry:
     """
     工具注册表
-    
+
     支持动态注册和执行工具
     """
 
@@ -51,6 +53,7 @@ class ToolRegistry:
             # 处理参数：如果是字符串则解析为字典
             if isinstance(params, str):
                 import json
+
                 try:
                     params = json.loads(params)
                 except json.JSONDecodeError:
@@ -62,21 +65,21 @@ class ToolRegistry:
             errors = tool.validate_params(params)
             if errors:
                 return f"错误: 工具 '{name}' 参数无效: " + "; ".join(errors) + _HINT
-            
+
             logger.debug(f"[ToolRegistry] 执行工具 {name}, 参数: {params}")
             start_time = time.time()
-            
+
             result = await tool.execute(**params)
-            
+
             elapsed = time.time() - start_time
             logger.info(f"[ToolRegistry] 工具 {name} 执行完成, 耗时: {elapsed:.2f}s")
-            
+
             if isinstance(result, str) and result.startswith("错误"):
                 return result + _HINT
             return result
         except Exception as e:
             logger.error(f"[ToolRegistry] 工具 {name} 执行异常: {type(e).__name__}: {e}")
-            return f"执行 {name} 时出错: {str(e)}" + _HINT
+            return f"执行 {name} 时出错: {e!s}" + _HINT
 
     @property
     def tool_names(self) -> list[str]:

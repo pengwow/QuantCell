@@ -9,10 +9,10 @@
 - 性能统计
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
-from datetime import datetime
 
 from main import app
 
@@ -63,8 +63,8 @@ class TestStrategyGenerateAPI:
                     "completion_tokens": 50,
                     "total_tokens": 150,
                     "elapsed_time": 2.5,
-                    "request_id": "req_123"
-                }
+                    "request_id": "req_123",
+                },
             }
             mock_create.return_value = mock_generator
 
@@ -74,8 +74,8 @@ class TestStrategyGenerateAPI:
                 json={
                     "requirement": "创建一个简单的测试策略",
                     "model_id": "gpt-4",
-                    "temperature": 0.7
-                }
+                    "temperature": 0.7,
+                },
             )
 
         assert response.status_code == 200
@@ -92,7 +92,7 @@ class TestStrategyGenerateAPI:
             response = client.post(
                 "/api/ai-models/strategy/generate-sync",
                 headers=auth_headers,
-                json={"requirement": "创建一个简单的测试策略"}
+                json={"requirement": "创建一个简单的测试策略"},
             )
 
         assert response.status_code == 200
@@ -106,8 +106,8 @@ class TestStrategyGenerateAPI:
             headers=auth_headers,
             json={
                 "code": "class TestStrategy:\n    def __init__(self):\n        pass",
-                "language": "python"
-            }
+                "language": "python",
+            },
         )
 
         assert response.status_code == 200
@@ -123,8 +123,8 @@ class TestStrategyGenerateAPI:
             headers=auth_headers,
             json={
                 "code": "class TestStrategy:\n    def __init__(self):\n        pass\n    def broken(  # 缺少右括号",
-                "language": "python"
-            }
+                "language": "python",
+            },
         )
 
         assert response.status_code == 200
@@ -139,10 +139,7 @@ class TestStrategyHistoryAPI:
 
     def test_get_history_list_empty(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试获取空历史列表"""
-        response = client.get(
-            "/api/ai-models/strategy/history",
-            headers=auth_headers
-        )
+        response = client.get("/api/ai-models/strategy/history", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -153,10 +150,7 @@ class TestStrategyHistoryAPI:
 
     def test_get_history_list_with_pagination(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试分页获取历史列表"""
-        response = client.get(
-            "/api/ai-models/strategy/history?page=1&page_size=10",
-            headers=auth_headers
-        )
+        response = client.get("/api/ai-models/strategy/history?page=1&page_size=10", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -169,7 +163,7 @@ class TestStrategyHistoryAPI:
         """测试带筛选条件的历史列表"""
         response = client.get(
             "/api/ai-models/strategy/history?status=success&model_id=gpt-4",
-            headers=auth_headers
+            headers=auth_headers,
         )
 
         assert response.status_code == 200
@@ -178,10 +172,7 @@ class TestStrategyHistoryAPI:
 
     def test_get_history_detail_not_found(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试获取不存在的历史详情"""
-        response = client.get(
-            "/api/ai-models/strategy/history/non_existent_id",
-            headers=auth_headers
-        )
+        response = client.get("/api/ai-models/strategy/history/non_existent_id", headers=auth_headers)
 
         assert response.status_code == 404
         data = response.json()
@@ -189,10 +180,7 @@ class TestStrategyHistoryAPI:
 
     def test_delete_history_not_found(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试删除不存在的历史记录"""
-        response = client.delete(
-            "/api/ai-models/strategy/history/non_existent_id",
-            headers=auth_headers
-        )
+        response = client.delete("/api/ai-models/strategy/history/non_existent_id", headers=auth_headers)
 
         assert response.status_code == 404
         data = response.json()
@@ -202,7 +190,7 @@ class TestStrategyHistoryAPI:
         """测试基于不存在的历史重新生成"""
         response = client.post(
             "/api/ai-models/strategy/history/non_existent_id/regenerate",
-            headers=auth_headers
+            headers=auth_headers,
         )
 
         assert response.status_code == 404
@@ -215,10 +203,7 @@ class TestStrategyTemplateAPI:
 
     def test_get_template_list(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试获取模板列表"""
-        response = client.get(
-            "/api/ai-models/strategy/templates",
-            headers=auth_headers
-        )
+        response = client.get("/api/ai-models/strategy/templates", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -231,7 +216,7 @@ class TestStrategyTemplateAPI:
         """测试按分类筛选模板"""
         response = client.get(
             "/api/ai-models/strategy/templates?category=trend_following",
-            headers=auth_headers
+            headers=auth_headers,
         )
 
         assert response.status_code == 200
@@ -240,10 +225,7 @@ class TestStrategyTemplateAPI:
 
     def test_get_template_list_with_tag_filter(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试按标签筛选模板"""
-        response = client.get(
-            "/api/ai-models/strategy/templates?tag=趋势",
-            headers=auth_headers
-        )
+        response = client.get("/api/ai-models/strategy/templates?tag=趋势", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -251,10 +233,7 @@ class TestStrategyTemplateAPI:
 
     def test_get_template_detail_success(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试获取模板详情成功"""
-        response = client.get(
-            "/api/ai-models/strategy/templates/tpl_001",
-            headers=auth_headers
-        )
+        response = client.get("/api/ai-models/strategy/templates/tpl_001", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -264,10 +243,7 @@ class TestStrategyTemplateAPI:
 
     def test_get_template_detail_not_found(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试获取不存在的模板详情"""
-        response = client.get(
-            "/api/ai-models/strategy/templates/non_existent_tpl",
-            headers=auth_headers
-        )
+        response = client.get("/api/ai-models/strategy/templates/non_existent_tpl", headers=auth_headers)
 
         assert response.status_code == 404
         data = response.json()
@@ -283,9 +259,9 @@ class TestStrategyTemplateAPI:
                 "variables": {
                     "strategy_name": "MyDualMAStrategy",
                     "fast_period": 10,
-                    "slow_period": 20
-                }
-            }
+                    "slow_period": 20,
+                },
+            },
         )
 
         assert response.status_code == 200
@@ -299,10 +275,7 @@ class TestStrategyTemplateAPI:
         response = client.post(
             "/api/ai-models/strategy/generate-from-template",
             headers=auth_headers,
-            json={
-                "template_id": "non_existent_tpl",
-                "variables": {}
-            }
+            json={"template_id": "non_existent_tpl", "variables": {}},
         )
 
         assert response.status_code == 404
@@ -319,8 +292,8 @@ class TestStrategyTemplateAPI:
                 "variables": {
                     "strategy_name": "TestStrategy"
                     # 缺少 fast_period 和 slow_period
-                }
-            }
+                },
+            },
         )
 
         assert response.status_code == 200
@@ -334,10 +307,7 @@ class TestStrategyStatsAPI:
 
     def test_get_performance_stats(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试获取性能统计"""
-        response = client.get(
-            "/api/ai-models/strategy/stats",
-            headers=auth_headers
-        )
+        response = client.get("/api/ai-models/strategy/stats", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -348,10 +318,7 @@ class TestStrategyStatsAPI:
 
     def test_get_performance_stats_with_days_param(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试带天数参数的性能统计"""
-        response = client.get(
-            "/api/ai-models/strategy/stats?days=7",
-            headers=auth_headers
-        )
+        response = client.get("/api/ai-models/strategy/stats?days=7", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -359,10 +326,7 @@ class TestStrategyStatsAPI:
 
     def test_get_performance_stats_invalid_days(self, client, mock_auth, mock_should_refresh, auth_headers):
         """测试无效的天数参数"""
-        response = client.get(
-            "/api/ai-models/strategy/stats?days=0",
-            headers=auth_headers
-        )
+        response = client.get("/api/ai-models/strategy/stats?days=0", headers=auth_headers)
 
         assert response.status_code == 422
 
@@ -374,18 +338,13 @@ class TestStrategyValidateAPI:
         """测试策略代码验证成功"""
         with patch("ai_model.routes_strategy.StrategyGenerator") as mock_gen_class:
             mock_generator = MagicMock()
-            mock_generator.validate_code.return_value = {
-                "valid": True,
-                "errors": []
-            }
+            mock_generator.validate_code.return_value = {"valid": True, "errors": []}
             mock_gen_class.return_value = mock_generator
 
             response = client.post(
                 "/api/ai-models/strategy/validate",
                 headers=auth_headers,
-                json={
-                    "code": "class TestStrategy:\n    def __init__(self):\n        pass"
-                }
+                json={"code": "class TestStrategy:\n    def __init__(self):\n        pass"},
             )
 
         assert response.status_code == 200
@@ -399,16 +358,14 @@ class TestStrategyValidateAPI:
             mock_generator = MagicMock()
             mock_generator.validate_code.return_value = {
                 "valid": True,
-                "errors": ["警告: 代码中未找到类定义"]
+                "errors": ["警告: 代码中未找到类定义"],
             }
             mock_gen_class.return_value = mock_generator
 
             response = client.post(
                 "/api/ai-models/strategy/validate",
                 headers=auth_headers,
-                json={
-                    "code": "def test_function():\n    pass"
-                }
+                json={"code": "def test_function():\n    pass"},
             )
 
         assert response.status_code == 200
@@ -424,7 +381,7 @@ class TestStrategyAPIAuth:
         """测试未授权访问同步生成接口"""
         response = client.post(
             "/api/ai-models/strategy/generate-sync",
-            json={"requirement": "创建一个简单的测试策略"}
+            json={"requirement": "创建一个简单的测试策略"},
         )
 
         assert response.status_code == 401
@@ -451,11 +408,12 @@ class TestStrategyAPIAuth:
         """测试无效令牌访问"""
         with patch("utils.auth.decode_jwt_token") as mock_decode:
             from utils.jwt_utils import TokenInvalidError
+
             mock_decode.side_effect = TokenInvalidError("Invalid token")
 
             response = client.get(
                 "/api/ai-models/strategy/history",
-                headers={"Authorization": "Bearer invalid_token"}
+                headers={"Authorization": "Bearer invalid_token"},
             )
 
         assert response.status_code == 401
@@ -469,7 +427,7 @@ class TestStrategyAPIEdgeCases:
         response = client.post(
             "/api/ai-models/strategy/generate-sync",
             headers=auth_headers,
-            json={"requirement": "短"}
+            json={"requirement": "短"},
         )
 
         assert response.status_code == 422
@@ -479,7 +437,7 @@ class TestStrategyAPIEdgeCases:
         response = client.post(
             "/api/ai-models/strategy/generate-sync",
             headers=auth_headers,
-            json={"requirement": "a" * 5001}
+            json={"requirement": "a" * 5001},
         )
 
         assert response.status_code == 422
@@ -491,8 +449,8 @@ class TestStrategyAPIEdgeCases:
             headers=auth_headers,
             json={
                 "requirement": "创建一个简单的测试策略",
-                "temperature": 3.0  # 超出范围
-            }
+                "temperature": 3.0,  # 超出范围
+            },
         )
 
         assert response.status_code == 422
@@ -502,7 +460,7 @@ class TestStrategyAPIEdgeCases:
         response = client.post(
             "/api/ai-models/strategy/validate-code",
             headers=auth_headers,
-            json={"code": "", "language": "python"}
+            json={"code": "", "language": "python"},
         )
 
         assert response.status_code == 422
@@ -512,10 +470,7 @@ class TestStrategyAPIEdgeCases:
         response = client.post(
             "/api/ai-models/strategy/validate-code",
             headers=auth_headers,
-            json={
-                "code": "function test() { return 1; }",
-                "language": "javascript"
-            }
+            json={"code": "function test() { return 1; }", "language": "javascript"},
         )
 
         assert response.status_code == 200

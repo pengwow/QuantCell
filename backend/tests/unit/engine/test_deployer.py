@@ -1,12 +1,12 @@
 """StrategyDeployer 测试。"""
-import pytest
-import tempfile
-import os
+
 from unittest.mock import MagicMock, patch
 
-from engine.deployer import StrategyDeployer, WorkerHandle
-from credentials.service import CredentialsService
+import pytest
+
 from credentials.exceptions import AccountNotFoundError
+from credentials.service import CredentialsService
+from engine.deployer import StrategyDeployer, WorkerHandle
 
 
 @pytest.fixture

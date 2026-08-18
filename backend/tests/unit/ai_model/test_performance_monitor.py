@@ -13,7 +13,6 @@ import os
 import sys
 import tempfile
 import threading
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -88,6 +87,7 @@ class TestPerformanceMonitorRecording:
         self.monitor.clear_data()
         if os.path.exists(self.temp_dir):
             import shutil
+
             shutil.rmtree(self.temp_dir)
 
     def test_record_successful_request(self):
@@ -187,6 +187,7 @@ class TestPerformanceMonitorStats:
         self.monitor.clear_data()
         if os.path.exists(self.temp_dir):
             import shutil
+
             shutil.rmtree(self.temp_dir)
 
     def _add_test_data(self):
@@ -309,6 +310,7 @@ class TestPerformanceMonitorAlerts:
         self.monitor.clear_data()
         if os.path.exists(self.temp_dir):
             import shutil
+
             shutil.rmtree(self.temp_dir)
 
     def test_check_alerts_high_latency(self):
@@ -392,6 +394,7 @@ class TestPerformanceMonitorPersistence:
 
         if os.path.exists(self.temp_dir):
             import shutil
+
             shutil.rmtree(self.temp_dir)
 
     def test_data_persistence(self):
@@ -414,7 +417,7 @@ class TestPerformanceMonitorPersistence:
         assert data_file.exists()
 
         # 读取并验证数据
-        with open(data_file, "r", encoding="utf-8") as f:
+        with open(data_file, encoding="utf-8") as f:
             data = json.load(f)
 
         assert len(data) == 1
@@ -499,10 +502,12 @@ class TestPerformanceMonitorThreadSafety:
         self.monitor.clear_data()
         if os.path.exists(self.temp_dir):
             import shutil
+
             shutil.rmtree(self.temp_dir)
 
     def test_concurrent_record_request(self):
         """测试并发记录请求"""
+
         def record_requests(model_id, count):
             for i in range(count):
                 self.monitor.record_request(

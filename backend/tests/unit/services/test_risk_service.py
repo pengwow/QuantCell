@@ -1,11 +1,13 @@
 def test_risk_service_creation():
     from services.risk_service import RiskService
+
     svc = RiskService()
     assert svc is not None
 
 
 def test_risk_service_check_order():
     from services.risk_service import RiskService
+
     svc = RiskService({"max_order_value": 100000.0})
 
     result = svc.check_order(
@@ -17,6 +19,7 @@ def test_risk_service_check_order():
 
 def test_risk_service_rejects_oversized_order():
     from services.risk_service import RiskService
+
     svc = RiskService({"max_order_value": 10000.0})
 
     result = svc.check_order(

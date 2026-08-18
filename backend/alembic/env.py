@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,10 +25,8 @@ from collector.db.database import Base, init_database_config
 init_database_config()
 
 # 初始化后再导入engine，确保engine已被正确创建
-from collector.db.database import engine
-
 # 导入所有模型，确保它们被注册到Base.metadata中
-from collector.db import models
+from collector.db.database import engine
 
 # 设置target_metadata
 target_metadata = Base.metadata
@@ -52,6 +50,7 @@ def run_migrations_offline() -> None:
 
     """
     from collector.db.database import db_url
+
     context.configure(
         url=db_url,
         target_metadata=target_metadata,
@@ -74,9 +73,7 @@ def run_migrations_online() -> None:
     connectable = engine
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

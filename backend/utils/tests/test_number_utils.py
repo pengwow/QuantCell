@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Number Utilities Unit Tests
 
@@ -10,10 +9,16 @@ Tests for the number_utils module functions.
 """
 
 from decimal import Decimal
-import pytest
 from unittest.mock import patch
 
-from backend.utils.number_utils import safe_float, safe_int, safe_decimal, parse_percentage
+import pytest
+
+from backend.utils.number_utils import (
+    parse_percentage,
+    safe_decimal,
+    safe_float,
+    safe_int,
+)
 
 
 class TestSafeFloat:
@@ -46,7 +51,7 @@ class TestSafeFloat:
     def test_decimal(self):
         """Test converting Decimal"""
         assert safe_float(Decimal("1000.50")) == 1000.5
-        assert safe_float(Decimal("0")) == 0.0
+        assert safe_float(Decimal(0)) == 0.0
         assert safe_float(Decimal("-100.5")) == -100.5
 
     def test_none(self):
@@ -61,14 +66,14 @@ class TestSafeFloat:
 
     def test_invalid_string(self):
         """Test converting invalid string"""
-        with patch('backend.utils.number_utils.logger') as mock_logger:
+        with patch("backend.utils.number_utils.logger") as mock_logger:
             result = safe_float("abc", field_name="price")
             assert result == 0.0
             mock_logger.warning.assert_called_once_with("无法转换 price 数值: abc")
 
     def test_invalid_string_no_field_name(self):
         """Test converting invalid string without field name"""
-        with patch('backend.utils.number_utils.logger') as mock_logger:
+        with patch("backend.utils.number_utils.logger") as mock_logger:
             result = safe_float("abc")
             assert result == 0.0
             mock_logger.warning.assert_not_called()
@@ -105,7 +110,7 @@ class TestSafeInt:
 
     def test_decimal(self):
         """Test converting Decimal"""
-        assert safe_int(Decimal("1000")) == 1000
+        assert safe_int(Decimal(1000)) == 1000
         assert safe_int(Decimal("1000.9")) == 1000
 
     def test_none(self):
@@ -115,7 +120,7 @@ class TestSafeInt:
 
     def test_invalid_string(self):
         """Test converting invalid string"""
-        with patch('backend.utils.number_utils.logger') as mock_logger:
+        with patch("backend.utils.number_utils.logger") as mock_logger:
             result = safe_int("abc", field_name="count")
             assert result == 0
             mock_logger.warning.assert_called_once_with("无法转换 count 数值: abc")
@@ -131,8 +136,8 @@ class TestSafeDecimal:
 
     def test_integer(self):
         """Test converting integer"""
-        assert safe_decimal(1000) == Decimal("1000")
-        assert safe_decimal(0) == Decimal("0")
+        assert safe_decimal(1000) == Decimal(1000)
+        assert safe_decimal(0) == Decimal(0)
 
     def test_float(self):
         """Test converting float"""
@@ -149,11 +154,11 @@ class TestSafeDecimal:
     def test_none(self):
         """Test converting None"""
         assert safe_decimal(None) == Decimal(0)
-        assert safe_decimal(None, default=Decimal("-1")) == Decimal("-1")
+        assert safe_decimal(None, default=Decimal(-1)) == Decimal(-1)
 
     def test_invalid_string(self):
         """Test converting invalid string"""
-        with patch('backend.utils.number_utils.logger') as mock_logger:
+        with patch("backend.utils.number_utils.logger") as mock_logger:
             result = safe_decimal("abc", field_name="amount")
             assert result == Decimal(0)
             mock_logger.warning.assert_called_once_with("无法转换 amount 数值: abc")

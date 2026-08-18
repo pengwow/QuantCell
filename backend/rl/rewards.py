@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """自定义奖励函数
 
 所有奖励函数签名统一：
@@ -55,10 +54,7 @@ def risk_adjusted_reward(
     pnl = current_portfolio - initial
 
     # 对数收益率（更稳定）
-    if current_portfolio > 0 and initial > 0:
-        reward = np.log(current_portfolio / initial) * 100
-    else:
-        reward = -10.0
+    reward = np.log(current_portfolio / initial) * 100 if current_portfolio > 0 and initial > 0 else -10.0
 
     # 回撤惩罚（基于 PnL 负值）
     if pnl < 0:

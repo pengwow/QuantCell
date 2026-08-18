@@ -8,18 +8,24 @@ axon_quant 内部用 tokio::block_on 转同步,会阻塞 Python 主线程。
 注意: 这是装饰器,被包装的方法在调用时会自动变成 async 协程。
 调用方需用 `await obj.method(...)` 而非 `obj.method(...)`。
 """
+
 import asyncio
 import functools
-from typing import Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 T = TypeVar("T")
 
 
-def async_wrap(fn: Callable[..., T]) -> Callable[..., "asyncio.Future[T]"]:
+def async_wrap[T](fn: Callable[..., T]) -> Callable[..., asyncio.Future[T]]:
     """把 axon_quant 同步阻塞方法包成 asyncio 协程。"""
+
     @functools.wraps(fn)
     async def wrapper(*args: Any, **kwargs: Any) -> T:
         return await asyncio.to_thread(fn, *args, **kwargs)
+
     return wrapper
 
 

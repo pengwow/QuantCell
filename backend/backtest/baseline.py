@@ -7,27 +7,27 @@ ponytail: 0.10.0 起完全走 axon_quant 事件驱动回测 (BacktestEngine + �
          之后按 ts 排序执行,无需 ts+1 偏移;但仍需每 bar step() drain,否则事件跨 bar
          堆积会读错 position
 """
+
 from __future__ import annotations
 
 import csv
 import json
 import logging
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 import numpy as np
 import pandas as pd
 
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
-from strategy.loader import StrategyLoader
 from axon_bridge import (
     BacktestEngine,
     spot_instrument,
     swap_instrument,
 )
-from axon_bridge.backtest import PushFundingHelper
+from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
+from strategy.loader import StrategyLoader
 from utils import get_source_data_dir
 
 _DEFAULT_OUTPUT_DIR = get_source_data_dir() / "backtest_baselines"
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 def _now_iso() -> str:
     """纳秒精度 ISO 8601 时间戳,符合项目硬约束。"""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     micro = now.microsecond * 1000
     return now.strftime("%Y-%m-%dT%H:%M:%S") + f".{micro:09d}+00:00"
 
@@ -91,8 +91,8 @@ class BaselineReport:
     win_rate: float
     total_trades: int
     total_funding_pnl: float = 0.0
-    total_fees: float = 0.0          # 0.10.0: 引擎层统计总手续费
-    max_drawdown_pct: float = 0.0    # 0.10.0: 最大回撤百分比
+    total_fees: float = 0.0  # 0.10.0: 引擎层统计总手续费
+    max_drawdown_pct: float = 0.0  # 0.10.0: 最大回撤百分比
     report_id: str = ""
     generated_at: str = ""
 
@@ -167,9 +167,7 @@ class BaselineBacktestService:
         self._funding_history = history
         return self._funding_history
 
-    def _compute_funding_periods(
-        self, funding_history: dict[int, float]
-    ) -> list[tuple[int, int, float]]:
+    def _compute_funding_periods(self, funding_history: dict[int, float]) -> list[tuple[int, int, float]]:
         """把 funding_history dict 展开为 (start_ms, end_ms, rate) periods。
 
         每个 period 表示 funding 在 [funding_time - window, funding_time] 期间
@@ -195,7 +193,7 @@ class BaselineBacktestService:
         if "timestamp" in row.index and not isinstance(row["timestamp"], (int, float)):
             try:
                 return int(pd.Timestamp(row["timestamp"]).timestamp() * 1000)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
         idx_name = row.name
         if isinstance(idx_name, pd.Timestamp):
@@ -229,7 +227,8 @@ class BaselineBacktestService:
         """
         df = self._load_kline()
         if df is None or df.empty:
-            raise ValueError(f"K 线数据为空: {self.symbol} {self.interval} {self.start}~{self.end}")
+            msg = f"K 线数据为空: {self.symbol} {self.interval} {self.start}~{self.end}"
+            raise ValueError(msg)
 
         # 1) 解析 instrument (spot + perp / 单 perp)
         base, quote = self._parse_symbol(self.symbol)
@@ -405,7 +404,7 @@ class BaselineBacktestService:
                 return 0.0
             # 1h bar, periods_per_year = 24 * 365 = 8760
             return float(log_ret.mean() / log_ret.std() * np.sqrt(8760))
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return 0.0
 
     @staticmethod
@@ -415,8 +414,7 @@ class BaselineBacktestService:
         ponytail: 简单规则, 不覆盖所有 symbol 格式; 错误回退到 'BTC'/'USDT'。
         """
         s = symbol.upper().replace("-", "").replace("_", "")
-        if s.endswith("PERP"):
-            s = s[:-4]
+        s = s.removesuffix("PERP")
         # 已知 quote 列表
         for q in ("USDT", "USDC", "USD", "BTC", "ETH"):
             if s.endswith(q) and len(s) > len(q):

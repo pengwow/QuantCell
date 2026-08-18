@@ -1,9 +1,10 @@
 """
 测试 state.py 中的模块级单例
 """
+
+from unittest.mock import AsyncMock
+
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestConnectionManager:
@@ -12,8 +13,9 @@ class TestConnectionManager:
     def test_singleton_instance(self):
         """验证模块级单例存在"""
         from worker.state import connection_manager
+
         assert connection_manager is not None
-        assert hasattr(connection_manager, 'active_connections')
+        assert hasattr(connection_manager, "active_connections")
         assert connection_manager.connection_count == 0
 
     @pytest.mark.asyncio
@@ -83,11 +85,12 @@ class TestStrategyRegistry:
     def test_singleton_instance(self):
         """验证注册表单例存在"""
         from worker.state import strategy_registry
+
         assert strategy_registry is not None
 
     def test_register_and_get(self):
         """测试注册和查询策略"""
-        from worker.state import strategy_registry, StrategyRuntime
+        from worker.state import StrategyRuntime, strategy_registry
 
         runtime = StrategyRuntime(
             worker_id=1,
@@ -107,7 +110,7 @@ class TestStrategyRegistry:
 
     def test_unregister(self):
         """测试注销策略"""
-        from worker.state import strategy_registry, StrategyRuntime
+        from worker.state import StrategyRuntime, strategy_registry
 
         runtime = StrategyRuntime(worker_id=2, strategy_id=200, name="temp")
         strategy_registry.register(runtime)
@@ -122,7 +125,7 @@ class TestStrategyRegistry:
 
     def test_list_all(self):
         """测试列出所有策略"""
-        from worker.state import strategy_registry, StrategyRuntime
+        from worker.state import StrategyRuntime, strategy_registry
 
         r1 = StrategyRuntime(worker_id=10, strategy_id=1000, name="s1")
         r2 = StrategyRuntime(worker_id=20, strategy_id=2000, name="s2")
@@ -138,7 +141,7 @@ class TestStrategyRegistry:
 
     def test_update_status(self):
         """测试状态更新"""
-        from worker.state import strategy_registry, StrategyRuntime
+        from worker.state import StrategyRuntime, strategy_registry
 
         runtime = StrategyRuntime(worker_id=5, strategy_id=500, name="s5")
         strategy_registry.register(runtime)
@@ -155,14 +158,16 @@ class TestStrategyRegistry:
     def test_update_nonexistent(self):
         """测试更新不存在的策略"""
         from worker.state import strategy_registry
+
         result = strategy_registry.update_status(999, "running")
         assert result is None
 
     def test_on_change_callback(self):
         """测试状态变更回调"""
-        from worker.state import strategy_registry, StrategyRuntime
+        from worker.state import StrategyRuntime, strategy_registry
 
         callback_calls = []
+
         def callback(worker_id, old_status, new_status, error_msg):
             callback_calls.append((worker_id, old_status, new_status, error_msg))
 
@@ -187,6 +192,7 @@ class TestStrategyRuntime:
     def test_to_dict(self):
         """测试转换为字典"""
         from worker.state import StrategyRuntime
+
         runtime = StrategyRuntime(worker_id=1, strategy_id=10, name="test")
         d = runtime.to_dict()
         assert d["worker_id"] == 1
@@ -198,5 +204,6 @@ class TestStrategyRuntime:
     def test_is_running_false_when_no_task(self):
         """测试无任务时 is_running 为 False"""
         from worker.state import StrategyRuntime
+
         runtime = StrategyRuntime(worker_id=1, strategy_id=10, name="test", status="running")
         assert not runtime.is_running

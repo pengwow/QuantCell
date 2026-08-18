@@ -1,7 +1,8 @@
+import contextlib
 import json
 import threading
 import time
-from typing import Dict, Optional
+from typing import TYPE_CHECKING
 
 import typer
 import uvicorn
@@ -9,9 +10,11 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from plugins.event_bus import EventBus
-from plugins.plugin_base import PluginBase
 from plugins.plugin_loader import HotPluginLoader
 from utils.logger import LogType, get_logger
+
+if TYPE_CHECKING:
+    from plugins.plugin_base import PluginBase
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -19,17 +22,16 @@ cli_app = typer.Typer(name="plugin-dev", help="插件独立启动/调试工具",
 
 
 class MockPluginManager:
-
     def __init__(self):
-        self.plugins: Dict[str, PluginBase] = {}
-        self.plugin_configs: Dict[str, dict] = {}
+        self.plugins: dict[str, PluginBase] = {}
+        self.plugin_configs: dict[str, dict] = {}
         self._event_bus = EventBus()
 
     @property
     def event_bus(self) -> EventBus:
         return self._event_bus
 
-    def get_plugin(self, name: str) -> Optional[PluginBase]:
+    def get_plugin(self, name: str) -> PluginBase | None:
         return self.plugins.get(name)
 
     def register_plugin_config(self, name: str, config: dict) -> None:
@@ -57,21 +59,21 @@ def _build_app(plugin_dir: str, host: str, port: int, enable_reload: bool) -> Fa
     mock_manager = MockPluginManager()
     loader = HotPluginLoader()
 
-    loaded_plugin: Dict[str, Optional[PluginBase]] = {"current": None}
-    manifest_mtime: Dict[str, float] = {"value": 0.0}
-    entry_mtime: Dict[str, float] = {"value": 0.0}
+    loaded_plugin: dict[str, PluginBase | None] = {"current": None}
+    manifest_mtime: dict[str, float] = {"value": 0.0}
+    entry_mtime: dict[str, float] = {"value": 0.0}
 
-    def _get_manifest_and_entry() -> Optional[tuple]:
+    def _get_manifest_and_entry() -> tuple | None:
         manifest_path = os.path.join(plugin_dir, "manifest.json")
         if not os.path.exists(manifest_path):
             return None
-        with open(manifest_path, "r", encoding="utf-8") as f:
+        with open(manifest_path, encoding="utf-8") as f:
             manifest = json.load(f)
         main_file = manifest.get("main", "plugin.py")
         entry_path = os.path.join(plugin_dir, main_file)
         return manifest_path, entry_path
 
-    def _do_load() -> Optional[PluginBase]:
+    def _do_load() -> PluginBase | None:
         plugin_sub_app = FastAPI()
         plugin = loader.load_plugin(plugin_dir, plugin_sub_app)
         if plugin is not None:
@@ -84,13 +86,11 @@ def _build_app(plugin_dir: str, host: str, port: int, enable_reload: bool) -> Fa
             logger.error(f"插件加载失败: {plugin_dir}")
         return plugin
 
-    def _do_reload() -> Optional[PluginBase]:
+    def _do_reload() -> PluginBase | None:
         current = loaded_plugin.get("current")
         if current is not None:
-            try:
+            with contextlib.suppress(Exception):
                 current.stop()
-            except Exception:
-                pass
             mock_manager.plugins.pop(current.name, None)
 
         loaded_plugin["current"] = None
@@ -171,7 +171,7 @@ def run(
         typer.echo(f"manifest.json 不存在: {manifest_path}")
         raise typer.Exit(code=1)
 
-    typer.echo(f"启动插件开发服务器...")
+    typer.echo("启动插件开发服务器...")
     typer.echo(f"  插件目录: {plugin_path}")
     typer.echo(f"  监听地址: {host}:{port}")
     typer.echo(f"  自动重载: {'启用' if reload else '禁用'}")

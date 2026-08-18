@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """自定义 Gymnasium 交易环境
 
 观测空间：价格 + 成交量 + 技术指标（SMA/EMA/RSI/MACD/ATR/Bollinger）
@@ -9,11 +8,13 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING
 
 import gymnasium as gym
 import numpy as np
-import pandas as pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class TradingEnv(gym.Env):
@@ -54,9 +55,7 @@ class TradingEnv(gym.Env):
 
         # 观测空间：[price_norm, volume_norm, sma_fast, sma_slow, ema, rsi, macd, bb_upper, bb_lower, atr, position]
         n_features = self._features.shape[1]
-        self.observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(n_features,), dtype=np.float32
-        )
+        self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(n_features,), dtype=np.float32)
 
         # 状态
         self._step = 0
@@ -137,7 +136,7 @@ class TradingEnv(gym.Env):
         result = np.column_stack(features).astype(np.float32)
 
         # 填充前 window_size 个 NaN
-        result[:self._window] = 0
+        result[: self._window] = 0
 
         return result
 
@@ -165,7 +164,7 @@ class TradingEnv(gym.Env):
         result = np.full_like(data, 50.0)
         deltas = np.diff(data)
         for i in range(period, len(data)):
-            gains = deltas[i - period:i]
+            gains = deltas[i - period : i]
             up = np.mean(gains[gains > 0]) if np.any(gains > 0) else 0
             down = -np.mean(gains[gains < 0]) if np.any(gains < 0) else 0
             if down > 0:
@@ -217,7 +216,11 @@ class TradingEnv(gym.Env):
         tr = np.zeros_like(close)
         tr[0] = high[0] - low[0]
         for i in range(1, len(close)):
-            tr[i] = max(high[i] - low[i], abs(high[i] - close[i - 1]), abs(low[i] - close[i - 1]))
+            tr[i] = max(
+                high[i] - low[i],
+                abs(high[i] - close[i - 1]),
+                abs(low[i] - close[i - 1]),
+            )
         return TradingEnv._sma(tr, period)
 
     def reset(self, seed=None, options=None):

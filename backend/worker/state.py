@@ -14,11 +14,15 @@ Worker 模块全局单例状态枢纽
 import asyncio
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any, Callable
-from fastapi import WebSocket
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from fastapi import WebSocket
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -26,6 +30,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # =============================================================================
 # ConnectionManager — WebSocket 连接管理与消息广播
 # =============================================================================
+
 
 class ConnectionManager:
     """
@@ -36,7 +41,7 @@ class ConnectionManager:
     """
 
     def __init__(self) -> None:
-        self.active_connections: List[WebSocket] = []
+        self.active_connections: list[WebSocket] = []
 
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
@@ -68,6 +73,7 @@ class ConnectionManager:
 # StrategyRuntime — 策略运行时状态
 # =============================================================================
 
+
 @dataclass
 class StrategyRuntime:
     """
@@ -76,11 +82,12 @@ class StrategyRuntime:
     记录单个策略在进程内的完整运行时状态，
     包括配置、策略执行引擎实例、异步任务引用等。
     """
+
     worker_id: int
     strategy_id: int
     name: str
     status: str = "stopped"
-    
+
     # 从 TradingEngine.StrategyRuntime 补充的字段
     strategy: Any = None
     symbols: list[str] = field(default_factory=list)
@@ -90,20 +97,20 @@ class StrategyRuntime:
     fill_count: int = 0
     rejected_count: int = 0
     last_price: float = 0.0
-    last_action: Optional[str] = None
+    last_action: str | None = None
     realized_pnl: float = 0.0
-    
-    # 原有字段
-    trading_node: Optional[Any] = None
-    _run_task: Optional[asyncio.Task] = None
-    _run_thread: Optional[threading.Thread] = None
-    _flush_stop: Optional[threading.Event] = None
-    _pid: Optional[int] = None
-    error_message: Optional[str] = None
-    started_at: Optional[str] = None
-    stopped_at: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    # 原有字段
+    trading_node: Any | None = None
+    _run_task: asyncio.Task | None = None
+    _run_thread: threading.Thread | None = None
+    _flush_stop: threading.Event | None = None
+    _pid: int | None = None
+    error_message: str | None = None
+    started_at: str | None = None
+    stopped_at: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "worker_id": self.worker_id,
             "strategy_id": self.strategy_id,
@@ -136,14 +143,13 @@ class StrategyRuntime:
             return False
         if self._run_task is not None and not self._run_task.done():
             return True
-        if self._run_thread is not None and self._run_thread.is_alive():
-            return True
-        return False
+        return bool(self._run_thread is not None and self._run_thread.is_alive())
 
 
 # =============================================================================
 # StrategyRegistry — 策略注册表
 # =============================================================================
+
 
 class StrategyRegistry:
     """
@@ -159,8 +165,8 @@ class StrategyRegistry:
     """
 
     def __init__(self):
-        self._strategies: Dict[int, StrategyRuntime] = {}
-        self._change_callbacks: List[Callable] = []
+        self._strategies: dict[int, StrategyRuntime] = {}
+        self._change_callbacks: list[Callable] = []
         self._lock = threading.Lock()  # 保护 _strategies 的并发访问
 
     def register(self, runtime: StrategyRuntime) -> None:
@@ -168,18 +174,18 @@ class StrategyRegistry:
             self._strategies[runtime.worker_id] = runtime
         logger.info(f"[StrategyRegistry] 注册策略: worker_id={runtime.worker_id}, name={runtime.name}")
 
-    def unregister(self, worker_id: int) -> Optional[StrategyRuntime]:
+    def unregister(self, worker_id: int) -> StrategyRuntime | None:
         with self._lock:
             runtime = self._strategies.pop(worker_id, None)
         if runtime:
             logger.info(f"[StrategyRegistry] 注销策略: worker_id={worker_id}")
         return runtime
 
-    def get(self, worker_id: int) -> Optional[StrategyRuntime]:
+    def get(self, worker_id: int) -> StrategyRuntime | None:
         with self._lock:
             return self._strategies.get(worker_id)
 
-    def list_all(self) -> List[StrategyRuntime]:
+    def list_all(self) -> list[StrategyRuntime]:
         with self._lock:
             return list(self._strategies.values())
 
@@ -187,8 +193,8 @@ class StrategyRegistry:
         self,
         worker_id: int,
         status: str,
-        error_message: Optional[str] = None,
-    ) -> Optional[StrategyRuntime]:
+        error_message: str | None = None,
+    ) -> StrategyRuntime | None:
         with self._lock:
             runtime = self._strategies.get(worker_id)
             if runtime is None:
@@ -199,15 +205,12 @@ class StrategyRegistry:
             if error_message is not None:
                 runtime.error_message = error_message
 
-        logger.info(
-            f"[StrategyRegistry] 状态变更: worker_id={worker_id}, "
-            f"{old_status} -> {status}"
-        )
+        logger.info(f"[StrategyRegistry] 状态变更: worker_id={worker_id}, {old_status} -> {status}")
 
         self._notify_change(worker_id, old_status, status, error_message)
         return runtime
 
-    def set_run_task(self, worker_id: int, task: Optional[asyncio.Task]) -> None:
+    def set_run_task(self, worker_id: int, task: asyncio.Task | None) -> None:
         with self._lock:
             runtime = self._strategies.get(worker_id)
             if runtime:
@@ -219,19 +222,19 @@ class StrategyRegistry:
             if runtime:
                 runtime.trading_node = trading_node
 
-    def set_run_thread(self, worker_id: int, thread: Optional[threading.Thread]) -> None:
+    def set_run_thread(self, worker_id: int, thread: threading.Thread | None) -> None:
         with self._lock:
             runtime = self._strategies.get(worker_id)
             if runtime:
                 runtime._run_thread = thread
 
-    def set_flush_stop(self, worker_id: int, event: Optional[threading.Event]) -> None:
+    def set_flush_stop(self, worker_id: int, event: threading.Event | None) -> None:
         with self._lock:
             runtime = self._strategies.get(worker_id)
             if runtime:
                 runtime._flush_stop = event
 
-    def get_flush_stop(self, worker_id: int) -> Optional[threading.Event]:
+    def get_flush_stop(self, worker_id: int) -> threading.Event | None:
         with self._lock:
             runtime = self._strategies.get(worker_id)
             if runtime:
@@ -247,7 +250,7 @@ class StrategyRegistry:
         worker_id: int,
         old_status: str,
         new_status: str,
-        error_message: Optional[str],
+        error_message: str | None,
     ) -> None:
         for callback in self._change_callbacks:
             try:
@@ -260,6 +263,7 @@ class StrategyRegistry:
 # LiveTradingManager — 实盘交易管理器
 # =============================================================================
 
+
 class LiveTradingManager:
     """
     实盘交易管理器，管理交易所连接、下单、撤单、持仓同步等实盘操作。
@@ -267,13 +271,13 @@ class LiveTradingManager:
     """
 
     def __init__(self):
-        self._connected_workers: Dict[int, Dict[str, Any]] = {}
+        self._connected_workers: dict[int, dict[str, Any]] = {}
 
     @property
     def is_connected(self) -> bool:
         return len(self._connected_workers) > 0
 
-    async def connect(self, worker_id: int, exchange: str, config: Optional[Dict[str, Any]] = None) -> bool:
+    async def connect(self, worker_id: int, exchange: str, config: dict[str, Any] | None = None) -> bool:
         self._connected_workers[worker_id] = {
             "exchange": exchange,
             "config": config or {},
@@ -281,7 +285,7 @@ class LiveTradingManager:
         logger.info(f"[LiveTradingManager] Worker {worker_id} 已连接交易所: {exchange}")
         return True
 
-    async def disconnect(self, worker_id: Optional[int] = None) -> None:
+    async def disconnect(self, worker_id: int | None = None) -> None:
         if worker_id is not None:
             if worker_id in self._connected_workers:
                 exchange = self._connected_workers[worker_id].get("exchange", "unknown")
@@ -293,7 +297,7 @@ class LiveTradingManager:
             self._connected_workers.clear()
             logger.info("[LiveTradingManager] 已断开所有交易所连接")
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         workers_status = {}
         for wid, info in self._connected_workers.items():
             workers_status[wid] = {
@@ -306,7 +310,7 @@ class LiveTradingManager:
             "workers": workers_status,
         }
 
-    def register_worker(self, worker_id: int, exchange: str, config: Optional[Dict[str, Any]] = None) -> None:
+    def register_worker(self, worker_id: int, exchange: str, config: dict[str, Any] | None = None) -> None:
         """注册一个 worker 的交易所配置（不立即连接）。"""
         if worker_id not in self._connected_workers:
             self._connected_workers[worker_id] = {
@@ -337,21 +341,22 @@ strategy_registry = StrategyRegistry()
 live_manager = LiveTradingManager()
 
 # trading_system 延迟导入（避免循环依赖，由 trading 系统模块提供）
-trading_system: Optional[Any] = None
+trading_system: Any | None = None
 
 # strategy_manager 延迟注册（由 strategy_manager 模块在运行时赋值）
-strategy_manager: Optional[Any] = None
+strategy_manager: Any | None = None
 
 
 # =============================================================================
 # WebSocket 广播集成 — 策略状态变更时自动广播到所有连接的客户端
 # =============================================================================
 
+
 def _broadcast_state_change(
     worker_id: int,
     old_status: str,
     new_status: str,
-    error_message: Optional[str],
+    error_message: str | None,
 ) -> None:
     """策略状态变更时通过 WebSocket 广播消息到所有客户端"""
     message = {
@@ -360,7 +365,7 @@ def _broadcast_state_change(
         "old_status": old_status,
         "new_status": new_status,
         "error_message": error_message,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     try:
         loop = asyncio.get_running_loop()

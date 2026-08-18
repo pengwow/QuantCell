@@ -1,9 +1,9 @@
 """会话管理测试 - Session 和 SessionManager"""
 
 import json
+from datetime import datetime
+
 import pytest
-from datetime import datetime, timedelta
-from pathlib import Path
 
 from agent.session.manager import Session, SessionManager
 
@@ -14,7 +14,7 @@ class TestSession:
     def test_session_creation(self):
         """测试会话创建"""
         session = Session(key="test-session")
-        
+
         assert session.key == "test-session"
         assert session.messages == []
         assert isinstance(session.created_at, datetime)
@@ -28,7 +28,7 @@ class TestSession:
             {"role": "assistant", "content": "Hi there!"},
         ]
         session = Session(key="test", messages=messages)
-        
+
         assert len(session.messages) == 2
         assert session.messages[0]["role"] == "user"
         assert session.messages[1]["role"] == "assistant"
@@ -41,7 +41,7 @@ class TestSession:
             {"role": "assistant", "content": "Response"},
         ]
         session.last_consolidated = 1
-        
+
         # 序列化
         data = session.to_dict()
         assert data["key"] == "test-serial"
@@ -49,7 +49,7 @@ class TestSession:
         assert data["last_consolidated"] == 1
         assert "created_at" in data
         assert "updated_at" in data
-        
+
         # 反序列化
         restored = Session.from_dict(data)
         assert restored.key == session.key
@@ -59,15 +59,17 @@ class TestSession:
     def test_session_history(self):
         """测试历史消息获取"""
         session = Session(key="test-history")
-        
+
         # 添加多条消息
         for i in range(20):
             role = "user" if i % 2 == 0 else "assistant"
-            session.messages.append({
-                "role": role,
-                "content": f"Message {i}",
-            })
-        
+            session.messages.append(
+                {
+                    "role": role,
+                    "content": f"Message {i}",
+                }
+            )
+
         # 测试限制数量
         history = session.get_history(max_messages=5)
         assert len(history) == 5
@@ -85,9 +87,9 @@ class TestSession:
             {"role": "user", "content": "What is 2+2?"},
             {"role": "assistant", "content": "4"},
         ]
-        
+
         history = session.get_history(max_messages=100)
-        
+
         # 应该过滤掉 "test" 和 "hi"，保留其他消息
         assert len(history) == 4
         assert history[0]["content"] == "Hello!"
@@ -100,9 +102,9 @@ class TestSession:
         session = Session(key="test-clear")
         session.messages = [{"role": "user", "content": "Test"}]
         session.last_consolidated = 5
-        
+
         session.clear()
-        
+
         assert session.messages == []
         assert session.last_consolidated == 0
         assert isinstance(session.updated_at, datetime)
@@ -122,7 +124,7 @@ class TestSessionManager:
     def test_get_or_create_new(self, manager):
         """测试获取或创建新会话"""
         session = manager.get_or_create("new-session")
-        
+
         assert session.key == "new-session"
         assert session.messages == []
 
@@ -139,10 +141,10 @@ class TestSessionManager:
         session_file = temp_workspace / "sessions" / "existing-session.json"
         session_file.parent.mkdir(parents=True, exist_ok=True)
         session_file.write_text(json.dumps(session_data), encoding="utf-8")
-        
+
         # 获取会话
         session = manager.get_or_create("existing-session")
-        
+
         assert session.key == "existing-session"
         assert len(session.messages) == 1
         assert session.messages[0]["content"] == "Hello"
@@ -151,20 +153,20 @@ class TestSessionManager:
         """测试会话缓存"""
         session1 = manager.get_or_create("cached-session")
         session2 = manager.get_or_create("cached-session")
-        
+
         assert session1 is session2
 
     def test_save_session(self, manager, temp_workspace):
         """测试保存会话"""
         session = manager.get_or_create("save-test")
         session.messages = [{"role": "user", "content": "Save me"}]
-        
+
         manager.save(session)
-        
+
         # 验证文件已创建
         session_file = temp_workspace / "sessions" / "save-test.json"
         assert session_file.exists()
-        
+
         # 验证内容
         data = json.loads(session_file.read_text(encoding="utf-8"))
         assert data["key"] == "save-test"
@@ -174,7 +176,7 @@ class TestSessionManager:
         """测试使会话缓存失效"""
         session = manager.get_or_create("invalidate-test")
         manager.invalidate("invalidate-test")
-        
+
         # 重新获取应该创建新实例
         session2 = manager.get_or_create("invalidate-test")
         assert session is not session2
@@ -184,21 +186,21 @@ class TestSessionManager:
         # 创建并保存会话
         session = manager.get_or_create("delete-test")
         manager.save(session)
-        
+
         # 验证文件存在
         session_file = temp_workspace / "sessions" / "delete-test.json"
         assert session_file.exists()
-        
+
         # 删除会话
         result = manager.delete("delete-test")
-        
+
         assert result is True
         assert not session_file.exists()
 
     def test_create_session(self, manager):
         """测试创建会话（带名称）"""
         result = manager.create_session("My Session")
-        
+
         assert "id" in result
         assert result["name"] == "My Session"
         assert "created_at" in result
@@ -209,9 +211,9 @@ class TestSessionManager:
         session = manager.get_or_create("info-test")
         session.messages = [{"role": "user", "content": "Test"}]
         manager.save(session)
-        
+
         info = manager.get_session_info("info-test")
-        
+
         assert info is not None
         assert info["id"] == "info-test"
         assert info["message_count"] == 1
@@ -222,9 +224,9 @@ class TestSessionManager:
         for i in range(10):
             session.messages.append({"role": "user", "content": f"Message {i}"})
         manager.save(session)
-        
+
         result = manager.get_history("history-test", limit=5)
-        
+
         assert result["session_id"] == "history-test"
         assert len(result["history"]) == 5
         assert result["total_messages"] == 10
@@ -234,9 +236,9 @@ class TestSessionManager:
         session = manager.get_or_create("clear-test")
         session.messages = [{"role": "user", "content": "To be cleared"}]
         manager.save(session)
-        
+
         result = manager.clear_session("clear-test")
-        
+
         assert result is True
         session = manager.get_or_create("clear-test")
         assert len(session.messages) == 0
@@ -248,9 +250,9 @@ class TestSessionManager:
             session = manager.get_or_create(f"session-{i}")
             session.messages = [{"role": "user", "content": f"Message {i}"}]
             manager.save(session)
-        
+
         sessions = manager.list_sessions()
-        
+
         assert len(sessions) >= 3
         session_keys = [s["key"] for s in sessions]
         assert "session-0" in session_keys
@@ -262,7 +264,7 @@ class TestSessionManager:
         # 使用包含特殊字符的key
         session = manager.get_or_create("test/special:chars")
         manager.save(session)
-        
+
         # 验证文件名是安全的
         session_file = temp_workspace / "sessions" / "test_special_chars.json"
         assert session_file.exists()

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Worker 分享系统 路由
 
@@ -18,12 +17,12 @@ Worker 分享系统 路由
 - 公开只读页已下线，分享功能完全走 quantcell.top 远端分发
 - 本地不再提供 GET /api/share/{token}
 """
+
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
 from worker.dependencies import get_current_user, get_db_session
 from worker.models import Worker
@@ -44,6 +43,8 @@ from .schemas import (
 )
 from .service import build_snapshot, serialize_for_remote
 
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ router = APIRouter(prefix="/api", tags=["share"])
 # ============================================================
 # 受保护端点
 # ============================================================
+
 
 @router.post(
     "/workers/{worker_id}/share",
@@ -103,10 +105,10 @@ def create_share(
         )
 
     # 4. 远端上传(失败 → 502,token 仍落库以便重试)
-    short_url: Optional[str] = None
+    short_url: str | None = None
     remote_status = "PENDING"
-    remote_warning: Optional[str] = None
-    upload_failed: Optional[Exception] = None
+    remote_warning: str | None = None
+    upload_failed: Exception | None = None
 
     remote_cfg = get_remote_config()
     if remote_cfg.is_ready:
@@ -136,7 +138,7 @@ def create_share(
             remote_warning = f"远端上传失败:{str(e)[:200]}"
             upload_failed = e
             logger.warning("share 上传远端失败 id=%s err=%s", share.id, e)
-        except Exception as e:  # noqa: BLE001  兜底避免上传异常影响主流程
+        except Exception as e:
             share.remote_status = "FAILED"
             share.remote_error = repr(e)[:500]
             remote_status = "FAILED"
@@ -248,7 +250,7 @@ def revoke_share(
         except RemoteShareError as e:
             share.remote_error = f"远端撤销失败：{str(e)[:300]}"
             logger.warning("share 远端撤销失败 id=%s err=%s", share.id, e)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             share.remote_error = f"远端撤销异常：{repr(e)[:300]}"
             logger.exception("share 远端撤销异常 id=%s", share.id)
         finally:
@@ -256,13 +258,15 @@ def revoke_share(
             db.commit()
             db.refresh(share)
 
-    return ApiResponse(data={
-        "id": share.id,
-        "revoked": True,
-        "revoked_at": share.revoked_at,
-        "remote_revoked": remote_revoked,
-        "remote_status": share.remote_status,
-    })
+    return ApiResponse(
+        data={
+            "id": share.id,
+            "revoked": True,
+            "revoked_at": share.revoked_at,
+            "remote_revoked": remote_revoked,
+            "remote_status": share.remote_status,
+        }
+    )
 
 
 @router.post(
@@ -301,17 +305,19 @@ def delete_share(
             remote_revoked = True
         except RemoteShareError as e:
             logger.warning("share 远端撤销失败(物理删除继续) id=%s err=%s", share.id, e)
-        except Exception as e:  # noqa: BLE001
+        except Exception:
             logger.exception("share 远端撤销异常(物理删除继续) id=%s", share.id)
 
     # 本地物理删除
     crud.delete_share(db, share)
 
-    return ApiResponse(data={
-        "id": share_id,
-        "deleted": True,
-        "remote_revoked": remote_revoked,
-    })
+    return ApiResponse(
+        data={
+            "id": share_id,
+            "deleted": True,
+            "remote_revoked": remote_revoked,
+        }
+    )
 
 
 @router.post(
@@ -370,11 +376,13 @@ def retry_remote_upload(
         db.add(share)
         db.commit()
         db.refresh(share)
-        return ApiResponse(data={
-            "id": share.id,
-            "short_url": share.short_url,
-            "remote_status": share.remote_status,
-        })
+        return ApiResponse(
+            data={
+                "id": share.id,
+                "short_url": share.short_url,
+                "remote_status": share.remote_status,
+            }
+        )
     except RemoteShareError as e:
         share.remote_status = "FAILED"
         share.remote_error = str(e)[:500]
@@ -382,7 +390,7 @@ def retry_remote_upload(
         db.commit()
         db.refresh(share)
         raise HTTPException(status_code=502, detail=f"远端上传失败：{str(e)[:200]}")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         share.remote_status = "FAILED"
         share.remote_error = repr(e)[:500]
         db.add(share)
@@ -397,7 +405,8 @@ def retry_remote_upload(
 # ============================================================
 class GenerateCredentialsRequest(BaseModel):
     """生成凭据的请求体(可选 name)"""
-    name: Optional[str] = Field(default=None, max_length=128)
+
+    name: str | None = Field(default=None, max_length=128)
 
 
 @router.get(
@@ -418,14 +427,17 @@ def get_credentials_status(
         - admin_token_configured: 是否设置了 SHARE_REMOTE_ADMIN_TOKEN
     """
     from .credentials import is_admin_token_configured
+
     cfg = get_remote_config()
-    return ApiResponse(data={
-        "ready": cfg.is_ready,
-        "has_api_key": bool(cfg.api_key),
-        "has_hmac_secret": bool(cfg.hmac_secret),
-        "base_url": cfg.base_url,
-        "admin_token_configured": is_admin_token_configured(),
-    })
+    return ApiResponse(
+        data={
+            "ready": cfg.is_ready,
+            "has_api_key": bool(cfg.api_key),
+            "has_hmac_secret": bool(cfg.hmac_secret),
+            "base_url": cfg.base_url,
+            "admin_token_configured": is_admin_token_configured(),
+        }
+    )
 
 
 @router.post(
@@ -470,14 +482,16 @@ def generate_credentials(
         raise HTTPException(status_code=502, detail=str(e)[:200])
 
     new_cfg = get_remote_config()
-    return ApiResponse(data={
-        "success": True,
-        "source": "remote",
-        "api_key_prefix": api_key[:8] + "…",
-        "ready": new_cfg.is_ready,
-        "base_url": new_cfg.base_url,
-        "admin_token_configured": True,
-    })
+    return ApiResponse(
+        data={
+            "success": True,
+            "source": "remote",
+            "api_key_prefix": api_key[:8] + "…",
+            "ready": new_cfg.is_ready,
+            "base_url": new_cfg.base_url,
+            "admin_token_configured": True,
+        }
+    )
 
 
 # 公开端点已删除(分享页完全走远端 quantcell.top,本地不再提供 GET /api/share/{token})

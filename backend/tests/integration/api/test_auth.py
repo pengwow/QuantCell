@@ -1,10 +1,13 @@
 # JWT认证授权专项测试
 # 测试JWT认证相关的所有场景
 
-import pytest
-from fastapi.testclient import TestClient
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
+
 import jwt
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 
 class TestJWTAuthentication:
@@ -40,6 +43,7 @@ class TestJWTAuthentication:
     def test_invalid_token_signature(self, client: TestClient):
         """测试无效签名的令牌"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_invalid_token()
         headers = {"Authorization": f"Bearer {token}"}
         response = client.delete("/api/strategy/sma_cross", headers=headers)
@@ -68,12 +72,13 @@ class TestJWTAuthentication:
 
     def _create_test_token(self, expires_in_hours: int = 1) -> str:
         """创建测试用JWT令牌"""
-        from utils.jwt_utils import JWT_SECRET_KEY, JWT_ALGORITHM
+        from utils.jwt_utils import JWT_ALGORITHM, JWT_SECRET_KEY
+
         payload = {
             "sub": "test_user_123",
             "name": "Test User",
-            "exp": datetime.now(timezone.utc) + timedelta(hours=expires_in_hours),
-            "iat": datetime.now(timezone.utc)
+            "exp": datetime.now(UTC) + timedelta(hours=expires_in_hours),
+            "iat": datetime.now(UTC),
         }
         return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
@@ -82,7 +87,7 @@ class TestJWTAuthentication:
         payload = {
             "sub": "test_user_123",
             "name": "Test User",
-            "exp": datetime.now(timezone.utc) + timedelta(hours=1)
+            "exp": datetime.now(UTC) + timedelta(hours=1),
         }
         return jwt.encode(payload, "wrong-secret-key", algorithm="HS384")
 
@@ -93,6 +98,7 @@ class TestJWTTokenValidation:
     def test_token_with_missing_sub_claim(self, client: TestClient, mocker):
         """测试缺少sub声明的令牌"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_token_with_claims({})
         headers = {"Authorization": f"Bearer {token}"}
         response = client.delete("/api/strategy/sma_cross", headers=headers)
@@ -101,6 +107,7 @@ class TestJWTTokenValidation:
     def test_token_with_empty_sub(self, client: TestClient, mocker):
         """测试sub为空的令牌"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_token_with_claims({"sub": ""})
         headers = {"Authorization": f"Bearer {token}"}
         response = client.delete("/api/strategy/sma_cross", headers=headers)
@@ -109,7 +116,8 @@ class TestJWTTokenValidation:
     def test_token_future_iat(self, client: TestClient, mocker):
         """测试iat为未来时间的令牌"""
         from fixtures.mocks.auth_mock import MockJWTToken
-        future_time = datetime.now(timezone.utc) + timedelta(hours=1)
+
+        future_time = datetime.now(UTC) + timedelta(hours=1)
         token = MockJWTToken.create_token_with_claims({"iat": future_time})
         headers = {"Authorization": f"Bearer {token}"}
         response = client.delete("/api/strategy/sma_cross", headers=headers)
@@ -118,6 +126,7 @@ class TestJWTTokenValidation:
     def test_token_without_expiration(self, client: TestClient, mocker):
         """测试没有过期时间的令牌"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_token_without_exp()
         headers = {"Authorization": f"Bearer {token}"}
         response = client.delete("/api/strategy/sma_cross", headers=headers)
@@ -130,16 +139,11 @@ class TestJWTTokenRefresh:
     def test_token_near_expiration(self, client: TestClient, mocker):
         """测试即将过期的令牌（应触发刷新）"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_near_expiration_token(minutes_left=5)
         headers = {"Authorization": f"Bearer {token}"}
-        mocker.patch(
-            "utils.jwt_utils.should_refresh_token",
-            return_value=True
-        )
-        mocker.patch(
-            "utils.jwt_utils.create_jwt_token",
-            return_value="new_refreshed_token"
-        )
+        mocker.patch("utils.jwt_utils.should_refresh_token", return_value=True)
+        mocker.patch("utils.jwt_utils.create_jwt_token", return_value="new_refreshed_token")
 
         response = client.delete("/api/strategy/sma_cross", headers=headers)
         assert response.status_code == 200
@@ -147,6 +151,7 @@ class TestJWTTokenRefresh:
     def test_token_fresh_not_refreshed(self, client: TestClient, mocker):
         """测试新鲜的令牌不应刷新"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_valid_token()
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -160,10 +165,11 @@ class TestJWTPayloadValidation:
     def test_token_with_extra_claims(self, client: TestClient, mocker):
         """测试携带额外声明的令牌"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         extra_claims = {
             "role": "admin",
             "permissions": ["read", "write", "delete"],
-            "custom_field": "custom_value"
+            "custom_field": "custom_value",
         }
         token = MockJWTToken.create_token_with_claims(extra_claims)
         headers = {"Authorization": f"Bearer {token}"}
@@ -173,11 +179,8 @@ class TestJWTPayloadValidation:
     def test_token_with_chinese_characters(self, client: TestClient, mocker):
         """测试携带中文字符的令牌"""
         from fixtures.mocks.auth_mock import MockJWTToken
-        chinese_claims = {
-            "sub": "test_user",
-            "name": "测试用户",
-            "role": "管理员"
-        }
+
+        chinese_claims = {"sub": "test_user", "name": "测试用户", "role": "管理员"}
         token = MockJWTToken.create_token_with_claims(chinese_claims)
         headers = {"Authorization": f"Bearer {token}"}
         response = client.delete("/api/strategy/sma_cross", headers=headers)
@@ -186,10 +189,11 @@ class TestJWTPayloadValidation:
     def test_token_with_unicode_characters(self, client: TestClient, mocker):
         """测试携带Unicode字符的令牌"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         unicode_claims = {
             "sub": "test_user",
             "name": "用户_日本語_한국어",
-            "emoji": "🚀🎉💻"
+            "emoji": "🚀🎉💻",
         }
         token = MockJWTToken.create_token_with_claims(unicode_claims)
         headers = {"Authorization": f"Bearer {token}"}
@@ -236,13 +240,19 @@ class TestAuthEndpointAccess:
     def test_mixed_auth_endpoints(self, client: TestClient):
         """测试混合认证端点"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         valid_token = MockJWTToken.create_valid_token()
         auth_headers = {"Authorization": f"Bearer {valid_token}"}
 
         mixed_endpoints = [
             ("GET", "/api/strategy/list", None, None),
             ("POST", "/api/strategy/detail", None, {"strategy_name": "sma_cross"}),
-            ("POST", "/api/strategy/upload", None, {"strategy_name": "test", "content": "code"}),
+            (
+                "POST",
+                "/api/strategy/upload",
+                None,
+                {"strategy_name": "test", "content": "code"},
+            ),
             ("DELETE", "/api/strategy/test_strategy", auth_headers, None),
         ]
 
@@ -269,6 +279,7 @@ class TestTokenEdgeCases:
         """测试超长令牌"""
         long_payload = {"sub": "a" * 1000}
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_token_with_claims(long_payload)
         headers = {"Authorization": f"Bearer {token}"}
         response = client.delete("/api/strategy/sma_cross", headers=headers)
@@ -277,8 +288,9 @@ class TestTokenEdgeCases:
     def test_token_base64_encoding(self, client: TestClient, mocker):
         """测试令牌Base64编码"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_valid_token()
-        encoded_token = token.encode('utf-8').decode('ascii')
+        encoded_token = token.encode("utf-8").decode("ascii")
         headers = {"Authorization": f"Bearer {encoded_token}"}
         response = client.delete("/api/strategy/sma_cross", headers=headers)
         assert response.status_code == 200
@@ -286,6 +298,7 @@ class TestTokenEdgeCases:
     def test_token_case_sensitivity(self, client: TestClient):
         """测试令牌大小写敏感性"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         valid_token = MockJWTToken.create_valid_token()
         wrong_case_token = valid_token.upper()
         headers = {"Authorization": f"Bearer {wrong_case_token}"}
@@ -295,6 +308,7 @@ class TestTokenEdgeCases:
     def test_whitespace_in_token(self, client: TestClient):
         """测试令牌中的空白字符"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         valid_token = MockJWTToken.create_valid_token()
         token_with_spaces = f"  {valid_token}  "
         headers = {"Authorization": f"Bearer {token_with_spaces}"}
@@ -304,6 +318,7 @@ class TestTokenEdgeCases:
     def test_null_bytes_in_token(self, client: TestClient, mocker):
         """测试令牌中的空字节"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_valid_token()
         token_with_nulls = token[:10] + "\x00" + token[11:]
         headers = {"Authorization": f"Bearer {token_with_nulls}"}
@@ -319,6 +334,7 @@ class TestTokenEdgeCases:
     def test_bearer_with_extra_spaces(self, client: TestClient):
         """测试Bearer前缀带多余空格"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_valid_token()
         headers = {"Authorization": f"  Bearer   {token}"}
         response = client.delete("/api/strategy/sma_cross", headers=headers)
@@ -331,6 +347,7 @@ class TestAuthHeaderHandling:
     def test_case_insensitive_header(self, client: TestClient, mocker):
         """测试不区分大小写的认证头"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_valid_token()
         headers = {"authorization": f"Bearer {token}"}
         response = client.delete("/api/strategy/sma_cross", headers=headers)
@@ -339,6 +356,7 @@ class TestAuthHeaderHandling:
     def test_multiple_auth_headers(self, client: TestClient, mocker):
         """测试多个认证头"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         valid_token = MockJWTToken.create_valid_token()
         invalid_token = "invalid_token_123"
         headers = [
@@ -351,12 +369,13 @@ class TestAuthHeaderHandling:
     def test_auth_header_with_other_headers(self, client: TestClient, mocker):
         """测试携带其他请求头的认证"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_valid_token()
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "X-Custom-Header": "custom_value"
+            "X-Custom-Header": "custom_value",
         }
         response = client.delete("/api/strategy/sma_cross", headers=headers)
         assert response.status_code == 200
@@ -364,6 +383,7 @@ class TestAuthHeaderHandling:
     def test_auth_header_content_type_handling(self, client: TestClient, mocker):
         """测试不同Content-Type下的认证"""
         from fixtures.mocks.auth_mock import MockJWTToken
+
         token = MockJWTToken.create_valid_token()
         headers = {"Authorization": f"Bearer {token}"}
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """回测策略模块 — 基于 axon_quant
 
 为事件驱动回测引擎（axon-quant）提供策略基类：

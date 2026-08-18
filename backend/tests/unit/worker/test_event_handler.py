@@ -8,13 +8,13 @@
 4. 启动/停止功能
 """
 
-import pytest
-import asyncio
-from unittest.mock import Mock, AsyncMock, MagicMock
-from datetime import datetime
 from collections import deque
+from datetime import datetime
+from unittest.mock import AsyncMock, Mock
 
-from worker.event_handler import EventHandler, EventBufferConfig
+import pytest
+
+from worker.event_handler import EventBufferConfig, EventHandler
 
 
 class TestEventBufferConfig:
@@ -29,11 +29,7 @@ class TestEventBufferConfig:
 
     def test_custom_values(self):
         """测试自定义配置"""
-        config = EventBufferConfig(
-            buffer_size=500,
-            flush_interval=0.5,
-            batch_size=50
-        )
+        config = EventBufferConfig(buffer_size=500, flush_interval=0.5, batch_size=50)
         assert config.buffer_size == 500
         assert config.flush_interval == 0.5
         assert config.batch_size == 50
@@ -45,11 +41,7 @@ class TestEventHandler:
     @pytest.fixture
     def event_config(self):
         """创建事件缓冲配置"""
-        return EventBufferConfig(
-            buffer_size=10,
-            flush_interval=0.1,
-            batch_size=3
-        )
+        return EventBufferConfig(buffer_size=10, flush_interval=0.1, batch_size=3)
 
     @pytest.fixture
     def mock_comm_client(self):
@@ -61,11 +53,7 @@ class TestEventHandler:
     @pytest.fixture
     def event_handler(self, event_config, mock_comm_client):
         """创建 EventHandler 实例"""
-        return EventHandler(
-            worker_id=1,
-            comm_client=mock_comm_client,
-            config=event_config
-        )
+        return EventHandler(worker_id=1, comm_client=mock_comm_client, config=event_config)
 
     def test_initialization(self, event_handler):
         """测试初始化"""
@@ -80,10 +68,10 @@ class TestEventHandler:
         """测试订单事件处理"""
         event_data = {"order_id": "123", "symbol": "BTCUSDT"}
         event_handler.on_order_event(event_data)
-        
+
         assert event_handler._events_received == 1
         assert len(event_handler._event_buffer) == 1
-        
+
         # 检查缓冲的事件
         buffered_event = event_handler._event_buffer[0]
         assert buffered_event["type"] == "order"
@@ -94,7 +82,7 @@ class TestEventHandler:
         """测试成交事件处理"""
         event_data = {"trade_id": "456", "symbol": "BTCUSDT"}
         event_handler.on_fill_event(event_data)
-        
+
         assert event_handler._events_received == 1
         assert len(event_handler._event_buffer) == 1
 
@@ -102,7 +90,7 @@ class TestEventHandler:
         """测试持仓事件处理"""
         event_data = {"position_id": "789", "symbol": "BTCUSDT"}
         event_handler.on_position_event(event_data)
-        
+
         assert event_handler._events_received == 1
         assert len(event_handler._event_buffer) == 1
 
@@ -111,7 +99,7 @@ class TestEventHandler:
         # 添加足够多的事件来填满缓冲区
         for i in range(15):  # buffer_size 是 10
             event_handler.on_order_event({"order_id": str(i)})
-        
+
         # 检查是否有事件被丢弃
         assert event_handler._events_dropped > 0
         assert len(event_handler._event_buffer) <= event_handler.config.buffer_size
@@ -121,9 +109,9 @@ class TestEventHandler:
         # 添加一些事件
         event_handler.on_order_event({"order_id": "123"})
         event_handler.on_fill_event({"trade_id": "456"})
-        
+
         stats = event_handler.get_stats()
-        
+
         assert stats["events_received"] == 2
         assert stats["events_sent"] == 0
         assert stats["events_dropped"] == 0
@@ -135,7 +123,7 @@ class TestEventHandler:
         # 启动
         await event_handler.start()
         assert event_handler._running is True
-        
+
         # 停止
         await event_handler.stop()
         assert event_handler._running is False
@@ -146,10 +134,10 @@ class TestEventHandler:
         # 添加一些事件
         event_handler.on_order_event({"order_id": "123"})
         event_handler.on_fill_event({"trade_id": "456"})
-        
+
         # 刷新缓冲区
         await event_handler._flush_buffer()
-        
+
         # 验证事件被发送
         assert mock_comm_client.send_event.call_count == 2
         assert event_handler._events_sent == 2
@@ -175,12 +163,13 @@ class TestAxonEventHandler:
     def axon_handler(self, mock_trader, event_callback):
         """创建 AxonEventHandler 实例"""
         from worker.event_handler import AxonEventHandler
+
         return AxonEventHandler(mock_trader, event_callback)
 
     def test_subscribe_events(self, axon_handler, mock_trader):
         """测试事件订阅"""
         axon_handler.subscribe_events()
-        
+
         # 验证订阅了正确的事件
         assert mock_trader.msg_bus.subscribe.call_count == 3
         assert axon_handler._subscribed is True
@@ -189,7 +178,7 @@ class TestAxonEventHandler:
         """测试事件取消订阅"""
         axon_handler.subscribe_events()
         axon_handler.unsubscribe_events()
-        
+
         # 验证取消了订阅
         assert mock_trader.msg_bus.unsubscribe.call_count == 3
         assert axon_handler._subscribed is False
@@ -204,9 +193,9 @@ class TestAxonEventHandler:
         event.price = 50000.0
         event.status = "FILLED"
         event.timestamp = datetime.now()
-        
+
         converted = axon_handler._convert_order_event(event)
-        
+
         assert converted["type"] == "order"
         assert converted["order_id"] == "test-123"
         assert converted["instrument_id"] == "BTCUSDT"
@@ -221,9 +210,9 @@ class TestAxonEventHandler:
         event.price = 50000.0
         event.commission = 1.0
         event.timestamp = datetime.now()
-        
+
         converted = axon_handler._convert_fill_event(event)
-        
+
         assert converted["type"] == "fill"
         assert converted["order_id"] == "test-123"
 
@@ -236,8 +225,8 @@ class TestAxonEventHandler:
         event.avg_price = 50000.0
         event.unrealized_pnl = 100.0
         event.timestamp = datetime.now()
-        
+
         converted = axon_handler._convert_position_event(event)
-        
+
         assert converted["type"] == "position"
         assert converted["instrument_id"] == "BTCUSDT"

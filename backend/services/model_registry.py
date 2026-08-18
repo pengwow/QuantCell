@@ -18,7 +18,8 @@ class ModelRegistryService:
 
     def __init__(self, storage_path: str = "data/models"):
         if not AVAILABLE:
-            raise RuntimeError("axon_quant.registry not available")
+            msg = "axon_quant.registry not available"
+            raise RuntimeError(msg)
         import os
 
         persist_dir = os.path.join(storage_path, ".persist")

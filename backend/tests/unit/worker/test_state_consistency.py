@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Worker 模块隔离单元测试
 
@@ -11,21 +10,22 @@ Worker 模块隔离单元测试
 避免导入整个项目模块导致的依赖问题。
 """
 
-import pytest
-from datetime import datetime
-from dataclasses import dataclass
-from typing import Optional
-from enum import Enum
-import sys
 import os
 import re
+import sys
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../..'))
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../.."))
 
 
 # =============================================================================
 # 从 worker.state 复制的代码（隔离测试）
 # =============================================================================
+
 
 class WorkerState(Enum):
     INITIALIZING = "initializing"
@@ -40,19 +40,41 @@ class WorkerState(Enum):
     RESTARTING = "restarting"
     PAUSED = "paused"
 
-    def can_transition_to(self, new_state: "WorkerState") -> bool:
+    def can_transition_to(self, new_state: WorkerState) -> bool:
         valid_transitions = {
-            WorkerState.INITIALIZING: [WorkerState.INITIALIZED, WorkerState.STARTING, WorkerState.RUNNING, WorkerState.ERROR],
-            WorkerState.INITIALIZED: [WorkerState.STARTING, WorkerState.STOPPING, WorkerState.ERROR],
+            WorkerState.INITIALIZING: [
+                WorkerState.INITIALIZED,
+                WorkerState.STARTING,
+                WorkerState.RUNNING,
+                WorkerState.ERROR,
+            ],
+            WorkerState.INITIALIZED: [
+                WorkerState.STARTING,
+                WorkerState.STOPPING,
+                WorkerState.ERROR,
+            ],
             WorkerState.STARTING: [WorkerState.RUNNING, WorkerState.ERROR],
-            WorkerState.RUNNING: [WorkerState.STOPPING, WorkerState.PAUSED, WorkerState.RELOADING, WorkerState.ERROR],
+            WorkerState.RUNNING: [
+                WorkerState.STOPPING,
+                WorkerState.PAUSED,
+                WorkerState.RELOADING,
+                WorkerState.ERROR,
+            ],
             WorkerState.STOPPING: [WorkerState.STOPPED, WorkerState.ERROR],
             WorkerState.STOPPED: [WorkerState.STARTING, WorkerState.RESTARTING],
             WorkerState.ERROR: [WorkerState.RECOVERING, WorkerState.STOPPING],
-            WorkerState.RECOVERING: [WorkerState.RUNNING, WorkerState.ERROR, WorkerState.STOPPING],
+            WorkerState.RECOVERING: [
+                WorkerState.RUNNING,
+                WorkerState.ERROR,
+                WorkerState.STOPPING,
+            ],
             WorkerState.RELOADING: [WorkerState.RUNNING, WorkerState.ERROR],
             WorkerState.RESTARTING: [WorkerState.INITIALIZING, WorkerState.ERROR],
-            WorkerState.PAUSED: [WorkerState.RUNNING, WorkerState.STOPPING, WorkerState.ERROR],
+            WorkerState.PAUSED: [
+                WorkerState.RUNNING,
+                WorkerState.STOPPING,
+                WorkerState.ERROR,
+            ],
         }
         return new_state in valid_transitions.get(self, [])
 
@@ -61,8 +83,8 @@ class WorkerState(Enum):
 class WorkerStatus:
     worker_id: str
     state: WorkerState = WorkerState.INITIALIZING
-    last_heartbeat: Optional[datetime] = None
-    started_at: Optional[datetime] = None
+    last_heartbeat: datetime | None = None
+    started_at: datetime | None = None
 
     def update_state(self, new_state: WorkerState) -> bool:
         if self.state.can_transition_to(new_state):
@@ -85,6 +107,7 @@ class WorkerStatus:
         if self.last_heartbeat is None:
             return False
         from datetime import timedelta
+
         elapsed = datetime.now() - self.last_heartbeat
         return elapsed < timedelta(seconds=heartbeat_timeout)
 
@@ -92,6 +115,7 @@ class WorkerStatus:
 # =============================================================================
 # 从 worker.ipc.protocol 复制的代码（隔离测试）
 # =============================================================================
+
 
 class MessageType(Enum):
     START = "start"
@@ -111,6 +135,7 @@ class MessageType(Enum):
 # 测试类
 # =============================================================================
 
+
 class TestWorkerStateHealthConsistency:
     """
     测试 WorkerState 与 is_healthy() 方法的一致性
@@ -125,9 +150,7 @@ class TestWorkerStateHealthConsistency:
                 break
 
         assert paused_state is not None, (
-            "WorkerState 缺少 'paused' 状态，"
-            "但 WorkerStatus.is_healthy() 方法需要它。"
-            "这会导致健康检查逻辑不完整。"
+            "WorkerState 缺少 'paused' 状态，但 WorkerStatus.is_healthy() 方法需要它。这会导致健康检查逻辑不完整。"
         )
 
     def test_is_healthy_accepts_all_active_states(self):
@@ -145,9 +168,7 @@ class TestWorkerStateHealthConsistency:
             assert status.is_healthy() is True, "PAUSED 状态应该是健康的"
         except AttributeError:
             pytest.fail(
-                "WorkerState 没有 PAUSED 属性，"
-                "但 is_healthy() 方法引用了它。"
-                "这会导致 AttributeError 运行时错误。"
+                "WorkerState 没有 PAUSED 属性，但 is_healthy() 方法引用了它。这会导致 AttributeError 运行时错误。"
             )
 
 
@@ -158,8 +179,8 @@ class TestMessageTypeHandlerConsistency:
 
     def test_message_type_define_pause_resume(self):
         """测试 MessageType 是否定义了暂停/恢复消息类型"""
-        assert hasattr(MessageType, 'PAUSE'), "MessageType 缺少 PAUSE 定义"
-        assert hasattr(MessageType, 'RESUME'), "MessageType 缺少 RESUME 定义"
+        assert hasattr(MessageType, "PAUSE"), "MessageType 缺少 PAUSE 定义"
+        assert hasattr(MessageType, "RESUME"), "MessageType 缺少 RESUME 定义"
 
     def test_worker_process_handles_all_control_messages(self):
         """测试 WorkerProcess 是否处理所有定义的 MessageType"""
@@ -245,7 +266,7 @@ class TestBalanceCheckerLogic:
                 return (True, "余额充足", None)
 
         checker = SimpleBalanceChecker()
-        is_sufficient, message, adjusted_qty = checker.check_balance(0.01)
+        is_sufficient, _message, adjusted_qty = checker.check_balance(0.01)
         assert is_sufficient is True
         assert adjusted_qty is None
 
@@ -293,7 +314,7 @@ class TestBalanceCheckerLogic:
                 return (True, "余额充足", None)
 
         checker = SimpleBalanceChecker(auto_adjust=True)
-        is_sufficient, message, adjusted_qty = checker.check_balance(1)
+        is_sufficient, _message, adjusted_qty = checker.check_balance(1)
 
         assert is_sufficient is True
         assert adjusted_qty is not None

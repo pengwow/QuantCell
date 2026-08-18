@@ -4,11 +4,12 @@
 直接加载 OHLCV 数据，无需转换。
 """
 
-from typing import Optional
-
-import pandas as pd
+from typing import TYPE_CHECKING
 
 from .base_adapter import AdapterResult, BaseDataAdapter, LoadConfig
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class KlineAdapter(BaseDataAdapter):
@@ -17,7 +18,12 @@ class KlineAdapter(BaseDataAdapter):
     直接加载 OHLCV 数据，标准化列名为 Open/High/Low/Close/Volume。
     """
 
-    _SUPPORTED_TYPES = {"kline", "markPriceKlines", "indexPriceKlines", "premiumIndexKlines"}
+    _SUPPORTED_TYPES = {
+        "kline",
+        "markPriceKlines",
+        "indexPriceKlines",
+        "premiumIndexKlines",
+    }
 
     _COLUMN_MAPPING = {
         "open": "Open",
@@ -29,9 +35,7 @@ class KlineAdapter(BaseDataAdapter):
 
     def load(self, config: LoadConfig) -> AdapterResult:
         """加载 K 线数据。"""
-        path = self._find_parquet(
-            config.data_type, config.market, config.symbol, config.interval
-        )
+        path = self._find_parquet(config.data_type, config.market, config.symbol, config.interval)
         df = self._load_parquet(path)
 
         df = self._normalize_columns(df)

@@ -7,10 +7,11 @@
 ponytail: 不真挂单, 仅在 on_bar 触发时按当前价所在档位模拟
          持仓状态用 _position_grid_idx 表示（-N..N，0 为中枢）
 """
+
 from __future__ import annotations
 
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 from axon_bridge import Action
+from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 
 
 class Grid(BaseStrategy):
@@ -32,13 +33,23 @@ class Grid(BaseStrategy):
         close = bar["close"]
 
         if upper <= lower or levels <= 0:
-            return Action(action_type="hold", confidence=0.0, target_position=0.0,
-                          model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="hold",
+                confidence=0.0,
+                target_position=0.0,
+                model_id=model_id,
+                inference_time_us=0,
+            )
 
         step = (upper - lower) / levels
         if step <= 0:
-            return Action(action_type="hold", confidence=0.0, target_position=0.0,
-                          model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="hold",
+                confidence=0.0,
+                target_position=0.0,
+                model_id=model_id,
+                inference_time_us=0,
+            )
 
         # 当前价在第几档
         idx = int((close - lower) / step)
@@ -52,17 +63,37 @@ class Grid(BaseStrategy):
         # 跨档位变化 → 触发 action（首次仅初始化，不触发）
         if self._position_grid_idx == 0 and idx == levels // 2:
             self._position_grid_idx = idx
-            return Action(action_type="hold", confidence=0.0, target_position=0.0,
-                          model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="hold",
+                confidence=0.0,
+                target_position=0.0,
+                model_id=model_id,
+                inference_time_us=0,
+            )
         if idx < self._position_grid_idx:
             self._position_grid_idx = idx
-            return Action(action_type="buy", confidence=0.5, target_position=target,
-                          model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="buy",
+                confidence=0.5,
+                target_position=target,
+                model_id=model_id,
+                inference_time_us=0,
+            )
         if idx > self._position_grid_idx:
             self._position_grid_idx = idx
-            return Action(action_type="sell", confidence=0.5, target_position=target,
-                          model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="sell",
+                confidence=0.5,
+                target_position=target,
+                model_id=model_id,
+                inference_time_us=0,
+            )
 
         self._position_grid_idx = idx
-        return Action(action_type="hold", confidence=0.0, target_position=0.0,
-                      model_id=model_id, inference_time_us=0)
+        return Action(
+            action_type="hold",
+            confidence=0.0,
+            target_position=0.0,
+            model_id=model_id,
+            inference_time_us=0,
+        )

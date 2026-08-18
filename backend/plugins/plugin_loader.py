@@ -1,15 +1,15 @@
+import importlib
+import importlib.util
 import json
 import os
 import sys
-import importlib
-import importlib.util
 import traceback
 import types
-from typing import Optional, Dict, List
 
-from fastapi import FastAPI, APIRouter
+from fastapi import APIRouter, FastAPI
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
 from .plugin_base import PluginBase
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -33,18 +33,17 @@ def _ensure_plugin_namespace(load_type: str, plugin_dir: str = ""):
 
 
 class HotPluginLoader:
-
     def __init__(self):
-        self._registered_routes: Dict[str, List] = {}
+        self._registered_routes: dict[str, list] = {}
 
-    def load_plugin(self, plugin_dir: str, app: FastAPI) -> Optional[PluginBase]:
+    def load_plugin(self, plugin_dir: str, app: FastAPI) -> PluginBase | None:
         try:
             manifest_path = os.path.join(plugin_dir, "manifest.json")
             if not os.path.exists(manifest_path):
                 logger.error(f"manifest.json 不存在: {manifest_path}")
                 return None
 
-            with open(manifest_path, "r", encoding="utf-8") as f:
+            with open(manifest_path, encoding="utf-8") as f:
                 manifest = json.load(f)
 
             main_file = manifest.get("main", "plugin.py")
@@ -94,18 +93,17 @@ class HotPluginLoader:
 
 
 class RestartPluginLoader:
-
     def __init__(self):
-        self._registered_routes: Dict[str, List] = {}
+        self._registered_routes: dict[str, list] = {}
 
-    def load_plugin(self, plugin_dir: str, app: FastAPI) -> Optional[PluginBase]:
+    def load_plugin(self, plugin_dir: str, app: FastAPI) -> PluginBase | None:
         try:
             manifest_path = os.path.join(plugin_dir, "manifest.json")
             if not os.path.exists(manifest_path):
                 logger.warning(f"manifest.json 不存在: {manifest_path}")
                 return None
 
-            with open(manifest_path, "r", encoding="utf-8") as f:
+            with open(manifest_path, encoding="utf-8") as f:
                 manifest = json.load(f)
 
             main_file = manifest.get("main", "plugin.py")
@@ -157,8 +155,8 @@ class RestartPluginLoader:
 def unload_plugin(
     plugin_name: str,
     app: FastAPI,
-    loaded_plugins: Dict[str, PluginBase],
-    loaded_modules: Dict[str, object],
+    loaded_plugins: dict[str, PluginBase],
+    loaded_modules: dict[str, object],
 ) -> bool:
     plugin = loaded_plugins.get(plugin_name)
     if plugin is None:
@@ -192,8 +190,7 @@ def unload_plugin(
     loaded_modules.pop(plugin_name, None)
 
     modules_to_remove = [
-        key for key in sys.modules
-        if key == f"plugins.hot.{plugin_name}" or key == f"plugins.restart.{plugin_name}"
+        key for key in sys.modules if key == f"plugins.hot.{plugin_name}" or key == f"plugins.restart.{plugin_name}"
     ]
     for key in modules_to_remove:
         sys.modules.pop(key, None)

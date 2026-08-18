@@ -3,12 +3,10 @@
 import json
 import pickle
 from pathlib import Path
-from typing import Any
 
 import numpy as np
-import pandas as pd
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -18,8 +16,10 @@ class _SafeUnpickler(pickle.Unpickler):
 
     def find_class(self, module: str, name: str):
         if not any(module.startswith(p) for p in self._ALLOWED_PREFIXES):
-            raise pickle.UnpicklingError(f"不允许的类型: {module}.{name}")
+            msg = f"不允许的类型: {module}.{name}"
+            raise pickle.UnpicklingError(msg)
         return super().find_class(module, name)
+
 
 # QLib 仅用于模型训练/评估，save/load/list/delete 不依赖它
 try:
@@ -45,7 +45,7 @@ class ModelService:
             "linear": "qlib.contrib.model.sklearn.LinearModel",
             "dnn": "qlib.contrib.model.pytorch.DNNModel",
             "lstm": "qlib.contrib.model.pytorch.LSTMModel",
-            "transformer": "qlib.contrib.model.pytorch.TransformerModel"
+            "transformer": "qlib.contrib.model.pytorch.TransformerModel",
         }
 
         # 模型保存路径（相对于 backend/ 目录）
@@ -88,15 +88,12 @@ class ModelService:
             return {
                 "model_name": model_name,
                 "status": "success",
-                "message": "模型训练完成"
+                "message": "模型训练完成",
             }
         except Exception as e:
             logger.error(f"模型训练失败: {e}")
             logger.exception(e)
-            return {
-                "status": "failed",
-                "message": str(e)
-            }
+            return {"status": "failed", "message": str(e)}
 
     def evaluate_model(self, model_name, dataset_config):
         """评估模型（需要 QLib）"""
@@ -121,8 +118,11 @@ class ModelService:
             labels = test_dataset["label"]
 
             # 计算评估指标
-            from sklearn.metrics import (mean_absolute_error,
-                                         mean_squared_error, r2_score)
+            from sklearn.metrics import (
+                mean_absolute_error,
+                mean_squared_error,
+                r2_score,
+            )
 
             mse = mean_squared_error(labels, preds)
             mae = mean_absolute_error(labels, preds)
@@ -136,20 +136,12 @@ class ModelService:
             return {
                 "model_name": model_name,
                 "status": "success",
-                "metrics": {
-                    "mse": mse,
-                    "mae": mae,
-                    "r2": r2,
-                    "ic": ic
-                }
+                "metrics": {"mse": mse, "mae": mae, "r2": r2, "ic": ic},
             }
         except Exception as e:
             logger.error(f"模型评估失败: {e}")
             logger.exception(e)
-            return {
-                "status": "failed",
-                "message": str(e)
-            }
+            return {"status": "failed", "message": str(e)}
 
     def predict(self, model_name, data):
         """
@@ -173,15 +165,12 @@ class ModelService:
             return {
                 "model_name": model_name,
                 "status": "success",
-                "predictions": preds.tolist() if isinstance(preds, np.ndarray) else preds
+                "predictions": preds.tolist() if isinstance(preds, np.ndarray) else preds,
             }
         except Exception as e:
             logger.error(f"模型预测失败: {e}")
             logger.exception(e)
-            return {
-                "status": "failed",
-                "message": str(e)
-            }
+            return {"status": "failed", "message": str(e)}
 
     def save_model(self, model, model_name):
         """
@@ -275,7 +264,7 @@ class ModelService:
             # 加载模型配置文件
             config_path = self.model_save_dir / f"{model_name}_config.json"
             if config_path.exists():
-                with open(config_path, "r") as f:
+                with open(config_path) as f:
                     config = json.load(f)
                 return config
             else:
@@ -323,11 +312,7 @@ class ModelService:
                 return None
 
             # 创建模型配置
-            model_config = {
-                "class": model_class,
-                "module_path": None,
-                "kwargs": params
-            }
+            model_config = {"class": model_class, "module_path": None, "kwargs": params}
 
             logger.info(f"模型配置创建成功，模型类型: {model_type}")
             return model_config

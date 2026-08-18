@@ -12,6 +12,7 @@
 - GET    /api/data/archive/meta/{kind}/{market}/{symbol}  读 _meta.json
 - DELETE /api/data/archive/data            删除某 symbol 的全部数据
 """
+
 from __future__ import annotations
 
 import shutil
@@ -28,13 +29,13 @@ from exchange.binance.archive.kinds import (
     MarketType,
     get_save_dir,
 )
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 from worker.decorators import handle_worker_exceptions
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 
-router = APIRouter(prefix='/data/archive', tags=['archive'])
+router = APIRouter(prefix="/data/archive", tags=["archive"])
 
 
 def _get_service() -> ArchiveService:
@@ -60,6 +61,7 @@ def _parse_kind_market(kind: str, market: str) -> tuple[ArchiveKind, MarketType]
 
 # =================== 1) POST /download ===================
 
+
 class DownloadRequest(BaseModel):
     """创建归档下载任务的请求体。"""
 
@@ -68,11 +70,11 @@ class DownloadRequest(BaseModel):
     market: str = Field(..., description="市场 (spot/um/cm)")
     start_date: str = Field(..., description="起始日期 YYYY-MM-DD")
     end_date: str = Field(..., description="结束日期 YYYY-MM-DD")
-    mode: Literal['inc', 'full'] = Field('inc', description="inc=增量 / full=全量")
+    mode: Literal["inc", "full"] = Field("inc", description="inc=增量 / full=全量")
     interval: str | None = Field(None, description="K 线类需要 (1m/3m/5m/15m/30m/1h/2h/1d)")
 
 
-@router.post('/download')
+@router.post("/download")
 @handle_worker_exceptions("创建归档下载任务")
 def post_download(req: DownloadRequest) -> dict:
     """创建归档下载任务, 返回 task_id 与 pending 状态。
@@ -99,28 +101,30 @@ def post_download(req: DownloadRequest) -> dict:
         f"symbols={req.symbols}, mode={req.mode}, interval={req.interval}"
     )
     return {
-        'success': True,
-        'task_id': task_id,
-        'status': 'pending',
-        'message': '归档下载任务已创建, 可通过 /api/data/archive/tasks/{task_id} 查询进度',
+        "success": True,
+        "task_id": task_id,
+        "status": "pending",
+        "message": "归档下载任务已创建, 可通过 /api/data/archive/tasks/{task_id} 查询进度",
     }
 
 
 # =================== 2) GET /tasks/{task_id} ===================
 
-@router.get('/tasks/{task_id}')
+
+@router.get("/tasks/{task_id}")
 @handle_worker_exceptions("查询归档任务进度")
 def get_task_progress(task_id: str = Path(..., description="任务 ID")) -> dict:
     """查询归档下载任务的当前进度。"""
     task = task_manager.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"task {task_id} not found")
-    return {'success': True, **task}
+    return {"success": True, **task}
 
 
 # =================== 3) GET /symbols ===================
 
-@router.get('/symbols')
+
+@router.get("/symbols")
 @handle_worker_exceptions("列出归档 symbols")
 def get_symbols(
     kind: str = Query(..., description="数据种类"),
@@ -130,12 +134,13 @@ def get_symbols(
     kind_e, market_e = _parse_kind_market(kind, market)
     svc = _get_service()
     symbols = svc.list_symbols(kind_e, market_e)
-    return {'success': True, 'symbols': symbols, 'total': len(symbols)}
+    return {"success": True, "symbols": symbols, "total": len(symbols)}
 
 
 # =================== 4) GET /data ===================
 
-@router.get('/data')
+
+@router.get("/data")
 @handle_worker_exceptions("查询归档数据")
 def get_data(
     kind: str = Query(..., description="数据种类"),
@@ -150,14 +155,21 @@ def get_data(
     kind_e, market_e = _parse_kind_market(kind, market)
     svc = _get_service()
     result = svc.query_data(
-        kind_e, market_e, symbol, start_time, end_time, limit, offset,
+        kind_e,
+        market_e,
+        symbol,
+        start_time,
+        end_time,
+        limit,
+        offset,
     )
-    return {'success': True, **result}
+    return {"success": True, **result}
 
 
 # =================== 5) GET /meta/{kind}/{market}/{symbol} ===================
 
-@router.get('/meta/{kind}/{market}/{symbol}')
+
+@router.get("/meta/{kind}/{market}/{symbol}")
 @handle_worker_exceptions("读取归档元数据")
 def get_meta(
     kind: str = Path(..., description="数据种类"),
@@ -168,12 +180,13 @@ def get_meta(
     kind_e, market_e = _parse_kind_market(kind, market)
     svc = _get_service()
     meta = svc.get_meta(kind_e, market_e, symbol)
-    return {'success': True, 'meta': meta}
+    return {"success": True, "meta": meta}
 
 
 # =================== 6) DELETE /data ===================
 
-@router.delete('/data')
+
+@router.delete("/data")
 @handle_worker_exceptions("删除归档数据")
 def delete_data(
     kind: str = Query(..., description="数据种类"),
@@ -190,5 +203,9 @@ def delete_data(
     if save_dir.exists():
         shutil.rmtree(save_dir)
         logger.warning(f"已删除归档目录: {save_dir}")
-        return {'success': True, 'deleted': str(save_dir), 'message': f'已删除 {save_dir}'}
-    return {'success': True, 'deleted': None, 'message': '目录不存在, 无需删除'}
+        return {
+            "success": True,
+            "deleted": str(save_dir),
+            "message": f"已删除 {save_dir}",
+        }
+    return {"success": True, "deleted": None, "message": "目录不存在, 无需删除"}

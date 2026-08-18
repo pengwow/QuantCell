@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 独立数据下载器模块
 
@@ -13,33 +12,43 @@
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
 
-import pandas as pd
-from utils.logger import get_logger, LogType
-from utils.parquet_utils import save_to_parquet, append_to_parquet
+from utils.logger import LogType, get_logger
+from utils.parquet_utils import append_to_parquet
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+from typing import TYPE_CHECKING
+
 from exchange.binance.downloader import BinanceDownloader
 from utils.time_parser import get_date_range
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import pandas as pd
 
 
 class StandaloneDownloadProgress:
     """独立下载进度信息"""
-    
+
     def __init__(self, symbol: str, interval: str):
         self.symbol = symbol
         self.interval = interval
         self.status: str = "pending"  # pending, downloading, completed, failed
         self.progress: float = 0.0
         self.message: str = "等待下载"
-        self.current_date: Optional[str] = None
+        self.current_date: str | None = None
         self.total_dates: int = 0
         self.completed_dates: int = 0
-        
-    def update(self, status: str = None, progress: float = None, 
-               message: str = None, current_date: str = None):
+
+    def update(
+        self,
+        status: str | None = None,
+        progress: float | None = None,
+        message: str | None = None,
+        current_date: str | None = None,
+    ):
         """更新进度信息"""
         if status:
             self.status = status
@@ -54,7 +63,7 @@ class StandaloneDownloadProgress:
 
 class StandaloneDataDownloader:
     """独立数据下载器，不依赖 FastAPI 服务"""
-    
+
     def __init__(self, save_local: bool = True):
         """
         初始化独立下载器
@@ -76,43 +85,43 @@ class StandaloneDataDownloader:
         # 延迟初始化下载器，避免在初始化时调用API获取交易对列表
         self._spot_downloader = None
         self._futures_downloader = None
-    
+
     @property
     def spot_downloader(self):
         """延迟初始化现货下载器"""
         if self._spot_downloader is None:
             # 传入空列表作为symbols，避免调用API获取全量交易对
             self._spot_downloader = BinanceDownloader(
-                save_dir=self.temp_dir, 
-                candle_type='spot',
-                symbols=[]  # 传入空列表，避免调用get_all_symbols
+                save_dir=self.temp_dir,
+                candle_type="spot",
+                symbols=[],  # 传入空列表，避免调用get_all_symbols
             )
         return self._spot_downloader
-    
+
     @property
     def futures_downloader(self):
         """延迟初始化合约下载器"""
         if self._futures_downloader is None:
             # 传入空列表作为symbols，避免调用API获取全量交易对
             self._futures_downloader = BinanceDownloader(
-                save_dir=self.temp_dir, 
-                candle_type='futures',
-                symbols=[]  # 传入空列表，避免调用get_all_symbols
+                save_dir=self.temp_dir,
+                candle_type="futures",
+                symbols=[],  # 传入空列表，避免调用get_all_symbols
             )
         return self._futures_downloader
-        
+
     async def download_data(
         self,
         symbol: str,
         interval: str,
         start_time: datetime,
         end_time: datetime,
-        crypto_type: str = 'spot',
-        progress_callback: Optional[Callable[[StandaloneDownloadProgress], None]] = None
+        crypto_type: str = "spot",
+        progress_callback: Callable[[StandaloneDownloadProgress], None] | None = None,
     ) -> bool:
         """
         直接下载数据到数据库
-        
+
         参数：
             symbol: 交易对（如 BTCUSDT）
             interval: 时间周期（如 15m, 1h）
@@ -120,31 +129,33 @@ class StandaloneDataDownloader:
             end_time: 结束时间
             crypto_type: 交易类型（spot/futures）
             progress_callback: 进度回调函数
-            
+
         返回：
             bool: 是否下载成功
         """
         # 标准化symbol格式
-        normalized_symbol = symbol.replace('/', '')
-        
+        normalized_symbol = symbol.replace("/", "")
+
         # 选择下载器
-        downloader = self.spot_downloader if crypto_type == 'spot' else self.futures_downloader
-        
+        downloader = self.spot_downloader if crypto_type == "spot" else self.futures_downloader
+
         # 创建进度追踪
         progress = StandaloneDownloadProgress(normalized_symbol, interval)
         progress.update(status="downloading", message="开始下载数据")
         if progress_callback:
             progress_callback(progress)
-        
+
         try:
             # 获取日期范围
-            start_date = start_time.strftime('%Y-%m-%d')
-            end_date = end_time.strftime('%Y-%m-%d')
+            start_date = start_time.strftime("%Y-%m-%d")
+            end_date = end_time.strftime("%Y-%m-%d")
             date_range = get_date_range(start_date, end_date)
             progress.total_dates = len(date_range)
 
-            logger.info(f"开始下载 {normalized_symbol} {interval} 数据，"
-                       f"日期范围: {start_date} ~ {end_date}，共 {len(date_range)} 天")
+            logger.info(
+                f"开始下载 {normalized_symbol} {interval} 数据，"
+                f"日期范围: {start_date} ~ {end_date}，共 {len(date_range)} 天"
+            )
 
             # 逐日下载
             success_count = 0
@@ -155,7 +166,7 @@ class StandaloneDataDownloader:
                     progress.update(
                         status="downloading",
                         message=f"正在下载 {date} 的数据...",
-                        current_date=date
+                        current_date=date,
                     )
                     if progress_callback:
                         progress.progress = (idx / len(date_range)) * 100
@@ -187,38 +198,31 @@ class StandaloneDataDownloader:
                 except Exception as e:
                     logger.error(f"✗ {date} 下载失败: {e}")
                     continue
-            
+
             # 更新最终进度
             progress.update(
                 status="completed" if success_count > 0 else "failed",
                 progress=100.0,
-                message=f"下载完成，成功 {success_count}/{len(date_range)} 天 (跳过 {skipped_count} 天)"
+                message=f"下载完成，成功 {success_count}/{len(date_range)} 天 (跳过 {skipped_count} 天)",
             )
             if progress_callback:
                 progress_callback(progress)
 
-            logger.info(f"下载完成: {normalized_symbol} {interval}，"
-                       f"成功 {success_count}/{len(date_range)} 天 (跳过 {skipped_count} 天已存在的数据)")
+            logger.info(
+                f"下载完成: {normalized_symbol} {interval}，"
+                f"成功 {success_count}/{len(date_range)} 天 (跳过 {skipped_count} 天已存在的数据)"
+            )
 
             return success_count > 0
-            
+
         except Exception as e:
             logger.error(f"下载过程发生错误: {e}")
-            progress.update(
-                status="failed",
-                message=f"下载失败: {e}"
-            )
+            progress.update(status="failed", message=f"下载失败: {e}")
             if progress_callback:
                 progress_callback(progress)
             return False
 
-    def _check_data_exists(
-        self,
-        symbol: str,
-        interval: str,
-        date: str,
-        crypto_type: str
-    ) -> bool:
+    def _check_data_exists(self, symbol: str, interval: str, date: str, crypto_type: str) -> bool:
         """
         检查指定日期的数据是否已存在于数据库中
 
@@ -231,9 +235,10 @@ class StandaloneDataDownloader:
         返回：
             bool: 数据是否已存在
         """
+        from datetime import datetime
+
         from collector.db.database import SessionLocal, init_database_config
-        from collector.db.models import CryptoSpotKline, CryptoFutureKline
-        from datetime import datetime, timedelta
+        from collector.db.models import CryptoFutureKline, CryptoSpotKline
 
         try:
             # 初始化数据库配置
@@ -250,20 +255,24 @@ class StandaloneDataDownloader:
 
             try:
                 # 选择模型
-                Model = CryptoSpotKline if crypto_type == 'spot' else CryptoFutureKline
+                Model = CryptoSpotKline if crypto_type == "spot" else CryptoFutureKline
 
                 # 计算日期的时间戳范围（毫秒）
-                date_dt = datetime.strptime(date, '%Y-%m-%d')
+                date_dt = datetime.strptime(date, "%Y-%m-%d")
                 start_ts = int(date_dt.timestamp() * 1000)
                 end_ts = int((date_dt + timedelta(days=1)).timestamp() * 1000)
 
                 # 查询该日期是否有数据
-                count = db.query(Model).filter(
-                    Model.symbol == symbol,
-                    Model.interval == interval,
-                    Model.timestamp >= str(start_ts),
-                    Model.timestamp < str(end_ts)
-                ).count()
+                count = (
+                    db.query(Model)
+                    .filter(
+                        Model.symbol == symbol,
+                        Model.interval == interval,
+                        Model.timestamp >= str(start_ts),
+                        Model.timestamp < str(end_ts),
+                    )
+                    .count()
+                )
 
                 return count > 0
 
@@ -274,69 +283,65 @@ class StandaloneDataDownloader:
             logger.error(f"检查数据存在性失败: {e}")
             return False
 
-    def _save_to_database(
-        self,
-        df: pd.DataFrame,
-        symbol: str,
-        interval: str,
-        crypto_type: str
-    ) -> bool:
+    def _save_to_database(self, df: pd.DataFrame, symbol: str, interval: str, crypto_type: str) -> bool:
         """
         保存数据到数据库
-        
+
         参数：
             df: K线数据DataFrame
             symbol: 交易对
             interval: 时间周期
             crypto_type: 交易类型
-            
+
         返回：
             bool: 是否保存成功
         """
-        from collector.db.database import SessionLocal, init_database_config, engine
-        from collector.db.models import CryptoSpotKline, CryptoFutureKline
-        
+        from collector.db.database import SessionLocal, init_database_config
+        from collector.db.models import CryptoFutureKline, CryptoSpotKline
+
         try:
             # 初始化数据库配置
             init_database_config()
-            
+
             # 重新导入引擎（确保获取最新值）
             from collector.db.database import engine as db_engine
-            
+
             # 确保引擎已创建
             if db_engine is None:
                 logger.error("数据库引擎未初始化")
                 return False
-            
+
             # 创建会话（显式绑定引擎）
             db = SessionLocal(bind=db_engine)
-            
+
             try:
                 # 选择模型
-                Model = CryptoSpotKline if crypto_type == 'spot' else CryptoFutureKline
-                
+                Model = CryptoSpotKline if crypto_type == "spot" else CryptoFutureKline
+
                 # 准备记录
                 records = []
                 for _, row in df.iterrows():
                     # 转换时间戳（毫秒）
-                    timestamp_ms = int(row['open_time'])
-                    
+                    timestamp_ms = int(row["open_time"])
+
                     # 生成唯一标识符
                     unique_kline = f"{symbol}_{interval}_{timestamp_ms}"
-                    
-                    records.append({
-                        'symbol': symbol,
-                        'interval': interval,
-                        'timestamp': str(timestamp_ms),
-                        'open': str(row['open']),
-                        'high': str(row['high']),
-                        'low': str(row['low']),
-                        'close': str(row['close']),
-                        'volume': str(row['volume']),
-                        'unique_kline': unique_kline,
-                        'data_source': 'binance'
-                    })
-                
+
+                    records.append(
+                        {
+                            "symbol": symbol,
+                            "interval": interval,
+                            "timestamp": str(timestamp_ms),
+                            "open": str(row["open"]),
+                            "high": str(row["high"]),
+                            "low": str(row["low"]),
+                            "close": str(row["close"]),
+                            "volume": str(row["volume"]),
+                            "unique_kline": unique_kline,
+                            "data_source": "binance",
+                        }
+                    )
+
                 # 批量保存（使用INSERT OR IGNORE避免重复）
                 if records:
                     from sqlalchemy.dialects.sqlite import insert
@@ -344,42 +349,34 @@ class StandaloneDataDownloader:
                     # 构建INSERT语句
                     stmt = insert(Model).values(records)
                     # 添加ON CONFLICT DO NOTHING子句
-                    stmt = stmt.on_conflict_do_nothing(index_elements=['unique_kline'])
+                    stmt = stmt.on_conflict_do_nothing(index_elements=["unique_kline"])
 
                     result = db.execute(stmt)
                     db.commit()
-                    logger.info(f"[_save_to_database] 保存 {len(records)} 条记录到数据库: {symbol} {interval}, 影响行数: {result.rowcount}")
+                    logger.info(
+                        f"[_save_to_database] 保存 {len(records)} 条记录到数据库: {symbol} {interval}, 影响行数: {result.rowcount}"
+                    )
 
                     # 验证数据是否真的写入
-                    verify_count = db.query(Model).filter(
-                        Model.symbol == symbol,
-                        Model.interval == interval
-                    ).count()
+                    verify_count = db.query(Model).filter(Model.symbol == symbol, Model.interval == interval).count()
                     logger.info(f"[_save_to_database] 验证: 数据库中 {symbol} {interval} 共有 {verify_count} 条记录")
 
                     return True
-                
+
                 return False
-                
+
             except Exception as e:
                 db.rollback()
                 logger.error(f"保存到数据库失败: {e}")
                 return False
             finally:
                 db.close()
-                
+
         except Exception as e:
             logger.error(f"数据库操作失败: {e}")
             return False
 
-    def _save_to_local_file(
-        self,
-        df: pd.DataFrame,
-        symbol: str,
-        interval: str,
-        date: str,
-        crypto_type: str
-    ) -> bool:
+    def _save_to_local_file(self, df: pd.DataFrame, symbol: str, interval: str, date: str, crypto_type: str) -> bool:
         """
         保存数据到本地 Parquet 文件
 
@@ -397,7 +394,7 @@ class StandaloneDataDownloader:
         """
         try:
             # 构建存储路径：{base_dir}/{crypto_type}/{symbol}/{interval}/{date}.parquet
-            storage_type = 'spot' if crypto_type == 'spot' else 'futures'
+            storage_type = "spot" if crypto_type == "spot" else "futures"
             file_dir = self.local_storage_dir / storage_type / symbol / interval
             file_path = file_dir / f"{date}.parquet"
 
@@ -421,12 +418,12 @@ class StandaloneDataDownloader:
         interval: str,
         start_time: datetime,
         end_time: datetime,
-        crypto_type: str = 'spot',
-        progress_callback: Optional[Callable[[StandaloneDownloadProgress], None]] = None
+        crypto_type: str = "spot",
+        progress_callback: Callable[[StandaloneDownloadProgress], None] | None = None,
     ) -> bool:
         """
         同步接口下载数据
-        
+
         参数：
             symbol: 交易对
             interval: 时间周期
@@ -434,15 +431,17 @@ class StandaloneDataDownloader:
             end_time: 结束时间
             crypto_type: 交易类型
             progress_callback: 进度回调函数
-            
+
         返回：
             bool: 是否下载成功
         """
-        return asyncio.run(self.download_data(
-            symbol=symbol,
-            interval=interval,
-            start_time=start_time,
-            end_time=end_time,
-            crypto_type=crypto_type,
-            progress_callback=progress_callback
-        ))
+        return asyncio.run(
+            self.download_data(
+                symbol=symbol,
+                interval=interval,
+                start_time=start_time,
+                end_time=end_time,
+                crypto_type=crypto_type,
+                progress_callback=progress_callback,
+            )
+        )

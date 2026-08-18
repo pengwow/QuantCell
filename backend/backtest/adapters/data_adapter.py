@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
 """数据适配器 — 将外部数据源转换为 axon_quant 格式"""
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
@@ -37,13 +35,15 @@ def dataframe_to_bars(df: pd.DataFrame, symbol: str = "BTCUSDT") -> list[dict]:
     bars = []
     for idx, row in df.iterrows():
         ts = int(pd.Timestamp(idx).timestamp() * 1_000_000_000)
-        bars.append({
-            "open": float(row.get("Open", 0)),
-            "high": float(row.get("High", 0)),
-            "low": float(row.get("Low", 0)),
-            "close": float(row.get("Close", 0)),
-            "volume": float(row.get("Volume", 0)),
-            "symbol": symbol,
-            "timestamp_ns": ts,
-        })
+        bars.append(
+            {
+                "open": float(row.get("Open", 0)),
+                "high": float(row.get("High", 0)),
+                "low": float(row.get("Low", 0)),
+                "close": float(row.get("Close", 0)),
+                "volume": float(row.get("Volume", 0)),
+                "symbol": symbol,
+                "timestamp_ns": ts,
+            }
+        )
     return bars

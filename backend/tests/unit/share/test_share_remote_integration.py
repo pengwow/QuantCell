@@ -8,19 +8,20 @@ Share 远端集成(quantcell.top)测试
 - 路由：upload_success(远端已就绪) / upload_failure_returns_502(远端异常) /
   retry_remote(重推成功) / create_share_auto_configures_credentials(自动注册)
 """
+
 import os
 import sys
-from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, '/Users/liupeng/workspace/quant/QuantCell/backend')
+sys.path.insert(0, "/Users/liupeng/workspace/quant/QuantCell/backend")
 
 
 def _reset_singleton():
     """重置 ShareRemoteConfig 单例（每个用例都需要）"""
     from share.config import ShareRemoteConfig
+
     ShareRemoteConfig._instance = None
 
 
@@ -33,10 +34,13 @@ def test_remote_config_disabled_by_default():
     需同步 mock _load_toml_chain 防止 config.toml 中残留的 share_remote
     段(默认 enabled=true)污染断言。
     """
-    with patch.dict(os.environ, {}, clear=True), \
-         patch("share.config._load_toml_chain", return_value={}):
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch("share.config._load_toml_chain", return_value={}),
+    ):
         _reset_singleton()
         from share.config import ShareRemoteConfig
+
         cfg = ShareRemoteConfig()
         assert cfg.is_ready is False
         assert cfg.base_url == "https://share.quantcell.top"
@@ -47,13 +51,17 @@ def test_remote_config_disabled_by_default():
 
 def test_remote_config_ready_when_all_set():
     """api_key + hmac_secret 齐全 → is_ready=True"""
-    with patch.dict(os.environ, {
-        "SHARE_REMOTE_API_KEY": "qck_test_key",
-        "SHARE_REMOTE_HMAC_SECRET": "test_hmac_secret",
-        "SHARE_REMOTE_BASE_URL": "https://example.com",
-    }):
+    with patch.dict(
+        os.environ,
+        {
+            "SHARE_REMOTE_API_KEY": "qck_test_key",
+            "SHARE_REMOTE_HMAC_SECRET": "test_hmac_secret",
+            "SHARE_REMOTE_BASE_URL": "https://example.com",
+        },
+    ):
         _reset_singleton()
         from share.config import ShareRemoteConfig
+
         cfg = ShareRemoteConfig()
         assert cfg.is_ready is True
         assert cfg.base_url == "https://example.com"  # 已 strip 尾斜杠
@@ -67,9 +75,12 @@ def test_remote_config_ready_when_all_set():
 # ============================================================
 def test_remote_client_hmac_signature_is_stable():
     """相同 payload + secret → 相同 signature（确定性输出）"""
-    with patch.dict(os.environ, {
-        "SHARE_REMOTE_HMAC_SECRET": "stable_secret_for_test",
-    }):
+    with patch.dict(
+        os.environ,
+        {
+            "SHARE_REMOTE_HMAC_SECRET": "stable_secret_for_test",
+        },
+    ):
         _reset_singleton()
         from share.remote_client import RemoteShareClient
 
@@ -92,6 +103,7 @@ def test_remote_client_hmac_signature_is_stable():
     with patch.dict(os.environ, {"SHARE_REMOTE_HMAC_SECRET": "other_secret"}):
         _reset_singleton()
         from share.remote_client import RemoteShareClient
+
         client2 = RemoteShareClient()
         sig3 = client2._sign_payload(payload)
         assert sig1 != sig3
@@ -104,13 +116,16 @@ def test_remote_client_hmac_signature_is_stable():
 @pytest.mark.asyncio
 async def test_remote_client_retries_on_5xx_then_succeeds():
     """前 2 次 5xx，第 3 次 200 → 最终成功，调用 3 次（直接 mock aiohttp session）"""
-    with patch.dict(os.environ, {
-        "SHARE_REMOTE_API_KEY": "qck_test",
-        "SHARE_REMOTE_HMAC_SECRET": "secret",
-        "SHARE_REMOTE_BASE_URL": "https://example.com",
-        "SHARE_REMOTE_RETRY_BACKOFF": "0",  # 退避为 0 避免测试慢
-        "SHARE_REMOTE_MAX_RETRIES": "3",
-    }):
+    with patch.dict(
+        os.environ,
+        {
+            "SHARE_REMOTE_API_KEY": "qck_test",
+            "SHARE_REMOTE_HMAC_SECRET": "secret",
+            "SHARE_REMOTE_BASE_URL": "https://example.com",
+            "SHARE_REMOTE_RETRY_BACKOFF": "0",  # 退避为 0 避免测试慢
+            "SHARE_REMOTE_MAX_RETRIES": "3",
+        },
+    ):
         _reset_singleton()
         from share.remote_client import RemoteShareClient
 
@@ -131,7 +146,9 @@ async def test_remote_client_retries_on_5xx_then_succeeds():
             if call_count["n"] < 3:
                 session.request = MagicMock(return_value=make_response(500, "server error"))
             else:
-                session.request = MagicMock(return_value=make_response(200, '{"id":"r1","short_url":"https://share.example.com/abc"}'))
+                session.request = MagicMock(
+                    return_value=make_response(200, '{"id":"r1","short_url":"https://share.example.com/abc"}')
+                )
             session.__aenter__ = AsyncMock(return_value=session)
             session.__aexit__ = AsyncMock(return_value=None)
             return session
@@ -149,11 +166,14 @@ async def test_remote_client_retries_on_5xx_then_succeeds():
 @pytest.mark.asyncio
 async def test_remote_client_does_not_retry_on_4xx():
     """4xx 业务错误不重试，立刻抛 RemoteShareError（这里 mock _request_with_retry 一次性抛错）"""
-    with patch.dict(os.environ, {
-        "SHARE_REMOTE_API_KEY": "qck_test",
-        "SHARE_REMOTE_HMAC_SECRET": "secret",
-        "SHARE_REMOTE_BASE_URL": "https://example.com",
-    }):
+    with patch.dict(
+        os.environ,
+        {
+            "SHARE_REMOTE_API_KEY": "qck_test",
+            "SHARE_REMOTE_HMAC_SECRET": "secret",
+            "SHARE_REMOTE_BASE_URL": "https://example.com",
+        },
+    ):
         _reset_singleton()
         from share.remote_client import RemoteShareClient, RemoteShareError
 
@@ -161,7 +181,8 @@ async def test_remote_client_does_not_retry_on_4xx():
 
         async def fake_request(method, url, body):
             call_count["n"] += 1
-            raise RemoteShareError("status=401")
+            msg = "status=401"
+            raise RemoteShareError(msg)
 
         with patch.object(RemoteShareClient, "_request_with_retry", side_effect=fake_request):
             client = RemoteShareClient()
@@ -181,12 +202,12 @@ def _build_test_client(db_session):
     注：app.dependency_overrides 是全局状态,若不清除会污染后续测试。
     """
     from fastapi.testclient import TestClient
-    from worker.dependencies import get_db_session, get_current_user
 
-    import share.models  # noqa: F401
-    import share.routes  # noqa: F401
-    from share import router as share_router
+    import share.models
+    import share.routes
     from main import app
+    from share import router as share_router
+    from worker.dependencies import get_current_user, get_db_session
 
     def _override_get_db():
         try:
@@ -225,36 +246,47 @@ def test_route_create_share_upload_success(sample_worker, db_session):
     _reset_singleton()
     client = _build_test_client(db_session)
 
-    with patch("share.routes.ensure_remote_credentials", return_value=("qck_mock", "mock_secret")):
-        with patch("share.routes.RemoteShareClient") as MockClient:
-            instance = MockClient.return_value
-            instance.upload_sync.return_value = {
-                "remote_id": "r-mock-1",
-                "short_url": "https://share.quantcell.top/abc",
-                "raw": {},
-            }
-            with patch("share.routes.build_snapshot", return_value={"worker": {"id": sample_worker.id}}):
-                with patch("share.routes.serialize_for_remote", side_effect=lambda x: x):
-                    with patch("share.routes.get_remote_config") as mock_cfg:
-                        cfg = MagicMock()
-                        cfg.is_ready = True
-                        mock_cfg.return_value = cfg
+    with (
+        patch(
+            "share.routes.ensure_remote_credentials",
+            return_value=("qck_mock", "mock_secret"),
+        ),
+        patch("share.routes.RemoteShareClient") as MockClient,
+    ):
+        instance = MockClient.return_value
+        instance.upload_sync.return_value = {
+            "remote_id": "r-mock-1",
+            "short_url": "https://share.quantcell.top/abc",
+            "raw": {},
+        }
+        with (
+            patch(
+                "share.routes.build_snapshot",
+                return_value={"worker": {"id": sample_worker.id}},
+            ),
+            patch("share.routes.serialize_for_remote", side_effect=lambda x: x),
+            patch("share.routes.get_remote_config") as mock_cfg,
+        ):
+            cfg = MagicMock()
+            cfg.is_ready = True
+            mock_cfg.return_value = cfg
 
-                        resp = client.post(
-                            f"/api/workers/{sample_worker.id}/share",
-                            json={"expires_in_seconds": 3600},
-                        )
-                        assert resp.status_code == 200, resp.text
-                        body = resp.json()
-                        assert body["data"]["short_url"] == "https://share.quantcell.top/abc"
-                        assert body["data"]["remote_status"] == "UPLOADED"
+            resp = client.post(
+                f"/api/workers/{sample_worker.id}/share",
+                json={"expires_in_seconds": 3600},
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["data"]["short_url"] == "https://share.quantcell.top/abc"
+            assert body["data"]["remote_status"] == "UPLOADED"
 
-                        from share.models import ShareToken
-                        share = db_session.query(ShareToken).filter_by(worker_id=sample_worker.id).first()
-                        assert share is not None
-                        assert share.remote_id == "r-mock-1"
-                        assert share.short_url == "https://share.quantcell.top/abc"
-                        assert share.remote_status == "UPLOADED"
+            from share.models import ShareToken
+
+            share = db_session.query(ShareToken).filter_by(worker_id=sample_worker.id).first()
+            assert share is not None
+            assert share.remote_id == "r-mock-1"
+            assert share.short_url == "https://share.quantcell.top/abc"
+            assert share.remote_status == "UPLOADED"
     _reset_singleton()
 
 
@@ -265,38 +297,50 @@ def test_route_create_share_upload_failure_returns_502(sample_worker, db_session
 
     from share.remote_client import RemoteShareError
 
-    with patch("share.routes.ensure_remote_credentials", return_value=("qck_mock", "mock_secret")):
-        with patch("share.routes.RemoteShareClient") as MockClient:
-            instance = MockClient.return_value
-            instance.upload_sync.side_effect = RemoteShareError("network timeout")
-            with patch("share.routes.build_snapshot", return_value={"worker": {"id": sample_worker.id}}):
-                with patch("share.routes.serialize_for_remote", side_effect=lambda x: x):
-                    with patch("share.routes.get_remote_config") as mock_cfg:
-                        cfg = MagicMock()
-                        cfg.is_ready = True
-                        mock_cfg.return_value = cfg
+    with (
+        patch(
+            "share.routes.ensure_remote_credentials",
+            return_value=("qck_mock", "mock_secret"),
+        ),
+        patch("share.routes.RemoteShareClient") as MockClient,
+    ):
+        instance = MockClient.return_value
+        instance.upload_sync.side_effect = RemoteShareError("network timeout")
+        with (
+            patch(
+                "share.routes.build_snapshot",
+                return_value={"worker": {"id": sample_worker.id}},
+            ),
+            patch("share.routes.serialize_for_remote", side_effect=lambda x: x),
+            patch("share.routes.get_remote_config") as mock_cfg,
+        ):
+            cfg = MagicMock()
+            cfg.is_ready = True
+            mock_cfg.return_value = cfg
 
-                        resp = client.post(
-                            f"/api/workers/{sample_worker.id}/share",
-                            json={"expires_in_seconds": 3600},
-                        )
-                        assert resp.status_code == 502, resp.text
-                        assert "network timeout" in resp.json()["detail"]
+            resp = client.post(
+                f"/api/workers/{sample_worker.id}/share",
+                json={"expires_in_seconds": 3600},
+            )
+            assert resp.status_code == 502, resp.text
+            assert "network timeout" in resp.json()["detail"]
 
-                        from share.models import ShareToken
-                        share = db_session.query(ShareToken).filter_by(worker_id=sample_worker.id).first()
-                        # 远端失败时 token 仍落库,remote_status=FAILED,供 retry-remote 端点重试
-                        assert share is not None
-                        assert share.remote_status == "FAILED"
-                        assert "network timeout" in (share.remote_error or "")
+            from share.models import ShareToken
+
+            share = db_session.query(ShareToken).filter_by(worker_id=sample_worker.id).first()
+            # 远端失败时 token 仍落库,remote_status=FAILED,供 retry-remote 端点重试
+            assert share is not None
+            assert share.remote_status == "FAILED"
+            assert "network timeout" in (share.remote_error or "")
     _reset_singleton()
 
 
 def test_route_create_share_auto_configures_credentials(sample_worker, db_session, tmp_path, monkeypatch):
     """首次 create_share 时凭据未配置 → 触发远端 auto-register → 上传成功"""
-    from share.config import ShareRemoteConfig
-    from share import credentials
     from share import config as share_config
+    from share import credentials
+    from share.config import ShareRemoteConfig
+
     target = tmp_path / "config.local.toml"
     monkeypatch.setattr(share_config, "CONFIG_LOCAL", target)
     monkeypatch.setattr(credentials, "CONFIG_LOCAL", target)
@@ -307,37 +351,46 @@ def test_route_create_share_auto_configures_credentials(sample_worker, db_sessio
     monkeypatch.delenv("SHARE_REMOTE_HMAC_SECRET", raising=False)
 
     from share import remote_client
+
     mock_result = {
         "id": 1,
         "api_key": "qck_auto_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",  # 4+32 = 36 chars
         "hmac_secret": "a" * 64,
     }
-    with patch.object(
-        remote_client.RemoteShareClient,
-        "register_device_sync",
-        return_value=mock_result,
-    ) as mock_register:
-        with patch("share.routes.RemoteShareClient") as MockUpload:
-            MockUpload.return_value.upload_sync.return_value = {
-                "remote_id": "r-auto",
-                "short_url": "https://share.quantcell.top/auto",
-                "raw": {},
-            }
-            with patch("share.routes.build_snapshot", return_value={"worker": {"id": sample_worker.id}}):
-                with patch("share.routes.serialize_for_remote", side_effect=lambda x: x):
-                    client = _build_test_client(db_session)
-                    resp = client.post(
-                        f"/api/workers/{sample_worker.id}/share",
-                        json={"expires_in_seconds": 3600},
-                    )
-                    assert resp.status_code == 200, resp.text
-                    body = resp.json()
-                    assert body["data"]["short_url"] == "https://share.quantcell.top/auto"
-                    assert body["data"]["remote_status"] == "UPLOADED"
-                    # 确认调了远端 register
-                    mock_register.assert_called_once()
+    with (
+        patch.object(
+            remote_client.RemoteShareClient,
+            "register_device_sync",
+            return_value=mock_result,
+        ) as mock_register,
+        patch("share.routes.RemoteShareClient") as MockUpload,
+    ):
+        MockUpload.return_value.upload_sync.return_value = {
+            "remote_id": "r-auto",
+            "short_url": "https://share.quantcell.top/auto",
+            "raw": {},
+        }
+        with (
+            patch(
+                "share.routes.build_snapshot",
+                return_value={"worker": {"id": sample_worker.id}},
+            ),
+            patch("share.routes.serialize_for_remote", side_effect=lambda x: x),
+        ):
+            client = _build_test_client(db_session)
+            resp = client.post(
+                f"/api/workers/{sample_worker.id}/share",
+                json={"expires_in_seconds": 3600},
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["data"]["short_url"] == "https://share.quantcell.top/auto"
+            assert body["data"]["remote_status"] == "UPLOADED"
+            # 确认调了远端 register
+            mock_register.assert_called_once()
     # 凭据已落盘
     import tomli
+
     toml_data = tomli.loads(target.read_text(encoding="utf-8"))
     assert toml_data["share_remote"]["api_key"].startswith("qck_auto_")
     ShareRemoteConfig._instance = None
@@ -345,9 +398,10 @@ def test_route_create_share_auto_configures_credentials(sample_worker, db_sessio
 
 def test_route_create_share_no_admin_token_returns_503(sample_worker, db_session, tmp_path, monkeypatch):
     """凭据未配置 + 无 admin token → create_share 返 503"""
-    from share.config import ShareRemoteConfig
-    from share import credentials
     from share import config as share_config
+    from share import credentials
+    from share.config import ShareRemoteConfig
+
     target = tmp_path / "config.local.toml"
     monkeypatch.setattr(share_config, "CONFIG_LOCAL", target)
     monkeypatch.setattr(credentials, "CONFIG_LOCAL", target)
@@ -375,6 +429,7 @@ def test_route_retry_remote_success(sample_worker, db_session):
     client = _build_test_client(db_session)
 
     from share import crud
+
     share, _ = crud.create_share_token(
         db=db_session,
         worker_id=sample_worker.id,
@@ -388,32 +443,42 @@ def test_route_retry_remote_success(sample_worker, db_session):
     db_session.commit()
     db_session.refresh(share)
 
-    with patch("share.routes.ensure_remote_credentials", return_value=("qck_mock", "mock_secret")):
-        with patch("share.routes.RemoteShareClient") as MockClient:
-            instance = MockClient.return_value
-            instance.upload_sync.return_value = {
-                "remote_id": "r-retry-1",
-                "short_url": "https://share.quantcell.top/retry-ok",
-                "raw": {},
-            }
-            with patch("share.routes.build_snapshot", return_value={"worker": {"id": sample_worker.id}}):
-                with patch("share.routes.serialize_for_remote", side_effect=lambda x: x):
-                    with patch("share.routes.get_remote_config") as mock_cfg:
-                        cfg = MagicMock()
-                        cfg.is_ready = True
-                        mock_cfg.return_value = cfg
+    with (
+        patch(
+            "share.routes.ensure_remote_credentials",
+            return_value=("qck_mock", "mock_secret"),
+        ),
+        patch("share.routes.RemoteShareClient") as MockClient,
+    ):
+        instance = MockClient.return_value
+        instance.upload_sync.return_value = {
+            "remote_id": "r-retry-1",
+            "short_url": "https://share.quantcell.top/retry-ok",
+            "raw": {},
+        }
+        with (
+            patch(
+                "share.routes.build_snapshot",
+                return_value={"worker": {"id": sample_worker.id}},
+            ),
+            patch("share.routes.serialize_for_remote", side_effect=lambda x: x),
+            patch("share.routes.get_remote_config") as mock_cfg,
+        ):
+            cfg = MagicMock()
+            cfg.is_ready = True
+            mock_cfg.return_value = cfg
 
-                        resp = client.post(
-                            f"/api/workers/{sample_worker.id}/share/{share.id}/retry-remote",
-                            json={},
-                        )
-                        assert resp.status_code == 200, resp.text
-                        body = resp.json()
-                        assert body["data"]["short_url"] == "https://share.quantcell.top/retry-ok"
-                        assert body["data"]["remote_status"] == "UPLOADED"
+            resp = client.post(
+                f"/api/workers/{sample_worker.id}/share/{share.id}/retry-remote",
+                json={},
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["data"]["short_url"] == "https://share.quantcell.top/retry-ok"
+            assert body["data"]["remote_status"] == "UPLOADED"
 
-                        db_session.refresh(share)
-                        assert share.remote_status == "UPLOADED"
-                        assert share.remote_id == "r-retry-1"
-                        assert share.remote_error is None
+            db_session.refresh(share)
+            assert share.remote_status == "UPLOADED"
+            assert share.remote_id == "r-retry-1"
+            assert share.remote_error is None
     _reset_singleton()

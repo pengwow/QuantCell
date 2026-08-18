@@ -8,25 +8,35 @@ Worker API路由定义
 import asyncio
 import json
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, WebSocket, WebSocketDisconnect, Request
-from sqlalchemy.orm import Session
-from typing import Optional, Dict, Any
-
-from . import schemas
-from . import crud
-from .core_service import worker_core_service
-from .exceptions import (
-    WorkerNotFoundException,
-    WorkerAlreadyRunningException,
-    WorkerException,
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
 )
-from .decorators import handle_worker_exceptions
-from .worker_state import worker_state_manager
-from .dependencies import get_current_user, get_db_session
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 from worker.state import connection_manager, strategy_registry
+
+from . import crud, schemas
+from .core_service import worker_core_service
+from .decorators import handle_worker_exceptions
+from .dependencies import get_current_user, get_db_session
+from .exceptions import (
+    WorkerAlreadyRunningException,
+    WorkerNotFoundException,
+)
+from .worker_state import worker_state_manager
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -41,6 +51,7 @@ router = APIRouter(
 
 
 # ==================== WebSocket端点 ====================
+
 
 async def websocket_endpoint(websocket: WebSocket):
     await connection_manager.connect(websocket)
@@ -57,17 +68,19 @@ async def websocket_endpoint(websocket: WebSocket):
                         await websocket.send_json({"type": "pong"})
                 except json.JSONDecodeError:
                     pass
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 await websocket.send_json({"type": "heartbeat"})
 
             now = time.time()
             if now - last_snapshot_time >= 3.0:
                 strategies = [s.to_dict() for s in strategy_registry.list_all()]
-                await websocket.send_json({
-                    "type": "state_snapshot",
-                    "strategies": strategies,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                })
+                await websocket.send_json(
+                    {
+                        "type": "state_snapshot",
+                        "strategies": strategies,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                )
                 last_snapshot_time = now
     except WebSocketDisconnect:
         connection_manager.disconnect(websocket)
@@ -75,12 +88,13 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # ==================== 基础管理模块 ====================
 
+
 @router.post("", response_model=schemas.ApiResponse)
 @handle_worker_exceptions("创建Worker")
 async def create_worker(
     request: schemas.WorkerCreate,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """创建新的Worker节点 - 委托给 WorkerCoreService"""
     result = await worker_core_service.async_create_worker(request.dict())
@@ -90,12 +104,12 @@ async def create_worker(
 @router.get("", response_model=schemas.ApiResponse)
 @handle_worker_exceptions("获取Worker列表")
 async def list_workers(
-    status: Optional[str] = Query(None, description="按状态筛选"),
-    strategy_id: Optional[int] = Query(None, description="按策略ID筛选"),
+    status: str | None = Query(None, description="按状态筛选"),
+    strategy_id: int | None = Query(None, description="按策略ID筛选"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     获取Worker列表（支持分页、状态筛选和策略筛选）
@@ -132,7 +146,7 @@ async def list_workers(
 async def get_worker(
     worker_id: int,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     获取Worker详情（包含实时状态信息）
@@ -162,7 +176,7 @@ async def get_worker(
 async def get_worker_state(
     worker_id: int,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     获取Worker详细状态信息（专用端点）
@@ -195,42 +209,35 @@ async def get_worker_state(
     state = await worker_state_manager.get_state(worker_id)
 
     if not state:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Worker {worker_id} 状态信息不存在"
-        )
+        raise HTTPException(status_code=404, detail=f"Worker {worker_id} 状态信息不存在")
 
     result = state.to_dict()
 
     worker = crud.get_worker(db, worker_id)
     if worker:
-        result['name'] = worker.name
-        result['strategy_id'] = worker.strategy_id
+        result["name"] = worker.name
+        result["strategy_id"] = worker.strategy_id
         trading_config = worker.get_trading_config_dict()
-        result['exchange'] = trading_config.get('exchange', 'binance')
-        result['symbol'] = worker.get_symbols()
-        result['timeframe'] = trading_config.get('timeframe', '1h')
-        result['market_type'] = trading_config.get('market_type', 'spot')
-        result['trading_mode'] = trading_config.get('trading_mode', 'paper')
+        result["exchange"] = trading_config.get("exchange", "binance")
+        result["symbol"] = worker.get_symbols()
+        result["timeframe"] = trading_config.get("timeframe", "1h")
+        result["market_type"] = trading_config.get("market_type", "spot")
+        result["trading_mode"] = trading_config.get("trading_mode", "paper")
 
         strategy_info = None
         if worker.strategy:
             strategy_info = {
-                'id': worker.strategy.id,
-                'name': worker.strategy.name,
-                'description': worker.strategy.description,
-                'strategy_type': worker.strategy.strategy_type,
-                'version': worker.strategy.version,
+                "id": worker.strategy.id,
+                "name": worker.strategy.name,
+                "description": worker.strategy.description,
+                "strategy_type": worker.strategy.strategy_type,
+                "version": worker.strategy.version,
             }
-        result['strategy_info'] = strategy_info
+        result["strategy_info"] = strategy_info
 
     logger.debug(f"获取Worker {worker_id} 状态: {state.status}")
 
-    return schemas.ApiResponse(
-        code=0,
-        message="success",
-        data=result
-    )
+    return schemas.ApiResponse(code=0, message="success", data=result)
 
 
 @router.put("/{worker_id}", response_model=schemas.ApiResponse)
@@ -239,12 +246,10 @@ async def update_worker(
     worker_id: int,
     request: schemas.WorkerUpdate,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """更新Worker配置 - 委托给 WorkerCoreService"""
-    result = await worker_core_service.async_update_worker(
-        worker_id, request.dict(exclude_unset=True)
-    )
+    result = await worker_core_service.async_update_worker(worker_id, request.dict(exclude_unset=True))
     return schemas.ApiResponse(code=0, message="Worker更新成功", data=result)
 
 
@@ -254,7 +259,7 @@ async def update_worker_config(
     worker_id: int,
     request: schemas.WorkerConfigUpdate,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """部分更新Worker配置 - 委托给 WorkerCoreService"""
     result = await worker_core_service.async_update_worker_config(worker_id, request.config)
@@ -266,7 +271,7 @@ async def update_worker_config(
 async def delete_worker(
     worker_id: int,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """删除Worker - 委托给 WorkerCoreService"""
     await worker_core_service.async_delete_worker(worker_id)
@@ -279,7 +284,7 @@ async def clone_worker(
     worker_id: int,
     request: schemas.WorkerCloneRequest,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """克隆Worker - 委托给 WorkerCoreService"""
     result = await worker_core_service.async_clone_worker(
@@ -294,16 +299,15 @@ async def batch_operation(
     request: schemas.BatchOperationRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """批量操作Worker（支持批量启动、停止、重启）- 委托给 WorkerCoreService"""
-    result = await worker_core_service.async_batch_operation(
-        request.worker_ids, request.operation
-    )
+    result = await worker_core_service.async_batch_operation(request.worker_ids, request.operation)
     return schemas.ApiResponse(code=0, message="批量操作完成", data=result)
 
 
 # ==================== 生命周期管理模块 ====================
+
 
 @router.post("/{worker_id}/lifecycle/start", response_model=schemas.ApiResponse)
 @handle_worker_exceptions("启动Worker")
@@ -311,7 +315,7 @@ async def start_worker(
     worker_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     启动Worker（异步操作）
@@ -361,7 +365,7 @@ async def start_worker(
 async def stop_worker(
     worker_id: int,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     停止Worker（异步操作）
@@ -386,7 +390,7 @@ async def stop_worker(
     if state and state.status in ("stopped", "stopping"):
         raise HTTPException(
             status_code=409,
-            detail=f"Worker {worker_id} 当前状态为 {state.status}，不允许再次停止。"
+            detail=f"Worker {worker_id} 当前状态为 {state.status}，不允许再次停止。",
         )
 
     result = await worker_core_service.async_stop_worker(worker_id)
@@ -415,7 +419,7 @@ async def restart_worker(
     worker_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """重启Worker - 委托给 WorkerCoreService"""
     result = await worker_core_service.async_restart_worker(worker_id)
@@ -427,7 +431,7 @@ async def restart_worker(
 async def get_worker_status(
     worker_id: int,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """获取Worker实时状态 - 委托给 WorkerCoreService"""
     result = await worker_core_service.async_get_worker_status(worker_id)
@@ -439,7 +443,7 @@ async def get_worker_status(
 async def health_check(
     worker_id: int,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """Worker健康检查 - 委托给 WorkerCoreService"""
     result = await worker_core_service.async_health_check(worker_id)
@@ -448,12 +452,13 @@ async def health_check(
 
 # ==================== 监控数据模块 ====================
 
+
 @router.get("/{worker_id}/monitoring/metrics", response_model=schemas.ApiResponse)
 @handle_worker_exceptions("获取Worker性能指标")
 async def get_worker_metrics(
     worker_id: int,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """获取Worker实时性能指标 - 委托给 WorkerCoreService"""
     result = await worker_core_service.async_get_worker_metrics(worker_id)
@@ -464,16 +469,14 @@ async def get_worker_metrics(
 @handle_worker_exceptions("获取Worker历史指标")
 async def get_metrics_history(
     worker_id: int,
-    start_time: Optional[datetime] = Query(None, description="开始时间"),
-    end_time: Optional[datetime] = Query(None, description="结束时间"),
+    start_time: datetime | None = Query(None, description="开始时间"),
+    end_time: datetime | None = Query(None, description="结束时间"),
     interval: str = Query("1m", description="时间间隔: 1m, 5m, 1h"),
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """获取历史性能指标 - 委托给 WorkerCoreService"""
-    result = await worker_core_service.async_get_metrics_history(
-        worker_id, start_time, end_time, interval
-    )
+    result = await worker_core_service.async_get_metrics_history(worker_id, start_time, end_time, interval)
     return schemas.ApiResponse(code=0, message="success", data=result)
 
 
@@ -481,13 +484,13 @@ async def get_metrics_history(
 @handle_worker_exceptions("获取Worker日志")
 async def get_worker_logs(
     worker_id: int,
-    level: Optional[str] = Query(None, description="日志级别筛选 (DEBUG/INFO/WARNING/ERROR)"),
-    start_time: Optional[datetime] = Query(None, description="开始时间 (ISO 8601)"),
-    end_time: Optional[datetime] = Query(None, description="结束时间 (ISO 8601)"),
+    level: str | None = Query(None, description="日志级别筛选 (DEBUG/INFO/WARNING/ERROR)"),
+    start_time: datetime | None = Query(None, description="开始时间 (ISO 8601)"),
+    end_time: datetime | None = Query(None, description="结束时间 (ISO 8601)"),
     limit: int = Query(100, ge=1, le=1000, description="返回条数 (1-1000)"),
     offset: int = Query(0, ge=0, description="偏移量（用于分页）"),
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     获取 Worker 日志（基于文件系统 - 高性能方案）
@@ -495,9 +498,7 @@ async def get_worker_logs(
     直接从日志文件读取，支持分页查询，无数据库压力 - 委托给 WorkerCoreService
     """
     try:
-        result = await worker_core_service.async_get_worker_logs(
-            worker_id, level, start_time, end_time, limit, offset
-        )
+        result = await worker_core_service.async_get_worker_logs(worker_id, level, start_time, end_time, limit, offset)
         return schemas.ApiResponse(code=0, message="success", data=result)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=f"Worker {worker_id} 的日志文件不存在") from e
@@ -507,10 +508,10 @@ async def get_worker_logs(
 @handle_worker_exceptions("清理Worker日志")
 async def clear_worker_logs(
     worker_id: int,
-    before_days: Optional[int] = Query(None, description="清理多少天前的日志，不指定则清理所有"),
+    before_days: int | None = Query(None, description="清理多少天前的日志，不指定则清理所有"),
     confirm: bool = Query(False, description="确认清空操作（安全措施）"),
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     清理 Worker 日志文件
@@ -518,14 +519,16 @@ async def clear_worker_logs(
     安全措施：需要确认参数，记录操作审计日志 - 委托给 WorkerCoreService
     """
     try:
-        result = await worker_core_service.async_clear_worker_logs(
-            worker_id, before_days, confirm
-        )
+        result = await worker_core_service.async_clear_worker_logs(worker_id, before_days, confirm)
         logger.info(
             f"用户 {current_user.get('username')} 清理了 Worker {worker_id} 的日志文件, "
             f"删除 {result.get('deleted_count', 0)} 个文件"
         )
-        return schemas.ApiResponse(code=0, message=f"成功清理 {result.get('deleted_count', 0)} 个日志文件", data=result)
+        return schemas.ApiResponse(
+            code=0,
+            message=f"成功清理 {result.get('deleted_count', 0)} 个日志文件",
+            data=result,
+        )
     except ValueError as e:
         return schemas.ApiResponse(code=400, message=str(e), data=None)
 
@@ -534,22 +537,27 @@ async def clear_worker_logs(
 async def log_stream_sse(
     worker_id: int,
     request: Request,
-    token: Optional[str] = Query(None, description="JWT token for SSE authentication (EventSource cannot send headers)")
+    token: str | None = Query(
+        None,
+        description="JWT token for SSE authentication (EventSource cannot send headers)",
+    ),
 ):
     """
     SSE 实时日志流 (推荐方案)
 
     通过 Server-Sent Events 实时推送 Worker 日志。
-    
+
     特殊路由：保留较多代码因为涉及 EventSourceResponse 和流式生成器
     但日志读取逻辑委托给 core_service 的 _get_log_file_reader 方法
     """
-    from .dependencies import get_current_user
-    from fastapi.responses import EventSourceResponse
-    from fastapi.sse import format_sse_event, KEEPALIVE_COMMENT
     import json as json_module
 
-    current_user = await get_current_user(request, token=token)
+    from fastapi.responses import EventSourceResponse
+    from fastapi.sse import format_sse_event
+
+    from .dependencies import get_current_user
+
+    await get_current_user(request, token=token)
 
     reader = worker_core_service._get_log_file_reader(str(worker_id))
 
@@ -571,11 +579,11 @@ async def log_stream_sse(
             if await request.is_disconnected():
                 return
 
-            logger.info(f"SSE 日志流: 发送 history_complete 信号")
+            logger.info("SSE 日志流: 发送 history_complete 信号")
             yield format_sse_event(event="history_complete", data_str='{"status": "complete"}')
 
             event_id = 1000
-            logger.info(f"SSE 日志流: 开始监控实时日志 (poll_interval=0.2s)")
+            logger.info("SSE 日志流: 开始监控实时日志 (poll_interval=0.2s)")
             async for new_log in reader.watch_logs(
                 worker_id=str(worker_id),
                 poll_interval=0.2,
@@ -592,8 +600,9 @@ async def log_stream_sse(
                 )
         except Exception as e:
             import traceback
+
             error_msg = str(e).lower()
-            if any(keyword in error_msg for keyword in ['close', 'disconnect', 'cancelled']):
+            if any(keyword in error_msg for keyword in ["close", "disconnect", "cancelled"]):
                 logger.info(f"Worker {worker_id} SSE 日志流: 客户端断开连接")
             else:
                 logger.error(f"SSE 日志流异常: {e}\n{traceback.format_exc()}")
@@ -625,7 +634,7 @@ async def get_worker_performance(
     worker_id: int,
     days: int = Query(30, ge=1, le=365, description="查询天数"),
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """获取Worker绩效统计 - 委托给 WorkerCoreService"""
     result = await worker_core_service.async_get_worker_performance(worker_id, days)
@@ -636,32 +645,41 @@ async def get_worker_performance(
 @handle_worker_exceptions("获取Worker交易记录")
 async def get_worker_trades(
     worker_id: int,
-    symbol: Optional[str] = Query(None, description="交易对筛选"),
-    side: Optional[str] = Query(None, description="买卖方向: buy/sell"),
-    order_type: Optional[str] = Query(None, description="订单类型: market/limit/stop"),
-    pnl_status: Optional[str] = Query(None, description="盈亏状态: profit/loss/flat"),
-    start_time: Optional[datetime] = Query(None, description="开始时间"),
-    end_time: Optional[datetime] = Query(None, description="结束时间"),
+    symbol: str | None = Query(None, description="交易对筛选"),
+    side: str | None = Query(None, description="买卖方向: buy/sell"),
+    order_type: str | None = Query(None, description="订单类型: market/limit/stop"),
+    pnl_status: str | None = Query(None, description="盈亏状态: profit/loss/flat"),
+    start_time: datetime | None = Query(None, description="开始时间"),
+    end_time: datetime | None = Query(None, description="结束时间"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """获取Worker交易记录 - 委托给 WorkerCoreService"""
     result = await worker_core_service.async_get_worker_trades(
-        worker_id, symbol, side, order_type, pnl_status, start_time, end_time, page, page_size
+        worker_id,
+        symbol,
+        side,
+        order_type,
+        pnl_status,
+        start_time,
+        end_time,
+        page,
+        page_size,
     )
     return schemas.ApiResponse(code=0, message="success", data=result)
 
 
 # ==================== 策略代理模块 ====================
 
+
 @router.get("/{worker_id}/strategy/parameters", response_model=schemas.ApiResponse)
 @handle_worker_exceptions("获取策略参数")
 async def get_strategy_parameters(
     worker_id: int,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """获取策略参数 - 委托给 crud 层"""
     from . import crud
@@ -676,7 +694,7 @@ async def update_strategy_parameters(
     worker_id: int,
     request: schemas.StrategyParameterUpdate,
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     更新策略参数
@@ -693,13 +711,14 @@ async def update_strategy_parameters(
 @handle_worker_exceptions("获取Worker持仓信息")
 async def get_positions(
     worker_id: int,
-    status: Optional[str] = Query("OPEN", description="持仓状态: OPEN/CLOSED"),
-    symbol: Optional[str] = Query(None, description="交易对筛选"),
-    side: Optional[str] = Query(None, description="方向: LONG/SHORT"),
+    status: str | None = Query("OPEN", description="持仓状态: OPEN/CLOSED"),
+    symbol: str | None = Query(None, description="交易对筛选"),
+    side: str | None = Query(None, description="方向: LONG/SHORT"),
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     from . import crud
+
     positions = crud.get_worker_positions_filtered(db, worker_id, status, symbol, side)
     return schemas.ApiResponse(code=0, message="success", data=positions)
 
@@ -708,31 +727,45 @@ async def get_positions(
 @handle_worker_exceptions("获取Worker订单信息")
 async def get_orders(
     worker_id: int,
-    symbol: Optional[str] = Query(None, description="交易对"),
-    side: Optional[str] = Query(None, description="方向: BUY/SELL"),
-    order_type: Optional[str] = Query(None, description="订单类型"),
-    start_time: Optional[datetime] = Query(None, description="开始时间"),
-    end_time: Optional[datetime] = Query(None, description="结束时间"),
+    symbol: str | None = Query(None, description="交易对"),
+    side: str | None = Query(None, description="方向: BUY/SELL"),
+    order_type: str | None = Query(None, description="订单类型"),
+    start_time: datetime | None = Query(None, description="开始时间"),
+    end_time: datetime | None = Query(None, description="结束时间"),
     page_size: int = Query(50, ge=1, le=100, description="每页数量"),
     page: int = Query(1, ge=1, description="页码"),
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     from . import crud
+
     skip = (page - 1) * page_size
     orders, total = crud.get_worker_orders_paginated(
-        db, worker_id, status=None, symbol=symbol, side=side, order_type=order_type,
-        start_time=start_time, end_time=end_time, skip=skip, limit=page_size
+        db,
+        worker_id,
+        status=None,
+        symbol=symbol,
+        side=side,
+        order_type=order_type,
+        start_time=start_time,
+        end_time=end_time,
+        skip=skip,
+        limit=page_size,
     )
-    return schemas.ApiResponse(code=0, message="success", data={
-        "items": [o.to_dict() for o in orders],
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-    })
+    return schemas.ApiResponse(
+        code=0,
+        message="success",
+        data={
+            "items": [o.to_dict() for o in orders],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        },
+    )
 
 
 # ========== 兼容性函数（供 main.py 和 core/lifespan.py 使用）==========
+
 
 async def shutdown_worker_manager():
     """
@@ -752,17 +785,18 @@ async def shutdown_worker_manager():
 
 # ==================== 实时日志模块 ====================
 
+
 @router.get("/{worker_id}/logs/recent", response_model=schemas.ApiResponse)
 @handle_worker_exceptions("获取Worker最近日志")
 async def get_worker_recent_logs(
     worker_id: str,
     limit: int = Query(default=100, ge=1, le=1000, description="最大返回条数"),
-    level: Optional[str] = Query(
+    level: str | None = Query(
         default=None,
         pattern=r"^(DEBUG|INFO|WARNING|ERROR)$",
-        description="日志级别过滤"
+        description="日志级别过滤",
     ),
-    keyword: Optional[str] = Query(default=None, description="关键词搜索（不区分大小写）"),
+    keyword: str | None = Query(default=None, description="关键词搜索（不区分大小写）"),
 ):
     """
     获取 Worker 最近日志（从内存缓冲区实时查询）
@@ -794,7 +828,7 @@ async def get_worker_recent_logs(
             "count": len(logs),
             "logs": logs,
             "query_time": datetime.now().isoformat(),
-        }
+        },
     )
 
 
@@ -814,11 +848,7 @@ async def get_global_log_stats():
     buffer = get_global_buffer()
     stats = buffer.get_stats()
 
-    return schemas.ApiResponse(
-        code=0,
-        message="获取统计信息成功",
-        data=stats
-    )
+    return schemas.ApiResponse(code=0, message="获取统计信息成功", data=stats)
 
 
 @router.get("/logs/search", response_model=schemas.ApiResponse)
@@ -844,7 +874,7 @@ async def search_logs(
             "query": query,
             "count": len(results),
             "results": results,
-        }
+        },
     )
 
 
@@ -860,7 +890,7 @@ WINDOW_TO_TIMEDELTA = {
 }
 
 
-def _resolve_window(window: str) -> Optional[datetime]:
+def _resolve_window(window: str) -> datetime | None:
     """根据窗口字符串计算 start_time，all 时返回 None（不限制）"""
     delta = WINDOW_TO_TIMEDELTA.get(window)
     if delta is None:
@@ -872,7 +902,11 @@ def _resolve_window(window: str) -> Optional[datetime]:
 @handle_worker_exceptions("获取交易汇总统计")
 async def get_trading_summary(
     worker_id: int,
-    window: str = Query("30d", pattern="^(24h|7d|30d|90d|all)$", description="时间窗口: 24h/7d/30d/90d/all"),
+    window: str = Query(
+        "30d",
+        pattern="^(24h|7d|30d|90d|all)$",
+        description="时间窗口: 24h/7d/30d/90d/all",
+    ),
     db: Session = Depends(get_db_session),
     _current_user: dict = Depends(get_current_user),
 ):
@@ -881,6 +915,7 @@ async def get_trading_summary(
         raise WorkerNotFoundException(worker_id)
 
     from .stats_service import TradingStatsService
+
     stats_service = TradingStatsService(db)
     result = stats_service.get_trading_summary(worker_id, window=window)
     return schemas.ApiResponse(data=result)
@@ -890,7 +925,11 @@ async def get_trading_summary(
 @handle_worker_exceptions("获取Worker总览")
 async def get_overview(
     worker_id: int,
-    window: str = Query("30d", pattern="^(24h|7d|30d|90d|all)$", description="时间窗口: 24h/7d/30d/90d/all"),
+    window: str = Query(
+        "30d",
+        pattern="^(24h|7d|30d|90d|all)$",
+        description="时间窗口: 24h/7d/30d/90d/all",
+    ),
     db: Session = Depends(get_db_session),
     _current_user: dict = Depends(get_current_user),
 ):
@@ -899,6 +938,7 @@ async def get_overview(
         raise WorkerNotFoundException(worker_id)
 
     from .stats_service import TradingStatsService
+
     stats_service = TradingStatsService(db)
     result = stats_service.get_overview(worker_id, window=window)
     return schemas.ApiResponse(data=result)
@@ -916,6 +956,7 @@ async def get_position_summary(
         raise WorkerNotFoundException(worker_id)
 
     from .stats_service import TradingStatsService
+
     stats_service = TradingStatsService(db)
     result = stats_service.get_position_summary(worker_id)
     return schemas.ApiResponse(data=result)
@@ -933,6 +974,7 @@ async def get_pnl_distribution(
         raise WorkerNotFoundException(worker_id)
 
     from .stats_service import TradingStatsService
+
     stats_service = TradingStatsService(db)
     result = stats_service.get_pnl_distribution(worker_id)
     return schemas.ApiResponse(data=result)
@@ -951,6 +993,7 @@ async def get_trade_history_chart(
         raise WorkerNotFoundException(worker_id)
 
     from .stats_service import TradingStatsService
+
     stats_service = TradingStatsService(db)
     result = stats_service.get_trade_history_chart(worker_id, days)
     return schemas.ApiResponse(data=result)
@@ -960,13 +1003,14 @@ async def get_trade_history_chart(
 @handle_worker_exceptions("获取带时间过滤的交易汇总")
 async def get_trading_summary_filtered(
     worker_id: int,
-    start_time: Optional[datetime] = Query(None, description="开始时间"),
-    end_time: Optional[datetime] = Query(None, description="结束时间"),
+    start_time: datetime | None = Query(None, description="开始时间"),
+    end_time: datetime | None = Query(None, description="结束时间"),
     db: Session = Depends(get_db_session),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     from . import crud
     from .models import Worker
+
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not worker:
         raise WorkerNotFoundException(worker_id)
@@ -975,6 +1019,7 @@ async def get_trading_summary_filtered(
 
 
 # ==================== 生命周期端点 ====================
+
 
 @router.post("/{worker_id}/lifecycle/start", summary="启动自动优化生命周期")
 @handle_worker_exceptions("启动生命周期")
@@ -989,8 +1034,8 @@ async def start_lifecycle(
     - 规则策略：自动优化参数（Optuna HPO）
     - RL 策略：自动重训练模型
     """
-    from . import crud
     from .models import Worker
+
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not worker:
         raise WorkerNotFoundException(worker_id)
@@ -1000,6 +1045,7 @@ async def start_lifecycle(
     # 在后台线程运行生命周期
     def run_lifecycle():
         from worker.lifecycle import WorkerLifecycle, WorkerLifecycleConfig
+
         config = WorkerLifecycleConfig(
             worker_id=worker_id,
             strategy_type=strategy_type,
@@ -1008,13 +1054,18 @@ async def start_lifecycle(
         WorkerLifecycle(config).run()
 
     import threading
+
     thread = threading.Thread(target=run_lifecycle, daemon=True)
     thread.start()
 
     return schemas.ApiResponse(
         code=0,
         message=f"生命周期已启动 (type={strategy_type}, interval={check_hours}h)",
-        data={"worker_id": worker_id, "strategy_type": strategy_type, "check_hours": check_hours}
+        data={
+            "worker_id": worker_id,
+            "strategy_type": strategy_type,
+            "check_hours": check_hours,
+        },
     )
 
 
@@ -1026,11 +1077,7 @@ async def stop_lifecycle(
     current_user: dict = Depends(get_current_user),
 ):
     """停止 Worker 自动优化生命周期"""
-    return schemas.ApiResponse(
-        code=0,
-        message="生命周期已停止",
-        data={"worker_id": worker_id}
-    )
+    return schemas.ApiResponse(code=0, message="生命周期已停止", data={"worker_id": worker_id})
 
 
 @router.post("/{worker_id}/lifecycle/optimize", summary="手动触发一次优化")
@@ -1041,8 +1088,8 @@ async def trigger_optimize(
     current_user: dict = Depends(get_current_user),
 ):
     """手动触发一次策略优化（不启动循环）"""
-    from . import crud
     from .models import Worker
+
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not worker:
         raise WorkerNotFoundException(worker_id)
@@ -1050,6 +1097,7 @@ async def trigger_optimize(
     strategy_type = worker.strategy_type or "rule"
 
     from worker.lifecycle import WorkerLifecycle, WorkerLifecycleConfig
+
     config = WorkerLifecycleConfig(worker_id=worker_id, strategy_type=strategy_type)
 
     # 同步执行一次优化
@@ -1064,5 +1112,5 @@ async def trigger_optimize(
     return schemas.ApiResponse(
         code=0,
         message=f"优化完成 (type={strategy_type})",
-        data={"worker_id": worker_id, "strategy_type": strategy_type}
+        data={"worker_id": worker_id, "strategy_type": strategy_type},
     )

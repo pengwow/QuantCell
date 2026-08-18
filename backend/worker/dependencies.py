@@ -4,21 +4,19 @@ Worker模块依赖注入
 定义FastAPI依赖项
 """
 
-from fastapi import Request, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from typing import Optional
+from fastapi import Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from collector.db.database import SessionLocal, init_database_config
 from utils.jwt_utils import decode_jwt_token
-
 
 security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    token: Optional[str] = None
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    token: str | None = None,
 ) -> dict:
     """
     获取当前用户
@@ -39,10 +37,10 @@ async def get_current_user(
         return {
             "user_id": payload.get("user_id"),
             "user_name": payload.get("user_name"),
-            "email": payload.get("email")
+            "email": payload.get("email"),
         }
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"无效的认证令牌: {str(e)}")
+        raise HTTPException(status_code=401, detail=f"无效的认证令牌: {e!s}")
 
 
 async def get_db_session():
@@ -59,13 +57,10 @@ async def get_db_session():
         db.close()
 
 
-async def check_worker_permission(
-    worker_id: int,
-    current_user: dict = Depends(get_current_user)
-) -> bool:
+async def check_worker_permission(worker_id: int, current_user: dict = Depends(get_current_user)) -> bool:
     """
     检查Worker访问权限
-    
+
     验证当前用户是否有权限访问指定Worker
     """
     # 检查用户是否拥有该Worker或具有管理员权限

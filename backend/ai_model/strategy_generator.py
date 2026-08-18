@@ -6,15 +6,15 @@
 """
 
 import asyncio
-import json
 import re
 import time
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+from openai import APIConnectionError as OpenAIAPIConnectionError
 from openai import (
     APIError,
     APITimeoutError,
@@ -22,11 +22,13 @@ from openai import (
     OpenAI,
     RateLimitError,
 )
-from openai import APIConnectionError as OpenAIAPIConnectionError
 
 from ai_model.performance_monitor import get_performance_monitor
 from ai_model.prompts import PromptCategory, PromptManager
 from ai_model.thinking_chain import ThinkingChainManager
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 
 class StrategyGenerationError(Exception):
@@ -91,19 +93,31 @@ class StrategyGenerator:
 
     # 思维链步骤定义
     THINKING_CHAIN_STEPS = [
-        {"key": "analyze_requirement", "title": "分析需求", "description": "分析用户策略需求，提取关键要素"},
-        {"key": "design_strategy", "title": "设计策略", "description": "根据需求设计交易策略逻辑"},
-        {"key": "generate_code", "title": "生成代码", "description": "将策略逻辑转换为可执行代码"},
+        {
+            "key": "analyze_requirement",
+            "title": "分析需求",
+            "description": "分析用户策略需求，提取关键要素",
+        },
+        {
+            "key": "design_strategy",
+            "title": "设计策略",
+            "description": "根据需求设计交易策略逻辑",
+        },
+        {
+            "key": "generate_code",
+            "title": "生成代码",
+            "description": "将策略逻辑转换为可执行代码",
+        },
         {"key": "optimize", "title": "优化完善", "description": "优化代码结构和性能"},
     ]
 
     def __init__(
         self,
         api_key: str,
-        api_host: Optional[str] = None,
-        model_id: Optional[str] = None,
-        model_name: Optional[str] = None,
-        temperature: Optional[float] = None,
+        api_host: str | None = None,
+        model_id: str | None = None,
+        model_name: str | None = None,
+        temperature: float | None = None,
         chain_type: str = "strategy_generation",
     ):
         """初始化策略生成器
@@ -163,7 +177,9 @@ class StrategyGenerator:
             if chain:
                 self._thinking_chain = chain
                 self._thinking_chain_steps = chain.get("steps", [])
-                logger.info(f"思维链配置加载成功: {chain.get('name', 'unknown')}, 步骤数: {len(self._thinking_chain_steps)}")
+                logger.info(
+                    f"思维链配置加载成功: {chain.get('name', 'unknown')}, 步骤数: {len(self._thinking_chain_steps)}"
+                )
             else:
                 # 使用默认配置
                 self._thinking_chain_steps = self.THINKING_CHAIN_STEPS
@@ -172,7 +188,7 @@ class StrategyGenerator:
             logger.warning(f"加载思维链配置失败: {e}，使用默认配置")
             self._thinking_chain_steps = self.THINKING_CHAIN_STEPS
 
-    def _init_thinking_chain_state(self) -> Dict[str, Any]:
+    def _init_thinking_chain_state(self) -> dict[str, Any]:
         """初始化思维链状态
 
         Returns:
@@ -180,13 +196,15 @@ class StrategyGenerator:
         """
         steps = []
         for i, step in enumerate(self._thinking_chain_steps):
-            steps.append({
-                "key": step.get("key", f"step_{i}"),
-                "title": step.get("title", f"步骤{i+1}"),
-                "description": step.get("description", ""),
-                "order": i + 1,
-                "status": "pending",
-            })
+            steps.append(
+                {
+                    "key": step.get("key", f"step_{i}"),
+                    "title": step.get("title", f"步骤{i + 1}"),
+                    "description": step.get("description", ""),
+                    "order": i + 1,
+                    "status": "pending",
+                }
+            )
 
         self._thinking_chain_state = {
             "steps": steps,
@@ -197,7 +215,7 @@ class StrategyGenerator:
         self._current_step_index = 0
         return self._thinking_chain_state
 
-    def _update_step_status(self, step_index: int, status: str, message: Optional[str] = None) -> Dict[str, Any]:
+    def _update_step_status(self, step_index: int, status: str, message: str | None = None) -> dict[str, Any]:
         """更新思维链步骤状态
 
         Args:
@@ -238,7 +256,7 @@ class StrategyGenerator:
 
         return self._thinking_chain_state
 
-    def _get_current_step_info(self) -> Dict[str, Any]:
+    def _get_current_step_info(self) -> dict[str, Any]:
         """获取当前步骤信息
 
         Returns:
@@ -274,7 +292,7 @@ class StrategyGenerator:
         requirement: str,
         prompt_category: PromptCategory = PromptCategory.STRATEGY_GENERATION,
         **template_vars: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """同步生成策略
 
         根据用户需求生成完整的策略代码，返回包含代码和元数据的字典。
@@ -315,7 +333,10 @@ class StrategyGenerator:
             response = self._client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": "你是一个专业的量化交易策略生成专家。"},
+                    {
+                        "role": "system",
+                        "content": "你是一个专业的量化交易策略生成专家。",
+                    },
                     {"role": "user", "content": prompt},
                 ],
                 temperature=self.temperature,
@@ -339,9 +360,7 @@ class StrategyGenerator:
                 "elapsed_time": elapsed_time,
                 "total_tokens": response.usage.total_tokens if response.usage else None,
                 "prompt_tokens": response.usage.prompt_tokens if response.usage else None,
-                "completion_tokens": response.usage.completion_tokens
-                if response.usage
-                else None,
+                "completion_tokens": response.usage.completion_tokens if response.usage else None,
             }
 
             # 记录性能指标
@@ -366,7 +385,8 @@ class StrategyGenerator:
                 tokens_used=None,
                 error_code="api_authentication_error",
             )
-            raise APIAuthenticationError(f"API密钥无效或已过期: {str(e)}")
+            msg = f"API密钥无效或已过期: {e!s}"
+            raise APIAuthenticationError(msg)
         except RateLimitError as e:
             elapsed_time = time.time() - start_time
             logger.error(f"[{request_id}] API速率限制: {e}")
@@ -377,7 +397,8 @@ class StrategyGenerator:
                 tokens_used=None,
                 error_code="api_rate_limit_error",
             )
-            raise APIRateLimitError(f"请求过于频繁，请稍后再试: {str(e)}")
+            msg = f"请求过于频繁，请稍后再试: {e!s}"
+            raise APIRateLimitError(msg)
         except APITimeoutError as e:
             elapsed_time = time.time() - start_time
             logger.error(f"[{request_id}] API请求超时: {e}")
@@ -388,7 +409,8 @@ class StrategyGenerator:
                 tokens_used=None,
                 error_code="api_timeout_error",
             )
-            raise APIConnectionError(f"请求超时，请检查网络连接: {str(e)}")
+            msg = f"请求超时，请检查网络连接: {e!s}"
+            raise APIConnectionError(msg)
         except OpenAIAPIConnectionError as e:
             elapsed_time = time.time() - start_time
             logger.error(f"[{request_id}] API连接错误: {e}")
@@ -399,7 +421,8 @@ class StrategyGenerator:
                 tokens_used=None,
                 error_code="api_connection_error",
             )
-            raise APIConnectionError(f"无法连接到API服务: {str(e)}")
+            msg = f"无法连接到API服务: {e!s}"
+            raise APIConnectionError(msg)
         except APIError as e:
             elapsed_time = time.time() - start_time
             logger.error(f"[{request_id}] API错误: {e}")
@@ -410,7 +433,8 @@ class StrategyGenerator:
                 tokens_used=None,
                 error_code="api_error",
             )
-            raise StrategyGenerationError(f"API服务错误: {str(e)}", "api_error")
+            msg = f"API服务错误: {e!s}"
+            raise StrategyGenerationError(msg, "api_error")
         except Exception as e:
             elapsed_time = time.time() - start_time
             logger.error(f"[{request_id}] 策略生成失败: {e}")
@@ -421,9 +445,10 @@ class StrategyGenerator:
                 tokens_used=None,
                 error_code="generation_failed",
             )
-            raise StrategyGenerationError(f"策略生成失败: {str(e)}", "generation_failed")
+            msg = f"策略生成失败: {e!s}"
+            raise StrategyGenerationError(msg, "generation_failed")
 
-    def _create_thinking_chain_event(self, step_index: int, status: str, message: Optional[str] = None) -> Dict[str, Any]:
+    def _create_thinking_chain_event(self, step_index: int, status: str, message: str | None = None) -> dict[str, Any]:
         """创建思维链状态更新事件
 
         Args:
@@ -444,7 +469,9 @@ class StrategyGenerator:
                 "current_step": step_info.get("current_step", step_index + 1),
                 "total_steps": step_info.get("total_steps", len(self._thinking_chain_steps)),
                 "step_title": step_info.get("step_title", ""),
-                "step_description": self._thinking_chain_steps[step_index].get("description", "") if 0 <= step_index < len(self._thinking_chain_steps) else "",
+                "step_description": self._thinking_chain_steps[step_index].get("description", "")
+                if 0 <= step_index < len(self._thinking_chain_steps)
+                else "",
                 "step_key": step_info.get("step_key", ""),
                 "status": status,
                 "progress": step_info.get("progress", 0),
@@ -457,7 +484,7 @@ class StrategyGenerator:
         requirement: str,
         prompt_category: PromptCategory = PromptCategory.STRATEGY_GENERATION,
         **template_vars: Any,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[dict[str, Any]]:
         """流式生成策略
 
         以流式方式生成策略代码，适用于需要实时显示生成进度的场景。
@@ -485,9 +512,7 @@ class StrategyGenerator:
         start_time = time.time()
         request_id = f"stream_{int(start_time * 1000)}"
 
-        logger.info(
-            f"[{request_id}] 开始流式生成策略，模型ID: {self.model_id}, 模型名称: {self.model_name}"
-        )
+        logger.info(f"[{request_id}] 开始流式生成策略，模型ID: {self.model_id}, 模型名称: {self.model_name}")
 
         # 初始化思维链状态
         self._init_thinking_chain_state()
@@ -516,7 +541,10 @@ class StrategyGenerator:
             stream = self._client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": "你是一个专业的量化交易策略生成专家。"},
+                    {
+                        "role": "system",
+                        "content": "你是一个专业的量化交易策略生成专家。",
+                    },
                     {"role": "user", "content": prompt},
                 ],
                 temperature=self.temperature,
@@ -553,10 +581,7 @@ class StrategyGenerator:
             await asyncio.sleep(0.1)  # 确保事件及时发送
 
             elapsed_time = time.time() - start_time
-            logger.info(
-                f"[{request_id}] 流式生成完成，耗时: {elapsed_time:.2f}s, "
-                f"接收{chunk_count}个数据块"
-            )
+            logger.info(f"[{request_id}] 流式生成完成，耗时: {elapsed_time:.2f}s, 接收{chunk_count}个数据块")
 
             # 步骤4: 优化完善 - 开始
             yield self._create_thinking_chain_event(3, "processing", "正在优化代码结构...")
@@ -605,10 +630,10 @@ class StrategyGenerator:
             )
             # 更新思维链状态为错误
             if self._thinking_chain_state:
-                yield self._create_thinking_chain_event(self._current_step_index, "error", f"API认证失败: {str(e)}")
+                yield self._create_thinking_chain_event(self._current_step_index, "error", f"API认证失败: {e!s}")
             yield {
                 "type": "error",
-                "error": f"API密钥无效或已过期: {str(e)}",
+                "error": f"API密钥无效或已过期: {e!s}",
                 "error_code": "api_authentication_error",
                 "request_id": request_id,
             }
@@ -624,10 +649,10 @@ class StrategyGenerator:
             )
             # 更新思维链状态为错误
             if self._thinking_chain_state:
-                yield self._create_thinking_chain_event(self._current_step_index, "error", f"API速率限制: {str(e)}")
+                yield self._create_thinking_chain_event(self._current_step_index, "error", f"API速率限制: {e!s}")
             yield {
                 "type": "error",
-                "error": f"请求过于频繁，请稍后再试: {str(e)}",
+                "error": f"请求过于频繁，请稍后再试: {e!s}",
                 "error_code": "api_rate_limit_error",
                 "request_id": request_id,
             }
@@ -643,10 +668,10 @@ class StrategyGenerator:
             )
             # 更新思维链状态为错误
             if self._thinking_chain_state:
-                yield self._create_thinking_chain_event(self._current_step_index, "error", f"请求超时: {str(e)}")
+                yield self._create_thinking_chain_event(self._current_step_index, "error", f"请求超时: {e!s}")
             yield {
                 "type": "error",
-                "error": f"请求超时，请检查网络连接: {str(e)}",
+                "error": f"请求超时，请检查网络连接: {e!s}",
                 "error_code": "api_connection_error",
                 "request_id": request_id,
             }
@@ -662,10 +687,10 @@ class StrategyGenerator:
             )
             # 更新思维链状态为错误
             if self._thinking_chain_state:
-                yield self._create_thinking_chain_event(self._current_step_index, "error", f"API连接错误: {str(e)}")
+                yield self._create_thinking_chain_event(self._current_step_index, "error", f"API连接错误: {e!s}")
             yield {
                 "type": "error",
-                "error": f"无法连接到API服务: {str(e)}",
+                "error": f"无法连接到API服务: {e!s}",
                 "error_code": "api_connection_error",
                 "request_id": request_id,
             }
@@ -681,10 +706,10 @@ class StrategyGenerator:
             )
             # 更新思维链状态为错误
             if self._thinking_chain_state:
-                yield self._create_thinking_chain_event(self._current_step_index, "error", f"生成失败: {str(e)}")
+                yield self._create_thinking_chain_event(self._current_step_index, "error", f"生成失败: {e!s}")
             yield {
                 "type": "error",
-                "error": f"策略生成失败: {str(e)}",
+                "error": f"策略生成失败: {e!s}",
                 "error_code": "generation_failed",
                 "request_id": request_id,
             }
@@ -713,9 +738,7 @@ class StrategyGenerator:
             "context": "",
             "constraints": "",
             "strategy_name": template_vars.get("strategy_name", "GeneratedStrategy"),
-            "strategy_description": template_vars.get(
-                "strategy_description", "AI生成的策略"
-            ),
+            "strategy_description": template_vars.get("strategy_description", "AI生成的策略"),
             "symbol": template_vars.get("symbol", "BTC/USDT"),
             "timeframe": template_vars.get("timeframe", "1h"),
             "initial_capital": template_vars.get("initial_capital", "10000"),
@@ -727,7 +750,7 @@ class StrategyGenerator:
 
         return self._prompt_manager.render(category, **default_vars)
 
-    def _parse_response(self, content: str) -> Dict[str, Any]:
+    def _parse_response(self, content: str) -> dict[str, Any]:
         """解析API响应
 
         从响应内容中提取代码块和元数据。
@@ -774,10 +797,10 @@ class StrategyGenerator:
                 "success": False,
                 "code": None,
                 "raw_content": content,
-                "error": f"解析失败: {str(e)}",
+                "error": f"解析失败: {e!s}",
             }
 
-    def _extract_code(self, content: str) -> Optional[str]:
+    def _extract_code(self, content: str) -> str | None:
         """从响应内容中提取代码块
 
         支持多种代码块格式:
@@ -823,9 +846,9 @@ class StrategyGenerator:
                 return content.strip()
 
         # 如果都不匹配，返回整个内容(可能是纯代码)
-        return content.strip() if content.strip() else None
+        return content.strip() or None
 
-    def validate_code(self, code: str) -> Dict[str, Any]:
+    def validate_code(self, code: str) -> dict[str, Any]:
         """验证生成的代码
 
         对生成的代码进行基本语法验证。
@@ -849,7 +872,7 @@ class StrategyGenerator:
         except SyntaxError as e:
             errors.append(f"语法错误: {e.msg} (第{e.lineno}行)")
         except Exception as e:
-            errors.append(f"编译错误: {str(e)}")
+            errors.append(f"编译错误: {e!s}")
 
         # 检查必要的结构
         if "class" not in code:

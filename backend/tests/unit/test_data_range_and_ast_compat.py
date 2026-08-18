@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """测试回测结果数据范围显示
 
 回归测试:
@@ -6,12 +5,10 @@
 - _print_data_range 接受 metrics dict 或 BacktestResult 原始 dict
 - _format_ts_iso 纳秒时间戳 → ISO 8601 字符串
 """
+
 import io
-import sys
 from contextlib import redirect_stdout
 from datetime import datetime
-
-import pytest
 
 
 class TestFormatTsIso:
@@ -20,6 +17,7 @@ class TestFormatTsIso:
     def test_normal_nanosecond_timestamp(self):
         """正常纳秒时间戳转 ISO"""
         from backtest.result_analysis import _format_ts_iso
+
         # 2025-01-01 00:00:00 UTC = 1735689600 秒 = 1735689600_000_000_000 纳秒
         ts_ns = 1735689600 * 10**9
         result = _format_ts_iso(ts_ns)
@@ -30,16 +28,19 @@ class TestFormatTsIso:
     def test_zero_returns_na(self):
         """0 → N/A"""
         from backtest.result_analysis import _format_ts_iso
+
         assert _format_ts_iso(0) == "N/A"
 
     def test_negative_returns_na(self):
         """负数 → N/A"""
         from backtest.result_analysis import _format_ts_iso
+
         assert _format_ts_iso(-1) == "N/A"
 
     def test_non_int_returns_na(self):
         """非 int/非 np.integer → N/A"""
         from backtest.result_analysis import _format_ts_iso
+
         assert _format_ts_iso(None) == "N/A"
         assert _format_ts_iso("not a number") == "N/A"
 
@@ -50,6 +51,7 @@ class TestPrintDataRange:
     def test_full_range_with_bars(self):
         """完整时间范围 + bar 数都打印"""
         from backtest.result_analysis import _print_data_range
+
         # 2025-01-01 → 2025-01-02 (1 天)
         start_ns = int(datetime(2025, 1, 1).timestamp() * 1e9)
         end_ns = int(datetime(2025, 1, 2).timestamp() * 1e9)
@@ -70,6 +72,7 @@ class TestPrintDataRange:
     def test_short_range_in_hours(self):
         """< 1 天按小时显示"""
         from backtest.result_analysis import _print_data_range
+
         start_ns = int(datetime(2025, 1, 1, 0, 0, 0).timestamp() * 1e9)
         end_ns = int(datetime(2025, 1, 1, 5, 0, 0).timestamp() * 1e9)
         metrics = {
@@ -86,6 +89,7 @@ class TestPrintDataRange:
     def test_missing_fields_silently_skipped(self):
         """缺字段时静默跳过(不打印,不打错)"""
         from backtest.result_analysis import _print_data_range
+
         buf = io.StringIO()
         with redirect_stdout(buf):
             _print_data_range({})  # 空 dict
@@ -95,6 +99,7 @@ class TestPrintDataRange:
     def test_zero_values_silently_skipped(self):
         """0 视为未设置,静默跳过"""
         from backtest.result_analysis import _print_data_range
+
         metrics = {"data_start_ns": 0, "data_end_ns": 0, "bar_count": 0}
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -122,10 +127,7 @@ class TestSymbolCountExcludesFrameworkKeys:
     def _count_symbols(self, results):
         """从 output_results 抽出的 symbol 计数逻辑(必须与 result_analysis 保持一致)"""
         normal_results = {k: v for k, v in results.items() if not k.startswith("_")}
-        return len([
-            k for k in normal_results.keys()
-            if k not in ("portfolio", "account")
-        ])
+        return len([k for k in normal_results if k not in ("portfolio", "account")])
 
     def test_single_symbol_excludes_account(self):
         """1 个品种 → 1,account 不应被算入"""
@@ -161,9 +163,16 @@ class TestMultiSymbolAggregationWhitelist:
     def _aggregate(self, per_symbol_results):
         """从 engine_service 抽出聚合逻辑(必须保持一致)"""
         _SUM_KEYS = {
-            "total_pnl", "orders_accepted", "orders_rejected", "fills",
-            "total_orders", "total_fees", "events_processed",
-            "duration_secs", "trade_count", "bar_count",
+            "total_pnl",
+            "orders_accepted",
+            "orders_rejected",
+            "fills",
+            "total_orders",
+            "total_fees",
+            "events_processed",
+            "duration_secs",
+            "trade_count",
+            "bar_count",
         }
         _MIN_KEYS = {"data_start_ns"}
         _MAX_KEYS = {"data_end_ns"}
@@ -182,13 +191,17 @@ class TestMultiSymbolAggregationWhitelist:
 
     def test_data_start_end_use_min_max(self):
         """data_start_ns 取 min,data_end_ns 取 max(取最早/最晚 bar)"""
-        r1 = {"data_start_ns": 1_700_000_000_000_000_000,
-              "data_end_ns":   1_750_000_000_000_000_000}
-        r2 = {"data_start_ns": 1_680_000_000_000_000_000,  # 更早
-              "data_end_ns":   1_800_000_000_000_000_000}  # 更晚
+        r1 = {
+            "data_start_ns": 1_700_000_000_000_000_000,
+            "data_end_ns": 1_750_000_000_000_000_000,
+        }
+        r2 = {
+            "data_start_ns": 1_680_000_000_000_000_000,  # 更早
+            "data_end_ns": 1_800_000_000_000_000_000,
+        }  # 更晚
         agg = self._aggregate([r1, r2])
         assert agg["data_start_ns"] == 1_680_000_000_000_000_000
-        assert agg["data_end_ns"]   == 1_800_000_000_000_000_000
+        assert agg["data_end_ns"] == 1_800_000_000_000_000_000
 
     def test_pnl_fills_fees_are_summed(self):
         """PnL/fills/fees 跨品种累加"""
@@ -201,8 +214,14 @@ class TestMultiSymbolAggregationWhitelist:
 
     def test_per_symbol_fields_are_dropped(self):
         """per-symbol 字段(initial_capital/final_nav/sharpe/win_rate/max_dd)不应进聚合"""
-        r1 = {"initial_capital": 100000, "final_nav": 99500, "sharpe_ratio": 0.5,
-              "win_rate": 0.6, "max_drawdown": 0.05, "equity_curve": [(1, 100)]}
+        r1 = {
+            "initial_capital": 100000,
+            "final_nav": 99500,
+            "sharpe_ratio": 0.5,
+            "win_rate": 0.6,
+            "max_drawdown": 0.05,
+            "equity_curve": [(1, 100)],
+        }
         agg = self._aggregate([r1])
         assert "initial_capital" not in agg
         assert "final_nav" not in agg
@@ -243,6 +262,7 @@ class TestMultiSymbolJsonSerialization:
     def test_multi_symbol_results_serialize_to_json(self):
         """多品种 _aggregate_multi_results 输出能完整 JSON 序列化"""
         import json
+
         from backtest.result_analysis import ResultSerializer
 
         # 模拟 _aggregate_multi_results 的输出
@@ -270,8 +290,12 @@ class TestMultiSymbolJsonSerialization:
         serializable = serializer._make_serializable(multi_results)
         # 顶层 5 个键应全部保留
         assert set(serializable.keys()) == {
-            "strategy_name", "symbols", "timeframe",
-            "is_multi_symbol", "results_by_symbol", "metrics",
+            "strategy_name",
+            "symbols",
+            "timeframe",
+            "is_multi_symbol",
+            "results_by_symbol",
+            "metrics",
         }
         # 标量字段原样保留(bool 在 _serialize_value 中被转 int,这是序列化约定,不是 bug)
         assert serializable["strategy_name"] == "axon_dual_ma"
@@ -287,6 +311,7 @@ class TestMultiSymbolJsonSerialization:
     def test_single_symbol_results_still_serialize(self):
         """单品种 _format_axon_results 输出也能正常序列化(回归保护)"""
         import json
+
         from backtest.result_analysis import ResultSerializer
 
         # 单品种 _format_axon_results 的输出
@@ -325,20 +350,44 @@ class TestMultiSymbolPerSymbolMetrics:
     def test_per_symbol_metrics_uses_own_pnl(self):
         """每个 symbol 的 metrics 用自己的 PnL,而非聚合 PnL"""
         # 模拟 _aggregate_multi_results
-        raw_results = {"total_pnl": -300.0, "fills": 100, "total_fees": 50.0,
-                       "trade_count": 30, "data_start_ns": 1, "data_end_ns": 2,
-                       "bar_count": 1000}
+        raw_results = {
+            "total_pnl": -300.0,
+            "fills": 100,
+            "total_fees": 50.0,
+            "trade_count": 30,
+            "data_start_ns": 1,
+            "data_end_ns": 2,
+            "bar_count": 1000,
+        }
         per_symbol = {
-            "ETHUSDT": {"total_pnl": -100.0, "fills": 50, "total_fees": 20.0,
-                        "trade_count": 20, "data_start_ns": 1, "data_end_ns": 2,
-                        "bar_count": 500, "trades": [], "equity_curve": []},
-            "BTCUSDT": {"total_pnl": -200.0, "fills": 50, "total_fees": 30.0,
-                        "trade_count": 10, "data_start_ns": 1, "data_end_ns": 2,
-                        "bar_count": 500, "trades": [], "equity_curve": []},
+            "ETHUSDT": {
+                "total_pnl": -100.0,
+                "fills": 50,
+                "total_fees": 20.0,
+                "trade_count": 20,
+                "data_start_ns": 1,
+                "data_end_ns": 2,
+                "bar_count": 500,
+                "trades": [],
+                "equity_curve": [],
+            },
+            "BTCUSDT": {
+                "total_pnl": -200.0,
+                "fills": 50,
+                "total_fees": 30.0,
+                "trade_count": 10,
+                "data_start_ns": 1,
+                "data_end_ns": 2,
+                "bar_count": 500,
+                "trades": [],
+                "equity_curve": [],
+            },
         }
 
         from unittest.mock import MagicMock
+
         from backtest.engine_service import EventDrivenBacktestService
+
         # _aggregate_multi_results 不依赖 data_provider,传 mock 即可
         svc = EventDrivenBacktestService(data_provider=MagicMock())
         formatted = svc._aggregate_multi_results(
@@ -361,11 +410,16 @@ class TestMultiSymbolPerSymbolMetrics:
     def test_trades_equity_curve_propagated_to_top_level(self):
         """trades / equity_curve 透传到 results_by_symbol[k] 顶层"""
         per_symbol = {
-            "ETHUSDT": {"total_pnl": -100.0, "trades": [{"pnl": 1}],
-                        "equity_curve": [(1, 100), (2, 99)]},
+            "ETHUSDT": {
+                "total_pnl": -100.0,
+                "trades": [{"pnl": 1}],
+                "equity_curve": [(1, 100), (2, 99)],
+            },
         }
         from unittest.mock import MagicMock
+
         from backtest.engine_service import EventDrivenBacktestService
+
         svc = EventDrivenBacktestService(data_provider=MagicMock())
         formatted = svc._aggregate_multi_results(
             raw_results={"total_pnl": -100.0},
@@ -387,7 +441,9 @@ class TestMultiSymbolPerSymbolMetrics:
             "BTCUSDT": {"trade_count": 10},
         }
         from unittest.mock import MagicMock
+
         from backtest.engine_service import EventDrivenBacktestService
+
         svc = EventDrivenBacktestService(data_provider=MagicMock())
         formatted = svc._aggregate_multi_results(
             raw_results=raw_results,
@@ -452,25 +508,21 @@ class TestTotalPnlNoDoubleCountFees:
         此处断言 backtest_loop._run_with_axon 中**不出现** "total_pnl =" 这类
         手算公式(除注释外),确保 fee 不会被重复扣。
         """
-        from backtest.backtest_loop import BacktestLoop
         import inspect
         import re
+
+        from backtest.backtest_loop import BacktestLoop
+
         src = inspect.getsource(BacktestLoop._run_with_axon)
         # 去掉 docstring / 注释
         no_docstring = re.sub(r'"""[\s\S]*?"""', "", src)
         no_docstring = re.sub(r"'''[\s\S]*?'''", "", no_docstring)
-        code_only = "\n".join(
-            line for line in no_docstring.splitlines()
-            if not line.strip().startswith("#")
-        )
+        code_only = "\n".join(line for line in no_docstring.splitlines() if not line.strip().startswith("#"))
         # 应用层不应再手算 total_pnl = ... realized/unrealized/fee ...
         # (axon_quant 内部 6 状态机已算好,直接读 result.total_pnl)
-        has_manual_formula = bool(
-            re.search(r"total_pnl\s*=\s*[^=].*(realized|unrealized|fee)", code_only)
-        )
+        has_manual_formula = bool(re.search(r"total_pnl\s*=\s*[^=].*(realized|unrealized|fee)", code_only))
         assert not has_manual_formula, (
-            "backtest_loop 不应再手算 total_pnl 公式(axone_quant 阶段 B "
-            "已下沉到框架,应从 result.total_pnl 读取)"
+            "backtest_loop 不应再手算 total_pnl 公式(axone_quant 阶段 B 已下沉到框架,应从 result.total_pnl 读取)"
         )
 
 
@@ -480,6 +532,7 @@ class TestAstParserPython312Compat:
     def test_numeric_literal(self):
         """数字字面量(原 ast.Num 场景)"""
         from utils.strategy_ast_parser import parse_strategy_code
+
         code = """
 class MyStrategy:
     n = 10
@@ -492,6 +545,7 @@ class MyStrategy:
     def test_string_literal(self):
         """字符串字面量(原 ast.Str 场景)"""
         from utils.strategy_ast_parser import parse_strategy_code
+
         code = """
 class MyStrategy:
     name = "default"
@@ -503,6 +557,7 @@ class MyStrategy:
     def test_none_constant(self):
         """None/True/False 字面量(原 ast.NameConstant 场景)"""
         from utils.strategy_ast_parser import parse_strategy_code
+
         code = """
 class MyStrategy:
     enabled = True
@@ -514,8 +569,9 @@ class MyStrategy:
 
     def test_decimal_call_string_arg(self):
         """Decimal("0.1") 字符串参数(原 ast.Str 场景)"""
+
         from utils.strategy_ast_parser import parse_strategy_code
-        from decimal import Decimal
+
         code = """
 class MyStrategy:
     threshold = Decimal("0.1")

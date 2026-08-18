@@ -3,19 +3,21 @@
 直接测试验证模块的核心类，不依赖其他模块
 """
 
-import pytest
-import numpy as np
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
-from abc import ABC, abstractmethod
+from typing import Any
 
+import numpy as np
+import pytest
 
 # ============= 直接在测试文件中实现核心类，避免导入问题 =============
 
+
 class ValidationSeverity(Enum):
     """验证严重程度枚举"""
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -25,6 +27,7 @@ class ValidationSeverity(Enum):
 @dataclass
 class ValidationThresholds:
     """验证阈值配置"""
+
     returns_tolerance: float = 0.01
     annualized_return_tolerance: float = 0.02
     daily_return_tolerance: float = 0.005
@@ -65,20 +68,21 @@ class ValidationThresholds:
 @dataclass
 class ValidationResult:
     """验证结果数据类"""
+
     validator_name: str
     passed: bool
     severity: ValidationSeverity
     message: str
     expected_value: Any = None
     actual_value: Any = None
-    difference: Optional[float] = None
-    difference_pct: Optional[float] = None
-    threshold: Optional[float] = None
-    details: Dict[str, Any] = field(default_factory=dict)
+    difference: float | None = None
+    difference_pct: float | None = None
+    threshold: float | None = None
+    details: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
-    traceback: Optional[str] = None
+    traceback: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "validator_name": self.validator_name,
             "passed": self.passed,
@@ -109,11 +113,12 @@ class ValidationResult:
 
 class BaseValidator(ABC):
     """验证器基类"""
+
     name: str = "BaseValidator"
     description: str = "基础验证器"
     default_threshold: float = 0.01
 
-    def __init__(self, threshold: Optional[float] = None, strict: bool = False):
+    def __init__(self, threshold: float | None = None, strict: bool = False):
         self.threshold = threshold if threshold is not None else self.default_threshold
         self.strict = strict
 
@@ -121,13 +126,9 @@ class BaseValidator(ABC):
     def validate(self, expected: Any, actual: Any, **kwargs) -> ValidationResult:
         pass
 
-    def calculate_difference(
-        self, expected: Union[float, np.ndarray], actual: Union[float, np.ndarray]
-    ) -> tuple:
+    def calculate_difference(self, expected: float | np.ndarray, actual: float | np.ndarray) -> tuple:
         try:
-            if isinstance(expected, (np.ndarray, np.generic)) and isinstance(
-                actual, (np.ndarray, np.generic)
-            ):
+            if isinstance(expected, (np.ndarray, np.generic)) and isinstance(actual, (np.ndarray, np.generic)):
                 diff = np.abs(expected - actual)
                 diff_pct = np.abs((expected - actual) / (expected + 1e-10)) * 100
                 return float(np.mean(diff)), float(np.mean(diff_pct))
@@ -135,22 +136,16 @@ class BaseValidator(ABC):
                 expected_float = float(expected)
                 actual_float = float(actual)
                 diff = abs(expected_float - actual_float)
-                diff_pct = (
-                    abs(diff / (expected_float + 1e-10)) * 100
-                    if expected_float != 0
-                    else 0.0
-                )
+                diff_pct = abs(diff / (expected_float + 1e-10)) * 100 if expected_float != 0 else 0.0
                 return diff, diff_pct
         except Exception:
             return float("inf"), float("inf")
 
-    def check_threshold(self, difference: float, threshold: Optional[float] = None) -> bool:
+    def check_threshold(self, difference: float, threshold: float | None = None) -> bool:
         thresh = threshold if threshold is not None else self.threshold
         return difference <= thresh
 
-    def determine_severity(
-        self, difference_pct: float, threshold: Optional[float] = None
-    ) -> ValidationSeverity:
+    def determine_severity(self, difference_pct: float, threshold: float | None = None) -> ValidationSeverity:
         if self.strict:
             return ValidationSeverity.ERROR if difference_pct > 0 else ValidationSeverity.INFO
 
@@ -171,20 +166,16 @@ class BaseValidator(ABC):
         message: str,
         expected: Any = None,
         actual: Any = None,
-        difference: Optional[float] = None,
-        difference_pct: Optional[float] = None,
-        severity: Optional[ValidationSeverity] = None,
-        details: Optional[Dict[str, Any]] = None,
+        difference: float | None = None,
+        difference_pct: float | None = None,
+        severity: ValidationSeverity | None = None,
+        details: dict[str, Any] | None = None,
     ) -> ValidationResult:
         if difference is None and expected is not None and actual is not None:
             difference, difference_pct = self.calculate_difference(expected, actual)
 
         if severity is None:
-            severity = (
-                ValidationSeverity.INFO
-                if passed
-                else self.determine_severity(difference_pct or 0)
-            )
+            severity = ValidationSeverity.INFO if passed else self.determine_severity(difference_pct or 0)
 
         return ValidationResult(
             validator_name=self.name,
@@ -209,9 +200,7 @@ class BaseValidator(ABC):
             severity=ValidationSeverity.INFO if passed else ValidationSeverity.CRITICAL,
         )
 
-    def validate_type(
-        self, value: Any, expected_type: type, name: str = "value"
-    ) -> ValidationResult:
+    def validate_type(self, value: Any, expected_type: type, name: str = "value") -> ValidationResult:
         passed = isinstance(value, expected_type)
         return self.create_result(
             passed=passed,
@@ -228,10 +217,10 @@ class ValidationSuite:
     def __init__(self, name: str, description: str = ""):
         self.name = name
         self.description = description
-        self.validators: List[BaseValidator] = []
-        self.results: List[ValidationResult] = []
+        self.validators: list[BaseValidator] = []
+        self.results: list[ValidationResult] = []
 
-    def add_validator(self, validator: BaseValidator) -> "ValidationSuite":
+    def add_validator(self, validator: BaseValidator) -> ValidationSuite:
         self.validators.append(validator)
         return self
 
@@ -242,9 +231,7 @@ class ValidationSuite:
                 return True
         return False
 
-    def run(
-        self, expected: Any, actual: Any, context: Optional[Dict[str, Any]] = None
-    ) -> List[ValidationResult]:
+    def run(self, expected: Any, actual: Any, context: dict[str, Any] | None = None) -> list[ValidationResult]:
         self.results = []
         context = context or {}
 
@@ -257,14 +244,14 @@ class ValidationSuite:
                     validator_name=validator.name,
                     passed=False,
                     severity=ValidationSeverity.CRITICAL,
-                    message=f"验证执行异常: {str(e)}",
+                    message=f"验证执行异常: {e!s}",
                     traceback=str(e),
                 )
                 self.results.append(error_result)
 
         return self.results
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         if not self.results:
             return {
                 "suite_name": self.name,
@@ -305,20 +292,21 @@ class ValidationSuite:
 
 class ValidatorRegistry:
     """验证器注册表"""
+
     _instance = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._validators: Dict[str, type] = {}
-            cls._instance._factories: Dict[str, callable] = {}
+            cls._instance._validators: dict[str, type] = {}
+            cls._instance._factories: dict[str, callable] = {}
         return cls._instance
 
     def register(
         self,
         name: str,
         validator_class: type,
-        factory: Optional[callable] = None,
+        factory: callable | None = None,
     ) -> None:
         self._validators[name] = validator_class
         if factory:
@@ -334,12 +322,13 @@ class ValidatorRegistry:
 
     def get(self, name: str, *args, **kwargs) -> BaseValidator:
         if name not in self._validators:
-            raise ValueError(f"验证器未找到: {name}")
+            msg = f"验证器未找到: {name}"
+            raise ValueError(msg)
         if name in self._factories:
             return self._factories[name](*args, **kwargs)
         return self._validators[name](*args, **kwargs)
 
-    def list_validators(self) -> List[str]:
+    def list_validators(self) -> list[str]:
         return list(self._validators.keys())
 
     def clear(self) -> None:
@@ -350,17 +339,20 @@ class ValidatorRegistry:
 registry = ValidatorRegistry()
 
 
-def register_validator(name: str, factory: Optional[callable] = None):
+def register_validator(name: str, factory: callable | None = None):
     def decorator(validator_class: type):
         registry.register(name, validator_class, factory)
         return validator_class
+
     return decorator
 
 
 # ============= 测试用的简单验证器 =============
 
+
 class SimpleTestValidator(BaseValidator):
     """简单测试验证器"""
+
     name = "SimpleTestValidator"
     description = "简单测试验证器"
     default_threshold = 0.01
@@ -372,14 +364,14 @@ class SimpleTestValidator(BaseValidator):
                 message="值不能为 None",
                 severity=ValidationSeverity.CRITICAL,
             )
-        
+
         try:
             expected_float = float(expected)
             actual_float = float(actual)
             diff, diff_pct = self.calculate_difference(expected_float, actual_float)
             # 使用百分比差异与阈值比较
             passed = self.check_threshold(diff_pct)
-            
+
             return self.create_result(
                 passed=passed,
                 message=f"验证 {'通过' if passed else '失败'}: 期望 {expected_float}, 实际 {actual_float}",
@@ -391,12 +383,13 @@ class SimpleTestValidator(BaseValidator):
         except Exception as e:
             return self.create_result(
                 passed=False,
-                message=f"验证异常: {str(e)}",
+                message=f"验证异常: {e!s}",
                 severity=ValidationSeverity.ERROR,
             )
 
 
 # ============= 测试用例 =============
+
 
 class TestValidationSeverity:
     """测试验证严重程度枚举"""
@@ -567,10 +560,10 @@ class TestBaseValidator:
     def test_validate_not_none(self):
         """测试验证不为 None"""
         validator = SimpleTestValidator()
-        
+
         result = validator.validate_not_none("value")
         assert result.passed is True
-        
+
         result = validator.validate_not_none(None)
         assert result.passed is False
         assert result.severity == ValidationSeverity.CRITICAL
@@ -578,10 +571,10 @@ class TestBaseValidator:
     def test_validate_type(self):
         """测试验证类型"""
         validator = SimpleTestValidator()
-        
+
         result = validator.validate_type("string", str)
         assert result.passed is True
-        
+
         result = validator.validate_type("string", int)
         assert result.passed is False
         assert result.severity == ValidationSeverity.ERROR
@@ -589,10 +582,10 @@ class TestBaseValidator:
     def test_simple_validator_validate(self):
         """测试简单验证器的 validate 方法"""
         validator = SimpleTestValidator(threshold=5.0)  # 更大的阈值，5%
-        
+
         result = validator.validate(100.0, 103.0)
         assert result.passed is True
-        
+
         result = validator.validate(100.0, 106.0)
         assert result.passed is False
 
@@ -613,10 +606,10 @@ class TestValidationSuite:
         suite = ValidationSuite(name="TestSuite")
         validator1 = SimpleTestValidator()
         validator2 = SimpleTestValidator()
-        
+
         suite.add_validator(validator1)
         assert len(suite.validators) == 1
-        
+
         suite.add_validator(validator2)
         assert len(suite.validators) == 2
 
@@ -624,14 +617,14 @@ class TestValidationSuite:
         """测试移除验证器"""
         suite = ValidationSuite(name="TestSuite")
         validator = SimpleTestValidator()
-        
+
         suite.add_validator(validator)
         assert len(suite.validators) == 1
-        
+
         result = suite.remove_validator("SimpleTestValidator")
         assert result is True
         assert len(suite.validators) == 0
-        
+
         result = suite.remove_validator("NonExistentValidator")
         assert result is False
 
@@ -640,7 +633,7 @@ class TestValidationSuite:
         suite = ValidationSuite(name="TestSuite")
         suite.add_validator(SimpleTestValidator(threshold=5.0))
         suite.add_validator(SimpleTestValidator(threshold=5.0))
-        
+
         results = suite.run(100.0, 103.0)
         assert len(results) == 2
         assert all(r.passed for r in results)
@@ -649,10 +642,10 @@ class TestValidationSuite:
         """测试获取摘要"""
         suite = ValidationSuite(name="TestSuite")
         suite.add_validator(SimpleTestValidator(threshold=5.0))
-        
+
         suite.run(100.0, 103.0)
         summary = suite.get_summary()
-        
+
         assert summary["suite_name"] == "TestSuite"
         assert summary["total"] == 1
         assert summary["passed"] == 1
@@ -663,10 +656,10 @@ class TestValidationSuite:
         """测试检查所有通过"""
         suite = ValidationSuite(name="TestSuite")
         suite.add_validator(SimpleTestValidator(threshold=5.0))
-        
+
         suite.run(100.0, 103.0)
         assert suite.all_passed() is True
-        
+
         suite.run(100.0, 110.0)
         assert suite.all_passed() is False
 
@@ -674,7 +667,7 @@ class TestValidationSuite:
         """测试检查严重错误"""
         suite = ValidationSuite(name="TestSuite")
         suite.add_validator(SimpleTestValidator(threshold=5.0))
-        
+
         suite.run(100.0, 103.0)
         assert suite.has_critical() is False
 
@@ -695,17 +688,18 @@ class TestValidatorRegistry:
     def test_register_and_get_validator(self):
         """测试注册和获取验证器"""
         registry.register("test_validator", SimpleTestValidator)
-        
+
         validator = registry.get("test_validator")
         assert isinstance(validator, SimpleTestValidator)
 
     def test_register_with_factory(self):
         """测试使用工厂函数注册"""
+
         def factory(threshold=0.01):
             return SimpleTestValidator(threshold=threshold)
-        
+
         registry.register("factory_validator", SimpleTestValidator, factory=factory)
-        
+
         validator = registry.get("factory_validator", threshold=0.05)
         assert isinstance(validator, SimpleTestValidator)
         assert validator.threshold == 0.05
@@ -714,11 +708,11 @@ class TestValidatorRegistry:
         """测试注销验证器"""
         registry.register("test_validator", SimpleTestValidator)
         assert "test_validator" in registry.list_validators()
-        
+
         result = registry.unregister("test_validator")
         assert result is True
         assert "test_validator" not in registry.list_validators()
-        
+
         result = registry.unregister("non_existent")
         assert result is False
 
@@ -726,7 +720,7 @@ class TestValidatorRegistry:
         """测试列出验证器"""
         registry.register("validator1", SimpleTestValidator)
         registry.register("validator2", SimpleTestValidator)
-        
+
         validators = registry.list_validators()
         assert len(validators) == 2
         assert "validator1" in validators
@@ -747,12 +741,13 @@ class TestRegisterValidatorDecorator:
 
     def test_decorator_registration(self):
         """测试装饰器注册"""
+
         @register_validator("decorated_validator")
         class DecoratedValidator(BaseValidator):
             name = "DecoratedValidator"
             description = "装饰器验证器"
             default_threshold = 0.01
-            
+
             def validate(self, expected, actual, **kwargs):
                 return self.create_result(
                     passed=expected == actual,
@@ -760,9 +755,9 @@ class TestRegisterValidatorDecorator:
                     expected=expected,
                     actual=actual,
                 )
-        
+
         assert "decorated_validator" in registry.list_validators()
-        
+
         validator = registry.get("decorated_validator")
         assert isinstance(validator, DecoratedValidator)
 

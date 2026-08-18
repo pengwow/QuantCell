@@ -1,16 +1,18 @@
 import asyncio
 import threading
-from typing import Any, Callable, Dict, List
+from typing import TYPE_CHECKING, Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
 class EventBus:
-
     def __init__(self):
-        self._subscribers: Dict[str, List[Callable]] = {}
+        self._subscribers: dict[str, list[Callable]] = {}
         self._lock = threading.Lock()
 
     def subscribe(self, event_name: str, callback: Callable) -> None:
@@ -40,7 +42,7 @@ class EventBus:
             except Exception as e:
                 logger.error(
                     f"事件 {event_name} 的订阅者 {callback.__name__} 执行异常",
-                    exception=e
+                    exception=e,
                 )
 
     def publish_async(self, event_name: str, data: Any = None) -> None:
@@ -55,14 +57,14 @@ class EventBus:
             except Exception as e:
                 logger.error(
                     f"异步事件 {event_name} 的订阅者 {callback.__name__} 启动异常",
-                    exception=e
+                    exception=e,
                 )
 
-    def get_subscribers(self, event_name: str) -> List[str]:
+    def get_subscribers(self, event_name: str) -> list[str]:
         with self._lock:
             subscribers = list(self._subscribers.get(event_name, []))
 
-        return [getattr(cb, '__name__', type(cb).__name__) for cb in subscribers]
+        return [getattr(cb, "__name__", type(cb).__name__) for cb in subscribers]
 
     def clear(self) -> None:
         with self._lock:

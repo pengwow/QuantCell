@@ -4,68 +4,69 @@ Realtime模块测试配置
 提供测试所需的fixture和工具函数
 """
 
-import pytest
 import asyncio
-from typing import Dict, Any, List, Optional
-from unittest.mock import Mock, AsyncMock
+from typing import Any
+from unittest.mock import Mock
+
+import pytest
 
 from realtime.abstract_client import AbstractExchangeClient
-from realtime.websocket_manager import WebSocketManager
-from realtime.data_processor import DataProcessor
-from realtime.data_distributor import DataDistributor
-from realtime.monitor import RealtimeMonitor
 from realtime.config import RealtimeConfig
+from realtime.data_distributor import DataDistributor
+from realtime.data_processor import DataProcessor
+from realtime.monitor import RealtimeMonitor
+from realtime.websocket_manager import WebSocketManager
 
 
 class MockExchangeClient(AbstractExchangeClient):
     """模拟交易所客户端，用于测试"""
-    
-    def __init__(self, config: Dict[str, Any], exchange_name: str = "mock_exchange"):
+
+    def __init__(self, config: dict[str, Any], exchange_name: str = "mock_exchange"):
         super().__init__(config)
         self._exchange_name = exchange_name
         self._connected = False
         self._messages = []
         self._parser = Mock()
-        
+
     @property
     def exchange_name(self) -> str:
         return self._exchange_name
-    
+
     @exchange_name.setter
     def exchange_name(self, value: str):
         self._exchange_name = value
-    
+
     async def connect(self) -> bool:
         self._connected = True
         self.connected = True
         return True
-    
+
     async def disconnect(self) -> bool:
         self._connected = False
         self.connected = False
         return True
-    
-    async def subscribe(self, channels: List[str]) -> bool:
+
+    async def subscribe(self, channels: list[str]) -> bool:
         self.subscribed_channels.update(channels)
         return True
-    
-    async def unsubscribe(self, channels: List[str]) -> bool:
+
+    async def unsubscribe(self, channels: list[str]) -> bool:
         for ch in channels:
             self.subscribed_channels.discard(ch)
         return True
-    
-    async def receive_message(self) -> Optional[Dict[str, Any]]:
+
+    async def receive_message(self) -> dict[str, Any] | None:
         if self._messages:
             return self._messages.pop(0)
         return None
-    
+
     def get_data_parser(self):
         return self._parser
-    
-    def get_available_channels(self) -> List[str]:
+
+    def get_available_channels(self) -> list[str]:
         return ["kline", "depth", "trade"]
-    
-    def add_mock_message(self, message: Dict[str, Any]):
+
+    def add_mock_message(self, message: dict[str, Any]):
         """添加模拟消息用于测试"""
         self._messages.append(message)
 
@@ -77,7 +78,7 @@ def mock_config():
         "api_key": "test_key",
         "api_secret": "test_secret",
         "testnet": True,
-        "base_url": "wss://test.example.com/ws"
+        "base_url": "wss://test.example.com/ws",
     }
 
 
@@ -139,7 +140,7 @@ def sample_kline_message():
         "low": 49900.0,
         "close": 50050.0,
         "volume": 1.5,
-        "timestamp": 1234567890
+        "timestamp": 1234567890,
     }
 
 
@@ -151,7 +152,7 @@ def sample_depth_message():
         "symbol": "BTCUSDT",
         "bids": [[50000.0, 1.0], [49990.0, 2.0]],
         "asks": [[50010.0, 1.5], [50020.0, 2.5]],
-        "timestamp": 1234567890
+        "timestamp": 1234567890,
     }
 
 
@@ -164,7 +165,7 @@ def sample_trade_message():
         "price": 50050.0,
         "quantity": 0.5,
         "side": "buy",
-        "timestamp": 1234567890
+        "timestamp": 1234567890,
     }
 
 

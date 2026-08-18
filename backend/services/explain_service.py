@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
 """Explain Service — axon_quant.explain 可解释性服务（占位，待实现）。
 
 注意：ensemble 功能请使用 services.ensemble_service.EnsembleService，
 本模块仅保留 ExplainServiceWrapper 作为 SHAP 可解释性功能的预留接口。
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,8 @@ class ExplainServiceWrapper:
 
     def __init__(self):
         if not AXON_AVAILABLE:
-            raise RuntimeError("axon_quant.explain 不可用")
+            msg = "axon_quant.explain 不可用"
+            raise RuntimeError(msg)
         logger.info("ExplainService 已初始化")
 
     def explain_prediction(

@@ -1,12 +1,12 @@
 import pytest
+
 from worker.worker_state import (
-    WorkerState,
     StateMachine,
-    WorkerStatus,
-    WorkerStateRecord,
-    is_valid_transition,
+    WorkerState,
     WorkerStateManager,
-    worker_state_manager,
+    WorkerStateRecord,
+    WorkerStatus,
+    is_valid_transition,
 )
 
 
@@ -42,11 +42,11 @@ def test_state_machine():
     """测试状态机基本功能"""
     sm = StateMachine(WorkerState.STOPPED)
     assert sm.current_state == WorkerState.STOPPED
-    
+
     assert sm.can_transition_to(WorkerState.STARTING) is True
     assert sm.transition_to(WorkerState.STARTING) is True
     assert sm.current_state == WorkerState.STARTING
-    
+
     history = sm.get_state_history()
     assert len(history) == 2
 
@@ -56,7 +56,7 @@ def test_worker_status():
     ws = WorkerStatus(worker_id="test_123")
     assert ws.worker_id == "test_123"
     assert ws.state == WorkerState.INITIALIZING
-    
+
     assert ws.update_state(WorkerState.INITIALIZED) is True
     assert ws.state == WorkerState.INITIALIZED
 
@@ -82,7 +82,7 @@ async def test_worker_state_manager():
     manager = WorkerStateManager()
     # Initialize state
     assert manager is not None
-    
+
     # Test that we can transition from stopped to starting, but first need to initialize stopped
     # Note: WorkerStateManager requires state first transition to stopped
     # Let's test the basic methods
@@ -90,10 +90,10 @@ async def test_worker_state_manager():
     state = await manager.get_state(123)
     assert state is not None
     assert state.status == "stopped"
-    
+
     success = await manager.transition(123, "starting")
     assert success is True
-    
+
     state = await manager.get_state(123)
     assert state.status == "starting"
 

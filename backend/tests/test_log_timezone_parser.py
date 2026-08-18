@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 日志时区解析器单元测试
 
@@ -9,17 +8,18 @@
 - 集成到 LogFileReader 的端到端测试
 """
 
-import pytest
-import sys
 import os
-import tempfile
 import shutil
+import sys
+import tempfile
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from worker.log_utils import LogTimezoneParser, TIMESTAMP_PATTERNS
+from worker.log_utils import LogTimezoneParser
 
 
 class TestTimestampPatternMatching:
@@ -38,7 +38,7 @@ class TestTimestampPatternMatching:
         assert dt.minute == 40
         assert dt.second == 46
         assert dt.microsecond == 685406
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_iso8601_with_z_microseconds(self):
         """测试 ISO 8601 + Z（微秒精度）"""
@@ -47,7 +47,7 @@ class TestTimestampPatternMatching:
         dt = parser.parse_timestamp(ts)
 
         assert dt.microsecond == 685406
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_iso8601_with_z_milliseconds(self):
         """测试 ISO 8601 + Z（毫秒精度）"""
@@ -56,7 +56,7 @@ class TestTimestampPatternMatching:
         dt = parser.parse_timestamp(ts)
 
         assert dt.microsecond == 685000
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_iso8601_with_z_seconds_only(self):
         """测试 ISO 8601 + Z（秒精度）"""
@@ -65,7 +65,7 @@ class TestTimestampPatternMatching:
         dt = parser.parse_timestamp(ts)
 
         assert dt.microsecond == 0
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_iso8601_with_positive_offset(self):
         """测试 ISO 8601 + 正偏移量"""
@@ -99,7 +99,7 @@ class TestTimestampPatternMatching:
         ts = "2026-05-07T02:40:46.685406"
         dt = parser.parse_timestamp(ts)
 
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_iso8601_without_timezone_no_microseconds(self):
         """测试 ISO 8601 无时区无微秒"""
@@ -108,7 +108,7 @@ class TestTimestampPatternMatching:
         dt = parser.parse_timestamp(ts)
 
         assert dt.microsecond == 0
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_space_separated_with_microseconds(self):
         """测试空格分隔格式（带微秒）"""
@@ -118,7 +118,7 @@ class TestTimestampPatternMatching:
 
         assert dt.hour == 2
         assert dt.microsecond == 685406
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_space_separated_without_microseconds(self):
         """测试空格分隔格式（无微秒）"""
@@ -128,7 +128,7 @@ class TestTimestampPatternMatching:
 
         assert dt.hour == 2
         assert dt.microsecond == 0
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_midnight_timestamp(self):
         """测试午夜时间戳"""
@@ -165,7 +165,7 @@ class TestTimezoneDetection:
         ]
         tz = parser.detect_timezone_from_lines(lines)
 
-        assert tz == timezone.utc
+        assert tz == UTC
 
     def test_detect_positive_offset(self):
         """测试检测正偏移量"""
@@ -197,7 +197,7 @@ class TestTimezoneDetection:
         ]
         tz = parser.detect_timezone_from_header(lines)
 
-        assert tz == timezone.utc
+        assert tz == UTC
 
     def test_detect_from_header_cst(self):
         """测试从头部检测 CST"""
@@ -228,7 +228,7 @@ class TestTimezoneDetection:
         ]
         tz = parser.detect_timezone_from_lines(lines)
 
-        assert tz == timezone.utc
+        assert tz == UTC
 
     def test_custom_default_timezone(self):
         """测试自定义默认时区"""
@@ -259,7 +259,7 @@ class TestTimezoneConversion:
     def test_convert_utc_to_local(self):
         """测试 UTC 转本地时间"""
         parser = LogTimezoneParser()
-        dt_utc = datetime(2026, 5, 7, 2, 40, 46, tzinfo=timezone.utc)
+        dt_utc = datetime(2026, 5, 7, 2, 40, 46, tzinfo=UTC)
 
         dt_local = parser.convert_timezone(dt_utc)
 
@@ -269,7 +269,7 @@ class TestTimezoneConversion:
     def test_convert_utc_to_specific_timezone(self):
         """测试 UTC 转指定时区"""
         parser = LogTimezoneParser()
-        dt_utc = datetime(2026, 5, 7, 2, 40, 46, tzinfo=timezone.utc)
+        dt_utc = datetime(2026, 5, 7, 2, 40, 46, tzinfo=UTC)
         target_tz = timezone(timedelta(hours=8))
 
         dt_converted = parser.convert_timezone(dt_utc, target_tz)
@@ -290,7 +290,7 @@ class TestTimezoneConversion:
     def test_convert_preserves_precision(self):
         """测试转换保持精度"""
         parser = LogTimezoneParser()
-        dt_utc = datetime(2026, 5, 7, 2, 40, 46, 123456, tzinfo=timezone.utc)
+        dt_utc = datetime(2026, 5, 7, 2, 40, 46, 123456, tzinfo=UTC)
         target_tz = timezone(timedelta(hours=8))
 
         dt_converted = parser.convert_timezone(dt_utc, target_tz)
@@ -507,8 +507,8 @@ class TestLogFileReaderIntegration:
         reader = LogFileReader(log_directory=temp_log_dir)
 
         # 查询 03:00 到 04:00 之间的日志
-        start = datetime(2026, 5, 7, 3, 0, 0, tzinfo=timezone.utc)
-        end = datetime(2026, 5, 7, 4, 0, 0, tzinfo=timezone.utc)
+        start = datetime(2026, 5, 7, 3, 0, 0, tzinfo=UTC)
+        end = datetime(2026, 5, 7, 4, 0, 0, tzinfo=UTC)
         logs, total = reader.query_logs("1", start_time=start, end_time=end)
 
         assert total == 1
@@ -540,26 +540,26 @@ class TestTradingNodeLogFormat:
         ts = "2026-05-07T02:40:46.685406000Z"
         dt = parser.parse_timestamp(ts)
 
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
     def test_multiple_component_levels(self):
         """测试多级组件名"""
-        from worker.log_utils import LogFileReader, LOG_PATTERN
+        from worker.log_utils import LOG_PATTERN
 
         line = "2026-05-07T02:40:46.685406000Z [INFO] WORKER-1.Throttler-ORDER_SUBMIT_THROTTLER: READY"
         match = LOG_PATTERN.match(line)
 
         assert match is not None
-        timestamp_str, level, source, message = match.groups()
+        _timestamp_str, level, source, message = match.groups()
         assert level == "INFO"
         assert "Throttler" in source
         assert message == "READY"
 
     def test_special_characters_in_message(self):
         """测试消息中的特殊字符"""
-        from worker.log_utils import LogFileReader, LOG_PATTERN
+        from worker.log_utils import LOG_PATTERN
 
-        line = '2026-05-07T02:40:46.685406000Z [INFO] WORKER-1.Config: config.encoding=\'msgpack\''
+        line = "2026-05-07T02:40:46.685406000Z [INFO] WORKER-1.Config: config.encoding='msgpack'"
         match = LOG_PATTERN.match(line)
 
         assert match is not None
@@ -568,7 +568,7 @@ class TestTradingNodeLogFormat:
 
     def test_braille_art_lines(self):
         """测试 Braille 艺术字符行"""
-        from worker.log_utils import LogFileReader, LOG_PATTERN
+        from worker.log_utils import LOG_PATTERN
 
         line = "2026-05-07T02:40:46.685413004Z [INFO] WORKER-1.TradingNode: ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣶⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
         match = LOG_PATTERN.match(line)
@@ -577,7 +577,7 @@ class TestTradingNodeLogFormat:
 
     def test_separator_lines(self):
         """测试分隔符行"""
-        from worker.log_utils import LogFileReader, LOG_PATTERN
+        from worker.log_utils import LOG_PATTERN
 
         line = "2026-05-07T02:40:46.685406000Z [INFO] WORKER-1.TradingNode: ================================================================="
         match = LOG_PATTERN.match(line)

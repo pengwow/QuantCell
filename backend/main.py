@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 QuantCell 主入口文件
 
@@ -11,63 +10,65 @@ QuantCell 主入口文件
 
 # 首先导入策略模型和回测模型以确保正确的表结构被使用
 # 这必须在导入 collector.db.models 之前完成
-import strategy.models  # noqa: F401
-import backtest.models  # noqa: F401
-
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+import backtest.models
+import strategy.models
 
 # 导入核心模块
 from core import lifespan
-from core.port_manager import port_manager, PortAllocationError
-from utils.logger import get_logger, LogType
+from core.port_manager import PortAllocationError, port_manager
+from utils.logger import LogType, get_logger
 
 # 获取主模块日志器
 logger = get_logger(__name__, LogType.SYSTEM)
 
 # 导入业务模块路由（标准化模块化架构）
+from agent.api.routes import router as agent_router
 from ai_model import router as ai_model_router
 from ai_model.routes_strategy import router as ai_model_strategy_router
-from backtest import router as backtest_router
-from collector.routes import router as collector_router
-from factor import router as factor_router
-from indicators.routes import router as indicators_router
-from model.routes import router as model_router
-from settings.routes import router as settings_router
-from strategy import router as strategy_router
-from websocket.routes import router as websocket_router
-from realtime.routes import realtime_router
-from worker import router as worker_router
-from worker.routes import websocket_endpoint
-from share import router as share_router  # 分享系统路由
-from share import models as share_models  # noqa: F401  # 触发 share 模型注册到 Base.metadata
-from utils.log_routes import router as log_router
-from common.notifications.routes import router as notification_router
-from agent.api.routes import router as agent_router
 from api.system_ports import router as system_ports_router
-from plugins.routes import router as plugins_router
-from engine.routes import router as engine_router
+from api.v2.ensemble_routes import router as v2_ensemble_router
 
 # v2 API routes
 from api.v2.model_routes import router as v2_model_router
-from api.v2.ensemble_routes import router as v2_ensemble_router
 from api.v2.risk_routes import router as v2_risk_router
 from api.v2.rl_routes import router as v2_rl_router
-
+from backtest import router as backtest_router
+from collector.routes import router as collector_router
+from common.notifications.routes import router as notification_router
+from engine.routes import router as engine_router
+from factor import router as factor_router
+from indicators.routes import router as indicators_router
+from model.routes import router as model_router
+from plugins.routes import router as plugins_router
+from realtime.routes import realtime_router
+from settings.routes import router as settings_router
+from share import (
+    models as share_models,  # 触发 share 模型注册到 Base.metadata
+)
+from share import router as share_router  # 分享系统路由
+from strategy import router as strategy_router
+from utils.log_routes import router as log_router
+from websocket.routes import router as websocket_router
+from worker import router as worker_router
+from worker.routes import websocket_endpoint
 
 # 创建FastAPI应用实例
 app = FastAPI(
     title="QuantCell API",
     description="量化交易系统API",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # 添加CORS中间件配置
 # ponytail: 通过环境变量 CORS_ORIGINS 配置，逗号分隔；开发阶段保留默认值
 import os as _os
+
 _cors_env = _os.environ.get("CORS_ORIGINS", "").strip()
 _cors_origins = (
     [o.strip() for o in _cors_env.split(",") if o.strip()]
@@ -170,10 +171,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         serializable_errors.append(serializable_error)
 
     # 构建完整的错误信息
-    if error_messages:
-        detail_message = "; ".join(error_messages)
-    else:
-        detail_message = "请求参数验证失败"
+    detail_message = "; ".join(error_messages) if error_messages else "请求参数验证失败"
 
     logger.warning(f"请求验证失败: {detail_message}")
 
@@ -194,10 +192,7 @@ async def read_root():
     Returns:
         dict: 欢迎信息
     """
-    return {
-        "message": "欢迎使用量化交易系统",
-        "current_locale": "zh-CN"
-    }
+    return {"message": "欢迎使用量化交易系统", "current_locale": "zh-CN"}
 
 
 @app.get("/health")
@@ -209,6 +204,7 @@ async def health_check():
     """
     try:
         from engine.trading_engine import get_trading_engine
+
         engine = get_trading_engine()
         engine_status = engine.engine_status()
     except Exception:
@@ -291,12 +287,11 @@ if __name__ == "__main__":
     使用uvicorn作为ASGI服务器，在本地主机的8000端口启动应用
     禁用自动重载功能，避免DuckDB锁冲突
     """
-    import signal
     import sys
-    import os
+
+    import uvicorn
 
     from collector.db import init_db
-    import uvicorn
 
     # ========== 关闭机制说明 ==========
     # 不安装自定义 SIGINT/SIGTERM 处理器，让 uvicorn 默认处理
@@ -333,13 +328,7 @@ if __name__ == "__main__":
     init_db()
 
     # 获取日志级别配置
-    if args.debug:
-        log_level = "DEBUG"
-        print("调试模式已启用")
-    else:
-        log_level = get_uvicorn_log_level()
-    print(f"Uvicorn日志级别设置为: {log_level}")
-    print(f"服务器将在 {args.host}:{fastapi_port} 启动")
+    log_level = "DEBUG" if args.debug else get_uvicorn_log_level()
 
     uvicorn.run(
         "main:app",  # 指定应用路径

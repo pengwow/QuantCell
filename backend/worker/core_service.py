@@ -11,29 +11,34 @@ Worker核心服务层
 独立于FastAPI，可直接导入使用
 """
 
-from typing import Dict, List, Optional, Any, Generator, AsyncGenerator
-from contextlib import contextmanager, asynccontextmanager
-from sqlalchemy.orm import Session
-from datetime import datetime, timezone
-import os
-import json
 import asyncio
+import json
+import os
+from contextlib import asynccontextmanager, contextmanager
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
-from . import models, crud, schemas, state as _ws
+from utils.db_session import get_db_session
+from utils.logger import LogType, get_logger
+
+from . import crud, models, schemas
+from . import state as _ws
+from .config import AXON_QUANT_AVAILABLE
 from .exceptions import (
-    WorkerException,
-    WorkerOperationError,
-    WorkerNotFoundError,
-    WorkerAlreadyRunningError,
     LogQueryError,
     MetricsError,
+    WorkerAlreadyRunningError,
+    WorkerException,
+    WorkerNotFoundError,
+    WorkerOperationError,
 )
-from .worker_state import worker_state_manager, WorkerStateManager
 from .state import strategy_registry
-from .config import AXON_QUANT_AVAILABLE
-from collector.db.database import SessionLocal, init_database_config
-from utils.db_session import get_db_session
-from utils.logger import get_logger, LogType
+from .worker_state import worker_state_manager
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Generator
+
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -43,13 +48,13 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 
 __all__ = [
-    "WorkerException",
-    "WorkerOperationError",
-    "WorkerNotFoundError",
-    "WorkerAlreadyRunningError",
     "LogQueryError",
     "MetricsError",
+    "WorkerAlreadyRunningError",
     "WorkerCoreService",
+    "WorkerException",
+    "WorkerNotFoundError",
+    "WorkerOperationError",
     "worker_core_service",
 ]
 
@@ -98,20 +103,16 @@ class WorkerCoreService:
             RuntimeError: 如果 trading_system 未完成初始化
         """
         if _ws.trading_system is None:
-            raise RuntimeError(
-                "WorkerCoreService: trading_system 单例未注册。"
-                "请检查 worker 模块是否正常初始化。"
-            )
+            msg = "WorkerCoreService: trading_system 单例未注册。请检查 worker 模块是否正常初始化。"
+            raise RuntimeError(msg)
 
-        if not getattr(_ws.trading_system, '_initialized', False):
-            raise RuntimeError(
-                "WorkerCoreService: trading_system 尚未完成初始化。"
-                "请先调用 trading_system.initialize() 完成初始化。"
-            )
+        if not getattr(_ws.trading_system, "_initialized", False):
+            msg = "WorkerCoreService: trading_system 尚未完成初始化。请先调用 trading_system.initialize() 完成初始化。"
+            raise RuntimeError(msg)
 
         logger.debug("[WorkerCoreService] trading_system 初始化检查通过")
 
-    def _load_config(self) -> Dict[str, Any]:
+    def _load_config(self) -> dict[str, Any]:
         """从环境变量和默认配置文件加载配置"""
         config = {
             "db_path": os.environ.get("DB_FILE", "data/quantcell_sqlite.db"),
@@ -121,22 +122,20 @@ class WorkerCoreService:
             "max_page_size": int(os.environ.get("MAX_PAGE_SIZE", "100")),
         }
 
-        default_config_file = os.path.join(
-            os.path.dirname(__file__), "..", "config", "worker_default.json"
-        )
+        default_config_file = os.path.join(os.path.dirname(__file__), "..", "config", "worker_default.json")
         if os.path.exists(default_config_file):
             try:
-                with open(default_config_file, "r", encoding="utf-8") as f:
+                with open(default_config_file, encoding="utf-8") as f:
                     file_config = json.load(f)
                     config.update(file_config)
                     logger.debug(f"[WorkerCoreService] 从配置文件加载配置: {default_config_file}")
-            except (json.JSONDecodeError, IOError) as e:
+            except (OSError, json.JSONDecodeError) as e:
                 logger.warning(f"[WorkerCoreService] 配置文件读取失败: {e}")
 
         return config
 
     @contextmanager
-    def get_db(self) -> Generator[Session, None, None]:
+    def get_db(self) -> Generator[Session]:
         """
         获取同步数据库会话（上下文管理器）
 
@@ -149,7 +148,7 @@ class WorkerCoreService:
             yield db
 
     @asynccontextmanager
-    async def async_get_db(self) -> AsyncGenerator[Session, None]:
+    async def async_get_db(self) -> AsyncGenerator[Session]:
         """
         获取异步数据库会话（上下文管理器）
 
@@ -163,7 +162,7 @@ class WorkerCoreService:
 
     # ==================== 同步CRUD方法（供CLI使用） ====================
 
-    def create_worker(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def create_worker(self, data: dict[str, Any]) -> dict[str, Any]:
         """
         创建Worker（同步版本）
 
@@ -184,9 +183,10 @@ class WorkerCoreService:
                 return result
         except Exception as e:
             logger.error(f"[WorkerCoreService] 创建Worker失败: {e}")
-            raise WorkerOperationError("create", message=str(e))
+            msg = "create"
+            raise WorkerOperationError(msg, message=str(e))
 
-    def get_worker(self, worker_id: int) -> Dict[str, Any]:
+    def get_worker(self, worker_id: int) -> dict[str, Any]:
         """
         获取Worker详情（同步版本）
 
@@ -208,11 +208,11 @@ class WorkerCoreService:
 
     def list_workers(
         self,
-        status: Optional[str] = None,
-        strategy_id: Optional[int] = None,
+        status: str | None = None,
+        strategy_id: int | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         获取Worker列表（同步版本，支持分页）
 
@@ -242,7 +242,7 @@ class WorkerCoreService:
                 "page_size": page_size,
             }
 
-    def update_worker(self, worker_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+    def update_worker(self, worker_id: int, data: dict[str, Any]) -> dict[str, Any]:
         """
         更新Worker（同步版本）
 
@@ -270,7 +270,8 @@ class WorkerCoreService:
             raise
         except Exception as e:
             logger.error(f"[WorkerCoreService] 更新Worker失败: worker_id={worker_id}, error={e}")
-            raise WorkerOperationError("update", worker_id, message=str(e))
+            msg = "update"
+            raise WorkerOperationError(msg, worker_id, message=str(e))
 
     def delete_worker(self, worker_id: int) -> bool:
         """
@@ -299,7 +300,7 @@ class WorkerCoreService:
         new_name: str,
         copy_config: bool = True,
         copy_parameters: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         克隆Worker（同步版本）
 
@@ -326,39 +327,40 @@ class WorkerCoreService:
                 new_worker = crud.clone_worker(db, worker_id, request)
                 result = new_worker.to_dict()
                 logger.info(
-                    f"[WorkerCoreService] Worker克隆成功: "
-                    f"源ID={worker_id}, 新ID={result['id']}, 名称={new_name}"
+                    f"[WorkerCoreService] Worker克隆成功: 源ID={worker_id}, 新ID={result['id']}, 名称={new_name}"
                 )
                 return result
         except ValueError as e:
             if "不存在" in str(e):
                 raise WorkerNotFoundError(worker_id)
-            raise WorkerOperationError("clone", worker_id, message=str(e))
+            msg = "clone"
+            raise WorkerOperationError(msg, worker_id, message=str(e))
         except Exception as e:
             logger.error(f"[WorkerCoreService] 克隆Worker失败: worker_id={worker_id}, error={e}")
-            raise WorkerOperationError("clone", worker_id, message=str(e))
+            msg = "clone"
+            raise WorkerOperationError(msg, worker_id, message=str(e))
 
     # ==================== 异步CRUD方法（供API使用） ====================
 
-    async def async_create_worker(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def async_create_worker(self, data: dict[str, Any]) -> dict[str, Any]:
         """创建Worker（异步版本，通过线程池执行同步DB操作）"""
         return await asyncio.to_thread(self.create_worker, data)
 
-    async def async_get_worker(self, worker_id: int) -> Dict[str, Any]:
+    async def async_get_worker(self, worker_id: int) -> dict[str, Any]:
         """获取Worker详情（异步版本，通过线程池执行同步DB操作）"""
         return await asyncio.to_thread(self.get_worker, worker_id)
 
     async def async_list_workers(
         self,
-        status: Optional[str] = None,
-        strategy_id: Optional[int] = None,
+        status: str | None = None,
+        strategy_id: int | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """获取Worker列表（异步版本，通过线程池执行同步DB操作）"""
         return await asyncio.to_thread(self.list_workers, status, strategy_id, page, page_size)
 
-    async def async_update_worker(self, worker_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def async_update_worker(self, worker_id: int, data: dict[str, Any]) -> dict[str, Any]:
         """更新Worker（异步版本，通过线程池执行同步DB操作）"""
         return await asyncio.to_thread(self.update_worker, worker_id, data)
 
@@ -372,11 +374,11 @@ class WorkerCoreService:
         new_name: str,
         copy_config: bool = True,
         copy_parameters: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """克隆Worker（异步版本，通过线程池执行同步DB操作）"""
         return await asyncio.to_thread(self.clone_worker, worker_id, new_name, copy_config, copy_parameters)
 
-    def update_worker_config(self, worker_id: int, config: Dict[str, Any]) -> Dict[str, Any]:
+    def update_worker_config(self, worker_id: int, config: dict[str, Any]) -> dict[str, Any]:
         """
         更新 Worker 配置（同步版本）
 
@@ -403,15 +405,16 @@ class WorkerCoreService:
             raise
         except Exception as e:
             logger.error(f"[WorkerCoreService] 更新Worker配置失败: worker_id={worker_id}, error={e}")
-            raise WorkerOperationError("更新配置", worker_id, message=str(e))
+            msg = "更新配置"
+            raise WorkerOperationError(msg, worker_id, message=str(e))
 
-    async def async_update_worker_config(self, worker_id: int, config: Dict[str, Any]) -> Dict[str, Any]:
+    async def async_update_worker_config(self, worker_id: int, config: dict[str, Any]) -> dict[str, Any]:
         """更新Worker配置（异步版本，通过线程池执行同步操作）"""
         return await asyncio.to_thread(self.update_worker_config, worker_id, config)
 
     # ==================== 批量操作 ====================
 
-    def batch_operation(self, worker_ids: List[int], operation: str) -> Dict[str, Any]:
+    def batch_operation(self, worker_ids: list[int], operation: str) -> dict[str, Any]:
         """
         批量操作Worker（同步版本，供CLI使用）
 
@@ -446,15 +449,14 @@ class WorkerCoreService:
 
         if loop and loop.is_running():
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 batch_result = pool.submit(
                     asyncio.run,
-                    guard.batch_transition(worker_ids, target_state, operation)
+                    guard.batch_transition(worker_ids, target_state, operation),
                 ).result()
         else:
-            batch_result = asyncio.run(
-                guard.batch_transition(worker_ids, target_state, operation)
-            )
+            batch_result = asyncio.run(guard.batch_transition(worker_ids, target_state, operation))
 
         result = {
             "success": batch_result.success_ids,
@@ -472,9 +474,7 @@ class WorkerCoreService:
 
         return result
 
-    async def async_batch_operation(
-        self, worker_ids: List[int], operation: str
-    ) -> Dict[str, Any]:
+    async def async_batch_operation(self, worker_ids: list[int], operation: str) -> dict[str, Any]:
         """批量操作Worker（异步版本，直接await协程避免死锁）"""
         from .state_guard import StateMachineGuard, WorkerState
 
@@ -512,14 +512,10 @@ class WorkerCoreService:
 
     # ==================== 辅助方法 ====================
 
-    def get_worker_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_worker_by_name(self, name: str) -> dict[str, Any] | None:
         """根据名称精确匹配获取Worker"""
         with self.get_db() as db:
-            worker = (
-                db.query(models.Worker)
-                .filter(models.Worker.name == name)
-                .first()
-            )
+            worker = db.query(models.Worker).filter(models.Worker.name == name).first()
             if worker:
                 return worker.to_dict()
             return None
@@ -530,7 +526,7 @@ class WorkerCoreService:
             worker = crud.get_worker(db, worker_id)
             return worker is not None
 
-    def get_worker_count(self, status: Optional[str] = None) -> int:
+    def get_worker_count(self, status: str | None = None) -> int:
         """获取Worker数量"""
         with self.get_db() as db:
             query = db.query(models.Worker)
@@ -549,7 +545,7 @@ class WorkerCoreService:
         worker_state_manager.register_handler("state_changed", self._handle_state_change)
         logger.info("[WorkerCoreService] 状态变更事件监听器已注册")
 
-    def _handle_state_change(self, event_data: Dict[str, Any]):
+    def _handle_state_change(self, event_data: dict[str, Any]):
         """
         处理 Worker 状态变更事件
 
@@ -561,22 +557,15 @@ class WorkerCoreService:
         new_status = event_data.get("new_status")
         timestamp = event_data.get("timestamp")
 
-        logger.info(
-            f"[状态事件] Worker {worker_id} 状态变更: "
-            f"{old_status} -> {new_status} (时间: {timestamp})"
-        )
+        logger.info(f"[状态事件] Worker {worker_id} 状态变更: {old_status} -> {new_status} (时间: {timestamp})")
 
         if new_status == "error":
             error_msg = event_data.get("error_message", "未知错误")
-            logger.warning(
-                f"[状态事件] Worker {worker_id} 进入错误状态: {error_msg}"
-            )
+            logger.warning(f"[状态事件] Worker {worker_id} 进入错误状态: {error_msg}")
         elif new_status == "running":
-            logger.info(
-                f"[状态事件] Worker {worker_id} 已成功启动并进入运行状态"
-            )
+            logger.info(f"[状态事件] Worker {worker_id} 已成功启动并进入运行状态")
 
-    async def handle_state_transition_event_async(self, event_data: Dict[str, Any]):
+    async def handle_state_transition_event_async(self, event_data: dict[str, Any]):
         """
         异步处理策略状态转换事件（简化版，不再管理进程）
 
@@ -596,13 +585,11 @@ class WorkerCoreService:
 
         runtime = strategy_registry.get(worker_id)
         if runtime is not None:
-            strategy_registry.update_status(
-                worker_id, new_status, error_message=error_message
-            )
+            strategy_registry.update_status(worker_id, new_status, error_message=error_message)
 
         self._handle_state_change(event_data)
 
-    async def get_worker_state(self, worker_id: int) -> Optional[Dict[str, Any]]:
+    async def get_worker_state(self, worker_id: int) -> dict[str, Any] | None:
         """
         获取 Worker 完整状态（合并 state_manager + strategy_registry）
 
@@ -643,7 +630,8 @@ class WorkerCoreService:
         self._ensure_initialized()
 
         if not AXON_QUANT_AVAILABLE:
-            raise WorkerOperationError("启动", worker_id, message="axon-quant 未安装，无法启动策略")
+            msg = "启动"
+            raise WorkerOperationError(msg, worker_id, message="axon-quant 未安装，无法启动策略")
 
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
@@ -657,7 +645,8 @@ class WorkerCoreService:
         try:
             success = asyncio.run(_ws.trading_system.start_strategy(worker_id))
             if not success:
-                raise WorkerOperationError("启动", worker_id, message="trading_system 启动策略失败")
+                msg = "启动"
+                raise WorkerOperationError(msg, worker_id, message="trading_system 启动策略失败")
 
             logger.info(f"[WorkerCoreService] Worker {worker_id} 启动成功")
             return {"worker_id": worker_id, "status": "running"}
@@ -683,7 +672,8 @@ class WorkerCoreService:
         self._ensure_initialized()
 
         if not AXON_QUANT_AVAILABLE:
-            raise WorkerOperationError("启动", worker_id, message="axon-quant 未安装，无法启动策略")
+            msg = "启动"
+            raise WorkerOperationError(msg, worker_id, message="axon-quant 未安装，无法启动策略")
 
         logger.info(f"[WorkerCoreService] 异步启动 Worker {worker_id}")
 
@@ -695,28 +685,26 @@ class WorkerCoreService:
 
                 if current_status == "running":
                     return {
-                        'worker_id': worker_id,
-                        'status': 'running',
-                        'message': 'Worker 已经处于运行状态',
+                        "worker_id": worker_id,
+                        "status": "running",
+                        "message": "Worker 已经处于运行状态",
                     }
                 elif current_status == "starting":
                     return {
-                        'worker_id': worker_id,
-                        'status': 'starting',
-                        'message': 'Worker 正在启动中...',
+                        "worker_id": worker_id,
+                        "status": "starting",
+                        "message": "Worker 正在启动中...",
                     }
                 else:
-                    raise WorkerOperationError(
-                        "启动", worker_id,
-                        f"当前状态 ({current_status}) 不允许启动"
-                    )
+                    msg = "启动"
+                    raise WorkerOperationError(msg, worker_id, f"当前状态 ({current_status}) 不允许启动")
 
             asyncio.create_task(self._do_start_worker(worker_id))
 
             return {
-                'worker_id': worker_id,
-                'status': 'starting',
-                'message': 'Worker 启动请求已接收，正在异步处理中...',
+                "worker_id": worker_id,
+                "status": "starting",
+                "message": "Worker 启动请求已接收，正在异步处理中...",
             }
 
         except Exception as e:
@@ -739,17 +727,13 @@ class WorkerCoreService:
                 logger.info(f"[_do_start_worker] Worker {worker_id} 启动成功")
             else:
                 logger.error(f"[_do_start_worker] Worker {worker_id} 启动失败")
-                await worker_state_manager.transition(
-                    worker_id, "error",
-                    error_message="trading_system 启动策略失败"
-                )
+                await worker_state_manager.transition(worker_id, "error", error_message="trading_system 启动策略失败")
         except Exception as e:
             logger.error(f"[_do_start_worker] Worker {worker_id} 启动过程异常: {e}")
             import traceback
+
             traceback.print_exc()
-            await worker_state_manager.transition(
-                worker_id, "error", error_message=str(e)
-            )
+            await worker_state_manager.transition(worker_id, "error", error_message=str(e))
 
     def stop_worker(self, worker_id: int) -> dict:
         """
@@ -774,7 +758,8 @@ class WorkerCoreService:
         try:
             success = asyncio.run(_ws.trading_system.stop_strategy(worker_id))
             if not success:
-                raise WorkerOperationError("停止", worker_id, message="trading_system 停止策略失败")
+                msg = "停止"
+                raise WorkerOperationError(msg, worker_id, message="trading_system 停止策略失败")
 
             logger.info(f"[WorkerCoreService] Worker {worker_id} 停止成功")
             return {"worker_id": worker_id, "status": "stopped"}
@@ -809,28 +794,26 @@ class WorkerCoreService:
 
                 if current_status == "stopped":
                     return {
-                        'worker_id': worker_id,
-                        'status': 'stopped',
-                        'message': 'Worker 已经处于停止状态',
+                        "worker_id": worker_id,
+                        "status": "stopped",
+                        "message": "Worker 已经处于停止状态",
                     }
                 elif current_status == "stopping":
                     return {
-                        'worker_id': worker_id,
-                        'status': 'stopping',
-                        'message': 'Worker 正在停止中...',
+                        "worker_id": worker_id,
+                        "status": "stopping",
+                        "message": "Worker 正在停止中...",
                     }
                 else:
-                    raise WorkerOperationError(
-                        "停止", worker_id,
-                        f"当前状态 ({current_status}) 不允许停止"
-                    )
+                    msg = "停止"
+                    raise WorkerOperationError(msg, worker_id, f"当前状态 ({current_status}) 不允许停止")
 
             asyncio.create_task(self._do_stop_worker(worker_id))
 
             return {
-                'worker_id': worker_id,
-                'status': 'stopping',
-                'message': 'Worker 停止请求已接收，正在异步处理中...',
+                "worker_id": worker_id,
+                "status": "stopping",
+                "message": "Worker 停止请求已接收，正在异步处理中...",
             }
 
         except Exception as e:
@@ -859,10 +842,7 @@ class WorkerCoreService:
                 # 检查当前状态：如果已经 stopped，不需要转为 error
                 current_state = await worker_state_manager.get_state(worker_id)
                 if current_state and current_state.status == "stopped":
-                    logger.info(
-                        f"[_do_stop_worker] Worker {worker_id} 状态已为 stopped, "
-                        f"无需额外处理"
-                    )
+                    logger.info(f"[_do_stop_worker] Worker {worker_id} 状态已为 stopped, 无需额外处理")
                 else:
                     logger.warning(
                         f"[_do_stop_worker] Worker {worker_id} stop_strategy 返回 False, "
@@ -870,21 +850,18 @@ class WorkerCoreService:
                     )
                     try:
                         await worker_state_manager.transition(
-                            worker_id, "stopped",
+                            worker_id,
+                            "stopped",
                         )
                     except Exception as te:
-                        logger.warning(
-                            f"[_do_stop_worker] Worker {worker_id} "
-                            f"强制转为 stopped 失败: {te}"
-                        )
+                        logger.warning(f"[_do_stop_worker] Worker {worker_id} 强制转为 stopped 失败: {te}")
         except Exception as e:
             logger.error(f"[_do_stop_worker] Worker {worker_id} 停止过程异常: {e}")
             import traceback
+
             traceback.print_exc()
             try:
-                await worker_state_manager.transition(
-                    worker_id, "error", error_message=str(e)
-                )
+                await worker_state_manager.transition(worker_id, "error", error_message=str(e))
             except Exception as transition_err:
                 logger.error(f"[_do_stop_worker] 状态转换失败: {transition_err}")
 
@@ -929,7 +906,7 @@ class WorkerCoreService:
             stop_result = await self.async_stop_worker(worker_id)
 
             stop_status = stop_result.get("status", "")
-            if stop_status in ("stopping",):
+            if stop_status == "stopping":
                 await asyncio.sleep(1)
 
             return await self.async_start_worker(worker_id)
@@ -939,7 +916,7 @@ class WorkerCoreService:
 
     # ==================== 健康检查 ====================
 
-    async def check_worker_health_async(self, worker_id: int) -> Dict[str, Any]:
+    async def check_worker_health_async(self, worker_id: int) -> dict[str, Any]:
         """
         异步健康检查 — 基于 strategy_registry 运行时状态
 
@@ -963,7 +940,7 @@ class WorkerCoreService:
                 "status": worker.status if worker else "unknown",
                 "reason": "策略未在注册表中",
                 "db_exists": worker is not None,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
         is_healthy = runtime.is_running
@@ -979,7 +956,7 @@ class WorkerCoreService:
             "error_message": runtime.error_message,
             "started_at": runtime.started_at,
             "stopped_at": runtime.stopped_at,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
     def health_check(self, worker_id: int) -> dict:
@@ -1012,7 +989,7 @@ class WorkerCoreService:
                         "in_registry": False,
                         "is_running": False,
                     },
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
 
             is_healthy = runtime.is_running
@@ -1029,7 +1006,7 @@ class WorkerCoreService:
                     "task_exists": task is not None,
                     "task_done": task.done() if task else None,
                 },
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
         except WorkerNotFoundError:
@@ -1042,7 +1019,7 @@ class WorkerCoreService:
                 "is_healthy": False,
                 "checks": {},
                 "error": str(e),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
     async def async_health_check(self, worker_id: int) -> dict:
@@ -1124,11 +1101,11 @@ class WorkerCoreService:
     def get_worker_logs(
         self,
         worker_id: int,
-        level: Optional[str] = None,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
+        level: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
     ) -> dict:
         """
         查询 Worker 日志（基于文件系统 - 高性能方案）
@@ -1155,13 +1132,13 @@ class WorkerCoreService:
 
             if start_time:
                 try:
-                    start_dt = dt.fromisoformat(start_time.replace("Z", "+00:00"))
+                    start_dt = dt.fromisoformat(start_time)
                 except ValueError:
                     logger.warning(f"[get_worker_logs] 开始时间格式无效: {start_time}")
 
             if end_time:
                 try:
-                    end_dt = dt.fromisoformat(end_time.replace("Z", "+00:00"))
+                    end_dt = dt.fromisoformat(end_time)
                 except ValueError:
                     logger.warning(f"[get_worker_logs] 结束时间格式无效: {end_time}")
 
@@ -1192,23 +1169,16 @@ class WorkerCoreService:
     async def async_get_worker_logs(
         self,
         worker_id: int,
-        level: Optional[str] = None,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
+        level: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
     ) -> dict:
         """异步版本查询 Worker 日志（通过线程池执行同步操作）"""
-        return await asyncio.to_thread(
-            self.get_worker_logs, worker_id, level, start_time, end_time, limit, offset
-        )
+        return await asyncio.to_thread(self.get_worker_logs, worker_id, level, start_time, end_time, limit, offset)
 
-    def clear_worker_logs(
-        self,
-        worker_id: int,
-        before_days: Optional[int] = None,
-        confirm: bool = False
-    ) -> dict:
+    def clear_worker_logs(self, worker_id: int, before_days: int | None = None, confirm: bool = False) -> dict:
         """
         清理 Worker 日志文件
 
@@ -1243,18 +1213,13 @@ class WorkerCoreService:
             return {"deleted_count": deleted_count}
         except Exception as e:
             logger.error(f"[clear_worker_logs] Worker {worker_id} 日志清理失败: {e}")
-            raise LogQueryError(worker_id, message=f"日志清理失败: {str(e)}")
+            raise LogQueryError(worker_id, message=f"日志清理失败: {e!s}")
 
     async def async_clear_worker_logs(
-        self,
-        worker_id: int,
-        before_days: Optional[int] = None,
-        confirm: bool = False
+        self, worker_id: int, before_days: int | None = None, confirm: bool = False
     ) -> dict:
         """异步版本清理 Worker 日志（通过线程池执行同步操作）"""
-        return await asyncio.to_thread(
-            self.clear_worker_logs, worker_id, before_days, confirm
-        )
+        return await asyncio.to_thread(self.clear_worker_logs, worker_id, before_days, confirm)
 
     # ---------- 性能指标查询 ----------
 
@@ -1278,7 +1243,7 @@ class WorkerCoreService:
 
             metrics_data = {
                 "worker_id": worker_id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "status": runtime.status if runtime else "unknown",
                 "is_running": runtime.is_running if runtime else False,
                 "started_at": runtime.started_at if runtime else None,
@@ -1307,13 +1272,7 @@ class WorkerCoreService:
         """异步版本获取 Worker 性能指标（通过线程池执行同步操作）"""
         return await asyncio.to_thread(self.get_worker_metrics, worker_id)
 
-    def get_metrics_history(
-        self,
-        worker_id: int,
-        start_time=None,
-        end_time=None,
-        interval="1m"
-    ) -> list:
+    def get_metrics_history(self, worker_id: int, start_time=None, end_time=None, interval="1m") -> list:
         """
         获取历史性能指标
 
@@ -1333,51 +1292,35 @@ class WorkerCoreService:
             end_dt = None
 
             if start_time:
-                if isinstance(start_time, str):
-                    start_dt = dt.fromisoformat(start_time.replace("Z", "+00:00"))
-                else:
-                    start_dt = start_time
+                start_dt = dt.fromisoformat(start_time) if isinstance(start_time, str) else start_time
 
             if end_time:
-                if isinstance(end_time, str):
-                    end_dt = dt.fromisoformat(end_time.replace("Z", "+00:00"))
-                else:
-                    end_dt = end_time
+                end_dt = dt.fromisoformat(end_time) if isinstance(end_time, str) else end_time
 
             with self.get_db() as db:
-                history = crud.get_metrics_history(
-                    db, worker_id, start_dt, end_dt, interval
-                )
+                history = crud.get_metrics_history(db, worker_id, start_dt, end_dt, interval)
                 return history
         except Exception as e:
             logger.error(f"[get_metrics_history] Worker {worker_id} 获取历史指标失败: {e}")
             raise MetricsError(worker_id, message=str(e))
 
-    async def async_get_metrics_history(
-        self,
-        worker_id: int,
-        start_time=None,
-        end_time=None,
-        interval="1m"
-    ) -> list:
+    async def async_get_metrics_history(self, worker_id: int, start_time=None, end_time=None, interval="1m") -> list:
         """异步版本获取历史性能指标（通过线程池执行同步操作）"""
-        return await asyncio.to_thread(
-            self.get_metrics_history, worker_id, start_time, end_time, interval
-        )
+        return await asyncio.to_thread(self.get_metrics_history, worker_id, start_time, end_time, interval)
 
     # ---------- 交易记录与订单查询 ----------
 
     def get_worker_trades(
         self,
         worker_id: int,
-        symbol: Optional[str] = None,
-        side: Optional[str] = None,
-        order_type: Optional[str] = None,
-        pnl_status: Optional[str] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
+        symbol: str | None = None,
+        side: str | None = None,
+        order_type: str | None = None,
+        pnl_status: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
         page: int = 1,
-        page_size: int = 20
+        page_size: int = 20,
     ) -> dict:
         """
         获取 Worker 交易记录（SQLAlchemy 主库）
@@ -1405,10 +1348,16 @@ class WorkerCoreService:
 
             with self.get_db() as db:
                 trades, total = crud.get_worker_trades_paginated(
-                    db, worker_id,
-                    symbol=symbol, side=side, order_type=order_type,
-                    pnl_status=pnl_status, start_time=start_time,
-                    end_time=end_time, skip=skip, limit=page_size
+                    db,
+                    worker_id,
+                    symbol=symbol,
+                    side=side,
+                    order_type=order_type,
+                    pnl_status=pnl_status,
+                    start_time=start_time,
+                    end_time=end_time,
+                    skip=skip,
+                    limit=page_size,
                 )
                 return {
                     "items": [t.to_dict() for t in trades],
@@ -1418,32 +1367,36 @@ class WorkerCoreService:
                 }
         except Exception as e:
             logger.error(f"[get_worker_trades] Worker {worker_id} 获取交易记录失败: {e}")
-            raise WorkerOperationError("获取交易记录", worker_id, message=str(e))
+            msg = "获取交易记录"
+            raise WorkerOperationError(msg, worker_id, message=str(e))
 
     async def async_get_worker_trades(
         self,
         worker_id: int,
-        symbol: Optional[str] = None,
-        side: Optional[str] = None,
-        order_type: Optional[str] = None,
-        pnl_status: Optional[str] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
+        symbol: str | None = None,
+        side: str | None = None,
+        order_type: str | None = None,
+        pnl_status: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
         page: int = 1,
-        page_size: int = 20
+        page_size: int = 20,
     ) -> dict:
         """异步版本获取 Worker 交易记录（通过线程池执行同步操作）"""
         return await asyncio.to_thread(
-            self.get_worker_trades, worker_id, symbol, side, order_type, pnl_status,
-            start_time, end_time, page, page_size
+            self.get_worker_trades,
+            worker_id,
+            symbol,
+            side,
+            order_type,
+            pnl_status,
+            start_time,
+            end_time,
+            page,
+            page_size,
         )
 
-    def get_worker_orders(
-        self,
-        worker_id: int,
-        status: Optional[str] = None,
-        limit: int = 50
-    ) -> dict:
+    def get_worker_orders(self, worker_id: int, status: str | None = None, limit: int = 50) -> dict:
         """
         获取 Worker 订单列表
 
@@ -1457,17 +1410,13 @@ class WorkerCoreService:
         """
         try:
             with self.get_db() as db:
-                query = db.query(models.WorkerOrder).filter(
-                    models.WorkerOrder.worker_id == worker_id
-                )
+                query = db.query(models.WorkerOrder).filter(models.WorkerOrder.worker_id == worker_id)
 
                 if status:
                     query = query.filter(models.WorkerOrder.status == status)
 
                 total = query.count()
-                orders = query.order_by(
-                    models.WorkerOrder.created_at.desc()
-                ).limit(limit).all()
+                orders = query.order_by(models.WorkerOrder.created_at.desc()).limit(limit).all()
 
                 return {
                     "items": [o.to_dict() for o in orders],
@@ -1475,20 +1424,16 @@ class WorkerCoreService:
                 }
         except Exception as e:
             logger.error(f"[get_worker_orders] Worker {worker_id} 获取订单列表失败: {e}")
-            raise WorkerOperationError("获取订单", worker_id, message=str(e))
+            msg = "获取订单"
+            raise WorkerOperationError(msg, worker_id, message=str(e))
 
-    async def async_get_worker_orders(
-        self,
-        worker_id: int,
-        status: Optional[str] = None,
-        limit: int = 50
-    ) -> dict:
+    async def async_get_worker_orders(self, worker_id: int, status: str | None = None, limit: int = 50) -> dict:
         """异步版本获取 Worker 订单列表（通过线程池执行同步操作）"""
         return await asyncio.to_thread(self.get_worker_orders, worker_id, status, limit)
 
     # ---------- 统计信息 ----------
 
-    def get_worker_stats(self, worker_id: Optional[int] = None) -> dict:
+    def get_worker_stats(self, worker_id: int | None = None) -> dict:
         """
         获取 Worker 统计信息
 
@@ -1508,13 +1453,13 @@ class WorkerCoreService:
                     if not worker:
                         raise WorkerNotFoundError(worker_id)
 
-                    trades_count = db.query(models.WorkerTrade).filter(
-                        models.WorkerTrade.worker_id == worker_id
-                    ).count()
+                    trades_count = (
+                        db.query(models.WorkerTrade).filter(models.WorkerTrade.worker_id == worker_id).count()
+                    )
 
-                    orders_count = db.query(models.WorkerOrder).filter(
-                        models.WorkerOrder.worker_id == worker_id
-                    ).count()
+                    orders_count = (
+                        db.query(models.WorkerOrder).filter(models.WorkerOrder.worker_id == worker_id).count()
+                    )
 
                     runtime = strategy_registry.get(worker_id)
 
@@ -1527,9 +1472,9 @@ class WorkerCoreService:
                         "trades_count": trades_count,
                         "orders_count": orders_count,
                         "created_at": worker.created_at.isoformat() if worker.created_at else None,
-                        "started_at": runtime.started_at if runtime else (
-                            worker.started_at.isoformat() if worker.started_at else None
-                        ),
+                        "started_at": runtime.started_at
+                        if runtime
+                        else (worker.started_at.isoformat() if worker.started_at else None),
                     }
                 else:
                     running = self.get_worker_count("running")
@@ -1540,9 +1485,7 @@ class WorkerCoreService:
 
                     total_workers = db.query(models.Worker).count()
 
-                    running_runtimes = sum(
-                        1 for rt in strategy_registry.list_all() if rt.is_running
-                    )
+                    running_runtimes = sum(1 for rt in strategy_registry.list_all() if rt.is_running)
 
                     return {
                         "total_workers": total_workers,
@@ -1552,15 +1495,16 @@ class WorkerCoreService:
                         "paused": paused,
                         "starting": starting,
                         "registry_running": running_runtimes,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     }
         except WorkerNotFoundError:
             raise
         except Exception as e:
             logger.error(f"[get_worker_stats] 获取统计信息失败: {e}")
-            raise WorkerOperationError("统计信息", message=str(e))
+            msg = "统计信息"
+            raise WorkerOperationError(msg, message=str(e))
 
-    async def async_get_worker_stats(self, worker_id: Optional[int] = None) -> dict:
+    async def async_get_worker_stats(self, worker_id: int | None = None) -> dict:
         """异步版本获取 Worker 统计信息（通过线程池执行同步操作）"""
         return await asyncio.to_thread(self.get_worker_stats, worker_id)
 
@@ -1581,7 +1525,8 @@ class WorkerCoreService:
                 return [p.to_dict() for p in performance]
         except Exception as e:
             logger.error(f"[get_worker_performance] Worker {worker_id} 获取绩效统计失败: {e}")
-            raise WorkerOperationError("绩效统计", worker_id, message=str(e))
+            msg = "绩效统计"
+            raise WorkerOperationError(msg, worker_id, message=str(e))
 
     async def async_get_worker_performance(self, worker_id: int, days: int = 30) -> list:
         """异步版本获取 Worker 绩效统计（通过线程池执行同步操作）"""
@@ -1589,7 +1534,7 @@ class WorkerCoreService:
 
     # ---------- 诊断功能 ----------
 
-    def diagnose_worker(self, worker_id: Optional[int] = None) -> dict:
+    def diagnose_worker(self, worker_id: int | None = None) -> dict:
         """
         诊断 Worker 系统状态（精简版，基于 strategy_registry）
 
@@ -1602,7 +1547,7 @@ class WorkerCoreService:
             dict: 完整的诊断报告
         """
         diagnosis = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "diagnosis_type": "system" if not worker_id else "worker",
             "checks": {},
             "issues": [],
@@ -1641,10 +1586,10 @@ class WorkerCoreService:
         except Exception as e:
             logger.error(f"[diagnose_worker] 诊断失败: {e}")
             diagnosis["error"] = str(e)
-            diagnosis["issues"].append(f"诊断过程出错: {str(e)}")
+            diagnosis["issues"].append(f"诊断过程出错: {e!s}")
             return diagnosis
 
-    async def async_diagnose_worker(self, worker_id: Optional[int] = None) -> dict:
+    async def async_diagnose_worker(self, worker_id: int | None = None) -> dict:
         """异步版本诊断 Worker（通过线程池执行同步操作）"""
         return await asyncio.to_thread(self.diagnose_worker, worker_id)
 
@@ -1711,7 +1656,7 @@ class WorkerCoreService:
         except Exception as e:
             return {
                 "status": "error",
-                "message": f"生命周期检查失败: {str(e)}",
+                "message": f"生命周期检查失败: {e!s}",
                 "is_healthy": False,
                 "is_alive": False,
                 "issues": [str(e)],
@@ -1752,7 +1697,7 @@ class WorkerCoreService:
         except Exception as e:
             return {
                 "status": "error",
-                "message": f"日志检查失败: {str(e)}",
+                "message": f"日志检查失败: {e!s}",
                 "has_logs": False,
                 "total_logs": 0,
                 "recent_logs_count": 0,
@@ -1763,24 +1708,24 @@ class WorkerCoreService:
         """生成 Worker 级别诊断总结"""
         worker_id = diagnosis.get("worker_id")
         current_status = basic_info.get("status", "unknown")
-        runtime_status = basic_info.get("runtime_status")
+        basic_info.get("runtime_status")
 
         recommendations = []
 
-        if current_status == 'stopped':
+        if current_status == "stopped":
             diagnosis["summary"] = f"Worker {worker_id} 状态为 stopped"
             recommendations.append("尝试启动 Worker")
-        elif current_status == 'running' and not basic_info.get("is_running"):
+        elif current_status == "running" and not basic_info.get("is_running"):
             diagnosis["summary"] = f"Worker {worker_id} 数据库显示 running 但 registry 中未运行"
             recommendations.append("尝试重启 Worker 以恢复一致性")
-        elif current_status == 'running':
+        elif current_status == "running":
             lifecycle = diagnosis["checks"].get("lifecycle", {})
             if lifecycle.get("is_healthy"):
                 diagnosis["summary"] = f"Worker {worker_id} 状态正常 (running)"
             else:
                 diagnosis["summary"] = f"Worker {worker_id} 运行中但存在健康问题"
                 recommendations.extend(lifecycle.get("issues", []))
-        elif current_status == 'error':
+        elif current_status == "error":
             diagnosis["summary"] = f"Worker {worker_id} 处于错误状态"
             recommendations.append("查看日志了解具体错误原因")
         else:
@@ -1810,8 +1755,7 @@ class WorkerCoreService:
 
         if registry_running != running:
             recommendations.append(
-                f"DB 运行数 ({running}) 与 registry 运行数 ({registry_running}) 不一致，"
-                "建议检查策略状态一致性"
+                f"DB 运行数 ({running}) 与 registry 运行数 ({registry_running}) 不一致，建议检查策略状态一致性"
             )
 
         diagnosis["recommendations"] = recommendations

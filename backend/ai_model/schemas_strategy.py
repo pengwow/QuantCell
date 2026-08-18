@@ -4,10 +4,12 @@
 用于定义策略生成API请求和响应的数据结构
 """
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, field_validator
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 class StrategyGenerateRequest(BaseModel):
@@ -23,24 +25,24 @@ class StrategyGenerateRequest(BaseModel):
         min_length=1,
         max_length=5000,
     )
-    model_id: Optional[str] = Field(
+    model_id: str | None = Field(
         default=None,
         description="使用的模型ID（用于内部标识），不传则使用默认模型",
         examples=["gpt-4", "claude-3-opus-20240229"],
     )
-    model_name: Optional[str] = Field(
+    model_name: str | None = Field(
         default=None,
         description="使用的模型名称（用于API调用），不传则使用model_id",
         examples=["gpt-4", "claude-3-opus-20240229"],
     )
-    temperature: Optional[float] = Field(
+    temperature: float | None = Field(
         default=None,
         description="生成温度参数(0-2)，值越高创造性越强，越低越稳定",
         examples=[0.7],
         ge=0.0,
         le=2.0,
     )
-    template_vars: Optional[Dict[str, Any]] = Field(
+    template_vars: dict[str, Any] | None = Field(
         default=None,
         description="模板变量，用于替换提示词中的占位符",
         examples=[
@@ -57,9 +59,11 @@ class StrategyGenerateRequest(BaseModel):
     def validate_requirement(cls, v: str) -> str:
         """验证需求描述不为空且长度合理"""
         if not v or not v.strip():
-            raise ValueError("策略需求描述不能为空，请详细描述您想要的策略功能")
+            msg = "策略需求描述不能为空，请详细描述您想要的策略功能"
+            raise ValueError(msg)
         if len(v.strip()) < 10:
-            raise ValueError(f"策略需求描述至少需要10个字符，当前只有{len(v.strip())}个字符。请详细描述您的策略需求，例如：'创建一个双均线策略，当短期均线上穿长期均线时买入'")
+            msg = f"策略需求描述至少需要10个字符，当前只有{len(v.strip())}个字符。请详细描述您的策略需求，例如：'创建一个双均线策略，当短期均线上穿长期均线时买入'"
+            raise ValueError(msg)
         return v.strip()
 
 
@@ -74,7 +78,7 @@ class StrategyGenerateResponse(BaseModel):
         description="生成的策略代码",
         examples=["class MyStrategy:\n    def __init__(self):\n        pass"],
     )
-    explanation: Optional[str] = Field(
+    explanation: str | None = Field(
         default=None,
         description="策略说明文档",
         examples=["这是一个基于双均线的趋势跟踪策略..."],
@@ -84,17 +88,17 @@ class StrategyGenerateResponse(BaseModel):
         description="实际使用的模型ID",
         examples=["gpt-4"],
     )
-    tokens_used: Optional[Dict[str, int]] = Field(
+    tokens_used: dict[str, int] | None = Field(
         default=None,
         description="Token使用情况",
         examples=[{"prompt_tokens": 500, "completion_tokens": 800, "total_tokens": 1300}],
     )
-    elapsed_time: Optional[float] = Field(
+    elapsed_time: float | None = Field(
         default=None,
         description="生成耗时(秒)",
         examples=[3.5],
     )
-    request_id: Optional[str] = Field(
+    request_id: str | None = Field(
         default=None,
         description="请求ID，用于追踪",
         examples=["req_1234567890"],
@@ -112,17 +116,17 @@ class StrategyGenerateStreamResponse(BaseModel):
         description="消息类型: content(内容块), done(完成), error(错误)",
         examples=["content", "done", "error"],
     )
-    content: Optional[str] = Field(
+    content: str | None = Field(
         default=None,
         description="生成的内容片段(仅type=content时)",
         examples=["class DualMAStrategy:"],
     )
-    code: Optional[str] = Field(
+    code: str | None = Field(
         default=None,
         description="完整提取的代码(仅type=done时)",
         examples=["class DualMAStrategy:\n    pass"],
     )
-    metadata: Optional[Dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None,
         description="生成元数据(仅type=done时)",
         examples=[
@@ -134,17 +138,17 @@ class StrategyGenerateStreamResponse(BaseModel):
             }
         ],
     )
-    error: Optional[str] = Field(
+    error: str | None = Field(
         default=None,
         description="错误信息(仅type=error时)",
         examples=["API密钥无效或已过期"],
     )
-    error_code: Optional[str] = Field(
+    error_code: str | None = Field(
         default=None,
         description="错误代码(仅type=error时)",
         examples=["api_authentication_error"],
     )
-    request_id: Optional[str] = Field(
+    request_id: str | None = Field(
         default=None,
         description="请求ID",
         examples=["stream_123456"],
@@ -170,12 +174,12 @@ class StrategyValidateResponse(BaseModel):
         description="代码是否有效",
         examples=[True],
     )
-    errors: List[str] = Field(
+    errors: list[str] = Field(
         default_factory=list,
         description="错误列表，如果valid为false则包含具体错误",
         examples=[["语法错误: 第5行缩进错误"]],
     )
-    warnings: List[str] = Field(
+    warnings: list[str] = Field(
         default_factory=list,
         description="警告列表",
         examples=[["警告: 代码中未找到类定义"]],
@@ -197,12 +201,12 @@ class StrategyHistoryCreate(BaseModel):
         description="生成的策略代码",
         examples=["class MyStrategy:\n    pass"],
     )
-    model_id: Optional[str] = Field(
+    model_id: str | None = Field(
         default=None,
         description="使用的模型ID",
         examples=["gpt-4"],
     )
-    explanation: Optional[str] = Field(
+    explanation: str | None = Field(
         default=None,
         description="策略说明文档",
     )
@@ -211,18 +215,18 @@ class StrategyHistoryCreate(BaseModel):
 class StrategyHistoryUpdate(BaseModel):
     """策略历史记录更新模型"""
 
-    requirement: Optional[str] = Field(
+    requirement: str | None = Field(
         default=None,
         description="策略需求描述",
         examples=["创建一个双均线策略"],
         max_length=5000,
     )
-    code: Optional[str] = Field(
+    code: str | None = Field(
         default=None,
         description="生成的策略代码",
         examples=["class MyStrategy:\n    pass"],
     )
-    explanation: Optional[str] = Field(
+    explanation: str | None = Field(
         default=None,
         description="策略说明文档",
     )
@@ -249,11 +253,11 @@ class StrategyHistoryResponse(BaseModel):
         ...,
         description="生成的策略代码",
     )
-    model_id: Optional[str] = Field(
+    model_id: str | None = Field(
         default=None,
         description="使用的模型ID",
     )
-    explanation: Optional[str] = Field(
+    explanation: str | None = Field(
         default=None,
         description="策略说明文档",
     )
@@ -262,11 +266,11 @@ class StrategyHistoryResponse(BaseModel):
         description="生成状态: success/failed/pending",
         examples=["success"],
     )
-    tokens_used: Optional[Dict[str, int]] = Field(
+    tokens_used: dict[str, int] | None = Field(
         default=None,
         description="Token使用情况",
     )
-    elapsed_time: Optional[float] = Field(
+    elapsed_time: float | None = Field(
         default=None,
         description="生成耗时(秒)",
     )
@@ -274,7 +278,7 @@ class StrategyHistoryResponse(BaseModel):
         ...,
         description="创建时间",
     )
-    updated_at: Optional[datetime] = Field(
+    updated_at: datetime | None = Field(
         default=None,
         description="更新时间",
     )
@@ -293,7 +297,7 @@ class StrategyTemplateResponse(BaseModel):
         description="模板名称",
         examples=["双均线策略模板"],
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         description="模板描述",
         examples=["基于双均线的趋势跟踪策略模板"],
@@ -308,15 +312,17 @@ class StrategyTemplateResponse(BaseModel):
         description="代码模板",
         examples=["class {{strategy_name}}(Strategy):\n    pass"],
     )
-    variables: List[Dict[str, Any]] = Field(
+    variables: list[dict[str, Any]] = Field(
         default_factory=list,
         description="模板变量定义",
-        examples=[[
-            {"name": "strategy_name", "type": "string", "required": True},
-            {"name": "fast_period", "type": "int", "default": 10},
-        ]],
+        examples=[
+            [
+                {"name": "strategy_name", "type": "string", "required": True},
+                {"name": "fast_period", "type": "int", "default": 10},
+            ]
+        ],
     )
-    tags: List[str] = Field(
+    tags: list[str] = Field(
         default_factory=list,
         description="标签列表",
         examples=[["趋势", "均线"]],
@@ -325,7 +331,7 @@ class StrategyTemplateResponse(BaseModel):
         ...,
         description="创建时间",
     )
-    updated_at: Optional[datetime] = Field(
+    updated_at: datetime | None = Field(
         default=None,
         description="更新时间",
     )
@@ -355,17 +361,17 @@ class CodeValidationResponse(BaseModel):
         description="代码是否有效",
         examples=[True],
     )
-    errors: List[str] = Field(
+    errors: list[str] = Field(
         default_factory=list,
         description="错误列表",
         examples=[["语法错误: 第5行缩进错误"]],
     )
-    warnings: List[str] = Field(
+    warnings: list[str] = Field(
         default_factory=list,
         description="警告列表",
         examples=[["警告: 未检测到策略基类继承"]],
     )
-    suggestions: List[str] = Field(
+    suggestions: list[str] = Field(
         default_factory=list,
         description="改进建议",
         examples=[["建议使用类型注解"]],
@@ -405,24 +411,26 @@ class PerformanceStatsResponse(BaseModel):
         description="总Token使用量",
         examples=[50000],
     )
-    model_usage_stats: Dict[str, int] = Field(
+    model_usage_stats: dict[str, int] = Field(
         default_factory=dict,
         description="各模型使用统计",
         examples=[{"gpt-4": 80, "claude-3": 20}],
     )
-    daily_stats: List[Dict[str, Any]] = Field(
+    daily_stats: list[dict[str, Any]] = Field(
         default_factory=list,
         description="每日统计",
-        examples=[[
-            {"date": "2026-03-07", "count": 10, "success": 9},
-            {"date": "2026-03-08", "count": 15, "success": 15},
-        ]],
+        examples=[
+            [
+                {"date": "2026-03-07", "count": 10, "success": 9},
+                {"date": "2026-03-08", "count": 15, "success": 15},
+            ]
+        ],
     )
-    period_start: Optional[datetime] = Field(
+    period_start: datetime | None = Field(
         default=None,
         description="统计周期开始时间",
     )
-    period_end: Optional[datetime] = Field(
+    period_end: datetime | None = Field(
         default=None,
         description="统计周期结束时间",
     )
@@ -436,7 +444,7 @@ class StrategyGenerateFromTemplateRequest(BaseModel):
         description="模板ID",
         examples=["tpl_1234567890"],
     )
-    variables: Dict[str, Any] = Field(
+    variables: dict[str, Any] = Field(
         default_factory=dict,
         description="模板变量值",
         examples=[
@@ -447,24 +455,24 @@ class StrategyGenerateFromTemplateRequest(BaseModel):
             }
         ],
     )
-    model_id: Optional[str] = Field(
+    model_id: str | None = Field(
         default=None,
         description="使用的模型ID（用于内部标识），不传则使用默认模型",
         examples=["gpt-4"],
     )
-    model_name: Optional[str] = Field(
+    model_name: str | None = Field(
         default=None,
         description="使用的模型名称（用于API调用），不传则使用model_id",
         examples=["gpt-4"],
     )
-    temperature: Optional[float] = Field(
+    temperature: float | None = Field(
         default=None,
         description="生成温度参数(0-2)",
         examples=[0.7],
         ge=0.0,
         le=2.0,
     )
-    additional_requirement: Optional[str] = Field(
+    additional_requirement: str | None = Field(
         default=None,
         description="额外需求描述",
         examples=["添加止损逻辑"],

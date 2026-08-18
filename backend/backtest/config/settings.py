@@ -13,17 +13,16 @@
 日期: 2026-02-15
 """
 
-from typing import Any, Dict
+from typing import Any
 
 # 从 base 模块导入 EngineType，确保只有一个定义
 from backtest.engines.base import EngineType
-
 
 # 默认引擎类型（基于 axon-quant 事件驱动）
 DEFAULT_ENGINE: EngineType = EngineType.EVENT_DRIVEN
 
 # 默认引擎配置
-DEFAULT_CONFIG: Dict[str, Any] = {
+DEFAULT_CONFIG: dict[str, Any] = {
     # 日志级别: DEBUG, INFO, WARNING, ERROR
     "log_level": "INFO",
     # 缓存配置

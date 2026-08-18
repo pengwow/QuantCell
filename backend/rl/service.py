@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """RL 服务 — 强化学习训练与推理
 
 核心流程：
@@ -10,6 +9,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -17,8 +17,7 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
-from queue import Queue
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import gymnasium as gym
 import numpy as np
@@ -26,6 +25,10 @@ import pandas as pd
 
 from axon_bridge import Action
 from axon_bridge.rl import TradingEnv
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from queue import Queue
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +42,11 @@ ACTION_MAP = {0: "hold", 1: "buy", 2: "sell", 3: "close_long", 4: "close_short"}
 
 class TrainingProgressCallback:
     """SB3 训练回调类 — 捕获训练进度并推送
-    
+
     使用方式：
         callback = TrainingProgressCallback(on_progress=on_progress_fn)
         model.learn(total_timesteps=N, callback=callback)
-    
+
     或使用队列模式：
         queue = Queue()
         callback = TrainingProgressCallback(queue=queue)
@@ -55,7 +58,7 @@ class TrainingProgressCallback:
                 break
             print(progress)
     """
-    
+
     def __init__(
         self,
         queue: Queue | None = None,
@@ -69,80 +72,90 @@ class TrainingProgressCallback:
         self.episode_rewards = []
         self.total_timesteps_done = 0
         self.num_episodes = 0
-    
+
     def _send_progress(self, data: dict):
         """发送进度数据"""
         if self.queue:
             self.queue.put(data)
         if self.on_progress:
             self.on_progress(data)
-    
+
     def on_step(self, locals_dict: dict, globals_dict: dict) -> bool:
         """每步回调（不常用）"""
         return True
-    
+
     def on_rollout_start(self) -> None:
         """每次 rollout 开始"""
         pass
-    
+
     def on_rollout_end(self) -> None:
         """每次 rollout 结束（常用于记录指标）"""
         pass
-    
+
     def on_training_start(self) -> None:
         """训练开始"""
         self.start_time = time.time()
         self.episode_rewards = []
         self.total_timesteps_done = 0
         self.num_episodes = 0
-        self._send_progress({
-            "type": "start",
-            "timestamp": time.time(),
-            "message": "训练开始",
-        })
-    
+        self._send_progress(
+            {
+                "type": "start",
+                "timestamp": time.time(),
+                "message": "训练开始",
+            }
+        )
+
     def on_training_end(self) -> None:
         """训练结束"""
         elapsed_time = time.time() - self.start_time
-        self._send_progress({
-            "type": "complete",
-            "timestamp": time.time(),
-            "elapsed_time": round(elapsed_time, 2),
-            "total_timesteps": self.total_timesteps_done,
-            "num_episodes": self.num_episodes,
-            "mean_reward": float(np.mean(self.episode_rewards)) if self.episode_rewards else 0.0,
-            "max_reward": float(np.max(self.episode_rewards)) if self.episode_rewards else 0.0,
-            "min_reward": float(np.min(self.episode_rewards)) if self.episode_rewards else 0.0,
-        })
-    
+        self._send_progress(
+            {
+                "type": "complete",
+                "timestamp": time.time(),
+                "elapsed_time": round(elapsed_time, 2),
+                "total_timesteps": self.total_timesteps_done,
+                "num_episodes": self.num_episodes,
+                "mean_reward": float(np.mean(self.episode_rewards)) if self.episode_rewards else 0.0,
+                "max_reward": float(np.max(self.episode_rewards)) if self.episode_rewards else 0.0,
+                "min_reward": float(np.min(self.episode_rewards)) if self.episode_rewards else 0.0,
+            }
+        )
+
     def on_policy_update(self) -> None:
         """策略更新时（每 update_freq 步）"""
         pass
-    
+
     def on_step_end(self, step, done, info) -> None:
         """每步结束（自定义方法，需手动调用）"""
         self.total_timesteps_done = step + 1
-        
+
         if done:
             self.num_episodes += 1
             if "episode" in info:
                 episode_reward = info["episode"]["r"]
                 self.episode_rewards.append(float(episode_reward))
-                
+
                 # 每 log_interval 步或每 episode 发送进度
                 if self.total_timesteps_done % self.log_interval == 0:
                     elapsed_time = time.time() - self.start_time
-                    mean_reward = float(np.mean(self.episode_rewards[-10:])) if len(self.episode_rewards) >= 10 else float(np.mean(self.episode_rewards))
-                    
-                    self._send_progress({
-                        "type": "progress",
-                        "timestamp": time.time(),
-                        "timestep": self.total_timesteps_done,
-                        "episode": self.num_episodes,
-                        "episode_reward": float(episode_reward),
-                        "mean_reward": mean_reward,
-                        "elapsed_time": round(elapsed_time, 2),
-                    })
+                    mean_reward = (
+                        float(np.mean(self.episode_rewards[-10:]))
+                        if len(self.episode_rewards) >= 10
+                        else float(np.mean(self.episode_rewards))
+                    )
+
+                    self._send_progress(
+                        {
+                            "type": "progress",
+                            "timestamp": time.time(),
+                            "timestep": self.total_timesteps_done,
+                            "episode": self.num_episodes,
+                            "episode_reward": float(episode_reward),
+                            "mean_reward": mean_reward,
+                            "elapsed_time": round(elapsed_time, 2),
+                        }
+                    )
 
 
 class TradingEnvWrapper(gym.Env):
@@ -166,9 +179,7 @@ class TradingEnvWrapper(gym.Env):
 
         # 观测空间：用一个 dummy reset 初始化
         dummy_obs, _ = self._raw_obs_to_np(self._env.reset())
-        self.observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=dummy_obs.shape, dtype=np.float32
-        )
+        self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=dummy_obs.shape, dtype=np.float32)
 
     def _raw_obs_to_np(self, raw) -> tuple[np.ndarray, dict]:
         """将 TradingEnv 的原始 obs 转换为 numpy array"""
@@ -199,7 +210,8 @@ class TradingEnvWrapper(gym.Env):
             terminated = info.get("done", False)
             truncated = False
         else:
-            raise ValueError(f"Unexpected step result length: {len(result)}")
+            msg = f"Unexpected step result length: {len(result)}"
+            raise ValueError(msg)
 
         obs, _ = self._raw_obs_to_np(obs_raw)
 
@@ -234,9 +246,9 @@ class RLService:
     """RL 训练与推理服务"""
 
     def _train_internal(
-        self, 
-        config: Any, 
-        reward_fn=None, 
+        self,
+        config: Any,
+        reward_fn=None,
         verbose: int = 1,
         callback=None,
         progress_callback=None,
@@ -253,20 +265,20 @@ class RLService:
         Returns:
             训练结果 dict
         """
-        from stable_baselines3 import PPO, SAC, A2C
+        from stable_baselines3 import A2C, PPO, SAC
 
         logger.info(f"开始训练: {config.symbol} {config.algorithm} {config.timesteps}步")
 
         # 1. 获取市场数据
-        df = self._fetch_market_data(
-            config.symbol, config.interval, config.lookback_days
-        )
+        df = self._fetch_market_data(config.symbol, config.interval, config.lookback_days)
         if progress_callback:
-            progress_callback({
-                "type": "info",
-                "message": f"加载数据完成: {len(df)} 条",
-                "timestamp": time.time(),
-            })
+            progress_callback(
+                {
+                    "type": "info",
+                    "message": f"加载数据完成: {len(df)} 条",
+                    "timestamp": time.time(),
+                }
+            )
 
         # 2. 转换为 TradingEnv 格式（list of dicts）
         data_list = self._df_to_env_data(df)
@@ -308,7 +320,7 @@ class RLService:
         output_name = config.output_name or f"{config.symbol}_{config.algorithm}_{int(time.time())}"
         model_path = str(MODELS_DIR / f"{output_name}.zip")
         model.save(model_path)
-        
+
         # 保存模型元数据（用于 predict 时确定算法类型）
         self._save_model_metadata(output_name, config.algorithm)
 
@@ -355,7 +367,7 @@ class RLService:
 
         # 创建回调并开始训练
         callback = TrainingProgressCallback(queue=progress_queue)
-        
+
         def progress_callback(data: dict):
             progress_queue.put(data)
 
@@ -375,7 +387,7 @@ class RLService:
             "created_at": time.time(),
             "model_name": model_name,
         }
-        
+
         # 原子写入：先写临时文件，再重命名（POSIX 保证原子性）
         fd, tmp_path = tempfile.mkstemp(dir=str(MODELS_DIR), suffix=".tmp")
         try:
@@ -385,17 +397,15 @@ class RLService:
         except Exception:
             # 清理临时文件
             if os.path.exists(tmp_path):
-                try:
+                with contextlib.suppress(Exception):
                     os.unlink(tmp_path)
-                except Exception:
-                    pass
             raise
-    
+
     def _load_model_metadata(self, model_name: str) -> dict | None:
         """加载模型元数据"""
         metadata_path = MODELS_DIR / f"{model_name}_metadata.json"
         if metadata_path.exists():
-            with open(metadata_path, "r") as f:
+            with open(metadata_path) as f:
                 return json.load(f)
         return None
 
@@ -408,20 +418,20 @@ class RLService:
 
         Returns:
             Action 对象
-        
+
         Raises:
             ValueError: 如果无法确定算法类型且没有元数据文件
         """
-        from stable_baselines3 import PPO, SAC, A2C
+        from stable_baselines3 import A2C, PPO, SAC
 
         # 从模型路径提取模型名称，查找元数据
         model_name = Path(model_path).stem
         metadata = self._load_model_metadata(model_name)
-        
+
         # 根据元数据或路径推断算法类型
         algo_map = {"ppo": PPO, "sac": SAC, "a2c": A2C}
         algorithm = None
-        
+
         # 优先使用元数据
         if metadata and metadata.get("algorithm") in algo_map:
             algorithm = metadata["algorithm"]
@@ -435,15 +445,16 @@ class RLService:
                 if candidate in algo_map:
                     algorithm = candidate
                     break
-        
+
         # 如果仍无法确定，抛出明确错误
         if algorithm is None:
-            raise ValueError(
+            msg = (
                 f"无法确定模型 '{model_name}' 的算法类型。"
                 f"请确保存在元数据文件 '{model_name}_metadata.json'，"
                 f"或模型名称包含算法类型（ppo/sac/a2c）。"
             )
-        
+            raise ValueError(msg)
+
         algo_cls = algo_map[algorithm]
         model = algo_cls.load(model_path)
         action_logits, _ = model.predict(obs.astype(np.float32), deterministic=True)
@@ -459,8 +470,13 @@ class RLService:
             inference_time_us=0,
         )
 
-    def backtest(self, model_path: str, symbol: str, interval: str = "1h",
-                 lookback_days: int = 90) -> dict:
+    def backtest(
+        self,
+        model_path: str,
+        symbol: str,
+        interval: str = "1h",
+        lookback_days: int = 90,
+    ) -> dict:
         """用训练好的模型回测
 
         Args:
@@ -473,6 +489,7 @@ class RLService:
             回测结果
         """
         from stable_baselines3 import PPO
+
         from backtest.backtest_loop import BacktestLoop, RuleStrategy
 
         # 加载模型
@@ -496,18 +513,48 @@ class RLService:
 
                 if action_type == "buy" and self._position <= 0:
                     self._position = 0.1
-                    return Action(action_type="buy", confidence=0.8, target_position=0.1, model_id="rl_model", inference_time_us=0)
+                    return Action(
+                        action_type="buy",
+                        confidence=0.8,
+                        target_position=0.1,
+                        model_id="rl_model",
+                        inference_time_us=0,
+                    )
                 elif action_type == "sell" and self._position >= 0:
                     self._position = -0.1
-                    return Action(action_type="sell", confidence=0.8, target_position=0.0, model_id="rl_model", inference_time_us=0)
+                    return Action(
+                        action_type="sell",
+                        confidence=0.8,
+                        target_position=0.0,
+                        model_id="rl_model",
+                        inference_time_us=0,
+                    )
                 elif action_type == "close_long" and self._position > 0:
                     self._position = 0.0
-                    return Action(action_type="sell", confidence=0.9, target_position=0.0, model_id="rl_model", inference_time_us=0)
+                    return Action(
+                        action_type="sell",
+                        confidence=0.9,
+                        target_position=0.0,
+                        model_id="rl_model",
+                        inference_time_us=0,
+                    )
                 elif action_type == "close_short" and self._position < 0:
                     self._position = 0.0
-                    return Action(action_type="buy", confidence=0.9, target_position=0.0, model_id="rl_model", inference_time_us=0)
+                    return Action(
+                        action_type="buy",
+                        confidence=0.9,
+                        target_position=0.0,
+                        model_id="rl_model",
+                        inference_time_us=0,
+                    )
 
-                return Action(action_type="hold", confidence=0.0, target_position=0.0, model_id="rl_model", inference_time_us=0)
+                return Action(
+                    action_type="hold",
+                    confidence=0.0,
+                    target_position=0.0,
+                    model_id="rl_model",
+                    inference_time_us=0,
+                )
 
         strategy = RLStrategy(model)
         loop = BacktestLoop(initial_cash=100_000)
@@ -528,28 +575,30 @@ class RLService:
         """列出已训练模型"""
         models = []
         for f in MODELS_DIR.glob("*.zip"):
-            models.append({
-                "name": f.stem,
-                "path": str(f),
-                "size_kb": round(f.stat().st_size / 1024, 1),
-            })
+            models.append(
+                {
+                    "name": f.stem,
+                    "path": str(f),
+                    "size_kb": round(f.stat().st_size / 1024, 1),
+                }
+            )
         return sorted(models, key=lambda x: x["name"])
 
     def delete_model(self, model_name: str) -> bool:
         """删除模型（包括模型文件和元数据）
-        
+
         Args:
             model_name: 模型名称（不含扩展名）
-        
+
         Returns:
             True 如果删除成功，False 如果模型不存在
         """
         model_path = MODELS_DIR / f"{model_name}.zip"
         metadata_path = MODELS_DIR / f"{model_name}_metadata.json"
-        
+
         if not model_path.exists():
             return False
-        
+
         # 删除模型文件
         try:
             os.remove(model_path)
@@ -557,7 +606,7 @@ class RLService:
         except Exception as e:
             logger.error(f"删除模型文件失败: {e}")
             raise
-        
+
         # 删除元数据文件（如果存在）
         if metadata_path.exists():
             try:
@@ -565,13 +614,22 @@ class RLService:
                 logger.info(f"删除元数据文件: {metadata_path}")
             except Exception as e:
                 logger.warning(f"删除元数据文件失败: {e}")
-        
+
         return True
 
     def _fetch_market_data(self, symbol: str, interval: str, lookback_days: int) -> pd.DataFrame:
         """获取市场数据（优先本地 parquet，fallback 到 Binance API），返回小写列名"""
         # 1. 尝试本地 parquet
-        local_path = Path(__file__).parent.parent / "data" / "source" / "crypto" / "spot" / "klines" / interval / f"{symbol}.parquet"
+        local_path = (
+            Path(__file__).parent.parent
+            / "data"
+            / "source"
+            / "crypto"
+            / "spot"
+            / "klines"
+            / interval
+            / f"{symbol}.parquet"
+        )
         if local_path.exists():
             df = pd.read_parquet(local_path)
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="us")
@@ -591,11 +649,23 @@ class RLService:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read())
 
-            df = pd.DataFrame(data, columns=[
-                "timestamp", "open", "high", "low", "close", "volume",
-                "close_time", "quote_volume", "trades", "taker_buy_base",
-                "taker_buy_quote", "ignore",
-            ])
+            df = pd.DataFrame(
+                data,
+                columns=[
+                    "timestamp",
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "volume",
+                    "close_time",
+                    "quote_volume",
+                    "trades",
+                    "taker_buy_base",
+                    "taker_buy_quote",
+                    "ignore",
+                ],
+            )
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
             df.set_index("timestamp", inplace=True)
             for col in ["open", "high", "low", "close", "volume"]:
@@ -610,14 +680,16 @@ class RLService:
         data = []
         for idx, row in df.iterrows():
             ts = int(pd.Timestamp(idx).timestamp() * 1e9) if not isinstance(idx, (int, float)) else int(idx)
-            data.append({
-                "timestamp": ts,
-                "open": float(row["open"]),
-                "high": float(row["high"]),
-                "low": float(row["low"]),
-                "close": float(row["close"]),
-                "volume": float(row["volume"]),
-            })
+            data.append(
+                {
+                    "timestamp": ts,
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                    "volume": float(row["volume"]),
+                }
+            )
         return data
 
     def _evaluate(self, model, env, n_episodes: int = 3) -> dict:
@@ -629,7 +701,7 @@ class RLService:
             done = False
             while not done:
                 action, _ = model.predict(obs, deterministic=True)
-                obs, reward, terminated, truncated, info = env.step(action)
+                obs, reward, terminated, truncated, _info = env.step(action)
                 total_reward += reward
                 done = terminated or truncated
             rewards.append(total_reward)

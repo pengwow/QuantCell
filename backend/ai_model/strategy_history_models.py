@@ -2,15 +2,25 @@
 
 定义 StrategyHistory SQLAlchemy 模型，用于存储 AI 生成策略的历史记录
 """
+
 import json
 import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
-import sqlalchemy
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text, func, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    Index,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import declarative_base
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 # 创建独立的 Base 避免循环导入
 Base = declarative_base()
@@ -22,6 +32,7 @@ class StrategyHistory(Base):
     对应 strategy_history 表的 SQLAlchemy 模型定义
     用于存储 AI 生成策略的历史记录
     """
+
     __tablename__ = "strategy_history"
 
     # 主键 ID，使用 UUID
@@ -69,12 +80,12 @@ class StrategyHistory(Base):
     # 添加索引优化查询性能
     __table_args__ = (
         # 联合索引：用户ID + 创建时间，用于分页查询
-        Index('idx_strategy_history_user_created', 'user_id', 'created_at'),
+        Index("idx_strategy_history_user_created", "user_id", "created_at"),
         # 联合索引：用户ID + 是否有效
-        Index('idx_strategy_history_user_valid', 'user_id', 'is_valid'),
+        Index("idx_strategy_history_user_valid", "user_id", "is_valid"),
     )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """将模型转换为字典
 
         Returns:
@@ -98,7 +109,7 @@ class StrategyHistory(Base):
         }
 
     @staticmethod
-    def _format_datetime(dt: Optional[datetime]) -> Optional[str]:
+    def _format_datetime(dt: datetime | None) -> str | None:
         """格式化 datetime 对象为字符串
 
         Args:
@@ -111,7 +122,7 @@ class StrategyHistory(Base):
             return None
         return dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    def set_tokens_used(self, tokens: Dict[str, Any]) -> None:
+    def set_tokens_used(self, tokens: dict[str, Any]) -> None:
         """设置 Token 使用量
 
         Args:
@@ -119,7 +130,7 @@ class StrategyHistory(Base):
         """
         self.tokens_used = json.dumps(tokens) if tokens else None
 
-    def set_tags(self, tags: List[str]) -> None:
+    def set_tags(self, tags: list[str]) -> None:
         """设置标签
 
         Args:
@@ -127,7 +138,7 @@ class StrategyHistory(Base):
         """
         self.tags = json.dumps(tags) if tags else None
 
-    def get_tokens_used(self) -> Optional[Dict[str, Any]]:
+    def get_tokens_used(self) -> dict[str, Any] | None:
         """获取 Token 使用量
 
         Returns:
@@ -137,7 +148,7 @@ class StrategyHistory(Base):
             return json.loads(self.tokens_used)
         return None
 
-    def get_tags(self) -> List[str]:
+    def get_tags(self) -> list[str]:
         """获取标签列表
 
         Returns:

@@ -1,4 +1,5 @@
 """quantcell account — 凭证管理 CLI。"""
+
 from __future__ import annotations
 
 import os
@@ -13,9 +14,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from credentials.service import CredentialsService
 from credentials.exceptions import AccountAlreadyExistsError, AccountNotFoundError
-
+from credentials.service import CredentialsService
 
 app = typer.Typer(help="凭证管理（add/list/remove）")
 console = Console()

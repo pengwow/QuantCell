@@ -8,12 +8,12 @@
 - 读取失败 / 未配置时, 退回默认值
 - 默认 base_dir 走 backend/data/source/archive
 """
+
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -27,6 +27,7 @@ def _read_config(key: str, default: str) -> str:
     """从 system_config 读字符串配置, 失败退回 default."""
     try:
         from settings.models import SystemConfigBusiness
+
         value = SystemConfigBusiness.get(key, default)
         if value is None or value == "":
             return default

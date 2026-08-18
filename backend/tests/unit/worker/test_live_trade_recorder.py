@@ -9,27 +9,31 @@
 5. 数据库操作的正确性
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
 from datetime import datetime, timedelta
+from unittest.mock import Mock, patch
+
+import pytest
 
 from worker.event_handler import LiveTradeRecorder
-from worker.models import WorkerOrder, WorkerTrade, WorkerPosition
+from worker.models import WorkerOrder, WorkerPosition, WorkerTrade
 
 
 # 自定义类模拟真实的 Trader 对象（不是 Mock）
 class FakeTrader:
     """模拟真实的 axon_quant Trader 对象（不是 Mock）"""
+
     pass
 
 
 class FakeNode:
     """模拟真实的 axon_quant TradingNode 对象（不是 Mock）"""
+
     pass
 
 
 class Mockaxon_quantOrderAccepted:
     """模拟 axon_quant 的 OrderAccepted 事件"""
+
     def __init__(self):
         self.client_order_id = "test-order-123"
         self.venue_order_id = "venue-123"
@@ -44,6 +48,7 @@ class Mockaxon_quantOrderAccepted:
 
 class Mockaxon_quantOrderCanceled:
     """模拟 axon_quant 的 OrderCanceled 事件"""
+
     def __init__(self):
         self.client_order_id = "test-order-123"
         self.venue_order_id = "venue-123"
@@ -54,6 +59,7 @@ class Mockaxon_quantOrderCanceled:
 
 class Mockaxon_quantOrderRejected:
     """模拟 axon_quant 的 OrderRejected 事件"""
+
     def __init__(self):
         self.client_order_id = "test-order-123"
         self.reason = "Insufficient balance"
@@ -63,6 +69,7 @@ class Mockaxon_quantOrderRejected:
 
 class Mockaxon_quantOrderFilled:
     """模拟 axon_quant 的 OrderFilled 事件"""
+
     def __init__(self):
         self.trade_id = "trade-456"
         self.client_order_id = "test-order-123"
@@ -82,6 +89,7 @@ class Mockaxon_quantOrderFilled:
 
 class Mockaxon_quantPositionChanged:
     """模拟 axon_quant 的 PositionChanged 事件"""
+
     def __init__(self):
         self.position_id = "pos-789"
         self.instrument_id = "BTCUSDT"
@@ -110,8 +118,8 @@ class TestLiveTradeRecorder:
         # msgbus 实际在 trader.kernel.msgbus
         mock_msgbus = Mock()
         fake_kernel = FakeTrader()
-        setattr(fake_kernel, 'msgbus', mock_msgbus)
-        setattr(fake_trader, 'kernel', fake_kernel)
+        fake_kernel.msgbus = mock_msgbus
+        fake_trader.kernel = fake_kernel
         return fake_trader
 
     @pytest.fixture
@@ -121,7 +129,7 @@ class TestLiveTradeRecorder:
         fake_node = FakeNode()
         # TradingNode 有 msgbus 属性（通过 @property 暴露）
         mock_msgbus = Mock()
-        setattr(fake_node, 'msgbus', mock_msgbus)
+        fake_node.msgbus = mock_msgbus
         return fake_node
 
     @pytest.fixture
@@ -173,7 +181,7 @@ class TestLiveTradeRecorder:
     def test_subscribe_events_via_trader_msgbus_compat(self, recorder):
         """测试通过 trader.msgbus 订阅（兼容旧版本）"""
         fake_trader = FakeTrader()
-        setattr(fake_trader, 'msgbus', Mock())  # 直接挂在 trader 上（兼容模式）
+        fake_trader.msgbus = Mock()  # 直接挂在 trader 上（兼容模式）
         recorder.subscribe(fake_trader)
 
         assert fake_trader.msgbus.subscribe.call_count == 3
@@ -190,19 +198,16 @@ class TestLiveTradeRecorder:
 
     def test_handle_order_accepted_with_real_db(self, recorder, mock_order_accepted_event, db_session):
         """测试处理 OrderAccepted 事件 (使用真实的数据库会话)"""
-        from worker.crud import create_order_if_not_exists
-        
+
         # 模拟 _get_db 方法
         recorder._get_db = Mock(return_value=db_session)
-        
+
         # 直接调用 _handle_order_accepted
         recorder._handle_order_accepted(db_session, mock_order_accepted_event)
-        
+
         # 查询数据库，验证订单被创建
-        order = db_session.query(WorkerOrder).filter(
-            WorkerOrder.client_order_id == "test-order-123"
-        ).first()
-        
+        order = db_session.query(WorkerOrder).filter(WorkerOrder.client_order_id == "test-order-123").first()
+
         # 验证基本属性
         assert order is not None
         assert order.worker_id == 1
@@ -213,10 +218,12 @@ class TestLiveTradeRecorder:
         assert order.price == 50000.0
         assert order.status == "ACCEPTED"
 
-    def test_handle_order_canceled_with_real_db(self, recorder, mock_order_accepted_event, mock_order_canceled_event, db_session):
+    def test_handle_order_canceled_with_real_db(
+        self, recorder, mock_order_accepted_event, mock_order_canceled_event, db_session
+    ):
         """测试处理 OrderCanceled 事件"""
-        from worker.crud import create_order_if_not_exists, update_worker_order_status
-        
+        from worker.crud import create_order_if_not_exists
+
         # 首先创建一个已接受的订单
         test_order_data = {
             "worker_id": 1,
@@ -231,28 +238,28 @@ class TestLiveTradeRecorder:
             "avg_fill_price": 0.0,
             "status": "ACCEPTED",
             "position_id": None,
-            "strategy_id": "strategy-1"
+            "strategy_id": "strategy-1",
         }
         create_order_if_not_exists(db_session, test_order_data)
-        
+
         # 模拟 _get_db 方法
         recorder._get_db = Mock(return_value=db_session)
-        
+
         # 直接调用 _handle_order_canceled
         recorder._handle_order_canceled(db_session, mock_order_canceled_event)
-        
+
         # 查询数据库，验证订单状态更新
-        order = db_session.query(WorkerOrder).filter(
-            WorkerOrder.client_order_id == "test-order-123"
-        ).first()
-        
+        order = db_session.query(WorkerOrder).filter(WorkerOrder.client_order_id == "test-order-123").first()
+
         assert order is not None
         assert order.status == "CANCELED"
 
-    def test_handle_order_filled_with_real_db(self, recorder, mock_order_accepted_event, mock_order_filled_event, db_session):
+    def test_handle_order_filled_with_real_db(
+        self, recorder, mock_order_accepted_event, mock_order_filled_event, db_session
+    ):
         """测试处理 OrderFilled 事件"""
         from worker.crud import create_order_if_not_exists
-        
+
         # 首先创建一个已接受的订单
         test_order_data = {
             "worker_id": 1,
@@ -267,20 +274,18 @@ class TestLiveTradeRecorder:
             "avg_fill_price": 0.0,
             "status": "ACCEPTED",
             "position_id": None,
-            "strategy_id": "strategy-1"
+            "strategy_id": "strategy-1",
         }
         create_order_if_not_exists(db_session, test_order_data)
-        
+
         # 模拟 _get_db 方法
         recorder._get_db = Mock(return_value=db_session)
-        
+
         # 直接调用 _handle_fill
         recorder._handle_fill(db_session, mock_order_filled_event)
-        
+
         # 验证交易记录被创建
-        trade = db_session.query(WorkerTrade).filter(
-            WorkerTrade.trade_id == "trade-456"
-        ).first()
+        trade = db_session.query(WorkerTrade).filter(WorkerTrade.trade_id == "trade-456").first()
         assert trade is not None
         assert trade.worker_id == 1
         assert trade.symbol == "BTCUSDT"
@@ -291,11 +296,9 @@ class TestLiveTradeRecorder:
         assert trade.amount == 500.0
         assert trade.fee == 1.0
         assert trade.fee_currency == "USDT"
-        
+
         # 验证订单状态被更新
-        order = db_session.query(WorkerOrder).filter(
-            WorkerOrder.client_order_id == "test-order-123"
-        ).first()
+        order = db_session.query(WorkerOrder).filter(WorkerOrder.client_order_id == "test-order-123").first()
         assert order is not None
         assert order.status == "FILLED"
         assert order.filled_qty == 0.01
@@ -305,15 +308,13 @@ class TestLiveTradeRecorder:
         """测试处理 PositionChanged 事件"""
         # 模拟 _get_db 方法
         recorder._get_db = Mock(return_value=db_session)
-        
+
         # 直接调用 _handle_position
         recorder._handle_position(db_session, mock_position_event)
-        
+
         # 验证持仓记录被创建
-        position = db_session.query(WorkerPosition).filter(
-            WorkerPosition.position_id == "pos-789"
-        ).first()
-        
+        position = db_session.query(WorkerPosition).filter(WorkerPosition.position_id == "pos-789").first()
+
         assert position is not None
         assert position.worker_id == 1
         assert position.symbol == "BTCUSDT"
@@ -374,24 +375,29 @@ class TestLiveTradeRecorder:
     def test_on_order_event_dispatch(self, recorder, db_session):
         """测试订单事件分发逻辑"""
         recorder._get_db = Mock(return_value=db_session)
-        
+
         # 模拟各个订单事件
-        with patch.object(recorder, '_handle_order_accepted') as mock_handle_accepted:
+        with patch.object(recorder, "_handle_order_accepted") as mock_handle_accepted:
             event = Mockaxon_quantOrderAccepted()
             # 给event添加类型标识以便 _dispatch_order_event 可以识别
             from axon_quant.core.events import OrderAccepted
+
             event.__class__ = OrderAccepted
             # 使用 type('MockOrderAccepted', (OrderAccepted,), {})
-            mock_order_accepted = type('MockOrderAccepted', (OrderAccepted,), {
-                'client_order_id': 'test-123',
-                'venue_order_id': 'venue-123',
-                'instrument_id': 'BTCUSDT',
-                'order_side': 'BUY',
-                'order_type': 'MARKET',
-                'order_qty': 0.01,
-                'order_px': 50000.0,
-                'strategy_id': 'strategy-1'
-            })()
-            
+            mock_order_accepted = type(
+                "MockOrderAccepted",
+                (OrderAccepted,),
+                {
+                    "client_order_id": "test-123",
+                    "venue_order_id": "venue-123",
+                    "instrument_id": "BTCUSDT",
+                    "order_side": "BUY",
+                    "order_type": "MARKET",
+                    "order_qty": 0.01,
+                    "order_px": 50000.0,
+                    "strategy_id": "strategy-1",
+                },
+            )()
+
             recorder._dispatch_order_event(db_session, mock_order_accepted)
             assert mock_handle_accepted.called

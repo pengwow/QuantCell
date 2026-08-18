@@ -4,6 +4,7 @@
 def test_hpo_runner_creation():
     """HPORunner可以被创建"""
     from backtest.hpo_runner import HPORunner
+
     hpo = HPORunner()
     assert hpo is not None
 
@@ -11,6 +12,7 @@ def test_hpo_runner_creation():
 def test_hpo_runner_finds_best_params():
     """HPORunner找到最优参数"""
     from backtest.hpo_runner import HPORunner
+
     hpo = HPORunner()
 
     param_space = {
@@ -34,6 +36,7 @@ def test_hpo_runner_finds_best_params():
 def test_hpo_runner_respects_n_trials():
     """HPORunner执行指定次数的试验"""
     from backtest.hpo_runner import HPORunner
+
     hpo = HPORunner()
 
     param_space = {

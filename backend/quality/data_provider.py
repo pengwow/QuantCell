@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Dict
-import pandas as pd
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class DataProvider(ABC):
@@ -16,8 +18,8 @@ class DataProvider(ABC):
         symbol: str,
         interval: str,
         candle_type: str = "spot",
-        start: Optional[str] = None,
-        end: Optional[str] = None
+        start: str | None = None,
+        end: str | None = None,
     ) -> pd.DataFrame:
         """获取K线数据
 

@@ -5,21 +5,20 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
-from typing import Optional
 
-from utils.logger import get_logger, LogType
-from .plugin_store import PluginStore
+from utils.logger import LogType, get_logger
+
 from .plugin_security import validate_permissions
+from .plugin_store import PluginStore
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
 MANIFEST_NAME = "manifest.json"
-NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
-VERSION_PATTERN = re.compile(r'^\d+\.\d+\.\d+$')
+NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 
 
 class PluginInstaller:
-
     def __init__(self, plugin_dir: str, plugin_manager=None):
         self.plugin_dir = plugin_dir
         self.plugin_manager = plugin_manager
@@ -30,7 +29,7 @@ class PluginInstaller:
 
         temp_dir = tempfile.mkdtemp(prefix="plugin_install_")
         try:
-            with zipfile.ZipFile(zip_file_path, 'r') as zf:
+            with zipfile.ZipFile(zip_file_path, "r") as zf:
                 zf.extractall(temp_dir)
 
             manifest_path, manifest_data = self._find_manifest(temp_dir)
@@ -54,9 +53,7 @@ class PluginInstaller:
 
             if self.plugin_manager is not None:
                 install_path = dest_dir
-                success = self.plugin_manager.install_plugin(
-                    install_path, manifest_data, source_type="zip"
-                )
+                success = self.plugin_manager.install_plugin(install_path, manifest_data, source_type="zip")
                 if not success:
                     if os.path.exists(dest_dir):
                         shutil.rmtree(dest_dir)
@@ -77,7 +74,7 @@ class PluginInstaller:
         temp_dir = tempfile.mkdtemp(prefix="plugin_install_")
         temp_zip_path = os.path.join(temp_dir, filename)
         try:
-            with open(temp_zip_path, 'wb') as f:
+            with open(temp_zip_path, "wb") as f:
                 f.write(zip_bytes)
             return self.install_from_zip(temp_zip_path)
         except Exception as e:
@@ -86,7 +83,7 @@ class PluginInstaller:
         finally:
             self._cleanup_temp(temp_dir)
 
-    def install_from_git(self, git_url: str, branch: Optional[str] = None) -> tuple[bool, str]:
+    def install_from_git(self, git_url: str, branch: str | None = None) -> tuple[bool, str]:
         temp_dir = tempfile.mkdtemp(prefix="plugin_git_")
         clone_dir = os.path.join(temp_dir, "repo")
         try:
@@ -124,9 +121,7 @@ class PluginInstaller:
             shutil.move(source_dir, dest_dir)
 
             if self.plugin_manager is not None:
-                success = self.plugin_manager.install_plugin(
-                    dest_dir, manifest_data, source_type="git"
-                )
+                success = self.plugin_manager.install_plugin(dest_dir, manifest_data, source_type="git")
                 if not success:
                     if os.path.exists(dest_dir):
                         shutil.rmtree(dest_dir)
@@ -148,7 +143,10 @@ class PluginInstaller:
         if not name:
             return False, "manifest 缺少 name 字段"
         if not NAME_PATTERN.match(name):
-            return False, f"插件名称格式不合法: {name}，仅允许字母、数字、下划线、连字符"
+            return (
+                False,
+                f"插件名称格式不合法: {name}，仅允许字母、数字、下划线、连字符",
+            )
 
         version = manifest_data.get("version")
         if not version:
@@ -164,22 +162,22 @@ class PluginInstaller:
 
         return True, ""
 
-    def _find_manifest(self, root_dir: str) -> tuple[Optional[str], Optional[dict]]:
+    def _find_manifest(self, root_dir: str) -> tuple[str | None, dict | None]:
         direct_path = os.path.join(root_dir, MANIFEST_NAME)
         if os.path.isfile(direct_path):
             try:
-                with open(direct_path, 'r', encoding='utf-8') as f:
+                with open(direct_path, encoding="utf-8") as f:
                     return direct_path, json.load(f)
-            except (json.JSONDecodeError, OSError):
+            except json.JSONDecodeError, OSError:
                 return None, None
 
         for entry in os.listdir(root_dir):
             sub_path = os.path.join(root_dir, entry, MANIFEST_NAME)
             if os.path.isfile(sub_path):
                 try:
-                    with open(sub_path, 'r', encoding='utf-8') as f:
+                    with open(sub_path, encoding="utf-8") as f:
                         return sub_path, json.load(f)
-                except (json.JSONDecodeError, OSError):
+                except json.JSONDecodeError, OSError:
                     return None, None
 
         return None, None

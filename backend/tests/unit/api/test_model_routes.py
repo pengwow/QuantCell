@@ -1,12 +1,14 @@
 import os
-from fastapi.testclient import TestClient
+
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 os.environ["DEBUG"] = "true"
 
 
 def test_model_list_endpoint():
     from api.v2.model_routes import router
+
     app = FastAPI()
     app.include_router(router)
     client = TestClient(app)

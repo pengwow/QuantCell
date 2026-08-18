@@ -17,12 +17,12 @@ class Candle(CandleBase):
     # 忽略
     ignore = peewee.BooleanField(default=False)
     # 数据来源
-    data_source = peewee.CharField(max_length=50, default='unknown', index=True)
+    data_source = peewee.CharField(max_length=50, default="unknown", index=True)
 
     class Meta:
         table_name = "binance_candle"
         database = database.db
-        indexes = (("symbol", "timeframe", "open_time"), True),)
+        indexes = ((("symbol", "timeframe", "open_time"), True),)
 
 
 database.open_connection()

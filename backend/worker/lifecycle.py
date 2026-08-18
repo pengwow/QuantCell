@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Worker 自动迭代生命周期
 
 支持两种策略类型的自动优化：
@@ -12,15 +11,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
-
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +25,7 @@ METRICS_DIR.mkdir(parents=True, exist_ok=True)
 @dataclass
 class WorkerLifecycleConfig:
     """Worker 生命周期配置"""
+
     worker_id: int
     strategy_type: str = "rule"  # rule / rl
     # 优化参数
@@ -92,7 +87,7 @@ class WorkerLifecycle:
             new_metrics = self._evaluate_model(new_model)
 
             if new_metrics.get("sharpe", 0) > current_metrics.get("sharpe", 0):
-                logger.info(f"[RL] 新模型更优，部署中...")
+                logger.info("[RL] 新模型更优，部署中...")
                 self._deploy(new_model)
             else:
                 logger.info("[RL] 旧模型更优，保留")
@@ -112,7 +107,7 @@ class WorkerLifecycle:
             new_metrics = self._evaluate_params(new_params)
 
             if new_metrics.get("sharpe", 0) > current_metrics.get("sharpe", 0):
-                logger.info(f"[Rule] 新参数更优，部署中...")
+                logger.info("[Rule] 新参数更优，部署中...")
                 self._deploy_params(new_params)
             else:
                 logger.info("[Rule] 当前参数更优，保留")
@@ -128,9 +123,7 @@ class WorkerLifecycle:
             return True
         if metrics.get("sharpe", 0) < self.config.min_sharpe:
             return True
-        if metrics.get("drawdown", 0) > self.config.max_drawdown_pct:
-            return True
-        return False
+        return metrics.get("drawdown", 0) > self.config.max_drawdown_pct
 
     def _should_optimize(self, metrics: dict) -> bool:
         """规则策略: 检查是否需要优化参数"""
@@ -138,18 +131,21 @@ class WorkerLifecycle:
 
     def _retrain(self) -> str:
         """RL: 重训练模型"""
-        from rl.lifecycle import RLLifecycle, LifecycleConfig
+        from rl.lifecycle import LifecycleConfig, RLLifecycle
 
-        lifecycle = RLLifecycle(LifecycleConfig(
-            symbol="BTCUSDT",
-            interval="15m",
-            retrain_timesteps=self.config.retrain_timesteps,
-            eval_days=30,
-        ))
+        RLLifecycle(
+            LifecycleConfig(
+                symbol="BTCUSDT",
+                interval="15m",
+                retrain_timesteps=self.config.retrain_timesteps,
+                eval_days=30,
+            )
+        )
         # 简化：直接训练新模型
+        from stable_baselines3 import PPO
+
         from rl.env import TradingEnv
         from rl.service import RLService
-        from stable_baselines3 import PPO
 
         svc = RLService()
         df = svc._fetch_market_data("BTCUSDT", "15m", 30)
@@ -172,17 +168,17 @@ class WorkerLifecycle:
                 return -1000
 
             # 用当前数据回测
-            from rl.service import RLService
-            from strategy.templates.sma_crossover import SMACrossover
-            from strategy.base import StrategyConfig
             from backtest.backtest_loop import BacktestLoop
+            from rl.service import RLService
+            from strategy.base import StrategyConfig
+            from strategy.templates.sma_crossover import SMACrossover
 
             svc = RLService()
             df = svc._fetch_market_data("BTCUSDT", "15m", 30)
             config = StrategyConfig(
                 name="sma_crossover",
                 symbol="BTCUSDT",
-                params={"fast": fast, "slow": slow}
+                params={"fast": fast, "slow": slow},
             )
             strategy = SMACrossover(config)
             r = BacktestLoop(initial_cash=100_000).run(strategy, df.head(5000), "BTCUSDT")
@@ -195,9 +191,10 @@ class WorkerLifecycle:
 
     def _evaluate_model(self, model_path: str) -> dict:
         """评估 RL 模型"""
+        from stable_baselines3 import PPO
+
         from rl.env import TradingEnv
         from rl.service import RLService
-        from stable_baselines3 import PPO
 
         svc = RLService()
         df = svc._fetch_market_data("BTCUSDT", "15m", 30)
@@ -208,7 +205,8 @@ class WorkerLifecycle:
         for _ in range(5000):
             a, _ = model.predict(obs, deterministic=True)
             obs, _, term, trunc, info = env.step(a)
-            if term or trunc: break
+            if term or trunc:
+                break
 
         return {
             "pnl": info.get("portfolio_value", 100_000) - 100_000,
@@ -219,17 +217,17 @@ class WorkerLifecycle:
 
     def _evaluate_params(self, params: dict) -> dict:
         """评估规则策略参数"""
-        from strategy.templates.sma_crossover import SMACrossover
-        from strategy.base import StrategyConfig
         from backtest.backtest_loop import BacktestLoop
         from rl.service import RLService
+        from strategy.base import StrategyConfig
+        from strategy.templates.sma_crossover import SMACrossover
 
         svc = RLService()
         df = svc._fetch_market_data("BTCUSDT", "15m", 30)
         config = StrategyConfig(
             name="sma_crossover",
             symbol="BTCUSDT",
-            params={"fast": params.get("fast", 10), "slow": params.get("slow", 30)}
+            params={"fast": params.get("fast", 10), "slow": params.get("slow", 30)},
         )
         strategy = SMACrossover(config)
         r = BacktestLoop(initial_cash=100_000).run(strategy, df.head(5000), "BTCUSDT")

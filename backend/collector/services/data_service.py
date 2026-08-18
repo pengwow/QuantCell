@@ -7,24 +7,29 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-import pandas as pd
-from utils.logger import get_logger, LogType
-from utils.parquet_utils import load_from_parquet, load_kline_data_auto, list_parquet_files
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
-from sqlalchemy.orm import Session
 
 from exchange import BinanceCollector, OKXCollector
 
 from ..db import crud
 from ..db.database import init_database_config
-from ..db.models import CryptoSymbol, SystemConfigBusiness as SystemConfig
-
-from ..schemas.data import DownloadCryptoRequest, ExportCryptoRequest, LoadDataRequest
+from ..db.models import CryptoSymbol
+from ..db.models import SystemConfigBusiness as SystemConfig
 from ..utils.task_manager import task_manager
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from ..schemas.data import (
+        DownloadCryptoRequest,
+        ExportCryptoRequest,
+        LoadDataRequest,
+    )
 
 # 基础源数据目录：项目后端根目录的 data/source 目录
 SOURCE_DATA_DIR = Path(__file__).parent.parent.parent / "data" / "source"
@@ -67,7 +72,7 @@ class GetData:
         self,
         symbols=None,
         exchange="binance",
-        candle_type='spot',
+        candle_type="spot",
         save_dir=None,
         start=None,
         end=None,
@@ -78,7 +83,7 @@ class GetData:
         check_data_length=None,
         limit_nums=None,
         exists_skip=False,
-        mode='inc',
+        mode="inc",
     ):
         self.symbols = symbols
         self.exchange = exchange
@@ -102,13 +107,10 @@ class GetData:
     def run(self, start_date=None, progress_callback=None):
         actual_start = start_date or self.start
         # 构建完整保存路径: {save_dir}/crypto/{spot|future}/klines/{interval}
-        market_type = 'spot' if self.candle_type == "spot" else 'future'
-        full_save_dir = self.save_dir / 'crypto' / market_type / 'klines' / self.interval
+        market_type = "spot" if self.candle_type == "spot" else "future"
+        full_save_dir = self.save_dir / "crypto" / market_type / "klines" / self.interval
 
-        if isinstance(self.symbols, list):
-            symbols_str = ','.join(self.symbols)
-        else:
-            symbols_str = self.symbols
+        symbols_str = ",".join(self.symbols) if isinstance(self.symbols, list) else self.symbols
 
         logger.info(f"开始下载 {self.exchange} {self.interval} 数据")
         logger.info(f"保存目录: {full_save_dir}")
@@ -131,12 +133,12 @@ class GetData:
                     check_data_length=self.check_data_length,
                     limit_nums=self.limit_nums,
                     candle_type=self.candle_type,
-                    symbols=symbols_str.split(',') if symbols_str else None,
+                    symbols=symbols_str.split(",") if symbols_str else None,
                     mode=self.mode,
                 )
                 collector.collect_data(progress_callback=progress_callback)
 
-            elif exchange_lower in ["okx"]:
+            elif exchange_lower == "okx":
                 collector = OKXCollector(
                     save_dir=full_save_dir,
                     start=actual_start,
@@ -148,14 +150,15 @@ class GetData:
                     check_data_length=self.check_data_length,
                     limit_nums=self.limit_nums,
                     candle_type=self.candle_type,
-                    symbols=symbols_str.split(',') if symbols_str else None,
+                    symbols=symbols_str.split(",") if symbols_str else None,
                     mode=self.mode,
                 )
                 collector.collect_data(progress_callback=progress_callback)
 
             else:
                 logger.error(f"不支持的交易所: {self.exchange}")
-                raise ValueError(f"不支持的交易所: {self.exchange}")
+                msg = f"不支持的交易所: {self.exchange}"
+                raise ValueError(msg)
 
             logger.info(f"{self.exchange} 数据下载完成！")
 
@@ -186,39 +189,33 @@ class ExportData:
         max_workers=1,
         auto_download=True,
     ):
-        result = {
-            'success': True,
-            'exported_files': [],
-            'missing_ranges': {}
-        }
+        result = {"success": True, "exported_files": [], "missing_ranges": {}}
 
         try:
-            logger.info(f"开始导出K线数据...")
+            logger.info("开始导出K线数据...")
             logger.info(f"交易对: {symbols}")
             logger.info(f"时间范围: {start} 至 {end}")
             logger.info(f"时间间隔: {interval}")
 
-            result['exported_files'] = [f"{symbol}_{interval}.csv" for symbol in symbols]
+            result["exported_files"] = [f"{symbol}_{interval}.csv" for symbol in symbols]
 
         except Exception as e:
             logger.error(f"导出失败: {e}")
             logger.exception(e)
-            result['success'] = False
-            result['missing_ranges'] = {
-                symbol: [{'error': str(e)}] for symbol in symbols
-            }
+            result["success"] = False
+            result["missing_ranges"] = {symbol: [{"error": str(e)}] for symbol in symbols}
 
         return result
 
 
 def sync_crypto_symbols(
-    exchange: str = 'binance',
+    exchange: str = "binance",
     proxy_enabled: bool = False,
-    proxy_url: Optional[str] = None,
-    proxy_username: Optional[str] = None,
-    proxy_password: Optional[str] = None,
-    log_level: str = 'info'
-) -> Dict[str, Any]:
+    proxy_url: str | None = None,
+    proxy_username: str | None = None,
+    proxy_password: str | None = None,
+    log_level: str = "info",
+) -> dict[str, Any]:
     """同步加密货币对到数据库
 
     Args:
@@ -248,31 +245,25 @@ def sync_crypto_symbols(
             logger.info(f"启用代理: {proxy_url}")
             parsed_url = urlparse(proxy_url)
 
-            if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
+            if parsed_url.scheme in ["socks5", "socks4", "socks4a"]:
                 exchange_instance.proxy = proxy_url
                 proxy_configured = True
             else:
-                exchange_instance.proxies = {
-                    'http': proxy_url,
-                    'https': proxy_url
-                }
+                exchange_instance.proxies = {"http": proxy_url, "https": proxy_url}
                 proxy_configured = True
             if proxy_username and proxy_password:
                 exchange_instance.proxy_auth = (proxy_username, proxy_password)
         else:
-            env_proxy = os.environ.get('HTTP_PROXY') or os.environ.get('HTTPS_PROXY')
+            env_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
             if env_proxy:
                 logger.info(f"使用环境变量中的代理: {env_proxy}")
                 parsed_url = urlparse(env_proxy)
 
-                if parsed_url.scheme in ['socks5', 'socks4', 'socks4a']:
+                if parsed_url.scheme in ["socks5", "socks4", "socks4a"]:
                     exchange_instance.proxy = env_proxy
                     proxy_configured = True
                 else:
-                    exchange_instance.proxies = {
-                        'http': env_proxy,
-                        'https': env_proxy
-                    }
+                    exchange_instance.proxies = {"http": env_proxy, "https": env_proxy}
                     proxy_configured = True
 
         if not proxy_configured:
@@ -282,16 +273,16 @@ def sync_crypto_symbols(
 
         valid_symbols = []
         for symbol, market in markets.items():
-            if market.get('active', True):
+            if market.get("active", True):
                 symbol_info = {
-                    'symbol': symbol,
-                    'base': market.get('base'),
-                    'quote': market.get('quote'),
-                    'exchange': exchange,
-                    'active': market.get('active'),
-                    'precision': market.get('precision', {}),
-                    'limits': market.get('limits', {}),
-                    'type': market.get('type')
+                    "symbol": symbol,
+                    "base": market.get("base"),
+                    "quote": market.get("quote"),
+                    "exchange": exchange,
+                    "active": market.get("active"),
+                    "precision": market.get("precision", {}),
+                    "limits": market.get("limits", {}),
+                    "type": market.get("type"),
                 }
                 valid_symbols.append(symbol_info)
 
@@ -307,6 +298,7 @@ def sync_crypto_symbols(
         while retry_count < max_retries:
             try:
                 from utils.db_session import get_db_session
+
                 logger.info(f"开始数据库操作，重试次数: {retry_count + 1}/{max_retries}")
                 with get_db_session() as db:
                     logger.info(f"开始处理{exchange}的货币对数据...")
@@ -316,7 +308,7 @@ def sync_crypto_symbols(
                     existing_symbol_map = {sym.symbol: sym for sym in existing_symbols}
                     logger.info(f"已获取{exchange}的{len(existing_symbol_map)}条现有货币对数据")
 
-                    new_symbol_map = {sym['symbol']: sym for sym in valid_symbols}
+                    new_symbol_map = {sym["symbol"]: sym for sym in valid_symbols}
 
                     logger.info(f"标记不再存在的{exchange}货币对...")
                     deleted_count = 0
@@ -333,44 +325,46 @@ def sync_crypto_symbols(
                     inserted_count = 0
 
                     for symbol, symbol_info in new_symbol_map.items():
-                        precision_str = json.dumps(symbol_info['precision'])
-                        limits_str = json.dumps(symbol_info['limits'])
+                        precision_str = json.dumps(symbol_info["precision"])
+                        limits_str = json.dumps(symbol_info["limits"])
 
                         if symbol in existing_symbol_map:
                             existing_sym = existing_symbol_map[symbol]
-                            existing_sym.active = symbol_info['active']
+                            existing_sym.active = symbol_info["active"]
                             existing_sym.is_deleted = False
                             existing_sym.precision = precision_str
                             existing_sym.limits = limits_str
-                            existing_sym.type = symbol_info['type']
+                            existing_sym.type = symbol_info["type"]
                             updated_count += 1
                         else:
                             new_symbol = CryptoSymbol(
-                                symbol=symbol_info['symbol'],
-                                base=symbol_info['base'],
-                                quote=symbol_info['quote'],
-                                exchange=symbol_info['exchange'],
-                                active=symbol_info['active'],
+                                symbol=symbol_info["symbol"],
+                                base=symbol_info["base"],
+                                quote=symbol_info["quote"],
+                                exchange=symbol_info["exchange"],
+                                active=symbol_info["active"],
                                 precision=precision_str,
                                 limits=limits_str,
-                                type=symbol_info['type'],
-                                is_deleted=False
+                                type=symbol_info["type"],
+                                is_deleted=False,
                             )
                             db.add(new_symbol)
                             inserted_count += 1
 
                     db.commit()
-                    logger.info(f"成功处理{exchange}货币对数据: 更新{updated_count}条，插入{inserted_count}条，标记删除{deleted_count}条")
+                    logger.info(
+                        f"成功处理{exchange}货币对数据: 更新{updated_count}条，插入{inserted_count}条，标记删除{deleted_count}条"
+                    )
 
                     return {
-                        'success': True,
-                        'message': f"成功同步{len(valid_symbols)}个{exchange}货币对到数据库",
-                        'exchange': exchange,
-                        'symbol_count': len(valid_symbols),
-                        'updated_count': updated_count,
-                        'inserted_count': inserted_count,
-                        'deleted_count': deleted_count,
-                        'timestamp': datetime.now().isoformat()
+                        "success": True,
+                        "message": f"成功同步{len(valid_symbols)}个{exchange}货币对到数据库",
+                        "exchange": exchange,
+                        "symbol_count": len(valid_symbols),
+                        "updated_count": updated_count,
+                        "inserted_count": inserted_count,
+                        "deleted_count": deleted_count,
+                        "timestamp": datetime.now().isoformat(),
                     }
 
             except Exception as e:
@@ -391,29 +385,30 @@ def sync_crypto_symbols(
         logger.error(f"同步加密货币对失败: {error_msg}")
         logger.error(f"交易所: {exchange}, 代理启用: {proxy_enabled}, 代理URL: {proxy_url}")
         import traceback
+
         logger.error(f"详细错误堆栈:\n{traceback.format_exc()}")
         return {
-            'success': False,
-            'message': f"同步失败: {error_msg}",
-            'exchange': exchange,
-            'proxy_enabled': proxy_enabled,
-            'proxy_url': proxy_url,
-            'timestamp': datetime.now().isoformat()
+            "success": False,
+            "message": f"同步失败: {error_msg}",
+            "exchange": exchange,
+            "proxy_enabled": proxy_enabled,
+            "proxy_url": proxy_url,
+            "timestamp": datetime.now().isoformat(),
         }
 
 
 class DataService:
     """数据服务类，处理数据相关的业务逻辑"""
-    
-    def __init__(self, db: Optional[Session] = None):
+
+    def __init__(self, db: Session | None = None):
         """初始化数据服务
-        
+
         Args:
             db: 数据库会话，可选
         """
         self.db = db
-    
-    def load_data(self, request: LoadDataRequest) -> Dict[str, Any]:
+
+    def load_data(self, request: LoadDataRequest) -> dict[str, Any]:
         """加载QLib数据
 
         从系统配置表中获取qlib_dir配置，加载QLib格式的数据
@@ -425,110 +420,106 @@ class DataService:
             Dict[str, Any]: 包含加载结果的数据
         """
         from settings.models import SystemConfigBusiness as SystemConfig
+
         logger.info("开始加载QLib数据")
-        
+
         # 从系统配置表中获取qlib_dir配置
         qlib_dir = SystemConfig.get("qlib_data_dir")
-        
+
         if not qlib_dir:
             # 如果配置不存在，使用默认值
             qlib_dir = "data/qlib_data"
             logger.warning(f"未找到qlib_data_dir配置，使用默认值: {qlib_dir}")
-        
+
         logger.info(f"从系统配置获取QLib数据目录: {qlib_dir}")
-        
+
         # 调用数据加载器加载数据
         success = data_loader.init_qlib(qlib_dir)
-        
+
         if success:
             logger.info(f"QLib数据加载成功，目录: {qlib_dir}")
-            
+
             # 获取加载的数据信息
             data_info = data_loader.get_loaded_data_info()
             return {
                 "success": success,
                 "message": "数据加载成功",
                 "data_info": data_info,
-                "qlib_dir": qlib_dir
+                "qlib_dir": qlib_dir,
             }
         else:
             logger.error(f"QLib数据加载失败，目录: {qlib_dir}")
-            return {
-                "success": success,
-                "message": "数据加载失败",
-                "qlib_dir": qlib_dir
-            }
-    
-    def get_data_info(self) -> Dict[str, Any]:
+            return {"success": success, "message": "数据加载失败", "qlib_dir": qlib_dir}
+
+    def get_data_info(self) -> dict[str, Any]:
         """获取已加载的数据信息
-        
+
         Returns:
             Dict[str, Any]: 包含已加载数据信息的数据
         """
         logger.info("开始获取已加载的数据信息")
-        
+
         # 获取已加载的数据信息
         data_info = data_loader.get_loaded_data_info()
-        
+
         logger.info("成功获取已加载的数据信息")
         return data_info
-    
-    def get_calendars(self, freq: Optional[str] = None, start_time: Optional[str] = None, end_time: Optional[str] = None) -> Dict[str, Any]:
+
+    def get_calendars(
+        self,
+        freq: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict[str, Any]:
         """获取交易日历信息
-        
+
         Args:
             freq: 可选，指定频率，如'day'、'1min'、'1m'等
             start_time: 可选，开始时间，格式YYYY-MM-DD HH:mm:SS
             end_time: 可选，结束时间，格式YYYY-MM-DD HH:mm:SS
-            
+
         Returns:
             Dict[str, Any]: 包含交易日历信息的数据
         """
         logger.info(f"开始获取交易日历信息，频率: {freq}, 开始时间: {start_time}, 结束时间: {end_time}")
-        
+
         # 确保QLib已初始化
         if not data_loader.is_data_loaded():
             logger.info("QLib数据未加载，开始加载数据")
-            
+
             # 从系统配置获取qlib_data_dir
             qlib_dir = SystemConfig.get("qlib_data_dir")
-            
+
             if not qlib_dir:
                 qlib_dir = "data/crypto_data"
                 logger.warning(f"未找到qlib_data_dir配置，使用默认值: {qlib_dir}")
-            
+
             # 初始化QLib
             success = data_loader.init_qlib(qlib_dir)
             if not success:
                 logger.error("QLib初始化失败，无法获取交易日历")
-                return {
-                    "success": False,
-                    "message": "QLib初始化失败，无法获取交易日历"
-                }
-        
+                return {"success": False, "message": "QLib初始化失败，无法获取交易日历"}
+
         # 获取已加载的日历数据
         calendars = data_loader.get_calendars()
         logger.info(f"从data_loader获取到的日历数据: {list(calendars.keys())}")
-        
+
         # 处理频率参数
-        target_freq = freq if freq else "1d"
-        
+        target_freq = freq or "1d"
+
         # 如果请求的频率不在已加载的日历中，尝试获取
         if target_freq not in calendars:
             logger.info(f"请求的频率{target_freq}不在已加载的日历中，尝试获取")
-            
+
             # 导入D类
             from qlib.data import D
+
             logger.info("D类已成功导入")
-            
+
             # 直接调用D.calendar()获取日历数据
-            calendar_dates = D.calendar(
-                freq=target_freq,
-                start_time=start_time,
-                end_time=end_time
-            )
+            calendar_dates = D.calendar(freq=target_freq, start_time=start_time, end_time=end_time)
             logger.info(f"成功调用D.calendar()，获取到{len(calendar_dates)}个交易日")
-            
+
             # 将numpy.ndarray转换为Python标准类型列表，将Timestamp对象转换为字符串
             calendar_list = []
             for date in calendar_dates:
@@ -539,7 +530,7 @@ class DataService:
                 except Exception as e:
                     logger.warning(f"转换日期时出现异常: {e}, 日期: {date}")
                     continue
-            
+
             # 将获取到的日历添加到已加载的日历中
             calendars[target_freq] = calendar_list
             calendar_dates = calendar_list
@@ -547,257 +538,225 @@ class DataService:
             # 使用已加载的日历数据
             calendar_dates = calendars[target_freq]
             logger.info(f"使用已加载的日历数据，频率: {target_freq}，共{len(calendar_dates)}个交易日")
-        
+
         # 构建响应
         calendar = {
             "freq": target_freq,
             "dates": calendar_dates,
-            "count": len(calendar_dates)
+            "count": len(calendar_dates),
         }
-        
-        return {
-            "success": True,
-            "message": "获取交易日历成功",
-            "calendar": calendar
-        }
-    
-    def get_instruments(self, index_name: Optional[str] = None) -> Dict[str, Any]:
+
+        return {"success": True, "message": "获取交易日历成功", "calendar": calendar}
+
+    def get_instruments(self, index_name: str | None = None) -> dict[str, Any]:
         """获取成分股信息
-        
+
         Args:
             index_name: 可选，指定指数名称
-            
+
         Returns:
             Dict[str, Any]: 包含成分股信息的数据
         """
         logger.info(f"开始获取成分股信息，指数名称: {index_name}")
-        
+
         # 获取所有成分股
         instruments = data_loader.get_instruments()
-        
+
         if index_name:
             # 获取指定指数的成分股
             if index_name in instruments:
                 instrument = {
                     "index_name": index_name,
                     "symbols": instruments[index_name],
-                    "count": len(instruments[index_name])
+                    "count": len(instruments[index_name]),
                 }
                 return {
                     "success": True,
                     "message": "获取成分股成功",
-                    "instrument": instrument
+                    "instrument": instrument,
                 }
             else:
                 return {
                     "success": False,
                     "message": f"未找到指数{index_name}的成分股信息",
-                    "index_name": index_name
+                    "index_name": index_name,
                 }
         else:
             # 返回所有成分股
-            result = {
-                "instruments": []
-            }
+            result = {"instruments": []}
             for idx, symbols in instruments.items():
-                result["instruments"].append({
-                    "index_name": idx,
-                    "symbols": symbols,
-                    "count": len(symbols)
-                })
-            
-            return {
-                "success": True,
-                "message": "获取所有成分股成功",
-                "result": result
-            }
-    
-    def get_features(self, symbol: Optional[str] = None) -> Dict[str, Any]:
+                result["instruments"].append({"index_name": idx, "symbols": symbols, "count": len(symbols)})
+
+            return {"success": True, "message": "获取所有成分股成功", "result": result}
+
+    def get_features(self, symbol: str | None = None) -> dict[str, Any]:
         """获取特征信息
-        
+
         Args:
             symbol: 可选，指定货币名称
-            
+
         Returns:
             Dict[str, Any]: 包含特征信息的数据
         """
         if self.db is None:
-            raise ValueError("数据库会话未初始化")
-        
+            msg = "数据库会话未初始化"
+            raise ValueError(msg)
+
         logger.info(f"开始获取特征信息，货币名称: {symbol}")
-        
+
         if symbol:
             # 获取指定货币的特征
             features = crud.get_features_by_symbol(self.db, symbol)
-            
+
             # 格式化特征信息
             feature_info = {
                 "symbol": symbol,
                 "features": [{"feature_name": f.feature_name, "freq": f.freq} for f in features],
-                "count": len(features)
+                "count": len(features),
             }
             return {
                 "success": True,
                 "message": "获取货币特征成功",
-                "feature_info": feature_info
+                "feature_info": feature_info,
             }
         else:
             # 获取所有货币的特征
             features = crud.get_features(self.db)
-            
+
             # 按货币名称分组
             features_by_symbol = {}
             for f in features:
                 if f.symbol not in features_by_symbol:
                     features_by_symbol[f.symbol] = []
-                features_by_symbol[f.symbol].append({
-                    "feature_name": f.feature_name,
-                    "freq": f.freq
-                })
-            
+                features_by_symbol[f.symbol].append({"feature_name": f.feature_name, "freq": f.freq})
+
             # 返回所有货币的特征
-            result = {
-                "features": []
-            }
+            result = {"features": []}
             for sym, feats in features_by_symbol.items():
-                result["features"].append({
-                    "symbol": sym,
-                    "features": feats,
-                    "count": len(feats)
-                })
-            
-            return {
-                "success": True,
-                "message": "获取所有特征成功",
-                "result": result
-            }
-    
-    def get_symbol_features(self, symbol: str) -> Dict[str, Any]:
+                result["features"].append({"symbol": sym, "features": feats, "count": len(feats)})
+
+            return {"success": True, "message": "获取所有特征成功", "result": result}
+
+    def get_symbol_features(self, symbol: str) -> dict[str, Any]:
         """获取指定货币的特征数据
-        
+
         Args:
             symbol: 货币名称
-            
+
         Returns:
             Dict[str, Any]: 包含指定货币特征数据的数据
         """
         if self.db is None:
-            raise ValueError("数据库会话未初始化")
-        
+            msg = "数据库会话未初始化"
+            raise ValueError(msg)
+
         logger.info(f"开始获取货币{symbol}的特征数据")
-        
+
         # 获取指定货币的特征
         features = crud.get_features_by_symbol(self.db, symbol)
-        
+
         # 格式化特征信息
         feature_info = {
             "symbol": symbol,
             "features": [{"feature_name": f.feature_name, "freq": f.freq} for f in features],
-            "count": len(features)
+            "count": len(features),
         }
-        
+
         logger.info(f"成功获取货币{symbol}的特征数据，共{len(features)}个特征")
-        
+
         return {
             "success": True,
             "message": "获取货币特征成功",
-            "feature_info": feature_info
+            "feature_info": feature_info,
         }
-    
-    def get_data_status(self) -> Dict[str, Any]:
+
+    def get_data_status(self) -> dict[str, Any]:
         """获取数据服务状态
-        
+
         Returns:
             Dict[str, Any]: 包含数据服务状态的数据
         """
         logger.info("开始获取数据服务状态")
-        
+
         # 获取数据加载状态
         data_loaded = data_loader.is_data_loaded()
         qlib_dir = data_loader.get_qlib_dir()
-        
-        status = {
-            "data_loaded": data_loaded,
-            "qlib_dir": qlib_dir,
-            "status": "running"
-        }
-        
+
+        status = {"data_loaded": data_loaded, "qlib_dir": qlib_dir, "status": "running"}
+
         logger.info(f"成功获取数据服务状态: {status}")
-        
-        return {
-            "success": True,
-            "message": "获取数据服务状态成功",
-            "status": status
-        }
-    
-    def get_qlib_status(self) -> Dict[str, Any]:
+
+        return {"success": True, "message": "获取数据服务状态成功", "status": status}
+
+    def get_qlib_status(self) -> dict[str, Any]:
         """获取QLib状态
-        
+
         Returns:
             Dict[str, Any]: 包含QLib状态的数据
         """
         logger.info("开始获取QLib状态")
-        
+
         # 获取QLib状态
         data_loaded = data_loader.is_data_loaded()
         qlib_dir = data_loader.get_qlib_dir()
-        
+
         # 获取已加载的数据信息
         data_info = data_loader.get_loaded_data_info()
-        
+
         qlib_status = {
             "initialized": data_loaded,
             "qlib_dir": qlib_dir,
-            "data_info": data_info
+            "data_info": data_info,
         }
-        
+
         logger.info(f"成功获取QLib状态: {qlib_status}")
-        
+
         return {
             "success": True,
             "message": "获取QLib状态成功",
-            "qlib_status": qlib_status
+            "qlib_status": qlib_status,
         }
-    
-    def reload_qlib(self) -> Dict[str, Any]:
+
+    def reload_qlib(self) -> dict[str, Any]:
         """重新加载QLib
 
         Returns:
             Dict[str, Any]: 包含重新加载结果的数据
         """
         from settings.models import SystemConfigBusiness as SystemConfig
+
         logger.info("开始重新加载QLib")
-        
+
         # 从系统配置获取qlib_data_dir
         qlib_dir = SystemConfig.get("qlib_data_dir")
-        
+
         if not qlib_dir:
             qlib_dir = "data/crypto_data"
             logger.warning(f"未找到qlib_data_dir配置，使用默认值: {qlib_dir}")
-        
+
         # 重新初始化QLib
         success = data_loader.init_qlib(qlib_dir)
-        
+
         if success:
             logger.info(f"QLib重新加载成功，数据目录: {qlib_dir}")
-            
+
             # 获取已加载的数据信息
             data_info = data_loader.get_loaded_data_info()
             return {
                 "success": success,
                 "message": "QLib重新加载成功",
                 "qlib_dir": qlib_dir,
-                "data_info": data_info
+                "data_info": data_info,
             }
         else:
             logger.error(f"QLib重新加载失败，数据目录: {qlib_dir}")
             return {
                 "success": success,
                 "message": "QLib重新加载失败",
-                "qlib_dir": qlib_dir
+                "qlib_dir": qlib_dir,
             }
-    
-    def create_download_task(self, request: DownloadCryptoRequest) -> Dict[str, Any]:
+
+    def create_download_task(self, request: DownloadCryptoRequest) -> dict[str, Any]:
         """创建加密货币数据下载任务
 
         Args:
@@ -818,48 +777,48 @@ class DataService:
             max_workers=request.max_workers,
             candle_type=request.candle_type,
             symbols=request.symbols,
-            save_dir=request.save_dir
+            save_dir=request.save_dir,
         )
-        
+
         logger.info(f"创建下载任务成功，任务ID: {task_id}")
-        
+
         return {
             "success": True,
             "message": "加密货币数据下载任务已创建",
-            "task_id": task_id
+            "task_id": task_id,
         }
-    
-    def get_task_status(self, task_id: str) -> Dict[str, Any]:
+
+    def get_task_status(self, task_id: str) -> dict[str, Any]:
         """查询任务状态
-        
+
         Args:
             task_id: 任务ID
-            
+
         Returns:
             Dict[str, Any]: 包含任务状态和进度的数据
         """
         logger.info(f"查询任务状态，任务ID: {task_id}")
-        
+
         # 获取任务状态
         task_info = task_manager.get_task(task_id)
-        
+
         if not task_info:
             logger.warning(f"任务不存在，任务ID: {task_id}")
-            return {
-                "success": False,
-                "message": "任务不存在",
-                "task_id": task_id
-            }
-        
+            return {"success": False, "message": "任务不存在", "task_id": task_id}
+
         logger.info(f"查询任务状态成功，任务ID: {task_id}, 状态: {task_info['status']}")
-        
-        return {
-            "success": True,
-            "message": "查询任务状态成功",
-            "task_info": task_info
-        }
-    
-    def fetch_symbols_from_exchange(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Optional[Dict[str, Any]] = None, crypto_type: Optional[str] = None) -> Dict[str, Any]:
+
+        return {"success": True, "message": "查询任务状态成功", "task_info": task_info}
+
+    def fetch_symbols_from_exchange(
+        self,
+        exchange: str,
+        filter: str | None = None,
+        limit: int | None = 100,
+        offset: int | None = 0,
+        configs: dict[str, Any] | None = None,
+        crypto_type: str | None = None,
+    ) -> dict[str, Any]:
         """从第三方交易所API获取货币对列表并同步到数据库
 
         先调用 sync_crypto_symbols() 同步数据，再从数据库分页返回。
@@ -880,7 +839,9 @@ class DataService:
             Dict[str, Any]: 包含货币对列表的数据
         """
         configs = configs or {}
-        logger.info(f"开始从交易所API获取加密货币对列表，交易所: {exchange}, 类型: {crypto_type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
+        logger.info(
+            f"开始从交易所API获取加密货币对列表，交易所: {exchange}, 类型: {crypto_type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}"
+        )
 
         try:
             exchange_id = exchange.lower()
@@ -910,7 +871,7 @@ class DataService:
                     "success": False,
                     "message": f"同步{exchange}交易所货币对列表失败: {sync_result.get('message', '未知错误')}",
                     "error": sync_result.get("message", "未知错误"),
-                    "exchange": exchange
+                    "exchange": exchange,
                 }
 
             return self.get_crypto_symbols(
@@ -919,19 +880,27 @@ class DataService:
                 limit=limit,
                 offset=offset,
                 configs=configs,
-                crypto_type=crypto_type
+                crypto_type=crypto_type,
             )
 
         except Exception as e:
             logger.error(f"获取加密货币对列表失败: {e}")
             return {
                 "success": False,
-                "message": f"获取加密货币对列表失败: {str(e)}",
+                "message": f"获取加密货币对列表失败: {e!s}",
                 "error": str(e),
-                "exchange": exchange
+                "exchange": exchange,
             }
-    
-    def get_crypto_symbols(self, exchange: str, filter: Optional[str] = None, limit: Optional[int] = 100, offset: Optional[int] = 0, configs: Optional[Dict[str, Any]] = None, crypto_type: Optional[str] = None) -> Dict[str, Any]:
+
+    def get_crypto_symbols(
+        self,
+        exchange: str,
+        filter: str | None = None,
+        limit: int | None = 100,
+        offset: int | None = 0,
+        configs: dict[str, Any] | None = None,
+        crypto_type: str | None = None,
+    ) -> dict[str, Any]:
         """获取加密货币对列表
 
         Args:
@@ -946,18 +915,21 @@ class DataService:
             Dict[str, Any]: 包含货币对列表的数据
         """
         configs = configs or {}
-        logger.info(f"开始获取加密货币对列表，交易所: {exchange}, 类型: {crypto_type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}")
+        logger.info(
+            f"开始获取加密货币对列表，交易所: {exchange}, 类型: {crypto_type}, 过滤条件: {filter}, 限制: {limit}, 偏移: {offset}"
+        )
 
         # 只从数据库读取货币对数据，不直接调用第三方API
         try:
             import json
 
-            from utils.db_session import get_db_session
-            from ..db.models import CryptoSymbol
             from config import get_config
+            from utils.db_session import get_db_session
+
+            from ..db.models import CryptoSymbol
 
             # 从系统配置获取计价货币
-            quote_currency = get_config('quote', 'USDT')
+            quote_currency = get_config("quote", "USDT")
             logger.info(f"系统配置计价货币: quote={quote_currency}")
 
             with get_db_session() as db:
@@ -983,33 +955,35 @@ class DataService:
                 paginated_symbols = query.offset(offset).limit(limit).all()
 
                 logger.info(f"从数据库获取到{total}个{exchange}货币对，返回{len(paginated_symbols)}个货币对")
-                
+
                 # 转换为API响应格式
                 symbols_list = []
                 for symbol in paginated_symbols:
-                    symbols_list.append({
-                        "symbol": symbol.symbol,
-                        "base": symbol.base,
-                        "quote": symbol.quote,
-                        "active": symbol.active,
-                        "precision": json.loads(symbol.precision),
-                        "limits": json.loads(symbol.limits),
-                        "type": symbol.type
-                    })
-                
+                    symbols_list.append(
+                        {
+                            "symbol": symbol.symbol,
+                            "base": symbol.base,
+                            "quote": symbol.quote,
+                            "active": symbol.active,
+                            "precision": json.loads(symbol.precision),
+                            "limits": json.loads(symbol.limits),
+                            "type": symbol.type,
+                        }
+                    )
+
                 # 构建响应
                 response_data = {
                     "symbols": symbols_list,
                     "total": total,
                     "offset": offset,
                     "limit": limit,
-                    "exchange": exchange
+                    "exchange": exchange,
                 }
-                
+
                 return {
                     "success": True,
                     "message": "从数据库获取加密货币对列表成功",
-                    "response_data": response_data
+                    "response_data": response_data,
                 }
         except Exception as e:
             logger.error(f"从数据库获取货币对失败: {e}")
@@ -1017,12 +991,24 @@ class DataService:
                 "success": False,
                 "message": "从数据库获取加密货币对列表失败",
                 "error": str(e),
-                "exchange": exchange
+                "exchange": exchange,
             }
-    
-    def get_all_tasks(self, page: int = 1, page_size: int = 10, task_type: Optional[str] = None, status: Optional[str] = None, start_time: Optional[str] = None, end_time: Optional[str] = None, created_at: Optional[str] = None, updated_at: Optional[str] = None, sort_by: str = "created_at", sort_order: str = "desc") -> Dict[str, Any]:
+
+    def get_all_tasks(
+        self,
+        page: int = 1,
+        page_size: int = 10,
+        task_type: str | None = None,
+        status: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        created_at: str | None = None,
+        updated_at: str | None = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> dict[str, Any]:
         """查询所有任务状态，支持分页和过滤
-        
+
         Args:
             page: 当前页码
             page_size: 每页数量
@@ -1034,15 +1020,16 @@ class DataService:
             updated_at: 更新时间过滤
             sort_by: 排序字段
             sort_order: 排序顺序
-            
+
         Returns:
             Dict[str, Any]: 包含任务列表和分页信息的数据
         """
         if self.db is None:
-            raise ValueError("数据库会话未初始化")
-        
+            msg = "数据库会话未初始化"
+            raise ValueError(msg)
+
         logger.info(f"查询任务列表请求: page={page}, page_size={page_size}, task_type={task_type}, status={status}")
-        
+
         # 转换时间字符串为datetime对象
         from datetime import datetime
 
@@ -1053,7 +1040,7 @@ class DataService:
                 start_time_dt = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
             except ValueError:
                 logger.warning(f"无效的开始时间格式: {start_time}，忽略该过滤条件")
-        
+
         # 处理结束时间
         end_time_dt = None
         if end_time:
@@ -1061,7 +1048,7 @@ class DataService:
                 end_time_dt = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
             except ValueError:
                 logger.warning(f"无效的结束时间格式: {end_time}，忽略该过滤条件")
-        
+
         # 处理创建时间
         created_at_dt = None
         if created_at:
@@ -1069,7 +1056,7 @@ class DataService:
                 created_at_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
             except ValueError:
                 logger.warning(f"无效的创建时间格式: {created_at}，忽略该过滤条件")
-        
+
         # 处理更新时间
         updated_at_dt = None
         if updated_at:
@@ -1077,10 +1064,10 @@ class DataService:
                 updated_at_dt = datetime.strptime(updated_at, "%Y-%m-%d %H:%M:%S")
             except ValueError:
                 logger.warning(f"无效的更新时间格式: {updated_at}，忽略该过滤条件")
-        
+
         # 计算偏移量
         skip = (page - 1) * page_size
-        
+
         # 使用SQLAlchemy CRUD操作获取数据
         tasks, total = crud.get_tasks_paginated(
             db=self.db,
@@ -1093,12 +1080,12 @@ class DataService:
             created_at=created_at_dt,
             updated_at=updated_at_dt,
             sort_by=sort_by,
-            sort_order=sort_order
+            sort_order=sort_order,
         )
-        
+
         # 计算总页数
         pages = (total + page_size - 1) // page_size
-        
+
         # 构建响应数据
         # 转换SQLAlchemy模型为字典格式
         task_list = []
@@ -1112,40 +1099,45 @@ class DataService:
                     "completed": task.completed,
                     "failed": task.failed,
                     "current": task.current,
-                    "percentage": task.percentage
+                    "percentage": task.percentage,
                 },
                 "params": json.loads(task.params),
                 "start_time": task.start_time,
                 "end_time": task.end_time,
                 "error_message": task.error_message,
                 "created_at": task.created_at,
-                "updated_at": task.updated_at
+                "updated_at": task.updated_at,
             }
             task_list.append(task_dict)
-        
+
         result = {
             "tasks": task_list,
             "pagination": {
                 "page": page,
                 "page_size": page_size,
                 "total": total,
-                "pages": pages
-            }
+                "pages": pages,
+            },
         }
-        
+
         logger.info(f"查询任务列表成功: 共{total}条，第{page}/{pages}页")
-        
-        return {
-            "success": True,
-            "message": "查询任务列表成功",
-            "result": result
-        }
-    
-    def get_kline_data(self, symbol: str, interval: str, market_type: str = "crypto", crypto_type: Optional[str] = "spot", start_time: Optional[str] = None, end_time: Optional[str] = None, limit: Optional[int] = 5000) -> Dict[str, Any]:
+
+        return {"success": True, "message": "查询任务列表成功", "result": result}
+
+    def get_kline_data(
+        self,
+        symbol: str,
+        interval: str,
+        market_type: str = "crypto",
+        crypto_type: str | None = "spot",
+        start_time: str | None = None,
+        end_time: str | None = None,
+        limit: int | None = 5000,
+    ) -> dict[str, Any]:
         """获取K线数据
-        
+
         从数据库中查询指定交易对和周期的K线数据，支持不同市场类型
-        
+
         Args:
             symbol: 交易商标识
             interval: 时间周期
@@ -1154,22 +1146,25 @@ class DataService:
             start_time: 开始时间，格式YYYY-MM-DD HH:MM:SS
             end_time: 结束时间，格式YYYY-MM-DD HH:MM:SS
             limit: 返回数量限制，默认5000条
-            
+
         Returns:
             Dict[str, Any]: 包含K线数据的字典
         """
         if self.db is None:
-            raise ValueError("数据库会话未初始化")
-        
-        logger.info(f"查询K线数据: symbol={symbol}, interval={interval}, market_type={market_type}, crypto_type={crypto_type}, start_time={start_time}, end_time={end_time}, limit={limit}")
-        
+            msg = "数据库会话未初始化"
+            raise ValueError(msg)
+
+        logger.info(
+            f"查询K线数据: symbol={symbol}, interval={interval}, market_type={market_type}, crypto_type={crypto_type}, start_time={start_time}, end_time={end_time}, limit={limit}"
+        )
+
         # 导入K线数据工厂
         from .kline_factory import KlineDataFactory
-        
+
         try:
             # 创建对应的K线数据获取器
             fetcher = KlineDataFactory.create_fetcher(market_type, crypto_type)
-            
+
             # 使用获取器获取K线数据
             result = fetcher.fetch_kline_data(
                 db=self.db,
@@ -1177,34 +1172,36 @@ class DataService:
                 interval=interval,
                 start_time=start_time,
                 end_time=end_time,
-                limit=limit
+                limit=limit,
             )
-            
-            logger.info(f"查询K线数据成功: symbol={symbol}, interval={interval}, count={len(result.get('kline_data', []))}")
-            
+
+            logger.info(
+                f"查询K线数据成功: symbol={symbol}, interval={interval}, count={len(result.get('kline_data', []))}"
+            )
+
             return result
         except Exception as e:
             logger.error(f"查询K线数据失败: {e}")
             logger.exception(e)
             return {
                 "success": False,
-                "message": f"查询K线数据失败: {str(e)}",
-                "kline_data": []
+                "message": f"查询K线数据失败: {e!s}",
+                "kline_data": [],
             }
-    
+
     def get_product_list(
         self,
         market_type: str = "crypto",
-        crypto_type: Optional[str] = "spot",
-        exchange: Optional[str] = None,
-        filter: Optional[str] = None,
+        crypto_type: str | None = "spot",
+        exchange: str | None = None,
+        filter: str | None = None,
         limit: int = 100,
-        offset: int = 0
-    ) -> Dict[str, Any]:
+        offset: int = 0,
+    ) -> dict[str, Any]:
         """获取商品列表
-        
+
         根据市场类型和交易商获取商品列表数据
-        
+
         Args:
             market_type: 市场类型，可选值：stock（股票）、futures（期货）、crypto（加密货币），默认crypto
             crypto_type: 加密货币类型，当market_type为crypto时必填，可选值：spot（现货）、future（合约），默认spot
@@ -1212,41 +1209,36 @@ class DataService:
             filter: 过滤条件
             limit: 返回数量限制，默认100条
             offset: 返回偏移量，默认0
-            
+
         Returns:
             Dict[str, Any]: 包含商品列表的字典
         """
-        logger.info(f"查询商品列表: market_type={market_type}, crypto_type={crypto_type}, exchange={exchange}, filter={filter}, limit={limit}, offset={offset}")
-        
+        logger.info(
+            f"查询商品列表: market_type={market_type}, crypto_type={crypto_type}, exchange={exchange}, filter={filter}, limit={limit}, offset={offset}"
+        )
+
         # 导入商品列表工厂
         from .product_factory import ProductListFactory
-        
+
         try:
             # 创建对应的商品列表获取器
             fetcher = ProductListFactory.create_fetcher(market_type, crypto_type)
-            
+
             # 使用获取器获取商品列表
-            result = fetcher.fetch_products(
-                db=self.db,
-                exchange=exchange,
-                filter=filter,
-                limit=limit,
-                offset=offset
-            )
-            
+            result = fetcher.fetch_products(db=self.db, exchange=exchange, filter=filter, limit=limit, offset=offset)
+
             logger.info(f"查询商品列表成功: market_type={market_type}, count={len(result.get('products', []))}")
-            
+
             return result
         except Exception as e:
             logger.error(f"查询商品列表失败: {e}")
             logger.exception(e)
             return {
                 "success": False,
-                "message": f"查询商品列表失败: {str(e)}",
+                "message": f"查询商品列表失败: {e!s}",
                 "products": [],
-                "total": 0
+                "total": 0,
             }
-    
 
     def async_download_crypto(self, task_id: str, request: DownloadCryptoRequest):
         """异步下载加密货币数据
@@ -1258,7 +1250,6 @@ class DataService:
         """
         try:
             from ..schemas.data import _KLINE_TYPES
-            from ..services.data_collector import DataCollector
 
             logger.info(f"开始异步下载加密货币数据，任务ID: {task_id}, 请求参数: {request.model_dump()}")
 
@@ -1277,7 +1268,7 @@ class DataService:
         except Exception as e:
             logger.error(f"加密货币数据下载失败，任务ID: {task_id}, 错误: {e}")
             logger.exception(e)
-            
+
             # 更新任务状态为失败
             task_manager.fail_task(task_id, error_message=str(e))
 
@@ -1300,7 +1291,7 @@ class DataService:
                 completed=completed_tasks,
                 total=total_tasks,
                 status=f"正在下载 {interval} 数据 ({', '.join(request.symbols)})...",
-                interval=interval
+                interval=interval,
             )
 
             # 实例化GetData类并传入所有参数
@@ -1312,7 +1303,7 @@ class DataService:
                 end=request.end,
                 interval=interval,
                 max_workers=1,
-                mode=request.mode
+                mode=request.mode,
             )
 
             # 创建实时进度回调
@@ -1323,18 +1314,17 @@ class DataService:
                 try:
                     symbol_progress_pct = (current / total_count * 100) if total_count > 0 else 0
 
-                    if status in ["completed", "failed"]:
-                        if symbol_progress_pct >= 99.9:
-                            symbol_completed += 1
+                    if status in ["completed", "failed"] and symbol_progress_pct >= 99.9:
+                        symbol_completed += 1
 
                     task_manager.update_progress(
                         task_id=task_id,
                         current=symbol,
                         completed=symbol_progress_pct,
                         total=100,
-                        status=f"[{symbol_completed+1}/{total_symbols}] {symbol} {interval}: {status}",
+                        status=f"[{symbol_completed + 1}/{total_symbols}] {symbol} {interval}: {status}",
                         symbol_progress=round(symbol_progress_pct, 1),
-                        interval=interval
+                        interval=interval,
                     )
                 except Exception as e:
                     logger.warning(f"推送下载进度失败: {e}")
@@ -1350,7 +1340,7 @@ class DataService:
                 total=100,
                 status=f"[{completed_tasks}/{total_symbols * total_intervals}] {interval} 数据下载完成",
                 symbol_progress=100.0,
-                interval=interval
+                interval=interval,
             )
             logger.info(f"时间周期 {interval} 所有数据下载成功")
 
@@ -1364,7 +1354,7 @@ class DataService:
             total=total_task_count,
             status="全部下载完成",
             symbol_progress=100.0,
-            interval="all"
+            interval="all",
         )
 
     def _async_download_other(self, task_id: str, request: DownloadCryptoRequest):
@@ -1383,7 +1373,7 @@ class DataService:
                 completed=int(completed / max(total_symbols, 1) * 100),
                 total=100,
                 status=f"正在下载 {request.data_type} ({request.market}) {symbol}...",
-                interval=""
+                interval="",
             )
 
             try:
@@ -1392,7 +1382,7 @@ class DataService:
                     data_type=request.data_type,
                     market=request.market,
                     symbols=[symbol],
-                    intervals=request.interval if request.interval else None,
+                    intervals=request.interval or None,
                     start=request.start,
                     end=request.end,
                 )
@@ -1408,24 +1398,24 @@ class DataService:
             completed=100,
             total=100,
             status=f"{request.data_type} 数据下载完成（{completed}/{total_symbols}）",
-            interval=""
+            interval="",
         )
 
-    def export_crypto_data(self, request: ExportCryptoRequest) -> Dict[str, Any]:
+    def export_crypto_data(self, request: ExportCryptoRequest) -> dict[str, Any]:
         """导出加密货币数据
-        
+
         Args:
             request: 导出加密货币数据请求
-            
+
         Returns:
             Dict[str, Any]: 包含导出结果的数据
         """
         logger.info(f"开始导出加密货币数据，请求参数: {request.model_dump()}")
-        
+
         try:
             # 实例化导出工具
             export_data = ExportData()
-            
+
             # 执行导出
             result = export_data.export_kline_data(
                 symbols=request.symbols,
@@ -1436,22 +1426,18 @@ class DataService:
                 candle_type=request.candle_type,
                 save_dir=request.save_dir,
                 max_workers=request.max_workers,
-                auto_download=request.auto_download
+                auto_download=request.auto_download,
             )
-            
+
             logger.info(f"加密货币数据导出完成，结果: {result}")
-            return {
-                "success": True,
-                "message": "加密货币数据导出成功",
-                "data": result
-            }
+            return {"success": True, "message": "加密货币数据导出成功", "data": result}
         except Exception as e:
             logger.error(f"导出加密货币数据失败: {e}")
             logger.exception(e)
             return {
                 "success": False,
-                "message": f"导出加密货币数据失败: {str(e)}",
-                "data": {}
+                "message": f"导出加密货币数据失败: {e!s}",
+                "data": {},
             }
 
 
@@ -1463,12 +1449,12 @@ class CryptoSymbolService:
 
     @staticmethod
     def sync_symbols(
-        exchange: str = 'binance',
+        exchange: str = "binance",
         proxy_enabled: bool = False,
-        proxy_url: Optional[str] = None,
-        proxy_username: Optional[str] = None,
-        proxy_password: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        proxy_url: str | None = None,
+        proxy_username: str | None = None,
+        proxy_password: str | None = None,
+    ) -> dict[str, Any]:
         """同步指定交易所的加密货币对
 
         Args:
@@ -1491,12 +1477,12 @@ class CryptoSymbolService:
 
     @staticmethod
     def sync_all_exchanges(
-        exchanges: list = None,
+        exchanges: list | None = None,
         proxy_enabled: bool = False,
-        proxy_url: Optional[str] = None,
-        proxy_username: Optional[str] = None,
-        proxy_password: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        proxy_url: str | None = None,
+        proxy_username: str | None = None,
+        proxy_password: str | None = None,
+    ) -> dict[str, Any]:
         """同步多个交易所的加密货币对
 
         Args:
@@ -1510,7 +1496,7 @@ class CryptoSymbolService:
             Dict[str, Any]: 各交易所同步结果汇总
         """
         if exchanges is None:
-            exchanges = ['binance']
+            exchanges = ["binance"]
 
         results = {}
         for exchange in exchanges:
@@ -1525,8 +1511,7 @@ class CryptoSymbolService:
             results[exchange] = result
 
         return {
-            'success': all(r.get('success', False) for r in results.values()),
-            'results': results,
-            'timestamp': datetime.now().isoformat()
+            "success": all(r.get("success", False) for r in results.values()),
+            "results": results,
+            "timestamp": datetime.now().isoformat(),
         }
-

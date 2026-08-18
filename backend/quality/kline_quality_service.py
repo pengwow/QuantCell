@@ -12,14 +12,18 @@ K线数据质量检查服务（独立模块）
 """
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
+
 import pandas as pd
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 from utils.timestamp_utils import convert_to_datetime
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from .data_provider import DataProvider
+
+if TYPE_CHECKING:
+    from .data_provider import DataProvider
 
 
 class KlineQualityService:
@@ -43,9 +47,9 @@ class KlineQualityService:
         symbol: str,
         interval: str,
         candle_type: str = "spot",
-        start: Optional[str] = None,
-        end: Optional[str] = None
-    ) -> Dict[str, Any]:
+        start: str | None = None,
+        end: str | None = None,
+    ) -> dict[str, Any]:
         """
         执行完整的K线数据质量检查
 
@@ -67,55 +71,54 @@ class KlineQualityService:
         except FileNotFoundError as e:
             logger.error(f"获取数据失败: {e}")
             return {
-                'symbol': symbol,
-                'interval': interval,
-                'candle_type': candle_type,
-                'status': 'error',
-                'message': str(e),
-                'summary': {},
-                'details': {}
+                "symbol": symbol,
+                "interval": interval,
+                "candle_type": candle_type,
+                "status": "error",
+                "message": str(e),
+                "summary": {},
+                "details": {},
             }
 
         if df.empty:
             logger.warning(f"未找到 {symbol} {interval} 的数据")
             return {
-                'symbol': symbol,
-                'interval': interval,
-                'candle_type': candle_type,
-                'status': 'empty',
-                'message': f'未找到 {symbol} {interval} 的数据',
-                'total_records': 0,
-                'summary': {},
-                'details': {}
+                "symbol": symbol,
+                "interval": interval,
+                "candle_type": candle_type,
+                "status": "empty",
+                "message": f"未找到 {symbol} {interval} 的数据",
+                "total_records": 0,
+                "summary": {},
+                "details": {},
             }
 
         # 2. 执行各项检查
         results = {
-            'symbol': symbol,
-            'interval': interval,
-            'candle_type': candle_type,
-            'total_records': len(df),
-            'time_range': self._get_time_range(df),
-            'summary': {},
-            'details': {
-                'integrity': self.check_integrity(df),
-                'continuity': self.check_continuity(df, interval),
-                'validity': self.check_validity(df),
-                'uniqueness': self.check_uniqueness(df)
-            }
+            "symbol": symbol,
+            "interval": interval,
+            "candle_type": candle_type,
+            "total_records": len(df),
+            "time_range": self._get_time_range(df),
+            "summary": {},
+            "details": {
+                "integrity": self.check_integrity(df),
+                "continuity": self.check_continuity(df, interval),
+                "validity": self.check_validity(df),
+                "uniqueness": self.check_uniqueness(df),
+            },
         }
 
         # 3. 计算总体评分
-        results['summary'] = self._calculate_summary(results['details'])
+        results["summary"] = self._calculate_summary(results["details"])
 
         logger.info(
-            f"检查完成 - 得分: {results['summary'].get('score', 0)}, "
-            f"等级: {results['summary'].get('grade', '-')}"
+            f"检查完成 - 得分: {results['summary'].get('score', 0)}, 等级: {results['summary'].get('grade', '-')}"
         )
 
         return results
 
-    def check_integrity(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def check_integrity(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         检查数据完整性（缺失值、缺失列）
 
@@ -129,11 +132,11 @@ class KlineQualityService:
             "status": "pass",
             "missing_columns": [],
             "missing_values": {},
-            "total_records": len(df)
+            "total_records": len(df),
         }
 
         # 检查必需列是否存在
-        required_columns = ['open', 'high', 'low', 'close', 'volume']
+        required_columns = ["open", "high", "low", "close", "volume"]
         missing_cols = [col for col in required_columns if col not in df.columns]
         if missing_cols:
             result["status"] = "fail"
@@ -149,7 +152,7 @@ class KlineQualityService:
 
         return result
 
-    def check_continuity(self, df: pd.DataFrame, interval: str) -> Dict[str, Any]:
+    def check_continuity(self, df: pd.DataFrame, interval: str) -> dict[str, Any]:
         """
         检查数据连续性（时间序列缺口）
 
@@ -166,7 +169,7 @@ class KlineQualityService:
             "actual_records": len(df),
             "missing_records": 0,
             "coverage_ratio": 1.0,
-            "gaps": []
+            "gaps": [],
         }
 
         if df.empty:
@@ -174,13 +177,19 @@ class KlineQualityService:
 
         # 时间周期映射
         interval_map = {
-            '1m': timedelta(minutes=1), '3m': timedelta(minutes=3),
-            '5m': timedelta(minutes=5), '15m': timedelta(minutes=15),
-            '30m': timedelta(minutes=30), '1h': timedelta(hours=1),
-            '2h': timedelta(hours=2), '4h': timedelta(hours=4),
-            '6h': timedelta(hours=6), '8h': timedelta(hours=8),
-            '12h': timedelta(hours=12), '1d': timedelta(days=1),
-            '1w': timedelta(weeks=1)
+            "1m": timedelta(minutes=1),
+            "3m": timedelta(minutes=3),
+            "5m": timedelta(minutes=5),
+            "15m": timedelta(minutes=15),
+            "30m": timedelta(minutes=30),
+            "1h": timedelta(hours=1),
+            "2h": timedelta(hours=2),
+            "4h": timedelta(hours=4),
+            "6h": timedelta(hours=6),
+            "8h": timedelta(hours=8),
+            "12h": timedelta(hours=12),
+            "1d": timedelta(days=1),
+            "1w": timedelta(weeks=1),
         }
 
         if interval not in interval_map:
@@ -188,10 +197,10 @@ class KlineQualityService:
             return result
 
         delta = interval_map[interval]
-        df_sorted = df.sort_values('timestamp')
+        df_sorted = df.sort_values("timestamp")
 
         # 转换时间戳并生成期望的时间序列
-        timestamps = pd.to_numeric(df_sorted['timestamp'], errors='coerce')
+        timestamps = pd.to_numeric(df_sorted["timestamp"], errors="coerce")
 
         if timestamps.empty or timestamps.isna().all():
             return result
@@ -218,7 +227,7 @@ class KlineQualityService:
 
         return result
 
-    def check_validity(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def check_validity(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         检查数据有效性（负价格、异常值等）
 
@@ -235,9 +244,9 @@ class KlineQualityService:
                 "negative_volumes": 0,
                 "invalid_high_low": 0,
                 "abnormal_changes": 0,
-                "abnormal_volumes": 0
+                "abnormal_volumes": 0,
             },
-            "issue_details": []
+            "issue_details": [],
         }
 
         if df.empty:
@@ -246,21 +255,21 @@ class KlineQualityService:
         issues = []
 
         # 检查负价格
-        neg_price = df[(df['open'] < 0) | (df['high'] < 0) | (df['low'] < 0) | (df['close'] < 0)]
+        neg_price = df[(df["open"] < 0) | (df["high"] < 0) | (df["low"] < 0) | (df["close"] < 0)]
         if not neg_price.empty:
             result["status"] = "fail"
             result["issues"]["negative_prices"] = len(neg_price)
             issues.append({"type": "negative_prices", "count": len(neg_price)})
 
         # 检查负成交量
-        neg_vol = df[df['volume'] < 0]
+        neg_vol = df[df["volume"] < 0]
         if not neg_vol.empty:
             result["status"] = "fail"
             result["issues"]["negative_volumes"] = len(neg_vol)
             issues.append({"type": "negative_volumes", "count": len(neg_vol)})
 
         # 检查 high < low
-        invalid_hl = df[df['high'] < df['low']]
+        invalid_hl = df[df["high"] < df["low"]]
         if not invalid_hl.empty:
             result["status"] = "fail"
             result["issues"]["invalid_high_low"] = len(invalid_hl)
@@ -269,21 +278,23 @@ class KlineQualityService:
         # 检查异常涨跌幅 (>20%)
         if len(df) > 1:
             df_copy = df.copy()
-            df_copy['pct_change'] = df_copy['close'].pct_change() * 100
-            abnormal = df_copy[abs(df_copy['pct_change']) > 20]
+            df_copy["pct_change"] = df_copy["close"].pct_change() * 100
+            abnormal = df_copy[abs(df_copy["pct_change"]) > 20]
             if not abnormal.empty:
                 result["status"] = "fail"
                 result["issues"]["abnormal_changes"] = len(abnormal)
-                issues.append({
-                    "type": "abnormal_changes",
-                    "count": len(abnormal),
-                    "max_change": round(abs(abnormal['pct_change']).max(), 2)
-                })
+                issues.append(
+                    {
+                        "type": "abnormal_changes",
+                        "count": len(abnormal),
+                        "max_change": round(abs(abnormal["pct_change"]).max(), 2),
+                    }
+                )
 
         result["issue_details"] = issues
         return result
 
-    def check_uniqueness(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def check_uniqueness(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         检查数据唯一性（重复记录）
 
@@ -293,20 +304,16 @@ class KlineQualityService:
         Returns:
             Dict[str, Any]: 唯一性检查结果
         """
-        result = {
-            "status": "pass",
-            "duplicate_count": 0,
-            "duplicate_timestamps": []
-        }
+        result = {"status": "pass", "duplicate_count": 0, "duplicate_timestamps": []}
 
-        if df.empty or 'timestamp' not in df.columns:
+        if df.empty or "timestamp" not in df.columns:
             return result
 
-        dup_mask = df.duplicated(subset=['timestamp'], keep=False)
+        dup_mask = df.duplicated(subset=["timestamp"], keep=False)
         if dup_mask.any():
             result["status"] = "fail"
             result["duplicate_count"] = int(dup_mask.sum())
-            result["duplicate_timestamps"] = df[dup_mask]['timestamp'].head(10).tolist()
+            result["duplicate_timestamps"] = df[dup_mask]["timestamp"].head(10).tolist()
 
         return result
 
@@ -316,8 +323,8 @@ class KlineQualityService:
         interval: str,
         candle_type: str = "spot",
         strategy: str = "keep_first",
-        dry_run: bool = False
-    ) -> Dict[str, Any]:
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
         """
         处理重复记录
 
@@ -331,51 +338,57 @@ class KlineQualityService:
         Returns:
             Dict[str, Any]: 处理结果
         """
-        from utils.parquet_utils import save_to_parquet
         import shutil
+
+        from utils.parquet_utils import save_to_parquet
 
         # 获取数据
         df = self.provider.get_kline_data(symbol, interval, candle_type)
 
         if df.empty:
-            return {'status': 'warning', 'message': '没有数据'}
+            return {"status": "warning", "message": "没有数据"}
 
         # 检测重复记录
-        dup_mask = df.duplicated(subset=['timestamp'], keep=False)
+        dup_mask = df.duplicated(subset=["timestamp"], keep=False)
         if not dup_mask.any():
-            return {'status': 'success', 'message': '没有发现重复记录', 'processed_count': 0}
+            return {
+                "status": "success",
+                "message": "没有发现重复记录",
+                "processed_count": 0,
+            }
 
         # 根据策略处理重复记录
         original_count = len(df)
 
         if strategy == "keep_first":
-            df_cleaned = df.drop_duplicates(subset=['timestamp'], keep='first')
+            df_cleaned = df.drop_duplicates(subset=["timestamp"], keep="first")
         elif strategy == "keep_last":
-            df_cleaned = df.drop_duplicates(subset=['timestamp'], keep='last')
+            df_cleaned = df.drop_duplicates(subset=["timestamp"], keep="last")
         elif strategy == "keep_max_volume":
-            df_cleaned = df.sort_values('volume', ascending=False).drop_duplicates(subset=['timestamp'], keep='first')
-            df_cleaned = df_cleaned.sort_values('timestamp').reset_index(drop=True)
+            df_cleaned = df.sort_values("volume", ascending=False).drop_duplicates(subset=["timestamp"], keep="first")
+            df_cleaned = df_cleaned.sort_values("timestamp").reset_index(drop=True)
         elif strategy == "keep_min_volume":
-            df_cleaned = df.sort_values('volume', ascending=True).drop_duplicates(subset=['timestamp'], keep='first')
-            df_cleaned = df_cleaned.sort_values('timestamp').reset_index(drop=True)
+            df_cleaned = df.sort_values("volume", ascending=True).drop_duplicates(subset=["timestamp"], keep="first")
+            df_cleaned = df_cleaned.sort_values("timestamp").reset_index(drop=True)
         else:
-            return {'status': 'error', 'message': f'不支持的处理策略: {strategy}'}
+            return {"status": "error", "message": f"不支持的处理策略: {strategy}"}
 
         removed_count = original_count - len(df_cleaned)
 
         if dry_run:
             return {
-                'status': 'preview',
-                'original_count': original_count,
-                'remaining_count': len(df_cleaned),
-                'removed_count': removed_count,
-                'strategy': strategy
+                "status": "preview",
+                "original_count": original_count,
+                "remaining_count": len(df_cleaned),
+                "removed_count": removed_count,
+                "strategy": strategy,
             }
 
         # 备份原文件
         from cli.data import _find_parquet_file
+
         parquet_path = _find_parquet_file(symbol, interval, candle_type)
-        backup_path = parquet_path.with_suffix('.parquet.bak')
+        backup_path = parquet_path.with_suffix(".parquet.bak")
 
         try:
             shutil.copy2(parquet_path, backup_path)
@@ -386,18 +399,18 @@ class KlineQualityService:
             logger.info(f"已处理重复记录: {symbol} {interval}, 策略={strategy}, 删除{removed_count}条")
 
             return {
-                'status': 'success',
-                'original_count': original_count,
-                'remaining_count': len(df_cleaned),
-                'removed_count': removed_count,
-                'strategy': strategy,
-                'backup_path': str(backup_path)
+                "status": "success",
+                "original_count": original_count,
+                "remaining_count": len(df_cleaned),
+                "removed_count": removed_count,
+                "strategy": strategy,
+                "backup_path": str(backup_path),
             }
         except Exception as e:
             logger.error(f"处理重复记录失败: {e}")
-            return {'status': 'error', 'message': str(e)}
+            return {"status": "error", "message": str(e)}
 
-    def _get_time_range(self, df: pd.DataFrame) -> Dict[str, str]:
+    def _get_time_range(self, df: pd.DataFrame) -> dict[str, str]:
         """
         获取数据的时间范围
 
@@ -407,20 +420,26 @@ class KlineQualityService:
         Returns:
             Dict[str, str]: {"start": "YYYY-MM-DD HH:MM", "end": "YYYY-MM-DD HH:MM"}
         """
-        if df.empty or 'timestamp' not in df.columns:
+        if df.empty or "timestamp" not in df.columns:
             return {"start": "-", "end": "-"}
 
-        ts = df['timestamp']
-        ts_min = int(ts.min()) if hasattr(ts, 'min') else 0
-        ts_max = int(ts.max()) if hasattr(ts, 'max') else 0
+        ts = df["timestamp"]
+        ts_min = int(ts.min()) if hasattr(ts, "min") else 0
+        ts_max = int(ts.max()) if hasattr(ts, "max") else 0
 
         ts_len = len(str(ts_min))
         if ts_len > 16:
-            fmt_func = lambda x: datetime.fromtimestamp(x / 1_000_000_000).strftime("%Y-%m-%d %H:%M")
+
+            def fmt_func(x):
+                return datetime.fromtimestamp(x / 1_000_000_000).strftime("%Y-%m-%d %H:%M")
         elif ts_len > 13:
-            fmt_func = lambda x: datetime.fromtimestamp(x / 1_000_000).strftime("%Y-%m-%d %H:%M")
+
+            def fmt_func(x):
+                return datetime.fromtimestamp(x / 1_000_000).strftime("%Y-%m-%d %H:%M")
         else:
-            fmt_func = lambda x: datetime.fromtimestamp(x).strftime("%Y-%m-%d %H:%M")
+
+            def fmt_func(x):
+                return datetime.fromtimestamp(x).strftime("%Y-%m-%d %H:%M")
 
         return {"start": fmt_func(ts_min), "end": fmt_func(ts_max)}
 
@@ -445,21 +464,25 @@ class KlineQualityService:
 
         for t in sorted_gaps[1:]:
             if t - prev > delta * 1.5:  # 允许小幅误差
-                ranges.append({
-                    "start": str(start),
-                    "end": str(prev),
-                    "duration": str(prev - start),
-                    "missing_count": len([x for x in sorted_gaps if start <= x <= prev])
-                })
+                ranges.append(
+                    {
+                        "start": str(start),
+                        "end": str(prev),
+                        "duration": str(prev - start),
+                        "missing_count": len([x for x in sorted_gaps if start <= x <= prev]),
+                    }
+                )
                 start = t
             prev = t
 
-        ranges.append({
-            "start": str(start),
-            "end": str(sorted_gaps[-1]),
-            "duration": str(sorted_gaps[-1] - start),
-            "missing_count": len([x for x in sorted_gaps if start <= x <= prev])
-        })
+        ranges.append(
+            {
+                "start": str(start),
+                "end": str(sorted_gaps[-1]),
+                "duration": str(sorted_gaps[-1] - start),
+                "missing_count": len([x for x in sorted_gaps if start <= x <= prev]),
+            }
+        )
 
         return ranges
 
@@ -474,30 +497,35 @@ class KlineQualityService:
             dict: 包含 score, grade, status 的汇总信息
         """
         scores = []
-        weights = {'integrity': 0.25, 'continuity': 0.35, 'validity': 0.25, 'uniqueness': 0.15}
+        weights = {
+            "integrity": 0.25,
+            "continuity": 0.35,
+            "validity": 0.25,
+            "uniqueness": 0.15,
+        }
 
         for check_name, weight in weights.items():
             if check_name in details:
-                status = details[check_name].get('status', 'unknown')
-                score = 100 if status == 'pass' else (50 if status == 'warning' else 0)
+                status = details[check_name].get("status", "unknown")
+                score = 100 if status == "pass" else (50 if status == "warning" else 0)
                 scores.append(score * weight)
 
         total_score = sum(scores) if scores else 0
 
         if total_score >= 90:
-            grade = 'A'
-            status = 'good'
+            grade = "A"
+            status = "good"
         elif total_score >= 70:
-            grade = 'B'
-            status = 'warning'
+            grade = "B"
+            status = "warning"
         else:
-            grade = 'C'
-            status = 'bad'
+            grade = "C"
+            status = "bad"
 
         return {
-            'score': round(total_score, 1),
-            'grade': grade,
-            'status': status,
-            'checks_passed': sum(1 for d in details.values() if d.get('status') == 'pass'),
-            'checks_total': len(details)
+            "score": round(total_score, 1),
+            "grade": grade,
+            "status": status,
+            "checks_passed": sum(1 for d in details.values() if d.get("status") == "pass"),
+            "checks_total": len(details),
         }

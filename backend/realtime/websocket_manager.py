@@ -1,37 +1,44 @@
 # WebSocket连接管理器
 import asyncio
-from typing import Dict, List, Any, Optional, Callable
-from utils.logger import get_logger, LogType
+from typing import TYPE_CHECKING, Any
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from .abstract_client import AbstractExchangeClient
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from .abstract_client import AbstractExchangeClient
 
 
 class WebSocketManager:
     """WebSocket连接管理器，负责管理多个交易所客户端的连接和消息处理"""
-    
+
     def __init__(self):
         """初始化WebSocket连接管理器"""
-        self.clients: Dict[str, AbstractExchangeClient] = {}
-        self.message_handlers: List[Callable[[Dict[str, Any]], None]] = []
+        self.clients: dict[str, AbstractExchangeClient] = {}
+        self.message_handlers: list[Callable[[dict[str, Any]], None]] = []
         self.running = False
         self.task = None
         self.reconnect_task = None
-    
+
     def register_client(self, client: AbstractExchangeClient, force: bool = False) -> bool:
         """
         注册交易所客户端
-        
+
         Args:
             client: 交易所客户端实例
             force: 是否强制替换已存在的客户端
-        
+
         Returns:
             bool: 注册是否成功
         """
         exchange_name = client.exchange_name
-        logger.debug(f"register_client调用: exchange_name={exchange_name}, force={force}, 当前clients: {list(self.clients.keys())}")
+        logger.debug(
+            f"register_client调用: exchange_name={exchange_name}, force={force}, 当前clients: {list(self.clients.keys())}"
+        )
         if exchange_name in self.clients:
             logger.debug(f"客户端已存在，force={force}")
             if force:
@@ -42,114 +49,116 @@ class WebSocketManager:
             else:
                 logger.warning(f"交易所客户端已存在: {exchange_name}")
                 return False
-        
+
         self.clients[exchange_name] = client
-        
+
         # 【KlinePush】注册消息处理器作为客户端的回调
         self._register_handlers_as_callbacks(client)
-        
+
         logger.info(f"成功注册交易所客户端: {exchange_name}")
         return True
-    
+
     def _register_handlers_as_callbacks(self, client: AbstractExchangeClient) -> None:
         """
         将消息处理器注册为客户端的回调函数
-        
+
         Args:
             client: 交易所客户端实例
         """
         try:
             # 检查客户端是否支持add_message_callback方法
-            if hasattr(client, 'add_message_callback'):
+            if hasattr(client, "add_message_callback"):
                 # 创建一个统一的回调函数，将消息分发给所有处理器
-                def message_callback(message: Dict[str, Any]) -> None:
-                    logger.debug(f"[KlinePush] WebSocketManager收到消息回调，分发给{len(self.message_handlers)}个处理器")
+                def message_callback(message: dict[str, Any]) -> None:
+                    logger.debug(
+                        f"[KlinePush] WebSocketManager收到消息回调，分发给{len(self.message_handlers)}个处理器"
+                    )
                     for handler in self.message_handlers:
                         try:
                             handler(message)
                         except Exception as e:
                             logger.error(f"[KlinePush] 消息处理器执行失败: {e}")
-                
+
                 client.add_message_callback(message_callback)
                 logger.info(f"[KlinePush] 成功将消息处理器注册为{client.exchange_name}的回调")
             else:
                 logger.warning(f"[KlinePush] 客户端{client.exchange_name}不支持add_message_callback，将使用轮询模式")
         except Exception as e:
             logger.error(f"[KlinePush] 注册消息回调失败: {e}")
-    
+
     def unregister_client(self, exchange_name: str) -> bool:
         """
         注销交易所客户端
-        
+
         Args:
             exchange_name: 交易所名称
-        
+
         Returns:
             bool: 注销是否成功
         """
         if exchange_name not in self.clients:
             logger.warning(f"交易所客户端不存在: {exchange_name}")
             return False
-        
+
         # 断开连接
         asyncio.create_task(self._disconnect_client(exchange_name))
-        
+
         # 从客户端列表中移除
         del self.clients[exchange_name]
         logger.info(f"成功注销交易所客户端: {exchange_name}")
         return True
-    
+
     async def _disconnect_client(self, exchange_name: str) -> None:
         """
         断开客户端连接（异步）
-        
+
         Args:
             exchange_name: 交易所名称
         """
         if exchange_name in self.clients:
             client = self.clients[exchange_name]
             await client.disconnect()
-    
-    def add_message_handler(self, handler: Callable[[Dict[str, Any]], None]) -> None:
+
+    def add_message_handler(self, handler: Callable[[dict[str, Any]], None]) -> None:
         """
         添加消息处理器
-        
+
         Args:
             handler: 消息处理函数
         """
         self.message_handlers.append(handler)
-        logger.info(f"成功添加消息处理器")
-    
-    def remove_message_handler(self, handler: Callable[[Dict[str, Any]], None]) -> bool:
+        logger.info("成功添加消息处理器")
+
+    def remove_message_handler(self, handler: Callable[[dict[str, Any]], None]) -> bool:
         """
         移除消息处理器
-        
+
         Args:
             handler: 消息处理函数
-        
+
         Returns:
             bool: 移除是否成功
         """
         if handler in self.message_handlers:
             self.message_handlers.remove(handler)
-            logger.info(f"成功移除消息处理器")
+            logger.info("成功移除消息处理器")
             return True
-        
-        logger.warning(f"消息处理器不存在")
+
+        logger.warning("消息处理器不存在")
         return False
-    
+
     async def connect_all(self) -> bool:
         """
         连接所有注册的客户端
-        
+
         Returns:
             bool: 所有客户端是否都连接成功
         """
         logger.debug(f"正在连接所有交易所客户端，共 {len(self.clients)} 个")
-        
+
         tasks = [client.connect() for client in self.clients.values()]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         success_count = 0
         for i, result in enumerate(results):
             if isinstance(result, bool) and result:
@@ -157,10 +166,10 @@ class WebSocketManager:
             else:
                 exchange_name = list(self.clients.keys())[i]
                 logger.error(f"连接交易所客户端失败: {exchange_name}, 错误: {result}")
-        
+
         logger.debug(f"连接完成，成功 {success_count} 个，失败 {len(results) - success_count} 个")
         return success_count == len(results)
-    
+
     async def disconnect_all(self) -> bool:
         """
         断开所有注册的客户端连接
@@ -203,7 +212,7 @@ class WebSocketManager:
         except Exception as e:
             logger.error(f"断开所有客户端连接时发生异常: {e}")
             return False
-    
+
     async def _process_messages(self) -> None:
         """
         异步处理消息，从所有客户端接收消息并分发给处理器
@@ -212,11 +221,11 @@ class WebSocketManager:
             if not self.clients:
                 await asyncio.sleep(1)
                 continue
-            
+
             # 从所有客户端接收消息
             tasks = [client.receive_message() for client in self.clients.values()]
             messages = await asyncio.gather(*tasks, return_exceptions=True)
-            
+
             # 处理收到的消息
             for i, message in enumerate(messages):
                 if isinstance(message, Exception):
@@ -229,10 +238,10 @@ class WebSocketManager:
                             handler(message)
                         except Exception as e:
                             logger.error(f"消息处理器执行失败: {e}")
-            
+
             # 短暂休眠，避免CPU占用过高
             await asyncio.sleep(0.01)
-    
+
     async def _monitor_connections(self) -> None:
         """
         监控客户端连接状态，自动重连
@@ -242,54 +251,54 @@ class WebSocketManager:
                 if not client.is_connected:
                     logger.warning(f"交易所客户端连接已断开: {exchange_name}, 尝试重连")
                     await client.connect()
-            
+
             # 每30秒检查一次连接状态
             await asyncio.sleep(30)
-    
+
     async def start(self) -> bool:
         """
         启动WebSocket连接管理器
-        
+
         Returns:
             bool: 启动是否成功
         """
         if self.running:
             logger.warning("WebSocket连接管理器已在运行")
             return False
-        
+
         logger.info("正在启动WebSocket连接管理器")
-        
+
         # 连接所有客户端
         await self.connect_all()
-        
+
         # 设置运行标志
         self.running = True
-        
+
         # 启动消息处理任务
         self.task = asyncio.create_task(self._process_messages())
-        
+
         # 启动连接监控任务
         self.reconnect_task = asyncio.create_task(self._monitor_connections())
-        
+
         logger.info("WebSocket连接管理器启动成功")
         return True
-    
+
     async def stop(self) -> bool:
         """
         停止WebSocket连接管理器
-        
+
         Returns:
             bool: 停止是否成功
         """
         if not self.running:
             logger.warning("WebSocket连接管理器未在运行")
             return False
-        
+
         logger.info("正在停止WebSocket连接管理器")
-        
+
         # 设置运行标志为False
         self.running = False
-        
+
         try:
             # 等待任务完成
             if self.task:
@@ -297,7 +306,7 @@ class WebSocketManager:
                     await asyncio.wait_for(self.task, timeout=5)
                 except asyncio.CancelledError:
                     logger.debug("消息处理任务已取消")
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning("消息处理任务超时，强制取消")
                     self.task.cancel()
                 finally:
@@ -308,7 +317,7 @@ class WebSocketManager:
                     await asyncio.wait_for(self.reconnect_task, timeout=5)
                 except asyncio.CancelledError:
                     logger.debug("重连任务已取消")
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning("重连任务超时，强制取消")
                     self.reconnect_task.cancel()
                 finally:
@@ -329,34 +338,34 @@ class WebSocketManager:
     async def restart(self) -> bool:
         """
         重启WebSocket连接管理器
-        
+
         Returns:
             bool: 重启是否成功
         """
         logger.info("正在重启WebSocket连接管理器")
-        
+
         # 停止当前运行的管理器
         await self.stop()
-        
+
         # 启动管理器
         return await self.start()
-    
-    def get_client(self, exchange_name: str) -> Optional[AbstractExchangeClient]:
+
+    def get_client(self, exchange_name: str) -> AbstractExchangeClient | None:
         """
         获取指定交易所的客户端
-        
+
         Args:
             exchange_name: 交易所名称
-        
+
         Returns:
             Optional[AbstractExchangeClient]: 交易所客户端实例，None表示不存在
         """
         return self.clients.get(exchange_name)
-    
-    def get_connected_clients(self) -> List[str]:
+
+    def get_connected_clients(self) -> list[str]:
         """
         获取已连接的客户端列表
-        
+
         Returns:
             List[str]: 已连接的交易所名称列表
         """
@@ -365,11 +374,11 @@ class WebSocketManager:
             if client.is_connected:
                 connected.append(exchange_name)
         return connected
-    
-    def get_all_clients(self) -> List[str]:
+
+    def get_all_clients(self) -> list[str]:
         """
         获取所有注册的客户端列表
-        
+
         Returns:
             List[str]: 所有交易所名称列表
         """

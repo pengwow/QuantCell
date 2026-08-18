@@ -4,14 +4,14 @@
 提供交易所配置和连接测试功能
 """
 
-from typing import Optional
-from pydantic import BaseModel, Field
 from fastapi import APIRouter
+from pydantic import BaseModel, Field
+
+from collector.schemas import ApiResponse
 
 # 使用 exchange 模块的连通性测试服务（已从 collector 迁移）
-from exchange import test_exchange_connection, SUPPORTED_EXCHANGES
-from collector.schemas import ApiResponse
-from utils.logger import get_logger, LogType
+from exchange import SUPPORTED_EXCHANGES, test_exchange_connection
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -21,21 +21,23 @@ router = APIRouter(prefix="/exchanges", tags=["exchanges"])
 
 class TestConnectionRequest(BaseModel):
     """测试连接请求模型"""
+
     exchange_name: str = Field(..., description="交易所名称 (binance, okx)")
-    api_key: Optional[str] = Field(None, description="API密钥")
-    secret_key: Optional[str] = Field(None, description="API密钥")
-    api_passphrase: Optional[str] = Field(None, description="API密码（OKX需要）")
-    proxy_url: Optional[str] = Field(None, description="代理URL")
+    api_key: str | None = Field(None, description="API密钥")
+    secret_key: str | None = Field(None, description="API密钥")
+    api_passphrase: str | None = Field(None, description="API密码（OKX需要）")
+    proxy_url: str | None = Field(None, description="代理URL")
     trading_mode: str = Field("spot", description="交易模式 (spot, future)")
     testnet: bool = Field(False, description="是否使用测试网络")
 
 
 class TestConnectionResponse(BaseModel):
     """测试连接响应模型"""
+
     success: bool = Field(..., description="测试是否成功")
     status: str = Field(..., description="连接状态")
     message: str = Field(..., description="结果消息")
-    response_time_ms: Optional[float] = Field(None, description="响应时间（毫秒）")
+    response_time_ms: float | None = Field(None, description="响应时间（毫秒）")
     details: dict = Field(default_factory=dict, description="详细测试信息")
 
 
@@ -66,7 +68,7 @@ async def test_exchange_connection_route(request: TestConnectionRequest):
         f"mode={request.trading_mode}, testnet={request.testnet}, "
         f"has_api_key={bool(request.api_key)}, proxy={request.proxy_url or '无'}"
     )
-    
+
     try:
         result = await test_exchange_connection(
             exchange_name=request.exchange_name,
@@ -75,7 +77,7 @@ async def test_exchange_connection_route(request: TestConnectionRequest):
             api_passphrase=request.api_passphrase,
             proxy_url=request.proxy_url,
             trading_mode=request.trading_mode,
-            testnet=request.testnet
+            testnet=request.testnet,
         )
 
         logger.info(
@@ -93,18 +95,15 @@ async def test_exchange_connection_route(request: TestConnectionRequest):
                 "status": result.status.value,
                 "message": result.message,
                 "response_time_ms": result.response_time_ms,
-                "details": result.details
-            }
+                "details": result.details,
+            },
         )
 
     except Exception as e:
         import traceback
+
         logger.error(f"测试连接接口异常: exchange={request.exchange_name}, error={e}\n{traceback.format_exc()}")
-        return ApiResponse(
-            code=500,
-            message=f"测试连接时发生错误: {str(e)}",
-            data=None
-        )
+        return ApiResponse(code=500, message=f"测试连接时发生错误: {e!s}", data=None)
 
 
 @router.get("/supported", response_model=ApiResponse)
@@ -117,7 +116,5 @@ async def get_supported_exchanges():
     return ApiResponse(
         code=0,
         message="获取支持的交易所列表成功",
-        data={
-            "exchanges": SUPPORTED_EXCHANGES
-        }
+        data={"exchanges": SUPPORTED_EXCHANGES},
     )

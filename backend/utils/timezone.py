@@ -1,10 +1,11 @@
 # 时区工具类
 
-import os
-from typing import Optional, Union
 import datetime
+import os
+
 import pytz
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -18,26 +19,27 @@ def _get_config_manager():
     global _config_manager
     if _config_manager is None:
         from config import config_manager as cfg_manager
+
         _config_manager = cfg_manager
     return _config_manager
 
 
 def get_timezone() -> pytz.timezone:  # pyright: ignore[reportGeneralTypeIssues]
     """获取配置的时区
-    
+
     Returns:
         pytz.timezone: 配置的时区对象
     """
     global _timezone_cache
-    
+
     # 优先从环境变量获取
     timezone_str = os.environ.get("APP_TIMEZONE")
-    
+
     # 如果环境变量未设置，从配置文件获取
     if not timezone_str:
         config_manager = _get_config_manager()
         timezone_str = config_manager.get("app.timezone", "Asia/Shanghai")
-    
+
     # 缓存时区对象
     if _timezone_cache is None or _timezone_cache.zone != timezone_str:
         try:
@@ -46,27 +48,27 @@ def get_timezone() -> pytz.timezone:  # pyright: ignore[reportGeneralTypeIssues]
         except pytz.exceptions.UnknownTimeZoneError:
             logger.error(f"无效的时区配置: {timezone_str}，使用默认时区 Asia/Shanghai")
             _timezone_cache = pytz.timezone("Asia/Shanghai")
-    
+
     return _timezone_cache
 
 
-def to_local_time(dt: Union[datetime.datetime, None]) -> Union[datetime.datetime, None]:
+def to_local_time(dt: datetime.datetime | None) -> datetime.datetime | None:
     """将UTC时间转换为本地时区时间
-    
+
     Args:
         dt: UTC时间对象
-    
+
     Returns:
         datetime.datetime: 本地时区时间对象
     """
     if dt is None:
         return None
-    
+
     try:
         # 如果datetime对象没有时区信息，添加UTC时区
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=pytz.utc)
-        
+
         # 转换为本地时区
         local_tz = get_timezone()
         return dt.astimezone(local_tz)
@@ -75,24 +77,24 @@ def to_local_time(dt: Union[datetime.datetime, None]) -> Union[datetime.datetime
         return dt
 
 
-def to_utc_time(dt: Union[datetime.datetime, None]) -> Union[datetime.datetime, None]:
+def to_utc_time(dt: datetime.datetime | None) -> datetime.datetime | None:
     """将本地时区时间转换为UTC时间
-    
+
     Args:
         dt: 本地时区时间对象
-    
+
     Returns:
         datetime.datetime: UTC时间对象
     """
     if not dt:
         return None
-    
+
     try:
         # 如果datetime对象没有时区信息，添加本地时区
         if dt.tzinfo is None:
             local_tz = get_timezone()
             dt = local_tz.localize(dt)
-        
+
         # 转换为UTC时区
         return dt.astimezone(pytz.utc)  # pyright: ignore[reportOptionalMemberAccess]
     except Exception as e:
@@ -100,19 +102,19 @@ def to_utc_time(dt: Union[datetime.datetime, None]) -> Union[datetime.datetime, 
         return dt
 
 
-def format_datetime(dt: Union[datetime.datetime, None], format_str: str = "%Y-%m-%d %H:%M:%S") -> Union[str, None]:
+def format_datetime(dt: datetime.datetime | None, format_str: str = "%Y-%m-%d %H:%M:%S") -> str | None:
     """格式化datetime对象为字符串
-    
+
     Args:
         dt: datetime对象
         format_str: 格式字符串
-    
+
     Returns:
         str: 格式化后的时间字符串
     """
     if dt is None:
         return None
-    
+
     try:
         # 转换为本地时区
         local_dt = to_local_time(dt)
@@ -122,23 +124,23 @@ def format_datetime(dt: Union[datetime.datetime, None], format_str: str = "%Y-%m
         return str(dt)
 
 
-def parse_datetime(dt_str: str, format_str: str = "%Y-%m-%d %H:%M:%S") -> Optional[datetime.datetime]:
+def parse_datetime(dt_str: str, format_str: str = "%Y-%m-%d %H:%M:%S") -> datetime.datetime | None:
     """解析时间字符串为datetime对象
-    
+
     Args:
         dt_str: 时间字符串
         format_str: 格式字符串
-    
+
     Returns:
         datetime.datetime: datetime对象
     """
     if not dt_str:
         return None
-    
+
     try:
         # 解析字符串为datetime对象
         dt = datetime.datetime.strptime(dt_str, format_str)
-        
+
         # 添加本地时区信息
         local_tz = get_timezone()
         return local_tz.localize(dt)
@@ -149,7 +151,7 @@ def parse_datetime(dt_str: str, format_str: str = "%Y-%m-%d %H:%M:%S") -> Option
 
 def reload_timezone():
     """重新加载时区配置
-    
+
     当配置变更时调用此函数
     """
     global _timezone_cache
