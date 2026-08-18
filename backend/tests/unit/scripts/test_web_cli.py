@@ -1,8 +1,9 @@
 """Web CLI单元测试"""
 
-import pytest
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestWebSearch:
@@ -10,17 +11,17 @@ class TestWebSearch:
 
     def test_web_search_no_api_key(self):
         """测试未配置API密钥的情况"""
-        from scripts.web_cli import web_search
+        from cli.web import web_search
 
         with patch.dict("os.environ", {"BRAVE_API_KEY": ""}, clear=False):
             result = web_search("bitcoin")
             assert "未配置" in result
             assert "BRAVE_API_KEY" in result
 
-    @patch("scripts.web_cli.httpx.Client")
+    @patch("cli.web.httpx.Client")
     def test_web_search_success(self, mock_client_cls):
         """测试成功搜索"""
-        from scripts.web_cli import web_search
+        from cli.web import web_search
 
         # 模拟API响应
         mock_client = MagicMock()
@@ -51,10 +52,10 @@ class TestWebSearch:
         assert "Bitcoin Price" in result
         assert "https://example.com/bitcoin" in result
 
-    @patch("scripts.web_cli.httpx.Client")
+    @patch("cli.web.httpx.Client")
     def test_web_search_empty(self, mock_client_cls):
         """测试空搜索结果"""
-        from scripts.web_cli import web_search
+        from cli.web import web_search
 
         mock_client = MagicMock()
         mock_response = MagicMock()
@@ -68,10 +69,10 @@ class TestWebSearch:
         result = web_search("nonexistent_topic_xyz", api_key="test_key")
         assert "未找到" in result
 
-    @patch("scripts.web_cli.httpx.Client")
+    @patch("cli.web.httpx.Client")
     def test_web_search_error(self, mock_client_cls):
         """测试异常处理"""
-        from scripts.web_cli import web_search
+        from cli.web import web_search
 
         mock_client_cls.side_effect = Exception("网络错误")
 
@@ -85,17 +86,17 @@ class TestWebFetch:
 
     def test_web_fetch_invalid_url(self):
         """测试无效URL"""
-        from scripts.web_cli import web_fetch
+        from cli.web import web_fetch
 
         result = web_fetch("not_a_url")
         data = json.loads(result)
         assert "error" in data
         assert "验证失败" in data["error"]
 
-    @patch("scripts.web_cli.httpx.Client")
+    @patch("cli.web.httpx.Client")
     def test_web_fetch_success_html(self, mock_client_cls):
         """测试成功获取HTML页面"""
-        from scripts.web_cli import web_fetch
+        from cli.web import web_fetch
 
         mock_client = MagicMock()
         mock_response = MagicMock()
@@ -114,10 +115,10 @@ class TestWebFetch:
         assert data["status"] == 200
         assert "Test Page" in data["text"]
 
-    @patch("scripts.web_cli.httpx.Client")
+    @patch("cli.web.httpx.Client")
     def test_web_fetch_success_json(self, mock_client_cls):
         """测试成功获取JSON数据"""
-        from scripts.web_cli import web_fetch
+        from cli.web import web_fetch
 
         mock_client = MagicMock()
         mock_response = MagicMock()
@@ -136,10 +137,10 @@ class TestWebFetch:
         assert data["status"] == 200
         assert data["extractor"] == "json"
 
-    @patch("scripts.web_cli.httpx.Client")
+    @patch("cli.web.httpx.Client")
     def test_web_fetch_error(self, mock_client_cls):
         """测试异常处理"""
-        from scripts.web_cli import web_fetch
+        from cli.web import web_fetch
 
         mock_client_cls.side_effect = Exception("连接超时")
 

@@ -12,12 +12,14 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
     from ..providers.base import LLMProvider
     from ..session.manager import Session, SessionManager
 
@@ -29,6 +31,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # MemoryStore — 纯文件 I/O 层
 # ---------------------------------------------------------------------------
 
+
 class MemoryStore:
     """纯文件 I/O 用于记忆文件：MEMORY.md, history.jsonl"""
 
@@ -37,11 +40,11 @@ class MemoryStore:
     def __init__(self, workspace: Path, max_history_entries: int = _DEFAULT_MAX_HISTORY):
         self.workspace = workspace
         self.max_history_entries = max_history_entries
-        
+
         # 确保目录存在
         self.memory_dir = workspace / "memory"
         self.memory_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 文件路径
         self.memory_file = self.memory_dir / "MEMORY.md"
         self.history_file = self.memory_dir / "history.jsonl"
@@ -75,7 +78,7 @@ class MemoryStore:
         record = {
             "cursor": cursor,
             "timestamp": ts,
-            "content": entry.rstrip() if entry else ""
+            "content": entry.rstrip() if entry else "",
         }
         with open(self.history_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -93,7 +96,7 @@ class MemoryStore:
         entries = self._read_entries()
         if len(entries) <= self.max_history_entries:
             return
-        kept = entries[-self.max_history_entries:]
+        kept = entries[-self.max_history_entries :]
         self._write_entries(kept)
         logger.info(f"History compacted: {len(entries)} -> {len(kept)} entries")
 
@@ -104,7 +107,7 @@ class MemoryStore:
         if self._cursor_file.exists():
             try:
                 return int(self._cursor_file.read_text(encoding="utf-8").strip()) + 1
-            except (ValueError, OSError):
+            except ValueError, OSError:
                 pass
         last = self._read_last_entry()
         if last and last.get("cursor"):
@@ -115,7 +118,7 @@ class MemoryStore:
         """读取 history.jsonl 的所有条目"""
         entries: list[dict[str, Any]] = []
         try:
-            with open(self.history_file, "r", encoding="utf-8") as f:
+            with open(self.history_file, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line:
@@ -142,14 +145,13 @@ class MemoryStore:
                 if not lines:
                     return None
                 return json.loads(lines[-1])
-        except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
+        except FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError:
             return None
 
     def _write_entries(self, entries: list[dict[str, Any]]) -> None:
         """覆盖 history.jsonl"""
         with open(self.history_file, "w", encoding="utf-8") as f:
-            for entry in entries:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            f.writelines(json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries)
 
     # -- dream cursor --------------------------------------------------------
 
@@ -158,7 +160,7 @@ class MemoryStore:
         if self._dream_cursor_file.exists():
             try:
                 return int(self._dream_cursor_file.read_text(encoding="utf-8").strip())
-            except (ValueError, OSError):
+            except ValueError, OSError:
                 pass
         return 0
 
@@ -183,10 +185,7 @@ class MemoryStore:
 
     def raw_archive(self, messages: list[dict]) -> None:
         """回退方案：将原始消息直接转储到 history.jsonl（无 LLM 摘要）"""
-        self.append_history(
-            f"[RAW] {len(messages)} 条消息\n"
-            f"{self._format_messages(messages)}"
-        )
+        self.append_history(f"[RAW] {len(messages)} 条消息\n{self._format_messages(messages)}")
         logger.warning(f"Memory consolidation degraded: raw-archived {messages} messages")
 
 
@@ -272,7 +271,7 @@ class Consolidator:
         """估算单条消息的 token 数"""
         content = str(message.get("content", ""))
         # 粗略估算：约 4 字符/token（中文）或 4 词/token（英文）
-        if any('\u4e00' <= c <= '\u9fff' for c in content):
+        if any("\u4e00" <= c <= "\u9fff" for c in content):
             return max(10, len(content))  # 中文
         else:
             return max(10, len(content.split()))  # 英文
@@ -286,7 +285,7 @@ class Consolidator:
             return None
         try:
             formatted = MemoryStore._format_messages(messages)
-            
+
             system_prompt = """从这段对话中提取关键事实。只输出匹配以下类别的内容，跳过其他所有内容：
 
 - 用户事实：个人信息、偏好、明确表达的观点、习惯
@@ -311,12 +310,12 @@ class Consolidator:
                 temperature=0.1,
                 max_tokens=1024,
             )
-            
+
             summary = response.content or "[no summary]"
             self.store.append_history(summary)
             logger.info(f"Consolidation archived {len(messages)} messages -> {len(summary)} chars")
             return summary
-            
+
         except Exception as e:
             logger.warning(f"Consolidation LLM call failed, raw-dumping to history: {e}")
             self.store.raw_archive(messages)
@@ -335,9 +334,9 @@ class Consolidator:
         async with lock:
             budget = self.context_window_tokens - self.max_completion_tokens - self._SAFETY_BUFFER
             target = budget // 2
-            
+
             estimated = self._estimate_session_prompt_tokens(session)
-            
+
             if estimated <= 0:
                 return
             if estimated < budget:
@@ -363,7 +362,7 @@ class Consolidator:
                     logger.debug(f"No capped boundary for {session.key} (round {round_num})")
                     return
 
-                chunk = session.messages[session.last_consolidated:end_idx]
+                chunk = session.messages[session.last_consolidated : end_idx]
                 if not chunk:
                     return
 
@@ -371,10 +370,10 @@ class Consolidator:
                     f"Token consolidation round {round_num} for {session.key}: "
                     f"{estimated}/{self.context_window_tokens}, chunk={len(chunk)} msgs"
                 )
-                
+
                 if not await self.archive(chunk):
                     return
-                    
+
                 session.last_consolidated = end_idx
                 self.sessions.save(session)
 
@@ -386,17 +385,17 @@ class Consolidator:
         """估算当前会话的 prompt 大小"""
         history = session.get_history(max_messages=0)
         total_tokens = 0
-        
+
         # 估算基础消息开销
         probe_messages = self._build_messages(history=history, current_message="[token-probe]")
         for msg in probe_messages:
             total_tokens += self._estimate_message_tokens(msg)
-        
+
         # 加上工具定义的开销
         tool_defs = self._get_tool_definitions()
         if tool_defs:
             total_tokens += len(json.dumps(tool_defs, ensure_ascii=False)) // 4
-        
+
         return total_tokens
 
 
@@ -444,7 +443,7 @@ class AutoCompact:
         """调度过期会话的归档任务，跳过正在执行 agent 任务的会话"""
         now = datetime.now()
         active_keys = active_session_keys or set()
-        
+
         for info in self.sessions.list_sessions():
             key = info.get("key", "")
             if not key or key in self._archiving:
@@ -459,29 +458,29 @@ class AutoCompact:
         """归档指定的过期会话"""
         try:
             session = self.sessions.get_or_create(key)
-            
+
             # 分割为可归档的前缀和保留的后缀
-            tail = list(session.messages[session.last_consolidated:])
+            tail = list(session.messages[session.last_consolidated :])
             if not tail:
                 session.updated_at = datetime.now()
                 self.sessions.save(session)
                 return
 
             # 保留最近的消息
-            kept_tail = tail[-self._RECENT_SUFFIX_MESSAGES:] if len(tail) > self._RECENT_SUFFIX_MESSAGES else tail
-            archive_msgs = tail[:len(tail) - len(kept_tail)]
+            kept_tail = tail[-self._RECENT_SUFFIX_MESSAGES :] if len(tail) > self._RECENT_SUFFIX_MESSAGES else tail
+            archive_msgs = tail[: len(tail) - len(kept_tail)]
 
             last_active = session.updated_at
             summary = ""
-            
+
             if archive_msgs:
                 summary = await self.consolidator.archive(archive_msgs) or ""
-            
+
             if summary and summary != "(nothing)":
                 self._summaries[key] = (summary, last_active)
 
             # 只保留最近的消息
-            session.messages = session.messages[:session.last_consolidated] + kept_tail
+            session.messages = session.messages[: session.last_consolidated] + kept_tail
             session.last_consolidated = 0
             session.updated_at = datetime.now()
             self.sessions.save(session)
@@ -491,7 +490,7 @@ class AutoCompact:
                     f"Auto-compact: archived {key} "
                     f"(archived={len(archive_msgs)}, kept={len(kept_tail)}, has_summary={bool(summary)})"
                 )
-                
+
         except Exception as e:
             logger.error(f"Auto-compact failed for {key}: {e}")
         finally:
@@ -541,7 +540,7 @@ class Dream:
         """处理未处理的的历史条目。如果有工作则返回 True"""
         last_cursor = self.store.get_last_dream_cursor()
         entries = self.store.read_unprocessed_history(since_cursor=last_cursor)
-        
+
         if not entries:
             return False
 
@@ -552,21 +551,18 @@ class Dream:
         )
 
         # 构建历史文本
-        history_text = "\n".join(
-            f"[{e['timestamp']}] {e['content']}" for e in batch
-        )
+        history_text = "\n".join(f"[{e['timestamp']}] {e['content']}" for e in batch)
 
         # 当前记忆内容
         current_date = datetime.now().strftime("%Y-%m-%d")
         current_memory = self.store.read_memory() or "(empty)"
 
         file_context = (
-            f"## Current Date\n{current_date}\n\n"
-            f"## Current MEMORY.md ({len(current_memory)} chars)\n{current_memory}"
+            f"## Current Date\n{current_date}\n\n## Current MEMORY.md ({len(current_memory)} chars)\n{current_memory}"
         )
 
         # Phase 1: 分析
-        phase1_prompt = f"""你有两个同等重要的任务：
+        phase1_prompt = """你有两个同等重要的任务：
 1. 从对话历史中提取新的事实
 2. 去重现有的记忆文件 — 找出冗余、重叠或过时的内容
 
@@ -601,10 +597,10 @@ class Dream:
                 temperature=0.1,
                 max_tokens=2048,
             )
-            
+
             analysis = phase1_response.content or ""
             logger.debug(f"Dream Phase 1 analysis ({len(analysis)} chars): {analysis[:500]}")
-            
+
         except Exception as e:
             logger.error(f"Dream Phase 1 failed: {e}")
             return False
@@ -634,19 +630,22 @@ class Dream:
             try:
                 phase2_response = await self.provider.chat(
                     messages=[
-                        {"role": "system", "content": "你是记忆管理助手，负责更新 MEMORY.md 文件。"},
+                        {
+                            "role": "system",
+                            "content": "你是记忆管理助手，负责更新 MEMORY.md 文件。",
+                        },
                         {"role": "user", "content": phase2_prompt},
                     ],
                     model=self.model,
                     temperature=0.1,
                     max_tokens=4096,
                 )
-                
+
                 new_memory = phase2_response.content or ""
                 if new_memory and new_memory != current_memory:
                     self.store.write_memory(new_memory)
                     logger.info(f"Dream: updated MEMORY.md ({len(new_memory)} chars)")
-                    
+
             except Exception as e:
                 logger.error(f"Dream Phase 2 failed: {e}")
 

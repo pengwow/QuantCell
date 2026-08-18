@@ -9,38 +9,39 @@ axon_quant 0.4.0 暴露:
 - 错误:      AxonError / ExchangeError
 - 工厂:      binance_testnet_config / okx_testnet_config
 """
-from axon_quant.exchange import (  # noqa: F401
+
+from axon_quant.exchange import (
+    # 错误
+    AxonError,
     # 适配器
     BinanceAdapter,
-    OkxAdapter,
     # 配置
     ExchangeConfig,
+    ExchangeError,
     ExchangeId,
+    OkxAdapter,
+    # OMS
+    OrderLifecycleManager,
     RateLimitConfig,
     ReconnectConfig,
     # 限流
     TokenBucketRateLimiter,
-    # OMS
-    OrderLifecycleManager,
-    # 错误
-    AxonError,
-    ExchangeError,
     # 工厂
     binance_testnet_config,
     okx_testnet_config,
 )
 
 __all__ = [
+    "AxonError",
     "BinanceAdapter",
-    "OkxAdapter",
     "ExchangeConfig",
+    "ExchangeError",
     "ExchangeId",
+    "OkxAdapter",
+    "OrderLifecycleManager",
     "RateLimitConfig",
     "ReconnectConfig",
     "TokenBucketRateLimiter",
-    "OrderLifecycleManager",
-    "AxonError",
-    "ExchangeError",
     "binance_testnet_config",
     "okx_testnet_config",
 ]

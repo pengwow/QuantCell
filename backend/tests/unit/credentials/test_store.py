@@ -1,8 +1,9 @@
 """凭证存储层测试 — SQLite 加密表 CRUD。"""
+
 import pytest
 
+from credentials.exceptions import AccountAlreadyExistsError, AccountNotFoundError
 from credentials.store import CredentialsStore
-from credentials.exceptions import AccountNotFoundError, AccountAlreadyExistsError
 
 
 @pytest.fixture

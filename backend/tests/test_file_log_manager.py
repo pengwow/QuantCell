@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 文件日志管理器单元测试
 
@@ -10,27 +9,24 @@
 - 旧日志清理
 """
 
-import pytest
-import sys
-import os
-import json
-import tempfile
 import shutil
-from pathlib import Path
+import sys
+import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
+
+import pytest
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from utils.logger import LogRecord, LogLevel, LogType
 from utils.file_log_manager import (
     FileLogManager,
     LogFilters,
-    PaginatedResult,
     LogStatistics,
-    get_file_log_manager,
-    shutdown_file_log_manager,
+    PaginatedResult,
 )
+from utils.logger import LogLevel, LogRecord, LogType
 
 
 @pytest.fixture(scope="function")
@@ -57,6 +53,7 @@ def file_manager(temp_log_dir):
     FileLogManager._instance = None
     FileLogManager._initialized = False
     import utils.file_log_manager as flm
+
     flm._file_log_manager_instance = None
 
     manager = FileLogManager(base_log_dir=temp_log_dir)
@@ -147,7 +144,9 @@ class TestLogWriting:
 
     def test_write_log_with_exception(self, file_manager):
         """测试带异常信息的日志"""
-        exception_info = "Traceback (most recent call last):\n  File 'test.py', line 1, in <module>\nraise ValueError('test error')"
+        exception_info = (
+            "Traceback (most recent call last):\n  File 'test.py', line 1, in <module>\nraise ValueError('test error')"
+        )
 
         record = LogRecord(
             timestamp=datetime.utcnow(),
@@ -200,44 +199,44 @@ class TestLogQuerying:
 
         assert isinstance(result, PaginatedResult)
         assert len(result.logs) == 20
-        assert result.pagination['total'] == 20
+        assert result.pagination["total"] == 20
 
     def test_query_with_level_filter(self, file_manager):
         """测试按级别过滤查询"""
         self._setup_test_data(file_manager, 40)
 
-        filters = LogFilters(level='ERROR')
+        filters = LogFilters(level="ERROR")
         result = file_manager.query_logs(filters, page=1, page_size=100)
 
-        assert all(log['level'] == 'ERROR' for log in result.logs)
+        assert all(log["level"] == "ERROR" for log in result.logs)
 
     def test_query_with_type_filter(self, file_manager):
         """测试按类型过滤查询"""
         self._setup_test_data(file_manager, 30)
 
-        filters = LogFilters(log_type='api')
+        filters = LogFilters(log_type="api")
         result = file_manager.query_logs(filters, page=1, page_size=100)
 
-        assert all(log['log_type'] == 'api' for log in result.logs)
+        assert all(log["log_type"] == "api" for log in result.logs)
 
     def test_query_with_keyword_filter(self, file_manager):
         """测试关键词搜索"""
         self._setup_test_data(file_manager, 25)
 
-        filters = LogFilters(keyword='word word')
+        filters = LogFilters(keyword="word word")
         result = file_manager.query_logs(filters, page=1, page_size=100)
 
         for log in result.logs:
-            assert 'word word' in log['message'].lower()
+            assert "word word" in log["message"].lower()
 
     def test_query_with_trace_id(self, file_manager):
         """测试按跟踪ID查询"""
         self._setup_test_data(file_manager, 30)
 
-        filters = LogFilters(trace_id='trace-0')
+        filters = LogFilters(trace_id="trace-0")
         result = file_manager.query_logs(filters, page=1, page_size=100)
 
-        assert all(log.get('trace_id') == 'trace-0' for log in result.logs)
+        assert all(log.get("trace_id") == "trace-0" for log in result.logs)
 
     def test_pagination(self, file_manager):
         """测试分页功能"""
@@ -246,12 +245,12 @@ class TestLogQuerying:
         # 第一页
         result1 = file_manager.query_logs(LogFilters(), page=1, page_size=10)
         assert len(result1.logs) == 10
-        assert result1.pagination['page'] == 1
+        assert result1.pagination["page"] == 1
 
         # 第二页
         result2 = file_manager.query_logs(LogFilters(), page=2, page_size=10)
         assert len(result2.logs) == 10
-        assert result2.pagination['page'] == 2
+        assert result2.pagination["page"] == 2
 
         # 第三页（剩余5条）
         result3 = file_manager.query_logs(LogFilters(), page=3, page_size=10)
@@ -269,7 +268,7 @@ class TestLogQuerying:
         result = file_manager.query_logs(filters, page=1, page_size=100)
 
         for log in result.logs:
-            log_time = datetime.fromisoformat(log['timestamp'])
+            log_time = datetime.fromisoformat(log["timestamp"])
             assert start_time <= log_time <= end_time
 
 
@@ -297,9 +296,9 @@ class TestStatistics:
 
         assert isinstance(stats, LogStatistics)
         assert stats.total_count == 18
-        assert stats.by_level.get('INFO', 0) == 10
-        assert stats.by_level.get('ERROR', 0) == 5
-        assert stats.by_level.get('WARNING', 0) == 3
+        assert stats.by_level.get("INFO", 0) == 10
+        assert stats.by_level.get("ERROR", 0) == 5
+        assert stats.by_level.get("WARNING", 0) == 3
 
 
 class TestRecentLogs:
@@ -326,8 +325,8 @@ class TestRecentLogs:
         assert len(recent_logs) <= 5
         # 应该是时间倒序（最新的在前）
         if len(recent_logs) > 1:
-            time1 = datetime.fromisoformat(recent_logs[0]['timestamp'])
-            time2 = datetime.fromisoformat(recent_logs[1]['timestamp'])
+            time1 = datetime.fromisoformat(recent_logs[0]["timestamp"])
+            time2 = datetime.fromisoformat(recent_logs[1]["timestamp"])
             assert time1 >= time2
 
     def test_get_recent_logs_with_level_filter(self, file_manager):
@@ -345,9 +344,9 @@ class TestRecentLogs:
             )
             file_manager.write_log(record)
 
-        error_logs = file_manager.get_recent_logs(minutes=60, limit=10, level='ERROR')
+        error_logs = file_manager.get_recent_logs(minutes=60, limit=10, level="ERROR")
 
-        assert all(log['level'] == 'ERROR' for log in error_logs)
+        assert all(log["level"] == "ERROR" for log in error_logs)
 
 
 class TestCleanup:
@@ -382,9 +381,9 @@ class TestLogQueryEngine:
 
     def _setup_engine_with_data(self, tmp_path):
         """辅助方法：创建带数据的查询引擎"""
+        import utils.file_log_manager as flm
         from utils.log_query_engine import LogQueryEngine
 
-        import utils.file_log_manager as flm
         # 重置所有单例状态，确保使用临时目录而非全局日志目录
         flm.FileLogManager._instance = None
         flm.FileLogManager._initialized = False
@@ -410,14 +409,15 @@ class TestLogQueryEngine:
         engine.file_manager = manager
 
         return engine, lambda: (
-            setattr(flm, '_file_log_manager_instance', None),
-            setattr(flm.FileLogManager, '_instance', None),
-            setattr(flm.FileLogManager, '_initialized', False),
+            setattr(flm, "_file_log_manager_instance", None),
+            setattr(flm.FileLogManager, "_instance", None),
+            setattr(flm.FileLogManager, "_initialized", False),
         )
 
     def test_query_with_cache(self, temp_log_dir):
         """测试带缓存的查询"""
         import utils.log_query_engine as lqe
+
         original_instance = lqe._log_query_engine_instance
         lqe._log_query_engine_instance = None
 
@@ -434,7 +434,7 @@ class TestLogQueryEngine:
 
             # 验证缓存统计
             cache_stats = engine.cache.get_stats()
-            assert cache_stats['hits'] >= 1
+            assert cache_stats["hits"] >= 1
 
             cleanup()
         finally:
@@ -443,6 +443,7 @@ class TestLogQueryEngine:
     def test_performance_stats(self, temp_log_dir):
         """测试性能统计"""
         import utils.log_query_engine as lqe
+
         original_instance = lqe._log_query_engine_instance
         lqe._log_query_engine_instance = None
 
@@ -450,17 +451,17 @@ class TestLogQueryEngine:
             engine, cleanup = self._setup_engine_with_data(temp_log_dir)
 
             # 执行几次查询
-            engine.query_logs(level='INFO')
+            engine.query_logs(level="INFO")
             engine.get_statistics()
             engine.get_recent_logs(minutes=60)
 
             # 获取性能统计
             perf_stats = engine.get_performance_stats()
 
-            assert 'operations' in perf_stats
-            assert 'cache' in perf_stats
-            assert 'query_logs' in perf_stats['operations']
-            assert 'get_statistics' in perf_stats['operations']
+            assert "operations" in perf_stats
+            assert "cache" in perf_stats
+            assert "query_logs" in perf_stats["operations"]
+            assert "get_statistics" in perf_stats["operations"]
 
             cleanup()
         finally:
@@ -472,18 +473,18 @@ class TestEdgeCases:
 
     def test_empty_query_result(self, file_manager):
         """测试空结果查询"""
-        filters = LogFilters(level='NONEXISTENT_LEVEL')
+        filters = LogFilters(level="NONEXISTENT_LEVEL")
         result = file_manager.query_logs(filters)
 
         assert len(result.logs) == 0
-        assert result.pagination['total'] == 0
+        assert result.pagination["total"] == 0
 
     def test_special_characters_in_message(self, file_manager):
         """测试消息中的特殊字符"""
         special_messages = [
             "包含中文的消息",
             "Message with émojis 🎉🚀",
-            "JSON-like {\"key\": \"value\"}",
+            'JSON-like {"key": "value"}',
             "Multi\nLine\nMessage",
             "Tabs\there\tand\tthere",
             "Quotes: 'single' and \"double\"",
@@ -503,8 +504,8 @@ class TestEdgeCases:
             file_manager.write_log(record)
 
         # 查询并验证特殊字符保留
-        result = file_manager.query_logs(LogFilters(module='special_module'))
-        messages = [log['message'] for log in result.logs]
+        result = file_manager.query_logs(LogFilters(module="special_module"))
+        messages = [log["message"] for log in result.logs]
 
         for msg in special_messages:
             assert msg in messages
@@ -528,9 +529,9 @@ class TestEdgeCases:
         assert result is True
 
         # 验证可以读取回完整消息
-        logs = file_manager.query_logs(LogFilters(module='long_module'))
+        logs = file_manager.query_logs(LogFilters(module="long_module"))
         assert len(logs.logs) == 1
-        assert len(logs.logs[0]['message']) == 10000
+        assert len(logs.logs[0]["message"]) == 10000
 
 
 if __name__ == "__main__":

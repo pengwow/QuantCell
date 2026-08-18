@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Exchange Adapter — axon_quant.exchange 交易所适配器
 
 包装 axon_quant.exchange.BinanceAdapter 和 OkxAdapter，
@@ -6,10 +5,11 @@
 
 设计文档: docs/compose/specs/2026-06-24-core-trading-engine-design.md
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -17,12 +17,23 @@ logger = logging.getLogger(__name__)
 try:
     from axon_quant.exchange import (
         BinanceAdapter as _BinanceAdapter,
-        OkxAdapter as _OkxAdapter,
+    )
+    from axon_quant.exchange import (
         ExchangeConfig as _ExchangeConfig,
+    )
+    from axon_quant.exchange import (
         ExchangeId as _ExchangeId,
+    )
+    from axon_quant.exchange import (
+        OkxAdapter as _OkxAdapter,
+    )
+    from axon_quant.exchange import (
         binance_testnet_config as _binance_testnet_config,
+    )
+    from axon_quant.exchange import (
         okx_testnet_config as _okx_testnet_config,
     )
+
     AXON_AVAILABLE = True
 except ImportError:
     AXON_AVAILABLE = False
@@ -57,8 +68,8 @@ class ExchangeAdapter:
         self,
         exchange_id: str = "binance",
         testnet: bool = True,
-        api_key: Optional[str] = None,
-        api_secret: Optional[str] = None,
+        api_key: str | None = None,
+        api_secret: str | None = None,
     ):
         """初始化交易所适配器
 
@@ -69,9 +80,8 @@ class ExchangeAdapter:
             api_secret: API Secret（可选）
         """
         if not AXON_AVAILABLE:
-            raise RuntimeError(
-                "axon_quant.exchange 不可用，请安装 axon_quant: pip install axon_quant"
-            )
+            msg = "axon_quant.exchange 不可用，请安装 axon_quant: pip install axon_quant"
+            raise RuntimeError(msg)
 
         self._exchange_id = exchange_id
         self._testnet = testnet
@@ -88,16 +98,11 @@ class ExchangeAdapter:
                 )
             self._adapter = _BinanceAdapter(config)
         elif exchange_id == "okx":
-            if testnet:
-                config = _okx_testnet_config()
-            else:
-                config = _ExchangeConfig(
-                    exchange_id=_ExchangeId.OKX,
-                    testnet=testnet,
-                )
+            config = _okx_testnet_config() if testnet else _ExchangeConfig(exchange_id=_ExchangeId.OKX, testnet=testnet)
             self._adapter = _OkxAdapter(config)
         else:
-            raise ValueError(f"不支持的交易所: {exchange_id}")
+            msg = f"不支持的交易所: {exchange_id}"
+            raise ValueError(msg)
 
         logger.info(f"ExchangeAdapter 已创建: {exchange_id}, testnet={testnet}")
 
@@ -123,7 +128,8 @@ class ExchangeAdapter:
             行情字典
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         return self._adapter.get_ticker(symbol)
 
     def place_order(self, order_dict: dict[str, Any]) -> dict[str, Any]:
@@ -142,7 +148,8 @@ class ExchangeAdapter:
             订单结果字典
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         return self._adapter.place_order(order_dict)
 
     def cancel_order(self, order_id: str) -> dict[str, Any]:
@@ -155,7 +162,8 @@ class ExchangeAdapter:
             撤单结果字典
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         return self._adapter.cancel_order(order_id)
 
     def get_balance(self) -> dict[str, Any]:
@@ -165,7 +173,8 @@ class ExchangeAdapter:
             余额字典
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         return self._adapter.get_balance()
 
     def get_positions(self) -> list[dict[str, Any]]:
@@ -175,7 +184,8 @@ class ExchangeAdapter:
             持仓列表
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         return self._adapter.get_positions()
 
     def subscribe(self, symbols: list[str]) -> None:
@@ -185,7 +195,8 @@ class ExchangeAdapter:
             symbols: 交易对列表
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         self._adapter.subscribe(symbols)
 
     def get_depth(self, symbol: str) -> dict[str, Any]:
@@ -198,7 +209,8 @@ class ExchangeAdapter:
             深度字典
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         return self._adapter.get_depth(symbol)
 
     def set_leverage(self, symbol: str, leverage: int) -> None:
@@ -209,7 +221,8 @@ class ExchangeAdapter:
             leverage: 杠杆倍数
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         self._adapter.set_leverage(symbol, leverage)
 
     def set_margin_type(self, symbol: str, margin_type: str) -> None:
@@ -220,7 +233,8 @@ class ExchangeAdapter:
             margin_type: "isolated" 或 "cross"
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         self._adapter.set_margin_type(symbol, margin_type)
 
     def set_position_mode(self, hedge_mode: bool) -> None:
@@ -230,7 +244,8 @@ class ExchangeAdapter:
             hedge_mode: 是否对冲模式
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         self._adapter.set_position_mode(hedge_mode)
 
     def get_account_info(self) -> dict[str, Any]:
@@ -240,7 +255,8 @@ class ExchangeAdapter:
             账户信息字典
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         return self._adapter.get_account_info()
 
     def get_funding_rate(self, symbol: str) -> dict[str, Any]:
@@ -253,7 +269,8 @@ class ExchangeAdapter:
             资金费率字典
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         return self._adapter.get_funding_rate(symbol)
 
     def get_open_interest(self, symbol: str) -> dict[str, Any]:
@@ -266,7 +283,8 @@ class ExchangeAdapter:
             持仓量字典
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         return self._adapter.get_open_interest(symbol)
 
     def get_long_short_ratio(self, symbol: str) -> dict[str, Any]:
@@ -279,7 +297,8 @@ class ExchangeAdapter:
             多空比字典
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         return self._adapter.get_long_short_ratio(symbol)
 
     def get_leverage_brackets(self, symbol: str) -> dict[str, Any]:
@@ -292,7 +311,8 @@ class ExchangeAdapter:
             杠杆档位字典
         """
         if not self._adapter:
-            raise RuntimeError("交易所未连接")
+            msg = "交易所未连接"
+            raise RuntimeError(msg)
         return self._adapter.get_leverage_brackets(symbol)
 
 

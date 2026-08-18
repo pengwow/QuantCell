@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 业务服务模块
 
@@ -7,4 +6,4 @@
 
 from .symbol_sync import SymbolSyncManager, SyncStatus, require_symbols_data
 
-__all__ = ['SymbolSyncManager', 'SyncStatus', 'require_symbols_data']
+__all__ = ["SymbolSyncManager", "SyncStatus", "require_symbols_data"]

@@ -4,9 +4,11 @@ Worker 状态机模块单元测试
 测试 WorkerState、WorkerStatus 和 StateMachine 的功能
 """
 
-import pytest
 from datetime import datetime, timedelta
-from worker.worker_state import WorkerState, WorkerStatus, StateMachine
+
+import pytest
+
+from worker.worker_state import StateMachine, WorkerState, WorkerStatus
 
 
 class TestWorkerState:
@@ -70,7 +72,7 @@ class TestWorkerStatus:
         return WorkerStatus(
             worker_id="test-worker-001",
             strategy_path="/path/to/strategy.py",
-            symbols=["BTC/USDT", "ETH/USDT"]
+            symbols=["BTC/USDT", "ETH/USDT"],
         )
 
     def test_initial_state(self, worker_status):
@@ -87,10 +89,10 @@ class TestWorkerStatus:
         # 按照正确的路径更新状态
         assert worker_status.update_state(WorkerState.INITIALIZED) is True
         assert worker_status.state == WorkerState.INITIALIZED
-        
+
         assert worker_status.update_state(WorkerState.STARTING) is True
         assert worker_status.state == WorkerState.STARTING
-        
+
         assert worker_status.update_state(WorkerState.RUNNING) is True
         assert worker_status.state == WorkerState.RUNNING
         assert worker_status.started_at is not None
@@ -104,10 +106,10 @@ class TestWorkerStatus:
     def test_update_heartbeat(self, worker_status):
         """测试心跳更新"""
         assert worker_status.last_heartbeat is None
-        
+
         worker_status.update_heartbeat()
         assert worker_status.last_heartbeat is not None
-        
+
         # 再次更新
         old_heartbeat = worker_status.last_heartbeat
         worker_status.update_heartbeat()
@@ -117,13 +119,13 @@ class TestWorkerStatus:
         """测试错误记录"""
         assert worker_status.errors_count == 0
         assert worker_status.last_error is None
-        
+
         worker_status.record_error("Test error message")
-        
+
         assert worker_status.errors_count == 1
         assert worker_status.last_error == "Test error message"
         assert worker_status.last_error_time is not None
-        
+
         # 记录第二个错误
         worker_status.record_error("Another error")
         assert worker_status.errors_count == 2
@@ -133,15 +135,15 @@ class TestWorkerStatus:
         """测试健康检查"""
         # 初始状态不健康（没有心跳）
         assert worker_status.is_healthy() is False
-        
+
         # 更新到运行状态并设置心跳
         worker_status.update_state(WorkerState.INITIALIZED)
         worker_status.update_state(WorkerState.STARTING)
         worker_status.update_state(WorkerState.RUNNING)
         worker_status.update_heartbeat()
-        
+
         assert worker_status.is_healthy() is True
-        
+
         # 模拟心跳超时
         worker_status.last_heartbeat = datetime.now() - timedelta(seconds=60)
         assert worker_status.is_healthy(heartbeat_timeout=30) is False
@@ -159,9 +161,9 @@ class TestWorkerStatus:
         worker_status.update_state(WorkerState.RUNNING)
         worker_status.update_heartbeat()
         worker_status.record_error("Test error")
-        
+
         data = worker_status.to_dict()
-        
+
         assert data["worker_id"] == "test-worker-001"
         assert data["state"] == "running"
         assert data["strategy_path"] == "/path/to/strategy.py"
@@ -189,7 +191,7 @@ class TestStateMachine:
         """测试成功的状态转换"""
         assert state_machine.transition_to(WorkerState.INITIALIZED) is True
         assert state_machine.current_state == WorkerState.INITIALIZED
-        
+
         assert state_machine.transition_to(WorkerState.STARTING) is True
         assert state_machine.current_state == WorkerState.STARTING
 
@@ -203,11 +205,11 @@ class TestStateMachine:
         history = state_machine.get_state_history()
         assert len(history) == 1
         assert history[0][0] == WorkerState.INITIALIZING
-        
+
         # 进行状态转换
         state_machine.transition_to(WorkerState.INITIALIZED)
         state_machine.transition_to(WorkerState.STARTING)
-        
+
         history = state_machine.get_state_history()
         assert len(history) == 3
         assert history[0][0] == WorkerState.INITIALIZING
@@ -222,42 +224,44 @@ class TestStateMachine:
     def test_transition_handler(self, state_machine):
         """测试状态转换处理器"""
         handler_called = []
-        
+
         def handler(old_state, new_state):
             handler_called.append((old_state, new_state))
-        
+
         state_machine.register_transition_handler(WorkerState.INITIALIZED, handler)
-        
+
         state_machine.transition_to(WorkerState.INITIALIZED)
-        
+
         assert len(handler_called) == 1
         assert handler_called[0] == (WorkerState.INITIALIZING, WorkerState.INITIALIZED)
 
     def test_multiple_handlers(self, state_machine):
         """测试多个状态转换处理器"""
         calls = []
-        
+
         def handler1(old_state, new_state):
             calls.append("handler1")
-        
+
         def handler2(old_state, new_state):
             calls.append("handler2")
-        
+
         state_machine.register_transition_handler(WorkerState.INITIALIZED, handler1)
         state_machine.register_transition_handler(WorkerState.INITIALIZED, handler2)
-        
+
         state_machine.transition_to(WorkerState.INITIALIZED)
-        
+
         assert "handler1" in calls
         assert "handler2" in calls
 
     def test_handler_exception_not_propagated(self, state_machine):
         """测试处理器异常不影响状态转换"""
+
         def bad_handler(old_state, new_state):
-            raise Exception("Handler error")
-        
+            msg = "Handler error"
+            raise Exception(msg)
+
         state_machine.register_transition_handler(WorkerState.INITIALIZED, bad_handler)
-        
+
         # 状态转换应该成功，即使处理器抛出异常
         assert state_machine.transition_to(WorkerState.INITIALIZED) is True
         assert state_machine.current_state == WorkerState.INITIALIZED

@@ -6,9 +6,12 @@ import pickle
 import uuid
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 # ponytail: 限制 pickle 反序列化范围，防止任意代码执行
@@ -17,8 +20,10 @@ class _SafeUnpickler(pickle.Unpickler):
 
     def find_class(self, module: str, name: str):
         if not any(module.startswith(p) for p in self._ALLOWED_PREFIXES):
-            raise pickle.UnpicklingError(f"不允许的类型: {module}.{name}")
+            msg = f"不允许的类型: {module}.{name}"
+            raise pickle.UnpicklingError(msg)
         return super().find_class(module, name)
+
 
 try:
     from axon_bridge.ensemble import (
@@ -51,7 +56,8 @@ def _load_model_from_path(path: str) -> Callable[[dict[str, Any]], dict[str, Any
     """
     p = Path(path)
     if not p.exists():
-        raise FileNotFoundError(f"模型文件不存在: {path}")
+        msg = f"模型文件不存在: {path}"
+        raise FileNotFoundError(msg)
     with open(p, "rb") as f:
         model = _SafeUnpickler(f).load()
 
@@ -78,7 +84,8 @@ def _load_model_from_path(path: str) -> Callable[[dict[str, Any]], dict[str, Any
             action_idx = int(result) if hasattr(result, "__int__") else 0
             confidence = 0.8
         else:
-            raise TypeError(f"不支持的模型类型: {type(model)}")
+            msg = f"不支持的模型类型: {type(model)}"
+            raise TypeError(msg)
 
         # 简单映射：0=hold, 1=buy, 2=sell
         action_map = {0: "hold", 1: "buy", 2: "sell"}
@@ -95,7 +102,8 @@ class EnsembleService:
 
     def __init__(self) -> None:
         if not AVAILABLE:
-            raise RuntimeError("axon_quant.ensemble not available")
+            msg = "axon_quant.ensemble not available"
+            raise RuntimeError(msg)
         self._ensembles: dict[str, EnsembleManager] = {}
 
     def create_ensemble(
@@ -106,7 +114,8 @@ class EnsembleService:
         """创建集成并返回 ID。model_paths 为 pickle 模型文件路径列表。"""
         strategy_cls = _STRATEGY_MAP.get(strategy)
         if strategy_cls is None:
-            raise ValueError(f"Unknown strategy: {strategy}")
+            msg = f"Unknown strategy: {strategy}"
+            raise ValueError(msg)
 
         manager = EnsembleManager(strategy_cls())
         for i, path in enumerate(model_paths or []):
@@ -114,7 +123,8 @@ class EnsembleService:
                 model_fn = _load_model_from_path(path)
                 manager.register_model(model_fn, f"model_{i}", ModelType.RuleBased)
             except Exception as e:
-                from utils.logger import get_logger, LogType
+                from utils.logger import LogType, get_logger
+
                 logger = get_logger(__name__, LogType.APPLICATION)
                 logger.warning(f"加载模型 {path} 失败: {e}，跳过")
 
@@ -131,7 +141,8 @@ class EnsembleService:
         """运行集成预测。"""
         manager = self._ensembles.get(ensemble_id)
         if manager is None:
-            raise KeyError(f"Ensemble {ensemble_id} not found")
+            msg = f"Ensemble {ensemble_id} not found"
+            raise KeyError(msg)
 
         if "market_features" in observation:
             obs = Observation(

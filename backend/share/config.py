@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 分享系统 远端集成配置
 
@@ -13,16 +12,16 @@
 调用 ensure_remote_credentials()(调远端 auto-register 拿凭据,
 写到 backend/config.local.toml)。
 """
+
 from __future__ import annotations
 
 import os
 import threading
 from pathlib import Path
-from typing import Optional
 
 import tomli
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -54,10 +53,10 @@ def _load_toml_chain() -> dict:
 class ShareRemoteConfig:
     """分享远端（quantcell.top）配置（线程安全单例）"""
 
-    _instance: Optional["ShareRemoteConfig"] = None
+    _instance: ShareRemoteConfig | None = None
     _lock = threading.Lock()
 
-    def __new__(cls) -> "ShareRemoteConfig":
+    def __new__(cls) -> ShareRemoteConfig:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -71,23 +70,14 @@ class ShareRemoteConfig:
 
         # 基础端点（可被环境变量覆盖）
         self.base_url: str = (
-            os.getenv("SHARE_REMOTE_BASE_URL")
-            or remote.get("base_url")
-            or "https://share.quantcell.top"
+            os.getenv("SHARE_REMOTE_BASE_URL") or remote.get("base_url") or "https://share.quantcell.top"
         ).rstrip("/")
 
-        self.timeout_seconds: float = float(
-            os.getenv("SHARE_REMOTE_TIMEOUT")
-            or remote.get("timeout_seconds", 10)
-        )
+        self.timeout_seconds: float = float(os.getenv("SHARE_REMOTE_TIMEOUT") or remote.get("timeout_seconds", 10))
 
         # 凭据：必须显式配置；未配置则视为远端未启用
-        self.api_key: Optional[str] = (
-            os.getenv("SHARE_REMOTE_API_KEY") or remote.get("api_key")
-        )
-        self.hmac_secret: Optional[str] = (
-            os.getenv("SHARE_REMOTE_HMAC_SECRET") or remote.get("hmac_secret")
-        )
+        self.api_key: str | None = os.getenv("SHARE_REMOTE_API_KEY") or remote.get("api_key")
+        self.hmac_secret: str | None = os.getenv("SHARE_REMOTE_HMAC_SECRET") or remote.get("hmac_secret")
 
         # 重试策略
         self.max_retries: int = int(remote.get("max_retries", 3))
@@ -99,7 +89,7 @@ class ShareRemoteConfig:
         return bool(self.api_key) and bool(self.hmac_secret)
 
     @classmethod
-    def reload(cls) -> "ShareRemoteConfig":
+    def reload(cls) -> ShareRemoteConfig:
         """清空单例并重建(写完 config.local.toml 后调用)
 
         运行时修改 toml 后,旧单例仍持有旧值;必须显式清空才能让下次访问

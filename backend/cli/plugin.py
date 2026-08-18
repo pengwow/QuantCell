@@ -47,16 +47,15 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Annotated
 
 import typer
-from typing_extensions import Annotated
 
 backend_path = Path(__file__).resolve().parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -73,6 +72,7 @@ def _get_plugin_manager():
     global _plugin_manager
     if _plugin_manager is None:
         from plugins import PluginManager
+
         plugin_dir = str(backend_path / "data" / "installed_plugins")
         os.makedirs(plugin_dir, exist_ok=True)
         _plugin_manager = PluginManager(app=None, plugin_dir=plugin_dir)
@@ -80,12 +80,11 @@ def _get_plugin_manager():
 
 
 def _print_json(data) -> None:
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+    pass
 
 
 def _print_table(headers: list[str], rows: list[list[str]]) -> None:
     if not rows:
-        print("(无数据)")
         return
 
     col_widths = [len(h) for h in headers]
@@ -93,16 +92,10 @@ def _print_table(headers: list[str], rows: list[list[str]]) -> None:
         for i, cell in enumerate(row):
             col_widths[i] = max(col_widths[i], len(str(cell)))
 
-    header_line = " | ".join(
-        h.ljust(col_widths[i]) for i, h in enumerate(headers)
-    )
-    print(header_line)
-    print("-" * len(header_line))
+    " | ".join(h.ljust(col_widths[i]) for i, h in enumerate(headers))
 
     for row in rows:
-        print(" | ".join(
-            str(cell).ljust(col_widths[i]) for i, cell in enumerate(row)
-        ))
+        pass
 
 
 def _status_icon(status: str) -> str:
@@ -117,24 +110,13 @@ def _status_icon(status: str) -> str:
 
 # ==================== 安装命令 ====================
 
+
 @app.command("install", help="安装插件")
 def cmd_install(
-    zip_file: Annotated[
-        Optional[str],
-        typer.Option("--zip", "-z", help="从 ZIP 文件安装")
-    ] = None,
-    git_url: Annotated[
-        Optional[str],
-        typer.Option("--git", "-g", help="从 Git 仓库安装")
-    ] = None,
-    dir_path: Annotated[
-        Optional[str],
-        typer.Option("--dir", "-d", help="从本地目录安装")
-    ] = None,
-    branch: Annotated[
-        Optional[str],
-        typer.Option("--branch", "-b", help="Git 分支（仅 --git 时有效）")
-    ] = None,
+    zip_file: Annotated[str | None, typer.Option("--zip", "-z", help="从 ZIP 文件安装")] = None,
+    git_url: Annotated[str | None, typer.Option("--git", "-g", help="从 Git 仓库安装")] = None,
+    dir_path: Annotated[str | None, typer.Option("--dir", "-d", help="从本地目录安装")] = None,
+    branch: Annotated[str | None, typer.Option("--branch", "-b", help="Git 分支（仅 --git 时有效）")] = None,
 ):
     """安装插件，支持 ZIP、Git、本地目录三种来源（三选一）"""
     sources = [s for s in [zip_file, git_url, dir_path] if s is not None]
@@ -181,13 +163,14 @@ def cmd_install(
             raise typer.Exit(1)
 
         try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
+            with open(manifest_path, encoding="utf-8") as f:
                 manifest = json.load(f)
         except json.JSONDecodeError as e:
             typer.echo(f"错误: manifest.json 解析失败: {e}", err=True)
             raise typer.Exit(1)
 
         from plugins.plugin_installer import PluginInstaller
+
         installer = PluginInstaller(pm.plugin_dir, pm)
         valid, msg = installer.validate_manifest(manifest)
         if not valid:
@@ -219,13 +202,11 @@ def cmd_install(
 
 # ==================== 卸载命令 ====================
 
+
 @app.command("uninstall", help="卸载插件")
 def cmd_uninstall(
     plugin_name: Annotated[str, typer.Argument(help="插件名称")],
-    force: Annotated[
-        bool,
-        typer.Option("--force", "-f", help="强制卸载，不提示确认")
-    ] = False,
+    force: Annotated[bool, typer.Option("--force", "-f", help="强制卸载，不提示确认")] = False,
 ):
     """卸载指定插件"""
     pm = _get_plugin_manager()
@@ -258,12 +239,10 @@ def cmd_uninstall(
 
 # ==================== 列表命令 ====================
 
+
 @app.command("list", help="列出所有插件")
 def cmd_list(
-    format: Annotated[
-        str,
-        typer.Option("--format", "-f", help="输出格式: json 或 table")
-    ] = "table",
+    format: Annotated[str, typer.Option("--format", "-f", help="输出格式: json 或 table")] = "table",
 ):
     """列出所有已安装的插件"""
     pm = _get_plugin_manager()
@@ -280,19 +259,22 @@ def cmd_list(
         rows = []
         for p in plugins:
             status = p.get("status", "unknown")
-            rows.append([
-                _status_icon(status),
-                p.get("name", ""),
-                p.get("version", ""),
-                p.get("load_type", ""),
-                p.get("install_source", "") or "manual",
-                (p.get("description", "") or "")[:30],
-            ])
+            rows.append(
+                [
+                    _status_icon(status),
+                    p.get("name", ""),
+                    p.get("version", ""),
+                    p.get("load_type", ""),
+                    p.get("install_source", "") or "manual",
+                    (p.get("description", "") or "")[:30],
+                ]
+            )
         _print_table(headers, rows)
         typer.echo(f"\n共 {len(plugins)} 个插件")
 
 
 # ==================== 详情命令 ====================
+
 
 @app.command("info", help="查看插件详情")
 def cmd_info(
@@ -324,7 +306,7 @@ def cmd_info(
 
     schema = plugin.get("config_schema")
     if schema:
-        typer.echo(f"  配置结构: 有")
+        typer.echo("  配置结构: 有")
     else:
         typer.echo("  配置结构: 无")
 
@@ -342,6 +324,7 @@ def cmd_info(
 
 
 # ==================== 启用/禁用命令 ====================
+
 
 @app.command("enable", help="启用插件")
 def cmd_enable(
@@ -385,16 +368,11 @@ def cmd_disable(
 
 # ==================== 清理命令 ====================
 
+
 @app.command("clean", help="清理残留数据")
 def cmd_clean(
-    force: Annotated[
-        bool,
-        typer.Option("--force", "-f", help="强制清理，不提示确认")
-    ] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help="仅预览，不实际执行清理")
-    ] = False,
+    force: Annotated[bool, typer.Option("--force", "-f", help="强制清理，不提示确认")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="仅预览，不实际执行清理")] = False,
 ):
     """清理插件残留数据：无效数据库记录、残留目录、临时文件"""
     pm = _get_plugin_manager()
@@ -439,7 +417,7 @@ def cmd_clean(
         typer.echo("✅ 未发现需要清理的残留数据")
         return
 
-    typer.echo(f"\n发现以下可清理项:\n")
+    typer.echo("\n发现以下可清理项:\n")
 
     db_records = [a for a in actions if a[0] == "db_record"]
     dirs = [a for a in actions if a[0] == "dir"]
@@ -476,6 +454,7 @@ def cmd_clean(
 
     # 清理无效数据库记录
     from plugins.plugin_store import PluginStore
+
     for _, name, _ in db_records:
         if PluginStore.delete_plugin(name):
             typer.echo(f"  ✅ 已删除数据库记录: {name}")
@@ -507,13 +486,11 @@ def cmd_clean(
 
 # ==================== 打包命令 ====================
 
+
 @app.command("pack", help="打包插件为 ZIP")
 def cmd_pack(
     plugin_dir: Annotated[str, typer.Argument(help="插件目录路径")],
-    output: Annotated[
-        Optional[str],
-        typer.Option("--output", "-o", help="输出 ZIP 文件路径")
-    ] = None,
+    output: Annotated[str | None, typer.Option("--output", "-o", help="输出 ZIP 文件路径")] = None,
 ):
     """将本地插件目录打包成 ZIP 文件（供离线分发）"""
     if not os.path.isdir(plugin_dir):
@@ -526,13 +503,14 @@ def cmd_pack(
         raise typer.Exit(1)
 
     try:
-        with open(manifest_path, "r", encoding="utf-8") as f:
+        with open(manifest_path, encoding="utf-8") as f:
             manifest = json.load(f)
     except json.JSONDecodeError as e:
         typer.echo(f"错误: manifest.json 解析失败: {e}", err=True)
         raise typer.Exit(1)
 
     from plugins.plugin_installer import PluginInstaller
+
     installer = PluginInstaller(plugin_dir="")
     valid, msg = installer.validate_manifest(manifest)
     if not valid:
@@ -557,7 +535,8 @@ def cmd_pack(
 
         def ignore_patterns(src, names):
             return {
-                name for name in names
+                name
+                for name in names
                 if name == "__pycache__"
                 or name.endswith(".pyc")
                 or name.endswith(".pyo")
@@ -569,14 +548,14 @@ def cmd_pack(
         shutil.copytree(plugin_dir, staging_plugin, ignore=ignore_patterns)
 
         with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for root, dirs, files in os.walk(staging_plugin):
+            for root, _dirs, files in os.walk(staging_plugin):
                 for file in files:
                     file_path = os.path.join(root, file)
                     arcname = os.path.relpath(file_path, staging)
                     zf.write(file_path, arcname)
 
         typer.echo(f"✅ 打包完成: {output_path}")
-        typer.echo(f"\nZIP 结构:")
+        typer.echo("\nZIP 结构:")
         with zipfile.ZipFile(output_path) as zf:
             for name in sorted(zf.namelist()):
                 typer.echo(f"  {name}")
@@ -673,7 +652,7 @@ def register_plugin():
 
 
 def _render_build_sh(plugin_name: str) -> str:
-    return f'''#!/bin/bash
+    return """#!/bin/bash
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -684,9 +663,9 @@ GREEN='\\033[0;32m'
 YELLOW='\\033[0;33m'
 NC='\\033[0m'
 
-info()  {{ echo -e "${{GREEN}}[INFO]${{NC}}  $*"; }}
-warn()  {{ echo -e "${{YELLOW}}[WARN]${{NC}}  $*"; }}
-error() {{ echo -e "${{RED}}[ERROR]${{NC}} $*"; exit 1; }}
+info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 SKIP_FRONTEND=false
 for arg in "$@"; do
@@ -724,7 +703,7 @@ fi
 OUTPUT_DIR="$SCRIPT_DIR/dist"
 mkdir -p "$OUTPUT_DIR"
 
-ZIP_NAME="${{PLUGIN_NAME}}-${{PLUGIN_VERSION}}.zip"
+ZIP_NAME="${PLUGIN_NAME}-${PLUGIN_VERSION}.zip"
 ZIP_PATH="$OUTPUT_DIR/$ZIP_NAME"
 rm -f "$ZIP_PATH"
 
@@ -755,9 +734,9 @@ python3 -c "
 import zipfile, sys
 with zipfile.ZipFile(sys.argv[1]) as zf:
     for name in sorted(zf.namelist()):
-        print(f'  {{name}}')
+        print(f'  {name}')
 " "$ZIP_PATH"
-'''
+"""
 
 
 def _render_frontend_package_json(plugin_name: str, description: str) -> str:
@@ -789,7 +768,7 @@ def _render_frontend_package_json(plugin_name: str, description: str) -> str:
 
 
 def _render_vite_config_ts(plugin_name: str) -> str:
-    return '''import { defineConfig } from 'vite';
+    return """import { defineConfig } from 'vite';
 import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -902,11 +881,11 @@ export default defineConfig({
     emptyOutDir: true,
   },
 });
-'''
+"""
 
 
 def _render_tsconfig_json() -> str:
-    return '''{
+    return """{
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "target": "ES2020",
@@ -928,11 +907,11 @@ def _render_tsconfig_json() -> str:
   },
   "include": ["src"]
 }
-'''
+"""
 
 
 def _render_tsconfig_node_json() -> str:
-    return '''{
+    return """{
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
     "target": "ES2022",
@@ -952,11 +931,11 @@ def _render_tsconfig_node_json() -> str:
   },
   "include": ["vite.config.ts"]
 }
-'''
+"""
 
 
 def _render_index_html(plugin_name: str) -> str:
-    return f'''<!doctype html>
+    return f"""<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -968,12 +947,12 @@ def _render_index_html(plugin_name: str) -> str:
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-'''
+"""
 
 
 def _render_main_tsx(plugin_name: str) -> str:
     kebab = _snake_to_kebab(plugin_name)
-    return f'''import App from './App';
+    return f"""import App from './App';
 
 const routes = [
   {{
@@ -1005,12 +984,12 @@ export function registerPlugin() {{
     getMenuItems: () => menuItems,
   }};
 }}
-'''
+"""
 
 
 def _render_app_tsx(plugin_name: str, description: str) -> str:
     display_desc = description or f"{plugin_name} 插件"
-    return f'''import {{ Card, Typography, ConfigProvider, theme as antdTheme }} from 'antd';
+    return f"""import {{ Card, Typography, ConfigProvider, theme as antdTheme }} from 'antd';
 import {{ useTheme }} from './hooks/useTheme';
 import {{ useLocale }} from './hooks/useLocale';
 
@@ -1047,16 +1026,16 @@ export default function App() {{
     </ConfigProvider>
   );
 }}
-'''
+"""
 
 
 def _render_vite_env_d_ts() -> str:
-    return '''/// <reference types="vite/client" />
-'''
+    return """/// <reference types="vite/client" />
+"""
 
 
 def _render_use_theme_ts() -> str:
-    return '''import { useState, useEffect } from 'react';
+    return """import { useState, useEffect } from 'react';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -1088,11 +1067,11 @@ export function useTheme(): ThemeMode {
 
   return theme;
 }
-'''
+"""
 
 
 def _render_use_locale_ts() -> str:
-    return '''import { useState, useEffect } from 'react';
+    return """import { useState, useEffect } from 'react';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import type { Locale } from 'antd/es/locale';
@@ -1133,40 +1112,37 @@ export function useLocale(): Locale {
 
   return locale;
 }
-'''
+"""
 
 
 @app.command("create", help="创建插件脚手架项目")
 def cmd_create(
     name: Annotated[str, typer.Argument(help="插件名称，仅允许字母、数字、下划线、连字符")],
-    output: Annotated[
-        str,
-        typer.Option("--output", "-o", help="项目输出目录")
-    ] = ".",
-    description: Annotated[
-        str,
-        typer.Option("--description", "-d", help="插件描述")
-    ] = "",
-    author: Annotated[
-        str,
-        typer.Option("--author", "-a", help="插件作者")
-    ] = "",
+    output: Annotated[str, typer.Option("--output", "-o", help="项目输出目录")] = ".",
+    description: Annotated[str, typer.Option("--description", "-d", help="插件描述")] = "",
+    author: Annotated[str, typer.Option("--author", "-a", help="插件作者")] = "",
     plugin_type: Annotated[
         str,
-        typer.Option("--type", "-t", help="插件类型: backend(纯后端) / fullstack(全栈)")
+        typer.Option("--type", "-t", help="插件类型: backend(纯后端) / fullstack(全栈)"),
     ] = "fullstack",
     load_type: Annotated[
         str,
-        typer.Option("--load-type", help="加载类型: hot(热加载) / restart(重启加载)")
+        typer.Option("--load-type", help="加载类型: hot(热加载) / restart(重启加载)"),
     ] = "hot",
 ):
     """创建一个符合 QuantCell 标准的插件脚手架项目"""
     if not _NAME_RE.match(name):
-        typer.echo(f"错误: 插件名称格式不合法: {name}，仅允许字母、数字、下划线、连字符", err=True)
+        typer.echo(
+            f"错误: 插件名称格式不合法: {name}，仅允许字母、数字、下划线、连字符",
+            err=True,
+        )
         raise typer.Exit(1)
 
     if plugin_type not in ("backend", "fullstack"):
-        typer.echo(f"错误: 不支持的插件类型: {plugin_type}，可选: backend / fullstack", err=True)
+        typer.echo(
+            f"错误: 不支持的插件类型: {plugin_type}，可选: backend / fullstack",
+            err=True,
+        )
         raise typer.Exit(1)
 
     if load_type not in ("hot", "restart"):
@@ -1180,10 +1156,11 @@ def cmd_create(
 
     os.makedirs(project_dir, exist_ok=True)
 
-    _write_file(os.path.join(project_dir, "manifest.json"),
-                _render_manifest(name, description, author, load_type, plugin_type))
-    _write_file(os.path.join(project_dir, "plugin.py"),
-                _render_plugin_py(name))
+    _write_file(
+        os.path.join(project_dir, "manifest.json"),
+        _render_manifest(name, description, author, load_type, plugin_type),
+    )
+    _write_file(os.path.join(project_dir, "plugin.py"), _render_plugin_py(name))
 
     build_path = os.path.join(project_dir, "build.sh")
     _write_file(build_path, _render_build_sh(name))
@@ -1191,27 +1168,23 @@ def cmd_create(
 
     if plugin_type == "fullstack":
         fe_dir = os.path.join(project_dir, "frontend")
-        _write_file(os.path.join(fe_dir, "package.json"),
-                    _render_frontend_package_json(name, description))
-        _write_file(os.path.join(fe_dir, "vite.config.ts"),
-                    _render_vite_config_ts(name))
-        _write_file(os.path.join(fe_dir, "tsconfig.json"),
-                    _render_tsconfig_json())
-        _write_file(os.path.join(fe_dir, "tsconfig.node.json"),
-                    _render_tsconfig_node_json())
-        _write_file(os.path.join(fe_dir, "index.html"),
-                    _render_index_html(name))
-        _write_file(os.path.join(fe_dir, "src", "main.tsx"),
-                    _render_main_tsx(name))
-        _write_file(os.path.join(fe_dir, "src", "App.tsx"),
-                    _render_app_tsx(name, description))
-        _write_file(os.path.join(fe_dir, "src", "vite-env.d.ts"),
-                    _render_vite_env_d_ts())
+        _write_file(
+            os.path.join(fe_dir, "package.json"),
+            _render_frontend_package_json(name, description),
+        )
+        _write_file(os.path.join(fe_dir, "vite.config.ts"), _render_vite_config_ts(name))
+        _write_file(os.path.join(fe_dir, "tsconfig.json"), _render_tsconfig_json())
+        _write_file(os.path.join(fe_dir, "tsconfig.node.json"), _render_tsconfig_node_json())
+        _write_file(os.path.join(fe_dir, "index.html"), _render_index_html(name))
+        _write_file(os.path.join(fe_dir, "src", "main.tsx"), _render_main_tsx(name))
+        _write_file(os.path.join(fe_dir, "src", "App.tsx"), _render_app_tsx(name, description))
+        _write_file(os.path.join(fe_dir, "src", "vite-env.d.ts"), _render_vite_env_d_ts())
         # 生成主题和国际化 hooks
-        _write_file(os.path.join(fe_dir, "src", "hooks", "useTheme.ts"),
-                    _render_use_theme_ts())
-        _write_file(os.path.join(fe_dir, "src", "hooks", "useLocale.ts"),
-                    _render_use_locale_ts())
+        _write_file(os.path.join(fe_dir, "src", "hooks", "useTheme.ts"), _render_use_theme_ts())
+        _write_file(
+            os.path.join(fe_dir, "src", "hooks", "useLocale.ts"),
+            _render_use_locale_ts(),
+        )
 
     typer.echo(f"\n✅ 插件项目已创建: {project_dir}\n")
     typer.echo("项目结构:")
@@ -1225,11 +1198,11 @@ def cmd_create(
         for file in sorted(files):
             typer.echo(f"{sub_indent}{file}")
 
-    typer.echo(f"\n下一步:")
+    typer.echo("\n下一步:")
     typer.echo(f"  cd {project_dir}")
     if plugin_type == "fullstack":
-        typer.echo(f"  cd frontend && bun install && cd ..")
-    typer.echo(f"  ./build.sh")
+        typer.echo("  cd frontend && bun install && cd ..")
+    typer.echo("  ./build.sh")
     typer.echo(f"  cd {backend_path.parent}")
     typer.echo(f"  uv run python -m cli.plugin install --zip {project_dir}/dist/{name}-0.1.0.zip")
 

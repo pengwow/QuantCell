@@ -1,20 +1,23 @@
 # 交易所客户端工厂
-from typing import Dict, Any, Optional, List
-from utils.logger import get_logger, LogType
+from typing import TYPE_CHECKING, Any
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from .abstract_client import AbstractExchangeClient
+
+if TYPE_CHECKING:
+    from .abstract_client import AbstractExchangeClient
 
 
 class ExchangeClientFactory:
     """交易所客户端工厂，负责创建不同交易所的客户端实例"""
-    
+
     def __init__(self):
         """初始化交易所客户端工厂"""
-        self.client_registry: Dict[str, Any] = {}
+        self.client_registry: dict[str, Any] = {}
         self._register_clients()
-    
+
     def _register_clients(self) -> None:
         """
         注册支持的交易所客户端
@@ -22,20 +25,21 @@ class ExchangeClientFactory:
         try:
             # 注册币安WebSocket客户端（用于实时数据）
             from exchange.binance.websocket_client import BinanceWebSocketClient
-            self.client_registry['binance'] = BinanceWebSocketClient
+
+            self.client_registry["binance"] = BinanceWebSocketClient
             logger.info("成功注册币安WebSocket客户端")
-        
+
         except ImportError as e:
             logger.error(f"注册交易所客户端失败: {e}")
-    
-    def create_client(self, exchange_name: str, config: Dict[str, Any]) -> Optional[AbstractExchangeClient]:
+
+    def create_client(self, exchange_name: str, config: dict[str, Any]) -> AbstractExchangeClient | None:
         """
         创建交易所客户端实例
-        
+
         Args:
             exchange_name: 交易所名称
             config: 客户端配置（字典格式）
-        
+
         Returns:
             Optional[AbstractExchangeClient]: 交易所客户端实例，None表示创建失败
         """
@@ -43,47 +47,48 @@ class ExchangeClientFactory:
             if exchange_name not in self.client_registry:
                 logger.error(f"不支持的交易所: {exchange_name}")
                 return None
-            
+
             # 创建客户端实例
             client_class = self.client_registry[exchange_name]
-            
+
             # 根据交易所类型创建对应的配置对象
-            if exchange_name == 'binance':
+            if exchange_name == "binance":
                 from exchange.binance import BinanceConfig
+
                 # 将字典转换为BinanceConfig对象
                 binance_config = BinanceConfig(
-                    api_key=config.get('api_key', ''),
-                    api_secret=config.get('api_secret', ''),
-                    testnet=config.get('testnet', True),
+                    api_key=config.get("api_key", ""),
+                    api_secret=config.get("api_secret", ""),
+                    testnet=config.get("testnet", True),
                 )
                 client = client_class(binance_config)
             else:
                 # 其他交易所直接使用字典
                 client = client_class(config)
-            
+
             logger.info(f"成功创建交易所客户端: {exchange_name}")
             return client
-        
+
         except Exception as e:
             logger.error(f"创建交易所客户端失败: {e}")
             return None
-    
-    def get_supported_exchanges(self) -> List[str]:
+
+    def get_supported_exchanges(self) -> list[str]:
         """
         获取支持的交易所列表
-        
+
         Returns:
             List[str]: 支持的交易所列表
         """
         return list(self.client_registry.keys())
-    
+
     def is_supported(self, exchange_name: str) -> bool:
         """
         检查交易所是否支持
-        
+
         Args:
             exchange_name: 交易所名称
-        
+
         Returns:
             bool: 是否支持
         """

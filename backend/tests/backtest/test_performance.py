@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 trading engine 集成性能测试模块
 
@@ -17,19 +16,18 @@ trading engine 集成性能测试模块
 
 import gc
 import json
-import os
 import sys
 import time
 import tracemalloc
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 import pytest
 
 # 获取模块日志器
-from utils.logger import get_logger, LogType  # noqa: E402
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 # 确保能够导入后端模块
@@ -38,13 +36,14 @@ sys.path.insert(0, str(project_root))
 
 # 这些测试在 commit 9866f56 中已经不再适用（向量化回测引擎 Engine/LegacyEngine 已删除）
 try:
-    from backtest.engines import Engine  # noqa: E402
+    from backtest.engines import Engine
 except ImportError:
-    pytest.skip("VectorEngine/LegacyEngine 在 commit 9866f56 中删除;事件驱动回测由 axon_quant 提供", allow_module_level=True)
+    pytest.skip(
+        "VectorEngine/LegacyEngine 在 commit 9866f56 中删除;事件驱动回测由 axon_quant 提供",
+        allow_module_level=True,
+    )
 
-from backtest.engines import LegacyEngine  # noqa: E402
-from backtest.config import EngineType  # noqa: E402
-
+from backtest.engines import LegacyEngine
 
 # =============================================================================
 # 测试配置常量
@@ -52,10 +51,10 @@ from backtest.config import EngineType  # noqa: E402
 
 # 测试数据规模配置
 TEST_DATA_SIZES = {
-    "small": 1000,      # 小规模测试
-    "medium": 10000,    # 中等规模测试
-    "large": 100000,    # 大规模测试
-    "xlarge": 500000,   # 超大规模测试
+    "small": 1000,  # 小规模测试
+    "medium": 10000,  # 中等规模测试
+    "large": 100000,  # 大规模测试
+    "xlarge": 500000,  # 超大规模测试
 }
 
 # 性能测试报告保存路径
@@ -65,6 +64,7 @@ PERFORMANCE_REPORT_DIR = Path(__file__).parent.parent.parent / "performance_repo
 # =============================================================================
 # 测试数据生成器
 # =============================================================================
+
 
 def generate_mock_kline_data(
     n_records: int,
@@ -92,11 +92,7 @@ def generate_mock_kline_data(
 
     # 生成时间序列
     start_dt = pd.Timestamp(start_date)
-    timestamps = pd.date_range(
-        start=start_dt,
-        periods=n_records,
-        freq="1min"
-    )
+    timestamps = pd.date_range(start=start_dt, periods=n_records, freq="1min")
 
     # 生成价格序列（随机游走）
     returns = np.random.normal(0, volatility, n_records)
@@ -120,7 +116,7 @@ def generate_mock_kline_data(
 
 def create_mock_catalog(
     n_records: int,
-    symbols: List[str],
+    symbols: list[str],
     catalog_path: Path,
 ) -> Path:
     """
@@ -153,6 +149,7 @@ def create_mock_catalog(
 # 性能测试基类
 # =============================================================================
 
+
 class PerformanceBenchmark:
     """
     性能测试基类
@@ -168,8 +165,8 @@ class PerformanceBenchmark:
             name: 测试名称
         """
         self.name = name
-        self.results: Dict[str, Any] = {}
-        self._start_time: Optional[float] = None
+        self.results: dict[str, Any] = {}
+        self._start_time: float | None = None
         self._peak_memory: int = 0
 
     def __enter__(self):
@@ -215,6 +212,7 @@ class PerformanceBenchmark:
 # 测试夹具 (Fixtures)
 # =============================================================================
 
+
 @pytest.fixture(scope="module")
 def test_data_dir(tmp_path_factory):
     """创建测试数据目录"""
@@ -225,44 +223,28 @@ def test_data_dir(tmp_path_factory):
 def mock_catalog_small(test_data_dir):
     """创建小规模测试数据目录"""
     catalog_path = test_data_dir / "catalog_small"
-    return create_mock_catalog(
-        TEST_DATA_SIZES["small"],
-        ["BTCUSDT"],
-        catalog_path
-    )
+    return create_mock_catalog(TEST_DATA_SIZES["small"], ["BTCUSDT"], catalog_path)
 
 
 @pytest.fixture(scope="module")
 def mock_catalog_medium(test_data_dir):
     """创建中等规模测试数据目录"""
     catalog_path = test_data_dir / "catalog_medium"
-    return create_mock_catalog(
-        TEST_DATA_SIZES["medium"],
-        ["BTCUSDT"],
-        catalog_path
-    )
+    return create_mock_catalog(TEST_DATA_SIZES["medium"], ["BTCUSDT"], catalog_path)
 
 
 @pytest.fixture(scope="module")
 def mock_catalog_large(test_data_dir):
     """创建大规模测试数据目录"""
     catalog_path = test_data_dir / "catalog_large"
-    return create_mock_catalog(
-        TEST_DATA_SIZES["large"],
-        ["BTCUSDT"],
-        catalog_path
-    )
+    return create_mock_catalog(TEST_DATA_SIZES["large"], ["BTCUSDT"], catalog_path)
 
 
 @pytest.fixture(scope="module")
 def mock_catalog_multi(test_data_dir):
     """创建多品种测试数据目录"""
     catalog_path = test_data_dir / "catalog_multi"
-    return create_mock_catalog(
-        TEST_DATA_SIZES["medium"],
-        ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
-        catalog_path
-    )
+    return create_mock_catalog(TEST_DATA_SIZES["medium"], ["BTCUSDT", "ETHUSDT", "SOLUSDT"], catalog_path)
 
 
 @pytest.fixture
@@ -279,7 +261,7 @@ def engine_config(mock_catalog_small):
             "params": {
                 "fast_period": 10,
                 "slow_period": 20,
-            }
+            },
         },
         "log_level": "ERROR",  # 减少日志输出以提高性能
     }
@@ -297,7 +279,7 @@ def legacy_engine_config():
             "params": {
                 "fast_period": 10,
                 "slow_period": 20,
-            }
+            },
         },
         "backtest_config": {
             "symbols": ["BTCUSDT"],
@@ -306,13 +288,14 @@ def legacy_engine_config():
             "end_time": "2023-12-31",
             "initial_cash": 100000.0,
             "commission": 0.001,
-        }
+        },
     }
 
 
 # =============================================================================
 # 基准测试类
 # =============================================================================
+
 
 class TestEngineBenchmark:
     """
@@ -323,12 +306,7 @@ class TestEngineBenchmark:
 
     @pytest.mark.benchmark
     @pytest.mark.parametrize("data_size", ["small", "medium"])
-    def test_engine_initialization(
-        self,
-        benchmark,
-        test_data_dir,
-        data_size: str
-    ):
+    def test_engine_initialization(self, benchmark, test_data_dir, data_size: str):
         """
         测试 Engine 初始化性能
 
@@ -337,7 +315,7 @@ class TestEngineBenchmark:
         catalog_path = create_mock_catalog(
             TEST_DATA_SIZES[data_size],
             ["BTCUSDT"],
-            test_data_dir / f"catalog_init_{data_size}"
+            test_data_dir / f"catalog_init_{data_size}",
         )
 
         config = {
@@ -348,7 +326,7 @@ class TestEngineBenchmark:
             "catalog_path": str(catalog_path),
             "strategy_config": {
                 "strategy_path": "backtest.strategies.sma_cross:SMACrossStrategy",
-                "params": {"fast_period": 10, "slow_period": 20}
+                "params": {"fast_period": 10, "slow_period": 20},
             },
             "log_level": "ERROR",
         }
@@ -358,21 +336,14 @@ class TestEngineBenchmark:
             engine.initialize()
             engine.cleanup()
 
-        result = benchmark(init_engine)
+        benchmark(init_engine)
 
         # 记录性能指标
-        logger.info(
-            f"Engine 初始化 [{data_size}]: "
-            f"{benchmark.stats.stats.mean:.4f}s"
-        )
+        logger.info(f"Engine 初始化 [{data_size}]: {benchmark.stats.stats.mean:.4f}s")
 
     @pytest.mark.benchmark
     @pytest.mark.parametrize("data_size", ["small", "medium"])
-    def test_legacy_engine_initialization(
-        self,
-        benchmark,
-        data_size: str
-    ):
+    def test_legacy_engine_initialization(self, benchmark, data_size: str):
         """
         测试 LegacyEngine 初始化性能
 
@@ -382,12 +353,12 @@ class TestEngineBenchmark:
             "initial_capital": 100000.0,
             "strategy_config": {
                 "strategy_name": "sma_cross",
-                "params": {"fast_period": 10, "slow_period": 20}
+                "params": {"fast_period": 10, "slow_period": 20},
             },
             "backtest_config": {
                 "symbols": ["BTCUSDT"],
                 "interval": "1h",
-            }
+            },
         }
 
         def init_engine():
@@ -395,17 +366,15 @@ class TestEngineBenchmark:
             engine.initialize()
             engine.cleanup()
 
-        result = benchmark(init_engine)
+        benchmark(init_engine)
 
-        logger.info(
-            f"LegacyEngine 初始化 [{data_size}]: "
-            f"{benchmark.stats.stats.mean:.4f}s"
-        )
+        logger.info(f"LegacyEngine 初始化 [{data_size}]: {benchmark.stats.stats.mean:.4f}s")
 
 
 # =============================================================================
 # 数据加载性能测试
 # =============================================================================
+
 
 class TestDataLoadingPerformance:
     """
@@ -422,11 +391,7 @@ class TestDataLoadingPerformance:
 
         测量每秒加载的数据记录数
         """
-        catalog_path = create_mock_catalog(
-            n_records,
-            ["BTCUSDT"],
-            test_data_dir / f"catalog_throughput_{n_records}"
-        )
+        catalog_path = create_mock_catalog(n_records, ["BTCUSDT"], test_data_dir / f"catalog_throughput_{n_records}")
 
         with PerformanceBenchmark(f"data_loading_{n_records}") as bench:
             # 模拟数据加载
@@ -454,11 +419,7 @@ class TestDataLoadingPerformance:
         验证同时加载多个品种数据的性能
         """
         symbols = [f"SYM{i}USDT" for i in range(n_symbols)]
-        catalog_path = create_mock_catalog(
-            10000,
-            symbols,
-            test_data_dir / f"catalog_multi_{n_symbols}"
-        )
+        catalog_path = create_mock_catalog(10000, symbols, test_data_dir / f"catalog_multi_{n_symbols}")
 
         with PerformanceBenchmark(f"multi_symbol_loading_{n_symbols}") as bench:
             total_records = 0
@@ -468,15 +429,13 @@ class TestDataLoadingPerformance:
 
         throughput = bench.get_throughput(total_records)
 
-        logger.info(
-            f"多品种数据加载 [{n_symbols} 个品种]: "
-            f"{throughput:.2f} records/s"
-        )
+        logger.info(f"多品种数据加载 [{n_symbols} 个品种]: {throughput:.2f} records/s")
 
 
 # =============================================================================
 # 回测执行性能测试
 # =============================================================================
+
 
 class TestBacktestExecutionPerformance:
     """
@@ -487,21 +446,13 @@ class TestBacktestExecutionPerformance:
 
     @pytest.mark.slow
     @pytest.mark.parametrize("n_records", [1000, 10000, 50000])
-    def test_single_currency_backtest_performance(
-        self,
-        test_data_dir,
-        n_records: int
-    ):
+    def test_single_currency_backtest_performance(self, test_data_dir, n_records: int):
         """
         测试单品种回测性能
 
         对比 Engine 和 LegacyEngine 的执行时间
         """
-        catalog_path = create_mock_catalog(
-            n_records,
-            ["BTCUSDT"],
-            test_data_dir / f"catalog_single_{n_records}"
-        )
+        catalog_path = create_mock_catalog(n_records, ["BTCUSDT"], test_data_dir / f"catalog_single_{n_records}")
 
         results = {}
 
@@ -514,7 +465,7 @@ class TestBacktestExecutionPerformance:
             "catalog_path": str(catalog_path),
             "strategy_config": {
                 "strategy_path": "backtest.strategies.sma_cross:SMACrossStrategy",
-                "params": {"fast_period": 10, "slow_period": 20}
+                "params": {"fast_period": 10, "slow_period": 20},
             },
             "log_level": "ERROR",
         }
@@ -535,12 +486,12 @@ class TestBacktestExecutionPerformance:
             "initial_capital": 100000.0,
             "strategy_config": {
                 "strategy_name": "sma_cross",
-                "params": {"fast_period": 10, "slow_period": 20}
+                "params": {"fast_period": 10, "slow_period": 20},
             },
             "backtest_config": {
                 "symbols": ["BTCUSDT"],
                 "interval": "1h",
-            }
+            },
         }
 
         with PerformanceBenchmark("legacy_single") as bench:
@@ -563,22 +514,14 @@ class TestBacktestExecutionPerformance:
 
     @pytest.mark.slow
     @pytest.mark.parametrize("n_symbols", [1, 3, 5])
-    def test_multi_currency_backtest_performance(
-        self,
-        test_data_dir,
-        n_symbols: int
-    ):
+    def test_multi_currency_backtest_performance(self, test_data_dir, n_symbols: int):
         """
         测试多品种回测性能
 
         验证引擎处理多个交易品种的能力
         """
         symbols = [f"SYM{i}USDT" for i in range(n_symbols)]
-        catalog_path = create_mock_catalog(
-            10000,
-            symbols,
-            test_data_dir / f"catalog_multi_perf_{n_symbols}"
-        )
+        catalog_path = create_mock_catalog(10000, symbols, test_data_dir / f"catalog_multi_perf_{n_symbols}")
 
         with PerformanceBenchmark(f"multi_currency_{n_symbols}") as bench:
             # 模拟多品种回测
@@ -601,6 +544,7 @@ class TestBacktestExecutionPerformance:
 # 结果转换性能测试
 # =============================================================================
 
+
 class TestResultConversionPerformance:
     """
     结果转换性能测试类
@@ -618,34 +562,36 @@ class TestResultConversionPerformance:
         import numpy as np
 
         # 生成模拟交易数据
-        trades = pd.DataFrame({
-            "order_id": [f"order_{i}" for i in range(n_trades)],
-            "instrument_id": ["BTCUSDT.SIM"] * n_trades,
-            "side": np.random.choice(["BUY", "SELL"], n_trades),
-            "quantity": np.random.uniform(0.1, 10, n_trades),
-            "price": np.random.uniform(40000, 60000, n_trades),
-            "timestamp": pd.date_range("2023-01-01", periods=n_trades, freq="1min"),
-        })
+        trades = pd.DataFrame(
+            {
+                "order_id": [f"order_{i}" for i in range(n_trades)],
+                "instrument_id": ["BTCUSDT.SIM"] * n_trades,
+                "side": np.random.choice(["BUY", "SELL"], n_trades),
+                "quantity": np.random.uniform(0.1, 10, n_trades),
+                "price": np.random.uniform(40000, 60000, n_trades),
+                "timestamp": pd.date_range("2023-01-01", periods=n_trades, freq="1min"),
+            }
+        )
 
         with PerformanceBenchmark(f"trade_conversion_{n_trades}") as bench:
             # 模拟结果转换
             result = []
             for _, row in trades.iterrows():
-                result.append({
-                    "order_id": str(row["order_id"]),
-                    "instrument_id": str(row["instrument_id"]),
-                    "side": str(row["side"]),
-                    "quantity": float(row["quantity"]),
-                    "price": float(row["price"]),
-                    "timestamp": str(row["timestamp"]),
-                })
+                result.append(
+                    {
+                        "order_id": str(row["order_id"]),
+                        "instrument_id": str(row["instrument_id"]),
+                        "side": str(row["side"]),
+                        "quantity": float(row["quantity"]),
+                        "price": float(row["price"]),
+                        "timestamp": str(row["timestamp"]),
+                    }
+                )
 
         throughput = bench.get_throughput(n_trades)
 
         logger.info(
-            f"交易记录转换 [{n_trades} 条]: "
-            f"{throughput:.2f} trades/s, "
-            f"内存: {bench.results['peak_memory_mb']:.2f} MB"
+            f"交易记录转换 [{n_trades} 条]: {throughput:.2f} trades/s, 内存: {bench.results['peak_memory_mb']:.2f} MB"
         )
 
         assert throughput > 10000, f"交易转换吞吐量过低: {throughput} trades/s"
@@ -660,35 +606,37 @@ class TestResultConversionPerformance:
         import numpy as np
 
         # 生成模拟权益数据
-        account_df = pd.DataFrame({
-            "timestamp": pd.date_range("2023-01-01", periods=n_points, freq="1min"),
-            "equity": 100000 + np.cumsum(np.random.normal(0, 100, n_points)),
-            "balance": 100000 + np.cumsum(np.random.normal(0, 100, n_points)),
-            "margin": np.random.uniform(1000, 10000, n_points),
-        })
+        account_df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2023-01-01", periods=n_points, freq="1min"),
+                "equity": 100000 + np.cumsum(np.random.normal(0, 100, n_points)),
+                "balance": 100000 + np.cumsum(np.random.normal(0, 100, n_points)),
+                "margin": np.random.uniform(1000, 10000, n_points),
+            }
+        )
 
         with PerformanceBenchmark(f"equity_curve_{n_points}") as bench:
             # 模拟权益曲线构建
             equity_curve = []
             for _, row in account_df.iterrows():
-                equity_curve.append({
-                    "timestamp": str(row["timestamp"]),
-                    "equity": float(row["equity"]),
-                    "balance": float(row["balance"]),
-                    "margin": float(row["margin"]),
-                })
+                equity_curve.append(
+                    {
+                        "timestamp": str(row["timestamp"]),
+                        "equity": float(row["equity"]),
+                        "balance": float(row["balance"]),
+                        "margin": float(row["margin"]),
+                    }
+                )
 
         throughput = bench.get_throughput(n_points)
 
-        logger.info(
-            f"权益曲线构建 [{n_points} 点]: "
-            f"{throughput:.2f} points/s"
-        )
+        logger.info(f"权益曲线构建 [{n_points} 点]: {throughput:.2f} points/s")
 
 
 # =============================================================================
 # 内存使用测试
 # =============================================================================
+
 
 class TestMemoryUsage:
     """
@@ -699,21 +647,13 @@ class TestMemoryUsage:
 
     @pytest.mark.slow
     @pytest.mark.parametrize("n_records", [10000, 100000, 500000])
-    def test_memory_usage_with_large_dataset(
-        self,
-        test_data_dir,
-        n_records: int
-    ):
+    def test_memory_usage_with_large_dataset(self, test_data_dir, n_records: int):
         """
         测试大数据集的内存使用
 
         验证引擎处理大规模数据时的内存效率
         """
-        catalog_path = create_mock_catalog(
-            n_records,
-            ["BTCUSDT"],
-            test_data_dir / f"catalog_memory_{n_records}"
-        )
+        catalog_path = create_mock_catalog(n_records, ["BTCUSDT"], test_data_dir / f"catalog_memory_{n_records}")
 
         tracemalloc.start()
 
@@ -728,7 +668,7 @@ class TestMemoryUsage:
         df["sma_slow"] = df["close"].rolling(20).mean()
         df["signal"] = (df["sma_fast"] > df["sma_slow"]).astype(int)
 
-        current, peak = tracemalloc.get_traced_memory()
+        _current, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
 
         peak_memory_mb = peak / (1024 * 1024)
@@ -750,15 +690,11 @@ class TestMemoryUsage:
 
         验证引擎在多次运行后是否存在内存泄漏
         """
-        catalog_path = create_mock_catalog(
-            10000,
-            ["BTCUSDT"],
-            test_data_dir / "catalog_leak"
-        )
+        catalog_path = create_mock_catalog(10000, ["BTCUSDT"], test_data_dir / "catalog_leak")
 
         memory_usage = []
 
-        for i in range(5):
+        for _i in range(5):
             gc.collect()
             tracemalloc.start()
 
@@ -790,10 +726,8 @@ class TestMemoryUsage:
 # 性能报告生成
 # =============================================================================
 
-def generate_performance_report(
-    test_results: Dict[str, Any],
-    output_path: Optional[Path] = None
-) -> Path:
+
+def generate_performance_report(test_results: dict[str, Any], output_path: Path | None = None) -> Path:
     """
     生成性能测试报告
 
@@ -850,9 +784,12 @@ def save_performance_report(request):
 
 if __name__ == "__main__":
     # 允许直接运行测试
-    pytest.main([
-        __file__,
-        "-v",
-        "--tb=short",
-        "-m", "not slow",  # 跳过慢速测试
-    ])
+    pytest.main(
+        [
+            __file__,
+            "-v",
+            "--tb=short",
+            "-m",
+            "not slow",  # 跳过慢速测试
+        ]
+    )

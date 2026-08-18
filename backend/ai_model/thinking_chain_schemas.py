@@ -3,11 +3,13 @@
 用于定义思维链API请求和响应的数据结构
 """
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 import toml
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 class ThinkingChainStep(BaseModel):
@@ -42,7 +44,8 @@ class ThinkingChainStep(BaseModel):
     def validate_title(cls, v: str) -> str:
         """验证步骤标题不为空且长度合理"""
         if not v or not v.strip():
-            raise ValueError("步骤标题不能为空")
+            msg = "步骤标题不能为空"
+            raise ValueError(msg)
         return v.strip()
 
     @field_validator("description")
@@ -50,7 +53,8 @@ class ThinkingChainStep(BaseModel):
     def validate_description(cls, v: str) -> str:
         """验证步骤描述不为空且长度合理"""
         if not v or not v.strip():
-            raise ValueError("步骤描述不能为空")
+            msg = "步骤描述不能为空"
+            raise ValueError(msg)
         return v.strip()
 
 
@@ -74,13 +78,13 @@ class ThinkingChainCreate(BaseModel):
         min_length=1,
         max_length=255,
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         description="思维链描述",
         examples=["用于生成交易策略的标准思维链流程"],
         max_length=2000,
     )
-    steps: List[ThinkingChainStep] = Field(
+    steps: list[ThinkingChainStep] = Field(
         ...,
         description="思维链步骤列表",
         min_length=1,
@@ -97,7 +101,8 @@ class ThinkingChainCreate(BaseModel):
         """验证思维链类型"""
         valid_types = ["strategy_generation", "indicator_generation"]
         if v not in valid_types:
-            raise ValueError(f"无效的思维链类型，必须是: {', '.join(valid_types)}")
+            msg = f"无效的思维链类型，必须是: {', '.join(valid_types)}"
+            raise ValueError(msg)
         return v
 
     @field_validator("name")
@@ -105,11 +110,12 @@ class ThinkingChainCreate(BaseModel):
     def validate_name(cls, v: str) -> str:
         """验证思维链名称不为空且长度合理"""
         if not v or not v.strip():
-            raise ValueError("思维链名称不能为空")
+            msg = "思维链名称不能为空"
+            raise ValueError(msg)
         return v.strip()
 
     @model_validator(mode="after")
-    def validate_steps_order(self) -> "ThinkingChainCreate":
+    def validate_steps_order(self) -> ThinkingChainCreate:
         """验证步骤顺序是否连续且从1开始"""
         steps = self.steps
         if not steps:
@@ -120,12 +126,14 @@ class ThinkingChainCreate(BaseModel):
 
         # 检查是否从1开始
         if sorted_orders[0] != 1:
-            raise ValueError("步骤顺序必须从1开始")
+            msg = "步骤顺序必须从1开始"
+            raise ValueError(msg)
 
         # 检查是否连续
         for i in range(len(sorted_orders) - 1):
             if sorted_orders[i + 1] - sorted_orders[i] != 1:
-                raise ValueError("步骤顺序必须连续递增")
+                msg = "步骤顺序必须连续递增"
+                raise ValueError(msg)
 
         return self
 
@@ -136,29 +144,29 @@ class ThinkingChainUpdate(BaseModel):
     用于接收用户提交的思维链更新请求参数
     """
 
-    chain_type: Optional[str] = Field(
+    chain_type: str | None = Field(
         default=None,
         description="思维链类型",
         examples=["strategy_generation"],
         max_length=50,
     )
-    name: Optional[str] = Field(
+    name: str | None = Field(
         default=None,
         description="思维链名称",
         examples=["策略生成思维链"],
         max_length=255,
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         description="思维链描述",
         examples=["用于生成交易策略的标准思维链流程"],
         max_length=2000,
     )
-    steps: Optional[List[ThinkingChainStep]] = Field(
+    steps: list[ThinkingChainStep] | None = Field(
         default=None,
         description="思维链步骤列表",
     )
-    is_active: Optional[bool] = Field(
+    is_active: bool | None = Field(
         default=None,
         description="是否激活",
         examples=[True],
@@ -166,17 +174,18 @@ class ThinkingChainUpdate(BaseModel):
 
     @field_validator("chain_type")
     @classmethod
-    def validate_chain_type(cls, v: Optional[str]) -> Optional[str]:
+    def validate_chain_type(cls, v: str | None) -> str | None:
         """验证思维链类型"""
         if v is None:
             return v
         valid_types = ["strategy_generation", "indicator_generation"]
         if v not in valid_types:
-            raise ValueError(f"无效的思维链类型，必须是: {', '.join(valid_types)}")
+            msg = f"无效的思维链类型，必须是: {', '.join(valid_types)}"
+            raise ValueError(msg)
         return v
 
     @model_validator(mode="after")
-    def validate_steps_order(self) -> "ThinkingChainUpdate":
+    def validate_steps_order(self) -> ThinkingChainUpdate:
         """验证步骤顺序是否连续且从1开始"""
         steps = self.steps
         if not steps:
@@ -187,12 +196,14 @@ class ThinkingChainUpdate(BaseModel):
 
         # 检查是否从1开始
         if sorted_orders[0] != 1:
-            raise ValueError("步骤顺序必须从1开始")
+            msg = "步骤顺序必须从1开始"
+            raise ValueError(msg)
 
         # 检查是否连续
         for i in range(len(sorted_orders) - 1):
             if sorted_orders[i + 1] - sorted_orders[i] != 1:
-                raise ValueError("步骤顺序必须连续递增")
+                msg = "步骤顺序必须连续递增"
+                raise ValueError(msg)
 
         return self
 
@@ -218,11 +229,11 @@ class ThinkingChainResponse(BaseModel):
         description="思维链名称",
         examples=["策略生成思维链"],
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         description="思维链描述",
     )
-    steps: List[ThinkingChainStep] = Field(
+    steps: list[ThinkingChainStep] = Field(
         ...,
         description="思维链步骤列表",
     )
@@ -235,7 +246,7 @@ class ThinkingChainResponse(BaseModel):
         ...,
         description="创建时间",
     )
-    updated_at: Optional[datetime] = Field(
+    updated_at: datetime | None = Field(
         default=None,
         description="更新时间",
     )
@@ -247,7 +258,7 @@ class ThinkingChainListResponse(BaseModel):
     用于返回思维链列表
     """
 
-    items: List[ThinkingChainResponse] = Field(
+    items: list[ThinkingChainResponse] = Field(
         ...,
         description="思维链列表",
     )
@@ -284,11 +295,11 @@ class ThinkingChainConfig(BaseModel):
         description="思维链类型",
         examples=["strategy_generation"],
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         description="思维链描述",
     )
-    steps: List[ThinkingChainStep] = Field(
+    steps: list[ThinkingChainStep] = Field(
         ...,
         description="思维链步骤列表",
         min_length=1,
@@ -309,6 +320,7 @@ class ThinkingChainTOMLConfig(BaseModel):
 
 # TOML配置文件解析函数
 
+
 def parse_thinking_chain_toml(toml_content: str) -> ThinkingChainConfig:
     """解析TOML格式的思维链配置
 
@@ -325,11 +337,13 @@ def parse_thinking_chain_toml(toml_content: str) -> ThinkingChainConfig:
         # 解析TOML内容
         data = toml.loads(toml_content)
     except toml.TomlDecodeError as e:
-        raise ValueError(f"TOML格式解析错误: {e}")
+        msg = f"TOML格式解析错误: {e}"
+        raise ValueError(msg)
 
     # 验证必要字段
     if "thinking_chain" not in data:
-        raise ValueError("TOML配置缺少必需的 [thinking_chain] 部分")
+        msg = "TOML配置缺少必需的 [thinking_chain] 部分"
+        raise ValueError(msg)
 
     chain_data = data["thinking_chain"]
 
@@ -337,19 +351,22 @@ def parse_thinking_chain_toml(toml_content: str) -> ThinkingChainConfig:
     required_fields = ["name", "chain_type", "steps"]
     for field in required_fields:
         if field not in chain_data:
-            raise ValueError(f"TOML配置缺少必需字段: {field}")
+            msg = f"TOML配置缺少必需字段: {field}"
+            raise ValueError(msg)
 
     # 验证步骤结构
     steps = chain_data.get("steps", [])
     if not steps:
-        raise ValueError("思维链步骤列表不能为空")
+        msg = "思维链步骤列表不能为空"
+        raise ValueError(msg)
 
     # 使用Pydantic模型验证整个配置
     try:
         config = ThinkingChainTOMLConfig.model_validate(data)
         return config.thinking_chain
     except Exception as e:
-        raise ValueError(f"配置验证错误: {e}")
+        msg = f"配置验证错误: {e}"
+        raise ValueError(msg)
 
 
 def load_thinking_chain_from_file(file_path: str) -> ThinkingChainConfig:
@@ -366,17 +383,21 @@ def load_thinking_chain_from_file(file_path: str) -> ThinkingChainConfig:
         ValueError: 当TOML格式无效或配置结构不正确时
     """
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             content = f.read()
     except FileNotFoundError:
-        raise FileNotFoundError(f"配置文件不存在: {file_path}")
+        msg = f"配置文件不存在: {file_path}"
+        raise FileNotFoundError(msg)
     except Exception as e:
-        raise ValueError(f"读取配置文件失败: {e}")
+        msg = f"读取配置文件失败: {e}"
+        raise ValueError(msg)
 
     return parse_thinking_chain_toml(content)
 
 
-def validate_thinking_chain_steps(steps: List[Dict[str, Any]]) -> List[ThinkingChainStep]:
+def validate_thinking_chain_steps(
+    steps: list[dict[str, Any]],
+) -> list[ThinkingChainStep]:
     """验证并转换思维链步骤列表
 
     Args:
@@ -389,7 +410,8 @@ def validate_thinking_chain_steps(steps: List[Dict[str, Any]]) -> List[ThinkingC
         ValueError: 当步骤结构无效时
     """
     if not steps:
-        raise ValueError("步骤列表不能为空")
+        msg = "步骤列表不能为空"
+        raise ValueError(msg)
 
     validated_steps = []
     orders = set()
@@ -397,31 +419,38 @@ def validate_thinking_chain_steps(steps: List[Dict[str, Any]]) -> List[ThinkingC
     for i, step_data in enumerate(steps):
         # 验证必需字段
         if "title" not in step_data:
-            raise ValueError(f"第{i+1}个步骤缺少必需的 'title' 字段")
+            msg = f"第{i + 1}个步骤缺少必需的 'title' 字段"
+            raise ValueError(msg)
         if "description" not in step_data:
-            raise ValueError(f"第{i+1}个步骤缺少必需的 'description' 字段")
+            msg = f"第{i + 1}个步骤缺少必需的 'description' 字段"
+            raise ValueError(msg)
         if "order" not in step_data:
-            raise ValueError(f"第{i+1}个步骤缺少必需的 'order' 字段")
+            msg = f"第{i + 1}个步骤缺少必需的 'order' 字段"
+            raise ValueError(msg)
 
         order = step_data["order"]
         if order in orders:
-            raise ValueError(f"步骤顺序重复: order={order}")
+            msg = f"步骤顺序重复: order={order}"
+            raise ValueError(msg)
         orders.add(order)
 
         try:
             step = ThinkingChainStep.model_validate(step_data)
             validated_steps.append(step)
         except Exception as e:
-            raise ValueError(f"第{i+1}个步骤验证失败: {e}")
+            msg = f"第{i + 1}个步骤验证失败: {e}"
+            raise ValueError(msg)
 
     # 验证顺序连续性
     sorted_orders = sorted(orders)
     if sorted_orders[0] != 1:
-        raise ValueError("步骤顺序必须从1开始")
+        msg = "步骤顺序必须从1开始"
+        raise ValueError(msg)
 
     for i in range(len(sorted_orders) - 1):
         if sorted_orders[i + 1] - sorted_orders[i] != 1:
-            raise ValueError("步骤顺序必须连续递增")
+            msg = "步骤顺序必须连续递增"
+            raise ValueError(msg)
 
     # 按order排序返回
     return sorted(validated_steps, key=lambda x: x.order)

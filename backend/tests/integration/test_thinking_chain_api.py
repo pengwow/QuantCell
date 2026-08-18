@@ -7,8 +7,9 @@ auth_headers 和 client fixture 由 integration/conftest.py 提供：
 - client: 会话级 TestClient 实例
 - auth_headers: 使用 utils.jwt_utils 密钥直接生成的有效 JWT 令牌
 """
-import tempfile
+
 import os
+import tempfile
 
 import pytest
 
@@ -32,17 +33,32 @@ class TestThinkingChainAPI:
             "name": "API测试思维链",
             "description": "用于API测试的思维链",
             "steps": [
-                {"key": "step_1", "title": "需求分析", "description": "分析用户需求", "order": 1},
-                {"key": "step_2", "title": "策略设计", "description": "设计策略逻辑", "order": 2},
-                {"key": "step_3", "title": "代码生成", "description": "生成策略代码", "order": 3}
+                {
+                    "key": "step_1",
+                    "title": "需求分析",
+                    "description": "分析用户需求",
+                    "order": 1,
+                },
+                {
+                    "key": "step_2",
+                    "title": "策略设计",
+                    "description": "设计策略逻辑",
+                    "order": 2,
+                },
+                {
+                    "key": "step_3",
+                    "title": "代码生成",
+                    "description": "生成策略代码",
+                    "order": 3,
+                },
             ],
-            "is_active": True
+            "is_active": True,
         }
 
         response = client.post(
             "/api/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
-            json=payload
+            json=payload,
         )
 
         assert response.status_code == 200
@@ -63,13 +79,13 @@ class TestThinkingChainAPI:
             "name": "详情测试思维链",
             "description": "测试详情获取",
             "steps": [{"key": "step_1", "title": "步骤1", "description": "第一步", "order": 1}],
-            "is_active": True
+            "is_active": True,
         }
 
         create_response = client.post(
             "/api/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
-            json=payload
+            json=payload,
         )
 
         chain_id = create_response.json()["data"]["id"]
@@ -89,13 +105,13 @@ class TestThinkingChainAPI:
             "name": "更新测试思维链",
             "description": "测试更新前",
             "steps": [{"key": "step_1", "title": "步骤1", "description": "第一步", "order": 1}],
-            "is_active": True
+            "is_active": True,
         }
 
         create_response = client.post(
             "/api/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
-            json=payload
+            json=payload,
         )
 
         chain_id = create_response.json()["data"]["id"]
@@ -104,13 +120,13 @@ class TestThinkingChainAPI:
         update_payload = {
             "name": "更新后的名称",
             "description": "更新后的描述",
-            "is_active": False
+            "is_active": False,
         }
 
         response = client.put(
             f"/api/ai-models/strategy/thinking-chains/{chain_id}",
             headers={**auth_headers, "Content-Type": "application/json"},
-            json=update_payload
+            json=update_payload,
         )
 
         assert response.status_code == 200
@@ -128,13 +144,13 @@ class TestThinkingChainAPI:
             "name": "删除测试思维链",
             "description": "测试删除",
             "steps": [{"key": "step_1", "title": "步骤1", "description": "第一步", "order": 1}],
-            "is_active": True
+            "is_active": True,
         }
 
         create_response = client.post(
             "/api/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
-            json=payload
+            json=payload,
         )
 
         chain_id = create_response.json()["data"]["id"]
@@ -172,17 +188,17 @@ order = 2
 """
 
         # 创建临时文件
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
             f.write(toml_content)
             temp_file = f.name
 
         try:
-            with open(temp_file, 'rb') as f:
+            with open(temp_file, "rb") as f:
                 response = client.post(
                     "/api/ai-models/strategy/thinking-chains/import",
                     headers=auth_headers,
                     files={"file": ("test.toml", f, "application/toml")},
-                    params={"update_existing": "true"}
+                    params={"update_existing": "true"},
                 )
 
             assert response.status_code == 200
@@ -202,7 +218,7 @@ order = 2
             "name": "策略生成思维链",
             "description": "策略类型",
             "steps": [{"key": "step_1", "title": "步骤1", "description": "第一步", "order": 1}],
-            "is_active": True
+            "is_active": True,
         }
 
         payload2 = {
@@ -210,26 +226,26 @@ order = 2
             "name": "指标生成思维链",
             "description": "指标类型",
             "steps": [{"key": "step_1", "title": "步骤1", "description": "第一步", "order": 1}],
-            "is_active": True
+            "is_active": True,
         }
 
         client.post(
             "/api/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
-            json=payload1
+            json=payload1,
         )
 
         client.post(
             "/api/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
-            json=payload2
+            json=payload2,
         )
 
         # 筛选 strategy_generation 类型
         response = client.get(
             "/api/ai-models/strategy/thinking-chains",
             headers=auth_headers,
-            params={"chain_type": "strategy_generation"}
+            params={"chain_type": "strategy_generation"},
         )
 
         assert response.status_code == 200
@@ -241,7 +257,10 @@ order = 2
 
     def test_get_thinking_chain_not_found(self, client, auth_headers):
         """测试获取不存在的思维链"""
-        response = client.get("/api/ai-models/strategy/thinking-chains/non-existent-id", headers=auth_headers)
+        response = client.get(
+            "/api/ai-models/strategy/thinking-chains/non-existent-id",
+            headers=auth_headers,
+        )
         assert response.status_code == 404
 
     def test_create_thinking_chain_missing_required_fields(self, client, auth_headers):
@@ -254,7 +273,7 @@ order = 2
         response = client.post(
             "/api/ai-models/strategy/thinking-chains",
             headers={**auth_headers, "Content-Type": "application/json"},
-            json=payload
+            json=payload,
         )
 
         # 缺少必填字段时 Pydantic 验证返回 422
@@ -272,22 +291,22 @@ class TestThinkingChainTomlValidation:
         """测试导入无效的TOML"""
         invalid_toml = "invalid toml content [["
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
             f.write(invalid_toml)
             temp_file = f.name
 
         try:
-            with open(temp_file, 'rb') as f:
+            with open(temp_file, "rb") as f:
                 response = client.post(
                     "/api/ai-models/strategy/thinking-chains/import",
                     headers=auth_headers,
-                    files={"file": ("invalid.toml", f, "application/toml")}
+                    files={"file": ("invalid.toml", f, "application/toml")},
                 )
 
             assert response.status_code == 200
             data = response.json()
             # 导入失败应该返回 code=1
-            assert data["code"] == 1 or (data["code"] == 0 and data["data"]["success"] == False)
+            assert data["code"] == 1 or (data["code"] == 0 and not data["data"]["success"])
         finally:
             os.unlink(temp_file)
 
@@ -298,16 +317,16 @@ class TestThinkingChainTomlValidation:
 name = "缺少类型"
 """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
             f.write(toml_content)
             temp_file = f.name
 
         try:
-            with open(temp_file, 'rb') as f:
+            with open(temp_file, "rb") as f:
                 response = client.post(
                     "/api/ai-models/strategy/thinking-chains/import",
                     headers=auth_headers,
-                    files={"file": ("incomplete.toml", f, "application/toml")}
+                    files={"file": ("incomplete.toml", f, "application/toml")},
                 )
 
             assert response.status_code == 200

@@ -1,16 +1,13 @@
-
-# -*- coding: utf-8 -*-
 """
 装饰器模块单元测试
 测试 decorators.py 中的同步和异步重试装饰器
 """
 
 import time
-import asyncio
-import pytest
-from unittest.mock import patch, MagicMock
 
-from utils.decorators import deco_retry, async_deco_retry
+import pytest
+
+from utils.decorators import async_deco_retry, deco_retry
 
 
 class TestDecoRetry:
@@ -40,7 +37,8 @@ class TestDecoRetry:
             nonlocal call_count
             call_count += 1
             if call_count <= max_failures:
-                raise ValueError(f"Failure #{call_count}")
+                msg = f"Failure #{call_count}"
+                raise ValueError(msg)
             return "success"
 
         result = flaky_func()
@@ -56,7 +54,8 @@ class TestDecoRetry:
         def always_fails():
             nonlocal call_count
             call_count += 1
-            raise ValueError("Always fails")
+            msg = "Always fails"
+            raise ValueError(msg)
 
         with pytest.raises(ValueError, match="Always fails"):
             always_fails()
@@ -65,14 +64,14 @@ class TestDecoRetry:
     def test_retry_delay_used(self):
         """测试是否使用了重试延迟"""
         call_count = 0
-        delays = []
 
         @deco_retry(max_retry=2, delay=0.1)
         def func():
             nonlocal call_count
             call_count += 1
             if call_count < 2:
-                raise ValueError("Fail")
+                msg = "Fail"
+                raise ValueError(msg)
             return "ok"
 
         start = time.time()
@@ -111,7 +110,8 @@ class TestAsyncDecoRetry:
             nonlocal call_count
             call_count += 1
             if call_count <= max_failures:
-                raise ValueError(f"Async failure #{call_count}")
+                msg = f"Async failure #{call_count}"
+                raise ValueError(msg)
             return "async success"
 
         result = await flaky_func()
@@ -128,7 +128,8 @@ class TestAsyncDecoRetry:
         async def always_fails():
             nonlocal call_count
             call_count += 1
-            raise ValueError("Always fails async")
+            msg = "Always fails async"
+            raise ValueError(msg)
 
         with pytest.raises(ValueError, match="Always fails async"):
             await always_fails()
@@ -144,7 +145,8 @@ class TestAsyncDecoRetry:
             nonlocal call_count
             call_count += 1
             if call_count < 2:
-                raise ValueError("Fail")
+                msg = "Fail"
+                raise ValueError(msg)
             return "ok"
 
         start = time.time()
@@ -159,6 +161,7 @@ class TestDecoratorPreservesFunctionMetadata:
 
     def test_sync_preserves_metadata(self):
         """测试同步装饰器保留函数元数据"""
+
         def original_func(x: int, y: int) -> int:
             """This is a test function"""
             return x + y
@@ -169,6 +172,7 @@ class TestDecoratorPreservesFunctionMetadata:
 
     def test_async_preserves_metadata(self):
         """测试异步装饰器保留函数元数据"""
+
         async def original_async_func(x: int) -> int:
             """Async test function"""
             return x * 2

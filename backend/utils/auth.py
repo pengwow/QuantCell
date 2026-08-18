@@ -2,29 +2,36 @@
 # 实现JWT认证装饰器，用于保护API接口
 
 import os
-from typing import Callable, Optional, Any
-
-from fastapi import Depends, HTTPException, Request, Response
 from functools import wraps
+from typing import TYPE_CHECKING, Any
+
+from fastapi import HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 from .jwt_utils import (
-    decode_jwt_token,
-    verify_jwt_token,
-    should_refresh_token,
-    create_jwt_token,
     JWTError,
+    TokenDecodeError,
     TokenExpiredError,
     TokenInvalidError,
-    TokenDecodeError
+    create_jwt_token,
+    decode_jwt_token,
+    should_refresh_token,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 
 # ponytail: debug 模式跳过认证，每次调用时检查以支持测试中动态设置
 def _is_debug_mode() -> bool:
-    return os.environ.get('DEBUG', '').lower() in ('true', '1', 'yes') or \
-           os.environ.get('APP_ENV', '').lower() in ('development', 'dev', 'debug')
+    return os.environ.get("DEBUG", "").lower() in (
+        "true",
+        "1",
+        "yes",
+    ) or os.environ.get("APP_ENV", "").lower() in ("development", "dev", "debug")
 
 
 # 模块级变量，可被测试 patch
@@ -55,23 +62,35 @@ def _decode_token_or_raise(token: str, path: str) -> dict:
     try:
         return decode_jwt_token(token)
     except TokenExpiredError:
-        raise HTTPException(status_code=401, detail={"path": path, "reason": "令牌已过期"},
-                            headers={"WWW-Authenticate": "Bearer"})
+        raise HTTPException(
+            status_code=401,
+            detail={"path": path, "reason": "令牌已过期"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     except TokenInvalidError:
-        raise HTTPException(status_code=401, detail={"path": path, "reason": "令牌无效"},
-                            headers={"WWW-Authenticate": "Bearer"})
+        raise HTTPException(
+            status_code=401,
+            detail={"path": path, "reason": "令牌无效"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     except TokenDecodeError:
-        raise HTTPException(status_code=401, detail={"path": path, "reason": "令牌解码失败"},
-                            headers={"WWW-Authenticate": "Bearer"})
+        raise HTTPException(
+            status_code=401,
+            detail={"path": path, "reason": "令牌解码失败"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     except JWTError as e:
-        raise HTTPException(status_code=401, detail={"path": path, "reason": f"认证失败: {e}"},
-                            headers={"WWW-Authenticate": "Bearer"})
+        raise HTTPException(
+            status_code=401,
+            detail={"path": path, "reason": f"认证失败: {e}"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     except Exception as e:
         logger.error(f"认证过程中发生未知错误: {e}")
         raise HTTPException(status_code=500, detail={"path": path, "reason": "内部服务器错误"})
 
 
-def _maybe_refresh_token(token: str, payload: dict) -> Optional[str]:
+def _maybe_refresh_token(token: str, payload: dict) -> str | None:
     """如需刷新则返回新 token，否则 None。"""
     if should_refresh_token(token):
         return create_jwt_token(data={"sub": payload.get("sub"), "name": payload.get("name")})
@@ -83,8 +102,8 @@ def _wrap_response_with_token(response: Any, new_token: str) -> Response:
     if not isinstance(response, Response):
         if isinstance(response, dict):
             response = JSONResponse(content=response)
-        elif hasattr(response, 'model_dump'):
-            response = JSONResponse(content=response.model_dump(mode='json'))
+        elif hasattr(response, "model_dump"):
+            response = JSONResponse(content=response.model_dump(mode="json"))
         else:
             response = JSONResponse(content={"result": str(response)})
     response.headers["X-Refreshed-Token"] = new_token
@@ -95,6 +114,7 @@ def _wrap_response_with_token(response: Any, new_token: str) -> Response:
 # 公共 API
 # ---------------------------------------------------------------------------
 
+
 def get_current_user(request: Request) -> dict:
     """获取当前用户信息（供 Depends 使用）"""
     token = _extract_bearer_token(request)
@@ -103,6 +123,7 @@ def get_current_user(request: Request) -> dict:
 
 def jwt_auth_required(func: Callable) -> Callable:
     """异步 JWT 认证装饰器，支持 debug 跳过 + token 自动续期。"""
+
     @wraps(func)
     async def wrapper(request: Request, *args, **kwargs):
         if IS_DEBUG_MODE:
@@ -124,6 +145,7 @@ def jwt_auth_required(func: Callable) -> Callable:
 
 def jwt_auth_required_sync(func: Callable) -> Callable:
     """同步 JWT 认证装饰器，支持 debug 跳过 + token 自动续期。"""
+
     @wraps(func)
     def wrapper(request: Request, *args, **kwargs):
         if IS_DEBUG_MODE:

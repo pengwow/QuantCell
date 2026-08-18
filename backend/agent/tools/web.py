@@ -1,10 +1,10 @@
 """Web 工具 - 薄封装，调用CLI层"""
 
-import json
 from typing import Any
 
-from .base import Tool
 from agent.config.tool_params import ToolParamResolver
+
+from .base import Tool
 
 
 class WebSearchTool(Tool):
@@ -16,9 +16,14 @@ class WebSearchTool(Tool):
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "搜索查询"},
-            "count": {"type": "integer", "description": "结果数量 (1-10)", "minimum": 1, "maximum": 10}
+            "count": {
+                "type": "integer",
+                "description": "结果数量 (1-10)",
+                "minimum": 1,
+                "maximum": 10,
+            },
         },
-        "required": ["query"]
+        "required": ["query"],
     }
 
     param_template = {
@@ -28,7 +33,7 @@ class WebSearchTool(Tool):
             "sensitive": True,
             "default": "",
             "env_key": "BRAVE_API_KEY",
-            "description": "Brave Search API 密钥"
+            "description": "Brave Search API 密钥",
         },
         "max_results": {
             "type": "integer",
@@ -36,15 +41,15 @@ class WebSearchTool(Tool):
             "default": 5,
             "env_key": None,
             "description": "最大搜索结果数量 (1-10)",
-            "validation": {"min": 1, "max": 10}
+            "validation": {"min": 1, "max": 10},
         },
         "proxy": {
             "type": "string",
             "required": False,
             "default": None,
             "env_key": None,
-            "description": "HTTP/SOCKS5代理地址 (如 http://127.0.0.1:7890)"
-        }
+            "description": "HTTP/SOCKS5代理地址 (如 http://127.0.0.1:7890)",
+        },
     }
 
     def __init__(self, api_key: str | None = None, max_results: int = 5, proxy: str | None = None):
@@ -75,6 +80,7 @@ class WebSearchTool(Tool):
 
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         from cli.web import web_search
+
         return web_search(
             query,
             count=count or self.max_results,
@@ -92,10 +98,14 @@ class WebFetchTool(Tool):
         "type": "object",
         "properties": {
             "url": {"type": "string", "description": "要获取的 URL"},
-            "extractMode": {"type": "string", "enum": ["markdown", "text"], "default": "markdown"},
-            "maxChars": {"type": "integer", "minimum": 100}
+            "extractMode": {
+                "type": "string",
+                "enum": ["markdown", "text"],
+                "default": "markdown",
+            },
+            "maxChars": {"type": "integer", "minimum": 100},
         },
-        "required": ["url"]
+        "required": ["url"],
     }
 
     param_template = {
@@ -104,15 +114,15 @@ class WebFetchTool(Tool):
             "required": False,
             "default": 50000,
             "env_key": None,
-            "description": "最大提取字符数"
+            "description": "最大提取字符数",
         },
         "proxy": {
             "type": "string",
             "required": False,
             "default": None,
             "env_key": None,
-            "description": "HTTP/SOCKS5代理地址 (如 http://127.0.0.1:7890)"
-        }
+            "description": "HTTP/SOCKS5代理地址 (如 http://127.0.0.1:7890)",
+        },
     }
 
     def __init__(self, max_chars: int = 50000, proxy: str | None = None):
@@ -133,8 +143,15 @@ class WebFetchTool(Tool):
             return self._manual_proxy
         return ToolParamResolver.resolve(self.name, "proxy")
 
-    async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> str:
+    async def execute(
+        self,
+        url: str,
+        extractMode: str = "markdown",
+        maxChars: int | None = None,
+        **kwargs: Any,
+    ) -> str:
         from cli.web import web_fetch
+
         return web_fetch(
             url,
             extract_mode=extractMode,

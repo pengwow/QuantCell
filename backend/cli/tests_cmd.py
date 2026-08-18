@@ -19,9 +19,7 @@ QuantCell 测试运行脚本
 """
 
 import subprocess
-import sys
 from pathlib import Path
-from typing import List, Optional
 
 import typer
 
@@ -38,7 +36,7 @@ def get_project_root() -> Path:
     return Path(__file__).parent.parent
 
 
-def run_command(cmd: List[str], verbose: bool = False) -> int:
+def run_command(cmd: list[str], verbose: bool = False) -> int:
     """
     运行命令并返回退出码
 
@@ -58,7 +56,7 @@ def run_command(cmd: List[str], verbose: bool = False) -> int:
             cwd=get_project_root(),
             capture_output=not verbose,
             text=True,
-            check=False
+            check=False,
         )
 
         if not verbose and result.returncode != 0:
@@ -148,7 +146,14 @@ def run_auth_tests(verbose: bool = False) -> int:
 
 def run_schema_tests(verbose: bool = False) -> int:
     """运行模型验证测试"""
-    cmd = ["uv", "run", "pytest", "tests/integration/api/test_schema_validation.py", "-m", "schema"]
+    cmd = [
+        "uv",
+        "run",
+        "pytest",
+        "tests/integration/api/test_schema_validation.py",
+        "-m",
+        "schema",
+    ]
 
     if verbose:
         cmd.append("-v")
@@ -162,7 +167,14 @@ def run_schema_tests(verbose: bool = False) -> int:
 
 def run_error_tests(verbose: bool = False) -> int:
     """运行错误处理测试"""
-    cmd = ["uv", "run", "pytest", "tests/integration/api/test_error_handling.py", "-m", "error"]
+    cmd = [
+        "uv",
+        "run",
+        "pytest",
+        "tests/integration/api/test_error_handling.py",
+        "-m",
+        "error",
+    ]
 
     if verbose:
         cmd.append("-v")
@@ -177,11 +189,13 @@ def run_error_tests(verbose: bool = False) -> int:
 def run_coverage_report(verbose: bool = False) -> int:
     """生成测试覆盖率报告"""
     cmd = [
-        "uv", "run", "pytest",
+        "uv",
+        "run",
+        "pytest",
         "--cov=.",
         "--cov-report=term-missing",
         "--cov-report=html",
-        "--cov-fail-under=90"
+        "--cov-fail-under=90",
     ]
 
     if verbose:
@@ -226,7 +240,7 @@ def main(
     coverage: bool = typer.Option(False, "--coverage", help="生成测试覆盖率报告"),
     parallel: bool = typer.Option(False, "--parallel", help="并行运行测试"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="显示详细输出"),
-    test_path: Optional[str] = typer.Argument(None, help="指定测试文件或目录路径"),
+    test_path: str | None = typer.Argument(None, help="指定测试文件或目录路径"),
 ):
     """
     QuantCell 测试运行脚本

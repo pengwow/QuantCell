@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 回测引擎单元测试
 
@@ -10,25 +9,27 @@ import pytest
 # 这些测试在 commit 9866f56 中已经不再适用（向量化回测引擎 Engine/LegacyEngine 已删除）
 # 整个文件已 deprecated,仅保留作为历史参考,本 Sprint 用 importorskip 跳过
 try:
-    from backtest.engines.engine import Engine  # noqa: E402
-    from backtest.engines.legacy_engine import LegacyEngine  # noqa: E402
+    from backtest.engines.legacy_engine import LegacyEngine
+
+    from backtest.engines.engine import Engine
 except ImportError:
-    pytest.skip("VectorEngine/LegacyEngine 在 commit 9866f56 中删除;事件驱动回测由 axon_quant 提供", allow_module_level=True)
+    pytest.skip(
+        "VectorEngine/LegacyEngine 在 commit 9866f56 中删除;事件驱动回测由 axon_quant 提供",
+        allow_module_level=True,
+    )
 
-from unittest.mock import Mock, patch, MagicMock  # noqa: E402
-from pathlib import Path  # noqa: E402
-from typing import Dict, Any  # noqa: E402
+from unittest.mock import Mock, patch
 
-import pandas as pd  # noqa: E402
-import numpy as np  # noqa: E402
+import pandas as pd
 
-from backtest.engines.base import BacktestEngineBase, EngineType as BaseEngineType  # noqa: E402
-from backtest.config.settings import EngineType  # noqa: E402
-
+from backtest.config.settings import EngineType
+from backtest.engines.base import BacktestEngineBase
+from backtest.engines.base import EngineType as BaseEngineType
 
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def base_engine_config():
@@ -104,6 +105,7 @@ def mock_parquet_catalog():
 # BacktestEngineBase 抽象接口测试
 # =============================================================================
 
+
 class TestBacktestEngineBase:
     """测试 BacktestEngineBase 抽象基类"""
 
@@ -114,6 +116,7 @@ class TestBacktestEngineBase:
 
     def test_abstract_methods_must_be_implemented(self):
         """测试子类必须实现抽象方法"""
+
         class IncompleteEngine(BacktestEngineBase):
             @property
             def engine_type(self):
@@ -124,6 +127,7 @@ class TestBacktestEngineBase:
 
     def test_concrete_engine_can_be_instantiated(self, base_engine_config):
         """测试具体引擎子类可以实例化"""
+
         class ConcreteEngine(BacktestEngineBase):
             @property
             def engine_type(self):
@@ -147,6 +151,7 @@ class TestBacktestEngineBase:
 
     def test_config_property(self, base_engine_config):
         """测试配置属性"""
+
         class ConcreteEngine(BacktestEngineBase):
             @property
             def engine_type(self):
@@ -176,6 +181,7 @@ class TestBacktestEngineBase:
 
     def test_validate_config_success(self, base_engine_config):
         """测试配置验证成功"""
+
         class ConcreteEngine(BacktestEngineBase):
             @property
             def engine_type(self):
@@ -198,6 +204,7 @@ class TestBacktestEngineBase:
 
     def test_validate_config_missing_required_keys(self):
         """测试配置验证失败 - 缺少必需参数"""
+
         class ConcreteEngine(BacktestEngineBase):
             @property
             def engine_type(self):
@@ -221,6 +228,7 @@ class TestBacktestEngineBase:
 
     def test_reset_state(self, base_engine_config):
         """测试重置状态方法"""
+
         class ConcreteEngine(BacktestEngineBase):
             @property
             def engine_type(self):
@@ -251,6 +259,7 @@ class TestBacktestEngineBase:
 # =============================================================================
 # Engine 测试
 # =============================================================================
+
 
 class TestEngine:
     """测试 Engine"""
@@ -392,9 +401,7 @@ class TestEngine:
     def test_build_strategy_configs(self, engine_config):
         """测试构建策略配置"""
         engine = Engine(engine_config)
-        strategy_configs = engine._build_strategy_configs(
-            engine_config["strategy_config"]
-        )
+        strategy_configs = engine._build_strategy_configs(engine_config["strategy_config"])
 
         assert len(strategy_configs) == 1
 
@@ -450,29 +457,35 @@ class TestEngine:
 
         # 模拟回测结果
         mock_engine_instance = Mock()
-        mock_orders_df = pd.DataFrame({
-            "order_id": ["order1", "order2"],
-            "instrument_id": ["BTCUSDT.SIM", "BTCUSDT.SIM"],
-            "side": ["BUY", "SELL"],
-            "quantity": [1.0, 1.0],
-            "price": [50000.0, 55000.0],
-            "timestamp": pd.to_datetime(["2023-01-01", "2023-01-02"]),
-        })
-        mock_positions_df = pd.DataFrame({
-            "position_id": ["pos1"],
-            "instrument_id": ["BTCUSDT.SIM"],
-            "side": ["LONG"],
-            "quantity": [1.0],
-            "avg_px_open": [50000.0],
-            "avg_px_close": [55000.0],
-            "realized_pnl": ["5000 USD"],
-        })
-        mock_account_df = pd.DataFrame({
-            "balance": [100000.0, 105000.0],
-            "margin": [0.0, 0.0],
-            "equity": [100000.0, 105000.0],
-            "timestamp": pd.to_datetime(["2023-01-01", "2023-01-02"]),
-        })
+        mock_orders_df = pd.DataFrame(
+            {
+                "order_id": ["order1", "order2"],
+                "instrument_id": ["BTCUSDT.SIM", "BTCUSDT.SIM"],
+                "side": ["BUY", "SELL"],
+                "quantity": [1.0, 1.0],
+                "price": [50000.0, 55000.0],
+                "timestamp": pd.to_datetime(["2023-01-01", "2023-01-02"]),
+            }
+        )
+        mock_positions_df = pd.DataFrame(
+            {
+                "position_id": ["pos1"],
+                "instrument_id": ["BTCUSDT.SIM"],
+                "side": ["LONG"],
+                "quantity": [1.0],
+                "avg_px_open": [50000.0],
+                "avg_px_close": [55000.0],
+                "realized_pnl": ["5000 USD"],
+            }
+        )
+        mock_account_df = pd.DataFrame(
+            {
+                "balance": [100000.0, 105000.0],
+                "margin": [0.0, 0.0],
+                "equity": [100000.0, 105000.0],
+                "timestamp": pd.to_datetime(["2023-01-01", "2023-01-02"]),
+            }
+        )
 
         mock_engine_instance.trader.generate_order_fills_report.return_value = mock_orders_df
         mock_engine_instance.trader.generate_positions_report.return_value = mock_positions_df
@@ -575,6 +588,7 @@ class TestEngine:
 # =============================================================================
 # LegacyEngine 测试
 # =============================================================================
+
 
 class TestLegacyEngine:
     """测试 LegacyEngine"""
@@ -764,12 +778,13 @@ class TestLegacyEngine:
 # 引擎工厂方法测试
 # =============================================================================
 
+
 class TestEngineFactory:
     """测试引擎工厂方法"""
 
     def test_create_default_engine(self, engine_config):
         """测试创建高级引擎"""
-        from backtest.engines import Engine, LegacyEngine
+        from backtest.engines import Engine
 
         engine = Engine(engine_config)
         assert isinstance(engine, Engine)

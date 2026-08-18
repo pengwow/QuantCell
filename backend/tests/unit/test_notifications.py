@@ -1,27 +1,24 @@
-# -*- coding: utf-8 -*-
 """
 通知模块单元测试
 """
 
 import json
+
 import pytest
-from datetime import datetime
-from unittest.mock import Mock, patch, AsyncMock
 
 from common.notifications import (
-    NotificationChannel,
-    NotificationLevel,
-    NotificationCategory,
-    NotificationMessage,
-    NotificationConfig,
-    EmailConfig,
-    WeComConfig,
-    FeishuConfig,
-    NotificationService,
     EmailChannel,
-    WeComChannel,
+    EmailConfig,
     FeishuChannel,
-    WebSocketChannel,
+    FeishuConfig,
+    NotificationCategory,
+    NotificationChannel,
+    NotificationConfig,
+    NotificationLevel,
+    NotificationMessage,
+    NotificationService,
+    WeComChannel,
+    WeComConfig,
 )
 
 
@@ -164,8 +161,8 @@ class TestNotificationService:
     def test_load_config(self, service):
         """测试加载配置"""
         # 由于循环导入问题,这里只测试配置对象创建
-        from common.notifications.models import NotificationConfig, EmailConfig
-        
+        from common.notifications.models import EmailConfig, NotificationConfig
+
         config = NotificationConfig(
             email=EmailConfig(
                 smtp_host="smtp.example.com",
@@ -179,7 +176,7 @@ class TestNotificationService:
         """测试获取渠道状态"""
         # 由于循环导入问题,这里直接测试返回值结构
         from common.notifications.models import NotificationConfig
-        
+
         config = NotificationConfig()
         status = {
             "email": {
@@ -215,14 +212,16 @@ class TestNotificationConfigParsing:
     def test_parse_email_config_from_json_string(self):
         """测试从JSON字符串解析邮件配置"""
         config_data = {
-            "email": json.dumps({
-                "smtpHost": "smtp.gmail.com",
-                "smtpPort": "587",
-                "security": "starttls",
-                "username": "user@gmail.com",
-                "password": "pass",
-                "enabled": True,
-            })
+            "email": json.dumps(
+                {
+                    "smtpHost": "smtp.gmail.com",
+                    "smtpPort": "587",
+                    "security": "starttls",
+                    "username": "user@gmail.com",
+                    "password": "pass",
+                    "enabled": True,
+                }
+            )
         }
         config = NotificationConfig.from_system_config(config_data)
         assert config.email.smtp_host == "smtp.gmail.com"
@@ -238,7 +237,7 @@ class TestNotificationConfigParsing:
                 "config": {
                     "webhookUrl": "https://qyapi.weixin.qq.com/webhook",
                     "useCustomFormat": True,
-                }
+                },
             }
         }
         config = NotificationConfig.from_system_config(config_data)
@@ -253,7 +252,7 @@ class TestNotificationConfigParsing:
                 "config": {
                     "webhookUrl": "https://open.feishu.cn/hook",
                     "useCustomFormat": False,
-                }
+                },
             }
         }
         config = NotificationConfig.from_system_config(config_data)

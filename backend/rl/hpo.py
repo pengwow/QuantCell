@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """PPO 超参数优化 — 使用 Optuna
 
 搜索空间：
@@ -22,7 +21,6 @@ import time
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +67,10 @@ def create_env(df, initial_capital=100_000, transaction_cost=0.001, warmup=20):
                 up = np.mean(g[g > 0]) if np.any(g > 0) else 0
                 dn = -np.mean(g[g < 0]) if np.any(g < 0) else 0
                 rsi = 100 - 100 / (1 + up / dn) if dn > 0 else (100 if up > 0 else 50)
-            return np.array([r, vol, sma, sma, sma, (rsi - 50) / 50, 0, 0, 0, 0, vol, r], dtype=np.float32)
+            return np.array(
+                [r, vol, sma, sma, sma, (rsi - 50) / 50, 0, 0, 0, 0, vol, r],
+                dtype=np.float32,
+            )
 
         def reset(self, seed=None, options=None):
             super().reset(seed=seed)
@@ -108,7 +109,13 @@ def create_env(df, initial_capital=100_000, transaction_cost=0.001, warmup=20):
             done = self._step >= len(self._df)
             trunc = self._port <= 0
             obs = self._obs() if not done else np.zeros(12, dtype=np.float32)
-            return obs, reward, done, trunc, {"portfolio_value": self._port, "trades": self._trades}
+            return (
+                obs,
+                reward,
+                done,
+                trunc,
+                {"portfolio_value": self._port, "trades": self._trades},
+            )
 
     return TradingEnv()
 
@@ -160,7 +167,7 @@ def objective(trial, df_train, df_val, n_timesteps):
 
         portfolio = info.get("portfolio_value", 100_000)
         trades = info.get("trades", 0)
-        sharpe = total_reward / (np.std([total_reward]) + 1e-8)
+        total_reward / (np.std([total_reward]) + 1e-8)
 
         # 综合评分：收益率 + 夏普 - 过度交易惩罚
         pnl_pct = (portfolio - 100_000) / 100_000 * 100
@@ -174,9 +181,15 @@ def objective(trial, df_train, df_val, n_timesteps):
         return -1000
 
 
-def run_hpo(symbol: str, n_trials: int = 30, n_timesteps: int = 10000, output_dir: str = None):
+def run_hpo(
+    symbol: str,
+    n_trials: int = 30,
+    n_timesteps: int = 10000,
+    output_dir: str | None = None,
+):
     """运行超参数优化"""
     import optuna
+
     from rl.service import RLService
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -189,9 +202,6 @@ def run_hpo(symbol: str, n_trials: int = 30, n_timesteps: int = 10000, output_di
     split = int(len(df) * 0.8)
     df_train = df.head(split)
     df_val = df.tail(len(df) - split)
-
-    print(f"数据: 训练 {len(df_train)} 根, 验证 {len(df_val)} 根")
-    print(f"超参数优化: {n_trials} trials, 每 trial {n_timesteps} 步")
 
     # 创建 Optuna study
     study = optuna.create_study(
@@ -208,19 +218,13 @@ def run_hpo(symbol: str, n_trials: int = 30, n_timesteps: int = 10000, output_di
         n_trials=n_trials,
         show_progress_bar=True,
     )
-    elapsed = time.time() - start
+    time.time() - start
 
     # 输出结果
-    print(f"\n{'='*60}")
-    print(f"超参数优化完成 ({elapsed:.1f}s)")
-    print(f"{'='*60}")
-    print(f"最佳得分: {study.best_value:.4f}")
-    print(f"最佳参数:")
-    for k, v in study.best_params.items():
-        print(f"  {k}: {v}")
+    for _k, _v in study.best_params.items():
+        pass
 
     # 用最佳参数训练最终模型
-    print(f"\n使用最佳参数训练最终模型...")
     env = create_env(df_train)
     from stable_baselines3 import PPO
 
@@ -244,20 +248,15 @@ def run_hpo(symbol: str, n_trials: int = 30, n_timesteps: int = 10000, output_di
     # 保存模型
     output_path = Path(output_dir or "data/rl_models") / f"{symbol}_ppo_hpo.zip"
     model.save(str(output_path))
-    print(f"模型已保存: {output_path}")
 
     # 最终评估
     val_env = create_env(df_val)
     obs, _ = val_env.reset()
     for _ in range(len(df_val)):
         a, _ = model.predict(obs, deterministic=True)
-        obs, r, term, trunc, info = val_env.step(a)
+        obs, _r, term, trunc, _info = val_env.step(a)
         if term or trunc:
             break
-
-    print(f"\n最终评估:")
-    print(f"  PnL: ${info['portfolio_value'] - 100_000:.2f}")
-    print(f"  Trades: {info['trades']}")
 
     return study.best_params, model
 

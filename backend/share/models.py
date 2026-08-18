@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Worker 分享系统数据模型
 
@@ -8,7 +7,8 @@ Worker 分享系统数据模型
 - 公开只读页已下线，分享功能完全走 quantcell.top 远端分发
 - 本地不再维护 ShareView 访问审计（远端 quantcell.top 端负责统计）
 """
-from datetime import datetime
+
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -23,6 +23,9 @@ from sqlalchemy import (
 
 from collector.db.database import Base
 
+if TYPE_CHECKING:
+    from datetime import datetime
+
 
 class ShareToken(Base):
     """分享 token 元数据
@@ -30,6 +33,7 @@ class ShareToken(Base):
     token 字段仅保存 SHA256 哈希值（64 hex chars），明文只在创建时返回给调用方一次。
     token_prefix 保存前 8 位明文用于列表展示（无安全风险）。
     """
+
     __tablename__ = "share_tokens"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -51,10 +55,10 @@ class ShareToken(Base):
     view_count = Column(Integer, default=0, nullable=False)
 
     # 远端分发（quantcell.top）—— 字段可空以兼容旧记录
-    remote_id = Column(String(64), nullable=True, index=True)        # quantcell.top 分配
-    short_url = Column(String(512), nullable=True)                   # e.g. https://share.quantcell.top/<token>
+    remote_id = Column(String(64), nullable=True, index=True)  # quantcell.top 分配
+    short_url = Column(String(512), nullable=True)  # e.g. https://share.quantcell.top/<token>
     remote_status = Column(String(16), default="PENDING", nullable=False)  # PENDING/UPLOADED/FAILED/REVOKED
-    remote_error = Column(String(512), nullable=True)                 # 上传失败时的错误信息（脱敏）
+    remote_error = Column(String(512), nullable=True)  # 上传失败时的错误信息（脱敏）
 
     __table_args__ = (
         Index("idx_share_tokens_worker", "worker_id"),
@@ -92,6 +96,4 @@ class ShareToken(Base):
             return False
         if self.is_one_time_consumed():
             return False
-        if self.has_reached_max_views():
-            return False
-        return True
+        return not self.has_reached_max_views()

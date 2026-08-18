@@ -29,11 +29,11 @@ def evaluate_model(model, env) -> EvaluationMetrics:
 
     while not done:
         action, _ = model.predict(obs, deterministic=True)
-        obs, reward, terminated, truncated, info = env.step(action)
+        obs, _reward, terminated, truncated, info = env.step(action)
         done = terminated or truncated
         nav = info.get("portfolio_value", info.get("nav", 0.0))
         nav_history.append(nav)
-        actions_taken.append(float(action[0]) if hasattr(action, '__len__') else float(action))
+        actions_taken.append(float(action[0]) if hasattr(action, "__len__") else float(action))
 
     if len(nav_history) < 2:
         return EvaluationMetrics()
@@ -66,7 +66,7 @@ def _compute_metrics(nav_history: list[float], actions: list[float]) -> Evaluati
     if len(neg_returns) > 0 and np.sum(np.abs(neg_returns)) > 0:
         profit_factor = float(np.sum(pos_returns) / np.sum(np.abs(neg_returns)))
     else:
-        profit_factor = float('inf') if len(pos_returns) > 0 else 0.0
+        profit_factor = float("inf") if len(pos_returns) > 0 else 0.0
 
     actions_arr = np.array(actions, dtype=np.float64)
     position_changes = np.abs(np.diff(actions_arr))

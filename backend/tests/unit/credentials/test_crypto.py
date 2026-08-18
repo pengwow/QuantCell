@@ -1,7 +1,8 @@
 """凭证加密层测试 — Fernet AES + 机器指纹。"""
+
 import pytest
 
-from credentials.crypto import encrypt_secret, decrypt_secret, get_machine_fingerprint
+from credentials.crypto import decrypt_secret, encrypt_secret, get_machine_fingerprint
 from credentials.exceptions import CredentialsError
 
 

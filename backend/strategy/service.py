@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """策略模块服务层
 
 实现策略的加载、管理和解析功能。
@@ -22,26 +21,27 @@
 日期: 2026-08-13
 """
 
-import sys
-import importlib.util
 import ast
+import importlib.util
+import sys
 import uuid
 from pathlib import Path
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Type
 from enum import Enum
-
-# 导入统一的AST解析工具
-from utils.strategy_ast_parser import StrategyASTParser
-
-# 导入策略基类（从 strategy.core 统一导入）
-from .core import StrategyBase
+from typing import Any
 
 # 导入事件驱动策略基类
-from backtest.strategies.event_strategy import EventDrivenStrategy, EventDrivenStrategyConfig
+from backtest.strategies.event_strategy import (
+    EventDrivenStrategy,
+)
+
+# 导入统一的AST解析工具
+# 导入策略基类（从 strategy.core 统一导入）
+from .core import StrategyBase
 
 # 策略基类别名，用于兼容性检查
 Strategy = StrategyBase
@@ -49,12 +49,14 @@ Strategy = StrategyBase
 
 class StrategyType(Enum):
     """策略类型枚举"""
-    LEGACY = "legacy"          # Legacy 策略 (StrategyBase)
+
+    LEGACY = "legacy"  # Legacy 策略 (StrategyBase)
     EVENT_DRIVEN = "event_driven"  # 事件驱动策略 (EventDrivenStrategy)
-    UNKNOWN = "unknown"        # 未知类型
+    UNKNOWN = "unknown"  # 未知类型
 
     RULE = "rule"
     RL = "rl"
+
 
 class StrategyService:
     """策略服务类"""
@@ -62,9 +64,9 @@ class StrategyService:
     def __init__(self):
         self.strategy_dir = Path(__file__).parent.parent / "strategies"
         self.strategy_dir.mkdir(parents=True, exist_ok=True)
-        self.strategy_instances: Dict[str, Any] = {}
+        self.strategy_instances: dict[str, Any] = {}
 
-    def list_strategies(self) -> List[Dict[str, Any]]:
+    def list_strategies(self) -> list[dict[str, Any]]:
         """列出所有策略文件"""
         strategies = []
         for file_path in self.strategy_dir.glob("*.py"):
@@ -79,7 +81,7 @@ class StrategyService:
                 logger.warning(f"解析策略文件失败 {file_path.name}: {e}")
         return strategies
 
-    def get_strategy(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_strategy(self, name: str) -> dict[str, Any] | None:
         """获取单个策略详情"""
         file_path = self.strategy_dir / f"{name}.py"
         if not file_path.exists():
@@ -90,7 +92,7 @@ class StrategyService:
             info["code"] = content
         return info
 
-    def save_strategy(self, name: str, content: str) -> Dict[str, Any]:
+    def save_strategy(self, name: str, content: str) -> dict[str, Any]:
         """保存策略文件"""
         file_path = self.strategy_dir / f"{name}.py"
         file_path.write_text(content, encoding="utf-8")
@@ -151,33 +153,39 @@ class StrategyService:
                         elif isinstance(base, ast.Attribute):
                             base_name = base.attr
 
-                        if base_name and base_name in ('StrategyBase', 'Strategy'):
+                        if base_name and base_name in ("StrategyBase", "Strategy"):
                             # 检查是否从 strategy_base 或 strategy 模块导入
                             for stmt in ast.walk(tree):
                                 if isinstance(stmt, ast.ImportFrom):
-                                    if stmt.module and 'strategy_base' in stmt.module:
+                                    if stmt.module and "strategy_base" in stmt.module:
                                         logger.info(f"检测到 Legacy 策略: {node.name}")
                                         return StrategyType.LEGACY
                                     # 检查相对导入
-                                    if stmt.module is None or '.' in str(stmt.module):
+                                    if stmt.module is None or "." in str(stmt.module):
                                         for alias in stmt.names:
-                                            if alias.name in ('StrategyBase', 'Strategy'):
+                                            if alias.name in (
+                                                "StrategyBase",
+                                                "Strategy",
+                                            ):
                                                 logger.info(f"检测到 Legacy 策略: {node.name}")
                                                 return StrategyType.LEGACY
-                        elif base_name and base_name in ('EventDrivenStrategy', 'EventDrivenStrategyConfig'):
+                        elif base_name and base_name in (
+                            "EventDrivenStrategy",
+                            "EventDrivenStrategyConfig",
+                        ):
                             # 检测事件驱动策略
                             logger.info(f"检测到 Event Driven 策略: {node.name}")
                             return StrategyType.EVENT_DRIVEN
 
             # 如果通过 AST 无法确定，尝试通过文本内容判断
-            if 'StrategyBase' in file_content:
+            if "StrategyBase" in file_content:
                 logger.info("通过文本内容检测到 Legacy 策略")
                 return StrategyType.LEGACY
-            if 'EventDrivenStrategy' in file_content:
+            if "EventDrivenStrategy" in file_content:
                 logger.info("通过文本内容检测到 Event Driven 策略")
                 return StrategyType.EVENT_DRIVEN
 
-            logger.warning(f"无法识别策略类型")
+            logger.warning("无法识别策略类型")
             return StrategyType.UNKNOWN
 
         except Exception as e:
@@ -194,19 +202,19 @@ class StrategyService:
                 # 注意：这里需要确保基类在当前作用域可用
                 is_strategy = False
                 try:
-                    if (issubclass(cls, Strategy) and cls != Strategy):
+                    if issubclass(cls, Strategy) and cls != Strategy:
                         is_strategy = True
                 except TypeError:
                     pass
 
                 try:
-                    if (issubclass(cls, StrategyBase) and cls != StrategyBase):
+                    if issubclass(cls, StrategyBase) and cls != StrategyBase:
                         is_strategy = True
                 except TypeError:
                     pass
 
                 try:
-                    if (issubclass(cls, EventDrivenStrategy) and cls != EventDrivenStrategy):
+                    if issubclass(cls, EventDrivenStrategy) and cls != EventDrivenStrategy:
                         is_strategy = True
                 except TypeError:
                     pass
@@ -230,14 +238,13 @@ class StrategyService:
                     for alias in node.names:
                         if "rl" in alias.name.lower():
                             return StrategyType.RL
-                if isinstance(node, ast.ImportFrom):
-                    if node.module and "rl" in node.module.lower():
-                        return StrategyType.RL
+                if isinstance(node, ast.ImportFrom) and node.module and "rl" in node.module.lower():
+                    return StrategyType.RL
         except SyntaxError:
             pass
         return StrategyType.RULE
 
-    def _parse_strategy_file(self, name: str, content: str) -> Optional[Dict[str, Any]]:
+    def _parse_strategy_file(self, name: str, content: str) -> dict[str, Any] | None:
         """解析策略文件，提取信息"""
         try:
             tree = ast.parse(content)
@@ -300,8 +307,12 @@ class StrategyService:
         else:
             return StrategyType.UNKNOWN
 
-    def load_legacy_strategy(self, strategy_name: str, file_path: Optional[Path] = None,
-                             file_content: Optional[str] = None) -> Optional[Type[Any]]:
+    def load_legacy_strategy(
+        self,
+        strategy_name: str,
+        file_path: Path | None = None,
+        file_content: str | None = None,
+    ) -> type[Any] | None:
         """
         加载 Legacy 格式的策略 (StrategyBase)
 
@@ -338,7 +349,7 @@ class StrategyService:
                 if strategy_cls:
                     return strategy_cls
 
-            logger.error(f"加载 Legacy 策略失败: 未提供有效的文件路径或内容")
+            logger.error("加载 Legacy 策略失败: 未提供有效的文件路径或内容")
             return None
 
         except Exception as e:
@@ -346,7 +357,7 @@ class StrategyService:
             logger.exception(e)
             return None
 
-    def load_strategy(self, strategy_name) -> Optional[Type[Any]]:
+    def load_strategy(self, strategy_name) -> type[Any] | None:
         """
         从文件或数据库中加载策略类
 
@@ -365,7 +376,7 @@ class StrategyService:
             # 1. 尝试从文件获取内容
             if strategy_file.exists():
                 try:
-                    with open(strategy_file, 'r', encoding='utf-8') as f:
+                    with open(strategy_file, encoding="utf-8") as f:
                         file_content = f.read()
                     logger.info(f"从文件读取策略内容: {strategy_name}")
                 except Exception as e:
@@ -375,8 +386,8 @@ class StrategyService:
             if not file_content:
                 logger.info(f"尝试从数据库获取策略内容: {strategy_name}")
                 try:
-                    from utils.db_session import get_db_session
                     from strategy.models import Strategy as StrategyModel
+                    from utils.db_session import get_db_session
 
                     with get_db_session() as db:
                         strategy = db.query(StrategyModel).filter_by(name=strategy_name).first()
@@ -395,7 +406,11 @@ class StrategyService:
             logger.info(f"策略类型检测结果: {strategy_name} -> {strategy_type.value}")
 
             # 4. 根据策略类型路由到加载器（统一使用 Legacy 加载器，未知类型和事件驱动也走该路径）
-            if strategy_type == StrategyType.LEGACY or strategy_type == StrategyType.EVENT_DRIVEN or strategy_type == StrategyType.UNKNOWN:
+            if (
+                strategy_type == StrategyType.LEGACY
+                or strategy_type == StrategyType.EVENT_DRIVEN
+                or strategy_type == StrategyType.UNKNOWN
+            ):
                 if strategy_type == StrategyType.UNKNOWN:
                     logger.warning(f"策略类型未知，尝试使用 Legacy 加载器: {strategy_name}")
                 if strategy_type == StrategyType.EVENT_DRIVEN:
@@ -403,18 +418,18 @@ class StrategyService:
                 return self.load_legacy_strategy(
                     strategy_name,
                     file_path=strategy_file if strategy_file.exists() else None,
-                    file_content=file_content
+                    file_content=file_content,
                 )
 
         except Exception as e:
             logger.error(f"加载策略失败: {strategy_name}, 错误: {e}")
             logger.exception(e)
             return None
-    
-    def create_strategy_instance(self, strategy_name: str, params: Optional[Dict[str, Any]] = None) -> str:
+
+    def create_strategy_instance(self, strategy_name: str, params: dict[str, Any] | None = None) -> str:
         """
         创建策略实例
-        
+
         :param strategy_name: 策略名称
         :param params: 策略参数
         :return: 策略实例ID
@@ -425,34 +440,34 @@ class StrategyService:
             if not strategy_cls:
                 logger.error(f"加载策略类失败: {strategy_name}")
                 return ""
-            
+
             # 创建策略实例
             params = params or {}
             strategy_instance = strategy_cls(params)
-            
+
             # 生成实例ID
             instance_id = f"{strategy_name}-{uuid.uuid4()}"
-            
+
             # 缓存策略实例
             self.strategy_instances[instance_id] = {
                 "instance": strategy_instance,
                 "strategy_name": strategy_name,
                 "params": params,
                 "created_at": datetime.now(),
-                "status": "created"
+                "status": "created",
             }
-            
+
             logger.info(f"创建策略实例成功: {instance_id}")
             return instance_id
         except Exception as e:
             logger.error(f"创建策略实例失败: {e}")
             logger.exception(e)
             return ""
-    
-    def get_strategy_instance(self, instance_id: str) -> Optional[Any]:
+
+    def get_strategy_instance(self, instance_id: str) -> Any | None:
         """
         获取策略实例
-        
+
         :param instance_id: 策略实例ID
         :return: 策略实例，如果不存在返回None
         """
@@ -460,17 +475,17 @@ class StrategyService:
             if instance_id not in self.strategy_instances:
                 logger.error(f"策略实例不存在: {instance_id}")
                 return None
-            
+
             return self.strategy_instances[instance_id]["instance"]
         except Exception as e:
             logger.error(f"获取策略实例失败: {e}")
             logger.exception(e)
             return None
-    
+
     def delete_strategy_instance(self, instance_id: str) -> bool:
         """
         删除策略实例
-        
+
         :param instance_id: 策略实例ID
         :return: 是否删除成功
         """
@@ -481,47 +496,55 @@ class StrategyService:
                 instance = instance_info["instance"]
                 if hasattr(instance, "stop"):
                     instance.stop()
-                
+
                 # 删除策略实例
                 del self.strategy_instances[instance_id]
                 logger.info(f"删除策略实例成功: {instance_id}")
                 return True
-            
+
             logger.error(f"策略实例不存在: {instance_id}")
             return False
         except Exception as e:
             logger.error(f"删除策略实例失败: {e}")
             logger.exception(e)
             return False
-    
-    def get_strategy_instances(self) -> List[Dict[str, Any]]:
+
+    def get_strategy_instances(self) -> list[dict[str, Any]]:
         """
         获取所有策略实例
-        
+
         :return: 策略实例列表
         """
         try:
             instances = []
             for instance_id, instance_info in self.strategy_instances.items():
-                instances.append({
-                    "instance_id": instance_id,
-                    "strategy_name": instance_info["strategy_name"],
-                    "params": instance_info["params"],
-                    "created_at": instance_info["created_at"],
-                    "status": instance_info["status"]
-                })
-            
+                instances.append(
+                    {
+                        "instance_id": instance_id,
+                        "strategy_name": instance_info["strategy_name"],
+                        "params": instance_info["params"],
+                        "created_at": instance_info["created_at"],
+                        "status": instance_info["status"],
+                    }
+                )
+
             logger.info(f"获取策略实例列表成功，共 {len(instances)} 个实例")
             return instances
         except Exception as e:
             logger.error(f"获取策略实例列表失败: {e}")
             logger.exception(e)
             return []
-    
-    def execute_strategy(self, strategy_name: str, params: Dict[str, Any], mode: str = "backtest", backtest_config: Optional[Dict[str, Any]] = None) -> str:
+
+    def execute_strategy(
+        self,
+        strategy_name: str,
+        params: dict[str, Any],
+        mode: str = "backtest",
+        backtest_config: dict[str, Any] | None = None,
+    ) -> str:
         """
         执行策略
-        
+
         :param strategy_name: 策略名称
         :param params: 策略参数
         :param mode: 执行模式，backtest或live
@@ -534,34 +557,34 @@ class StrategyService:
             if not instance_id:
                 logger.error(f"创建策略实例失败: {strategy_name}")
                 return ""
-            
+
             # 获取策略实例
             strategy_instance = self.get_strategy_instance(instance_id)
             if not strategy_instance:
                 logger.error(f"获取策略实例失败: {instance_id}")
                 return ""
-            
+
             # 导入执行引擎
             from .execution_engine import ExecutionEngineFactory
-            
+
             # 创建执行引擎
             engine = ExecutionEngineFactory.create_engine(mode)
             engine.set_strategy(strategy_instance)
-            
+
             # 设置执行参数
             engine.set_params(params)
-            
+
             # 如果是回测模式，设置回测参数
             if mode == "backtest" and backtest_config:
                 engine.set_backtest_params(
                     initial_capital=backtest_config.get("initial_capital", 100000.0),
                     commission=backtest_config.get("commission", 0.0),
-                    slippage=backtest_config.get("slippage", 0.0)
+                    slippage=backtest_config.get("slippage", 0.0),
                 )
                 # TODO: 设置回测数据
                 # 从数据服务获取回测数据
                 # engine.set_backtest_data(data)
-            
+
             # 记录执行状态
             execution_id = engine.execution_id
             self.strategy_executions[execution_id] = {
@@ -574,26 +597,27 @@ class StrategyService:
                 "status": "running",
                 "started_at": datetime.now(),
                 "result": None,
-                "engine": engine
+                "engine": engine,
             }
-            
+
             # 启动执行引擎（异步）
             import threading
+
             thread = threading.Thread(target=engine.start)
             thread.daemon = True
             thread.start()
-            
+
             logger.info(f"执行策略成功，执行ID: {execution_id}")
             return execution_id
         except Exception as e:
             logger.error(f"执行策略失败: {e}")
             logger.exception(e)
             return ""
-    
-    def get_execution_status(self, execution_id: str) -> Optional[Dict[str, Any]]:
+
+    def get_execution_status(self, execution_id: str) -> dict[str, Any] | None:
         """
         获取策略执行状态
-        
+
         :param execution_id: 执行ID
         :return: 执行状态信息
         """
@@ -601,29 +625,29 @@ class StrategyService:
             if execution_id not in self.strategy_executions:
                 logger.error(f"执行ID不存在: {execution_id}")
                 return None
-            
+
             execution_info = self.strategy_executions[execution_id]
-            
+
             # 如果执行引擎存在，获取最新状态
             if "engine" in execution_info:
                 engine = execution_info["engine"]
                 # 更新状态和结果
                 execution_info["status"] = engine.status
                 execution_info["result"] = engine.results
-                
+
                 if engine.end_time:
                     execution_info["ended_at"] = engine.end_time
-            
+
             return execution_info
         except Exception as e:
             logger.error(f"获取执行状态失败: {e}")
             logger.exception(e)
             return None
-    
+
     def stop_execution(self, execution_id: str) -> bool:
         """
         停止策略执行
-        
+
         :param execution_id: 执行ID
         :return: 是否停止成功
         """
@@ -631,29 +655,38 @@ class StrategyService:
             if execution_id not in self.strategy_executions:
                 logger.error(f"执行ID不存在: {execution_id}")
                 return False
-            
+
             # 获取执行信息
             execution_info = self.strategy_executions[execution_id]
             instance_id = execution_info["instance_id"]
-            
+
             # 停止策略实例
             if instance_id in self.strategy_instances:
                 instance = self.strategy_instances[instance_id]["instance"]
                 if hasattr(instance, "stop"):
                     instance.stop()
-                
+
             # 更新执行状态
             execution_info["status"] = "stopped"
             execution_info["stopped_at"] = datetime.now()
-            
+
             logger.info(f"停止策略执行成功: {execution_id}")
             return True
         except Exception as e:
             logger.error(f"停止策略执行失败: {e}")
             logger.exception(e)
             return False
-    
-    def upload_strategy_file(self, strategy_name: str, file_content: str, version: Optional[str] = None, description: Optional[str] = None, tags: Optional[List[str]] = None, id: Optional[int] = None, params: Optional[List[Dict]] = None) -> bool:
+
+    def upload_strategy_file(
+        self,
+        strategy_name: str,
+        file_content: str,
+        version: str | None = None,
+        description: str | None = None,
+        tags: list[str] | None = None,
+        id: int | None = None,
+        params: list[dict] | None = None,
+    ) -> bool:
         """
         上传策略文件
 
@@ -671,13 +704,14 @@ class StrategyService:
             strategy_file = self.strategy_dir / f"{strategy_name}.py"
             with open(strategy_file, "w") as f:
                 f.write(file_content)
-            
+
             logger.info(f"策略文件上传成功: {strategy_file}")
-            
+
             # 将策略信息保存到数据库
-            from utils.db_session import get_db_session
-            from strategy.models import Strategy
             import json
+
+            from strategy.models import Strategy
+            from utils.db_session import get_db_session
 
             with get_db_session() as db:
                 try:
@@ -699,7 +733,7 @@ class StrategyService:
                         "description": description or "",
                         "version": version or "1.0.0",
                         "tags": tags or [],
-                        "params": params or []  # 如果传入了params，优先使用
+                        "params": params or [],  # 如果传入了params，优先使用
                     }
 
                     # 如果没有传入params，尝试解析策略内容提取参数
@@ -715,10 +749,10 @@ class StrategyService:
                                 strategy_info["params"] = parsed_info["params"]
                                 # 如果没有提供tags，保留默认空列表；如果提供了tags，使用提供的
                                 if not tags and "tags" in parsed_info:
-                                     strategy_info["tags"] = parsed_info["tags"]
-                                logger.info(f"策略解析成功，使用解析的信息")
+                                    strategy_info["tags"] = parsed_info["tags"]
+                                logger.info("策略解析成功，使用解析的信息")
                             else:
-                                logger.info(f"策略解析失败，使用默认信息")
+                                logger.info("策略解析失败，使用默认信息")
                         except Exception as parse_e:
                             logger.error(f"解析策略内容失败: {parse_e}")
                             logger.exception(parse_e)
@@ -729,7 +763,7 @@ class StrategyService:
                     params_json = json.dumps(strategy_info["params"]) if strategy_info["params"] else None
                     tags_json = json.dumps(strategy_info["tags"]) if strategy_info["tags"] else None
                     logger.info(f"准备保存的参数: {params_json}")
-                    
+
                     if existing_strategy:
                         # 更新现有策略
                         logger.info(f"更新现有策略: id={id}, name={strategy_name}")
@@ -752,12 +786,12 @@ class StrategyService:
                             description=strategy_info["description"],
                             parameters=params_json,
                             tags=tags_json,
-                            version=strategy_info["version"]
+                            version=strategy_info["version"],
                         )
                         logger.info(f"新策略对象: {new_strategy}")
                         db.add(new_strategy)
                         logger.info(f"保存策略信息到数据库: {strategy_name}")
-                    
+
                     # 提交事务
                     logger.info(f"提交事务: {strategy_name}")
                     db.commit()
@@ -766,17 +800,17 @@ class StrategyService:
                     db.rollback()
                     logger.error(f"保存策略信息到数据库失败: {db_e}")
                     logger.exception(db_e)
-            
+
             return True
         except Exception as e:
             logger.error(f"策略文件上传失败: {e}")
             logger.exception(e)
             return False
-    
+
     def delete_strategy_file(self, strategy_name: str) -> bool:
         """
         删除策略文件
-        
+
         :param strategy_name: 策略名称
         :return: 是否删除成功
         """
@@ -785,7 +819,7 @@ class StrategyService:
             if not strategy_file.exists():
                 logger.error(f"策略文件不存在: {strategy_file}")
                 return False
-            
+
             strategy_file.unlink()
             logger.info(f"策略文件删除成功: {strategy_file}")
             return True
@@ -793,27 +827,27 @@ class StrategyService:
             logger.error(f"策略文件删除失败: {e}")
             logger.exception(e)
             return False
-    
-    def delete_strategy(self, strategy_name: str, strategy_id: Optional[int] = None) -> bool:
+
+    def delete_strategy(self, strategy_name: str, strategy_id: int | None = None) -> bool:
         """
         删除策略，包括策略文件和数据库记录
-        
+
         :param strategy_name: 策略名称
         :param strategy_id: 策略ID（可选）
         :return: 是否删除成功
         """
         try:
             logger.info(f"开始删除策略: name={strategy_name}, id={strategy_id}")
-            
+
             # 1. 删除策略文件
             delete_file_success = self.delete_strategy_file(strategy_name)
             if not delete_file_success:
                 logger.warning(f"策略文件删除失败，但继续尝试删除数据库记录: {strategy_name}")
-            
+
             # 2. 从数据库中删除策略记录
             try:
-                from utils.db_session import get_db_session
                 from strategy.models import Strategy
+                from utils.db_session import get_db_session
 
                 with get_db_session() as db:
                     try:
@@ -828,7 +862,7 @@ class StrategyService:
 
                         # 执行删除
                         deleted_count = query.delete()
-                        
+
                         if deleted_count > 0:
                             logger.info(f"从数据库中删除策略成功，删除了 {deleted_count} 条记录")
                             db.commit()
@@ -844,18 +878,18 @@ class StrategyService:
                 logger.exception(db_import_e)
                 # 如果数据库操作失败，但文件已删除，仍返回成功
                 return delete_file_success
-            
+
             logger.info(f"删除策略成功: {strategy_name}")
             return True
         except Exception as e:
             logger.error(f"删除策略失败: {e}")
             logger.exception(e)
             return False
-    
-    def validate_strategy_params(self, strategy_name: str, params: Dict[str, Any]) -> bool:
+
+    def validate_strategy_params(self, strategy_name: str, params: dict[str, Any]) -> bool:
         """
         验证策略参数
-        
+
         :param strategy_name: 策略名称
         :param params: 策略参数
         :return: 参数是否合法
@@ -866,14 +900,14 @@ class StrategyService:
             if not strategy_info:
                 logger.error(f"获取策略详情失败: {strategy_name}")
                 return False
-            
+
             # 验证参数
             for param in strategy_info["params"]:
                 param_name = param["name"]
                 if param_name in params:
                     param_value = params[param_name]
                     param_type = param["type"]
-                    
+
                     # 验证类型
                     if param_type != "Any":
                         # 简单类型验证
@@ -889,18 +923,18 @@ class StrategyService:
                         elif param_type == "bool" and not isinstance(param_value, bool):
                             logger.error(f"参数 {param_name} 类型错误，期望 bool，实际 {type(param_value).__name__}")
                             return False
-            
+
             logger.info(f"策略参数验证成功: {strategy_name}")
             return True
         except Exception as e:
             logger.error(f"验证策略参数失败: {e}")
             logger.exception(e)
             return False
-    
-    def update_strategy_instance_params(self, instance_id: str, params: Dict[str, Any]) -> bool:
+
+    def update_strategy_instance_params(self, instance_id: str, params: dict[str, Any]) -> bool:
         """
         更新策略实例参数
-        
+
         :param instance_id: 策略实例ID
         :param params: 新的策略参数
         :return: 是否更新成功
@@ -909,17 +943,17 @@ class StrategyService:
             if instance_id not in self.strategy_instances:
                 logger.error(f"策略实例不存在: {instance_id}")
                 return False
-            
+
             # 获取策略实例
             instance_info = self.strategy_instances[instance_id]
             instance = instance_info["instance"]
             strategy_name = instance_info["strategy_name"]
-            
+
             # 验证参数
             if not self.validate_strategy_params(strategy_name, params):
                 logger.error(f"验证策略参数失败: {strategy_name}")
                 return False
-            
+
             # 更新参数
             if hasattr(instance, "set_params"):
                 instance.set_params(params)
@@ -927,10 +961,10 @@ class StrategyService:
                 # 直接更新实例属性
                 for key, value in params.items():
                     setattr(instance, key, value)
-            
+
             # 更新缓存
             instance_info["params"].update(params)
-            
+
             logger.info(f"更新策略实例参数成功: {instance_id}")
             return True
         except Exception as e:
@@ -941,11 +975,11 @@ class StrategyService:
     def generate_strategy(
         self,
         prompt: str,
-        model_id: Optional[int] = None,
-        model_name: Optional[str] = None,
-        provider: Optional[str] = None,
-        conversation_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        model_id: int | None = None,
+        model_name: str | None = None,
+        provider: str | None = None,
+        conversation_id: str | None = None,
+    ) -> dict[str, Any]:
         """
         使用AI模型生成策略代码
 
@@ -986,6 +1020,7 @@ class StrategyService:
             if model_id:
                 # 从数据库获取模型配置
                 from ai_model.models import AIModelBusiness
+
                 model_config = AIModelBusiness.get_by_id(model_id, include_api_key=True)
                 if model_config:
                     adapter = AIModelService.get_adapter(
@@ -1001,13 +1036,14 @@ class StrategyService:
             if not adapter:
                 logger.warning("未找到AI模型配置，使用默认配置")
                 # 这里可以设置默认的API密钥或抛出错误
-                raise ValueError("未配置AI模型，请先在模型设置中配置AI模型")
+                msg = "未配置AI模型，请先在模型设置中配置AI模型"
+                raise ValueError(msg)
 
             # 调用AI模型生成策略
             # 构建消息列表
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ]
 
             # 调用AI模型
@@ -1054,14 +1090,14 @@ class StrategyService:
         import re
 
         # 尝试提取Python代码块
-        code_pattern = r'```python\n(.*?)\n```'
+        code_pattern = r"```python\n(.*?)\n```"
         matches = re.findall(code_pattern, content, re.DOTALL)
 
         if matches:
             return matches[0].strip()
 
         # 如果没有找到Python代码块，尝试提取任意代码块
-        code_pattern = r'```\n(.*?)\n```'
+        code_pattern = r"```\n(.*?)\n```"
         matches = re.findall(code_pattern, content, re.DOTALL)
 
         if matches:
@@ -1083,15 +1119,15 @@ class StrategyService:
         import re
 
         # 移除代码块
-        text = re.sub(r'```python\n.*?\n```', '', content, flags=re.DOTALL)
-        text = re.sub(r'```\n.*?\n```', '', text, flags=re.DOTALL)
+        text = re.sub(r"```python\n.*?\n```", "", content, flags=re.DOTALL)
+        text = re.sub(r"```\n.*?\n```", "", text, flags=re.DOTALL)
 
         # 清理多余空行
-        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
 
         return text.strip()
 
-    def _parse_strategy_file(self, name: str, content: str) -> Optional[Dict[str, Any]]:
+    def _parse_strategy_file(self, name: str, content: str) -> dict[str, Any] | None:
         """解析策略文件，提取信息"""
         try:
             tree = ast.parse(content)
@@ -1136,4 +1172,3 @@ class StrategyService:
             "strategy_type": strategy_type,
             "strategy_class": strategy_class,
         }
-

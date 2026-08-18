@@ -6,35 +6,42 @@
 """
 
 import warnings
-from typing import Optional
 
-from exchange.types import ConnectionTestResult, ConnectionStatus
 from exchange.connection import (
-    test_exchange_connection as _test_exchange_connection,
-    test_exchange_connection_sync,
     SUPPORTED_EXCHANGES,
 )
+from exchange.connection import (
+    test_exchange_connection as _test_exchange_connection,
+)
+from exchange.types import ConnectionStatus, ConnectionTestResult
+
+__all__ = [
+    "SUPPORTED_EXCHANGES",
+    "ConnectionStatus",
+    "ConnectionTestResult",
+    "ExchangeConnectionService",
+    "exchange_connection_service",
+]  # RUF022: isort-style sorting (uppercase before lowercase)
 
 warnings.warn(
-    "collector.services.exchange_connection_service 已废弃，"
-    "请使用 from exchange import test_exchange_connection 替代",
+    "collector.services.exchange_connection_service 已废弃，请使用 from exchange import test_exchange_connection 替代",
     DeprecationWarning,
-    stacklevel=2
+    stacklevel=2,
 )
 
 
 class ExchangeConnectionService:
     """向后兼容的连通性测试服务类"""
-    
+
     SUPPORTED_EXCHANGES = SUPPORTED_EXCHANGES
-    
+
     async def test_connection(
         self,
         exchange_name: str,
-        api_key: Optional[str] = None,
-        secret_key: Optional[str] = None,
-        api_passphrase: Optional[str] = None,
-        proxy_url: Optional[str] = None,
+        api_key: str | None = None,
+        secret_key: str | None = None,
+        api_passphrase: str | None = None,
+        proxy_url: str | None = None,
         trading_mode: str = "spot",
         testnet: bool = False,
     ) -> ConnectionTestResult:

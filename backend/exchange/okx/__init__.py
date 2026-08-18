@@ -12,10 +12,10 @@ OKX交易所模块
 日期: 2026-02-12
 """
 
-from .exchange import OkxExchange
 from .downloader import OKXDownloader
+from .exchange import OkxExchange
 
 __all__ = [
-    "OkxExchange",
     "OKXDownloader",
+    "OkxExchange",
 ]

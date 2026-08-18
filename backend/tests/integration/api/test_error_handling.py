@@ -1,9 +1,11 @@
 # 错误处理测试
 # 测试API的各种HTTP错误码和异常场景
 
-import pytest
-from fastapi.testclient import TestClient
-from typing import Dict, Any
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 
 class TestHTTPStatusCodes:
@@ -11,23 +13,17 @@ class TestHTTPStatusCodes:
 
     def test_200_ok_success(self, client: TestClient, mocker):
         """测试200成功响应"""
-        mocker.patch(
-            "strategy.service.StrategyService.get_strategy_list",
-            return_value=[]
-        )
+        mocker.patch("strategy.service.StrategyService.get_strategy_list", return_value=[])
         response = client.get("/api/strategy/list")
         assert response.status_code == 200
         assert response.json()["code"] == 0
 
     def test_201_created_not_used(self, client: TestClient, mocker):
         """测试201创建成功（当前系统不使用）"""
-        mocker.patch(
-            "strategy.service.StrategyService.upload_strategy_file",
-            return_value=True
-        )
+        mocker.patch("strategy.service.StrategyService.upload_strategy_file", return_value=True)
         request_data = {
             "strategy_name": "TestStrategy",
-            "file_content": "class TestStrategy:\n    pass"
+            "file_content": "class TestStrategy:\n    pass",
         }
         response = client.post("/api/strategy/upload", json=request_data)
         assert response.status_code == 200
@@ -48,14 +44,14 @@ class TestHTTPStatusCodes:
         data = response.json()
         assert "未提供认证令牌" in str(data.get("detail", {}).get("reason", ""))
 
-    def test_401_unauthorized_expired_token(self, client: TestClient, expired_auth_headers: Dict[str, str]):
+    def test_401_unauthorized_expired_token(self, client: TestClient, expired_auth_headers: dict[str, str]):
         """测试401未授权 - 过期令牌"""
         response = client.delete("/api/strategy/test_strategy", headers=expired_auth_headers)
         assert response.status_code == 401
         data = response.json()
         assert "令牌已过期" in str(data.get("detail", {}).get("reason", ""))
 
-    def test_401_unauthorized_invalid_token(self, client: TestClient, invalid_auth_headers: Dict[str, str]):
+    def test_401_unauthorized_invalid_token(self, client: TestClient, invalid_auth_headers: dict[str, str]):
         """测试401未授权 - 无效令牌"""
         response = client.delete("/api/strategy/test_strategy", headers=invalid_auth_headers)
         assert response.status_code == 401
@@ -82,10 +78,7 @@ class TestHTTPStatusCodes:
 
     def test_422_unprocessable_entity_invalid_type(self, client: TestClient):
         """测试422无法处理 - 无效类型"""
-        request_data = {
-            "strategy_name": "TestStrategy",
-            "file_content": 12345
-        }
+        request_data = {"strategy_name": "TestStrategy", "file_content": 12345}
         response = client.post("/api/strategy/upload", json=request_data)
         assert response.status_code == 422
 
@@ -93,7 +86,7 @@ class TestHTTPStatusCodes:
         """测试500内部服务器错误"""
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_list",
-            side_effect=Exception("Database connection failed")
+            side_effect=Exception("Database connection failed"),
         )
         response = client.get("/api/strategy/list")
         assert response.status_code == 500
@@ -106,7 +99,7 @@ class TestExceptionHandling:
         """测试服务层异常处理"""
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_detail",
-            side_effect=ValueError("Strategy not found")
+            side_effect=ValueError("Strategy not found"),
         )
         response = client.post("/api/strategy/detail", json={"strategy_name": "nonexistent"})
         assert response.status_code == 500
@@ -115,7 +108,7 @@ class TestExceptionHandling:
         """测试数据库异常处理"""
         mocker.patch(
             "settings.routes.SystemConfig.get_all_with_details",
-            side_effect=Exception("Database connection lost")
+            side_effect=Exception("Database connection lost"),
         )
         response = client.get("/api/config/")
         assert response.status_code == 500
@@ -125,7 +118,7 @@ class TestExceptionHandling:
         request_data = {
             "symbols": "not_a_list",
             "start_time": "2023-01-01",
-            "end_time": "2023-12-31"
+            "end_time": "2023-12-31",
         }
         response = client.post("/api/backtest/run", json=request_data)
         assert response.status_code == 422
@@ -133,26 +126,28 @@ class TestExceptionHandling:
     def test_timeout_exception_handling(self, client: TestClient, mocker):
         """测试超时异常处理"""
         import asyncio
+
         async def slow_operation():
             await asyncio.sleep(10)
             return {}
 
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_list",
-            side_effect=asyncio.TimeoutError("Operation timed out")
+            side_effect=TimeoutError("Operation timed out"),
         )
         response = client.get("/api/strategy/list")
         assert response.status_code == 500
 
     def test_key_error_handling(self, client: TestClient, mocker):
         """测试KeyError处理"""
+
         def raise_key_error():
             data = {}
             return data["nonexistent_key"]
 
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_list",
-            side_effect=raise_key_error
+            side_effect=raise_key_error,
         )
         response = client.get("/api/strategy/list")
         assert response.status_code == 500
@@ -161,7 +156,7 @@ class TestExceptionHandling:
         """测试TypeError处理"""
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_list",
-            side_effect=TypeError("Invalid type")
+            side_effect=TypeError("Invalid type"),
         )
         response = client.get("/api/strategy/list")
         assert response.status_code == 500
@@ -170,7 +165,7 @@ class TestExceptionHandling:
         """测试AttributeError处理"""
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_list",
-            side_effect=AttributeError("Object has no attribute")
+            side_effect=AttributeError("Object has no attribute"),
         )
         response = client.get("/api/strategy/list")
         assert response.status_code == 500
@@ -199,7 +194,7 @@ class TestErrorResponseFormat:
         """测试服务器错误响应格式"""
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_list",
-            side_effect=Exception("Test error")
+            side_effect=Exception("Test error"),
         )
         response = client.get("/api/strategy/list")
         assert response.status_code == 500
@@ -211,7 +206,7 @@ class TestErrorResponseFormat:
         error_message = "Custom error message"
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_list",
-            side_effect=Exception(error_message)
+            side_effect=Exception(error_message),
         )
         response = client.get("/api/strategy/list")
         assert response.status_code == 500
@@ -224,22 +219,16 @@ class TestBusinessErrorHandling:
 
     def test_strategy_not_found_error(self, client: TestClient, mocker):
         """测试策略不存在错误"""
-        mocker.patch(
-            "strategy.service.StrategyService.get_strategy_detail",
-            return_value=None
-        )
+        mocker.patch("strategy.service.StrategyService.get_strategy_detail", return_value=None)
         response = client.post("/api/strategy/detail", json={"strategy_name": "nonexistent_strategy"})
         assert response.status_code == 404
 
     def test_strategy_already_exists_error(self, client: TestClient, mocker):
         """测试策略已存在错误"""
-        mocker.patch(
-            "strategy.service.StrategyService.upload_strategy_file",
-            return_value=True
-        )
+        mocker.patch("strategy.service.StrategyService.upload_strategy_file", return_value=True)
         request_data = {
             "strategy_name": "existing_strategy",
-            "file_content": "class ExistingStrategy:\n    pass"
+            "file_content": "class ExistingStrategy:\n    pass",
         }
         response = client.post("/api/strategy/upload", json=request_data)
         assert response.status_code == 200
@@ -253,18 +242,15 @@ class TestBusinessErrorHandling:
 
     def test_invalid_strategy_execution_error(self, client: TestClient, mocker):
         """测试无效策略执行错误 - 使用策略执行路由"""
-        mocker.patch(
-            "strategy.service.StrategyService.load_strategy",
-            return_value=None
-        )
+        mocker.patch("strategy.service.StrategyService.load_strategy", return_value=None)
         request_data = {
             "mode": "backtest",
             "params": {},
             "backtest_config": {
                 "start_date": "2023-01-01",
                 "end_date": "2023-12-31",
-                "initial_capital": 100000.0
-            }
+                "initial_capital": 100000.0,
+            },
         }
         response = client.post("/api/strategy/invalid_strategy/execute", json=request_data)
         # 策略不存在时返回404
@@ -272,10 +258,7 @@ class TestBusinessErrorHandling:
 
     def test_config_not_found_error(self, client: TestClient, mocker):
         """测试配置不存在错误"""
-        mocker.patch(
-            "settings.routes.SystemConfig.get_with_details",
-            return_value=None
-        )
+        mocker.patch("settings.routes.SystemConfig.get_with_details", return_value=None)
         response = client.get("/api/config/nonexistent_key")
         assert response.status_code == 200
         data = response.json()
@@ -300,20 +283,17 @@ class TestEdgeCaseErrorHandling:
         response = client.post(
             "/api/backtest/run",
             data="not valid json",  # pyright: ignore[reportArgumentType]
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 422
 
     def test_extra_fields_in_request(self, client: TestClient, mocker):
         """测试请求中的额外字段"""
-        mocker.patch(
-            "strategy.service.StrategyService.upload_strategy_file",
-            return_value=True
-        )
+        mocker.patch("strategy.service.StrategyService.upload_strategy_file", return_value=True)
         request_data = {
             "strategy_name": "TestStrategy",
             "file_content": "class TestStrategy:\n    pass",
-            "extra_field": "extra_value"
+            "extra_field": "extra_value",
         }
         response = client.post("/api/strategy/upload", json=request_data)
         assert response.status_code == 200
@@ -322,7 +302,7 @@ class TestEdgeCaseErrorHandling:
         """测试缺少Content-Type"""
         response = client.post(
             "/api/backtest/run",
-            data='{"strategy_config": {}}'  # pyright: ignore[reportArgumentType]
+            data='{"strategy_config": {}}',  # pyright: ignore[reportArgumentType]
         )
         assert response.status_code == 422
 
@@ -331,7 +311,7 @@ class TestEdgeCaseErrorHandling:
         response = client.post(
             "/api/backtest/run",
             data='{"strategy_config": {}}',  # pyright: ignore[reportArgumentType]
-            headers={"Content-Type": "text/plain"}
+            headers={"Content-Type": "text/plain"},
         )
         assert response.status_code == 422
 
@@ -343,10 +323,7 @@ class TestConcurrentErrorHandling:
         """测试并发请求处理"""
         import concurrent.futures
 
-        mocker.patch(
-            "strategy.service.StrategyService.get_strategy_list",
-            return_value=[]
-        )
+        mocker.patch("strategy.service.StrategyService.get_strategy_list", return_value=[])
 
         def make_request():
             return client.get("/api/strategy/list")
@@ -366,12 +343,13 @@ class TestConcurrentErrorHandling:
             nonlocal call_count
             call_count += 1
             if call_count % 2 == 0:
-                raise Exception("Race condition")
+                msg = "Race condition"
+                raise Exception(msg)
             return []
 
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_list",
-            side_effect=side_effect
+            side_effect=side_effect,
         )
 
         import concurrent.futures
@@ -396,7 +374,7 @@ class TestErrorLogging:
         """测试异常时的错误日志"""
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_list",
-            side_effect=Exception("Test exception for logging")
+            side_effect=Exception("Test exception for logging"),
         )
 
         response = client.get("/api/strategy/list")
@@ -415,12 +393,13 @@ class TestRecoveryFromErrors:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                raise Exception("Temporary error")
+                msg = "Temporary error"
+                raise Exception(msg)
             return []
 
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_list",
-            side_effect=side_effect
+            side_effect=side_effect,
         )
 
         response1 = client.get("/api/strategy/list")
@@ -435,8 +414,8 @@ class TestRecoveryFromErrors:
             "backtest.routes.backtest_service.get_result_list",
             return_value=[
                 {"id": "bt1", "status": "completed"},
-                {"id": "bt2", "status": "failed"}
-            ]
+                {"id": "bt2", "status": "failed"},
+            ],
         )
         response = client.get("/api/backtest/list")
         assert response.status_code == 200
@@ -449,10 +428,7 @@ class TestSecurityErrorHandling:
 
     def test_sql_injection_attempt(self, client: TestClient, mocker):
         """测试SQL注入尝试处理"""
-        mocker.patch(
-            "strategy.service.StrategyService.get_strategy_detail",
-            return_value=None
-        )
+        mocker.patch("strategy.service.StrategyService.get_strategy_detail", return_value=None)
         malicious_input = "'; DROP TABLE strategies; --"
         response = client.post("/api/strategy/detail", json={"strategy_name": malicious_input})
         # 策略不存在时返回404
@@ -460,24 +436,15 @@ class TestSecurityErrorHandling:
 
     def test_xss_attempt_in_request(self, client: TestClient, mocker):
         """测试XSS尝试处理"""
-        mocker.patch(
-            "strategy.service.StrategyService.upload_strategy_file",
-            return_value=True
-        )
+        mocker.patch("strategy.service.StrategyService.upload_strategy_file", return_value=True)
         xss_payload = "<script>alert('xss')</script>"
-        request_data = {
-            "strategy_name": xss_payload,
-            "file_content": xss_payload
-        }
+        request_data = {"strategy_name": xss_payload, "file_content": xss_payload}
         response = client.post("/api/strategy/upload", json=request_data)
         assert response.status_code == 200
 
     def test_path_traversal_attempt(self, client: TestClient, mocker):
         """测试路径遍历尝试处理"""
-        mocker.patch(
-            "strategy.service.StrategyService.get_strategy_detail",
-            return_value=None
-        )
+        mocker.patch("strategy.service.StrategyService.get_strategy_detail", return_value=None)
         path_traversal = "../../../etc/passwd"
         response = client.post("/api/strategy/detail", json={"strategy_name": path_traversal})
         # 策略不存在时返回404
@@ -485,10 +452,7 @@ class TestSecurityErrorHandling:
 
     def test_command_injection_attempt(self, client: TestClient, mocker):
         """测试命令注入尝试处理"""
-        mocker.patch(
-            "strategy.service.StrategyService.get_strategy_detail",
-            return_value=None
-        )
+        mocker.patch("strategy.service.StrategyService.get_strategy_detail", return_value=None)
         command_injection = "; cat /etc/passwd;"
         response = client.post("/api/strategy/detail", json={"strategy_name": command_injection})
         # 策略不存在时返回404
@@ -502,17 +466,16 @@ class TestNetworkErrorHandling:
         """测试连接错误模拟"""
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_list",
-            side_effect=ConnectionError("Connection refused")
+            side_effect=ConnectionError("Connection refused"),
         )
         response = client.get("/api/strategy/list")
         assert response.status_code == 500
 
     def test_timeout_error_simulation(self, client: TestClient, mocker):
         """测试超时错误模拟"""
-        import socket
         mocker.patch(
             "strategy.service.StrategyService.get_strategy_list",
-            side_effect=socket.timeout("Connection timed out")
+            side_effect=TimeoutError("Connection timed out"),
         )
         response = client.get("/api/strategy/list")
         assert response.status_code == 500

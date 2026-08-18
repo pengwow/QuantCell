@@ -1,31 +1,30 @@
-# -*- coding: utf-8 -*-
 """策略模块API路由
 
 路由前缀: /api/strategy
 """
 
 import re
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Path, Request
-from utils.logger import get_logger, LogType
+
 from common.schemas import ApiResponse
 from utils.auth import jwt_auth_required_sync
+from utils.logger import LogType, get_logger
 
 from .schemas import (
-    StrategyListResponse,
-    StrategyUploadRequest,
-    StrategyUploadResponse,
     StrategyDetailRequest,
     StrategyGenerateRequest,
     StrategyGenerateResponse,
     StrategyListData,
+    StrategyListResponse,
+    StrategyUploadRequest,
+    StrategyUploadResponse,
 )
 from .service import StrategyService
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-_strategy_service: Optional[StrategyService] = None
+_strategy_service: StrategyService | None = None
 
 # ponytail: 策略名只允许字母、数字、下划线、连字符
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$", re.ASCII)
@@ -84,7 +83,7 @@ def get_strategy_detail(request: StrategyDetailRequest) -> ApiResponse:
 def upload_strategy(request: Request, strategy_request: StrategyUploadRequest) -> StrategyUploadResponse:
     _validate_strategy_name(strategy_request.strategy_name)
     try:
-        info = get_strategy_service().save_strategy(
+        get_strategy_service().save_strategy(
             strategy_request.strategy_name,
             strategy_request.file_content,
         )
@@ -104,9 +103,7 @@ def parse_strategy(request: StrategyDetailRequest) -> ApiResponse:
     if not request.file_content or not request.file_content.strip():
         raise HTTPException(status_code=400, detail="文件内容不能为空")
     try:
-        info = get_strategy_service()._parse_strategy_file(
-            request.strategy_name, request.file_content
-        )
+        info = get_strategy_service()._parse_strategy_file(request.strategy_name, request.file_content)
         if not info:
             raise HTTPException(status_code=400, detail="解析策略脚本失败")
         return ApiResponse(code=0, message="策略脚本解析成功", data=info)

@@ -10,13 +10,13 @@ Agent 工具参数配置管理模块
 - get_tool_template / get_all_tools: 模板查询接口
 """
 
-from agent.config.tool_params import ToolParamResolver
 from agent.config.manager import ToolParamManager
-from agent.config.templates import get_tool_template, get_all_tools
+from agent.config.templates import get_all_tools, get_tool_template
+from agent.config.tool_params import ToolParamResolver
 
 __all__ = [
-    "ToolParamResolver",
     "ToolParamManager",
-    "get_tool_template",
+    "ToolParamResolver",
     "get_all_tools",
+    "get_tool_template",
 ]

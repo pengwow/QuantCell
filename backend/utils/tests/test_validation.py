@@ -1,21 +1,22 @@
-# -*- coding: utf-8 -*-
 """
 Tests for validation module
 """
 
-import pytest
 from datetime import datetime
+
+import pytest
+
 from backend.utils.validation import (
-    validate_time_range,
-    parse_time_range,
-    validate_symbols,
-    parse_symbols,
-    validate_timeframes,
-    parse_timeframes,
-    validate_trading_mode,
-    get_default_values,
     VALID_TIMEFRAMES,
-    VALID_TRADING_MODES
+    VALID_TRADING_MODES,
+    get_default_values,
+    parse_symbols,
+    parse_time_range,
+    parse_timeframes,
+    validate_symbols,
+    validate_time_range,
+    validate_timeframes,
+    validate_trading_mode,
 )
 
 
@@ -127,7 +128,11 @@ class TestParseSymbols:
     def test_multiple_symbols(self):
         """Test multiple symbols"""
         assert parse_symbols("BTCUSDT,ETHUSDT") == ["BTCUSDT", "ETHUSDT"]
-        assert parse_symbols("BTCUSDT, ETHUSDT, SOLUSDT") == ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+        assert parse_symbols("BTCUSDT, ETHUSDT, SOLUSDT") == [
+            "BTCUSDT",
+            "ETHUSDT",
+            "SOLUSDT",
+        ]
 
     def test_symbols_with_empty_string(self):
         """Test symbols with empty strings"""

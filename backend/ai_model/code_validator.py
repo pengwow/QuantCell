@@ -6,15 +6,17 @@
 
 import ast
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 
 # 导入统一的AST解析工具
 from utils.strategy_ast_parser import StrategyASTParser
+
+
 @dataclass
 class ValidationError:
     """验证错误信息"""
@@ -24,7 +26,7 @@ class ValidationError:
     column: int
     message: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": self.type,
             "line": self.line,
@@ -42,7 +44,7 @@ class ValidationWarning:
     column: int
     message: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": self.type,
             "line": self.line,
@@ -73,7 +75,7 @@ class CodeValidator:
         self,
         max_line_length: int = DEFAULT_MAX_LINE_LENGTH,
         required_class_name: str = DEFAULT_REQUIRED_CLASS_NAME,
-        required_methods: Optional[List[str]] = None,
+        required_methods: list[str] | None = None,
     ):
         """初始化代码验证器
 
@@ -85,7 +87,7 @@ class CodeValidator:
         self.max_line_length = max_line_length
         self.required_class_name = required_class_name
         self.required_methods = (required_methods or self.DEFAULT_REQUIRED_METHODS).copy()
-        
+
         # 创建AST解析器实例
         self.ast_parser = StrategyASTParser()
 
@@ -94,7 +96,7 @@ class CodeValidator:
             f"必需类名: {required_class_name}, 必需方法: {self.required_methods}"
         )
 
-    def validate_syntax(self, code: str) -> Tuple[List[ValidationError], List[ValidationWarning]]:
+    def validate_syntax(self, code: str) -> tuple[list[ValidationError], list[ValidationWarning]]:
         """验证Python语法
 
         使用ast模块解析代码，检查语法正确性。
@@ -105,8 +107,8 @@ class CodeValidator:
         Returns:
             Tuple包含错误列表和警告列表
         """
-        errors: List[ValidationError] = []
-        warnings: List[ValidationWarning] = []
+        errors: list[ValidationError] = []
+        warnings: list[ValidationWarning] = []
 
         if not code or not code.strip():
             errors.append(
@@ -149,14 +151,14 @@ class CodeValidator:
                     type="parse_error",
                     line=0,
                     column=0,
-                    message=f"解析错误: {str(e)}",
+                    message=f"解析错误: {e!s}",
                 )
             )
-            logger.debug(f"解析错误: {str(e)}")
+            logger.debug(f"解析错误: {e!s}")
 
         return errors, warnings
 
-    def validate_structure(self, code: str) -> Tuple[List[ValidationError], List[ValidationWarning]]:
+    def validate_structure(self, code: str) -> tuple[list[ValidationError], list[ValidationWarning]]:
         """验证代码结构
 
         使用统一的AST解析工具检查代码是否包含必需的类和方法。
@@ -167,8 +169,8 @@ class CodeValidator:
         Returns:
             Tuple包含错误列表和警告列表
         """
-        errors: List[ValidationError] = []
-        warnings: List[ValidationWarning] = []
+        errors: list[ValidationError] = []
+        warnings: list[ValidationWarning] = []
 
         if not code or not code.strip():
             errors.append(
@@ -214,9 +216,7 @@ class CodeValidator:
         else:
             # 检查必需方法
             for strategy_class_info in strategy_classes:
-                method_names: Set[str] = set(
-                    self.ast_parser.find_class_methods(strategy_class_info.class_node)
-                )
+                method_names: set[str] = set(self.ast_parser.find_class_methods(strategy_class_info.class_node))
 
                 for required_method in self.required_methods:
                     if required_method not in method_names:
@@ -243,7 +243,7 @@ class CodeValidator:
 
         return errors, warnings
 
-    def validate_style(self, code: str) -> Tuple[List[ValidationError], List[ValidationWarning]]:
+    def validate_style(self, code: str) -> tuple[list[ValidationError], list[ValidationWarning]]:
         """验证代码风格
 
         检查代码风格问题，包括行长度、缩进等。
@@ -254,8 +254,8 @@ class CodeValidator:
         Returns:
             Tuple包含错误列表和警告列表
         """
-        errors: List[ValidationError] = []
-        warnings: List[ValidationWarning] = []
+        errors: list[ValidationError] = []
+        warnings: list[ValidationWarning] = []
 
         if not code or not code.strip():
             return errors, warnings
@@ -324,7 +324,7 @@ class CodeValidator:
 
         return errors, warnings
 
-    def validate(self, code: str) -> Dict[str, Any]:
+    def validate(self, code: str) -> dict[str, Any]:
         """综合验证
 
         执行所有验证步骤，返回完整的验证结果。
@@ -339,8 +339,8 @@ class CodeValidator:
                 - warnings: 警告列表
                 - summary: 验证摘要
         """
-        all_errors: List[ValidationError] = []
-        all_warnings: List[ValidationWarning] = []
+        all_errors: list[ValidationError] = []
+        all_warnings: list[ValidationWarning] = []
 
         logger.debug("开始代码验证")
 
@@ -372,13 +372,11 @@ class CodeValidator:
             },
         }
 
-        logger.debug(
-            f"验证完成: {len(all_errors)}个错误, {len(all_warnings)}个警告"
-        )
+        logger.debug(f"验证完成: {len(all_errors)}个错误, {len(all_warnings)}个警告")
 
         return result
 
-    def validate_strategy_code(self, code: str) -> Dict[str, Any]:
+    def validate_strategy_code(self, code: str) -> dict[str, Any]:
         """专门验证策略代码
 
         使用统一的AST解析工具进行策略代码的特定验证。
@@ -406,18 +404,17 @@ class CodeValidator:
                     "backtrader",
                     "Strategy",
                 ]
-                has_strategy_import = any(
-                    any(s in imp for s in strategy_imports)
-                    for imp in imports
-                )
+                has_strategy_import = any(any(s in imp for s in strategy_imports) for imp in imports)
 
                 if not has_strategy_import:
-                    result["warnings"].append({
-                        "type": "strategy_warning",
-                        "line": 0,
-                        "column": 0,
-                        "message": "未检测到策略框架导入，建议导入strategy.core或其他策略框架",
-                    })
+                    result["warnings"].append(
+                        {
+                            "type": "strategy_warning",
+                            "line": 0,
+                            "column": 0,
+                            "message": "未检测到策略框架导入，建议导入strategy.core或其他策略框架",
+                        }
+                    )
                     result["summary"]["total_warnings"] += 1
 
         return result

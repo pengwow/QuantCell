@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 装饰器工具模块
 
@@ -23,10 +22,12 @@ import asyncio
 import time
 from functools import wraps
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
 def deco_retry(max_retry: int = 3, delay: float = 1.0):
     """
     重试装饰器，用于处理网络请求等可能失败的操作
@@ -35,6 +36,7 @@ def deco_retry(max_retry: int = 3, delay: float = 1.0):
     :param delay: 重试间隔时间（秒）
     :return: 装饰后的函数
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -42,12 +44,14 @@ def deco_retry(max_retry: int = 3, delay: float = 1.0):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
-                    logger.warning(f"函数 {func.__name__} 执行失败，第 {i+1}/{max_retry} 次重试: {e}")
+                    logger.warning(f"函数 {func.__name__} 执行失败，第 {i + 1}/{max_retry} 次重试: {e}")
                     if i < max_retry - 1:
                         time.sleep(delay)
                     else:
                         raise
+
         return wrapper
+
     return decorator
 
 
@@ -59,6 +63,7 @@ def async_deco_retry(max_retry: int = 3, delay: float = 1.0):
     :param delay: 重试间隔时间（秒）
     :return: 装饰后的异步函数
     """
+
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -66,10 +71,12 @@ def async_deco_retry(max_retry: int = 3, delay: float = 1.0):
                 try:
                     return await func(*args, **kwargs)
                 except Exception as e:
-                    logger.warning(f"异步函数 {func.__name__} 执行失败，第 {i+1}/{max_retry} 次重试: {e}")
+                    logger.warning(f"异步函数 {func.__name__} 执行失败，第 {i + 1}/{max_retry} 次重试: {e}")
                     if i < max_retry - 1:
                         await asyncio.sleep(delay)
                     else:
                         raise
+
         return wrapper
+
     return decorator

@@ -30,19 +30,20 @@
 import json
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from common.schemas import ApiResponse
 from utils.auth import jwt_auth_required
 
-from .prompts import PromptCategory
 from .config_utils import get_default_provider_and_models
+from .prompts import PromptCategory
 from .schemas_strategy import (
     CodeValidationRequest,
     CodeValidationResponse,
@@ -64,10 +65,12 @@ from .strategy_generator import (
     StrategyGenerator,
 )
 from .thinking_chain import ThinkingChainManager
-from .thinking_chain_schemas import (
-    ThinkingChainCreate,
-    ThinkingChainUpdate,
-)
+
+if TYPE_CHECKING:
+    from .thinking_chain_schemas import (
+        ThinkingChainCreate,
+        ThinkingChainUpdate,
+    )
 
 # 创建策略生成API路由
 router = APIRouter(prefix="/api/ai-models/strategy", tags=["ai-strategy-generation"])
@@ -76,7 +79,7 @@ router = APIRouter(prefix="/api/ai-models/strategy", tags=["ai-strategy-generati
 AI_MODELS_CONFIG_NAME = "ai_models"
 
 
-def get_default_ai_config() -> Optional[Dict[str, Any]]:
+def get_default_ai_config() -> dict[str, Any] | None:
     """获取默认AI模型配置
 
     从系统配置中读取AI模型配置，包括默认提供商、API密钥、主机地址和模型列表。
@@ -104,17 +107,14 @@ def get_default_ai_config() -> Optional[Dict[str, Any]]:
         "default_provider": result["provider"]["id"],
         "api_key": result["provider"]["api_key"],
         "api_host": result["provider"]["api_host"],
-        "models": [
-            {"id": m["id"], "name": m["name"], "is_enabled": True}
-            for m in result["enabled_models"]
-        ],
+        "models": [{"id": m["id"], "name": m["name"], "is_enabled": True} for m in result["enabled_models"]],
     }
 
 
 def create_strategy_generator(
-    model_id: Optional[str] = None,
-    model_name: Optional[str] = None,
-    temperature: Optional[float] = None,
+    model_id: str | None = None,
+    model_name: str | None = None,
+    temperature: float | None = None,
 ) -> StrategyGenerator:
     """创建策略生成器实例
 
@@ -738,28 +738,28 @@ async def validate_strategy_code(request: Request, validate_request: StrategyVal
 
 # 内存存储用于演示，实际项目中应使用数据库
 # 策略历史记录存储
-_strategy_history_db: Dict[str, Dict[str, Any]] = {}
+_strategy_history_db: dict[str, dict[str, Any]] = {}
 # 策略模板存储
-_strategy_templates_db: Dict[str, Dict[str, Any]] = {
+_strategy_templates_db: dict[str, dict[str, Any]] = {
     "tpl_001": {
         "id": "tpl_001",
         "name": "双均线策略模板",
         "description": "基于双均线的趋势跟踪策略模板",
         "category": "trend_following",
-        "code_template": '''class {{strategy_name}}(Strategy):
+        "code_template": """class {{strategy_name}}(Strategy):
     def __init__(self):
         self.fast_period = {{fast_period}}
         self.slow_period = {{slow_period}}
-        
+
     def on_bar(self, bar):
         fast_ma = self.calculate_ma(bar.close, self.fast_period)
         slow_ma = self.calculate_ma(bar.close, self.slow_period)
-        
+
         if fast_ma > slow_ma and not self.position:
             self.buy()
         elif fast_ma < slow_ma and self.position:
             self.sell()
-''',
+""",
         "variables": [
             {"name": "strategy_name", "type": "string", "required": True},
             {"name": "fast_period", "type": "int", "default": 10},
@@ -774,20 +774,20 @@ _strategy_templates_db: Dict[str, Dict[str, Any]] = {
         "name": "RSI超买超卖策略模板",
         "description": "基于RSI指标的超买超卖策略模板",
         "category": "oscillator",
-        "code_template": '''class {{strategy_name}}(Strategy):
+        "code_template": """class {{strategy_name}}(Strategy):
     def __init__(self):
         self.rsi_period = {{rsi_period}}
         self.overbought = {{overbought}}
         self.oversold = {{oversold}}
-        
+
     def on_bar(self, bar):
         rsi = self.calculate_rsi(bar.close, self.rsi_period)
-        
+
         if rsi < self.oversold and not self.position:
             self.buy()
         elif rsi > self.overbought and self.position:
             self.sell()
-''',
+""",
         "variables": [
             {"name": "strategy_name", "type": "string", "required": True},
             {"name": "rsi_period", "type": "int", "default": 14},
@@ -880,10 +880,10 @@ async def get_history_list(
     request: Request,
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
-    status: Optional[str] = Query(None, description="筛选状态: success/failed/pending"),
-    model_id: Optional[str] = Query(None, description="筛选模型ID"),
-    start_date: Optional[datetime] = Query(None, description="开始日期"),
-    end_date: Optional[datetime] = Query(None, description="结束日期"),
+    status: str | None = Query(None, description="筛选状态: success/failed/pending"),
+    model_id: str | None = Query(None, description="筛选模型ID"),
+    start_date: datetime | None = Query(None, description="开始日期"),
+    end_date: datetime | None = Query(None, description="结束日期"),
 ):
     """获取策略生成历史列表
 
@@ -906,10 +906,7 @@ async def get_history_list(
         logger.info(f"获取历史列表，用户: {user_id}, 页码: {page}, 每页: {page_size}")
 
         # 筛选当前用户的历史记录
-        user_history = [
-            h for h in _strategy_history_db.values()
-            if h.get("user_id") == user_id
-        ]
+        user_history = [h for h in _strategy_history_db.values() if h.get("user_id") == user_id]
 
         # 应用筛选条件
         if status:
@@ -1129,8 +1126,8 @@ async def regenerate_from_history(request: Request, history_id: str):
 @jwt_auth_required
 async def get_template_list(
     request: Request,
-    category: Optional[str] = Query(None, description="模板分类筛选"),
-    tag: Optional[str] = Query(None, description="标签筛选"),
+    category: str | None = Query(None, description="模板分类筛选"),
+    tag: str | None = Query(None, description="标签筛选"),
 ):
     """获取策略模板列表
 
@@ -1330,9 +1327,9 @@ async def get_performance_stats(
 
         # 筛选当前用户在日期范围内的历史记录
         user_history = [
-            h for h in _strategy_history_db.values()
-            if h.get("user_id") == user_id
-            and start_date <= h.get("created_at", datetime.min) <= end_date
+            h
+            for h in _strategy_history_db.values()
+            if h.get("user_id") == user_id and start_date <= h.get("created_at", datetime.min) <= end_date
         ]
 
         total = len(user_history)
@@ -1345,7 +1342,7 @@ async def get_performance_stats(
 
         # 计算Token使用量
         total_tokens = 0
-        model_usage: Dict[str, int] = {}
+        model_usage: dict[str, int] = {}
         for h in user_history:
             tokens = h.get("tokens_used", {})
             if tokens and "total_tokens" in tokens:
@@ -1354,7 +1351,7 @@ async def get_performance_stats(
             model_usage[model_id] = model_usage.get(model_id, 0) + 1
 
         # 每日统计
-        daily_stats_map: Dict[str, Dict[str, int]] = {}
+        daily_stats_map: dict[str, dict[str, int]] = {}
         for h in user_history:
             date_str = h.get("created_at", datetime.now()).strftime("%Y-%m-%d")
             if date_str not in daily_stats_map:
@@ -1391,11 +1388,15 @@ async def get_performance_stats(
 
 # ==================== 思维链API端点 ====================
 
+
 @router.get("/thinking-chains/preload", response_model=ApiResponse)
 @jwt_auth_required
 async def preload_thinking_chain(
     request: Request,
-    chain_type: str = Query("strategy_generation", description="思维链类型: strategy_generation/indicator_generation"),
+    chain_type: str = Query(
+        "strategy_generation",
+        description="思维链类型: strategy_generation/indicator_generation",
+    ),
 ):
     """预加载思维链配置
 
@@ -1439,16 +1440,16 @@ async def preload_thinking_chain(
     """
     try:
         logger.info(f"预加载思维链配置, chain_type={chain_type}")
-        
+
         chain = ThinkingChainManager.get_active_chain_by_type(chain_type)
-        
+
         if not chain:
             return ApiResponse(
                 code=1,
                 message=f"未找到类型为 {chain_type} 的激活思维链配置",
                 data=None,
             )
-        
+
         return ApiResponse(
             code=0,
             message="获取成功",
@@ -1457,15 +1458,15 @@ async def preload_thinking_chain(
     except Exception as e:
         error_msg = str(e)
         logger.error(f"预加载思维链失败: {error_msg}")
-        
+
         # 提供更友好的错误信息
         if "no such table" in error_msg.lower():
-            friendly_msg = "数据库表不存在，请先运行初始化脚本: cd backend && uv run python scripts/init_ai_model.py"
+            friendly_msg = "数据库表不存在，请先运行数据库迁移: cd backend && uv run python -m cli.migrate -y"
         elif "operationalerror" in error_msg.lower():
             friendly_msg = "数据库操作错误，请检查数据库配置或运行初始化脚本"
         else:
             friendly_msg = f"系统错误: {error_msg}"
-        
+
         return ApiResponse(
             code=500,
             message=friendly_msg,
@@ -1477,8 +1478,8 @@ async def preload_thinking_chain(
 @jwt_auth_required
 async def get_thinking_chains(
     request: Request,
-    chain_type: Optional[str] = Query(None, description="思维链类型筛选: strategy_generation/indicator_generation"),
-    is_active: Optional[bool] = Query(None, description="按激活状态筛选"),
+    chain_type: str | None = Query(None, description="思维链类型筛选: strategy_generation/indicator_generation"),
+    is_active: bool | None = Query(None, description="按激活状态筛选"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     sort_by: str = Query("created_at", description="排序字段: created_at/updated_at/name/chain_type"),
@@ -1857,7 +1858,7 @@ async def import_thinking_chains_from_toml(
         logger.info(f"导入思维链配置，文件: {filename}, 更新已有: {update_existing}")
 
         # 验证文件类型
-        if not filename.endswith('.toml'):
+        if not filename.endswith(".toml"):
             return ApiResponse(
                 code=1,
                 message="仅支持TOML格式文件(.toml)",
@@ -1867,7 +1868,7 @@ async def import_thinking_chains_from_toml(
         # 读取文件内容
         content = await file.read()
         try:
-            file_content = content.decode('utf-8')
+            file_content = content.decode("utf-8")
         except UnicodeDecodeError:
             return ApiResponse(
                 code=1,

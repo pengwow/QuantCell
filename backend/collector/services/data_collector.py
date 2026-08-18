@@ -5,21 +5,21 @@
 
 import os
 from pathlib import Path
-from typing import List, Optional
 
 from collector.schemas.data import (
     _ARCHIVE_TYPES,
     _DERIV_TYPES,
     _KLINE_TYPES,
 )
-from exchange.binance.downloader import BinanceDownloader
 from exchange.binance.archive.factory import BinanceArchiveFactory
+from exchange.binance.downloader import BinanceDownloader
 from utils import get_source_data_dir
 
 _DEFAULT_DATA_DIR = str(get_source_data_dir())
 
 
 # —— 工具函数 ——
+
 
 def _candle_type_from_market(market: str) -> str:
     """将 market 映射为 downloader 所需的 candle_type"""
@@ -29,10 +29,16 @@ def _candle_type_from_market(market: str) -> str:
 def _market_type_from_str(market: str):
     """将字符串映射为 MarketType 枚举"""
     from exchange.binance.archive.kinds import MarketType
-    return {"spot": MarketType.SPOT, "um": MarketType.FUTURES_UM, "cm": MarketType.FUTURES_CM}[market]
+
+    return {
+        "spot": MarketType.SPOT,
+        "um": MarketType.FUTURES_UM,
+        "cm": MarketType.FUTURES_CM,
+    }[market]
 
 
 # —— K线采集器（封装现有 BinanceDownloader）——
+
 
 class KlineCollector:
     """K线数据采集器，封装现有 BinanceDownloader 实现"""
@@ -44,10 +50,10 @@ class KlineCollector:
         self,
         data_type: str,
         market: str,
-        symbols: List[str],
-        intervals: List[str],
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        symbols: list[str],
+        intervals: list[str],
+        start: str | None = None,
+        end: str | None = None,
         max_workers: int = 1,
         mode: str = "inc",
     ) -> None:
@@ -69,6 +75,7 @@ class KlineCollector:
 
 # —— 归档数据采集器（桥接 BinanceArchiveFactory）——
 
+
 class ArchiveCollector:
     """归档数据采集器，封装 BinanceArchiveFactory"""
 
@@ -80,10 +87,10 @@ class ArchiveCollector:
         self,
         data_type: str,
         market: str,
-        symbols: List[str],
-        intervals: Optional[List[str]] = None,
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        symbols: list[str],
+        intervals: list[str] | None = None,
+        start: str | None = None,
+        end: str | None = None,
     ) -> None:
         market_type = _market_type_from_str(market)
         interval = intervals[0] if intervals else None
@@ -102,6 +109,7 @@ class ArchiveCollector:
 
 # —— 统一入口 ——
 
+
 class DataCollector:
     """数据采集门面类，根据 data_type 路由到对应的子采集器"""
 
@@ -112,10 +120,10 @@ class DataCollector:
         self,
         data_type: str,
         market: str,
-        symbols: List[str],
-        intervals: Optional[List[str]] = None,
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        symbols: list[str],
+        intervals: list[str] | None = None,
+        start: str | None = None,
+        end: str | None = None,
         max_workers: int = 1,
         mode: str = "inc",
     ) -> None:
@@ -143,6 +151,7 @@ class DataCollector:
             )
         elif data_type in _DERIV_TYPES:
             from collector.services.deriv_collector import DerivCollector
+
             collector = DerivCollector(self.base_dir)
             collector.collect(
                 data_type=data_type,
@@ -152,4 +161,5 @@ class DataCollector:
                 end=end,
             )
         else:
-            raise ValueError(f"未知的数据类型: {data_type}")
+            msg = f"未知的数据类型: {data_type}"
+            raise ValueError(msg)

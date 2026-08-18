@@ -1,18 +1,18 @@
-# -*- coding: utf-8 -*-
 """
 OKX数据下载器和收集器
 
 支持 Parquet 格式本地存储，提供更高的压缩率和查询性能。
 """
+
+import warnings
 from pathlib import Path
-from typing import Optional, Union
 
 import pandas as pd
 import requests
-import warnings
-from utils.logger import get_logger, LogType
-from utils.timestamp_utils import normalize_to_nanoseconds
+
+from utils.logger import LogType, get_logger
 from utils.parquet_utils import append_to_parquet
+from utils.timestamp_utils import normalize_to_nanoseconds
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -24,24 +24,24 @@ from utils.deprecation import deprecated
 class OKXDownloader(BaseCollector):
     """
     OKX数据下载器和收集器
-    
+
     用于从OKX交易所下载K线数据，并提供数据收集功能。
     """
 
     def __init__(
         self,
-        save_dir: Union[str, Path],
-        candle_type='spot',
+        save_dir: str | Path,
+        candle_type="spot",
         start=None,
         end=None,
         interval="1d",
         max_workers=1,
         max_collector_count=2,
         delay=0,
-        check_data_length: Optional[int] = None,
-        limit_nums: Optional[int] = None,
+        check_data_length: int | None = None,
+        limit_nums: int | None = None,
         symbols=None,
-        mode='inc',
+        mode="inc",
     ):
         """
         初始化OKX数据下载器和收集器
@@ -74,7 +74,7 @@ class OKXDownloader(BaseCollector):
 
         self.candle_type = candle_type
         self.symbols = symbols
-        self.base_url = 'https://www.okx.com/api/v5/market'
+        self.base_url = "https://www.okx.com/api/v5/market"
 
     @property
     def _timezone(self):
@@ -96,39 +96,46 @@ class OKXDownloader(BaseCollector):
             end_ts = int(pd.Timestamp(end_date).timestamp() * 1000)
 
             params = {
-                'instId': symbol,
-                'bar': interval,
-                'after': str(start_ts),
-                'before': str(end_ts),
-                'limit': '100'
+                "instId": symbol,
+                "bar": interval,
+                "after": str(start_ts),
+                "before": str(end_ts),
+                "limit": "100",
             }
 
-            response = requests.get(f'{self.base_url}/candles', params=params)
+            response = requests.get(f"{self.base_url}/candles", params=params)
             response.raise_for_status()
 
-            data = response.json()['data']
+            data = response.json()["data"]
 
             if not data:
                 return pd.DataFrame()
 
             df = pd.DataFrame(
                 data,
-                columns=['open_time', 'open', 'high', 'low', 'close', 'volume', 'volume_currency', 'unknown']
+                columns=[
+                    "open_time",
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "volume",
+                    "volume_currency",
+                    "unknown",
+                ],
             )
 
-            df['open_time'] = pd.to_numeric(df['open_time'])
-            df['open'] = pd.to_numeric(df['open'])
-            df['high'] = pd.to_numeric(df['high'])
-            df['low'] = pd.to_numeric(df['low'])
-            df['close'] = pd.to_numeric(df['close'])
-            df['volume'] = pd.to_numeric(df['volume'])
+            df["open_time"] = pd.to_numeric(df["open_time"])
+            df["open"] = pd.to_numeric(df["open"])
+            df["high"] = pd.to_numeric(df["high"])
+            df["low"] = pd.to_numeric(df["low"])
+            df["close"] = pd.to_numeric(df["close"])
+            df["volume"] = pd.to_numeric(df["volume"])
 
-            df = df.sort_values('open_time')
+            df = df.sort_values("open_time")
 
             # 统一转换为纳秒级时间戳 (OKX返回的是毫秒级)
-            df['open_time'] = df['open_time'].apply(
-                lambda x: normalize_to_nanoseconds(x, input_precision='ms')
-            )
+            df["open_time"] = df["open_time"].apply(lambda x: normalize_to_nanoseconds(x, input_precision="ms"))
 
             return df
 
@@ -146,8 +153,8 @@ class OKXDownloader(BaseCollector):
         try:
             save_path = Path(save_path)
             # 自动转换为 .parquet 后缀
-            if save_path.suffix == '.csv':
-                save_path = save_path.with_suffix('.parquet')
+            if save_path.suffix == ".csv":
+                save_path = save_path.with_suffix(".parquet")
 
             # 使用 append_to_parquet 支持增量更新
             success = append_to_parquet(df, save_path)
@@ -166,15 +173,15 @@ class OKXDownloader(BaseCollector):
         # 使用 .parquet 后缀
         instrument_path = self.save_dir.joinpath(f"{normalized_symbol}.parquet")
 
-        existing_timestamps = pd.Series([], dtype='int64')
-        if self.mode == 'inc' and instrument_path.exists():
+        existing_timestamps = pd.Series([], dtype="int64")
+        if self.mode == "inc" and instrument_path.exists():
             try:
                 _old_df = pd.read_parquet(instrument_path)
                 if not _old_df.empty:
-                    if 'date' in _old_df.columns and 'timestamp' not in _old_df.columns:
-                        _old_df = _old_df.rename(columns={'date': 'timestamp'})
-                    _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
-                    existing_timestamps = _old_df['timestamp'].dropna()
+                    if "date" in _old_df.columns and "timestamp" not in _old_df.columns:
+                        _old_df = _old_df.rename(columns={"date": "timestamp"})
+                    _old_df["timestamp"] = pd.to_numeric(_old_df["timestamp"], errors="coerce")
+                    existing_timestamps = _old_df["timestamp"].dropna()
                     logger.info(f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_timestamps)} 条有效记录")
             except Exception as e:
                 logger.error(f"[增量模式] 读取 {symbol} 历史数据失败: {e}")
@@ -188,8 +195,14 @@ class OKXDownloader(BaseCollector):
 
         all_df = pd.DataFrame()
         for i, (range_start, range_end) in enumerate(missing_ranges):
-            logger.info(f"[增量模式] {symbol} 缺失数据范围 {i+1}/{len(missing_ranges)}: {range_start} 至 {range_end}")
-            df = self.download(symbol, self.interval, range_start.strftime("%Y-%m-%d"), range_end.strftime("%Y-%m-%d"), progress_callback)
+            logger.info(f"[增量模式] {symbol} 缺失数据范围 {i + 1}/{len(missing_ranges)}: {range_start} 至 {range_end}")
+            df = self.download(
+                symbol,
+                self.interval,
+                range_start.strftime("%Y-%m-%d"),
+                range_end.strftime("%Y-%m-%d"),
+                progress_callback,
+            )
             if df is not None and not df.empty:
                 all_df = pd.concat([all_df, df], ignore_index=True)
 
@@ -220,25 +233,25 @@ class OKXDownloader(BaseCollector):
         df["symbol"] = symbol
 
         # 统一列名：确保存在 timestamp 列（兼容 date 列名）
-        if 'date' in df.columns and 'timestamp' not in df.columns:
-            df = df.rename(columns={'date': 'timestamp'})
-        if 'timestamp' not in df.columns:
+        if "date" in df.columns and "timestamp" not in df.columns:
+            df = df.rename(columns={"date": "timestamp"})
+        if "timestamp" not in df.columns:
             logger.error(f"{symbol} 数据缺少 timestamp/date 列，可用列: {list(df.columns)}")
             return
-        df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
-        df = df.dropna(subset=['timestamp'])
-        df = df.drop_duplicates(subset=['timestamp'], keep='last')
-        df = df.sort_values('timestamp')
+        df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
+        df = df.dropna(subset=["timestamp"])
+        df = df.drop_duplicates(subset=["timestamp"], keep="last")
+        df = df.sort_values("timestamp")
 
-        if self.mode != 'full' and instrument_path.exists():
+        if self.mode != "full" and instrument_path.exists():
             try:
                 _old_df = pd.read_parquet(instrument_path)
-                if 'date' in _old_df.columns and 'timestamp' not in _old_df.columns:
-                    _old_df = _old_df.rename(columns={'date': 'timestamp'})
-                _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
+                if "date" in _old_df.columns and "timestamp" not in _old_df.columns:
+                    _old_df = _old_df.rename(columns={"date": "timestamp"})
+                _old_df["timestamp"] = pd.to_numeric(_old_df["timestamp"], errors="coerce")
                 df = pd.concat([_old_df, df], sort=False)
-                df = df.drop_duplicates(subset=['timestamp'], keep='last')
-                df = df.sort_values('timestamp')
+                df = df.drop_duplicates(subset=["timestamp"], keep="last")
+                df = df.sort_values("timestamp")
             except Exception as e:
                 logger.warning(f"读取现有 parquet 文件失败，将覆盖: {e}")
 
@@ -256,12 +269,12 @@ class OKXDownloader(BaseCollector):
         :return: 交易对列表
         """
         try:
-            if self.candle_type == 'spot':
-                url = 'https://www.okx.com/api/v5/public/instruments'
-                params = {'instType': 'SPOT'}
-            elif self.candle_type == 'futures':
-                url = 'https://www.okx.com/api/v5/public/instruments'
-                params = {'instType': 'SWAP'}
+            if self.candle_type == "spot":
+                url = "https://www.okx.com/api/v5/public/instruments"
+                params = {"instType": "SPOT"}
+            elif self.candle_type == "futures":
+                url = "https://www.okx.com/api/v5/public/instruments"
+                params = {"instType": "SWAP"}
             else:
                 logger.warning(f"暂不支持获取{self.candle_type}类型的交易对列表")
                 return []
@@ -270,7 +283,7 @@ class OKXDownloader(BaseCollector):
             response.raise_for_status()
             data = response.json()
 
-            symbols = [symbol['instId'] for symbol in data['data'] if symbol['state'] == 'live']
+            symbols = [symbol["instId"] for symbol in data["data"] if symbol["state"] == "live"]
             logger.info(f"成功获取{len(symbols)}个{self.candle_type}交易对")
             return symbols
         except Exception as e:
@@ -283,7 +296,7 @@ class OKXDownloader(BaseCollector):
 
         :return: 交易对列表
         """
-        if hasattr(self, 'symbols') and self.symbols:
+        if hasattr(self, "symbols") and self.symbols:
             return self.symbols
 
         return self.get_all_symbols()
@@ -295,10 +308,15 @@ class OKXDownloader(BaseCollector):
         :param symbol: 交易对符号，如'BTC/USDT'或'BTC-USDT'
         :return: 标准化后的交易对符号，如'BTCUSDT'
         """
-        return symbol.replace('/', '').replace('-', '')
+        return symbol.replace("/", "").replace("-", "")
 
     def get_data(
-        self, symbol: str, interval: str, start_datetime: pd.Timestamp, end_datetime: pd.Timestamp, progress_callback=None
+        self,
+        symbol: str,
+        interval: str,
+        start_datetime: pd.Timestamp,
+        end_datetime: pd.Timestamp,
+        progress_callback=None,
     ) -> pd.DataFrame:
         """
         获取指定交易对的K线数据
@@ -310,8 +328,8 @@ class OKXDownloader(BaseCollector):
         :return: K线数据DataFrame
         """
         try:
-            start_date = start_datetime.strftime('%Y-%m-%d')
-            end_date = end_datetime.strftime('%Y-%m-%d')
+            start_date = start_datetime.strftime("%Y-%m-%d")
+            end_date = end_datetime.strftime("%Y-%m-%d")
 
             logger.info(f"开始下载 {symbol} {interval} 数据，时间范围: {start_date} 至 {end_date}")
 
@@ -321,13 +339,13 @@ class OKXDownloader(BaseCollector):
                 logger.warning(f"{symbol} {interval} 数据为空")
                 return df
 
-            df['timestamp'] = df['open_time']
-            df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
-            df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+            df["timestamp"] = df["open_time"]
+            df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+            df.columns = ["timestamp", "open", "high", "low", "close", "volume"]
 
             start_timestamp = int(start_datetime.timestamp() * 1000)
             end_timestamp = int(end_datetime.timestamp() * 1000)
-            df = df[(df['timestamp'] >= start_timestamp) & (df['timestamp'] <= end_timestamp)]
+            df = df[(df["timestamp"] >= start_timestamp) & (df["timestamp"] <= end_timestamp)]
 
             logger.info(f"成功下载 {symbol} {interval} 数据，共 {len(df)} 条")
             return df
@@ -353,14 +371,14 @@ class OKXDownloader(BaseCollector):
             return len(df)
         return 0
 
-    @deprecated("2.1", "3.0", "scripts/data_cli.py export csv/parquet")
+    @deprecated("2.1", "3.0", "cli/data.py export csv/parquet")
     def convert_to_qlib(self, csv_dir, qlib_dir, interval=None):
         """
         将下载的CSV数据转换为QLib格式
 
         .. deprecated:: 2.1
             此功能已弃用，QLib转换不再支持。
-            如需数据格式转换，请使用 scripts/data_cli.py 的导出功能。
+            如需数据格式转换，请使用 cli/data.py 的导出功能。
 
         :param csv_dir: CSV数据目录
         :param qlib_dir: QLib数据保存目录
@@ -368,7 +386,7 @@ class OKXDownloader(BaseCollector):
         :return: False (功能已禁用)
         """
         logger.warning("QLib格式转换功能已移除")
-        logger.info(f"如需数据导出，请使用: python scripts/data_cli.py export csv/parquet ...")
+        logger.info("如需数据导出，请使用: python cli/data.py export csv/parquet ...")
         return False
 
     def collect_data(self, progress_callback=None):
@@ -391,14 +409,19 @@ def _okx_collector_init_warning(self, *args, **kwargs):
     warnings.warn(
         "OKXCollector 类名已弃用（v2.1），请使用 OKXDownloader",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     OKXDownloader.__init__(self, *args, **kwargs)
 
-OKXCollector = type('OKXCollector', (OKXDownloader,), {
-    '__module__': 'exchange.okx.downloader',
-    '__doc__': '.. deprecated:: 2.1\n\n    请使用 :class:`OKXDownloader` 替代',
-    '__init__': _okx_collector_init_warning
-})
 
-__all__ = ["OKXDownloader", "OKXCollector"]
+OKXCollector = type(
+    "OKXCollector",
+    (OKXDownloader,),
+    {
+        "__module__": "exchange.okx.downloader",
+        "__doc__": ".. deprecated:: 2.1\n\n    请使用 :class:`OKXDownloader` 替代",
+        "__init__": _okx_collector_init_warning,
+    },
+)
+
+__all__ = ["OKXCollector", "OKXDownloader"]

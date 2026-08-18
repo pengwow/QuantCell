@@ -2,18 +2,18 @@
 
 按照FastAPI官方文档标准结构，配置SQLAlchemy数据库连接
 """
+
 import os
 from pathlib import Path
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 import datetime
-import pytz
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy.sql import func
 
 # 数据库文件默认路径
 default_db_path = Path(__file__).parent.parent.parent / "data"
@@ -50,11 +50,11 @@ def _import_all_models():
     from sqlalchemy.orm import configure_mappers
 
     modules_to_import = [
-        'strategy.models',
-        'worker.models',
-        'collector.db.models',
-        'indicators.models',
-        'share.models',
+        "strategy.models",
+        "worker.models",
+        "collector.db.models",
+        "indicators.models",
+        "share.models",
     ]
 
     imported_modules = []
@@ -75,6 +75,7 @@ def _import_all_models():
         except Exception as e:
             logger.warning(f"配置 SQLAlchemy mappers 时出现警告: {e}")
 
+
 # 初始化数据库配置
 
 
@@ -82,19 +83,19 @@ def _import_all_models():
 def fix_duckdb_serial_type(conn, cursor, statement, parameters, context, executemany):
     """修复DuckDB不支持SERIAL类型的问题"""
     # 只处理字符串类型的CREATE TABLE语句
-    if isinstance(statement, str) and statement.startswith('CREATE TABLE'):
+    if isinstance(statement, str) and statement.startswith("CREATE TABLE"):
         # 全面替换各种SERIAL相关语法
         fixed_statement = statement
-        
+
         # 替换各种SERIAL变体
         fixed_statement = fixed_statement.replace("SERIAL NOT NULL", "INTEGER NOT NULL")
         fixed_statement = fixed_statement.replace("SERIAL PRIMARY KEY", "INTEGER PRIMARY KEY")
         fixed_statement = fixed_statement.replace("SERIAL UNIQUE", "INTEGER UNIQUE")
         fixed_statement = fixed_statement.replace("SERIAL", "INTEGER")
-        
+
         # 替换SQLite的AUTOINCREMENT语法
         fixed_statement = fixed_statement.replace("AUTOINCREMENT", "")
-        
+
         if fixed_statement != statement:
             logger.debug(f"修复DuckDB SERIAL类型: {statement[:100]}... -> {fixed_statement[:100]}...")
             return fixed_statement, parameters
@@ -121,14 +122,13 @@ def init_database_config():
     # 从环境变量读取数据库类型和文件路径，支持配置文件覆盖
     # 避免调用get_config()，防止循环导入
 
-
     # 优先从环境变量读取配置
     db_type = os.environ.get("DB_TYPE", "sqlite")  # 默认使用sqlite
-    
+
     # 根据数据库类型使用不同的默认文件名
     default_db_filename = f"quantcell_{db_type}.db" if db_type in ["sqlite", "duckdb"] else "quantcell.db"
     db_file = os.environ.get("DB_FILE", str(default_db_path / default_db_filename))
-    
+
     # 构建数据库URL
     if db_type == "sqlite":
         # SQLite数据库URL格式
@@ -139,7 +139,7 @@ def init_database_config():
     else:
         # 默认使用SQLite
         db_url = f"sqlite:///{db_file}"
-    
+
     # 根据数据库类型动态设置connect_args
     connect_args = {}
     if db_type == "sqlite":
@@ -152,47 +152,47 @@ def init_database_config():
             "config": {
                 "enable_external_access": "true",
                 "enable_object_cache": "true",
-            }
+            },
         }
 
     # 创建SQLAlchemy引擎，添加时区支持
-    engine = create_engine(
-        db_url,
-        connect_args=connect_args
-    )
-    
+    engine = create_engine(db_url, connect_args=connect_args)
+
     # 配置SessionLocal的bind参数
     SessionLocal.configure(bind=engine)
-    
+
     # 设置Base.metadata的bind属性，确保所有模型都能正确绑定到引擎
     Base.metadata.bind = engine
-    
+
     # 添加DuckDB特定的事件监听器，修复SERIAL类型问题
     if db_type == "duckdb":
         from sqlalchemy import event
+
         event.listen(engine, "before_cursor_execute", fix_duckdb_serial_type, retval=True)
+
 
 # 添加辅助函数获取带时区的当前时间
 def get_current_time():
     """获取当前时间，带配置的时区
-    
+
     Returns:
         datetime: 当前时间，带配置的时区
     """
     from utils.timezone import get_timezone
+
     return datetime.datetime.now(get_timezone())
+
 
 # 注意：SessionLocal.configure(bind=engine)和Base.metadata.bind的设置
 # 已移动到init_database_config函数内部，确保在engine初始化后执行
 
 
-
 def get_db():
     """获取数据库会话依赖
-    
+
     用于FastAPI路径操作函数中获取数据库会话
     确保会话在使用后正确关闭
-    
+
     Yields:
         Session: SQLAlchemy数据库会话
     """

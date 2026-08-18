@@ -1,7 +1,8 @@
 """新闻CLI单元测试"""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 
 class TestGetNews:
@@ -9,17 +10,17 @@ class TestGetNews:
 
     def test_get_news_no_api_key(self):
         """测试未配置API密钥的情况"""
-        from scripts.news_cli import get_news
+        from cli.news import get_news
 
         with patch.dict("os.environ", {"NEWSAPI_KEY": ""}, clear=False):
             result = get_news("bitcoin")
             assert "未配置" in result
             assert "NEWSAPI_KEY" in result
 
-    @patch("scripts.news_cli.httpx.get")
+    @patch("cli.news.httpx.get")
     def test_get_news_success(self, mock_get):
         """测试成功获取新闻"""
-        from scripts.news_cli import get_news
+        from cli.news import get_news
 
         # 模拟API响应
         mock_response = MagicMock()
@@ -47,10 +48,10 @@ class TestGetNews:
             assert "Bitcoin Price Surges" in result
             assert "CoinDesk" in result
 
-    @patch("scripts.news_cli.httpx.get")
+    @patch("cli.news.httpx.get")
     def test_get_news_empty(self, mock_get):
         """测试空新闻结果"""
-        from scripts.news_cli import get_news
+        from cli.news import get_news
 
         mock_response = MagicMock()
         mock_response.json.return_value = {"articles": []}
@@ -61,10 +62,10 @@ class TestGetNews:
             result = get_news("nonexistent_topic")
             assert "未找到" in result
 
-    @patch("scripts.news_cli.httpx.get")
+    @patch("cli.news.httpx.get")
     def test_get_news_error(self, mock_get):
         """测试异常处理"""
-        from scripts.news_cli import get_news
+        from cli.news import get_news
 
         mock_get.side_effect = Exception("网络错误")
 
@@ -77,10 +78,10 @@ class TestGetNews:
 class TestGetMarketSentiment:
     """测试 get_market_sentiment 函数"""
 
-    @patch("scripts.news_cli.httpx.get")
+    @patch("cli.news.httpx.get")
     def test_get_market_sentiment_success(self, mock_get):
         """测试成功获取市场情绪"""
-        from scripts.news_cli import get_market_sentiment
+        from cli.news import get_market_sentiment
 
         # 模拟API响应
         mock_response = MagicMock()
@@ -100,10 +101,10 @@ class TestGetMarketSentiment:
         assert "65" in result
         assert "Greed" in result
 
-    @patch("scripts.news_cli.httpx.get")
+    @patch("cli.news.httpx.get")
     def test_get_market_sentiment_empty(self, mock_get):
         """测试空市场情绪数据"""
-        from scripts.news_cli import get_market_sentiment
+        from cli.news import get_market_sentiment
 
         mock_response = MagicMock()
         mock_response.json.return_value = {}
@@ -113,10 +114,10 @@ class TestGetMarketSentiment:
         result = get_market_sentiment()
         assert "无法获取" in result
 
-    @patch("scripts.news_cli.httpx.get")
+    @patch("cli.news.httpx.get")
     def test_get_market_sentiment_error(self, mock_get):
         """测试异常处理"""
-        from scripts.news_cli import get_market_sentiment
+        from cli.news import get_market_sentiment
 
         mock_get.side_effect = Exception("API错误")
 

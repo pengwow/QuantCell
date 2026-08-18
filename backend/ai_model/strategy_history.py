@@ -2,24 +2,23 @@
 
 提供策略历史记录的 CRUD 操作和重新生成功能
 """
-import json
-import time
-import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional
 
-from utils.logger import get_logger, LogType
+import json
+import uuid
+from typing import Any
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from sqlalchemy import and_, desc, func, create_engine
+from sqlalchemy import and_, create_engine, desc, func
 from sqlalchemy.orm import Session, sessionmaker
 
 try:
-    from ai_model.strategy_history_models import StrategyHistory, Base
+    from ai_model.strategy_history_models import Base, StrategyHistory
 except ImportError:
     # 用于直接运行测试时
-    from strategy_history_models import StrategyHistory, Base
+    from strategy_history_models import Base, StrategyHistory
 
 
 # 数据库配置
@@ -32,20 +31,21 @@ def _get_engine():
     global _engine
     if _engine is None:
         import os
+
         db_type = os.environ.get("DB_TYPE", "sqlite")
         default_db_path = os.path.join(os.path.dirname(__file__), "..", "data")
         os.makedirs(default_db_path, exist_ok=True)
-        
+
         if db_type == "sqlite":
             db_file = os.environ.get("DB_FILE", os.path.join(default_db_path, "quantcell.db"))
             _engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
         else:
             db_file = os.environ.get("DB_FILE", os.path.join(default_db_path, "quantcell.db"))
             _engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
-        
+
         # 绑定 Base metadata
         Base.metadata.bind = _engine
-    
+
     return _engine
 
 
@@ -77,14 +77,14 @@ class StrategyHistoryManager:
         title: str,
         requirement: str,
         code: str,
-        explanation: Optional[str] = None,
-        model_id: Optional[str] = None,
-        temperature: Optional[float] = None,
-        tokens_used: Optional[Dict[str, Any]] = None,
-        generation_time: Optional[float] = None,
+        explanation: str | None = None,
+        model_id: str | None = None,
+        temperature: float | None = None,
+        tokens_used: dict[str, Any] | None = None,
+        generation_time: float | None = None,
         is_valid: bool = True,
-        tags: Optional[List[str]] = None,
-    ) -> Optional[Dict[str, Any]]:
+        tags: list[str] | None = None,
+    ) -> dict[str, Any] | None:
         """创建策略历史记录
 
         Args:
@@ -133,7 +133,7 @@ class StrategyHistoryManager:
             db.close()
 
     @staticmethod
-    def get_by_id(history_id: str) -> Optional[Dict[str, Any]]:
+    def get_by_id(history_id: str) -> dict[str, Any] | None:
         """根据 ID 获取策略历史记录
 
         Args:
@@ -159,10 +159,10 @@ class StrategyHistoryManager:
         user_id: str,
         page: int = 1,
         page_size: int = 10,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: dict[str, Any] | None = None,
         sort_by: str = "created_at",
         sort_order: str = "desc",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """分页查询用户的策略历史记录
 
         Args:
@@ -215,16 +215,18 @@ class StrategyHistoryManager:
             total = query.count()
 
             # 验证排序字段
-            allowed_sort_fields = ["created_at", "updated_at", "title", "generation_time"]
+            allowed_sort_fields = [
+                "created_at",
+                "updated_at",
+                "title",
+                "generation_time",
+            ]
             if sort_by not in allowed_sort_fields:
                 sort_by = "created_at"
 
             # 应用排序
             sort_column = getattr(StrategyHistory, sort_by)
-            if sort_order == "desc":
-                query = query.order_by(desc(sort_column))
-            else:
-                query = query.order_by(sort_column)
+            query = query.order_by(desc(sort_column)) if sort_order == "desc" else query.order_by(sort_column)
 
             # 应用分页
             offset = (page - 1) * page_size
@@ -280,7 +282,7 @@ class StrategyHistoryManager:
             db.close()
 
     @staticmethod
-    def delete_by_user(user_id: str, history_ids: List[str]) -> Dict[str, Any]:
+    def delete_by_user(user_id: str, history_ids: list[str]) -> dict[str, Any]:
         """批量删除用户的策略历史记录
 
         Args:
@@ -296,12 +298,16 @@ class StrategyHistoryManager:
             failed_count = 0
 
             for history_id in history_ids:
-                history = db.query(StrategyHistory).filter(
-                    and_(
-                        StrategyHistory.id == history_id,
-                        StrategyHistory.user_id == user_id
+                history = (
+                    db.query(StrategyHistory)
+                    .filter(
+                        and_(
+                            StrategyHistory.id == history_id,
+                            StrategyHistory.user_id == user_id,
+                        )
                     )
-                ).first()
+                    .first()
+                )
                 if history:
                     db.delete(history)
                     deleted_count += 1
@@ -329,10 +335,10 @@ class StrategyHistoryManager:
     @staticmethod
     def regenerate(
         history_id: str,
-        new_requirement: Optional[str] = None,
-        new_title: Optional[str] = None,
-        **kwargs
-    ) -> Optional[Dict[str, Any]]:
+        new_requirement: str | None = None,
+        new_title: str | None = None,
+        **kwargs,
+    ) -> dict[str, Any] | None:
         """基于历史记录重新生成策略
 
         基于已有历史记录创建一条新的记录，可以修改需求描述
@@ -390,12 +396,12 @@ class StrategyHistoryManager:
     @staticmethod
     def update(
         history_id: str,
-        title: Optional[str] = None,
-        code: Optional[str] = None,
-        explanation: Optional[str] = None,
-        is_valid: Optional[bool] = None,
-        tags: Optional[List[str]] = None,
-    ) -> Optional[Dict[str, Any]]:
+        title: str | None = None,
+        code: str | None = None,
+        explanation: str | None = None,
+        is_valid: bool | None = None,
+        tags: list[str] | None = None,
+    ) -> dict[str, Any] | None:
         """更新策略历史记录
 
         Args:
@@ -441,7 +447,7 @@ class StrategyHistoryManager:
             db.close()
 
     @staticmethod
-    def get_user_stats(user_id: str) -> Dict[str, Any]:
+    def get_user_stats(user_id: str) -> dict[str, Any]:
         """获取用户的策略历史统计信息
 
         Args:
@@ -453,27 +459,31 @@ class StrategyHistoryManager:
         db = StrategyHistoryManager._get_db()
         try:
             # 总记录数
-            total_count = db.query(func.count(StrategyHistory.id)).filter(
-                StrategyHistory.user_id == user_id
-            ).scalar() or 0
+            total_count = (
+                db.query(func.count(StrategyHistory.id)).filter(StrategyHistory.user_id == user_id).scalar() or 0
+            )
 
             # 有效记录数
-            valid_count = db.query(func.count(StrategyHistory.id)).filter(
-                and_(
-                    StrategyHistory.user_id == user_id,
-                    StrategyHistory.is_valid == True
-                )
-            ).scalar() or 0
+            valid_count = (
+                db.query(func.count(StrategyHistory.id))
+                .filter(and_(StrategyHistory.user_id == user_id, StrategyHistory.is_valid))
+                .scalar()
+                or 0
+            )
 
             # 平均生成时间
-            avg_generation_time = db.query(func.avg(StrategyHistory.generation_time)).filter(
-                StrategyHistory.user_id == user_id
-            ).scalar() or 0
+            avg_generation_time = (
+                db.query(func.avg(StrategyHistory.generation_time)).filter(StrategyHistory.user_id == user_id).scalar()
+                or 0
+            )
 
             # 最近生成时间
-            latest = db.query(StrategyHistory).filter(
-                StrategyHistory.user_id == user_id
-            ).order_by(desc(StrategyHistory.created_at)).first()
+            latest = (
+                db.query(StrategyHistory)
+                .filter(StrategyHistory.user_id == user_id)
+                .order_by(desc(StrategyHistory.created_at))
+                .first()
+            )
 
             return {
                 "total_count": total_count,

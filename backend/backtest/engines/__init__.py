@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 回测引擎模块
 
@@ -21,8 +20,11 @@ from .base import BacktestEngineBase, EngineType
 def __getattr__(name):
     if name == "EventDrivenBacktestEngine":
         from .event_engine import EventDrivenBacktestEngine
+
         return EventDrivenBacktestEngine
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+    msg = f"module '{__name__}' has no attribute '{name}'"
+    raise AttributeError(msg)
+
 
 __all__ = [
     "BacktestEngineBase",

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 统一日志模块
 
@@ -20,23 +19,25 @@
     logger.critical("严重错误")
 """
 
-import sys
-import os
 import json
-import threading
+import os
 import queue
-from pathlib import Path
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
-from enum import Enum
-from dataclasses import dataclass, asdict
+import sys
+import threading
 from contextvars import ContextVar
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any
 
 from loguru import logger as _loguru_logger
+
 
 # 日志级别枚举
 class LogLevel(Enum):
     """日志级别枚举"""
+
     DEBUG = "DEBUG"
     INFO = "INFO"
     WARNING = "WARNING"
@@ -44,7 +45,7 @@ class LogLevel(Enum):
     CRITICAL = "CRITICAL"
 
     @classmethod
-    def from_string(cls, level: str) -> "LogLevel":
+    def from_string(cls, level: str) -> LogLevel:
         """从字符串获取日志级别"""
         try:
             return cls(level.upper())
@@ -66,20 +67,22 @@ class LogLevel(Enum):
 # 日志类型枚举
 class LogType(Enum):
     """日志类型枚举"""
-    SYSTEM = "system"           # 系统日志
-    APPLICATION = "application" # 应用日志
-    STRATEGY = "strategy"       # 策略日志
-    BACKTEST = "backtest"       # 回测日志
-    TRADE = "trade"             # 交易日志
-    API = "api"                 # API日志
-    DATABASE = "database"       # 数据库日志
-    EXCEPTION = "exception"     # 异常日志
-    PLUGIN = "plugin"           # 插件日志
+
+    SYSTEM = "system"  # 系统日志
+    APPLICATION = "application"  # 应用日志
+    STRATEGY = "strategy"  # 策略日志
+    BACKTEST = "backtest"  # 回测日志
+    TRADE = "trade"  # 交易日志
+    API = "api"  # API日志
+    DATABASE = "database"  # 数据库日志
+    EXCEPTION = "exception"  # 异常日志
+    PLUGIN = "plugin"  # 插件日志
 
 
 @dataclass
 class LogRecord:
     """日志记录数据结构"""
+
     timestamp: datetime
     level: str
     message: str
@@ -88,18 +91,20 @@ class LogRecord:
     line: int
     logger_name: str
     log_type: str
-    extra_data: Optional[Dict[str, Any]] = None
-    exception_info: Optional[str] = None
-    trace_id: Optional[str] = None
+    extra_data: dict[str, Any] | None = None
+    exception_info: str | None = None
+    trace_id: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典"""
         data = asdict(self)
-        data['timestamp'] = self.timestamp.isoformat()
+        data["timestamp"] = self.timestamp.isoformat()
         if self.extra_data:
-            data['extra_data'] = json.dumps(self.extra_data, ensure_ascii=False)
+            data["extra_data"] = json.dumps(self.extra_data, ensure_ascii=False)
         return data
 
+
+import contextlib
 
 from utils.deprecation import deprecated
 
@@ -132,8 +137,8 @@ class DatabaseLogHandler:
         self._queue: queue.Queue[LogRecord] = queue.Queue()
         self._lock = threading.Lock()
         self._running = False
-        self._flush_thread: Optional[threading.Thread] = None
-        self._buffer: List[LogRecord] = []
+        self._flush_thread: threading.Thread | None = None
+        self._buffer: list[LogRecord] = []
 
     def start(self) -> None:
         """启动后台刷新线程"""
@@ -158,6 +163,7 @@ class DatabaseLogHandler:
     def _flush_loop(self) -> None:
         """后台刷新循环"""
         import time
+
         last_flush = time.time()
 
         while self._running:
@@ -168,8 +174,7 @@ class DatabaseLogHandler:
 
                 # 检查是否需要刷新
                 current_time = time.time()
-                if (len(self._buffer) >= self.batch_size or
-                    current_time - last_flush >= self.flush_interval):
+                if len(self._buffer) >= self.batch_size or current_time - last_flush >= self.flush_interval:
                     self._flush_buffer()
                     last_flush = current_time
 
@@ -191,13 +196,12 @@ class DatabaseLogHandler:
 
         try:
             self._write_to_database(records_to_flush)
-        except Exception as e:
+        except Exception:
             # 写入失败时，将日志输出到控制台
-            print(f"[DatabaseLogHandler] Failed to write logs to database: {e}", file=sys.stderr)
-            for record in records_to_flush:
-                print(f"[Lost Log] {record.timestamp} {record.level} {record.message}", file=sys.stderr)
+            for _record in records_to_flush:
+                pass
 
-    def _write_to_database(self, records: List[LogRecord]) -> None:
+    def _write_to_database(self, records: list[LogRecord]) -> None:
         """将日志记录写入数据库"""
         # 延迟导入以避免循环依赖
         try:
@@ -285,15 +289,15 @@ class UnifiedLogger:
     封装loguru并提供统一的日志接口，支持文件持久化
     """
 
-    _instance: Optional["UnifiedLogger"] = None
+    _instance: UnifiedLogger | None = None
     _lock = threading.Lock()
-    _db_handler: Optional["DatabaseLogHandler"] = None  # 保留字段兼容性
+    _db_handler: DatabaseLogHandler | None = None  # 保留字段兼容性
     _file_log_manager = None  # 文件日志管理器
 
     # 上下文变量：跟踪ID
-    _trace_id: ContextVar[Optional[str]] = ContextVar("trace_id", default=None)
+    _trace_id: ContextVar[str | None] = ContextVar("trace_id", default=None)
 
-    def __new__(cls) -> "UnifiedLogger":
+    def __new__(cls) -> UnifiedLogger:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -306,13 +310,13 @@ class UnifiedLogger:
             return
 
         self._initialized = True
-        self._loggers: Dict[str, Any] = {}
+        self._loggers: dict[str, Any] = {}
         self._setup_logger()
 
     def _setup_logger(self) -> None:
         """配置基础日志器"""
         # 检查是否在 Worker 进程中（通过环境变量判断）
-        is_worker_process = os.environ.get('WORKER_ID') is not None
+        is_worker_process = os.environ.get("WORKER_ID") is not None
 
         if is_worker_process:
             # 在 Worker 进程中，不移除已有的处理器（保留 WorkerLogHandler）
@@ -324,19 +328,17 @@ class UnifiedLogger:
 
         # 获取日志级别
         level = os.environ.get("LOG_LEVEL", "INFO").upper()
-        
+
         # ========== CLI 模式智能检测 ==========
         # 自动检测是否在命令行工具中运行，如果是则提升日志级别以减少干扰
-        if self._is_cli_mode():
-            if level == "INFO" or level == "DEBUG":
-                level = "WARNING"
-                os.environ["CLI_MODE_DETECTED"] = "true"
+        if self._is_cli_mode() and (level == "INFO" or level == "DEBUG"):
+            level = "WARNING"
+            os.environ["CLI_MODE_DETECTED"] = "true"
         # ========== CLI 检测完毕 ==========
 
         # 添加控制台处理器（使用兼容格式）
         console_format = os.environ.get("LOG_CONSOLE_FORMAT", "default")
-        format_str = (LoggerConfig.SIMPLE_FORMAT if console_format == "simple"
-                      else LoggerConfig.COMPAT_FORMAT)
+        format_str = LoggerConfig.SIMPLE_FORMAT if console_format == "simple" else LoggerConfig.COMPAT_FORMAT
 
         _loguru_logger.add(
             sys.stdout,
@@ -367,73 +369,73 @@ class UnifiedLogger:
         if LoggerConfig.ENABLE_FILE_LOG:
             try:
                 from utils.file_log_manager import get_file_log_manager
+
                 self._file_log_manager = get_file_log_manager()
-            except Exception as e:
-                print(f"[UnifiedLogger] 初始化文件日志管理器失败: {e}", file=sys.stderr)
+            except Exception:
                 self._file_log_manager = None
 
     @staticmethod
     def _is_cli_mode() -> bool:
         """
         智能检测当前是否在 CLI 工具模式运行
-        
+
         检测条件（满足任一即判定为 CLI 模式）：
         1. 直接执行 Python 脚本（sys.argv[0] 以 .py 结尾）
         2. 运行在交互式终端中（TTY）
         3. 显式设置环境变量 CLI_MODE=1
-        
+
         排除条件（以下情况不算 CLI 模式）：
         - uvicorn 启动 FastAPI 应用（包含 main:app 参数）
         - pytest 测试运行
-        
+
         Returns:
             bool: 是否为 CLI 模式
         """
         try:
             import sys
-            
+
             # 排除：pytest 测试环境
             if "pytest" in sys.modules or "_pytest" in sys.modules:
                 return False
-            
+
             # 排除：uvicorn 启动 FastAPI（通过检测参数）
             argv_str = " ".join(sys.argv)
             if "main:app" in argv_str or "uvicorn" in argv_str:
                 return False
-            
+
             # 条件1：直接运行 .py 脚本
             if len(sys.argv) > 0 and sys.argv[0].endswith(".py"):
                 script_name = Path(sys.argv[0]).name
-                
+
                 # 排除主入口文件（main.py）
                 if script_name == "main.py":
                     return False
-                    
+
                 # 常见的 CLI 工具脚本模式
                 cli_patterns = ["_cli.py", "-cli.py", "cli.py", "script.py", "tool.py"]
                 if any(pattern in script_name.lower() for pattern in cli_patterns):
                     return True
-                
+
                 # 其他 .py 脚本也视为 CLI 模式（保守策略）
                 return True
-            
+
             # 条件2：显式环境变量标记
             if os.environ.get("CLI_MODE", "").lower() in ("1", "true", "yes"):
                 return True
-            
+
             # 条件3：在 TTY 终端中且非 Web 服务
             if hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
                 # 如果在 TTY 中且没有明确的 Web 服务参数，可能是 CLI
                 if len(sys.argv) <= 2:  # 参数较少，更可能是 CLI 工具
                     return True
-            
+
             return False
-            
+
         except Exception:
             # 检测失败时默认不启用 CLI 模式（安全起见）
             return False
 
-    def _get_default_log_file(self) -> Optional[str]:
+    def _get_default_log_file(self) -> str | None:
         """获取默认日志文件路径"""
         try:
             backend_path = Path(__file__).resolve().parent.parent
@@ -443,7 +445,7 @@ class UnifiedLogger:
         except Exception:
             return None
 
-    def get_logger(self, name: str, log_type: LogType = LogType.APPLICATION) -> "LoggerWrapper":
+    def get_logger(self, name: str, log_type: LogType = LogType.APPLICATION) -> LoggerWrapper:
         """
         获取命名日志器
 
@@ -462,10 +464,8 @@ class UnifiedLogger:
     def _emit_to_file(self, record: LogRecord) -> None:
         """发送日志到文件存储"""
         if self._file_log_manager:
-            try:
+            with contextlib.suppress(Exception):
                 self._file_log_manager.write_log(record)
-            except Exception as e:
-                print(f"[UnifiedLogger] 写入文件日志失败: {e}", file=sys.stderr)
 
     @classmethod
     def set_trace_id(cls, trace_id: str) -> None:
@@ -473,7 +473,7 @@ class UnifiedLogger:
         cls._trace_id.set(trace_id)
 
     @classmethod
-    def get_trace_id(cls) -> Optional[str]:
+    def get_trace_id(cls) -> str | None:
         """获取当前上下文的跟踪ID"""
         return cls._trace_id.get()
 
@@ -488,17 +488,16 @@ class UnifiedLogger:
         if self._file_log_manager:
             try:
                 from utils.file_log_manager import shutdown_file_log_manager
+
                 shutdown_file_log_manager()
-            except Exception as e:
-                print(f"[UnifiedLogger] 关闭文件日志管理器失败: {e}", file=sys.stderr)
+            except Exception:
+                pass
             self._file_log_manager = None
 
         # 保留兼容性：如果仍有数据库处理器，也关闭它
         if self._db_handler:
-            try:
+            with contextlib.suppress(Exception):
                 self._db_handler.stop()
-            except Exception:
-                pass
             self._db_handler = None
 
 
@@ -515,8 +514,13 @@ class LoggerWrapper:
         self._unified_logger = unified_logger
         self._logger = _loguru_logger.bind(logger_name=name)
 
-    def _log(self, level: LogLevel, message: str, extra: Optional[Dict[str, Any]] = None,
-             exception: Optional[BaseException] = None) -> None:
+    def _log(
+        self,
+        level: LogLevel,
+        message: str,
+        extra: dict[str, Any] | None = None,
+        exception: BaseException | None = None,
+    ) -> None:
         """内部日志方法"""
         import inspect
 
@@ -531,11 +535,12 @@ class LoggerWrapper:
         exception_info = None
         if exception:
             import traceback
+
             exception_info = traceback.format_exception(type(exception), exception, exception.__traceback__)
             exception_info = "".join(exception_info)
 
         record = LogRecord(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             level=level.value,
             message=str(message),
             module=module,
@@ -560,38 +565,47 @@ class LoggerWrapper:
         if LoggerConfig.ENABLE_FILE_LOG:
             self._unified_logger._emit_to_file(record)
 
-    def debug(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
+    def debug(self, message: str, extra: dict[str, Any] | None = None) -> None:
         """记录DEBUG级别日志"""
         self._log(LogLevel.DEBUG, message, extra)
 
-    def info(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
+    def info(self, message: str, extra: dict[str, Any] | None = None) -> None:
         """记录INFO级别日志"""
         self._log(LogLevel.INFO, message, extra)
 
-    def warning(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
+    def warning(self, message: str, extra: dict[str, Any] | None = None) -> None:
         """记录WARNING级别日志"""
         self._log(LogLevel.WARNING, message, extra)
 
-    def error(self, message: str, extra: Optional[Dict[str, Any]] = None,
-              exception: Optional[BaseException] = None) -> None:
+    def error(
+        self,
+        message: str,
+        extra: dict[str, Any] | None = None,
+        exception: BaseException | None = None,
+    ) -> None:
         """记录ERROR级别日志"""
         self._log(LogLevel.ERROR, message, extra, exception)
 
-    def critical(self, message: str, extra: Optional[Dict[str, Any]] = None,
-                 exception: Optional[BaseException] = None) -> None:
+    def critical(
+        self,
+        message: str,
+        extra: dict[str, Any] | None = None,
+        exception: BaseException | None = None,
+    ) -> None:
         """记录CRITICAL级别日志"""
         self._log(LogLevel.CRITICAL, message, extra, exception)
 
-    def exception(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
+    def exception(self, message: str, extra: dict[str, Any] | None = None) -> None:
         """记录异常信息（自动捕获当前异常）"""
         import sys
+
         exc_info = sys.exc_info()
         if exc_info[0] is not None:
             self._log(LogLevel.ERROR, message, extra, exc_info[1])
         else:
             self.error(message, extra)
 
-    def bind(self, **kwargs) -> "LoggerWrapper":
+    def bind(self, **kwargs) -> LoggerWrapper:
         """绑定额外上下文信息"""
         new_wrapper = LoggerWrapper(self.name, self.log_type, self._unified_logger)
         new_wrapper._logger = self._logger.bind(**kwargs)
@@ -599,7 +613,7 @@ class LoggerWrapper:
 
 
 # 全局统一日志器实例
-_unified_logger: Optional[UnifiedLogger] = None
+_unified_logger: UnifiedLogger | None = None
 
 
 def get_logger(name: str, log_type: LogType = LogType.APPLICATION) -> LoggerWrapper:
@@ -650,7 +664,7 @@ def set_trace_id(trace_id: str) -> None:
     UnifiedLogger.set_trace_id(trace_id)
 
 
-def get_trace_id() -> Optional[str]:
+def get_trace_id() -> str | None:
     """获取当前请求的跟踪ID"""
     return UnifiedLogger.get_trace_id()
 
@@ -679,7 +693,7 @@ class StrategyLogger:
     LOG_DIR = Path(__file__).resolve().parent.parent / "logs" / "strategies"
 
     # 类级别的logger缓存
-    _loggers: Dict[str, "StrategyLogger"] = {}
+    _loggers: dict[str, StrategyLogger] = {}
 
     def __new__(cls, strategy_name: str):
         if strategy_name not in cls._loggers:
@@ -689,7 +703,7 @@ class StrategyLogger:
         return cls._loggers[strategy_name]
 
     def __init__(self, strategy_name: str):
-        if getattr(self, '_initialized', False):
+        if getattr(self, "_initialized", False):
             return
 
         self._initialized = True
@@ -753,7 +767,7 @@ class PluginLogger:
     """
 
     LOG_DIR = Path(__file__).resolve().parent.parent / "logs" / "plugins"
-    _loggers: Dict[str, "PluginLogger"] = {}
+    _loggers: dict[str, PluginLogger] = {}
 
     def __new__(cls, plugin_name: str):
         if plugin_name not in cls._loggers:
@@ -763,7 +777,7 @@ class PluginLogger:
         return cls._loggers[plugin_name]
 
     def __init__(self, plugin_name: str):
-        if getattr(self, '_initialized', False):
+        if getattr(self, "_initialized", False):
             return
 
         self._initialized = True

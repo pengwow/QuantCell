@@ -3,27 +3,29 @@ RBAC (Role-Based Access Control) 权限控制模块
 实现基于角色的访问控制，支持访客和普通用户角色
 """
 
-from enum import Enum
-from typing import Dict, List, Optional, Set
+from enum import StrEnum
 from functools import wraps
+
 from fastapi import HTTPException, Request
 
-from utils.logger import get_logger, LogType
-from utils.jwt_utils import decode_jwt_token, JWTError
+from utils.jwt_utils import JWTError, decode_jwt_token
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
-class UserRole(str, Enum):
+class UserRole(StrEnum):
     """用户角色枚举"""
+
     GUEST = "guest"  # 访客
-    USER = "user"    # 普通用户
+    USER = "user"  # 普通用户
     ADMIN = "admin"  # 管理员
 
 
-class Permission(str, Enum):
+class Permission(StrEnum):
     """权限枚举"""
+
     # 系统配置权限
     CONFIG_READ = "config:read"
     CONFIG_WRITE = "config:write"
@@ -61,7 +63,7 @@ class Permission(str, Enum):
 
 
 # 角色权限映射
-ROLE_PERMISSIONS: Dict[UserRole, Set[Permission]] = {
+ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
     UserRole.GUEST: {
         # 访客只读权限
         Permission.CONFIG_READ,
@@ -154,11 +156,11 @@ def is_guest_user(request: Request) -> bool:
         payload = decode_jwt_token(token)
         role_str = payload.get("role", "guest")
         return role_str == "guest"
-    except (IndexError, JWTError):
+    except IndexError, JWTError:
         return True
 
 
-def get_current_user_id(request: Request) -> Optional[int]:
+def get_current_user_id(request: Request) -> int | None:
     """从JWT token中提取当前用户的user_id
 
     Args:
@@ -179,10 +181,10 @@ def get_current_user_id(request: Request) -> Optional[int]:
         if sub:
             try:
                 return int(sub)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return None
         return None
-    except (IndexError, JWTError):
+    except IndexError, JWTError:
         return None
 
 
@@ -195,6 +197,7 @@ def require_permission_sync(permission: Permission):
     Returns:
         decorator: 装饰器函数
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(request: Request, *args, **kwargs):
@@ -204,7 +207,7 @@ def require_permission_sync(permission: Permission):
             if not auth_header:
                 raise HTTPException(
                     status_code=401,
-                    detail={"code": 401, "message": "未提供认证令牌", "data": None}
+                    detail={"code": 401, "message": "未提供认证令牌", "data": None},
                 )
 
             # 提取token
@@ -213,7 +216,7 @@ def require_permission_sync(permission: Permission):
             except IndexError:
                 raise HTTPException(
                     status_code=401,
-                    detail={"code": 401, "message": "无效的认证令牌格式", "data": None}
+                    detail={"code": 401, "message": "无效的认证令牌格式", "data": None},
                 )
 
             # 获取用户角色
@@ -230,9 +233,9 @@ def require_permission_sync(permission: Permission):
                         "data": {
                             "required_permission": permission.value,
                             "current_role": user_role.value,
-                            "is_guest": user_role == UserRole.GUEST
-                        }
-                    }
+                            "is_guest": user_role == UserRole.GUEST,
+                        },
+                    },
                 )
 
             # 记录访问日志
@@ -242,10 +245,11 @@ def require_permission_sync(permission: Permission):
             return func(request, *args, **kwargs)
 
         return wrapper
+
     return decorator
 
 
-def get_current_user_info(request: Request) -> Dict:
+def get_current_user_info(request: Request) -> dict:
     """获取当前用户信息
 
     Args:
@@ -267,8 +271,7 @@ def get_current_user_info(request: Request) -> Dict:
             "sub": payload.get("sub"),
             "name": payload.get("name"),
             "role": role,
-            "is_guest": role == UserRole.GUEST.value
+            "is_guest": role == UserRole.GUEST.value,
         }
-    except (IndexError, JWTError):
+    except IndexError, JWTError:
         return {"role": UserRole.GUEST.value, "is_guest": True}
-

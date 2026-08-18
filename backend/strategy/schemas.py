@@ -15,7 +15,7 @@
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -48,8 +48,8 @@ class StrategyParamInfo(BaseSchema):
     type: str = Field(..., description="参数类型")
     default: Any = Field(..., description="默认值")
     description: str = Field(default="", description="参数描述")
-    min: Optional[float] = Field(default=None, description="最小值")
-    max: Optional[float] = Field(default=None, description="最大值")
+    min: float | None = Field(default=None, description="最小值")
+    max: float | None = Field(default=None, description="最大值")
     required: bool = Field(default=False, description="是否必填")
 
 
@@ -75,28 +75,29 @@ class StrategyInfo(BaseSchema):
         "from_attributes": False,  # 禁用从属性读取，使用字典键
         "json_encoders": {
             datetime: lambda v: v.isoformat() if v else None,
-        }
+        },
     }
 
-    id: Optional[int] = Field(default=None, description="策略ID")
+    id: int | None = Field(default=None, description="策略ID")
     name: str = Field(..., min_length=1, description="策略名称")
     file_name: str = Field(..., description="策略文件名")
     file_path: str = Field(..., description="策略文件路径")
     description: str = Field(default="", description="策略描述")
     version: str = Field(default="1.0.0", description="策略版本")
-    tags: List[str] = Field(default_factory=list, description="策略标签")
-    params: List[StrategyParamInfo] = Field(default_factory=list, description="策略参数列表")
+    tags: list[str] = Field(default_factory=list, description="策略标签")
+    params: list[StrategyParamInfo] = Field(default_factory=list, description="策略参数列表")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
     updated_at: datetime = Field(default_factory=datetime.now, description="更新时间")
-    code: Optional[str] = Field(default=None, description="策略代码")
+    code: str | None = Field(default=None, description="策略代码")
     source: str = Field(default="files", description="策略来源")
-    strategy_type: Optional[str] = Field(default=None, description="策略类型 rule/rl")
-    strategy_class: Optional[str] = Field(default=None, description="策略类名")
+    strategy_type: str | None = Field(default=None, description="策略类型 rule/rl")
+    strategy_class: str | None = Field(default=None, description="策略类名")
 
 
 class StrategyListData(BaseModel):
     """策略列表数据包装器"""
-    strategies: List[StrategyInfo] = Field(default_factory=list, description="策略列表")
+
+    strategies: list[StrategyInfo] = Field(default_factory=list, description="策略列表")
 
 
 class StrategyListResponse(ApiResponse):
@@ -107,7 +108,7 @@ class StrategyListResponse(ApiResponse):
         data: 响应数据，包含策略列表
     """
 
-    data: Optional[StrategyListData] = Field(
+    data: StrategyListData | None = Field(
         default=None,
         description="响应数据，包含策略列表",
     )
@@ -124,6 +125,7 @@ class StrategyParam(BaseSchema):
         description: 参数描述
         required: 是否必填
     """
+
     name: str = Field(..., description="参数名称")
     type: str = Field(..., description="参数类型")
     default: Any = Field(default=None, description="默认值")
@@ -146,14 +148,14 @@ class StrategyUploadRequest(BaseSchema):
         strategy_type: 策略类型 rule/rl（可选）
     """
 
-    id: Optional[int] = Field(default=None, description="策略ID（可选）")
+    id: int | None = Field(default=None, description="策略ID（可选）")
     strategy_name: str = Field(..., min_length=1, max_length=100, description="策略名称")
     file_content: str = Field(..., min_length=1, description="策略文件内容")
-    version: Optional[str] = Field(default=None, description="策略版本（可选）")
-    tags: Optional[List[str]] = Field(default=None, description="策略标签（可选）")
-    description: Optional[str] = Field(default=None, description="策略描述（可选）")
-    params: Optional[List[StrategyParam]] = Field(default=None, description="策略参数列表（可选）")
-    strategy_type: Optional[str] = Field(default="rule", description="策略类型 rule/rl（可选）")
+    version: str | None = Field(default=None, description="策略版本（可选）")
+    tags: list[str] | None = Field(default=None, description="策略标签（可选）")
+    description: str | None = Field(default=None, description="策略描述（可选）")
+    params: list[StrategyParam] | None = Field(default=None, description="策略参数列表（可选）")
+    strategy_type: str | None = Field(default="rule", description="策略类型 rule/rl（可选）")
 
 
 class StrategyDetailRequest(BaseSchema):
@@ -166,7 +168,7 @@ class StrategyDetailRequest(BaseSchema):
     """
 
     strategy_name: str = Field(..., min_length=1, description="策略名称")
-    file_content: Optional[str] = Field(default=None, description="策略文件内容（可选）")
+    file_content: str | None = Field(default=None, description="策略文件内容（可选）")
 
 
 class StrategyUploadResponse(ApiResponse):
@@ -177,7 +179,7 @@ class StrategyUploadResponse(ApiResponse):
         data: 响应数据，包含策略名称
     """
 
-    data: Optional[Dict[str, str]] = Field(
+    data: dict[str, str] | None = Field(
         default=None,
         description="响应数据，包含策略名称",
     )
@@ -196,7 +198,7 @@ class StrategyDetailResponse(BaseSchema):
 
     code: int = Field(..., description="响应状态码")
     message: str = Field(..., description="响应消息")
-    data: Optional[Dict[str, Any]] = Field(default=None, description="策略详情")
+    data: dict[str, Any] | None = Field(default=None, description="策略详情")
     timestamp: datetime = Field(default_factory=datetime.now, description="响应时间戳")
 
 
@@ -215,8 +217,8 @@ class BacktestConfig(BaseSchema):
     start_date: str = Field(..., description="回测开始日期")
     end_date: str = Field(..., description="回测结束日期")
     initial_capital: float = Field(..., gt=0, description="初始资金")
-    commission: Optional[float] = Field(default=0.0, ge=0, description="佣金费率")
-    slippage: Optional[float] = Field(default=0.0, ge=0, description="滑点")
+    commission: float | None = Field(default=0.0, ge=0, description="佣金费率")
+    slippage: float | None = Field(default=0.0, ge=0, description="滑点")
 
 
 class StrategyExecutionRequest(BaseSchema):
@@ -229,16 +231,17 @@ class StrategyExecutionRequest(BaseSchema):
         backtest_config: 回测配置
     """
 
-    params: Dict[str, Any] = Field(..., description="策略参数")
+    params: dict[str, Any] = Field(..., description="策略参数")
     mode: str = Field(..., description="执行模式")
-    backtest_config: Optional[BacktestConfig] = Field(default=None, description="回测配置")
+    backtest_config: BacktestConfig | None = Field(default=None, description="回测配置")
 
     @field_validator("mode")
     @classmethod
     def validate_mode(cls, v: str) -> str:
         """验证执行模式"""
         if v not in ["backtest", "live"]:
-            raise ValueError("执行模式必须是 backtest 或 live")
+            msg = "执行模式必须是 backtest 或 live"
+            raise ValueError(msg)
         return v
 
 
@@ -250,7 +253,7 @@ class StrategyExecutionResponse(ApiResponse):
         data: 响应数据，包含执行ID和状态
     """
 
-    data: Optional[Dict[str, Any]] = Field(
+    data: dict[str, Any] | None = Field(
         default=None,
         description="响应数据，包含执行ID和状态",
     )
@@ -277,7 +280,7 @@ class StrategyParseResponse(ApiResponse):
         data: 响应数据，包含策略描述和参数信息
     """
 
-    data: Optional[Dict[str, Any]] = Field(
+    data: dict[str, Any] | None = Field(
         default=None,
         description="响应数据，包含策略描述和参数信息",
     )
@@ -296,10 +299,10 @@ class StrategyGenerateRequest(BaseSchema):
     """
 
     prompt: str = Field(..., min_length=1, description="策略需求描述")
-    model_id: Optional[int] = Field(default=None, description="AI模型配置ID（可选）")
-    model_name: Optional[str] = Field(default=None, description="具体模型名称（可选）")
-    provider: Optional[str] = Field(default=None, description="AI厂商（可选）")
-    conversation_id: Optional[str] = Field(default=None, description="对话ID（可选）")
+    model_id: int | None = Field(default=None, description="AI模型配置ID（可选）")
+    model_name: str | None = Field(default=None, description="具体模型名称（可选）")
+    provider: str | None = Field(default=None, description="AI厂商（可选）")
+    conversation_id: str | None = Field(default=None, description="对话ID（可选）")
 
 
 class StrategyGenerateResponse(ApiResponse):
@@ -310,7 +313,7 @@ class StrategyGenerateResponse(ApiResponse):
         data: 响应数据，包含生成的策略代码和说明
     """
 
-    data: Optional[Dict[str, Any]] = Field(
+    data: dict[str, Any] | None = Field(
         default=None,
         description="响应数据，包含生成的策略代码和说明",
     )

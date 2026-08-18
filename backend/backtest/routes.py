@@ -23,34 +23,37 @@
 日期: 2026-02-12
 """
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from strategy.schemas import StrategyUploadRequest
-from utils.auth import jwt_auth_required_sync
-from utils.rbac import require_permission_sync, Permission, is_guest_user
+from typing import TYPE_CHECKING
 
+from utils.auth import jwt_auth_required_sync
+from utils.rbac import is_guest_user
+
+from .progress_tracker import StageStatus, get_progress_tracker
 from .schemas import (
     ApiResponse,
     BacktestAnalyzeRequest,
-    BacktestDeleteRequest,
     BacktestListRequest,
+    BacktestProgressResponse,
     BacktestRunRequest,
     BacktestStopRequest,
+    DataDownloadResponse,
     DataIntegrityCheckRequest,
     DataIntegrityCheckResponse,
-    DataDownloadResponse,
     StrategyConfigRequest,
-    BacktestProgressResponse,
 )
 from .service import BacktestService
-from .progress_tracker import get_progress_tracker, StageStatus
+
+if TYPE_CHECKING:
+    from strategy.schemas import StrategyUploadRequest
 
 # 创建回测服务实例
 backtest_service = BacktestService()
@@ -62,7 +65,7 @@ router = APIRouter(
     responses={
         200: {"description": "成功响应", "model": ApiResponse},
         500: {"description": "内部服务器错误"},
-    }
+    },
 )
 
 
@@ -74,9 +77,9 @@ router = APIRouter(
     responses={
         200: {"description": "获取回测列表成功"},
         500: {"description": "获取回测列表失败"},
-    }
+    },
 )
-def get_backtest_list(request: Optional[BacktestListRequest] = None) -> ApiResponse:
+def get_backtest_list(request: BacktestListRequest | None = None) -> ApiResponse:
     """
     获取所有回测结果列表
 
@@ -94,11 +97,7 @@ def get_backtest_list(request: Optional[BacktestListRequest] = None) -> ApiRespo
 
         logger.info(f"成功获取回测结果列表，共 {len(backtests)} 个回测结果")
 
-        return ApiResponse(
-            code=0,
-            message="获取回测结果列表成功",
-            data={"backtests": backtests}
-        )
+        return ApiResponse(code=0, message="获取回测结果列表成功", data={"backtests": backtests})
     except Exception as e:
         logger.error(f"获取回测结果列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -125,11 +124,7 @@ def get_strategy_list() -> ApiResponse:
 
         logger.info("成功获取策略类型列表")
 
-        return ApiResponse(
-            code=0,
-            message="获取策略类型列表成功",
-            data={"strategies": strategies}
-        )
+        return ApiResponse(code=0, message="获取策略类型列表成功", data={"strategies": strategies})
     except Exception as e:
         logger.error(f"获取策略类型列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -143,7 +138,7 @@ def get_strategy_list() -> ApiResponse:
     responses={
         200: {"description": "回测任务创建成功"},
         500: {"description": "回测任务创建失败"},
-    }
+    },
 )
 def run_backtest(request: BacktestRunRequest) -> ApiResponse:
     """
@@ -158,14 +153,14 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
     Returns:
         ApiResponse: API响应，包含任务ID和初始状态
     """
+    import json
     import threading
     import uuid
-    from datetime import datetime, timezone
-    from collector.db.database import init_database_config
-    from utils.db_session import get_db_session
+    from datetime import datetime
+
     from backtest.models import BacktestTask
-    import json
-    from utils.validation import validate_time_range, parse_time_range
+    from utils.db_session import get_db_session
+    from utils.validation import parse_time_range, validate_time_range
 
     try:
         logger.info("=" * 80)
@@ -182,11 +177,11 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
         # 处理时间范围格式（支持YYYYMMDD-YYYYMMDD格式）
         backtest_config_dict = request.backtest_config.model_dump()
         strategy_config_dict = request.strategy_config.model_dump()
-        
+
         # 检查并转换时间范围格式
         start_time = backtest_config_dict.get("start_time")
-        end_time = backtest_config_dict.get("end_time")
-        
+        backtest_config_dict.get("end_time")
+
         # 如果是YYYYMMDD-YYYYMMDD格式，解析并转换
         if start_time and "-" in start_time and len(start_time) == 17:
             try:
@@ -194,7 +189,9 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                     start_dt, end_dt = parse_time_range(start_time)
                     backtest_config_dict["start_time"] = start_dt.strftime("%Y-%m-%d 00:00:00")
                     backtest_config_dict["end_time"] = end_dt.strftime("%Y-%m-%d 23:59:59")
-                    logger.info(f"时间范围格式转换: {start_time} -> {backtest_config_dict['start_time']} 至 {backtest_config_dict['end_time']}")
+                    logger.info(
+                        f"时间范围格式转换: {start_time} -> {backtest_config_dict['start_time']} 至 {backtest_config_dict['end_time']}"
+                    )
             except Exception as e:
                 logger.warning(f"时间范围格式转换失败，使用原值: {e}")
 
@@ -209,7 +206,7 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                 strategy_name=request.strategy_config.strategy_name,
                 backtest_config=json.dumps(backtest_config_dict, default=str, ensure_ascii=False),
                 status="pending",
-                started_at=datetime.now(timezone.utc)
+                started_at=datetime.now(UTC),
             )
             db.add(task)
             db.commit()
@@ -219,13 +216,7 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
             # 创建进度记录
             progress_tracker = get_progress_tracker()
             progress_tracker.create_progress(task_id)
-            progress_tracker.update_progress(
-                task_id,
-                "overall",
-                {
-                    "status": "running"
-                }
-            )
+            progress_tracker.update_progress(task_id, "overall", {"status": "running"})
 
             # 在后台线程中异步执行回测
             def run_backtest_async():
@@ -235,35 +226,32 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
 
                     # 先通过 BacktestService 创建任务（保存到文件系统）
                     service_task_id = backtest_service.create_task(
-                        strategy_name=strategy_config_dict.get('strategy_name', ''),
-                        strategy_params=strategy_config_dict.get('params', {}),
-                        symbols=backtest_config_dict.get('symbols', []),
-                        timeframes=[backtest_config_dict.get('interval', '1h')],
-                        engine_type=backtest_config_dict.get('engine_type', 'default'),
+                        strategy_name=strategy_config_dict.get("strategy_name", ""),
+                        strategy_params=strategy_config_dict.get("params", {}),
+                        symbols=backtest_config_dict.get("symbols", []),
+                        timeframes=[backtest_config_dict.get("interval", "1h")],
+                        engine_type=backtest_config_dict.get("engine_type", "default"),
                         config=backtest_config_dict,
-                        task_id=task_id  # 使用原始的 UUID 作为 task_id
+                        task_id=task_id,  # 使用原始的 UUID 作为 task_id
                     )
                     logger.info(f"[任务 {task_id}] BacktestService 任务已创建: {service_task_id}")
 
                     # 执行回测
-                    result = backtest_service.run_backtest(
-                        task_id=service_task_id,
-                        progress_tracker=progress_tracker
-                    )
-                    
+                    result = backtest_service.run_backtest(task_id=service_task_id, progress_tracker=progress_tracker)
+
                     logger.info(f"[任务 {task_id}] 回测执行完成，状态: {result.get('status')}")
                     # 回测成功状态可能是 'success' 或 'completed'
-                    if result.get('status') in ('success', 'completed'):
+                    if result.get("status") in ("success", "completed"):
                         logger.info(f"[任务 {task_id}] 回测成功完成: {result.get('message')}")
                         # 如果有失败的货币对，记录警告日志
-                        failed_currencies = result.get('failed_currencies', [])
+                        failed_currencies = result.get("failed_currencies", [])
                         if failed_currencies:
                             logger.warning(f"[任务 {task_id}] 部分货币对回测失败: {failed_currencies}")
                     else:
                         # 增强失败日志，显示更多详细信息
-                        failed_currencies = result.get('failed_currencies', [])
-                        successful_currencies = result.get('successful_currencies', [])
-                        error_details = result.get('results', {}).get('errors', [])
+                        failed_currencies = result.get("failed_currencies", [])
+                        successful_currencies = result.get("successful_currencies", [])
+                        error_details = result.get("results", {}).get("errors", [])
                         logger.error(
                             f"[任务 {task_id}] 回测失败: {result.get('message')}, "
                             f"成功: {len(successful_currencies)}个, "
@@ -275,11 +263,7 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                     logger.error(f"[任务 {task_id}] 回测执行发生异常: {e}")
                     logger.exception(e)
                     # 更新进度为失败状态
-                    progress_tracker.fail_progress(
-                        task_id,
-                        f"回测执行失败: {str(e)}",
-                        "execution"
-                    )
+                    progress_tracker.fail_progress(task_id, f"回测执行失败: {e!s}", "execution")
 
             # 启动后台线程
             thread = threading.Thread(target=run_backtest_async, daemon=True)
@@ -294,8 +278,8 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
                 data={
                     "task_id": task_id,
                     "status": "pending",
-                    "message": "回测任务已创建并开始执行，请通过进度接口查询状态"
-                }
+                    "message": "回测任务已创建并开始执行，请通过进度接口查询状态",
+                },
             )
 
     except Exception as e:
@@ -313,7 +297,7 @@ def run_backtest(request: BacktestRunRequest) -> ApiResponse:
         200: {"description": "回测终止成功"},
         404: {"description": "回测任务不存在"},
         500: {"description": "终止回测失败"},
-    }
+    },
 )
 def stop_backtest(request: BacktestStopRequest) -> ApiResponse:
     """
@@ -334,17 +318,9 @@ def stop_backtest(request: BacktestStopRequest) -> ApiResponse:
         logger.info(f"回测终止完成，结果: {result}")
 
         if result.get("status") == "success":
-            return ApiResponse(
-                code=0,
-                message="回测已终止",
-                data=result
-            )
+            return ApiResponse(code=0, message="回测已终止", data=result)
         else:
-            return ApiResponse(
-                code=1,
-                message=result.get("message", "终止回测失败"),
-                data=result
-            )
+            return ApiResponse(code=1, message=result.get("message", "终止回测失败"), data=result)
     except Exception as e:
         logger.error(f"终止回测失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -374,11 +350,7 @@ def analyze_backtest(request: BacktestAnalyzeRequest) -> ApiResponse:
 
         logger.info(f"回测结果分析完成，结果: {result}")
 
-        return ApiResponse(
-            code=0,
-            message="回测结果分析成功",
-            data=result
-        )
+        return ApiResponse(code=0, message="回测结果分析成功", data=result)
     except Exception as e:
         logger.error(f"回测结果分析失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -403,8 +375,8 @@ def delete_backtest_no_id(request: Request) -> JSONResponse:
         content={
             "code": -1,
             "message": "请提供回测ID",
-            "data": {"redirect": "/api/backtest/list"}
-        }
+            "data": {"redirect": "/api/backtest/list"},
+        },
     )
 
 
@@ -436,8 +408,8 @@ def delete_backtest(request: Request, backtest_id: str) -> ApiResponse:
                 detail={
                     "code": 403,
                     "message": "访客用户无法删除回测记录，请使用普通用户账号登录",
-                    "data": {"is_guest": True}
-                }
+                    "data": {"is_guest": True},
+                },
             )
 
         # 删除回测结果
@@ -448,14 +420,14 @@ def delete_backtest(request: Request, backtest_id: str) -> ApiResponse:
             return ApiResponse(
                 code=0,
                 message="回测结果删除成功",
-                data={"backtest_id": backtest_id, "result": result}
+                data={"backtest_id": backtest_id, "result": result},
             )
         else:
             logger.warning(f"回测结果删除失败，回测ID: {backtest_id}")
             return ApiResponse(
                 code=1,
                 message="回测结果删除失败",
-                data={"backtest_id": backtest_id, "result": result}
+                data={"backtest_id": backtest_id, "result": result},
             )
     except HTTPException:
         raise
@@ -486,14 +458,14 @@ def create_strategy_config(request: StrategyConfigRequest) -> ApiResponse:
         # 创建策略配置
         strategy_config = {
             "strategy_name": request.strategy_name,
-            "params": request.params
+            "params": request.params,
         }
 
         logger.info(f"策略配置创建成功，策略名称: {request.strategy_name}")
         return ApiResponse(
             code=0,
             message="策略配置创建成功",
-            data={"strategy_config": strategy_config}
+            data={"strategy_config": strategy_config},
         )
     except Exception as e:
         logger.error(f"策略配置创建失败: {e}")
@@ -521,8 +493,7 @@ def upload_strategy(request: StrategyUploadRequest) -> ApiResponse:
 
         # 上传策略文件
         result = backtest_service.upload_strategy_file(
-            strategy_name=request.strategy_name,
-            file_content=request.file_content
+            strategy_name=request.strategy_name, file_content=request.file_content
         )
 
         if result:
@@ -530,15 +501,11 @@ def upload_strategy(request: StrategyUploadRequest) -> ApiResponse:
             return ApiResponse(
                 code=0,
                 message="策略文件上传成功",
-                data={"strategy_name": request.strategy_name}
+                data={"strategy_name": request.strategy_name},
             )
         else:
             logger.error(f"策略文件上传失败，策略名称: {request.strategy_name}")
-            return ApiResponse(
-                code=1,
-                message="策略文件上传失败",
-                data={}
-            )
+            return ApiResponse(code=1, message="策略文件上传失败", data={})
     except Exception as e:
         logger.error(f"策略文件上传失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -564,10 +531,11 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
         logger.info(f"获取回测结果详情请求，回测ID: {backtest_id}")
 
         # 从数据库获取回测任务和结果
-        from utils.db_session import get_db_session
-        from backtest.models import BacktestTask, BacktestResult
-        from strategy.models import Strategy
         import json
+
+        from backtest.models import BacktestResult, BacktestTask
+        from strategy.models import Strategy
+        from utils.db_session import get_db_session
 
         with get_db_session() as db:
             # 获取回测任务
@@ -575,11 +543,7 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
 
             if not task:
                 logger.error(f"回测任务不存在，回测ID: {backtest_id}")
-                return ApiResponse(
-                    code=1,
-                    message="回测任务不存在",
-                    data={}
-                )
+                return ApiResponse(code=1, message="回测任务不存在", data={})
 
             # 解析回测配置
             backtest_config = {}
@@ -630,11 +594,7 @@ def get_backtest_detail(backtest_id: str) -> ApiResponse:
             }
 
             logger.info(f"成功获取回测结果详情，回测ID: {backtest_id}")
-            return ApiResponse(
-                code=0,
-                message="获取回测结果详情成功",
-                data=detail_data
-            )
+            return ApiResponse(code=0, message="获取回测结果详情成功", data=detail_data)
 
     except Exception as e:
         logger.error(f"获取回测结果详情失败: {e}")
@@ -665,18 +625,10 @@ def get_backtest_symbols(backtest_id: str) -> ApiResponse:
 
         if result and result.get("status") == "success":
             logger.info(f"成功获取回测货币对列表，回测ID: {backtest_id}")
-            return ApiResponse(
-                code=0,
-                message="获取回测货币对列表成功",
-                data=result.get('data')
-            )
+            return ApiResponse(code=0, message="获取回测货币对列表成功", data=result.get("data"))
         else:
             logger.error(f"获取回测货币对列表失败，回测ID: {backtest_id}")
-            return ApiResponse(
-                code=1,
-                message="获取回测货币对列表失败",
-                data={}
-            )
+            return ApiResponse(code=1, message="获取回测货币对列表失败", data={})
     except Exception as e:
         logger.error(f"获取回测货币对列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -688,7 +640,7 @@ def get_backtest_symbols(backtest_id: str) -> ApiResponse:
     summary="获取回测回放数据",
     description="获取回测回放数据，包含K线数据、交易信号和权益曲线数据",
 )
-def get_replay_data(backtest_id: str, symbol: Optional[str] = None) -> ApiResponse:
+def get_replay_data(backtest_id: str, symbol: str | None = None) -> ApiResponse:
     """
     获取回测回放数据
 
@@ -707,18 +659,10 @@ def get_replay_data(backtest_id: str, symbol: Optional[str] = None) -> ApiRespon
 
         if result and result.get("status") == "success":
             logger.info(f"成功获取回测回放数据，回测ID: {backtest_id}")
-            return ApiResponse(
-                code=0,
-                message="获取回测回放数据成功",
-                data=result.get('data')
-            )
+            return ApiResponse(code=0, message="获取回测回放数据成功", data=result.get("data"))
         else:
             logger.error(f"获取回测回放数据失败，回测ID: {backtest_id}")
-            return ApiResponse(
-                code=1,
-                message="获取回测回放数据失败",
-                data={}
-            )
+            return ApiResponse(code=1, message="获取回测回放数据失败", data={})
     except Exception as e:
         logger.error(f"获取回测回放数据失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -730,7 +674,9 @@ def get_replay_data(backtest_id: str, symbol: Optional[str] = None) -> ApiRespon
     summary="检查回测数据完整性",
     description="检查指定交易对在指定时间范围内的数据完整性",
 )
-def check_data_integrity(request: DataIntegrityCheckRequest) -> DataIntegrityCheckResponse:
+def check_data_integrity(
+    request: DataIntegrityCheckRequest,
+) -> DataIntegrityCheckResponse:
     """
     检查回测数据完整性
 
@@ -749,6 +695,7 @@ def check_data_integrity(request: DataIntegrityCheckRequest) -> DataIntegrityChe
 
         # 执行检查
         from .data_integrity import DataIntegrityChecker
+
         checker = DataIntegrityChecker()
         result = checker.check_data_completeness(
             symbol=request.symbol,
@@ -756,7 +703,7 @@ def check_data_integrity(request: DataIntegrityCheckRequest) -> DataIntegrityChe
             start_time=start_time,
             end_time=end_time,
             market_type=request.market_type,
-            crypto_type=request.crypto_type
+            crypto_type=request.crypto_type,
         )
 
         # 转换结果为响应格式
@@ -766,20 +713,15 @@ def check_data_integrity(request: DataIntegrityCheckRequest) -> DataIntegrityChe
             "total_actual": result.total_actual,
             "missing_count": result.missing_count,
             "missing_ranges": [
-                {"start": start.isoformat(), "end": end.isoformat()}
-                for start, end in result.missing_ranges
+                {"start": start.isoformat(), "end": end.isoformat()} for start, end in result.missing_ranges
             ],
             "quality_issues": result.quality_issues,
-            "coverage_percent": round(result.coverage_percent, 2)
+            "coverage_percent": round(result.coverage_percent, 2),
         }
 
         logger.info(f"数据完整性检查完成: {request.symbol}, 覆盖率: {result.coverage_percent:.2f}%")
 
-        return DataIntegrityCheckResponse(
-            code=0,
-            message="数据完整性检查完成",
-            data=response_data
-        )
+        return DataIntegrityCheckResponse(code=0, message="数据完整性检查完成", data=response_data)
     except Exception as e:
         logger.error(f"数据完整性检查失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -810,17 +752,18 @@ def download_missing_data(request: DataIntegrityCheckRequest) -> DataDownloadRes
 
         # 创建下载器
         from .data_downloader import BacktestDataDownloader
+
         downloader = BacktestDataDownloader()
 
         # 执行下载（同步方式，会等待下载完成）
-        success, result = downloader.ensure_data_complete(
+        success, _result = downloader.ensure_data_complete(
             symbol=request.symbol,
             interval=request.interval,
             start_time=start_time,
             end_time=end_time,
             market_type=request.market_type,
             crypto_type=request.crypto_type,
-            max_wait_time=300  # 最多等待5分钟
+            max_wait_time=300,  # 最多等待5分钟
         )
 
         response_data = {
@@ -832,7 +775,7 @@ def download_missing_data(request: DataIntegrityCheckRequest) -> DataDownloadRes
             "message": "数据下载完成" if success else "数据下载失败",
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
-            "error": None if success else "下载失败或超时"
+            "error": None if success else "下载失败或超时",
         }
 
         logger.info(f"数据下载完成: {request.symbol}, 成功: {success}")
@@ -840,7 +783,7 @@ def download_missing_data(request: DataIntegrityCheckRequest) -> DataDownloadRes
         return DataDownloadResponse(
             code=0 if success else 1,
             message="数据下载完成" if success else "数据下载失败",
-            data=response_data
+            data=response_data,
         )
     except Exception as e:
         logger.error(f"数据下载失败: {e}")
@@ -856,7 +799,7 @@ def download_missing_data(request: DataIntegrityCheckRequest) -> DataDownloadRes
         200: {"description": "获取进度成功"},
         404: {"description": "任务不存在"},
         500: {"description": "获取进度失败"},
-    }
+    },
 )
 def get_backtest_progress(task_id: str) -> BacktestProgressResponse:
     """
@@ -876,53 +819,52 @@ def get_backtest_progress(task_id: str) -> BacktestProgressResponse:
         progress = tracker.get_progress(task_id)
 
         if not progress:
-            return BacktestProgressResponse(
-                code=1,
-                message=f"任务不存在: {task_id}",
-                data=None
-            )
+            return BacktestProgressResponse(code=1, message=f"任务不存在: {task_id}", data=None)
 
         # 转换为响应格式
         response_data = {
             "task_id": progress.task_id,
             "status": progress.status.value if isinstance(progress.status, StageStatus) else progress.status,
-            "current_stage": progress.current_stage.value if hasattr(progress.current_stage, 'value') else progress.current_stage,
+            "current_stage": progress.current_stage.value
+            if hasattr(progress.current_stage, "value")
+            else progress.current_stage,
             "overall_progress": progress.overall_progress,
             "data_prep": {
-                "status": progress.data_prep.status.value if isinstance(progress.data_prep.status, StageStatus) else progress.data_prep.status,
+                "status": progress.data_prep.status.value
+                if isinstance(progress.data_prep.status, StageStatus)
+                else progress.data_prep.status,
                 "progress": progress.data_prep.progress,
-                "current_step": progress.data_prep.current_step.value if hasattr(progress.data_prep.current_step, 'value') else progress.data_prep.current_step,
+                "current_step": progress.data_prep.current_step.value
+                if hasattr(progress.data_prep.current_step, "value")
+                else progress.data_prep.current_step,
                 "checked_symbols": progress.data_prep.checked_symbols,
                 "total_symbols": progress.data_prep.total_symbols,
                 "downloading": progress.data_prep.downloading,
-                "message": progress.data_prep.message
+                "message": progress.data_prep.message,
             },
             "execution": {
-                "status": progress.execution.status.value if isinstance(progress.execution.status, StageStatus) else progress.execution.status,
+                "status": progress.execution.status.value
+                if isinstance(progress.execution.status, StageStatus)
+                else progress.execution.status,
                 "progress": progress.execution.progress,
                 "current_symbol": progress.execution.current_symbol,
                 "completed_symbols": progress.execution.completed_symbols,
                 "total_symbols": progress.execution.total_symbols,
-                "message": progress.execution.message
+                "message": progress.execution.message,
             },
             "analysis": {
-                "status": progress.analysis.status.value if isinstance(progress.analysis.status, StageStatus) else progress.analysis.status,
+                "status": progress.analysis.status.value
+                if isinstance(progress.analysis.status, StageStatus)
+                else progress.analysis.status,
                 "progress": progress.analysis.progress,
-                "message": progress.analysis.message
+                "message": progress.analysis.message,
             },
-            "error": {
-                "stage": progress.error.stage,
-                "message": progress.error.message
-            } if progress.error else None,
+            "error": {"stage": progress.error.stage, "message": progress.error.message} if progress.error else None,
             "created_at": progress.created_at,
-            "updated_at": progress.updated_at
+            "updated_at": progress.updated_at,
         }
 
-        return BacktestProgressResponse(
-            code=0,
-            message="获取进度成功",
-            data=response_data
-        )
+        return BacktestProgressResponse(code=0, message="获取进度成功", data=response_data)
 
     except Exception as e:
         logger.error(f"获取回测任务进度失败: {e}")

@@ -1,9 +1,10 @@
-# -*- coding: utf-8 -*-
 """AxonDataAdapter 数据适配器测试"""
-import pytest
-import pandas as pd
+
 import importlib.util
 import os
+
+import pandas as pd
+import pytest
 
 
 def _load_adapter_module():
@@ -20,14 +21,16 @@ def _load_adapter_module():
 
 @pytest.fixture
 def sample_csv(tmp_path):
-    df = pd.DataFrame({
-        "timestamp": pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"], utc=True),
-        "open": [100.0, 101.0, 102.0],
-        "high": [105.0, 106.0, 107.0],
-        "low": [99.0, 100.0, 101.0],
-        "close": [103.0, 104.0, 105.0],
-        "volume": [1000.0, 2000.0, 3000.0],
-    })
+    df = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"], utc=True),
+            "open": [100.0, 101.0, 102.0],
+            "high": [105.0, 106.0, 107.0],
+            "low": [99.0, 100.0, 101.0],
+            "close": [103.0, 104.0, 105.0],
+            "volume": [1000.0, 2000.0, 3000.0],
+        }
+    )
     path = tmp_path / "BTCUSDT_1h.csv"
     df.to_csv(path, index=False)
     return str(path)
@@ -35,13 +38,16 @@ def sample_csv(tmp_path):
 
 @pytest.fixture
 def sample_parquet(tmp_path):
-    df = pd.DataFrame({
-        "open": [100.0, 101.0],
-        "high": [105.0, 106.0],
-        "low": [99.0, 100.0],
-        "close": [103.0, 104.0],
-        "volume": [1000.0, 2000.0],
-    }, index=pd.to_datetime(["2026-01-01", "2026-01-02"], utc=True))
+    df = pd.DataFrame(
+        {
+            "open": [100.0, 101.0],
+            "high": [105.0, 106.0],
+            "low": [99.0, 100.0],
+            "close": [103.0, 104.0],
+            "volume": [1000.0, 2000.0],
+        },
+        index=pd.to_datetime(["2026-01-01", "2026-01-02"], utc=True),
+    )
     path = tmp_path / "BTCUSDT_1h.parquet"
     df.to_parquet(path)
     return str(path)

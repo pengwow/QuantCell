@@ -1,30 +1,28 @@
-# -*- coding: utf-8 -*-
 """
 日志模块测试
 
 测试统一日志模块的功能
 """
 
-import pytest
 import sys
-import os
 from pathlib import Path
+
+import pytest
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.logger import (
-    get_logger,
+    LoggerWrapper,
     LogLevel,
     LogType,
-    LoggerWrapper,
+    StrategyLogger,
+    clear_trace_id,
+    get_logger,
+    get_strategy_logger,
+    get_trace_id,
     set_log_level,
     set_trace_id,
-    get_trace_id,
-    clear_trace_id,
-    shutdown_logger,
-    get_strategy_logger,
-    StrategyLogger,
 )
 
 
@@ -178,7 +176,8 @@ class TestLoggerIntegration:
         logger = get_logger("exception_test", LogType.APPLICATION)
 
         try:
-            raise ValueError("test exception")
+            msg = "test exception"
+            raise ValueError(msg)
         except Exception as e:
             # 这些调用不应该抛出异常
             logger.error("error with exception", exception=e)

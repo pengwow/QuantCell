@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 应用生命周期管理模块
 
@@ -10,27 +9,28 @@ import os
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-
 from collector.db import init_db
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取生命周期管理模块日志器
 logger = get_logger(__name__, LogType.SYSTEM)
-from collector.utils.task_manager import task_manager
-from collector.utils.scheduled_task_manager import scheduled_task_manager
+from typing import TYPE_CHECKING
+
 from collector.services.system_service import SystemService
-from utils.config_manager import load_system_configs
+from collector.utils.scheduled_task_manager import scheduled_task_manager
+from collector.utils.task_manager import task_manager
+from core.scheduler import start_scheduler
 from plugins import PluginManager
 from plugins.event_bus import event_bus
 from realtime.engine import RealtimeEngine
 from realtime.routes import setup_routes
-from websocket.manager import manager
-from utils.secret_key_manager import initialize_secret_key
-
 from services.symbol_sync import symbol_sync_manager
-from core.scheduler import start_scheduler
+from utils.config_manager import load_system_configs
+from utils.secret_key_manager import initialize_secret_key
+from websocket.manager import manager
 
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 # 全局实时引擎实例
 realtime_engine = None
@@ -70,23 +70,28 @@ async def lifespan(app: FastAPI):
         if key.endswith(".is_default") and value in ("1", "true", "True", True):
             exchange_id = key.replace(".is_default", "").replace("exchange.", "")
             is_enabled_key = f"exchange.{exchange_id}.is_enabled"
-            is_enabled = app.state.configs.get(is_enabled_key) in ("1", "true", "True", True)
+            is_enabled = app.state.configs.get(is_enabled_key) in (
+                "1",
+                "true",
+                "True",
+                True,
+            )
             if is_enabled:
                 default_exchange = exchange_id
                 logger.info(f"找到默认启用的交易所: {exchange_id}")
                 break
-    
+
     # 如果没有找到默认交易所，使用 binance 作为后备
     if not default_exchange:
         default_exchange = "binance"
         logger.info("未找到默认启用的交易所，使用 binance 作为默认")
-    
+
     # 读取该交易所的代理配置
     proxy_enabled = app.state.configs.get(f"exchange.{default_exchange}.proxy_enabled", "0")
     proxy_url = app.state.configs.get(f"exchange.{default_exchange}.proxy_url", "")
     proxy_username = app.state.configs.get(f"exchange.{default_exchange}.proxy_username", "")
     proxy_password = app.state.configs.get(f"exchange.{default_exchange}.proxy_password", "")
-    
+
     # 如果带前缀的配置不存在，尝试读取旧格式（向后兼容）
     if not proxy_enabled or proxy_enabled == "0":
         proxy_enabled = app.state.configs.get("proxy_enabled", "0")
@@ -96,7 +101,7 @@ async def lifespan(app: FastAPI):
         proxy_username = app.state.configs.get("proxy_username", "")
     if not proxy_password:
         proxy_password = app.state.configs.get("proxy_password", "")
-    
+
     logger.info(f"交易所 {default_exchange} 代理配置: enabled={proxy_enabled}, url={proxy_url}")
 
     # 转换proxy_enabled为布尔值
@@ -107,7 +112,7 @@ async def lifespan(app: FastAPI):
         enabled=proxy_enabled_bool,
         url=proxy_url if proxy_url is not None else "",
         username=proxy_username if proxy_username is not None else "",
-        password=proxy_password if proxy_password is not None else ""
+        password=proxy_password if proxy_password is not None else "",
     )
 
     # 异步启动传统定时任务，传递代理配置
@@ -135,7 +140,7 @@ async def lifespan(app: FastAPI):
 
             if not symbol_sync_manager.check_symbols_exist():
                 logger.warning("未检测到有效的货币对数据，触发主动同步...")
-                sync_result = await symbol_sync_manager.async_perform_sync(exchange='binance')
+                sync_result = await symbol_sync_manager.async_perform_sync(exchange="binance")
                 if sync_result.get("success"):
                     logger.info(f"货币对数据同步成功: {sync_result.get('message')}")
                 else:
@@ -155,7 +160,8 @@ async def lifespan(app: FastAPI):
 
     plugin_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "data", "installed_plugins"
+        "data",
+        "installed_plugins",
     )
     os.makedirs(plugin_dir, exist_ok=True)
     plugin_manager = await asyncio.to_thread(PluginManager, app=app, plugin_dir=plugin_dir)
@@ -180,31 +186,25 @@ async def lifespan(app: FastAPI):
         def websocket_kline_consumer(data: dict):
             """将K线数据推送到WebSocket（优化版：直接推送到队列，避免事件循环开销）"""
             try:
-                if data.get('data_type') == 'kline':
+                if data.get("data_type") == "kline":
                     # 构建K线消息 - 保持原始数据格式
                     kline_message = {
                         "type": "kline",
                         "id": f"kline_{int(time.time() * 1000)}",
                         "timestamp": int(time.time() * 1000),
-                        "data": data  # 保持原始数据结构
+                        "data": data,  # 保持原始数据结构
                     }
 
                     # 直接推送到消息队列，避免创建asyncio任务的开销
                     if manager.message_queue:
                         # 使用非阻塞方式放入队列
                         try:
-                            manager.message_queue.put_nowait({
-                                "type": "kline",
-                                "topic": "kline",
-                                **kline_message
-                            })
+                            manager.message_queue.put_nowait({"type": "kline", "topic": "kline", **kline_message})
                         except asyncio.QueueFull:
                             logger.warning("[KlinePush] 消息队列已满，丢弃消息")
                     else:
                         # 队列未初始化时，回退到asyncio.create_task
-                        asyncio.create_task(
-                            manager.broadcast(kline_message, topic="kline")
-                        )
+                        asyncio.create_task(manager.broadcast(kline_message, topic="kline"))
             except Exception as e:
                 logger.error(f"[KlinePush] WebSocket K线数据推送失败: {e}")
 
@@ -214,6 +214,7 @@ async def lifespan(app: FastAPI):
 
         # 注册K线持久化消费者（新增）
         from realtime.kline_persistence import kline_persistence_consumer
+
         realtime_engine.register_consumer("kline", kline_persistence_consumer.process_kline)
         logger.info("已注册K线持久化消费者")
 
@@ -240,6 +241,7 @@ async def lifespan(app: FastAPI):
     # 初始化策略执行引擎（TradingSystem，全局单例）
     try:
         from worker.trading_system import trading_system
+
         await trading_system.initialize()
         logger.info("策略执行引擎 (TradingSystem) 初始化完成")
     except Exception as e:
@@ -250,7 +252,9 @@ async def lifespan(app: FastAPI):
     # ========== 应用关闭阶段（必须保证执行完毕） ==========
     # 独立事件循环设计：每个 TradingNode 使用独立 asyncio 循环（非 uvicorn 主循环）
     # uvicorn 的 SIGINT 处理器始终有效，shutdown 流程正常触发
-    import time as _time, threading as _th, os as _os
+    import os as _os
+    import threading as _th
+    import time as _time
 
     _shutdown_start = _time.monotonic()
 
@@ -259,9 +263,8 @@ async def lifespan(app: FastAPI):
         _th.Event().wait(2.0)
         _elapsed = _time.monotonic() - _shutdown_start
         import logging as _log
-        _log.getLogger(__name__).warning(
-            f"[FORCE EXIT] 2秒强制退出定时器触发 (已等待 {_elapsed:.2f}s)"
-        )
+
+        _log.getLogger(__name__).warning(f"[FORCE EXIT] 2秒强制退出定时器触发 (已等待 {_elapsed:.2f}s)")
         _os._exit(0)
 
     _force_thread = _th.Thread(target=_force_exit_timer, daemon=True, name="force-exit-timer")
@@ -271,16 +274,14 @@ async def lifespan(app: FastAPI):
 
     # 步骤 1: 停止所有运行中的策略（通过 TradingSystem）
     try:
-        from worker.trading_system import trading_system
         from worker.state import strategy_registry
+        from worker.trading_system import trading_system
+
         for runtime in strategy_registry.list_all():
             if runtime.is_running:
                 try:
-                    await asyncio.wait_for(
-                        trading_system.stop_strategy(runtime.worker_id),
-                        timeout=1.0
-                    )
-                except asyncio.TimeoutError:
+                    await asyncio.wait_for(trading_system.stop_strategy(runtime.worker_id), timeout=1.0)
+                except TimeoutError:
                     logger.warning(f"停止策略 {runtime.worker_id} 超时，强制跳过")
         logger.info("✓ 所有策略已停止")
     except Exception as e:
@@ -291,7 +292,7 @@ async def lifespan(app: FastAPI):
         try:
             await asyncio.wait_for(realtime_engine.stop(), timeout=1.0)
             logger.info("实时引擎已停止")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("实时引擎停止超时（>1s），强制跳过")
         except asyncio.CancelledError:
             raise
@@ -301,12 +302,9 @@ async def lifespan(app: FastAPI):
     # 步骤 4: 停止系统状态推送服务（带超时保护）
     try:
         if hasattr(app.state, "system_service"):
-            await asyncio.wait_for(
-                app.state.system_service.stop_system_status_push(),
-                timeout=1.0
-            )
+            await asyncio.wait_for(app.state.system_service.stop_system_status_push(), timeout=1.0)
             logger.info("系统状态推送服务已停止")
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("系统状态推送服务停止超时（>1s），强制跳过")
     except asyncio.CancelledError:
         raise
@@ -331,7 +329,7 @@ async def lifespan(app: FastAPI):
     try:
         await asyncio.wait_for(manager.stop(), timeout=1.0)
         logger.info("WebSocket连接管理器已停止")
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("WebSocket连接管理器停止超时（>1s），强制跳过")
     except asyncio.CancelledError:
         raise
@@ -358,7 +356,7 @@ async def lifespan(app: FastAPI):
 
         await asyncio.wait_for(_shutdown_schedulers(), timeout=1.5)
         logger.info("调度器和插件已全部关闭")
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("调度器或插件关闭超时（>1.5s），强制跳过")
     except asyncio.CancelledError:
         raise
@@ -393,12 +391,11 @@ def _init_strategies():
     4. 输出初始化结果日志
     """
     import json
-    from pathlib import Path
 
     try:
-        from strategy.service import StrategyService
         from collector.db.database import SessionLocal, init_database_config
         from strategy.models import Strategy
+        from strategy.service import StrategyService
     except ImportError as e:
         logger.warning(f"策略初始化模块导入失败，跳过策略自动初始化: {e}")
         return
@@ -439,11 +436,14 @@ def _init_strategies():
 
                 params = strategy_info.get("params", [])
                 tags = strategy_info.get("tags", [])
-                logger.info(f"策略解析结果: name={strategy_info['name']}, params_type={type(params).__name__}, params={params}, tags_type={type(tags).__name__}, tags={tags}")
+                logger.info(
+                    f"策略解析结果: name={strategy_info['name']}, params_type={type(params).__name__}, params={params}, tags_type={type(tags).__name__}, tags={tags}"
+                )
 
                 if isinstance(params, str):
                     logger.warning(f"策略参数为字符串类型，尝试解析JSON: {params}")
                     import json
+
                     try:
                         params = json.loads(params) if params else []
                     except json.JSONDecodeError:
@@ -454,6 +454,7 @@ def _init_strategies():
                 if isinstance(tags, str):
                     logger.warning(f"策略标签为字符串类型，尝试解析JSON: {tags}")
                     import json
+
                     try:
                         tags = json.loads(tags) if tags else []
                     except json.JSONDecodeError:
@@ -473,7 +474,9 @@ def _init_strategies():
                 new_strategy.set_tags_list(tags)
                 db.add(new_strategy)
                 added += 1
-                logger.info(f"策略已初始化: {strategy_info['name']}, params_count={len(params)}, tags_count={len(tags)}")
+                logger.info(
+                    f"策略已初始化: {strategy_info['name']}, params_count={len(params)}, tags_count={len(tags)}"
+                )
 
             db.commit()
             logger.info(f"策略初始化完成: 新增 {added} 个, 跳过 {skipped} 个, 失败 {failed} 个")

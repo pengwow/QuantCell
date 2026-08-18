@@ -1,7 +1,8 @@
 """回测CLI入口单元测试"""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 
 class TestBacktestCliMain:
@@ -9,7 +10,7 @@ class TestBacktestCliMain:
 
     def test_main_calls_app(self):
         """测试 main 函数正确调用 backtest.cli.app"""
-        from scripts.backtest_cli import main
+        from cli.backtest import main
 
         with patch("backtest.cli.app") as mock_app:
             main()
@@ -17,7 +18,7 @@ class TestBacktestCliMain:
 
     def test_main_module_entry(self):
         """测试 __main__ 入口调用 main 函数"""
-        import scripts.backtest_cli as backtest_cli_module
+        import cli.backtest as backtest_cli_module
 
         with patch.object(backtest_cli_module, "main") as mock_main:
             backtest_cli_module.main()
@@ -30,13 +31,14 @@ class TestBacktestCliRunArgs:
     def test_force_liquidate_default_off(self):
         """默认不传 --force-liquidate,值为 False(保留策略意图)"""
         from typer.testing import CliRunner
+
         from backtest.cli import app
 
         runner = CliRunner()
         # 模拟数据加载抛错(我们只关心参数解析部分,在数据加载前参数已落盘)
         with patch("backtest.cli._get_data_provider") as mock_provider:
             mock_provider.return_value.load_multiple.return_value = ({}, None)
-            result = runner.invoke(
+            runner.invoke(
                 app,
                 ["run", "--strategy", "no_such_strategy", "--symbols", "BTCUSDT"],
             )
@@ -49,6 +51,7 @@ class TestBacktestCliRunArgs:
     def test_force_liquidate_flag_passed_through(self):
         """--force-liquidate 标志解析为 True,传递到 engine_config"""
         from typer.testing import CliRunner
+
         from backtest.cli import app
 
         runner = CliRunner()
@@ -58,7 +61,10 @@ class TestBacktestCliRunArgs:
             mock_service_factory.return_value = mock_service
 
             with patch("backtest.cli._get_data_provider") as mock_provider:
-                mock_provider.return_value.load_multiple.return_value = ({"BTCUSDT_1h": None}, None)
+                mock_provider.return_value.load_multiple.return_value = (
+                    {"BTCUSDT_1h": None},
+                    None,
+                )
 
                 # StrategyLoaderService 在 engine_service 函数内 import,patch 真实 import 路径
                 with patch("backtest.strategy_loader_service.StrategyLoaderService.load_strategy") as mock_loader:
@@ -68,9 +74,12 @@ class TestBacktestCliRunArgs:
                         app,
                         [
                             "run",
-                            "--strategy", "fake_strategy",
-                            "--symbols", "BTCUSDT",
-                            "--timeframes", "1h",
+                            "--strategy",
+                            "fake_strategy",
+                            "--symbols",
+                            "BTCUSDT",
+                            "--timeframes",
+                            "1h",
                             "--force-liquidate",
                         ],
                     )
@@ -82,13 +91,13 @@ class TestBacktestCliRunArgs:
         call_kwargs = mock_service.run_backtest.call_args.kwargs
         engine_config = call_kwargs.get("engine_config", {})
         assert engine_config.get("force_liquidate") is True, (
-            f"--force-liquidate 应使 engine_config['force_liquidate']=True, "
-            f"got {engine_config}"
+            f"--force-liquidate 应使 engine_config['force_liquidate']=True, got {engine_config}"
         )
 
     def test_no_force_liquidate_flag_passed_through(self):
         """--no-force-liquidate 标志解析为 False(显式关闭)"""
         from typer.testing import CliRunner
+
         from backtest.cli import app
 
         runner = CliRunner()
@@ -98,7 +107,10 @@ class TestBacktestCliRunArgs:
             mock_service_factory.return_value = mock_service
 
             with patch("backtest.cli._get_data_provider") as mock_provider:
-                mock_provider.return_value.load_multiple.return_value = ({"BTCUSDT_1h": None}, None)
+                mock_provider.return_value.load_multiple.return_value = (
+                    {"BTCUSDT_1h": None},
+                    None,
+                )
 
                 with patch("backtest.strategy_loader_service.StrategyLoaderService.load_strategy") as mock_loader:
                     mock_loader.return_value = MagicMock()
@@ -107,9 +119,12 @@ class TestBacktestCliRunArgs:
                         app,
                         [
                             "run",
-                            "--strategy", "fake_strategy",
-                            "--symbols", "BTCUSDT",
-                            "--timeframes", "1h",
+                            "--strategy",
+                            "fake_strategy",
+                            "--symbols",
+                            "BTCUSDT",
+                            "--timeframes",
+                            "1h",
                             "--no-force-liquidate",
                         ],
                     )
@@ -124,6 +139,7 @@ class TestBacktestCliRunArgs:
     def test_engine_param_removed(self):
         """--engine 参数应已被删除(只支持唯一引擎)"""
         from typer.testing import CliRunner
+
         from backtest.cli import app
 
         runner = CliRunner()
@@ -131,10 +147,14 @@ class TestBacktestCliRunArgs:
             app,
             [
                 "run",
-                "--strategy", "fake",
-                "--symbols", "BTCUSDT",
-                "--timeframes", "1h",
-                "--engine", "event",  # 旧参数,应该报错
+                "--strategy",
+                "fake",
+                "--symbols",
+                "BTCUSDT",
+                "--timeframes",
+                "1h",
+                "--engine",
+                "event",  # 旧参数,应该报错
             ],
         )
 

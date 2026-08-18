@@ -9,12 +9,14 @@ import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
 class PerformanceMonitor:
     """性能监控器（单例模式）
 
@@ -30,7 +32,7 @@ class PerformanceMonitor:
         _last_persistence_time: 上次持久化时间
     """
 
-    _instance: Optional["PerformanceMonitor"] = None
+    _instance: PerformanceMonitor | None = None
     _instance_lock = threading.Lock()
 
     # 告警阈值
@@ -41,7 +43,7 @@ class PerformanceMonitor:
     DEFAULT_PERSISTENCE_INTERVAL = 300  # 5分钟
     DEFAULT_DATA_FILE = "ai_model_performance.json"
 
-    def __new__(cls, *args, **kwargs) -> "PerformanceMonitor":
+    def __new__(cls, *args, **kwargs) -> PerformanceMonitor:
         """创建单例实例"""
         if cls._instance is None:
             with cls._instance_lock:
@@ -52,7 +54,7 @@ class PerformanceMonitor:
 
     def __init__(
         self,
-        data_dir: Optional[str] = None,
+        data_dir: str | None = None,
         persistence_interval: int = DEFAULT_PERSISTENCE_INTERVAL,
     ):
         """初始化性能监控器
@@ -66,7 +68,7 @@ class PerformanceMonitor:
             return
 
         self._lock = threading.Lock()
-        self._data: List[Dict[str, Any]] = []
+        self._data: list[dict[str, Any]] = []
         self._persistence_interval = persistence_interval
         self._last_persistence_time = time.time()
 
@@ -90,7 +92,7 @@ class PerformanceMonitor:
         """从文件加载历史数据"""
         try:
             if self._data_file.exists():
-                with open(self._data_file, "r", encoding="utf-8") as f:
+                with open(self._data_file, encoding="utf-8") as f:
                     loaded_data = json.load(f)
                     # 转换时间字符串为datetime对象
                     for record in loaded_data:
@@ -134,8 +136,8 @@ class PerformanceMonitor:
         model_id: str,
         success: bool,
         generation_time: float,
-        tokens_used: Optional[int] = None,
-        error_code: Optional[str] = None,
+        tokens_used: int | None = None,
+        error_code: str | None = None,
     ) -> None:
         """记录请求指标
 
@@ -161,17 +163,14 @@ class PerformanceMonitor:
             self._persist_data()
 
         status = "成功" if success else "失败"
-        logger.info(
-            f"记录性能指标: 模型={model_id}, 状态={status}, "
-            f"耗时={generation_time:.2f}s, Tokens={tokens_used}"
-        )
+        logger.info(f"记录性能指标: 模型={model_id}, 状态={status}, 耗时={generation_time:.2f}s, Tokens={tokens_used}")
 
     def get_stats(
         self,
-        model_id: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
+        model_id: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> dict[str, Any]:
         """获取统计数据
 
         Args:
@@ -196,10 +195,10 @@ class PerformanceMonitor:
 
     def _get_stats_internal(
         self,
-        model_id: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
+        model_id: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> dict[str, Any]:
         """内部获取统计数据（不获取锁，调用者需确保线程安全）
 
         Args:
@@ -252,7 +251,7 @@ class PerformanceMonitor:
             "total_tokens_used": total_tokens_used,
         }
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """获取总体摘要
 
         Returns:
@@ -292,7 +291,7 @@ class PerformanceMonitor:
                 },
             }
 
-    def check_alerts(self) -> List[Dict[str, Any]]:
+    def check_alerts(self) -> list[dict[str, Any]]:
         """检查是否需要告警
 
         检查条件:
@@ -326,26 +325,30 @@ class PerformanceMonitor:
 
                 # 检查高延迟
                 if stats["avg_generation_time"] > self.ALERT_LATENCY_THRESHOLD:
-                    alerts.append({
-                        "type": "high_latency",
-                        "model_id": model_id,
-                        "message": f"模型 {model_id} 的平均生成时间 ({stats['avg_generation_time']:.2f}s) "
-                                   f"超过阈值 ({self.ALERT_LATENCY_THRESHOLD}s)",
-                        "value": stats["avg_generation_time"],
-                        "threshold": self.ALERT_LATENCY_THRESHOLD,
-                    })
+                    alerts.append(
+                        {
+                            "type": "high_latency",
+                            "model_id": model_id,
+                            "message": f"模型 {model_id} 的平均生成时间 ({stats['avg_generation_time']:.2f}s) "
+                            f"超过阈值 ({self.ALERT_LATENCY_THRESHOLD}s)",
+                            "value": stats["avg_generation_time"],
+                            "threshold": self.ALERT_LATENCY_THRESHOLD,
+                        }
+                    )
 
                 # 检查高失败率
                 if stats["success_rate"] < (1 - self.ALERT_FAILURE_RATE_THRESHOLD):
                     failure_rate = 1 - stats["success_rate"]
-                    alerts.append({
-                        "type": "high_failure_rate",
-                        "model_id": model_id,
-                        "message": f"模型 {model_id} 的失败率 ({failure_rate:.2%}) "
-                                   f"超过阈值 ({self.ALERT_FAILURE_RATE_THRESHOLD:.0%})",
-                        "value": failure_rate,
-                        "threshold": self.ALERT_FAILURE_RATE_THRESHOLD,
-                    })
+                    alerts.append(
+                        {
+                            "type": "high_failure_rate",
+                            "model_id": model_id,
+                            "message": f"模型 {model_id} 的失败率 ({failure_rate:.2%}) "
+                            f"超过阈值 ({self.ALERT_FAILURE_RATE_THRESHOLD:.0%})",
+                            "value": failure_rate,
+                            "threshold": self.ALERT_FAILURE_RATE_THRESHOLD,
+                        }
+                    )
 
         if alerts:
             logger.warning(f"检测到 {len(alerts)} 个性能告警")
@@ -354,10 +357,10 @@ class PerformanceMonitor:
 
     def _filter_data(
         self,
-        model_id: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> List[Dict[str, Any]]:
+        model_id: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[dict[str, Any]]:
         """过滤数据
 
         Args:
@@ -374,20 +377,14 @@ class PerformanceMonitor:
             filtered = [r for r in filtered if r["model_id"] == model_id]
 
         if start_date:
-            filtered = [
-                r for r in filtered
-                if isinstance(r["timestamp"], datetime) and r["timestamp"] >= start_date
-            ]
+            filtered = [r for r in filtered if isinstance(r["timestamp"], datetime) and r["timestamp"] >= start_date]
 
         if end_date:
-            filtered = [
-                r for r in filtered
-                if isinstance(r["timestamp"], datetime) and r["timestamp"] <= end_date
-            ]
+            filtered = [r for r in filtered if isinstance(r["timestamp"], datetime) and r["timestamp"] <= end_date]
 
         return filtered
 
-    def clear_data(self, older_than_days: Optional[int] = None) -> int:
+    def clear_data(self, older_than_days: int | None = None) -> int:
         """清除数据
 
         Args:
@@ -404,8 +401,7 @@ class PerformanceMonitor:
                 cutoff_date = datetime.now() - timedelta(days=older_than_days)
                 old_count = len(self._data)
                 self._data = [
-                    r for r in self._data
-                    if isinstance(r["timestamp"], datetime) and r["timestamp"] >= cutoff_date
+                    r for r in self._data if isinstance(r["timestamp"], datetime) and r["timestamp"] >= cutoff_date
                 ]
                 count = old_count - len(self._data)
 

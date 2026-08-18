@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 """StrategyLoop 风控和 qty 转换测试"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,6 +16,7 @@ class FakeAction:
 
 class FakeStrategy:
     """测试用策略：返回固定 Action"""
+
     def __init__(self, action):
         self._action = action
         self.started = False
@@ -37,12 +38,19 @@ class FakeStrategy:
 
 class FakeAdapter:
     """测试用交易所适配器"""
+
     def __init__(self):
         self.connected = False
         self.subscribed = []
         self.orders = []
         self.disconnected = False
-        self._ticker = {"open": 65000, "high": 65100, "low": 64900, "last": 65050, "volume": 100.0}
+        self._ticker = {
+            "open": 65000,
+            "high": 65100,
+            "low": 64900,
+            "last": 65050,
+            "volume": 100.0,
+        }
 
     def connect(self):
         self.connected = True
@@ -63,6 +71,7 @@ class FakeAdapter:
 
 class FakeRiskEngine:
     """测试用风控引擎：通过 check_passed 控制结果"""
+
     def __init__(self, check_passed: bool = True, reason: str | None = None):
         self.check_passed = check_passed
         self.reason = reason
@@ -112,7 +121,9 @@ def test_risk_engine_rejects_order():
         interval=100.0,
         risk_engine=risk,
         account_equity=100_000.0,
-        event_callback=lambda evt_type, data: rejected_events.append((evt_type, data)) if evt_type == "order.rejected" else None,
+        event_callback=lambda evt_type, data: (
+            rejected_events.append((evt_type, data)) if evt_type == "order.rejected" else None
+        ),
     )
 
     action = strategy.on_bar({})

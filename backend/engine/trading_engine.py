@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """TradingEngine — 核心交易引擎（向后兼容门面）
 
 内部委托给 StrategyManager，保持原有 API 兼容性。
@@ -10,12 +9,14 @@ import logging
 import time
 import uuid
 from functools import lru_cache
-from typing import Any, Optional
-
-import pandas as pd
+from typing import TYPE_CHECKING, Any
 
 from .config import EngineConfig
-from backtest.backtest_loop import BacktestResult, RuleStrategy
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from backtest.backtest_loop import BacktestResult, RuleStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ _WS_TOPIC = "strategy"
 def get_risk_service() -> Any:
     """获取 RiskService 单例（包装 axon_bridge.risk.DefaultRiskEngine）。"""
     from services.risk_service import RiskService
+
     return RiskService()
 
 
@@ -34,6 +36,7 @@ def _ws_emit(event_type: str, data: dict[str, Any]) -> None:
     """线程安全地将事件推送到 WebSocket 消息队列。"""
     try:
         from websocket.manager import manager
+
         if manager.message_queue is None:
             return
         message = {
@@ -48,7 +51,7 @@ def _ws_emit(event_type: str, data: dict[str, Any]) -> None:
         pass
 
 
-_trading_engine_instance: Optional[TradingEngine] = None
+_trading_engine_instance: TradingEngine | None = None
 
 
 def get_trading_engine(config: EngineConfig | None = None) -> TradingEngine:
@@ -70,29 +73,27 @@ class TradingEngine:
             config = EngineConfig(exchange="binance", trading_mode="paper")
         self._config = config
         # ponytail: 缓存 exchange adapter，避免每次 property 访问重建
-        self._exchange_cache: Optional[Any] = None
+        self._exchange_cache: Any | None = None
 
         # 使用已有的 worker_system 单例，避免重复初始化
         from worker.strategy_manager import worker_system
+
         self._manager = worker_system
 
         # 维护自己的策略状态（保持向后兼容）
         self._strategies: dict[str, Any] = {}
 
-        logger.info(
-            f"TradingEngine 已初始化（委托模式）: "
-            f"exchange={config.exchange}, "
-            f"mode={config.trading_mode}"
-        )
+        logger.info(f"TradingEngine 已初始化（委托模式）: exchange={config.exchange}, mode={config.trading_mode}")
 
     @property
-    def exchange(self) -> Optional[Any]:
+    def exchange(self) -> Any | None:
         """返回 exchange adapter（缓存）"""
         if self._exchange_cache is not None:
             return self._exchange_cache
         # 延迟导入以避免循环依赖
         try:
             from axon_bridge.exchange import BinanceAdapter, ExchangeConfig
+
             exchange_config = ExchangeConfig(
                 exchange_id=self._config.exchange,
                 testnet=self._config.trading_mode == "paper",
@@ -103,7 +104,7 @@ class TradingEngine:
             return None
 
     @property
-    def risk_engine(self) -> Optional[Any]:
+    def risk_engine(self) -> Any | None:
         """返回 risk engine"""
         try:
             return get_risk_service()
@@ -148,12 +149,15 @@ class TradingEngine:
             "started_at": 0.0,
         }
         logger.info(f"策略已注册: {sid} {symbols}")
-        _ws_emit("strategy.registered", {
-            "strategy_id": sid,
-            "symbols": symbols,
-            "strategy_name": strategy_name,
-            "mode": mode,
-        })
+        _ws_emit(
+            "strategy.registered",
+            {
+                "strategy_id": sid,
+                "symbols": symbols,
+                "strategy_name": strategy_name,
+                "mode": mode,
+            },
+        )
         return sid
 
     def start_strategy(
@@ -167,14 +171,10 @@ class TradingEngine:
     ) -> str:
         """启动策略"""
         if self.exchange is None:
-            raise RuntimeError(
-                "exchange adapter 不可用，无法启动实盘策略。"
-                "请确保 axon_quant.exchange 已安装并配置正确。"
-            )
+            msg = "exchange adapter 不可用，无法启动实盘策略。请确保 axon_quant.exchange 已安装并配置正确。"
+            raise RuntimeError(msg)
 
-        sid = self.register_strategy(
-            strategy, symbols, strategy_name, params, mode=mode
-        )
+        sid = self.register_strategy(strategy, symbols, strategy_name, params, mode=mode)
         runtime = self._strategies[sid]
 
         # 创建事件回调，更新 runtime 计数
@@ -193,6 +193,7 @@ class TradingEngine:
             _ws_emit(event_type, data)
 
         from strategy.loop import StrategyLoop
+
         loop = StrategyLoop(
             adapter=self.exchange,
             strategy=strategy,
@@ -208,12 +209,15 @@ class TradingEngine:
         runtime["started_at"] = time.monotonic()
 
         logger.info(f"策略已启动: {sid} {symbols}")
-        _ws_emit("strategy.started", {
-            "strategy_id": sid,
-            "symbols": symbols,
-            "strategy_name": runtime["strategy_name"],
-            "mode": mode,
-        })
+        _ws_emit(
+            "strategy.started",
+            {
+                "strategy_id": sid,
+                "symbols": symbols,
+                "strategy_name": runtime["strategy_name"],
+                "mode": mode,
+            },
+        )
         return sid
 
     def stop_strategy(self, strategy_id: str) -> bool:
@@ -227,13 +231,16 @@ class TradingEngine:
             runtime["loop"].stop()
         runtime["status"] = "stopped"
         logger.info(f"策略已停止: {strategy_id}")
-        _ws_emit("strategy.stopped", {
-            "strategy_id": strategy_id,
-            "strategy_name": runtime["strategy_name"],
-        })
+        _ws_emit(
+            "strategy.stopped",
+            {
+                "strategy_id": strategy_id,
+                "strategy_name": runtime["strategy_name"],
+            },
+        )
         return True
 
-    def get_strategy_status(self, strategy_id: str) -> Optional[dict[str, Any]]:
+    def get_strategy_status(self, strategy_id: str) -> dict[str, Any] | None:
         """获取策略状态"""
         runtime = self._strategies.get(strategy_id)
         if runtime is None:
@@ -267,10 +274,7 @@ class TradingEngine:
 
     def list_strategies(self) -> list[dict]:
         """列出所有策略"""
-        return [
-            self.get_strategy_status(sid) or {"strategy_id": sid, "status": "unknown"}
-            for sid in self._strategies
-        ]
+        return [self.get_strategy_status(sid) or {"strategy_id": sid, "status": "unknown"} for sid in self._strategies]
 
     def run_backtest(
         self,

@@ -1,16 +1,20 @@
-# -*- coding: utf-8 -*-
 """内存池模块 — 高性能对象池和共享内存数据结构"""
+
 from __future__ import annotations
 
-import time
 import threading
+import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class PooledObject:
     """池化对象基类"""
+
     pass
 
 
@@ -22,7 +26,7 @@ class ObjectPool:
         factory: Callable[[], Any],
         reset_func: Callable[[Any], Any],
         initial_size: int = 10,
-        max_size: int = 100
+        max_size: int = 100,
     ):
         self.initial_size = initial_size
         self.max_size = max_size
@@ -70,7 +74,7 @@ class ObjectPool:
         with self._lock:
             self._available.clear()
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """获取统计信息"""
         with self._lock:
             return {
@@ -85,12 +89,13 @@ class ObjectPool:
 @dataclass(slots=True, eq=True)
 class TickEvent:
     """Tick 事件"""
+
     symbol: str
     price: float
     volume: float
     timestamp: float
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "price": self.price,
@@ -99,7 +104,7 @@ class TickEvent:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TickEvent":
+    def from_dict(cls, data: dict[str, Any]) -> TickEvent:
         return cls(
             symbol=data["symbol"],
             price=data["price"],
@@ -111,6 +116,7 @@ class TickEvent:
 @dataclass(slots=True, eq=True)
 class BarEvent:
     """K 线事件"""
+
     symbol: str
     open_price: float
     high_price: float
@@ -119,7 +125,7 @@ class BarEvent:
     volume: float
     timestamp: float
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "open": self.open_price,
@@ -131,7 +137,7 @@ class BarEvent:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BarEvent":
+    def from_dict(cls, data: dict[str, Any]) -> BarEvent:
         return cls(
             symbol=data["symbol"],
             open_price=data.get("open", data.get("open_price", 0.0)),
@@ -157,8 +163,8 @@ class SharedMemoryMarketData:
     def __init__(self, buffer_size: int = 1024 * 1024, num_symbols: int = 100):
         self.buffer_size = buffer_size
         self.num_symbols = num_symbols
-        self._tick_data: Dict[str, TickEvent] = {}
-        self._bar_data: Dict[str, BarEvent] = {}
+        self._tick_data: dict[str, TickEvent] = {}
+        self._bar_data: dict[str, BarEvent] = {}
         self._lock = threading.Lock()
 
     def write_tick(self, tick: TickEvent) -> None:
@@ -166,7 +172,7 @@ class SharedMemoryMarketData:
         with self._lock:
             self._tick_data[tick.symbol] = tick
 
-    def read_tick(self, symbol: str) -> Optional[TickEvent]:
+    def read_tick(self, symbol: str) -> TickEvent | None:
         """读取 Tick 数据"""
         with self._lock:
             return self._tick_data.get(symbol)
@@ -176,12 +182,12 @@ class SharedMemoryMarketData:
         with self._lock:
             self._bar_data[bar.symbol] = bar
 
-    def read_bar(self, symbol: str) -> Optional[BarEvent]:
+    def read_bar(self, symbol: str) -> BarEvent | None:
         """读取 Bar 数据"""
         with self._lock:
             return self._bar_data.get(symbol)
 
-    def get_all_symbols(self) -> List[str]:
+    def get_all_symbols(self) -> list[str]:
         """获取所有交易对"""
         with self._lock:
             return list(self._tick_data.keys())
@@ -202,9 +208,9 @@ class SharedMemoryMarketData:
 class PreallocatedBuffers:
     """预分配缓冲区池"""
 
-    def __init__(self, buffer_sizes: List[int], buffers_per_size: int = 10):
+    def __init__(self, buffer_sizes: list[int], buffers_per_size: int = 10):
         self.buffer_sizes = sorted(buffer_sizes)
-        self._pools: Dict[int, deque] = {}
+        self._pools: dict[int, deque] = {}
         self._lock = threading.Lock()
 
         for size in self.buffer_sizes:
@@ -229,19 +235,17 @@ class PreallocatedBuffers:
             if buf_size in self._pools:
                 self._pools[buf_size].append(buf)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
         with self._lock:
-            return {
-                "buffer_pools": {size: len(pool) for size, pool in self._pools.items()}
-            }
+            return {"buffer_pools": {size: len(pool) for size, pool in self._pools.items()}}
 
 
 __all__ = [
-    "ObjectPool",
-    "TickEvent",
     "BarEvent",
-    "SharedMemoryMarketData",
-    "PreallocatedBuffers",
+    "ObjectPool",
     "PooledObject",
+    "PreallocatedBuffers",
+    "SharedMemoryMarketData",
+    "TickEvent",
 ]

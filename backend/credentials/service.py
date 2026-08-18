@@ -3,15 +3,14 @@
 ponytail: 仅 add_account 接受明文,其他接口全部返回 Account(无 secret)
          或 DecryptedCredential(显式解密)
 """
+
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
 from credentials.account import Account
-from credentials.crypto import encrypt_secret, decrypt_secret, get_machine_fingerprint
-from credentials.exceptions import AccountNotFoundError
+from credentials.crypto import decrypt_secret, encrypt_secret, get_machine_fingerprint
 from credentials.store import CredentialsStore
-
 
 _DEFAULT_DB_PATH = "backend/data/credentials.db"
 

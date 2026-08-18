@@ -11,11 +11,13 @@
 """
 
 import asyncio
-from typing import Optional
+from typing import TYPE_CHECKING
 
-from utils.logger import get_logger, LogType
-from exchange.types import ConnectionTestResult, ConnectionStatus
-from exchange.base import BaseExchange
+from exchange.types import ConnectionStatus, ConnectionTestResult
+from utils.logger import LogType, get_logger
+
+if TYPE_CHECKING:
+    from exchange.base import BaseExchange
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -33,6 +35,7 @@ def _create_exchange_instance(
     """内部工厂函数，避免循环导入"""
     if exchange_name == "binance":
         from exchange.binance.exchange import BinanceExchange
+
         return BinanceExchange(
             exchange_name=exchange_name,
             api_key=api_key,
@@ -43,6 +46,7 @@ def _create_exchange_instance(
         )
     elif exchange_name == "okx":
         from exchange.okx.exchange import OkxExchange
+
         return OkxExchange(
             exchange_name=exchange_name,
             api_key=api_key,
@@ -52,21 +56,22 @@ def _create_exchange_instance(
             testnet=testnet,
         )
     else:
-        raise ValueError(f"不支持的交易所: {exchange_name}")
+        msg = f"不支持的交易所: {exchange_name}"
+        raise ValueError(msg)
 
 
 async def test_exchange_connection(
     exchange_name: str,
-    api_key: Optional[str] = None,
-    secret_key: Optional[str] = None,
-    api_passphrase: Optional[str] = None,
-    proxy_url: Optional[str] = None,
+    api_key: str | None = None,
+    secret_key: str | None = None,
+    api_passphrase: str | None = None,
+    proxy_url: str | None = None,
     trading_mode: str = "spot",
     testnet: bool = False,
 ) -> ConnectionTestResult:
     """
     异步测试交易所连接（内部调用同步的 Exchange.test_connection）
-    
+
     Args:
         exchange_name: 交易所名称 (binance, okx)
         api_key: API密钥
@@ -75,7 +80,7 @@ async def test_exchange_connection(
         proxy_url: 代理URL
         trading_mode: 交易模式 (spot, future)
         testnet: 是否使用测试网络
-    
+
     Returns:
         ConnectionTestResult: 连接测试结果
     """
@@ -86,11 +91,11 @@ async def test_exchange_connection(
             message=f"不支持的交易所: {exchange_name}，支持的交易所: {SUPPORTED_EXCHANGES}",
             details={"supported": SUPPORTED_EXCHANGES},
         )
-    
+
     try:
         logger.info(f"开始测试连接: exchange={exchange_name}, mode={trading_mode}, testnet={testnet}")
         loop = asyncio.get_event_loop()
-        
+
         def _run_test():
             logger.debug(f"创建 Exchange 实例: {exchange_name}")
             exchange = _create_exchange_instance(
@@ -101,13 +106,13 @@ async def test_exchange_connection(
                 proxy_url=proxy_url,
                 testnet=testnet,
             )
-            logger.debug(f"调用 test_connection()...")
+            logger.debug("调用 test_connection()...")
             result = exchange.test_connection()
             logger.debug(f"test_connection() 返回: status={result.status.value}, success={result.success}")
             return result
-        
+
         result = await loop.run_in_executor(None, _run_test)
-        
+
         if result.success:
             logger.info(f"测试连接成功: {exchange_name} ({result.response_time_ms:.0f}ms)")
         else:
@@ -116,7 +121,7 @@ async def test_exchange_connection(
                 f"message={result.message}, details={result.details}"
             )
         return result
-    
+
     except ImportError as e:
         logger.error(f"导入交易所模块失败: {e}")
         return ConnectionTestResult(
@@ -137,18 +142,18 @@ async def test_exchange_connection(
 
 def test_exchange_connection_sync(
     exchange_name: str,
-    api_key: Optional[str] = None,
-    secret_key: Optional[str] = None,
-    api_passphrase: Optional[str] = None,
-    proxy_url: Optional[str] = None,
+    api_key: str | None = None,
+    secret_key: str | None = None,
+    api_passphrase: str | None = None,
+    proxy_url: str | None = None,
     trading_mode: str = "spot",
     testnet: bool = False,
 ) -> ConnectionTestResult:
     """
     同步版本：测试交易所连接
-    
+
     适用于非异步上下文（如脚本、CLI工具等）。
-    
+
     Args:
         exchange_name: 交易所名称 (binance, okx)
         api_key: API密钥
@@ -157,7 +162,7 @@ def test_exchange_connection_sync(
         proxy_url: 代理URL
         trading_mode: 交易模式 (spot, future)
         testnet: 是否使用测试网络
-    
+
     Returns:
         ConnectionTestResult: 连接测试结果
     """
@@ -168,7 +173,7 @@ def test_exchange_connection_sync(
             message=f"不支持的交易所: {exchange_name}，支持的交易所: {SUPPORTED_EXCHANGES}",
             details={"supported": SUPPORTED_EXCHANGES},
         )
-    
+
     try:
         exchange = _create_exchange_instance(
             exchange_name=exchange_name,
@@ -190,7 +195,7 @@ def test_exchange_connection_sync(
 
 
 __all__ = [
+    "SUPPORTED_EXCHANGES",
     "test_exchange_connection",
     "test_exchange_connection_sync",
-    "SUPPORTED_EXCHANGES",
 ]

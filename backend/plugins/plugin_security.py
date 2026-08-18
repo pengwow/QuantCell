@@ -1,9 +1,11 @@
-from enum import Enum
-from typing import Any, Callable, List, Tuple, Optional
-from utils.logger import get_logger, LogType
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
-class PluginPermission(str, Enum):
+class PluginPermission(StrEnum):
     DATABASE_READ = "database:read"
     DATABASE_WRITE = "database:write"
     API_INTERNAL = "api:internal"
@@ -24,26 +26,26 @@ SYSTEM_ROUTE_PREFIXES = [
 ]
 
 
-def validate_permissions(permissions: list[str]) -> Tuple[bool, str]:
+def validate_permissions(permissions: list[str]) -> tuple[bool, str]:
     if not permissions:
         return (True, "")
-    
+
     valid_values = {p.value for p in PluginPermission}
     for perm in permissions:
         if perm not in valid_values:
             return (False, f"不支持的权限: {perm}")
-    
+
     return (True, "")
 
 
-def check_system_route_conflict(router_prefix: str) -> Tuple[bool, str]:
+def check_system_route_conflict(router_prefix: str) -> tuple[bool, str]:
     if not router_prefix:
         return (True, "")
-    
+
     for prefix in SYSTEM_ROUTE_PREFIXES:
         if router_prefix.startswith(prefix):
             return (False, f"路由前缀 {router_prefix} 与系统核心路由冲突")
-    
+
     return (True, "")
 
 
@@ -59,11 +61,11 @@ class PluginSandbox:
             self.logger.error(f"插件 {self.plugin_name} 执行异常: {e}", exception=e)
             return None
 
-    def execute_safe(self, func: Callable, *args, **kwargs) -> Tuple[bool, Any]:
+    def execute_safe(self, func: Callable, *args, **kwargs) -> tuple[bool, Any]:
         try:
             result = func(*args, **kwargs)
             return (True, result)
         except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
+            error_msg = f"{type(e).__name__}: {e!s}"
             self.logger.error(f"插件 {self.plugin_name} 执行异常: {error_msg}", exception=e)
             return (False, error_msg)

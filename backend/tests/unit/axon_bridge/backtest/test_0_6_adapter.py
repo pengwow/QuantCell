@@ -1,10 +1,10 @@
 """axon_bridge.backtest 0.6.0 多 leg 适配层测试。"""
-import pytest
 
 
 def test_spot_instrument_exported():
     """axon_bridge.backtest.spot_instrument 可用。"""
     from axon_bridge.backtest import spot_instrument
+
     inst = spot_instrument("BTC", "USDT")
     assert inst["kind"] == "spot"
     assert inst["base"] == "BTC"
@@ -14,6 +14,7 @@ def test_spot_instrument_exported():
 def test_swap_instrument_exported():
     """axon_bridge.backtest.swap_instrument 可用。"""
     from axon_bridge.backtest import swap_instrument
+
     inst = swap_instrument("BTC", "USDT", settle="usd_margin", contract_size=1.0)
     assert inst["kind"] == "swap"
     assert inst["base"] == "BTC"
@@ -24,7 +25,8 @@ def test_swap_instrument_exported():
 
 def test_limit_order_exported():
     """axon_bridge.backtest.limit_order 可用,接受 instrument dict。"""
-    from axon_bridge.backtest import spot_instrument, limit_order
+    from axon_bridge.backtest import limit_order, spot_instrument
+
     spot = spot_instrument("BTC", "USDT")
     order = limit_order(1, spot, "Buy", 50000.0, 0.1)
     assert order["id"] == 1
@@ -35,8 +37,10 @@ def test_limit_order_exported():
 def test_push_funding_helper_maybe_push_triggers():
     """PushFundingHelper 在 funding window 内调 push_funding。"""
     from unittest.mock import MagicMock
+
     from axon_quant.backtest import BacktestEngine
-    from axon_bridge.backtest import swap_instrument, PushFundingHelper
+
+    from axon_bridge.backtest import PushFundingHelper, swap_instrument
 
     engine = MagicMock(spec=BacktestEngine)
     perp = swap_instrument("BTC", "USDT", settle="usd_margin", contract_size=1.0)
@@ -58,7 +62,8 @@ def test_push_funding_helper_maybe_push_triggers():
 def test_push_funding_helper_window_injection():
     """ts_ms 落点在 [funding_ts - 8h, funding_ts] 范围 → 推。"""
     from unittest.mock import MagicMock
-    from axon_bridge.backtest import swap_instrument, PushFundingHelper
+
+    from axon_bridge.backtest import PushFundingHelper, swap_instrument
 
     engine = MagicMock()
     perp = swap_instrument("BTC", "USDT", settle="usd_margin", contract_size=1.0)
@@ -76,7 +81,8 @@ def test_push_funding_helper_window_injection():
 def test_push_funding_helper_no_double_push():
     """重复 ts_ms 不重复 push。"""
     from unittest.mock import MagicMock
-    from axon_bridge.backtest import swap_instrument, PushFundingHelper
+
+    from axon_bridge.backtest import PushFundingHelper, swap_instrument
 
     engine = MagicMock()
     perp = swap_instrument("BTC", "USDT", settle="usd_margin", contract_size=1.0)
@@ -97,7 +103,8 @@ def test_push_funding_helper_no_double_push():
 def test_push_funding_helper_outside_window_no_push():
     """ts_ms 落点在 [funding_ts - 8h, funding_ts] 之外 → 不推。"""
     from unittest.mock import MagicMock
-    from axon_bridge.backtest import swap_instrument, PushFundingHelper
+
+    from axon_bridge.backtest import PushFundingHelper, swap_instrument
 
     engine = MagicMock()
     perp = swap_instrument("BTC", "USDT", settle="usd_margin", contract_size=1.0)
@@ -115,7 +122,8 @@ def test_push_funding_helper_outside_window_no_push():
 def test_push_funding_helper_empty_history():
     """空 funding_history → 不推。"""
     from unittest.mock import MagicMock
-    from axon_bridge.backtest import swap_instrument, PushFundingHelper
+
+    from axon_bridge.backtest import PushFundingHelper, swap_instrument
 
     engine = MagicMock()
     perp = swap_instrument("BTC", "USDT", settle="usd_margin", contract_size=1.0)

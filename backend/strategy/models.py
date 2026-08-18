@@ -1,12 +1,16 @@
-# -*- coding: utf-8 -*-
 """策略模块数据库模型"""
 
 import json
-from typing import Optional, Dict, Any, List
+from typing import Any
 
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime,
-    Index, func,
+    Column,
+    DateTime,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
 )
 from sqlalchemy.orm import relationship
 
@@ -15,6 +19,7 @@ from collector.db.database import Base
 
 class Strategy(Base):
     """策略模型"""
+
     __tablename__ = "strategies"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -35,20 +40,20 @@ class Strategy(Base):
     workers = relationship("Worker", back_populates="strategy", lazy="dynamic")
 
     __table_args__ = (
-        Index('idx_strategy_name', 'name'),
-        Index('idx_strategy_status', 'status'),
+        Index("idx_strategy_name", "name"),
+        Index("idx_strategy_status", "status"),
     )
 
-    def get_tags_list(self) -> List[str]:
+    def get_tags_list(self) -> list[str]:
         try:
             return json.loads(self.tags) if self.tags else []
         except json.JSONDecodeError:
             return []
 
-    def set_tags_list(self, tags: List[str]):
+    def set_tags_list(self, tags: list[str]):
         self.tags = json.dumps(tags)
 
-    def get_parameters_list(self) -> List[Dict[str, Any]]:
+    def get_parameters_list(self) -> list[dict[str, Any]]:
         try:
             return json.loads(self.parameters) if self.parameters else []
         except json.JSONDecodeError:

@@ -3,10 +3,12 @@
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -14,6 +16,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 @dataclass
 class Session:
     """会话数据结构"""
+
     key: str
     messages: list[dict[str, Any]] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
@@ -29,7 +32,18 @@ class Session:
 
         # 智能过滤：移除过短的测试消息（如 "test", "hello", "hi" 等）
         filtered = []
-        test_patterns = {"test", "hello", "hi", "hey", "ok", "yes", "no", "1", "123", "abc"}
+        test_patterns = {
+            "test",
+            "hello",
+            "hi",
+            "hey",
+            "ok",
+            "yes",
+            "no",
+            "1",
+            "123",
+            "abc",
+        }
 
         for msg in messages:
             content = str(msg.get("content", "")).strip().lower()
@@ -67,7 +81,7 @@ class Session:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Session":
+    def from_dict(cls, data: dict[str, Any]) -> Session:
         """从字典反序列化"""
         session = cls(key=data["key"])
         session.messages = data.get("messages", [])
@@ -117,7 +131,7 @@ class SessionManager:
         try:
             session_file.write_text(
                 json.dumps(session.to_dict(), ensure_ascii=False, indent=2),
-                encoding="utf-8"
+                encoding="utf-8",
             )
         except Exception as e:
             logger.error(f"保存会话 {session.key} 失败: {e}")
@@ -140,24 +154,25 @@ class SessionManager:
 
     def create_session(self, name: str | None = None) -> dict[str, Any]:
         import uuid
-        import time
+
         session_id = str(uuid.uuid4())[:8]
-        now = datetime.now().isoformat()
+        datetime.now().isoformat()
         session = self.get_or_create(session_id)
         session_name = name or f"会话 {datetime.now().strftime('%Y/%m/%d %H:%M:%S')}"
         session_data = session.to_dict()
         session_data["id"] = session.key
         session_data["name"] = session_name
         session_file = self._get_session_file(session.key)
-        session_file.write_text(
-            json.dumps(session_data, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
+        session_file.write_text(json.dumps(session_data, ensure_ascii=False, indent=2), encoding="utf-8")
         return {
             "id": session.key,
             "name": session_name,
-            "created_at": session.created_at.isoformat() if hasattr(session.created_at, 'isoformat') else str(session.created_at),
-            "updated_at": session.updated_at.isoformat() if hasattr(session.updated_at, 'isoformat') else str(session.updated_at),
+            "created_at": session.created_at.isoformat()
+            if hasattr(session.created_at, "isoformat")
+            else str(session.created_at),
+            "updated_at": session.updated_at.isoformat()
+            if hasattr(session.updated_at, "isoformat")
+            else str(session.updated_at),
         }
 
     def get_session_info(self, key: str) -> dict[str, Any] | None:
@@ -173,8 +188,12 @@ class SessionManager:
         return {
             "id": session.key,
             "name": name,
-            "created_at": session.created_at.isoformat() if hasattr(session.created_at, 'isoformat') else str(session.created_at),
-            "updated_at": session.updated_at.isoformat() if hasattr(session.updated_at, 'isoformat') else str(session.updated_at),
+            "created_at": session.created_at.isoformat()
+            if hasattr(session.created_at, "isoformat")
+            else str(session.created_at),
+            "updated_at": session.updated_at.isoformat()
+            if hasattr(session.updated_at, "isoformat")
+            else str(session.updated_at),
             "message_count": len(session.messages),
         }
 
@@ -196,19 +215,21 @@ class SessionManager:
     def list_sessions(self) -> list[dict[str, Any]]:
         """列出所有会话的基本信息"""
         sessions_info = []
-        
+
         # 遍历 sessions 目录中的所有文件
         for session_file in self.sessions_dir.glob("*.json"):
             try:
                 data = json.loads(session_file.read_text(encoding="utf-8"))
-                sessions_info.append({
-                    "key": data.get("key", session_file.stem),
-                    "messages_count": len(data.get("messages", [])),
-                    "created_at": data.get("created_at"),
-                    "updated_at": data.get("updated_at"),
-                    "last_consolidated": data.get("last_consolidated", 0),
-                })
+                sessions_info.append(
+                    {
+                        "key": data.get("key", session_file.stem),
+                        "messages_count": len(data.get("messages", [])),
+                        "created_at": data.get("created_at"),
+                        "updated_at": data.get("updated_at"),
+                        "last_consolidated": data.get("last_consolidated", 0),
+                    }
+                )
             except Exception as e:
                 logger.warning(f"读取会话信息失败 {session_file}: {e}")
-        
+
         return sessions_info

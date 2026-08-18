@@ -11,17 +11,19 @@ Worker 状态管理器
 
 import asyncio
 import inspect
-import time
 from collections import deque
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional, Dict, Any, Callable, List, Set
+from typing import TYPE_CHECKING, Any
 
-from utils.logger import get_logger, LogType
-from collector.db.database import SessionLocal
 from utils.db_session import get_db_session
+from utils.logger import LogType, get_logger
+
 from . import crud
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -29,6 +31,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 # =============================================================================
 # Worker 状态枚举
 # =============================================================================
+
 
 class WorkerState(Enum):
     """
@@ -84,7 +87,7 @@ class WorkerState(Enum):
             WorkerState.ERROR,
         ]
 
-    def can_transition_to(self, new_state: "WorkerState") -> bool:
+    def can_transition_to(self, new_state: WorkerState) -> bool:
         """
         检查是否可以转换到指定状态
 
@@ -117,13 +120,13 @@ class WorkerState(Enum):
                 WorkerState.STOPPING,
                 WorkerState.PAUSED,
                 WorkerState.RELOADING,
-                WorkerState.RESTARTING,   # 允许从运行中直接重启
+                WorkerState.RESTARTING,  # 允许从运行中直接重启
                 WorkerState.ERROR,
             ],
             WorkerState.PAUSED: [
                 WorkerState.RUNNING,
                 WorkerState.STOPPING,
-                WorkerState.RESTARTING,   # 允许从暂停中重启
+                WorkerState.RESTARTING,  # 允许从暂停中重启
                 WorkerState.ERROR,
             ],
             WorkerState.STOPPING: [
@@ -137,9 +140,9 @@ class WorkerState(Enum):
             WorkerState.ERROR: [
                 WorkerState.RECOVERING,
                 WorkerState.STOPPING,
-                WorkerState.STARTING,     # 允许从错误状态重试启动
-                WorkerState.STOPPED,      # 允许从错误状态标记为已停止
-                WorkerState.RESTARTING,   # 允许从错误状态强制重启
+                WorkerState.STARTING,  # 允许从错误状态重试启动
+                WorkerState.STOPPED,  # 允许从错误状态标记为已停止
+                WorkerState.RESTARTING,  # 允许从错误状态强制重启
             ],
             WorkerState.RECOVERING: [
                 WorkerState.RUNNING,
@@ -152,7 +155,7 @@ class WorkerState(Enum):
             ],
             WorkerState.RESTARTING: [
                 WorkerState.INITIALIZING,
-                WorkerState.STARTING,     # 允许直接转到启动状态
+                WorkerState.STARTING,  # 允许直接转到启动状态
                 WorkerState.ERROR,
             ],
         }
@@ -164,6 +167,7 @@ class WorkerState(Enum):
 # Worker 状态信息数据类（WorkerProcess 使用的完整状态快照）
 # =============================================================================
 
+
 @dataclass
 class WorkerStatus:
     """
@@ -174,16 +178,16 @@ class WorkerStatus:
 
     worker_id: str
     state: WorkerState = WorkerState.INITIALIZING
-    strategy_name: Optional[str] = None
-    strategy_path: Optional[str] = None
+    strategy_name: str | None = None
+    strategy_path: str | None = None
     symbols: list = field(default_factory=list)
-    pid: Optional[int] = None
+    pid: int | None = None
 
     # 时间戳
     created_at: datetime = field(default_factory=datetime.now)
-    started_at: Optional[datetime] = None
-    stopped_at: Optional[datetime] = None
-    last_heartbeat: Optional[datetime] = None
+    started_at: datetime | None = None
+    stopped_at: datetime | None = None
+    last_heartbeat: datetime | None = None
 
     # 统计信息
     messages_processed: int = 0
@@ -191,13 +195,13 @@ class WorkerStatus:
     errors_count: int = 0
 
     # 错误信息
-    last_error: Optional[str] = None
-    last_error_time: Optional[datetime] = None
+    last_error: str | None = None
+    last_error_time: datetime | None = None
 
     # 扩展信息
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         转换为字典
 
@@ -284,6 +288,7 @@ class WorkerStatus:
 # 状态机管理器
 # =============================================================================
 
+
 class StateMachine:
     """
     状态机管理器
@@ -294,7 +299,7 @@ class StateMachine:
     def __init__(self, initial_state: WorkerState = WorkerState.INITIALIZING):
         self._state = initial_state
         self._state_history: deque = deque([(initial_state, datetime.now())], maxlen=100)
-        self._transition_handlers: Dict[WorkerState, list] = {}
+        self._transition_handlers: dict[WorkerState, list] = {}
 
     @property
     def current_state(self) -> WorkerState:
@@ -371,6 +376,7 @@ class StateMachine:
 # Worker 状态记录（状态管理器内部使用的数据类）
 # =============================================================================
 
+
 @dataclass
 class WorkerStateRecord:
     """
@@ -381,21 +387,21 @@ class WorkerStateRecord:
 
     worker_id: int
     status: str = "stopped"
-    previous_status: Optional[str] = None
-    pid: Optional[int] = None
-    started_at: Optional[datetime] = None
-    stopped_at: Optional[datetime] = None
-    error_message: Optional[str] = None
+    previous_status: str | None = None
+    pid: int | None = None
+    started_at: datetime | None = None
+    stopped_at: datetime | None = None
+    error_message: str | None = None
     updated_at: datetime = field(default_factory=datetime.now)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典格式"""
         data = asdict(self)
         if self.started_at:
-            data['started_at'] = self.started_at.isoformat()
+            data["started_at"] = self.started_at.isoformat()
         if self.stopped_at:
-            data['stopped_at'] = self.stopped_at.isoformat()
-        data['updated_at'] = self.updated_at.isoformat()
+            data["stopped_at"] = self.stopped_at.isoformat()
+        data["updated_at"] = self.updated_at.isoformat()
         return data
 
 
@@ -433,10 +439,10 @@ class WorkerStateManager:
     - 事件驱动通知
     """
 
-    _instance: Optional["WorkerStateManager"] = None
+    _instance: WorkerStateManager | None = None
     _initialized: bool = False
 
-    def __new__(cls) -> "WorkerStateManager":
+    def __new__(cls) -> WorkerStateManager:
         """单例模式实现"""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -448,13 +454,13 @@ class WorkerStateManager:
             return
 
         self._initialized = True
-        self._state_cache: Dict[int, WorkerStateRecord] = {}
+        self._state_cache: dict[int, WorkerStateRecord] = {}
         self._lock = asyncio.Lock()
-        self._event_handlers: Dict[str, List[Callable]] = {}
+        self._event_handlers: dict[str, list[Callable]] = {}
 
         logger.info("WorkerStateManager 初始化完成")
 
-    async def get_state(self, worker_id: int) -> Optional[WorkerStateRecord]:
+    async def get_state(self, worker_id: int) -> WorkerStateRecord | None:
         """
         获取 Worker 状态
 
@@ -470,12 +476,7 @@ class WorkerStateManager:
                 logger.debug(f"获取 Worker {worker_id} 状态: {state.status}")
             return state
 
-    async def transition(
-        self,
-        worker_id: int,
-        target_status: str,
-        **kwargs
-    ) -> bool:
+    async def transition(self, worker_id: int, target_status: str, **kwargs) -> bool:
         """
         执行状态转换
 
@@ -495,18 +496,14 @@ class WorkerStateManager:
             # 如果状态不存在，只允许从 stopped 开始
             if current_state is None:
                 if target_status != "stopped":
-                    logger.warning(
-                        f"Worker {worker_id} 不存在，无法转换到 {target_status}"
-                    )
+                    logger.warning(f"Worker {worker_id} 不存在，无法转换到 {target_status}")
                     return False
                 current_state = WorkerStateRecord(worker_id=worker_id, status="stopped")
                 self._state_cache[worker_id] = current_state
 
             # 验证状态转换合法性
             if not is_valid_transition(current_state.status, target_status):
-                logger.warning(
-                    f"非法状态转换: Worker {worker_id} 从 {current_state.status} 到 {target_status}"
-                )
+                logger.warning(f"非法状态转换: Worker {worker_id} 从 {current_state.status} 到 {target_status}")
                 return False
 
             # 保存旧状态
@@ -518,10 +515,10 @@ class WorkerStateManager:
             current_state.updated_at = datetime.now()
 
             # 处理额外参数
-            if 'pid' in kwargs:
-                current_state.pid = kwargs['pid']
-            if 'error_message' in kwargs:
-                current_state.error_message = kwargs['error_message']
+            if "pid" in kwargs:
+                current_state.pid = kwargs["pid"]
+            if "error_message" in kwargs:
+                current_state.error_message = kwargs["error_message"]
 
             # 更新时间戳
             if target_status == "running" and old_status != "running":
@@ -540,24 +537,25 @@ class WorkerStateManager:
             # 使用 create_task 确保 transition 快速返回，不阻塞 HTTP 响应
             try:
                 asyncio.create_task(
-                    self._emit_event("state_changed", {
-                        "worker_id": worker_id,
-                        "old_status": old_status,
-                        "new_status": target_status,
-                        "timestamp": datetime.now().isoformat(),
-                        "error_message": kwargs.get("error_message", ""),
-                    })
+                    self._emit_event(
+                        "state_changed",
+                        {
+                            "worker_id": worker_id,
+                            "old_status": old_status,
+                            "new_status": target_status,
+                            "timestamp": datetime.now().isoformat(),
+                            "error_message": kwargs.get("error_message", ""),
+                        },
+                    )
                 )
             except Exception as e:
                 logger.error(f"触发状态转换事件失败: {e}")
 
-            logger.info(
-                f"Worker {worker_id} 状态转换: {old_status} -> {target_status}"
-            )
+            logger.info(f"Worker {worker_id} 状态转换: {old_status} -> {target_status}")
 
             return True
 
-    async def get_all_states(self) -> Dict[int, WorkerStateRecord]:
+    async def get_all_states(self) -> dict[int, WorkerStateRecord]:
         """
         获取所有 Worker 状态
 
@@ -612,21 +610,22 @@ class WorkerStateManager:
             # 触发事件通知（fire-and-forget）
             try:
                 asyncio.create_task(
-                    self._emit_event("state_changed", {
-                        "worker_id": worker_id,
-                        "old_status": old_status,
-                        "new_status": "stopped",
-                        "timestamp": datetime.now().isoformat(),
-                        "force_reset": True,
-                        "reason": reason,
-                    })
+                    self._emit_event(
+                        "state_changed",
+                        {
+                            "worker_id": worker_id,
+                            "old_status": old_status,
+                            "new_status": "stopped",
+                            "timestamp": datetime.now().isoformat(),
+                            "force_reset": True,
+                            "reason": reason,
+                        },
+                    )
                 )
             except Exception as e:
                 logger.error(f"触发强制重置事件失败: {e}")
 
-            logger.warning(
-                f"[紧急恢复] Worker {worker_id} 强制重置: {old_status} -> stopped (原因: {reason})"
-            )
+            logger.warning(f"[紧急恢复] Worker {worker_id} 强制重置: {old_status} -> stopped (原因: {reason})")
 
             return True
 
@@ -658,10 +657,7 @@ class WorkerStateManager:
                 last_error = e
                 if attempt < max_retries - 1:
                     wait_time = 0.5 * (attempt + 1)
-                    logger.warning(
-                        f"持久化状态失败（尝试 {attempt + 1}/{max_retries}），"
-                        f"{wait_time:.1f}s 后重试: {e}"
-                    )
+                    logger.warning(f"持久化状态失败（尝试 {attempt + 1}/{max_retries}），{wait_time:.1f}s 后重试: {e}")
                     await asyncio.sleep(wait_time)
                 else:
                     logger.error(
@@ -685,10 +681,15 @@ class WorkerStateManager:
                 with get_db_session() as db:
                     from .crud import get_workers
 
-                    workers, total = get_workers(db, skip=0, limit=1000)
+                    workers, _total = get_workers(db, skip=0, limit=1000)
 
                     # 中间状态集合（程序异常退出后残留的风险状态）
-                    RECOVERABLE_STATES = {"starting", "stopping", "restarting", "paused"}
+                    RECOVERABLE_STATES = {
+                        "starting",
+                        "stopping",
+                        "restarting",
+                        "paused",
+                    }
                     recovered_count = 0
 
                     for worker in workers:
@@ -705,11 +706,10 @@ class WorkerStateManager:
                             # 同步修正数据库中的状态
                             try:
                                 from .crud import update_worker_status
+
                                 update_worker_status(db, worker.id, "stopped", pid=None)
                             except Exception as e:
-                                logger.error(
-                                    f"[状态恢复] 修正Worker {worker.id} 数据库状态失败: {e}"
-                                )
+                                logger.error(f"[状态恢复] 修正Worker {worker.id} 数据库状态失败: {e}")
 
                         state = WorkerStateRecord(
                             worker_id=worker.id,
@@ -731,7 +731,7 @@ class WorkerStateManager:
             except Exception as e:
                 logger.error(f"从数据库恢复状态失败: {e}")
 
-    async def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
+    async def _emit_event(self, event_type: str, data: dict[str, Any]) -> None:
         """
         发射事件
 
@@ -753,15 +753,9 @@ class WorkerStateManager:
                     handler(data)
             except Exception as e:
                 # 异常隔离：单个处理器错误不影响其他处理器和主流程
-                logger.error(
-                    f"事件处理器错误 [event={event_type}, handler={handler.__name__}]: {e}"
-                )
+                logger.error(f"事件处理器错误 [event={event_type}, handler={handler.__name__}]: {e}")
 
-    def register_handler(
-        self,
-        event_type: str,
-        handler: Callable[[Dict[str, Any]], Any]
-    ) -> None:
+    def register_handler(self, event_type: str, handler: Callable[[dict[str, Any]], Any]) -> None:
         """
         注册事件处理器
 
@@ -775,15 +769,9 @@ class WorkerStateManager:
             self._event_handlers[event_type] = []
 
         self._event_handlers[event_type].append(handler)
-        logger.debug(
-            f"注册事件处理器: event={event_type}, handler={handler.__name__}"
-        )
+        logger.debug(f"注册事件处理器: event={event_type}, handler={handler.__name__}")
 
-    def unregister_handler(
-        self,
-        event_type: str,
-        handler: Callable[[Dict[str, Any]], Any]
-    ) -> None:
+    def unregister_handler(self, event_type: str, handler: Callable[[dict[str, Any]], Any]) -> None:
         """
         移除事件处理器
 
@@ -794,9 +782,7 @@ class WorkerStateManager:
         if event_type in self._event_handlers:
             try:
                 self._event_handlers[event_type].remove(handler)
-                logger.debug(
-                    f"移除事件处理器: event={event_type}, handler={handler.__name__}"
-                )
+                logger.debug(f"移除事件处理器: event={event_type}, handler={handler.__name__}")
             except ValueError:
                 pass
 
@@ -834,26 +820,26 @@ class WorkerStateManager:
             try:
                 with get_db_session() as db:
                     from .crud import get_worker
-                    
+
                     stale_worker_ids = []
                     for worker_id in self._state_cache:
                         worker = get_worker(db, worker_id)
                         if worker is None:
                             stale_worker_ids.append(worker_id)
-                    
+
                     for worker_id in stale_worker_ids:
                         del self._state_cache[worker_id]
                         logger.info(f"已清理过期的 Worker {worker_id} 缓存条目")
-                    
+
                     if stale_worker_ids:
                         logger.info(f"共清理了 {len(stale_worker_ids)} 个过期的缓存条目")
-                    
+
                     return len(stale_worker_ids)
             except Exception as e:
                 logger.error(f"清理过期缓存失败: {e}")
                 return 0
 
-    def get_registered_events(self) -> Set[str]:
+    def get_registered_events(self) -> set[str]:
         """
         获取所有已注册的事件类型
 

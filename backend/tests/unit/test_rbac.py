@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 RBAC权限控制模块单元测试
 
@@ -9,20 +8,21 @@ RBAC权限控制模块单元测试
 日期: 2026-05-09
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
 from fastapi import HTTPException
 
 from utils.rbac import (
-    UserRole,
-    Permission,
     ROLE_PERMISSIONS,
-    get_user_role_from_token,
+    Permission,
+    UserRole,
     check_permission,
-    is_guest_user,
     get_current_user_id,
-    require_permission_sync,
     get_current_user_info,
+    get_user_role_from_token,
+    is_guest_user,
+    require_permission_sync,
 )
 
 
@@ -59,7 +59,17 @@ class TestPermission:
 
     def test_all_permissions_defined(self):
         """测试所有权限都已定义"""
-        categories = ["config", "user", "strategy", "indicator", "backtest", "data", "ai", "log", "exchange"]
+        categories = [
+            "config",
+            "user",
+            "strategy",
+            "indicator",
+            "backtest",
+            "data",
+            "ai",
+            "log",
+            "exchange",
+        ]
         for category in categories:
             assert hasattr(Permission, f"{category.upper()}_READ")
         assert hasattr(Permission, "CONFIG_WRITE")
@@ -131,28 +141,28 @@ class TestGetUserRoleFromToken:
         """测试有效的访客令牌"""
         mock_token = "valid_guest_token"
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {"role": "guest"}
             role = get_user_role_from_token(mock_token)
             assert role == UserRole.GUEST
 
     def test_valid_user_token(self):
         """测试有效的用户令牌"""
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {"role": "user"}
             role = get_user_role_from_token("valid_token")
             assert role == UserRole.USER
 
     def test_valid_admin_token(self):
         """测试有效的管理员令牌"""
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {"role": "admin"}
             role = get_user_role_from_token("valid_token")
             assert role == UserRole.ADMIN
 
     def test_missing_role_defaults_to_guest(self):
         """测试缺少角色时默认为访客"""
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {}
             role = get_user_role_from_token("valid_token")
             assert role == UserRole.GUEST
@@ -161,7 +171,7 @@ class TestGetUserRoleFromToken:
         """测试无效令牌抛出401异常"""
         from utils.jwt_utils import JWTError
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.side_effect = JWTError("Invalid token")
             with pytest.raises(HTTPException) as exc_info:
                 get_user_role_from_token("invalid_token")
@@ -188,7 +198,7 @@ class TestIsGuestUser:
         request = Mock()
         request.headers = {"Authorization": "Bearer guest_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {"role": "guest"}
             assert is_guest_user(request) is True
 
@@ -197,7 +207,7 @@ class TestIsGuestUser:
         request = Mock()
         request.headers = {"Authorization": "Bearer user_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {"role": "user"}
             assert is_guest_user(request) is False
 
@@ -208,7 +218,7 @@ class TestIsGuestUser:
         request = Mock()
         request.headers = {"Authorization": "Bearer invalid_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.side_effect = JWTError("Invalid")
             assert is_guest_user(request) is True
 
@@ -233,7 +243,7 @@ class TestGetCurrentUserId:
         request = Mock()
         request.headers = {"Authorization": "Bearer valid_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {"sub": "12345"}
             user_id = get_current_user_id(request)
             assert user_id == 12345
@@ -243,7 +253,7 @@ class TestGetCurrentUserId:
         request = Mock()
         request.headers = {"Authorization": "Bearer valid_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {"sub": "67890"}
             user_id = get_current_user_id(request)
             assert user_id == 67890
@@ -253,7 +263,7 @@ class TestGetCurrentUserId:
         request = Mock()
         request.headers = {"Authorization": "Bearer valid_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {}
             assert get_current_user_id(request) is None
 
@@ -262,7 +272,7 @@ class TestGetCurrentUserId:
         request = Mock()
         request.headers = {"Authorization": "Bearer valid_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {"sub": "guest_abc123"}
             assert get_current_user_id(request) is None
 
@@ -273,7 +283,7 @@ class TestGetCurrentUserId:
         request = Mock()
         request.headers = {"Authorization": "Bearer invalid_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.side_effect = JWTError("Invalid")
             assert get_current_user_id(request) is None
 
@@ -283,6 +293,7 @@ class TestRequirePermissionSync:
 
     def test_permission_granted(self):
         """测试权限被授予"""
+
         @require_permission_sync(Permission.CONFIG_READ)
         def protected_func(request):
             return {"success": True}
@@ -290,13 +301,14 @@ class TestRequirePermissionSync:
         request = Mock()
         request.headers = {"Authorization": "Bearer valid_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {"role": "user"}
             result = protected_func(request)
             assert result == {"success": True}
 
     def test_permission_denied_raises_403(self):
         """测试权限被拒绝抛出403"""
+
         @require_permission_sync(Permission.CONFIG_WRITE)
         def protected_func(request):
             return {"success": True}
@@ -304,7 +316,7 @@ class TestRequirePermissionSync:
         request = Mock()
         request.headers = {"Authorization": "Bearer valid_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {"role": "guest"}
             with pytest.raises(HTTPException) as exc_info:
                 protected_func(request)
@@ -313,6 +325,7 @@ class TestRequirePermissionSync:
 
     def test_no_token_raises_401(self):
         """测试没有令牌抛出401"""
+
         @require_permission_sync(Permission.CONFIG_READ)
         def protected_func(request):
             return {"success": True}
@@ -326,6 +339,7 @@ class TestRequirePermissionSync:
 
     def test_invalid_token_format_raises_401(self):
         """测试无效令牌格式抛出401"""
+
         @require_permission_sync(Permission.CONFIG_READ)
         def protected_func(request):
             return {"success": True}
@@ -354,11 +368,11 @@ class TestGetCurrentUserInfo:
         request = Mock()
         request.headers = {"Authorization": "Bearer valid_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {
                 "sub": "user123",
                 "name": "Test User",
-                "role": "user"
+                "role": "user",
             }
             info = get_current_user_info(request)
             assert info["sub"] == "user123"
@@ -371,7 +385,7 @@ class TestGetCurrentUserInfo:
         request = Mock()
         request.headers = {"Authorization": "Bearer guest_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {"role": "guest"}
             info = get_current_user_info(request)
             assert info["role"] == "guest"
@@ -384,7 +398,7 @@ class TestGetCurrentUserInfo:
         request = Mock()
         request.headers = {"Authorization": "Bearer invalid_token"}
 
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.side_effect = JWTError("Invalid")
             info = get_current_user_info(request)
             assert info["role"] == "guest"
@@ -414,7 +428,7 @@ class TestEdgeCases:
 
     def test_case_sensitive_role(self):
         """测试角色名大小写敏感"""
-        with patch('utils.rbac.decode_jwt_token') as mock_decode:
+        with patch("utils.rbac.decode_jwt_token") as mock_decode:
             mock_decode.return_value = {"role": "USER"}
             with pytest.raises(ValueError):
                 UserRole(mock_decode.return_value["role"])
@@ -424,8 +438,17 @@ class TestEdgeCases:
         for perm in Permission:
             parts = perm.value.split(":")
             assert len(parts) == 2
-            assert parts[0] in ["config", "user", "strategy", "indicator",
-                               "backtest", "data", "ai", "log", "exchange"]
+            assert parts[0] in [
+                "config",
+                "user",
+                "strategy",
+                "indicator",
+                "backtest",
+                "data",
+                "ai",
+                "log",
+                "exchange",
+            ]
             assert parts[1] in ["read", "write"]
 
 

@@ -1,8 +1,9 @@
 """策略CLI单元测试"""
 
-import pytest
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -11,46 +12,55 @@ runner = CliRunner()
 class TestOptimizeStrategyParams:
     """测试 optimize_strategy_params 函数"""
 
-    @patch("scripts.strategy_cli.optimize_strategy_params")
+    @patch("cli.strategy.optimize_strategy_params")
     def test_cli_optimize_success(self, mock_optimize):
         """测试 CLI optimize 命令成功"""
-        from scripts.strategy_cli import app
+        from cli.strategy import app
 
-        mock_optimize.return_value = json.dumps({
-            "success": True,
-            "total_combinations": 2,
-            "results": [{"params": {"fast": 5}, "metrics": {"sharpe_ratio": 1.5}}]
-        })
+        mock_optimize.return_value = json.dumps(
+            {
+                "success": True,
+                "total_combinations": 2,
+                "results": [{"params": {"fast": 5}, "metrics": {"sharpe_ratio": 1.5}}],
+            }
+        )
 
-        result = runner.invoke(app, [
-            "optimize",
-            "--strategy-name", "sma_cross",
-            "--param-ranges", '{"fast": [5, 10]}'
-        ])
+        result = runner.invoke(
+            app,
+            [
+                "optimize",
+                "--strategy-name",
+                "sma_cross",
+                "--param-ranges",
+                '{"fast": [5, 10]}',
+            ],
+        )
         assert result.exit_code == 0
 
-    @patch("scripts.strategy_cli.optimize_strategy_params")
+    @patch("cli.strategy.optimize_strategy_params")
     def test_cli_optimize_error(self, mock_optimize):
         """测试 CLI optimize 命令异常"""
-        from scripts.strategy_cli import app
+        from cli.strategy import app
 
-        mock_optimize.return_value = json.dumps({
-            "success": False,
-            "error": "参数解析失败"
-        })
+        mock_optimize.return_value = json.dumps({"success": False, "error": "参数解析失败"})
 
-        result = runner.invoke(app, [
-            "optimize",
-            "--strategy-name", "sma_cross",
-            "--param-ranges", "invalid_json"
-        ])
+        result = runner.invoke(
+            app,
+            [
+                "optimize",
+                "--strategy-name",
+                "sma_cross",
+                "--param-ranges",
+                "invalid_json",
+            ],
+        )
         assert result.exit_code == 0
 
     @patch("backtest.service.BacktestService")
     @patch("itertools.product")
     def test_optimize_params_empty_ranges(self, mock_product, mock_service_cls):
         """测试空参数范围"""
-        from scripts.strategy_cli import optimize_strategy_params
+        from cli.strategy import optimize_strategy_params
 
         mock_product.return_value = []
 
@@ -62,7 +72,7 @@ class TestOptimizeStrategyParams:
     @patch("backtest.service.BacktestService")
     def test_optimize_params_invalid_json(self, mock_service_cls):
         """测试无效JSON参数"""
-        from scripts.strategy_cli import optimize_strategy_params
+        from cli.strategy import optimize_strategy_params
 
         result = optimize_strategy_params("sma_cross", "invalid_json")
         data = json.loads(result)
@@ -73,79 +83,64 @@ class TestOptimizeStrategyParams:
 class TestCliCommands:
     """测试 strategy_cli CLI 命令"""
 
-    @patch("scripts.strategy_cli.list_strategies")
+    @patch("cli.strategy.list_strategies")
     def test_cli_list(self, mock_list):
         """测试 CLI list 命令"""
-        from scripts.strategy_cli import app
+        from cli.strategy import app
 
         mock_list.return_value = "可用策略列表"
 
         result = runner.invoke(app, ["list"])
         assert result.exit_code == 0
 
-    @patch("scripts.strategy_cli.get_strategy_detail")
+    @patch("cli.strategy.get_strategy_detail")
     def test_cli_info(self, mock_detail):
         """测试 CLI info 命令"""
-        from scripts.strategy_cli import app
+        from cli.strategy import app
 
         mock_detail.return_value = "策略详情: test_strategy"
 
         result = runner.invoke(app, ["info", "1"])
         assert result.exit_code == 0
 
-    @patch("scripts.strategy_cli.generate_strategy")
+    @patch("cli.strategy.generate_strategy")
     def test_cli_generate(self, mock_generate):
         """测试 CLI generate 命令"""
-        from scripts.strategy_cli import app
+        from cli.strategy import app
 
-        mock_generate.return_value = json.dumps({
-            "success": True,
-            "file_path": "/path/to/strategy.py"
-        })
+        mock_generate.return_value = json.dumps({"success": True, "file_path": "/path/to/strategy.py"})
 
-        result = runner.invoke(app, [
-            "generate",
-            "--requirement", "双均线策略",
-            "--name", "sma_cross"
-        ])
+        result = runner.invoke(app, ["generate", "--requirement", "双均线策略", "--name", "sma_cross"])
         assert result.exit_code == 0
 
-    @patch("scripts.strategy_cli.analyze_backtest_result")
+    @patch("cli.strategy.analyze_backtest_result")
     def test_cli_analyze(self, mock_analyze):
         """测试 CLI analyze 命令"""
-        from scripts.strategy_cli import app
+        from cli.strategy import app
 
         mock_analyze.return_value = json.dumps({"success": True, "metrics": {}})
 
         result = runner.invoke(app, ["analyze", "--backtest-id", "test-1"])
         assert result.exit_code == 0
 
-    @patch("scripts.strategy_cli.diagnose_strategy")
+    @patch("cli.strategy.diagnose_strategy")
     def test_cli_diagnose(self, mock_diagnose):
         """测试 CLI diagnose 命令"""
-        from scripts.strategy_cli import app
+        from cli.strategy import app
 
         mock_diagnose.return_value = json.dumps({"success": True, "issues": []})
 
         result = runner.invoke(app, ["diagnose", "--strategy-name", "sma_cross"])
         assert result.exit_code == 0
 
-    @patch("scripts.strategy_cli.deploy_strategy")
+    @patch("cli.strategy.deploy_strategy")
     def test_cli_deploy(self, mock_deploy):
         """测试 CLI deploy 命令"""
-        from scripts.strategy_cli import app
+        from cli.strategy import app
 
-        mock_deploy.return_value = json.dumps({
-            "success": True,
-            "worker_id": 123,
-            "status": "created"
-        })
+        mock_deploy.return_value = json.dumps({"success": True, "worker_id": 123, "status": "created"})
 
-        result = runner.invoke(app, [
-            "deploy",
-            "--strategy-name", "sma_cross",
-            "--symbols", "BTCUSDT"
-        ])
+        result = runner.invoke(app, ["deploy", "--strategy-name", "sma_cross", "--symbols", "BTCUSDT"])
         assert result.exit_code == 0
 
 
@@ -156,7 +151,7 @@ class TestListStrategies:
     @patch("collector.db.database.init_database_config")
     def test_list_strategies_empty(self, mock_init_db, mock_session):
         """测试空策略列表"""
-        from scripts.strategy_cli import list_strategies
+        from cli.strategy import list_strategies
 
         # 模拟数据库返回空列表
         mock_db = MagicMock()
@@ -171,7 +166,7 @@ class TestListStrategies:
     @patch("collector.db.database.init_database_config")
     def test_list_strategies_with_data(self, mock_init_db, mock_session, mock_strategy_cls):
         """测试有策略数据的情况"""
-        from scripts.strategy_cli import list_strategies
+        from cli.strategy import list_strategies
 
         # 模拟策略数据
         mock_strategy = MagicMock()
@@ -192,7 +187,7 @@ class TestListStrategies:
     @patch("collector.db.database.init_database_config")
     def test_list_strategies_error(self, mock_init_db, mock_session):
         """测试异常处理"""
-        from scripts.strategy_cli import list_strategies
+        from cli.strategy import list_strategies
 
         # 模拟异常
         mock_session.side_effect = Exception("数据库连接失败")
@@ -209,7 +204,7 @@ class TestGetStrategyDetail:
     @patch("collector.db.database.init_database_config")
     def test_get_strategy_detail_not_found(self, mock_init_db, mock_session):
         """测试策略不存在的情况"""
-        from scripts.strategy_cli import get_strategy_detail
+        from cli.strategy import get_strategy_detail
 
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.first.return_value = None
@@ -223,7 +218,7 @@ class TestGetStrategyDetail:
     @patch("collector.db.database.init_database_config")
     def test_get_strategy_detail_success(self, mock_init_db, mock_session, mock_strategy_cls):
         """测试成功获取策略详情"""
-        from scripts.strategy_cli import get_strategy_detail
+        from cli.strategy import get_strategy_detail
 
         # 模拟策略数据
         mock_strategy = MagicMock()
@@ -250,7 +245,7 @@ class TestGenerateStrategy:
     @patch("ai_model.config_utils.get_default_provider_and_models")
     def test_generate_strategy_no_provider(self, mock_get_provider):
         """测试未配置AI模型的情况"""
-        from scripts.strategy_cli import generate_strategy
+        from cli.strategy import generate_strategy
 
         mock_get_provider.return_value = None
 
@@ -265,7 +260,7 @@ class TestAnalyzeBacktestResult:
 
     def test_analyze_no_input(self):
         """测试无输入参数的情况"""
-        from scripts.strategy_cli import analyze_backtest_result
+        from cli.strategy import analyze_backtest_result
 
         result = analyze_backtest_result()
         data = json.loads(result)
@@ -278,7 +273,7 @@ class TestDiagnoseStrategy:
 
     def test_diagnose_strategy_file_not_found(self):
         """测试策略文件不存在的情况"""
-        from scripts.strategy_cli import diagnose_strategy
+        from cli.strategy import diagnose_strategy
 
         result = diagnose_strategy("nonexistent_strategy_12345")
         data = json.loads(result)
@@ -297,7 +292,7 @@ class TestDeployStrategy:
     @patch("worker.state.strategy_registry.list_all", return_value=[])
     def test_deploy_strategy_success(self, mock_list, mock_register):
         """测试成功部署策略"""
-        from scripts.strategy_cli import deploy_strategy
+        from cli.strategy import deploy_strategy
 
         result = deploy_strategy("test_strategy", "BTCUSDT")
         data = json.loads(result)
@@ -310,7 +305,7 @@ class TestDeployStrategy:
     @patch("worker.state.strategy_registry.list_all", return_value=[])
     def test_deploy_strategy_auto_start(self, mock_list, mock_register):
         """测试自动启动部署"""
-        from scripts.strategy_cli import deploy_strategy
+        from cli.strategy import deploy_strategy
 
         result = deploy_strategy("test_strategy", "BTCUSDT", auto_start=True)
         data = json.loads(result)
@@ -322,7 +317,7 @@ class TestDeployStrategy:
     @patch("worker.state.strategy_registry.list_all")
     def test_deploy_strategy_incremental_id(self, mock_list, mock_register):
         """测试 worker_id 自增逻辑"""
-        from scripts.strategy_cli import deploy_strategy
+        from cli.strategy import deploy_strategy
 
         # 模拟注册表中已有 worker_id=5
         mock_existing = MagicMock()
@@ -338,7 +333,7 @@ class TestDeployStrategy:
     @patch("worker.state.strategy_registry.list_all", return_value=[])
     def test_deploy_strategy_registers_runtime(self, mock_list, mock_register):
         """测试部署会将 StrategyRuntime 注册到注册表"""
-        from scripts.strategy_cli import deploy_strategy
+        from cli.strategy import deploy_strategy
         from worker.state import StrategyRuntime
 
         deploy_strategy("dual_ma", "BTCUSDT,ETHUSDT")

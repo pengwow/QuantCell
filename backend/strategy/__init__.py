@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """策略模块
 
 提供量化交易策略的管理、加载和执行功能。
@@ -7,26 +6,26 @@
 
 __version__ = "2.0.0"
 
-from .service import StrategyService
+from .loop import StrategyLoop
 from .routes import router
 from .schemas import (
+    StrategyDetailRequest,
     StrategyInfo,
-    StrategyParamInfo,
     StrategyListResponse,
+    StrategyParamInfo,
     StrategyUploadRequest,
     StrategyUploadResponse,
-    StrategyDetailRequest,
 )
-from .loop import StrategyLoop
+from .service import StrategyService
 
 __all__ = [
-    "StrategyService",
-    "router",
-    "StrategyLoop",
+    "StrategyDetailRequest",
     "StrategyInfo",
-    "StrategyParamInfo",
     "StrategyListResponse",
+    "StrategyLoop",
+    "StrategyParamInfo",
+    "StrategyService",
     "StrategyUploadRequest",
     "StrategyUploadResponse",
-    "StrategyDetailRequest",
+    "router",
 ]

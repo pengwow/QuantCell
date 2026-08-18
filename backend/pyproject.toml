@@ -110,9 +110,63 @@ directory = "htmlcov"
 dev = [
     "autoflake>=2.3.3",
     "dead>=2.1.0",
+    "pre-commit>=4.0.0",
     "pytest-mock>=3.15.1",
     "vulture>=2.16",
 ]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific rules
+    "I",   # isort
+    "PERF", # ruff-specific performance rules
+    "FURB", # flake8-raise-broken-exception
+]
+exclude = ["tests", "agent_workspace", "data", ".trash", "__pycache__"]
+# 对需要过渡期的规则放宽，后续逐步收紧
+extend-ignore = [
+    "B904",   # raise without from - 逐步修复
+    "E402",   # module import not at top - 存在合理的延迟导入
+    "B008",   # function call in default arg - 逐步修复
+    "RUF012", # mutable class default - 逐步修复
+    "F821",   # undefined name - 动态导入误报
+    "F401",   # unused import - 逐步修复
+    "RUF006", # asyncio dangling task - 逐步修复
+    "E722",   # bare except - 逐步修复
+    "E501",   # line too long - 中文f-string换行限制，逐步修复
+    "PERF",   # performance - 过度优化建议
+    "SIM",    # simplification - 代码简化建议
+    "B023",   # function-uses-loop-variable - 逐步修复
+    "B007",   # unused-loop-control-variable - 逐步修复
+    "B018",   # useless-expression - 逐步修复
+    "B027",   # empty-method-without-abstract-decorator - 逐步修复
+    "B017",   # assert-raises-exception - 逐步修复
+    "RUF043", # pytest-raises-ambiguous-pattern - 逐步修复
+    "F811",   # redefined-while-unused - 逐步修复
+    "E741",   # ambiguous-variable-name - 逐步修复
+    "UP035",  # deprecated-import - 逐步修复
+    "B024",   # abstract-base-class-without-abstract-method - 设计选择
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR0913", "RUF001", "RUF002", "RUF003", "E501"]
+"tests/**/conftest.py" = ["F841", "B008"]
+"**/*.py" = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+exclude = ["tests", "data"]
 
 [project.scripts]
 quantcell = "cli.run:cli"

@@ -1,28 +1,23 @@
-# -*- coding: utf-8 -*-
 """
 配置文件管理模块单元测试
 """
 
-import pytest
 import json
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+
+import pytest
 
 
 class TestConfigManager:
-    """测试 ConfigManager 类
-    """
+    """测试 ConfigManager 类"""
 
     @pytest.fixture
     def temp_config_file(self, tmp_path):
-        """创建临时配置文件用于测试
-        """
+        """创建临时配置文件用于测试"""
         config_file = tmp_path / "config.toml"
         return config_file
 
     def test_read_config_nonexistent(self, temp_config_file):
-        """测试读取不存在的配置文件
-        """
+        """测试读取不存在的配置文件"""
         from utils.config_manager import ConfigManager
 
         cm = ConfigManager(str(temp_config_file))
@@ -30,21 +25,14 @@ class TestConfigManager:
         assert config == {}
 
     def test_write_and_read_config(self, temp_config_file):
-        """测试写入和读取配置
-        """
+        """测试写入和读取配置"""
         from utils.config_manager import ConfigManager
 
         cm = ConfigManager(str(temp_config_file))
 
         test_config = {
-            "general": {
-                "theme": "dark",
-                "language": "zh-CN"
-            },
-            "app": {
-                "debug": True,
-                "port": 8000
-            }
+            "general": {"theme": "dark", "language": "zh-CN"},
+            "app": {"debug": True, "port": 8000},
         }
 
         success = cm.write_config(test_config)
@@ -55,17 +43,11 @@ class TestConfigManager:
         assert loaded_config == test_config
 
     def test_get_config_by_group(self, temp_config_file):
-        """测试按分组获取配置
-        """
+        """测试按分组获取配置"""
         from utils.config_manager import ConfigManager
 
         cm = ConfigManager(str(temp_config_file))
-        test_config = {
-            "general": {
-                "theme": "dark",
-                "language": "zh-CN"
-            }
-        }
+        test_config = {"general": {"theme": "dark", "language": "zh-CN"}}
         cm.write_config(test_config)
 
         group = cm.get_config_by_group("general")
@@ -75,32 +57,22 @@ class TestConfigManager:
         assert missing_group == {}
 
     def test_get_config_item(self, temp_config_file):
-        """测试获取单个配置项
-        """
+        """测试获取单个配置项"""
         from utils.config_manager import ConfigManager
 
         cm = ConfigManager(str(temp_config_file))
-        test_config = {
-            "general": {
-                "theme": "dark"
-            }
-        }
+        test_config = {"general": {"theme": "dark"}}
         cm.write_config(test_config)
 
         assert cm.get_config_item("general", "theme") == "dark"
         assert cm.get_config_item("general", "missing", "default") == "default"
 
     def test_update_config_item(self, temp_config_file):
-        """测试更新配置项
-        """
+        """测试更新配置项"""
         from utils.config_manager import ConfigManager
 
         cm = ConfigManager(str(temp_config_file))
-        test_config = {
-            "general": {
-                "theme": "dark"
-            }
-        }
+        test_config = {"general": {"theme": "dark"}}
         cm.write_config(test_config)
 
         success = cm.update_config_item("general", "theme", "light")
@@ -113,8 +85,7 @@ class TestConfigManager:
         assert cm.get_config_item("general", "new_key") == "new_value"
 
     def test_parse_value(self):
-        """测试 _parse_value 函数
-        """
+        """测试 _parse_value 函数"""
         from utils.config_manager import ConfigManager
 
         # 测试 JSON 解析
@@ -133,8 +104,7 @@ class TestConfigManager:
         assert ConfigManager._parse_value(None) is None
 
     def test_value_to_string(self):
-        """测试 _value_to_string 函数
-        """
+        """测试 _value_to_string 函数"""
         from utils.config_manager import ConfigManager
 
         # 测试布尔值
@@ -149,8 +119,7 @@ class TestConfigManager:
         assert ConfigManager._value_to_string("hello") == "hello"
 
     def test_set_nested_value(self):
-        """测试 _set_nested_value 函数
-        """
+        """测试 _set_nested_value 函数"""
         from utils.config_manager import ConfigManager
 
         data = {}
@@ -164,33 +133,33 @@ class TestConfigManager:
         assert data["a"]["b"]["_description"] == "description"
 
     def test_flatten_dict(self):
-        """测试 _flatten_dict 函数
-        """
+        """测试 _flatten_dict 函数"""
         from utils.config_manager import ConfigManager
 
-        data = {
-            "general": {
-                "theme": "dark",
-                "settings": {
-                    "debug": True,
-                    "port": 8000
-                }
-            }
-        }
+        data = {"general": {"theme": "dark", "settings": {"debug": True, "port": 8000}}}
         flat = ConfigManager._flatten_dict(data, "general")
 
         expected = [
             {"key": "theme", "value": "dark", "description": "", "is_sensitive": False},
-            {"key": "settings.debug", "value": True, "description": "", "is_sensitive": False},
-            {"key": "settings.port", "value": 8000, "description": "", "is_sensitive": False},
+            {
+                "key": "settings.debug",
+                "value": True,
+                "description": "",
+                "is_sensitive": False,
+            },
+            {
+                "key": "settings.port",
+                "value": 8000,
+                "description": "",
+                "is_sensitive": False,
+            },
         ]
 
         # 检查结果数量
         assert len(flat) == len(expected)
 
     def test_to_and_from_json(self, temp_config_file):
-        """测试 JSON 转换功能
-        """
+        """测试 JSON 转换功能"""
         from utils.config_manager import ConfigManager
 
         cm = ConfigManager(str(temp_config_file))

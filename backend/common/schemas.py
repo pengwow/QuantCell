@@ -2,8 +2,7 @@
 # 用于所有服务的统一API响应模型和通用数据结构
 
 from datetime import datetime
-import pytz
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +12,7 @@ class ApiResponse(BaseModel):
     统一API响应模型
     所有服务的API响应都应使用此模型
     """
+
     model_config = {
         "json_encoders": {
             datetime: lambda v: v.isoformat(),
@@ -29,7 +29,7 @@ class ApiResponse(BaseModel):
         description="响应消息，描述操作结果",
         examples=["操作成功"],
     )
-    data: Optional[Any] = Field(
+    data: Any | None = Field(
         None,
         description="响应数据，可选",
         examples=[{"key": "value"}],
@@ -46,6 +46,7 @@ class PaginationRequest(BaseModel):
     分页请求模型
     用于获取分页数据的通用请求结构
     """
+
     model_config = {"populate_by_name": True}
 
     page: int = Field(
@@ -79,6 +80,7 @@ class PaginationResponse(BaseModel):
     分页响应模型
     用于返回分页数据的通用响应结构
     """
+
     total: int = Field(
         ...,
         description="总记录数",

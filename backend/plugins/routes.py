@@ -1,19 +1,19 @@
 import asyncio
+import contextlib
 import json
 import mimetypes
 import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from common.schemas import ApiResponse
-from utils.auth import jwt_auth_required, jwt_auth_required_sync
-from utils.logger import get_logger, LogType
+from utils.auth import jwt_auth_required
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -29,7 +29,7 @@ router = APIRouter(
     },
 )
 
-_event_queues: List[asyncio.Queue] = []
+_event_queues: list[asyncio.Queue] = []
 
 # ponytail: 插件名防路径遍历
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$", re.ASCII)
@@ -38,7 +38,7 @@ _MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
 class GitInstallRequest(BaseModel):
     url: str
-    branch: Optional[str] = None
+    branch: str | None = None
 
 
 def _get_plugin_manager(request: Request):
@@ -50,10 +50,8 @@ def _get_plugin_manager(request: Request):
 
 def broadcast_event(event_type: str, data: dict):
     for queue in _event_queues:
-        try:
+        with contextlib.suppress(asyncio.QueueFull):
             queue.put_nowait({"event": event_type, "data": data})
-        except asyncio.QueueFull:
-            pass
 
 
 async def _sse_generator(queue: asyncio.Queue):
@@ -112,6 +110,7 @@ async def plugin_events(request: Request):
 async def get_plugin(name: str):
     try:
         from plugins.plugin_store import PluginStore
+
         store = PluginStore()
         plugin = store.get_plugin(name)
         if plugin is None:
@@ -132,7 +131,10 @@ async def install_plugin_upload(request: Request, file: UploadFile = File(...)):
         if not content:
             raise HTTPException(status_code=400, detail="上传文件为空")
         if len(content) > _MAX_UPLOAD_SIZE:
-            raise HTTPException(status_code=413, detail=f"文件大小超过{_MAX_UPLOAD_SIZE // 1024 // 1024}MB限制")
+            raise HTTPException(
+                status_code=413,
+                detail=f"文件大小超过{_MAX_UPLOAD_SIZE // 1024 // 1024}MB限制",
+            )
 
         suffix = ".zip"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -144,10 +146,13 @@ async def install_plugin_upload(request: Request, file: UploadFile = File(...)):
             success, msg = pm.install_from_zip(tmp_path)
             if not success:
                 raise HTTPException(status_code=400, detail=msg)
-            broadcast_event("plugin_installed", {
-                "name": msg,
-                "status": "installed",
-            })
+            broadcast_event(
+                "plugin_installed",
+                {
+                    "name": msg,
+                    "status": "installed",
+                },
+            )
             return ApiResponse(code=0, message="插件安装成功", data={"name": msg})
         finally:
             if os.path.exists(tmp_path):
@@ -167,10 +172,13 @@ async def install_plugin_git(request: Request, body: GitInstallRequest):
         success, msg = pm.install_from_git(body.url, body.branch)
         if not success:
             raise HTTPException(status_code=400, detail=msg)
-        broadcast_event("plugin_installed", {
-            "name": msg,
-            "status": "installed",
-        })
+        broadcast_event(
+            "plugin_installed",
+            {
+                "name": msg,
+                "status": "installed",
+            },
+        )
         return ApiResponse(code=0, message="插件安装成功", data={"name": msg})
     except HTTPException:
         raise
@@ -187,10 +195,13 @@ async def uninstall_plugin(request: Request, name: str):
         result = pm.uninstall_plugin(name)
         if result is None:
             raise HTTPException(status_code=404, detail=f"插件 {name} 不存在")
-        broadcast_event("plugin_uninstalled", {
-            "name": name,
-            "status": "uninstalled",
-        })
+        broadcast_event(
+            "plugin_uninstalled",
+            {
+                "name": name,
+                "status": "uninstalled",
+            },
+        )
         return ApiResponse(code=0, message="插件卸载成功", data=result)
     except HTTPException:
         raise
@@ -207,10 +218,13 @@ async def enable_plugin(request: Request, name: str):
         result = pm.enable_plugin(name)
         if result is None:
             raise HTTPException(status_code=404, detail=f"插件 {name} 不存在")
-        broadcast_event("plugin_loaded", {
-            "name": name,
-            "status": "enabled",
-        })
+        broadcast_event(
+            "plugin_loaded",
+            {
+                "name": name,
+                "status": "enabled",
+            },
+        )
         return ApiResponse(code=0, message="插件启用成功", data=result)
     except HTTPException:
         raise
@@ -227,10 +241,13 @@ async def disable_plugin(request: Request, name: str):
         result = pm.disable_plugin(name)
         if result is None:
             raise HTTPException(status_code=404, detail=f"插件 {name} 不存在")
-        broadcast_event("plugin_unloaded", {
-            "name": name,
-            "status": "disabled",
-        })
+        broadcast_event(
+            "plugin_unloaded",
+            {
+                "name": name,
+                "status": "disabled",
+            },
+        )
         return ApiResponse(code=0, message="插件禁用成功", data=result)
     except HTTPException:
         raise
@@ -283,6 +300,7 @@ async def serve_plugin_asset(name: str, path: str):
 async def get_plugin_config(name: str):
     try:
         from plugins.plugin_store import PluginStore
+
         store = PluginStore()
         plugin = store.get_plugin(name)
         if plugin is None:

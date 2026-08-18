@@ -9,22 +9,21 @@
 - 性能指标收集
 """
 
-import pytest
-import time
 import threading
-from unittest.mock import Mock, patch
+import time
 
+import pytest
 from strategy.core.concurrent_event_engine import (
     ConcurrentEventEngine,
-    SymbolShard,
+    ShardRouter,
     SymbolEvent,
-    ShardRouter
+    SymbolShard,
 )
-
 
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def concurrent_engine():
@@ -60,6 +59,7 @@ def shard_router():
 # =============================================================================
 # ConcurrentEventEngine 测试
 # =============================================================================
+
 
 class TestConcurrentEventEngine:
     """并发事件引擎测试类"""
@@ -111,7 +111,7 @@ class TestConcurrentEventEngine:
         shard_assignments = []
 
         # 通过内部方法获取分片分配
-        for i in range(10):
+        for _i in range(10):
             shard_id = concurrent_engine._get_shard_id("BTCUSDT")
             shard_assignments.append(shard_id)
 
@@ -166,7 +166,16 @@ class TestConcurrentEventEngine:
 
         try:
             # 发送事件到不同交易对
-            symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "XRPUSDT", "DOTUSDT", "UNIUSDT", "LINKUSDT"]
+            symbols = [
+                "BTCUSDT",
+                "ETHUSDT",
+                "BNBUSDT",
+                "ADAUSDT",
+                "XRPUSDT",
+                "DOTUSDT",
+                "UNIUSDT",
+                "LINKUSDT",
+            ]
             for i in range(80):
                 symbol = symbols[i % len(symbols)]
                 shard_id = concurrent_engine._get_shard_id(symbol)
@@ -182,6 +191,7 @@ class TestConcurrentEventEngine:
 
     def test_metrics_collection(self, concurrent_engine):
         """测试指标收集"""
+
         def handler(data):
             time.sleep(0.01)
 
@@ -206,7 +216,8 @@ class TestConcurrentEventEngine:
         results = []
 
         def failing_handler(data):
-            raise ValueError("测试异常")
+            msg = "测试异常"
+            raise ValueError(msg)
 
         def good_handler(data):
             results.append(data)
@@ -291,6 +302,7 @@ class TestConcurrentEventEngine:
 
     def test_get_all_handlers(self, concurrent_engine):
         """测试获取所有处理器"""
+
         def handler1(data):
             pass
 
@@ -354,6 +366,7 @@ class TestConcurrentEventEngine:
 # SymbolShard 测试
 # =============================================================================
 
+
 class TestSymbolShard:
     """交易对分片测试类"""
 
@@ -408,6 +421,7 @@ class TestSymbolShard:
 # ShardRouter 测试
 # =============================================================================
 
+
 class TestShardRouter:
     """分片路由器测试类"""
 
@@ -427,7 +441,16 @@ class TestShardRouter:
     def test_different_symbols_different_shards(self, shard_router):
         """测试不同交易对可能路由到不同分片"""
         shards = set()
-        symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "XRPUSDT", "DOTUSDT", "UNIUSDT", "LINKUSDT"]
+        symbols = [
+            "BTCUSDT",
+            "ETHUSDT",
+            "BNBUSDT",
+            "ADAUSDT",
+            "XRPUSDT",
+            "DOTUSDT",
+            "UNIUSDT",
+            "LINKUSDT",
+        ]
 
         for symbol in symbols:
             shard = shard_router.get_shard(symbol)
@@ -465,17 +488,13 @@ class TestShardRouter:
 # SymbolEvent 测试
 # =============================================================================
 
+
 class TestSymbolEvent:
     """交易对事件测试类"""
 
     def test_event_creation(self):
         """测试事件创建"""
-        event = SymbolEvent(
-            event_type="TICK",
-            data={"price": 50000},
-            symbol="BTCUSDT",
-            priority=1
-        )
+        event = SymbolEvent(event_type="TICK", data={"price": 50000}, symbol="BTCUSDT", priority=1)
 
         assert event.event_type == "TICK"
         assert event.data == {"price": 50000}
@@ -485,28 +504,14 @@ class TestSymbolEvent:
 
     def test_event_default_priority(self):
         """测试事件默认优先级"""
-        event = SymbolEvent(
-            event_type="TICK",
-            data={"price": 50000},
-            symbol="BTCUSDT"
-        )
+        event = SymbolEvent(event_type="TICK", data={"price": 50000}, symbol="BTCUSDT")
 
         assert event.priority == 0
 
     def test_event_comparison(self):
         """测试事件比较（用于优先级队列）"""
-        event_high = SymbolEvent(
-            event_type="TICK",
-            data={},
-            symbol="BTCUSDT",
-            priority=1
-        )
-        event_low = SymbolEvent(
-            event_type="TICK",
-            data={},
-            symbol="ETHUSDT",
-            priority=0
-        )
+        event_high = SymbolEvent(event_type="TICK", data={}, symbol="BTCUSDT", priority=1)
+        event_low = SymbolEvent(event_type="TICK", data={}, symbol="ETHUSDT", priority=0)
 
         # 高优先级应该"小于"低优先级（在最小堆中先出）
         assert event_high < event_low
@@ -515,6 +520,7 @@ class TestSymbolEvent:
 # =============================================================================
 # 性能基准测试
 # =============================================================================
+
 
 class TestConcurrentPerformanceBenchmarks:
     """并发性能基准测试类"""
@@ -553,9 +559,6 @@ class TestConcurrentPerformanceBenchmarks:
             total_time = time.time() - start_time
             throughput = processed / total_time
 
-            print(f"\n并发吞吐量: {throughput:.0f} 事件/秒")
-            print(f"处理事件数: {processed}/{event_count}")
-
             # 并发引擎应该达到较高吞吐量
             assert throughput > 5000
             assert processed == event_count
@@ -587,14 +590,10 @@ class TestConcurrentPerformanceBenchmarks:
             time.sleep(3)
 
             # 检查负载均衡
-            print(f"\n分片负载分布: {shard_counts}")
 
             counts = list(shard_counts.values())
             avg_count = sum(counts) / len(counts)
             max_deviation = max(abs(c - avg_count) for c in counts) / avg_count if avg_count > 0 else 0
-
-            print(f"平均负载: {avg_count:.0f}")
-            print(f"最大偏差: {max_deviation:.2%}")
 
             # 负载应该相对均衡（偏差小于50%）
             assert max_deviation < 0.5
@@ -634,6 +633,5 @@ class TestConcurrentPerformanceBenchmarks:
                 assert len(sequences) == 100, f"{symbol} 事件数量不匹配"
                 assert sequences == list(range(100)), f"{symbol} 事件顺序错误"
 
-            print("\n相同交易对顺序保证验证通过")
         finally:
             engine.stop()

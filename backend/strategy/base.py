@@ -4,20 +4,23 @@ ponytail: 8 模板都继承 BaseStrategy, 统一 on_bar(bar, ctx) -> Action 签�
          模板只关心策略逻辑, 不感知账户/凭证/交易所
          ctx 是 StrategyContext, 提供历史数据/账户/订单簿访问
 """
+
 from __future__ import annotations
 
-import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
 
-import pandas as pd
-from axon_bridge import Action
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from axon_bridge import Action
 
 
 @dataclass
 class StrategyConfig:
     """策略通用配置。"""
+
     name: str
     symbol: str = "BTCUSDT"
     interval: float = 1.0
@@ -44,6 +47,7 @@ class StrategyContext:
     - funding_cash_settlement_enabled 默认 False
     - last_funding_rate / last_funding_time 保留为只读 0
     """
+
     symbol: str
     closes: list[float] = field(default_factory=list)
     highs: list[float] = field(default_factory=list)
@@ -63,7 +67,7 @@ class StrategyContext:
 
     # —— 多数据源特征支持 ——
     features: dict[str, float] = field(default_factory=dict)
-    feature_dataframe: Optional[pd.DataFrame] = None
+    feature_dataframe: pd.DataFrame | None = None
     data_type: str = "kline"
 
     def get_feature(self, name: str, default: float = 0.0) -> float:
@@ -104,17 +108,17 @@ class BaseStrategy(ABC):
         self.config = config
         self._ctx: StrategyContext | None = None
 
-    def on_start(self, ctx: Optional[StrategyContext] = None) -> None:
+    def on_start(self, ctx: StrategyContext | None = None) -> None:
         """可选：启动钩子（重置内部状态）。"""
         if ctx is not None:
             self._ctx = ctx
 
     @abstractmethod
-    def on_bar(self, bar: dict, ctx: Optional[StrategyContext] = None) -> Action:
+    def on_bar(self, bar: dict, ctx: StrategyContext | None = None) -> Action:
         """必须实现：每根 K 线返回 Action。ctx 可选，用于兼容新老调用方式。"""
 
-    def on_fill(self, fill: dict, ctx: Optional[StrategyContext] = None) -> None:
+    def on_fill(self, fill: dict, ctx: StrategyContext | None = None) -> None:
         """可选：成交回调。"""
 
-    def on_stop(self, ctx: Optional[StrategyContext] = None) -> None:
+    def on_stop(self, ctx: StrategyContext | None = None) -> None:
         """可选：停止钩子。"""

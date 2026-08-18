@@ -1,4 +1,3 @@
- # -*- coding: utf-8 -*-
 """
 通知模块API路由
 
@@ -21,14 +20,14 @@
 日期: 2026-03-16
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from common.schemas import ApiResponse
 from utils.auth import jwt_auth_required
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 from .models import NotificationCategory, NotificationChannel, NotificationLevel
 from .service import notification_service
@@ -41,40 +40,44 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 class SendNotificationRequest(BaseModel):
     """发送通知请求"""
+
     title: str = Field(..., description="通知标题")
     content: str = Field(..., description="通知内容")
     level: NotificationLevel = Field(default=NotificationLevel.INFO, description="通知级别")
     category: NotificationCategory = Field(default=NotificationCategory.SYSTEM, description="通知分类")
-    channels: List[str] = Field(default=[], description="发送渠道列表")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="附加元数据")
+    channels: list[str] = Field(default=[], description="发送渠道列表")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="附加元数据")
 
 
 class SendSystemNotificationRequest(BaseModel):
     """发送系统通知请求"""
+
     title: str = Field(..., description="通知标题")
     message: str = Field(..., description="通知内容")
     level: NotificationLevel = Field(default=NotificationLevel.INFO, description="通知级别")
-    channels: List[str] = Field(default=[], description="发送渠道列表")
+    channels: list[str] = Field(default=[], description="发送渠道列表")
 
 
 class SendAlertRequest(BaseModel):
     """发送告警通知请求"""
+
     title: str = Field(..., description="告警标题")
     message: str = Field(..., description="告警内容")
     level: NotificationLevel = Field(default=NotificationLevel.WARNING, description="告警级别")
-    channels: List[str] = Field(default=[], description="发送渠道列表")
+    channels: list[str] = Field(default=[], description="发送渠道列表")
 
 
 class SendTaskNotificationRequest(BaseModel):
     """发送任务通知请求"""
+
     title: str = Field(..., description="通知标题")
     message: str = Field(..., description="通知内容")
-    task_id: Optional[str] = Field(default=None, description="任务ID")
+    task_id: str | None = Field(default=None, description="任务ID")
     level: NotificationLevel = Field(default=NotificationLevel.INFO, description="通知级别")
-    channels: List[str] = Field(default=[], description="发送渠道列表")
+    channels: list[str] = Field(default=[], description="发送渠道列表")
 
 
-def parse_channels(channels: List[str]) -> List[NotificationChannel]:
+def parse_channels(channels: list[str]) -> list[NotificationChannel]:
     channel_map = {
         "email": NotificationChannel.EMAIL,
         "wecom": NotificationChannel.WECOM,
@@ -92,12 +95,18 @@ async def send_notification(request: Request, data: SendNotificationRequest = Bo
         logger.info(f"发送通知: {data.title}")
         channels = parse_channels(data.channels) if data.channels else None
         result = await notification_service.send_notification(
-            title=data.title, content=data.content, level=data.level,
-            category=data.category, channels=channels, metadata=data.metadata,
+            title=data.title,
+            content=data.content,
+            level=data.level,
+            category=data.category,
+            channels=channels,
+            metadata=data.metadata,
         )
-        return ApiResponse(code=0 if result.get("success") else 500,
-                           message="通知发送成功" if result.get("success") else "通知发送失败",
-                           data=result)
+        return ApiResponse(
+            code=0 if result.get("success") else 500,
+            message="通知发送成功" if result.get("success") else "通知发送失败",
+            data=result,
+        )
     except Exception as e:
         logger.error(f"发送通知失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -110,11 +119,16 @@ async def send_system_notification(request: Request, data: SendSystemNotificatio
         logger.info(f"发送系统通知: {data.title}")
         channels = parse_channels(data.channels) if data.channels else None
         result = await notification_service.send_system_notification(
-            title=data.title, message=data.message, level=data.level, channels=channels,
+            title=data.title,
+            message=data.message,
+            level=data.level,
+            channels=channels,
         )
-        return ApiResponse(code=0 if result.get("success") else 500,
-                           message="系统通知发送成功" if result.get("success") else "系统通知发送失败",
-                           data=result)
+        return ApiResponse(
+            code=0 if result.get("success") else 500,
+            message="系统通知发送成功" if result.get("success") else "系统通知发送失败",
+            data=result,
+        )
     except Exception as e:
         logger.error(f"发送系统通知失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -127,11 +141,16 @@ async def send_alert(request: Request, data: SendAlertRequest = Body(...)):
         logger.info(f"发送告警通知: {data.title}")
         channels = parse_channels(data.channels) if data.channels else None
         result = await notification_service.send_alert(
-            title=data.title, message=data.message, level=data.level, channels=channels,
+            title=data.title,
+            message=data.message,
+            level=data.level,
+            channels=channels,
         )
-        return ApiResponse(code=0 if result.get("success") else 500,
-                           message="告警通知发送成功" if result.get("success") else "告警通知发送失败",
-                           data=result)
+        return ApiResponse(
+            code=0 if result.get("success") else 500,
+            message="告警通知发送成功" if result.get("success") else "告警通知发送失败",
+            data=result,
+        )
     except Exception as e:
         logger.error(f"发送告警通知失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -144,12 +163,17 @@ async def send_task_notification(request: Request, data: SendTaskNotificationReq
         logger.info(f"发送任务通知: {data.title}")
         channels = parse_channels(data.channels) if data.channels else None
         result = await notification_service.send_task_notification(
-            title=data.title, message=data.message, task_id=data.task_id,
-            level=data.level, channels=channels,
+            title=data.title,
+            message=data.message,
+            task_id=data.task_id,
+            level=data.level,
+            channels=channels,
         )
-        return ApiResponse(code=0 if result.get("success") else 500,
-                           message="任务通知发送成功" if result.get("success") else "任务通知发送失败",
-                           data=result)
+        return ApiResponse(
+            code=0 if result.get("success") else 500,
+            message="任务通知发送成功" if result.get("success") else "任务通知发送失败",
+            data=result,
+        )
     except Exception as e:
         logger.error(f"发送任务通知失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -163,7 +187,8 @@ async def get_notification_status(request: Request):
         status = notification_service.get_channel_status()
         enabled_channels = notification_service.get_enabled_channels()
         return ApiResponse(
-            code=0, message="获取通知渠道状态成功",
+            code=0,
+            message="获取通知渠道状态成功",
             data={"channels": status, "enabled": [ch.value for ch in enabled_channels]},
         )
     except Exception as e:

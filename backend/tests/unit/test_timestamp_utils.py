@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 时间戳工具模块单元测试
 
@@ -9,23 +8,24 @@
 日期: 2026-05-09
 """
 
-import pytest
 from datetime import datetime
 
+import pytest
+
 from utils.timestamp_utils import (
-    detect_precision,
-    to_nanoseconds,
-    from_nanoseconds,
-    normalize_to_nanoseconds,
-    nanoseconds_to_datetime,
-    datetime_to_nanoseconds,
-    format_nanoseconds,
-    parse_to_nanoseconds,
-    milliseconds_to_nanoseconds,
-    nanoseconds_to_milliseconds,
-    batch_to_nanoseconds,
     batch_normalize_to_nanoseconds,
+    batch_to_nanoseconds,
+    datetime_to_nanoseconds,
+    detect_precision,
+    format_nanoseconds,
+    from_nanoseconds,
     is_valid_nanoseconds,
+    milliseconds_to_nanoseconds,
+    nanoseconds_to_datetime,
+    nanoseconds_to_milliseconds,
+    normalize_to_nanoseconds,
+    parse_to_nanoseconds,
+    to_nanoseconds,
     validate_nanoseconds,
 )
 
@@ -35,29 +35,29 @@ class TestDetectPrecision:
 
     def test_seconds_precision(self):
         """测试秒级时间戳 (10位)"""
-        assert detect_precision(1767830400) == 's'
-        assert detect_precision(0) == 's'
-        assert detect_precision(9999999999) == 's'
+        assert detect_precision(1767830400) == "s"
+        assert detect_precision(0) == "s"
+        assert detect_precision(9999999999) == "s"
 
     def test_milliseconds_precision(self):
         """测试毫秒级时间戳 (13位)"""
-        assert detect_precision(1767830400000) == 'ms'
-        assert detect_precision(10000000000000) == 'ms'
+        assert detect_precision(1767830400000) == "ms"
+        assert detect_precision(10000000000000) == "ms"
 
     def test_microseconds_precision(self):
         """测试微秒级时间戳 (16位)"""
-        assert detect_precision(1767830400000000) == 'us'
-        assert detect_precision(100000000000000000) == 'us'
+        assert detect_precision(1767830400000000) == "us"
+        assert detect_precision(100000000000000000) == "us"
 
     def test_nanoseconds_precision(self):
         """测试纳秒级时间戳 (19位)"""
-        assert detect_precision(1767830400000000000) == 'ns'
-        assert detect_precision(1767830400999999999) == 'ns'
+        assert detect_precision(1767830400000000000) == "ns"
+        assert detect_precision(1767830400999999999) == "ns"
 
     def test_string_input(self):
         """测试字符串输入"""
-        assert detect_precision("1767830400") == 's'
-        assert detect_precision("1767830400000000000") == 'ns'
+        assert detect_precision("1767830400") == "s"
+        assert detect_precision("1767830400000000000") == "ns"
 
 
 class TestToNanoseconds:
@@ -65,29 +65,29 @@ class TestToNanoseconds:
 
     def test_seconds_to_nanoseconds(self):
         """测试秒级转纳秒"""
-        result = to_nanoseconds(1767830400, 's')
+        result = to_nanoseconds(1767830400, "s")
         assert result == 1767830400 * 1_000_000_000
 
     def test_milliseconds_to_nanoseconds(self):
         """测试毫秒级转纳秒"""
-        result = to_nanoseconds(1767830400000, 'ms')
+        result = to_nanoseconds(1767830400000, "ms")
         assert result == 1767830400000 * 1_000_000
 
     def test_microseconds_to_nanoseconds(self):
         """测试微秒级转纳秒"""
-        result = to_nanoseconds(1767830400000000, 'us')
+        result = to_nanoseconds(1767830400000000, "us")
         assert result == 1767830400000000 * 1_000
 
     def test_nanoseconds_passthrough(self):
         """测试纳秒级直接返回"""
         ns_ts = 1767830400000000000
-        result = to_nanoseconds(ns_ts, 'ns')
+        result = to_nanoseconds(ns_ts, "ns")
         assert result == ns_ts
 
     def test_auto_detect_precision(self):
         """测试自动检测精度"""
-        assert to_nanoseconds(1767830400) == to_nanoseconds(1767830400, 's')
-        assert to_nanoseconds(1767830400000) == to_nanoseconds(1767830400000, 'ms')
+        assert to_nanoseconds(1767830400) == to_nanoseconds(1767830400, "s")
+        assert to_nanoseconds(1767830400000) == to_nanoseconds(1767830400000, "ms")
 
     def test_invalid_input_raises(self):
         """测试无效输入抛出异常"""
@@ -99,7 +99,7 @@ class TestToNanoseconds:
     def test_unknown_precision_raises(self):
         """测试未知精度抛出异常"""
         with pytest.raises(ValueError, match="未知的精度类型"):
-            to_nanoseconds(1767830400, 'unknown')
+            to_nanoseconds(1767830400, "unknown")
 
 
 class TestFromNanoseconds:
@@ -108,32 +108,32 @@ class TestFromNanoseconds:
     def test_nanoseconds_to_seconds(self):
         """测试纳秒转秒"""
         ns = 1767830400000000000
-        assert from_nanoseconds(ns, 's') == 1767830400
+        assert from_nanoseconds(ns, "s") == 1767830400
 
     def test_nanoseconds_to_milliseconds(self):
         """测试纳秒转毫秒"""
         ns = 1767830400000000000
-        assert from_nanoseconds(ns, 'ms') == 1767830400000
+        assert from_nanoseconds(ns, "ms") == 1767830400000
 
     def test_nanoseconds_to_microseconds(self):
         """测试纳秒转微秒"""
         ns = 1767830400000000000
-        assert from_nanoseconds(ns, 'us') == 1767830400000000
+        assert from_nanoseconds(ns, "us") == 1767830400000000
 
     def test_nanoseconds_passthrough(self):
         """测试纳秒级直接返回"""
         ns = 1767830400000000000
-        assert from_nanoseconds(ns, 'ns') == ns
+        assert from_nanoseconds(ns, "ns") == ns
 
     def test_string_input(self):
         """测试字符串输入"""
-        result = from_nanoseconds("1767830400000000000", 's')
+        result = from_nanoseconds("1767830400000000000", "s")
         assert result == 1767830400
 
     def test_unknown_precision_raises(self):
         """测试未知精度抛出异常"""
         with pytest.raises(ValueError, match="未知的精度类型"):
-            from_nanoseconds(1767830400000000000, 'unknown')
+            from_nanoseconds(1767830400000000000, "unknown")
 
 
 class TestNormalizeToNanoseconds:
@@ -262,14 +262,14 @@ class TestBatchOperations:
     def test_batch_to_nanoseconds(self):
         """测试批量转换为纳秒"""
         timestamps = [1767830400, 1767830401, 1767830402]
-        results = batch_to_nanoseconds(timestamps, 's')
+        results = batch_to_nanoseconds(timestamps, "s")
         assert len(results) == 3
         assert all(isinstance(r, int) for r in results)
 
     def test_batch_normalize_to_nanoseconds(self):
         """测试批量标准化"""
         timestamps = [1767830400, 1767830401]
-        results = batch_normalize_to_nanoseconds(timestamps, 's')
+        results = batch_normalize_to_nanoseconds(timestamps, "s")
         assert len(results) == 2
         assert all(isinstance(r, str) for r in results)
 
@@ -311,7 +311,7 @@ class TestEdgeCases:
 
     def test_zero_timestamp(self):
         """测试零时间戳"""
-        assert detect_precision(0) == 's'
+        assert detect_precision(0) == "s"
         assert to_nanoseconds(0) == 0
         assert nanoseconds_to_datetime(0).year == 1970
 

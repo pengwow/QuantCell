@@ -1,19 +1,26 @@
 """llm_signal 策略模板单元测试。"""
+
 from __future__ import annotations
 
+from axon_bridge import ActionType, SignalType
 from strategy.base import StrategyConfig, StrategyContext
 from strategy.templates.llm_signal import LLMSignalStrategy, _heuristic_signal
-from axon_bridge import MarketSignal, SignalType, ActionType
 
 
 def _bar(price: float) -> dict:
-    return {"open": price, "high": price * 1.001, "low": price * 0.999,
-            "close": price, "volume": 100.0}
+    return {
+        "open": price,
+        "high": price * 1.001,
+        "low": price * 0.999,
+        "close": price,
+        "volume": 100.0,
+    }
 
 
 def test_llm_signal_registered():
     """策略通过 loader 可发现。"""
     from strategy.loader import StrategyLoader
+
     assert "llm_signal" in StrategyLoader.list_all()
 
 
@@ -87,10 +94,12 @@ def test_llm_mode_with_mock_provider():
         calls.append(prompt)
         return '{"action":"Buy","confidence":0.9,"reasoning":"test buy signal"}'
 
-    s = LLMSignalStrategy(StrategyConfig(
-        name="llm_signal",
-        params={"mode": "llm", "fast": 3, "slow": 5, "llm_provider": mock_provider},
-    ))
+    s = LLMSignalStrategy(
+        StrategyConfig(
+            name="llm_signal",
+            params={"mode": "llm", "fast": 3, "slow": 5, "llm_provider": mock_provider},
+        )
+    )
     ctx = StrategyContext(symbol="BTCUSDT")
     s.on_start(ctx)
     # 喂足够K线触发信号
@@ -105,13 +114,16 @@ def test_llm_mode_with_mock_provider():
 
 def test_llm_mode_parse_error_fallback():
     """LLM 返回非法 JSON 时降级为 Hold。"""
+
     def bad_provider(prompt: str) -> str:
         return "not json at all"
 
-    s = LLMSignalStrategy(StrategyConfig(
-        name="llm_signal",
-        params={"mode": "llm", "fast": 3, "slow": 5, "llm_provider": bad_provider},
-    ))
+    s = LLMSignalStrategy(
+        StrategyConfig(
+            name="llm_signal",
+            params={"mode": "llm", "fast": 3, "slow": 5, "llm_provider": bad_provider},
+        )
+    )
     ctx = StrategyContext(symbol="BTCUSDT")
     s.on_start(ctx)
     for p in [100.0] * 6:
@@ -122,10 +134,12 @@ def test_llm_mode_parse_error_fallback():
 
 def test_llm_mode_no_provider_fallback():
     """mode=llm 但未注入 provider 时降级为 Hold。"""
-    s = LLMSignalStrategy(StrategyConfig(
-        name="llm_signal",
-        params={"mode": "llm", "fast": 3, "slow": 5},  # no llm_provider
-    ))
+    s = LLMSignalStrategy(
+        StrategyConfig(
+            name="llm_signal",
+            params={"mode": "llm", "fast": 3, "slow": 5},  # no llm_provider
+        )
+    )
     ctx = StrategyContext(symbol="BTCUSDT")
     s.on_start(ctx)
     for p in [100.0] * 6:
@@ -136,10 +150,12 @@ def test_llm_mode_no_provider_fallback():
 
 def test_position_pct_config():
     """position_pct 参数控制开仓比例。"""
-    s = LLMSignalStrategy(StrategyConfig(
-        name="llm_signal",
-        params={"fast": 3, "slow": 5, "position_pct": 0.5},
-    ))
+    s = LLMSignalStrategy(
+        StrategyConfig(
+            name="llm_signal",
+            params={"fast": 3, "slow": 5, "position_pct": 0.5},
+        )
+    )
     ctx = StrategyContext(symbol="BTCUSDT")
     s.on_start(ctx)
     prices = [100.0] * 6 + [110.0, 120.0, 130.0]

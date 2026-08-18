@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+
 from common.schemas import ApiResponse
 from utils.auth import jwt_auth_required
 
@@ -39,6 +40,7 @@ class WalkForwardRequest(BaseModel):
 async def start_training(request: Request, req: TrainRequest):
     try:
         from services.rl_service import RLService, RLTrainConfig
+
         svc = RLService()
 
         config = RLTrainConfig(
@@ -77,6 +79,7 @@ async def start_training(request: Request, req: TrainRequest):
 async def list_models(request: Request):
     try:
         from services.model_registry import ModelRegistryService
+
         svc = ModelRegistryService()
         return ApiResponse(code=0, message="success", data=svc.list_models())
     except RuntimeError as e:
@@ -88,6 +91,7 @@ async def list_models(request: Request):
 async def run_walk_forward(request: Request, req: WalkForwardRequest):
     try:
         from services.rl_service import RLService, RLTrainConfig
+
         svc = RLService()
 
         config = RLTrainConfig(

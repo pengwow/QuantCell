@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """RL 策略自动迭代生命周期
 
 自动循环：训练 → 回测 → 评估 → 部署 → 监控 → 触发重训练
@@ -11,12 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
-
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +25,7 @@ METRICS_DIR.mkdir(parents=True, exist_ok=True)
 @dataclass
 class LifecycleConfig:
     """生命周期配置"""
+
     symbol: str = "BTCUSDT"
     interval: str = "15m"
     algorithm: str = "ppo"
@@ -48,6 +45,7 @@ class LifecycleConfig:
 @dataclass
 class ModelMetrics:
     """模型性能指标"""
+
     model_name: str
     timestamp: str
     pnl: float = 0.0
@@ -67,16 +65,15 @@ class RLLifecycle:
 
     def run_initial_training(self) -> str:
         """初始训练（使用自定义 12 维环境）"""
+        from stable_baselines3 import PPO
+
         from rl.env import TradingEnv
         from rl.service import RLService
-        from stable_baselines3 import PPO
 
         logger.info(f"[Phase 1] 初始训练: {self.config.symbol}")
 
         svc = RLService()
-        df = svc._fetch_market_data(
-            self.config.symbol, self.config.interval, self.config.lookback_days
-        )
+        df = svc._fetch_market_data(self.config.symbol, self.config.interval, self.config.lookback_days)
         env = TradingEnv(df, initial_capital=100_000, transaction_cost=0.001)
 
         model = PPO("MlpPolicy", env, verbose=0, device="cpu", learning_rate=3e-4)
@@ -94,16 +91,15 @@ class RLLifecycle:
 
     def run_backtest(self, model_path: str) -> dict:
         """回测（使用自定义 12 维环境）"""
+        from stable_baselines3 import PPO
+
         from rl.env import TradingEnv
         from rl.service import RLService
-        from stable_baselines3 import PPO
 
         logger.info(f"[Phase 2] 回测: {model_path}")
 
         svc = RLService()
-        df = svc._fetch_market_data(
-            self.config.symbol, self.config.interval, self.config.eval_days
-        )
+        df = svc._fetch_market_data(self.config.symbol, self.config.interval, self.config.eval_days)
         env = TradingEnv(df.head(5000), initial_capital=100_000)
 
         model = PPO.load(model_path)
@@ -146,21 +142,20 @@ class RLLifecycle:
             logger.info(f"[Phase 3] 需要重训练: {'; '.join(reasons)}")
             return "retrain"
 
-        logger.info(f"[Phase 3] 模型表现良好，继续使用")
+        logger.info("[Phase 3] 模型表现良好，继续使用")
         return "keep"
 
     def retrain(self, current_model: str) -> str:
         """重训练（用最新数据微调，使用自定义 12 维环境）"""
+        from stable_baselines3 import PPO
+
         from rl.env import TradingEnv
         from rl.service import RLService
-        from stable_baselines3 import PPO
 
         logger.info(f"[Phase 4] 重训练: {current_model}")
 
         svc = RLService()
-        df = svc._fetch_market_data(
-            self.config.symbol, self.config.interval, self.config.eval_days
-        )
+        df = svc._fetch_market_data(self.config.symbol, self.config.interval, self.config.eval_days)
         env = TradingEnv(df.head(5000), initial_capital=100_000)
 
         # 加载旧模型继续训练
@@ -170,6 +165,7 @@ class RLLifecycle:
 
         # 保存新模型
         import time
+
         new_name = f"{self.config.symbol}_{self.config.algorithm}_v{int(time.time())}"
         new_model = str(MODELS_DIR / f"{new_name}.zip")
         model.save(new_model)
@@ -184,19 +180,18 @@ class RLLifecycle:
             self._save_metrics(new_metrics)
             return new_model
         else:
-            logger.info(f"[Phase 4] 旧模型更优，保留")
+            logger.info("[Phase 4] 旧模型更优，保留")
             return current_model
 
     def _evaluate_model(self, model_path: str) -> ModelMetrics:
         """评估模型（使用自定义 12 维环境）"""
-        from rl.env import TradingEnv
-        from rl.service import RLService
         from stable_baselines3 import PPO
 
+        from rl.env import TradingEnv
+        from rl.service import RLService
+
         svc = RLService()
-        df = svc._fetch_market_data(
-            self.config.symbol, self.config.interval, self.config.eval_days
-        )
+        df = svc._fetch_market_data(self.config.symbol, self.config.interval, self.config.eval_days)
         env = TradingEnv(df.head(5000), initial_capital=100_000)
 
         model = PPO.load(model_path)
@@ -229,16 +224,20 @@ class RLLifecycle:
         self._metrics_history.append(metrics)
         path = METRICS_DIR / f"{metrics.model_name}_metrics.json"
         with open(path, "w") as f:
-            json.dump({
-                "model_name": metrics.model_name,
-                "timestamp": metrics.timestamp,
-                "pnl": metrics.pnl,
-                "trades": metrics.trades,
-                "sharpe": metrics.sharpe,
-                "max_drawdown": metrics.max_drawdown,
-            }, f, indent=2)
+            json.dump(
+                {
+                    "model_name": metrics.model_name,
+                    "timestamp": metrics.timestamp,
+                    "pnl": metrics.pnl,
+                    "trades": metrics.trades,
+                    "sharpe": metrics.sharpe,
+                    "max_drawdown": metrics.max_drawdown,
+                },
+                f,
+                indent=2,
+            )
 
-    def _load_latest_metrics(self) -> Optional[ModelMetrics]:
+    def _load_latest_metrics(self) -> ModelMetrics | None:
         """加载最新指标"""
         files = sorted(METRICS_DIR.glob("*_metrics.json"), key=lambda f: f.stat().st_mtime)
         if not files:
@@ -261,7 +260,7 @@ class RLLifecycle:
         iteration = 0
         while True:
             iteration += 1
-            logger.info(f"\n{'='*40} 迭代 {iteration} {'='*40}")
+            logger.info(f"\n{'=' * 40} 迭代 {iteration} {'=' * 40}")
 
             # 回测评估
             bt_result = self.run_backtest(current_model)

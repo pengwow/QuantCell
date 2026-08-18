@@ -1,13 +1,13 @@
 import json
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from sqlalchemy import Boolean, Column, DateTime, Integer, Identity, String, Text, func, text, ForeignKey
-from sqlalchemy.orm import Session, relationship, foreign
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, func
 
 from .database import Base
 
@@ -15,28 +15,29 @@ from .database import Base
 # 注意：使用函数内部导入以避免循环导入问题
 # 在模块级别尝试导入，失败时延迟到函数内部导入
 try:
-    from utils.timezone import to_utc_time, to_local_time, format_datetime
+    from utils.timezone import format_datetime, to_local_time, to_utc_time
 except ImportError:
     # 导入失败时定义占位函数，实际导入延迟到函数内部
     _timezone_imported = False
-    
+
     def _lazy_import_timezone():
         """延迟导入时区工具函数"""
-        from utils.timezone import to_utc_time as _to_utc
-        from utils.timezone import to_local_time as _to_local
         from utils.timezone import format_datetime as _format_dt
+        from utils.timezone import to_local_time as _to_local
+        from utils.timezone import to_utc_time as _to_utc
+
         return _to_utc, _to_local, _format_dt
-    
+
     def to_utc_time(dt):
         """将本地时区时间转换为UTC时间（延迟导入版本）"""
         _to_utc, _, _ = _lazy_import_timezone()
         return _to_utc(dt)
-    
+
     def to_local_time(dt):
         """将UTC时间转换为本地时区时间（延迟导入版本）"""
         _, _to_local, _ = _lazy_import_timezone()
         return _to_local(dt)
-    
+
     def format_datetime(dt, format_str="%Y-%m-%d %H:%M:%S"):
         """格式化datetime对象为字符串（延迟导入版本）"""
         _, _, _format_dt = _lazy_import_timezone()
@@ -48,14 +49,18 @@ else:
 
 from datetime import datetime
 
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
 
 class TimezoneAwareBase(Base):
     """时区感知基础模型类
-    
+
     所有需要时区处理的模型都应该继承自此类
     """
+
     __abstract__ = True
-    
+
     def __setattr__(self, name, value):
         """设置属性时自动处理时间字段的时区"""
         # 处理DateTime类型的字段
@@ -63,11 +68,11 @@ class TimezoneAwareBase(Base):
             column = getattr(self.__class__, name)
             if isinstance(column, Column) and isinstance(column.type, DateTime):
                 # 如果值是datetime对象且有本地时区，转换为UTC
-                if hasattr(value, 'tzinfo') and value.tzinfo is not None:
+                if hasattr(value, "tzinfo") and value.tzinfo is not None:
                     value = to_utc_time(value)
-        
+
         super().__setattr__(name, value)
-    
+
     def to_dict(self):
         """转换为字典，自动处理时间字段的时区"""
         result = {}
@@ -80,13 +85,15 @@ class TimezoneAwareBase(Base):
                 result[column.name] = value
         return result
 
+
 class User(TimezoneAwareBase):
     """用户SQLAlchemy模型
-    
+
     对应users表的SQLAlchemy模型定义，用于存储注册用户信息
     """
+
     __tablename__ = "users"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(128), nullable=False)
@@ -102,6 +109,7 @@ class SystemConfig(TimezoneAwareBase):
     对应system_config表的SQLAlchemy模型定义
     主键为key，全局唯一
     """
+
     __tablename__ = "system_config"
 
     key = Column(String, primary_key=True, index=True)
@@ -116,11 +124,12 @@ class SystemConfig(TimezoneAwareBase):
 
 class Task(TimezoneAwareBase):
     """任务SQLAlchemy模型
-    
+
     对应tasks表的SQLAlchemy模型定义
     """
+
     __tablename__ = "tasks"
-    
+
     task_id = Column(String, primary_key=True, index=True)
     task_type = Column(String, nullable=False, index=True)
     status = Column(String, nullable=False, index=True)
@@ -134,7 +143,12 @@ class Task(TimezoneAwareBase):
     end_time = Column(DateTime(timezone=True), nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now(), index=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        onupdate=func.now(),
+        server_default=func.now(),
+        index=True,
+    )
 
 
 class TaskDetail(TimezoneAwareBase):
@@ -143,6 +157,7 @@ class TaskDetail(TimezoneAwareBase):
     对应task_details表的SQLAlchemy模型定义，用于存储任务的详细进度信息
     每个任务可以包含多个货币对和时间周期的组合
     """
+
     __tablename__ = "task_details"
 
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
@@ -159,18 +174,17 @@ class TaskDetail(TimezoneAwareBase):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
     # 设置联合唯一约束，确保task_id + symbol + interval的组合唯一
-    __table_args__ = (
-        sqlalchemy.UniqueConstraint('task_id', 'symbol', 'interval', name='unique_task_symbol_interval'),
-    )
+    __table_args__ = (sqlalchemy.UniqueConstraint("task_id", "symbol", "interval", name="unique_task_symbol_interval"),)
 
 
 class Feature(TimezoneAwareBase):
     """特征信息SQLAlchemy模型
-    
+
     对应features表的SQLAlchemy模型定义，用于存储特征信息
     """
+
     __tablename__ = "features"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     feature_name = Column(String, nullable=False, index=True)
@@ -181,11 +195,12 @@ class Feature(TimezoneAwareBase):
 
 class DataPool(TimezoneAwareBase):
     """资产池SQLAlchemy模型
-    
+
     对应data_pools表的SQLAlchemy模型定义
     """
+
     __tablename__ = "data_pools"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     name = Column(String, nullable=False, index=True)
     type = Column(String, nullable=True, index=True)
@@ -196,20 +211,19 @@ class DataPool(TimezoneAwareBase):
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
-    
+
     # 添加联合唯一约束，确保同一类型下的资源池名称不重复
-    __table_args__ = (
-        sqlalchemy.UniqueConstraint('name', 'type', name='unique_name_type'),
-    )
+    __table_args__ = (sqlalchemy.UniqueConstraint("name", "type", name="unique_name_type"),)
 
 
 class DataPoolAsset(TimezoneAwareBase):
     """资产池资产关联SQLAlchemy模型
-    
+
     对应data_pool_assets表的SQLAlchemy模型定义
     """
+
     __tablename__ = "data_pool_assets"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     pool_id = Column(Integer, nullable=False, index=True)
     asset_id = Column(String, nullable=False, index=True)
@@ -220,11 +234,12 @@ class DataPoolAsset(TimezoneAwareBase):
 
 class CryptoSymbol(TimezoneAwareBase):
     """加密货币对SQLAlchemy模型
-    
+
     对应crypto_symbols表的SQLAlchemy模型定义，用于存储加密货币对信息
     """
+
     __tablename__ = "crypto_symbols"
-    
+
     # 使用autoincrement=True实现自增主键，兼容SQLite和DuckDB
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
@@ -238,20 +253,19 @@ class CryptoSymbol(TimezoneAwareBase):
     type = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
-    
+
     # 设置唯一约束，确保symbol + exchange的组合唯一
-    __table_args__ = (
-        sqlalchemy.UniqueConstraint('symbol', 'exchange', name='unique_symbol_exchange'),
-    )
+    __table_args__ = (sqlalchemy.UniqueConstraint("symbol", "exchange", name="unique_symbol_exchange"),)
 
 
 class CryptoSpotKline(TimezoneAwareBase):
     """加密货币现货K线数据SQLAlchemy模型
-    
+
     对应crypto_spot_klines表的SQLAlchemy模型定义，用于存储加密货币现货K线数据
     """
+
     __tablename__ = "crypto_spot_klines"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
@@ -262,18 +276,19 @@ class CryptoSpotKline(TimezoneAwareBase):
     close = Column(String, nullable=False)
     volume = Column(String, nullable=False)
     unique_kline = Column(String, nullable=False, unique=True, index=True)
-    data_source = Column(String(50), nullable=False, default='unknown', index=True)
+    data_source = Column(String(50), nullable=False, default="unknown", index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
 class CryptoFutureKline(TimezoneAwareBase):
     """加密货币合约K线数据SQLAlchemy模型
-    
+
     对应crypto_future_klines表的SQLAlchemy模型定义，用于存储加密货币合约K线数据
     """
+
     __tablename__ = "crypto_future_klines"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
@@ -284,18 +299,19 @@ class CryptoFutureKline(TimezoneAwareBase):
     close = Column(String, nullable=False)
     volume = Column(String, nullable=False)
     unique_kline = Column(String, nullable=False, unique=True, index=True)
-    data_source = Column(String(50), nullable=False, default='unknown', index=True)
+    data_source = Column(String(50), nullable=False, default="unknown", index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
 class StockKline(TimezoneAwareBase):
     """股票K线数据SQLAlchemy模型
-    
+
     对应stock_klines表的SQLAlchemy模型定义，用于存储股票K线数据
     """
+
     __tablename__ = "stock_klines"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     interval = Column(String, nullable=False, index=True)
@@ -306,38 +322,39 @@ class StockKline(TimezoneAwareBase):
     close = Column(String, nullable=False)
     volume = Column(String, nullable=False)
     unique_kline = Column(String, nullable=False, unique=True, index=True)
-    data_source = Column(String(50), nullable=False, default='unknown', index=True)
+    data_source = Column(String(50), nullable=False, default="unknown", index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
 class ScheduledTask(TimezoneAwareBase):
     """定时任务SQLAlchemy模型
-    
+
     对应scheduled_tasks表的SQLAlchemy模型定义，用于存储定时任务配置
     """
+
     __tablename__ = "scheduled_tasks"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     name = Column(String, nullable=False, index=True)
     description = Column(Text, nullable=True)
     task_type = Column(String, nullable=False, default="download_crypto")
     status = Column(String, nullable=False, default="pending")  # pending, running, completed, failed, paused
-    
+
     # 调度配置
     cron_expression = Column(String, nullable=True)  # CRON表达式
     interval = Column(String, nullable=True)  # 时间间隔，如1h, 1d, 1w
     start_time = Column(DateTime(timezone=True), nullable=True)  # 开始执行时间
     end_time = Column(DateTime(timezone=True), nullable=True)  # 结束执行时间
     frequency_type = Column(String, nullable=True)  # 频率类型：hourly, daily, weekly, monthly, cron
-    
+
     # 数据采集配置
     symbols = Column(Text, nullable=True)  # JSON字符串，存储交易对列表
     exchange = Column(String, nullable=True)
     candle_type = Column(String, nullable=True, default="spot")
     save_dir = Column(String, nullable=True)
     max_workers = Column(Integer, nullable=True, default=1)
-    
+
     # 执行状态
     last_run_time = Column(DateTime(timezone=True), nullable=True)  # 上次执行时间
     next_run_time = Column(DateTime(timezone=True), nullable=True)  # 下次执行时间
@@ -346,26 +363,26 @@ class ScheduledTask(TimezoneAwareBase):
     run_count = Column(Integer, default=0)  # 执行次数
     success_count = Column(Integer, default=0)  # 成功次数
     fail_count = Column(Integer, default=0)  # 失败次数
-    
+
     # 增量采集配置
     incremental_enabled = Column(Boolean, default=True)  # 是否启用增量采集
     last_collected_date = Column(DateTime(timezone=True), nullable=True)  # 上次采集日期
-    
+
     # 通知配置
     notification_enabled = Column(Boolean, default=False)  # 是否启用通知
     notification_type = Column(String, nullable=True)  # 通知类型：email, webhook
     notification_email = Column(String, nullable=True)  # 通知邮箱
     notification_webhook = Column(String, nullable=True)  # 通知Webhook
-    
+
     # 元数据
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
     created_by = Column(String, nullable=True, default="system")  # 创建者
-    
+
     __table_args__ = (
         # 添加索引，提高查询性能
-        sqlalchemy.Index('idx_scheduled_tasks_status', 'status'),
-        sqlalchemy.Index('idx_scheduled_tasks_next_run_time', 'next_run_time'),
+        sqlalchemy.Index("idx_scheduled_tasks_status", "status"),
+        sqlalchemy.Index("idx_scheduled_tasks_next_run_time", "next_run_time"),
     )
 
 
@@ -375,12 +392,13 @@ class ScheduledTask(TimezoneAwareBase):
 
 class AIModel(TimezoneAwareBase):
     """AI模型配置SQLAlchemy模型
-    
+
     对应ai_models表的SQLAlchemy模型定义，用于存储AI大模型厂商配置信息
     与系统配置表(system_config)分开，专门用于管理AI模型提供商的配置
     """
+
     __tablename__ = "ai_models"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)  # 主键ID
     provider = Column(String, nullable=False, index=True)  # 厂商名称，如openai、anthropic等
     name = Column(String, nullable=False)  # 配置名称，用于显示
@@ -396,28 +414,29 @@ class AIModel(TimezoneAwareBase):
     proxy_password = Column(String, nullable=True)  # 代理密码
     created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())  # 更新时间
-    
+
     # 添加索引优化查询性能
     __table_args__ = (
-        sqlalchemy.Index('idx_ai_models_provider_enabled', 'provider', 'is_enabled'),
-        sqlalchemy.Index('idx_ai_models_default', 'is_default'),
+        sqlalchemy.Index("idx_ai_models_provider_enabled", "provider", "is_enabled"),
+        sqlalchemy.Index("idx_ai_models_default", "is_default"),
     )
 
 
 class ExchangeConfig(TimezoneAwareBase):
     """交易所配置SQLAlchemy模型
-    
+
     对应exchange_configs表的SQLAlchemy模型定义，用于存储交易所配置信息
     与系统配置表(system_config)分开，专门用于管理交易所的配置
     """
+
     __tablename__ = "exchange_configs"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)  # 主键ID
     exchange_id = Column(String, nullable=False, index=True)  # 交易所ID，如binance、okx等
     name = Column(String, nullable=False)  # 交易所名称，用于显示
     # 交易设置
-    trading_mode = Column(String, default='spot')  # 交易模式：spot(现货), futures(合约), margin(杠杆)
-    quote_currency = Column(String, default='USDT')  # 计价货币
+    trading_mode = Column(String, default="spot")  # 交易模式：spot(现货), futures(合约), margin(杠杆)
+    quote_currency = Column(String, default="USDT")  # 计价货币
     commission_rate = Column(sqlalchemy.Float, default=0.001)  # 手续费率
     # API认证
     api_key = Column(Text, nullable=True)  # API密钥
@@ -432,36 +451,38 @@ class ExchangeConfig(TimezoneAwareBase):
     is_enabled = Column(Boolean, default=True, index=True)  # 是否启用
     created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())  # 更新时间
-    
+
     # 添加索引优化查询性能
     __table_args__ = (
-        sqlalchemy.Index('idx_exchange_configs_exchange_enabled', 'exchange_id', 'is_enabled'),
-        sqlalchemy.Index('idx_exchange_configs_default', 'is_default'),
+        sqlalchemy.Index("idx_exchange_configs_exchange_enabled", "exchange_id", "is_enabled"),
+        sqlalchemy.Index("idx_exchange_configs_default", "is_default"),
     )
 
 
 # 业务逻辑类
 
+
 class UserBusiness:
     """用户模型类
-    
+
     用于操作users表，提供CRUD操作方法
     兼容SQLite和DuckDB
     """
-    
+
     @staticmethod
-    def create(username: str, password: str, nickname: str = None) -> Optional[Dict[str, Any]]:
+    def create(username: str, password: str, nickname: str | None = None) -> dict[str, Any] | None:
         """创建新用户
-        
+
         Args:
             username: 用户名（唯一）
             password: 明文密码（将自动加密）
             nickname: 昵称
-            
+
         Returns:
             Optional[Dict]: 创建成功返回用户信息字典，用户名已存在返回None
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -469,8 +490,9 @@ class UserBusiness:
             if existing:
                 logger.warning(f"用户已存在: {username}")
                 return None
-            
+
             from settings.routes import hash_password
+
             user = User(
                 username=username,
                 password_hash=hash_password(password),
@@ -480,7 +502,7 @@ class UserBusiness:
             db.add(user)
             db.commit()
             db.refresh(user)
-            
+
             logger.info(f"用户注册成功: {username}, id={user.id}")
             return {
                 "id": user.id,
@@ -495,33 +517,36 @@ class UserBusiness:
             return None
         finally:
             db.close()
-    
+
     @staticmethod
-    def authenticate(username: str, password: str) -> Optional[Dict[str, Any]]:
+    def authenticate(username: str, password: str) -> dict[str, Any] | None:
         """验证用户凭据
-        
+
         Args:
             username: 用户名
             password: 明文密码
-            
+
         Returns:
             Optional[Dict]: 验证成功返回用户信息，失败返回None
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
             from settings.routes import verify_password
+
             user = db.query(User).filter_by(username=username, is_active=True).first()
             if not user:
                 return None
             if not verify_password(password, user.password_hash):
                 return None
-            
+
             from datetime import datetime
+
             user.last_login = datetime.now()
             db.commit()
-            
+
             return {
                 "id": user.id,
                 "username": user.username,
@@ -530,18 +555,19 @@ class UserBusiness:
             }
         finally:
             db.close()
-    
+
     @staticmethod
-    def get_by_id(user_id: int) -> Optional[Dict[str, Any]]:
+    def get_by_id(user_id: int) -> dict[str, Any] | None:
         """根据ID获取用户信息
-        
+
         Args:
             user_id: 用户ID
-            
+
         Returns:
             Optional[Dict]: 用户信息或None
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -562,24 +588,25 @@ class UserBusiness:
 
 class SystemConfigBusiness:
     """系统配置模型类
-    
+
     用于操作system_config表，提供CRUD操作方法
     兼容SQLite和DuckDB
     """
-    
+
     @staticmethod
-    def get(key: str, default: Any = None, user_id: int = None) -> Any:
+    def get(key: str, default: Any = None, user_id: int | None = None) -> Any:
         """获取配置项的值
-        
+
         Args:
             key: 配置项键名
             default: 默认值，如果配置项不存在则返回默认值
             user_id: 用户ID，用于用户隔离。为None时获取系统级配置
-            
+
         Returns:
             Any: 配置项的值或默认值
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -599,11 +626,12 @@ class SystemConfigBusiness:
 
 class MarketData(TimezoneAwareBase):
     """市场数据SQLAlchemy模型
-    
+
     对应market_data表的SQLAlchemy模型定义，用于存储加密货币24小时行情数据
     """
+
     __tablename__ = "market_data"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     exchange = Column(String, nullable=False, index=True)
@@ -616,15 +644,20 @@ class MarketData(TimezoneAwareBase):
     last_update = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
-    
+
     # 设置唯一约束，确保symbol + exchange的组合唯一
-    __table_args__ = (
-        sqlalchemy.UniqueConstraint('symbol', 'exchange', name='unique_market_data_symbol_exchange'),
-    )
-    
+    __table_args__ = (sqlalchemy.UniqueConstraint("symbol", "exchange", name="unique_market_data_symbol_exchange"),)
+
     @staticmethod
-    def set(key: str, value: str, description: str = "", plugin: str = None, name: str = None,
-            is_sensitive: bool = False, user_id: int = None) -> bool:
+    def set(
+        key: str,
+        value: str,
+        description: str = "",
+        plugin: str | None = None,
+        name: str | None = None,
+        is_sensitive: bool = False,
+        user_id: int | None = None,
+    ) -> bool:
         """设置配置项的值
 
         Args:
@@ -640,6 +673,7 @@ class MarketData(TimezoneAwareBase):
             bool: 设置成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -664,12 +698,14 @@ class MarketData(TimezoneAwareBase):
                     plugin=plugin,
                     name=name,
                     is_sensitive=is_sensitive,
-                    user_id=user_id
+                    user_id=user_id,
                 )
                 db.add(config)
             db.commit()
-            logger.info(f"配置已更新: key={key}, value={value}, plugin={plugin}, name={name}, "
-                       f"is_sensitive={is_sensitive}, user_id={user_id}")
+            logger.info(
+                f"配置已更新: key={key}, value={value}, plugin={plugin}, name={name}, "
+                f"is_sensitive={is_sensitive}, user_id={user_id}"
+            )
             return True
         except Exception as e:
             db.rollback()
@@ -677,19 +713,20 @@ class MarketData(TimezoneAwareBase):
             return False
         finally:
             db.close()
-    
+
     @staticmethod
-    def delete(key: str, user_id: int = None) -> bool:
+    def delete(key: str, user_id: int | None = None) -> bool:
         """删除配置项
-        
+
         Args:
             key: 配置项键名
             user_id: 用户ID，用于用户隔离。为None时删除系统级配置
-            
+
         Returns:
             bool: 删除成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -708,18 +745,19 @@ class MarketData(TimezoneAwareBase):
             return False
         finally:
             db.close()
-    
+
     @staticmethod
-    def get_all(user_id: int = None) -> Dict[str, str]:
+    def get_all(user_id: int | None = None) -> dict[str, str]:
         """获取所有配置项
-        
+
         Args:
             user_id: 用户ID，用于用户隔离。为None时获取所有系统级配置
-            
+
         Returns:
             Dict[str, str]: 所有配置项，键为配置项键名，值为配置项值
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -733,19 +771,20 @@ class MarketData(TimezoneAwareBase):
             return {}
         finally:
             db.close()
-    
+
     @staticmethod
-    def get_with_details(key: str, user_id: int = None) -> Optional[Dict[str, Any]]:
+    def get_with_details(key: str, user_id: int | None = None) -> dict[str, Any] | None:
         """获取配置项的详细信息
-        
+
         Args:
             key: 配置项键名
             user_id: 用户ID，用于用户隔离。为None时获取系统级配置
-            
+
         Returns:
             Optional[Dict[str, Any]]: 配置的详细信息，包括键、值、描述、插件、名称、是否敏感、创建时间和更新时间
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -763,7 +802,7 @@ class MarketData(TimezoneAwareBase):
                     "is_sensitive": config.is_sensitive,
                     "user_id": config.user_id,
                     "created_at": format_datetime(config.created_at),
-                    "updated_at": format_datetime(config.updated_at)
+                    "updated_at": format_datetime(config.updated_at),
                 }
                 return result
             return None
@@ -772,18 +811,19 @@ class MarketData(TimezoneAwareBase):
             return None
         finally:
             db.close()
-    
+
     @staticmethod
-    def get_all_with_details(user_id: int = None) -> Dict[str, Dict[str, Any]]:
+    def get_all_with_details(user_id: int | None = None) -> dict[str, dict[str, Any]]:
         """获取所有配置项的详细信息
-        
+
         Args:
             user_id: 用户ID，用于用户隔离。为None时获取所有系统级配置
-            
+
         Returns:
             Dict[str, Dict[str, Any]]: 所有配置项的详细信息，键为配置项键名
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -792,7 +832,7 @@ class MarketData(TimezoneAwareBase):
                 query = query.filter_by(user_id=user_id)
             configs = query.all()
             result = {}
-            
+
             for config in configs:
                 result[config.key] = {
                     "key": config.key,
@@ -802,7 +842,7 @@ class MarketData(TimezoneAwareBase):
                     "name": config.name,
                     "is_sensitive": config.is_sensitive,
                     "created_at": format_datetime(config.created_at),
-                    "updated_at": format_datetime(config.updated_at)
+                    "updated_at": format_datetime(config.updated_at),
                 }
             return result
         except Exception as e:
@@ -814,36 +854,38 @@ class MarketData(TimezoneAwareBase):
 
 class TaskBusiness:
     """任务模型类
-    
+
     用于操作tasks表，提供CRUD操作方法
     兼容SQLite和DuckDB
     """
-    
+
     @staticmethod
-    def create(task_id: str, task_type: str, params: Dict[str, Any]) -> bool:
+    def create(task_id: str, task_type: str, params: dict[str, Any]) -> bool:
         """创建新任务
-        
+
         Args:
             task_id: 任务ID
             task_type: 任务类型
             params: 任务参数
-            
+
         Returns:
             bool: 创建成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         import json
+
         db: Session = SessionLocal()
         try:
             # 序列化参数为JSON字符串
             params_json = json.dumps(params)
-            
+
             task = Task(
                 task_id=task_id,
                 task_type=task_type,
                 status="pending",
-                params=params_json
+                params=params_json,
             )
             db.add(task)
             db.commit()
@@ -855,18 +897,19 @@ class TaskBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
     def start(task_id: str) -> bool:
         """开始任务
-        
+
         Args:
             task_id: 任务ID
-            
+
         Returns:
             bool: 操作成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -883,11 +926,18 @@ class TaskBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
-    def update_progress(task_id: str, current: str, completed: int, total: int, failed: int = 0, status: str = None) -> bool:
+    def update_progress(
+        task_id: str,
+        current: str,
+        completed: int,
+        total: int,
+        failed: int = 0,
+        status: str | None = None,
+    ) -> bool:
         """更新任务进度
-        
+
         Args:
             task_id: 任务ID
             current: 当前处理的项目
@@ -895,11 +945,12 @@ class TaskBusiness:
             total: 总项目数
             failed: 失败的项目数
             status: 可选的状态描述
-            
+
         Returns:
             bool: 操作成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -909,13 +960,13 @@ class TaskBusiness:
                 percentage = 0
                 if total > 0:
                     percentage = min(100, int((completed + failed) / total * 100))
-                
+
                 task.total = total
                 task.completed = completed
                 task.failed = failed
                 task.current = current
                 task.percentage = percentage
-                
+
                 db.commit()
                 logger.debug(f"任务进度已更新: task_id={task_id}, current={current}, progress={percentage}%")
             return True
@@ -925,18 +976,19 @@ class TaskBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
     def complete(task_id: str) -> bool:
         """完成任务
-        
+
         Args:
             task_id: 任务ID
-            
+
         Returns:
             bool: 操作成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -953,19 +1005,20 @@ class TaskBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
     def fail(task_id: str, error_message: str) -> bool:
         """标记任务失败
-        
+
         Args:
             task_id: 任务ID
             error_message: 错误信息
-            
+
         Returns:
             bool: 操作成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -983,26 +1036,28 @@ class TaskBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
-    def get(task_id: str) -> Optional[Dict[str, Any]]:
+    def get(task_id: str) -> dict[str, Any] | None:
         """获取任务信息
-        
+
         Args:
             task_id: 任务ID
-            
+
         Returns:
             Optional[Dict[str, Any]]: 任务信息，如果不存在则返回None
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         import json
+
         db: Session = SessionLocal()
         try:
             task = db.query(Task).filter_by(task_id=task_id).first()
             if not task:
                 return None
-            
+
             # 解析结果
             task_info = {
                 "task_id": task.task_id,
@@ -1013,38 +1068,40 @@ class TaskBusiness:
                     "completed": task.completed,
                     "failed": task.failed,
                     "current": task.current,
-                    "percentage": task.percentage
+                    "percentage": task.percentage,
                 },
                 "params": json.loads(task.params),
                 "start_time": format_datetime(task.start_time),
                 "end_time": format_datetime(task.end_time),
                 "error_message": task.error_message,
                 "created_at": format_datetime(task.created_at),
-                "updated_at": format_datetime(task.updated_at)
+                "updated_at": format_datetime(task.updated_at),
             }
-            
+
             return task_info
         except Exception as e:
             logger.error(f"获取任务信息失败: task_id={task_id}, error={e}")
             return None
         finally:
             db.close()
-    
+
     @staticmethod
-    def get_all() -> Dict[str, Dict[str, Any]]:
+    def get_all() -> dict[str, dict[str, Any]]:
         """
         获取所有任务信息
-        
+
         Returns:
             Dict[str, Dict[str, Any]]: 所有任务信息，键为任务ID
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         import json
+
         db: Session = SessionLocal()
         try:
             tasks = db.query(Task).order_by(Task.created_at.desc()).all()
-            
+
             result = {}
             for task in tasks:
                 result[task.task_id] = {
@@ -1056,127 +1113,145 @@ class TaskBusiness:
                         "completed": task.completed,
                         "failed": task.failed,
                         "current": task.current,
-                        "percentage": task.percentage
+                        "percentage": task.percentage,
                     },
                     "params": json.loads(task.params),
                     "start_time": format_datetime(task.start_time),
                     "end_time": format_datetime(task.end_time),
                     "error_message": task.error_message,
                     "created_at": format_datetime(task.created_at),
-                    "updated_at": format_datetime(task.updated_at)
+                    "updated_at": format_datetime(task.updated_at),
                 }
-            
+
             return result
         except Exception as e:
             logger.error(f"获取所有任务信息失败: error={e}")
             return {}
         finally:
             db.close()
-    
+
     @staticmethod
-    def get_paginated(page: int = 1, page_size: int = 10, filters: dict = None, sort_by: str = "created_at", sort_order: str = "desc") -> dict:
+    def get_paginated(
+        page: int = 1,
+        page_size: int = 10,
+        filters: dict | None = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> dict:
         """
         获取分页任务列表
-        
+
         Args:
             page: 当前页码，默认1
             page_size: 每页数量，默认10
             filters: 过滤条件，支持task_type、status、start_time、end_time、created_at、updated_at
             sort_by: 排序字段，默认created_at
             sort_order: 排序顺序，asc或desc，默认desc
-            
+
         Returns:
             dict: 包含任务列表和分页信息的字典
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         import json
+
         db: Session = SessionLocal()
         try:
             # 构建查询
             query = db.query(Task)
-            
+
             # 应用过滤条件
             if filters:
                 # 任务类型过滤
-                if "task_type" in filters and filters["task_type"]:
+                if filters.get("task_type"):
                     query = query.filter(Task.task_type == filters["task_type"])
-                
+
                 # 任务状态过滤
-                if "status" in filters and filters["status"]:
+                if filters.get("status"):
                     query = query.filter(Task.status == filters["status"])
-                
+
                 # 开始时间过滤
-                if "start_time" in filters and filters["start_time"]:
+                if filters.get("start_time"):
                     query = query.filter(Task.start_time >= filters["start_time"])
-                
+
                 # 结束时间过滤
-                if "end_time" in filters and filters["end_time"]:
+                if filters.get("end_time"):
                     query = query.filter(Task.end_time <= filters["end_time"])
-                
+
                 # 创建时间过滤
-                if "created_at" in filters and filters["created_at"]:
+                if filters.get("created_at"):
                     query = query.filter(Task.created_at >= filters["created_at"])
-                
+
                 # 更新时间过滤
-                if "updated_at" in filters and filters["updated_at"]:
+                if filters.get("updated_at"):
                     query = query.filter(Task.updated_at <= filters["updated_at"])
-            
+
             # 计算总记录数
             total = query.count()
-            
+
             # 验证排序字段，防止SQL注入
-            allowed_sort_fields = ["task_id", "task_type", "status", "start_time", "end_time", "created_at", "updated_at"]
+            allowed_sort_fields = [
+                "task_id",
+                "task_type",
+                "status",
+                "start_time",
+                "end_time",
+                "created_at",
+                "updated_at",
+            ]
             if sort_by not in allowed_sort_fields:
                 sort_by = "created_at"
-            
+
             # 验证排序顺序
             if sort_order not in ["asc", "desc"]:
                 sort_order = "desc"
-            
+
             # 应用排序和分页
             if sort_order == "desc":
                 query = query.order_by(getattr(Task, sort_by).desc())
             else:
                 query = query.order_by(getattr(Task, sort_by).asc())
-            
+
             # 计算分页参数
             offset = (page - 1) * page_size
             paginated_tasks = query.offset(offset).limit(page_size).all()
-            
+
             # 处理结果
             tasks = []
             for task in paginated_tasks:
-                tasks.append({
-                    "task_id": task.task_id,
-                    "task_type": task.task_type,
-                    "status": task.status,
-                    "progress": {
-                        "total": task.total,
-                        "completed": task.completed,
-                        "failed": task.failed,
-                        "current": task.current,
-                        "percentage": task.percentage
-                    },
-                    "params": json.loads(task.params),
-                    "start_time": format_datetime(task.start_time),
-                    "end_time": format_datetime(task.end_time),
-                    "error_message": task.error_message,
-                    "created_at": format_datetime(task.created_at),
-                    "updated_at": format_datetime(task.updated_at)
-                })
-            
+                tasks.append(
+                    {
+                        "task_id": task.task_id,
+                        "task_type": task.task_type,
+                        "status": task.status,
+                        "progress": {
+                            "total": task.total,
+                            "completed": task.completed,
+                            "failed": task.failed,
+                            "current": task.current,
+                            "percentage": task.percentage,
+                        },
+                        "params": json.loads(task.params),
+                        "start_time": format_datetime(task.start_time),
+                        "end_time": format_datetime(task.end_time),
+                        "error_message": task.error_message,
+                        "created_at": format_datetime(task.created_at),
+                        "updated_at": format_datetime(task.updated_at),
+                    }
+                )
+
             # 计算总页数
             pages = (total + page_size - 1) // page_size
-            
+
             return {
                 "tasks": tasks,
                 "pagination": {
                     "page": page,
                     "page_size": page_size,
                     "total": total,
-                    "pages": pages
-                }
+                    "pages": pages,
+                },
             }
         except Exception as e:
             logger.error(f"获取分页任务列表失败: error={e}")
@@ -1186,23 +1261,24 @@ class TaskBusiness:
                     "page": page,
                     "page_size": page_size,
                     "total": 0,
-                    "pages": 0
-                }
+                    "pages": 0,
+                },
             }
         finally:
             db.close()
-    
+
     @staticmethod
     def delete(task_id: str) -> bool:
         """删除任务
-        
+
         Args:
             task_id: 任务ID
-            
+
         Returns:
             bool: 操作成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -1227,7 +1303,16 @@ class TaskDetailBusiness:
     """
 
     @staticmethod
-    def upsert(task_id: str, symbol: str, interval: str, percentage: float = 0.0, completed: int = 0, total: int = 0, failed: int = 0, status_text: str = None) -> bool:
+    def upsert(
+        task_id: str,
+        symbol: str,
+        interval: str,
+        percentage: float = 0.0,
+        completed: int = 0,
+        total: int = 0,
+        failed: int = 0,
+        status_text: str | None = None,
+    ) -> bool:
         """更新或插入任务明细
 
         Args:
@@ -1244,6 +1329,7 @@ class TaskDetailBusiness:
             bool: 操作成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -1266,11 +1352,13 @@ class TaskDetailBusiness:
                     completed=completed,
                     total=total,
                     failed=failed,
-                    status_text=status_text
+                    status_text=status_text,
                 )
                 db.add(detail)
             db.commit()
-            logger.debug(f"任务明细已更新: task_id={task_id}, symbol={symbol}, interval={interval}, progress={percentage}%")
+            logger.debug(
+                f"任务明细已更新: task_id={task_id}, symbol={symbol}, interval={interval}, progress={percentage}%"
+            )
             return True
         except Exception as e:
             db.rollback()
@@ -1290,23 +1378,27 @@ class TaskDetailBusiness:
             list: 任务明细列表
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
             details = db.query(TaskDetail).filter_by(task_id=task_id).all()
-            return [{
-                "id": d.id,
-                "task_id": d.task_id,
-                "symbol": d.symbol,
-                "interval": d.interval,
-                "percentage": d.percentage,
-                "completed": d.completed,
-                "total": d.total,
-                "failed": d.failed,
-                "status_text": d.status_text,
-                "created_at": format_datetime(d.created_at),
-                "updated_at": format_datetime(d.updated_at)
-            } for d in details]
+            return [
+                {
+                    "id": d.id,
+                    "task_id": d.task_id,
+                    "symbol": d.symbol,
+                    "interval": d.interval,
+                    "percentage": d.percentage,
+                    "completed": d.completed,
+                    "total": d.total,
+                    "failed": d.failed,
+                    "status_text": d.status_text,
+                    "created_at": format_datetime(d.created_at),
+                    "updated_at": format_datetime(d.updated_at),
+                }
+                for d in details
+            ]
         except Exception as e:
             logger.error(f"获取任务明细失败: task_id={task_id}, error={e}")
             return []
@@ -1324,6 +1416,7 @@ class TaskDetailBusiness:
             bool: 操作成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -1341,15 +1434,23 @@ class TaskDetailBusiness:
 
 class DataPoolBusiness:
     """资产池模型类
-    
+
     用于操作data_pools和data_pool_assets表，提供CRUD操作方法
     """
-    
+
     @staticmethod
-    def create(name: str, type: str = "", description: str = "", color: str = "", tags: list = None, is_public: bool = True, is_default: bool = False) -> Optional[int]:
+    def create(
+        name: str,
+        type: str = "",
+        description: str = "",
+        color: str = "",
+        tags: list | None = None,
+        is_public: bool = True,
+        is_default: bool = False,
+    ) -> int | None:
         """
         创建资产池
-        
+
         Args:
             name: 资产池名称
             type: 资产池类型
@@ -1358,11 +1459,12 @@ class DataPoolBusiness:
             tags: 资产池标签
             is_public: 是否公开
             is_default: 是否为默认资产池
-            
+
         Returns:
             Optional[int]: 创建成功返回资产池ID，失败返回None
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -1371,15 +1473,15 @@ class DataPoolBusiness:
             if existing_pool:
                 logger.error(f"创建资产池失败: 已存在相同名称和类型的资产池: name={name}, type={type}")
                 return None
-            
+
             # 如果设置为默认资产池，先将其他默认资产池设置为非默认
             if is_default:
                 db.query(DataPool).filter_by(is_default=True).update({"is_default": False})
-            
+
             # 获取当前最大id值，手动生成新id
             max_id_result = db.query(func.max(DataPool.id)).first()
             new_id = (max_id_result[0] + 1) if max_id_result[0] is not None else 1
-            
+
             # 创建资产池
             pool = DataPool(
                 id=new_id,
@@ -1389,12 +1491,12 @@ class DataPoolBusiness:
                 color=color,
                 tags=json.dumps(tags) if tags else None,
                 is_public=is_public,
-                is_default=is_default
+                is_default=is_default,
             )
             db.add(pool)
             db.commit()
             db.refresh(pool)
-            
+
             logger.info(f"资产池已创建: id={pool.id}, name={name}, type={type}")
             return pool.id
         except Exception as e:
@@ -1403,12 +1505,21 @@ class DataPoolBusiness:
             return None
         finally:
             db.close()
-    
+
     @staticmethod
-    def update(pool_id: int, name: str = None, type: str = None, description: str = None, color: str = None, tags: list = None, is_public: bool = None, is_default: bool = None) -> bool:
+    def update(
+        pool_id: int,
+        name: str | None = None,
+        type: str | None = None,
+        description: str | None = None,
+        color: str | None = None,
+        tags: list | None = None,
+        is_public: bool | None = None,
+        is_default: bool | None = None,
+    ) -> bool:
         """
         更新资产池
-        
+
         Args:
             pool_id: 资产池ID
             name: 资产池名称
@@ -1418,11 +1529,12 @@ class DataPoolBusiness:
             tags: 资产池标签
             is_public: 是否公开
             is_default: 是否为默认资产池
-            
+
         Returns:
             bool: 更新成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -1430,26 +1542,28 @@ class DataPoolBusiness:
             if not pool:
                 logger.error(f"资产池不存在: pool_id={pool_id}")
                 return False
-            
+
             # 检查是否要更新name或type，如果是，需要检查是否已经存在相同名称和类型的资产池
             if name is not None or type is not None:
                 # 确定要使用的name和type值
                 new_name = name if name is not None else pool.name
                 new_type = type if type is not None else pool.type
-                
+
                 # 检查是否已经存在相同名称和类型的资产池，并且该资产池的id不是当前要更新的资产池的id
-                existing_pool = db.query(DataPool).filter_by(name=new_name, type=new_type).filter(DataPool.id != pool_id).first()
+                existing_pool = (
+                    db.query(DataPool).filter_by(name=new_name, type=new_type).filter(DataPool.id != pool_id).first()
+                )
                 if existing_pool:
                     logger.error(f"更新资产池失败: 已存在相同名称和类型的资产池: name={new_name}, type={new_type}")
                     return False
-            
+
             # 如果设置为默认资产池，先将其他默认资产池设置为非默认
             if is_default is True:
                 db.query(DataPool).filter_by(is_default=True).update({"is_default": False})
                 pool.is_default = True
             elif is_default is not None:
                 pool.is_default = is_default
-            
+
             # 更新其他字段
             if name is not None:
                 pool.name = name
@@ -1463,7 +1577,7 @@ class DataPoolBusiness:
                 pool.tags = json.dumps(tags)
             if is_public is not None:
                 pool.is_public = is_public
-            
+
             db.commit()
             logger.info(f"资产池已更新: pool_id={pool_id}, name={pool.name}, type={pool.type}")
             return True
@@ -1473,31 +1587,32 @@ class DataPoolBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
     def delete(pool_id: int) -> bool:
         """删除资产池
-        
+
         Args:
             pool_id: 资产池ID
-            
+
         Returns:
             bool: 删除成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
             # 删除资产池关联的资产
             db.query(DataPoolAsset).filter_by(pool_id=pool_id).delete()
-            
+
             # 删除资产池
             pool = db.query(DataPool).filter_by(id=pool_id).first()
             if pool:
                 db.delete(pool)
                 db.commit()
                 logger.info(f"资产池已删除: pool_id={pool_id}, name={pool.name}")
-            
+
             return True
         except Exception as e:
             db.rollback()
@@ -1505,20 +1620,21 @@ class DataPoolBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
     def add_asset(pool_id: int, asset_id: str, asset_type: str) -> bool:
         """向资产池添加资产
-        
+
         Args:
             pool_id: 资产池ID
             asset_id: 资产ID（股票代码或加密货币对）
             asset_type: 资产类型（stock/crypto）
-            
+
         Returns:
             bool: 添加成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -1527,22 +1643,18 @@ class DataPoolBusiness:
             if not pool:
                 logger.error(f"资产池不存在: pool_id={pool_id}")
                 return False
-            
+
             # 检查资产是否已存在于资产池中
             existing_asset = db.query(DataPoolAsset).filter_by(pool_id=pool_id, asset_id=asset_id).first()
             if existing_asset:
                 logger.warning(f"资产已存在于资产池中: pool_id={pool_id}, asset_id={asset_id}")
                 return True
-            
+
             # 添加资产到资产池
-            pool_asset = DataPoolAsset(
-                pool_id=pool_id,
-                asset_id=asset_id,
-                asset_type=asset_type
-            )
+            pool_asset = DataPoolAsset(pool_id=pool_id, asset_id=asset_id, asset_type=asset_type)
             db.add(pool_asset)
             db.commit()
-            
+
             logger.info(f"资产已添加到资产池: pool_id={pool_id}, asset_id={asset_id}")
             return True
         except Exception as e:
@@ -1551,21 +1663,22 @@ class DataPoolBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
     def add_assets(pool_id: int, assets: list, asset_type: str) -> bool:
         """
         批量向资产池添加资产
-        
+
         Args:
             pool_id: 资产池ID
             assets: 资产列表（股票代码或加密货币对）
             asset_type: 资产类型（stock/crypto）
-            
+
         Returns:
             bool: 批量添加成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -1574,21 +1687,17 @@ class DataPoolBusiness:
             if not pool:
                 logger.error(f"资产池不存在: pool_id={pool_id}")
                 return False
-            
+
             # 先删除该资产池的所有现有资产，然后添加新的资产
             # 这样可以确保资产池内的资产数量正确
             db.query(DataPoolAsset).filter_by(pool_id=pool_id).delete()
-            
+
             # 批量添加资产，使用ORM方式
             pool_assets = []
             for asset_id in assets:
-                pool_asset = DataPoolAsset(
-                    pool_id=pool_id,
-                    asset_id=asset_id,
-                    asset_type=asset_type
-                )
+                pool_asset = DataPoolAsset(pool_id=pool_id, asset_id=asset_id, asset_type=asset_type)
                 pool_assets.append(pool_asset)
-            
+
             # 批量添加到会话
             db.add_all(pool_assets)
             db.commit()
@@ -1600,19 +1709,20 @@ class DataPoolBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
     def remove_asset(pool_id: int, asset_id: str) -> bool:
         """从资产池移除资产
-        
+
         Args:
             pool_id: 资产池ID
             asset_id: 资产ID（股票代码或加密货币对）
-            
+
         Returns:
             bool: 移除成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -1622,7 +1732,7 @@ class DataPoolBusiness:
                 db.delete(existing_asset)
                 db.commit()
                 logger.info(f"资产已从资产池移除: pool_id={pool_id}, asset_id={asset_id}")
-            
+
             return True
         except Exception as e:
             db.rollback()
@@ -1630,26 +1740,27 @@ class DataPoolBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
     def remove_assets(pool_id: int, assets: list) -> bool:
         """批量从资产池移除资产
-        
+
         Args:
             pool_id: 资产池ID
             assets: 资产列表（股票代码或加密货币对）
-            
+
         Returns:
             bool: 批量移除成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
             # 批量移除资产
             for asset_id in assets:
                 db.query(DataPoolAsset).filter_by(pool_id=pool_id, asset_id=asset_id).delete()
-            
+
             db.commit()
             logger.info(f"批量从资产池移除资产成功: pool_id={pool_id}, asset_count={len(assets)}")
             return True
@@ -1659,27 +1770,29 @@ class DataPoolBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
-    def get_all(type: str = None) -> list:
+    def get_all(type: str | None = None) -> list:
         """
         获取所有资产池，支持按类型过滤
-        
+
         Args:
             type: 资产池类型过滤
-            
+
         Returns:
             list: 资产池列表
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         import pytz
+
         db: Session = SessionLocal()
         try:
             query = db.query(DataPool)
             if type:
                 query = query.filter_by(type=type)
-            
+
             def format_datetime(dt):
                 """格式化datetime对象，转换为上海时区"""
                 if dt is None:
@@ -1688,54 +1801,58 @@ class DataPoolBusiness:
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=pytz.utc)
                 # 转换为UTC+8时间并格式化为字符串
-                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
-            
+                return dt.astimezone(pytz.timezone("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
+
             pools = query.all()
             result = []
             for pool in pools:
                 # 获取资产池包含的资产数量，使用func.count()直接计算行数，避免使用id字段
                 asset_count = db.query(func.count()).select_from(DataPoolAsset).filter_by(pool_id=pool.id).scalar() or 0
-                
-                result.append({
-                    "id": pool.id,
-                    "name": pool.name,
-                    "type": pool.type,
-                    "description": pool.description,
-                    "color": pool.color,
-                    "tags": json.loads(pool.tags) if pool.tags else [],
-                    "is_public": pool.is_public,
-                    "is_default": pool.is_default,
-                    "asset_count": asset_count,
-                    "created_at": format_datetime(pool.created_at),
-                    "updated_at": format_datetime(pool.updated_at)
-                })
+
+                result.append(
+                    {
+                        "id": pool.id,
+                        "name": pool.name,
+                        "type": pool.type,
+                        "description": pool.description,
+                        "color": pool.color,
+                        "tags": json.loads(pool.tags) if pool.tags else [],
+                        "is_public": pool.is_public,
+                        "is_default": pool.is_default,
+                        "asset_count": asset_count,
+                        "created_at": format_datetime(pool.created_at),
+                        "updated_at": format_datetime(pool.updated_at),
+                    }
+                )
             return result
         except Exception as e:
             logger.error(f"获取所有资产池失败: type={type}, error={e}")
             return []
         finally:
             db.close()
-    
+
     @staticmethod
     def get(pool_id: int) -> dict:
         """
         获取指定ID的资产池
-        
+
         Args:
             pool_id: 资产池ID
-            
+
         Returns:
             dict: 资产池详情
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
             pool = db.query(DataPool).filter_by(id=pool_id).first()
             if not pool:
                 return None
-            
+
             import pytz
+
             def format_datetime(dt):
                 """格式化datetime对象，转换为上海时区"""
                 if dt is None:
@@ -1744,11 +1861,11 @@ class DataPoolBusiness:
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=pytz.utc)
                 # 转换为UTC+8时间并格式化为字符串
-                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
-            
+                return dt.astimezone(pytz.timezone("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
+
             # 获取资产池包含的资产数量，使用func.count()直接计算行数，避免使用id字段
             asset_count = db.query(func.count()).select_from(DataPoolAsset).filter_by(pool_id=pool.id).scalar() or 0
-            
+
             return {
                 "id": pool.id,
                 "name": pool.name,
@@ -1760,26 +1877,27 @@ class DataPoolBusiness:
                 "is_default": pool.is_default,
                 "asset_count": asset_count,
                 "created_at": format_datetime(pool.created_at),
-                "updated_at": format_datetime(pool.updated_at)
+                "updated_at": format_datetime(pool.updated_at),
             }
         except Exception as e:
             logger.error(f"获取资产池失败: pool_id={pool_id}, error={e}")
             return None
         finally:
             db.close()
-    
+
     @staticmethod
     def get_assets(pool_id: int) -> list:
         """
         获取资产池包含的资产列表
-        
+
         Args:
             pool_id: 资产池ID
-            
+
         Returns:
             list: 资产列表（股票代码或加密货币对）
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -1794,35 +1912,35 @@ class DataPoolBusiness:
 
 class ScheduledTaskBusiness:
     """定时任务模型类
-    
+
     用于操作scheduled_tasks表，提供CRUD操作方法
     """
-    
+
     @staticmethod
     def create(
         name: str,
         description: str = "",
         task_type: str = "download_crypto",
-        cron_expression: Optional[str] = None,
-        interval: Optional[str] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        frequency_type: Optional[str] = None,
-        symbols: Optional[list] = None,
-        exchange: Optional[str] = None,
+        cron_expression: str | None = None,
+        interval: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        frequency_type: str | None = None,
+        symbols: list | None = None,
+        exchange: str | None = None,
         candle_type: str = "spot",
-        save_dir: Optional[str] = None,
+        save_dir: str | None = None,
         max_workers: int = 1,
         incremental_enabled: bool = True,
         notification_enabled: bool = False,
-        notification_type: Optional[str] = None,
-        notification_email: Optional[str] = None,
-        notification_webhook: Optional[str] = None,
-        created_by: str = "system"
-    ) -> Optional[int]:
+        notification_type: str | None = None,
+        notification_email: str | None = None,
+        notification_webhook: str | None = None,
+        created_by: str = "system",
+    ) -> int | None:
         """
         创建定时任务
-        
+
         Args:
             name: 任务名称
             description: 任务描述
@@ -1843,18 +1961,19 @@ class ScheduledTaskBusiness:
             notification_email: 通知邮箱
             notification_webhook: 通知Webhook
             created_by: 创建者
-            
+
         Returns:
             Optional[int]: 创建成功返回任务ID，失败返回None
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
             # 获取当前最大id值，手动生成新id
             max_id_result = db.query(func.max(ScheduledTask.id)).first()
             new_id = (max_id_result[0] + 1) if max_id_result[0] is not None else 1
-            
+
             # 创建定时任务
             task = ScheduledTask(
                 id=new_id,
@@ -1877,12 +1996,12 @@ class ScheduledTaskBusiness:
                 notification_type=notification_type,
                 notification_email=notification_email,
                 notification_webhook=notification_webhook,
-                created_by=created_by
+                created_by=created_by,
             )
             db.add(task)
             db.commit()
             db.refresh(task)
-            
+
             logger.info(f"定时任务已创建: id={task.id}, name={name}")
             return task.id
         except Exception as e:
@@ -1891,27 +2010,29 @@ class ScheduledTaskBusiness:
             return None
         finally:
             db.close()
-    
+
     @staticmethod
-    def get(task_id: int) -> Optional[Dict[str, Any]]:
+    def get(task_id: int) -> dict[str, Any] | None:
         """
         获取定时任务详情
-        
+
         Args:
             task_id: 任务ID
-            
+
         Returns:
             Optional[Dict[str, Any]]: 任务详情，如果不存在则返回None
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
             task = db.query(ScheduledTask).filter_by(id=task_id).first()
             if not task:
                 return None
-            
+
             import pytz
+
             def format_datetime(dt):
                 """格式化datetime对象，转换为上海时区"""
                 if dt is None:
@@ -1920,8 +2041,8 @@ class ScheduledTaskBusiness:
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=pytz.utc)
                 # 转换为UTC+8时间并格式化为字符串
-                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
-            
+                return dt.astimezone(pytz.timezone("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
+
             return {
                 "id": task.id,
                 "name": task.name,
@@ -1953,35 +2074,36 @@ class ScheduledTaskBusiness:
                 "fail_count": task.fail_count,
                 "created_at": format_datetime(task.created_at),
                 "updated_at": format_datetime(task.updated_at),
-                "created_by": task.created_by
+                "created_by": task.created_by,
             }
         except Exception as e:
             logger.error(f"获取定时任务失败: task_id={task_id}, error={e}")
             return None
         finally:
             db.close()
-    
+
     @staticmethod
-    def get_all(filters: dict = None) -> Dict[str, Dict[str, Any]]:
+    def get_all(filters: dict | None = None) -> dict[str, dict[str, Any]]:
         """
         获取所有定时任务
-        
+
         Args:
             filters: 过滤条件
-            
+
         Returns:
             Dict[str, Dict[str, Any]]: 所有定时任务，键为任务ID
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
             query = db.query(ScheduledTask)
-            
+
             # 应用过滤条件
             if filters:
                 # 状态过滤，支持单个状态值或状态列表
-                if "status" in filters and filters["status"]:
+                if filters.get("status"):
                     status = filters["status"]
                     if isinstance(status, list):
                         # 如果是列表，使用 in_ 操作符
@@ -1989,9 +2111,9 @@ class ScheduledTaskBusiness:
                     else:
                         # 否则使用相等比较
                         query = query.filter(ScheduledTask.status == status)
-                
+
                 # 任务类型过滤，支持单个任务类型或任务类型列表
-                if "task_type" in filters and filters["task_type"]:
+                if filters.get("task_type"):
                     task_type = filters["task_type"]
                     if isinstance(task_type, list):
                         # 如果是列表，使用 in_ 操作符
@@ -1999,11 +2121,12 @@ class ScheduledTaskBusiness:
                     else:
                         # 否则使用相等比较
                         query = query.filter(ScheduledTask.task_type == task_type)
-            
+
             tasks = query.all()
             result = {}
-            
+
             import pytz
+
             def format_datetime(dt):
                 """格式化datetime对象，转换为上海时区"""
                 if dt is None:
@@ -2012,8 +2135,8 @@ class ScheduledTaskBusiness:
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=pytz.utc)
                 # 转换为UTC+8时间并格式化为字符串
-                return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
-            
+                return dt.astimezone(pytz.timezone("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
+
             for task in tasks:
                 result[task.id] = {
                     "id": task.id,
@@ -2046,50 +2169,50 @@ class ScheduledTaskBusiness:
                     "fail_count": task.fail_count,
                     "created_at": format_datetime(task.created_at),
                     "updated_at": format_datetime(task.updated_at),
-                    "created_by": task.created_by
+                    "created_by": task.created_by,
                 }
-            
+
             return result
         except Exception as e:
             logger.error(f"获取所有定时任务失败: error={e}")
             return {}
         finally:
             db.close()
-    
+
     @staticmethod
     def update(
         task_id: int,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        status: Optional[str] = None,
-        cron_expression: Optional[str] = None,
-        interval: Optional[str] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        frequency_type: Optional[str] = None,
-        symbols: Optional[list] = None,
-        exchange: Optional[str] = None,
-        candle_type: Optional[str] = None,
-        save_dir: Optional[str] = None,
-        max_workers: Optional[int] = None,
-        incremental_enabled: Optional[bool] = None,
-        notification_enabled: Optional[bool] = None,
-        notification_type: Optional[str] = None,
-        notification_email: Optional[str] = None,
-        notification_webhook: Optional[str] = None,
+        name: str | None = None,
+        description: str | None = None,
+        status: str | None = None,
+        cron_expression: str | None = None,
+        interval: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        frequency_type: str | None = None,
+        symbols: list | None = None,
+        exchange: str | None = None,
+        candle_type: str | None = None,
+        save_dir: str | None = None,
+        max_workers: int | None = None,
+        incremental_enabled: bool | None = None,
+        notification_enabled: bool | None = None,
+        notification_type: str | None = None,
+        notification_email: str | None = None,
+        notification_webhook: str | None = None,
         # 添加缺失的参数
-        last_run_time: Optional[datetime] = None,
-        next_run_time: Optional[datetime] = None,
-        last_result: Optional[str] = None,
-        error_message: Optional[str] = None,
-        run_count: Optional[int] = None,
-        success_count: Optional[int] = None,
-        fail_count: Optional[int] = None,
-        last_collected_date: Optional[datetime] = None
+        last_run_time: datetime | None = None,
+        next_run_time: datetime | None = None,
+        last_result: str | None = None,
+        error_message: str | None = None,
+        run_count: int | None = None,
+        success_count: int | None = None,
+        fail_count: int | None = None,
+        last_collected_date: datetime | None = None,
     ) -> bool:
         """
         更新定时任务
-        
+
         Args:
             task_id: 任务ID
             name: 任务名称
@@ -2110,11 +2233,12 @@ class ScheduledTaskBusiness:
             notification_type: 通知类型
             notification_email: 通知邮箱
             notification_webhook: 通知Webhook
-            
+
         Returns:
             bool: 更新成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -2122,7 +2246,7 @@ class ScheduledTaskBusiness:
             if not task:
                 logger.error(f"定时任务不存在: task_id={task_id}")
                 return False
-            
+
             # 更新字段
             if name is not None:
                 task.name = name
@@ -2177,7 +2301,7 @@ class ScheduledTaskBusiness:
                 task.fail_count = fail_count
             if last_collected_date is not None:
                 task.last_collected_date = last_collected_date
-            
+
             db.commit()
             logger.info(f"定时任务已更新: task_id={task_id}, name={task.name}")
             return True
@@ -2187,19 +2311,20 @@ class ScheduledTaskBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
     def delete(task_id: int) -> bool:
         """
         删除定时任务
-        
+
         Args:
             task_id: 任务ID
-            
+
         Returns:
             bool: 删除成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -2208,7 +2333,7 @@ class ScheduledTaskBusiness:
                 db.delete(task)
                 db.commit()
                 logger.info(f"定时任务已删除: task_id={task_id}, name={task.name}")
-            
+
             return True
         except Exception as e:
             db.rollback()
@@ -2216,20 +2341,20 @@ class ScheduledTaskBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
     def update_execution_status(
         task_id: int,
         status: str,
-        last_result: Optional[str] = None,
-        error_message: Optional[str] = None,
-        last_run_time: Optional[datetime] = None,
-        next_run_time: Optional[datetime] = None,
-        last_collected_date: Optional[datetime] = None
+        last_result: str | None = None,
+        error_message: str | None = None,
+        last_run_time: datetime | None = None,
+        next_run_time: datetime | None = None,
+        last_collected_date: datetime | None = None,
     ) -> bool:
         """
         更新任务执行状态
-        
+
         Args:
             task_id: 任务ID
             status: 任务状态
@@ -2238,11 +2363,12 @@ class ScheduledTaskBusiness:
             last_run_time: 上次执行时间
             next_run_time: 下次执行时间
             last_collected_date: 上次采集日期
-            
+
         Returns:
             bool: 更新成功返回True，失败返回False
         """
         from .database import SessionLocal, init_database_config
+
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -2250,7 +2376,7 @@ class ScheduledTaskBusiness:
             if not task:
                 logger.error(f"定时任务不存在: task_id={task_id}")
                 return False
-            
+
             # 更新执行状态
             if status is not None:
                 task.status = status
@@ -2270,7 +2396,7 @@ class ScheduledTaskBusiness:
                 task.next_run_time = next_run_time
             if last_collected_date is not None:
                 task.last_collected_date = last_collected_date
-            
+
             db.commit()
             logger.info(f"定时任务执行状态已更新: task_id={task_id}, status={status}, last_result={last_result}")
             return True
@@ -2290,11 +2416,12 @@ class ScheduledTaskBusiness:
 
 class Plugin(TimezoneAwareBase):
     """插件SQLAlchemy模型
-    
+
     对应plugins表的SQLAlchemy模型定义，用于存储插件信息
     """
+
     __tablename__ = "plugins"
-    
+
     name = Column(String, primary_key=True, index=True)
     version = Column(String, nullable=False)
     description = Column(Text, nullable=True)

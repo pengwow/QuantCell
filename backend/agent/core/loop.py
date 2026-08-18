@@ -6,17 +6,19 @@ import asyncio
 import json
 import re
 from datetime import datetime
-from pathlib import Path
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
-from .context import ContextBuilder
-from .memory import MemoryStore, Consolidator, AutoCompact, Dream
 from ..session.manager import Session, SessionManager
 from ..tools.registry import ToolRegistry
+from .context import ContextBuilder
+from .memory import AutoCompact, Consolidator, Dream, MemoryStore
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from pathlib import Path
+
     from ..providers.base import LLMProvider
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -103,12 +105,14 @@ class AgentLoop:
     @staticmethod
     def _tool_hint(tool_calls: list) -> str:
         """格式化工具调用为简洁提示"""
+
         def _fmt(tc):
             args = tc.get("arguments", {}) or {}
             val = next(iter(args.values()), None) if isinstance(args, dict) else None
             if not isinstance(val, str):
                 return tc.get("name", "")
             return f'{tc["name"]}("{val[:40]}…")' if len(val) > 40 else f'{tc["name"]}("{val}")'
+
         return ", ".join(_fmt(tc) for tc in tool_calls)
 
     async def _run_agent_loop(
@@ -118,14 +122,15 @@ class AgentLoop:
     ) -> tuple[str | None, list[str], list[dict]]:
         """
         运行 Agent 迭代循环
-        
+
         Returns:
             (最终内容, 使用的工具列表, 所有消息)
         """
         import time
+
         loop_start_time = time.time()
         logger.info(f"[AgentLoop] 开始运行 Agent 循环, 初始消息数: {len(initial_messages)}")
-        
+
         messages = initial_messages
         iteration = 0
         final_content = None
@@ -139,7 +144,7 @@ class AgentLoop:
             try:
                 llm_start = time.time()
                 logger.info(f"[AgentLoop] 调用 LLM API... (model={self.model}, messages={len(messages)})")
-                
+
                 response = await self.provider.chat(
                     messages=messages,
                     tools=self.tools.get_definitions(),
@@ -148,9 +153,11 @@ class AgentLoop:
                     max_tokens=self.max_tokens,
                     reasoning_effort=self.reasoning_effort,
                 )
-                
+
                 llm_elapsed = time.time() - llm_start
-                logger.info(f"[AgentLoop] LLM API 响应完成, 耗时: {llm_elapsed:.2f}s, finish_reason={response.finish_reason}, has_tool_calls={response.has_tool_calls}")
+                logger.info(
+                    f"[AgentLoop] LLM API 响应完成, 耗时: {llm_elapsed:.2f}s, finish_reason={response.finish_reason}, has_tool_calls={response.has_tool_calls}"
+                )
 
             except Exception as e:
                 logger.error(f"[AgentLoop] LLM API 调用失败: {type(e).__name__}: {e}")
@@ -173,13 +180,17 @@ class AgentLoop:
                         "type": "function",
                         "function": {
                             "name": tc["name"],
-                            "arguments": json.dumps(tc["arguments"], ensure_ascii=False) if isinstance(tc["arguments"], dict) else tc["arguments"]
-                        }
+                            "arguments": json.dumps(tc["arguments"], ensure_ascii=False)
+                            if isinstance(tc["arguments"], dict)
+                            else tc["arguments"],
+                        },
                     }
                     for tc in response.tool_calls
                 ]
                 messages = self.context.add_assistant_message(
-                    messages, response.content, tool_call_dicts,
+                    messages,
+                    response.content,
+                    tool_call_dicts,
                     reasoning_content=response.reasoning_content,
                 )
 
@@ -187,16 +198,16 @@ class AgentLoop:
                     tools_used.append(tool_call["name"])
                     args_str = json.dumps(tool_call.get("arguments", {}), ensure_ascii=False)
                     logger.info(f"[AgentLoop] 执行工具: {tool_call['name']}({args_str[:200]})")
-                    
+
                     tool_start = time.time()
                     result = await self.tools.execute(tool_call["name"], tool_call.get("arguments", {}))
                     tool_elapsed = time.time() - tool_start
-                    
-                    logger.info(f"[AgentLoop] 工具执行完成: {tool_call['name']}, 耗时: {tool_elapsed:.2f}s, 结果长度: {len(str(result))}")
-                    
-                    messages = self.context.add_tool_result(
-                        messages, tool_call["id"], tool_call["name"], result
+
+                    logger.info(
+                        f"[AgentLoop] 工具执行完成: {tool_call['name']}, 耗时: {tool_elapsed:.2f}s, 结果长度: {len(str(result))}"
                     )
+
+                    messages = self.context.add_tool_result(messages, tool_call["id"], tool_call["name"], result)
             else:
                 clean = self._strip_think(response.content)
                 if response.finish_reason == "error":
@@ -204,7 +215,9 @@ class AgentLoop:
                     final_content = clean or "抱歉，调用 AI 模型时遇到错误。"
                     break
                 messages = self.context.add_assistant_message(
-                    messages, clean, reasoning_content=response.reasoning_content,
+                    messages,
+                    clean,
+                    reasoning_content=response.reasoning_content,
                 )
                 final_content = clean
                 logger.info(f"[AgentLoop] 获得 LLM 文本响应, 长度: {len(clean) if clean else 0}")
@@ -240,9 +253,10 @@ class AgentLoop:
         Returns:
             (最终内容, 使用的工具列表, 所有消息)
         """
+        import time
+
         from ..providers.base import StreamEvent
 
-        import time
         loop_start_time = time.time()
         logger.info(f"[AgentLoop] 开始流式 Agent 循环, 初始消息数: {len(initial_messages)}")
 
@@ -258,10 +272,15 @@ class AgentLoop:
 
             # 发送迭代开始事件
             if on_stream:
-                await on_stream(StreamEvent(
-                    event_type="iteration_start",
-                    data={"iteration": iteration, "max_iterations": self.max_iterations},
-                ))
+                await on_stream(
+                    StreamEvent(
+                        event_type="iteration_start",
+                        data={
+                            "iteration": iteration,
+                            "max_iterations": self.max_iterations,
+                        },
+                    )
+                )
 
             try:
                 # 调用流式 LLM API
@@ -286,23 +305,27 @@ class AgentLoop:
                         response_content += chunk.delta
 
                         if on_stream:
-                            await on_stream(StreamEvent(
-                                event_type="content",
-                                data={
-                                    "content": chunk.delta,
-                                    "full_content": response_content,
-                                },
-                            ))
+                            await on_stream(
+                                StreamEvent(
+                                    event_type="content",
+                                    data={
+                                        "content": chunk.delta,
+                                        "full_content": response_content,
+                                    },
+                                )
+                            )
 
                     # 推理过程（DeepSeek-R1 等）
                     if chunk.reasoning_content:
                         reasoning_parts.append(chunk.reasoning_content)
 
                         if on_stream:
-                            await on_stream(StreamEvent(
-                                event_type="reasoning",
-                                data={"content": chunk.reasoning_content},
-                            ))
+                            await on_stream(
+                                StreamEvent(
+                                    event_type="reasoning",
+                                    data={"content": chunk.reasoning_content},
+                                )
+                            )
 
                     # 工具调用完成
                     if chunk.is_tool_call and chunk.tool_calls:
@@ -322,10 +345,12 @@ class AgentLoop:
             if response_tool_calls:
                 # 有工具调用 - 推送工具调用事件
                 if on_stream:
-                    await on_stream(StreamEvent(
-                        event_type="tool_calls",
-                        data={"tools": response_tool_calls},
-                    ))
+                    await on_stream(
+                        StreamEvent(
+                            event_type="tool_calls",
+                            data={"tools": response_tool_calls},
+                        )
+                    )
 
                 # 构建工具调用消息格式
                 tool_call_dicts = [
@@ -334,14 +359,18 @@ class AgentLoop:
                         "type": "function",
                         "function": {
                             "name": tc["name"],
-                            "arguments": json.dumps(tc["arguments"], ensure_ascii=False) if isinstance(tc["arguments"], dict) else tc["arguments"]
-                        }
+                            "arguments": json.dumps(tc["arguments"], ensure_ascii=False)
+                            if isinstance(tc["arguments"], dict)
+                            else tc["arguments"],
+                        },
                     }
                     for tc in response_tool_calls
                 ]
 
                 messages = self.context.add_assistant_message(
-                    messages, response_content, tool_call_dicts,
+                    messages,
+                    response_content,
+                    tool_call_dicts,
                     reasoning_content="\n".join(reasoning_parts) if reasoning_parts else None,
                 )
 
@@ -353,13 +382,15 @@ class AgentLoop:
 
                     # 推送工具开始事件
                     if on_stream:
-                        await on_stream(StreamEvent(
-                            event_type="tool_start",
-                            data={
-                                "name": tool_call["name"],
-                                "args": tool_call.get("arguments", {}),
-                            },
-                        ))
+                        await on_stream(
+                            StreamEvent(
+                                event_type="tool_start",
+                                data={
+                                    "name": tool_call["name"],
+                                    "args": tool_call.get("arguments", {}),
+                                },
+                            )
+                        )
 
                     # 执行工具
                     tool_start = time.time()
@@ -369,21 +400,21 @@ class AgentLoop:
                     logger.info(f"[AgentLoop] 工具执行完成: {tool_call['name']}, 耗时: {tool_elapsed:.2f}s")
 
                     # 添加工具结果到消息
-                    messages = self.context.add_tool_result(
-                        messages, tool_call["id"], tool_call["name"], result
-                    )
+                    messages = self.context.add_tool_result(messages, tool_call["id"], tool_call["name"], result)
 
                     # 推送工具结果事件
                     if on_stream:
                         result_preview = str(result)[:500]
-                        await on_stream(StreamEvent(
-                            event_type="tool_result",
-                            data={
-                                "name": tool_call["name"],
-                                "result": result_preview,
-                                "elapsed": tool_elapsed,
-                            },
-                        ))
+                        await on_stream(
+                            StreamEvent(
+                                event_type="tool_result",
+                                data={
+                                    "name": tool_call["name"],
+                                    "result": result_preview,
+                                    "elapsed": tool_elapsed,
+                                },
+                            )
+                        )
             else:
                 # 无工具调用 - 最终文本响应
                 clean = self._strip_think(response_content)
@@ -393,7 +424,8 @@ class AgentLoop:
                     final_content = clean or "抱歉，调用 AI 模型时遇到错误。"
                 else:
                     messages = self.context.add_assistant_message(
-                        messages, clean,
+                        messages,
+                        clean,
                         reasoning_content="\n".join(reasoning_parts) if reasoning_parts else None,
                     )
                     final_content = clean
@@ -401,14 +433,16 @@ class AgentLoop:
 
                 # 推送完成事件
                 if on_stream:
-                    await on_stream(StreamEvent(
-                        event_type="complete",
-                        data={
-                            "content": final_content,
-                            "iteration": iteration,
-                            "tools_used": tools_used,
-                        },
-                    ))
+                    await on_stream(
+                        StreamEvent(
+                            event_type="complete",
+                            data={
+                                "content": final_content,
+                                "iteration": iteration,
+                                "tools_used": tools_used,
+                            },
+                        )
+                    )
 
                 break
 
@@ -426,10 +460,16 @@ class AgentLoop:
             )
 
             if on_stream:
-                await on_stream(StreamEvent(
-                    event_type="complete",
-                    data={"content": final_content, "iteration": iteration, "max_reached": True},
-                ))
+                await on_stream(
+                    StreamEvent(
+                        event_type="complete",
+                        data={
+                            "content": final_content,
+                            "iteration": iteration,
+                            "max_reached": True,
+                        },
+                    )
+                )
 
         return final_content, tools_used, messages
 
@@ -441,21 +481,24 @@ class AgentLoop:
     ) -> str:
         """
         处理单条消息
-        
+
         Args:
             content: 用户消息内容
             session_key: 会话标识
             on_progress: 进度回调函数
-            
+
         Returns:
             Agent 响应内容
         """
         import time
+
         start_time = time.time()
         logger.info(f"[AgentLoop] ====== 开始处理消息: {content[:100]}... (session={session_key}) ======")
-        
+
         session = self.sessions.get_or_create(session_key)
-        logger.debug(f"[AgentLoop] 会话信息: messages_count={len(session.messages)}, last_consolidated={session.last_consolidated}")
+        logger.debug(
+            f"[AgentLoop] 会话信息: messages_count={len(session.messages)}, last_consolidated={session.last_consolidated}"
+        )
 
         # 检查记忆整合
         unconsolidated = len(session.messages) - session.last_consolidated
@@ -483,9 +526,7 @@ class AgentLoop:
 
         # 运行 Agent 循环
         try:
-            final_content, _, all_msgs = await self._run_agent_loop(
-                initial_messages, on_progress=on_progress
-            )
+            final_content, _, all_msgs = await self._run_agent_loop(initial_messages, on_progress=on_progress)
         except Exception as e:
             logger.error(f"[AgentLoop] Agent 循环执行失败: {type(e).__name__}: {e}")
             raise
@@ -496,7 +537,7 @@ class AgentLoop:
         # 保存会话
         self._save_turn(session, all_msgs, 1 + len(history))
         self.sessions.save(session)
-        
+
         elapsed = time.time() - start_time
         logger.info(f"[AgentLoop] ====== 消息处理完成, 总耗时: {elapsed:.2f}s ======")
 
@@ -510,7 +551,7 @@ class AgentLoop:
             if role == "assistant" and not content and not entry.get("tool_calls"):
                 continue  # 跳过空助手消息
             if role == "tool" and isinstance(content, str) and len(content) > self._TOOL_RESULT_MAX_CHARS:
-                entry["content"] = content[:self._TOOL_RESULT_MAX_CHARS] + "\n... (已截断)"
+                entry["content"] = content[: self._TOOL_RESULT_MAX_CHARS] + "\n... (已截断)"
             elif role == "user":
                 if isinstance(content, str) and content.startswith(ContextBuilder._RUNTIME_CONTEXT_TAG):
                     # 移除运行时上下文前缀
@@ -525,8 +566,7 @@ class AgentLoop:
                     last_msg = session.messages[-1]
                     content_str = str(content or "").strip()
                     last_content = str(last_msg.get("content", "")).strip()
-                    if (last_msg.get("role") == "user" and
-                        content_str == last_content):
+                    if last_msg.get("role") == "user" and content_str == last_content:
                         logger.debug(f"跳过重复消息: {content_str[:50]}...")
                         continue
 
@@ -559,14 +599,17 @@ class AgentLoop:
         Yields:
             StreamEvent: 流式事件（当不使用 on_stream 回调时）
         """
+        import time
+
         from ..providers.base import StreamEvent
 
-        import time
         start_time = time.time()
         logger.info(f"[AgentLoop] ====== 开始流式处理消息: {content[:100]}... (session={session_key}) ======")
 
         session = self.sessions.get_or_create(session_key)
-        logger.debug(f"[AgentLoop] 会话信息: messages_count={len(session.messages)}, last_consolidated={session.last_consolidated}")
+        logger.debug(
+            f"[AgentLoop] 会话信息: messages_count={len(session.messages)}, last_consolidated={session.last_consolidated}"
+        )
 
         # 检查记忆整合（与 process_message 保持一致）
         unconsolidated = len(session.messages) - session.last_consolidated
@@ -594,18 +637,20 @@ class AgentLoop:
 
         # 发送开始事件
         if on_stream:
-            await on_stream(StreamEvent(
-                event_type="start",
-                data={
-                    "session": session_key,
-                    "message": content,
-                    "history_count": len(history),
-                },
-            ))
+            await on_stream(
+                StreamEvent(
+                    event_type="start",
+                    data={
+                        "session": session_key,
+                        "message": content,
+                        "history_count": len(history),
+                    },
+                )
+            )
 
         try:
             # 运行流式 Agent 循环
-            final_content, tools_used, all_msgs = await self._run_agent_loop_stream(
+            _final_content, _tools_used, all_msgs = await self._run_agent_loop_stream(
                 initial_messages, on_stream=on_stream
             )
 
@@ -621,10 +666,12 @@ class AgentLoop:
             logger.error(f"[AgentLoop] 流式 Agent 循环执行失败: {type(e).__name__}: {e} (耗时: {elapsed:.2f}s)")
 
             if on_stream:
-                await on_stream(StreamEvent(
-                    event_type="error",
-                    data={"error": str(e), "elapsed": elapsed},
-                ))
+                await on_stream(
+                    StreamEvent(
+                        event_type="error",
+                        data={"error": str(e), "elapsed": elapsed},
+                    )
+                )
 
             raise
 

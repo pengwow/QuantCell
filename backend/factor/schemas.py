@@ -28,7 +28,7 @@
 创建日期: 2024-01-01
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, validator
 
@@ -38,6 +38,7 @@ class BaseSchema(BaseModel):
 
     class Config:
         """Pydantic配置"""
+
         json_encoders = {}
         from_attributes = True
 
@@ -70,14 +71,16 @@ class FactorAddRequest(BaseSchema):
     def validate_factor_name(cls, v: str) -> str:
         """验证因子名称"""
         if not v.strip():
-            raise ValueError("因子名称不能为空")
+            msg = "因子名称不能为空"
+            raise ValueError(msg)
         return v.strip()
 
     @validator("expression")
     def validate_expression(cls, v: str) -> str:
         """验证因子表达式"""
         if not v.strip():
-            raise ValueError("因子表达式不能为空")
+            msg = "因子表达式不能为空"
+            raise ValueError(msg)
         return v.strip()
 
 
@@ -100,7 +103,7 @@ class FactorCalculateRequest(BaseSchema):
         description="因子名称",
         example="my_factor",
     )
-    instruments: List[str] = Field(
+    instruments: list[str] = Field(
         ...,
         min_items=1,
         description="标的列表，如股票代码、加密货币交易对等",
@@ -127,7 +130,8 @@ class FactorCalculateRequest(BaseSchema):
         """验证频率"""
         allowed_freqs = ["day", "week", "month", "hour", "minute"]
         if v not in allowed_freqs:
-            raise ValueError(f"频率必须是以下之一: {allowed_freqs}")
+            msg = f"频率必须是以下之一: {allowed_freqs}"
+            raise ValueError(msg)
         return v
 
 
@@ -143,13 +147,13 @@ class FactorCalculateMultiRequest(BaseSchema):
         freq: 频率，默认为日线
     """
 
-    factor_names: List[str] = Field(
+    factor_names: list[str] = Field(
         ...,
         min_items=1,
         description="因子名称列表，用于批量计算多个因子",
         example=["my_factor1", "my_factor2"],
     )
-    instruments: List[str] = Field(
+    instruments: list[str] = Field(
         ...,
         min_items=1,
         description="标的列表，如股票代码、加密货币交易对等",
@@ -197,7 +201,7 @@ class FactorCorrelationRequest(BaseSchema):
         factor_data: 因子数据，包含不同因子的计算结果
     """
 
-    factor_data: Dict[str, Any] = Field(
+    factor_data: dict[str, Any] = Field(
         ...,
         description="因子数据，包含不同因子的计算结果",
         example={
@@ -221,7 +225,7 @@ class FactorStatsRequest(BaseSchema):
         factor_data: 因子数据，用于计算统计信息
     """
 
-    factor_data: Dict[str, Any] = Field(
+    factor_data: dict[str, Any] = Field(
         ...,
         description="因子数据，用于计算统计信息",
         example={
@@ -243,7 +247,7 @@ class FactorICRequest(BaseSchema):
         method: 相关性计算方法，支持spearman和pearson
     """
 
-    factor_data: Dict[str, Any] = Field(
+    factor_data: dict[str, Any] = Field(
         ...,
         description="因子数据，用于计算IC值",
         example={
@@ -253,7 +257,7 @@ class FactorICRequest(BaseSchema):
             }
         },
     )
-    return_data: Dict[str, Any] = Field(
+    return_data: dict[str, Any] = Field(
         ...,
         description="收益率数据，用于计算IC值",
         example={"BTCUSDT": [0.01, 0.02, 0.03], "ETHUSDT": [0.04, 0.05, 0.06]},
@@ -269,7 +273,8 @@ class FactorICRequest(BaseSchema):
         """验证计算方法"""
         allowed_methods = ["spearman", "pearson"]
         if v not in allowed_methods:
-            raise ValueError(f"计算方法必须是以下之一: {allowed_methods}")
+            msg = f"计算方法必须是以下之一: {allowed_methods}"
+            raise ValueError(msg)
         return v
 
 
@@ -283,7 +288,7 @@ class FactorIRRequest(BaseSchema):
         method: 相关性计算方法，支持spearman和pearson
     """
 
-    factor_data: Dict[str, Any] = Field(
+    factor_data: dict[str, Any] = Field(
         ...,
         description="因子数据，用于计算IR值",
         example={
@@ -293,7 +298,7 @@ class FactorIRRequest(BaseSchema):
             }
         },
     )
-    return_data: Dict[str, Any] = Field(
+    return_data: dict[str, Any] = Field(
         ...,
         description="收益率数据，用于计算IR值",
         example={"BTCUSDT": [0.01, 0.02, 0.03], "ETHUSDT": [0.04, 0.05, 0.06]},
@@ -315,7 +320,7 @@ class FactorGroupAnalysisRequest(BaseSchema):
         n_groups: 分组数量，将标的按因子值分为多少组
     """
 
-    factor_data: Dict[str, Any] = Field(
+    factor_data: dict[str, Any] = Field(
         ...,
         description="因子数据，用于分组分析",
         example={
@@ -325,7 +330,7 @@ class FactorGroupAnalysisRequest(BaseSchema):
             }
         },
     )
-    return_data: Dict[str, Any] = Field(
+    return_data: dict[str, Any] = Field(
         ...,
         description="收益率数据，用于分组分析",
         example={"BTCUSDT": [0.01, 0.02, 0.03], "ETHUSDT": [0.04, 0.05, 0.06]},
@@ -349,7 +354,7 @@ class FactorMonotonicityRequest(BaseSchema):
         n_groups: 分组数量
     """
 
-    factor_data: Dict[str, Any] = Field(
+    factor_data: dict[str, Any] = Field(
         ...,
         description="因子数据，用于检验单调性",
         example={
@@ -359,7 +364,7 @@ class FactorMonotonicityRequest(BaseSchema):
             }
         },
     )
-    return_data: Dict[str, Any] = Field(
+    return_data: dict[str, Any] = Field(
         ...,
         description="收益率数据，用于检验单调性",
         example={"BTCUSDT": [0.01, 0.02, 0.03], "ETHUSDT": [0.04, 0.05, 0.06]},
@@ -381,7 +386,7 @@ class FactorStabilityRequest(BaseSchema):
         window: 滚动窗口大小
     """
 
-    factor_data: Dict[str, Any] = Field(
+    factor_data: dict[str, Any] = Field(
         ...,
         description="因子数据，用于检验稳定性",
         example={
@@ -425,8 +430,8 @@ class FactorResult(BaseSchema):
     """
 
     factor_name: str = Field(..., description="因子名称", example="my_factor")
-    data: List[FactorData] = Field(..., description="因子数据列表")
-    shape: List[int] = Field(..., description="数据形状", example=[100, 5])
+    data: list[FactorData] = Field(..., description="因子数据列表")
+    shape: list[int] = Field(..., description="数据形状", example=[100, 5])
 
 
 class FactorInfo(BaseSchema):
@@ -441,4 +446,4 @@ class FactorInfo(BaseSchema):
 
     factor_name: str = Field(..., description="因子名称", example="my_factor")
     expression: str = Field(..., description="因子表达式", example="close - open")
-    description: Optional[str] = Field(None, description="因子描述")
+    description: str | None = Field(None, description="因子描述")

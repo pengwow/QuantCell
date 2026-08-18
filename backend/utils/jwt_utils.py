@@ -3,11 +3,12 @@
 
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import jwt
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -42,48 +43,44 @@ class TokenRefreshError(JWTError):
     """令牌刷新错误"""
 
 
-def create_jwt_token(
-    data: Dict[str, Any],
-    expires_delta: Optional[timedelta] = None,
-    refresh: bool = False
-) -> str:
+def create_jwt_token(data: dict[str, Any], expires_delta: timedelta | None = None, refresh: bool = False) -> str:
     """生成JWT令牌
-    
+
     Args:
         data: 要包含在令牌中的数据
         expires_delta: 令牌过期时间
         refresh: 是否为刷新令牌
-    
+
     Returns:
         str: 生成的JWT令牌
     """
     to_encode = data.copy()
-    
+
     # 设置过期时间
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
         if refresh:
-            expire = datetime.now(timezone.utc) + timedelta(days=JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+            expire = datetime.now(UTC) + timedelta(days=JWT_REFRESH_TOKEN_EXPIRE_DAYS)
         else:
-            expire = datetime.now(timezone.utc) + timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
-    
+            expire = datetime.now(UTC) + timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+
     to_encode.update({"exp": expire, "jti": str(uuid.uuid4()), "refresh": refresh})
-    
+
     # 生成令牌
     encoded_jwt = jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     return encoded_jwt
 
 
-def decode_jwt_token(token: str) -> Dict[str, Any]:
+def decode_jwt_token(token: str) -> dict[str, Any]:
     """解码JWT令牌
-    
+
     Args:
         token: 要解码的JWT令牌
-    
+
     Returns:
         Dict[str, Any]: 令牌中的payload数据
-    
+
     Raises:
         TokenExpiredError: 令牌已过期
         TokenDecodeError: 令牌解码失败
@@ -93,19 +90,22 @@ def decode_jwt_token(token: str) -> Dict[str, Any]:
         payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
         return payload
     except jwt.ExpiredSignatureError:
-        raise TokenExpiredError("令牌已过期")
+        msg = "令牌已过期"
+        raise TokenExpiredError(msg)
     except jwt.DecodeError:
-        raise TokenDecodeError("令牌解码失败")
+        msg = "令牌解码失败"
+        raise TokenDecodeError(msg)
     except jwt.InvalidTokenError:
-        raise TokenInvalidError("令牌无效")
+        msg = "令牌无效"
+        raise TokenInvalidError(msg)
 
 
 def verify_jwt_token(token: str) -> bool:
     """验证JWT令牌有效性
-    
+
     Args:
         token: 要验证的JWT令牌
-    
+
     Returns:
         bool: 令牌是否有效
     """
@@ -118,43 +118,46 @@ def verify_jwt_token(token: str) -> bool:
 
 def refresh_jwt_token(refresh_token: str) -> str:
     """刷新JWT访问令牌
-    
+
     Args:
         refresh_token: 刷新令牌
-    
+
     Returns:
         str: 新的访问令牌
-    
+
     Raises:
         TokenRefreshError: 刷新令牌无效或已过期
     """
     try:
         # 解码刷新令牌
         payload = decode_jwt_token(refresh_token)
-        
+
         # 验证是否为刷新令牌
         if not payload.get("refresh"):
-            raise TokenRefreshError("无效的刷新令牌")
-        
+            msg = "无效的刷新令牌"
+            raise TokenRefreshError(msg)
+
         # 从刷新令牌中提取用户信息
         user_id = payload.get("sub")
         if not user_id:
-            raise TokenRefreshError("刷新令牌中缺少用户信息")
-        
+            msg = "刷新令牌中缺少用户信息"
+            raise TokenRefreshError(msg)
+
         # 生成新的访问令牌
         new_access_token = create_jwt_token(data={"sub": user_id})
         return new_access_token
     except JWTError as e:
         logger.error(f"刷新令牌失败: {e}")
-        raise TokenRefreshError(f"刷新令牌失败: {str(e)}")
+        msg = f"刷新令牌失败: {e!s}"
+        raise TokenRefreshError(msg)
 
 
 def get_token_remaining_time(token: str) -> float:
     """获取令牌剩余有效时间（秒）
-    
+
     Args:
         token: JWT令牌
-    
+
     Returns:
         float: 令牌剩余有效时间（秒），负数表示已过期
     """
@@ -163,7 +166,7 @@ def get_token_remaining_time(token: str) -> float:
         exp = payload.get("exp")
         if not exp:
             return 0
-        
+
         # 计算剩余时间（秒）
         remaining = exp - time.time()
         return remaining
@@ -175,11 +178,11 @@ def get_token_remaining_time(token: str) -> float:
 
 def should_refresh_token(token: str, threshold_minutes: int = 10) -> bool:
     """判断是否应该刷新令牌
-    
+
     Args:
         token: JWT令牌
         threshold_minutes: 剩余时间阈值（分钟），当令牌剩余时间小于此值时需要刷新
-    
+
     Returns:
         bool: 是否需要刷新令牌
     """
@@ -187,58 +190,55 @@ def should_refresh_token(token: str, threshold_minutes: int = 10) -> bool:
     return remaining_seconds > 0 and remaining_seconds < (threshold_minutes * 60)
 
 
-def generate_tokens(user_id: str, user_name: str, role: str = "user") -> Dict[str, str]:
+def generate_tokens(user_id: str, user_name: str, role: str = "user") -> dict[str, str]:
     """生成访问令牌和刷新令牌
-    
+
     Args:
         user_id: 用户ID
         user_name: 用户名称
         role: 用户角色 (user/guest)
-    
+
     Returns:
         Dict[str, str]: 包含访问令牌和刷新令牌的字典
     """
     # 生成访问令牌
     access_token = create_jwt_token(data={"sub": user_id, "name": user_name, "role": role})
-    
+
     # 生成刷新令牌
-    refresh_token = create_jwt_token(
-        data={"sub": user_id, "name": user_name, "role": role},
-        refresh=True
-    )
-    
+    refresh_token = create_jwt_token(data={"sub": user_id, "name": user_name, "role": role}, refresh=True)
+
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
     }
 
 
-def generate_guest_tokens() -> Dict[str, str]:
+def generate_guest_tokens() -> dict[str, str]:
     """生成访客访问令牌和刷新令牌
-    
+
     Returns:
         Dict[str, str]: 包含访客访问令牌和刷新令牌的字典
     """
     # 生成唯一的访客ID
     guest_id = f"guest_{uuid.uuid4().hex[:8]}"
-    
+
     # 生成访问令牌 - 访客token设置较短的过期时间
     access_token = create_jwt_token(
         data={"sub": guest_id, "name": "访客", "role": "guest"},
-        expires_delta=timedelta(hours=2)  # 访客token 2小时过期
+        expires_delta=timedelta(hours=2),  # 访客token 2小时过期
     )
-    
+
     # 生成刷新令牌
     refresh_token = create_jwt_token(
         data={"sub": guest_id, "name": "访客", "role": "guest"},
         expires_delta=timedelta(hours=4),  # 访客刷新token 4小时过期
-        refresh=True
+        refresh=True,
     )
-    
+
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
-        "is_guest": True
+        "is_guest": True,
     }

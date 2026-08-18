@@ -8,17 +8,19 @@
 4. is_admin_token_configured:检查 SHARE_REMOTE_ADMIN_TOKEN 环境变量
 5. ensure_remote_credentials:create_share 调远端前调用,缺失凭据则自动远端注册
 """
+
 from __future__ import annotations
 
 import os
 import secrets
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING
 
 import tomli
 import tomli_w
 
+from utils.logger import LogType, get_logger
+
 from .config import CONFIG_LOCAL
-from utils.logger import get_logger, LogType
 
 if TYPE_CHECKING:
     from .config import ShareRemoteConfig
@@ -64,7 +66,7 @@ def write_credentials_to_local_toml(api_key: str, hmac_secret: str) -> None:
     log.info("share_remote 凭据已写入 %s", CONFIG_LOCAL)
 
 
-def reload_remote_config() -> "ShareRemoteConfig":
+def reload_remote_config() -> ShareRemoteConfig:
     """清空 ShareRemoteConfig 单例并立即重建
 
     运行时修改 config.local.toml 后,旧单例仍持有旧值;必须显式清空
@@ -88,7 +90,7 @@ def is_admin_token_configured() -> bool:
 def ensure_remote_credentials(
     name: str = "QuantCell-PC",
     user_id: str = "anonymous",
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """确保 ShareRemoteConfig 凭据已就绪;否则尝试远端 auto-register。
 
     行为:
@@ -118,18 +120,16 @@ def ensure_remote_credentials(
     admin_token = os.getenv("SHARE_REMOTE_ADMIN_TOKEN")
     if not admin_token:
         log.error("远端凭据未配置且 SHARE_REMOTE_ADMIN_TOKEN 未设置:无法自动注册")
-        raise RemoteConfigError(
-            "缺少 SHARE_REMOTE_ADMIN_TOKEN,无法自动注册远端凭据。请联系管理员配置后重启服务。"
-        )
+        msg = "缺少 SHARE_REMOTE_ADMIN_TOKEN,无法自动注册远端凭据。请联系管理员配置后重启服务。"
+        raise RemoteConfigError(msg)
 
     try:
         client = RemoteShareClient(cfg)
-        result = client.register_device_sync(
-            admin_token=admin_token, name=name, user_id=user_id
-        )
+        result = client.register_device_sync(admin_token=admin_token, name=name, user_id=user_id)
     except RemoteShareError as e:
         log.error("远端 auto-register 失败: %s", e)
-        raise RemoteConfigError(f"远端凭据注册失败: {e}") from e
+        msg = f"远端凭据注册失败: {e}"
+        raise RemoteConfigError(msg) from e
 
     api_key = result["api_key"]
     hmac_secret = result["hmac_secret"]

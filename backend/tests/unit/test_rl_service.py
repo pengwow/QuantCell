@@ -5,6 +5,7 @@ import pytest
 
 try:
     from axon_quant.rl import TradingEnv
+
     RL_AVAILABLE = True
 except ImportError:
     RL_AVAILABLE = False
@@ -13,6 +14,7 @@ except ImportError:
 def test_rl_service_creation():
     """RLService可以被创建"""
     from services.rl_service import RLService
+
     svc = RLService()
     assert svc is not None
 
@@ -20,7 +22,9 @@ def test_rl_service_creation():
 def test_create_env_raises_without_axon_quant():
     """axon_quant不可用时create_env抛出RuntimeError"""
     from unittest.mock import patch
+
     from services.rl_service import RLService
+
     svc = RLService()
     data = pd.DataFrame({"close": [1, 2, 3]})
     # 模拟 TradingEnv 在 axon_bridge.rl 不可用
@@ -32,6 +36,7 @@ def test_create_env_raises_without_axon_quant():
 def test_load_data_from_config():
     """_load_data直接返回config.data"""
     from services.rl_service import RLService, RLTrainConfig
+
     svc = RLService()
     df = pd.DataFrame({"close": [1, 2, 3]})
     config = RLTrainConfig(data=df)
@@ -42,6 +47,7 @@ def test_load_data_from_config():
 def test_load_data_requires_symbol_or_data():
     """_load_data无data无symbol时抛ValueError"""
     from services.rl_service import RLService, RLTrainConfig
+
     svc = RLService()
     config = RLTrainConfig()
     with pytest.raises(ValueError, match="需要 config.data 或 config.symbol"):
@@ -52,15 +58,18 @@ def test_load_data_requires_symbol_or_data():
 def test_rl_service_creates_environment():
     """RLService能创建训练环境"""
     from services.rl_service import RLService
+
     svc = RLService()
 
-    data = pd.DataFrame({
-        "open": range(100, 200),
-        "high": range(105, 205),
-        "low": range(95, 195),
-        "close": range(101, 201),
-        "volume": [1000] * 100,
-    })
+    data = pd.DataFrame(
+        {
+            "open": range(100, 200),
+            "high": range(105, 205),
+            "low": range(95, 195),
+            "close": range(101, 201),
+            "volume": [1000] * 100,
+        }
+    )
 
     env = svc.create_env(data, features=["close"], reward_type="pnl")
     assert env is not None
@@ -70,15 +79,18 @@ def test_rl_service_creates_environment():
 def test_rl_service_trains_model():
     """RLService能训练模型"""
     from services.rl_service import RLService, RLTrainConfig
+
     svc = RLService()
 
-    data = pd.DataFrame({
-        "open": range(100, 200),
-        "high": range(105, 205),
-        "low": range(95, 195),
-        "close": range(101, 201),
-        "volume": [1000] * 100,
-    })
+    data = pd.DataFrame(
+        {
+            "open": range(100, 200),
+            "high": range(105, 205),
+            "low": range(95, 195),
+            "close": range(101, 201),
+            "volume": [1000] * 100,
+        }
+    )
 
     config = RLTrainConfig(
         algorithm="ppo",
@@ -96,12 +108,15 @@ def test_rl_service_trains_model():
 def test_rl_service_walk_forward():
     """RLService能执行Walk-Forward验证"""
     from services.rl_service import RLService
+
     svc = RLService()
 
-    data = pd.DataFrame({
-        "close": range(100, 200),
-        "volume": [1000] * 100,
-    })
+    data = pd.DataFrame(
+        {
+            "close": range(100, 200),
+            "volume": [1000] * 100,
+        }
+    )
 
     result = svc.walk_forward_validate(data, n_splits=3, mode="rolling")
     assert "splits" in result
@@ -149,6 +164,7 @@ def test_gymnasium_wrapper_infer_n_features_dict_empty():
 def test_gymnasium_wrapper_infer_n_features_array():
     """array-like 走 len()"""
     import numpy as np
+
     from services.rl_service import GymnasiumWrapper
 
     assert GymnasiumWrapper._infer_n_features(np.array([1.0, 2.0, 3.0, 4.0])) == 4
@@ -165,6 +181,7 @@ def test_gymnasium_wrapper_infer_n_features_fallback():
 def test_gymnasium_wrapper_observation_space_shape_matches_obs():
     """显式传 n_features 时 observation_space 形状正确"""
     import gymnasium as gym
+
     from services.rl_service import GymnasiumWrapper
 
     env = _FakeEnv(reset_obs=[0.0, 0.0, 0.0])
@@ -195,9 +212,11 @@ def test_gymnasium_wrapper_probe_obs_array_5_features():
 
 def test_gymnasium_wrapper_probe_failure_fallback_to_1d():
     """探测 reset 抛错时回退到 1 维（不崩溃）"""
+
     class _BrokenEnv(_FakeEnv):
         def reset(self):
-            raise RuntimeError("simulated failure")
+            msg = "simulated failure"
+            raise RuntimeError(msg)
 
     from services.rl_service import GymnasiumWrapper
 

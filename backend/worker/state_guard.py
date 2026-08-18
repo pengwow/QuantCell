@@ -8,12 +8,13 @@
 4. 支持同步和异步批量操作
 """
 
+import logging
 from collections import deque
-from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
-from .worker_state import WorkerState, StateMachine
-import logging
+from typing import Any
+
+from .worker_state import StateMachine, WorkerState
 
 logger = logging.getLogger(__name__)
 
@@ -21,22 +22,24 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OperationResult:
     """单个操作结果"""
+
     success: bool
     worker_id: int
     operation: str
     message: str = ""
-    old_state: Optional[WorkerState] = None
-    new_state: Optional[WorkerState] = None
-    error: Optional[Exception] = None
+    old_state: WorkerState | None = None
+    new_state: WorkerState | None = None
+    error: Exception | None = None
 
 
 @dataclass
 class BatchOperationResult:
     """批量操作结果"""
-    success_ids: List[int] = field(default_factory=list)
-    failed_dict: Dict[int, str] = field(default_factory=dict)
+
+    success_ids: list[int] = field(default_factory=list)
+    failed_dict: dict[int, str] = field(default_factory=dict)
     total: int = 0
-    results: List[Dict[str, Any]] = field(default_factory=list)
+    results: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def all_success(self) -> bool:
@@ -79,7 +82,7 @@ class StateMachineGuard:
     """
 
     def __init__(self):
-        self._machines: Dict[int, StateMachine] = {}
+        self._machines: dict[int, StateMachine] = {}
         self._transition_log: deque = deque(maxlen=100)
         self._lock = None  # 可选的锁，用于多线程环境
 
@@ -136,16 +139,11 @@ class StateMachineGuard:
         machine = self.get_machine(worker_id)
         old_state = machine.current_state
 
-        logger.info(
-            f"[StateMachineGuard] 尝试转换 Worker {worker_id}: "
-            f"{old_state.value} -> {target_state.value}"
-        )
+        logger.info(f"[StateMachineGuard] 尝试转换 Worker {worker_id}: {old_state.value} -> {target_state.value}")
 
         # 验证状态转换合法性
         if not machine.can_transition_to(target_state):
-            error_msg = (
-                f"非法状态转换: {old_state.value} -> {target_state.value}"
-            )
+            error_msg = f"非法状态转换: {old_state.value} -> {target_state.value}"
             logger.warning(f"[StateMachineGuard] Worker {worker_id}: {error_msg}")
 
             return OperationResult(
@@ -175,21 +173,21 @@ class StateMachineGuard:
                 if db_session is not None:
                     try:
                         from . import crud
+
                         crud.update_worker_status(db_session, worker_id, target_state.value)
                         logger.debug(f"[StateMachineGuard] Worker {worker_id} 状态已持久化到数据库")
                     except Exception as e:
                         logger.error(f"[StateMachineGuard] 持久化失败: {e}")
 
                 logger.info(
-                    f"[StateMachineGuard] Worker {worker_id} 转换成功: "
-                    f"{old_state.value} -> {target_state.value}"
+                    f"[StateMachineGuard] Worker {worker_id} 转换成功: {old_state.value} -> {target_state.value}"
                 )
 
                 return OperationResult(
                     success=True,
                     worker_id=worker_id,
                     operation=f"transition_{target_state.value}",
-                    message=f"状态转换成功",
+                    message="状态转换成功",
                     old_state=old_state,
                     new_state=target_state,
                 )
@@ -206,7 +204,7 @@ class StateMachineGuard:
                 )
 
         except Exception as e:
-            error_msg = f"状态转换异常: {str(e)}"
+            error_msg = f"状态转换异常: {e!s}"
             logger.exception(f"[StateMachineGuard] Worker {worker_id}: {error_msg}")
             return OperationResult(
                 success=False,
@@ -219,7 +217,7 @@ class StateMachineGuard:
 
     async def batch_transition(
         self,
-        worker_ids: List[int],
+        worker_ids: list[int],
         target_state: WorkerState,
         operation_name: str = "batch",
     ) -> BatchOperationResult:
@@ -240,11 +238,10 @@ class StateMachineGuard:
             BatchOperationResult: 包含成功/失败详情的批量结果
         """
         logger.info(
-            f"[StateMachineGuard] 开始批量{operation_name}: "
-            f"{len(worker_ids)} 个 Workers -> {target_state.value}"
+            f"[StateMachineGuard] 开始批量{operation_name}: {len(worker_ids)} 个 Workers -> {target_state.value}"
         )
 
-        results: List[OperationResult] = []
+        results: list[OperationResult] = []
         batch_result = BatchOperationResult(total=len(worker_ids))
 
         for wid in worker_ids:
@@ -257,14 +254,16 @@ class StateMachineGuard:
                 batch_result.failed_dict[wid] = result.message
 
             # 构建详细结果列表
-            batch_result.results.append({
-                "worker_id": result.worker_id,
-                "success": result.success,
-                "old_state": result.old_state.value if result.old_state else None,
-                "new_state": result.new_state.value if result.new_state else None,
-                "message": result.message,
-                "error": str(result.error) if result.error else None,
-            })
+            batch_result.results.append(
+                {
+                    "worker_id": result.worker_id,
+                    "success": result.success,
+                    "old_state": result.old_state.value if result.old_state else None,
+                    "new_state": result.new_state.value if result.new_state else None,
+                    "message": result.message,
+                    "error": str(result.error) if result.error else None,
+                }
+            )
 
         # 记录批量操作汇总日志
         logger.info(
@@ -281,9 +280,7 @@ class StateMachineGuard:
                 f"失败的Worker IDs: {list(batch_result.failed_dict.keys())}"
             )
         elif batch_result.all_failed:
-            logger.error(
-                f"[StateMachineGuard] 批量{operation_name}全部失败!"
-            )
+            logger.error(f"[StateMachineGuard] 批量{operation_name}全部失败!")
 
         return batch_result
 
@@ -292,11 +289,7 @@ class StateMachineGuard:
         machine = self.get_machine(worker_id)
         return machine.current_state
 
-    def get_state_history(
-        self,
-        worker_id: int,
-        limit: int = 50
-    ) -> List[Dict[str, Any]]:
+    def get_state_history(self, worker_id: int, limit: int = 50) -> list[dict[str, Any]]:
         """
         获取指定 Worker 的状态转换历史
 
@@ -307,20 +300,14 @@ class StateMachineGuard:
         Returns:
             状态转换历史记录列表
         """
-        history = [
-            entry for entry in self._transition_log
-            if entry["worker_id"] == worker_id
-        ]
+        history = [entry for entry in self._transition_log if entry["worker_id"] == worker_id]
         return history[-limit:]
 
-    def get_all_states_summary(self) -> Dict[int, str]:
+    def get_all_states_summary(self) -> dict[int, str]:
         """获取所有已加载 Worker 的当前状态摘要"""
-        return {
-            wid: machine.current_state.value
-            for wid, machine in self._machines.items()
-        }
+        return {wid: machine.current_state.value for wid, machine in self._machines.items()}
 
-    def invalidate_cache(self, worker_id: int = None):
+    def invalidate_cache(self, worker_id: int | None = None):
         """
         使缓存失效（强制下次访问时从数据库重新加载）
 
@@ -336,7 +323,7 @@ class StateMachineGuard:
             self._machines.clear()
             logger.info(f"[StateMachineGuard] 所有缓存已清除 ({count} 个)")
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """获取统计信息"""
         total_transitions = len(self._transition_log)
         recent_transitions = list(self._transition_log)[-10:] if total_transitions > 0 else []
@@ -346,10 +333,7 @@ class StateMachineGuard:
             "total_transitions": total_transitions,
             "recent_transitions": recent_transitions,
             "states_distribution": {
-                state.value: sum(
-                    1 for m in self._machines.values()
-                    if m.current_state == state
-                )
+                state.value: sum(1 for m in self._machines.values() if m.current_state == state)
                 for state in WorkerState
             },
         }

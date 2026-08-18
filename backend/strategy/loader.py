@@ -6,6 +6,7 @@ ponytail: @register(name) 装饰器,模板 import 时自动注册
 
 警告：本模块已废弃，请使用 backtest.strategy_loader_service.StrategyLoaderService 替代。
 """
+
 from __future__ import annotations
 
 import importlib
@@ -18,8 +19,10 @@ warnings.warn(
     stacklevel=2,
 )
 
-from strategy.base import BaseStrategy
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from strategy.base import BaseStrategy
 
 _REGISTRY: dict[str, type[BaseStrategy]] = {}
 _AUTO_REGISTERED = False
@@ -27,12 +30,15 @@ _AUTO_REGISTERED = False
 
 def register(name: str):
     """装饰器：注册策略到全局表。"""
+
     def deco(cls: type[BaseStrategy]) -> type[BaseStrategy]:
         if name in _REGISTRY:
-            raise ValueError(f"策略名重复: {name}")
+            msg = f"策略名重复: {name}"
+            raise ValueError(msg)
         _REGISTRY[name] = cls
         cls._registered_name = name  # type: ignore[attr-defined]
         return cls
+
     return deco
 
 
@@ -42,7 +48,8 @@ def _ensure_auto_registered() -> None:
     if _AUTO_REGISTERED:
         return
     _AUTO_REGISTERED = True
-    import strategy.templates  # noqa: F401
+    import strategy.templates
+
     for _, mod_name, _ in pkgutil.iter_modules(strategy.templates.__path__):
         importlib.import_module(f"strategy.templates.{mod_name}")
 
@@ -52,7 +59,8 @@ class StrategyLoader:
     def get(name: str) -> type[BaseStrategy]:
         _ensure_auto_registered()
         if name not in _REGISTRY:
-            raise ValueError(f"未知策略: {name}，可用: {list(_REGISTRY.keys())}")
+            msg = f"未知策略: {name}，可用: {list(_REGISTRY.keys())}"
+            raise ValueError(msg)
         return _REGISTRY[name]
 
     @staticmethod

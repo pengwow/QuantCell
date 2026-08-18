@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 系统端口配置 API
 
@@ -6,13 +5,13 @@
 支持前端动态获取后端端口地址。
 """
 
-from fastapi import APIRouter, HTTPException
-from typing import Dict, Any, Optional
-from datetime import datetime
 import os
+from datetime import datetime
 
-from utils.logger import get_logger, LogType
-from core.port_manager import PortManager, PORT_RANGES
+from fastapi import APIRouter, HTTPException
+
+from core.port_manager import PortManager
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.SYSTEM)
 
@@ -79,10 +78,7 @@ async def get_system_ports():
 
     except Exception as e:
         logger.error(f"[SystemPorts] 获取端口配置失败: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get port configuration: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to get port configuration: {e!s}")
 
 
 @router.get("/ports/{service_name}")
@@ -104,7 +100,7 @@ async def get_service_port(service_name: str):
     if service_name not in valid_services:
         raise HTTPException(
             status_code=404,
-            detail=f"Invalid service name: {service_name}. Valid services: {valid_services}"
+            detail=f"Invalid service name: {service_name}. Valid services: {valid_services}",
         )
 
     try:
@@ -121,15 +117,12 @@ async def get_service_port(service_name: str):
                 "service": service_name,
                 "port": port,
                 "description": service_descriptions.get(service_name),
-            }
+            },
         }
 
     except Exception as e:
         logger.error(f"[SystemPorts] 获取服务 {service_name} 端口失败: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get port for {service_name}: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to get port for {service_name}: {e!s}")
 
 
 @router.get("/health")

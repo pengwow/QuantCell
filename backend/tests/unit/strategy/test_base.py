@@ -1,13 +1,20 @@
 """BaseStrategy 抽象测试。"""
+
 import pytest
 
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 from axon_bridge import Action
+from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 
 
 class StubStrategy(BaseStrategy):
     def on_bar(self, bar, ctx):
-        return Action(action_type="hold", confidence=0.0, target_position=0.0, model_id="stub", inference_time_us=0)
+        return Action(
+            action_type="hold",
+            confidence=0.0,
+            target_position=0.0,
+            model_id="stub",
+            inference_time_us=0,
+        )
 
 
 def test_base_strategy_is_abstract():
@@ -18,8 +25,10 @@ def test_base_strategy_is_abstract():
 
 def test_subclass_must_implement_on_bar():
     """子类必须实现 on_bar。"""
+
     class Missing(BaseStrategy):
         pass
+
     with pytest.raises(TypeError):
         Missing(StrategyConfig(name="x"))
 

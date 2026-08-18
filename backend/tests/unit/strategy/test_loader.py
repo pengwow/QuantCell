@@ -1,4 +1,5 @@
 """StrategyLoader 测试。"""
+
 import pytest
 
 from strategy.loader import StrategyLoader
@@ -27,8 +28,15 @@ def test_loader_get_trend_follow():
 
 def test_loader_get_all_templates():
     expected = {
-        "dual_ma", "llm_signal", "trend_follow", "grid", "mean_reversion",
-        "momentum", "funding_arbitrage", "cross_sectional", "mean_reversion_rl",
+        "dual_ma",
+        "llm_signal",
+        "trend_follow",
+        "grid",
+        "mean_reversion",
+        "momentum",
+        "funding_arbitrage",
+        "cross_sectional",
+        "mean_reversion_rl",
         "sma_crossover",
     }
     actual = set(StrategyLoader.list_all())

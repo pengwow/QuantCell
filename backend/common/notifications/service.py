@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 通知服务
 
@@ -7,9 +6,9 @@
 
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 from .channels import (
     EmailChannel,
@@ -21,7 +20,6 @@ from .models import (
     NotificationCategory,
     NotificationChannel,
     NotificationConfig,
-    NotificationHistory,
     NotificationLevel,
     NotificationMessage,
 )
@@ -54,8 +52,8 @@ class NotificationService:
             NotificationChannel.FEISHU: FeishuChannel(),
             NotificationChannel.WEBSOCKET: WebSocketChannel(),
         }
-        self._config: Optional[NotificationConfig] = None
-        self._config_cache_time: Optional[datetime] = None
+        self._config: NotificationConfig | None = None
+        self._config_cache_time: datetime | None = None
         self._config_cache_ttl = 60  # 配置缓存时间(秒)
 
     def _load_config(self) -> NotificationConfig:
@@ -114,8 +112,8 @@ class NotificationService:
     async def send(
         self,
         message: NotificationMessage,
-        channels: Optional[List[NotificationChannel]] = None,
-    ) -> Dict[str, Any]:
+        channels: list[NotificationChannel] | None = None,
+    ) -> dict[str, Any]:
         """发送通知
 
         Args:
@@ -183,9 +181,9 @@ class NotificationService:
         content: str,
         level: NotificationLevel = NotificationLevel.INFO,
         category: NotificationCategory = NotificationCategory.SYSTEM,
-        channels: Optional[List[NotificationChannel]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        channels: list[NotificationChannel] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """发送通知(便捷方法)
 
         Args:
@@ -214,8 +212,8 @@ class NotificationService:
         title: str,
         message: str,
         level: NotificationLevel = NotificationLevel.INFO,
-        channels: Optional[List[NotificationChannel]] = None,
-    ) -> Dict[str, Any]:
+        channels: list[NotificationChannel] | None = None,
+    ) -> dict[str, Any]:
         """发送系统通知
 
         Args:
@@ -239,10 +237,10 @@ class NotificationService:
         self,
         title: str,
         message: str,
-        task_id: Optional[str] = None,
+        task_id: str | None = None,
         level: NotificationLevel = NotificationLevel.INFO,
-        channels: Optional[List[NotificationChannel]] = None,
-    ) -> Dict[str, Any]:
+        channels: list[NotificationChannel] | None = None,
+    ) -> dict[str, Any]:
         """发送任务通知
 
         Args:
@@ -270,8 +268,8 @@ class NotificationService:
         title: str,
         message: str,
         level: NotificationLevel = NotificationLevel.WARNING,
-        channels: Optional[List[NotificationChannel]] = None,
-    ) -> Dict[str, Any]:
+        channels: list[NotificationChannel] | None = None,
+    ) -> dict[str, Any]:
         """发送告警通知
 
         Args:
@@ -295,9 +293,9 @@ class NotificationService:
         self,
         title: str,
         message: str,
-        trade_data: Optional[Dict[str, Any]] = None,
-        channels: Optional[List[NotificationChannel]] = None,
-    ) -> Dict[str, Any]:
+        trade_data: dict[str, Any] | None = None,
+        channels: list[NotificationChannel] | None = None,
+    ) -> dict[str, Any]:
         """发送交易通知
 
         Args:
@@ -319,8 +317,8 @@ class NotificationService:
         )
 
     async def test_channel(
-        self, channel_type: NotificationChannel, config: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, channel_type: NotificationChannel, config: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """测试通知渠道
 
         Args:
@@ -371,7 +369,7 @@ class NotificationService:
             logger.error(f"测试通知渠道失败: {e}")
             return {"success": False, "error": str(e)}
 
-    def get_enabled_channels(self) -> List[NotificationChannel]:
+    def get_enabled_channels(self) -> list[NotificationChannel]:
         """获取所有启用的通知渠道
 
         Returns:
@@ -380,7 +378,7 @@ class NotificationService:
         config = self._load_config()
         return config.get_enabled_channels()
 
-    def get_channel_status(self) -> Dict[str, Dict[str, Any]]:
+    def get_channel_status(self) -> dict[str, dict[str, Any]]:
         """获取所有渠道状态
 
         Returns:

@@ -18,9 +18,7 @@ _ai_model_dir = _backend_dir / "ai_model"
 _prompts_dir = _ai_model_dir / "prompts"
 
 # 加载 prompts.manager 模块
-spec = importlib.util.spec_from_file_location(
-    "prompts.manager", _prompts_dir / "manager.py"
-)
+spec = importlib.util.spec_from_file_location("prompts.manager", _prompts_dir / "manager.py")
 assert spec is not None and spec.loader is not None, "无法加载 prompts.manager 模块"
 manager_module = importlib.util.module_from_spec(spec)
 sys.modules["prompts.manager"] = manager_module
@@ -168,7 +166,7 @@ class TestPromptManagerVariableReplacement:
             result = manager.render(
                 PromptCategory.STRATEGY_GENERATION,
                 name="User",
-                strategy_name="MyStrategy"
+                strategy_name="MyStrategy",
             )
 
             assert "Hello User" in result
@@ -189,10 +187,7 @@ class TestPromptManagerVariableReplacement:
 
             manager = PromptManager(templates_dir=tmpdir_path)
 
-            result = manager.render(
-                PromptCategory.STRATEGY_GENERATION,
-                name="User"
-            )
+            result = manager.render(PromptCategory.STRATEGY_GENERATION, name="User")
 
             assert "Hello User" in result
             assert "{{unknown_var}}" in result
@@ -229,10 +224,7 @@ class TestPromptManagerVariableReplacement:
             manager = PromptManager(templates_dir=tmpdir_path)
 
             special_desc = "Line1\nLine2\tTabbed"
-            result = manager.render(
-                PromptCategory.STRATEGY_GENERATION,
-                description=special_desc
-            )
+            result = manager.render(PromptCategory.STRATEGY_GENERATION, description=special_desc)
 
             assert special_desc in result
 

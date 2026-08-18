@@ -1,18 +1,18 @@
 # 模型训练服务API数据模型
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 # 导入统一的ApiResponse模型
-from common.schemas import ApiResponse
 
 
 class ModelListRequest(BaseModel):
     """
     获取模型列表请求模型
     """
-    model_type: Optional[str] = Field(
+
+    model_type: str | None = Field(
         None,
         description="模型类型，可选",
         json_schema_extra={"example": "xgboost"},
@@ -36,17 +36,18 @@ class ModelParameters(BaseModel):
     """
     模型参数模型
     """
+
     model_type: str = Field(
         ...,
         description="模型类型",
         json_schema_extra={"example": "xgboost"},
     )
-    params: Dict[str, Any] = Field(
+    params: dict[str, Any] = Field(
         default_factory=dict,
         description="模型参数",
         json_schema_extra={"example": {"n_estimators": 100, "max_depth": 5}},
     )
-    name: Optional[str] = Field(
+    name: str | None = Field(
         None,
         description="模型名称，可选",
         json_schema_extra={"example": "my_model"},
@@ -57,12 +58,18 @@ class DatasetConfig(BaseModel):
     """
     数据集配置模型
     """
-    handler: Dict[str, Any] = Field(
+
+    handler: dict[str, Any] = Field(
         ...,
         description="数据处理配置",
-        json_schema_extra={"example": {"name": "csv_handler", "params": {"file_path": "/path/to/data.csv"}}},
+        json_schema_extra={
+            "example": {
+                "name": "csv_handler",
+                "params": {"file_path": "/path/to/data.csv"},
+            }
+        },
     )
-    segments: Dict[str, Any] = Field(
+    segments: dict[str, Any] = Field(
         ...,
         description="数据分段配置",
         json_schema_extra={"example": {"train": "train_data", "test": "test_data"}},
@@ -73,12 +80,13 @@ class TrainerConfig(BaseModel):
     """
     训练器配置模型
     """
+
     class_name: str = Field(
         ...,
         description="训练器类名",
         json_schema_extra={"example": "Trainer"},
     )
-    params: Dict[str, Any] = Field(
+    params: dict[str, Any] = Field(
         default_factory=dict,
         description="训练器参数",
         json_schema_extra={"example": {"epochs": 10, "batch_size": 32}},
@@ -89,30 +97,40 @@ class ModelTrainRequest(BaseModel):
     """
     模型训练请求模型
     """
+
     model_parameters: ModelParameters = Field(
         ...,
         description="模型配置",
-        json_schema_extra={"example": {
-            "model_type": "xgboost",
-            "params": {"n_estimators": 100, "max_depth": 5},
-            "name": "my_model"
-        }},
+        json_schema_extra={
+            "example": {
+                "model_type": "xgboost",
+                "params": {"n_estimators": 100, "max_depth": 5},
+                "name": "my_model",
+            }
+        },
     )
     dataset_config: DatasetConfig = Field(
         ...,
         description="数据集配置",
-        json_schema_extra={"example": {
-            "handler": {"name": "csv_handler", "params": {"file_path": "/path/to/data.csv"}},
-            "segments": {"train": "train_data", "test": "test_data"}
-        }},
+        json_schema_extra={
+            "example": {
+                "handler": {
+                    "name": "csv_handler",
+                    "params": {"file_path": "/path/to/data.csv"},
+                },
+                "segments": {"train": "train_data", "test": "test_data"},
+            }
+        },
     )
     trainer_config: TrainerConfig = Field(
         ...,
         description="训练器配置",
-        json_schema_extra={"example": {
-            "class_name": "Trainer",
-            "params": {"epochs": 10, "batch_size": 32}
-        }},
+        json_schema_extra={
+            "example": {
+                "class_name": "Trainer",
+                "params": {"epochs": 10, "batch_size": 32},
+            }
+        },
     )
 
 
@@ -120,6 +138,7 @@ class ModelEvaluateRequest(BaseModel):
     """
     模型评估请求模型
     """
+
     model_name: str = Field(
         ...,
         description="模型名称",
@@ -128,10 +147,15 @@ class ModelEvaluateRequest(BaseModel):
     dataset_config: DatasetConfig = Field(
         ...,
         description="数据集配置",
-        json_schema_extra={"example": {
-            "handler": {"name": "csv_handler", "params": {"file_path": "/path/to/test_data.csv"}},
-            "segments": {"test": "test_data"}
-        }},
+        json_schema_extra={
+            "example": {
+                "handler": {
+                    "name": "csv_handler",
+                    "params": {"file_path": "/path/to/test_data.csv"},
+                },
+                "segments": {"test": "test_data"},
+            }
+        },
     )
 
 
@@ -139,12 +163,13 @@ class ModelPredictRequest(BaseModel):
     """
     模型预测请求模型
     """
+
     model_name: str = Field(
         ...,
         description="模型名称",
         json_schema_extra={"example": "my_model"},
     )
-    data: Dict[str, Any] = Field(
+    data: dict[str, Any] = Field(
         ...,
         description="预测数据",
         json_schema_extra={"example": {"features": [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]}},
@@ -155,6 +180,7 @@ class ModelSaveRequest(BaseModel):
     """
     模型保存请求模型
     """
+
     model_name: str = Field(
         ...,
         description="模型名称",
@@ -171,6 +197,7 @@ class ModelLoadRequest(BaseModel):
     """
     模型加载请求模型
     """
+
     model_name: str = Field(
         ...,
         description="模型名称",
@@ -182,6 +209,7 @@ class ModelDeleteRequest(BaseModel):
     """
     模型删除请求模型
     """
+
     model_name: str = Field(
         ...,
         description="模型名称",
@@ -193,12 +221,13 @@ class ModelConfigRequest(BaseModel):
     """
     模型配置请求模型
     """
+
     model_type: str = Field(
         ...,
         description="模型类型",
         json_schema_extra={"example": "xgboost"},
     )
-    params: Dict[str, Any] = Field(
+    params: dict[str, Any] = Field(
         ...,
         description="模型参数",
         json_schema_extra={"example": {"n_estimators": 100, "max_depth": 5}},
@@ -209,7 +238,8 @@ class ModelListResponse(BaseModel):
     """
     模型列表响应模型
     """
-    models: List[str] = Field(
+
+    models: list[str] = Field(
         ...,
         description="模型类型列表",
         json_schema_extra={"example": ["xgboost", "catboost", "random_forest"]},
@@ -220,6 +250,7 @@ class ModelTrainResponse(BaseModel):
     """
     模型训练响应模型
     """
+
     model_name: str = Field(
         ...,
         description="模型名称",
@@ -235,7 +266,7 @@ class ModelTrainResponse(BaseModel):
         description="训练消息",
         json_schema_extra={"example": "模型训练成功"},
     )
-    train_time: Optional[str] = Field(
+    train_time: str | None = Field(
         None,
         description="训练时间，可选",
         json_schema_extra={"example": "2023-01-01 00:00:00"},
@@ -246,6 +277,7 @@ class ModelEvaluateResponse(BaseModel):
     """
     模型评估响应模型
     """
+
     model_name: str = Field(
         ...,
         description="模型名称",
@@ -256,7 +288,7 @@ class ModelEvaluateResponse(BaseModel):
         description="评估状态",
         json_schema_extra={"example": "completed"},
     )
-    metrics: Dict[str, float] = Field(
+    metrics: dict[str, float] = Field(
         ...,
         description="评估指标",
         json_schema_extra={"example": {"accuracy": 0.95, "precision": 0.92, "recall": 0.90}},
@@ -267,6 +299,7 @@ class ModelPredictResponse(BaseModel):
     """
     模型预测响应模型
     """
+
     model_name: str = Field(
         ...,
         description="模型名称",
@@ -277,12 +310,12 @@ class ModelPredictResponse(BaseModel):
         description="预测状态",
         json_schema_extra={"example": "completed"},
     )
-    predictions: List[float] = Field(
+    predictions: list[float] = Field(
         ...,
         description="预测结果",
         json_schema_extra={"example": [0.1, 0.9, 0.8, 0.2]},
     )
-    predict_time: Optional[str] = Field(
+    predict_time: str | None = Field(
         None,
         description="预测时间，可选",
         json_schema_extra={"example": "2023-01-01 00:00:00"},
@@ -293,17 +326,18 @@ class ModelConfig(BaseModel):
     """
     模型配置模型
     """
+
     model_type: str = Field(
         ...,
         description="模型类型",
         json_schema_extra={"example": "xgboost"},
     )
-    params: Dict[str, Any] = Field(
+    params: dict[str, Any] = Field(
         ...,
         description="模型参数",
         json_schema_extra={"example": {"n_estimators": 100, "max_depth": 5}},
     )
-    model_name: Optional[str] = Field(
+    model_name: str | None = Field(
         None,
         description="模型名称，可选",
         json_schema_extra={"example": "my_model"},

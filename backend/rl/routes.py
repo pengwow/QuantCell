@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """RL 模块 API 路由
 
 路由前缀: /api/rl
@@ -8,19 +7,19 @@ import asyncio
 import json
 import time
 from queue import Queue
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from utils.logger import get_logger, LogType
+
 from common.schemas import ApiResponse
+from utils.logger import LogType, get_logger
 
 from .service import RLService
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
-_rl_service: Optional[RLService] = None
+_rl_service: RLService | None = None
 
 
 def get_rl_service() -> RLService:
@@ -43,35 +42,35 @@ class RLTrainRequest(BaseModel):
     transaction_cost: float = Field(default=0.001, description="交易费率")
     interval: str = Field(default="1h", description="K线周期")
     lookback_days: int = Field(default=90, description="回看天数")
-    output_name: Optional[str] = Field(default=None, description="模型名称")
-    
+    output_name: str | None = Field(default=None, description="模型名称")
+
     # 前端兼容字段（data_source 格式: BTCUSDT_1h）
-    data_source: Optional[str] = Field(default=None, description="数据源格式：symbol_interval")
-    total_timesteps: Optional[int] = Field(default=None, description="训练步数（前端兼容）")
-    reward_type: Optional[str] = Field(default=None, description="奖励函数（前端兼容）")
-    
+    data_source: str | None = Field(default=None, description="数据源格式：symbol_interval")
+    total_timesteps: int | None = Field(default=None, description="训练步数（前端兼容）")
+    reward_type: str | None = Field(default=None, description="奖励函数（前端兼容）")
+
     def to_rl_config(self):
         """转换为 RLTrainConfig，处理前端兼容字段"""
         from .models import RLTrainConfig
-        
+
         # 处理 data_source 拆分
         symbol = self.symbol
         interval = self.interval
         if self.data_source and not self.symbol:
-            parts = self.data_source.split('_')
+            parts = self.data_source.split("_")
             if len(parts) >= 2:
                 symbol = parts[0]
-                interval = '_'.join(parts[1:])
-        
+                interval = "_".join(parts[1:])
+
         # 处理兼容字段优先级
         timesteps = self.timesteps
         if self.total_timesteps is not None:
             timesteps = self.total_timesteps
-        
+
         reward = self.reward
         if self.reward_type:
             reward = self.reward_type
-        
+
         return RLTrainConfig(
             symbol=symbol,
             algorithm=self.algorithm,
@@ -103,7 +102,7 @@ async def train_model_stream(req: RLTrainRequest):
     """流式训练 RL 模型（SSE 实时进度推送）
 
     返回 Server-Sent Events 格式的流式响应，实时推送训练进度：
-    
+
     事件类型:
     - start: 训练开始
     - info: 信息（如数据加载完成）
@@ -119,26 +118,30 @@ async def train_model_stream(req: RLTrainRequest):
         try:
             # 在后台线程中运行训练
             import threading
-            
+
             def run_training():
                 try:
                     result = get_rl_service().train_stream(config, progress_queue)
                     # 训练完成后推送结果
                     try:
-                        progress_queue.put({
-                            "type": "complete",
-                            "result": result,
-                            "timestamp": time.time(),
-                        })
+                        progress_queue.put(
+                            {
+                                "type": "complete",
+                                "result": result,
+                                "timestamp": time.time(),
+                            }
+                        )
                     except Exception:
-                        logger.error(f"推送训练完成结果失败，队列已满或出错")
+                        logger.error("推送训练完成结果失败，队列已满或出错")
                 except Exception as e:
                     try:
-                        progress_queue.put({
-                            "type": "error",
-                            "error": str(e),
-                            "timestamp": time.time(),
-                        })
+                        progress_queue.put(
+                            {
+                                "type": "error",
+                                "error": str(e),
+                                "timestamp": time.time(),
+                            }
+                        )
                     except Exception:
                         logger.error(f"训练失败且无法发送错误消息: {e}")
 
@@ -151,26 +154,29 @@ async def train_model_stream(req: RLTrainRequest):
                 try:
                     # 非阻塞读取，避免线程阻塞
                     progress = progress_queue.get(timeout=1)
-                    
+
                     event_type = progress.get("type", "progress")
                     event_data = json.dumps(progress, ensure_ascii=False)
-                    
+
                     yield f"event: {event_type}\ndata: {event_data}\n\n"
-                    
+
                     if event_type in ("complete", "error"):
                         break
-                    
+
                     await asyncio.sleep(0)  # 让出控制权
                 except Exception:
                     await asyncio.sleep(0.5)
                     continue
 
         except Exception as e:
-            error_data = json.dumps({
-                "type": "error",
-                "error": str(e),
-                "timestamp": time.time(),
-            }, ensure_ascii=False)
+            error_data = json.dumps(
+                {
+                    "type": "error",
+                    "error": str(e),
+                    "timestamp": time.time(),
+                },
+                ensure_ascii=False,
+            )
             yield f"event: error\ndata: {error_data}\n\n"
 
     return StreamingResponse(

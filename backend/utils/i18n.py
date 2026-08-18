@@ -1,14 +1,11 @@
-# -*- coding: utf-8 -*-
 """
 国际化工具模块
 
 提供多语言支持功能
 """
 
-from typing import Dict, Any
 
-
-def get_translation_dict() -> Dict[str, Dict[str, str]]:
+def get_translation_dict() -> dict[str, dict[str, str]]:
     """获取翻译字典，直接返回硬编码的翻译内容，避免文件加载问题
 
     Returns:

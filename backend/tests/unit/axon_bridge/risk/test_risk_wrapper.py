@@ -7,18 +7,19 @@
 4. CircuitBreaker 的 check_and_trigger / reset / is_active 行为正确
 5. AxonQuantError 错误映射可处理 RiskError
 """
+
 from __future__ import annotations
 
 import pytest
 
 # axon_quant 不可用时跳过整个模块
 try:
-    import axon_quant  # noqa: F401
+    import axon_quant
 except ImportError:
     pytest.skip("axon_quant 未安装,跳过 risk 适配层测试", allow_module_level=True)
 
 
-from axon_bridge.risk import (  # noqa: E402
+from axon_bridge.risk import (
     CircuitBreaker,
     DefaultRiskEngine,
     RiskConfig,
@@ -33,7 +34,6 @@ from axon_bridge.risk import (  # noqa: E402
     make_risk_config,
 )
 
-
 # =============================================================================
 # 1. 符号重导出完整性
 # =============================================================================
@@ -43,13 +43,25 @@ class TestRiskReexports:
     """确保适配层把 axon_quant.risk 的所有公共符号都暴露出来了。"""
 
     def test_core_classes_importable(self):
-        for cls in (CircuitBreaker, DefaultRiskEngine, RiskConfig,
-                    RiskError, RiskMetrics, RiskReason, RiskResult):
+        for cls in (
+            CircuitBreaker,
+            DefaultRiskEngine,
+            RiskConfig,
+            RiskError,
+            RiskMetrics,
+            RiskReason,
+            RiskResult,
+        ):
             assert cls is not None
 
     def test_factory_functions_importable(self):
-        for fn in (make_circuit_breaker, make_order, make_portfolio,
-                   make_portfolio_with_positions, make_risk_config):
+        for fn in (
+            make_circuit_breaker,
+            make_order,
+            make_portfolio,
+            make_portfolio_with_positions,
+            make_risk_config,
+        ):
             assert callable(fn)
 
 
@@ -101,8 +113,12 @@ class TestDefaultRiskEngine:
         """无论规则是否触发,check_order 必须返回 RiskResult 实例(接口契约)。"""
         engine = self._build_engine()
         order = make_order(
-            id=1, symbol="BTCUSDT", side="buy", type="market",
-            quantity=0.001, price=100.0,
+            id=1,
+            symbol="BTCUSDT",
+            side="buy",
+            type="market",
+            quantity=0.001,
+            price=100.0,
         )
         result = engine.check_order(order, self._empty_portfolio())
         assert isinstance(result, RiskResult)
@@ -115,8 +131,12 @@ class TestDefaultRiskEngine:
         """小单应至少返回 is_allow=True(若 Rust 0.4.0 实现是 no-op,则断言 is_reject=False 即可)。"""
         engine = self._build_engine()
         order = make_order(
-            id=1, symbol="BTCUSDT", side="buy", type="market",
-            quantity=0.001, price=100.0,
+            id=1,
+            symbol="BTCUSDT",
+            side="buy",
+            type="market",
+            quantity=0.001,
+            price=100.0,
         )
         result = engine.check_order(order, self._empty_portfolio())
         assert result.is_allow is True
@@ -126,8 +146,12 @@ class TestDefaultRiskEngine:
         """带持仓的 portfolio 不能让引擎崩溃。"""
         engine = self._build_engine()
         order = make_order(
-            id=1, symbol="BTCUSDT", side="buy", type="market",
-            quantity=0.1, price=100.0,
+            id=1,
+            symbol="BTCUSDT",
+            side="buy",
+            type="market",
+            quantity=0.1,
+            price=100.0,
         )
         portfolio = make_portfolio_with_positions(
             base_currency="USD",
@@ -220,7 +244,8 @@ class TestErrorMapping:
         from axon_bridge._errors import AxonQuantError, map_error
 
         try:
-            raise RiskError("synthetic risk failure")
+            msg = "synthetic risk failure"
+            raise RiskError(msg)
         except RiskError as e:
             mapped = map_error(e)
             assert isinstance(mapped, AxonQuantError)

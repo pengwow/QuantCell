@@ -1,33 +1,34 @@
 """Binance 历史归档枚举与 URL 拼装工具。"""
+
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 
 # —— 7 种归档数据种类 ——
-class ArchiveKind(str, Enum):
-    AGG_TRADES = 'aggTrades'
-    TRADES = 'trades'
-    BOOK_DEPTH = 'bookDepth'
-    BOOK_TICKER = 'bookTicker'
-    MARK_KLINES = 'markPriceKlines'
-    INDEX_KLINES = 'indexPriceKlines'
-    PREMIUM_KLINES = 'premiumIndexKlines'
+class ArchiveKind(StrEnum):
+    AGG_TRADES = "aggTrades"
+    TRADES = "trades"
+    BOOK_DEPTH = "bookDepth"
+    BOOK_TICKER = "bookTicker"
+    MARK_KLINES = "markPriceKlines"
+    INDEX_KLINES = "indexPriceKlines"
+    PREMIUM_KLINES = "premiumIndexKlines"
 
 
 # —— 3 个市场 ——
-class MarketType(str, Enum):
-    SPOT = 'spot'
-    FUTURES_UM = 'um'
-    FUTURES_CM = 'cm'
+class MarketType(StrEnum):
+    SPOT = "spot"
+    FUTURES_UM = "um"
+    FUTURES_CM = "cm"
 
 
 # —— 市场到 Binance URL 路径前缀 ——
 _MARKET_URL_PREFIX: dict[MarketType, str] = {
-    MarketType.SPOT: 'data/spot',
-    MarketType.FUTURES_UM: 'data/futures/um',
-    MarketType.FUTURES_CM: 'data/futures/cm',
+    MarketType.SPOT: "data/spot",
+    MarketType.FUTURES_UM: "data/futures/um",
+    MarketType.FUTURES_CM: "data/futures/cm",
 }
 
 
@@ -37,9 +38,9 @@ KIND_INTERVALS: dict[ArchiveKind, list[str] | None] = {
     ArchiveKind.TRADES: None,
     ArchiveKind.BOOK_DEPTH: None,
     ArchiveKind.BOOK_TICKER: None,
-    ArchiveKind.MARK_KLINES: ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '1d'],
-    ArchiveKind.INDEX_KLINES: ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '1d'],
-    ArchiveKind.PREMIUM_KLINES: ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '1d'],
+    ArchiveKind.MARK_KLINES: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "1d"],
+    ArchiveKind.INDEX_KLINES: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "1d"],
+    ArchiveKind.PREMIUM_KLINES: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "1d"],
 }
 
 
@@ -59,9 +60,9 @@ def build_zip_url(
         'https://data.binance.vision/data/futures/um/daily/markPriceKlines/BTCUSDT/1h/BTCUSDT-markPriceKlines-1h-2024-12-01.zip'
     """
     prefix = _MARKET_URL_PREFIX[market]
-    interval_segment = f'{interval}/' if interval else ''
-    file_stem = f'{symbol}-{kind.value}-{interval + "-" if interval else ""}{date_str}.zip'
-    return f'https://data.binance.vision/{prefix}/daily/{kind.value}/{symbol}/{interval_segment}{file_stem}'
+    interval_segment = f"{interval}/" if interval else ""
+    file_stem = f"{symbol}-{kind.value}-{interval + '-' if interval else ''}{date_str}.zip"
+    return f"https://data.binance.vision/{prefix}/daily/{kind.value}/{symbol}/{interval_segment}{file_stem}"
 
 
 def get_save_dir(

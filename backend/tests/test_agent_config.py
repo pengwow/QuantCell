@@ -10,8 +10,8 @@ Agent 工具参数管理系统 - 单元测试和集成测试
 """
 
 import os
+
 import pytest
-from datetime import datetime
 
 
 class TestToolParamResolver:
@@ -20,42 +20,42 @@ class TestToolParamResolver:
     def test_resolve_from_database(self):
         """测试从数据库解析参数"""
         from agent.config.tool_params import ToolParamResolver
-        
+
         # 延迟导入避免循环依赖
         from collector.db.database import SessionLocal, init_database_config
         from collector.db.models import SystemConfig
-        
+
         test_key = "agent.tools.web_search.api_key"
         original_value = None
-        
+
         try:
             # 初始化数据库
             init_database_config()
             db = SessionLocal()
-            
+
             # 保存原始值
             original = db.query(SystemConfig).filter_by(key=test_key).first()
             original_value = original.value if original else None
-            
+
             # 设置测试值
             config = SystemConfig(
                 key=test_key,
                 value="db_test_key_12345",
                 plugin="agent",
                 name="web_search",
-                is_sensitive=True
+                is_sensitive=True,
             )
-            
+
             if original:
                 original.value = "db_test_key_12345"
             else:
                 db.add(config)
             db.commit()
-            
+
             # 测试解析
             value = ToolParamResolver.resolve("web_search", "api_key")
             assert value == "db_test_key_12345", f"期望 db_test_key_12345, 得到 {value}"
-            
+
         finally:
             # 恢复原始值
             try:
@@ -100,8 +100,10 @@ class TestToolParamResolver:
                     orig = db.query(SystemConfig).filter_by(key=test_key).first()
                     if not orig:
                         config = SystemConfig(
-                            key=test_key, value=original_value,
-                            plugin="agent", name="web_search"
+                            key=test_key,
+                            value=original_value,
+                            plugin="agent",
+                            name="web_search",
                         )
                         db.add(config)
                     else:
@@ -115,7 +117,7 @@ class TestToolParamResolver:
     def test_type_conversion_integer(self):
         """测试整数类型转换"""
         from agent.config.tool_params import ToolParamResolver
-        
+
         # max_results 默认是整数类型
         value = ToolParamResolver.resolve("web_search", "max_results")
         assert isinstance(value, int), f"期望 int 类型, 得到 {type(value)}"
@@ -146,15 +148,15 @@ class TestToolParamManager:
         from collector.db.models import SystemConfig
 
         test_key = "agent.tools.web_search.max_results"
-        
+
         try:
             init_database_config()
             db = SessionLocal()
-            
+
             # 保存原始值
             original = db.query(SystemConfig).filter_by(key=test_key).first()
             original_value = original.value if original else None
-            
+
             # 设置参数
             success = ToolParamManager.set_tool_param("web_search", "max_results", "10")
             assert success is True, "设置参数应该成功"
@@ -164,7 +166,7 @@ class TestToolParamManager:
             assert "max_results" in params, "参数 max_results 应该存在"
             assert params["max_results"]["configured"] is True, "参数应该标记为已配置"
             assert params["max_results"]["source"] == "database", "来源应该是 database"
-            
+
         finally:
             # 恢复原始值
             try:
@@ -189,15 +191,15 @@ class TestToolParamManager:
 
         test_key = "agent.tools.web_search.api_key"
         secret_value = "test_sensitive_masking_key"
-        
+
         try:
             init_database_config()
             db = SessionLocal()
-            
+
             # 保存原始值
             original = db.query(SystemConfig).filter_by(key=test_key).first()
             original_value = original.value if original else None
-            
+
             # 设置敏感参数
             ToolParamManager.set_tool_param("web_search", "api_key", secret_value)
 
@@ -209,7 +211,7 @@ class TestToolParamManager:
             # 包含敏感值
             params = ToolParamManager.get_tool_params("web_search", include_sensitive=True)
             assert params["api_key"]["value"] == secret_value, "应该返回真实敏感值"
-            
+
         finally:
             # 恢复原始值
             try:
@@ -234,47 +236,45 @@ class TestToolParamManager:
 
         key1 = "agent.tools.web_search.max_results"
         key2 = "agent.tools.web_fetch.max_chars"
-        
+
         try:
             init_database_config()
             db = SessionLocal()
-            
+
             # 保存原始值
             orig1 = db.query(SystemConfig).filter_by(key=key1).first()
             orig2 = db.query(SystemConfig).filter_by(key=key2).first()
             orig_val1 = orig1.value if orig1 else None
             orig_val2 = orig2.value if orig2 else None
-            
-            result = ToolParamManager.batch_update(
-                "web_search",
-                {"max_results": "8"},
-                overwrite=True
-            )
-            
+
+            result = ToolParamManager.batch_update("web_search", {"max_results": "8"}, overwrite=True)
+
             # 注意：batch_update 只能更新同一工具的参数
             # 所以我们只测试 web_search 的 max_results
             assert len(result["updated"]) >= 1, f"至少更新1个参数, 实际更新 {len(result['updated'])}个"
             assert len(result["errors"]) == 0, f"不应该有错误, 得到: {result['errors']}"
-            
+
             # 验证值是否正确保存
             params = ToolParamManager.get_tool_params("web_search")
             assert params["max_results"]["configured"] is True
-            
+
         finally:
             # 恢复原始值
             try:
                 if orig_val1 is not None:
                     o1 = db.query(SystemConfig).filter_by(key=key1).first()
-                    if o1: o1.value = orig_val1
+                    if o1:
+                        o1.value = orig_val1
                 else:
                     db.query(SystemConfig).filter_by(key=key1).delete()
-                    
+
                 if orig_val2 is not None:
                     o2 = db.query(SystemConfig).filter_by(key=key2).first()
-                    if o2: o2.value = orig_val2
+                    if o2:
+                        o2.value = orig_val2
                 else:
                     db.query(SystemConfig).filter_by(key=key2).delete()
-                    
+
                 db.commit()
             except:
                 pass
@@ -285,14 +285,11 @@ class TestToolParamManager:
         """测试删除参数后回退到默认值/环境变量"""
         from agent.config.manager import ToolParamManager
         from collector.db.database import SessionLocal, init_database_config
-        from collector.db.models import SystemConfig
 
-        test_key = "agent.tools.web_search.proxy"
-        
         try:
             init_database_config()
-            db = SessionLocal()
-            
+            SessionLocal()
+
             # 设置参数
             ToolParamManager.set_tool_param("web_search", "proxy", "http://test.proxy")
 
@@ -307,7 +304,7 @@ class TestToolParamManager:
             # 验证已删除（回退到默认值）
             params = ToolParamManager.get_tool_params("web_search")
             assert params["proxy"]["configured"] is False, "删除后不应标记为已配置"
-            
+
         finally:
             pass
 
@@ -318,15 +315,15 @@ class TestToolParamManager:
         from collector.db.models import SystemConfig
 
         test_key = "agent.tools.web_search.max_results"
-        
+
         try:
             init_database_config()
             db = SessionLocal()
-            
+
             # 保存原始值
             original = db.query(SystemConfig).filter_by(key=test_key).first()
             original_value = original.value if original else None
-            
+
             # 设置一些配置（使用有效范围内的值）
             ToolParamManager.set_tool_param("web_search", "max_results", "8")
 
@@ -369,20 +366,20 @@ class TestIntegration:
         try:
             init_database_config()
             db = SessionLocal()
-            
+
             # 保存原始值
             original = db.query(SystemConfig).filter_by(key=test_key).first()
             original_value = original.value if original else None
-            
+
             # 在数据库中设置API key
             config = SystemConfig(
                 key=test_key,
                 value=test_api_key,
                 plugin="agent",
                 name="web_search",
-                is_sensitive=True
+                is_sensitive=True,
             )
-            
+
             if original:
                 original.value = test_api_key
             else:
@@ -392,8 +389,7 @@ class TestIntegration:
             tool = WebSearchTool()
 
             assert tool.api_key == test_api_key, (
-                f"工具应该从数据库获取api_key, "
-                f"期望 {test_api_key}, 得到 {tool.api_key}"
+                f"工具应该从数据库获取api_key, 期望 {test_api_key}, 得到 {tool.api_key}"
             )
 
         finally:
@@ -417,13 +413,10 @@ class TestIntegration:
         from agent.tools.web import WebSearchTool
 
         manual_key = "manual_override_key"
-        
+
         tool = WebSearchTool(api_key=manual_key)
 
-        assert tool.api_key == manual_key, (
-            f"手动设置的api_key优先级应该更高, "
-            f"期望 {manual_key}, 得到 {tool.api_key}"
-        )
+        assert tool.api_key == manual_key, f"手动设置的api_key优先级应该更高, 期望 {manual_key}, 得到 {tool.api_key}"
 
     def test_fallback_to_environment_variable(self):
         """测试回退到环境变量"""
@@ -453,10 +446,7 @@ class TestIntegration:
 
             tool = WebSearchTool()
 
-            assert tool.api_key == env_value, (
-                f"应该从环境变量获取api_key, "
-                f"期望 {env_value}, 得到 {tool.api_key}"
-            )
+            assert tool.api_key == env_value, f"应该从环境变量获取api_key, 期望 {env_value}, 得到 {tool.api_key}"
 
         finally:
             try:
@@ -464,8 +454,10 @@ class TestIntegration:
                     orig = db.query(SystemConfig).filter_by(key=test_key).first()
                     if not orig:
                         config = SystemConfig(
-                            key=test_key, value=original_db_value,
-                            plugin="agent", name="web_search"
+                            key=test_key,
+                            value=original_db_value,
+                            plugin="agent",
+                            name="web_search",
                         )
                         db.add(config)
                         db.commit()
@@ -514,15 +506,15 @@ class TestEdgeCases:
         from collector.db.models import SystemConfig
 
         test_key = "agent.tools.web_search.proxy"
-        
+
         try:
             init_database_config()
             db = SessionLocal()
-            
+
             # 保存原始值
             original = db.query(SystemConfig).filter_by(key=test_key).first()
             original_value = original.value if original else None
-            
+
             success = ToolParamManager.set_tool_param("web_search", "proxy", "")
             assert success is True, "设置空字符串应该成功"
 
@@ -553,15 +545,15 @@ class TestEdgeCases:
 
         test_key = "agent.tools.web_search.proxy"
         special_value = 'value with "quotes" and <tags> & ampersands'
-        
+
         try:
             init_database_config()
             db = SessionLocal()
-            
+
             # 保存原始值
             original = db.query(SystemConfig).filter_by(key=test_key).first()
             original_value = original.value if original else None
-            
+
             success = ToolParamManager.set_tool_param("web_search", "proxy", special_value)
             assert success is True
 

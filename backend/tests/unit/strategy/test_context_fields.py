@@ -1,7 +1,5 @@
 """StrategyContext 新增字段测试。"""
-import math
 
-import pytest
 from strategy.base import StrategyContext
 
 
@@ -58,9 +56,7 @@ def test_settle_funding_basic_long_position_pays():
     settle_funding 已改为 no-op, 无论参数如何都返回 0.0, funding_cash 不变。
     """
     ctx = StrategyContext(symbol="BTCUSDT")
-    delta = ctx.settle_funding(
-        funding_rate=0.0003, funding_time=1000, position_notional=50000.0
-    )
+    delta = ctx.settle_funding(funding_rate=0.0003, funding_time=1000, position_notional=50000.0)
     assert delta == 0.0
     assert ctx.funding_cash == 0.0
     assert ctx.last_funding_rate == 0.0
@@ -72,9 +68,7 @@ def test_settle_funding_basic_short_position_receives():
     no-op 行为: 无论 long/short 持仓, settle_funding 都返回 0.0, funding_cash 不变。
     """
     ctx = StrategyContext(symbol="BTCUSDT")
-    delta = ctx.settle_funding(
-        funding_rate=0.0003, funding_time=1000, position_notional=-50000.0
-    )
+    delta = ctx.settle_funding(funding_rate=0.0003, funding_time=1000, position_notional=-50000.0)
     assert delta == 0.0
     assert ctx.funding_cash == 0.0
 
@@ -96,21 +90,16 @@ def test_settle_funding_skips_nan():
     NaN 防御已下沉到 axon_quant 引擎 (RunResult.total_funding_pnl 在引擎层有 sanity check)。
     """
     ctx = StrategyContext(symbol="BTCUSDT")
-    delta = ctx.settle_funding(
-        funding_rate=float("nan"), funding_time=1000, position_notional=50000.0
-    )
+    delta = ctx.settle_funding(funding_rate=float("nan"), funding_time=1000, position_notional=50000.0)
     assert delta == 0.0
     assert ctx.funding_cash == 0.0
     assert ctx.last_funding_time == 0  # 未更新
 
 
 def test_settle_funding_skips_when_disabled():
-    """no-op 行为: funding_cash_settlement_enabled=False 时(且默认也是 False)也返回 0.0。
-    """
+    """no-op 行为: funding_cash_settlement_enabled=False 时(且默认也是 False)也返回 0.0。"""
     ctx = StrategyContext(symbol="BTCUSDT", funding_cash_settlement_enabled=False)
-    delta = ctx.settle_funding(
-        funding_rate=0.0003, funding_time=1000, position_notional=50000.0
-    )
+    delta = ctx.settle_funding(funding_rate=0.0003, funding_time=1000, position_notional=50000.0)
     assert delta == 0.0
     assert ctx.funding_cash == 0.0
 

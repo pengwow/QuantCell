@@ -1,25 +1,23 @@
-# -*- coding: utf-8 -*-
 """
 Trading Worker 简化单元测试
 
 测试 Trading Worker 相关组件的单元功能，不依赖 zmq 和 binance 模块
 """
 
-import pytest
-import sys
 import os
-from datetime import datetime
-from decimal import Decimal
-from unittest.mock import Mock, MagicMock, patch
-from typing import Dict, Any
+import sys
+from unittest.mock import Mock
+
+import pytest
 
 # 添加项目路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../.."))
 
 
 # =============================================================================
 # 配置构建测试
 # =============================================================================
+
 
 class TestTradingConfig:
     """TradingNode 配置构建测试"""
@@ -28,21 +26,22 @@ class TestTradingConfig:
         """测试 Binance 测试网配置构建"""
         # 直接导入 config 模块，避免完整的 worker 包导入
         import importlib.util
-        config_path = os.path.join(os.path.dirname(__file__), '../../../worker/config.py')
+
+        config_path = os.path.join(os.path.dirname(__file__), "../../../worker/config.py")
         spec = importlib.util.spec_from_file_location("worker_config", config_path)
         config_module = importlib.util.module_from_spec(spec)
-        
+
         # Mock axon_quant 导入
-        sys.modules['axon_quant'] = Mock()
-        sys.modules['axon_quant.config'] = Mock()
-        sys.modules['axon_quant.live'] = Mock()
-        sys.modules['axon_quant.live.config'] = Mock()
-        sys.modules['axon_quant.common'] = Mock()
-        sys.modules['axon_quant.model'] = Mock()
-        sys.modules['axon_quant.model.identifiers'] = Mock()
-        
+        sys.modules["axon_quant"] = Mock()
+        sys.modules["axon_quant.config"] = Mock()
+        sys.modules["axon_quant.live"] = Mock()
+        sys.modules["axon_quant.live.config"] = Mock()
+        sys.modules["axon_quant.common"] = Mock()
+        sys.modules["axon_quant.model"] = Mock()
+        sys.modules["axon_quant.model.identifiers"] = Mock()
+
         spec.loader.exec_module(config_module)
-        
+
         result = config_module.build_binance_config(
             api_key="test_api_key",
             api_secret="test_api_secret",
@@ -60,21 +59,22 @@ class TestTradingConfig:
     def test_build_binance_config_live(self):
         """测试 Binance 生产环境配置构建"""
         import importlib.util
-        config_path = os.path.join(os.path.dirname(__file__), '../../../worker/config.py')
+
+        config_path = os.path.join(os.path.dirname(__file__), "../../../worker/config.py")
         spec = importlib.util.spec_from_file_location("worker_config", config_path)
         config_module = importlib.util.module_from_spec(spec)
-        
+
         # Mock axon_quant 导入
-        sys.modules['axon_quant'] = Mock()
-        sys.modules['axon_quant.config'] = Mock()
-        sys.modules['axon_quant.live'] = Mock()
-        sys.modules['axon_quant.live.config'] = Mock()
-        sys.modules['axon_quant.common'] = Mock()
-        sys.modules['axon_quant.model'] = Mock()
-        sys.modules['axon_quant.model.identifiers'] = Mock()
-        
+        sys.modules["axon_quant"] = Mock()
+        sys.modules["axon_quant.config"] = Mock()
+        sys.modules["axon_quant.live"] = Mock()
+        sys.modules["axon_quant.live.config"] = Mock()
+        sys.modules["axon_quant.common"] = Mock()
+        sys.modules["axon_quant.model"] = Mock()
+        sys.modules["axon_quant.model.identifiers"] = Mock()
+
         spec.loader.exec_module(config_module)
-        
+
         result = config_module.build_binance_config(
             api_key="live_api_key",
             api_secret="live_api_secret",
@@ -87,21 +87,22 @@ class TestTradingConfig:
     def test_build_binance_live_config(self):
         """测试 Binance 生产环境便捷配置"""
         import importlib.util
-        config_path = os.path.join(os.path.dirname(__file__), '../../../worker/config.py')
+
+        config_path = os.path.join(os.path.dirname(__file__), "../../../worker/config.py")
         spec = importlib.util.spec_from_file_location("worker_config", config_path)
         config_module = importlib.util.module_from_spec(spec)
-        
+
         # Mock axon_quant 导入
-        sys.modules['axon_quant'] = Mock()
-        sys.modules['axon_quant.config'] = Mock()
-        sys.modules['axon_quant.live'] = Mock()
-        sys.modules['axon_quant.live.config'] = Mock()
-        sys.modules['axon_quant.common'] = Mock()
-        sys.modules['axon_quant.model'] = Mock()
-        sys.modules['axon_quant.model.identifiers'] = Mock()
-        
+        sys.modules["axon_quant"] = Mock()
+        sys.modules["axon_quant.config"] = Mock()
+        sys.modules["axon_quant.live"] = Mock()
+        sys.modules["axon_quant.live.config"] = Mock()
+        sys.modules["axon_quant.common"] = Mock()
+        sys.modules["axon_quant.model"] = Mock()
+        sys.modules["axon_quant.model.identifiers"] = Mock()
+
         spec.loader.exec_module(config_module)
-        
+
         result = config_module.build_binance_live_config(
             api_key="live_api_key",
             api_secret="live_api_secret",
@@ -117,33 +118,35 @@ class TestTradingConfig:
 # Worker 状态测试
 # =============================================================================
 
+
 class TestWorkerState:
     """Worker 状态测试"""
 
     def test_worker_state_transitions(self):
         """测试 Worker 状态转换"""
         import importlib.util
-        state_path = os.path.join(os.path.dirname(__file__), '../../../worker/worker_state.py')
+
+        state_path = os.path.join(os.path.dirname(__file__), "../../../worker/worker_state.py")
         spec = importlib.util.spec_from_file_location("worker.worker_state", state_path)
         state_module = importlib.util.module_from_spec(spec)
         state_module.__package__ = "worker"
-        
+
         # Mock 依赖
-        sys.modules['sqlalchemy'] = Mock()
-        sys.modules['sqlalchemy.orm'] = Mock()
-        sys.modules['collector'] = Mock()
-        sys.modules['collector.db'] = Mock()
-        sys.modules['collector.db.database'] = Mock()
-        sys.modules['utils'] = Mock()
-        sys.modules['utils.logger'] = Mock()
-        sys.modules['worker'] = Mock()
-        sys.modules['worker.crud'] = Mock()
-        
+        sys.modules["sqlalchemy"] = Mock()
+        sys.modules["sqlalchemy.orm"] = Mock()
+        sys.modules["collector"] = Mock()
+        sys.modules["collector.db"] = Mock()
+        sys.modules["collector.db.database"] = Mock()
+        sys.modules["utils"] = Mock()
+        sys.modules["utils.logger"] = Mock()
+        sys.modules["worker"] = Mock()
+        sys.modules["worker.crud"] = Mock()
+
         spec.loader.exec_module(state_module)
-        
+
         WorkerState = state_module.WorkerState
         WorkerStatus = state_module.WorkerStatus
-        
+
         status = WorkerStatus(worker_id="test-worker")
 
         # 初始状态是 INITIALIZING
@@ -175,26 +178,27 @@ class TestWorkerState:
     def test_worker_error_handling(self):
         """测试 Worker 错误处理"""
         import importlib.util
-        state_path = os.path.join(os.path.dirname(__file__), '../../../worker/worker_state.py')
+
+        state_path = os.path.join(os.path.dirname(__file__), "../../../worker/worker_state.py")
         spec = importlib.util.spec_from_file_location("worker.worker_state", state_path)
         state_module = importlib.util.module_from_spec(spec)
         state_module.__package__ = "worker"
-        
+
         # Mock 依赖
-        sys.modules['sqlalchemy'] = Mock()
-        sys.modules['sqlalchemy.orm'] = Mock()
-        sys.modules['collector'] = Mock()
-        sys.modules['collector.db'] = Mock()
-        sys.modules['collector.db.database'] = Mock()
-        sys.modules['utils'] = Mock()
-        sys.modules['utils.logger'] = Mock()
-        sys.modules['worker'] = Mock()
-        sys.modules['worker.crud'] = Mock()
-        
+        sys.modules["sqlalchemy"] = Mock()
+        sys.modules["sqlalchemy.orm"] = Mock()
+        sys.modules["collector"] = Mock()
+        sys.modules["collector.db"] = Mock()
+        sys.modules["collector.db.database"] = Mock()
+        sys.modules["utils"] = Mock()
+        sys.modules["utils.logger"] = Mock()
+        sys.modules["worker"] = Mock()
+        sys.modules["worker.crud"] = Mock()
+
         spec.loader.exec_module(state_module)
-        
+
         WorkerStatus = state_module.WorkerStatus
-        
+
         status = WorkerStatus(worker_id="test-worker")
 
         # 记录错误
@@ -211,27 +215,28 @@ class TestWorkerState:
     def test_worker_heartbeat(self):
         """测试 Worker 心跳"""
         import importlib.util
-        state_path = os.path.join(os.path.dirname(__file__), '../../../worker/worker_state.py')
+
+        state_path = os.path.join(os.path.dirname(__file__), "../../../worker/worker_state.py")
         spec = importlib.util.spec_from_file_location("worker.worker_state", state_path)
         state_module = importlib.util.module_from_spec(spec)
         state_module.__package__ = "worker"
-        
+
         # Mock 依赖
-        sys.modules['sqlalchemy'] = Mock()
-        sys.modules['sqlalchemy.orm'] = Mock()
-        sys.modules['collector'] = Mock()
-        sys.modules['collector.db'] = Mock()
-        sys.modules['collector.db.database'] = Mock()
-        sys.modules['utils'] = Mock()
-        sys.modules['utils.logger'] = Mock()
-        sys.modules['worker'] = Mock()
-        sys.modules['worker.crud'] = Mock()
-        
+        sys.modules["sqlalchemy"] = Mock()
+        sys.modules["sqlalchemy.orm"] = Mock()
+        sys.modules["collector"] = Mock()
+        sys.modules["collector.db"] = Mock()
+        sys.modules["collector.db.database"] = Mock()
+        sys.modules["utils"] = Mock()
+        sys.modules["utils.logger"] = Mock()
+        sys.modules["worker"] = Mock()
+        sys.modules["worker.crud"] = Mock()
+
         spec.loader.exec_module(state_module)
-        
+
         WorkerStatus = state_module.WorkerStatus
         WorkerState = state_module.WorkerState
-        
+
         status = WorkerStatus(worker_id="test-worker")
 
         # 先转换到 RUNNING 状态（is_healthy 要求 RUNNING 或 PAUSED 状态）

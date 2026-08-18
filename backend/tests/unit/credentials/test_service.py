@@ -1,9 +1,10 @@
 """CredentialsService 测试。"""
+
 import pytest
 
-from credentials.service import CredentialsService
 from credentials.account import Account
 from credentials.exceptions import AccountNotFoundError
+from credentials.service import CredentialsService
 
 
 @pytest.fixture

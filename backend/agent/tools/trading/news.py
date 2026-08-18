@@ -13,9 +13,23 @@ class GetNewsTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "搜索关键词，如 bitcoin, ethereum"},
-            "category": {"type": "string", "description": "新闻类别", "enum": ["business", "technology", "general"], "default": "business"},
-            "count": {"type": "integer", "description": "返回条数", "minimum": 1, "maximum": 20, "default": 5},
+            "query": {
+                "type": "string",
+                "description": "搜索关键词，如 bitcoin, ethereum",
+            },
+            "category": {
+                "type": "string",
+                "description": "新闻类别",
+                "enum": ["business", "technology", "general"],
+                "default": "business",
+            },
+            "count": {
+                "type": "integer",
+                "description": "返回条数",
+                "minimum": 1,
+                "maximum": 20,
+                "default": 5,
+            },
         },
         "required": [],
     }
@@ -25,9 +39,10 @@ class GetNewsTool(Tool):
         query: str | None = None,
         category: str = "business",
         count: int = 5,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> str:
         from cli.news import get_news
+
         return get_news(query, category, count)
 
 
@@ -44,4 +59,5 @@ class GetMarketSentimentTool(Tool):
 
     async def execute(self, **kwargs: Any) -> str:
         from cli.news import get_market_sentiment
+
         return get_market_sentiment()

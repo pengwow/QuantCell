@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 异常处理装饰器单元测试
 
@@ -12,15 +11,15 @@
 """
 
 import asyncio
+
 import pytest
 from fastapi import HTTPException
 
 from worker.decorators import handle_worker_exceptions
 from worker.exceptions import (
-    WorkerNotFoundException,
     WorkerAlreadyRunningException,
+    WorkerNotFoundException,
     WorkerOperationException,
-    WorkerException,
 )
 
 
@@ -29,6 +28,7 @@ class TestHandleWorkerExceptions:
 
     def test_async_worker_not_found_exception(self):
         """异步函数：WorkerNotFoundException → 404"""
+
         @handle_worker_exceptions("测试操作")
         async def async_func():
             raise WorkerNotFoundException(123)
@@ -41,6 +41,7 @@ class TestHandleWorkerExceptions:
 
     def test_async_worker_already_running_exception(self):
         """异步函数：WorkerAlreadyRunningException → 409"""
+
         @handle_worker_exceptions("测试操作")
         async def async_func():
             raise WorkerAlreadyRunningException(456)
@@ -53,9 +54,11 @@ class TestHandleWorkerExceptions:
 
     def test_async_worker_operation_exception(self):
         """异步函数：WorkerOperationException → 400"""
+
         @handle_worker_exceptions("测试操作")
         async def async_func():
-            raise WorkerOperationException("update", worker_id=789)
+            msg = "update"
+            raise WorkerOperationException(msg, worker_id=789)
 
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(async_func())
@@ -65,9 +68,11 @@ class TestHandleWorkerExceptions:
 
     def test_async_unexpected_exception(self):
         """异步函数：未预期异常 → 500"""
+
         @handle_worker_exceptions("测试操作")
         async def async_func():
-            raise ValueError("未知错误")
+            msg = "未知错误"
+            raise ValueError(msg)
 
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(async_func())
@@ -76,6 +81,7 @@ class TestHandleWorkerExceptions:
 
     def test_async_http_exception_passthrough(self):
         """异步函数：HTTPException 直接传递"""
+
         @handle_worker_exceptions("测试操作")
         async def async_func():
             raise HTTPException(status_code=403, detail="权限不足")
@@ -87,6 +93,7 @@ class TestHandleWorkerExceptions:
 
     def test_sync_worker_not_found_exception(self):
         """同步函数：WorkerNotFoundException → 404"""
+
         @handle_worker_exceptions("测试操作")
         def sync_func():
             raise WorkerNotFoundException(111)
@@ -97,9 +104,11 @@ class TestHandleWorkerExceptions:
 
     def test_sync_unexpected_exception(self):
         """同步函数：未预期异常 → 500"""
+
         @handle_worker_exceptions("测试操作")
         def sync_func():
-            raise RuntimeError("同步函数错误")
+            msg = "同步函数错误"
+            raise RuntimeError(msg)
 
         with pytest.raises(HTTPException) as exc_info:
             sync_func()
@@ -107,6 +116,7 @@ class TestHandleWorkerExceptions:
 
     def test_successful_async_function(self):
         """异步函数：成功执行，不抛异常"""
+
         @handle_worker_exceptions("测试操作")
         async def async_func():
             return {"result": "success"}
@@ -116,6 +126,7 @@ class TestHandleWorkerExceptions:
 
     def test_successful_sync_function(self):
         """同步函数：成功执行，不抛异常"""
+
         @handle_worker_exceptions("测试操作")
         def sync_func():
             return [1, 2, 3]
@@ -125,6 +136,7 @@ class TestHandleWorkerExceptions:
 
     def test_uses_default_operation_name(self):
         """不传 operation_name 时使用函数名"""
+
         @handle_worker_exceptions()
         async def my_custom_function():
             raise WorkerNotFoundException(1)

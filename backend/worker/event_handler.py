@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Worker 事件处理器模块
 
@@ -16,14 +15,18 @@ Worker 事件处理器模块
 """
 
 import asyncio
+import contextlib
 import json as _json
-from datetime import datetime as _dt
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Callable
+from datetime import datetime as _dt
+from typing import TYPE_CHECKING, Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -52,6 +55,7 @@ class EventBufferConfig:
         - "block": 阻塞生产者直到有空间（适合关键事件）
         - "oldest": 丢弃最旧的事件（适合只关心最新状态的场景）
     """
+
     buffer_size: int = 1000
     flush_interval: float = 1.0
     batch_size: int = 100
@@ -70,7 +74,7 @@ class EventHandler:
         self,
         worker_id: str,
         comm_client: Any,
-        config: Optional[EventBufferConfig] = None,
+        config: EventBufferConfig | None = None,
     ):
         self.worker_id = worker_id
         self.comm_client = comm_client
@@ -78,7 +82,7 @@ class EventHandler:
 
         # 事件缓冲
         self._event_buffer: deque = deque(maxlen=self.config.buffer_size)
-        self._flush_task: Optional[asyncio.Task] = None
+        self._flush_task: asyncio.Task | None = None
         self._running = False
 
         # 背压控制
@@ -108,51 +112,55 @@ class EventHandler:
 
         if self._flush_task:
             self._flush_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._flush_task
-            except asyncio.CancelledError:
-                pass
 
         # 刷新剩余事件
         await self._flush_buffer()
 
         logger.info(f"Worker {self.worker_id} 事件处理器已停止")
 
-    def on_order_event(self, event: Dict[str, Any]) -> None:
+    def on_order_event(self, event: dict[str, Any]) -> None:
         """处理订单事件"""
         self._events_received += 1
-        self._buffer_event({
-            "type": "order",
-            "data": event,
-            "timestamp": datetime.now().isoformat(),
-        })
+        self._buffer_event(
+            {
+                "type": "order",
+                "data": event,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
-    def on_fill_event(self, event: Dict[str, Any]) -> None:
+    def on_fill_event(self, event: dict[str, Any]) -> None:
         """处理成交事件"""
         self._events_received += 1
-        self._buffer_event({
-            "type": "fill",
-            "data": event,
-            "timestamp": datetime.now().isoformat(),
-        })
+        self._buffer_event(
+            {
+                "type": "fill",
+                "data": event,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
         # 成交事件立即发送（如果有运行的事件循环）
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             asyncio.create_task(self._flush_buffer())
         except RuntimeError:
             # 没有运行的事件循环，不立即刷新
             pass
 
-    def on_position_event(self, event: Dict[str, Any]) -> None:
+    def on_position_event(self, event: dict[str, Any]) -> None:
         """处理持仓事件"""
         self._events_received += 1
-        self._buffer_event({
-            "type": "position",
-            "data": event,
-            "timestamp": datetime.now().isoformat(),
-        })
+        self._buffer_event(
+            {
+                "type": "position",
+                "data": event,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
-    def _buffer_event(self, event: Dict[str, Any]) -> None:
+    def _buffer_event(self, event: dict[str, Any]) -> None:
         """
         将事件添加到缓冲队列，支持三种溢出策略：
         - drop: 丢弃新事件（默认）
@@ -183,7 +191,7 @@ class EventHandler:
         # 达到批量大小立即刷新（如果有运行的事件循环）
         if len(self._event_buffer) >= self.config.batch_size:
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 asyncio.create_task(self._flush_buffer())
             except RuntimeError:
                 # 没有运行的事件循环，等待定时刷新
@@ -217,7 +225,7 @@ class EventHandler:
         except Exception as e:
             logger.error(f"Worker {self.worker_id} 发送事件失败: {e}")
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
         return {
             "events_received": self._events_received,
@@ -231,10 +239,10 @@ class EventHandler:
 
 
 __all__ = [
-    "EventHandler",
     "EventBufferConfig",
-    "TradingEventHandler",
+    "EventHandler",
     "LiveTradeRecorder",
+    "TradingEventHandler",
     "create_event_handler",
 ]
 
@@ -242,6 +250,7 @@ __all__ = [
 # ============================================================================
 # Trading 事件处理器
 # ============================================================================
+
 
 class TradingEventHandler:
     """
@@ -254,7 +263,7 @@ class TradingEventHandler:
         self,
         adapter: Any,
         worker_id: Any = None,
-        event_callback: Optional[Callable[[str, dict], None]] = None,
+        event_callback: Callable[[str, dict], None] | None = None,
         node: Any = None,
     ):
         """
@@ -311,22 +320,17 @@ class TradingEventHandler:
         is_node_mock = _is_mock_object(node)
 
         # 方式1: node.msgbus
-        if (
-            node is not None
-            and not is_node_mock
-            and hasattr(node, 'msgbus')
-            and node.msgbus is not None
-        ):
+        if node is not None and not is_node_mock and hasattr(node, "msgbus") and node.msgbus is not None:
             return node.msgbus
 
         # 方式2: node.kernel.msgbus
         if (
             node is not None
             and not is_node_mock
-            and hasattr(node, 'kernel')
+            and hasattr(node, "kernel")
             and node.kernel is not None
             and not _is_mock_object(node.kernel)
-            and hasattr(node.kernel, 'msgbus')
+            and hasattr(node.kernel, "msgbus")
             and node.kernel.msgbus is not None
         ):
             return node.kernel.msgbus
@@ -335,29 +339,20 @@ class TradingEventHandler:
         if (
             trader is not None
             and not is_trader_mock
-            and hasattr(trader, 'kernel')
+            and hasattr(trader, "kernel")
             and trader.kernel is not None
             and not _is_mock_object(trader.kernel)
-            and hasattr(trader.kernel, 'msgbus')
+            and hasattr(trader.kernel, "msgbus")
             and trader.kernel.msgbus is not None
         ):
             return trader.kernel.msgbus
 
         # 方式4: trader.msg_bus（兼容 axon-style Mock 写法）
-        if (
-            trader is not None
-            and hasattr(trader, 'msg_bus')
-            and trader.msg_bus is not None
-        ):
+        if trader is not None and hasattr(trader, "msg_bus") and trader.msg_bus is not None:
             return trader.msg_bus
 
         # 方式5: trader.msgbus（兼容旧版本 axon_quant，跳过 Mock 自动属性）
-        if (
-            trader is not None
-            and not is_trader_mock
-            and hasattr(trader, 'msgbus')
-            and trader.msgbus is not None
-        ):
+        if trader is not None and not is_trader_mock and hasattr(trader, "msgbus") and trader.msgbus is not None:
             return trader.msgbus
 
         return None
@@ -369,10 +364,8 @@ class TradingEventHandler:
         # 获取消息总线（支持多种访问方式）
         msg_bus = self._resolve_msgbus(self.trader, self.node)
         if msg_bus is None:
-            raise AttributeError(
-                "无法访问 msg_bus：请传入 TradingNode 实例，"
-                "或确保 trader 有 kernel.msgbus 属性"
-            )
+            msg = "无法访问 msg_bus：请传入 TradingNode 实例，或确保 trader 有 kernel.msgbus 属性"
+            raise AttributeError(msg)
         # 订阅订单事件 (msg_bus topic: events.order.{strategy_id})
         msg_bus.subscribe(
             topic="events.order.*",
@@ -577,8 +570,9 @@ class TradingEventHandler:
         # 2. 写入 WorkerLog
         if self.worker_id is not None:
             try:
-                from . import crud
                 from utils.db_session import get_db_session
+
+                from . import crud
 
                 with get_db_session() as db:
                     crud.create_worker_log(
@@ -588,9 +582,7 @@ class TradingEventHandler:
                         message=event_data,
                     )
             except Exception as e:
-                logger.warning(
-                    f"AxonEventHandler 写入 WorkerLog 失败: worker_id={self.worker_id}, error={e}"
-                )
+                logger.warning(f"AxonEventHandler 写入 WorkerLog 失败: worker_id={self.worker_id}, error={e}")
 
 
 class LiveTradeRecorder:
@@ -640,10 +632,8 @@ class LiveTradeRecorder:
         # msgbus 访问优先级：node.msgbus > node.kernel.msgbus > trader.kernel.msgbus
         msg_bus = self._resolve_msgbus(trader, node)
         if msg_bus is None:
-            raise AttributeError(
-                "无法访问 msg_bus：请传入 TradingNode 实例，"
-                "或确保 trader 有 kernel.msgbus 属性"
-            )
+            msg = "无法访问 msg_bus：请传入 TradingNode 实例，或确保 trader 有 kernel.msgbus 属性"
+            raise AttributeError(msg)
 
         # order events: events.order.{strategy_id}
         msg_bus.subscribe(topic="events.order.*", handler=self._on_order_event)
@@ -673,12 +663,7 @@ class LiveTradeRecorder:
         - 容器对象（kernel/trader）必须是真实的，最终的 msgbus 可以是 Mock
         """
         # 方式1: node.msgbus（要求 node 是真实对象，不是 Mock）
-        if (
-            node is not None
-            and not _is_mock_object(node)
-            and hasattr(node, 'msgbus')
-            and node.msgbus is not None
-        ):
+        if node is not None and not _is_mock_object(node) and hasattr(node, "msgbus") and node.msgbus is not None:
             logger.debug("LiveTradeRecorder: 使用 node.msgbus")
             return node.msgbus
 
@@ -686,10 +671,10 @@ class LiveTradeRecorder:
         if (
             node is not None
             and not _is_mock_object(node)
-            and hasattr(node, 'kernel')
+            and hasattr(node, "kernel")
             and node.kernel is not None
             and not _is_mock_object(node.kernel)
-            and hasattr(node.kernel, 'msgbus')
+            and hasattr(node.kernel, "msgbus")
             and node.kernel.msgbus is not None
         ):
             logger.debug("LiveTradeRecorder: 使用 node.kernel.msgbus")
@@ -699,21 +684,17 @@ class LiveTradeRecorder:
         if (
             trader is not None
             and not _is_mock_object(trader)
-            and hasattr(trader, 'kernel')
+            and hasattr(trader, "kernel")
             and trader.kernel is not None
             and not _is_mock_object(trader.kernel)
-            and hasattr(trader.kernel, 'msgbus')
+            and hasattr(trader.kernel, "msgbus")
             and trader.kernel.msgbus is not None
         ):
             logger.debug("LiveTradeRecorder: 使用 trader.kernel.msgbus")
             return trader.kernel.msgbus
 
         # 方式4: trader.msg_bus（兼容 axon-style Mock 写法）
-        if (
-            trader is not None
-            and hasattr(trader, 'msg_bus')
-            and trader.msg_bus is not None
-        ):
+        if trader is not None and hasattr(trader, "msg_bus") and trader.msg_bus is not None:
             logger.debug("LiveTradeRecorder: 使用 trader.msg_bus")
             return trader.msg_bus
 
@@ -721,7 +702,7 @@ class LiveTradeRecorder:
         if (
             trader is not None
             and not _is_mock_object(trader)
-            and hasattr(trader, 'msgbus')
+            and hasattr(trader, "msgbus")
             and trader.msgbus is not None
         ):
             logger.debug("LiveTradeRecorder: 使用 trader.msgbus（兼容模式）")
@@ -736,10 +717,7 @@ class LiveTradeRecorder:
 
         msg_bus = self._resolve_msgbus(self._trader, self._node)
         if msg_bus is None:
-            logger.warning(
-                f"LiveTradeRecorder: unsubscribe 时无法访问 msg_bus "
-                f"(worker_id={self.worker_id})"
-            )
+            logger.warning(f"LiveTradeRecorder: unsubscribe 时无法访问 msg_bus (worker_id={self.worker_id})")
             return
 
         msg_bus.unsubscribe(topic="events.order.*", handler=self._on_order_event)
@@ -757,6 +735,7 @@ class LiveTradeRecorder:
     def _get_db():
         """创建独立的 DB session（daemon 线程安全）"""
         from collector.db.database import SessionLocal
+
         return SessionLocal()
 
     # ------------------------------------------------------------------
@@ -773,8 +752,7 @@ class LiveTradeRecorder:
                 db.close()
         except Exception as e:
             logger.error(
-                f"LiveTradeRecorder order event error "
-                f"(worker_id={self.worker_id}): {e}",
+                f"LiveTradeRecorder order event error (worker_id={self.worker_id}): {e}",
                 exc_info=True,
             )
 
@@ -788,8 +766,7 @@ class LiveTradeRecorder:
                 db.close()
         except Exception as e:
             logger.error(
-                f"LiveTradeRecorder fill event error "
-                f"(worker_id={self.worker_id}): {e}",
+                f"LiveTradeRecorder fill event error (worker_id={self.worker_id}): {e}",
                 exc_info=True,
             )
 
@@ -803,8 +780,7 @@ class LiveTradeRecorder:
                 db.close()
         except Exception as e:
             logger.error(
-                f"LiveTradeRecorder position event error "
-                f"(worker_id={self.worker_id}): {e}",
+                f"LiveTradeRecorder position event error (worker_id={self.worker_id}): {e}",
                 exc_info=True,
             )
 
@@ -825,10 +801,7 @@ class LiveTradeRecorder:
         elif type_name == "OrderRejected":
             self._handle_order_rejected(db, event)
         else:
-            logger.debug(
-                f"LiveTradeRecorder: 忽略未知订单事件类型 "
-                f"{type_name} (worker_id={self.worker_id})"
-            )
+            logger.debug(f"LiveTradeRecorder: 忽略未知订单事件类型 {type_name} (worker_id={self.worker_id})")
 
     @staticmethod
     def _identify_order_event_type(event: Any) -> str:
@@ -846,8 +819,8 @@ class LiveTradeRecorder:
             from axon_bridge.core.events import (  # type: ignore[import-not-found]
                 OrderAccepted,
                 OrderCanceled,
-                OrderRejected,
                 OrderFilled,
+                OrderRejected,
             )
         except ImportError:
             OrderAccepted = OrderCanceled = OrderRejected = OrderFilled = None  # type: ignore[assignment]
@@ -898,10 +871,7 @@ class LiveTradeRecorder:
         }
 
         crud.create_order_if_not_exists(db, order_data)
-        logger.info(
-            f"LiveTradeRecorder: ACCEPTED order {order_data['client_order_id']} "
-            f"(worker_id={self.worker_id})"
-        )
+        logger.info(f"LiveTradeRecorder: ACCEPTED order {order_data['client_order_id']} (worker_id={self.worker_id})")
 
     # -- OrderCanceled ---------------------------------------------------
 
@@ -909,18 +879,11 @@ class LiveTradeRecorder:
         """更新订单状态为 CANCELED"""
         from . import crud
 
-        order = crud.get_worker_order_by_id(
-            db, self.worker_id, str(event.client_order_id)
-        )
+        order = crud.get_worker_order_by_id(db, self.worker_id, str(event.client_order_id))
         if order:
             venue_oid = str(getattr(event, "venue_order_id", "")) or ""
-            crud.update_worker_order_status(
-                db, order.id, "CANCELED", 0.0, 0.0, 0.0, venue_oid
-            )
-            logger.info(
-                f"LiveTradeRecorder: CANCELED order {event.client_order_id} "
-                f"(worker_id={self.worker_id})"
-            )
+            crud.update_worker_order_status(db, order.id, "CANCELED", 0.0, 0.0, 0.0, venue_oid)
+            logger.info(f"LiveTradeRecorder: CANCELED order {event.client_order_id} (worker_id={self.worker_id})")
         else:
             logger.warning(
                 f"LiveTradeRecorder: CANCELED order {event.client_order_id} "
@@ -933,14 +896,10 @@ class LiveTradeRecorder:
         """更新订单状态为 REJECTED"""
         from . import crud
 
-        order = crud.get_worker_order_by_id(
-            db, self.worker_id, str(event.client_order_id)
-        )
+        order = crud.get_worker_order_by_id(db, self.worker_id, str(event.client_order_id))
         if order:
             reason = str(getattr(event, "reason", ""))
-            crud.update_worker_order_status(
-                db, order.id, "REJECTED", 0.0, 0.0, 0.0, ""
-            )
+            crud.update_worker_order_status(db, order.id, "REJECTED", 0.0, 0.0, 0.0, "")
             logger.warning(
                 f"LiveTradeRecorder: REJECTED order {event.client_order_id} "
                 f"reason={reason} (worker_id={self.worker_id})"
@@ -979,17 +938,20 @@ class LiveTradeRecorder:
             "realized_pnl_pct": None,
             "entry_time": entry_time,
             "exit_time": None,
-            "raw_data": _json.dumps({
-                "strategy_id": str(getattr(event, "strategy_id", "")),
-                "instrument_id": str(event.instrument_id),
-                "client_order_id": str(event.client_order_id),
-                "venue_order_id": str(getattr(event, "venue_order_id", "")),
-                "trade_id": str(event.trade_id),
-                "last_qty": str(event.last_qty),
-                "last_px": str(event.last_px),
-                "liquidity_side": str(getattr(event, "liquidity_side", "")),
-                "ts_event": getattr(event, "ts_event", None),
-            }, default=str),
+            "raw_data": _json.dumps(
+                {
+                    "strategy_id": str(getattr(event, "strategy_id", "")),
+                    "instrument_id": str(event.instrument_id),
+                    "client_order_id": str(event.client_order_id),
+                    "venue_order_id": str(getattr(event, "venue_order_id", "")),
+                    "trade_id": str(event.trade_id),
+                    "last_qty": str(event.last_qty),
+                    "last_px": str(event.last_px),
+                    "liquidity_side": str(getattr(event, "liquidity_side", "")),
+                    "ts_event": getattr(event, "ts_event", None),
+                },
+                default=str,
+            ),
         }
 
         crud.create_trade_if_not_exists(db, trade_data)
@@ -1001,9 +963,7 @@ class LiveTradeRecorder:
         )
 
         # --- 更新 order 状态 ---
-        order = crud.get_worker_order_by_id(
-            db, self.worker_id, str(event.client_order_id)
-        )
+        order = crud.get_worker_order_by_id(db, self.worker_id, str(event.client_order_id))
         if order:
             crud.update_worker_order_status(
                 db,
@@ -1067,6 +1027,7 @@ class LiveTradeRecorder:
 
         # 检测 Mock 对象（测试场景），避免自动生成的子属性被误识别
         from unittest.mock import Mock as _Mock
+
         is_mock = isinstance(commission, _Mock)
 
         # 优先尝试 as_double() —— axon_quant Money 的标准接口
@@ -1075,9 +1036,10 @@ class LiveTradeRecorder:
                 value = commission.as_double()
                 if isinstance(value, _Mock):
                     # Mock 自动生成的返回值，回退到其他字段
-                    raise TypeError("as_double returned Mock")
+                    msg = "as_double returned Mock"
+                    raise TypeError(msg)
                 return float(value)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
 
         # 其次尝试 amount 属性
@@ -1089,13 +1051,13 @@ class LiveTradeRecorder:
                     pass
                 else:
                     return float(amount)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
 
         # 最后直接转 float
         try:
             return float(commission)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 0.0
 
     @staticmethod

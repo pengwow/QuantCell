@@ -3,28 +3,29 @@
 对应indicators表的ORM定义，用于存储用户创建的Python自定义指标
 """
 
-from typing import Any, Dict, List, Optional
-import json
+from typing import TYPE_CHECKING, Any
+
 import pytz
+from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text, func
 
-import sqlalchemy
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, Numeric, func
-from sqlalchemy.orm import Session
-
-from utils.logger import get_logger, LogType
-from collector.db.database import Base, init_database_config, SessionLocal
+from collector.db.database import SessionLocal, init_database_config
 from collector.db.models import TimezoneAwareBase
+from utils.logger import LogType, get_logger
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
 class CustomIndicator(TimezoneAwareBase):
     """自定义技术指标SQLAlchemy模型
-    
+
     对应indicators表，存储用户编写的Python指标代码及其元数据
     """
+
     __tablename__ = "indicators"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     user_id = Column(Integer, nullable=False, index=True)
     name = Column(String(100), nullable=False)
@@ -42,20 +43,20 @@ class CustomIndicator(TimezoneAwareBase):
 
 class CustomIndicatorBusiness:
     """自定义指标业务类
-    
+
     提供CRUD操作方法，遵循项目现有模式（参考DataPoolBusiness/TaskBusiness）
     """
-    
+
     @staticmethod
     def _format_dt(dt):
         if dt is None:
             return None
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=pytz.utc)
-        return dt.astimezone(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
-    
+        return dt.astimezone(pytz.timezone("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
+
     @staticmethod
-    def _to_dict(indicator: CustomIndicator) -> Dict[str, Any]:
+    def _to_dict(indicator: CustomIndicator) -> dict[str, Any]:
         return {
             "id": indicator.id,
             "user_id": indicator.user_id,
@@ -71,9 +72,9 @@ class CustomIndicatorBusiness:
             "created_at": CustomIndicatorBusiness._format_dt(indicator.created_at),
             "updated_at": CustomIndicatorBusiness._format_dt(indicator.updated_at),
         }
-    
+
     @staticmethod
-    def create(user_id: int, name: str, code: str, description: str = "", **kwargs) -> Optional[Dict[str, Any]]:
+    def create(user_id: int, name: str, code: str, description: str = "", **kwargs) -> dict[str, Any] | None:
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -100,9 +101,9 @@ class CustomIndicatorBusiness:
             return None
         finally:
             db.close()
-    
+
     @staticmethod
-    def get_by_id(indicator_id: int) -> Optional[Dict[str, Any]]:
+    def get_by_id(indicator_id: int) -> dict[str, Any] | None:
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -113,9 +114,9 @@ class CustomIndicatorBusiness:
             return None
         finally:
             db.close()
-    
+
     @staticmethod
-    def get_all(user_id: int = None) -> list:
+    def get_all(user_id: int | None = None) -> list:
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -129,9 +130,9 @@ class CustomIndicatorBusiness:
             return []
         finally:
             db.close()
-    
+
     @staticmethod
-    def update(indicator_id: int, **kwargs) -> Optional[Dict[str, Any]]:
+    def update(indicator_id: int, **kwargs) -> dict[str, Any] | None:
         init_database_config()
         db: Session = SessionLocal()
         try:
@@ -152,7 +153,7 @@ class CustomIndicatorBusiness:
             return None
         finally:
             db.close()
-    
+
     @staticmethod
     def delete(indicator_id: int) -> bool:
         init_database_config()
@@ -170,9 +171,9 @@ class CustomIndicatorBusiness:
             return False
         finally:
             db.close()
-    
+
     @staticmethod
-    def get_code(indicator_id: int) -> Optional[str]:
+    def get_code(indicator_id: int) -> str | None:
         init_database_config()
         db: Session = SessionLocal()
         try:

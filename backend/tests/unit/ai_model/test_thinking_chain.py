@@ -2,6 +2,7 @@
 
 测试 ThinkingChainManager 的 CRUD 操作和 TOML 导入导出功能
 """
+
 import json
 import os
 import sys
@@ -17,7 +18,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 os.environ["DB_TYPE"] = "sqlite"
 os.environ["DB_FILE"] = ":memory:"
 
-from sqlalchemy import Boolean, Column, DateTime, String, Text, func, Index, create_engine, and_, desc
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Index,
+    String,
+    Text,
+    and_,
+    create_engine,
+    desc,
+    func,
+)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # 创建独立的 Base
@@ -26,6 +38,7 @@ Base = declarative_base()
 
 class ThinkingChain(Base):
     """思维链 SQLAlchemy 模型"""
+
     __tablename__ = "thinking_chains"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
@@ -38,8 +51,8 @@ class ThinkingChain(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
     __table_args__ = (
-        Index('idx_thinking_chain_type_active', 'chain_type', 'is_active'),
-        Index('idx_thinking_chain_type_created', 'chain_type', 'created_at'),
+        Index("idx_thinking_chain_type_active", "chain_type", "is_active"),
+        Index("idx_thinking_chain_type_created", "chain_type", "created_at"),
     )
 
     def to_dict(self):
@@ -117,7 +130,7 @@ class ThinkingChainManager:
             db.commit()
             db.refresh(chain)
             return chain.to_dict()
-        except Exception as e:
+        except Exception:
             db.rollback()
             return None
         finally:
@@ -131,13 +144,20 @@ class ThinkingChainManager:
             if chain:
                 return chain.to_dict()
             return None
-        except Exception as e:
+        except Exception:
             return None
         finally:
             db.close()
 
     @staticmethod
-    def get_thinking_chains(chain_type=None, is_active=None, page=1, page_size=10, sort_by="created_at", sort_order="desc"):
+    def get_thinking_chains(
+        chain_type=None,
+        is_active=None,
+        page=1,
+        page_size=10,
+        sort_by="created_at",
+        sort_order="desc",
+    ):
         db = ThinkingChainManager._get_db()
         try:
             query = db.query(ThinkingChain)
@@ -154,10 +174,7 @@ class ThinkingChainManager:
                 sort_by = "created_at"
 
             sort_column = getattr(ThinkingChain, sort_by)
-            if sort_order == "desc":
-                query = query.order_by(desc(sort_column))
-            else:
-                query = query.order_by(sort_column)
+            query = query.order_by(desc(sort_column)) if sort_order == "desc" else query.order_by(sort_column)
 
             offset = (page - 1) * page_size
             chains = query.offset(offset).limit(page_size).all()
@@ -171,7 +188,7 @@ class ThinkingChainManager:
                 "page_size": page_size,
                 "pages": pages,
             }
-        except Exception as e:
+        except Exception:
             return {
                 "items": [],
                 "total": 0,
@@ -204,7 +221,7 @@ class ThinkingChainManager:
             db.commit()
             db.refresh(chain)
             return chain.to_dict()
-        except Exception as e:
+        except Exception:
             db.rollback()
             return None
         finally:
@@ -220,7 +237,7 @@ class ThinkingChainManager:
                 db.commit()
                 return True
             return False
-        except Exception as e:
+        except Exception:
             db.rollback()
             return False
         finally:
@@ -255,11 +272,14 @@ class ThinkingChainManager:
             for chain_data in chains:
                 try:
                     if "chain_type" not in chain_data:
-                        raise ValueError("缺少必需字段: chain_type")
+                        msg = "缺少必需字段: chain_type"
+                        raise ValueError(msg)
                     if "name" not in chain_data:
-                        raise ValueError("缺少必需字段: name")
+                        msg = "缺少必需字段: name"
+                        raise ValueError(msg)
                     if "steps" not in chain_data:
-                        raise ValueError("缺少必需字段: steps")
+                        msg = "缺少必需字段: steps"
+                        raise ValueError(msg)
 
                     chain_type = chain_data["chain_type"]
                     name = chain_data["name"]
@@ -287,12 +307,14 @@ class ThinkingChainManager:
                         db.commit()
                         db.refresh(existing)
                         result["updated"] += 1
-                        result["items"].append({
-                            "id": existing.id,
-                            "name": existing.name,
-                            "chain_type": existing.chain_type,
-                            "action": "updated",
-                        })
+                        result["items"].append(
+                            {
+                                "id": existing.id,
+                                "name": existing.name,
+                                "chain_type": existing.chain_type,
+                                "action": "updated",
+                            }
+                        )
                     else:
                         new_chain = ThinkingChain(
                             id=str(uuid.uuid4()),
@@ -306,12 +328,14 @@ class ThinkingChainManager:
                         db.commit()
                         db.refresh(new_chain)
                         result["created"] += 1
-                        result["items"].append({
-                            "id": new_chain.id,
-                            "name": new_chain.name,
-                            "chain_type": new_chain.chain_type,
-                            "action": "created",
-                        })
+                        result["items"].append(
+                            {
+                                "id": new_chain.id,
+                                "name": new_chain.name,
+                                "chain_type": new_chain.chain_type,
+                                "action": "created",
+                            }
+                        )
 
                 except Exception as e:
                     result["failed"] += 1
@@ -353,7 +377,7 @@ class ThinkingChainManager:
                 config["thinking_chain"].append(chain_data)
 
             return toml.dumps(config)
-        except Exception as e:
+        except Exception:
             return ""
         finally:
             db.close()
@@ -367,7 +391,7 @@ class ThinkingChainManager:
                 .filter(
                     and_(
                         ThinkingChain.chain_type == chain_type,
-                        ThinkingChain.is_active == True,
+                        ThinkingChain.is_active,
                     )
                 )
                 .order_by(desc(ThinkingChain.created_at))
@@ -376,7 +400,7 @@ class ThinkingChainManager:
             if chain:
                 return chain.to_dict()
             return None
-        except Exception as e:
+        except Exception:
             return None
         finally:
             db.close()
@@ -453,11 +477,13 @@ class TestThinkingChainCreate:
 
     def test_create_minimal_data(self):
         """测试使用最少必需数据创建"""
-        result = ThinkingChainManager.create_thinking_chain({
-            "chain_type": "indicator_generation",
-            "name": "指标生成思维链",
-            "steps": [{"id": "step_1", "name": "步骤1"}],
-        })
+        result = ThinkingChainManager.create_thinking_chain(
+            {
+                "chain_type": "indicator_generation",
+                "name": "指标生成思维链",
+                "steps": [{"id": "step_1", "name": "步骤1"}],
+            }
+        )
 
         assert result is not None
         assert result["chain_type"] == "indicator_generation"
@@ -467,26 +493,32 @@ class TestThinkingChainCreate:
 
     def test_create_missing_chain_type(self):
         """测试缺少 chain_type 字段"""
-        result = ThinkingChainManager.create_thinking_chain({
-            "name": "测试思维链",
-            "steps": [{"id": "step_1"}],
-        })
+        result = ThinkingChainManager.create_thinking_chain(
+            {
+                "name": "测试思维链",
+                "steps": [{"id": "step_1"}],
+            }
+        )
         assert result is None
 
     def test_create_missing_name(self):
         """测试缺少 name 字段"""
-        result = ThinkingChainManager.create_thinking_chain({
-            "chain_type": "strategy_generation",
-            "steps": [{"id": "step_1"}],
-        })
+        result = ThinkingChainManager.create_thinking_chain(
+            {
+                "chain_type": "strategy_generation",
+                "steps": [{"id": "step_1"}],
+            }
+        )
         assert result is None
 
     def test_create_missing_steps(self):
         """测试缺少 steps 字段"""
-        result = ThinkingChainManager.create_thinking_chain({
-            "chain_type": "strategy_generation",
-            "name": "测试思维链",
-        })
+        result = ThinkingChainManager.create_thinking_chain(
+            {
+                "chain_type": "strategy_generation",
+                "name": "测试思维链",
+            }
+        )
         assert result is None
 
     def test_create_generates_uuid(self, sample_thinking_chain_data):
@@ -497,7 +529,8 @@ class TestThinkingChainCreate:
             uuid.UUID(result["id"])
             assert True
         except ValueError:
-            assert False, "ID 不是有效的 UUID"
+            msg = "ID 不是有效的 UUID"
+            raise AssertionError(msg)
 
 
 class TestThinkingChainGet:
@@ -609,7 +642,7 @@ class TestThinkingChainUpdate:
                 "name": "更新后的名称",
                 "description": "更新后的描述",
                 "is_active": False,
-            }
+            },
         )
 
         assert result is not None
@@ -626,30 +659,21 @@ class TestThinkingChainUpdate:
             {"id": "new_step_1", "name": "新步骤1"},
             {"id": "new_step_2", "name": "新步骤2"},
         ]
-        result = ThinkingChainManager.update_thinking_chain(
-            created["id"],
-            {"steps": new_steps}
-        )
+        result = ThinkingChainManager.update_thinking_chain(created["id"], {"steps": new_steps})
 
         assert result is not None
         assert result["steps"] == new_steps
 
     def test_update_not_found(self):
         """测试更新不存在的思维链"""
-        result = ThinkingChainManager.update_thinking_chain(
-            "non-existent-id",
-            {"name": "新名称"}
-        )
+        result = ThinkingChainManager.update_thinking_chain("non-existent-id", {"name": "新名称"})
         assert result is None
 
     def test_update_partial(self, sample_thinking_chain_data):
         """测试部分更新"""
         created = ThinkingChainManager.create_thinking_chain(sample_thinking_chain_data)
 
-        result = ThinkingChainManager.update_thinking_chain(
-            created["id"],
-            {"name": "仅更新名称"}
-        )
+        result = ThinkingChainManager.update_thinking_chain(created["id"], {"name": "仅更新名称"})
 
         assert result is not None
         assert result["name"] == "仅更新名称"

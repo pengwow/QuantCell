@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 事件驱动策略基类
 
@@ -19,11 +18,9 @@ from __future__ import annotations
 import datetime as dt
 from abc import abstractmethod
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from axon_bridge import Action
-from backtest.backtest_loop import RuleStrategy
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -31,6 +28,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 def _get_axon_bridge():
     """延迟导入 axon_bridge，避免启动时加载"""
     import axon_bridge
+
     return axon_bridge
 
 
@@ -57,15 +55,17 @@ class EventDrivenStrategyConfig:
 
     def __init__(
         self,
-        instrument_ids: List[Any],
-        bar_types: List[Any],
+        instrument_ids: list[Any],
+        bar_types: list[Any],
         trade_size: Decimal,
         log_level: str = "INFO",
     ):
         if not instrument_ids or not bar_types:
-            raise ValueError("instrument_ids 和 bar_types 不能为空列表")
+            msg = "instrument_ids 和 bar_types 不能为空列表"
+            raise ValueError(msg)
         if len(instrument_ids) != len(bar_types):
-            raise ValueError(f"instrument_ids ({len(instrument_ids)}) 和 bar_types ({len(bar_types)}) 长度必须相同")
+            msg = f"instrument_ids ({len(instrument_ids)}) 和 bar_types ({len(bar_types)}) 长度必须相同"
+            raise ValueError(msg)
 
         self.instrument_ids = list(instrument_ids)
         self.bar_types = list(bar_types)
@@ -111,15 +111,15 @@ class EventDrivenStrategy:
         self.config = config
 
         # 引擎引用（由 engine.add_strategy() 注入）
-        self._engine_ref: Optional[Any] = None
+        self._engine_ref: Any | None = None
 
         # 交易品种 instrument dict 映射
-        self._instruments: Dict[str, Dict] = {}
+        self._instruments: dict[str, dict] = {}
 
         # 订单状态跟踪
-        self._active_orders: Dict[str, Dict] = {}
-        self._position_qty: Dict[str, float] = {}
-        self._position_avg_px: Dict[str, float] = {}
+        self._active_orders: dict[str, dict] = {}
+        self._position_qty: dict[str, float] = {}
+        self._position_avg_px: dict[str, float] = {}
 
         # 订单 ID 计数器
         self._order_id_counter: int = 0
@@ -160,7 +160,7 @@ class EventDrivenStrategy:
 
         logger.info(f"已加载 {len(self._instruments)} 个交易品种")
 
-    def on_bar(self, bar: Dict[str, Any]) -> None:
+    def on_bar(self, bar: dict[str, Any]) -> None:
         """
         收到K线数据时调用
 
@@ -174,14 +174,15 @@ class EventDrivenStrategy:
         self._on_bar_impl(bar)
 
     @abstractmethod
-    def _on_bar_impl(self, bar: Dict[str, Any]) -> None:
+    def _on_bar_impl(self, bar: dict[str, Any]) -> None:
         """
         K线数据处理的具体实现（子类必须实现）
 
         Args:
             bar: K线数据字典
         """
-        raise NotImplementedError("子类必须实现 _on_bar_impl 方法")
+        msg = "子类必须实现 _on_bar_impl 方法"
+        raise NotImplementedError(msg)
 
     def on_stop(self) -> None:
         """
@@ -213,7 +214,7 @@ class EventDrivenStrategy:
         order_type: str = "MARKET",
         time_in_force: str = "GTC",
         instrument_id: Any | None = None,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         买入下单
 
@@ -229,7 +230,7 @@ class EventDrivenStrategy:
         Returns:
             str: 订单 ID，下单失败返回 None
         """
-        target_id = instrument_id if instrument_id else self.config.instrument_id
+        target_id = instrument_id or self.config.instrument_id
         qty = float(quantity) if quantity else float(self.config.trade_size)
 
         instrument = self._instruments.get(target_id)
@@ -294,7 +295,7 @@ class EventDrivenStrategy:
         order_type: str = "MARKET",
         time_in_force: str = "GTC",
         instrument_id: Any | None = None,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         卖出下单
 
@@ -310,7 +311,7 @@ class EventDrivenStrategy:
         Returns:
             str: 订单 ID，下单失败返回 None
         """
-        target_id = instrument_id if instrument_id else self.config.instrument_id
+        target_id = instrument_id or self.config.instrument_id
         qty = float(quantity) if quantity else float(self.config.trade_size)
 
         instrument = self._instruments.get(target_id)
@@ -368,7 +369,7 @@ class EventDrivenStrategy:
             logger.error(f"卖出下单失败: {e}")
             return None
 
-    def close_position(self, position: Any | None = None, instrument_id: Any | None = None) -> Optional[str]:
+    def close_position(self, position: Any | None = None, instrument_id: Any | None = None) -> str | None:
         """
         平仓
 
@@ -381,7 +382,7 @@ class EventDrivenStrategy:
         Returns:
             str: 订单 ID
         """
-        target_id = instrument_id if instrument_id else self.config.instrument_id
+        target_id = instrument_id or self.config.instrument_id
         qty = abs(self._position_qty.get(target_id, 0))
         if qty <= 0:
             logger.info(f"{target_id} 无持仓可平")
@@ -441,7 +442,7 @@ class EventDrivenStrategy:
                     logger.debug(f"取消订单 {order_id} 失败: {e}")
         self._active_orders.clear()
 
-    def get_position(self, instrument_id: Any | None = None) -> Dict[str, Any]:
+    def get_position(self, instrument_id: Any | None = None) -> dict[str, Any]:
         """
         获取持仓信息
 
@@ -451,7 +452,7 @@ class EventDrivenStrategy:
         Returns:
             Dict: 持仓信息字典
         """
-        target_id = instrument_id if instrument_id else self.config.instrument_id
+        target_id = instrument_id or self.config.instrument_id
         return {
             "symbol": target_id,
             "quantity": self._position_qty.get(target_id, 0),
@@ -468,22 +469,22 @@ class EventDrivenStrategy:
         Returns:
             Decimal: 持仓数量，正数表示多头，负数表示空头
         """
-        target_id = instrument_id if instrument_id else self.config.instrument_id
+        target_id = instrument_id or self.config.instrument_id
         return Decimal(str(self._position_qty.get(target_id, 0)))
 
     def is_flat(self, instrument_id: Any | None = None) -> bool:
         """检查是否空仓"""
-        target_id = instrument_id if instrument_id else self.config.instrument_id
+        target_id = instrument_id or self.config.instrument_id
         return self._position_qty.get(target_id, 0) == 0
 
     def is_long(self, instrument_id: Any | None = None) -> bool:
         """检查是否持有多头"""
-        target_id = instrument_id if instrument_id else self.config.instrument_id
+        target_id = instrument_id or self.config.instrument_id
         return self._position_qty.get(target_id, 0) > 0
 
     def is_short(self, instrument_id: Any | None = None) -> bool:
         """检查是否持有空头"""
-        target_id = instrument_id if instrument_id else self.config.instrument_id
+        target_id = instrument_id or self.config.instrument_id
         return self._position_qty.get(target_id, 0) < 0
 
     def log_info(self, message: str) -> None:
@@ -498,11 +499,11 @@ class EventDrivenStrategy:
     def log_error(self, message: str) -> None:
         logger.error(message)
 
-    def calculate_indicators(self, bar: Dict[str, Any]) -> Dict[str, Any]:
+    def calculate_indicators(self, bar: dict[str, Any]) -> dict[str, Any]:
         """计算技术指标（子类可以重写）"""
         return {}
 
-    def generate_signals(self, indicators: Dict[str, Any]) -> Dict[str, bool]:
+    def generate_signals(self, indicators: dict[str, Any]) -> dict[str, bool]:
         """生成交易信号（子类可以重写）"""
         return {
             "entry_long": False,

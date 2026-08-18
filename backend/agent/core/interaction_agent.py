@@ -7,12 +7,13 @@ Delegates trading decisions to DecisionAgent.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class IntentCategory(str, Enum):
+class IntentCategory(StrEnum):
     """User intent categories."""
+
     TRADING_DECISION = "trading_decision"
     BACKTEST = "backtest"
     RL_TRAINING = "rl_training"
@@ -25,6 +26,7 @@ class IntentCategory(str, Enum):
 @dataclass
 class Intent:
     """Parsed user intent."""
+
     category: IntentCategory
     raw_message: str
     resolved_prompt: str = ""
@@ -34,6 +36,7 @@ class Intent:
 @dataclass
 class AgentResponse:
     """Agent response."""
+
     content: str
     actions: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -42,8 +45,24 @@ class AgentResponse:
 # Keywords for intent classification
 _INTENT_KEYWORDS: dict[IntentCategory, list[str]] = {
     IntentCategory.BACKTEST: ["回测", "backtest", "测试策略", "历史回测"],
-    IntentCategory.RL_TRAINING: ["训练", "train", "强化学习", "rl", "ppo", "sac", "dqn"],
-    IntentCategory.TRADING_DECISION: ["买入", "卖出", "buy", "sell", "下单", "交易", "持仓"],
+    IntentCategory.RL_TRAINING: [
+        "训练",
+        "train",
+        "强化学习",
+        "rl",
+        "ppo",
+        "sac",
+        "dqn",
+    ],
+    IntentCategory.TRADING_DECISION: [
+        "买入",
+        "卖出",
+        "buy",
+        "sell",
+        "下单",
+        "交易",
+        "持仓",
+    ],
     IntentCategory.STRATEGY_GENERATION: ["生成策略", "写策略", "创建策略", "策略代码"],
     IntentCategory.DATA_QUERY: ["数据", "行情", "k线", "价格", "走势"],
     IntentCategory.RISK_ASSESSMENT: ["风险", "风控", "回撤", "止损"],

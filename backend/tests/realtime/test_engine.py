@@ -4,9 +4,9 @@
 测试RealtimeEngine的组件集成和完整工作流程
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-import asyncio
-from unittest.mock import Mock, patch, AsyncMock
 
 from realtime.engine import RealtimeEngine
 
@@ -30,26 +30,26 @@ class TestRealtimeEngine:
         engine = RealtimeEngine()
         status = engine.get_status()
 
-        assert status['status'] == 'stopped'
-        assert status['connected'] is False
-        assert 'connected_exchanges' in status
-        assert 'total_exchanges' in status
-        assert 'config' in status
-        assert 'stats' in status
+        assert status["status"] == "stopped"
+        assert status["connected"] is False
+        assert "connected_exchanges" in status
+        assert "total_exchanges" in status
+        assert "config" in status
+        assert "stats" in status
 
     def test_get_config(self):
         """测试获取配置"""
         engine = RealtimeEngine()
         config = engine.get_config()
         assert isinstance(config, dict)
-        assert 'realtime_enabled' in config
+        assert "realtime_enabled" in config
 
     def test_update_config_success(self):
         """测试成功更新配置"""
         engine = RealtimeEngine()
-        result = engine.update_config({'realtime_enabled': True})
+        result = engine.update_config({"realtime_enabled": True})
         assert result is True
-        assert engine.config.get_config('realtime_enabled') is True
+        assert engine.config.get_config("realtime_enabled") is True
 
     def test_update_config_failure(self):
         """测试更新配置失败"""
@@ -63,21 +63,21 @@ class TestRealtimeEngine:
         engine = RealtimeEngine()
         symbols = engine.get_available_symbols()
         assert isinstance(symbols, list)
-        assert 'BTCUSDT' in symbols
+        assert "BTCUSDT" in symbols
 
     def test_register_consumer(self):
         """测试注册数据消费者"""
         engine = RealtimeEngine()
         consumer = Mock()
-        result = engine.register_consumer('kline', consumer)
+        result = engine.register_consumer("kline", consumer)
         assert result is True
 
     def test_unregister_consumer(self):
         """测试注销数据消费者"""
         engine = RealtimeEngine()
         consumer = Mock()
-        engine.register_consumer('kline', consumer)
-        result = engine.unregister_consumer('kline', consumer)
+        engine.register_consumer("kline", consumer)
+        result = engine.unregister_consumer("kline", consumer)
         assert result is True
 
 
@@ -107,8 +107,10 @@ class TestRealtimeEngineAsync:
         engine.running = True
 
         # 重启应该尝试停止然后启动
-        with patch.object(engine, 'stop', return_value=True) as mock_stop, \
-             patch.object(engine, 'start', return_value=True) as mock_start:
+        with (
+            patch.object(engine, "stop", return_value=True) as mock_stop,
+            patch.object(engine, "start", return_value=True) as mock_start,
+        ):
             result = await engine.restart()
             assert result is True
             mock_stop.assert_called_once()
@@ -118,14 +120,14 @@ class TestRealtimeEngineAsync:
     async def test_subscribe_no_client(self):
         """测试订阅时无客户端"""
         engine = RealtimeEngine()
-        result = await engine.subscribe(['kline_BTCUSDT_1m'])
+        result = await engine.subscribe(["kline_BTCUSDT_1m"])
         assert result is False
 
     @pytest.mark.asyncio
     async def test_unsubscribe_no_client(self):
         """测试取消订阅时引擎未运行"""
         engine = RealtimeEngine()
-        result = await engine.unsubscribe(['kline_BTCUSDT_1m'])
+        result = await engine.unsubscribe(["kline_BTCUSDT_1m"])
         assert result is True
 
 
@@ -136,34 +138,34 @@ class TestRealtimeEngineMessageHandling:
         """测试处理有效消息"""
         engine = RealtimeEngine()
         message = {
-            'exchange': 'binance',
-            'data_type': 'kline',
-            'symbol': 'BTCUSDT',
-            'open_time': 1234567890,
-            'close_time': 1234567950,
-            'open': 50000.0,
-            'high': 50100.0,
-            'low': 49900.0,
-            'close': 50050.0,
-            'volume': 1.5,
-            'quote_volume': 75075.0,
-            'trades': 100,
-            'taker_buy_base_volume': 0.8,
-            'taker_buy_quote_volume': 40040.0,
-            'interval': '1m',
-            'is_final': True
+            "exchange": "binance",
+            "data_type": "kline",
+            "symbol": "BTCUSDT",
+            "open_time": 1234567890,
+            "close_time": 1234567950,
+            "open": 50000.0,
+            "high": 50100.0,
+            "low": 49900.0,
+            "close": 50050.0,
+            "volume": 1.5,
+            "quote_volume": 75075.0,
+            "trades": 100,
+            "taker_buy_base_volume": 0.8,
+            "taker_buy_quote_volume": 40040.0,
+            "interval": "1m",
+            "is_final": True,
         }
 
         # 处理消息
         engine._handle_message(message)
 
         # 验证消息被记录
-        assert engine.monitor.stats['total_messages'] >= 0
+        assert engine.monitor.stats["total_messages"] >= 0
 
     def test_handle_message_invalid(self):
         """测试处理无效消息"""
         engine = RealtimeEngine()
-        message = {'invalid': 'message'}
+        message = {"invalid": "message"}
 
         # 处理消息（不应抛出异常）
         engine._handle_message(message)
@@ -176,7 +178,7 @@ class TestRealtimeEngineMessageHandling:
         # 这里应该能够处理None而不抛出异常
         try:
             engine._handle_message(None)
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             # 如果抛出异常，测试通过（表示需要修复）
             pass
         # 如果不抛出异常，也测试通过
@@ -198,26 +200,26 @@ class TestRealtimeEngineIntegration:
 
         # 注册消费者
         consumer = Mock()
-        engine.register_consumer('kline', consumer)
+        engine.register_consumer("kline", consumer)
 
         # 模拟消息处理
         message = {
-            'exchange': 'binance',
-            'data_type': 'kline',
-            'symbol': 'BTCUSDT',
-            'open_time': 1234567890,
-            'close_time': 1234567950,
-            'open': 50000.0,
-            'high': 50100.0,
-            'low': 49900.0,
-            'close': 50050.0,
-            'volume': 1.5,
-            'quote_volume': 75075.0,
-            'trades': 100,
-            'taker_buy_base_volume': 0.8,
-            'taker_buy_quote_volume': 40040.0,
-            'interval': '1m',
-            'is_final': True
+            "exchange": "binance",
+            "data_type": "kline",
+            "symbol": "BTCUSDT",
+            "open_time": 1234567890,
+            "close_time": 1234567950,
+            "open": 50000.0,
+            "high": 50100.0,
+            "low": 49900.0,
+            "close": 50050.0,
+            "volume": 1.5,
+            "quote_volume": 75075.0,
+            "trades": 100,
+            "taker_buy_base_volume": 0.8,
+            "taker_buy_quote_volume": 40040.0,
+            "interval": "1m",
+            "is_final": True,
         }
 
         # 处理消息
@@ -225,14 +227,14 @@ class TestRealtimeEngineIntegration:
 
         # 验证状态更新
         status = engine.get_status()
-        assert 'stats' in status
+        assert "stats" in status
 
     def test_config_update_components(self):
         """测试配置更新影响组件"""
         engine = RealtimeEngine()
 
         # 更新监控间隔
-        engine.update_config({'monitor_interval': 60})
+        engine.update_config({"monitor_interval": 60})
 
         # 验证监控器间隔已更新
         assert engine.monitor.interval == 60
@@ -253,7 +255,7 @@ class TestRealtimeEngineEdgeCases:
         # 应该能够处理None而不抛出异常
         try:
             engine._handle_message(None)
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             # 如果抛出异常，这是预期的行为
             pass
 
@@ -264,11 +266,11 @@ class TestRealtimeEngineEdgeCases:
         consumer1 = Mock()
         consumer2 = Mock()
 
-        engine.register_consumer('kline', consumer1)
-        engine.register_consumer('kline', consumer2)
+        engine.register_consumer("kline", consumer1)
+        engine.register_consumer("kline", consumer2)
 
         # 验证两个消费者都已注册
-        assert engine.data_distributor.get_consumer_count('kline') == 2
+        assert engine.data_distributor.get_consumer_count("kline") == 2
 
     def test_status_with_running_engine(self):
         """测试运行中引擎的状态"""
@@ -276,4 +278,4 @@ class TestRealtimeEngineEdgeCases:
         engine.running = True
 
         status = engine.get_status()
-        assert status['status'] == 'running'
+        assert status["status"] == "running"

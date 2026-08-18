@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 通知渠道实现
 
@@ -10,25 +9,25 @@
 """
 
 import json
-import re
 import ssl
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Dict, Optional
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from typing import Any
 
 import aiohttp
 import aiosmtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
 from .models import (
     EmailConfig,
     FeishuConfig,
     NotificationChannel,
     NotificationMessage,
-    WeComConfig,
     WebSocketConfig,
+    WeComConfig,
 )
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -41,7 +40,7 @@ class BaseChannel(ABC):
         self.channel_type = channel_type
 
     @abstractmethod
-    async def send(self, message: NotificationMessage, config: Any) -> Dict[str, Any]:
+    async def send(self, message: NotificationMessage, config: Any) -> dict[str, Any]:
         """发送通知
 
         Args:
@@ -89,8 +88,8 @@ class EmailChannel(BaseChannel):
         self,
         message: NotificationMessage,
         config: EmailConfig,
-        recipient: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        recipient: str | None = None,
+    ) -> dict[str, Any]:
         """发送邮件通知
 
         Args:
@@ -108,7 +107,9 @@ class EmailChannel(BaseChannel):
             # 构建邮件内容
             msg = MIMEMultipart("alternative")
             msg["Subject"] = message.title
-            msg["From"] = f"{config.sender_name or config.sender_email or config.username} <{config.sender_email or config.username}>"
+            msg["From"] = (
+                f"{config.sender_name or config.sender_email or config.username} <{config.sender_email or config.username}>"
+            )
 
             # 确定收件人
             to_email = recipient or config.recipient_email or config.sender_email
@@ -200,11 +201,11 @@ class EmailChannel(BaseChannel):
                     <h1>{message.title}</h1>
                 </div>
                 <div class="content">
-                    {message.content.replace(chr(10), '<br>')}
+                    {message.content.replace(chr(10), "<br>")}
                     <div class="meta">
                         <p><strong>级别:</strong> {message.level.value.upper()}</p>
                         <p><strong>分类:</strong> {message.category.value}</p>
-                        <p><strong>时间:</strong> {message.created_at.strftime('%Y-%m-%d %H:%M:%S')}</p>
+                        <p><strong>时间:</strong> {message.created_at.strftime("%Y-%m-%d %H:%M:%S")}</p>
                     </div>
                 </div>
                 <div class="footer">
@@ -229,9 +230,7 @@ class WeComChannel(BaseChannel):
             return False
         return True
 
-    async def send(
-        self, message: NotificationMessage, config: WeComConfig
-    ) -> Dict[str, Any]:
+    async def send(self, message: NotificationMessage, config: WeComConfig) -> dict[str, Any]:
         """发送企业微信通知
 
         Args:
@@ -248,9 +247,7 @@ class WeComChannel(BaseChannel):
             # 构建消息体
             if config.use_custom_format and config.message_format:
                 # 使用自定义格式
-                payload = self._apply_message_template(
-                    config.message_format, message
-                )
+                payload = self._apply_message_template(config.message_format, message)
             else:
                 # 使用默认格式
                 payload = {
@@ -259,30 +256,30 @@ class WeComChannel(BaseChannel):
                 }
 
             # 发送请求
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
                     config.webhook_url,
                     json=payload,
                     headers={"Content-Type": "application/json"},
                     timeout=aiohttp.ClientTimeout(total=30),
-                ) as response:
-                    result = await response.json()
+                ) as response,
+            ):
+                result = await response.json()
 
-                    if result.get("errcode") == 0:
-                        logger.info(f"企业微信发送成功: {message.title}")
-                        return {"success": True, "response": result}
-                    else:
-                        error_msg = result.get("errmsg", "未知错误")
-                        logger.error(f"企业微信发送失败: {error_msg}")
-                        return {"success": False, "error": error_msg}
+                if result.get("errcode") == 0:
+                    logger.info(f"企业微信发送成功: {message.title}")
+                    return {"success": True, "response": result}
+                else:
+                    error_msg = result.get("errmsg", "未知错误")
+                    logger.error(f"企业微信发送失败: {error_msg}")
+                    return {"success": False, "error": error_msg}
 
         except Exception as e:
             logger.error(f"企业微信发送失败: {e}")
             return {"success": False, "error": str(e)}
 
-    def _apply_message_template(
-        self, template: str, message: NotificationMessage
-    ) -> Dict[str, Any]:
+    def _apply_message_template(self, template: str, message: NotificationMessage) -> dict[str, Any]:
         """应用消息模板
 
         Args:
@@ -297,9 +294,7 @@ class WeComChannel(BaseChannel):
         template = template.replace("${NOTIFIER_MESSAGE}", message.content)
         template = template.replace("${NOTIFIER_LEVEL}", message.level.value)
         template = template.replace("${NOTIFIER_CATEGORY}", message.category.value)
-        template = template.replace(
-            "${NOTIFIER_TIME}", message.created_at.strftime("%Y-%m-%d %H:%M:%S")
-        )
+        template = template.replace("${NOTIFIER_TIME}", message.created_at.strftime("%Y-%m-%d %H:%M:%S"))
 
         try:
             return json.loads(template)
@@ -324,9 +319,7 @@ class FeishuChannel(BaseChannel):
             return False
         return True
 
-    async def send(
-        self, message: NotificationMessage, config: FeishuConfig
-    ) -> Dict[str, Any]:
+    async def send(self, message: NotificationMessage, config: FeishuConfig) -> dict[str, Any]:
         """发送飞书通知
 
         Args:
@@ -343,9 +336,7 @@ class FeishuChannel(BaseChannel):
             # 构建消息体
             if config.use_custom_format and config.message_format:
                 # 使用自定义格式
-                payload = self._apply_message_template(
-                    config.message_format, message
-                )
+                payload = self._apply_message_template(config.message_format, message)
             else:
                 # 使用默认格式
                 payload = {
@@ -354,30 +345,30 @@ class FeishuChannel(BaseChannel):
                 }
 
             # 发送请求
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
                     config.webhook_url,
                     json=payload,
                     headers={"Content-Type": "application/json"},
                     timeout=aiohttp.ClientTimeout(total=30),
-                ) as response:
-                    result = await response.json()
+                ) as response,
+            ):
+                result = await response.json()
 
-                    if result.get("code") == 0:
-                        logger.info(f"飞书发送成功: {message.title}")
-                        return {"success": True, "response": result}
-                    else:
-                        error_msg = result.get("msg", "未知错误")
-                        logger.error(f"飞书发送失败: {error_msg}")
-                        return {"success": False, "error": error_msg}
+                if result.get("code") == 0:
+                    logger.info(f"飞书发送成功: {message.title}")
+                    return {"success": True, "response": result}
+                else:
+                    error_msg = result.get("msg", "未知错误")
+                    logger.error(f"飞书发送失败: {error_msg}")
+                    return {"success": False, "error": error_msg}
 
         except Exception as e:
             logger.error(f"飞书发送失败: {e}")
             return {"success": False, "error": str(e)}
 
-    def _apply_message_template(
-        self, template: str, message: NotificationMessage
-    ) -> Dict[str, Any]:
+    def _apply_message_template(self, template: str, message: NotificationMessage) -> dict[str, Any]:
         """应用消息模板
 
         Args:
@@ -392,9 +383,7 @@ class FeishuChannel(BaseChannel):
         template = template.replace("${NOTIFIER_MESSAGE}", message.content)
         template = template.replace("${NOTIFIER_LEVEL}", message.level.value)
         template = template.replace("${NOTIFIER_CATEGORY}", message.category.value)
-        template = template.replace(
-            "${NOTIFIER_TIME}", message.created_at.strftime("%Y-%m-%d %H:%M:%S")
-        )
+        template = template.replace("${NOTIFIER_TIME}", message.created_at.strftime("%Y-%m-%d %H:%M:%S"))
 
         try:
             return json.loads(template)
@@ -417,6 +406,7 @@ class WebSocketChannel(BaseChannel):
         """获取WebSocket管理器(延迟导入避免循环依赖)"""
         if self._manager is None:
             from websocket.manager import manager
+
             self._manager = manager
         return self._manager
 
@@ -428,8 +418,8 @@ class WebSocketChannel(BaseChannel):
         self,
         message: NotificationMessage,
         config: WebSocketConfig,
-        client_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        client_id: str | None = None,
+    ) -> dict[str, Any]:
         """发送WebSocket通知
 
         Args:
@@ -484,9 +474,7 @@ class WebSocketChannel(BaseChannel):
             logger.error(f"WebSocket通知发送失败: {e}")
             return {"success": False, "error": str(e)}
 
-    async def broadcast_to_topic(
-        self, message: NotificationMessage, topic: str
-    ) -> Dict[str, Any]:
+    async def broadcast_to_topic(self, message: NotificationMessage, topic: str) -> dict[str, Any]:
         """广播到指定主题
 
         Args:

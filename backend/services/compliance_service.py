@@ -1,27 +1,40 @@
-# -*- coding: utf-8 -*-
 """Compliance Service — axon_quant.compliance 合规审计服务
 
 包装 axon_quant.compliance，提供交易合规审计功能。
 当 axon_quant 不可用时提供清晰的错误信息。
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # axon_quant 导入（可选）
 try:
     from axon_quant.compliance import (
-        ComplianceModule as _ComplianceModule,
-        ComplianceConfig as _ComplianceConfig,
-        TradeRecord as _TradeRecord,
-        TradeSide as _TradeSide,
-        OrderType as _OrderType,
-        TradeStatus as _TradeStatus,
         AuditEventType as _AuditEventType,
     )
+    from axon_quant.compliance import (
+        ComplianceConfig as _ComplianceConfig,
+    )
+    from axon_quant.compliance import (
+        ComplianceModule as _ComplianceModule,
+    )
+    from axon_quant.compliance import (
+        OrderType as _OrderType,
+    )
+    from axon_quant.compliance import (
+        TradeRecord as _TradeRecord,
+    )
+    from axon_quant.compliance import (
+        TradeSide as _TradeSide,
+    )
+    from axon_quant.compliance import (
+        TradeStatus as _TradeStatus,
+    )
+
     AXON_AVAILABLE = True
 except ImportError:
     AXON_AVAILABLE = False
@@ -52,21 +65,17 @@ class ComplianceServiceWrapper:
         >>> svc.log_trade(record)
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """初始化合规审计服务
 
         Args:
             config: 配置字典（可选）
         """
         if not AXON_AVAILABLE:
-            raise RuntimeError(
-                "axon_quant.compliance 不可用，请安装 axon_quant: pip install axon_quant"
-            )
+            msg = "axon_quant.compliance 不可用，请安装 axon_quant: pip install axon_quant"
+            raise RuntimeError(msg)
 
-        if config:
-            compliance_config = _ComplianceConfig(**config)
-        else:
-            compliance_config = _ComplianceConfig()
+        compliance_config = _ComplianceConfig(**config) if config else _ComplianceConfig()
 
         self._module = _ComplianceModule(compliance_config)
         logger.info("ComplianceService 已初始化")
@@ -133,7 +142,7 @@ class ComplianceServiceProxy:
     当 axon_quant 不可用时提供空实现。
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self._available = AXON_AVAILABLE
         if self._available:
             try:
@@ -160,13 +169,11 @@ class ComplianceServiceProxy:
         price: float,
         quantity: float,
         status: str = "Filled",
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """创建交易记录"""
         if not self._available or not self._service:
             return None
-        return self._service.create_trade_record(
-            trade_id, symbol, side, order_type, price, quantity, status
-        )
+        return self._service.create_trade_record(trade_id, symbol, side, order_type, price, quantity, status)
 
     def log_trade(self, record: Any) -> None:
         """记录交易"""

@@ -95,16 +95,15 @@ class StrategyTemplate:
                 if not isinstance(value, int):
                     try:
                         int(value)
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         errors.append(f"参数 {name} 应为整数类型")
                         continue
-            elif param.type == "float":
-                if not isinstance(value, (int, float)):
-                    try:
-                        float(value)
-                    except (ValueError, TypeError):
-                        errors.append(f"参数 {name} 应为数值类型")
-                        continue
+            elif param.type == "float" and not isinstance(value, (int, float)):
+                try:
+                    float(value)
+                except ValueError, TypeError:
+                    errors.append(f"参数 {name} 应为数值类型")
+                    continue
 
             # 范围检查
             if param.min is not None and value < param.min:
@@ -177,9 +176,10 @@ class TemplateLibrary:
     def load_templates(self) -> None:
         """从YAML文件加载模板"""
         if not self._library_file or not self._library_file.exists():
-            raise FileNotFoundError(f"模板库文件不存在: {self._library_file}")
+            msg = f"模板库文件不存在: {self._library_file}"
+            raise FileNotFoundError(msg)
 
-        with open(self._library_file, "r", encoding="utf-8") as f:
+        with open(self._library_file, encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         # 加载分类
@@ -246,9 +246,7 @@ class TemplateLibrary:
         """
         return self._templates.get(template_id)
 
-    def render_template(
-        self, template_id: str, strategy_name: str | None = None, **params: Any
-    ) -> str:
+    def render_template(self, template_id: str, strategy_name: str | None = None, **params: Any) -> str:
         """渲染模板生成代码
 
         使用提供的参数替换模板中的变量，生成可执行的策略代码。
@@ -268,7 +266,8 @@ class TemplateLibrary:
         """
         template = self._templates.get(template_id)
         if not template:
-            raise KeyError(f"模板 '{template_id}' 不存在")
+            msg = f"模板 '{template_id}' 不存在"
+            raise KeyError(msg)
 
         # 合并默认参数和用户参数
         render_params = template.get_default_params()
@@ -284,7 +283,8 @@ class TemplateLibrary:
         validation_params = {k: v for k, v in render_params.items() if k != "strategy_name"}
         is_valid, errors = template.validate_params(validation_params)
         if not is_valid:
-            raise ValueError(f"参数验证失败: {'; '.join(errors)}")
+            msg = f"参数验证失败: {'; '.join(errors)}"
+            raise ValueError(msg)
 
         # 渲染模板
         code = template.code_template
@@ -388,7 +388,7 @@ class TemplateLibrary:
                 "category_count": 0,
             }
 
-        with open(self._library_file, "r", encoding="utf-8") as f:
+        with open(self._library_file, encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         return {

@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
 """RL Backtest Strategy — 将 RL 模型包装为 axon_quant 策略用于回测"""
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import numpy as np
 

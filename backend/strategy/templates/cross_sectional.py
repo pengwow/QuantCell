@@ -9,10 +9,11 @@ ponytail: axon_quant 0.4.0 单标的 BacktestEngine,简化版：
 实际生产用法: BacktestLoop 对 N 个 symbol 调度,每个 symbol 独立喂 bar
 本模板假设 BacktestLoop 会把 cross_sectional 排名结果注入 bar
 """
+
 from __future__ import annotations
 
-from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 from axon_bridge import Action
+from strategy.base import BaseStrategy, StrategyContext
 
 
 class CrossSectional(BaseStrategy):
@@ -27,8 +28,13 @@ class CrossSectional(BaseStrategy):
         model_id = self.config.name
 
         if len(ctx.closes) < lookback + 1:
-            return Action(action_type="hold", confidence=0.0, target_position=0.0,
-                          model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="hold",
+                confidence=0.0,
+                target_position=0.0,
+                model_id=model_id,
+                inference_time_us=0,
+            )
 
         # 1. 动量因子 = (close - close_n) / close_n
         momentum = (bar["close"] - ctx.closes[-(lookback + 1)]) / ctx.closes[-(lookback + 1)]
@@ -40,7 +46,7 @@ class CrossSectional(BaseStrategy):
         recent = ctx.closes[-lookback:]
         mean = sum(recent) / lookback
         variance = sum((p - mean) ** 2 for p in recent) / lookback
-        vol = variance ** 0.5
+        vol = variance**0.5
         vol_factor = 1.0 / (1.0 + vol / mean) if mean > 0 else 0.0
 
         # 综合分数
@@ -52,12 +58,27 @@ class CrossSectional(BaseStrategy):
         threshold = float(self.config.params.get("threshold", 0.05))
 
         if rank > 0 and rank <= top_k and score > threshold:
-            return Action(action_type="buy", confidence=min(0.9, score),
-                          target_position=limit, model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="buy",
+                confidence=min(0.9, score),
+                target_position=limit,
+                model_id=model_id,
+                inference_time_us=0,
+            )
 
         if score < -threshold:
-            return Action(action_type="sell", confidence=min(0.9, -score),
-                          target_position=0.0, model_id=model_id, inference_time_us=0)
+            return Action(
+                action_type="sell",
+                confidence=min(0.9, -score),
+                target_position=0.0,
+                model_id=model_id,
+                inference_time_us=0,
+            )
 
-        return Action(action_type="hold", confidence=0.0, target_position=0.0,
-                      model_id=model_id, inference_time_us=0)
+        return Action(
+            action_type="hold",
+            confidence=0.0,
+            target_position=0.0,
+            model_id=model_id,
+            inference_time_us=0,
+        )

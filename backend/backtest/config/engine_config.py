@@ -13,15 +13,15 @@
 日期: 2026-02-15
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
-from .settings import DEFAULT_ENGINE, EngineType, DEFAULT_CONFIG
+from .settings import DEFAULT_CONFIG, DEFAULT_ENGINE, EngineType
 
 
 def get_engine_config(
-    engine_type: Optional[EngineType] = None,
-    custom_config: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    engine_type: EngineType | None = None,
+    custom_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     获取引擎配置
 
@@ -42,7 +42,12 @@ def get_engine_config(
     engine_type = engine_type or DEFAULT_ENGINE
 
     # 根据引擎类型选择基础配置
-    if engine_type in (EngineType.EVENT_DRIVEN, EngineType.VECTORIZED, EngineType.CONCURRENT, EngineType.ASYNC_EVENT):
+    if engine_type in (
+        EngineType.EVENT_DRIVEN,
+        EngineType.VECTORIZED,
+        EngineType.CONCURRENT,
+        EngineType.ASYNC_EVENT,
+    ):
         base_config = DEFAULT_CONFIG.copy()
     elif engine_type == EngineType.LEGACY:
         # 传统引擎配置
@@ -60,9 +65,9 @@ def get_engine_config(
 
 
 def load_engine_config(
-    config_dict: Dict[str, Any],
+    config_dict: dict[str, Any],
     engine_type_key: str = "engine_type",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     从字典加载引擎配置
 
@@ -89,23 +94,19 @@ def load_engine_config(
         engine_type = EngineType(engine_type_str)
     except ValueError as e:
         valid_types = [et.value for et in EngineType]
-        raise ValueError(
-            f"无效的引擎类型: {engine_type_str}. "
-            f"有效的类型: {valid_types}"
-        ) from e
+        msg = f"无效的引擎类型: {engine_type_str}. 有效的类型: {valid_types}"
+        raise ValueError(msg) from e
 
     # 移除引擎类型键，剩余作为自定义配置
-    custom_config = {
-        k: v for k, v in config_dict.items() if k != engine_type_key
-    }
+    custom_config = {k: v for k, v in config_dict.items() if k != engine_type_key}
 
     return get_engine_config(engine_type, custom_config)
 
 
 def merge_config(
-    base_config: Dict[str, Any],
-    override_config: Dict[str, Any],
-) -> Dict[str, Any]:
+    base_config: dict[str, Any],
+    override_config: dict[str, Any],
+) -> dict[str, Any]:
     """
     合并配置字典
 
@@ -130,11 +131,7 @@ def merge_config(
     result = base_config.copy()
 
     for key, value in override_config.items():
-        if (
-            key in result
-            and isinstance(result[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             # 递归合并嵌套字典
             result[key] = merge_config(result[key], value)
         else:

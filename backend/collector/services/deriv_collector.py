@@ -7,13 +7,12 @@
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 
 import aiohttp
 import pandas as pd
 
-from utils.logger import get_logger, LogType
 from utils import get_source_data_dir
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -47,9 +46,9 @@ class FundingRateFetcher:
         self,
         session: aiohttp.ClientSession,
         symbol: str,
-        start_time: Optional[int] = None,
-        end_time: Optional[int] = None,
-        proxy: Optional[str] = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        proxy: str | None = None,
     ) -> pd.DataFrame:
         """异步获取单个 symbol 的资金费率历史"""
         params = {"symbol": symbol}
@@ -108,7 +107,7 @@ class OpenInterestFetcher:
         self,
         session: aiohttp.ClientSession,
         symbol: str,
-        proxy: Optional[str] = None,
+        proxy: str | None = None,
     ) -> pd.DataFrame:
         """异步获取单个 symbol 的当前持仓量"""
         url = f"{self.api_base}/fapi/v1/openInterest"
@@ -140,9 +139,7 @@ class DerivCollector:
         save_dir.mkdir(parents=True, exist_ok=True)
         return save_dir
 
-    def _parse_time_range(
-        self, start: Optional[str], end: Optional[str]
-    ) -> tuple[Optional[int], Optional[int]]:
+    def _parse_time_range(self, start: str | None, end: str | None) -> tuple[int | None, int | None]:
         """将 YYYY-MM-DD 格式时间转换为毫秒时间戳"""
         start_ms = None
         end_ms = None
@@ -156,9 +153,9 @@ class DerivCollector:
         self,
         data_type: str,
         market: str,
-        symbols: List[str],
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        symbols: list[str],
+        start: str | None = None,
+        end: str | None = None,
     ) -> None:
         """采集衍生数据"""
         import asyncio

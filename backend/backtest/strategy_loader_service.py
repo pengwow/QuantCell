@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 策略加载服务模块（基于 axond 体系）
 
@@ -13,9 +12,8 @@
 import importlib
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional, Type
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -23,6 +21,7 @@ logger = get_logger(__name__, LogType.APPLICATION)
 
 class StrategyLoadError(Exception):
     """策略加载异常"""
+
     pass
 
 
@@ -54,7 +53,8 @@ class StrategyLoaderService:
         """
         dirs = StrategyLoaderService._get_strategies_dirs()
         if not dirs:
-            raise StrategyLoadError("找不到任何策略目录")
+            msg = "找不到任何策略目录"
+            raise StrategyLoadError(msg)
         return dirs[0]
 
     @staticmethod
@@ -79,7 +79,7 @@ class StrategyLoaderService:
         return [d for d in candidates if d.exists()]
 
     @staticmethod
-    def _find_strategy_file(strategy_name: str) -> Optional[Path]:
+    def _find_strategy_file(strategy_name: str) -> Path | None:
         """在所有候选目录里查找策略文件
 
         Args:
@@ -107,7 +107,7 @@ class StrategyLoaderService:
         result: list[Path] = []
         for d in StrategyLoaderService._get_strategies_dirs():
             for f in sorted(d.glob("*.py")):
-                if f.name.startswith("_") or f.stem in ("__init__",):
+                if f.name.startswith("_") or f.stem == "__init__":
                     continue
                 if f not in seen:
                     seen.add(f)
@@ -118,8 +118,8 @@ class StrategyLoaderService:
     def load_strategy(
         strategy_name: str,
         strategy_params: dict,
-        instrument_ids: Optional[list] = None,
-        bar_types: Optional[list] = None,
+        instrument_ids: list | None = None,
+        bar_types: list | None = None,
     ):
         """
         加载策略（通用入口）
@@ -141,9 +141,8 @@ class StrategyLoaderService:
             strategy_file = StrategyLoaderService._find_strategy_file(strategy_name)
             if strategy_file is None:
                 dirs = StrategyLoaderService._get_strategies_dirs()
-                raise StrategyLoadError(
-                    f"策略文件不存在: {strategy_name}.py。已搜索: {[str(d) for d in dirs]}"
-                )
+                msg = f"策略文件不存在: {strategy_name}.py。已搜索: {[str(d) for d in dirs]}"
+                raise StrategyLoadError(msg)
 
             strategies_dir = strategy_file.parent
             if str(strategies_dir) not in sys.path:
@@ -158,29 +157,30 @@ class StrategyLoaderService:
             strategy_class = StrategyLoaderService._find_strategy_class(module)
 
             if strategy_class is None:
-                raise StrategyLoadError(
-                    f"在模块 {strategy_name} 中找不到策略类"
-                )
+                msg = f"在模块 {strategy_name} 中找不到策略类"
+                raise StrategyLoadError(msg)
 
             # 实例化策略
             # instrument_ids/bar_types 传 None 时 _instantiate_strategy 会用空列表
             # （axond.StrategyConfig 的这两个字段是必填但允许空列表；
             #  真实品种信息在 default 引擎走 data_dict，event 引擎走 load_event_strategy_multi）
             instance = StrategyLoaderService._instantiate_strategy(
-                strategy_class, strategy_params, instrument_ids, bar_types,
+                strategy_class,
+                strategy_params,
+                instrument_ids,
+                bar_types,
                 config_class=StrategyLoaderService._find_strategy_config_class(module, strategy_class),
             )
 
-            logger.info(
-                f"成功加载策略: {strategy_class.__name__} (from {strategy_file})"
-            )
+            logger.info(f"成功加载策略: {strategy_class.__name__} (from {strategy_file})")
             return instance
 
         except StrategyLoadError:
             raise
         except Exception as e:
             logger.error(f"加载策略失败: {e}")
-            raise StrategyLoadError(f"加载策略失败: {e}") from e
+            msg = f"加载策略失败: {e}"
+            raise StrategyLoadError(msg) from e
 
     @staticmethod
     def load_event_strategy(
@@ -229,7 +229,7 @@ class StrategyLoaderService:
         """
         try:
             backend_path = Path(__file__).resolve().parent.parent
-            strategies_dir = backend_path / 'strategies'
+            strategies_dir = backend_path / "strategies"
 
             if str(strategies_dir) not in sys.path:
                 sys.path.insert(0, str(strategies_dir))
@@ -251,7 +251,7 @@ class StrategyLoaderService:
             try:
                 from backtest.strategies.event_strategy import (
                     EventDrivenStrategy,
-                    EventDrivenStrategyConfig
+                    EventDrivenStrategyConfig,
                 )
             except ImportError as e:
                 logger.error(f"导入 EventDrivenStrategy 失败: {e}")
@@ -282,19 +282,18 @@ class StrategyLoaderService:
 
                 config_param_names = StrategyLoaderService._get_class_param_names(config_class)
 
-                if 'instrument_ids' in config_param_names:
-                    config_params['instrument_ids'] = instrument_ids_list
-                elif 'instrument_id' in config_param_names:
-                    config_params['instrument_id'] = instrument_ids_list[0] if instrument_ids_list else None
+                if "instrument_ids" in config_param_names:
+                    config_params["instrument_ids"] = instrument_ids_list
+                elif "instrument_id" in config_param_names:
+                    config_params["instrument_id"] = instrument_ids_list[0] if instrument_ids_list else None
 
-                if 'bar_types' in config_param_names:
-                    config_params['bar_types'] = bar_types_list
-                elif 'bar_type' in config_param_names:
-                    config_params['bar_type'] = bar_types_list[0] if bar_types_list else None
+                if "bar_types" in config_param_names:
+                    config_params["bar_types"] = bar_types_list
+                elif "bar_type" in config_param_names:
+                    config_params["bar_type"] = bar_types_list[0] if bar_types_list else None
 
                 # 移除不相关的参数
-                config_params = {k: v for k, v in config_params.items()
-                                if k in config_param_names}
+                config_params = {k: v for k, v in config_params.items() if k in config_param_names}
 
                 config = config_class(**config_params)
                 user_strategy = strategy_class(config)
@@ -303,33 +302,30 @@ class StrategyLoaderService:
 
                 strategy_param_names = StrategyLoaderService._get_class_param_names(strategy_class)
 
-                if 'instrument_ids' in strategy_param_names:
-                    strategy_params_copy['instrument_ids'] = instrument_ids_list
-                elif 'instrument_id' in strategy_param_names:
-                    strategy_params_copy['instrument_id'] = instrument_ids_list[0] if instrument_ids_list else None
+                if "instrument_ids" in strategy_param_names:
+                    strategy_params_copy["instrument_ids"] = instrument_ids_list
+                elif "instrument_id" in strategy_param_names:
+                    strategy_params_copy["instrument_id"] = instrument_ids_list[0] if instrument_ids_list else None
 
-                if 'bar_types' in strategy_param_names:
-                    strategy_params_copy['bar_types'] = bar_types_list
-                elif 'bar_type' in strategy_param_names:
-                    strategy_params_copy['bar_type'] = bar_types_list[0] if bar_types_list else None
+                if "bar_types" in strategy_param_names:
+                    strategy_params_copy["bar_types"] = bar_types_list
+                elif "bar_type" in strategy_param_names:
+                    strategy_params_copy["bar_type"] = bar_types_list[0] if bar_types_list else None
 
                 # 移除不相关的参数
-                strategy_params_copy = {k: v for k, v in strategy_params_copy.items()
-                                       if k in strategy_param_names}
+                strategy_params_copy = {k: v for k, v in strategy_params_copy.items() if k in strategy_param_names}
 
                 user_strategy = strategy_class(**strategy_params_copy)
 
             strategy = user_strategy
-            logger.info(
-                f"成功加载事件驱动策略: {strategy_class.__name__}"
-                f"（支持 {len(instruments)} 个品种）"
-            )
+            logger.info(f"成功加载事件驱动策略: {strategy_class.__name__}（支持 {len(instruments)} 个品种）")
 
             return strategy
 
         except Exception as e:
             logger.error(f"加载多品种事件驱动策略失败: {e}")
             import traceback
+
             traceback.print_exc()
             return None
 
@@ -346,17 +342,17 @@ class StrategyLoaderService:
 
         try:
             sig = inspect.signature(cls.__init__)
-            param_names = [p for p in sig.parameters.keys() if p != 'self']
-        except (ValueError, TypeError):
+            param_names = [p for p in sig.parameters if p != "self"]
+        except ValueError, TypeError:
             # 当 __init__ 来自 C 扩展或不可内省时，回退到 Pydantic/dataclass 字段
             pass
 
         if not param_names:
-            if hasattr(cls, 'model_fields'):
+            if hasattr(cls, "model_fields"):
                 param_names = list(cls.model_fields.keys())
-            elif hasattr(cls, '__fields__'):
+            elif hasattr(cls, "__fields__"):
                 param_names = list(cls.__fields__.keys())
-            elif hasattr(cls, '__annotations__'):
+            elif hasattr(cls, "__annotations__"):
                 param_names = list(cls.__annotations__.keys())
 
         return param_names

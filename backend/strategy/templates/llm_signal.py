@@ -8,15 +8,18 @@ ponytail: 默认 heuristic 复用已 proven 的双均线逻辑,避免重复调�
          llm_provider 是 Callable[[str], str],与 axon_quant.ReActAgent 签名一致
          策略只关心 signal → Action 映射,不感知 LLM 后端细节
 """
+
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from typing import TYPE_CHECKING
 
+from axon_bridge import Action, MarketSignal, SignalType
 from strategy.base import BaseStrategy, StrategyConfig, StrategyContext
 from strategy.loader import register
-from axon_bridge import Action, MarketSignal, SignalType
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _SIGNAL_TO_ACTION = {
     SignalType.Buy: "buy",
@@ -37,15 +40,17 @@ def _heuristic_signal(closes: list[float], fast: int, slow: int) -> MarketSignal
     """
     if len(closes) < slow + 1:
         return MarketSignal(
-            signal_type=SignalType.Hold, symbol="", confidence=0.0,
+            signal_type=SignalType.Hold,
+            symbol="",
+            confidence=0.0,
             reasoning="warmup",
         )
 
     # 上一根和当前的快慢均线
     fast_ma_now = _ma(closes[-fast:])
     slow_ma_now = _ma(closes[-slow:])
-    fast_ma_prev = _ma(closes[-fast - 1:-1])
-    slow_ma_prev = _ma(closes[-slow - 1:-1])
+    fast_ma_prev = _ma(closes[-fast - 1 : -1])
+    slow_ma_prev = _ma(closes[-slow - 1 : -1])
 
     above_now = fast_ma_now > slow_ma_now
     above_prev = fast_ma_prev > slow_ma_prev
@@ -53,17 +58,23 @@ def _heuristic_signal(closes: list[float], fast: int, slow: int) -> MarketSignal
     if not above_prev and above_now:
         confidence = min(1.0, abs(fast_ma_now - slow_ma_now) / slow_ma_now * 50)
         return MarketSignal(
-            signal_type=SignalType.Buy, symbol="", confidence=confidence,
+            signal_type=SignalType.Buy,
+            symbol="",
+            confidence=confidence,
             reasoning=f"golden_cross fast={fast_ma_now:.2f} slow={slow_ma_now:.2f}",
         )
     if above_prev and not above_now:
         confidence = min(1.0, abs(fast_ma_now - slow_ma_now) / slow_ma_now * 50)
         return MarketSignal(
-            signal_type=SignalType.Sell, symbol="", confidence=confidence,
+            signal_type=SignalType.Sell,
+            symbol="",
+            confidence=confidence,
             reasoning=f"death_cross fast={fast_ma_now:.2f} slow={slow_ma_now:.2f}",
         )
     return MarketSignal(
-        signal_type=SignalType.Hold, symbol="", confidence=0.0,
+        signal_type=SignalType.Hold,
+        symbol="",
+        confidence=0.0,
         reasoning="no_cross",
     )
 
@@ -92,12 +103,19 @@ class LLMSignalStrategy(BaseStrategy):
         provider: Callable[[str], str] | None = self.config.params.get("llm_provider")
         if not provider:
             return MarketSignal(
-                signal_type=SignalType.Hold, symbol="", confidence=0.0,
+                signal_type=SignalType.Hold,
+                symbol="",
+                confidence=0.0,
                 reasoning="no_llm_provider",
             )
         lookback = int(self.config.params.get("lookback", 30))
         recent = ctx.closes[-lookback:] if len(ctx.closes) >= lookback else ctx.closes
-        o, h, l, c = bar.get("open", 0), bar.get("high", 0), bar.get("low", 0), bar.get("close", 0)
+        o, h, l, c = (
+            bar.get("open", 0),
+            bar.get("high", 0),
+            bar.get("low", 0),
+            bar.get("close", 0),
+        )
         prompt = (
             "你是量化交易分析师。分析以下K线,输出JSON信号。\n"
             '格式: {"action":"Buy"|"Sell"|"Hold","confidence":0.0-1.0,"reasoning":"..."}\n'
@@ -110,7 +128,11 @@ class LLMSignalStrategy(BaseStrategy):
             end = reply.rfind("}") + 1
             if start >= 0 and end > start:
                 data = json.loads(reply[start:end])
-                amap = {"Buy": SignalType.Buy, "Sell": SignalType.Sell, "Hold": SignalType.Hold}
+                amap = {
+                    "Buy": SignalType.Buy,
+                    "Sell": SignalType.Sell,
+                    "Hold": SignalType.Hold,
+                }
                 return MarketSignal(
                     signal_type=amap.get(data.get("action", "Hold"), SignalType.Hold),
                     symbol="",
@@ -120,7 +142,9 @@ class LLMSignalStrategy(BaseStrategy):
         except Exception:
             pass
         return MarketSignal(
-            signal_type=SignalType.Hold, symbol="", confidence=0.0,
+            signal_type=SignalType.Hold,
+            symbol="",
+            confidence=0.0,
             reasoning="llm_parse_error",
         )
 
@@ -159,4 +183,3 @@ class LLMSignalStrategy(BaseStrategy):
             model_id=model_id,
             inference_time_us=0,
         )
-

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 定时任务调度器模块
 
@@ -7,7 +6,8 @@
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -44,7 +44,7 @@ def start_scheduler(
             return
 
         # 执行同步
-        result = symbol_sync_manager.perform_sync(exchange='binance')
+        result = symbol_sync_manager.perform_sync(exchange="binance")
         if result.get("success"):
             logger.info(f"定时同步成功: {result.get('message')}")
         else:

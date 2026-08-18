@@ -14,10 +14,9 @@
 日期: 2026-02-12
 """
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 
 from common.schemas import ApiResponse, PaginationRequest
 
@@ -51,7 +50,7 @@ class BacktestConfig(BaseSchema):
         show_progress: 是否显示进度
     """
 
-    symbols: List[str] = Field(
+    symbols: list[str] = Field(
         ...,
         min_length=1,
         description="回测交易对列表",
@@ -144,7 +143,7 @@ class StrategyConfig(BaseSchema):
         description="策略名称",
         json_schema_extra={"example": "SmaCross"},
     )
-    params: Dict[str, Any] = Field(
+    params: dict[str, Any] = Field(
         default_factory=dict,
         description="策略参数",
         json_schema_extra={"example": {"n1": 10, "n2": 20}},
@@ -229,10 +228,10 @@ class BacktestResult(BaseSchema):
     task_id: str = Field(..., description="任务ID")
     strategy_name: str = Field(..., description="策略名称")
     backtest_config: BacktestConfig = Field(..., description="回测配置")
-    metrics: Dict[str, Any] = Field(..., description="回测指标")
-    trades: List[Dict[str, Any]] = Field(..., description="交易记录列表")
-    equity_curve: List[Dict[str, Any]] = Field(..., description="资金曲线数据")
-    strategy_data: List[Dict[str, Any]] = Field(
+    metrics: dict[str, Any] = Field(..., description="回测指标")
+    trades: list[dict[str, Any]] = Field(..., description="交易记录列表")
+    equity_curve: list[dict[str, Any]] = Field(..., description="资金曲线数据")
+    strategy_data: list[dict[str, Any]] = Field(
         default_factory=list,
         description="策略指标数据",
     )
@@ -248,9 +247,9 @@ class MultiBacktestResult(BaseSchema):
         results: 各货币对回测结果
     """
 
-    task_ids: List[str] = Field(..., description="所有子任务ID")
-    total_metrics: Dict[str, Any] = Field(..., description="汇总指标")
-    results: List[BacktestResult] = Field(..., description="各货币对回测结果")
+    task_ids: list[str] = Field(..., description="所有子任务ID")
+    total_metrics: dict[str, Any] = Field(..., description="汇总指标")
+    results: list[BacktestResult] = Field(..., description="各货币对回测结果")
 
 
 class BacktestRunResponse(ApiResponse):
@@ -261,7 +260,7 @@ class BacktestRunResponse(ApiResponse):
         data: 响应数据，包含任务ID
     """
 
-    data: Optional[Dict[str, Any]] = Field(
+    data: dict[str, Any] | None = Field(
         default=None,
         description="响应数据，包含任务ID",
     )
@@ -290,7 +289,7 @@ class BacktestAnalyzeResponse(ApiResponse):
         data: 回测详细结果
     """
 
-    data: Optional[BacktestResult] = Field(default=None, description="回测详细结果")
+    data: BacktestResult | None = Field(default=None, description="回测详细结果")
 
 
 class BacktestListResponse(ApiResponse):
@@ -301,7 +300,7 @@ class BacktestListResponse(ApiResponse):
         data: 回测列表数据
     """
 
-    data: Optional[Dict[str, Any]] = Field(default=None, description="回测列表数据")
+    data: dict[str, Any] | None = Field(default=None, description="回测列表数据")
 
 
 class ReplayData(BaseSchema):
@@ -315,10 +314,10 @@ class ReplayData(BaseSchema):
         indicators: 技术指标数据
     """
 
-    kline: List[Dict[str, Any]] = Field(..., description="K线数据")
-    trades: List[Dict[str, Any]] = Field(..., description="交易信号")
-    equity: List[Dict[str, Any]] = Field(..., description="资金曲线")
-    indicators: Dict[str, List[Dict[str, Any]]] = Field(..., description="技术指标数据")
+    kline: list[dict[str, Any]] = Field(..., description="K线数据")
+    trades: list[dict[str, Any]] = Field(..., description="交易信号")
+    equity: list[dict[str, Any]] = Field(..., description="资金曲线")
+    indicators: dict[str, list[dict[str, Any]]] = Field(..., description="技术指标数据")
 
 
 class BacktestReplayResponse(ApiResponse):
@@ -329,7 +328,7 @@ class BacktestReplayResponse(ApiResponse):
         data: 回放数据
     """
 
-    data: Optional[ReplayData] = Field(default=None, description="回放数据")
+    data: ReplayData | None = Field(default=None, description="回放数据")
 
 
 class BacktestListRequest(PaginationRequest):
@@ -338,6 +337,7 @@ class BacktestListRequest(PaginationRequest):
 
     继承自PaginationRequest，支持分页查询
     """
+
     pass
 
 
@@ -386,7 +386,7 @@ class StrategyConfigRequest(BaseSchema):
         max_length=100,
         description="策略名称",
     )
-    params: Dict[str, Any] = Field(
+    params: dict[str, Any] = Field(
         default_factory=dict,
         description="策略参数",
     )
@@ -406,7 +406,7 @@ class BacktestReplayRequest(BaseSchema):
         min_length=1,
         description="回测ID",
     )
-    symbol: Optional[str] = Field(
+    symbol: str | None = Field(
         default=None,
         description="货币对，用于多货币对回测结果筛选",
     )
@@ -480,8 +480,8 @@ class QualityIssue(BaseSchema):
     """
 
     type: str = Field(..., description="问题类型")
-    column: Optional[str] = Field(default=None, description="相关列名")
-    count: Optional[int] = Field(default=None, ge=0, description="问题数量")
+    column: str | None = Field(default=None, description="相关列名")
+    count: int | None = Field(default=None, ge=0, description="问题数量")
     message: str = Field(..., description="问题描述")
 
 
@@ -503,11 +503,11 @@ class DataIntegrityResult(BaseSchema):
     total_expected: int = Field(..., ge=0, description="期望数据条数")
     total_actual: int = Field(..., ge=0, description="实际数据条数")
     missing_count: int = Field(..., ge=0, description="缺失条数")
-    missing_ranges: List[MissingRange] = Field(
+    missing_ranges: list[MissingRange] = Field(
         default_factory=list,
         description="缺失时间段列表",
     )
-    quality_issues: List[QualityIssue] = Field(
+    quality_issues: list[QualityIssue] = Field(
         default_factory=list,
         description="数据质量问题列表",
     )
@@ -522,7 +522,7 @@ class DataIntegrityCheckResponse(ApiResponse):
         data: 检查结果
     """
 
-    data: Optional[DataIntegrityResult] = Field(default=None, description="检查结果")
+    data: DataIntegrityResult | None = Field(default=None, description="检查结果")
 
 
 class DataDownloadProgress(BaseSchema):
@@ -549,7 +549,7 @@ class DataDownloadProgress(BaseSchema):
     message: str = Field(..., description="状态消息")
     created_at: str = Field(..., description="创建时间")
     updated_at: str = Field(..., description="更新时间")
-    error: Optional[str] = Field(default=None, description="错误信息")
+    error: str | None = Field(default=None, description="错误信息")
 
 
 class DataDownloadResponse(ApiResponse):
@@ -560,10 +560,11 @@ class DataDownloadResponse(ApiResponse):
         data: 下载进度信息
     """
 
-    data: Optional[DataDownloadProgress] = Field(default=None, description="下载进度信息")
+    data: DataDownloadProgress | None = Field(default=None, description="下载进度信息")
 
 
 # ==================== 回测进度相关模型 ====================
+
 
 class BacktestProgressStage(BaseSchema):
     """
@@ -577,7 +578,7 @@ class BacktestProgressStage(BaseSchema):
 
     status: str = Field(default="pending", description="阶段状态")
     progress: float = Field(default=0.0, ge=0.0, le=100.0, description="进度百分比")
-    message: Optional[str] = Field(default=None, description="状态消息")
+    message: str | None = Field(default=None, description="状态消息")
 
 
 class DataPrepProgressDetail(BacktestProgressStage):
@@ -594,7 +595,7 @@ class DataPrepProgressDetail(BacktestProgressStage):
     current_step: str = Field(default="checking", description="当前步骤")
     checked_symbols: int = Field(default=0, ge=0, description="已检查货币对数量")
     total_symbols: int = Field(default=0, ge=0, description="总货币对数量")
-    downloading: Optional[Dict[str, Any]] = Field(default=None, description="下载进度信息")
+    downloading: dict[str, Any] | None = Field(default=None, description="下载进度信息")
 
 
 class ExecutionProgressDetail(BacktestProgressStage):
@@ -649,7 +650,7 @@ class BacktestProgressData(BaseSchema):
     data_prep: DataPrepProgressDetail = Field(default_factory=DataPrepProgressDetail, description="数据准备阶段进度")
     execution: ExecutionProgressDetail = Field(default_factory=ExecutionProgressDetail, description="执行阶段进度")
     analysis: BacktestProgressStage = Field(default_factory=BacktestProgressStage, description="结果统计阶段进度")
-    error: Optional[ErrorInfoDetail] = Field(default=None, description="错误信息")
+    error: ErrorInfoDetail | None = Field(default=None, description="错误信息")
     created_at: str = Field(default="", description="创建时间")
     updated_at: str = Field(default="", description="更新时间")
 
@@ -662,4 +663,4 @@ class BacktestProgressResponse(ApiResponse):
         data: 回测进度数据
     """
 
-    data: Optional[BacktestProgressData] = Field(default=None, description="回测进度数据")
+    data: BacktestProgressData | None = Field(default=None, description="回测进度数据")

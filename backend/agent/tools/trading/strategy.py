@@ -1,6 +1,5 @@
 """策略工具 - 薄封装，调用CLI层"""
 
-import json
 from typing import Any
 
 from ..base import Tool
@@ -19,6 +18,7 @@ class ListStrategiesTool(Tool):
 
     async def execute(self, **kwargs: Any) -> str:
         from cli.strategy import list_strategies
+
         return list_strategies()
 
 
@@ -37,6 +37,7 @@ class GetStrategyDetailTool(Tool):
 
     async def execute(self, strategy_id: int, **kwargs: Any) -> str:
         from cli.strategy import get_strategy_detail
+
         return get_strategy_detail(strategy_id)
 
 
@@ -64,7 +65,7 @@ class RunBacktestTool(Tool):
         timeframe: str = "1h",
         start_date: str | None = None,
         end_date: str | None = None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> str:
         try:
             from backtest.service import BacktestService
@@ -101,9 +102,18 @@ class GenerateStrategyTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "requirement": {"type": "string", "description": "策略需求描述，如'双均线交叉策略，快线10日，慢线30日'"},
-            "strategy_name": {"type": "string", "description": "策略名称，用于文件命名"},
-            "indicators": {"type": "string", "description": "自定义指标配置（可选），JSON格式"},
+            "requirement": {
+                "type": "string",
+                "description": "策略需求描述，如'双均线交叉策略，快线10日，慢线30日'",
+            },
+            "strategy_name": {
+                "type": "string",
+                "description": "策略名称，用于文件命名",
+            },
+            "indicators": {
+                "type": "string",
+                "description": "自定义指标配置（可选），JSON格式",
+            },
         },
         "required": ["requirement", "strategy_name"],
     }
@@ -118,6 +128,7 @@ class GenerateStrategyTool(Tool):
         **kwargs: Any,
     ) -> str:
         from cli.strategy import generate_strategy
+
         return generate_strategy(requirement, strategy_name, indicators)
 
 
@@ -129,9 +140,15 @@ class AnalyzeBacktestResultTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "backtest_id": {"type": "string", "description": "回测任务ID，从数据库读取结果"},
+            "backtest_id": {
+                "type": "string",
+                "description": "回测任务ID，从数据库读取结果",
+            },
             "result_file": {"type": "string", "description": "回测结果JSON文件路径"},
-            "result_data": {"type": "string", "description": "直接传入的回测结果JSON字符串"},
+            "result_data": {
+                "type": "string",
+                "description": "直接传入的回测结果JSON字符串",
+            },
         },
         "required": [],
     }
@@ -146,6 +163,7 @@ class AnalyzeBacktestResultTool(Tool):
         **kwargs: Any,
     ) -> str:
         from cli.strategy import analyze_backtest_result
+
         return analyze_backtest_result(backtest_id, result_file, result_data)
 
 
@@ -158,11 +176,29 @@ class OptimizeStrategyParamsTool(Tool):
         "type": "object",
         "properties": {
             "strategy_name": {"type": "string", "description": "策略名称"},
-            "param_ranges": {"type": "string", "description": "参数搜索范围，JSON格式，如'{\"fast_period\": [5,10,15,20], \"slow_period\": [20,30,40,50]}'"},
-            "symbols": {"type": "string", "description": "交易对列表，逗号分隔，如'BTCUSDT,ETHUSDT'"},
-            "timeframe": {"type": "string", "description": "时间周期，如'1h', '4h', '1d'", "default": "1h"},
-            "metric": {"type": "string", "description": "优化目标指标", "default": "sharpe_ratio"},
-            "max_iterations": {"type": "integer", "description": "最大迭代次数", "default": 50},
+            "param_ranges": {
+                "type": "string",
+                "description": '参数搜索范围，JSON格式，如\'{"fast_period": [5,10,15,20], "slow_period": [20,30,40,50]}\'',
+            },
+            "symbols": {
+                "type": "string",
+                "description": "交易对列表，逗号分隔，如'BTCUSDT,ETHUSDT'",
+            },
+            "timeframe": {
+                "type": "string",
+                "description": "时间周期，如'1h', '4h', '1d'",
+                "default": "1h",
+            },
+            "metric": {
+                "type": "string",
+                "description": "优化目标指标",
+                "default": "sharpe_ratio",
+            },
+            "max_iterations": {
+                "type": "integer",
+                "description": "最大迭代次数",
+                "default": 50,
+            },
         },
         "required": ["strategy_name", "param_ranges"],
     }
@@ -180,6 +216,7 @@ class OptimizeStrategyParamsTool(Tool):
         **kwargs: Any,
     ) -> str:
         from cli.strategy import optimize_strategy_params
+
         return optimize_strategy_params(strategy_name, param_ranges, symbols, timeframe, metric, max_iterations)
 
 
@@ -192,7 +229,10 @@ class DiagnoseStrategyTool(Tool):
         "type": "object",
         "properties": {
             "strategy_name": {"type": "string", "description": "策略名称"},
-            "backtest_id": {"type": "string", "description": "回测任务ID（可选），用于分析实际交易数据"},
+            "backtest_id": {
+                "type": "string",
+                "description": "回测任务ID（可选），用于分析实际交易数据",
+            },
         },
         "required": ["strategy_name"],
     }
@@ -206,6 +246,7 @@ class DiagnoseStrategyTool(Tool):
         **kwargs: Any,
     ) -> str:
         from cli.strategy import diagnose_strategy
+
         return diagnose_strategy(strategy_name, backtest_id)
 
 
@@ -218,13 +259,39 @@ class DeployStrategyTool(Tool):
         "type": "object",
         "properties": {
             "strategy_name": {"type": "string", "description": "策略名称"},
-            "strategy_file_name": {"type": "string", "description": "策略文件名（不含.py后缀）"},
-            "exchange": {"type": "string", "description": "交易所名称，如'binance'", "default": "binance"},
-            "symbols": {"type": "string", "description": "交易对列表，逗号分隔，如'BTCUSDT,ETHUSDT'"},
-            "timeframe": {"type": "string", "description": "时间周期，如'1h'", "default": "1h"},
-            "initial_capital": {"type": "number", "description": "初始资金", "default": 100000},
-            "trading_mode": {"type": "string", "description": "交易模式：demo(模拟)/live(实盘)", "default": "demo"},
-            "auto_start": {"type": "boolean", "description": "是否自动启动", "default": False},
+            "strategy_file_name": {
+                "type": "string",
+                "description": "策略文件名（不含.py后缀）",
+            },
+            "exchange": {
+                "type": "string",
+                "description": "交易所名称，如'binance'",
+                "default": "binance",
+            },
+            "symbols": {
+                "type": "string",
+                "description": "交易对列表，逗号分隔，如'BTCUSDT,ETHUSDT'",
+            },
+            "timeframe": {
+                "type": "string",
+                "description": "时间周期，如'1h'",
+                "default": "1h",
+            },
+            "initial_capital": {
+                "type": "number",
+                "description": "初始资金",
+                "default": 100000,
+            },
+            "trading_mode": {
+                "type": "string",
+                "description": "交易模式：demo(模拟)/live(实盘)",
+                "default": "demo",
+            },
+            "auto_start": {
+                "type": "boolean",
+                "description": "是否自动启动",
+                "default": False,
+            },
         },
         "required": ["strategy_name", "symbols"],
     }
@@ -244,6 +311,7 @@ class DeployStrategyTool(Tool):
         **kwargs: Any,
     ) -> str:
         from cli.strategy import deploy_strategy
+
         return deploy_strategy(
             strategy_name,
             symbols,

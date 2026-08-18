@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 日志管理API路由
 
@@ -6,14 +5,13 @@
 基于文件日志系统实现，替代原数据库日志方案。
 """
 
-from datetime import datetime, timedelta
-from typing import Optional, List
+from datetime import datetime
 
-from fastapi import APIRouter, Query, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from utils.log_query_engine import get_log_query_engine
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取日志器
 logger = get_logger(__name__, LogType.API)
@@ -24,29 +22,32 @@ router = APIRouter(prefix="/api/logs", tags=["日志管理"])
 
 class LogResponse(BaseModel):
     """日志响应模型"""
+
     id: int
     timestamp: str
     level: str
     message: str
-    module: Optional[str] = None
-    function: Optional[str] = None
-    line: Optional[int] = None
-    logger_name: Optional[str] = None
+    module: str | None = None
+    function: str | None = None
+    line: int | None = None
+    logger_name: str | None = None
     log_type: str
-    extra_data: Optional[dict] = None
-    exception_info: Optional[str] = None
-    trace_id: Optional[str] = None
+    extra_data: dict | None = None
+    exception_info: str | None = None
+    trace_id: str | None = None
     created_at: str
 
 
 class LogListResponse(BaseModel):
     """日志列表响应模型"""
-    logs: List[LogResponse]
+
+    logs: list[LogResponse]
     pagination: dict
 
 
 class LogStatisticsResponse(BaseModel):
     """日志统计响应模型"""
+
     total_count: int
     by_level: dict
     by_type: dict
@@ -54,6 +55,7 @@ class LogStatisticsResponse(BaseModel):
 
 class LogLevelDistribution(BaseModel):
     """日志级别分布"""
+
     level: str
     count: int
     percentage: float
@@ -61,6 +63,7 @@ class LogLevelDistribution(BaseModel):
 
 class LogTypeDistribution(BaseModel):
     """日志类型分布"""
+
     log_type: str
     count: int
     percentage: float
@@ -68,19 +71,20 @@ class LogTypeDistribution(BaseModel):
 
 class LogTrendItem(BaseModel):
     """日志趋势项"""
+
     timestamp: str
     count: int
 
 
 @router.get("/query", response_model=LogListResponse)
 async def query_logs(
-    level: Optional[str] = Query(None, description="日志级别过滤 (DEBUG, INFO, WARNING, ERROR, CRITICAL)"),
-    log_type: Optional[str] = Query(None, description="日志类型过滤"),
-    module: Optional[str] = Query(None, description="模块名称过滤"),
-    trace_id: Optional[str] = Query(None, description="跟踪ID过滤"),
-    start_time: Optional[datetime] = Query(None, description="开始时间"),
-    end_time: Optional[datetime] = Query(None, description="结束时间"),
-    keyword: Optional[str] = Query(None, description="关键词搜索"),
+    level: str | None = Query(None, description="日志级别过滤 (DEBUG, INFO, WARNING, ERROR, CRITICAL)"),
+    log_type: str | None = Query(None, description="日志类型过滤"),
+    module: str | None = Query(None, description="模块名称过滤"),
+    trace_id: str | None = Query(None, description="跟踪ID过滤"),
+    start_time: datetime | None = Query(None, description="开始时间"),
+    end_time: datetime | None = Query(None, description="结束时间"),
+    keyword: str | None = Query(None, description="关键词搜索"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(50, ge=1, le=1000, description="每页数量"),
 ):
@@ -109,19 +113,16 @@ async def query_logs(
 
         logger.info(f"查询日志: level={level}, type={log_type}, page={page}, total={result.pagination.get('total', 0)}")
 
-        return LogListResponse(
-            logs=logs,
-            pagination=result.pagination
-        )
+        return LogListResponse(logs=logs, pagination=result.pagination)
     except Exception as e:
         logger.error(f"查询日志失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"查询日志失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"查询日志失败: {e!s}")
 
 
 @router.get("/statistics", response_model=LogStatisticsResponse)
 async def get_log_statistics(
-    start_time: Optional[datetime] = Query(None, description="开始时间"),
-    end_time: Optional[datetime] = Query(None, description="结束时间"),
+    start_time: datetime | None = Query(None, description="开始时间"),
+    end_time: datetime | None = Query(None, description="结束时间"),
 ):
     """
     获取日志统计信息
@@ -141,13 +142,13 @@ async def get_log_statistics(
         return LogStatisticsResponse(**stats)
     except Exception as e:
         logger.error(f"获取日志统计失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"获取日志统计失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取日志统计失败: {e!s}")
 
 
 @router.get("/recent", response_model=LogListResponse)
 async def get_recent_logs(
     minutes: int = Query(60, ge=1, le=1440, description="最近多少分钟的日志"),
-    level: Optional[str] = Query(None, description="日志级别过滤"),
+    level: str | None = Query(None, description="日志级别过滤"),
     limit: int = Query(100, ge=1, le=1000, description="返回数量限制"),
 ):
     """
@@ -169,15 +170,15 @@ async def get_recent_logs(
         return LogListResponse(
             logs=logs,
             pagination={
-                'page': 1,
-                'page_size': limit,
-                'total': len(logs),
-                'pages': 1,
-            }
+                "page": 1,
+                "page_size": limit,
+                "total": len(logs),
+                "pages": 1,
+            },
         )
     except Exception as e:
         logger.error(f"获取最近日志失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"获取最近日志失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取最近日志失败: {e!s}")
 
 
 @router.get("/trace/{trace_id}", response_model=LogListResponse)
@@ -204,13 +205,10 @@ async def get_logs_by_trace_id(
 
         logger.info(f"查询跟踪ID日志: trace_id={trace_id}, count={len(logs)}")
 
-        return LogListResponse(
-            logs=logs,
-            pagination=result.pagination
-        )
+        return LogListResponse(logs=logs, pagination=result.pagination)
     except Exception as e:
         logger.error(f"查询跟踪ID日志失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"查询跟踪ID日志失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"查询跟踪ID日志失败: {e!s}")
 
 
 @router.delete("/cleanup")
@@ -232,7 +230,7 @@ async def cleanup_old_logs(
         return result
     except Exception as e:
         logger.error(f"清理旧日志失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"清理旧日志失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"清理旧日志失败: {e!s}")
 
 
 @router.get("/levels")
@@ -244,10 +242,7 @@ async def get_log_levels():
     """
     from utils.logger import LogLevel
 
-    levels = [
-        {"value": level.value, "int_value": level.to_int()}
-        for level in LogLevel
-    ]
+    levels = [{"value": level.value, "int_value": level.to_int()} for level in LogLevel]
 
     return {"levels": levels}
 
@@ -261,10 +256,7 @@ async def get_log_types():
     """
     from utils.logger import LogType
 
-    types = [
-        {"value": t.value, "name": t.name}
-        for t in LogType
-    ]
+    types = [{"value": t.value, "name": t.name} for t in LogType]
 
     return {"types": types}
 
@@ -293,38 +285,42 @@ async def get_log_dashboard(
         }
     except Exception as e:
         logger.error(f"获取日志仪表板失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"获取日志仪表板失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取日志仪表板失败: {e!s}")
 
 
 # ============ 日志文件管理 API（新增）============
 
+
 class FileInfo(BaseModel):
     """文件信息模型"""
+
     name: str
     path: str
     type: str  # 'directory' | 'file'
     size: int  # 字节数
     size_formatted: str
     modified_time: str
-    created_time: Optional[str] = None
-    line_count: Optional[int] = None
-    log_type: Optional[str] = None
-    date: Optional[str] = None
+    created_time: str | None = None
+    line_count: int | None = None
+    log_type: str | None = None
+    date: str | None = None
 
 
 class DirectoryNode(BaseModel):
     """目录树节点模型"""
+
     name: str
     path: str
     type: str  # 'root' | 'directory'
-    children: List['DirectoryNode'] = []
-    files: List[FileInfo] = []
+    children: list[DirectoryNode] = []
+    files: list[FileInfo] = []
     total_size: int = 0
     file_count: int = 0
 
 
 class DiskUsage(BaseModel):
     """磁盘使用情况模型"""
+
     total_space: int
     used_space: int
     free_space: int
@@ -334,22 +330,24 @@ class DiskUsage(BaseModel):
 
 class AutoCleanupConfig(BaseModel):
     """自动清理配置模型"""
+
     enabled: bool = False
     retention_days: int = 30
     max_size_gb: int = 0  # 0表示不限制
-    cleanup_schedule: str = 'daily'  # 'daily' | 'weekly'
-    last_cleanup_time: Optional[str] = None
-    next_cleanup_time: Optional[str] = None
+    cleanup_schedule: str = "daily"  # 'daily' | 'weekly'
+    last_cleanup_time: str | None = None
+    next_cleanup_time: str | None = None
     space_used: int = 0  # MB
 
 
 class CleanupResult(BaseModel):
     """清理操作结果模型"""
+
     success: bool
-    deleted_files: List[str] = []
+    deleted_files: list[str] = []
     deleted_count: int = 0
     freed_space: int = 0  # 字节
-    errors: List[dict] = []
+    errors: list[dict] = []
 
 
 @router.get("/files")
@@ -367,14 +365,10 @@ async def get_log_files():
 
         logger.info("获取日志文件目录结构")
 
-        return {
-            "code": 0,
-            "message": "获取成功",
-            "data": directory_tree
-        }
+        return {"code": 0, "message": "获取成功", "data": directory_tree}
     except Exception as e:
         logger.error(f"获取日志文件列表失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"获取日志文件列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取日志文件列表失败: {e!s}")
 
 
 @router.get("/files/{file_path:path}")
@@ -386,6 +380,7 @@ async def get_log_file_info(file_path: str):
     """
     try:
         from pathlib import Path
+
         from utils.file_log_manager import get_file_log_manager
 
         file_manager = get_file_log_manager()
@@ -402,16 +397,12 @@ async def get_log_file_info(file_path: str):
 
         logger.info(f"获取日志文件信息: {file_path}")
 
-        return {
-            "code": 0,
-            "message": "获取成功",
-            "data": file_info
-        }
+        return {"code": 0, "message": "获取成功", "data": file_info}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"获取日志文件信息失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"获取日志文件信息失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取日志文件信息失败: {e!s}")
 
 
 @router.delete("/files/{file_path:path}")
@@ -423,6 +414,7 @@ async def delete_log_file(file_path: str):
     """
     try:
         from pathlib import Path
+
         from utils.file_log_manager import get_file_log_manager
 
         file_manager = get_file_log_manager()
@@ -444,7 +436,7 @@ async def delete_log_file(file_path: str):
                     deleted_files=[file_path],
                     deleted_count=1,
                     freed_space=full_path.stat().st_size,
-                )
+                ),
             }
         else:
             raise HTTPException(status_code=500, detail="删除文件失败")
@@ -452,7 +444,7 @@ async def delete_log_file(file_path: str):
         raise
     except Exception as e:
         logger.error(f"删除日志文件失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"删除日志文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"删除日志文件失败: {e!s}")
 
 
 @router.post("/files/batch")
@@ -465,6 +457,7 @@ async def delete_log_files_batch(request: Request):
     """
     try:
         from pathlib import Path
+
         from utils.file_log_manager import get_file_log_manager
 
         body = await request.json()
@@ -492,13 +485,13 @@ async def delete_log_files_batch(request: Request):
         return {
             "code": 0,
             "message": f"批量删除完成，成功 {result.get('deleted_count', 0)} 个",
-            "data": CleanupResult(**result)
+            "data": CleanupResult(**result),
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"批量删除日志文件失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"批量删除日志文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"批量删除日志文件失败: {e!s}")
 
 
 @router.post("/files/batch-download")
@@ -508,8 +501,8 @@ async def batch_download_log_files(request: Request):
 
     通过JSON body传递文件路径列表，返回包含所有文件的ZIP下载。
     """
-    import zipfile
     import io
+    import zipfile
     from pathlib import Path
 
     try:
@@ -524,7 +517,7 @@ async def batch_download_log_files(request: Request):
         file_manager = get_file_log_manager()
 
         zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for file_path in file_paths:
                 path_obj = Path(file_path)
                 base_dir_str = str(file_manager.base_log_dir)
@@ -540,18 +533,19 @@ async def batch_download_log_files(request: Request):
         zip_buffer.seek(0)
 
         from fastapi.responses import Response
+
         return Response(
             content=zip_buffer.getvalue(),
             media_type="application/zip",
             headers={
                 "Content-Disposition": f"attachment; filename=log_files_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-            }
+            },
         )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"批量下载日志文件失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"批量下载日志文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"批量下载日志文件失败: {e!s}")
 
 
 @router.get("/disk-usage")
@@ -569,14 +563,10 @@ async def get_disk_usage():
 
         logger.info("获取磁盘使用情况")
 
-        return {
-            "code": 0,
-            "message": "获取成功",
-            "data": DiskUsage(**disk_usage)
-        }
+        return {"code": 0, "message": "获取成功", "data": DiskUsage(**disk_usage)}
     except Exception as e:
         logger.error(f"获取磁盘使用情况失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"获取磁盘使用情况失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取磁盘使用情况失败: {e!s}")
 
 
 @router.get("/auto-cleanup/config")
@@ -592,20 +582,16 @@ async def get_auto_cleanup_config():
             enabled=False,
             retention_days=30,
             max_size_gb=10,
-            cleanup_schedule='weekly',
+            cleanup_schedule="weekly",
             space_used=0,
         )
 
         logger.info("获取自动清理配置")
 
-        return {
-            "code": 0,
-            "message": "获取成功",
-            "data": config
-        }
+        return {"code": 0, "message": "获取成功", "data": config}
     except Exception as e:
         logger.error(f"获取自动清理配置失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"获取自动清理配置失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取自动清理配置失败: {e!s}")
 
 
 @router.put("/auto-cleanup/config")
@@ -626,11 +612,11 @@ async def update_auto_cleanup_config(config: AutoCleanupConfig):
                 "success": True,
                 "message": "配置更新成功",
                 "config": config.model_dump(),
-            }
+            },
         }
     except Exception as e:
         logger.error(f"更新自动清理配置失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"更新自动清理配置失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"更新自动清理配置失败: {e!s}")
 
 
 @router.post("/cleanup/execute")
@@ -653,8 +639,8 @@ async def execute_manual_cleanup():
                 "success": True,
                 "message": "手动清理完成",
                 **result,
-            }
+            },
         }
     except Exception as e:
         logger.error(f"手动清理失败: {e}", exception=e)
-        raise HTTPException(status_code=500, detail=f"手动清理失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"手动清理失败: {e!s}")

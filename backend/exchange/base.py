@@ -16,44 +16,41 @@
 import abc
 import datetime
 import time
-from abc import ABC, abstractmethod
-from decimal import Decimal
+from abc import ABC
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from joblib import Parallel, delayed
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 from utils.timestamp_utils import convert_to_datetime
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from exchange.types import (
-    ExchangeFeatures,
-    Order,
-    OrderSide,
-    OrderType,
-    OrderStatus,
-    Balance,
-    Ticker,
-    OHLCV,
-    OrderBook,
-    Trade,
-    AccountInfo,
-    Position,
-    FundingRate,
-    StakingProduct,
-    SubAccount,
-    TradingMode,
-    MarginMode,
-    ConnectionTestResult,
-)
 from exchange.exceptions import (
     ConnectionError,
     NotImplementedFeatureError,
-    ExchangeError,
 )
-from exchange.decorators import require_connected, require_feature
+
+if TYPE_CHECKING:
+    from decimal import Decimal
+
+    from exchange.types import (
+        OHLCV,
+        AccountInfo,
+        Balance,
+        ConnectionTestResult,
+        ExchangeFeatures,
+        FundingRate,
+        Order,
+        OrderBook,
+        Position,
+        StakingProduct,
+        SubAccount,
+        Ticker,
+        Trade,
+    )
 
 
 class BaseCollector(abc.ABC):
@@ -77,16 +74,16 @@ class BaseCollector(abc.ABC):
 
     def __init__(
         self,
-        save_dir: Union[str, Path],
+        save_dir: str | Path,
         start=None,
         end=None,
         interval="1d",
         max_workers=1,
         max_collector_count=2,
         delay=0,
-        check_data_length: Optional[int] = None,
-        limit_nums: Optional[int] = None,
-        mode='inc',
+        check_data_length: int | None = None,
+        limit_nums: int | None = None,
+        mode="inc",
     ):
         """
         初始化收集器
@@ -121,10 +118,10 @@ class BaseCollector(abc.ABC):
         if limit_nums is not None:
             try:
                 self.instrument_list = self.instrument_list[: int(limit_nums)]
-            except Exception as e:
+            except Exception:
                 logger.warning(f"无法使用limit_nums={limit_nums}，该参数将被忽略")
 
-    def normalize_start_datetime(self, start_datetime: Optional[Union[str, pd.Timestamp]] = None):
+    def normalize_start_datetime(self, start_datetime: str | pd.Timestamp | None = None):
         """标准化开始时间"""
         return (
             pd.Timestamp(str(start_datetime))
@@ -132,7 +129,7 @@ class BaseCollector(abc.ABC):
             else getattr(self, f"DEFAULT_START_DATETIME_{self.interval.upper()}")
         )
 
-    def normalize_end_datetime(self, end_datetime: Optional[Union[str, pd.Timestamp]] = None):
+    def normalize_end_datetime(self, end_datetime: str | pd.Timestamp | None = None):
         """标准化结束时间"""
         return (
             pd.Timestamp(str(end_datetime))
@@ -143,16 +140,23 @@ class BaseCollector(abc.ABC):
     @abc.abstractmethod
     def get_instrument_list(self):
         """获取标的列表"""
-        raise NotImplementedError("请重写get_instrument_list方法")
+        msg = "请重写get_instrument_list方法"
+        raise NotImplementedError(msg)
 
     @abc.abstractmethod
     def normalize_symbol(self, symbol: str):
         """标准化标的代码"""
-        raise NotImplementedError("请重写normalize_symbol方法")
+        msg = "请重写normalize_symbol方法"
+        raise NotImplementedError(msg)
 
     @abc.abstractmethod
     def get_data(
-        self, symbol: str, interval: str, start_datetime: pd.Timestamp, end_datetime: pd.Timestamp, progress_callback=None
+        self,
+        symbol: str,
+        interval: str,
+        start_datetime: pd.Timestamp,
+        end_datetime: pd.Timestamp,
+        progress_callback=None,
     ) -> pd.DataFrame:
         """获取标的数据
 
@@ -163,7 +167,8 @@ class BaseCollector(abc.ABC):
         :param progress_callback: 进度回调函数
         :return: 标的数据DataFrame
         """
-        raise NotImplementedError("请重写get_data方法")
+        msg = "请重写get_data方法"
+        raise NotImplementedError(msg)
 
     def sleep(self):
         """休眠指定时间，用于控制请求频率"""
@@ -172,15 +177,15 @@ class BaseCollector(abc.ABC):
     def _get_interval_freq(self):
         """将间隔字符串映射到 pandas 频率字符串"""
         interval_map = {
-            '1m': 'min',
-            '5m': '5min',
-            '15m': '15min',
-            '30m': '30min',
-            '1h': 'h',
-            '4h': '4h',
-            '1d': 'D'
+            "1m": "min",
+            "5m": "5min",
+            "15m": "15min",
+            "30m": "30min",
+            "1h": "h",
+            "4h": "4h",
+            "1d": "D",
         }
-        return interval_map.get(self.interval, 'D')
+        return interval_map.get(self.interval, "D")
 
     def _generate_complete_date_range(self):
         """生成完整的日期范围"""
@@ -199,7 +204,7 @@ class BaseCollector(abc.ABC):
                 return []
 
         try:
-            existing_timestamps = pd.to_numeric(existing_timestamps, errors='coerce').dropna()
+            existing_timestamps = pd.to_numeric(existing_timestamps, errors="coerce").dropna()
 
             if existing_timestamps.empty:
                 if not complete_range.empty:
@@ -236,15 +241,15 @@ class BaseCollector(abc.ABC):
             start = missing_dates[0]
 
             for i in range(1, len(missing_dates)):
-                if (missing_dates[i] - missing_dates[i-1]).total_seconds() > self._get_interval_seconds():
-                    ranges.append((start, missing_dates[i-1]))
+                if (missing_dates[i] - missing_dates[i - 1]).total_seconds() > self._get_interval_seconds():
+                    ranges.append((start, missing_dates[i - 1]))
                     start = missing_dates[i]
 
             ranges.append((start, missing_dates[-1]))
 
             logger.info(f"计算得到 {len(ranges)} 个缺失数据范围")
             for i, (range_start, range_end) in enumerate(ranges):
-                logger.info(f"缺失范围 {i+1}: {range_start} 至 {range_end}")
+                logger.info(f"缺失范围 {i + 1}: {range_start} 至 {range_end}")
 
             return ranges
         except Exception as e:
@@ -259,24 +264,30 @@ class BaseCollector(abc.ABC):
     def _get_interval_seconds(self):
         """获取间隔对应的秒数"""
         interval_seconds_map = {
-            '1m': 60,
-            '5m': 300,
-            '15m': 900,
-            '30m': 1800,
-            '1h': 3600,
-            '4h': 14400,
-            '1d': 86400
+            "1m": 60,
+            "5m": 300,
+            "15m": 900,
+            "30m": 1800,
+            "1h": 3600,
+            "4h": 14400,
+            "1d": 86400,
         }
         return interval_seconds_map.get(self.interval, 86400)
 
     # 常见时间列名映射：不同数据类型使用不同的时间列
     _TIME_COLUMN_CANDIDATES = [
-        "timestamp", "date", "transact_time", "fundingTime",
-        "time", "open_time", "close_time", "T",
+        "timestamp",
+        "date",
+        "transact_time",
+        "fundingTime",
+        "time",
+        "open_time",
+        "close_time",
+        "T",
     ]
 
     @staticmethod
-    def _detect_time_column(df: pd.DataFrame) -> Optional[str]:
+    def _detect_time_column(df: pd.DataFrame) -> str | None:
         """检测 DataFrame 中的时间列名。
 
         按优先级检查常见时间列名，返回第一个匹配的列名。
@@ -312,8 +323,8 @@ class BaseCollector(abc.ABC):
         normalized_symbol = self.normalize_symbol(symbol)
         instrument_path = self.save_dir.joinpath(f"{normalized_symbol}.csv")
 
-        existing_timestamps = pd.Series([], dtype='int64')
-        if self.mode == 'inc' and instrument_path.exists():
+        existing_timestamps = pd.Series([], dtype="int64")
+        if self.mode == "inc" and instrument_path.exists():
             try:
                 _old_df = pd.read_csv(instrument_path)
                 if not _old_df.empty:
@@ -322,13 +333,14 @@ class BaseCollector(abc.ABC):
                     if time_col and time_col != "timestamp":
                         _old_df = _old_df.rename(columns={time_col: "timestamp"})
                     if "timestamp" in _old_df.columns:
-                        _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
-                        existing_timestamps = _old_df['timestamp'].dropna()
-                        logger.info(f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_timestamps)} 条有效记录")
+                        _old_df["timestamp"] = pd.to_numeric(_old_df["timestamp"], errors="coerce")
+                        existing_timestamps = _old_df["timestamp"].dropna()
+                        logger.info(
+                            f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_timestamps)} 条有效记录"
+                        )
                     else:
                         logger.warning(
-                            f"[增量模式] {symbol} 历史数据无时间列，"
-                            f"跳过增量检测。可用列: {list(_old_df.columns)}"
+                            f"[增量模式] {symbol} 历史数据无时间列，跳过增量检测。可用列: {list(_old_df.columns)}"
                         )
             except Exception as e:
                 logger.error(f"[增量模式] 读取 {symbol} 历史数据失败: {e}")
@@ -342,14 +354,16 @@ class BaseCollector(abc.ABC):
 
         all_df = pd.DataFrame()
         for i, (range_start, range_end) in enumerate(missing_ranges):
-            logger.info(f"[增量模式] {symbol} 缺失数据范围 {i+1}/{len(missing_ranges)}: {range_start} 至 {range_end}")
+            logger.info(f"[增量模式] {symbol} 缺失数据范围 {i + 1}/{len(missing_ranges)}: {range_start} 至 {range_end}")
 
             try:
                 df = self.get_data(symbol, self.interval, range_start, range_end, progress_callback)
 
                 if df is not None and not df.empty:
                     all_df = pd.concat([all_df, df]) if not all_df.empty else df
-                    logger.info(f"[增量模式] 成功下载 {symbol} 数据范围: {range_start} 至 {range_end}, 数据量: {len(df)}条")
+                    logger.info(
+                        f"[增量模式] 成功下载 {symbol} 数据范围: {range_start} 至 {range_end}, 数据量: {len(df)}条"
+                    )
                 else:
                     logger.warning(f"[增量模式] {symbol} 数据范围 {range_start} 至 {range_end} 下载结果为空")
             except Exception as e:
@@ -379,26 +393,26 @@ class BaseCollector(abc.ABC):
 
         # 归一化时间列为 timestamp
         df = self._normalize_timestamp_column(df)
-        df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce')
-        df = df.dropna(subset=['timestamp'])
-        df = df.drop_duplicates(subset=['timestamp'], keep='last')
-        df = df.sort_values('timestamp')
+        df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
+        df = df.dropna(subset=["timestamp"])
+        df = df.drop_duplicates(subset=["timestamp"], keep="last")
+        df = df.sort_values("timestamp")
 
-        if self.mode != 'full' and instrument_path.exists():
+        if self.mode != "full" and instrument_path.exists():
             _old_df = pd.read_csv(instrument_path)
             _old_df = self._normalize_timestamp_column(_old_df)
             if "timestamp" in _old_df.columns:
-                _old_df['timestamp'] = pd.to_numeric(_old_df['timestamp'], errors='coerce')
-                _old_df = _old_df.dropna(subset=['timestamp'])
+                _old_df["timestamp"] = pd.to_numeric(_old_df["timestamp"], errors="coerce")
+                _old_df = _old_df.dropna(subset=["timestamp"])
                 df = pd.concat([_old_df, df], sort=False)
-                df = df.drop_duplicates(subset=['timestamp'], keep='last')
-                df = df.sort_values('timestamp')
+                df = df.drop_duplicates(subset=["timestamp"], keep="last")
+                df = df.sort_values("timestamp")
 
         df_for_save = df.copy()
-        df_for_save['timestamp'] = df_for_save['timestamp'].astype(str)
+        df_for_save["timestamp"] = df_for_save["timestamp"].astype(str)
         df_for_save.to_csv(instrument_path, index=False)
 
-        mode_label = "[全量模式]" if self.mode == 'full' else "[增量模式]"
+        mode_label = "[全量模式]" if self.mode == "full" else "[增量模式]"
         logger.info(f"{mode_label} 成功将 {symbol} 数据保存到文件: {instrument_path}")
 
     def cache_small_data(self, symbol, df):
@@ -445,11 +459,17 @@ class BaseCollector(abc.ABC):
 
             # 完成进度回调 - 该货币对自身进度为100%
             if progress_callback:
-                progress_callback(_inst, symbol_total, symbol_total, failed, "completed" if result == self.NORMAL_FLAG else "failed")
+                progress_callback(
+                    _inst,
+                    symbol_total,
+                    symbol_total,
+                    failed,
+                    "completed" if result == self.NORMAL_FLAG else "failed",
+                )
 
             return result
 
-        res = Parallel(n_jobs=self.max_workers)(
+        Parallel(n_jobs=self.max_workers)(
             delayed(collect_with_progress)(_inst, idx) for idx, _inst in enumerate(instrument_list)
         )
 
@@ -460,11 +480,12 @@ class BaseCollector(abc.ABC):
 
     def collect_data(self, progress_callback=None):
         """执行数据收集"""
-        logger.info(f"[收集开始] 模式: {self.mode}, 标的数量: {len(self.instrument_list)}, 时间范围: {self.start_datetime} 至 {self.end_datetime}")
+        logger.info(
+            f"[收集开始] 模式: {self.mode}, 标的数量: {len(self.instrument_list)}, 时间范围: {self.start_datetime} 至 {self.end_datetime}"
+        )
         instrument_list = self.instrument_list
         total_instruments = len(instrument_list)
         completed = 0
-        failed = 0
 
         start_time = datetime.datetime.now()
 
@@ -473,36 +494,54 @@ class BaseCollector(abc.ABC):
                 progress_callback(symbol, current, total, failed_count, status)
 
             overall_progress = (completed + (current / total if total > 0 else 0)) / total_instruments * 100
-            logger.info(f"[进度] {symbol} - 当前进度: {current/total*100:.1f}%, 整体进度: {overall_progress:.1f}%, 状态: {status}")
+            logger.info(
+                f"[进度] {symbol} - 当前进度: {current / total * 100:.1f}%, 整体进度: {overall_progress:.1f}%, 状态: {status}"
+            )
 
         for i in range(self.max_collector_count):
             if not instrument_list:
                 break
-            logger.info(f"[收集轮次] 第 {i+1}/{self.max_collector_count} 次获取数据，当前待收集标的数量: {len(instrument_list)}")
-            instrument_list = self._collector(instrument_list, detailed_progress_callback, completed, total_instruments)
-            logger.info(f"[收集轮次] 第 {i+1} 次收集完成，剩余待收集标的数量: {len(instrument_list)}")
+            logger.info(
+                f"[收集轮次] 第 {i + 1}/{self.max_collector_count} 次获取数据，当前待收集标的数量: {len(instrument_list)}"
+            )
+            instrument_list = self._collector(
+                instrument_list,
+                detailed_progress_callback,
+                completed,
+                total_instruments,
+            )
+            logger.info(f"[收集轮次] 第 {i + 1} 次收集完成，剩余待收集标的数量: {len(instrument_list)}")
 
         if self.mini_symbol_map:
             logger.info(f"[缓存处理] 开始处理 {len(self.mini_symbol_map)} 个缓存的小数据量标的")
             for _symbol, _df_list in self.mini_symbol_map.items():
                 _df = pd.concat(_df_list, sort=False)
                 if not _df.empty:
-                    self.save_instrument(_symbol, _df.drop_duplicates(["timestamp"]).sort_values(["timestamp"]))
+                    self.save_instrument(
+                        _symbol,
+                        _df.drop_duplicates(["timestamp"]).sort_values(["timestamp"]),
+                    )
 
-            logger.warning(f"[缓存处理] 数据长度小于 {self.check_data_length} 的标的列表: {list(self.mini_symbol_map.keys())}")
+            logger.warning(
+                f"[缓存处理] 数据长度小于 {self.check_data_length} 的标的列表: {list(self.mini_symbol_map.keys())}"
+            )
 
         elapsed_time = datetime.datetime.now() - start_time
 
-        logger.info(f"[收集完成] 总标的数量: {len(self.instrument_list)}, 收集失败: {len(set(instrument_list))}, 耗时: {elapsed_time.total_seconds():.2f} 秒")
-        logger.info(f"[收集结果] 模式: {self.mode}, 成功: {len(self.instrument_list) - len(set(instrument_list))}, 失败: {len(set(instrument_list))}")
+        logger.info(
+            f"[收集完成] 总标的数量: {len(self.instrument_list)}, 收集失败: {len(set(instrument_list))}, 耗时: {elapsed_time.total_seconds():.2f} 秒"
+        )
+        logger.info(
+            f"[收集结果] 模式: {self.mode}, 成功: {len(self.instrument_list) - len(set(instrument_list))}, 失败: {len(set(instrument_list))}"
+        )
 
 
 class BaseExchange(ABC):
     """
     交易所抽象基类
-    
+
     定义所有交易所的通用接口和功能。
-    
+
     Attributes:
         exchange_name: 交易所名称
         api_key: API密钥
@@ -548,16 +587,16 @@ class BaseExchange(ABC):
     def __init__(
         self,
         exchange_name: str,
-        api_key: Optional[str] = None,
-        secret_key: Optional[str] = None,
+        api_key: str | None = None,
+        secret_key: str | None = None,
         trading_mode: str = "spot",
-        proxy_url: Optional[str] = None,
+        proxy_url: str | None = None,
         testnet: bool = False,
-        **kwargs
+        **kwargs,
     ):
         """
         初始化交易所连接器
-        
+
         Args:
             exchange_name: 交易所名称
             api_key: API密钥
@@ -575,8 +614,8 @@ class BaseExchange(ABC):
         self.testnet = testnet
         self._connected = False
         self._config = kwargs
-        self._symbols: Optional[List[str]] = None
-        
+        self._symbols: list[str] | None = None
+
         logger.info(f"{self.__class__.__name__} initialized (testnet={testnet})")
 
     @property
@@ -587,41 +626,45 @@ class BaseExchange(ABC):
     def _ensure_connected(self):
         """确保已连接，否则抛出异常"""
         if not self._connected:
+            msg = f"Exchange {self.exchange_name} is not connected. Call connect() first."
             raise ConnectionError(
-                f"Exchange {self.exchange_name} is not connected. Call connect() first.",
+                msg,
                 exchange_name=self.exchange_name,
             )
 
     def connect(self) -> bool:
         """
         建立与交易所的连接
-        
+
         Returns:
             bool: 连接是否成功
-            
+
         Raises:
             ConnectionError: 连接失败时
             AuthenticationError: 认证失败时
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement connect()")
+        msg = f"{self.__class__.__name__} does not implement connect()"
+        raise NotImplementedError(msg)
 
     def disconnect(self) -> None:
         """断开与交易所的连接"""
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement disconnect()")
+        msg = f"{self.__class__.__name__} does not implement disconnect()"
+        raise NotImplementedError(msg)
 
     def health_check(self) -> bool:
         """
         健康检查
-        
+
         Returns:
             bool: True表示健康，False表示异常
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement health_check()")
+        msg = f"{self.__class__.__name__} does not implement health_check()"
+        raise NotImplementedError(msg)
 
     def check_status(self) -> bool:
         """
         检查交易所系统状态
-        
+
         Returns:
             bool: True表示正常，False表示维护或异常
         """
@@ -633,188 +676,202 @@ class BaseExchange(ABC):
     def test_connection(self) -> ConnectionTestResult:
         """
         测试交易所连通性（含网络、认证、权限等多维度检测）
-        
+
         Returns:
             ConnectionTestResult: 连接测试结果
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement test_connection()")
+        msg = f"{self.__class__.__name__} does not implement test_connection()"
+        raise NotImplementedError(msg)
 
     def get_ticker(self, symbol: str) -> Ticker:
         """
         获取最新行情
-        
+
         Args:
             symbol: 交易对，如 "BTCUSDT"
-            
+
         Returns:
             Ticker: 行情数据
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_ticker()")
+        msg = f"{self.__class__.__name__} does not implement get_ticker()"
+        raise NotImplementedError(msg)
 
     def get_ohlcv(
         self,
         symbol: str,
         timeframe: str,
         limit: int = 500,
-        since: Optional[int] = None,
-    ) -> List[OHLCV]:
+        since: int | None = None,
+    ) -> list[OHLCV]:
         """
         获取K线数据
-        
+
         Args:
             symbol: 交易对
             timeframe: 时间间隔，如 "1m", "5m", "1h", "1d"
             limit: 返回条数
             since: 开始时间（毫秒时间戳）
-            
+
         Returns:
             List[OHLCV]: K线数据列表
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_ohlcv()")
+        msg = f"{self.__class__.__name__} does not implement get_ohlcv()"
+        raise NotImplementedError(msg)
 
     def get_order_book(self, symbol: str, limit: int = 100) -> OrderBook:
         """
         获取订单簿（深度）
-        
+
         Args:
             symbol: 交易对
             limit: 深度条数
-            
+
         Returns:
             OrderBook: 订单簿数据
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_order_book()")
+        msg = f"{self.__class__.__name__} does not implement get_order_book()"
+        raise NotImplementedError(msg)
 
-    def get_recent_trades(self, symbol: str, limit: int = 100) -> List[Trade]:
+    def get_recent_trades(self, symbol: str, limit: int = 100) -> list[Trade]:
         """
         获取最近成交记录
-        
+
         Args:
             symbol: 交易对
             limit: 返回条数
-            
+
         Returns:
             List[Trade]: 成交记录列表
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_recent_trades()")
+        msg = f"{self.__class__.__name__} does not implement get_recent_trades()"
+        raise NotImplementedError(msg)
 
-    def get_balance(self, asset: Optional[str] = None) -> List[Balance]:
+    def get_balance(self, asset: str | None = None) -> list[Balance]:
         """
         获取账户余额
-        
+
         Args:
             asset: 指定资产，如果为None则返回所有资产余额
-            
+
         Returns:
             List[Balance]: 余额列表
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_balance()")
+        msg = f"{self.__class__.__name__} does not implement get_balance()"
+        raise NotImplementedError(msg)
 
     def get_account_info(self) -> AccountInfo:
         """
         获取账户信息
-        
+
         Returns:
             AccountInfo: 账户信息
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_account_info()")
+        msg = f"{self.__class__.__name__} does not implement get_account_info()"
+        raise NotImplementedError(msg)
 
     def create_order(self, order: Order) -> Order:
         """
         创建订单
-        
+
         Args:
             order: 订单对象
-            
+
         Returns:
             Order: 创建后的订单（包含订单ID）
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement create_order()")
+        msg = f"{self.__class__.__name__} does not implement create_order()"
+        raise NotImplementedError(msg)
 
     def cancel_order(self, symbol: str, order_id: str) -> bool:
         """
         取消订单
-        
+
         Args:
             symbol: 交易对
             order_id: 订单ID
-            
+
         Returns:
             bool: 是否成功取消
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement cancel_order()")
+        msg = f"{self.__class__.__name__} does not implement cancel_order()"
+        raise NotImplementedError(msg)
 
     def get_order(self, symbol: str, order_id: str) -> Order:
         """
         查询订单状态
-        
+
         Args:
             symbol: 交易对
             order_id: 订单ID
-            
+
         Returns:
             Order: 订单信息
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_order()")
+        msg = f"{self.__class__.__name__} does not implement get_order()"
+        raise NotImplementedError(msg)
 
-    def get_open_orders(self, symbol: Optional[str] = None) -> List[Order]:
+    def get_open_orders(self, symbol: str | None = None) -> list[Order]:
         """
         获取当前挂单
-        
+
         Args:
             symbol: 交易对，如果为None则返回所有挂单
-            
+
         Returns:
             List[Order]: 挂单列表
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_open_orders()")
+        msg = f"{self.__class__.__name__} does not implement get_open_orders()"
+        raise NotImplementedError(msg)
 
     def get_order_history(
         self,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
         limit: int = 500,
-    ) -> List[Order]:
+    ) -> list[Order]:
         """
         获取历史订单
-        
+
         Args:
             symbol: 交易对
             limit: 返回条数
-            
+
         Returns:
             List[Order]: 历史订单列表
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_order_history()")
+        msg = f"{self.__class__.__name__} does not implement get_order_history()"
+        raise NotImplementedError(msg)
 
     def get_my_trades(
         self,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
         limit: int = 500,
-    ) -> List[Trade]:
+    ) -> list[Trade]:
         """
         获取成交记录
-        
+
         Args:
             symbol: 交易对
             limit: 返回条数
-            
+
         Returns:
             List[Trade]: 成交记录列表
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_my_trades()")
+        msg = f"{self.__class__.__name__} does not implement get_my_trades()"
+        raise NotImplementedError(msg)
 
-    def get_sub_accounts(self) -> List[SubAccount]:
+    def get_sub_accounts(self) -> list[SubAccount]:
         """
         获取子账户列表
-        
+
         Returns:
             List[SubAccount]: 子账户列表
-            
+
         Raises:
             NotImplementedFeatureError: 交易所不支持子账户功能
         """
+        msg = f"Sub-account is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
-            f"Sub-account is not supported by {self.exchange_name}",
+            msg,
             exchange_name=self.exchange_name,
             feature="sub_account",
         )
@@ -822,37 +879,39 @@ class BaseExchange(ABC):
     def create_sub_account(self, email: str) -> SubAccount:
         """
         创建子账户
-        
+
         Args:
             email: 子账户邮箱
-            
+
         Returns:
             SubAccount: 创建的子账户
-            
+
         Raises:
             NotImplementedFeatureError: 交易所不支持子账户功能
         """
+        msg = f"Sub-account is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
-            f"Sub-account is not supported by {self.exchange_name}",
+            msg,
             exchange_name=self.exchange_name,
             feature="sub_account",
         )
 
-    def get_staking_products(self, product: str = "STAKING") -> List[StakingProduct]:
+    def get_staking_products(self, product: str = "STAKING") -> list[StakingProduct]:
         """
         获取质押产品列表
-        
+
         Args:
             product: 产品类型，如 "STAKING", "F_DEFI", "L_DEFI"
-            
+
         Returns:
             List[StakingProduct]: 质押产品列表
-            
+
         Raises:
             NotImplementedFeatureError: 交易所不支持质押功能
         """
+        msg = f"Staking is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
-            f"Staking is not supported by {self.exchange_name}",
+            msg,
             exchange_name=self.exchange_name,
             feature="staking",
         )
@@ -862,23 +921,24 @@ class BaseExchange(ABC):
         product: str,
         product_id: str,
         amount: Decimal,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         购买质押产品
-        
+
         Args:
             product: 产品类型
             product_id: 产品ID
             amount: 购买金额
-            
+
         Returns:
             Dict: 购买结果
-            
+
         Raises:
             NotImplementedFeatureError: 交易所不支持质押功能
         """
+        msg = f"Staking is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
-            f"Staking is not supported by {self.exchange_name}",
+            msg,
             exchange_name=self.exchange_name,
             feature="staking",
         )
@@ -888,23 +948,24 @@ class BaseExchange(ABC):
         from_asset: str,
         to_asset: str,
         amount: Decimal,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         请求闪兑
-        
+
         Args:
             from_asset: 源资产
             to_asset: 目标资产
             amount: 兑换金额
-            
+
         Returns:
             Dict: 闪兑请求结果
-            
+
         Raises:
             NotImplementedFeatureError: 交易所不支持闪兑功能
         """
+        msg = f"Convert is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
-            f"Convert is not supported by {self.exchange_name}",
+            msg,
             exchange_name=self.exchange_name,
             feature="convert",
         )
@@ -914,25 +975,26 @@ class BaseExchange(ABC):
         asset: str,
         amount: Decimal,
         is_isolated: bool = False,
-        symbol: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        symbol: str | None = None,
+    ) -> dict[str, Any]:
         """
         杠杆借币
-        
+
         Args:
             asset: 借币资产
             amount: 借币数量
             is_isolated: 是否是逐仓
             symbol: 交易对（逐仓时需要）
-            
+
         Returns:
             Dict: 借币结果
-            
+
         Raises:
             NotImplementedFeatureError: 交易所不支持杠杆功能
         """
+        msg = f"Margin trading is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
-            f"Margin trading is not supported by {self.exchange_name}",
+            msg,
             exchange_name=self.exchange_name,
             feature="margin_loan",
         )
@@ -942,45 +1004,47 @@ class BaseExchange(ABC):
         asset: str,
         amount: Decimal,
         is_isolated: bool = False,
-        symbol: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        symbol: str | None = None,
+    ) -> dict[str, Any]:
         """
         杠杆还币
-        
+
         Args:
             asset: 还币资产
             amount: 还币数量
             is_isolated: 是否是逐仓
             symbol: 交易对（逐仓时需要）
-            
+
         Returns:
             Dict: 还币结果
-            
+
         Raises:
             NotImplementedFeatureError: 交易所不支持杠杆功能
         """
+        msg = f"Margin trading is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
-            f"Margin trading is not supported by {self.exchange_name}",
+            msg,
             exchange_name=self.exchange_name,
             feature="margin_loan",
         )
 
-    def set_leverage(self, symbol: str, leverage: int) -> Dict[str, Any]:
+    def set_leverage(self, symbol: str, leverage: int) -> dict[str, Any]:
         """
         设置杠杆倍数
-        
+
         Args:
             symbol: 交易对
             leverage: 杠杆倍数
-            
+
         Returns:
             Dict: 设置结果
-            
+
         Raises:
             NotImplementedFeatureError: 交易所不支持合约功能
         """
+        msg = f"Futures trading is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
-            f"Futures trading is not supported by {self.exchange_name}",
+            msg,
             exchange_name=self.exchange_name,
             feature="futures_leverage",
         )
@@ -988,18 +1052,19 @@ class BaseExchange(ABC):
     def get_funding_rate(self, symbol: str) -> FundingRate:
         """
         获取资金费率
-        
+
         Args:
             symbol: 交易对
-            
+
         Returns:
             FundingRate: 资金费率信息
-            
+
         Raises:
             NotImplementedFeatureError: 交易所不支持合约功能
         """
+        msg = f"Futures trading is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
-            f"Futures trading is not supported by {self.exchange_name}",
+            msg,
             exchange_name=self.exchange_name,
             feature="funding_rate",
         )
@@ -1007,34 +1072,36 @@ class BaseExchange(ABC):
     def get_position(self, symbol: str) -> Position:
         """
         获取持仓
-        
+
         Args:
             symbol: 交易对
-            
+
         Returns:
             Position: 持仓信息
-            
+
         Raises:
             NotImplementedFeatureError: 交易所不支持合约功能
         """
+        msg = f"Futures trading is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
-            f"Futures trading is not supported by {self.exchange_name}",
+            msg,
             exchange_name=self.exchange_name,
             feature="futures_leverage",
         )
 
-    def get_positions(self) -> List[Position]:
+    def get_positions(self) -> list[Position]:
         """
         获取所有持仓
-        
+
         Returns:
             List[Position]: 持仓列表
-            
+
         Raises:
             NotImplementedFeatureError: 交易所不支持合约功能
         """
+        msg = f"Futures trading is not supported by {self.exchange_name}"
         raise NotImplementedFeatureError(
-            f"Futures trading is not supported by {self.exchange_name}",
+            msg,
             exchange_name=self.exchange_name,
             feature="futures_leverage",
         )
@@ -1043,29 +1110,29 @@ class BaseExchange(ABC):
 class CryptoBaseCollector(BaseCollector):
     """
     加密货币基础收集器类
-    
+
     定义加密货币数据收集的通用接口和功能。
-    
+
     Attributes:
         candle_names: K线数据列名列表
     """
-    
+
     def __init__(
         self,
-        save_dir: Union[str, Path],
+        save_dir: str | Path,
         start=None,
         end=None,
         interval="1d",
         max_workers=1,
         max_collector_count=2,
         delay=0,
-        check_data_length: Optional[int] = None,
-        limit_nums: Optional[int] = None,
-        mode='inc',
+        check_data_length: int | None = None,
+        limit_nums: int | None = None,
+        mode="inc",
     ):
         """
         初始化加密货币收集器
-        
+
         :param save_dir: 数据保存目录
         :param start: 开始时间
         :param end: 结束时间
@@ -1089,24 +1156,34 @@ class CryptoBaseCollector(BaseCollector):
             limit_nums=limit_nums,
             mode=mode,
         )
-        
+
         self.candle_names = [
-            'open_time', 'open', 'high', 'low', 'close', 'volume',
-            'close_time', 'quote_volume', 'count', 'taker_buy_volume',
-            'taker_buy_quote_volume', 'ignore'
+            "open_time",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "close_time",
+            "quote_volume",
+            "count",
+            "taker_buy_volume",
+            "taker_buy_quote_volume",
+            "ignore",
         ]
-    
+
     @property
     @abc.abstractmethod
     def _timezone(self):
         """获取时区"""
-        raise NotImplementedError("请重写_timezone属性")
-    
+        msg = "请重写_timezone属性"
+        raise NotImplementedError(msg)
+
     @staticmethod
     def format_candle(candle: list) -> dict:
         """
         格式化K线数据
-        
+
         :param candle: K线数据列表
         :return: 格式化后的K线数据字典
         """
@@ -1122,22 +1199,22 @@ class CryptoBaseCollector(BaseCollector):
             count=candle[8],
             taker_buy_volume=candle[9],
             taker_buy_quote_volume=candle[10],
-            ignore=candle[11]
+            ignore=candle[11],
         )
-    
+
     def normalize_symbol(self, symbol):
         """
         标准化加密货币符号，去除'/'分隔符
-        
+
         :param symbol: 加密货币符号，如'BTC/USDT'
         :return: 标准化后的符号，如'BTCUSDT'
         """
-        return symbol.replace('/', '')
-    
+        return symbol.replace("/", "")
+
     def get_instrument_list(self):
         """
         获取加密货币标的列表
-        
+
         :return: 加密货币标的列表
         """
         logger.warning("get_instrument_list方法未被重写，返回空列表")

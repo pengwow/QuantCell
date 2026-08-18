@@ -57,8 +57,8 @@ __author__ = "QuantCell Team"
 
 from .routes import router
 from .services import (
-    DataService,
     CryptoSymbolService,
+    DataService,
     KlineDataFactory,
     KlineHealthChecker,
     ProductListFactory,
@@ -66,13 +66,13 @@ from .services import (
 )
 
 __all__ = [
-    # 路由
-    "router",
+    "CryptoSymbolService",
     # 服务
     "DataService",
-    "CryptoSymbolService",
     "KlineDataFactory",
     "KlineHealthChecker",
     "ProductListFactory",
     "SystemService",
+    # 路由
+    "router",
 ]

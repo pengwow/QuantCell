@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 统一端口管理器模块
 
@@ -19,19 +18,18 @@
     all_ports = port_manager.get_all_ports()
 """
 
-import os
-import socket
-import signal
+import contextlib
 import json
+import os
+import signal
+import socket
 import tempfile
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, Optional, Tuple
-from datetime import datetime, timezone
-from dataclasses import dataclass, asdict, field
 from threading import Lock
-from enum import Enum
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 
 class PortAllocationError(Exception):
@@ -54,17 +52,17 @@ class PortConfig:
     """端口配置数据结构"""
 
     port: int
-    pid: Optional[int] = None
-    start_time: Optional[str] = None
-    last_used: Optional[str] = None
+    pid: int | None = None
+    start_time: str | None = None
+    last_used: str | None = None
     status: str = "allocated"
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """转换为字典"""
         return asdict(self)
 
 
-PORT_RANGES: Dict[str, Dict[str, any]] = {
+PORT_RANGES: dict[str, dict[str, any]] = {
     "fastapi": {"default": 8000, "range": (8000, 8010)},
 }
 
@@ -88,11 +86,11 @@ class PortManager:
         use_static_ports: 是否使用静态端口
     """
 
-    _instance: Optional["PortManager"] = None
+    _instance: PortManager | None = None
     _lock: Lock = Lock()
     _init_lock: Lock = Lock()
 
-    def __new__(cls) -> "PortManager":
+    def __new__(cls) -> PortManager:
         if cls._instance is None:
             with cls._init_lock:
                 if cls._instance is None:
@@ -101,7 +99,7 @@ class PortManager:
         return cls._instance
 
     def __init__(self):
-        if getattr(self, '_initialized', False):
+        if getattr(self, "_initialized", False):
             return
 
         self._initialized = True
@@ -114,12 +112,10 @@ class PortManager:
         default_config_path = backend_path / "data" / "port_config.json"
         self.config_path = Path(custom_config_path) if custom_config_path else default_config_path
 
-        self.allocated_ports: Dict[str, PortConfig] = {}
+        self.allocated_ports: dict[str, PortConfig] = {}
         self._port_lock = Lock()
 
-        self.logger.info(
-            f"初始化端口管理器 | 配置路径: {self.config_path} | 静态模式: {self.use_static_ports}"
-        )
+        self.logger.info(f"初始化端口管理器 | 配置路径: {self.config_path} | 静态模式: {self.use_static_ports}")
 
         if not self.use_static_ports:
             self.load_config()
@@ -133,7 +129,7 @@ class PortManager:
             self.allocated_ports[service_name] = PortConfig(
                 port=config["default"],
                 pid=os.getpid(),
-                start_time=datetime.now(timezone.utc).isoformat(),
+                start_time=datetime.now(UTC).isoformat(),
                 status="static",
             )
         self.logger.info(f"已初始化 {len(self.allocated_ports)} 个静态端口配置")
@@ -161,21 +157,16 @@ class PortManager:
         start_port, end_port = config["range"]
 
         if not (start_port <= preferred_port < end_port):
-            error_msg = (
-                f"端口号 {preferred_port} 超出服务 {service_name} 的有效范围 "
-                f"({start_port}-{end_port - 1})"
-            )
+            error_msg = f"端口号 {preferred_port} 超出服务 {service_name} 的有效范围 ({start_port}-{end_port - 1})"
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
         # 保存首选端口到临时配置，供 _allocate_port 使用
-        if not hasattr(self, '_preferred_ports'):
+        if not hasattr(self, "_preferred_ports"):
             self._preferred_ports = {}
         self._preferred_ports[service_name] = preferred_port
 
-        self.logger.info(
-            f"已设置首选端口 | 服务: {service_name} | 端口: {preferred_port}"
-        )
+        self.logger.info(f"已设置首选端口 | 服务: {service_name} | 端口: {preferred_port}")
 
     def get_port(self, service_name: str) -> int:
         """
@@ -195,7 +186,7 @@ class PortManager:
         with self._port_lock:
             if service_name in self.allocated_ports:
                 port_config = self.allocated_ports[service_name]
-                port_config.last_used = datetime.now(timezone.utc).isoformat()
+                port_config.last_used = datetime.now(UTC).isoformat()
                 self.logger.debug(f"返回已分配端口 | 服务: {service_name} | 端口: {port_config.port}")
                 return port_config.port
 
@@ -208,7 +199,7 @@ class PortManager:
                 port = self._allocate_port(service_name)
                 return port
             except Exception as e:
-                error_msg = f"端口分配失败 | 服务: {service_name} | 错误: {str(e)}"
+                error_msg = f"端口分配失败 | 服务: {service_name} | 错误: {e!s}"
                 self.logger.error(error_msg)
                 raise PortAllocationError(error_msg, service_name=service_name) from e
 
@@ -238,7 +229,7 @@ class PortManager:
         start_port, end_port = port_range
 
         # 检查是否有首选端口
-        preferred_port = getattr(self, '_preferred_ports', {}).get(service_name)
+        preferred_port = getattr(self, "_preferred_ports", {}).get(service_name)
 
         # 构建要尝试的端口列表：首选端口 -> 默认端口 -> 其他端口
         ports_to_try = []
@@ -265,8 +256,8 @@ class PortManager:
             self.allocated_ports[service_name] = PortConfig(
                 port=port,
                 pid=os.getpid(),
-                start_time=datetime.now(timezone.utc).isoformat(),
-                last_used=datetime.now(timezone.utc).isoformat(),
+                start_time=datetime.now(UTC).isoformat(),
+                last_used=datetime.now(UTC).isoformat(),
                 status="active",
             )
 
@@ -280,10 +271,7 @@ class PortManager:
 
             return port
 
-        error_msg = (
-            f"所有端口都不可用 | 服务: {service_name}"
-            f" | 范围: {start_port}-{end_port - 1}"
-        )
+        error_msg = f"所有端口都不可用 | 服务: {service_name} | 范围: {start_port}-{end_port - 1}"
         self.logger.error(error_msg)
         raise PortAllocationError(error_msg, service_name=service_name)
 
@@ -349,9 +337,7 @@ class PortManager:
             cleaned = False
             for pid in pids:
                 if self._is_zombie_process(pid, current_pid):
-                    self.logger.warning(
-                        f"发现僵尸进程 | 端口: {port} | PID: {pid} | 正在清理..."
-                    )
+                    self.logger.warning(f"发现僵尸进程 | 端口: {port} | PID: {pid} | 正在清理...")
                     if self._terminate_process(pid):
                         cleaned = True
                         self.logger.info(f"成功终止僵尸进程 | PID: {pid}")
@@ -365,7 +351,7 @@ class PortManager:
             self.logger.warning(f"僵尸进程检测超时 | 端口: {port}")
             return False
         except Exception as e:
-            self.logger.error(f"僵尸进程检测异常 | 端口: {port} | 错误: {str(e)}")
+            self.logger.error(f"僵尸进程检测异常 | 端口: {port} | 错误: {e!s}")
             return False
 
     def _is_zombie_process(self, pid: int, current_pid: int) -> bool:
@@ -442,7 +428,7 @@ class PortManager:
             self.logger.error(f"权限不足，无法终止进程 | PID: {pid}")
             return False
         except Exception as e:
-            self.logger.error(f"终止进程失败 | PID: {pid} | 错误: {str(e)}")
+            self.logger.error(f"终止进程失败 | PID: {pid} | 错误: {e!s}")
             return False
 
     def save_config(self) -> None:
@@ -460,11 +446,8 @@ class PortManager:
 
             config_data = {
                 "version": "1.0",
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "services": {
-                    name: port_config.to_dict()
-                    for name, port_config in self.allocated_ports.items()
-                },
+                "updated_at": datetime.now(UTC).isoformat(),
+                "services": {name: port_config.to_dict() for name, port_config in self.allocated_ports.items()},
             }
 
             fd, temp_path = tempfile.mkstemp(
@@ -474,24 +457,22 @@ class PortManager:
             )
 
             try:
-                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
                     json.dump(config_data, f, indent=2, ensure_ascii=False)
                 os.replace(temp_path, str(self.config_path))
 
                 self.logger.debug(f"配置已保存 | 文件: {self.config_path}")
             except Exception as e:
-                try:
+                with contextlib.suppress(OSError):
                     os.unlink(temp_path)
-                except OSError:
-                    pass
                 raise e
 
         except Exception as e:
-            error_msg = f"保存配置失败 | 路径: {self.config_path} | 错误: {str(e)}"
+            error_msg = f"保存配置失败 | 路径: {self.config_path} | 错误: {e!s}"
             self.logger.error(error_msg)
-            raise IOError(error_msg) from e
+            raise OSError(error_msg) from e
 
-    def load_config(self) -> Dict:
+    def load_config(self) -> dict:
         """
         从文件加载端口配置
 
@@ -506,7 +487,7 @@ class PortManager:
             return {}
 
         try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
+            with open(self.config_path, encoding="utf-8") as f:
                 config_data = json.load(f)
 
             if not self._validate_config(config_data):
@@ -518,21 +499,18 @@ class PortManager:
                 if service_name in PORT_RANGES:
                     self.allocated_ports[service_name] = PortConfig(**port_info)
 
-            self.logger.info(
-                f"配置加载成功 | 文件: {self.config_path}"
-                f" | 服务数: {len(self.allocated_ports)}"
-            )
+            self.logger.info(f"配置加载成功 | 文件: {self.config_path} | 服务数: {len(self.allocated_ports)}")
 
             return config_data
 
         except json.JSONDecodeError as e:
-            self.logger.error(f"配置文件JSON解析失败 | 错误: {str(e)}")
+            self.logger.error(f"配置文件JSON解析失败 | 错误: {e!s}")
             return {}
         except Exception as e:
-            self.logger.error(f"加载配置失败 | 错误: {str(e)}")
+            self.logger.error(f"加载配置失败 | 错误: {e!s}")
             return {}
 
-    def _validate_config(self, config_data: Dict) -> bool:
+    def _validate_config(self, config_data: dict) -> bool:
         """
         验证配置数据格式有效性
 
@@ -550,7 +528,7 @@ class PortManager:
         if not isinstance(services, dict):
             return False
 
-        for service_name, port_info in services.items():
+        for port_info in services.values():
             if not isinstance(port_info, dict):
                 return False
             if "port" not in port_info or not isinstance(port_info["port"], int):
@@ -558,7 +536,7 @@ class PortManager:
 
         return True
 
-    def get_all_ports(self) -> Dict[str, int]:
+    def get_all_ports(self) -> dict[str, int]:
         """
         获取所有服务的端口配置
 
@@ -568,10 +546,7 @@ class PortManager:
             Dict[str, int]: 端口配置字典
         """
         with self._port_lock:
-            ports = {
-                name: port_config.port
-                for name, port_config in self.allocated_ports.items()
-            }
+            ports = {name: port_config.port for name, port_config in self.allocated_ports.items()}
 
             self.logger.debug(f"获取所有端口配置 | 数量: {len(ports)}")
             return ports

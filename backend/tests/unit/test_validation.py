@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 参数验证工具模块单元测试
 
@@ -9,20 +8,21 @@
 日期: 2026-05-09
 """
 
-import pytest
 from datetime import datetime
+
+import pytest
 
 from utils.validation import (
     VALID_TIMEFRAMES,
     VALID_TRADING_MODES,
-    validate_time_range,
-    parse_time_range,
-    validate_symbols,
-    parse_symbols,
-    validate_timeframes,
-    parse_timeframes,
-    validate_trading_mode,
     get_default_values,
+    parse_symbols,
+    parse_time_range,
+    parse_timeframes,
+    validate_symbols,
+    validate_time_range,
+    validate_timeframes,
+    validate_trading_mode,
 )
 
 
@@ -31,18 +31,18 @@ class TestValidConstants:
 
     def test_valid_timeframes(self):
         """测试有效时间周期"""
-        assert '15m' in VALID_TIMEFRAMES
-        assert '30m' in VALID_TIMEFRAMES
-        assert '1h' in VALID_TIMEFRAMES
-        assert '4h' in VALID_TIMEFRAMES
-        assert '1d' in VALID_TIMEFRAMES
-        assert '1m' not in VALID_TIMEFRAMES
+        assert "15m" in VALID_TIMEFRAMES
+        assert "30m" in VALID_TIMEFRAMES
+        assert "1h" in VALID_TIMEFRAMES
+        assert "4h" in VALID_TIMEFRAMES
+        assert "1d" in VALID_TIMEFRAMES
+        assert "1m" not in VALID_TIMEFRAMES
 
     def test_valid_trading_modes(self):
         """测试有效交易模式"""
-        assert 'spot' in VALID_TRADING_MODES
-        assert 'futures' in VALID_TRADING_MODES
-        assert 'perpetual' in VALID_TRADING_MODES
+        assert "spot" in VALID_TRADING_MODES
+        assert "futures" in VALID_TRADING_MODES
+        assert "perpetual" in VALID_TRADING_MODES
 
 
 class TestValidateTimeRange:

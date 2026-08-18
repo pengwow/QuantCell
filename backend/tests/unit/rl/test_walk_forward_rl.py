@@ -1,31 +1,31 @@
 """Tests for rl/walk_forward_rl.py — RLWalkForwardService."""
 
-import sys
-from unittest.mock import MagicMock, patch
-
 import pandas as pd
 import pytest
 
-from rl.walk_forward_rl import RLWalkForwardService, _aggregate_folds, _metrics_to_dict
 from rl.evaluation import EvaluationMetrics
+from rl.walk_forward_rl import RLWalkForwardService, _aggregate_folds, _metrics_to_dict
 
 
 def _make_data(n: int = 200) -> pd.DataFrame:
     """Create synthetic OHLCV data for testing."""
     import random
+
     rng = random.Random(42)
     data = []
     price = 100.0
-    for i in range(n):
+    for _i in range(n):
         ret = 0.0002 + 0.02 * rng.gauss(0, 1)
         close_p = price * (1 + ret)
-        data.append({
-            "open": price,
-            "high": max(price, close_p) * 1.01,
-            "low": min(price, close_p) * 0.99,
-            "close": close_p,
-            "volume": rng.uniform(500_000, 2_000_000),
-        })
+        data.append(
+            {
+                "open": price,
+                "high": max(price, close_p) * 1.01,
+                "low": min(price, close_p) * 0.99,
+                "close": close_p,
+                "volume": rng.uniform(500_000, 2_000_000),
+            }
+        )
         price = close_p
     return pd.DataFrame(data)
 
@@ -50,10 +50,30 @@ def test_aggregate_folds_empty():
 def test_aggregate_folds_with_data():
     """Aggregate two valid folds → mean and std computed."""
     folds = [
-        {"fold": 0, "oos_metrics": {"total_pnl": 100, "sharpe_ratio": 1.0, "total_return_pct": 1.0,
-                                     "max_drawdown_pct": -5.0, "win_rate": 0.6, "num_trades": 10, "profit_factor": 1.5}},
-        {"fold": 1, "oos_metrics": {"total_pnl": 200, "sharpe_ratio": 2.0, "total_return_pct": 2.0,
-                                     "max_drawdown_pct": -3.0, "win_rate": 0.7, "num_trades": 20, "profit_factor": 2.5}},
+        {
+            "fold": 0,
+            "oos_metrics": {
+                "total_pnl": 100,
+                "sharpe_ratio": 1.0,
+                "total_return_pct": 1.0,
+                "max_drawdown_pct": -5.0,
+                "win_rate": 0.6,
+                "num_trades": 10,
+                "profit_factor": 1.5,
+            },
+        },
+        {
+            "fold": 1,
+            "oos_metrics": {
+                "total_pnl": 200,
+                "sharpe_ratio": 2.0,
+                "total_return_pct": 2.0,
+                "max_drawdown_pct": -3.0,
+                "win_rate": 0.7,
+                "num_trades": 20,
+                "profit_factor": 2.5,
+            },
+        },
     ]
     result = _aggregate_folds(folds)
     assert result["n_valid_folds"] == 2
@@ -86,9 +106,15 @@ def _mock_env_factory(data: pd.DataFrame):
             row = self._data.iloc[self._step - 1]
             ret = (row["close"] - row["open"]) / row["open"]
             position = float(action[0])
-            self._nav *= (1 + position * ret * 0.01)
+            self._nav *= 1 + position * ret * 0.01
             done = self._step >= len(self._data)
-            return np.zeros(5, dtype=np.float32), position * ret, done, False, {"nav": self._nav}
+            return (
+                np.zeros(5, dtype=np.float32),
+                position * ret,
+                done,
+                False,
+                {"nav": self._nav},
+            )
 
     return MockTradingEnv(data)
 
@@ -104,12 +130,13 @@ class MockAlgo:
 
     def predict(self, obs, deterministic=True):
         import numpy as np
+
         return np.array([0.1], dtype=np.float32), None
 
 
 @pytest.mark.skipif(
-    not hasattr(RLWalkForwardService, '__init__'),
-    reason="WalkForwardService not available"
+    not hasattr(RLWalkForwardService, "__init__"),
+    reason="WalkForwardService not available",
 )
 def test_wf_service_basic():
     """RLWalkForwardService runs a basic WF validation."""

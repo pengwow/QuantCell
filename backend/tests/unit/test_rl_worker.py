@@ -9,6 +9,7 @@ from worker.rl_worker import RLWorker
 def _find_latest_model():
     """Find the latest .zip model in data/models/."""
     from pathlib import Path
+
     models_dir = Path(__file__).parent.parent.parent / "data" / "models"
     zips = sorted(models_dir.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
     return str(zips[0]) if zips else None

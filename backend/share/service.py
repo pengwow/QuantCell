@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Worker 分享系统 业务逻辑层
 
@@ -9,18 +8,19 @@ build_snapshot() 严格白名单聚合：
 - 绝不暴露：strategy_code、worker_params、initial_capital、api_key、
   trades、orders、logs、leverage 详细阈值、mark_price、liquidation_price、margin_used
 """
+
 import json
 import logging
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, List
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
-
-from sqlalchemy.orm import Session
 
 from worker.models import Worker, WorkerPosition
 from worker.stats_service import TradingStatsService
 
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ def _extract_symbols_from_trading_config(trading_config_str: str) -> list:
         return []
     try:
         cfg = json.loads(trading_config_str)
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return []
     symbols_cfg = cfg.get("symbols_config", {}) or {}
     items = symbols_cfg.get("symbols") or []
@@ -112,7 +112,7 @@ def _safe_get_trading_cfg_field(trading_cfg_str: str, field: str):
     """从 trading_config 中安全读取字段"""
     try:
         cfg = json.loads(trading_cfg_str)
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return None
     val = cfg.get(field)
     return val if val is not None else None
@@ -141,7 +141,7 @@ def _filter_position(p: WorkerPosition) -> dict:
     }
 
 
-def _get_open_positions(db: Session, worker_id: int) -> List[WorkerPosition]:
+def _get_open_positions(db: Session, worker_id: int) -> list[WorkerPosition]:
     """查询 worker 的所有 OPEN 持仓"""
     return (
         db.query(WorkerPosition)
@@ -169,7 +169,8 @@ def build_snapshot(db: Session, worker_id: int, window: str = "30d") -> dict:
     """
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not worker:
-        raise ValueError(f"Worker {worker_id} 不存在")
+        msg = f"Worker {worker_id} 不存在"
+        raise ValueError(msg)
 
     # 1. Worker 元信息（白名单）
     worker_snapshot = _filter_worker(worker)

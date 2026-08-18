@@ -1,9 +1,9 @@
 # 模型验证测试
 # 测试Pydantic模型的请求/响应验证
 
+
 import pytest
 from pydantic import ValidationError
-from datetime import datetime
 
 
 class TestStrategySchemas:
@@ -25,9 +25,7 @@ class TestStrategySchemas:
         """测试最小策略上传请求"""
         from strategy.schemas import StrategyUploadRequest
 
-        request = StrategyUploadRequest(
-            strategy_name="TestStrategy", file_content="class TestStrategy:\n    pass"
-        )
+        request = StrategyUploadRequest(strategy_name="TestStrategy", file_content="class TestStrategy:\n    pass")
         assert request.description is None
 
     def test_strategy_upload_request_missing_required(self):
@@ -43,9 +41,7 @@ class TestStrategySchemas:
         from strategy.schemas import StrategyUploadRequest
 
         with pytest.raises(ValidationError) as exc_info:
-            StrategyUploadRequest(
-                strategy_name="", file_content="class TestStrategy:\n    pass"
-            )
+            StrategyUploadRequest(strategy_name="", file_content="class TestStrategy:\n    pass")
         assert "strategy_name" in str(exc_info.value)
 
     def test_strategy_upload_request_unicode(self):
@@ -64,9 +60,7 @@ class TestStrategySchemas:
         from strategy.schemas import StrategyUploadRequest
 
         long_content = "# Line\n" * 10000
-        request = StrategyUploadRequest(
-            strategy_name="LongStrategy", file_content=long_content
-        )
+        request = StrategyUploadRequest(strategy_name="LongStrategy", file_content=long_content)
         assert len(request.file_content) > 50000
 
 
@@ -100,7 +94,7 @@ class TestBacktestSchemas:
         assert config.interval == "1d"
         assert config.initial_cash == 10000.0
         assert config.commission == 0.001
-        assert config.exclusive_orders == True
+        assert config.exclusive_orders
 
     def test_backtest_config_missing_required(self):
         """测试缺少必填字段的回测配置"""
@@ -186,12 +180,10 @@ class TestBacktestSchemas:
 
     def test_backtest_run_request_valid(self):
         """测试有效的回测执行请求"""
-        from backtest.schemas import BacktestRunRequest, StrategyConfig, BacktestConfig
+        from backtest.schemas import BacktestConfig, BacktestRunRequest, StrategyConfig
 
         request = BacktestRunRequest(
-            strategy_config=StrategyConfig(
-                strategy_name="SmaCross", params={"n1": 10, "n2": 20}
-            ),
+            strategy_config=StrategyConfig(strategy_name="SmaCross", params={"n1": 10, "n2": 20}),
             backtest_config=BacktestConfig(
                 symbols=["BTCUSDT"],
                 interval="1d",
@@ -203,7 +195,7 @@ class TestBacktestSchemas:
 
     def test_backtest_run_request_missing_strategy_config(self):
         """测试缺少策略配置的回测请求"""
-        from backtest.schemas import BacktestRunRequest, BacktestConfig
+        from backtest.schemas import BacktestConfig, BacktestRunRequest
 
         with pytest.raises(ValidationError) as exc_info:
             BacktestRunRequest(
@@ -230,7 +222,7 @@ class TestSettingsSchemas:
             is_sensitive=False,
         )
         assert request.key == "test_config"
-        assert request.is_sensitive == False
+        assert not request.is_sensitive
 
     def test_config_update_request_minimal(self):
         """测试最小配置更新请求"""
@@ -238,16 +230,14 @@ class TestSettingsSchemas:
 
         request = ConfigUpdateRequest(key="test_config", value="test_value")
         assert request.description is None
-        assert request.is_sensitive == False
+        assert not request.is_sensitive
 
     def test_config_update_request_sensitive(self):
         """测试敏感配置更新请求"""
         from settings.schemas import ConfigUpdateRequest
 
-        request = ConfigUpdateRequest(
-            key="api_key", value="secret123", is_sensitive=True
-        )
-        assert request.is_sensitive == True
+        request = ConfigUpdateRequest(key="api_key", value="secret123", is_sensitive=True)
+        assert request.is_sensitive
 
     def test_config_update_request_missing_key(self):
         """测试缺少键的配置更新请求"""
@@ -261,14 +251,12 @@ class TestSettingsSchemas:
         """测试字典格式的批量配置更新请求"""
         from settings.schemas import ConfigBatchUpdateRequest
 
-        request = ConfigBatchUpdateRequest(
-            configs={"config1": "value1", "config2": "value2"}
-        )
+        request = ConfigBatchUpdateRequest(configs={"config1": "value1", "config2": "value2"})
         assert request.configs["config1"] == "value1"
 
     def test_config_batch_update_request_list(self):
         """测试列表格式的批量配置更新请求"""
-        from settings.schemas import ConfigBatchUpdateRequest, ConfigBatchUpdateItem
+        from settings.schemas import ConfigBatchUpdateItem, ConfigBatchUpdateRequest
 
         request = ConfigBatchUpdateRequest(
             configs=[
@@ -294,10 +282,10 @@ class TestSettingsSchemas:
     def test_system_info_valid(self):
         """测试有效的系统信息"""
         from settings.schemas import (
+            ResourceUsage,
+            RunningStatus,
             SystemInfo,
             VersionInfo,
-            RunningStatus,
-            ResourceUsage,
         )
 
         info = SystemInfo(
@@ -343,9 +331,7 @@ class TestCommonSchemas:
         """测试列表数据的API响应"""
         from common.schemas import ApiResponse
 
-        response = ApiResponse(
-            code=0, message="获取列表成功", data=[{"id": 1}, {"id": 2}]
-        )
+        response = ApiResponse(code=0, message="获取列表成功", data=[{"id": 1}, {"id": 2}])
         assert len(response.data) == 2
 
     def test_pagination_request_valid(self):
@@ -411,7 +397,7 @@ class TestDataIntegritySchemas:
 
     def test_data_integrity_result_valid(self):
         """测试有效的数据完整性结果"""
-        from backtest.schemas import DataIntegrityResult, MissingRange, QualityIssue
+        from backtest.schemas import DataIntegrityResult
 
         result = DataIntegrityResult(
             is_complete=True,
@@ -420,7 +406,7 @@ class TestDataIntegritySchemas:
             missing_count=0,
             coverage_percent=100.0,
         )
-        assert result.is_complete == True
+        assert result.is_complete
         assert result.missing_ranges == []
         assert result.quality_issues == []
 
@@ -437,7 +423,7 @@ class TestDataIntegritySchemas:
             quality_issues=[QualityIssue(type="missing_data", message="数据缺失")],
             coverage_percent=90.0,
         )
-        assert result.is_complete == False
+        assert not result.is_complete
         assert len(result.missing_ranges) == 1
 
 
@@ -449,9 +435,7 @@ class TestSchemaEdgeCases:
         from strategy.schemas import StrategyUploadRequest
 
         long_string = "a" * 100000
-        request = StrategyUploadRequest(
-            strategy_name=long_string[:100], file_content=long_string
-        )
+        request = StrategyUploadRequest(strategy_name=long_string[:100], file_content=long_string)
         assert len(request.file_content) == 100000
 
     def test_unicode_in_all_fields(self):
@@ -470,18 +454,14 @@ class TestSchemaEdgeCases:
         from strategy.schemas import StrategyUploadRequest
 
         special_chars = "<script>alert('xss')</script>&\"'\n\t\r"
-        request = StrategyUploadRequest(
-            strategy_name="TestStrategy", file_content=special_chars
-        )
+        request = StrategyUploadRequest(strategy_name="TestStrategy", file_content=special_chars)
         assert request.file_content == special_chars
 
     def test_null_values_handling(self):
         """测试null值处理"""
         from strategy.schemas import StrategyUploadRequest
 
-        request = StrategyUploadRequest(
-            strategy_name="TestStrategy", file_content="content", description=None
-        )
+        request = StrategyUploadRequest(strategy_name="TestStrategy", file_content="content", description=None)
         assert request.description is None
 
     def test_empty_strings(self):
@@ -530,9 +510,7 @@ class TestSchemaEdgeCases:
 
         formats = ["2023-01-01 00:00:00", "2023-12-31 23:59:59", "2023-06-15 12:30:45"]
         for fmt in formats:
-            config = BacktestConfig(
-                symbols=["BTCUSDT"], start_time=fmt, end_time="2023-12-31 23:59:59"
-            )
+            config = BacktestConfig(symbols=["BTCUSDT"], start_time=fmt, end_time="2023-12-31 23:59:59")
             assert config.start_time == fmt
 
     def test_array_with_various_types(self):
@@ -570,6 +548,7 @@ class TestSchemaEdgeCases:
     def test_schema_json_serialization(self):
         """测试模型JSON序列化"""
         import json
+
         from common.schemas import ApiResponse
 
         response = ApiResponse(code=0, message="成功", data={"key": "value"})

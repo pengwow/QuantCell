@@ -4,9 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from utils.logger import get_logger, LogType
-from .loop import AgentLoop
+from utils.logger import LogType, get_logger
+
 from ..providers.openai_provider import OpenAIProvider
+from .loop import AgentLoop
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -21,8 +22,9 @@ def get_ai_config() -> dict[str, Any] | None:
     """
     try:
         # 直接读取数据库配置，避免导入 settings.models 导致的循环导入
-        from collector.db.database import SessionLocal, init_database_config
         from sqlalchemy import text
+
+        from collector.db.database import SessionLocal, init_database_config
 
         init_database_config()
         db = SessionLocal()
@@ -61,7 +63,7 @@ def get_ai_config() -> dict[str, Any] | None:
                         elif field in ["is_default", "proxy_enabled"]:
                             providers[provider_id][field] = value in ("true", "1", True)
                         elif field == "is_enabled":
-                            providers[provider_id][field] = value if value else None
+                            providers[provider_id][field] = value or None
                         else:
                             providers[provider_id][field] = value
 
@@ -117,7 +119,9 @@ def get_ai_config() -> dict[str, Any] | None:
                 },
             }
 
-            logger.info(f"从系统配置加载AI模型: {result['provider']['name']}, 模型: {result['enabled_model']['name']} (ID: {result['enabled_model']['id']})")
+            logger.info(
+                f"从系统配置加载AI模型: {result['provider']['name']}, 模型: {result['enabled_model']['name']} (ID: {result['enabled_model']['id']})"
+            )
             return result
 
         finally:
@@ -179,15 +183,16 @@ def get_agent() -> AgentLoop:
             max_tokens=4096,
             memory_window=100,
         )
-        
+
         # 使用统一的工具注册机制（自动发现并注册所有工具）
         from agent.tools import create_registry
+
         tools_registry = create_registry(workspace)
-        
+
         # 将工具注册到 Agent 实例
         for tool in tools_registry._tools.values():
             _agent_instance.register_tool(tool)
-        
+
         logger.info("Agent 实例已初始化")
-    
+
     return _agent_instance

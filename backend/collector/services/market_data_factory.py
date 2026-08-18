@@ -3,12 +3,14 @@
 基于工厂模式实现多交易所市场数据获取的统一接口
 支持从系统配置读取代理信息
 """
+
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
 from datetime import datetime
 from decimal import Decimal
-from utils.logger import get_logger, LogType
+from typing import Any
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -22,7 +24,7 @@ class MarketDataFetcher(ABC):
     定义了获取市场数据的统一接口，不同交易所的获取器需要实现此接口
     """
 
-    def __init__(self, exchange_id: str, config: Dict[str, Any]):
+    def __init__(self, exchange_id: str, config: dict[str, Any]):
         """初始化获取器
 
         Args:
@@ -40,7 +42,7 @@ class MarketDataFetcher(ABC):
         self.api_secret = config.get("api_secret", "")
 
     @abstractmethod
-    async def fetch_market_data(self, symbols: List[str]) -> List[Dict[str, Any]]:
+    async def fetch_market_data(self, symbols: list[str]) -> list[dict[str, Any]]:
         """获取市场数据
 
         Args:
@@ -51,14 +53,14 @@ class MarketDataFetcher(ABC):
         """
 
     @abstractmethod
-    async def fetch_all_tickers(self) -> List[Dict[str, Any]]:
+    async def fetch_all_tickers(self) -> list[dict[str, Any]]:
         """获取所有货币对的市场数据
 
         Returns:
             List[Dict]: 市场数据列表
         """
 
-    def _get_proxy_config(self) -> Optional[Dict[str, str]]:
+    def _get_proxy_config(self) -> dict[str, str] | None:
         """获取代理配置
 
         Returns:
@@ -76,10 +78,18 @@ class MarketDataFetcher(ABC):
         if self.proxy_username and self.proxy_password:
             # 解析URL并添加认证信息
             from urllib.parse import urlparse, urlunparse
+
             parsed = urlparse(self.proxy_url)
             netloc = f"{self.proxy_username}:{self.proxy_password}@{parsed.netloc}"
             proxy_url_with_auth = urlunparse(
-                (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+                (
+                    parsed.scheme,
+                    netloc,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment,
+                )
             )
             proxy_config = {
                 "http": proxy_url_with_auth,
@@ -88,7 +98,7 @@ class MarketDataFetcher(ABC):
 
         return proxy_config
 
-    async def _save_market_data_to_db(self, data: Dict[str, Any]):
+    async def _save_market_data_to_db(self, data: dict[str, Any]):
         """保存市场数据到数据库
 
         Args:
@@ -96,16 +106,24 @@ class MarketDataFetcher(ABC):
         """
         db = next(get_db())
         try:
-            record = db.query(MarketData).filter(
-                MarketData.symbol == data["symbol"],
-                MarketData.exchange == self.exchange_id
-            ).first()
+            record = (
+                db.query(MarketData)
+                .filter(
+                    MarketData.symbol == data["symbol"],
+                    MarketData.exchange == self.exchange_id,
+                )
+                .first()
+            )
 
             if record:
                 # 更新
                 record.price = Decimal(str(data["price"])) if data.get("price") else None
-                record.price_change_24h = Decimal(str(data["price_change_24h"])) if data.get("price_change_24h") else None
-                record.price_change_percent_24h = Decimal(str(data["price_change_percent_24h"])) if data.get("price_change_percent_24h") else None
+                record.price_change_24h = (
+                    Decimal(str(data["price_change_24h"])) if data.get("price_change_24h") else None
+                )
+                record.price_change_percent_24h = (
+                    Decimal(str(data["price_change_percent_24h"])) if data.get("price_change_percent_24h") else None
+                )
                 record.volume_24h = Decimal(str(data["volume_24h"])) if data.get("volume_24h") else None
                 record.high_24h = Decimal(str(data["high_24h"])) if data.get("high_24h") else None
                 record.low_24h = Decimal(str(data["low_24h"])) if data.get("low_24h") else None
@@ -117,11 +135,13 @@ class MarketDataFetcher(ABC):
                     exchange=self.exchange_id,
                     price=Decimal(str(data["price"])) if data.get("price") else None,
                     price_change_24h=Decimal(str(data["price_change_24h"])) if data.get("price_change_24h") else None,
-                    price_change_percent_24h=Decimal(str(data["price_change_percent_24h"])) if data.get("price_change_percent_24h") else None,
+                    price_change_percent_24h=Decimal(str(data["price_change_percent_24h"]))
+                    if data.get("price_change_percent_24h")
+                    else None,
                     volume_24h=Decimal(str(data["volume_24h"])) if data.get("volume_24h") else None,
                     high_24h=Decimal(str(data["high_24h"])) if data.get("high_24h") else None,
                     low_24h=Decimal(str(data["low_24h"])) if data.get("low_24h") else None,
-                    last_update=datetime.utcnow()
+                    last_update=datetime.utcnow(),
                 )
                 db.add(new_record)
 
@@ -136,15 +156,16 @@ class MarketDataFetcher(ABC):
 class BinanceMarketDataFetcher(MarketDataFetcher):
     """币安市场数据获取器"""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         super().__init__("binance", config)
         self._client = None
 
     def _get_client(self):
         """获取币安客户端（延迟初始化）"""
         if self._client is None:
-            from binance.client import Client
             import os
+
+            from binance.client import Client
 
             # 优先使用数据库配置的代理，其次使用环境变量代理
             proxies = self._get_proxy_config()
@@ -181,17 +202,28 @@ class BinanceMarketDataFetcher(MarketDataFetcher):
         """
         # 尝试分离基础货币和计价货币
         # 常见计价货币：USDT, BTC, ETH, BNB, USDC, TUSD, BUSD
-        quote_currencies = ["USDT", "BTC", "ETH", "BNB", "USDC", "TUSD", "BUSD", "DAI", "PAX", "USDS"]
+        quote_currencies = [
+            "USDT",
+            "BTC",
+            "ETH",
+            "BNB",
+            "USDC",
+            "TUSD",
+            "BUSD",
+            "DAI",
+            "PAX",
+            "USDS",
+        ]
 
         for quote in quote_currencies:
             if symbol.endswith(quote):
-                base = symbol[:-len(quote)]
+                base = symbol[: -len(quote)]
                 return f"{base}/{quote}"
 
         # 如果无法识别，直接返回原值
         return symbol
 
-    async def fetch_market_data(self, symbols: List[str]) -> List[Dict[str, Any]]:
+    async def fetch_market_data(self, symbols: list[str]) -> list[dict[str, Any]]:
         """从币安获取市场数据"""
         try:
             client = self._get_client()
@@ -219,7 +251,7 @@ class BinanceMarketDataFetcher(MarketDataFetcher):
                         "volume_24h": float(ticker["volume"]),
                         "high_24h": float(ticker["highPrice"]),
                         "low_24h": float(ticker["lowPrice"]),
-                        "last_update": datetime.utcnow().isoformat()
+                        "last_update": datetime.utcnow().isoformat(),
                     }
                     all_data.append(data)
                     await self._save_market_data_to_db(data)
@@ -233,7 +265,7 @@ class BinanceMarketDataFetcher(MarketDataFetcher):
             logger.error(f"从币安获取市场数据失败: {e}")
             raise
 
-    async def fetch_all_tickers(self) -> List[Dict[str, Any]]:
+    async def fetch_all_tickers(self) -> list[dict[str, Any]]:
         """获取所有货币对的市场数据"""
         try:
             client = self._get_client()
@@ -251,7 +283,7 @@ class BinanceMarketDataFetcher(MarketDataFetcher):
                     "volume_24h": float(ticker["volume"]),
                     "high_24h": float(ticker["highPrice"]),
                     "low_24h": float(ticker["lowPrice"]),
-                    "last_update": datetime.utcnow().isoformat()
+                    "last_update": datetime.utcnow().isoformat(),
                 }
                 all_data.append(data)
                 await self._save_market_data_to_db(data)
@@ -266,16 +298,16 @@ class BinanceMarketDataFetcher(MarketDataFetcher):
 class OKXMarketDataFetcher(MarketDataFetcher):
     """OKX市场数据获取器"""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         super().__init__("okx", config)
 
-    async def fetch_market_data(self, symbols: List[str]) -> List[Dict[str, Any]]:
+    async def fetch_market_data(self, symbols: list[str]) -> list[dict[str, Any]]:
         """从OKX获取市场数据"""
         # TODO: 实现OKX API调用
         logger.warning("OKX市场数据获取器尚未实现")
         return []
 
-    async def fetch_all_tickers(self) -> List[Dict[str, Any]]:
+    async def fetch_all_tickers(self) -> list[dict[str, Any]]:
         """获取所有货币对的市场数据"""
         # TODO: 实现OKX API调用
         logger.warning("OKX市场数据获取器尚未实现")
@@ -285,16 +317,16 @@ class OKXMarketDataFetcher(MarketDataFetcher):
 class BybitMarketDataFetcher(MarketDataFetcher):
     """Bybit市场数据获取器"""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         super().__init__("bybit", config)
 
-    async def fetch_market_data(self, symbols: List[str]) -> List[Dict[str, Any]]:
+    async def fetch_market_data(self, symbols: list[str]) -> list[dict[str, Any]]:
         """从Bybit获取市场数据"""
         # TODO: 实现Bybit API调用
         logger.warning("Bybit市场数据获取器尚未实现")
         return []
 
-    async def fetch_all_tickers(self) -> List[Dict[str, Any]]:
+    async def fetch_all_tickers(self) -> list[dict[str, Any]]:
         """获取所有货币对的市场数据"""
         # TODO: 实现Bybit API调用
         logger.warning("Bybit市场数据获取器尚未实现")
@@ -304,12 +336,12 @@ class BybitMarketDataFetcher(MarketDataFetcher):
 class MarketDataFetcherFactory:
     """市场数据获取器工厂类"""
 
-    _fetchers: Dict[str, MarketDataFetcher] = {}
+    _fetchers: dict[str, MarketDataFetcher] = {}
 
     @classmethod
-    def _get_exchange_config_from_db(cls, exchange_id: str) -> Optional[Dict[str, Any]]:
+    def _get_exchange_config_from_db(cls, exchange_id: str) -> dict[str, Any] | None:
         """从数据库中组装交易所配置
-        
+
         从分散的配置项中组装交易所配置，支持的key格式：
         - exchange.{exchange_id}.name
         - exchange.{exchange_id}.api_key
@@ -319,39 +351,40 @@ class MarketDataFetcherFactory:
         - exchange.{exchange_id}.proxy_username
         - exchange.{exchange_id}.proxy_password
         - exchange.{exchange_id}.is_enabled
-        
+
         Args:
             exchange_id: 交易所ID
-            
+
         Returns:
             Optional[Dict[str, Any]]: 交易所配置字典，如果未找到则返回None
         """
         from settings.models import SystemConfigBusiness as SystemConfig
+
         config = {}
         prefix = f"exchange.{exchange_id}."
-        
+
         # 获取所有以 exchange.{exchange_id}. 开头的配置
         all_configs = SystemConfig.get_all()
         found = False
-        
+
         for key, value in all_configs.items():
             if key.startswith(prefix):
                 found = True
                 # 提取配置项名称（去掉前缀）
-                config_name = key[len(prefix):]
+                config_name = key[len(prefix) :]
                 config[config_name] = value
-        
+
         if not found:
             return None
-            
+
         # 设置默认值
         config.setdefault("is_enabled", True)
         config.setdefault("name", exchange_id)
-        
+
         return config
 
     @classmethod
-    def get_fetcher(cls, exchange_id: str) -> Optional[MarketDataFetcher]:
+    def get_fetcher(cls, exchange_id: str) -> MarketDataFetcher | None:
         """获取指定交易所的市场数据获取器
 
         Args:
@@ -361,6 +394,7 @@ class MarketDataFetcherFactory:
             Optional[MarketDataFetcher]: 市场数据获取器实例，如果不支持则返回None
         """
         from settings.models import SystemConfigBusiness as SystemConfig
+
         # 检查缓存
         if exchange_id in cls._fetchers:
             return cls._fetchers[exchange_id]
@@ -368,7 +402,7 @@ class MarketDataFetcherFactory:
         # 从系统配置读取交易所配置
         # 首先尝试从分散的配置项中组装
         config = cls._get_exchange_config_from_db(exchange_id)
-        
+
         if not config:
             # 尝试从单个JSON配置中读取（兼容旧格式）
             config_str = SystemConfig.get(exchange_id)
@@ -378,7 +412,7 @@ class MarketDataFetcherFactory:
                 except json.JSONDecodeError as e:
                     logger.error(f"解析交易所配置失败: {exchange_id}, error={e}")
                     return None
-        
+
         if not config:
             logger.error(f"未找到交易所配置: {exchange_id}")
             return None
@@ -399,7 +433,7 @@ class MarketDataFetcherFactory:
         return None
 
     @classmethod
-    def _get_fetcher_class(cls, exchange_id: str) -> Optional[type]:
+    def _get_fetcher_class(cls, exchange_id: str) -> type | None:
         """获取指定交易所的获取器类
 
         Args:
@@ -416,13 +450,14 @@ class MarketDataFetcherFactory:
         return fetcher_classes.get(exchange_id)
 
     @classmethod
-    def get_default_fetcher(cls) -> Optional[MarketDataFetcher]:
+    def get_default_fetcher(cls) -> MarketDataFetcher | None:
         """获取默认交易所的市场数据获取器
 
         Returns:
             Optional[MarketDataFetcher]: 默认市场数据获取器实例
         """
         from settings.models import SystemConfigBusiness as SystemConfig
+
         # 从系统配置获取默认交易所
         default_exchange = SystemConfig.get("default_exchange", "binance")
         return cls.get_fetcher(default_exchange)

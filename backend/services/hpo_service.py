@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """HPO Service — axon_quant.hpo / axon_quant.walk_forward 业务封装。
 
 通过 axon_hpo (Python) 和 axon_quant.walk_forward (Rust) 调用 axon_quant 的引擎。
@@ -16,21 +15,25 @@
     >>> wf = WalkForwardServiceWrapper()
     >>> folds = wf.split(n_samples=1000, train_size=600, test_size=200, step_size=100)
 """
+
 from __future__ import annotations
 
-import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
 # HPO 使用 axon_hpo Python 包(OptunaHPO),比 Rust HPORunner 更灵活
 # WalkForward 使用 axon_quant.walk_forward Rust 引擎
 try:
-    from axon_hpo.types import SearchSpaceDef
-    from axon_hpo.optuna_runner import OptunaHPO
     import axon_quant.walk_forward as _walk_forward
+    from axon_hpo.optuna_runner import OptunaHPO
+    from axon_hpo.types import SearchSpaceDef
+
     AXON_AVAILABLE = True
 except ImportError as e:
     AXON_AVAILABLE = False
@@ -96,9 +99,8 @@ class HPOServiceWrapper:
     def __init__(self):
         """初始化超参优化服务"""
         if not AXON_AVAILABLE or OptunaHPO is None or SearchSpaceDef is None:
-            raise RuntimeError(
-                "axon_hpo 不可用，请安装 axon-quant: pip install axon-quant"
-            )
+            msg = "axon_hpo 不可用，请安装 axon-quant: pip install axon-quant"
+            raise RuntimeError(msg)
         logger.info("HPOService 已初始化（axon_hpo.OptunaHPO）")
 
     @staticmethod
@@ -112,10 +114,12 @@ class HPOServiceWrapper:
             SearchSpaceDef 对象
         """
         if SearchSpaceDef is None:
-            raise RuntimeError("SearchSpaceDef 未加载")
+            msg = "SearchSpaceDef 未加载"
+            raise RuntimeError(msg)
         param_type = param_dict.get("type") or param_dict.get("param_type")
         if param_type is None:
-            raise ValueError("param_dict 必须包含 type 或 param_type")
+            msg = "param_dict 必须包含 type 或 param_type"
+            raise ValueError(msg)
         return SearchSpaceDef(
             param_type=param_type,
             low=param_dict.get("low"),
@@ -151,10 +155,7 @@ class HPOServiceWrapper:
             - elapsed_ms: 总耗时
         """
         # 将字典转换为 SearchSpaceDef 对象
-        search_space = {
-            name: self._param_dict_to_search_space_def(defn)
-            for name, defn in param_space.items()
-        }
+        search_space = {name: self._param_dict_to_search_space_def(defn) for name, defn in param_space.items()}
 
         hpo_runner = OptunaHPO(
             search_space=search_space,
@@ -182,9 +183,11 @@ class HPOServiceWrapper:
             # 找最佳 trial
             if tr.state == "complete" and tr.values:
                 current_value = tr.values[0]
-                if best_trial is None or (
-                    direction_is_maximize and current_value > best_value
-                ) or (not direction_is_maximize and current_value < best_value):
+                if (
+                    best_trial is None
+                    or (direction_is_maximize and current_value > best_value)
+                    or (not direction_is_maximize and current_value < best_value)
+                ):
                     best_trial = trial_dict
                     best_value = current_value
 
@@ -195,10 +198,7 @@ class HPOServiceWrapper:
             "all_trials": all_trials,
             "elapsed_ms": elapsed_ms,
         }
-        logger.info(
-            f"HPO 完成: trials={len(all_trials)}, "
-            f"elapsed_ms={elapsed_ms}"
-        )
+        logger.info(f"HPO 完成: trials={len(all_trials)}, elapsed_ms={elapsed_ms}")
         return result
 
 
@@ -213,9 +213,8 @@ class WalkForwardServiceWrapper:
     def __init__(self):
         """初始化前向验证服务"""
         if not AXON_AVAILABLE:
-            raise RuntimeError(
-                "axon_quant.walk_forward 不可用，请安装 axon_quant: pip install axon-quant"
-            )
+            msg = "axon_quant.walk_forward 不可用，请安装 axon_quant: pip install axon-quant"
+            raise RuntimeError(msg)
         logger.info("WalkForwardService 已初始化（axon_quant.walk_forward.WalkForwardRunner）")
 
     def split(
@@ -297,11 +296,13 @@ class WalkForwardServiceWrapper:
         if hasattr(data, "__len__"):
             n_samples = len(data)
         else:
-            raise ValueError("data 必须支持 len()")
+            msg = "data 必须支持 len()"
+            raise ValueError(msg)
 
         # 自动计算窗口大小，使 fold 数约为 n_splits
         if n_samples <= 0:
-            raise ValueError("n_samples 必须大于 0")
+            msg = "n_samples 必须大于 0"
+            raise ValueError(msg)
 
         test_size = max(1, n_samples // (n_splits + 2))
         train_size = max(test_size, n_samples - test_size * (n_splits + 1))
@@ -330,7 +331,7 @@ class WalkForwardServiceWrapper:
         if metrics:
             mean = sum(metrics) / len(metrics)
             variance = sum((x - mean) ** 2 for x in metrics) / len(metrics)
-            std = variance ** 0.5
+            std = variance**0.5
         else:
             mean = std = 0.0
 
@@ -383,9 +384,7 @@ class HPOServiceProxy:
         """执行超参优化"""
         if not self._available or not self._hpo_service:
             return {"status": "not_available"}
-        return self._hpo_service.optimize(
-            objective_fn, param_space, n_trials, direction, study_name
-        )
+        return self._hpo_service.optimize(objective_fn, param_space, n_trials, direction, study_name)
 
     def split(
         self,

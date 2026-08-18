@@ -24,26 +24,29 @@ AI模型配置API路由
 """
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from common.schemas import ApiResponse
-from utils.auth import jwt_auth_required, jwt_auth_required_sync
 
 # 导入系统配置模型
 from settings.models import SystemConfigBusiness as SystemConfig
+from utils.auth import jwt_auth_required, jwt_auth_required_sync
 
 from .config_utils import get_default_provider_and_models
-from .schemas import (
-    AIModelCheckRequest,
-    AIModelCreate,
-    AIModelUpdate,
-)
 from .services import AIModelService
+
+if TYPE_CHECKING:
+    from .schemas import (
+        AIModelCheckRequest,
+        AIModelCreate,
+        AIModelUpdate,
+    )
 
 # 创建AI模型配置API路由
 router = APIRouter(prefix="/api/ai-models", tags=["ai-model-config"])
@@ -52,52 +55,63 @@ router = APIRouter(prefix="/api/ai-models", tags=["ai-model-config"])
 AI_MODELS_CONFIG_NAME = "ai_models"
 
 
-def get_ai_models_from_config() -> List[Dict[str, Any]]:
+def get_ai_models_from_config() -> list[dict[str, Any]]:
     """从系统配置表读取AI模型配置
-    
+
     使用新的 ai_model.{provider_id}.{field} 格式读取配置
-    
+
     Returns:
         List[Dict[str, Any]]: AI模型提供商配置列表
     """
     try:
         from .config_utils import get_all_providers
-        
+
         # 使用新的配置解析方法
         providers = get_all_providers()
-        
+
         logger.info(f"获取到 {len(providers)} 个AI模型提供商配置")
         for provider in providers:
-            logger.info(f"提供商: id={provider.get('id')}, name={provider.get('name')}, enabled={provider.get('is_enabled')}")
-        
+            logger.info(
+                f"提供商: id={provider.get('id')}, name={provider.get('name')}, enabled={provider.get('is_enabled')}"
+            )
+
         return providers
     except Exception as e:
         logger.error(f"从系统配置读取AI模型失败: {e}")
         import traceback
+
         logger.error(traceback.format_exc())
         return []
 
 
-def save_ai_model_to_config(model_id: str, model_data: Dict[str, Any]) -> bool:
+def save_ai_model_to_config(model_id: str, model_data: dict[str, Any]) -> bool:
     """保存AI模型配置到系统配置表
-    
+
     使用新的 ai_model.{provider_id}.{field} 格式存储
-    
+
     Args:
         model_id: 模型配置ID
         model_data: 模型配置数据
-        
+
     Returns:
         bool: 是否保存成功
     """
     try:
         # 将模型数据分解为多个配置项
         fields_to_save = [
-            "name", "provider", "api_key", "api_host", 
-            "models", "is_default", "is_enabled",
-            "proxy_enabled", "proxy_url", "proxy_username", "proxy_password"
+            "name",
+            "provider",
+            "api_key",
+            "api_host",
+            "models",
+            "is_default",
+            "is_enabled",
+            "proxy_enabled",
+            "proxy_url",
+            "proxy_username",
+            "proxy_password",
         ]
-        
+
         for field in fields_to_save:
             value = model_data.get(field)
             if value is not None:
@@ -110,56 +124,53 @@ def save_ai_model_to_config(model_id: str, model_data: Dict[str, Any]) -> bool:
                 elif field == "is_enabled":
                     # is_enabled 直接存储模型ID字符串（或空字符串）
                     value = str(value) if value else ""
-                
+
                 key = f"{AI_MODELS_CONFIG_NAME}.{model_id}.{field}"
                 SystemConfig.set(
                     key=key,
                     value=str(value),
                     description=f"{model_data.get('name', 'AI模型')}的{field}配置",
-                    name=AI_MODELS_CONFIG_NAME
+                    name=AI_MODELS_CONFIG_NAME,
                 )
-        
+
         return True
     except Exception as e:
         logger.error(f"保存AI模型配置失败: {e}")
         import traceback
+
         logger.error(traceback.format_exc())
         return False
 
 
 def delete_ai_model_from_config(model_id: str) -> bool:
     """从系统配置表删除AI模型配置
-    
+
     删除该提供商的所有配置项
-    
+
     Args:
         model_id: 模型配置ID
-        
+
     Returns:
         bool: 是否删除成功
     """
     try:
         from settings.models import SystemConfigBusiness as SystemConfig
-        
+
         # 获取所有配置
         all_configs = SystemConfig.get_all_with_details()
-        
+
         # 删除该提供商的所有配置项
         prefix = f"{AI_MODELS_CONFIG_NAME}.{model_id}."
         for key in list(all_configs.keys()):
             if key.startswith(prefix):
                 # 使用set设置空值来删除
-                SystemConfig.set(
-                    key=key,
-                    value="",
-                    description="",
-                    name=""
-                )
-        
+                SystemConfig.set(key=key, value="", description="", name="")
+
         return True
     except Exception as e:
         logger.error(f"删除AI模型配置失败: {e}")
         import traceback
+
         logger.error(traceback.format_exc())
         return False
 
@@ -170,8 +181,8 @@ def get_ai_models(
     request: Request,
     page: int = Query(1, ge=1, description="页码，从1开始"),
     limit: int = Query(10, ge=1, le=100, description="每页记录数"),
-    provider: Optional[str] = Query(None, description="按厂商筛选"),
-    is_default: Optional[bool] = Query(True, description="按默认配置筛选"),
+    provider: str | None = Query(None, description="按厂商筛选"),
+    is_default: bool | None = Query(True, description="按默认配置筛选"),
     sort_by: str = Query("created_at", description="排序字段"),
     sort_order: str = Query("desc", description="排序顺序，asc或desc"),
 ):
@@ -181,7 +192,7 @@ def get_ai_models(
 
     Args:
         request: FastAPI请求对象
-        page: 页码，从1开始 
+        page: 页码，从1开始
         limit: 每页记录数
         provider: 按厂商筛选
         is_enabled: 按启用状态筛选
@@ -201,7 +212,7 @@ def get_ai_models(
 
         # 从系统配置表读取AI模型配置
         all_providers = get_ai_models_from_config()
-        
+
         # 筛选
         filtered_providers = all_providers
         if provider:
@@ -218,7 +229,7 @@ def get_ai_models(
         # 排序
         reverse = sort_order.lower() == "desc"
         filtered_providers.sort(key=lambda x: x.get(sort_by, ""), reverse=reverse)
-        
+
         # 分页
         total = len(filtered_providers)
         start_idx = (page - 1) * limit
@@ -265,8 +276,9 @@ def create_ai_model(request: Request, config: AIModelCreate):
 
         # 生成唯一ID
         import uuid
+
         model_id = f"{config.provider}_{uuid.uuid4().hex[:8]}"
-        
+
         # 构建模型数据
         model_data = {
             "id": model_id,
@@ -283,7 +295,7 @@ def create_ai_model(request: Request, config: AIModelCreate):
             "proxy_password": config.proxy_password,
             "created_at": str(uuid.uuid1()),  # 使用时间戳
         }
-        
+
         # 保存到系统配置表
         success = save_ai_model_to_config(model_id, model_data)
 
@@ -463,31 +475,33 @@ def update_ai_model(
             if str(model.get("id")) == str(model_id):
                 existing_model = model
                 break
-        
+
         if not existing_model:
             return ApiResponse(
                 code=1,
                 message="AI模型配置不存在",
                 data=None,
             )
-        
+
         # 更新数据
         updated_data = {
             "id": model_id,
-            "provider": config.provider if config.provider else existing_model.get("provider"),
-            "name": config.name if config.name else existing_model.get("name"),
-            "api_key": config.api_key if config.api_key else existing_model.get("api_key"),
-            "api_host": config.api_host if config.api_host else existing_model.get("api_host"),
-            "models": config.models if config.models else existing_model.get("models"),
+            "provider": config.provider or existing_model.get("provider"),
+            "name": config.name or existing_model.get("name"),
+            "api_key": config.api_key or existing_model.get("api_key"),
+            "api_host": config.api_host or existing_model.get("api_host"),
+            "models": config.models or existing_model.get("models"),
             "is_default": config.is_default if config.is_default is not None else existing_model.get("is_default"),
             "is_enabled": config.is_enabled if config.is_enabled is not None else existing_model.get("is_enabled"),
-            "proxy_enabled": config.proxy_enabled if config.proxy_enabled is not None else existing_model.get("proxy_enabled"),
-            "proxy_url": config.proxy_url if config.proxy_url else existing_model.get("proxy_url"),
-            "proxy_username": config.proxy_username if config.proxy_username else existing_model.get("proxy_username"),
-            "proxy_password": config.proxy_password if config.proxy_password else existing_model.get("proxy_password"),
+            "proxy_enabled": config.proxy_enabled
+            if config.proxy_enabled is not None
+            else existing_model.get("proxy_enabled"),
+            "proxy_url": config.proxy_url or existing_model.get("proxy_url"),
+            "proxy_username": config.proxy_username or existing_model.get("proxy_username"),
+            "proxy_password": config.proxy_password or existing_model.get("proxy_password"),
             "created_at": existing_model.get("created_at"),
         }
-        
+
         # 保存到系统配置表
         success = save_ai_model_to_config(model_id, updated_data)
 
@@ -609,15 +623,15 @@ def get_default_provider_models(
     except Exception as e:
         error_msg = str(e)
         logger.error(f"获取默认提供商模型失败: {error_msg}")
-        
+
         # 提供更友好的错误信息
         if "no such table" in error_msg.lower():
-            friendly_msg = "数据库表不存在，请先运行初始化脚本: cd backend && uv run python scripts/init_ai_model.py"
+            friendly_msg = "数据库表不存在，请先运行数据库迁移: cd backend && uv run python -m cli.migrate -y"
         elif "operationalerror" in error_msg.lower():
             friendly_msg = "数据库操作错误，请检查数据库配置或运行初始化脚本"
         else:
             friendly_msg = f"获取 AI 模型配置失败: {error_msg}"
-        
+
         return ApiResponse(
             code=500,
             message=friendly_msg,
@@ -658,7 +672,7 @@ async def get_available_models(
             if isinstance(model, dict) and str(model.get("id")) == str(model_id):
                 config = model
                 break
-        
+
         if not config:
             return ApiResponse(
                 code=1,

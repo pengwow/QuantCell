@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
 """LLM Service — axon_quant.llm LLM 后端服务
 
 包装 axon_quant.llm.LLMBackend，提供 LLM 调用功能。
 当 axon_quant 不可用时提供清晰的错误信息。
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +15,17 @@ logger = logging.getLogger(__name__)
 try:
     from axon_quant.llm import (
         LLMBackend as _LLMBackend,
+    )
+    from axon_quant.llm import (
         LLMConfig as _LLMConfig,
+    )
+    from axon_quant.llm import (
         LLMMessage as _LLMMessage,
+    )
+    from axon_quant.llm import (
         make_backend as _make_backend,
     )
+
     AXON_AVAILABLE = True
 except ImportError:
     AXON_AVAILABLE = False
@@ -55,9 +62,8 @@ class LLMServiceWrapper:
                     - model: 模型名称
         """
         if not AXON_AVAILABLE:
-            raise RuntimeError(
-                "axon_quant.llm 不可用，请安装 axon_quant: pip install axon_quant"
-            )
+            msg = "axon_quant.llm 不可用，请安装 axon_quant: pip install axon_quant"
+            raise RuntimeError(msg)
 
         self._backend = _make_backend(config)
         logger.info("LLMService 已初始化")
@@ -89,7 +95,7 @@ class LLMServiceProxy:
     当 axon_quant 不可用时提供空实现。
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self._available = AXON_AVAILABLE
         if self._available and config:
             try:
@@ -108,7 +114,7 @@ class LLMServiceProxy:
         """axon_quant.llm 是否可用"""
         return self._available
 
-    def chat(self, messages: list[dict[str, str]]) -> Optional[dict[str, Any]]:
+    def chat(self, messages: list[dict[str, str]]) -> dict[str, Any] | None:
         """发送聊天请求"""
         if not self._available or not self._service:
             return None

@@ -8,26 +8,25 @@
 - AutoScaler 自动扩缩容
 """
 
-import pytest
 import time
-import threading
-from unittest.mock import Mock, patch, MagicMock
+
+import pytest
 
 from strategy.core.resilience import (
-    GracefulDegradation,
+    AutoScaler,
     CircuitBreaker,
     CircuitBreakerState,
-    ExceptionIsolation,
-    AutoScaler,
-    EventPriority,
     DegradationLevel,
-    create_resilience_manager
+    EventPriority,
+    ExceptionIsolation,
+    GracefulDegradation,
+    create_resilience_manager,
 )
-
 
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def graceful_degradation():
@@ -43,7 +42,7 @@ def circuit_breaker():
         failure_threshold=3,
         recovery_timeout=1.0,
         half_open_max_calls=2,
-        success_threshold=2
+        success_threshold=2,
     )
 
 
@@ -61,13 +60,14 @@ def auto_scaler():
         max_workers=8,
         scale_up_threshold=0.7,
         scale_down_threshold=0.3,
-        cooldown_period=0.5
+        cooldown_period=0.5,
     )
 
 
 # =============================================================================
 # GracefulDegradation 测试
 # =============================================================================
+
 
 class TestGracefulDegradation:
     """优雅降级机制测试类"""
@@ -170,6 +170,7 @@ class TestGracefulDegradation:
 # =============================================================================
 # CircuitBreaker 测试
 # =============================================================================
+
 
 class TestCircuitBreaker:
     """熔断器测试类"""
@@ -282,11 +283,13 @@ class TestCircuitBreaker:
 # ExceptionIsolation 测试
 # =============================================================================
 
+
 class TestExceptionIsolation:
     """异常隔离框架测试类"""
 
     def test_wrap_handler_success(self, exception_isolation):
         """测试包装处理器成功执行"""
+
         def handler(data):
             return data * 2
 
@@ -297,8 +300,10 @@ class TestExceptionIsolation:
 
     def test_wrap_handler_exception(self, exception_isolation):
         """测试包装处理器异常捕获"""
+
         def handler(data):
-            raise ValueError("测试异常")
+            msg = "测试异常"
+            raise ValueError(msg)
 
         wrapped = exception_isolation.wrap_handler("TEST", handler)
         result = wrapped(5)
@@ -312,11 +317,10 @@ class TestExceptionIsolation:
         def handler(data):
             nonlocal call_count
             call_count += 1
-            raise ValueError("测试异常")
+            msg = "测试异常"
+            raise ValueError(msg)
 
-        wrapped = exception_isolation.wrap_handler(
-            "TEST", handler, failure_threshold=2, recovery_timeout=0.5
-        )
+        wrapped = exception_isolation.wrap_handler("TEST", handler, failure_threshold=2, recovery_timeout=0.5)
 
         # 连续失败2次
         wrapped(1)
@@ -329,8 +333,10 @@ class TestExceptionIsolation:
 
     def test_dead_letter_queue(self, exception_isolation):
         """测试死信队列"""
+
         def handler(data):
-            raise ValueError("测试异常")
+            msg = "测试异常"
+            raise ValueError(msg)
 
         wrapped = exception_isolation.wrap_handler("TEST", handler)
         wrapped("test_data")
@@ -345,9 +351,11 @@ class TestExceptionIsolation:
 
     def test_handler_stats(self, exception_isolation):
         """测试处理器统计"""
+
         def handler(data):
             if data == "fail":
-                raise ValueError("测试异常")
+                msg = "测试异常"
+                raise ValueError(msg)
             return True
 
         wrapped = exception_isolation.wrap_handler("TEST", handler)
@@ -359,19 +367,19 @@ class TestExceptionIsolation:
         stats = exception_isolation.get_handler_stats()
         assert len(stats) == 1
 
-        handler_stats = list(stats.values())[0]
+        handler_stats = next(iter(stats.values()))
         assert handler_stats["total_calls"] == 3
         assert handler_stats["total_successes"] == 2
         assert handler_stats["total_failures"] == 1
 
     def test_reset_circuit_breaker(self, exception_isolation):
         """测试重置熔断器"""
-        def handler(data):
-            raise ValueError("测试异常")
 
-        wrapped = exception_isolation.wrap_handler(
-            "TEST", handler, failure_threshold=1
-        )
+        def handler(data):
+            msg = "测试异常"
+            raise ValueError(msg)
+
+        wrapped = exception_isolation.wrap_handler("TEST", handler, failure_threshold=1)
 
         wrapped(1)
 
@@ -384,11 +392,14 @@ class TestExceptionIsolation:
 
     def test_reset_all_circuit_breakers(self, exception_isolation):
         """测试重置所有熔断器"""
+
         def handler1(data):
-            raise ValueError("测试异常")
+            msg = "测试异常"
+            raise ValueError(msg)
 
         def handler2(data):
-            raise ValueError("测试异常")
+            msg = "测试异常"
+            raise ValueError(msg)
 
         wrapped1 = exception_isolation.wrap_handler("TEST1", handler1, failure_threshold=1)
         wrapped2 = exception_isolation.wrap_handler("TEST2", handler2, failure_threshold=1)
@@ -405,6 +416,7 @@ class TestExceptionIsolation:
 # =============================================================================
 # AutoScaler 测试
 # =============================================================================
+
 
 class TestAutoScaler:
     """自动扩缩容测试类"""
@@ -460,7 +472,7 @@ class TestAutoScaler:
 
         # 立即评估，应该返回None（在冷却期内）
         auto_scaler.record_load(0.9)
-        operation, target = auto_scaler.evaluate_scaling()
+        operation, _target = auto_scaler.evaluate_scaling()
 
         assert operation is None
 
@@ -473,14 +485,14 @@ class TestAutoScaler:
 
     def test_max_workers_limit(self, auto_scaler):
         """测试最大工作线程限制"""
-        result = auto_scaler.apply_scaling("scale_up", 100)
+        auto_scaler.apply_scaling("scale_up", 100)
 
         assert auto_scaler.current_workers == 8  # 被限制在max_workers
 
     def test_min_workers_limit(self, auto_scaler):
         """测试最小工作线程限制"""
         auto_scaler._current_workers = 4
-        result = auto_scaler.apply_scaling("scale_down", 1)
+        auto_scaler.apply_scaling("scale_down", 1)
 
         assert auto_scaler.current_workers == 2  # 被限制在min_workers
 
@@ -506,6 +518,7 @@ class TestAutoScaler:
 # 集成测试
 # =============================================================================
 
+
 class TestResilienceIntegration:
     """弹性机制集成测试类"""
 
@@ -522,7 +535,7 @@ class TestResilienceIntegration:
         managers = create_resilience_manager(
             enable_graceful_degradation=True,
             enable_exception_isolation=False,
-            enable_auto_scaling=False
+            enable_auto_scaling=False,
         )
 
         assert "degradation" in managers
@@ -545,12 +558,7 @@ class TestResilienceIntegration:
 
     def test_circuit_breaker_state_transitions(self):
         """测试熔断器状态转换"""
-        cb = CircuitBreaker(
-            name="test",
-            failure_threshold=2,
-            recovery_timeout=0.1,
-            success_threshold=1
-        )
+        cb = CircuitBreaker(name="test", failure_threshold=2, recovery_timeout=0.1, success_threshold=1)
 
         # CLOSED -> OPEN
         cb.record_failure()
@@ -575,11 +583,10 @@ class TestResilienceIntegration:
         def failing_handler(data):
             nonlocal failure_count
             failure_count += 1
-            raise ValueError("测试异常")
+            msg = "测试异常"
+            raise ValueError(msg)
 
-        wrapped = ei.wrap_handler(
-            "TEST", failing_handler, failure_threshold=2, recovery_timeout=0.5
-        )
+        wrapped = ei.wrap_handler("TEST", failing_handler, failure_threshold=2, recovery_timeout=0.5)
 
         # 前2次会实际执行
         wrapped(1)
@@ -593,11 +600,7 @@ class TestResilienceIntegration:
     @pytest.mark.slow
     def test_auto_scaler_with_load(self):
         """测试自动扩缩容与负载集成"""
-        scaler = AutoScaler(
-            min_workers=2,
-            max_workers=8,
-            cooldown_period=0.1
-        )
+        scaler = AutoScaler(min_workers=2, max_workers=8, cooldown_period=0.1)
 
         # 模拟高负载
         for _ in range(10):
@@ -616,6 +619,7 @@ class TestResilienceIntegration:
 # 性能基准测试
 # =============================================================================
 
+
 class TestResiliencePerformanceBenchmarks:
     """弹性机制性能基准测试类"""
 
@@ -627,13 +631,12 @@ class TestResiliencePerformanceBenchmarks:
         iterations = 100000
         start = time.time()
 
-        for i in range(iterations):
+        for _i in range(iterations):
             gd.should_accept_event(EventPriority.NORMAL)
 
         elapsed = time.time() - start
         ops_per_sec = iterations / elapsed
 
-        print(f"\n优雅降级检查性能: {ops_per_sec:.0f} 操作/秒")
         assert ops_per_sec > 500000  # 应该达到50万级
 
     @pytest.mark.slow
@@ -651,7 +654,6 @@ class TestResiliencePerformanceBenchmarks:
         elapsed = time.time() - start
         ops_per_sec = iterations / elapsed
 
-        print(f"\n熔断器操作性能: {ops_per_sec:.0f} 操作/秒")
         assert ops_per_sec > 500000
 
     @pytest.mark.slow
@@ -673,5 +675,4 @@ class TestResiliencePerformanceBenchmarks:
         elapsed = time.time() - start
         ops_per_sec = iterations / elapsed
 
-        print(f"\n异常隔离包装处理器性能: {ops_per_sec:.0f} 操作/秒")
         assert ops_per_sec > 10000

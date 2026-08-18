@@ -28,6 +28,7 @@ def _sanitize(obj: Any) -> Any:
 def _get_risk_service():
     """模块级单例，避免每次请求重置风控引擎计数器。"""
     from services.risk_service import RiskService
+
     return RiskService()
 
 

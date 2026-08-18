@@ -36,18 +36,22 @@
 
 import asyncio
 import logging
-import signal
 import os
-from typing import Optional, Callable, Awaitable, List, Dict, Any
+import signal
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
 
 class ShutdownPhase(Enum):
     """停机阶段枚举"""
+
     REQUESTED = "requested"
     DRAINING = "draining"
     STOPPING_SERVICES = "stopping_services"
@@ -71,6 +75,7 @@ class ShutdownConfig:
         skip_drain: 是否跳过排空阶段（紧急停机时使用）
         skip_service_stop: 是否跳过服务停止阶段
     """
+
     total_timeout: float = 30.0
     drain_timeout: float = 10.0
     service_stop_timeout: float = 10.0
@@ -82,10 +87,11 @@ class ShutdownConfig:
 @dataclass
 class PhaseResult:
     """单个阶段的执行结果"""
+
     phase_name: str
     success: bool
     duration_seconds: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
     timed_out: bool = False
 
 
@@ -105,13 +111,14 @@ class ShutdownStatus:
         timeout_occurred: 是否发生超时
         force_killed: 是否被强制终止
     """
+
     phase: ShutdownPhase = ShutdownPhase.REQUESTED
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     duration_seconds: float = 0.0
     phases_completed: int = 0
-    phase_results: List[PhaseResult] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
+    phase_results: list[PhaseResult] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
     timeout_occurred: bool = False
     force_killed: bool = False
 
@@ -119,7 +126,7 @@ class ShutdownStatus:
     def is_successful(self) -> bool:
         return self.phase == ShutdownPhase.COMPLETED and not self.timeout_occurred
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典格式（用于API响应）"""
         return {
             "phase": self.phase.value,
@@ -161,10 +168,10 @@ class GracefulShutdownManager:
 
     def __init__(
         self,
-        config: Optional[ShutdownConfig] = None,
-        on_drain: Optional[Callable[[], Awaitable[None]]] = None,
-        on_stop_services: Optional[Callable[[], Awaitable[None]]] = None,
-        on_cleanup: Optional[Callable[[], Awaitable[None]]] = None,
+        config: ShutdownConfig | None = None,
+        on_drain: Callable[[], Awaitable[None]] | None = None,
+        on_stop_services: Callable[[], Awaitable[None]] | None = None,
+        on_cleanup: Callable[[], Awaitable[None]] | None = None,
     ):
         """
         初始化停机管理器
@@ -193,12 +200,8 @@ class GracefulShutdownManager:
         self.status.started_at = datetime.now()
         self.status.phase = ShutdownPhase.DRAINING
 
-        logger.info(
-            f"[GracefulShutdown] ════════════════════════════════════"
-        )
-        logger.info(
-            f"[GracefulShutdown] 开始优雅停机流程"
-        )
+        logger.info("[GracefulShutdown] ════════════════════════════════════")
+        logger.info("[GracefulShutdown] 开始优雅停机流程")
         logger.info(
             f"[GracefulShutdown] 配置: "
             f"总超时={self.config.total_timeout}s, "
@@ -206,9 +209,7 @@ class GracefulShutdownManager:
             f"服务停止超时={self.config.service_stop_timeout}s, "
             f"强制终止={'启用' if self.config.force_kill_after_timeout else '禁用'}"
         )
-        logger.info(
-            f"[GracefulShutdown] ════════════════════════════════════"
-        )
+        logger.info("[GracefulShutdown] ════════════════════════════════════")
 
         try:
             # Phase 1: 排空进行中的操作
@@ -225,7 +226,7 @@ class GracefulShutdownManager:
             if not self.config.skip_service_stop:
                 remaining_after_drain = max(
                     0,
-                    self.config.total_timeout - (datetime.now() - self.status.started_at).total_seconds()
+                    self.config.total_timeout - (datetime.now() - self.status.started_at).total_seconds(),
                 )
                 service_timeout = min(remaining_after_drain, self.config.service_stop_timeout)
 
@@ -250,27 +251,23 @@ class GracefulShutdownManager:
             # 完成
             self.status.phase = ShutdownPhase.COMPLETED
             self.status.completed_at = datetime.now()
-            self.status.duration_seconds = (
-                self.status.completed_at - self.status.started_at
-            ).total_seconds()
+            self.status.duration_seconds = (self.status.completed_at - self.status.started_at).total_seconds()
 
             self._log_completion()
 
         except Exception as e:
             logger.exception(f"[GracefulShutdown] 停机流程发生未预期异常: {e}")
             self.status.phase = ShutdownPhase.ERROR
-            self.status.errors.append(f"Unexpected error: {str(e)}")
+            self.status.errors.append(f"Unexpected error: {e!s}")
             self.status.completed_at = datetime.now()
-            self.status.duration_seconds = (
-                self.status.completed_at - self.status.started_at
-            ).total_seconds()
+            self.status.duration_seconds = (self.status.completed_at - self.status.started_at).total_seconds()
 
         return self.status
 
     async def _execute_phase_with_timeout(
         self,
         phase_name: str,
-        handler: Optional[Callable[[], Awaitable[None]]],
+        handler: Callable[[], Awaitable[None]] | None,
         timeout: float,
     ) -> None:
         """
@@ -320,7 +317,7 @@ class GracefulShutdownManager:
 
             logger.info(f"[GracefulShutdown] [{phase_name}] ✓ 完成 ({duration:.2f}s)")
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             duration = (datetime.now() - phase_start).total_seconds()
             error_msg = f"{phase_name} 阶段超时 ({timeout:.1f}s)"
             logger.warning(f"[GracefulShutdown] [{phase_name}] ✗ {error_msg}")
@@ -338,14 +335,12 @@ class GracefulShutdownManager:
             # 检查是否需要强制终止
             if self.config.force_kill_after_timeout:
                 self.status.timeout_occurred = True
-                logger.error(
-                    f"[GracefulShutdown] [{phase_name}] 触发强制终止策略..."
-                )
+                logger.error(f"[GracefulShutdown] [{phase_name}] 触发强制终止策略...")
                 self._force_kill()
 
         except Exception as e:
             duration = (datetime.now() - phase_start).total_seconds()
-            error_msg = f"{phase_name} 阶段异常: {str(e)}"
+            error_msg = f"{phase_name} 阶段异常: {e!s}"
             logger.error(f"[GracefulShutdown] [{phase_name}] ✗ {error_msg}")
 
             result = PhaseResult(
@@ -382,40 +377,28 @@ class GracefulShutdownManager:
 
     def _log_completion(self):
         """记录停机完成的汇总信息"""
-        logger.info(
-            f"[GracefulShutdown] ════════════════════════════════════"
-        )
-        logger.info(
-            f"[GracefulShutdown] 停机流程完成"
-        )
-        logger.info(
-            f"[GracefulShutdown] 状态: {'✓ 成功' if self.status.is_successful else '✗ 失败'}"
-        )
-        logger.info(
-            f"[GracefulShutdown] 总耗时: {self.status.duration_seconds:.2f}s"
-        )
-        logger.info(
-            f"[GracefulShutdown] 完成阶段: {self.status.phases_completed}/{len(self.status.phase_results)}"
-        )
+        logger.info("[GracefulShutdown] ════════════════════════════════════")
+        logger.info("[GracefulShutdown] 停机流程完成")
+        logger.info(f"[GracefulShutdown] 状态: {'✓ 成功' if self.status.is_successful else '✗ 失败'}")
+        logger.info(f"[GracefulShutdown] 总耗时: {self.status.duration_seconds:.2f}s")
+        logger.info(f"[GracefulShutdown] 完成阶段: {self.status.phases_completed}/{len(self.status.phase_results)}")
 
         if self.status.errors:
-            logger.warning(f"[GracefulShutdown] 错误列表:")
+            logger.warning("[GracefulShutdown] 错误列表:")
             for err in self.status.errors:
                 logger.warning(f"  - {err}")
 
         if self.status.timeout_occurred:
-            logger.error(f"[GracefulShutdown] ⚠ 曾触发超时机制")
+            logger.error("[GracefulShutdown] ⚠ 曾触发超时机制")
 
         if self.status.force_killed:
-            logger.error(f"[GracefulShutdown] ⚠ 进程已被强制终止")
+            logger.error("[GracefulShutdown] ⚠ 进程已被强制终止")
 
-        logger.info(
-            f"[GracefulShutdown] ════════════════════════════════════"
-        )
+        logger.info("[GracefulShutdown] ════════════════════════════════════")
 
 
 # 全局实例
-_shutdown_manager: Optional[GracefulShutdownManager] = None
+_shutdown_manager: GracefulShutdownManager | None = None
 
 
 def get_shutdown_manager() -> GracefulShutdownManager:

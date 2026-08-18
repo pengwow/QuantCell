@@ -6,7 +6,7 @@
 """
 
 from collector.db.migrations import run_migrations
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)

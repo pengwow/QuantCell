@@ -7,6 +7,7 @@ Worker 分享系统
 - 支持有效期、一次性访问、最大访问次数
 - 数据库存 SHA256(token) 而非明文
 """
+
 from .routes import router
 
 __all__ = ["router"]

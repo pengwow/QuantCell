@@ -1,55 +1,54 @@
-# -*- coding: utf-8 -*-
 """
 币安数据下载器和收集器
 
 支持 Parquet 格式本地存储，提供更高的压缩率和查询性能。
 """
+
 import asyncio
 import ssl
 import warnings
 import zipfile
 from io import BytesIO
 from pathlib import Path
-from typing import Optional, Union
 
 import aiohttp
 import certifi
 import pandas as pd
 import requests
-from utils.logger import get_logger, LogType
-from utils.timestamp_utils import normalize_to_nanoseconds
-from utils.parquet_utils import save_to_parquet, append_to_parquet
+
+from utils.logger import LogType, get_logger
+from utils.parquet_utils import append_to_parquet
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 from exchange.base import BaseCollector
 from utils.decorators import async_deco_retry, deco_retry
-from utils.time_parser import get_date_range
 from utils.deprecation import deprecated
+from utils.time_parser import get_date_range
 
 
 class BinanceDownloader(BaseCollector):
     """
     币安数据下载器和收集器
-    
+
     用于从Binance API和Binance Data Archive下载K线数据，
     并提供数据收集功能。
     """
 
     def __init__(
         self,
-        save_dir: Union[str, Path],
-        candle_type='spot',
+        save_dir: str | Path,
+        candle_type="spot",
         start=None,
         end=None,
         interval="1d",
         max_workers=1,
         max_collector_count=2,
         delay=0,
-        check_data_length: Optional[int] = None,
-        limit_nums: Optional[int] = None,
+        check_data_length: int | None = None,
+        limit_nums: int | None = None,
         symbols=None,
-        mode='inc',
+        mode="inc",
     ):
         """
         初始化币安数据下载器和收集器
@@ -70,7 +69,7 @@ class BinanceDownloader(BaseCollector):
         # 先设置 candle_type 和 symbols，因为父类初始化会调用 get_instrument_list()
         self.candle_type = candle_type
         self.symbols = symbols
-        
+
         super().__init__(
             save_dir=save_dir,
             start=start,
@@ -85,9 +84,18 @@ class BinanceDownloader(BaseCollector):
         )
 
         self.candle_names = [
-            'open_time', 'open', 'high', 'low', 'close', 'volume',
-            'close_time', 'quote_volume', 'count', 'taker_buy_volume',
-            'taker_buy_quote_volume', 'ignore'
+            "open_time",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "close_time",
+            "quote_volume",
+            "count",
+            "taker_buy_volume",
+            "taker_buy_quote_volume",
+            "ignore",
         ]
 
     @property
@@ -104,17 +112,18 @@ class BinanceDownloader(BaseCollector):
         :return: URL路径
         """
         url_map = {
-            'spot': 'spot',
-            'option': 'option',
-            'futures': 'futures/um',
-            'futures/um': 'futures/um',
-            'futures/cm': 'futures/cm',
+            "spot": "spot",
+            "option": "option",
+            "futures": "futures/um",
+            "futures/um": "futures/um",
+            "futures/cm": "futures/cm",
         }
 
         if candle_type in url_map:
             return url_map[candle_type]
         else:
-            raise ValueError(f'无效的蜡烛图类型: {candle_type}')
+            msg = f"无效的蜡烛图类型: {candle_type}"
+            raise ValueError(msg)
 
     def get_zip_name(self, symbol, timeframe, date):
         """
@@ -136,13 +145,10 @@ class BinanceDownloader(BaseCollector):
         :param date: 日期，格式为'YYYY-MM-DD'
         :return: 压缩文件下载URL
         """
-        symbol = symbol.replace('/', '')
+        symbol = symbol.replace("/", "")
         asset_type = self.get_url_by_candle_type(self.candle_type)
         zip_name = self.get_zip_name(symbol, timeframe, date)
-        url = (
-            f"https://data.binance.vision/data/{asset_type}/daily/klines/{symbol}"
-            f"/{timeframe}/{zip_name}"
-        )
+        url = f"https://data.binance.vision/data/{asset_type}/daily/klines/{symbol}/{timeframe}/{zip_name}"
         return url
 
     @async_deco_retry(max_retry=3, delay=1.0)
@@ -156,9 +162,7 @@ class BinanceDownloader(BaseCollector):
         :return: K线数据DataFrame
         """
         url = self.get_zip_url(symbol, timeframe, date)
-        connector = aiohttp.TCPConnector(
-            ssl=ssl.create_default_context(cafile=certifi.where())
-        )
+        connector = aiohttp.TCPConnector(ssl=ssl.create_default_context(cafile=certifi.where()))
 
         async with aiohttp.ClientSession(connector=connector) as session:
             async with session.get(url) as resp:
@@ -172,21 +176,19 @@ class BinanceDownloader(BaseCollector):
                             csv_content = BytesIO(csvf.read())
                             csv_content.seek(0)
 
-                            first_line = csv_content.readline().decode('utf-8')
+                            first_line = csv_content.readline().decode("utf-8")
                             csv_content.seek(0)
 
                             has_header = not first_line.strip()[0].isdigit()
                             header = 0 if has_header else None
 
-                            df = pd.read_csv(
-                                csv_content,
-                                names=self.candle_names,
-                                header=header
-                            )
+                            df = pd.read_csv(csv_content, names=self.candle_names, header=header)
 
                             df.columns = self.candle_names
 
-                            logger.info(f"成功处理 {symbol} {timeframe} 数据 ({date}): 共 {len(df)} 条记录, 文件: {filename}, 表头: {'有' if has_header else '无'}")
+                            logger.info(
+                                f"成功处理 {symbol} {timeframe} 数据 ({date}): 共 {len(df)} 条记录, 文件: {filename}, 表头: {'有' if has_header else '无'}"
+                            )
                             return df
                 else:
                     logger.warning(f"下载失败 {url}，状态码: {resp.status}")
@@ -243,8 +245,8 @@ class BinanceDownloader(BaseCollector):
         if df is not None and not df.empty:
             save_path = Path(save_path)
             # 自动转换为 .parquet 后缀
-            if save_path.suffix == '.csv':
-                save_path = save_path.with_suffix('.parquet')
+            if save_path.suffix == ".csv":
+                save_path = save_path.with_suffix(".parquet")
 
             # 使用 append_to_parquet 支持增量更新
             success = append_to_parquet(df, save_path)
@@ -264,16 +266,13 @@ class BinanceDownloader(BaseCollector):
         bak_path = file_path.with_suffix(".parquet.bak")
         try:
             file_path.rename(bak_path)
-            logger.warning(
-                f"[增量模式] {symbol} 历史文件无时间列，已归档为 {bak_path.name}"
-            )
+            logger.warning(f"[增量模式] {symbol} 历史文件无时间列，已归档为 {bak_path.name}")
         except OSError:
             try:
                 import shutil
+
                 shutil.move(str(file_path), str(bak_path))
-                logger.warning(
-                    f"[增量模式] {symbol} 历史文件无时间列，已归档为 {bak_path.name}"
-                )
+                logger.warning(f"[增量模式] {symbol} 历史文件无时间列，已归档为 {bak_path.name}")
             except Exception as e:
                 logger.error(f"归档损坏文件 {file_path} 失败: {e}")
 
@@ -285,21 +284,18 @@ class BinanceDownloader(BaseCollector):
         # 使用 .parquet 后缀
         instrument_path = self.save_dir.joinpath(f"{normalized_symbol}.parquet")
 
-        existing_timestamps = pd.Series([], dtype='int64')
-        if self.mode == 'inc' and instrument_path.exists():
+        existing_timestamps = pd.Series([], dtype="int64")
+        if self.mode == "inc" and instrument_path.exists():
             try:
                 _old_df = pd.read_parquet(instrument_path)
                 if not _old_df.empty:
                     # 统一函数检测并归一化时间列（移除旧列，避免 concat 歧义）
                     _old_df = self._normalize_timestamp_col_inplace(_old_df)
                     if _old_df is not None and "timestamp" in _old_df.columns:
-                        _old_df['timestamp'] = pd.to_numeric(
-                            _old_df['timestamp'], errors='coerce'
-                        )
-                        existing_timestamps = _old_df['timestamp'].dropna()
+                        _old_df["timestamp"] = pd.to_numeric(_old_df["timestamp"], errors="coerce")
+                        existing_timestamps = _old_df["timestamp"].dropna()
                         logger.info(
-                            f"[增量模式] 读取到 {symbol} 的现有数据，"
-                            f"包含 {len(existing_timestamps)} 条有效记录"
+                            f"[增量模式] 读取到 {symbol} 的现有数据，包含 {len(existing_timestamps)} 条有效记录"
                         )
                     else:
                         # 历史文件无可用时间列，归档损坏文件以便后续重建
@@ -316,8 +312,14 @@ class BinanceDownloader(BaseCollector):
 
         all_df = pd.DataFrame()
         for i, (range_start, range_end) in enumerate(missing_ranges):
-            logger.info(f"[增量模式] {symbol} 缺失数据范围 {i+1}/{len(missing_ranges)}: {range_start} 至 {range_end}")
-            df = self.download(symbol, self.interval, range_start.strftime("%Y-%m-%d"), range_end.strftime("%Y-%m-%d"), progress_callback)
+            logger.info(f"[增量模式] {symbol} 缺失数据范围 {i + 1}/{len(missing_ranges)}: {range_start} 至 {range_end}")
+            df = self.download(
+                symbol,
+                self.interval,
+                range_start.strftime("%Y-%m-%d"),
+                range_end.strftime("%Y-%m-%d"),
+                progress_callback,
+            )
             if df is not None and not df.empty:
                 all_df = pd.concat([all_df, df], ignore_index=True)
 
@@ -334,7 +336,7 @@ class BinanceDownloader(BaseCollector):
         return self.NORMAL_FLAG
 
     @staticmethod
-    def _ensure_timestamp_col(df: pd.DataFrame, source: str) -> Optional[pd.DataFrame]:
+    def _ensure_timestamp_col(df: pd.DataFrame, source: str) -> pd.DataFrame | None:
         """确保 DataFrame 存在 ``timestamp`` 列。
 
         - 若已存在 ``timestamp`` 列，直接返回原 DataFrame；
@@ -351,13 +353,11 @@ class BinanceDownloader(BaseCollector):
             df = df.rename(columns={time_col: "timestamp"})
             if "timestamp" in df.columns:
                 return df
-        logger.warning(
-            f"[{source}] 无法检测到时间列，可用列: {list(df.columns)}"
-        )
+        logger.warning(f"[{source}] 无法检测到时间列，可用列: {list(df.columns)}")
         return None
 
     @staticmethod
-    def _normalize_timestamp_col_inplace(df: pd.DataFrame) -> Optional[pd.DataFrame]:
+    def _normalize_timestamp_col_inplace(df: pd.DataFrame) -> pd.DataFrame | None:
         """归一化时间列：将任何候选时间列重命名为 ``timestamp`` 并移除旧列。
 
         解决 ``concat`` 时出现 ``timestamp_x/timestamp_y`` 的列歧义问题。
@@ -369,9 +369,7 @@ class BinanceDownloader(BaseCollector):
             return df
         time_col = BaseCollector._detect_time_column(df)
         if not time_col or time_col == "timestamp":
-            logger.warning(
-                f"无法检测到时间列，可用列: {list(df.columns)}"
-            )
+            logger.warning(f"无法检测到时间列，可用列: {list(df.columns)}")
             return None
         # 构造新的 timestamp 列，再删除旧列，确保列名唯一
         df = df.copy()
@@ -411,13 +409,9 @@ class BinanceDownloader(BaseCollector):
                     # 历史数据无法归一化，归档损坏文件，让新数据直接写入
                     self._archive_corrupted_file(instrument_path, symbol)
                 else:
-                    _old_df["timestamp"] = pd.to_numeric(
-                        _old_df["timestamp"], errors="coerce"
-                    )
+                    _old_df["timestamp"] = pd.to_numeric(_old_df["timestamp"], errors="coerce")
                     df = pd.concat([_old_df, df], sort=False)
-                    df = df.drop_duplicates(
-                        subset=["timestamp"], keep="last"
-                    )
+                    df = df.drop_duplicates(subset=["timestamp"], keep="last")
                     df = df.sort_values("timestamp")
             except Exception as e:
                 logger.warning(f"读取现有 parquet 文件失败，将覆盖: {e}")
@@ -436,10 +430,10 @@ class BinanceDownloader(BaseCollector):
         :return: 交易对列表
         """
         try:
-            if self.candle_type == 'spot':
-                url = 'https://api.binance.com/api/v3/exchangeInfo'
-            elif self.candle_type == 'futures':
-                url = 'https://fapi.binance.com/fapi/v1/exchangeInfo'
+            if self.candle_type == "spot":
+                url = "https://api.binance.com/api/v3/exchangeInfo"
+            elif self.candle_type == "futures":
+                url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
             else:
                 logger.warning(f"暂不支持获取{self.candle_type}类型的交易对列表")
                 return []
@@ -448,7 +442,7 @@ class BinanceDownloader(BaseCollector):
             response.raise_for_status()
             data = response.json()
 
-            symbols = [symbol['symbol'] for symbol in data['symbols'] if symbol['status'] == 'TRADING']
+            symbols = [symbol["symbol"] for symbol in data["symbols"] if symbol["status"] == "TRADING"]
             logger.info(f"成功获取{len(symbols)}个{self.candle_type}交易对")
             return symbols
         except Exception as e:
@@ -461,7 +455,7 @@ class BinanceDownloader(BaseCollector):
 
         :return: 交易对列表
         """
-        if hasattr(self, 'symbols'):
+        if hasattr(self, "symbols"):
             if self.symbols is None:
                 return self.get_all_symbols()
             elif isinstance(self.symbols, (list, tuple)) and len(self.symbols) == 0:
@@ -478,10 +472,15 @@ class BinanceDownloader(BaseCollector):
         :param symbol: 交易对符号，如'BTC/USDT'或'BTCUSDT'
         :return: 标准化后的交易对符号，如'BTCUSDT'
         """
-        return symbol.replace('/', '')
+        return symbol.replace("/", "")
 
     def get_data(
-        self, symbol: str, interval: str, start_datetime: pd.Timestamp, end_datetime: pd.Timestamp, progress_callback=None
+        self,
+        symbol: str,
+        interval: str,
+        start_datetime: pd.Timestamp,
+        end_datetime: pd.Timestamp,
+        progress_callback=None,
     ) -> pd.DataFrame:
         """
         获取指定交易对的K线数据
@@ -494,8 +493,8 @@ class BinanceDownloader(BaseCollector):
         :return: K线数据DataFrame
         """
         try:
-            start_date = start_datetime.strftime('%Y-%m-%d')
-            end_date = end_datetime.strftime('%Y-%m-%d')
+            start_date = start_datetime.strftime("%Y-%m-%d")
+            end_date = end_datetime.strftime("%Y-%m-%d")
 
             logger.info(f"开始下载 {symbol} {interval} 数据，时间范围: {start_date} 至 {end_date}")
 
@@ -507,15 +506,22 @@ class BinanceDownloader(BaseCollector):
 
             logger.info(f"原始数据行数: {len(df)}")
 
-            df['open_time'] = pd.to_numeric(df['open_time'], errors='coerce')
-            df = df.dropna(subset=['open_time'])
+            df["open_time"] = pd.to_numeric(df["open_time"], errors="coerce")
+            df = df.dropna(subset=["open_time"])
 
             if df.empty:
                 logger.warning(f"{symbol} {interval} 数据在转换为数值类型后为空")
                 return pd.DataFrame()
 
-            filtered_df = df.loc[:, ['open_time', 'open', 'high', 'low', 'close', 'volume']]
-            filtered_df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+            filtered_df = df.loc[:, ["open_time", "open", "high", "low", "close", "volume"]]
+            filtered_df.columns = [
+                "timestamp",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+            ]
 
             # 统一转换为纳秒级时间戳
             if not filtered_df.empty:
@@ -530,13 +536,15 @@ class BinanceDownloader(BaseCollector):
                         return int(ts) * 1_000_000
                     else:  # 秒级
                         return int(ts) * 1_000_000_000
-                
-                filtered_df['timestamp'] = filtered_df['timestamp'].apply(convert_to_nanoseconds)
+
+                filtered_df["timestamp"] = filtered_df["timestamp"].apply(convert_to_nanoseconds)
 
             # 时间范围筛选使用纳秒级时间戳
             start_ts_ns = int(start_datetime.timestamp() * 1_000_000_000)
             end_ts_ns = int(end_datetime.timestamp() * 1_000_000_000)
-            filtered_df = filtered_df[(filtered_df['timestamp'] >= start_ts_ns) & (filtered_df['timestamp'] <= end_ts_ns)]
+            filtered_df = filtered_df[
+                (filtered_df["timestamp"] >= start_ts_ns) & (filtered_df["timestamp"] <= end_ts_ns)
+            ]
 
             logger.info(f"成功下载 {symbol} {interval} 数据，共 {len(filtered_df)} 条")
 
@@ -564,14 +572,14 @@ class BinanceDownloader(BaseCollector):
             return len(df)
         return 0
 
-    @deprecated("2.1", "3.0", "scripts/data_cli.py export csv/parquet")
+    @deprecated("2.1", "3.0", "cli/data.py export csv/parquet")
     def convert_to_qlib(self, csv_dir, qlib_dir, interval=None):
         """
         将下载的CSV数据转换为QLib格式
 
         .. deprecated:: 2.1
             此功能已弃用，QLib转换不再支持。
-            如需数据格式转换，请使用 scripts/data_cli.py 的导出功能。
+            如需数据格式转换，请使用 cli/data.py 的导出功能。
 
         :param csv_dir: CSV数据目录
         :param qlib_dir: QLib数据保存目录
@@ -579,7 +587,7 @@ class BinanceDownloader(BaseCollector):
         :return: False (功能已禁用)
         """
         logger.warning("QLib格式转换功能已移除")
-        logger.info(f"如需数据导出，请使用: python scripts/data_cli.py export csv/parquet ...")
+        logger.info("如需数据导出，请使用: python cli/data.py export csv/parquet ...")
         return False
 
     def collect_data(self, progress_callback=None):
@@ -602,14 +610,19 @@ def _binance_collector_init_warning(self, *args, **kwargs):
     warnings.warn(
         "BinanceCollector 类名已弃用（v2.1），请使用 BinanceDownloader",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     BinanceDownloader.__init__(self, *args, **kwargs)
 
-BinanceCollector = type('BinanceCollector', (BinanceDownloader,), {
-    '__module__': 'exchange.binance.downloader',
-    '__doc__': '.. deprecated:: 2.1\n\n    请使用 :class:`BinanceDownloader` 替代',
-    '__init__': _binance_collector_init_warning
-})
 
-__all__ = ["BinanceDownloader", "BinanceCollector"]
+BinanceCollector = type(
+    "BinanceCollector",
+    (BinanceDownloader,),
+    {
+        "__module__": "exchange.binance.downloader",
+        "__doc__": ".. deprecated:: 2.1\n\n    请使用 :class:`BinanceDownloader` 替代",
+        "__init__": _binance_collector_init_warning,
+    },
+)
+
+__all__ = ["BinanceCollector", "BinanceDownloader"]

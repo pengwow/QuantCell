@@ -1,13 +1,14 @@
 """
 Worker share 模块测试配置
 """
+
 import gc
 import sys
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-sys.path.insert(0, '/Users/liupeng/workspace/quant/QuantCell/backend')
+sys.path.insert(0, "/Users/liupeng/workspace/quant/QuantCell/backend")
 
 
 # 模拟 worker.service 模块
@@ -16,7 +17,7 @@ _mock_service_module.get_workers = AsyncMock(return_value=[])
 _mock_service_module.get_worker = AsyncMock(return_value={})
 _mock_service_module.get_positions = AsyncMock(return_value=[])
 _mock_service_module.get_orders = AsyncMock(return_value=[])
-sys.modules['worker.service'] = _mock_service_module
+sys.modules["worker.service"] = _mock_service_module
 
 
 @pytest.fixture(scope="session")
@@ -24,10 +25,10 @@ def db_engine():
     """内存 SQLite 引擎"""
     from sqlalchemy import create_engine
     from sqlalchemy.pool import StaticPool
-    from collector.db.database import Base, _import_all_models
 
     # 确保 share 模型在 Base.metadata 中(独立于 _import_all_models 默认列表)
-    import share.models  # noqa: F401
+    import share.models
+    from collector.db.database import Base, _import_all_models
 
     _import_all_models()
 
@@ -61,8 +62,9 @@ def db_session(db_engine):
 @pytest.fixture
 def sample_worker(db_session):
     """插入一个测试用 worker"""
-    from worker.models import Worker
     import json
+
+    from worker.models import Worker
 
     worker = Worker(
         name="test-share-worker",
@@ -70,16 +72,18 @@ def sample_worker(db_session):
         status="stopped",
         strategy_id=None,
         strategy_name="TestStrategy",
-        trading_config=json.dumps({
-            "exchange": "binance",
-            "timeframe": "1h",
-            "market_type": "spot",
-            "trading_mode": "paper",
-            "symbols_config": {
-                "type": "symbols",
-                "symbols": ["BTCUSDT", "ETHUSDT"],
-            },
-        }),
+        trading_config=json.dumps(
+            {
+                "exchange": "binance",
+                "timeframe": "1h",
+                "market_type": "spot",
+                "trading_mode": "paper",
+                "symbols_config": {
+                    "type": "symbols",
+                    "symbols": ["BTCUSDT", "ETHUSDT"],
+                },
+            }
+        ),
         config="{}",
     )
     db_session.add(worker)
@@ -100,14 +104,14 @@ def test_client(db_session):
     在测试结束时不清理干净,会阻塞后续 async 测试的事件循环)。
     """
     from fastapi.testclient import TestClient
-    from collector.db.database import get_db
-    from worker.dependencies import get_db_session, get_current_user
 
     # 显式触发 share 模块加载,确保 router 被注册
-    import share.models  # noqa: F401
-    import share.routes  # noqa: F401
-    from share import router as share_router
+    import share.models
+    import share.routes
+    from collector.db.database import get_db
     from main import app
+    from share import router as share_router
+    from worker.dependencies import get_current_user, get_db_session
 
     def override_get_db():
         try:

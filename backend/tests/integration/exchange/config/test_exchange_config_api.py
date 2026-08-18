@@ -4,9 +4,10 @@
 测试完整的API接口流程
 """
 
+from unittest.mock import patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
 
 from main import app
 
@@ -36,7 +37,7 @@ def mock_should_refresh():
 @pytest.mark.skip(reason="交易所配置已迁移到 SystemConfig，原 ExchangeConfigBusiness 模块不存在，测试需重构")
 class TestExchangeConfigAPI:
     """交易所配置API集成测试类
-    
+
     注意: 交易所配置已迁移到 SystemConfig.get_all_flattened_by_prefix 方式，
     原来的 exchange.config.models.ExchangeConfigBusiness 模块已不存在。
     这些测试需要重构以匹配新的架构。
@@ -63,19 +64,16 @@ class TestExchangeConfigAPI:
                         "created_at": "2026-03-02 10:00:00",
                         "updated_at": "2026-03-02 10:00:00",
                         "api_key_masked": "tes...1234",
-                        "api_secret_masked": "sec...5678"
+                        "api_secret_masked": "sec...5678",
                     }
                 ],
                 "total": 1,
                 "page": 1,
                 "limit": 10,
-                "pages": 1
+                "pages": 1,
             }
 
-            response = client.get(
-                "/api/exchange-configs/",
-                headers={"Authorization": "Bearer test_token"}
-            )
+            response = client.get("/api/exchange-configs/", headers={"Authorization": "Bearer test_token"})
 
         assert response.status_code == 200
         data = response.json()
@@ -105,7 +103,7 @@ class TestExchangeConfigAPI:
                 "created_at": "2026-03-02 10:00:00",
                 "updated_at": "2026-03-02 10:00:00",
                 "api_key_masked": "tes...1234",
-                "api_secret_masked": "sec...5678"
+                "api_secret_masked": "sec...5678",
             }
 
             response = client.post(
@@ -121,8 +119,8 @@ class TestExchangeConfigAPI:
                     "api_secret": "test_api_secret",
                     "proxy_enabled": False,
                     "is_default": False,
-                    "is_enabled": True
-                }
+                    "is_enabled": True,
+                },
             )
 
         assert response.status_code == 200
@@ -149,12 +147,12 @@ class TestExchangeConfigAPI:
                 "created_at": "2026-03-02 10:00:00",
                 "updated_at": "2026-03-02 10:00:00",
                 "api_key_masked": "okx...key",
-                "api_secret_masked": "okx...secret"
+                "api_secret_masked": "okx...secret",
             }
 
             response = client.get(
                 "/api/exchange-configs/1",
-                headers={"Authorization": "Bearer test_token"}
+                headers={"Authorization": "Bearer test_token"},
             )
 
         assert response.status_code == 200
@@ -185,7 +183,7 @@ class TestExchangeConfigAPI:
                 "created_at": "2026-03-02 10:00:00",
                 "updated_at": "2026-03-02 11:00:00",
                 "api_key_masked": "new...key",
-                "api_secret_masked": "new...secret"
+                "api_secret_masked": "new...secret",
             }
 
             response = client.put(
@@ -196,8 +194,8 @@ class TestExchangeConfigAPI:
                     "trading_mode": "futures",
                     "proxy_enabled": True,
                     "proxy_url": "http://new.proxy.com:9090",
-                    "is_default": True
-                }
+                    "is_default": True,
+                },
             )
 
         assert response.status_code == 200
@@ -213,7 +211,7 @@ class TestExchangeConfigAPI:
 
             response = client.delete(
                 "/api/exchange-configs/1",
-                headers={"Authorization": "Bearer test_token"}
+                headers={"Authorization": "Bearer test_token"},
             )
 
         assert response.status_code == 200
@@ -224,7 +222,7 @@ class TestExchangeConfigAPI:
         """测试获取支持的交易所列表"""
         response = client.get(
             "/api/exchange-configs/exchanges",
-            headers={"Authorization": "Bearer test_token"}
+            headers={"Authorization": "Bearer test_token"},
         )
 
         assert response.status_code == 200
@@ -249,11 +247,12 @@ class TestExchangeConfigAuth:
         """测试无效令牌"""
         with patch("utils.auth.decode_jwt_token") as mock_decode:
             from utils.jwt_utils import TokenInvalidError
+
             mock_decode.side_effect = TokenInvalidError("Invalid token")
 
             response = client.get(
                 "/api/exchange-configs/",
-                headers={"Authorization": "Bearer invalid_token"}
+                headers={"Authorization": "Bearer invalid_token"},
             )
 
         assert response.status_code == 401

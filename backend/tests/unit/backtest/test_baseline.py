@@ -1,10 +1,14 @@
 """BaselineBacktestService 测试 — 直接传 DataFrame,验证报告生成。"""
-from pathlib import Path
+
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
 
 from backtest.baseline import BaselineBacktestService
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture

@@ -9,26 +9,24 @@
 - 硬件信息获取
 """
 
-import pytest
-import time
-import threading
 import os
-from unittest.mock import Mock, patch, MagicMock
+import threading
+import time
 
 import numpy as np
-
+import pytest
 from strategy.core.hardware_optimizer import (
+    CacheOptimizer,
+    CPUMonitor,
+    HardwareInfo,
     NUMAOptimizer,
     ThreadAffinityManager,
-    CacheOptimizer,
-    HardwareInfo,
-    CPUMonitor
 )
-
 
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def numa_optimizer():
@@ -63,6 +61,7 @@ def cpu_monitor():
 # =============================================================================
 # NUMAOptimizer 测试
 # =============================================================================
+
 
 class TestNUMAOptimizer:
     """NUMA优化器测试类"""
@@ -121,6 +120,7 @@ class TestNUMAOptimizer:
 # ThreadAffinityManager 测试
 # =============================================================================
 
+
 class TestThreadAffinityManager:
     """线程亲和性管理器测试类"""
 
@@ -175,7 +175,7 @@ class TestThreadAffinityManager:
     def test_bind_worker_threads(self, affinity_manager):
         """测试绑定工作线程"""
         worker_threads = []
-        for i in range(4):
+        for _i in range(4):
             t = threading.Thread(target=lambda: time.sleep(0.1))
             t.start()
             worker_threads.append(t)
@@ -225,6 +225,7 @@ class TestThreadAffinityManager:
 # =============================================================================
 # CacheOptimizer 测试
 # =============================================================================
+
 
 class TestCacheOptimizer:
     """缓存优化器测试类"""
@@ -282,21 +283,14 @@ class TestCacheOptimizer:
     def test_optimal_array_layout(self, cache_optimizer):
         """测试最优数组布局"""
         # 获取数组访问优化建议
-        layout = cache_optimizer.get_optimal_array_layout(
-            rows=1000,
-            cols=100,
-            element_size=8
-        )
+        layout = cache_optimizer.get_optimal_array_layout(rows=1000, cols=100, element_size=8)
 
         assert isinstance(layout, dict)
         assert "row_major" in layout or "col_major" in layout
 
     def test_prefetch_advice(self, cache_optimizer):
         """测试预取建议"""
-        advice = cache_optimizer.get_prefetch_advice(
-            access_pattern="sequential",
-            data_size=1024 * 1024
-        )
+        advice = cache_optimizer.get_prefetch_advice(access_pattern="sequential", data_size=1024 * 1024)
 
         assert isinstance(advice, dict)
         assert "prefetch_distance" in advice
@@ -313,6 +307,7 @@ class TestCacheOptimizer:
 # =============================================================================
 # HardwareInfo 测试
 # =============================================================================
+
 
 class TestHardwareInfo:
     """硬件信息测试类"""
@@ -373,6 +368,7 @@ class TestHardwareInfo:
 # =============================================================================
 # CPUMonitor 测试
 # =============================================================================
+
 
 class TestCPUMonitor:
     """CPU监控器测试类"""
@@ -450,6 +446,7 @@ class TestCPUMonitor:
 # 性能基准测试
 # =============================================================================
 
+
 class TestHardwareOptimizerBenchmarks:
     """硬件优化器性能基准测试类"""
 
@@ -489,9 +486,6 @@ class TestHardwareOptimizerBenchmarks:
                 t.join()
             time_with_affinity = time.time() - start
 
-            print(f"\n无亲和性: {time_no_affinity*1000:.2f} ms")
-            print(f"有亲和性: {time_with_affinity*1000:.2f} ms")
-
             # 亲和性绑定不应该显著降低性能
             assert time_with_affinity < time_no_affinity * 2
         except Exception as e:
@@ -501,7 +495,7 @@ class TestHardwareOptimizerBenchmarks:
     def test_cache_aligned_access(self):
         """测试缓存对齐访问性能"""
         cache_optimizer = CacheOptimizer()
-        cache_line = cache_optimizer.get_cache_line_size()
+        cache_optimizer.get_cache_line_size()
 
         # 创建未对齐的数组
         size = 1000000
@@ -515,15 +509,12 @@ class TestHardwareOptimizerBenchmarks:
         # 测试未对齐访问
         start = time.time()
         sum_unaligned = sum(unaligned)
-        time_unaligned = time.time() - start
+        time.time() - start
 
         # 测试对齐访问
         start = time.time()
         sum_aligned = np.sum(aligned)
-        time_aligned = time.time() - start
-
-        print(f"\n未对齐访问: {time_unaligned*1000:.2f} ms")
-        print(f"对齐访问: {time_aligned*1000:.2f} ms")
+        time.time() - start
 
         # 验证结果正确
         assert sum_unaligned == sum_aligned
@@ -537,12 +528,10 @@ class TestHardwareOptimizerBenchmarks:
 
         start = time.time()
         for _ in range(iterations):
-            info = hardware_info.get_all_info()
+            hardware_info.get_all_info()
         elapsed = time.time() - start
 
         avg_time = elapsed / iterations * 1000
-
-        print(f"\n硬件信息收集平均耗时: {avg_time:.2f} ms")
 
         # 应该很快（缓存结果）
         assert avg_time < 10
@@ -561,15 +550,13 @@ class TestHardwareOptimizerBenchmarks:
 
         avg_time = elapsed / iterations * 1000
 
-        print(f"\nCPU监控单次开销: {avg_time:.3f} ms")
-
         # 开销应该合理（放宽阈值以适应不同系统）
         assert avg_time < 200
 
     @pytest.mark.slow
     def test_numa_memory_access_pattern(self):
         """测试NUMA内存访问模式性能"""
-        numa_optimizer = NUMAOptimizer()
+        NUMAOptimizer()
 
         # 分配一些内存
         size = 10 * 1024 * 1024  # 10MB
@@ -579,21 +566,18 @@ class TestHardwareOptimizerBenchmarks:
         start = time.time()
         for i in range(0, size, 64):  # 按缓存行步长访问
             data[i] = i % 256
-        sequential_time = time.time() - start
+        time.time() - start
 
         # 随机访问
         import random
+
         indices = list(range(0, size, 64))
         random.shuffle(indices)
 
         start = time.time()
         for i in indices:
             data[i] = i % 256
-        random_time = time.time() - start
-
-        print(f"\n顺序访问: {sequential_time*1000:.2f} ms")
-        print(f"随机访问: {random_time*1000:.2f} ms")
-        print(f"性能比: {random_time/sequential_time:.2f}x")
+        time.time() - start
 
         # 顺序访问和随机访问的性能可能因系统状态而异
         # 这里只验证两种访问都能正常完成

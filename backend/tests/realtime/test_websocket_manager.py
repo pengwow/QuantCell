@@ -4,11 +4,12 @@ WebSocket连接管理器测试
 测试WebSocketManager的客户端管理、消息处理等功能
 """
 
-import pytest
 import asyncio
-from unittest.mock import Mock, AsyncMock, patch
+import contextlib
+from unittest.mock import AsyncMock, Mock, patch
 
-from realtime.websocket_manager import WebSocketManager
+import pytest
+
 from realtime.abstract_client import AbstractExchangeClient
 
 
@@ -61,7 +62,7 @@ class TestWebSocketManager:
         assert "test_exchange" in websocket_manager.clients
 
         # 注销 - 使用patch避免asyncio.create_task问题
-        with patch.object(websocket_manager, '_disconnect_client', new_callable=AsyncMock):
+        with patch.object(websocket_manager, "_disconnect_client", new_callable=AsyncMock):
             result = websocket_manager.unregister_client("test_exchange")
             assert result is True
             assert "test_exchange" not in websocket_manager.clients
@@ -176,7 +177,7 @@ class TestWebSocketManagerEdgeCases:
         websocket_manager.running = True
 
         # 使用patch避免asyncio.create_task问题
-        with patch.object(websocket_manager, '_disconnect_client', new_callable=AsyncMock):
+        with patch.object(websocket_manager, "_disconnect_client", new_callable=AsyncMock):
             result = websocket_manager.unregister_client("test_exchange")
             assert result is True
 
@@ -233,27 +234,23 @@ class TestWebSocketManagerIntegration:
         websocket_manager.running = False
         if websocket_manager.task:
             websocket_manager.task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await websocket_manager.task
-            except asyncio.CancelledError:
-                pass
             websocket_manager.task = None
-        
+
         if websocket_manager.reconnect_task:
             websocket_manager.reconnect_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await websocket_manager.reconnect_task
-            except asyncio.CancelledError:
-                pass
             websocket_manager.reconnect_task = None
-        
+
         # 断开所有客户端连接
         await websocket_manager.disconnect_all()
-        
+
         assert websocket_manager.running is False
 
         # 6. 注销客户端 - 使用patch
-        with patch.object(websocket_manager, '_disconnect_client', new_callable=AsyncMock):
+        with patch.object(websocket_manager, "_disconnect_client", new_callable=AsyncMock):
             result = websocket_manager.unregister_client("test_exchange")
             assert result is True
 

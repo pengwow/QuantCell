@@ -4,8 +4,9 @@ AI模型配置业务逻辑层单元测试
 测试AIModelBusiness类的CRUD操作和API密钥处理功能
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from ai_model.models import AIModelBusiness
 
@@ -197,7 +198,8 @@ class TestAIModelBusiness:
 
         mock_db.query.return_value.count.return_value = 2
         mock_db.query.return_value.order_by.return_value.offset.return_value.limit.return_value.all.return_value = [
-            mock_model1, mock_model2
+            mock_model1,
+            mock_model2,
         ]
 
         # 模拟_to_dict返回值

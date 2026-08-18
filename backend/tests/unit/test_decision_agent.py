@@ -6,6 +6,7 @@ import pytest
 def test_decision_agent_creation():
     """DecisionAgent可以被创建"""
     from agent.core.decision_agent import DecisionAgent
+
     agent = DecisionAgent(services={})
     assert agent is not None
 
@@ -13,6 +14,7 @@ def test_decision_agent_creation():
 def test_decision_agent_has_tools():
     """DecisionAgent持有交易工具"""
     from agent.core.decision_agent import DecisionAgent
+
     agent = DecisionAgent(services={})
     tool_names = agent.get_tool_names()
     # Tools may or may not be available depending on axon_quant installation

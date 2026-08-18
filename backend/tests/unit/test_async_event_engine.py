@@ -10,21 +10,20 @@
 """
 
 import asyncio
-import pytest
 import time
-from unittest.mock import AsyncMock, patch
 
+import pytest
 from strategy.core.async_event_engine import (
-    AsyncEventEngine,
     AsyncBoundedPriorityQueue,
+    AsyncEventEngine,
     AsyncEventMetrics,
-    AsyncEventPriority
+    AsyncEventPriority,
 )
-
 
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def async_engine():
@@ -54,6 +53,7 @@ def async_queue():
 # =============================================================================
 # AsyncEventEngine 测试
 # =============================================================================
+
 
 class TestAsyncEventEngine:
     """异步事件引擎测试类"""
@@ -204,6 +204,7 @@ class TestAsyncEventEngine:
     @pytest.mark.asyncio
     async def test_async_metrics_collection(self, async_engine):
         """测试异步指标收集"""
+
         async def handler(data):
             await asyncio.sleep(0.01)
 
@@ -229,7 +230,8 @@ class TestAsyncEventEngine:
         results = []
 
         async def failing_handler(data):
-            raise ValueError("测试异常")
+            msg = "测试异常"
+            raise ValueError(msg)
 
         async def good_handler(data):
             results.append(data)
@@ -319,6 +321,7 @@ class TestAsyncEventEngine:
     @pytest.mark.asyncio
     async def test_get_all_handlers(self, async_engine):
         """测试获取所有处理器"""
+
         async def handler1(data):
             pass
 
@@ -338,6 +341,7 @@ class TestAsyncEventEngine:
 # =============================================================================
 # AsyncBoundedPriorityQueue 测试
 # =============================================================================
+
 
 class TestAsyncBoundedPriorityQueue:
     """异步有界优先队列测试类"""
@@ -380,10 +384,7 @@ class TestAsyncBoundedPriorityQueue:
 
         # 第三个应该阻塞或超时
         with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(
-                queue.put((AsyncEventPriority.NORMAL, "data3")),
-                timeout=0.1
-            )
+            await asyncio.wait_for(queue.put((AsyncEventPriority.NORMAL, "data3")), timeout=0.1)
 
     @pytest.mark.asyncio
     async def test_async_queue_empty(self, async_queue):
@@ -411,6 +412,7 @@ class TestAsyncBoundedPriorityQueue:
 # =============================================================================
 # AsyncEventMetrics 测试
 # =============================================================================
+
 
 class TestAsyncEventMetrics:
     """异步事件指标测试类"""
@@ -471,11 +473,7 @@ class TestAsyncEventMetrics:
                 await metrics.record_processed(0.001)
 
         # 并发记录
-        await asyncio.gather(
-            record_many(),
-            record_many(),
-            record_many()
-        )
+        await asyncio.gather(record_many(), record_many(), record_many())
 
         stats = await metrics.get_stats()
         assert stats["events_processed"] == 300
@@ -499,6 +497,7 @@ class TestAsyncEventMetrics:
 # =============================================================================
 # 性能基准测试
 # =============================================================================
+
 
 class TestAsyncPerformanceBenchmarks:
     """异步性能基准测试类"""
@@ -531,7 +530,6 @@ class TestAsyncPerformanceBenchmarks:
             elapsed = time.time() - start_time
 
             throughput = event_count / elapsed
-            print(f"\n异步吞吐量: {throughput:.0f} 事件/秒")
 
             # 异步引擎应该达到较高吞吐量
             assert throughput > 1000
@@ -554,17 +552,14 @@ class TestAsyncPerformanceBenchmarks:
 
         try:
             # 发送事件并记录时间
-            for i in range(1000):
+            for _i in range(1000):
                 await engine.put("LATENCY", {"timestamp": time.time()})
 
             await asyncio.sleep(2)
 
             if latencies:
                 avg_latency = sum(latencies) / len(latencies) * 1000
-                p99_latency = sorted(latencies)[int(len(latencies) * 0.99)] * 1000
-
-                print(f"\n平均延迟: {avg_latency:.2f} ms")
-                print(f"P99延迟: {p99_latency:.2f} ms")
+                sorted(latencies)[int(len(latencies) * 0.99)] * 1000
 
                 # 延迟应该很低
                 assert avg_latency < 50
@@ -584,6 +579,7 @@ class TestAsyncPerformanceBenchmarks:
                 async with lock:
                     handler_counts[name] = handler_counts.get(name, 0) + 1
                 await asyncio.sleep(0.001)
+
             return handler
 
         # 注册多个处理器
@@ -599,7 +595,6 @@ class TestAsyncPerformanceBenchmarks:
             await asyncio.sleep(3)
 
             total = sum(handler_counts.values())
-            print(f"\n并发处理总数: {total}")
             assert total == 1000 * 10  # 每个事件被10个处理器处理
         finally:
             await engine.stop()

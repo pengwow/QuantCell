@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Number Utilities Module
 
@@ -15,13 +14,12 @@ Provides utility functions for safe numeric conversions with proper error handli
 """
 
 from decimal import Decimal, InvalidOperation
-from typing import Any, Optional, Union
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-NumberType = Union[int, float, str, Decimal, None]
+NumberType = int | float | str | Decimal | None
 
 
 def safe_float(value: NumberType, field_name: str = "", default: float = 0.0) -> float:
@@ -83,14 +81,14 @@ def safe_float(value: NumberType, field_name: str = "", default: float = 0.0) ->
     if isinstance(value, Decimal):
         try:
             return float(value)
-        except (ValueError, InvalidOperation):
+        except ValueError, InvalidOperation:
             if field_name:
                 logger.warning(f"无法转换 {field_name} Decimal 数值: {value}")
             return default
 
     try:
         return float(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         if field_name:
             logger.warning(f"无法转换 {field_name} 数值: {value}")
         return default
@@ -139,20 +137,20 @@ def safe_int(value: NumberType, field_name: str = "", default: int = 0) -> int:
     if isinstance(value, Decimal):
         try:
             return int(value)
-        except (ValueError, InvalidOperation):
+        except ValueError, InvalidOperation:
             if field_name:
                 logger.warning(f"无法转换 {field_name} Decimal 数值: {value}")
             return default
 
     try:
         return int(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         if field_name:
             logger.warning(f"无法转换 {field_name} 数值: {value}")
         return default
 
 
-def safe_decimal(value: NumberType, field_name: str = "", default: Optional[Decimal] = None) -> Decimal:
+def safe_decimal(value: NumberType, field_name: str = "", default: Decimal | None = None) -> Decimal:
     """
     Safely convert a value to Decimal with proper error handling.
 
@@ -200,7 +198,7 @@ def safe_decimal(value: NumberType, field_name: str = "", default: Optional[Deci
 
     try:
         return Decimal(str(value))
-    except (ValueError, InvalidOperation, TypeError):
+    except ValueError, InvalidOperation, TypeError:
         if field_name:
             logger.warning(f"无法转换 {field_name} 数值: {value}")
         return default
@@ -227,8 +225,8 @@ def parse_percentage(value: NumberType, field_name: str = "") -> float:
         >>> parse_percentage("0.5")
         0.5
     """
-    if isinstance(value, str) and '%' in value:
-        value = value.replace('%', '').strip()
+    if isinstance(value, str) and "%" in value:
+        value = value.replace("%", "").strip()
 
     float_val = safe_float(value, field_name, 0.0)
 
@@ -240,8 +238,8 @@ def parse_percentage(value: NumberType, field_name: str = "") -> float:
 
 
 __all__ = [
+    "parse_percentage",
+    "safe_decimal",
     "safe_float",
     "safe_int",
-    "safe_decimal",
-    "parse_percentage",
 ]

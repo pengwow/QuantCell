@@ -9,9 +9,9 @@ AI模型配置工具模块
 """
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -19,26 +19,25 @@ logger = get_logger(__name__, LogType.APPLICATION)
 AI_MODELS_CONFIG_NAME = "ai_model"
 
 
-def parse_ai_model_configs(all_configs: Dict[str, Any]) -> List[Dict[str, Any]]:
+def parse_ai_model_configs(all_configs: dict[str, Any]) -> list[dict[str, Any]]:
     """解析新的 ai_model 配置格式
-    
+
     将扁平化的配置键值对解析为结构化的提供商列表
-    
+
     Args:
         all_configs: 所有系统配置的字典
-        
+
     Returns:
         List[Dict[str, Any]]: 提供商配置列表
     """
     providers = {}
-    
+
     # 导入常量
-    AI_MODELS_CONFIG_NAME = "ai_model"
-    
+
     for key, config in all_configs.items():
         if not isinstance(config, dict):
             continue
-            
+
         # 检查是否是 ai_model 相关的配置
         if key.startswith("ai_model."):
             # 解析键名: ai_model.{provider_id}.{field}
@@ -46,13 +45,13 @@ def parse_ai_model_configs(all_configs: Dict[str, Any]) -> List[Dict[str, Any]]:
             if len(parts) >= 3:
                 provider_id = parts[1]
                 field = ".".join(parts[2:])  # 支持带点的字段名
-                
+
                 if provider_id not in providers:
                     providers[provider_id] = {"id": provider_id}
-                
+
                 # 获取配置值
                 value = config.get("value")
-                
+
                 # 特殊字段的解析
                 if field == "models" and value:
                     try:
@@ -67,19 +66,21 @@ def parse_ai_model_configs(all_configs: Dict[str, Any]) -> List[Dict[str, Any]]:
                     logger.debug(f"解析 {key}: value={value}, parsed={parsed_value}")
                 elif field == "is_enabled":
                     # is_enabled 现在是字符串，存储启用的模型ID
-                    providers[provider_id][field] = value if value else None
+                    providers[provider_id][field] = value or None
                     logger.debug(f"解析 {key}: value={value}")
                 else:
                     providers[provider_id][field] = value
-    
+
     # 添加调试日志
     for provider_id, provider in providers.items():
-        logger.info(f"解析提供商 {provider_id}: is_default={provider.get('is_default')}, is_enabled={provider.get('is_enabled')}")
-    
+        logger.info(
+            f"解析提供商 {provider_id}: is_default={provider.get('is_default')}, is_enabled={provider.get('is_enabled')}"
+        )
+
     return list(providers.values())
 
 
-def get_default_provider_and_models() -> Optional[Dict[str, Any]]:
+def get_default_provider_and_models() -> dict[str, Any] | None:
     """获取默认提供商及其启用的模型
 
     从系统配置中读取默认提供商的配置信息，包括提供商详情和启用的模型列表。
@@ -109,26 +110,28 @@ def get_default_provider_and_models() -> Optional[Dict[str, Any]]:
 
         # 解析新的配置格式
         providers = parse_ai_model_configs(all_configs)
-        
+
         if not providers:
             logger.warning("未找到任何 AI 模型提供商配置")
             return None
-        
+
         # 查找默认提供商（is_default=true），检测多个默认的情况
         default_providers = [p for p in providers if p.get("is_default", False)]
         if len(default_providers) > 1:
-            logger.warning(f"检测到{len(default_providers)}个供应商同时设置了is_default=1: "
-                         f"{[p['id'] for p in default_providers]}，将使用第一个: {default_providers[0]['id']}。"
-                         f"请在模型设置中重新保存配置以修复此问题")
+            logger.warning(
+                f"检测到{len(default_providers)}个供应商同时设置了is_default=1: "
+                f"{[p['id'] for p in default_providers]}，将使用第一个: {default_providers[0]['id']}。"
+                f"请在模型设置中重新保存配置以修复此问题"
+            )
         default_provider = default_providers[0] if default_providers else None
-        
+
         # 如果没有默认提供商，使用第一个启用的提供商（is_enabled 不为空）
         if not default_provider:
             for provider in providers:
                 if provider.get("is_enabled"):  # is_enabled 现在是字符串（模型ID）
                     default_provider = provider
                     break
-        
+
         # 如果还是没有，使用第一个提供商
         if not default_provider:
             default_provider = providers[0]
@@ -136,7 +139,7 @@ def get_default_provider_and_models() -> Optional[Dict[str, Any]]:
         if not default_provider:
             logger.warning("未找到可用的 AI 模型提供商")
             return None
-        
+
         # 检查提供商是否启用（is_enabled 不为空）
         enabled_model_id = default_provider.get("is_enabled")
         if not enabled_model_id:
@@ -171,13 +174,14 @@ def get_default_provider_and_models() -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"获取默认提供商和模型失败: {e}")
         import traceback
+
         logger.error(f"错误详情: {traceback.format_exc()}")
         return None
 
 
-def get_all_providers() -> List[Dict[str, Any]]:
+def get_all_providers() -> list[dict[str, Any]]:
     """获取所有 AI 模型提供商配置
-    
+
     Returns:
         List[Dict[str, Any]]: 所有提供商配置列表
     """
@@ -195,12 +199,12 @@ def get_all_providers() -> List[Dict[str, Any]]:
         return []
 
 
-def get_provider_by_id(provider_id: str) -> Optional[Dict[str, Any]]:
+def get_provider_by_id(provider_id: str) -> dict[str, Any] | None:
     """根据 ID 获取提供商配置
-    
+
     Args:
         provider_id: 提供商 ID
-        
+
     Returns:
         Optional[Dict[str, Any]]: 提供商配置，未找到则返回 None
     """

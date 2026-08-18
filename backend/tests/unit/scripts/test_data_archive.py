@@ -7,6 +7,7 @@
 
 通过 monkeypatch 注入 ArchiveService, 不实际访问数据库 / 文件。
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -17,6 +18,7 @@ runner = CliRunner()
 
 
 # =================== archive download ===================
+
 
 def test_archive_download_creates_task():
     """archive download 必须创建任务并打印 task_id。"""
@@ -33,12 +35,18 @@ def test_archive_download_creates_task():
         result = runner.invoke(
             app,
             [
-                "archive", "download",
-                "-k", "aggTrades",
-                "-m", "spot",
-                "-s", "BTCUSDT,ETHUSDT",
-                "--start", "2024-12-01",
-                "--end", "2024-12-02",
+                "archive",
+                "download",
+                "-k",
+                "aggTrades",
+                "-m",
+                "spot",
+                "-s",
+                "BTCUSDT,ETHUSDT",
+                "--start",
+                "2024-12-01",
+                "--end",
+                "2024-12-02",
             ],
         )
 
@@ -70,14 +78,22 @@ def test_archive_download_passes_interval_for_kline():
         result = runner.invoke(
             app,
             [
-                "archive", "download",
-                "-k", "markPriceKlines",
-                "-m", "um",
-                "-s", "BTCUSDT",
-                "--start", "2024-12-01",
-                "--end", "2024-12-02",
-                "-i", "1h",
-                "--mode", "full",
+                "archive",
+                "download",
+                "-k",
+                "markPriceKlines",
+                "-m",
+                "um",
+                "-s",
+                "BTCUSDT",
+                "--start",
+                "2024-12-01",
+                "--end",
+                "2024-12-02",
+                "-i",
+                "1h",
+                "--mode",
+                "full",
             ],
         )
 
@@ -94,12 +110,18 @@ def test_archive_download_invalid_kind_returns_error():
     result = runner.invoke(
         app,
         [
-            "archive", "download",
-            "-k", "not_a_kind",
-            "-m", "spot",
-            "-s", "BTCUSDT",
-            "--start", "2024-12-01",
-            "--end", "2024-12-02",
+            "archive",
+            "download",
+            "-k",
+            "not_a_kind",
+            "-m",
+            "spot",
+            "-s",
+            "BTCUSDT",
+            "--start",
+            "2024-12-01",
+            "--end",
+            "2024-12-02",
         ],
     )
     assert result.exit_code != 0
@@ -110,9 +132,7 @@ def test_archive_download_kline_without_interval_returns_error():
     from cli.data import app
 
     fake_svc = MagicMock()
-    fake_svc.create_download_task.side_effect = ValueError(
-        "kind=markPriceKlines requires interval in ['1m','3m',...]"
-    )
+    fake_svc.create_download_task.side_effect = ValueError("kind=markPriceKlines requires interval in ['1m','3m',...]")
     fake_svc.base_dir = "/tmp/qc"
 
     with patch(
@@ -122,12 +142,18 @@ def test_archive_download_kline_without_interval_returns_error():
         result = runner.invoke(
             app,
             [
-                "archive", "download",
-                "-k", "markPriceKlines",
-                "-m", "um",
-                "-s", "BTCUSDT",
-                "--start", "2024-12-01",
-                "--end", "2024-12-02",
+                "archive",
+                "download",
+                "-k",
+                "markPriceKlines",
+                "-m",
+                "um",
+                "-s",
+                "BTCUSDT",
+                "--start",
+                "2024-12-01",
+                "--end",
+                "2024-12-02",
             ],
         )
     assert result.exit_code != 0
@@ -141,12 +167,18 @@ def test_archive_download_empty_symbols_returns_error():
     result = runner.invoke(
         app,
         [
-            "archive", "download",
-            "-k", "aggTrades",
-            "-m", "spot",
-            "-s", "  , , ",
-            "--start", "2024-12-01",
-            "--end", "2024-12-02",
+            "archive",
+            "download",
+            "-k",
+            "aggTrades",
+            "-m",
+            "spot",
+            "-s",
+            "  , , ",
+            "--start",
+            "2024-12-01",
+            "--end",
+            "2024-12-02",
         ],
     )
     assert result.exit_code != 0
@@ -159,19 +191,27 @@ def test_archive_download_invalid_mode_returns_error():
     result = runner.invoke(
         app,
         [
-            "archive", "download",
-            "-k", "aggTrades",
-            "-m", "spot",
-            "-s", "BTCUSDT",
-            "--start", "2024-12-01",
-            "--end", "2024-12-02",
-            "--mode", "weekly",
+            "archive",
+            "download",
+            "-k",
+            "aggTrades",
+            "-m",
+            "spot",
+            "-s",
+            "BTCUSDT",
+            "--start",
+            "2024-12-01",
+            "--end",
+            "2024-12-02",
+            "--mode",
+            "weekly",
         ],
     )
     assert result.exit_code != 0
 
 
 # =================== archive list ===================
+
 
 def test_archive_list_prints_symbols():
     """archive list 必须打印 symbols 列表。"""
@@ -230,6 +270,7 @@ def test_archive_list_invalid_kind_returns_error():
 
 # =================== archive meta ===================
 
+
 def test_archive_meta_prints_dict():
     """archive meta 必须 JSON 美化打印 _meta.json。"""
     from cli.data import app
@@ -249,8 +290,14 @@ def test_archive_meta_prints_dict():
         result = runner.invoke(
             app,
             [
-                "archive", "meta",
-                "-k", "aggTrades", "-m", "spot", "-s", "BTCUSDT",
+                "archive",
+                "meta",
+                "-k",
+                "aggTrades",
+                "-m",
+                "spot",
+                "-s",
+                "BTCUSDT",
             ],
         )
     assert result.exit_code == 0, result.output
@@ -273,8 +320,14 @@ def test_archive_meta_missing():
         result = runner.invoke(
             app,
             [
-                "archive", "meta",
-                "-k", "aggTrades", "-m", "spot", "-s", "BTCUSDT",
+                "archive",
+                "meta",
+                "-k",
+                "aggTrades",
+                "-m",
+                "spot",
+                "-s",
+                "BTCUSDT",
             ],
         )
     assert result.exit_code == 0, result.output

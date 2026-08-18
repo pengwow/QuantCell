@@ -1,35 +1,44 @@
 # 数据管理器
 # 管理回测过程中的多周期数据
 
+
 import pandas as pd
-from pathlib import Path
-from utils.logger import get_logger, LogType
+
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from datetime import datetime
+
 
 class DataManager:
     """
     数据管理器，用于管理不同时间周期的数据
     支持策略在回测过程中获取不同周期的数据
     """
-    
+
     def __init__(self, data_service):
         """
         初始化数据管理器
-        
+
         Args:
             data_service: 数据服务实例，用于获取K线数据
         """
         self.data_service = data_service
         self.data_cache = {}  # 数据缓存，格式：{symbol: {interval: data}}
-        self.supported_intervals = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']
-    
-    def preload_data(self, symbol, base_interval, start_time, end_time, preload_intervals=None, ensure_integrity=True):
+        self.supported_intervals = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+
+    def preload_data(
+        self,
+        symbol,
+        base_interval,
+        start_time,
+        end_time,
+        preload_intervals=None,
+        ensure_integrity=True,
+    ):
         """
         预加载多种时间周期的数据
-        
+
         Args:
             symbol: 交易对符号
             base_interval: 主回测周期
@@ -40,22 +49,22 @@ class DataManager:
         """
         if preload_intervals is None:
             preload_intervals = self.supported_intervals
-        
+
         # 确保主周期在预加载列表中
         if base_interval not in preload_intervals:
             preload_intervals.append(base_interval)
-        
+
         logger.info(f"开始预加载数据，交易对: {symbol}, 主周期: {base_interval}, 预加载周期: {preload_intervals}")
-        
+
         # 如果需要确保数据完整性，先检查并下载缺失数据
         if ensure_integrity:
             logger.info(f"[{symbol}] 预加载前检查数据完整性...")
-            from .data_integrity import DataIntegrityChecker
             from .data_downloader import BacktestDataDownloader
-            
+            from .data_integrity import DataIntegrityChecker
+
             integrity_checker = DataIntegrityChecker()
             data_downloader = BacktestDataDownloader()
-            
+
             for interval in preload_intervals:
                 try:
                     # 检查数据完整性
@@ -64,63 +73,63 @@ class DataManager:
                         interval=interval,
                         start_time=start_time,
                         end_time=end_time,
-                        market_type='crypto',
-                        crypto_type='spot'
+                        market_type="crypto",
+                        crypto_type="spot",
                     )
-                    
+
                     if not integrity_result.is_complete:
                         logger.warning(
                             f"[{symbol}] {interval} 数据不完整，覆盖率: {integrity_result.coverage_percent:.2f}%, "
                             f"缺失: {integrity_result.missing_count} 条"
                         )
-                        
+
                         # 下载缺失数据
-                        download_success, new_result = data_downloader.ensure_data_complete(
+                        download_success, _new_result = data_downloader.ensure_data_complete(
                             symbol=symbol,
                             interval=interval,
                             start_time=start_time,
                             end_time=end_time,
-                            max_wait_time=300
+                            max_wait_time=300,
                         )
-                        
+
                         if download_success:
                             logger.info(f"[{symbol}] {interval} 数据下载完成")
                         else:
                             logger.warning(f"[{symbol}] {interval} 数据下载失败，将使用现有数据")
                     else:
                         logger.info(f"[{symbol}] {interval} 数据完整性检查通过")
-                        
+
                 except Exception as e:
                     logger.error(f"[{symbol}] {interval} 数据完整性检查失败: {e}")
-        
+
         # 初始化交易对的数据缓存
         if symbol not in self.data_cache:
             self.data_cache[symbol] = {}
-        
+
         # 预加载数据
         for interval in preload_intervals:
             try:
                 logger.info(f"预加载 {symbol} 的 {interval} 周期数据")
-                
+
                 # 调用数据服务获取K线数据
                 kline_data = self.data_service.get_kline_data(
                     symbol=symbol,
                     interval=interval,
                     start_time=start_time,
-                    end_time=end_time
+                    end_time=end_time,
                 )
-                
+
                 # 将数据转换为DataFrame
-                if kline_data and 'data' in kline_data:
-                    df = pd.DataFrame(kline_data['data'])
+                if kline_data and "data" in kline_data:
+                    df = pd.DataFrame(kline_data["data"])
                     # 确保时间列是datetime类型
-                    if 'datetime' in df.columns:
-                        df['datetime'] = pd.to_datetime(df['datetime'])
-                        df.set_index('datetime', inplace=True)
-                    elif 'open_time' in df.columns:
-                        df['open_time'] = pd.to_datetime(df['open_time'])
-                        df.set_index('open_time', inplace=True)
-                    
+                    if "datetime" in df.columns:
+                        df["datetime"] = pd.to_datetime(df["datetime"])
+                        df.set_index("datetime", inplace=True)
+                    elif "open_time" in df.columns:
+                        df["open_time"] = pd.to_datetime(df["open_time"])
+                        df.set_index("open_time", inplace=True)
+
                     # 缓存数据
                     self.data_cache[symbol][interval] = df
                     logger.info(f"成功预加载 {symbol} 的 {interval} 周期数据，共 {len(df)} 条")
@@ -129,15 +138,15 @@ class DataManager:
             except Exception as e:
                 logger.error(f"预加载 {symbol} 的 {interval} 周期数据失败: {e}")
                 logger.exception(e)
-    
+
     def get_data(self, symbol, interval):
         """
         获取指定交易对和周期的数据
-        
+
         Args:
             symbol: 交易对符号
             interval: 时间周期
-            
+
         Returns:
             pd.DataFrame: K线数据DataFrame
         """
@@ -145,9 +154,9 @@ class DataManager:
             # 检查数据缓存
             if symbol in self.data_cache and interval in self.data_cache[symbol]:
                 return self.data_cache[symbol][interval]
-            
+
             logger.warning(f"未找到 {symbol} 的 {interval} 周期缓存数据，尝试动态加载")
-            
+
             # 动态加载数据（如果没有预加载）
             # 这里简化处理，实际应该有更复杂的逻辑来确定时间范围
             return pd.DataFrame()
@@ -155,20 +164,20 @@ class DataManager:
             logger.error(f"获取 {symbol} 的 {interval} 周期数据失败: {e}")
             logger.exception(e)
             return pd.DataFrame()
-    
+
     def get_supported_intervals(self):
         """
         获取支持的时间周期列表
-        
+
         Returns:
             List[str]: 支持的时间周期列表
         """
         return self.supported_intervals
-    
+
     def clear_cache(self, symbol=None):
         """
         清除数据缓存
-        
+
         Args:
             symbol: 交易对符号，默认为None，清除所有交易对的缓存
         """

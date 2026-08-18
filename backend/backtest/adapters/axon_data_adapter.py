@@ -1,14 +1,12 @@
-# -*- coding: utf-8 -*-
 """axon 数据适配器
 
 替代原 backtest/adapters/data_adapter.py 中的 axon_quant 数据类型依赖。
 使用 pandas 原生加载，转换为 axon 事件格式。
 """
+
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
@@ -30,7 +28,8 @@ class AxonDataAdapter:
             标准化的 OHLCV DataFrame。
         """
         if not os.path.exists(path):
-            raise FileNotFoundError(f"CSV 文件不存在: {path}")
+            msg = f"CSV 文件不存在: {path}"
+            raise FileNotFoundError(msg)
 
         df = pd.read_csv(path)
         return self._standardize_dataframe(df)
@@ -45,17 +44,18 @@ class AxonDataAdapter:
             标准化的 OHLCV DataFrame。
         """
         if not os.path.exists(path):
-            raise FileNotFoundError(f"Parquet 文件不存在: {path}")
+            msg = f"Parquet 文件不存在: {path}"
+            raise FileNotFoundError(msg)
 
         df = pd.read_parquet(path)
         return self._standardize_dataframe(df)
 
     def load_multiple(
         self,
-        symbols: List[str],
+        symbols: list[str],
         data_dir: str,
         file_pattern: str = "{symbol}_1h.csv",
-    ) -> Dict[str, pd.DataFrame]:
+    ) -> dict[str, pd.DataFrame]:
         """加载多个品种的数据。
 
         Args:
@@ -107,7 +107,8 @@ class AxonDataAdapter:
         required = ["open", "high", "low", "close"]
         for col in required:
             if col not in df.columns:
-                raise ValueError(f"缺少必要列: {col}")
+                msg = f"缺少必要列: {col}"
+                raise ValueError(msg)
 
         # 转换为 float64
         for col in ["open", "high", "low", "close", "volume"]:

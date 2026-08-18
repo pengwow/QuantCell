@@ -1,9 +1,8 @@
 """适配层错误规范测试。"""
-import pytest
-from fastapi import HTTPException
 
 # axon_quant 0.4.0 实际错误类(顶层)
-from axon_quant import DataError, OmsError, ExchangeError
+from axon_quant import DataError, ExchangeError, OmsError
+from fastapi import HTTPException
 
 
 def test_data_error_maps_to_400():
@@ -17,7 +16,7 @@ def test_data_error_maps_to_400():
 
 def test_map_error_returns_axon_quant_error():
     """未知错误应包装为 AxonQuantError(500)。"""
-    from backend.axon_bridge._errors import map_error, AxonQuantError
+    from backend.axon_bridge._errors import AxonQuantError, map_error
 
     err = map_error(ValueError("xxx"))
     assert isinstance(err, AxonQuantError)

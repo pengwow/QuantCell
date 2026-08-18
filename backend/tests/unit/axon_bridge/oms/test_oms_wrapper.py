@@ -7,17 +7,18 @@
 4. Portfolio.deposit 行为正确
 5. OmsError 错误映射到 409
 """
+
 from __future__ import annotations
 
 import pytest
 
 try:
-    import axon_quant  # noqa: F401
+    import axon_quant
 except ImportError:
     pytest.skip("axon_quant 未安装,跳过 oms 适配层测试", allow_module_level=True)
 
 
-from axon_bridge.oms import (  # noqa: E402
+from axon_bridge.oms import (
     OmsError,
     Order,
     OrderManager,
@@ -31,7 +32,6 @@ from axon_bridge.oms import (  # noqa: E402
     market_order,
 )
 
-
 # =============================================================================
 # 1. 符号重导出
 # =============================================================================
@@ -39,8 +39,16 @@ from axon_bridge.oms import (  # noqa: E402
 
 class TestOmsReexports:
     def test_classes_importable(self):
-        for cls in (OmsError, Order, OrderManager, OrderStatus,
-                    OrderType, Portfolio, Position, Side):
+        for cls in (
+            OmsError,
+            Order,
+            OrderManager,
+            OrderStatus,
+            OrderType,
+            Portfolio,
+            Position,
+            Side,
+        ):
             assert cls is not None
 
     def test_factories_importable(self):
@@ -97,9 +105,7 @@ class TestOrderManager:
         mgr.deposit("USDT", 100_000.0)
 
         # 1) 提交订单
-        oid = mgr.submit(
-            limit_order("BTCUSDT", "Buy", 0.1, 50_000.0, idempotency_key="k1")
-        )
+        oid = mgr.submit(limit_order("BTCUSDT", "Buy", 0.1, 50_000.0, idempotency_key="k1"))
         assert isinstance(oid, str) and len(oid) > 0
         assert mgr.active_count() == 1
         assert mgr.get_order_status(oid).kind == "Submitted"
@@ -110,8 +116,12 @@ class TestOrderManager:
 
         # 3) 处理 fill
         mgr.add_fill(
-            order_id=oid, fill_id="f1", symbol="BTCUSDT",
-            price=50_000.0, quantity=0.1, fee=0.0,
+            order_id=oid,
+            fill_id="f1",
+            symbol="BTCUSDT",
+            price=50_000.0,
+            quantity=0.1,
+            fee=0.0,
         )
         status = mgr.get_order_status(oid)
         assert status.kind == "Filled"
@@ -145,25 +155,24 @@ class TestOrderManager:
         """submit 后 history_count 至少为 1(订单进入 history)。"""
         mgr = OrderManager()
         mgr.deposit("USDT", 100_000.0)
-        oid = mgr.submit(
-            limit_order("BTCUSDT", "Buy", 0.1, 50_000.0, idempotency_key="k4")
-        )
+        oid = mgr.submit(limit_order("BTCUSDT", "Buy", 0.1, 50_000.0, idempotency_key="k4"))
         mgr.update_status(oid, make_order_status("Acknowledged"))
         # submit 之后订单就进入 history, history_count >= 1
         assert mgr.history_count() >= 1
         # add_fill 完成后订单仍应在 history 中
         mgr.add_fill(
-            order_id=oid, fill_id="f4", symbol="BTCUSDT",
-            price=50_000.0, quantity=0.1, fee=0.0,
+            order_id=oid,
+            fill_id="f4",
+            symbol="BTCUSDT",
+            price=50_000.0,
+            quantity=0.1,
+            fee=0.0,
         )
         assert mgr.history_count() >= 1
 
     def test_batch_submit(self):
         mgr = OrderManager()
-        orders = [
-            market_order("BTCUSDT", "Buy", 0.1, idempotency_key=f"kb{i}")
-            for i in range(3)
-        ]
+        orders = [market_order("BTCUSDT", "Buy", 0.1, idempotency_key=f"kb{i}") for i in range(3)]
         oids = mgr.batch_submit(orders)
         assert len(oids) == 3
         assert mgr.active_count() == 3
@@ -203,7 +212,8 @@ class TestErrorMapping:
         from axon_bridge._errors import AxonQuantError, map_error
 
         try:
-            raise OmsError("synthetic oms failure")
+            msg = "synthetic oms failure"
+            raise OmsError(msg)
         except OmsError as e:
             mapped = map_error(e)
             assert isinstance(mapped, AxonQuantError)

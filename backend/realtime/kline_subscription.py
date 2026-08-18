@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 K线数据订阅管理模块
 
@@ -11,21 +10,28 @@ K线数据订阅管理模块
 
 import asyncio
 import time
-from typing import Dict, Set, Optional, Callable, Any, List
-from dataclasses import dataclass, field
 from collections import defaultdict
-from utils.logger import get_logger, LogType
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from utils.logger import LogType, get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+
+
 @dataclass
 class KlineSubscription:
     """K线订阅信息"""
+
     symbol: str
     interval: str
-    client_ids: Set[str] = field(default_factory=set)
+    client_ids: set[str] = field(default_factory=set)
     created_at: float = field(default_factory=time.time)
-    last_push_at: Optional[float] = None
+    last_push_at: float | None = None
     push_count: int = 0
     error_count: int = 0
 
@@ -33,35 +39,52 @@ class KlineSubscription:
 @dataclass
 class KlineMetrics:
     """K线推送监控指标"""
+
     total_subscriptions: int = 0
     active_connections: int = 0
     total_pushes: int = 0
     total_errors: int = 0
     avg_push_latency: float = 0.0
     push_frequency: float = 0.0  # 每秒推送次数
-    symbol_stats: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    symbol_stats: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 class KlineSubscriptionManager:
     """K线订阅管理器"""
 
     # 支持的K线周期
-    SUPPORTED_INTERVALS = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w', '1M']
+    SUPPORTED_INTERVALS = [
+        "1m",
+        "3m",
+        "5m",
+        "15m",
+        "30m",
+        "1h",
+        "2h",
+        "4h",
+        "6h",
+        "8h",
+        "12h",
+        "1d",
+        "3d",
+        "1w",
+        "1M",
+    ]
 
     def __init__(self):
         """初始化K线订阅管理器"""
         # 订阅映射: {(symbol, interval): KlineSubscription}
-        self._subscriptions: Dict[tuple, KlineSubscription] = {}
+        self._subscriptions: dict[tuple, KlineSubscription] = {}
 
         # 客户端订阅映射: {client_id: Set[(symbol, interval)]}
-        self._client_subscriptions: Dict[str, Set[tuple]] = {}
+        self._client_subscriptions: dict[str, set[tuple]] = {}
 
         # 推送回调函数
-        self._push_callbacks: List[Callable[[str, str, Dict[str, Any]], None]] = []
+        self._push_callbacks: list[Callable[[str, str, dict[str, Any]], None]] = []
 
         # 监控指标
         self._metrics = KlineMetrics()
-        self._push_latencies: List[float] = []
+        self._push_latencies: list[float] = []
         self._last_metrics_update = time.time()
 
         # 锁
@@ -69,7 +92,7 @@ class KlineSubscriptionManager:
 
         logger.info("KlineSubscriptionManager initialized")
 
-    def parse_topic(self, topic: str) -> Optional[tuple]:
+    def parse_topic(self, topic: str) -> tuple | None:
         """
         解析K线主题
 
@@ -80,8 +103,8 @@ class KlineSubscriptionManager:
             Optional[tuple]: (symbol, interval) 或 None
         """
         try:
-            parts = topic.split(':')
-            if len(parts) != 3 or parts[0] != 'kline':
+            parts = topic.split(":")
+            if len(parts) != 3 or parts[0] != "kline":
                 return None
 
             symbol = parts[1].upper()
@@ -134,10 +157,7 @@ class KlineSubscriptionManager:
 
                 # 创建或获取订阅
                 if key not in self._subscriptions:
-                    self._subscriptions[key] = KlineSubscription(
-                        symbol=symbol,
-                        interval=interval
-                    )
+                    self._subscriptions[key] = KlineSubscription(symbol=symbol, interval=interval)
                     logger.info(f"Created new kline subscription: {symbol}@{interval}")
 
                 subscription = self._subscriptions[key]
@@ -238,7 +258,7 @@ class KlineSubscriptionManager:
                 logger.error(f"Failed to unsubscribe all for {client_id}: {e}")
                 return False
 
-    def get_subscribed_clients(self, symbol: str, interval: str) -> Set[str]:
+    def get_subscribed_clients(self, symbol: str, interval: str) -> set[str]:
         """
         获取订阅了指定K线的所有客户端
 
@@ -254,7 +274,7 @@ class KlineSubscriptionManager:
             return self._subscriptions[key].client_ids.copy()
         return set()
 
-    def get_client_subscriptions(self, client_id: str) -> List[Dict[str, str]]:
+    def get_client_subscriptions(self, client_id: str) -> list[dict[str, str]]:
         """
         获取客户端的所有K线订阅
 
@@ -267,12 +287,9 @@ class KlineSubscriptionManager:
         if client_id not in self._client_subscriptions:
             return []
 
-        return [
-            {"symbol": symbol, "interval": interval}
-            for symbol, interval in self._client_subscriptions[client_id]
-        ]
+        return [{"symbol": symbol, "interval": interval} for symbol, interval in self._client_subscriptions[client_id]]
 
-    def get_all_subscriptions(self) -> List[Dict[str, Any]]:
+    def get_all_subscriptions(self) -> list[dict[str, Any]]:
         """
         获取所有K线订阅信息
 
@@ -288,12 +305,12 @@ class KlineSubscriptionManager:
                 "created_at": sub.created_at,
                 "last_push_at": sub.last_push_at,
                 "push_count": sub.push_count,
-                "error_count": sub.error_count
+                "error_count": sub.error_count,
             }
             for sub in self._subscriptions.values()
         ]
 
-    async def push_kline(self, symbol: str, interval: str, kline_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def push_kline(self, symbol: str, interval: str, kline_data: dict[str, Any]) -> dict[str, Any]:
         """
         推送K线数据到订阅的客户端
 
@@ -311,7 +328,7 @@ class KlineSubscriptionManager:
             "target_clients": 0,
             "pushed_clients": 0,
             "failed_clients": 0,
-            "latency_ms": 0
+            "latency_ms": 0,
         }
 
         try:
@@ -330,7 +347,7 @@ class KlineSubscriptionManager:
                 "id": f"kline_{int(time.time() * 1_000_000_000)}",
                 "timestamp": int(time.time() * 1_000_000_000),
                 "topic": topic,
-                "data": kline_data
+                "data": kline_data,
             }
 
             # 调用推送回调
@@ -362,7 +379,9 @@ class KlineSubscriptionManager:
             result["success"] = True
             result["latency_ms"] = latency
 
-            logger.debug(f"Pushed kline to {result['pushed_clients']} clients for {symbol}@{interval}, latency={latency:.2f}ms")
+            logger.debug(
+                f"Pushed kline to {result['pushed_clients']} clients for {symbol}@{interval}, latency={latency:.2f}ms"
+            )
 
         except Exception as e:
             logger.error(f"Failed to push kline for {symbol}@{interval}: {e}")
@@ -370,7 +389,7 @@ class KlineSubscriptionManager:
 
         return result
 
-    def register_push_callback(self, callback: Callable[[str, str, Dict[str, Any]], None]) -> None:
+    def register_push_callback(self, callback: Callable[[str, str, dict[str, Any]], None]) -> None:
         """
         注册推送回调函数
 
@@ -380,7 +399,7 @@ class KlineSubscriptionManager:
         self._push_callbacks.append(callback)
         logger.info(f"Registered push callback, total callbacks: {len(self._push_callbacks)}")
 
-    def unregister_push_callback(self, callback: Callable[[str, str, Dict[str, Any]], None]) -> bool:
+    def unregister_push_callback(self, callback: Callable[[str, str, dict[str, Any]], None]) -> bool:
         """
         注销推送回调函数
 
@@ -396,7 +415,7 @@ class KlineSubscriptionManager:
             return True
         return False
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """
         获取监控指标
 
@@ -425,7 +444,7 @@ class KlineSubscriptionManager:
             symbol: {
                 "subscriptions": stats["subscriptions"],
                 "client_count": len(stats["clients"]),
-                "push_count": stats["push_count"]
+                "push_count": stats["push_count"],
             }
             for symbol, stats in symbol_stats.items()
         }
@@ -436,7 +455,7 @@ class KlineSubscriptionManager:
             "total_pushes": self._metrics.total_pushes,
             "avg_push_latency_ms": round(self._metrics.avg_push_latency, 2),
             "push_frequency": round(self._metrics.push_frequency, 2),
-            "symbol_stats": self._metrics.symbol_stats
+            "symbol_stats": self._metrics.symbol_stats,
         }
 
     def is_subscribed(self, client_id: str, symbol: str, interval: str) -> bool:
@@ -456,7 +475,7 @@ class KlineSubscriptionManager:
             return client_id in self._subscriptions[key].client_ids
         return False
 
-    def get_supported_intervals(self) -> List[str]:
+    def get_supported_intervals(self) -> list[str]:
         """
         获取支持的K线周期列表
 

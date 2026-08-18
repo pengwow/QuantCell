@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 文件日志管理器
 
@@ -6,44 +5,46 @@
 使用 JSON Lines 格式存储日志，支持高效的查询和分析。
 """
 
-import os
 import json
 import threading
-from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
-from dataclasses import dataclass, field
 from contextlib import contextmanager
-import re
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from utils.logger import LogRecord
+if TYPE_CHECKING:
+    from utils.logger import LogRecord
 
 
 @dataclass
 class LogFilters:
     """日志查询过滤器"""
-    level: Optional[str] = None
-    log_type: Optional[str] = None
-    module: Optional[str] = None
-    trace_id: Optional[str] = None
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    keyword: Optional[str] = None
+
+    level: str | None = None
+    log_type: str | None = None
+    module: str | None = None
+    trace_id: str | None = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    keyword: str | None = None
 
 
 @dataclass
 class PaginatedResult:
     """分页查询结果"""
-    logs: List[Dict[str, Any]] = field(default_factory=list)
-    pagination: Dict[str, Any] = field(default_factory=dict)
+
+    logs: list[dict[str, Any]] = field(default_factory=list)
+    pagination: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class LogStatistics:
     """日志统计信息"""
+
     total_count: int = 0
-    by_level: Dict[str, int] = field(default_factory=dict)
-    by_type: Dict[str, int] = field(default_factory=dict)
+    by_level: dict[str, int] = field(default_factory=dict)
+    by_type: dict[str, int] = field(default_factory=dict)
 
 
 class FileLogManager:
@@ -54,18 +55,18 @@ class FileLogManager:
     使用线程锁确保并发安全性。
     """
 
-    _instance: Optional["FileLogManager"] = None
+    _instance: FileLogManager | None = None
     _lock = threading.Lock()
     _initialized = False
 
-    def __new__(cls, base_log_dir: str = None) -> "FileLogManager":
+    def __new__(cls, base_log_dir: str | None = None) -> FileLogManager:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, base_log_dir: str = None):
+    def __init__(self, base_log_dir: str | None = None):
         if self._initialized:
             return
 
@@ -85,10 +86,10 @@ class FileLogManager:
         self._write_lock = threading.Lock()
 
         # 缓存最近打开的文件句柄（优化性能）
-        self._file_handles: Dict[str, Any] = {}
+        self._file_handles: dict[str, Any] = {}
         self._file_lock = threading.Lock()
 
-    def _get_log_file_path(self, log_type: str, date: datetime = None) -> Path:
+    def _get_log_file_path(self, log_type: str, date: datetime | None = None) -> Path:
         """
         获取日志文件路径
 
@@ -123,14 +124,14 @@ class FileLogManager:
             if file_key in self._file_handles:
                 handle = self._file_handles[file_key]
             else:
-                handle = open(file_path, 'a', encoding='utf-8', buffering=8192)
+                handle = open(file_path, "a", encoding="utf-8", buffering=8192)
                 self._file_handles[file_key] = handle
 
         try:
             yield handle
             handle.flush()
         except Exception as e:
-            print(f"[FileLogManager] 写入错误: {e}", file=__import__('sys').stderr)
+            print(f"[FileLogManager] 写入错误: {e}", file=__import__("sys").stderr)
 
     def write_log(self, record: LogRecord) -> bool:
         """
@@ -147,23 +148,22 @@ class FileLogManager:
             log_dict = record.to_dict()
 
             # 序列化为JSON字符串
-            json_str = json.dumps(log_dict, ensure_ascii=False, separators=(',', ':'))
+            json_str = json.dumps(log_dict, ensure_ascii=False, separators=(",", ":"))
 
             # 获取目标文件路径
             file_path = self._get_log_file_path(record.log_type, record.timestamp)
 
             # 原子写入（使用锁保证并发安全）
-            with self._write_lock:
-                with self._open_file_for_writing(file_path) as f:
-                    f.write(json_str + '\n')
+            with self._write_lock, self._open_file_for_writing(file_path) as f:
+                f.write(json_str + "\n")
 
             return True
 
         except Exception as e:
-            print(f"[FileLogManager] 写入日志失败: {e}", file=__import__('sys').stderr)
+            print(f"[FileLogManager] 写入日志失败: {e}", file=__import__("sys").stderr)
             return False
 
-    def write_batch(self, records: List[LogRecord]) -> int:
+    def write_batch(self, records: list[LogRecord]) -> int:
         """
         批量写入日志记录
 
@@ -176,7 +176,7 @@ class FileLogManager:
         success_count = 0
 
         # 按日志类型分组
-        grouped: Dict[str, List[LogRecord]] = {}
+        grouped: dict[str, list[LogRecord]] = {}
         for record in records:
             if record.log_type not in grouped:
                 grouped[record.log_type] = []
@@ -188,30 +188,26 @@ class FileLogManager:
                 lines = []
                 for record in type_records:
                     log_dict = record.to_dict()
-                    json_str = json.dumps(log_dict, ensure_ascii=False, separators=(',', ':'))
+                    json_str = json.dumps(log_dict, ensure_ascii=False, separators=(",", ":"))
                     lines.append(json_str)
 
                 # 获取该类型的最新文件路径
                 file_path = self._get_log_file_path(log_type)
 
-                with self._write_lock:
-                    with self._open_file_for_writing(file_path) as f:
-                        f.write('\n'.join(lines) + '\n')
+                with self._write_lock, self._open_file_for_writing(file_path) as f:
+                    f.write("\n".join(lines) + "\n")
 
                 success_count += len(type_records)
 
             except Exception as e:
-                print(f"[FileLogManager] 批量写入失败 ({log_type}): {e}",
-                      file=__import__('sys').stderr)
+                print(
+                    f"[FileLogManager] 批量写入失败 ({log_type}): {e}",
+                    file=__import__("sys").stderr,
+                )
 
         return success_count
 
-    def query_logs(
-        self,
-        filters: LogFilters,
-        page: int = 1,
-        page_size: int = 50
-    ) -> PaginatedResult:
+    def query_logs(self, filters: LogFilters, page: int = 1, page_size: int = 50) -> PaginatedResult:
         """
         查询日志记录
 
@@ -235,11 +231,13 @@ class FileLogManager:
                 file_logs = self._read_and_filter_file(file_path, filters)
                 all_logs.extend(file_logs)
             except Exception as e:
-                print(f"[FileLogManager] 读取文件失败 {file_path}: {e}",
-                      file=__import__('sys').stderr)
+                print(
+                    f"[FileLogManager] 读取文件失败 {file_path}: {e}",
+                    file=__import__("sys").stderr,
+                )
 
         # 按时间戳倒序排序
-        all_logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        all_logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
 
         # 计算总数
         total = len(all_logs)
@@ -247,24 +245,19 @@ class FileLogManager:
         # 计算分页
         pages = (total + page_size - 1) // page_size if total > 0 else 0
         offset = (page - 1) * page_size
-        paginated_logs = all_logs[offset:offset + page_size]
+        paginated_logs = all_logs[offset : offset + page_size]
 
         return PaginatedResult(
             logs=paginated_logs,
             pagination={
-                'page': page,
-                'page_size': page_size,
-                'total': total,
-                'pages': pages,
-            }
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "pages": pages,
+            },
         )
 
-    def get_recent_logs(
-        self,
-        minutes: int = 60,
-        limit: int = 100,
-        level: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    def get_recent_logs(self, minutes: int = 60, limit: int = 100, level: str | None = None) -> list[dict[str, Any]]:
         """
         获取最近的日志记录
 
@@ -279,21 +272,12 @@ class FileLogManager:
         end_time = datetime.utcnow()
         start_time = end_time - timedelta(minutes=minutes)
 
-        filters = LogFilters(
-            start_time=start_time,
-            end_time=end_time,
-            level=level
-        )
+        filters = LogFilters(start_time=start_time, end_time=end_time, level=level)
 
         result = self.query_logs(filters, page=1, page_size=limit)
         return result.logs
 
-    def get_logs_by_trace_id(
-        self,
-        trace_id: str,
-        page: int = 1,
-        page_size: int = 50
-    ) -> PaginatedResult:
+    def get_logs_by_trace_id(self, trace_id: str, page: int = 1, page_size: int = 50) -> PaginatedResult:
         """
         根据跟踪ID获取相关日志
 
@@ -308,11 +292,7 @@ class FileLogManager:
         filters = LogFilters(trace_id=trace_id)
         return self.query_logs(filters, page=page, page_size=page_size)
 
-    def get_statistics(
-        self,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None
-    ) -> LogStatistics:
+    def get_statistics(self, start_time: datetime | None = None, end_time: datetime | None = None) -> LogStatistics:
         """
         获取日志统计信息
 
@@ -328,18 +308,18 @@ class FileLogManager:
         # 获取所有匹配的日志（不分页，用于统计）
         result = self.query_logs(filters, page=1, page_size=1000000)
 
-        by_level: Dict[str, int] = {}
-        by_type: Dict[str, int] = {}
+        by_level: dict[str, int] = {}
+        by_type: dict[str, int] = {}
 
         for log in result.logs:
-            level = log.get('level', 'UNKNOWN')
-            log_type = log.get('log_type', 'UNKNOWN')
+            level = log.get("level", "UNKNOWN")
+            log_type = log.get("log_type", "UNKNOWN")
 
             by_level[level] = by_level.get(level, 0) + 1
             by_type[log_type] = by_type.get(log_type, 0) + 1
 
         return LogStatistics(
-            total_count=result.pagination.get('total', 0),
+            total_count=result.pagination.get("total", 0),
             by_level=by_level,
             by_type=by_type,
         )
@@ -365,36 +345,32 @@ class FileLogManager:
 
                 # 遍历该类型下的日志文件
                 for log_file in type_dir.iterdir():
-                    if not log_file.suffix == '.log':
+                    if log_file.suffix != ".log":
                         continue
 
                     # 从文件名解析日期
                     try:
                         # 文件名格式：{type}_YYYYMMDD.log
-                        parts = log_file.stem.split('_')
+                        parts = log_file.stem.split("_")
                         if len(parts) >= 2:
                             file_date_str = parts[-1]
-                            file_date = datetime.strptime(file_date_str, '%Y%m%d')
+                            file_date = datetime.strptime(file_date_str, "%Y%m%d")
 
                             # 如果文件日期早于截止日期，删除文件
                             if file_date < cutoff_date:
                                 log_file.unlink()
                                 deleted_count += 1
-                                print(f"[FileLogManager] 删除旧日志: {log_file}")
-                    except (ValueError, IndexError):
+                    except ValueError, IndexError:
                         continue
 
         except Exception as e:
-            print(f"[FileLogManager] 清理旧日志失败: {e}",
-                  file=__import__('sys').stderr)
+            print(f"[FileLogManager] 清理旧日志失败: {e}", file=__import__("sys").stderr)
 
         return deleted_count
 
     def _get_log_files_in_range(
-        self,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None
-    ) -> List[Path]:
+        self, start_time: datetime | None = None, end_time: datetime | None = None
+    ) -> list[Path]:
         """
         获取指定时间范围内的日志文件列表
 
@@ -413,7 +389,7 @@ class FileLogManager:
                     continue
 
                 for log_file in type_dir.iterdir():
-                    if not log_file.suffix == '.log' or not log_file.exists():
+                    if log_file.suffix != ".log" or not log_file.exists():
                         continue
 
                     # 如果没有时间范围限制，返回所有文件
@@ -423,10 +399,10 @@ class FileLogManager:
 
                     # 从文件名解析日期进行预筛选
                     try:
-                        parts = log_file.stem.split('_')
+                        parts = log_file.stem.split("_")
                         if len(parts) >= 2:
                             file_date_str = parts[-1]
-                            file_date = datetime.strptime(file_date_str, '%Y%m%d')
+                            file_date = datetime.strptime(file_date_str, "%Y%m%d")
 
                             # 检查文件是否在时间范围内
                             in_range = True
@@ -437,24 +413,22 @@ class FileLogManager:
 
                             if in_range:
                                 files.append(log_file)
-                    except (ValueError, IndexError):
+                    except ValueError, IndexError:
                         # 无法解析日期的文件也包含在内
                         files.append(log_file)
 
         except Exception as e:
-            print(f"[FileLogManager] 获取日志文件列表失败: {e}",
-                  file=__import__('sys').stderr)
+            print(
+                f"[FileLogManager] 获取日志文件列表失败: {e}",
+                file=__import__("sys").stderr,
+            )
 
         # 按文件修改时间倒序排列（最新的在前）
         files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
 
         return files
 
-    def _read_and_filter_file(
-        self,
-        file_path: Path,
-        filters: LogFilters
-    ) -> List[Dict[str, Any]]:
+    def _read_and_filter_file(self, file_path: Path, filters: LogFilters) -> list[dict[str, Any]]:
         """
         读取并过滤单个日志文件
 
@@ -470,7 +444,7 @@ class FileLogManager:
         matched_logs = []
 
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -490,12 +464,14 @@ class FileLogManager:
                         continue
 
         except Exception as e:
-            print(f"[FileLogManager] 读取文件出错 {file_path}: {e}",
-                  file=__import__('sys').stderr)
+            print(
+                f"[FileLogManager] 读取文件出错 {file_path}: {e}",
+                file=__import__("sys").stderr,
+            )
 
         return matched_logs
 
-    def _match_filters(self, log_entry: Dict[str, Any], filters: LogFilters) -> bool:
+    def _match_filters(self, log_entry: dict[str, Any], filters: LogFilters) -> bool:
         """
         检查日志记录是否匹配所有过滤条件
 
@@ -508,43 +484,40 @@ class FileLogManager:
         """
         try:
             # 日志级别过滤（不区分大小写）
-            if filters.level:
-                if log_entry.get('level', '').upper() != filters.level.upper():
-                    return False
+            if filters.level and log_entry.get("level", "").upper() != filters.level.upper():
+                return False
 
             # 日志类型过滤
-            if filters.log_type:
-                if log_entry.get('log_type') != filters.log_type:
-                    return False
+            if filters.log_type and log_entry.get("log_type") != filters.log_type:
+                return False
 
             # 模块名称模糊匹配
             if filters.module:
-                module = log_entry.get('module', '')
+                module = log_entry.get("module", "")
                 if filters.module.lower() not in module.lower():
                     return False
 
             # 跟踪ID精确匹配
-            if filters.trace_id:
-                if log_entry.get('trace_id') != filters.trace_id:
-                    return False
+            if filters.trace_id and log_entry.get("trace_id") != filters.trace_id:
+                return False
 
             # 时间范围过滤
             if filters.start_time or filters.end_time:
-                timestamp_str = log_entry.get('timestamp', '')
+                timestamp_str = log_entry.get("timestamp", "")
                 if timestamp_str:
                     try:
-                        log_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        log_time = datetime.fromisoformat(timestamp_str)
 
                         if filters.start_time and log_time < filters.start_time:
                             return False
                         if filters.end_time and log_time > filters.end_time:
                             return False
-                    except (ValueError, AttributeError):
+                    except ValueError, AttributeError:
                         pass
 
             # 关键词搜索（在message中搜索）
             if filters.keyword:
-                message = log_entry.get('message', '')
+                message = log_entry.get("message", "")
                 if filters.keyword.lower() not in message.lower():
                     return False
 
@@ -553,8 +526,7 @@ class FileLogManager:
 
         except Exception as e:
             # 解析异常时默认不匹配
-            print(f"[FileLogManager] 过滤条件匹配异常: {e}",
-                  file=__import__('sys').stderr)
+            print(f"[FileLogManager] 过滤条件匹配异常: {e}", file=__import__("sys").stderr)
             return False
 
     def close(self):
@@ -564,12 +536,14 @@ class FileLogManager:
                 try:
                     handle.close()
                 except Exception as e:
-                    print(f"[FileLogManager] 关闭文件句柄失败 {file_key}: {e}",
-                          file=__import__('sys').stderr)
+                    print(
+                        f"[FileLogManager] 关闭文件句柄失败 {file_key}: {e}",
+                        file=__import__("sys").stderr,
+                    )
 
             self._file_handles.clear()
 
-    def get_directory_tree(self) -> Dict[str, Any]:
+    def get_directory_tree(self) -> dict[str, Any]:
         """
         获取日志目录的树形结构
 
@@ -577,13 +551,13 @@ class FileLogManager:
             dict: 包含目录树、文件列表和统计信息的字典
         """
         tree = {
-            'name': 'logs',
-            'path': str(self.base_log_dir),
-            'type': 'root',
-            'children': [],
-            'files': [],
-            'total_size': 0,
-            'file_count': 0,
+            "name": "logs",
+            "path": str(self.base_log_dir),
+            "type": "root",
+            "children": [],
+            "files": [],
+            "total_size": 0,
+            "file_count": 0,
         }
 
         try:
@@ -595,54 +569,55 @@ class FileLogManager:
                     continue
 
                 type_node = {
-                    'name': type_dir.name,
-                    'path': str(type_dir),
-                    'type': 'directory',
-                    'children': [],
-                    'files': [],
-                    'total_size': 0,
-                    'file_count': 0,
+                    "name": type_dir.name,
+                    "path": str(type_dir),
+                    "type": "directory",
+                    "children": [],
+                    "files": [],
+                    "total_size": 0,
+                    "file_count": 0,
                 }
 
                 for log_file in sorted(type_dir.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True):
-                    if not log_file.suffix == '.log':
+                    if log_file.suffix != ".log":
                         continue
 
                     try:
                         stat = log_file.stat()
                         file_info = {
-                            'name': log_file.name,
-                            'path': str(log_file),
-                            'type': 'file',
-                            'size': stat.st_size,
-                            'size_formatted': self._format_size(stat.st_size),
-                            'modified_time': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                            'created_time': datetime.fromtimestamp(stat.st_ctime).isoformat(),
-                            'line_count': None,
-                            'log_type': type_dir.name,
-                            'date': self._extract_date_from_filename(log_file.name),
+                            "name": log_file.name,
+                            "path": str(log_file),
+                            "type": "file",
+                            "size": stat.st_size,
+                            "size_formatted": self._format_size(stat.st_size),
+                            "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            "created_time": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                            "line_count": None,
+                            "log_type": type_dir.name,
+                            "date": self._extract_date_from_filename(log_file.name),
                         }
 
-                        type_node['files'].append(file_info)
-                        type_node['total_size'] += stat.st_size
-                        type_node['file_count'] += 1
-                        tree['total_size'] += stat.st_size
-                        tree['file_count'] += 1
+                        type_node["files"].append(file_info)
+                        type_node["total_size"] += stat.st_size
+                        type_node["file_count"] += 1
+                        tree["total_size"] += stat.st_size
+                        tree["file_count"] += 1
 
                     except Exception as e:
-                        print(f"[FileLogManager] 获取文件信息失败 {log_file}: {e}",
-                              file=__import__('sys').stderr)
+                        print(
+                            f"[FileLogManager] 获取文件信息失败 {log_file}: {e}",
+                            file=__import__("sys").stderr,
+                        )
                         continue
 
-                tree['children'].append(type_node)
+                tree["children"].append(type_node)
 
         except Exception as e:
-            print(f"[FileLogManager] 获取目录树失败: {e}",
-                  file=__import__('sys').stderr)
+            print(f"[FileLogManager] 获取目录树失败: {e}", file=__import__("sys").stderr)
 
         return tree
 
-    def get_file_info(self, file_path: Path) -> Optional[Dict[str, Any]]:
+    def get_file_info(self, file_path: Path) -> dict[str, Any] | None:
         """
         获取单个文件的详细信息
 
@@ -661,27 +636,29 @@ class FileLogManager:
             # 计算行数（快速估算）
             line_count = None
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with open(file_path, encoding="utf-8") as f:
                     line_count = sum(1 for _ in f)
             except Exception:
                 pass
 
             return {
-                'name': file_path.name,
-                'path': str(file_path),
-                'type': 'file',
-                'size': stat.st_size,
-                'size_formatted': self._format_size(stat.st_size),
-                'modified_time': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                'created_time': datetime.fromtimestamp(stat.st_ctime).isoformat(),
-                'line_count': line_count,
-                'log_type': file_path.parent.name if file_path.parent != self.base_log_dir else None,
-                'date': self._extract_date_from_filename(file_path.name),
+                "name": file_path.name,
+                "path": str(file_path),
+                "type": "file",
+                "size": stat.st_size,
+                "size_formatted": self._format_size(stat.st_size),
+                "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "created_time": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                "line_count": line_count,
+                "log_type": file_path.parent.name if file_path.parent != self.base_log_dir else None,
+                "date": self._extract_date_from_filename(file_path.name),
             }
 
         except Exception as e:
-            print(f"[FileLogManager] 获取文件信息失败 {file_path}: {e}",
-                  file=__import__('sys').stderr)
+            print(
+                f"[FileLogManager] 获取文件信息失败 {file_path}: {e}",
+                file=__import__("sys").stderr,
+            )
             return None
 
     def delete_file(self, file_path: Path) -> bool:
@@ -696,26 +673,31 @@ class FileLogManager:
         """
         try:
             if not file_path.exists():
-                print(f"[FileLogManager] 文件不存在: {file_path}",
-                      file=__import__('sys').stderr)
+                print(
+                    f"[FileLogManager] 文件不存在: {file_path}",
+                    file=__import__("sys").stderr,
+                )
                 return False
 
             # 安全检查：确保在日志目录内
             if not str(file_path.resolve()).startswith(str(self.base_log_dir.resolve())):
-                print(f"[FileLogManager] 不允许删除此路径: {file_path}",
-                      file=__import__('sys').stderr)
+                print(
+                    f"[FileLogManager] 不允许删除此路径: {file_path}",
+                    file=__import__("sys").stderr,
+                )
                 return False
 
             file_path.unlink()
-            print(f"[FileLogManager] 成功删除文件: {file_path}")
             return True
 
         except Exception as e:
-            print(f"[FileLogManager] 删除文件失败 {file_path}: {e}",
-                  file=__import__('sys').stderr)
+            print(
+                f"[FileLogManager] 删除文件失败 {file_path}: {e}",
+                file=__import__("sys").stderr,
+            )
             return False
 
-    def delete_files_batch(self, file_paths: List[Path]) -> Dict[str, Any]:
+    def delete_files_batch(self, file_paths: list[Path]) -> dict[str, Any]:
         """
         批量删除多个日志文件
 
@@ -726,35 +708,39 @@ class FileLogManager:
             Dict: 包含删除结果的字典
         """
         result = {
-            'success': True,
-            'deleted_files': [],
-            'deleted_count': 0,
-            'freed_space': 0,
-            'errors': [],
+            "success": True,
+            "deleted_files": [],
+            "deleted_count": 0,
+            "freed_space": 0,
+            "errors": [],
         }
 
         for file_path in file_paths:
             try:
                 if self.delete_file(file_path):
-                    result['deleted_files'].append(str(file_path))
-                    result['deleted_count'] += 1
-                    result['freed_space'] += file_path.stat().st_size if file_path.exists() else 0
+                    result["deleted_files"].append(str(file_path))
+                    result["deleted_count"] += 1
+                    result["freed_space"] += file_path.stat().st_size if file_path.exists() else 0
                 else:
-                    result['success'] = False
-                    result['errors'].append({
-                        'file': str(file_path),
-                        'error': '删除失败或权限不足',
-                    })
+                    result["success"] = False
+                    result["errors"].append(
+                        {
+                            "file": str(file_path),
+                            "error": "删除失败或权限不足",
+                        }
+                    )
             except Exception as e:
-                result['success'] = False
-                result['errors'].append({
-                    'file': str(file_path),
-                    'error': str(e),
-                })
+                result["success"] = False
+                result["errors"].append(
+                    {
+                        "file": str(file_path),
+                        "error": str(e),
+                    }
+                )
 
         return result
 
-    def get_disk_usage(self) -> Dict[str, Any]:
+    def get_disk_usage(self) -> dict[str, Any]:
         """
         获取磁盘使用统计信息
 
@@ -777,69 +763,71 @@ class FileLogManager:
                     type_size = 0
                     type_count = 0
 
-                    for log_file in type_dir.rglob('*.log'):
+                    for log_file in type_dir.rglob("*.log"):
                         if log_file.is_file():
                             type_size += log_file.stat().st_size
                             type_count += 1
 
                     log_types_stats[type_dir.name] = {
-                        'count': type_count,
-                        'total_size': type_size,
+                        "count": type_count,
+                        "total_size": type_size,
                     }
                     total_size += type_size
 
             usage_percent = (total_size / used * 100) if used > 0 else 0
 
             return {
-                'total_space': total,
-                'used_space': used,
-                'free_space': free,
-                'usage_percent': round(usage_percent, 2),
-                'log_types': log_types_stats,
-                'logs_total_size': total_size,
+                "total_space": total,
+                "used_space": used,
+                "free_space": free,
+                "usage_percent": round(usage_percent, 2),
+                "log_types": log_types_stats,
+                "logs_total_size": total_size,
             }
 
         except Exception as e:
-            print(f"[FileLogManager] 获取磁盘使用情况失败: {e}",
-                  file=__import__('sys').stderr)
+            print(
+                f"[FileLogManager] 获取磁盘使用情况失败: {e}",
+                file=__import__("sys").stderr,
+            )
             return {
-                'total_space': 0,
-                'used_space': 0,
-                'free_space': 0,
-                'usage_percent': 0,
-                'log_types': {},
-                'logs_total_size': 0,
+                "total_space": 0,
+                "used_space": 0,
+                "free_space": 0,
+                "usage_percent": 0,
+                "log_types": {},
+                "logs_total_size": 0,
             }
 
     @staticmethod
     def _format_size(size_bytes: int) -> str:
         """格式化文件大小"""
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        for unit in ["B", "KB", "MB", "GB", "TB"]:
             if abs(size_bytes) < 1024.0:
                 return f"{size_bytes:.2f} {unit}"
             size_bytes /= 1024.0
         return f"{size_bytes:.2f} PB"
 
     @staticmethod
-    def _extract_date_from_filename(filename: str) -> Optional[str]:
+    def _extract_date_from_filename(filename: str) -> str | None:
         """从文件名提取日期（YYYYMMDD格式）"""
         try:
-            parts = filename.replace('.log', '').split('_')
+            parts = filename.replace(".log", "").split("_")
             if len(parts) >= 2:
                 date_str = parts[-1]
                 if len(date_str) == 8 and date_str.isdigit():
                     return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-        except (ValueError, IndexError):
+        except ValueError, IndexError:
             pass
         return None
 
 
 # 全局实例缓存
-_file_log_manager_instance: Optional[FileLogManager] = None
+_file_log_manager_instance: FileLogManager | None = None
 _instance_lock = threading.Lock()
 
 
-def get_file_log_manager(base_log_dir: str = None) -> FileLogManager:
+def get_file_log_manager(base_log_dir: str | None = None) -> FileLogManager:
     """
     获取文件日志管理器的全局单例
 

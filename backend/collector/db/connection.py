@@ -1,11 +1,10 @@
 # 数据库连接管理
 
-import os
 import sqlite3
 import threading
 from pathlib import Path
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -18,87 +17,91 @@ default_db_dir.mkdir(parents=True, exist_ok=True)
 
 class DBConnection:
     """数据库连接管理类
-    
+
     实现单例模式，使用线程本地存储为每个线程创建独立的数据库连接
     支持SQLite和DuckDB数据库
     """
+
     _instance = None
-    
+
     def __new__(cls):
         """创建单例实例
-        
+
         Returns:
             DBConnection: 数据库连接实例
         """
         if cls._instance is None:
-            cls._instance = super(DBConnection, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
             # 使用线程本地存储，为每个线程创建独立的连接
             cls._instance._local = threading.local()
         return cls._instance
-    
+
     def connect(self):
         """建立数据库连接
-        
+
         Returns:
             数据库连接对象
         """
         # 检查当前线程是否已有连接
-        if not hasattr(self._local, '_conn') or self._local._conn is None:
+        if not hasattr(self._local, "_conn") or self._local._conn is None:
             # 从环境变量或配置获取数据库类型和文件路径
             # 避免循环依赖，优先使用环境变量
             import os
 
             # 优先从环境变量读取配置
             db_type = os.environ.get("DB_TYPE", "sqlite")  # 默认使用sqlite
-            
+
             # 根据数据库类型使用不同的默认文件名
             default_db_filename = f"quantcell_{db_type}.db" if db_type in ["sqlite", "duckdb"] else "quantcell.db"
             default_db_file = str(default_db_dir / default_db_filename)
             db_file = os.environ.get("DB_FILE", default_db_file)
-            
+
             # 如果环境变量未设置，尝试从配置读取
             try:
                 from config import get_config
+
                 config_db_type = get_config("database.type")
                 if config_db_type:
                     db_type = config_db_type
                     # 如果从配置读取了数据库类型，重新生成默认文件名
-                    default_db_filename = f"quantcell_{db_type}.db" if db_type in ["sqlite", "duckdb"] else "quantcell.db"
+                    default_db_filename = (
+                        f"quantcell_{db_type}.db" if db_type in ["sqlite", "duckdb"] else "quantcell.db"
+                    )
                     default_db_file = str(default_db_dir / default_db_filename)
                     # 只有当db_file仍为默认值时，才更新它
                     if db_file == os.environ.get("DB_FILE", default_db_file):
                         db_file = default_db_file
-                
+
                 config_db_file = get_config("database.file")
                 if config_db_file:
                     db_file = config_db_file
             except Exception as e:
                 logger.warning(f"从配置读取数据库信息失败，使用默认配置: {e}")
-            
+
             logger.info(f"从配置读取数据库信息: type={db_type}, file={db_file}")
             logger.info(f"默认数据库路径: {default_db_file}")
-            
+
             # 解析数据库文件路径
             db_path = Path(db_file).expanduser()
             if not db_path.is_absolute():
                 # 相对路径相对于backend目录
                 db_path = Path(__file__).parent.parent.parent / db_path
-            
+
             # 确保数据库目录存在
             db_path.parent.mkdir(parents=True, exist_ok=True)
-            
+
             logger.info(f"最终数据库路径: {db_path}")
             logger.info(f"正在连接{db_type}数据库: {db_path}")
-            
+
             if db_type == "sqlite":
                 # SQLite连接
                 # 设置check_same_thread=False允许连接在不同线程中使用
                 # 设置timeout=30，遇到锁定时等待30秒
                 # 设置autocommit=True自动提交事务，减少锁争用
                 conn = sqlite3.connect(
-                    str(db_path), 
+                    str(db_path),
                     check_same_thread=False,
-                    timeout=30  # 遇到锁定时等待30秒
+                    timeout=30,  # 遇到锁定时等待30秒
                 )
                 # 设置返回字典格式
                 conn.row_factory = sqlite3.Row
@@ -118,34 +121,33 @@ class DBConnection:
                         "enable_external_access": "true",
                         "enable_object_cache": "true",
                         # "locking_mode": "optimistic",  # 乐观锁模式
-                    }
+                    },
                 )
             else:
                 # 默认使用SQLite
                 logger.warning(f"未知的数据库类型: {db_type}，使用SQLite")
                 conn = sqlite3.connect(str(db_path))
                 conn.row_factory = sqlite3.Row
-            
+
             # 存储连接到线程本地存储
             self._local._conn = conn
             self._local._db_type = db_type
             self._local._db_path = db_path
-            
+
             logger.info(f"{db_type}数据库连接成功: {db_path}")
-        
+
         return self._local._conn
-    
+
     def close(self):
-        """关闭数据库连接
-        """
+        """关闭数据库连接"""
         # 关闭当前线程的连接
-        if hasattr(self._local, '_conn') and self._local._conn is not None:
+        if hasattr(self._local, "_conn") and self._local._conn is not None:
             logger.info(f"正在关闭{self._local._db_type}数据库连接: {self._local._db_path}")
             self._local._conn.close()
             self._local._conn = None
             self._local._db_type = None
             self._local._db_path = None
-            logger.info(f"数据库连接已关闭")
+            logger.info("数据库连接已关闭")
 
 
 # 创建全局数据库连接实例
@@ -154,7 +156,7 @@ db_instance = DBConnection()
 
 def get_db_connection():
     """获取数据库连接
-    
+
     Returns:
         数据库连接对象
     """
@@ -163,55 +165,45 @@ def get_db_connection():
 
 def init_db():
     """初始化数据库，创建所需的表
-    
+
     使用SQLAlchemy创建系统配置表和任务表，并插入默认配置
-    
+
     Raises:
         Exception: 初始化失败时抛出异常
     """
     try:
         logger.info("开始初始化数据库...")
-        
+
         # 首先导入策略模型和回测模型以确保正确的表结构
         # 这必须在导入 collector.db.models 之前完成
-        import strategy.models  # noqa: F401
-        import backtest.models  # noqa: F401
+        import backtest.models
+        import strategy.models
 
         # 先初始化数据库配置和引擎
         from .database import init_database_config
+
         init_database_config()
 
         # 然后再导入engine变量，确保它已经被初始化
         from .database import Base, engine
+
         # 显式导入所有模型，确保它们被注册到Base.metadata中
-        from .models import (
-            User,
-            SystemConfig,
-            Task,
-            Feature,
-            DataPool,
-            DataPoolAsset,
-            CryptoSymbol,
-            CryptoSpotKline,
-            CryptoFutureKline,
-            StockKline,
-            ScheduledTask
-        )
-        
+
         logger.info("使用SQLAlchemy创建数据库表...")
         # 创建所有表
         Base.metadata.create_all(bind=engine)
         logger.info("数据库表创建成功")
-        
+
         # 运行数据库迁移脚本，更新表结构
         logger.info("运行数据库迁移脚本...")
         from .migrations import run_migrations
+
         run_migrations()
         logger.info("数据库迁移脚本执行成功")
-        
+
         # 验证表是否存在
         logger.info("验证表是否存在...")
-        
+
         # 直接使用SQLAlchemy引擎进行表验证，避免创建新连接导致的配置冲突
         from sqlalchemy import text
         from sqlalchemy.orm import Session
@@ -222,20 +214,29 @@ def init_db():
         with Session(engine) as session:
             if db_type == "sqlite":
                 # SQLite使用sqlite_master表
-                system_config_exists = session.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='system_config'")).fetchone()
-                tasks_exists = session.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")).fetchone()
+                system_config_exists = session.execute(
+                    text("SELECT name FROM sqlite_master WHERE type='table' AND name='system_config'")
+                ).fetchone()
+                tasks_exists = session.execute(
+                    text("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
+                ).fetchone()
             else:
                 # DuckDB使用information_schema.tables视图
-                system_config_exists = session.execute(text("SELECT table_name FROM information_schema.tables WHERE table_name='system_config'")).fetchone()
-                tasks_exists = session.execute(text("SELECT table_name FROM information_schema.tables WHERE table_name='tasks'")).fetchone()
-        
+                system_config_exists = session.execute(
+                    text("SELECT table_name FROM information_schema.tables WHERE table_name='system_config'")
+                ).fetchone()
+                tasks_exists = session.execute(
+                    text("SELECT table_name FROM information_schema.tables WHERE table_name='tasks'")
+                ).fetchone()
+
         logger.info(f"system_config表存在: {system_config_exists is not None}")
         logger.info(f"tasks表存在: {tasks_exists is not None}")
-        
+
         if not system_config_exists or not tasks_exists:
             logger.error("表创建失败，数据库初始化失败")
-            raise Exception("表创建失败，数据库初始化失败")
-        
+            msg = "表创建失败，数据库初始化失败"
+            raise Exception(msg)
+
         logger.info("数据库初始化完成")
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")

@@ -3,6 +3,7 @@
 所有 Exchange/LLM 调用统一从 `credentials` 单例读取,避免散落 os.environ 读取。
 P3 接入 axon-harness 后改为从 Vault 拉取。
 """
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

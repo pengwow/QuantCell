@@ -3,6 +3,7 @@
 目录结构: data/source/{kind}/{market}/{symbol}/
 与 archive 的 market/kind/symbol 相反；其余 parquet 读写、元数据逻辑相近。
 """
+
 from __future__ import annotations
 
 import shutil
@@ -10,7 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -22,9 +23,11 @@ VALID_MARKETS = {"spot", "um", "cm"}
 
 def _validate(kind: str, market: str) -> None:
     if kind not in VALID_DERIV_KINDS:
-        raise ValueError(f"非法 deriv kind: {kind!r} (must be one of {sorted(VALID_DERIV_KINDS)})")
+        msg = f"非法 deriv kind: {kind!r} (must be one of {sorted(VALID_DERIV_KINDS)})"
+        raise ValueError(msg)
     if market not in VALID_MARKETS:
-        raise ValueError(f"非法 market: {market!r} (must be one of {sorted(VALID_MARKETS)})")
+        msg = f"非法 market: {market!r} (must be one of {sorted(VALID_MARKETS)})"
+        raise ValueError(msg)
 
 
 def _symbol_dir(base_dir: Path, kind: str, market: str, symbol: str) -> Path:
@@ -44,10 +47,7 @@ class DerivService:
         market_dir = self.base_dir / kind / market
         if not market_dir.exists():
             return []
-        return sorted(
-            p.name for p in market_dir.iterdir()
-            if p.is_dir() and any(p.glob("*.parquet"))
-        )
+        return sorted(p.name for p in market_dir.iterdir() if p.is_dir() and any(p.glob("*.parquet")))
 
     # —— 元数据（从 parquet 文件推断，不强制要求 _meta.json）——
     def get_meta(self, kind: str, market: str, symbol: str) -> dict | None:
@@ -84,6 +84,7 @@ class DerivService:
 
         # 日期范围从文件名推断（更稳定）
         import re
+
         dates = []
         for pf in parquet_files:
             m = re.search(r"(\d{4}-\d{2}-\d{2})", pf.name) or re.search(r"(\d{8})", pf.name)
@@ -113,7 +114,7 @@ class DerivService:
         market: str,
         symbol: str,
         start_time: int,  # 毫秒
-        end_time: int,    # 毫秒
+        end_time: int,  # 毫秒
         limit: int = 1000,
         offset: int = 0,
     ) -> dict:
@@ -159,7 +160,7 @@ class DerivService:
         if total > limit + offset:
             truncated = True
 
-        df_page = df.iloc[offset:offset + limit]
+        df_page = df.iloc[offset : offset + limit]
         rows: list[dict] = df_page.where(pd.notnull(df_page), None).to_dict(orient="records")
 
         return {"total": total, "rows": rows, "truncated": truncated}

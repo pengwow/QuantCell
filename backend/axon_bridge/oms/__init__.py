@@ -8,7 +8,8 @@ axon_quant 0.4.0 暴露:
 - 枚举: OrderType.{Limit,Market,StopLimit,StopLoss}
         Side.{Buy,Sell}
 """
-from axon_quant.oms import (  # noqa: F401
+
+from axon_quant.oms import (
     # 核心类
     OmsError,
     Order,

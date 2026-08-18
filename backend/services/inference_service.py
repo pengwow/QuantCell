@@ -1,26 +1,39 @@
-# -*- coding: utf-8 -*-
 """Inference Service — axon_quant.inference 推理服务
 
 包装 axon_quant.inference.InferenceEngine，提供模型加载、推理等功能。
 当 axon_quant 不可用时提供清晰的错误信息。
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 # axon_quant 导入(走适配层,业务代码不直接 import 第三方包)
 try:
     from axon_bridge.inference import (
-        InferenceEngine as _InferenceEngine,
-        BatchInferencePipeline as _BatchInferencePipeline,
-        ModelConfig as _ModelConfig,
         BatchConfig as _BatchConfig,
-        create_inference_engine as _create_inference_engine,
-        create_onnx_engine as _create_onnx_engine,
+    )
+    from axon_bridge.inference import (
+        BatchInferencePipeline as _BatchInferencePipeline,
+    )
+    from axon_bridge.inference import (
+        InferenceEngine as _InferenceEngine,
+    )
+    from axon_bridge.inference import (
+        ModelConfig as _ModelConfig,
+    )
+    from axon_bridge.inference import (
         create_candle_engine as _create_candle_engine,
     )
+    from axon_bridge.inference import (
+        create_inference_engine as _create_inference_engine,
+    )
+    from axon_bridge.inference import (
+        create_onnx_engine as _create_onnx_engine,
+    )
+
     AXON_AVAILABLE = True
 except ImportError:
     AXON_AVAILABLE = False
@@ -48,15 +61,14 @@ class InferenceServiceWrapper:
     def __init__(self):
         """初始化推理服务"""
         if not AXON_AVAILABLE:
-            raise RuntimeError(
-                "axon_quant.inference 不可用，请安装 axon_quant: pip install axon_quant"
-            )
+            msg = "axon_quant.inference 不可用，请安装 axon_quant: pip install axon_quant"
+            raise RuntimeError(msg)
         logger.info("InferenceService 已初始化")
 
     def create_engine(
         self,
         config: dict[str, Any],
-        path: Optional[str] = None,
+        path: str | None = None,
     ) -> Any:
         """创建推理引擎
 
@@ -79,7 +91,7 @@ class InferenceServiceWrapper:
     def create_onnx_engine(
         self,
         config: dict[str, Any],
-        path: Optional[str] = None,
+        path: str | None = None,
     ) -> Any:
         """创建 ONNX 推理引擎
 
@@ -96,7 +108,7 @@ class InferenceServiceWrapper:
     def create_candle_engine(
         self,
         config: dict[str, Any],
-        path: Optional[str] = None,
+        path: str | None = None,
     ) -> Any:
         """创建 Candle 推理引擎
 
@@ -153,8 +165,8 @@ class InferenceServiceProxy:
     def create_engine(
         self,
         config: dict[str, Any],
-        path: Optional[str] = None,
-    ) -> Optional[Any]:
+        path: str | None = None,
+    ) -> Any | None:
         """创建推理引擎"""
         if not self._available or not self._service:
             return None
@@ -163,8 +175,8 @@ class InferenceServiceProxy:
     def create_onnx_engine(
         self,
         config: dict[str, Any],
-        path: Optional[str] = None,
-    ) -> Optional[Any]:
+        path: str | None = None,
+    ) -> Any | None:
         """创建 ONNX 推理引擎"""
         if not self._available or not self._service:
             return None
@@ -173,8 +185,8 @@ class InferenceServiceProxy:
     def create_candle_engine(
         self,
         config: dict[str, Any],
-        path: Optional[str] = None,
-    ) -> Optional[Any]:
+        path: str | None = None,
+    ) -> Any | None:
         """创建 Candle 推理引擎"""
         if not self._available or not self._service:
             return None
@@ -183,7 +195,7 @@ class InferenceServiceProxy:
     def create_batch_pipeline(
         self,
         config: dict[str, Any],
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """创建批量推理管道"""
         if not self._available or not self._service:
             return None

@@ -4,7 +4,4 @@
 from .routes import router as model_router
 from .service import ModelService
 
-__all__ = [
-    "model_router",
-    "ModelService"
-]
+__all__ = ["ModelService", "model_router"]

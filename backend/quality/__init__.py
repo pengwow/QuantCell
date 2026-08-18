@@ -19,7 +19,7 @@
 """
 
 from .data_provider import DataProvider
-from .parquet_provider import ParquetDataProvider
 from .kline_quality_service import KlineQualityService
+from .parquet_provider import ParquetDataProvider
 
-__all__ = ['DataProvider', 'ParquetDataProvider', 'KlineQualityService']
+__all__ = ["DataProvider", "KlineQualityService", "ParquetDataProvider"]

@@ -4,23 +4,31 @@ Worker API数据模型定义
 定义Pydantic请求和响应模型
 """
 
-from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import TYPE_CHECKING, Any
+
 from pydantic import BaseModel, Field, model_validator
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 class SymbolsConfig(BaseModel):
     """交易标的配置"""
+
     type: str = Field(default="symbols", description="配置类型: symbols-直接货币对, pool-自选组")
-    symbols: List[str] = Field(default_factory=list, description="货币对列表")
-    pool_id: Optional[int] = Field(None, description="自选组ID")
-    pool_name: Optional[str] = Field(None, description="自选组名称")
+    symbols: list[str] = Field(default_factory=list, description="货币对列表")
+    pool_id: int | None = Field(None, description="自选组ID")
+    pool_name: str | None = Field(None, description="自选组名称")
 
 
 class TradingConfig(BaseModel):
     """交易配置"""
+
     exchange: str = Field(default="binance", description="交易所")
-    symbols_config: SymbolsConfig = Field(default_factory=lambda: SymbolsConfig(type="symbols", symbols=[], pool_id=None, pool_name=None), description="交易标的配置")
+    symbols_config: SymbolsConfig = Field(
+        default_factory=lambda: SymbolsConfig(type="symbols", symbols=[], pool_id=None, pool_name=None),
+        description="交易标的配置",
+    )
     timeframe: str = Field(default="1h", description="时间周期")
     market_type: str = Field(default="spot", description="市场类型: spot/future")
     trading_mode: str = Field(default="paper", description="交易模式: paper/live")
@@ -28,37 +36,39 @@ class TradingConfig(BaseModel):
 
 class WorkerBase(BaseModel):
     """Worker基础模型"""
+
     name: str = Field(..., description="Worker名称", min_length=1, max_length=100)
-    description: Optional[str] = Field(None, description="Worker描述")
-    strategy_id: Optional[int] = Field(default=None, description="关联策略ID")
+    description: str | None = Field(None, description="Worker描述")
+    strategy_id: int | None = Field(default=None, description="关联策略ID")
 
 
 class WorkerCreate(WorkerBase):
     """创建Worker请求模型"""
+
     # 策略相关字段
-    strategy_file_name: Optional[str] = Field(
+    strategy_file_name: str | None = Field(
         default=None,
-        description="策略文件名称（如 grid_order_validation.py），当 strategy_id 在数据库中找不到时使用"
+        description="策略文件名称（如 grid_order_validation.py），当 strategy_id 在数据库中找不到时使用",
     )
-    strategy_name: Optional[str] = Field(
+    strategy_name: str | None = Field(
         default=None,
-        description="策略名称（冗余存储，用于在 strategy_id 失效时通过名称查找策略）"
+        description="策略名称（冗余存储，用于在 strategy_id 失效时通过名称查找策略）",
     )
 
     # 交易配置（新格式）
-    trading_config: Optional[TradingConfig] = Field(None, description="交易配置")
+    trading_config: TradingConfig | None = Field(None, description="交易配置")
     # 兼容旧版本的字段
-    exchange: Optional[str] = Field(default="binance", description="交易所")
-    symbols: Optional[List[str]] = Field(default=None, description="交易对列表")
-    symbol: Optional[str] = Field(default=None, description="交易对（单数形式，兼容前端）")  # 前端发送的是单数形式
-    timeframe: Optional[str] = Field(default="1h", description="时间周期")
-    market_type: Optional[str] = Field(default="spot", description="市场类型: spot/future")
-    trading_mode: Optional[str] = Field(default="paper", description="交易模式: paper/live")
+    exchange: str | None = Field(default="binance", description="交易所")
+    symbols: list[str] | None = Field(default=None, description="交易对列表")
+    symbol: str | None = Field(default=None, description="交易对（单数形式，兼容前端）")  # 前端发送的是单数形式
+    timeframe: str | None = Field(default="1h", description="时间周期")
+    market_type: str | None = Field(default="spot", description="市场类型: spot/future")
+    trading_mode: str | None = Field(default="paper", description="交易模式: paper/live")
     # 其他配置
-    env_vars: Optional[Dict[str, str]] = Field(default=None, description="环境变量")
-    config: Optional[Dict[str, Any]] = Field(default=None, description="Worker配置")
+    env_vars: dict[str, str] | None = Field(default=None, description="环境变量")
+    config: dict[str, Any] | None = Field(default=None, description="Worker配置")
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_symbols(self):
         """验证交易对配置 - 兼容旧版扁平字段与新版 trading_config"""
         return self
@@ -66,61 +76,62 @@ class WorkerCreate(WorkerBase):
 
 class WorkerUpdate(BaseModel):
     """更新Worker请求模型"""
-    name: Optional[str] = Field(None, description="Worker名称")
-    description: Optional[str] = Field(None, description="Worker描述")
-    strategy_id: Optional[int] = Field(None, description="关联策略ID")
-    strategy_file_name: Optional[str] = Field(
+
+    name: str | None = Field(None, description="Worker名称")
+    description: str | None = Field(None, description="Worker描述")
+    strategy_id: int | None = Field(None, description="关联策略ID")
+    strategy_file_name: str | None = Field(None, description="策略文件名称")
+    strategy_name: str | None = Field(
         None,
-        description="策略文件名称"
-    )
-    strategy_name: Optional[str] = Field(
-        None,
-        description="策略名称（冗余存储，用于在 strategy_id 失效时通过名称查找策略）"
+        description="策略名称（冗余存储，用于在 strategy_id 失效时通过名称查找策略）",
     )
     # 交易配置（新格式）
-    trading_config: Optional[TradingConfig] = Field(None, description="交易配置")
+    trading_config: TradingConfig | None = Field(None, description="交易配置")
     # 兼容旧版本的字段
-    exchange: Optional[str] = Field(None, description="交易所")
-    symbols: Optional[List[str]] = Field(None, description="交易对列表")
-    timeframe: Optional[str] = Field(None, description="时间周期")
-    trading_mode: Optional[str] = Field(None, description="交易模式")
-    config: Optional[Dict[str, Any]] = Field(None, description="Worker配置")
+    exchange: str | None = Field(None, description="交易所")
+    symbols: list[str] | None = Field(None, description="交易对列表")
+    timeframe: str | None = Field(None, description="时间周期")
+    trading_mode: str | None = Field(None, description="交易模式")
+    config: dict[str, Any] | None = Field(None, description="Worker配置")
 
 
 class WorkerConfigUpdate(BaseModel):
     """部分更新Worker配置"""
-    config: Dict[str, Any] = Field(..., description="更新的配置项")
+
+    config: dict[str, Any] = Field(..., description="更新的配置项")
 
 
 class StrategyInfo(BaseModel):
     """策略信息"""
+
     id: int = Field(..., description="策略ID")
     name: str = Field(..., description="策略名称")
-    description: Optional[str] = Field(None, description="策略描述")
+    description: str | None = Field(None, description="策略描述")
     strategy_type: str = Field(default="default", description="策略类型: default")
     version: str = Field(default="1.0.0", description="策略版本")
 
 
 class WorkerResponse(WorkerBase):
     """Worker响应模型"""
+
     id: int = Field(..., description="Worker ID")
     status: str = Field(..., description="Worker状态")
-    pid: Optional[int] = Field(None, description="进程ID")
+    pid: int | None = Field(None, description="进程ID")
     # 交易配置（新格式）
-    trading_config: Optional[TradingConfig] = Field(None, description="交易配置")
+    trading_config: TradingConfig | None = Field(None, description="交易配置")
     # 兼容旧版本字段
-    exchange: Optional[str] = Field(None, description="交易所")
-    symbols: Optional[List[str]] = Field(None, description="交易对列表")
-    timeframe: Optional[str] = Field(None, description="时间周期")
-    market_type: Optional[str] = Field(None, description="市场类型")
-    trading_mode: Optional[str] = Field(None, description="交易模式")
-    config: Optional[Dict[str, Any]] = Field(None, description="Worker配置")
+    exchange: str | None = Field(None, description="交易所")
+    symbols: list[str] | None = Field(None, description="交易对列表")
+    timeframe: str | None = Field(None, description="时间周期")
+    market_type: str | None = Field(None, description="市场类型")
+    trading_mode: str | None = Field(None, description="交易模式")
+    config: dict[str, Any] | None = Field(None, description="Worker配置")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
-    started_at: Optional[datetime] = Field(None, description="启动时间")
-    stopped_at: Optional[datetime] = Field(None, description="停止时间")
-    total_profit: Optional[float] = Field(None, description="总收益")
-    strategy_info: Optional[StrategyInfo] = Field(None, description="关联策略信息")
+    started_at: datetime | None = Field(None, description="启动时间")
+    stopped_at: datetime | None = Field(None, description="停止时间")
+    total_profit: float | None = Field(None, description="总收益")
+    strategy_info: StrategyInfo | None = Field(None, description="关联策略信息")
 
     class Config:
         from_attributes = True
@@ -128,7 +139,8 @@ class WorkerResponse(WorkerBase):
 
 class WorkerListResponse(BaseModel):
     """Worker列表响应"""
-    items: List[WorkerResponse] = Field(..., description="Worker列表")
+
+    items: list[WorkerResponse] = Field(..., description="Worker列表")
     total: int = Field(..., description="总数")
     page: int = Field(..., description="当前页")
     page_size: int = Field(..., description="每页大小")
@@ -136,22 +148,25 @@ class WorkerListResponse(BaseModel):
 
 class WorkerCommand(BaseModel):
     """Worker控制命令"""
+
     command: str = Field(..., description="命令: start/stop/pause/resume/restart")
-    params: Optional[Dict[str, Any]] = Field(None, description="命令参数")
+    params: dict[str, Any] | None = Field(None, description="命令参数")
 
 
 class WorkerStatusResponse(BaseModel):
     """Worker状态响应"""
+
     worker_id: int = Field(..., description="Worker ID")
     status: str = Field(..., description="当前状态")
-    pid: Optional[int] = Field(None, description="进程ID")
-    uptime: Optional[float] = Field(None, description="运行时间(秒)")
-    last_heartbeat: Optional[datetime] = Field(None, description="最后心跳时间")
+    pid: int | None = Field(None, description="进程ID")
+    uptime: float | None = Field(None, description="运行时间(秒)")
+    last_heartbeat: datetime | None = Field(None, description="最后心跳时间")
     is_healthy: bool = Field(..., description="是否健康")
 
 
 class WorkerMetrics(BaseModel):
     """Worker性能指标"""
+
     worker_id: int = Field(..., description="Worker ID")
     network_in: int = Field(..., description="网络流入字节数")
     network_out: int = Field(..., description="网络流出字节数")
@@ -161,11 +176,12 @@ class WorkerMetrics(BaseModel):
 
 class WorkerLogEntry(BaseModel):
     """Worker日志条目"""
+
     id: int = Field(..., description="日志ID")
     worker_id: int = Field(..., description="Worker ID")
     level: str = Field(..., description="日志级别")
     message: str = Field(..., description="日志内容")
-    source: Optional[str] = Field(None, description="日志来源")
+    source: str | None = Field(None, description="日志来源")
     timestamp: datetime = Field(..., description="日志时间")
 
     class Config:
@@ -174,6 +190,7 @@ class WorkerLogEntry(BaseModel):
 
 class WorkerPerformance(BaseModel):
     """Worker绩效数据"""
+
     worker_id: int = Field(..., description="Worker ID")
     total_trades: int = Field(..., description="总交易次数")
     winning_trades: int = Field(..., description="盈利交易次数")
@@ -192,29 +209,33 @@ class WorkerPerformance(BaseModel):
 
 class StrategyDeployRequest(BaseModel):
     """策略部署请求"""
+
     strategy_id: int = Field(..., description="策略ID")
-    parameters: Optional[Dict[str, Any]] = Field(None, description="策略参数")
+    parameters: dict[str, Any] | None = Field(None, description="策略参数")
     auto_start: bool = Field(default=False, description="是否自动启动")
 
 
 class StrategyParameter(BaseModel):
     """策略参数"""
+
     param_name: str = Field(..., description="参数名")
     param_value: Any = Field(..., description="参数值")
     param_type: str = Field(..., description="参数类型")
-    description: Optional[str] = Field(None, description="参数描述")
-    min_value: Optional[float] = Field(None, description="最小值")
-    max_value: Optional[float] = Field(None, description="最大值")
+    description: str | None = Field(None, description="参数描述")
+    min_value: float | None = Field(None, description="最小值")
+    max_value: float | None = Field(None, description="最大值")
     editable: bool = Field(default=True, description="是否可编辑")
 
 
 class StrategyParameterUpdate(BaseModel):
     """策略参数更新"""
-    parameters: Dict[str, Any] = Field(..., description="参数键值对")
+
+    parameters: dict[str, Any] = Field(..., description="参数键值对")
 
 
 class PositionInfo(BaseModel):
     """持仓信息"""
+
     symbol: str = Field(..., description="交易对")
     side: str = Field(..., description="方向: long/short")
     quantity: float = Field(..., description="持仓数量")
@@ -227,12 +248,13 @@ class PositionInfo(BaseModel):
 
 class OrderInfo(BaseModel):
     """订单信息"""
+
     order_id: str = Field(..., description="订单ID")
     symbol: str = Field(..., description="交易对")
     side: str = Field(..., description="方向: buy/sell")
     order_type: str = Field(..., description="订单类型")
     quantity: float = Field(..., description="数量")
-    price: Optional[float] = Field(None, description="价格")
+    price: float | None = Field(None, description="价格")
     status: str = Field(..., description="订单状态")
     filled_quantity: float = Field(..., description="已成交数量")
     created_at: datetime = Field(..., description="创建时间")
@@ -240,26 +262,30 @@ class OrderInfo(BaseModel):
 
 class BatchOperationRequest(BaseModel):
     """批量操作请求"""
-    worker_ids: List[int] = Field(..., description="Worker ID列表")
+
+    worker_ids: list[int] = Field(..., description="Worker ID列表")
     operation: str = Field(..., description="操作: start/stop/restart")
 
 
 class BatchOperationResponse(BaseModel):
     """批量操作响应"""
-    success: List[int] = Field(..., description="成功的Worker ID")
-    failed: Dict[int, str] = Field(..., description="失败的Worker ID及原因")
+
+    success: list[int] = Field(..., description="成功的Worker ID")
+    failed: dict[int, str] = Field(..., description="失败的Worker ID及原因")
     total: int = Field(..., description="总数")
 
 
 class ApiResponse(BaseModel):
     """通用API响应"""
+
     code: int = Field(default=0, description="状态码: 0成功, 非0失败")
     message: str = Field(default="success", description="响应消息")
-    data: Optional[Any] = Field(None, description="响应数据")
+    data: Any | None = Field(None, description="响应数据")
 
 
 class WorkerCloneRequest(BaseModel):
     """克隆Worker请求"""
+
     new_name: str = Field(..., description="新Worker名称")
     copy_config: bool = Field(default=True, description="是否复制配置")
     copy_parameters: bool = Field(default=True, description="是否复制参数")
@@ -267,12 +293,13 @@ class WorkerCloneRequest(BaseModel):
 
 class HealthCheckResponse(BaseModel):
     """健康检查响应"""
+
     worker_id: int = Field(..., description="Worker ID")
     status: str = Field(..., description="状态")
     is_healthy: bool = Field(..., description="是否健康")
-    last_heartbeat: Optional[datetime] = Field(None, description="最后心跳")
-    uptime: Optional[float] = Field(None, description="运行时间")
-    checks: Dict[str, bool] = Field(..., description="各项检查状态")
+    last_heartbeat: datetime | None = Field(None, description="最后心跳")
+    uptime: float | None = Field(None, description="运行时间")
+    checks: dict[str, bool] = Field(..., description="各项检查状态")
 
 
 class TradingSummary(BaseModel):
@@ -301,28 +328,29 @@ class PositionSummary(BaseModel):
     total_value: float = 0.0
     total_unrealized_pnl: float = 0.0
     total_margin_used: float = 0.0
-    positions: List[Dict[str, Any]] = []
+    positions: list[dict[str, Any]] = []
 
 
 class PnLDistribution(BaseModel):
-    bins: List[float] = []
-    counts: List[int] = []
+    bins: list[float] = []
+    counts: list[int] = []
     mean: float = 0.0
     median: float = 0.0
     std: float = 0.0
 
 
 class TradeHistoryChart(BaseModel):
-    dates: List[str] = []
-    cumulative_pnl: List[float] = []
-    daily_pnl: List[float] = []
-    trade_count: List[int] = []
+    dates: list[str] = []
+    cumulative_pnl: list[float] = []
+    daily_pnl: list[float] = []
+    trade_count: list[int] = []
 
 
 class OverviewMetrics(BaseModel):
     """Worker 总览（Overview）聚合指标
     合并自原 performance + trading_summary 字段。
     """
+
     # 基础收益
     total_pnl: float = 0.0
     total_profit: float = 0.0
@@ -354,6 +382,7 @@ class OverviewMetrics(BaseModel):
 
 class OverviewResponse(BaseModel):
     """Worker 总览响应：聚合指标 + 时间序列 + 分布"""
+
     metrics: OverviewMetrics
     cumulative_pnl_series: TradeHistoryChart
     pnl_distribution: PnLDistribution

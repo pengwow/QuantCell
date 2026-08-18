@@ -2,25 +2,25 @@
 
 提供思维链配置的 CRUD 操作和 TOML 配置文件导入功能
 """
+
 import json
 import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import toml
-from sqlalchemy import and_, desc, func, create_engine
+from sqlalchemy import and_, create_engine, desc
 from sqlalchemy.orm import Session, sessionmaker
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
 
 try:
-    from ai_model.thinking_chain_models import ThinkingChain, Base
+    from ai_model.thinking_chain_models import Base, ThinkingChain
 except ImportError:
     # 用于直接运行测试时
-    from thinking_chain_models import ThinkingChain, Base
+    from thinking_chain_models import Base, ThinkingChain
 
 
 # 数据库配置
@@ -33,6 +33,7 @@ def _get_engine():
     global _engine
     if _engine is None:
         import os
+
         db_type = os.environ.get("DB_TYPE", "sqlite")
         default_db_path = os.path.join(os.path.dirname(__file__), "..", "data")
         os.makedirs(default_db_path, exist_ok=True)
@@ -74,7 +75,7 @@ class ThinkingChainManager:
         return SessionLocal()
 
     @staticmethod
-    def create_thinking_chain(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def create_thinking_chain(data: dict[str, Any]) -> dict[str, Any] | None:
         """创建思维链配置
 
         Args:
@@ -123,7 +124,7 @@ class ThinkingChainManager:
             db.close()
 
     @staticmethod
-    def get_thinking_chain(chain_id: str) -> Optional[Dict[str, Any]]:
+    def get_thinking_chain(chain_id: str) -> dict[str, Any] | None:
         """根据 ID 获取单个思维链配置
 
         Args:
@@ -146,13 +147,13 @@ class ThinkingChainManager:
 
     @staticmethod
     def get_thinking_chains(
-        chain_type: Optional[str] = None,
-        is_active: Optional[bool] = None,
+        chain_type: str | None = None,
+        is_active: bool | None = None,
         page: int = 1,
         page_size: int = 10,
         sort_by: str = "created_at",
         sort_order: str = "desc",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """获取思维链配置列表，支持筛选
 
         Args:
@@ -186,10 +187,7 @@ class ThinkingChainManager:
 
             # 应用排序
             sort_column = getattr(ThinkingChain, sort_by)
-            if sort_order == "desc":
-                query = query.order_by(desc(sort_column))
-            else:
-                query = query.order_by(sort_column)
+            query = query.order_by(desc(sort_column)) if sort_order == "desc" else query.order_by(sort_column)
 
             # 应用分页
             offset = (page - 1) * page_size
@@ -218,7 +216,7 @@ class ThinkingChainManager:
             db.close()
 
     @staticmethod
-    def update_thinking_chain(chain_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def update_thinking_chain(chain_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
         """更新思维链配置
 
         Args:
@@ -292,7 +290,7 @@ class ThinkingChainManager:
             db.close()
 
     @staticmethod
-    def import_from_toml(file_content: str, update_existing: bool = True) -> Dict[str, Any]:
+    def import_from_toml(file_content: str, update_existing: bool = True) -> dict[str, Any]:
         """从 TOML 文件内容导入思维链配置
 
         Args:
@@ -336,11 +334,14 @@ class ThinkingChainManager:
                 try:
                     # 验证必需字段
                     if "chain_type" not in chain_data:
-                        raise ValueError("缺少必需字段: chain_type")
+                        msg = "缺少必需字段: chain_type"
+                        raise ValueError(msg)
                     if "name" not in chain_data:
-                        raise ValueError("缺少必需字段: name")
+                        msg = "缺少必需字段: name"
+                        raise ValueError(msg)
                     if "steps" not in chain_data:
-                        raise ValueError("缺少必需字段: steps")
+                        msg = "缺少必需字段: steps"
+                        raise ValueError(msg)
 
                     chain_type = chain_data["chain_type"]
                     name = chain_data["name"]
@@ -370,12 +371,14 @@ class ThinkingChainManager:
                         db.commit()
                         db.refresh(existing)
                         result["updated"] += 1
-                        result["items"].append({
-                            "id": existing.id,
-                            "name": existing.name,
-                            "chain_type": existing.chain_type,
-                            "action": "updated",
-                        })
+                        result["items"].append(
+                            {
+                                "id": existing.id,
+                                "name": existing.name,
+                                "chain_type": existing.chain_type,
+                                "action": "updated",
+                            }
+                        )
                         logger.info(f"思维链配置更新: id={existing.id}, name={name}")
                     else:
                         # 创建新配置
@@ -391,12 +394,14 @@ class ThinkingChainManager:
                         db.commit()
                         db.refresh(new_chain)
                         result["created"] += 1
-                        result["items"].append({
-                            "id": new_chain.id,
-                            "name": new_chain.name,
-                            "chain_type": new_chain.chain_type,
-                            "action": "created",
-                        })
+                        result["items"].append(
+                            {
+                                "id": new_chain.id,
+                                "name": new_chain.name,
+                                "chain_type": new_chain.chain_type,
+                                "action": "created",
+                            }
+                        )
                         logger.info(f"思维链配置创建: id={new_chain.id}, name={name}")
 
                 except Exception as e:
@@ -418,7 +423,7 @@ class ThinkingChainManager:
         return result
 
     @staticmethod
-    def export_to_toml(chain_id: Optional[str] = None) -> str:
+    def export_to_toml(chain_id: str | None = None) -> str:
         """导出思维链配置为 TOML 格式
 
         Args:
@@ -454,7 +459,7 @@ class ThinkingChainManager:
             db.close()
 
     @staticmethod
-    def get_active_chain_by_type(chain_type: str) -> Optional[Dict[str, Any]]:
+    def get_active_chain_by_type(chain_type: str) -> dict[str, Any] | None:
         """获取指定类型的激活思维链
 
         Args:
@@ -472,7 +477,7 @@ class ThinkingChainManager:
                 .filter(
                     and_(
                         ThinkingChain.chain_type == chain_type,
-                        ThinkingChain.is_active == True,
+                        ThinkingChain.is_active,
                         ThinkingChain.name.like("默认%"),
                     )
                 )
@@ -487,7 +492,7 @@ class ThinkingChainManager:
                 .filter(
                     and_(
                         ThinkingChain.chain_type == chain_type,
-                        ThinkingChain.is_active == True,
+                        ThinkingChain.is_active,
                     )
                 )
                 .order_by(desc(ThinkingChain.created_at))

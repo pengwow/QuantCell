@@ -1,13 +1,17 @@
 """BaselineBacktestService 走 axon_quant 0.7.0 多 leg API 测试。"""
+
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from backtest.baseline import BaselineBacktestService
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture
@@ -86,9 +90,6 @@ def test_baseline_total_pnl_uses_final_nav_minus_initial(tmp_path: Path) -> None
     而应该来自 account view 视角(final_nav - initial_cash)。
     """
     from backtest.baseline import BaselineBacktestService
-    from strategy.base import StrategyConfig
-    from strategy.templates.dual_ma import DualMA
-    from axon_bridge import BacktestEngine, spot_instrument
 
     # 空 data + 简单验证
     dates = pd.date_range("2024-07-01", periods=10, freq="1h")
@@ -163,9 +164,7 @@ def test_baseline_funding_arbitrage_multi_leg(tmp_path: Path) -> None:
         f"(pnl={report.total_pnl}, funding_pnl={report.total_funding_pnl})"
     )
     # funding_pnl 应被记录
-    assert report.total_funding_pnl > 0.0, (
-        f"funding_pnl 应 > 0 (perp short 收 funding),got {report.total_funding_pnl}"
-    )
+    assert report.total_funding_pnl > 0.0, f"funding_pnl 应 > 0 (perp short 收 funding),got {report.total_funding_pnl}"
 
 
 def test_baseline_sharpe_uses_bar_nav_curve(tmp_path: Path, trending_kline: pd.DataFrame) -> None:
@@ -211,14 +210,10 @@ def test_baseline_axon_0_10_0_new_fields(tmp_path: Path) -> None:
     assert isinstance(report.total_fees, float)
     assert report.total_fees >= 0.0, f"total_fees 应 >= 0, got {report.total_fees}"
     assert isinstance(report.max_drawdown_pct, float)
-    assert 0.0 <= report.max_drawdown_pct <= 1.0, (
-        f"max_drawdown_pct 应在 [0,1], got {report.max_drawdown_pct}"
-    )
+    assert 0.0 <= report.max_drawdown_pct <= 1.0, f"max_drawdown_pct 应在 [0,1], got {report.max_drawdown_pct}"
     # win_rate 由引擎直接计算,应在 [0,1]
     assert 0.0 <= report.win_rate <= 1.0, f"win_rate 应在 [0,1], got {report.win_rate}"
     # JSON 输出应包含新字段
-    import json
     report_dict = report.to_dict()
     assert "total_fees" in report_dict
     assert "max_drawdown_pct" in report_dict
-

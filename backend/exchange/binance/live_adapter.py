@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Binance 实盘交易适配器模块
 
@@ -19,11 +18,10 @@ Binance 实盘交易适配器模块
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
-from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from enum import StrEnum
+from typing import Any
 
-from utils.logger import get_logger, LogType
+from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.API)
 
@@ -32,12 +30,14 @@ logger = get_logger(__name__, LogType.API)
 # 枚举定义
 # =============================================================================
 
-class BinanceAccountType(str, Enum):
+
+class BinanceAccountType(StrEnum):
     """
     Binance 账户类型枚举
 
     定义了 Binance 支持的不同账户类型，包括现货、杠杆、合约等。
     """
+
     SPOT = "SPOT"
     MARGIN = "MARGIN"
     USDT_FUTURE = "USDT_FUTURE"
@@ -45,12 +45,13 @@ class BinanceAccountType(str, Enum):
     PORTFOLIO_MARGIN = "PORTFOLIO_MARGIN"
 
 
-class BinanceEnvironment(str, Enum):
+class BinanceEnvironment(StrEnum):
     """
     Binance 环境类型枚举
 
     定义了 Binance 支持的不同环境，包括测试网和生产网。
     """
+
     LIVE = "LIVE"
     TESTNET = "TESTNET"
 
@@ -59,29 +60,35 @@ class BinanceEnvironment(str, Enum):
 # 异常定义
 # =============================================================================
 
+
 class BinanceAdapterError(Exception):
     """Binance 适配器异常基类"""
+
     pass
 
 
 class BinanceConfigError(BinanceAdapterError):
     """配置错误异常"""
+
     pass
 
 
 class BinanceCredentialError(BinanceAdapterError):
     """凭证验证错误异常"""
+
     pass
 
 
 class BinanceClientError(BinanceAdapterError):
     """客户端创建错误异常"""
+
     pass
 
 
 # =============================================================================
 # BinanceAdapterConfig 配置类
 # =============================================================================
+
 
 @dataclass
 class BinanceAdapterConfig:
@@ -139,8 +146,8 @@ class BinanceAdapterConfig:
     account_type: BinanceAccountType = BinanceAccountType.SPOT
     environment: BinanceEnvironment = BinanceEnvironment.TESTNET
     is_us: bool = False
-    base_url: Optional[str] = None
-    proxy_url: Optional[str] = None
+    base_url: str | None = None
+    proxy_url: str | None = None
     testnet: bool = True
     use_ssl: bool = True
     timeout: int = 30
@@ -148,7 +155,7 @@ class BinanceAdapterConfig:
     max_retries: int = 3
     retry_delay: float = 1.0
     rate_limit: bool = True
-    extra_params: Dict[str, Any] = field(default_factory=dict)
+    extra_params: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """初始化后处理，确保 testnet 与 environment 一致"""
@@ -195,7 +202,7 @@ class BinanceAdapterConfig:
         """是否为测试网环境"""
         return self.environment == BinanceEnvironment.TESTNET
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         将配置转换为字典
 
@@ -237,16 +244,20 @@ class BinanceAdapterConfig:
             配置无效时抛出异常
         """
         if not self.api_key:
-            raise BinanceConfigError("API Key 不能为空")
+            msg = "API Key 不能为空"
+            raise BinanceConfigError(msg)
 
         if not self.api_secret:
-            raise BinanceConfigError("API Secret 不能为空")
+            msg = "API Secret 不能为空"
+            raise BinanceConfigError(msg)
 
         if self.timeout <= 0:
-            raise BinanceConfigError("超时时间必须大于 0")
+            msg = "超时时间必须大于 0"
+            raise BinanceConfigError(msg)
 
         if self.recv_window <= 0:
-            raise BinanceConfigError("接收窗口必须大于 0")
+            msg = "接收窗口必须大于 0"
+            raise BinanceConfigError(msg)
 
         return True
 
@@ -254,6 +265,7 @@ class BinanceAdapterConfig:
 # =============================================================================
 # BinanceDataClientFactory 数据客户端工厂
 # =============================================================================
+
 
 class BinanceDataClientFactory:
     """
@@ -290,23 +302,21 @@ class BinanceDataClientFactory:
             Binance 适配器配置
         """
         self.config = config
-        self._client: Optional[Any] = None
-        self._instrument_provider: Optional[Any] = None
+        self._client: Any | None = None
+        self._instrument_provider: Any | None = None
 
         logger.info(
-            f"Binance 数据客户端工厂已初始化: "
-            f"账户类型={config.account_type.value}, "
-            f"环境={config.environment.value}"
+            f"Binance 数据客户端工厂已初始化: 账户类型={config.account_type.value}, 环境={config.environment.value}"
         )
 
     @property
-    def client(self) -> Optional[Any]:
+    def client(self) -> Any | None:
         """获取当前数据客户端实例"""
         return self._client
 
     def create_data_client(
         self,
-        instrument_ids: Optional[List[str]] = None,
+        instrument_ids: list[str] | None = None,
         use_agg_trade: bool = True,
     ) -> Any:
         """
@@ -342,19 +352,20 @@ class BinanceDataClientFactory:
         try:
             config.validate()
         except BinanceConfigError as e:
-            raise BinanceClientError(f"配置验证失败: {e}") from e
+            msg = f"配置验证失败: {e}"
+            raise BinanceClientError(msg) from e
 
         try:
             # 延迟导入 axon_quant Binance 适配器
             # 避免在模块加载时就导入，提高启动速度
-            from axon_quant.adapters.binance.factories import (
-                BinanceLiveDataClientFactory,
+            from axon_quant.adapters.binance.common.enums import (
+                BinanceAccountType as axon_quantAccountType,
             )
             from axon_quant.adapters.binance.config import (
                 BinanceDataClientConfig,
             )
-            from axon_quant.adapters.binance.common.enums import (
-                BinanceAccountType as axon_quantAccountType,
+            from axon_quant.adapters.binance.factories import (
+                BinanceLiveDataClientFactory,
             )
 
             # 构建 axon_quant 数据客户端配置
@@ -379,13 +390,13 @@ class BinanceDataClientFactory:
 
         except ImportError as e:
             logger.error(f"axon_quant Binance 适配器导入失败: {e}")
-            raise BinanceClientError(
-                "无法导入 axon_quant Binance 适配器，请确保已安装 axon_quant[binance]"
-            ) from e
+            msg = "无法导入 axon_quant Binance 适配器，请确保已安装 axon_quant[binance]"
+            raise BinanceClientError(msg) from e
 
         except Exception as e:
             logger.error(f"创建 Binance 数据客户端失败: {e}")
-            raise BinanceClientError(f"创建数据客户端失败: {e}") from e
+            msg = f"创建数据客户端失败: {e}"
+            raise BinanceClientError(msg) from e
 
     def create_instrument_provider(self) -> Any:
         """
@@ -423,13 +434,13 @@ class BinanceDataClientFactory:
 
         except ImportError as e:
             logger.error(f"Binance 适配器导入失败: {e}")
-            raise BinanceClientError(
-                "无法导入 Binance 适配器，请确保已安装相关依赖"
-            ) from e
+            msg = "无法导入 Binance 适配器，请确保已安装相关依赖"
+            raise BinanceClientError(msg) from e
 
         except Exception as e:
             logger.error(f"创建交易品种提供者失败: {e}")
-            raise BinanceClientError(f"创建交易品种提供者失败: {e}") from e
+            msg = f"创建交易品种提供者失败: {e}"
+            raise BinanceClientError(msg) from e
 
     def get_ws_url(self) -> str:
         """
@@ -443,38 +454,22 @@ class BinanceDataClientFactory:
         if self.config.is_us:
             # Binance US
             if self.config.is_futures:
-                return (
-                    "wss://stream.binance.us:9443/ws"
-                    if self.config.is_live
-                    else "wss://testnet.binance.vision/ws"
-                )
+                return "wss://stream.binance.us:9443/ws" if self.config.is_live else "wss://testnet.binance.vision/ws"
             else:
-                return (
-                    "wss://stream.binance.us:9443/ws"
-                    if self.config.is_live
-                    else "wss://testnet.binance.vision/ws"
-                )
+                return "wss://stream.binance.us:9443/ws" if self.config.is_live else "wss://testnet.binance.vision/ws"
         else:
             # Binance Global
             if self.config.is_futures:
                 if self.config.is_usdt_futures:
                     return (
-                        "wss://fstream.binance.com/ws"
-                        if self.config.is_live
-                        else "wss://stream.binancefuture.com/ws"
+                        "wss://fstream.binance.com/ws" if self.config.is_live else "wss://stream.binancefuture.com/ws"
                     )
                 else:  # COIN_FUTURE
                     return (
-                        "wss://dstream.binance.com/ws"
-                        if self.config.is_live
-                        else "wss://dstream.binancefuture.com/ws"
+                        "wss://dstream.binance.com/ws" if self.config.is_live else "wss://dstream.binancefuture.com/ws"
                     )
             else:
-                return (
-                    "wss://stream.binance.com:9443/ws"
-                    if self.config.is_live
-                    else "wss://testnet.binance.vision/ws"
-                )
+                return "wss://stream.binance.com:9443/ws" if self.config.is_live else "wss://testnet.binance.vision/ws"
 
     def get_rest_url(self) -> str:
         """
@@ -491,43 +486,24 @@ class BinanceDataClientFactory:
         if self.config.is_us:
             # Binance US
             if self.config.is_futures:
-                return (
-                    "https://api.binance.us"
-                    if self.config.is_live
-                    else "https://testnet.binance.vision"
-                )
+                return "https://api.binance.us" if self.config.is_live else "https://testnet.binance.vision"
             else:
-                return (
-                    "https://api.binance.us"
-                    if self.config.is_live
-                    else "https://testnet.binance.vision"
-                )
+                return "https://api.binance.us" if self.config.is_live else "https://testnet.binance.vision"
         else:
             # Binance Global
             if self.config.is_futures:
                 if self.config.is_usdt_futures:
-                    return (
-                        "https://fapi.binance.com"
-                        if self.config.is_live
-                        else "https://testnet.binancefuture.com"
-                    )
+                    return "https://fapi.binance.com" if self.config.is_live else "https://testnet.binancefuture.com"
                 else:  # COIN_FUTURE
-                    return (
-                        "https://dapi.binance.com"
-                        if self.config.is_live
-                        else "https://testnet.binancefuture.com"
-                    )
+                    return "https://dapi.binance.com" if self.config.is_live else "https://testnet.binancefuture.com"
             else:
-                return (
-                    "https://api.binance.com"
-                    if self.config.is_live
-                    else "https://testnet.binance.vision"
-                )
+                return "https://api.binance.com" if self.config.is_live else "https://testnet.binance.vision"
 
 
 # =============================================================================
 # BinanceExecClientFactory 执行客户端工厂
 # =============================================================================
+
 
 class BinanceExecClientFactory:
     """
@@ -564,24 +540,22 @@ class BinanceExecClientFactory:
             Binance 适配器配置
         """
         self.config = config
-        self._client: Optional[Any] = None
-        self._order_manager: Optional[Any] = None
+        self._client: Any | None = None
+        self._order_manager: Any | None = None
 
         logger.info(
-            f"Binance 执行客户端工厂已初始化: "
-            f"账户类型={config.account_type.value}, "
-            f"环境={config.environment.value}"
+            f"Binance 执行客户端工厂已初始化: 账户类型={config.account_type.value}, 环境={config.environment.value}"
         )
 
     @property
-    def client(self) -> Optional[Any]:
+    def client(self) -> Any | None:
         """获取当前执行客户端实例"""
         return self._client
 
     def create_exec_client(
         self,
-        max_retries: Optional[int] = None,
-        retry_delay: Optional[float] = None,
+        max_retries: int | None = None,
+        retry_delay: float | None = None,
     ) -> Any:
         """
         创建 Binance 执行客户端
@@ -616,15 +590,16 @@ class BinanceExecClientFactory:
         try:
             self.config.validate()
         except BinanceConfigError as e:
-            raise BinanceClientError(f"配置验证失败: {e}") from e
+            msg = f"配置验证失败: {e}"
+            raise BinanceClientError(msg) from e
 
         try:
             # 延迟导入 axon_quant Binance 适配器
-            from axon_quant.adapters.binance.factories import (
-                BinanceLiveExecClientFactory,
-            )
             from axon_quant.adapters.binance.config import (
                 BinanceExecClientConfig,
+            )
+            from axon_quant.adapters.binance.factories import (
+                BinanceLiveExecClientFactory,
             )
 
             # 构建 axon_quant 执行客户端配置
@@ -637,22 +612,19 @@ class BinanceExecClientFactory:
             # 存储配置对象
             self._client = exec_config
 
-            logger.info(
-                f"Binance 执行客户端配置已创建: "
-                f"账户类型={self.config.account_type.value}"
-            )
+            logger.info(f"Binance 执行客户端配置已创建: 账户类型={self.config.account_type.value}")
 
             return self._client
 
         except ImportError as e:
             logger.error(f"axon_quant Binance 适配器导入失败: {e}")
-            raise BinanceClientError(
-                "无法导入 axon_quant Binance 适配器，请确保已安装 axon_quant[binance]"
-            ) from e
+            msg = "无法导入 axon_quant Binance 适配器，请确保已安装 axon_quant[binance]"
+            raise BinanceClientError(msg) from e
 
         except Exception as e:
             logger.error(f"创建 Binance 执行客户端失败: {e}")
-            raise BinanceClientError(f"创建执行客户端失败: {e}") from e
+            msg = f"创建执行客户端失败: {e}"
+            raise BinanceClientError(msg) from e
 
     def create_order_manager(
         self,
@@ -693,16 +665,18 @@ class BinanceExecClientFactory:
 
         except Exception as e:
             logger.error(f"创建订单管理器失败: {e}")
-            raise BinanceClientError(f"创建订单管理器失败: {e}") from e
+            msg = f"创建订单管理器失败: {e}"
+            raise BinanceClientError(msg) from e
 
 
 # =============================================================================
 # 配置构建函数
 # =============================================================================
 
+
 def build_binance_data_config(
     config: BinanceAdapterConfig,
-    instrument_ids: Optional[List[str]] = None,
+    instrument_ids: list[str] | None = None,
     use_agg_trade: bool = True,
     handle_revised_bars: bool = True,
 ) -> Any:
@@ -745,11 +719,11 @@ def build_binance_data_config(
     ... )
     """
     try:
-        from axon_quant.adapters.binance.config import (
-            BinanceDataClientConfig,
-        )
         from axon_quant.adapters.binance.common.enums import (
             BinanceAccountType as axon_quantAccountType,
+        )
+        from axon_quant.adapters.binance.config import (
+            BinanceDataClientConfig,
         )
 
         # 映射账户类型
@@ -776,28 +750,25 @@ def build_binance_data_config(
             handle_revised_bars=handle_revised_bars,
         )
 
-        logger.debug(
-            f"BinanceDataClientConfig 构建成功: "
-            f"账户类型={axon_account_type.value}"
-        )
+        logger.debug(f"BinanceDataClientConfig 构建成功: 账户类型={axon_account_type.value}")
 
         return data_config
 
     except ImportError as e:
         logger.error(f"axon_quant Binance 配置导入失败: {e}")
-        raise BinanceConfigError(
-            "无法导入 axon_quant Binance 配置模块"
-        ) from e
+        msg = "无法导入 axon_quant Binance 配置模块"
+        raise BinanceConfigError(msg) from e
 
     except Exception as e:
         logger.error(f"构建 BinanceDataClientConfig 失败: {e}")
-        raise BinanceConfigError(f"构建数据客户端配置失败: {e}") from e
+        msg = f"构建数据客户端配置失败: {e}"
+        raise BinanceConfigError(msg) from e
 
 
 def build_binance_exec_config(
     config: BinanceAdapterConfig,
-    max_retries: Optional[int] = None,
-    retry_delay: Optional[float] = None,
+    max_retries: int | None = None,
+    retry_delay: float | None = None,
     use_position_ids: bool = True,
 ) -> Any:
     """
@@ -839,11 +810,11 @@ def build_binance_exec_config(
     ... )
     """
     try:
-        from axon_quant.adapters.binance.config import (
-            BinanceExecClientConfig,
-        )
         from axon_quant.adapters.binance.common.enums import (
             BinanceAccountType as axon_quantAccountType,
+        )
+        from axon_quant.adapters.binance.config import (
+            BinanceExecClientConfig,
         )
 
         # 映射账户类型
@@ -875,22 +846,19 @@ def build_binance_exec_config(
             retry_delay=delay,
         )
 
-        logger.debug(
-            f"BinanceExecClientConfig 构建成功: "
-            f"账户类型={axon_account_type.value}"
-        )
+        logger.debug(f"BinanceExecClientConfig 构建成功: 账户类型={axon_account_type.value}")
 
         return exec_config
 
     except ImportError as e:
         logger.error(f"axon_quant Binance 配置导入失败: {e}")
-        raise BinanceConfigError(
-            "无法导入 axon_quant Binance 配置模块"
-        ) from e
+        msg = "无法导入 axon_quant Binance 配置模块"
+        raise BinanceConfigError(msg) from e
 
     except Exception as e:
         logger.error(f"构建 BinanceExecClientConfig 失败: {e}")
-        raise BinanceConfigError(f"构建执行客户端配置失败: {e}") from e
+        msg = f"构建执行客户端配置失败: {e}"
+        raise BinanceConfigError(msg) from e
 
 
 def get_binance_venue(is_us: bool = False, is_futures: bool = False) -> str:
@@ -932,8 +900,9 @@ def get_binance_venue(is_us: bool = False, is_futures: bool = False) -> str:
 # 辅助函数
 # =============================================================================
 
+
 def resolve_binance_account_type(
-    account_type: Union[str, BinanceAccountType]
+    account_type: str | BinanceAccountType,
 ) -> BinanceAccountType:
     """
     解析账户类型字符串为枚举值
@@ -982,16 +951,14 @@ def resolve_binance_account_type(
     result = mapping.get(account_type_upper)
     if result is None:
         valid_types = ", ".join(mapping.keys())
-        raise BinanceConfigError(
-            f"无效的账户类型: {account_type}. "
-            f"有效的类型包括: {valid_types}"
-        )
+        msg = f"无效的账户类型: {account_type}. 有效的类型包括: {valid_types}"
+        raise BinanceConfigError(msg)
 
     return result
 
 
 def resolve_binance_environment(
-    environment: Union[str, BinanceEnvironment]
+    environment: str | BinanceEnvironment,
 ) -> BinanceEnvironment:
     """
     解析环境类型字符串为枚举值
@@ -1037,10 +1004,8 @@ def resolve_binance_environment(
     result = mapping.get(environment_upper)
     if result is None:
         valid_envs = ", ".join(mapping.keys())
-        raise BinanceConfigError(
-            f"无效的环境类型: {environment}. "
-            f"有效的类型包括: {valid_envs}"
-        )
+        msg = f"无效的环境类型: {environment}. 有效的类型包括: {valid_envs}"
+        raise BinanceConfigError(msg)
 
     return result
 
@@ -1048,9 +1013,9 @@ def resolve_binance_environment(
 def validate_binance_credentials(
     api_key: str,
     api_secret: str,
-    account_type: Optional[BinanceAccountType] = None,
+    account_type: BinanceAccountType | None = None,
     testnet: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     验证 Binance API 凭证
 
@@ -1144,7 +1109,7 @@ def validate_binance_credentials(
 
         except Exception as e:
             result["valid"] = False
-            result["message"] = f"连接验证失败: {str(e)}"
+            result["message"] = f"连接验证失败: {e!s}"
             logger.warning(f"Binance 凭证连接验证失败: {e}")
 
     except ImportError:
@@ -1154,13 +1119,13 @@ def validate_binance_credentials(
 
     except Exception as e:
         logger.error(f"验证 Binance 凭证时发生错误: {e}")
-        result["message"] = f"验证过程发生错误: {str(e)}"
+        result["message"] = f"验证过程发生错误: {e!s}"
 
     return result
 
 
 def create_binance_config_from_dict(
-    config_dict: Dict[str, Any]
+    config_dict: dict[str, Any],
 ) -> BinanceAdapterConfig:
     """
     从字典创建 BinanceAdapterConfig
@@ -1231,7 +1196,8 @@ def create_binance_config_from_dict(
 
     except Exception as e:
         logger.error(f"从字典创建配置失败: {e}")
-        raise BinanceConfigError(f"创建配置失败: {e}") from e
+        msg = f"创建配置失败: {e}"
+        raise BinanceConfigError(msg) from e
 
 
 # =============================================================================
@@ -1241,24 +1207,24 @@ def create_binance_config_from_dict(
 __all__ = [
     # 枚举类
     "BinanceAccountType",
-    "BinanceEnvironment",
-    # 异常类
-    "BinanceAdapterError",
-    "BinanceConfigError",
-    "BinanceCredentialError",
-    "BinanceClientError",
     # 配置类
     "BinanceAdapterConfig",
+    # 异常类
+    "BinanceAdapterError",
+    "BinanceClientError",
+    "BinanceConfigError",
+    "BinanceCredentialError",
     # 工厂类
     "BinanceDataClientFactory",
+    "BinanceEnvironment",
     "BinanceExecClientFactory",
     # 配置构建函数
     "build_binance_data_config",
     "build_binance_exec_config",
+    "create_binance_config_from_dict",
     "get_binance_venue",
     # 辅助函数
     "resolve_binance_account_type",
     "resolve_binance_environment",
     "validate_binance_credentials",
-    "create_binance_config_from_dict",
 ]

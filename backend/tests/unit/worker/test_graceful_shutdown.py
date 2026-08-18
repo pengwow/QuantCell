@@ -1,10 +1,12 @@
-import pytest
 import asyncio
+
+import pytest
+
 from worker.graceful_shutdown import (
     GracefulShutdownManager,
     ShutdownConfig,
-    ShutdownStatus,
     ShutdownPhase,
+    ShutdownStatus,
     get_shutdown_manager,
     reset_shutdown_manager,
 )

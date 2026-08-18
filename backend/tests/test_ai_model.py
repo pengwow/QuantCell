@@ -8,19 +8,19 @@ AI模型配置接口测试
 日期: 2026-03-08
 """
 
-import json
-import pytest
-from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+import os
 
 # 导入应用
 import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from unittest.mock import patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from main import app
 from settings.models import SystemConfigBusiness
-
 
 # 创建测试客户端
 client = TestClient(app)
@@ -30,10 +30,11 @@ client = TestClient(app)
 def mock_jwt_token():
     """生成测试用的 JWT token"""
     from utils.jwt_utils import create_jwt_token
+
     return create_jwt_token(
         data={"sub": "test_user", "name": "Test User"},
         expires_delta=None,
-        refresh=False
+        refresh=False,
     )
 
 
@@ -58,173 +59,166 @@ def sample_model_config():
         "proxy_enabled": False,
         "proxy_url": "",
         "proxy_username": "",
-        "proxy_password": ""
+        "proxy_password": "",
     }
 
 
 class TestAIModelAPI:
     """AI模型配置接口测试类"""
-    
+
     def test_get_ai_models_empty(self, auth_headers):
         """测试获取空的AI模型列表"""
-        with patch('ai_model.routes.get_ai_models_from_config', return_value=[]):
+        with patch("ai_model.routes.get_ai_models_from_config", return_value=[]):
             response = client.get("/api/ai-models/", headers=auth_headers)
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 0
             assert data["data"]["items"] == []
             assert data["data"]["total"] == 0
-    
+
     def test_get_ai_models_with_data(self, auth_headers):
         """测试获取有数据的AI模型列表"""
-        mock_providers = [{
-            "id": "openai_abc123",
-            "provider": "openai",
-            "name": "GPT-4",
-            "api_key": "sk-test",
-            "api_host": "https://api.openai.com",
-            "models": ["gpt-4"],
-            "is_default": True,
-            "is_enabled": "gpt-4",
-            "proxy_enabled": False,
-        }]
-        
-        with patch('ai_model.routes.get_ai_models_from_config', return_value=mock_providers):
+        mock_providers = [
+            {
+                "id": "openai_abc123",
+                "provider": "openai",
+                "name": "GPT-4",
+                "api_key": "sk-test",
+                "api_host": "https://api.openai.com",
+                "models": ["gpt-4"],
+                "is_default": True,
+                "is_enabled": "gpt-4",
+                "proxy_enabled": False,
+            }
+        ]
+
+        with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
             response = client.get("/api/ai-models/", headers=auth_headers)
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 0
             assert len(data["data"]["items"]) == 1
             assert data["data"]["items"][0]["provider"] == "openai"
-    
+
     def test_create_ai_model(self, auth_headers, sample_model_config):
         """测试创建AI模型配置"""
-        with patch('ai_model.routes.save_ai_model_to_config', return_value=True):
-            response = client.post(
-                "/api/ai-models/",
-                headers=auth_headers,
-                json=sample_model_config
-            )
-            
+        with patch("ai_model.routes.save_ai_model_to_config", return_value=True):
+            response = client.post("/api/ai-models/", headers=auth_headers, json=sample_model_config)
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 0
             assert data["data"]["provider"] == "openai"
             assert "id" in data["data"]
-    
+
     def test_create_ai_model_failure(self, auth_headers, sample_model_config):
         """测试创建AI模型配置失败"""
-        with patch('ai_model.routes.save_ai_model_to_config', return_value=False):
-            response = client.post(
-                "/api/ai-models/",
-                headers=auth_headers,
-                json=sample_model_config
-            )
-            
+        with patch("ai_model.routes.save_ai_model_to_config", return_value=False):
+            response = client.post("/api/ai-models/", headers=auth_headers, json=sample_model_config)
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 1
             assert "失败" in data["message"]
-    
+
     def test_get_ai_model_by_id(self, auth_headers):
         """测试获取单个AI模型配置"""
         model_id = "openai_abc123"
-        mock_providers = [{
-            "id": "openai_abc123",
-            "provider": "openai",
-            "name": "GPT-4",
-            "api_key": "sk-test",
-            "api_host": "https://api.openai.com",
-            "models": ["gpt-4"],
-            "is_default": True,
-            "is_enabled": "gpt-4",
-        }]
-        
-        with patch('ai_model.routes.get_ai_models_from_config', return_value=mock_providers):
+        mock_providers = [
+            {
+                "id": "openai_abc123",
+                "provider": "openai",
+                "name": "GPT-4",
+                "api_key": "sk-test",
+                "api_host": "https://api.openai.com",
+                "models": ["gpt-4"],
+                "is_default": True,
+                "is_enabled": "gpt-4",
+            }
+        ]
+
+        with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
             response = client.get(f"/api/ai-models/{model_id}", headers=auth_headers)
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 0
             assert data["data"]["id"] == model_id
-    
+
     def test_get_ai_model_not_found(self, auth_headers):
         """测试获取不存在的AI模型配置"""
-        with patch('ai_model.routes.get_ai_models_from_config', return_value=[]):
+        with patch("ai_model.routes.get_ai_models_from_config", return_value=[]):
             response = client.get("/api/ai-models/nonexistent", headers=auth_headers)
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 1
             assert "不存在" in data["message"]
-    
+
     def test_update_ai_model(self, auth_headers):
         """测试更新AI模型配置"""
         model_id = "openai_abc123"
-        mock_providers = [{
-            "id": "openai_abc123",
-            "provider": "openai",
-            "name": "GPT-4",
-            "api_key": "sk-test",
-            "api_host": "https://api.openai.com",
-            "models": ["gpt-4"],
-            "is_default": True,
-            "is_enabled": "gpt-4",
-        }]
-        update_data = {
-            "name": "GPT-4 Updated",
-            "api_key": "sk-new-key"
-        }
-        
-        with patch('ai_model.routes.get_ai_models_from_config', return_value=mock_providers):
-            with patch('ai_model.routes.save_ai_model_to_config', return_value=True):
-                response = client.put(
-                    f"/api/ai-models/{model_id}",
-                    headers=auth_headers,
-                    json=update_data
-                )
-                
-                assert response.status_code == 200
-                data = response.json()
-                assert data["code"] == 0
-    
+        mock_providers = [
+            {
+                "id": "openai_abc123",
+                "provider": "openai",
+                "name": "GPT-4",
+                "api_key": "sk-test",
+                "api_host": "https://api.openai.com",
+                "models": ["gpt-4"],
+                "is_default": True,
+                "is_enabled": "gpt-4",
+            }
+        ]
+        update_data = {"name": "GPT-4 Updated", "api_key": "sk-new-key"}
+
+        with (
+            patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers),
+            patch("ai_model.routes.save_ai_model_to_config", return_value=True),
+        ):
+            response = client.put(f"/api/ai-models/{model_id}", headers=auth_headers, json=update_data)
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["code"] == 0
+
     def test_update_ai_model_not_found(self, auth_headers):
         """测试更新不存在的AI模型配置"""
-        with patch('ai_model.routes.get_ai_models_from_config', return_value=[]):
+        with patch("ai_model.routes.get_ai_models_from_config", return_value=[]):
             response = client.put(
                 "/api/ai-models/nonexistent",
                 headers=auth_headers,
-                json={"name": "Test"}
+                json={"name": "Test"},
             )
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 1
             assert "不存在" in data["message"]
-    
+
     def test_delete_ai_model(self, auth_headers):
         """测试删除AI模型配置"""
         model_id = "openai_abc123"
-        
-        with patch('ai_model.routes.save_ai_model_to_config', return_value=True):
+
+        with patch("ai_model.routes.save_ai_model_to_config", return_value=True):
             response = client.delete(f"/api/ai-models/{model_id}", headers=auth_headers)
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 0
             assert data["data"]["id"] == model_id
-    
+
     def test_get_supported_providers(self, auth_headers):
         """测试获取支持的AI厂商列表"""
         response = client.get("/api/ai-models/providers", headers=auth_headers)
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
         assert "providers" in data["data"]
-    
+
     def test_get_ai_models_with_filter(self, auth_headers):
         """测试带筛选条件获取AI模型列表"""
         mock_providers = [
@@ -243,38 +237,37 @@ class TestAIModelAPI:
                 "models": ["claude-3"],
                 "is_default": True,
                 "is_enabled": "",
-            }
+            },
         ]
-        
-        with patch('ai_model.routes.get_ai_models_from_config', return_value=mock_providers):
+
+        with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
             # 按 provider 筛选
-            response = client.get(
-                "/api/ai-models/?provider=openai_abc123",
-                headers=auth_headers
-            )
-            
+            response = client.get("/api/ai-models/?provider=openai_abc123", headers=auth_headers)
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 0
             assert len(data["data"]["items"]) == 1
             assert data["data"]["items"][0]["provider"] == "openai"
-    
+
     def test_get_ai_models_pagination(self, auth_headers):
         """测试AI模型列表分页"""
         mock_providers = []
         for i in range(15):
-            mock_providers.append({
-                "id": f"openai_{i}",
-                "provider": "openai",
-                "name": f"Model {i}",
-                "models": ["gpt-4"],
-                "is_default": True,
-                "is_enabled": "gpt-4",
-            })
-        
-        with patch('ai_model.routes.get_ai_models_from_config', return_value=mock_providers):
+            mock_providers.append(
+                {
+                    "id": f"openai_{i}",
+                    "provider": "openai",
+                    "name": f"Model {i}",
+                    "models": ["gpt-4"],
+                    "is_default": True,
+                    "is_enabled": "gpt-4",
+                }
+            )
+
+        with patch("ai_model.routes.get_ai_models_from_config", return_value=mock_providers):
             response = client.get("/api/ai-models/?page=1&limit=10", headers=auth_headers)
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 0
@@ -286,49 +279,43 @@ class TestAIModelAPI:
 
 class TestAIModelErrorHandling:
     """AI模型接口错误处理测试类"""
-    
+
     def test_get_ai_models_config_not_dict(self, auth_headers):
         """测试 get_all_providers 返回非列表类型"""
-        with patch('ai_model.routes.get_ai_models_from_config', return_value={}):
+        with patch("ai_model.routes.get_ai_models_from_config", return_value={}):
             response = client.get("/api/ai-models/", headers=auth_headers)
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 0
             assert data["data"]["items"] == []
-    
+
     def test_get_ai_models_invalid_json(self, auth_headers):
         """测试配置值为无效JSON"""
-        with patch('ai_model.routes.get_ai_models_from_config', return_value=[]):
+        with patch("ai_model.routes.get_ai_models_from_config", return_value=[]):
             response = client.get("/api/ai-models/", headers=auth_headers)
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 0
             assert data["data"]["items"] == []
-    
+
     def test_get_ai_models_empty_value(self, auth_headers):
         """测试配置值为空字符串"""
-        mock_configs = {
-            "openai_abc123": {
-                "key": "openai_abc123",
-                "value": "",
-                "name": "ai_models"
-            }
-        }
-        
-        with patch.object(SystemConfigBusiness, 'get_all_with_details', return_value=mock_configs):
+        mock_configs = {"openai_abc123": {"key": "openai_abc123", "value": "", "name": "ai_models"}}
+
+        with patch.object(SystemConfigBusiness, "get_all_with_details", return_value=mock_configs):
             response = client.get("/api/ai-models/", headers=auth_headers)
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["code"] == 0
             assert data["data"]["items"] == []
-    
+
     def test_unauthorized_access(self):
         """测试未授权访问"""
         response = client.get("/api/ai-models/")
-        
+
         assert response.status_code == 401
 
 

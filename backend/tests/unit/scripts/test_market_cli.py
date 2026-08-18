@@ -1,8 +1,9 @@
 """市场数据CLI单元测试"""
 
-import pytest
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -11,10 +12,10 @@ runner = CliRunner()
 class TestCliKlines:
     """测试 CLI klines 命令"""
 
-    @patch("scripts.market_cli.get_klines")
+    @patch("cli.market.get_klines")
     def test_cli_klines_success(self, mock_get):
         """测试 CLI klines 命令成功"""
-        from scripts.market_cli import app
+        from cli.market import app
 
         mock_get.return_value = "BTCUSDT 1h K线数据"
 
@@ -22,10 +23,10 @@ class TestCliKlines:
         assert result.exit_code == 0
         assert "BTCUSDT" in result.output
 
-    @patch("scripts.market_cli.get_klines")
+    @patch("cli.market.get_klines")
     def test_cli_klines_error(self, mock_get):
         """测试 CLI klines 命令异常"""
-        from scripts.market_cli import app
+        from cli.market import app
 
         mock_get.return_value = "错误: 获取失败"
 
@@ -37,10 +38,10 @@ class TestCliKlines:
 class TestCliTicker:
     """测试 CLI ticker 命令"""
 
-    @patch("scripts.market_cli.get_ticker")
+    @patch("cli.market.get_ticker")
     def test_cli_ticker_success(self, mock_get):
         """测试 CLI ticker 命令成功"""
-        from scripts.market_cli import app
+        from cli.market import app
 
         mock_get.return_value = "BTCUSDT 最新行情: 50000"
 
@@ -52,10 +53,10 @@ class TestCliTicker:
 class TestCliSymbols:
     """测试 CLI symbols 命令"""
 
-    @patch("scripts.market_cli.get_crypto_symbols")
+    @patch("cli.market.get_crypto_symbols")
     def test_cli_symbols_success(self, mock_get):
         """测试 CLI symbols 命令成功"""
-        from scripts.market_cli import app
+        from cli.market import app
 
         mock_get.return_value = json.dumps({"success": True, "total": 2})
 
@@ -67,10 +68,10 @@ class TestCliSymbols:
 class TestCliFetch:
     """测试 CLI fetch 命令"""
 
-    @patch("scripts.market_cli.fetch_market_data")
+    @patch("cli.market.fetch_market_data")
     def test_cli_fetch_success(self, mock_fetch):
         """测试 CLI fetch 命令成功"""
-        from scripts.market_cli import app
+        from cli.market import app
 
         mock_fetch.return_value = json.dumps({"success": True, "symbol": "BTCUSDT"})
 
@@ -78,10 +79,10 @@ class TestCliFetch:
         assert result.exit_code == 0
         assert "BTCUSDT" in result.output
 
-    @patch("scripts.market_cli.fetch_market_data")
+    @patch("cli.market.fetch_market_data")
     def test_cli_fetch_unsupported_type(self, mock_fetch):
         """测试 CLI fetch 命令不支持类型"""
-        from scripts.market_cli import app
+        from cli.market import app
 
         mock_fetch.return_value = json.dumps({"success": False, "error": "不支持"})
 
@@ -95,7 +96,7 @@ class TestGetKlines:
     @patch("ccxt.binance")
     def test_get_klines_success(self, mock_exchange_cls):
         """测试成功获取K线数据"""
-        from scripts.market_cli import get_klines
+        from cli.market import get_klines
 
         # 模拟交易所返回数据
         mock_exchange = MagicMock()
@@ -114,7 +115,7 @@ class TestGetKlines:
     @patch("ccxt.binance")
     def test_get_klines_empty(self, mock_exchange_cls):
         """测试空K线数据"""
-        from scripts.market_cli import get_klines
+        from cli.market import get_klines
 
         mock_exchange = MagicMock()
         mock_exchange.fetch_ohlcv.return_value = []
@@ -126,7 +127,7 @@ class TestGetKlines:
     @patch("ccxt.binance")
     def test_get_klines_error(self, mock_exchange_cls):
         """测试异常处理"""
-        from scripts.market_cli import get_klines
+        from cli.market import get_klines
 
         mock_exchange_cls.side_effect = Exception("网络错误")
 
@@ -141,7 +142,7 @@ class TestGetTicker:
     @patch("ccxt.binance")
     def test_get_ticker_success(self, mock_exchange_cls):
         """测试成功获取行情"""
-        from scripts.market_cli import get_ticker
+        from cli.market import get_ticker
 
         mock_exchange = MagicMock()
         mock_exchange.fetch_ticker.return_value = {
@@ -162,7 +163,7 @@ class TestGetTicker:
     @patch("ccxt.binance")
     def test_get_ticker_empty(self, mock_exchange_cls):
         """测试空行情数据"""
-        from scripts.market_cli import get_ticker
+        from cli.market import get_ticker
 
         mock_exchange = MagicMock()
         mock_exchange.fetch_ticker.return_value = {}
@@ -178,12 +179,22 @@ class TestGetCryptoSymbols:
     @patch("ccxt.binance")
     def test_get_crypto_symbols_success(self, mock_exchange_cls):
         """测试成功获取交易对列表"""
-        from scripts.market_cli import get_crypto_symbols
+        from cli.market import get_crypto_symbols
 
         mock_exchange = MagicMock()
         mock_exchange.markets = {
-            "BTC/USDT": {"base": "BTC", "quote": "USDT", "active": True, "type": "spot"},
-            "ETH/USDT": {"base": "ETH", "quote": "USDT", "active": True, "type": "spot"},
+            "BTC/USDT": {
+                "base": "BTC",
+                "quote": "USDT",
+                "active": True,
+                "type": "spot",
+            },
+            "ETH/USDT": {
+                "base": "ETH",
+                "quote": "USDT",
+                "active": True,
+                "type": "spot",
+            },
         }
         mock_exchange_cls.return_value = mock_exchange
 
@@ -198,7 +209,7 @@ class TestFetchMarketData:
 
     def test_fetch_market_data_unsupported_type(self):
         """测试不支持的数据类型"""
-        from scripts.market_cli import fetch_market_data
+        from cli.market import fetch_market_data
 
         result = fetch_market_data("BTCUSDT", "unsupported_type")
         data = json.loads(result)
