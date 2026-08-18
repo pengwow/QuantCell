@@ -816,7 +816,7 @@ class LiveTradeRecorder:
 
         # 优先按 axon_quant.core.events 类层级匹配
         try:
-            from axon_bridge.core.events import (  # type: ignore[import-not-found]
+            from axon_bridge import (  # type: ignore[import-not-found]
                 OrderAccepted,
                 OrderCanceled,
                 OrderFilled,

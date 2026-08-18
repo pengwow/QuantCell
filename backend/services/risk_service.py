@@ -10,7 +10,7 @@ from typing import Any
 
 try:
     # 走适配层,不直接 import axon_quant
-    from axon_bridge.risk import (
+    from axon_bridge import (
         DefaultRiskEngine,
         RiskConfig,
         make_order,

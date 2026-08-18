@@ -26,7 +26,7 @@ class _SafeUnpickler(pickle.Unpickler):
 
 
 try:
-    from axon_bridge.ensemble import (
+    from axon_bridge import (
         Action,
         ActionType,
         EnsembleManager,

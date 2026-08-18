@@ -11,11 +11,11 @@ import pandas as pd
 
 from axon_bridge import (
     Action,
+    spot_instrument,
 )
 from axon_bridge import (
     BacktestEngine as _NativeBacktestEngine,
 )
-from axon_bridge.backtest import spot_instrument
 
 logger = logging.getLogger(__name__)
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent.core.interaction_agent import AgentResponse, Intent
-from axon_bridge.trading import (
+from axon_bridge import (
     CancelOrderTool,
     MockTradingBackend,
     PlaceOrderTool,
