@@ -208,7 +208,7 @@ class TestValidateParquetExport:
         original_df = pd.DataFrame({"a": [1, 2, 3]})
         loaded_df = pd.DataFrame({"a": [1, 2]})
 
-        with patch("cli.data.load_from_parquet", return_value=loaded_df):
+        with patch("utils.data_utils.load_from_parquet", return_value=loaded_df):
             result = _validate_parquet_export(mock_path, original_df)
         assert result is False
 
@@ -223,7 +223,7 @@ class TestValidateParquetExport:
         original_df = pd.DataFrame({"a": [1], "b": [2]})
         loaded_df = pd.DataFrame({"a": [1], "c": [2]})
 
-        with patch("cli.data.load_from_parquet", return_value=loaded_df):
+        with patch("utils.data_utils.load_from_parquet", return_value=loaded_df):
             result = _validate_parquet_export(mock_path, original_df)
         assert result is False
 
@@ -246,7 +246,8 @@ class TestValidateParquetExport:
             }
         )
 
-        with patch("cli.data.load_from_parquet", return_value=original_df.copy()):
+        # _validate_parquet_export 定义在 utils.data_utils，需 patch 该模块的 load_from_parquet
+        with patch("utils.data_utils.load_from_parquet", return_value=original_df.copy()):
             result = _validate_parquet_export(mock_path, original_df)
         assert result is True
 

@@ -26,13 +26,14 @@ class _SafeUnpickler(pickle.Unpickler):
 
 
 try:
+    from axon_quant.ensemble import Observation  # ensemble 专用 Observation, 与根级版本不同
+
     from axon_bridge import (
         Action,
         ActionType,
         EnsembleManager,
         HardVoteStrategy,
         ModelType,
-        Observation,
         SoftVoteStrategy,
         WeightedVoteStrategy,
     )

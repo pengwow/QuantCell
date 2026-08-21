@@ -54,7 +54,7 @@ def main() -> int:
         return 1
 
     # 2. 断言报告
-    print(f"OK baseline run 完成")
+    print("OK baseline run 完成")
     print(f"  total_pnl     = {report.total_pnl:.4f}")
     print(f"  sharpe_ratio  = {report.sharpe_ratio:.4f}")
     print(f"  max_drawdown  = {report.max_drawdown:.4f}")
@@ -62,8 +62,8 @@ def main() -> int:
     print(f"  total_trades  = {report.total_trades}")
     print()
 
-    json_path = output_dir / f"funding_arbitrage_BTCUSDT_2024-07-01_2024-07-08.json"
-    md_path = output_dir / f"funding_arbitrage_BTCUSDT_2024-07-01_2024-07-08.md"
+    json_path = output_dir / "funding_arbitrage_BTCUSDT_2024-07-01_2024-07-08.json"
+    md_path = output_dir / "funding_arbitrage_BTCUSDT_2024-07-01_2024-07-08.md"
     assert json_path.exists(), f"missing {json_path}"
     assert md_path.exists(), f"missing {md_path}"
     print(f"OK baseline 报告写入: {json_path.name}, {md_path.name}")

@@ -4,12 +4,10 @@
 用于定义策略生成API请求和响应的数据结构
 """
 
-from typing import TYPE_CHECKING, Any
+from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 
 class StrategyGenerateRequest(BaseModel):

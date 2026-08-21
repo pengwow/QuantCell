@@ -27,13 +27,14 @@ import pandas as pd
 
 task_manager = None
 
-# 从 utils 重导出工具函数（保持向后兼容）
+# 从 utils 重导出工具函数（保持向后兼容，测试和其他模块可从 cli.data 导入）
 from utils.data_utils import (
     _find_parquet_file,
     _get_default_date_range,
     _normalize_symbol,
     _parse_interval_minutes,
     _ts_to_datetime,
+    _validate_parquet_export,
     calculate_data_completeness,
     filter_by_date_range,
     format_completeness,
@@ -44,22 +45,6 @@ from utils.data_utils import (
     load_from_parquet,
     scan_parquet_files,
 )
-
-
-def _validate_parquet_export(file_path, df) -> bool:
-    """验证parquet导出（覆盖版本，确保使用cli.data命名空间的load_from_parquet以便测试patch生效）"""
-    if not file_path.exists():
-        return False
-    if file_path.stat().st_size == 0:
-        return False
-    try:
-        loaded_df = load_from_parquet(file_path)
-    except Exception:
-        return False
-    if len(loaded_df) != len(df):
-        return False
-    return list(loaded_df.columns) == list(df.columns)
-
 
 # === CLI 命令 ===
 

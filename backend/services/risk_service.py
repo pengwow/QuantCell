@@ -32,26 +32,67 @@ class RiskService:
         risk_config = RiskConfig(**(config or {}))
         self._engine = DefaultRiskEngine(risk_config)
 
+    def _to_axon_portfolio(self, portfolio: dict[str, Any] | None = None) -> Any:
+        """将任意 portfolio 格式转换为 axon_quant 原生 portfolio。
+
+        支持两种格式 (与 check_order 保持一致):
+        - QuantCell 业务格式 (LivePortfolio.to_dict): ``cash`` 是 float
+        - axon_quant 原生格式: ``cash`` 是 {currency: amount} dict
+        """
+        raw_cash = (portfolio or {}).get("cash", 0.0)
+        if isinstance(raw_cash, (int, float)):
+            cash_dict = {"USD": float(raw_cash)}
+        elif isinstance(raw_cash, dict):
+            cash_dict = {k: float(v) for k, v in raw_cash.items()}
+        else:
+            cash_dict = {"USD": 0.0}
+        base_currency = next(iter(cash_dict.keys())) if cash_dict else "USD"
+        return make_portfolio(base_currency=base_currency, cash=cash_dict)
+
     def check_order(
         self,
         order: dict[str, Any],
         portfolio: dict[str, Any],
     ) -> dict[str, Any]:
-        """Check if order passes risk controls."""
+        """Check if order passes risk controls.
+
+        支持两种 portfolio 格式:
+        - QuantCell 业务格式 (LivePortfolio.to_dict): ``cash`` 是 float,
+          ``positions`` 是 {symbol: {quantity, avg_price, side, ...}}.
+        - axon_quant 原生格式: ``cash`` 是 {currency: amount} dict.
+        """
+        # 对齐订单字段
+        # NOTE: axon_quant.risk 对 type='market' 订单会跳过 max_order_value 检查,
+        # 风控层统一以 'limit' 形式过检, 交易所下单时仍可选择市价/限价。
+        risk_order_type = "limit"
         axon_order = make_order(
-            id=order.get("id", 0),
+            id=int(order.get("id", 0) or 0),
             symbol=order.get("symbol", "BTC-USDT"),
-            side=order.get("side", "Buy"),
-            type=order.get("type", "limit"),
-            quantity=order.get("quantity", 0.0),
-            price=order.get("price", 0.0),
+            side=str(order.get("side", "Buy")).capitalize(),
+            type=risk_order_type,
+            quantity=float(order.get("quantity", 0.0)),
+            price=float(order.get("price", 0.0)) if order.get("price") else None,
         )
-        cash = portfolio.get("cash", {"USD": 0.0})
-        base_currency = next(iter(cash.keys())) if cash else "USD"
-        axon_portfolio = make_portfolio(
-            base_currency=base_currency,
-            cash=cash,
-        )
+
+        # 从 QuantCell 格式构造 axon 持仓 dict: {symbol: qty*avg_price}
+        positions_value = portfolio.get("positions", {}) or {}
+        if isinstance(positions_value, dict):
+            positions_dict: dict[str, float] = {}
+            for sym, p in positions_value.items():
+                if isinstance(p, dict):
+                    qty = float(p.get("quantity", 0.0))
+                    avg = float(p.get("avg_price", 0.0))
+                    positions_dict[sym] = qty * avg
+                else:
+                    positions_dict[sym] = float(p)
+        else:
+            positions_dict = {}
+
+        axon_portfolio = self._to_axon_portfolio(portfolio)
+        # ponytail: axon_quant.make_portfolio 不接受 positions 参数,
+        # 目前 axon_quant 端风控仅基于 cash + max_order_value / max_daily_loss 等,
+        # 持仓维度 (concentration / drawdown) 由 pipeline 本地风控补足。
+        # 升级路径: 等上游 make_portfolio_with_positions 可用时改用它。
 
         result = self._engine.check_order(axon_order, axon_portfolio)
         return {
@@ -61,9 +102,7 @@ class RiskService:
 
     def get_metrics(self, portfolio: dict[str, Any] | None = None) -> dict[str, Any]:
         """Get current risk metrics."""
-        cash = (portfolio or {}).get("cash", {"USD": 0.0})
-        base_currency = next(iter(cash.keys())) if cash else "USD"
-        axon_portfolio = make_portfolio(base_currency=base_currency, cash=cash)
+        axon_portfolio = self._to_axon_portfolio(portfolio)
         return self._engine.metrics(axon_portfolio)
 
     def reset_daily(self) -> None:

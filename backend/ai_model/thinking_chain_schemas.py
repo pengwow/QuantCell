@@ -3,13 +3,11 @@
 用于定义思维链API请求和响应的数据结构
 """
 
-from typing import TYPE_CHECKING, Any
+from datetime import datetime
+from typing import Any
 
 import toml
 from pydantic import BaseModel, Field, field_validator, model_validator
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 
 class ThinkingChainStep(BaseModel):

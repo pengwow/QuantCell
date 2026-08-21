@@ -348,10 +348,8 @@ class TestValidateStyle:
 
     def test_trailing_whitespace(self, validator):
         """测试行尾空格警告"""
-        code = """class MyStrategy:
-    def on_bar(self, bar):
-        pass
-"""
+        # 代码中第二行和第三行故意添加行尾空格
+        code = "class MyStrategy:   \n    def on_bar(self, bar):  \n        pass\n"
         _errors, warnings = validator.validate_style(code)
 
         trailing_warnings = [w for w in warnings if "行尾" in w.message]

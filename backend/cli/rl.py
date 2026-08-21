@@ -41,6 +41,7 @@ def train(
     initial_capital: Annotated[float, typer.Option("--cash", help="初始资金")] = 100_000,
     transaction_cost: Annotated[float, typer.Option("--fee", help="交易费率")] = 0.001,
     name: Annotated[str | None, typer.Option("--name", "-n", help="模型名称")] = None,
+    progress: Annotated[bool, typer.Option("--progress", "-p", help="显示实时训练进度")] = False,
 ):
     """训练 RL 模型"""
     from rl.models import RLTrainConfig
@@ -63,7 +64,7 @@ def train(
     )
 
     svc = RLService()
-    result = svc.train(config)
+    result = svc.train(config, show_progress=progress)
 
     typer.echo(f"\n{'=' * 50}")
     typer.echo("训练完成!")

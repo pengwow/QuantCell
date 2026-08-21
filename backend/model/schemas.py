@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 # 导入统一的ApiResponse模型
+from common.schemas import ApiResponse
 
 
 class ModelListRequest(BaseModel):

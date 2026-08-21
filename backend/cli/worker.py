@@ -18,24 +18,27 @@ API_BASE = "http://localhost:8000/api"
 
 app = typer.Typer(help="Worker 管理命令行工具")
 
+# 禁用代理: CLI 仅访问本地 FastAPI 服务,不走系统代理
+_HTTP_CLIENT = httpx.Client(trust_env=False)
+
 
 def _get(url: str):
     """发送 GET 请求"""
-    response = httpx.get(url)
+    response = _HTTP_CLIENT.get(url)
     response.raise_for_status()
     return response.json()
 
 
 def _post(url: str, data: dict | None = None):
     """发送 POST 请求"""
-    response = httpx.post(url, json=data)
+    response = _HTTP_CLIENT.post(url, json=data)
     response.raise_for_status()
     return response.json()
 
 
 def _delete(url: str):
     """发送 DELETE 请求"""
-    response = httpx.delete(url)
+    response = _HTTP_CLIENT.delete(url)
     response.raise_for_status()
     return response.json()
 
