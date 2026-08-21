@@ -277,3 +277,7 @@ def optimize_strategy_params(
         result = json.dumps({"success": False, "error": str(e)})
         typer.echo(result)
         return result
+
+
+if __name__ == "__main__":
+    app()

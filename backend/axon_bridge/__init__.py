@@ -48,6 +48,7 @@ from axon_quant import (
     Position,
     RunResult,
     Side,
+    agent,
     backtest,
     compliance,
     data,
@@ -65,6 +66,16 @@ from axon_quant import (
     rl,
     tracker,
     walk_forward,
+)
+from axon_quant.agent import (
+    MockTrader,
+    RandomTrader,
+    ReActAgent,
+    RuleTrader,
+    SwarmResult,
+    SwarmRunner,
+    TradingTools,
+    TrajectoryRecorder,
 )
 
 # —— 合并自 8 个空壳子模块的重导出 ——
@@ -110,10 +121,7 @@ from axon_quant.llm import (
     LLMMessage,
     MarketSignal,
     OllamaBackend,
-    ReActAgent,
     SignalType,
-    TradingTools,
-    TrajectoryRecorder,
     make_backend,
 )
 from axon_quant.oms import (
@@ -493,6 +501,8 @@ __all__ = [
     "MarketSignal",
     "MetaModel",
     "MockSource",
+    # —— Agent 模块 ——
+    "MockTrader",
     "MockTradingBackend",
     "ModelConfig",
     "ModelHotReloader",
@@ -522,6 +532,7 @@ __all__ = [
     # —— Backtest ——
     "PushFundingHelper",
     "QueryPortfolioTool",
+    "RandomTrader",
     "RateLimitConfig",
     "ReActAgent",
     "ReconnectConfig",
@@ -533,12 +544,15 @@ __all__ = [
     "RiskReason",
     "RiskReasonKindStr",
     "RiskResult",
+    "RuleTrader",
     "RunResult",
     "Side",
     "SideStr",
     "SignalType",
     "SoftVoteStrategy",
     "StackingEnsemble",
+    "SwarmResult",
+    "SwarmRunner",
     "TifStr",
     "TokenBucketRateLimiter",
     "TradingEnv",

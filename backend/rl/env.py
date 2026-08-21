@@ -32,7 +32,7 @@ class TradingEnv(gym.Env):
     ):
         """
         Args:
-            df: OHLCV DataFrame（必须包含 Open/High/Low/Close/Volume）
+            df: OHLCV DataFrame（支持 open/high/low/close/volume 或 Open/High/Low/Close/Volume）
             initial_capital: 初始资金
             transaction_cost: 手续费率
             reward_fn: 自定义奖励函数 (obs, action, info) -> float
@@ -40,14 +40,14 @@ class TradingEnv(gym.Env):
         """
         super().__init__()
 
-        self._df = df.copy()
+        self._df = self._normalize_columns(df)
         self._initial_capital = initial_capital
         self._transaction_cost = transaction_cost
         self._reward_fn = reward_fn
         self._window = window_size
 
         # 预计算技术指标
-        self._features = self._compute_features(df)
+        self._features = self._compute_features(self._df)
         self._n_steps = len(self._features)
 
         # 动作空间：0=hold, 1=buy, 2=sell, 3=close_long, 4=close_short
@@ -65,6 +65,18 @@ class TradingEnv(gym.Env):
         self._prev_portfolio = initial_capital
         self._trades = 0
         self._total_fees = 0.0
+
+    @staticmethod
+    def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+        """将列名统一为大写格式（兼容 open/high/low/close/volume 和 Open/High/Low/Close/Volume）"""
+        df = df.copy()
+        col_map = {"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"}
+        df.rename(columns={k: v for k, v in col_map.items() if k in df.columns}, inplace=True)
+        required = ["Open", "High", "Low", "Close", "Volume"]
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            raise ValueError(f"TradingEnv 缺少必要列: {missing}，当前列: {list(df.columns)}")
+        return df[required]
 
     def _compute_features(self, df: pd.DataFrame) -> np.ndarray:
         """计算技术指标特征"""

@@ -23,7 +23,7 @@ import io
 import sys
 import tempfile
 import zipfile
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
 
 
@@ -98,7 +98,7 @@ async def _download_zip(symbol: str, day: str) -> bytes:
             return await resp.read()
 
 
-def _parse_aggtrades_zip(raw: bytes) -> "pd.DataFrame":  # type: ignore[name-defined]
+def _parse_aggtrades_zip(raw: bytes) -> "pd.DataFrame":  # type: ignore[name-defined]  # noqa: F821
     """从 aggTrades zip 中解出 CSV 并解析为标准列 DataFrame。"""
     import pandas as pd
 
@@ -180,7 +180,7 @@ def test_parquet_schema(parquet_path: Path) -> bool:
     import pandas as pd
 
     if parquet_path is None or not parquet_path.exists():
-        _fail(f"Parquet 不存在, Test 3 失败")
+        _fail("Parquet 不存在, Test 3 失败")
         return False
 
     df = pd.read_parquet(parquet_path)

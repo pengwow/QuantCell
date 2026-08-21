@@ -157,6 +157,81 @@ class TrainingProgressCallback:
                     )
 
 
+class CLITrainingCallback:
+    """CLI 训练进度回调 — 在训练过程中定期打印进度信息
+
+    通过 SB3 BaseCallback 注册到 model.learn(), 在 rollout 结束时输出训练统计。
+    用法：callback = CLITrainingCallback(total_timesteps=5000)
+          model.learn(total_timesteps=5000, callback=callback)
+    """
+
+    def __init__(self, total_timesteps: int, log_interval: int = 10):
+        self.total_timesteps = total_timesteps
+        self.log_interval = log_interval
+        self.start_time = time.time()
+        self.episode_rewards: list[float] = []
+        self.num_episodes = 0
+        self._last_print_step = 0
+
+    def _make_sb3_callback(self):
+        """创建 SB3 兼容的回调适配器"""
+        from stable_baselines3.common.callbacks import BaseCallback
+
+        cli_cb = self
+
+        class _Adapter(BaseCallback):
+            def __init__(self, verbose: int = 0):
+                super().__init__(verbose)
+
+            def _on_step(self) -> bool:
+                return True
+
+            def _on_training_start(self) -> None:
+                cli_cb.start_time = time.time()
+                print(f"  [训练] 开始: {cli_cb.total_timesteps} 步")
+
+            def _on_rollout_end(self) -> None:
+                """每次 rollout 结束时打印进度"""
+                # 从 SB3 模型获取最近的 episode 奖励
+                if self.model.ep_info_buffer is not None and len(self.model.ep_info_buffer) > 0:
+                    for info in self.model.ep_info_buffer:
+                        if "r" in info:
+                            cli_cb.episode_rewards.append(float(info["r"]))
+
+                cli_cb.num_episodes = len(cli_cb.episode_rewards)
+                timesteps_done = self.num_timesteps
+
+                # 控制输出频率: 每约 5% 进度打印一次
+                if (
+                    timesteps_done - cli_cb._last_print_step >= max(cli_cb.total_timesteps // 20, 100)
+                    or timesteps_done >= cli_cb.total_timesteps
+                ):
+                    cli_cb._last_print_step = timesteps_done
+                    elapsed = time.time() - cli_cb.start_time
+                    # SB3 实际步数可能超过 total_timesteps（rollout 对齐），上限 100%
+                    pct = min((timesteps_done / cli_cb.total_timesteps) * 100, 100.0)
+                    mean_r = float(np.mean(cli_cb.episode_rewards[-10:])) if cli_cb.episode_rewards else 0.0
+                    eta = (elapsed / max(timesteps_done, 1)) * max(cli_cb.total_timesteps - timesteps_done, 0)
+
+                    filled = min(int(20 * timesteps_done / cli_cb.total_timesteps), 20)
+                    bar = "█" * filled + "░" * (20 - filled)
+
+                    print(
+                        f"  [{bar}] {pct:5.1f}% | "
+                        f"步数: {timesteps_done}/{cli_cb.total_timesteps} | "
+                        f"回合: {cli_cb.num_episodes} | "
+                        f"平均奖励: {mean_r:+.4f} | "
+                        f"耗时: {elapsed:.1f}s | "
+                        f"预计剩余: {eta:.1f}s"
+                    )
+
+            def _on_training_end(self) -> None:
+                elapsed = time.time() - cli_cb.start_time
+                print(f"  [训练] 完成: {cli_cb.total_timesteps} 步, 耗时 {elapsed:.1f}s")
+
+        return _Adapter(verbose=0)
+
+
 class TradingEnvWrapper(gym.Env):
     """将 axon_quant TradingEnv 包装为标准 Gymnasium 环境
 
@@ -251,6 +326,7 @@ class RLService:
         verbose: int = 1,
         callback=None,
         progress_callback=None,
+        show_progress: bool = False,
     ) -> dict:
         """内部训练方法（被 train 和 train_stream 调用）
 
@@ -260,6 +336,7 @@ class RLService:
             verbose: SB3 日志级别
             callback: SB3 回调对象
             progress_callback: 进度回调函数 (dict) -> None
+            show_progress: 是否在 CLI 中实时显示训练进度
 
         Returns:
             训练结果 dict
@@ -308,9 +385,19 @@ class RLService:
             verbose=verbose,
             device="auto",
         )
+
+        # 组装回调: CLI 进度 + 自定义 callback
+        callbacks = []
+        if show_progress:
+            cli_cb = CLITrainingCallback(total_timesteps=config.timesteps)
+            callbacks.append(cli_cb._make_sb3_callback())
+        if callback:
+            callbacks.append(callback)
+        learn_callback = callbacks or None
+
         model.learn(
             total_timesteps=config.timesteps,
-            callback=callback,
+            callback=learn_callback,
             progress_bar=False,
         )
         training_time = time.time() - start_time
@@ -339,17 +426,18 @@ class RLService:
         logger.info(f"训练完成: {model_path}, 耗时 {training_time:.1f}s")
         return result
 
-    def train(self, config: Any, reward_fn=None) -> dict:
+    def train(self, config: Any, reward_fn=None, show_progress: bool = False) -> dict:
         """训练 RL 策略
 
         Args:
             config: RLTrainConfig (symbol, algorithm, timesteps, etc.)
             reward_fn: 自定义奖励函数，签名 (prev_portfolio, current_portfolio, action, step, info) -> float
+            show_progress: 是否在 CLI 中实时显示训练进度
 
         Returns:
             训练结果 dict
         """
-        return self._train_internal(config, reward_fn=reward_fn, verbose=1)
+        return self._train_internal(config, reward_fn=reward_fn, verbose=1, show_progress=show_progress)
 
     def train_stream(self, config: Any, progress_queue: Queue, reward_fn=None) -> dict:
         """流式训练 RL 策略（通过队列推送进度）

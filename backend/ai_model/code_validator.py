@@ -397,14 +397,26 @@ class CodeValidator:
                 # 使用AST解析器查找导入
                 imports = self.ast_parser.find_imports(tree)
 
-                # 检查是否有策略相关的导入
-                strategy_imports = [
-                    "strategy.core",
+                # 同时检查模块路径和导入名称中的策略相关关键词
+                strategy_keywords = [
+                    "strategy",
                     "axon_quant",
                     "backtrader",
-                    "Strategy",
+                    "trading",
+                    "quant",
                 ]
-                has_strategy_import = any(any(s in imp for s in strategy_imports) for imp in imports)
+
+                # 收集所有需要检查的字符串(模块路径 + 导入名称)
+                import_strings = list(imports)
+                # 额外提取 from-import 的名称, 用于识别 Strategy 等类名导入
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.ImportFrom) and node.names:
+                        import_strings.extend(alias.name for alias in node.names)
+
+                # 大小写不敏感匹配
+                has_strategy_import = any(
+                    any(kw.lower() in imp.lower() for kw in strategy_keywords) for imp in import_strings
+                )
 
                 if not has_strategy_import:
                     result["warnings"].append(

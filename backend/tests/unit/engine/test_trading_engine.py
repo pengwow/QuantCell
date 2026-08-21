@@ -18,10 +18,10 @@ def _reset_engine():
 
 def _patch_engine_deps():
     """返回 mock 上下文：BinanceAdapter + ExchangeConfig + get_risk_service"""
-    # 注意：BinanceAdapter 和 ExchangeConfig 是在 exchange 属性内部延迟导入的，
-    # 所以需要 patch axon_bridge.exchange 模块，而不是 engine.trading_engine
+    # 注意：exchange 属性内部延迟 from axon_bridge import BinanceAdapter, ExchangeConfig
+    # 需要 patch axon_bridge 顶层名字 (不是 axon_bridge.exchange 子模块)
     return patch.multiple(
-        "axon_bridge.exchange",
+        "axon_bridge",
         BinanceAdapter=MagicMock(return_value=MagicMock()),
         ExchangeConfig=MagicMock(return_value=MagicMock()),
     )

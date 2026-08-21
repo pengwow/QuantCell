@@ -22,7 +22,7 @@ console = Console()
 
 
 def _service() -> CredentialsService:
-    db = os.environ.get("QC_CREDENTIALS_DB", "backend/data/credentials.db")
+    db = os.environ.get("QC_CREDENTIALS_DB", "data/credentials.db")
     return CredentialsService(db_path=db)
 
 

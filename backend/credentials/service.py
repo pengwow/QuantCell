@@ -12,7 +12,7 @@ from credentials.account import Account
 from credentials.crypto import decrypt_secret, encrypt_secret, get_machine_fingerprint
 from credentials.store import CredentialsStore
 
-_DEFAULT_DB_PATH = "backend/data/credentials.db"
+_DEFAULT_DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "credentials.db")
 
 
 class CredentialsService:
