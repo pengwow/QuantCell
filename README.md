@@ -17,7 +17,7 @@ QuantCell 是一款 AI 原生的量化交易系统，以 `axon-quant`（Rust 核
 - **智能 Agent**：具备长期记忆的 AI Agent，可进行多轮对话与操作编排
 
 ### ⚡ Axon-Quant 高性能引擎
-- **Rust 核心驱动**：底层采用 `axon-quant 0.10.0`，事件驱动架构
+- **Rust 核心驱动**：底层采用 `axon-quant 0.11.1`，事件驱动架构
 - **多数据源回测**：支持 K 线、Tick、衍生数据（Deriv）等多类型数据源
 - **Walk-Forward 验证**：滚动窗口回测，防止过拟合
 - **HPO 超参优化**：内置超参数优化框架
@@ -62,7 +62,7 @@ QuantCell 是一款 AI 原生的量化交易系统，以 `axon-quant`（Rust 核
                          │ HTTP / WebSocket
 ┌────────────────────────▼────────────────────────────────┐
 │                  API Layer (FastAPI)                      │
-│    JWT 认证 · 路由分发 · 异常处理 · CORS                   │
+│    JWT 认证 · 路由分发 · 异常处理 · CORS · 生命周期       │
 └───────┬────────────────┬────────────────┬───────────────┘
         │                │                │
         ▼                ▼                ▼
@@ -72,7 +72,7 @@ QuantCell 是一款 AI 原生的量化交易系统，以 `axon-quant`（Rust 核
        │                │                │
        ▼                ▼                ▼
 ┌─────────────────────────────────────────────────────────┐
-│          TradingEngine (核心单例) · axon-quant 0.10.0     │
+│          TradingEngine (核心单例) · axon-quant 0.11.1     │
 │  Exchange Adapter · Risk Engine · OMS · Plugin Bus        │
 └─────────────────────────────────────────────────────────┘
        │                │                │
@@ -81,6 +81,12 @@ QuantCell 是一款 AI 原生的量化交易系统，以 `axon-quant`（Rust 核
 │  Binance     │ │    OKX       │ │   DuckDB     │
 │  (Paper/Live) │ │   (Live)     │ │  (Parquet)   │
 └──────────────┘ └──────────────┘ └──────────────┘
+       │
+       ▼
+┌─────────────────────────────────────────────────────────┐
+│              Worker 系统 · 实盘执行引擎                    │
+│  StrategyManager · RiskMonitor · EnsembleWorker            │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ## 技术栈
@@ -89,7 +95,7 @@ QuantCell 是一款 AI 原生的量化交易系统，以 `axon-quant`（Rust 核
 |------|------|------|
 | 语言 | Python 3.14 | 后端主语言 |
 | 语言 | TypeScript | 前端主语言 |
-| 交易引擎 | axon-quant 0.10.0 | Rust 核心，事件驱动 |
+| 交易引擎 | axon-quant 0.11.1 | Rust 核心，事件驱动 |
 | Web 框架 | FastAPI 0.136 | 异步 API 服务 |
 | 数据库 | DuckDB + SQLAlchemy | 列式分析 + 关系存储 |
 | 包管理 | uv / bun | 后端 / 前端 |
@@ -100,6 +106,7 @@ QuantCell 是一款 AI 原生的量化交易系统，以 `axon-quant`（Rust 核
 | 任务调度 | APScheduler | 定时任务 |
 | 数据处理 | Pandas / PyArrow | 数据读写 |
 | 行情数据 | python-binance / ccxt | 交易所 SDK |
+| 代码规范 | ruff + black | 格式化与 lint |
 
 ## 项目结构
 
@@ -109,7 +116,9 @@ QuantCell/
 │   ├── main.py                       # FastAPI 入口
 │   ├── pyproject.toml                # 项目依赖 (uv 管理)
 │   │   ├── agent/                    # AI Agent 模块
+│   │   │   ├── api/                  #   Agent API 路由
 │   │   │   ├── core/                 #   DecisionAgent / InteractionAgent
+│   │   │   ├── providers/            #   LLM 提供商适配
 │   │   │   ├── skills/               #   Agent 技能系统
 │   │   │   ├── tools/                #   交易工具集
 │   │   │   └── session/              #   会话管理
@@ -120,13 +129,12 @@ QuantCell/
 │   │   ├── api/                      # API 路由
 │   │   │   └── v2/                   #   V2 API (模型/集成/风控/RL)
 │   │   ├── axon_bridge/              # Axon-Quant 桥接层
-│   │   │   ├── _async.py             #   异步桥接
-│   │   │   ├── _credentials.py       #   凭证桥接
-│   │   │   ├── data/ oms/ risk/ rl/  #   领域桥接
-│   │   │   └── ensemble/ inference/  #   高级能力桥接
 │   │   ├── backtest/                 # 回测系统
-│   │   │   ├── engines/              #   回测引擎
-│   │   │   ├── data_adapters/        #   数据源适配器 (K线/Tick/Deriv)
+│   │   │   ├── adapters/             #   适配器 (axon/data/result/strategy)
+│   │   │   ├── config/               #   回测配置
+│   │   │   ├── data_adapters/        #   数据源适配器 (K线/Tick/Deriv/OrderBook)
+│   │   │   ├── engines/              #   回测引擎 (base/event)
+│   │   │   ├── strategies/          #   回测策略适配
 │   │   │   ├── hpo_runner.py         #   超参优化
 │   │   │   ├── walk_forward.py       #   Walk-Forward 验证
 │   │   │   └── baseline.py           #   基准回测
@@ -135,27 +143,63 @@ QuantCell/
 │   │   │   ├── strategy.py           #   策略命令
 │   │   │   ├── backtest.py           #   回测命令
 │   │   │   ├── rl.py                 #   RL 命令
+│   │   │   ├── data.py               #   数据命令
+│   │   │   ├── market.py             #   行情命令
+│   │   │   ├── worker.py             #   Worker 命令
+│   │   │   ├── agent.py              #   Agent 命令
+│   │   │   ├── migrate.py            #   数据库迁移
 │   │   │   └── plugin.py             #   插件命令
 │   │   ├── collector/                # 数据采集
+│   │   │   ├── api/                  #   采集 API 路由
+│   │   │   ├── db/                   #   采集数据库
+│   │   │   ├── schemas/              #   采集数据结构
+│   │   │   ├── services/             #   采集服务 (kline/deriv/archive/quality)
+│   │   │   └── utils/                #   采集工具
+│   │   ├── common/                   # 公共模块
+│   │   │   ├── notifications/        #   通知系统
+│   │   │   └── schemas.py            #   公共 Schema
+│   │   ├── core/                     # 核心功能
+│   │   │   ├── lifespan.py           #   应用生命周期
+│   │   │   ├── port_manager.py       #   端口管理
+│   │   │   └── scheduler.py          #   任务调度
 │   │   ├── credentials/              # 凭证管理 (JWT/加密存储)
 │   │   ├── engine/                   # 交易引擎封装
+│   │   │   ├── routes.py             #   引擎 API
+│   │   │   └── deployer.py           #   策略部署
 │   │   ├── exchange/                 # 交易所接口
-│   │   │   ├── binance/              #   Binance (实盘 + 纸面)
+│   │   │   ├── binance/              #   Binance (实盘 + 纸面 + 归档)
 │   │   │   └── okx/                  #   OKX
+│   │   ├── factor/                   # 因子分析
+│   │   ├── indicators/              # 指标计算
+│   │   ├── model/                    # 模型服务
 │   │   ├── plugins/                  # 插件系统
+│   │   ├── quality/                  # 数据质量检测
+│   │   ├── realtime/                 # 实时数据
 │   │   ├── rl/                       # 强化学习
 │   │   │   ├── env.py                #   Gym 环境
 │   │   │   ├── hpo.py                #   超参优化
 │   │   │   ├── walk_forward_rl.py    #   滚动验证
-│   │   │   └── rewards.py           #   奖励函数
-│   │   ├── strategy/                 # 策略系统
-│   │   │   ├── templates/            #   内置策略模板
-│   │   │   └── core/                 #   核心组件
-│   │   ├── realtime/                 # 实时数据
-│   │   ├── share/                    # 分享系统
+│   │   │   └── rewards.py            #   奖励函数
 │   │   ├── services/                 # 业务服务层
+│   │   ├── settings/                 # 设置管理
+│   │   ├── share/                    # 分享系统
+│   │   ├── strategy/                 # 策略系统
+│   │   │   ├── core/                 #   核心组件 (memory_pool/resilience)
+│   │   │   ├── templates/            #   内置策略模板
+│   │   │   └── models.py             #   策略 ORM 模型
+│   │   ├── websocket/                # WebSocket 路由
+│   │   ├── worker/                   # Worker 系统 (实盘执行)
+│   │   │   ├── core_service.py       #   核心服务
+│   │   │   ├── strategy_manager.py   #   策略管理
+│   │   │   ├── risk_monitor.py       #   风控监控
+│   │   │   ├── ensemble_worker.py    #   集成 Worker
+│   │   │   └── trading_system.py     #   交易系统
 │   │   ├── tests/                    # 测试代码
 │   │   └── utils/                    # 工具函数
+│   │       ├── timestamp_utils.py    #   时间戳工具
+│   │       ├── parquet_utils.py      #   Parquet 工具
+│   │       ├── logger.py             #   日志器
+│   │       └── strategy_ast_parser.py #  策略 AST 解析
 ├── frontend/                         # 前端主目录
 │   ├── src/
 │   │   ├── pages/                    # 页面组件
@@ -349,6 +393,9 @@ quantcell plugin install --zip my-plugin.zip
 | 拉行情 | `quantcell market klines --symbol BTCUSDT` |
 | 下载数据 | `quantcell data download -s BTCUSDT -i 1d` |
 | AI 对话 | `quantcell agent chat send "Hello"` |
+| 数据完整性检查 | `quantcell data integrity -s BTCUSDT -i 1h` |
+| 查看账户 | `quantcell account list` |
+| 推送通知 | `quantcell news fetch` |
 
 ## API 概览
 
@@ -369,6 +416,13 @@ quantcell plugin install --zip my-plugin.zip
 | `/api/agent` | AI Agent 对话 |
 | `/api/plugins` | 插件管理 |
 | `/api/share` | 分享系统 |
+| `/api/factor` | 因子分析 |
+| `/api/indicators` | 指标计算 |
+| `/api/model` | 模型服务 |
+| `/api/settings` | 系统设置 |
+| `/api/logs` | 日志查询 |
+| `/api/notifications` | 通知服务 |
+| `/api/engine` | 交易引擎 |
 | `/api/v2/models` | V2 模型管理 |
 | `/api/v2/ensemble` | 集成模型 |
 | `/api/v2/risk` | 风险指标 |
@@ -412,6 +466,21 @@ quantcell tests main --integration
 2. 在 `backend/cli/__init__.py` 注册子命令
 3. 在 `pyproject.toml` 的 `[project.scripts]` 无需修改
 
+### 代码规范
+
+项目使用 ruff + black 进行代码格式化和 lint：
+
+```bash
+# 检查
+ruff check backend/
+
+# 修复
+ruff check backend/ --fix
+
+# 格式化
+black backend/
+```
+
 ## 常见问题
 
 ### Q: 启动时提示端口被占用？
@@ -431,6 +500,15 @@ uvicorn main:app --debug
 # CLI
 LOG_LEVEL=DEBUG quantcell backtest run ...
 ```
+
+### Q: 时间戳单位不一致怎么办？
+`utils/timestamp_utils.py` 提供统一的时间戳处理工具：
+- `convert_to_datetime()` — 自动检测 µs/ms/ns 单位
+- `normalize_timestamp_column()` — 统一时间列名为 `timestamp`
+- `validate_timestamp_column()` — 校验时间列完整性
+
+### Q: Parquet 文件损坏如何恢复？
+系统会自动将损坏的 `.parquet` 文件归档为 `.bak` 并重新下载。手动恢复可查看 `quantcell data integrity` 命令。
 
 ## 贡献指南
 
