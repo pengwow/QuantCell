@@ -475,8 +475,8 @@ class BacktestDataProvider:
 
         df = pd.concat(frames, ignore_index=True)
 
-        # 时间戳为毫秒，转换为 datetime 索引
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+        # 时间戳自动检测单位（fundingRate为ms，kline为µs，统一处理）
+        df["timestamp"] = convert_to_datetime(df["timestamp"])
         df = df.set_index("timestamp").sort_index()
 
         # 时间范围筛选

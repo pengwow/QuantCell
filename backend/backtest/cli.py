@@ -423,6 +423,8 @@ def _generate_chart(results: dict, console: Console) -> str | None:
         import numpy as np
         import pandas as pd
 
+        from utils.timestamp_utils import convert_to_datetime
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
@@ -452,9 +454,14 @@ def _generate_chart(results: dict, console: Console) -> str | None:
         equity = eq_data
         timestamps = np.arange(len(equity))
 
-    # 转换时间戳为日期
+    # 转换时间戳为日期（自动检测单位，兼容µs/ms/ns）
+    ts_dates = convert_to_datetime(timestamps)
+    # 检测转换结果是否合理（年份必须在1990-2100之间）
     try:
-        ts_dates = pd.to_datetime(timestamps, unit="ns")
+        if len(ts_dates) > 0 and hasattr(ts_dates[0], "year"):
+            year = ts_dates[0].year
+            if year < 1990 or year > 2100:
+                ts_dates = pd.RangeIndex(len(equity))
     except Exception:
         ts_dates = pd.RangeIndex(len(equity))
 

@@ -594,3 +594,137 @@ def _is_valid_timestamp(value):
         return True
     except ValueError, TypeError:
         return False
+
+
+# ============================================================
+# 时间列名检测与归一化（单一事实来源，消除多处重复定义）
+# ============================================================
+
+# 常见时间列名候选（覆盖K线/归档/衍生等所有数据类型）
+TIME_COLUMN_CANDIDATES = [
+    "timestamp",
+    "date",
+    "transact_time",
+    "fundingTime",
+    "time",
+    "open_time",
+    "close_time",
+    "T",
+]
+
+
+def detect_time_column(df) -> str | None:
+    """检测 DataFrame 中的时间列名。
+
+    按优先级检查常见时间列名，返回第一个匹配的列名。
+    若未找到任何时间列，返回 None。
+
+    Args:
+        df: pd.DataFrame 待检测的 DataFrame
+
+    Returns:
+        str | None: 检测到的时间列名，或 None
+    """
+    for col in TIME_COLUMN_CANDIDATES:
+        if col in df.columns:
+            return col
+    return None
+
+
+def normalize_timestamp_column(df, drop_old: bool = True, on_missing: str = "error"):
+    """将任意时间列归一化为 ``timestamp`` 列。
+
+    若已有 ``timestamp`` 列则直接返回；否则检测候选列并重命名为
+    ``timestamp``。``drop_old`` 控制是否删除旧列（防止 ``concat`` 歧义）。
+
+    Args:
+        df: pd.DataFrame 待归一化的 DataFrame
+        drop_old: 是否删除旧时间列（默认 True，避免 concat 歧义）
+        on_missing: 未检测到时间列时的处理策略
+            - ``"error"`` (默认): 记录 WARNING 日志，返回 ``None``。
+              用于 K线/trades 等**必须**有时间列的场景。
+            - ``"warn"``: 记录 WARNING 日志，返回原 DataFrame（不修改）。
+              用于期望有时间列但可容错的场景，调用方需自行校验。
+            - ``"pass"``: 静默返回原 DataFrame。
+              用于横截面/快照等无需时间列的场景。
+
+    Returns:
+        pd.DataFrame | None: 归一化后的 DataFrame；当 ``on_missing="error"``
+            且未检测到时间列时返回 ``None``。
+
+    Raises:
+        ValueError: 当 ``on_missing`` 不是合法值时。
+
+    Examples:
+        >>> import pandas as pd
+        >>> df = pd.DataFrame({"transact_time": [123], "price": [1.0]})
+        >>> normalize_timestamp_column(df)
+           timestamp  price
+        0        123    1.0
+
+        # 无时间列时不同策略
+        >>> df_no_ts = pd.DataFrame({"price": [1.0]})
+        >>> normalize_timestamp_column(df_no_ts, on_missing="pass")
+           price
+        0    1.0
+        >>> normalize_timestamp_column(df_no_ts, on_missing="error") is None
+        True
+    """
+    valid_strategies = ("error", "warn", "pass")
+    if on_missing not in valid_strategies:
+        msg = f"on_missing 必须是 {valid_strategies} 之一，实际值: {on_missing!r}"
+        raise ValueError(msg)
+
+    if df is None or (hasattr(df, "empty") and df.empty):
+        return df
+
+    if "timestamp" in df.columns:
+        return df
+
+    time_col = detect_time_column(df)
+    if not time_col:
+        if on_missing == "error":
+            logger.warning(f"无法检测到时间列，可用列: {list(df.columns)}")
+            return None
+        elif on_missing == "warn":
+            logger.warning(f"无法检测到时间列，保持原结构不变。可用列: {list(df.columns)}")
+            return df
+        else:  # "pass"
+            return df
+
+    if drop_old:
+        df = df.copy()
+        df["timestamp"] = df[time_col]
+        df = df.drop(columns=[time_col])
+    else:
+        df = df.rename(columns={time_col: "timestamp"})
+
+    return df
+
+
+def validate_timestamp_column(df, source: str = "") -> tuple[bool, str]:
+    """校验 DataFrame 是否包含有效的 ``timestamp`` 列。
+
+    Args:
+        df: pd.DataFrame 待校验的 DataFrame
+        source: 数据来源标识（用于日志/错误信息）
+
+    Returns:
+        tuple[bool, str]: (是否通过, 描述信息)
+            - ``(True, "OK")``: 存在 timestamp 列且有效
+            - ``(False, reason)``: 缺失或全空，reason 说明原因
+    """
+    prefix = f"[{source}] " if source else ""
+
+    if df is None:
+        return False, f"{prefix}DataFrame 为 None"
+    if hasattr(df, "empty") and df.empty:
+        return False, f"{prefix}DataFrame 为空"
+    if "timestamp" not in df.columns:
+        return False, f"{prefix}缺少 timestamp 列，可用列: {list(df.columns)}"
+
+    null_count = df["timestamp"].isna().sum()
+    if null_count == len(df):
+        return False, f"{prefix}timestamp 列全部为 NaN"
+
+    return True, f"{prefix}OK ({len(df)} 行, {null_count} 个空值)"

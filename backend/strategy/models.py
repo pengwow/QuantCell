@@ -58,3 +58,6 @@ class Strategy(Base):
             return json.loads(self.parameters) if self.parameters else []
         except json.JSONDecodeError:
             return []
+
+    def set_parameters_list(self, params: list[dict[str, Any]]):
+        self.parameters = json.dumps(params)

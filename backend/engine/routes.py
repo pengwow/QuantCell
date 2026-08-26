@@ -14,6 +14,7 @@ from common.schemas import ApiResponse
 from strategy.base import StrategyConfig
 from strategy.loader import StrategyLoader
 from utils.auth import jwt_auth_required
+from utils.timestamp_utils import convert_to_datetime
 
 router = APIRouter(prefix="/api/engine", tags=["Engine"])
 
@@ -178,7 +179,7 @@ async def run_backtest(request: Request, req: BacktestRequest) -> ApiResponse:
     # 若有 timestamp 列，尝试设为索引以兼容 BacktestLoop 的 DatetimeIndex 处理
     if "timestamp" in df.columns:
         with contextlib.suppress(Exception):
-            df.index = pd.to_datetime(df["timestamp"], unit="ns", utc=True)
+            df.index = convert_to_datetime(df["timestamp"])
 
     if len(df) == 0:
         raise HTTPException(status_code=400, detail="数据为空，无法回测")

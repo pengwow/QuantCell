@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 from utils.logger import LogType, get_logger
+from utils.timestamp_utils import convert_to_datetime
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -297,9 +298,9 @@ class KlineHealthChecker:
             result["status"] = "fail"
             return result
 
-        # 数据的实际起止时间
-        data_start = pd.to_datetime(df["timestamp"], unit="ms", errors="coerce").min()
-        data_end = pd.to_datetime(df["timestamp"], unit="ms", errors="coerce").max()
+        # 数据的实际起止时间（自动检测时间戳单位）
+        data_start = convert_to_datetime(df["timestamp"]).min()
+        data_end = convert_to_datetime(df["timestamp"]).max()
         result["data_start_date"] = str(data_start)
         result["data_end_date"] = str(data_end)
 
