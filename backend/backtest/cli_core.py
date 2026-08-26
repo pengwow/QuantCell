@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from utils.logger import LogType, get_logger
+from utils.timestamp_utils import convert_to_datetime
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -407,8 +408,8 @@ class CLICore:
                     klines,
                     columns=["timestamp", "Open", "High", "Low", "Close", "Volume"],
                 )
-                # 时间戳转换 - 数据库是16位微秒时间戳，直接转为datetime保持精度
-                df["timestamp"] = pd.to_datetime(df["timestamp"].astype(float), unit="us")
+                # 时间戳转换 - 自动检测单位（数据库可能为µs/ms）
+                df["timestamp"] = convert_to_datetime(df["timestamp"].astype(float))
                 df.set_index("timestamp", inplace=True)
                 return df
             else:

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from utils.logger import LogType, get_logger
+from utils.timestamp_utils import normalize_timestamp_column
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -108,7 +109,7 @@ def append_to_parquet(df: pd.DataFrame, file_path: Path, compression: str = "sna
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
         # 先将新数据的时间列归一化为 timestamp
-        df = _normalize_timestamp_if_missing(df)
+        df = normalize_timestamp_column(df, on_missing="warn")
 
         if file_path.exists():
             # 读取现有数据
@@ -116,7 +117,7 @@ def append_to_parquet(df: pd.DataFrame, file_path: Path, compression: str = "sna
 
             if not existing_df.empty:
                 # 历史数据也归一化时间列
-                existing_df = _normalize_timestamp_if_missing(existing_df)
+                existing_df = normalize_timestamp_column(existing_df, on_missing="warn")
 
                 # 合并数据
                 combined_df = pd.concat([existing_df, df], ignore_index=True)
@@ -135,38 +136,6 @@ def append_to_parquet(df: pd.DataFrame, file_path: Path, compression: str = "sna
     except Exception as e:
         logger.error(f"追加数据到 Parquet 失败: {e}")
         return False
-
-
-# 常见时间列名候选（与 exchange.base 保持一致）
-_TIME_COLUMN_CANDIDATES = [
-    "timestamp",
-    "date",
-    "transact_time",
-    "fundingTime",
-    "time",
-    "open_time",
-    "close_time",
-    "T",
-]
-
-
-def _normalize_timestamp_if_missing(df: pd.DataFrame) -> pd.DataFrame:
-    """将候选时间列归一化为 ``timestamp``。
-
-    若已有 ``timestamp`` 列则原样返回；否则检测候选列并重命名/重建为
-    ``timestamp``（同时移除旧列以避免 ``concat`` 歧义）。
-    """
-    if df is None or df.empty or "timestamp" in df.columns:
-        return df
-    for col in _TIME_COLUMN_CANDIDATES:
-        if col in df.columns and col != "timestamp":
-            df = df.copy()
-            df["timestamp"] = df[col]
-            df = df.drop(columns=[col])
-            logger.info(f"将历史时间列 '{col}' 归一化为 'timestamp'")
-            return df
-    # 找不到时间列，返回原 DataFrame（由调用方决定是否继续）
-    return df
 
 
 def _optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:

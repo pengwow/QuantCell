@@ -428,7 +428,8 @@ def _init_strategies():
                     skipped += 1
                     continue
 
-                strategy_info = strategy_service._parse_strategy_file(file_path)
+                content = file_path.read_text(encoding="utf-8")
+                strategy_info = strategy_service._parse_strategy_file(file_path.stem, content)
                 if not strategy_info:
                     failed += 1
                     logger.warning(f"策略解析失败: {file_path.name}")

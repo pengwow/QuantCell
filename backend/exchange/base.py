@@ -24,7 +24,13 @@ import pandas as pd
 from joblib import Parallel, delayed
 
 from utils.logger import LogType, get_logger
-from utils.timestamp_utils import convert_to_datetime
+from utils.timestamp_utils import (
+    TIME_COLUMN_CANDIDATES,
+    convert_to_datetime,
+    detect_time_column,
+    normalize_timestamp_column,
+    validate_timestamp_column,
+)
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -274,48 +280,6 @@ class BaseCollector(abc.ABC):
         }
         return interval_seconds_map.get(self.interval, 86400)
 
-    # 常见时间列名映射：不同数据类型使用不同的时间列
-    _TIME_COLUMN_CANDIDATES = [
-        "timestamp",
-        "date",
-        "transact_time",
-        "fundingTime",
-        "time",
-        "open_time",
-        "close_time",
-        "T",
-    ]
-
-    @staticmethod
-    def _detect_time_column(df: pd.DataFrame) -> str | None:
-        """检测 DataFrame 中的时间列名。
-
-        按优先级检查常见时间列名，返回第一个匹配的列名。
-        若未找到任何时间列，返回 None。
-        """
-        for col in BaseCollector._TIME_COLUMN_CANDIDATES:
-            if col in df.columns:
-                return col
-        return None
-
-    @staticmethod
-    def _normalize_timestamp_column(df: pd.DataFrame) -> pd.DataFrame:
-        """将任意时间列归一化为 'timestamp' 列。
-
-        如果数据已有 'timestamp' 列则直接返回；
-        否则将检测到的时间列重命名为 'timestamp'。
-        如果未检测到任何时间列，则新增全 0 的 timestamp 列。
-        """
-        if "timestamp" in df.columns:
-            return df
-        time_col = BaseCollector._detect_time_column(df)
-        if time_col:
-            return df.rename(columns={time_col: "timestamp"})
-        else:
-            df = df.copy()
-            df["timestamp"] = 0
-            return df
-
     def _simple_collector(self, symbol: str, progress_callback=None):
         """简单收集器，用于单个标的的数据收集"""
         self.sleep()
@@ -329,7 +293,7 @@ class BaseCollector(abc.ABC):
                 _old_df = pd.read_csv(instrument_path)
                 if not _old_df.empty:
                     # 使用统一函数检测时间列（支持 transact_time, fundingTime 等）
-                    time_col = self._detect_time_column(_old_df)
+                    time_col = detect_time_column(_old_df)
                     if time_col and time_col != "timestamp":
                         _old_df = _old_df.rename(columns={time_col: "timestamp"})
                     if "timestamp" in _old_df.columns:
@@ -391,8 +355,12 @@ class BaseCollector(abc.ABC):
         instrument_path = self.save_dir.joinpath(f"{symbol}.csv")
         df["symbol"] = symbol
 
-        # 归一化时间列为 timestamp
-        df = self._normalize_timestamp_column(df)
+        # 归一化时间列为 timestamp（on_missing="error" 默认值）
+        df = normalize_timestamp_column(df)
+        ok, reason = validate_timestamp_column(df, source=symbol)
+        if not ok:
+            logger.error(f"{symbol} 数据校验失败: {reason}，放弃保存")
+            return
         df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
         df = df.dropna(subset=["timestamp"])
         df = df.drop_duplicates(subset=["timestamp"], keep="last")
@@ -400,7 +368,7 @@ class BaseCollector(abc.ABC):
 
         if self.mode != "full" and instrument_path.exists():
             _old_df = pd.read_csv(instrument_path)
-            _old_df = self._normalize_timestamp_column(_old_df)
+            _old_df = normalize_timestamp_column(_old_df)
             if "timestamp" in _old_df.columns:
                 _old_df["timestamp"] = pd.to_numeric(_old_df["timestamp"], errors="coerce")
                 _old_df = _old_df.dropna(subset=["timestamp"])

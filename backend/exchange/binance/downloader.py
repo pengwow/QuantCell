@@ -18,6 +18,7 @@ import requests
 
 from utils.logger import LogType, get_logger
 from utils.parquet_utils import append_to_parquet
+from utils.timestamp_utils import normalize_timestamp_column, validate_timestamp_column
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -290,7 +291,7 @@ class BinanceDownloader(BaseCollector):
                 _old_df = pd.read_parquet(instrument_path)
                 if not _old_df.empty:
                     # 统一函数检测并归一化时间列（移除旧列，避免 concat 歧义）
-                    _old_df = self._normalize_timestamp_col_inplace(_old_df)
+                    _old_df = normalize_timestamp_column(_old_df)
                     if _old_df is not None and "timestamp" in _old_df.columns:
                         _old_df["timestamp"] = pd.to_numeric(_old_df["timestamp"], errors="coerce")
                         existing_timestamps = _old_df["timestamp"].dropna()
@@ -335,48 +336,6 @@ class BinanceDownloader(BaseCollector):
 
         return self.NORMAL_FLAG
 
-    @staticmethod
-    def _ensure_timestamp_col(df: pd.DataFrame, source: str) -> pd.DataFrame | None:
-        """确保 DataFrame 存在 ``timestamp`` 列。
-
-        - 若已存在 ``timestamp`` 列，直接返回原 DataFrame；
-        - 否则尝试通过 ``BaseCollector._detect_time_column`` 检测并归一化；
-        - 归一化时会移除旧列，避免 ``concat`` 产生 ``timestamp_x/timestamp_y`` 等歧义；
-        - 若仍无法获得 ``timestamp``，记录错误并返回 ``None``（调用方需放弃处理）。
-        """
-        if df is None or df.empty:
-            return df
-        if "timestamp" in df.columns:
-            return df
-        time_col = BaseCollector._detect_time_column(df)
-        if time_col and time_col != "timestamp":
-            df = df.rename(columns={time_col: "timestamp"})
-            if "timestamp" in df.columns:
-                return df
-        logger.warning(f"[{source}] 无法检测到时间列，可用列: {list(df.columns)}")
-        return None
-
-    @staticmethod
-    def _normalize_timestamp_col_inplace(df: pd.DataFrame) -> pd.DataFrame | None:
-        """归一化时间列：将任何候选时间列重命名为 ``timestamp`` 并移除旧列。
-
-        解决 ``concat`` 时出现 ``timestamp_x/timestamp_y`` 的列歧义问题。
-        若完全找不到时间列，返回 ``None`` 表示历史文件不可用。
-        """
-        if df is None or df.empty:
-            return df
-        if "timestamp" in df.columns:
-            return df
-        time_col = BaseCollector._detect_time_column(df)
-        if not time_col or time_col == "timestamp":
-            logger.warning(f"无法检测到时间列，可用列: {list(df.columns)}")
-            return None
-        # 构造新的 timestamp 列，再删除旧列，确保列名唯一
-        df = df.copy()
-        df["timestamp"] = df[time_col]
-        df = df.drop(columns=[time_col])
-        return df
-
     def save_instrument(self, symbol, df: pd.DataFrame):
         """保存标的数据到 Parquet 文件"""
         if df is None or df.empty:
@@ -391,10 +350,11 @@ class BinanceDownloader(BaseCollector):
         # 例如: backend/data/source/crypto/spot/klines/15m/BTCUSDT.parquet ✅
         df["symbol"] = symbol
 
-        # 统一列名：确保存在 timestamp 列（会移除旧时间列，避免 concat 歧义）
-        df = self._normalize_timestamp_col_inplace(df)
-        if df is None:
-            logger.error(f"{symbol} 下载数据无时间列，放弃保存")
+        # 统一列名：确保存在 timestamp 列（on_missing="error" 默认值，K线必须有时间列）
+        df = normalize_timestamp_column(df)
+        ok, reason = validate_timestamp_column(df, source=symbol)
+        if not ok:
+            logger.error(f"{symbol} 数据校验失败: {reason}，放弃保存")
             return
         df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
         df = df.dropna(subset=["timestamp"])
@@ -404,7 +364,7 @@ class BinanceDownloader(BaseCollector):
         if self.mode != "full" and instrument_path.exists():
             try:
                 _old_df = pd.read_parquet(instrument_path)
-                _old_df = self._normalize_timestamp_col_inplace(_old_df)
+                _old_df = normalize_timestamp_column(_old_df)
                 if _old_df is None:
                     # 历史数据无法归一化，归档损坏文件，让新数据直接写入
                     self._archive_corrupted_file(instrument_path, symbol)

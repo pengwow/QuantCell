@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from axon_bridge import Action, TradingEnv
+from utils.timestamp_utils import convert_to_datetime
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -719,7 +720,7 @@ class RLService:
         )
         if local_path.exists():
             df = pd.read_parquet(local_path)
-            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="us")
+            df["timestamp"] = convert_to_datetime(df["timestamp"])
             df.set_index("timestamp", inplace=True)
             for col in ["open", "high", "low", "close", "volume"]:
                 if col in df.columns:
@@ -753,7 +754,8 @@ class RLService:
                     "ignore",
                 ],
             )
-            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+            # Binance API 返回毫秒级时间戳，自动检测
+            df["timestamp"] = convert_to_datetime(df["timestamp"])
             df.set_index("timestamp", inplace=True)
             for col in ["open", "high", "low", "close", "volume"]:
                 df[col] = df[col].astype(float)
