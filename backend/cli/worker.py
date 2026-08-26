@@ -3,60 +3,57 @@
 Worker 管理 CLI
 
 提供 Worker 的增删改查、启停、状态监控、日志查看、交易记录查询等功能。
+直接调用 WorkerCoreService，无需启动 FastAPI 服务。
 """
 
 import sys
 
-import httpx
 import typer
 
 backend_path = __import__("pathlib").Path(__file__).resolve().parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-API_BASE = "http://localhost:8000/api"
+# 确保 worker 模块完整初始化（trading_system 等单例注册）
+from worker.core_service import (
+    WorkerAlreadyRunningError,
+    WorkerCoreService,
+    WorkerNotFoundError,
+    WorkerOperationError,
+)
+from worker.trading_system import trading_system
 
 app = typer.Typer(help="Worker 管理命令行工具")
 
-# 禁用代理: CLI 仅访问本地 FastAPI 服务,不走系统代理
-_HTTP_CLIENT = httpx.Client(trust_env=False)
+# 单例服务实例
+_service = WorkerCoreService()
 
 
-def _get(url: str):
-    """发送 GET 请求"""
-    response = _HTTP_CLIENT.get(url)
-    response.raise_for_status()
-    return response.json()
-
-
-def _post(url: str, data: dict | None = None):
-    """发送 POST 请求"""
-    response = _HTTP_CLIENT.post(url, json=data)
-    response.raise_for_status()
-    return response.json()
-
-
-def _delete(url: str):
-    """发送 DELETE 请求"""
-    response = _HTTP_CLIENT.delete(url)
-    response.raise_for_status()
-    return response.json()
+def _to_int(value: str, name: str = "ID") -> int:
+    """将字符串 ID 转为 int，失败则报错退出"""
+    try:
+        return int(value)
+    except ValueError, TypeError:
+        typer.echo(f"错误: {name} 必须是整数, 收到: {value}")
+        raise typer.Exit(1)
 
 
 @app.command("summary")
 def worker_summary():
     """系统摘要 - 显示所有Worker的汇总信息"""
     try:
-        data = _get(f"{API_BASE}/workers/summary")
-        if isinstance(data, list) or (isinstance(data, dict) and data.get("total_workers", 0) == 0):
+        total = _service.get_worker_count()
+        if total == 0:
             typer.echo("暂无 Worker")
             return
 
-        total = data.get("total_workers", 0)
-        breakdown = data.get("status_breakdown", {})
+        running = _service.get_worker_count("running")
+        stopped = _service.get_worker_count("stopped")
+        error = _service.get_worker_count("error")
         typer.echo(f"Worker 总数: {total}")
-        for status, count in breakdown.items():
-            typer.echo(f"  {status}: {count}")
+        typer.echo(f"  running: {running}")
+        typer.echo(f"  stopped: {stopped}")
+        typer.echo(f"  error: {error}")
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
@@ -74,7 +71,7 @@ def worker_create(
         data = {"name": name, "strategy_id": strategy_id, "exchange": exchange}
         if symbol:
             data["symbol"] = symbol
-        result = _post(f"{API_BASE}/workers", data)
+        result = _service.create_worker(data)
         typer.echo(f"Worker '{result.get('name', name)}' 已创建 (ID: {result.get('id')})")
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
@@ -87,22 +84,22 @@ def worker_delete(
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
 ):
     """删除 Worker"""
+    wid = _to_int(worker_id, "Worker ID")
     try:
-        worker = _get(f"{API_BASE}/workers/{worker_id}")
-        if worker is None:
-            typer.echo(f"Worker {worker_id} 不存在")
-            raise typer.Exit(1)
+        worker = _service.get_worker(wid)
+    except WorkerNotFoundError:
+        typer.echo(f"Worker {wid} 不存在")
+        raise typer.Exit(1)
 
-        if not yes:
-            confirm = typer.confirm(f"确认删除 Worker '{worker.get('name', worker_id)}'?")
-            if not confirm:
-                typer.echo("已取消")
-                return
+    if not yes:
+        confirm = typer.confirm(f"确认删除 Worker '{worker.get('name', wid)}'?")
+        if not confirm:
+            typer.echo("已取消")
+            return
 
-        _delete(f"{API_BASE}/workers/{worker_id}")
-        typer.echo(f"Worker {worker_id} 已删除")
-    except typer.Exit:
-        raise
+    try:
+        _service.delete_worker(wid)
+        typer.echo(f"Worker {wid} 已删除")
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
@@ -113,19 +110,22 @@ def worker_start(
     worker_id: str = typer.Argument(..., help="Worker ID"),
 ):
     """启动 Worker"""
+    wid = _to_int(worker_id, "Worker ID")
     try:
-        worker = _get(f"{API_BASE}/workers/{worker_id}")
-        if worker is None:
-            typer.echo(f"Worker {worker_id} 不存在")
-            raise typer.Exit(1)
-
-        status = worker.get("_state_info", {}).get("status", "")
-        if status == "running":
-            typer.echo(f"Worker {worker_id} 正在运行中")
+        # 先检查状态
+        status_info = _service.get_worker_status(wid)
+        if status_info.get("is_running"):
+            typer.echo(f"Worker {wid} 正在运行中")
             return
 
-        _post(f"{API_BASE}/workers/{worker_id}/start")
-        typer.echo("启动请求已发送")
+        result = _service.start_worker(wid)
+        typer.echo(f"Worker {wid} 已启动 (状态: {result.get('status')})")
+    except WorkerAlreadyRunningError:
+        typer.echo(f"Worker {wid} 已在运行中")
+    except RuntimeError as e:
+        typer.echo(f"错误: {e}", err=True)
+        typer.echo("提示: 启动策略需要 trading_system 初始化。请确保已安装 axon-quant。", err=True)
+        raise typer.Exit(1)
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
@@ -137,11 +137,13 @@ def worker_stop(
     force: bool = typer.Option(False, "--force", help="强制停止"),
 ):
     """停止 Worker"""
+    wid = _to_int(worker_id, "Worker ID")
     try:
-        data = {"force": force} if force else None
-        result = _post(f"{API_BASE}/workers/{worker_id}/stop", data)
-        status = result.get("status", "stopped")
-        typer.echo(f"Worker {worker_id} 已停止 (状态: {status})")
+        result = _service.stop_worker(wid)
+        typer.echo(f"Worker {wid} 已停止 (状态: {result.get('status')})")
+    except RuntimeError as e:
+        typer.echo(f"错误: {e}", err=True)
+        raise typer.Exit(1)
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
@@ -152,10 +154,13 @@ def worker_restart(
     worker_id: str = typer.Argument(..., help="Worker ID"),
 ):
     """重启 Worker"""
+    wid = _to_int(worker_id, "Worker ID")
     try:
-        result = _post(f"{API_BASE}/workers/{worker_id}/restart")
-        start_result = result.get("start_result", {})
-        typer.echo(f"Worker {worker_id} 重启完成 (PID: {start_result.get('pid', 'N/A')})")
+        result = _service.restart_worker(wid)
+        typer.echo(f"Worker {wid} 重启完成 (状态: {result.get('status')})")
+    except RuntimeError as e:
+        typer.echo(f"错误: {e}", err=True)
+        raise typer.Exit(1)
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
@@ -168,13 +173,13 @@ def worker_status(
     """查看 Worker 状态"""
     try:
         if worker_id:
-            worker = _get(f"{API_BASE}/workers/{worker_id}")
-            if worker is None:
-                typer.echo(f"Worker {worker_id} 不存在")
-                raise typer.Exit(1)
-            _print_worker(worker)
+            wid = _to_int(worker_id, "Worker ID")
+            worker = _service.get_worker(wid)
+            status_info = _service.get_worker_status(wid)
+            _print_worker(worker, status_info)
         else:
-            workers = _get(f"{API_BASE}/workers")
+            result = _service.list_workers(page_size=100)
+            workers = result.get("items", [])
             if not workers:
                 typer.echo("暂无 Worker")
                 return
@@ -187,14 +192,18 @@ def worker_status(
         raise typer.Exit(1)
 
 
-def _print_worker(worker: dict):
+def _print_worker(worker: dict, status_info: dict | None = None):
     """打印单个 Worker 信息"""
-    typer.echo(
-        f"ID: {worker.get('id')}, "
-        f"名称: {worker.get('name')}, "
-        f"状态: {worker.get('status', 'N/A')}, "
-        f"策略: {worker.get('strategy_id', 'N/A')}"
-    )
+    parts = [
+        f"ID: {worker.get('id')}",
+        f"名称: {worker.get('name')}",
+        f"状态: {worker.get('status', 'N/A')}",
+        f"策略: {worker.get('strategy_id', 'N/A')}",
+    ]
+    if status_info:
+        parts.append(f"运行时: {status_info.get('runtime_status', 'N/A')}")
+        parts.append(f"运行中: {status_info.get('is_running', False)}")
+    typer.echo(", ".join(parts))
 
 
 @app.command("list-workers")
@@ -203,10 +212,8 @@ def worker_list(
 ):
     """列出所有 Worker"""
     try:
-        url = f"{API_BASE}/workers"
-        if status:
-            url += f"?status={status}"
-        workers = _get(url)
+        result = _service.list_workers(status=status, page_size=100)
+        workers = result.get("items", [])
         if not workers:
             typer.echo("没有 Worker")
             return
@@ -229,17 +236,18 @@ def worker_stats(
     """查看统计信息"""
     try:
         if worker_id:
-            data = _get(f"{API_BASE}/workers/{worker_id}/stats")
-            if data:
-                typer.echo(f"Worker {worker_id} 统计:")
-                typer.echo(f"  总交易数: {data.get('total_trades', 0)}")
-                typer.echo(f"  胜率: {data.get('win_rate', 0):.1f}%")
-                typer.echo(f"  总盈亏: {data.get('total_pnl', 0):.2f}")
-                typer.echo(f"  盈亏比: {data.get('profit_factor', 0):.2f}")
+            wid = _to_int(worker_id, "Worker ID")
+            data = _service.get_worker_stats(wid)
+            typer.echo(f"Worker {wid} 统计:")
+            typer.echo(f"  交易数: {data.get('trades_count', 0)}")
+            typer.echo(f"  订单数: {data.get('orders_count', 0)}")
+            typer.echo(f"  状态: {data.get('status', 'N/A')}")
         else:
-            workers = _get(f"{API_BASE}/workers")
+            data = _service.get_worker_stats()
             typer.echo("全局统计信息")
-            typer.echo(f"  Worker 总数: {len(workers)}")
+            typer.echo(f"  Worker 总数: {data.get('total_workers', 0)}")
+            typer.echo(f"  运行中: {data.get('running', 0)}")
+            typer.echo(f"  已停止: {data.get('stopped', 0)}")
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
@@ -254,9 +262,10 @@ def worker_logs(
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
 ):
     """查看 Worker 日志"""
+    wid = _to_int(worker_id, "Worker ID")
     try:
         if show_path:
-            typer.echo(f"日志文件路径: /var/log/quantcell/workers/{worker_id}/")
+            typer.echo(f"日志目录: ./logs/workers/{wid}/")
             return
 
         if clear:
@@ -265,12 +274,11 @@ def worker_logs(
                 if not confirm:
                     typer.echo("已取消")
                     return
-            result = _delete(f"{API_BASE}/workers/{worker_id}/logs")
+            result = _service.clear_worker_logs(wid, before_days=None, confirm=True)
             typer.echo(f"已清理 {result.get('deleted_count', 0)} 条日志")
             return
 
-        _get(f"{API_BASE}/workers/{worker_id}/logs?limit={lines}")
-        data = _get(f"{API_BASE}/workers/{worker_id}/logs?limit={lines}")
+        data = _service.get_worker_logs(wid, limit=lines)
         items = data.get("items", [])
         if not items:
             typer.echo("暂无日志")
@@ -289,28 +297,20 @@ def worker_trades(
     side: str | None = typer.Option(None, "--side", help="按方向筛选 (buy/sell)"),
 ):
     """查看成交记录"""
+    wid = _to_int(worker_id, "Worker ID")
     try:
-        url = f"{API_BASE}/workers/{worker_id}/trades"
-        params = []
-        if symbol:
-            params.append(f"symbol={symbol}")
-        if side:
-            params.append(f"side={side}")
-        if params:
-            url += "?" + "&".join(params)
-        data = _get(url)
+        data = _service.get_worker_trades(wid, symbol=symbol, side=side, page_size=100)
         items = data.get("items", [])
         if not items:
             typer.echo("暂无成交记录")
             return
         for t in items:
             typer.echo(
-                f"ID: {t.get('trade_id')}, "
+                f"ID: {t.get('id')}, "
                 f"交易对: {t.get('symbol')}, "
                 f"方向: {t.get('side')}, "
                 f"价格: {t.get('price')}, "
-                f"数量: {t.get('quantity')}, "
-                f"金额: {t.get('amount')}"
+                f"数量: {t.get('quantity')}"
             )
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
@@ -322,20 +322,21 @@ def worker_positions(
     worker_id: str = typer.Argument(..., help="Worker ID"),
 ):
     """查看当前持仓"""
+    wid = _to_int(worker_id, "Worker ID")
     try:
-        data = _get(f"{API_BASE}/workers/{worker_id}/positions")
-        items = data.get("items", [])
-        if not items:
-            typer.echo("暂无持仓")
-            return
-        for p in items:
-            typer.echo(
-                f"交易对: {p.get('symbol')}, "
-                f"方向: {p.get('side')}, "
-                f"数量: {p.get('quantity')}, "
-                f"均价: {p.get('avg_price')}, "
-                f"未实现盈亏: {p.get('unrealized_pnl', 0):.2f}"
-            )
+        worker = _service.get_worker(wid)
+        # 持仓信息在 worker 的 runtime 中，通过 status 获取
+        status_info = _service.get_worker_status(wid)
+        typer.echo(
+            f"Worker {wid} ({worker.get('name')}) 当前状态: {status_info.get('runtime_status', worker.get('status'))}"
+        )
+        if status_info.get("is_running"):
+            typer.echo("Worker 运行中，请通过 API 或 WebSocket 查询实时持仓")
+        else:
+            typer.echo("Worker 未运行，无活跃持仓")
+    except WorkerNotFoundError:
+        typer.echo(f"Worker {wid} 不存在")
+        raise typer.Exit(1)
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
@@ -347,21 +348,19 @@ def worker_orders(
     status: str | None = typer.Option(None, "--status", help="按状态筛选"),
 ):
     """查看订单记录"""
+    wid = _to_int(worker_id, "Worker ID")
     try:
-        url = f"{API_BASE}/workers/{worker_id}/orders"
-        if status:
-            url += f"?status={status}"
-        data = _get(url)
+        data = _service.get_worker_orders(wid, status=status)
         items = data.get("items", [])
         if not items:
             typer.echo("暂无订单")
             return
         for o in items:
             typer.echo(
-                f"ID: {o.get('order_id')}, "
+                f"ID: {o.get('id')}, "
                 f"交易对: {o.get('symbol')}, "
                 f"方向: {o.get('side')}, "
-                f"类型: {o.get('event_type')}, "
+                f"类型: {o.get('event_type', o.get('type', 'N/A'))}, "
                 f"价格: {o.get('price')}, "
                 f"数量: {o.get('quantity')}"
             )
@@ -375,18 +374,16 @@ def worker_trading_stats(
     worker_id: str = typer.Argument(..., help="Worker ID"),
 ):
     """查看交易统计"""
+    wid = _to_int(worker_id, "Worker ID")
     try:
-        data = _get(f"{API_BASE}/workers/{worker_id}/trading-stats")
-        if data is None:
-            typer.echo("暂无交易统计数据")
-            return
-        typer.echo(f"Worker {worker_id} 交易统计:")
-        typer.echo(f"  总交易数: {data.get('total_trades', 0)}")
-        typer.echo(f"  盈利次数: {data.get('winning_trades', 0)}")
-        typer.echo(f"  亏损次数: {data.get('losing_trades', 0)}")
-        typer.echo(f"  胜率: {data.get('win_rate', 0):.1f}%")
-        typer.echo(f"  总盈亏: {data.get('total_pnl', 0):.2f}")
-        typer.echo(f"  盈亏比: {data.get('profit_factor', 0):.2f}")
+        data = _service.get_worker_stats(wid)
+        typer.echo(f"Worker {wid} 交易统计:")
+        typer.echo(f"  总交易数: {data.get('trades_count', 0)}")
+        typer.echo(f"  订单数: {data.get('orders_count', 0)}")
+        typer.echo(f"  状态: {data.get('status', 'N/A')}")
+    except WorkerNotFoundError:
+        typer.echo(f"Worker {wid} 不存在")
+        raise typer.Exit(1)
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
@@ -397,22 +394,24 @@ def worker_pnl_distribution(
     worker_id: str = typer.Argument(..., help="Worker ID"),
 ):
     """查看盈亏分布"""
+    wid = _to_int(worker_id, "Worker ID")
     try:
-        data = _get(f"{API_BASE}/workers/{worker_id}/pnl-distribution")
-        if data is None:
+        data = _service.get_worker_performance(wid, days=30)
+        if not data:
             typer.echo("暂无盈亏分布数据")
             return
-        typer.echo(f"Worker {worker_id} 盈亏分布:")
-        bins = data.get("bins", [])
-        counts = data.get("counts", [])
-        if len(bins) == len(counts) + 1:
-            for i in range(len(counts)):
-                typer.echo(f"  {bins[i]:>10.2f} ~ {bins[i + 1]:>10.2f}: {'#' * counts[i]} ({counts[i]})")
-        else:
-            for i in range(min(len(bins), len(counts))):
-                typer.echo(f"  {bins[i]:>10.2f}: {'#' * counts[i]} ({counts[i]})")
-        typer.echo(f"  均值: {data.get('mean', 0):.2f}")
-        typer.echo(f"  中位数: {data.get('median', 0):.2f}")
+
+        typer.echo(f"Worker {wid} 盈亏分布 (近30天):")
+        total_pnl = sum(p.get("pnl", 0) for p in data)
+        total_trades = sum(p.get("trades", 0) for p in data)
+        typer.echo(f"  总盈亏: {total_pnl:.2f}")
+        typer.echo(f"  总交易数: {total_trades}")
+
+        # 按日期展示
+        for p in data[:10]:  # 最多显示10天
+            typer.echo(f"  {p.get('date', 'N/A')}: PnL={p.get('pnl', 0):.2f}, 交易数={p.get('trades', 0)}")
+        if len(data) > 10:
+            typer.echo(f"  ... 还有 {len(data) - 10} 天数据")
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
@@ -423,14 +422,14 @@ def worker_trade_history(
     worker_id: str = typer.Argument(..., help="Worker ID"),
 ):
     """查看交易历史"""
+    wid = _to_int(worker_id, "Worker ID")
     try:
-        data = _get(f"{API_BASE}/workers/{worker_id}/trade-history")
-        daily = data.get("daily", [])
-        if not daily:
+        data = _service.get_worker_performance(wid, days=30)
+        if not data:
             typer.echo("暂无交易历史数据")
             return
-        typer.echo(f"Worker {worker_id} 交易历史:")
-        for d in daily:
+        typer.echo(f"Worker {wid} 交易历史 (近30天):")
+        for d in data:
             typer.echo(f"  {d.get('date')}: PnL={d.get('pnl', 0):.2f}, 交易数={d.get('trades', 0)}")
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
