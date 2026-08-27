@@ -247,6 +247,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"策略执行引擎初始化失败: {e}")
 
+    # 初始化 WorkerOrchestrator (ZMQ 通道 + 供 CLI/API 管理独立 Worker 进程)
+    try:
+        from worker.orchestrator import WorkerOrchestrator
+
+        orchestrator = WorkerOrchestrator.get_instance()
+        orchestrator.ensure_transport()
+        logger.info("[Lifespan] WorkerOrchestrator ZMQ 通道已初始化")
+
+        # 健康检查循环: 独立进程 Worker 的心跳超时检测
+        async def _orchestrator_health_check():
+            while True:
+                await asyncio.sleep(30)
+                try:
+                    orchestrator.check_health()
+                except Exception as e:
+                    logger.warning(f"[健康检查循环] 异常: {e}")
+
+        asyncio.create_task(_orchestrator_health_check())
+        logger.info("[Lifespan] WorkerOrchestrator 健康检查循环已启动")
+    except Exception as e:
+        logger.warning(f"[Lifespan] WorkerOrchestrator 初始化失败 (ZMQ 不可用): {e}")
+
     yield
 
     # ========== 应用关闭阶段（必须保证执行完毕） ==========
@@ -362,6 +384,17 @@ async def lifespan(app: FastAPI):
         raise
     except Exception as e:
         logger.error(f"关闭调度器或插件失败: {e}")
+
+    # 清理 WorkerOrchestrator ZMQ 通道 (不动独立 Worker 进程)
+    try:
+        from worker.orchestrator import WorkerOrchestrator
+
+        _orch = WorkerOrchestrator.get_instance()
+        _orch.cleanup()
+        WorkerOrchestrator.reset_instance()
+        logger.info("[Lifespan] WorkerOrchestrator 已清理 (Worker 进程保持运行)")
+    except Exception as e:
+        logger.warning(f"[Lifespan] WorkerOrchestrator 清理失败: {e}")
 
     logger.info("========== 应用关闭完成 ==========")
 
