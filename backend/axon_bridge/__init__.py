@@ -163,6 +163,7 @@ from axon_quant.trading import (
 )
 
 from ._credentials import credentials
+from ._errors import AxonQuantError, map_error
 
 # —— backtest 子模块重导出 ——
 from .backtest import (
@@ -454,26 +455,19 @@ def get_instrument_id(instrument: dict[str, Any]) -> str:
 
 # ========== 导出列表 ==========
 __all__ = [
-    # —— RL (合并) ——
     "VERSION",
-    # —— 顶层重导出 (原始) ——
     "Action",
-    # —— Ensemble (合并) ——
     "ActionProbabilities",
     "ActionType",
-    # —— LLM ——
     "AgentRole",
-    # —— Exchange (合并) ——
     "AxonError",
+    "AxonQuantError",
     "BacktestEngine",
     "BacktestError",
-    # —— Inference (合并) ——
     "BatchConfig",
     "BatchInferencePipeline",
     "BinanceAdapter",
-    # —— Trading ——
     "CancelOrderTool",
-    # —— Risk ——
     "CircuitBreaker",
     "ComplianceError",
     "DataError",
@@ -482,7 +476,6 @@ __all__ = [
     "DefaultRiskEngine",
     "DefiError",
     "Device",
-    # —— 业务适配层 ——
     "EngineConfig",
     "EnsembleError",
     "EnsembleManager",
@@ -501,7 +494,6 @@ __all__ = [
     "MarketSignal",
     "MetaModel",
     "MockSource",
-    # —— Agent 模块 ——
     "MockTrader",
     "MockTradingBackend",
     "ModelConfig",
@@ -513,10 +505,8 @@ __all__ = [
     "OllamaBackend",
     "OmsError",
     "Order",
-    # —— core.events shim ——
     "OrderAccepted",
     "OrderCanceled",
-    # —— Risk 类型别名 (合并) ——
     "OrderDict",
     "OrderFilled",
     "OrderLifecycleManager",
@@ -529,7 +519,6 @@ __all__ = [
     "Portfolio",
     "PortfolioDict",
     "Position",
-    # —— Backtest ——
     "PushFundingHelper",
     "QueryPortfolioTool",
     "RandomTrader",
@@ -581,11 +570,11 @@ __all__ = [
     "make_backend",
     "make_circuit_breaker",
     "make_order",
-    # —— OMS (合并) ——
     "make_order_status",
     "make_portfolio",
     "make_portfolio_with_positions",
     "make_risk_config",
+    "map_error",
     "market_order",
     "okx_testnet_config",
     "spot_instrument",

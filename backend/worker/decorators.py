@@ -69,6 +69,22 @@ def _handle_exception(operation_name: str, exc: Exception) -> HTTPException:
     if isinstance(exc, HTTPException):
         return exc
 
+    # axon_quant 异常:映射为语义化 HTTP 状态码
+    # 延迟导入避免与 axon_bridge.__init__ 的重导出循环
+    # 注:axon_quant 的 PyO3 异常类(DataError/OmsError 等)无继承关系,
+    # 不能用 isinstance(AxonError) 统一判断,改用 map_error 返回的 code 区分
+    try:
+        from axon_bridge._errors import map_error
+
+        mapped = map_error(exc)
+        # 已知 axon_quant 子类会被赋予特定 code(如 data_error/oms_conflict),
+        # 非 axon_quant 异常返回默认 code "axon_quant_error",由下方通用 500 处理
+        if mapped.code != "axon_quant_error":
+            logger.warning(f"{operation_name}: axon_quant 错误 [{mapped.code}] → HTTP {mapped.http_status}: {exc}")
+            return mapped.to_http()
+    except ImportError:
+        pass  # axon_bridge 不可用时跳过
+
     # 未知异常：使用 500 状态码
     logger.error(f"{operation_name} 发生未预期异常: {exc}")
     traceback.print_exc()

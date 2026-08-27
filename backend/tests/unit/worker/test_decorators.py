@@ -158,3 +158,138 @@ class TestHandleWorkerExceptions:
             asyncio.run(async_func())
         assert exc_info.value.status_code == 404
         assert "999" in exc_info.value.detail
+
+
+class TestAxonQuantErrorMapping:
+    """验证装饰器自动映射 axon_quant 异常为语义化 HTTP 状态码"""
+
+    def test_data_error_maps_to_400(self):
+        """DataError → HTTP 400"""
+        from axon_quant import DataError
+
+        @handle_worker_exceptions("数据操作")
+        def func():
+            raise DataError("invalid symbol")
+
+        with pytest.raises(HTTPException) as exc_info:
+            func()
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["code"] == "data_error"
+        assert "invalid symbol" in exc_info.value.detail["message"]
+
+    def test_oms_error_maps_to_409(self):
+        """OmsError → HTTP 409"""
+        from axon_quant import OmsError
+
+        @handle_worker_exceptions("订单操作")
+        def func():
+            raise OmsError("duplicate idempotency key")
+
+        with pytest.raises(HTTPException) as exc_info:
+            func()
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.detail["code"] == "oms_conflict"
+
+    def test_exchange_error_maps_to_502(self):
+        """ExchangeError → HTTP 502"""
+        from axon_quant import ExchangeError
+
+        @handle_worker_exceptions("交易所操作")
+        def func():
+            raise ExchangeError("binance api timeout")
+
+        with pytest.raises(HTTPException) as exc_info:
+            func()
+        assert exc_info.value.status_code == 502
+        assert exc_info.value.detail["code"] == "exchange_error"
+
+    def test_risk_error_maps_to_403(self):
+        """RiskError → HTTP 403"""
+        from axon_quant.risk import RiskError
+
+        @handle_worker_exceptions("风控操作")
+        def func():
+            raise RiskError("position limit exceeded")
+
+        with pytest.raises(HTTPException) as exc_info:
+            func()
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail["code"] == "risk_rejected"
+
+    def test_backtest_error_maps_to_500(self):
+        """BacktestError → HTTP 500"""
+        from axon_quant import BacktestError
+
+        @handle_worker_exceptions("回测操作")
+        def func():
+            raise BacktestError("engine crashed")
+
+        with pytest.raises(HTTPException) as exc_info:
+            func()
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail["code"] == "backtest_error"
+
+    def test_axon_error_base_maps_to_500(self):
+        """AxonError 基类 → HTTP 500 (兜底)"""
+        from axon_quant import AxonError
+
+        @handle_worker_exceptions("通用操作")
+        def func():
+            raise AxonError("unknown axon error")
+
+        with pytest.raises(HTTPException) as exc_info:
+            func()
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail["code"] == "axon_error"
+
+    def test_inference_error_maps_to_500(self):
+        """InferenceError → HTTP 500"""
+        from axon_quant import InferenceError
+
+        @handle_worker_exceptions("推理操作")
+        def func():
+            raise InferenceError("model not loaded")
+
+        with pytest.raises(HTTPException) as exc_info:
+            func()
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail["code"] == "inference_error"
+
+    def test_defi_error_maps_to_500(self):
+        """DefiError → HTTP 500"""
+        from axon_quant import DefiError
+
+        @handle_worker_exceptions("DeFi操作")
+        def func():
+            raise DefiError("protocol error")
+
+        with pytest.raises(HTTPException) as exc_info:
+            func()
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail["code"] == "defi_error"
+
+    def test_non_axon_quant_exception_still_500(self):
+        """非 axon_quant 异常仍走通用 500"""
+
+        @handle_worker_exceptions("测试操作")
+        def func():
+            raise ValueError("plain python error")
+
+        with pytest.raises(HTTPException) as exc_info:
+            func()
+        assert exc_info.value.status_code == 500
+        # 非 axon_quant 异常 detail 为纯字符串(非映射格式)
+        assert "plain python error" in exc_info.value.detail
+
+    def test_async_data_error_maps_to_400(self):
+        """异步函数：DataError → HTTP 400"""
+        from axon_quant import DataError
+
+        @handle_worker_exceptions("异步数据操作")
+        async def async_func():
+            raise DataError("async bad request")
+
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(async_func())
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["code"] == "data_error"

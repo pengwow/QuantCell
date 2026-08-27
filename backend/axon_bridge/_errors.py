@@ -7,7 +7,7 @@
 site-packages 的 axon_quant 同名导致循环导入。
 """
 
-from typing import Any
+from __future__ import annotations
 
 from fastapi import HTTPException
 
@@ -30,10 +30,11 @@ class AxonQuantError(Exception):
         )
 
 
-# axon_quant 0.4.0 错误类(顶层 + risk 子模块)
-# 延迟导入避免循环依赖
-def _build_mapping() -> dict[type, tuple[int, str]]:
+# axon_quant 0.11.x 错误类映射(缓存为模块级常量,避免每次重建)
+# 如 axon_quant 未安装,映射为空使 map_error 回退到通用 500
+try:
     from axon_quant import (
+        AxonError,
         BacktestError,
         ComplianceError,
         DataError,
@@ -44,7 +45,7 @@ def _build_mapping() -> dict[type, tuple[int, str]]:
     )
     from axon_quant.risk import RiskError
 
-    return {
+    _ERROR_MAPPING: dict[type, tuple[int, str]] = {
         DataError: (400, "data_error"),
         OmsError: (409, "oms_conflict"),
         ExchangeError: (502, "exchange_error"),
@@ -54,18 +55,32 @@ def _build_mapping() -> dict[type, tuple[int, str]]:
         DefiError: (500, "defi_error"),
         RiskError: (403, "risk_rejected"),
     }
+    _AXON_ERROR_BASE = AxonError  # 基类兜底用
+except ImportError:
+    _ERROR_MAPPING = {}
+    _AXON_ERROR_BASE = None
 
 
 def map_error(e: Exception) -> AxonQuantError:
     """axon_quant 异常 → QuantCell AxonQuantError。
 
-    已知异常类型用 ERROR_MAPPING 映射;未知类型回退到 500 通用错误。
+    已知异常类型用 _ERROR_MAPPING 映射;AxonError 基类兜底;
+    未知类型(非 axon_quant)回退到 500 通用错误。
     """
-    mapping = _build_mapping()
-    for src_type, (status, code) in mapping.items():
+    # 先匹配最具体的子类(如 DataError → 400)
+    for src_type, (status, code) in _ERROR_MAPPING.items():
         if isinstance(e, src_type):
-            exc: Any = AxonQuantError(e)
+            exc = AxonQuantError(e)
             exc.http_status = status
             exc.code = code
             return exc
+
+    # AxonError 基类兜底:所有 axon_quant 未分类异常 → 500
+    if _AXON_ERROR_BASE is not None and isinstance(e, _AXON_ERROR_BASE):
+        exc = AxonQuantError(e)
+        exc.http_status = 500
+        exc.code = "axon_error"
+        return exc
+
+    # 非 axon_quant 异常:通用 500
     return AxonQuantError(e)
