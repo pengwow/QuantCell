@@ -7,6 +7,7 @@ Orchestrator 端: bind 模式 (PULL 接收事件, DEALER 发送命令按 worker_
 from __future__ import annotations
 
 import socket
+import threading
 import time
 from typing import Any
 
@@ -42,11 +43,15 @@ class WorkerZmqTransport:
         self.cmd_dealer = self._ctx.socket(zmq.DEALER)
         self.cmd_dealer.setsockopt(zmq.IDENTITY, f"worker-{worker_id}".encode())
         self.cmd_dealer.setsockopt(zmq.RECONNECT_IVL, 100)
-        self.cmd_dealer.setsockopt(zmq.RECONNECT_IVL_MAX, 10000)
+        # 重连上限压到 1s：CLI 每次都是独立进程，ROUTER 随进程反复销毁/重建，
+        # 若退避到默认的数十秒，daemon 重连到新 ROUTER 会过慢，status/stop 探测超时
+        self.cmd_dealer.setsockopt(zmq.RECONNECT_IVL_MAX, 1000)
 
         self.event_push = self._ctx.socket(zmq.PUSH)
         self.event_push.setsockopt(zmq.RECONNECT_IVL, 100)
-        self.event_push.setsockopt(zmq.RECONNECT_IVL_MAX, 10000)
+        # 与 cmd_dealer 同理：命令响应走 event_push，重连上限过大时，
+        # stop 响应会在 CLI 进程切换后迟迟发不回来，导致命令超时
+        self.event_push.setsockopt(zmq.RECONNECT_IVL_MAX, 1000)
 
         if event_pull_addr:
             self.event_push.connect(event_pull_addr)
@@ -55,6 +60,14 @@ class WorkerZmqTransport:
             # 注册帧: ROUTER 只有在收到 DEALER 消息后才会把其 identity
             # 加入路由表。命令是单向的，所以 Worker 必须先主动发一帧。
             self.cmd_dealer.send(b"register")
+
+        # 监听 cmd_dealer 的连接事件。orchestrator（CLI 进程）退出后其
+        # ROUTER 随进程销毁，daemon 重连到新 ROUTER 时不会再自动重发
+        # register 帧，导致新 ROUTER 路由表缺失、status/stop 命令被丢弃。
+        # 因此在每次连接建立（含重连）时重发 register。
+        self._monitor = self.cmd_dealer.get_monitor_socket()
+        self._monitor_thread = threading.Thread(target=self._monitor_cmd_dealer, daemon=True)
+        self._monitor_thread.start()
 
     def send_event(self, event: dict[str, Any]) -> None:
         """发送事件/心跳/响应。"""
@@ -77,13 +90,48 @@ class WorkerZmqTransport:
             self.cmd_dealer.setsockopt(zmq.RCVTIMEO, -1)
         return decode_message(raw)
 
+    def _monitor_cmd_dealer(self) -> None:
+        """监控 cmd_dealer 连接事件，连接建立时重发 register 帧。"""
+        import struct
+
+        import zmq
+
+        while True:
+            try:
+                event = self._monitor.recv_multipart()
+            except zmq.ZMQError:
+                break
+            if not event or len(event[0]) < 2:
+                continue
+            # monitor 首帧 = event_id(uint16) + value(int32)，共 6 字节，
+            # 均为网络字节序（大端），必须用 ">H" 解析（实测: 小端机器上
+            # "=h" 解析 EVENT_CONNECTED 帧得到 256，永远匹配不上）
+            event_id = struct.unpack(">H", event[0][:2])[0]
+            if event_id == zmq.EVENT_CONNECTED:
+                try:
+                    self.cmd_dealer.send(b"register")
+                except zmq.ZMQError:
+                    pass
+
     def close(self) -> None:
+        # 先关掉 monitor socket 使监控线程退出，再关闭业务 socket，
+        # 避免监控线程向已关闭的 cmd_dealer 发送 register
+        if self._monitor:
+            try:
+                self._monitor.close(0)
+            except Exception:
+                pass
+        if self._monitor_thread:
+            self._monitor_thread.join(timeout=1.0)
         try:
             self.cmd_dealer.close(linger=0)
         except Exception:
             pass
         try:
-            self.event_push.close(linger=0)
+            # 给短暂 linger 让已入队的 response/heartbeat 帧 flush 到对端，
+            # 否则 daemon 收到 stop 后立即退出会丢弃 response，导致
+            # orchestrator 傻等命令超时后才走 SIGTERM 兜底
+            self.event_push.close(linger=500)
         except Exception:
             pass
 
