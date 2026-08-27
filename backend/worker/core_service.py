@@ -804,14 +804,20 @@ class WorkerCoreService:
         }
 
     def _build_worker_config(self, worker_id: int) -> dict:
-        """构建 Worker 启动配置。"""
+        """构建 Worker 启动配置。
+
+        注意：ORM Worker 模型没有 exchange 字段，exchange 保存在
+        trading_config JSON 中；策略名称用冗余的 strategy_name 字段，
+        而非整型的 strategy_id。
+        """
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
                 return {}
+            trading_config = worker.get_trading_config_dict()
             return {
-                "strategy_name": worker.strategy_id,
-                "exchange": worker.exchange or "binance",
+                "strategy_name": worker.strategy_name,
+                "exchange": trading_config.get("exchange", "binance"),
                 "name": worker.name,
             }
 

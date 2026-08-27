@@ -69,6 +69,9 @@ class WorkerOrchestrator:
 
     def start_worker_process(self, worker_id: int) -> int:
         """通过 subprocess 启动 Worker 独立进程。"""
+        # 先确保 transport 已 bind：否则 daemon 在端点未就绪时 connect，
+        # register 帧会排队无法及时到达 router，后续命令将被 ROUTER 丢弃
+        self.ensure_transport()
         cmd = [
             sys.executable,
             "-m",
@@ -83,11 +86,61 @@ class WorkerOrchestrator:
         ]
         self._logger.info(f"[Orchestrator] 启动 Worker {worker_id}: {' '.join(cmd)}")
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(0.5)
         pid = proc.pid
+        # 等待 daemon 完成 ZMQ 注册（register 帧到达 router），而非固定
+        # sleep 0.5s：daemon 启动需 import 大量模块，固定睡眠会错过注册帧
+        if not self._wait_for_worker_registration(worker_id):
+            # daemon 未在超时内注册（可能启动崩溃），终止进程避免残留孤儿进程
+            try:
+                proc.terminate()
+                proc.wait(timeout=2.0)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            raise RuntimeError(f"Worker {worker_id} 未在超时内完成 ZMQ 注册")
         self._register_worker(worker_id, pid=pid)
         self._logger.info(f"[Orchestrator] Worker {worker_id} 已启动, PID={pid}")
         return pid
+
+    def _wait_for_worker_registration(
+        self, worker_id: int, timeout: float = 10.0, deadline: float | None = None
+    ) -> bool:
+        """等待 Worker 的 register 帧到达 router，确保路由表就绪。
+
+        daemon 启动后 DEALER 会 connect 并发送裸 register 帧，ROUTER 只有
+        recv 到该帧才会把 worker-{id} 加入路由表。命令是单向的，因此必须
+        在发送命令前先消费掉这次注册帧，否则命令会被 ROUTER 丢弃。
+        """
+        import zmq
+
+        end = deadline if deadline is not None else time.time() + timeout
+        target = f"worker-{worker_id}".encode()
+        self._transport.cmd_router.setsockopt(zmq.RCVTIMEO, 100)
+        try:
+            while time.time() < end:
+                try:
+                    frames = self._transport.cmd_router.recv_multipart()
+                except zmq.Again:
+                    continue
+                if frames and frames[0] == target:
+                    return True
+            return False
+        finally:
+            self._transport.cmd_router.setsockopt(zmq.RCVTIMEO, -1)
+
+    def _ensure_worker_routable(self, worker_id: int, deadline: float) -> bool:
+        """发送命令前确保目标 Worker 已进入 router 路由表。
+
+        本进程内已注册（start 路径已消费过 register）则直接返回；否则是
+        CLI 独立进程探测已运行的 daemon，需等 daemon 重连到本进程新 bind
+        的 ROUTER 后重发的 register 帧到达，否则命令会被 ROUTER 丢弃。
+        """
+        info = self._registry.get(worker_id)
+        if info is not None and info.connected:
+            return True
+        return self._wait_for_worker_registration(worker_id, deadline=deadline)
 
     def stop_worker_process(self, worker_id: int, timeout: float = 10.0) -> bool:
         """停止 Worker 进程: 先发 stop 命令，超时则 kill。"""
@@ -185,11 +238,20 @@ class WorkerOrchestrator:
         command = make_command(worker_id, cmd, params)
         if not self._transport:
             self._transport = self._create_transport()
+        # 发送前确保路由就绪（重连场景），并与响应等待共享同一时间预算
+        deadline = time.time() + timeout
+        if not self._ensure_worker_routable(worker_id, deadline=deadline):
+            self._logger.warning(f"[Orchestrator] Worker {worker_id} 未注册，命令 {cmd} 无法路由")
+            return None
+        remaining_ms = int((deadline - time.time()) * 1000)
+        if remaining_ms <= 0:
+            self._logger.warning(f"[Orchestrator] 命令 {cmd} 超时 (Worker {worker_id})")
+            return None
         self._transport.send_command(worker_id, command)
         response = self._transport.wait_for_response(
             worker_id,
             command["request_id"],
-            timeout_ms=int(timeout * 1000),
+            timeout_ms=remaining_ms,
         )
         if response:
             self._update_heartbeat(worker_id)
