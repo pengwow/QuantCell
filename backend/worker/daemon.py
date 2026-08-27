@@ -143,6 +143,7 @@ class WorkerDaemon:
         loop = asyncio.get_running_loop()
         hb_task = loop.create_task(self._heartbeat_loop())
         cmd_task = loop.create_task(self._command_loop())
+        reg_task = loop.create_task(self._register_loop())
 
         try:
             while self._running:
@@ -151,14 +152,36 @@ class WorkerDaemon:
             self._status = "stopped"
             cmd_task.cancel()
             hb_task.cancel()
+            reg_task.cancel()
             try:
-                await asyncio.gather(cmd_task, hb_task, return_exceptions=True)
+                await asyncio.gather(cmd_task, hb_task, reg_task, return_exceptions=True)
             except Exception:
                 pass
             if self._transport:
                 self._transport.send_event(self._build_heartbeat())
                 self._transport.close()
             self.logger.info(f"Worker {self.worker_id} 已关闭")
+
+    async def _register_loop(self) -> None:
+        """周期性重发 register 帧。
+
+        ROUTER 只有在收到 DEALER 消息后才会把其 identity 加入路由表。
+        CLI 每个命令都是独立进程（ROUTER 随进程销毁/重建），daemon 重连到
+        新 ROUTER 时路由表是空的。定期重发幂等的 register 帧（8 字节），
+        保证任意新 ROUTER 在 2s 内获得路由信息。相比 monitor 事件驱动，
+        定时重发不依赖 ZMQ monitor 语义，简单可靠。
+        """
+        import asyncio
+
+        while self._running:
+            try:
+                if self._transport:
+                    self._transport.send_register()
+                await asyncio.sleep(2.0)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                await asyncio.sleep(2.0)
 
     async def _heartbeat_loop(self) -> None:
         import asyncio
