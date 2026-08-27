@@ -179,10 +179,13 @@ class WorkerDaemon:
         while self._running:
             try:
                 if self._transport:
-                    command = self._transport.recv_command(timeout_ms=5000)
+                    # 500ms 轮询而非长阻塞: recv_command 是同步阻塞调用（RCVTIMEO），
+                    # 长超时会让任务取消延迟到该次 recv 超时（此前实测退出需 5s）
+                    command = self._transport.recv_command(timeout_ms=500)
                     if command:
                         response = self._handle_command(command)
                         self._transport.send_response(response)
+                    await asyncio.sleep(0.05)
             except asyncio.CancelledError:
                 break
             except Exception:
