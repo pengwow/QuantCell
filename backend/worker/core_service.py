@@ -628,8 +628,9 @@ class WorkerCoreService:
             WorkerAlreadyRunningError: Worker 已在运行
             WorkerOperationError: 启动失败
         """
-        self._ensure_initialized()
-
+        # 注意: Orchestrator 路径（独立子进程）不依赖 trading_system 初始化，
+        # 因此 _ensure_initialized() 只能在降级分支调用，否则 CLI 独立进程
+        # （从未执行 trading_system.initialize()）将永远无法启动 Worker。
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
@@ -642,9 +643,12 @@ class WorkerCoreService:
         # 优先尝试 Orchestrator 路径（独立子进程），失败时降级到 trading_system
         try:
             return self._start_worker_via_orchestrator(worker_id)
+        except WorkerNotFoundError:
+            raise
         except Exception as e:
             logger.warning(f"[WorkerCoreService] Orchestrator 路径失败，降级到 trading_system: {e}")
             # 降级到原有 trading_system 进程内路径，保留原有异常语义
+            self._ensure_initialized()
             if not AXON_QUANT_AVAILABLE:
                 raise WorkerOperationError("启动", worker_id, message="axon-quant 未安装")
             success = asyncio.run(_ws.trading_system.start_strategy(worker_id))
@@ -689,25 +693,60 @@ class WorkerCoreService:
             raise WorkerOperationError("启动", worker_id, message="Worker 启动超时")
 
     def _stop_worker_via_orchestrator(self, worker_id: int) -> dict:
-        """通过 WorkerOrchestrator 停止 Worker 进程。"""
+        """通过 WorkerOrchestrator 停止 Worker 进程。
+
+        处理两种场景：
+        1. 进程内注册表已有连接 → 直接发 stop 命令
+        2. CLI 独立进程（注册表为空）→ 建立 ZMQ 通道发 stop 命令主动探测；
+           daemon 无响应时回退读 DB pid 发 SIGTERM，保证 daemon 一定被停掉
+        """
         # 延迟导入的原因同 _start_worker_via_orchestrator
         from .orchestrator import WorkerOrchestrator
 
         orchestrator = WorkerOrchestrator.get_instance()
 
-        if not orchestrator.is_connected(worker_id):
-            # Worker 未连接，直接更新 DB
-            with self.get_db() as db:
-                crud.update_worker_status(db, worker_id, "stopped")
-            return {"worker_id": worker_id, "status": "stopped", "was_connected": False}
+        with self.get_db() as db:
+            worker = crud.get_worker(db, worker_id)
+            if not worker:
+                raise WorkerNotFoundError(worker_id)
 
-        orchestrator.stop_worker_process(worker_id)
+        # 建立 ZMQ 通道（bind 失败说明 FastAPI 或其他管理器占用通道，走 pid 兜底）
+        transport_ok = False
+        try:
+            orchestrator.ensure_transport()
+            transport_ok = True
+        except Exception as e:
+            logger.warning(f"[WorkerCoreService] ZMQ 通道不可用（{e}），改用 pid 兜底停止 Worker {worker_id}")
+
+        if transport_ok:
+            response = orchestrator.send_command_and_wait(worker_id, "stop", {}, timeout=10.0)
+            if response and response.get("status") == "ok":
+                logger.info(f"[WorkerCoreService] Worker {worker_id} 已通过 ZMQ 优雅停止")
+                with self.get_db() as db:
+                    crud.update_worker_status(db, worker_id, "stopped")
+                return {"worker_id": worker_id, "status": "stopped", "via": "zmq"}
+
+        # daemon 无响应或通道不可用 → 读 DB pid 发 SIGTERM 兜底
+        db_pid = worker.pid
+        if db_pid:
+            try:
+                os.kill(db_pid, 15)  # SIGTERM，daemon 有优雅退出 handler
+                logger.info(f"[WorkerCoreService] 已向 Worker {worker_id} (PID={db_pid}) 发送 SIGTERM")
+            except ProcessLookupError:
+                logger.info(f"[WorkerCoreService] Worker {worker_id} (PID={db_pid}) 进程已不存在")
+            except PermissionError as e:
+                logger.warning(f"[WorkerCoreService] 无权限终止 Worker {worker_id} (PID={db_pid}): {e}")
+
         with self.get_db() as db:
             crud.update_worker_status(db, worker_id, "stopped")
-        return {"worker_id": worker_id, "status": "stopped"}
+        return {"worker_id": worker_id, "status": "stopped", "via": "pid_fallback"}
 
     def _get_status_via_orchestrator(self, worker_id: int) -> dict:
-        """通过 WorkerOrchestrator 获取实时状态。"""
+        """通过 WorkerOrchestrator 获取实时状态。
+
+        CLI 独立进程场景：注册表为空时主动建立 ZMQ 通道探测 daemon；
+        通道不可用（如 FastAPI 占用）则回退返回 DB 状态。
+        """
         # 延迟导入的原因同 _start_worker_via_orchestrator
         from .orchestrator import WorkerOrchestrator
 
@@ -731,7 +770,31 @@ class WorkerCoreService:
                     "pid": data.get("pid"),
                 }
 
-        # Worker 未连接，返回 DB 状态
+        # CLI 独立进程：注册表为空 → 尝试建立通道直接探测（短超时，避免久等）
+        try:
+            orchestrator.ensure_transport()
+        except Exception as e:
+            logger.warning(f"[WorkerCoreService] ZMQ 通道不可用，返回 DB 状态: {e}")
+            return {
+                "worker_id": worker_id,
+                "db_status": worker.status,
+                "runtime_status": None,
+                "is_running": False,
+                "message": "ZMQ 通道不可用，显示数据库状态",
+            }
+
+        response = orchestrator.send_command_and_wait(worker_id, "status", timeout=2.0)
+        if response and response.get("status") == "ok" and response.get("data", {}).get("status"):
+            data = response.get("data", {})
+            return {
+                "worker_id": worker_id,
+                "db_status": worker.status,
+                "runtime_status": data.get("status"),
+                "is_running": data.get("status") == "running",
+                "pid": data.get("pid") or worker.pid,
+            }
+
+        # daemon 无响应，返回 DB 状态
         return {
             "worker_id": worker_id,
             "db_status": worker.status,
@@ -837,7 +900,8 @@ class WorkerCoreService:
         """
         停止 Worker（同步版本，供 CLI 使用）
 
-        通过 trading_system.stop_strategy() 执行策略停止。
+        优先通过 WorkerOrchestrator 停止独立子进程（含 DB 状态修正），
+        失败时降级到 trading_system.stop_strategy() 进程内停止。
 
         Args:
             worker_id: Worker ID
@@ -849,21 +913,29 @@ class WorkerCoreService:
             WorkerNotFoundError: Worker 不存在
             WorkerOperationError: 停止失败
         """
-        self._ensure_initialized()
+        # Orchestrator 路径不依赖 trading_system 初始化（同 start_worker 的
+        # 原因），_ensure_initialized() 移到降级分支。
+        with self.get_db() as db:
+            worker = crud.get_worker(db, worker_id)
+            if not worker:
+                raise WorkerNotFoundError(worker_id)
 
         logger.info(f"[WorkerCoreService] 同步停止 Worker {worker_id}")
 
         try:
+            return self._stop_worker_via_orchestrator(worker_id)
+        except WorkerNotFoundError:
+            raise
+        except Exception as e:
+            logger.warning(f"[WorkerCoreService] Orchestrator 路径失败，降级到 trading_system: {e}")
+            self._ensure_initialized()
             success = asyncio.run(_ws.trading_system.stop_strategy(worker_id))
             if not success:
                 msg = "停止"
                 raise WorkerOperationError(msg, worker_id, message="trading_system 停止策略失败")
 
-            logger.info(f"[WorkerCoreService] Worker {worker_id} 停止成功")
+            logger.info(f"[WorkerCoreService] Worker {worker_id} 停止成功 (trading_system 降级路径)")
             return {"worker_id": worker_id, "status": "stopped"}
-        except Exception as e:
-            logger.error(f"[WorkerCoreService] 同步停止 Worker {worker_id} 失败: {e}")
-            raise
 
     async def async_stop_worker(self, worker_id: int) -> dict:
         """
@@ -1126,9 +1198,10 @@ class WorkerCoreService:
 
     def get_worker_status(self, worker_id: int) -> dict:
         """
-        获取 Worker 实时状态（基于 strategy_registry）
+        获取 Worker 实时状态
 
-        不再检查操作系统进程或 ZMQ，直接从 strategy_registry 获取运行时状态。
+        优先通过 WorkerOrchestrator 获取独立进程的真实状态（ZMQ 探测），
+        ZMQ 通道不可用时回退到 strategy_registry + DB 状态。
 
         Args:
             worker_id: Worker ID
@@ -1136,6 +1209,14 @@ class WorkerCoreService:
         Returns:
             dict: Worker 状态信息
         """
+        try:
+            return self._get_status_via_orchestrator(worker_id)
+        except WorkerNotFoundError:
+            raise
+        except Exception as e:
+            logger.warning(f"[get_worker_status] ZMQ 路径失败，回退 registry/DB: {e}")
+
+        # 回退: 直接读 strategy_registry + DB（进程内模式）
         try:
             with self.get_db() as db:
                 worker = crud.get_worker(db, worker_id)
