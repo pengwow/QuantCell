@@ -15,6 +15,7 @@ if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
 # 确保 worker 模块完整初始化（trading_system 等单例注册）
+from worker import crud
 from worker.core_service import (
     WorkerAlreadyRunningError,
     WorkerCoreService,
@@ -106,10 +107,8 @@ def worker_delete(
 
 
 @app.command("start")
-def worker_start(
-    worker_id: str = typer.Argument(..., help="Worker ID"),
-):
-    """启动 Worker"""
+def worker_start(worker_id: str = typer.Argument(..., help="Worker ID")):
+    """启动 Worker (独立进程)"""
     wid = _to_int(worker_id, "Worker ID")
     try:
         # 先检查状态
@@ -119,13 +118,10 @@ def worker_start(
             return
 
         result = _service.start_worker(wid)
-        typer.echo(f"Worker {wid} 已启动 (状态: {result.get('status')})")
+        pid = result.get("pid", "?")
+        typer.echo(f"Worker {wid} 已启动 (PID: {pid}, 状态: {result.get('status')})")
     except WorkerAlreadyRunningError:
         typer.echo(f"Worker {wid} 已在运行中")
-    except RuntimeError as e:
-        typer.echo(f"错误: {e}", err=True)
-        typer.echo("提示: 启动策略需要 trading_system 初始化。请确保已安装 axon-quant。", err=True)
-        raise typer.Exit(1)
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
@@ -431,6 +427,70 @@ def worker_trade_history(
         typer.echo(f"Worker {wid} 交易历史 (近30天):")
         for d in data:
             typer.echo(f"  {d.get('date')}: PnL={d.get('pnl', 0):.2f}, 交易数={d.get('trades', 0)}")
+    except Exception as e:
+        typer.echo(f"错误: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command("kill")
+def worker_kill(worker_id: str = typer.Argument(..., help="Worker ID")):
+    """强制终止 Worker 进程"""
+    wid = _to_int(worker_id, "Worker ID")
+    try:
+        from worker.orchestrator import WorkerOrchestrator
+
+        orch = WorkerOrchestrator.get_instance()
+        if orch.kill_worker_process(wid):
+            typer.echo(f"Worker {wid} 已强制终止")
+        else:
+            typer.echo(f"Worker {wid} 未连接")
+    except Exception as e:
+        typer.echo(f"错误: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command("discover")
+def worker_discover():
+    """手动触发 Worker 自发现"""
+    try:
+        from worker.orchestrator import WorkerOrchestrator
+
+        orch = WorkerOrchestrator.get_instance()
+        orch.ensure_transport()
+        typer.echo("正在扫描 Worker...")
+        # 发送 ping 到所有 DB 中的 running Worker
+        # 注: crud 中函数是 get_workers（返回 (workers, total) 元组），不是 list_workers
+        with _service.get_db() as db:
+            workers, _ = crud.get_workers(db, status="running")
+        for w in workers:
+            response = orch.send_command_and_wait(w.id, "ping", timeout=3.0)
+            if response:
+                orch._register_worker(w.id)
+                typer.echo(f"  Worker {w.id} ({w.name}) 已发现")
+            else:
+                typer.echo(f"  Worker {w.id} ({w.name}) 无响应")
+        connected = orch.list_connected_workers()
+        typer.echo(f"\n已连接: {len(connected)} 个 Worker")
+    except Exception as e:
+        typer.echo(f"错误: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command("health")
+def worker_health():
+    """健康检查报告"""
+    try:
+        from worker.orchestrator import WorkerOrchestrator
+
+        orch = WorkerOrchestrator.get_instance()
+        orch.ensure_transport()
+        summary = orch.check_health()
+        typer.echo("=== Worker 健康检查 ===")
+        typer.echo(f"总数: {summary['total']}")
+        typer.echo(f"已连接: {summary['connected']}")
+        typer.echo(f"已断开: {summary['disconnected']}")
+        if summary["disconnected_ids"]:
+            typer.echo(f"断开的 Worker: {summary['disconnected_ids']}")
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
