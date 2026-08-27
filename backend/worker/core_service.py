@@ -614,24 +614,21 @@ class WorkerCoreService:
         """
         启动 Worker（同步版本，供 CLI 使用）
 
-        通过 trading_system.start_strategy() 执行策略启动。
+        优先通过 WorkerOrchestrator 启动独立子进程，失败时降级到
+        trading_system.start_strategy() 进程内启动。
 
         Args:
             worker_id: Worker ID
 
         Returns:
-            dict: {"worker_id": int, "status": str}
+            dict: {"worker_id": int, "status": str, "pid": int 可选}
 
         Raises:
             WorkerNotFoundError: Worker 不存在
             WorkerAlreadyRunningError: Worker 已在运行
-            WorkerStartError: 启动失败
+            WorkerOperationError: 启动失败
         """
         self._ensure_initialized()
-
-        if not AXON_QUANT_AVAILABLE:
-            msg = "启动"
-            raise WorkerOperationError(msg, worker_id, message="axon-quant 未安装，无法启动策略")
 
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
@@ -642,17 +639,118 @@ class WorkerCoreService:
 
         logger.info(f"[WorkerCoreService] 同步启动 Worker {worker_id}")
 
+        # 优先尝试 Orchestrator 路径（独立子进程），失败时降级到 trading_system
         try:
+            return self._start_worker_via_orchestrator(worker_id)
+        except Exception as e:
+            logger.warning(f"[WorkerCoreService] Orchestrator 路径失败，降级到 trading_system: {e}")
+            # 降级到原有 trading_system 进程内路径，保留原有异常语义
+            if not AXON_QUANT_AVAILABLE:
+                raise WorkerOperationError("启动", worker_id, message="axon-quant 未安装")
             success = asyncio.run(_ws.trading_system.start_strategy(worker_id))
             if not success:
-                msg = "启动"
-                raise WorkerOperationError(msg, worker_id, message="trading_system 启动策略失败")
-
-            logger.info(f"[WorkerCoreService] Worker {worker_id} 启动成功")
+                raise WorkerOperationError("启动", worker_id, message="trading_system 启动策略失败")
+            logger.info(f"[WorkerCoreService] Worker {worker_id} 启动成功 (trading_system 降级路径)")
             return {"worker_id": worker_id, "status": "running"}
-        except Exception as e:
-            logger.error(f"[WorkerCoreService] 同步启动 Worker {worker_id} 失败: {e}")
-            raise
+
+    def _start_worker_via_orchestrator(self, worker_id: int) -> dict:
+        """通过 WorkerOrchestrator 启动 Worker 独立进程。"""
+        # 延迟导入：避免 core_service 模块加载时引入 orchestrator 对 ZMQ
+        # 传输层的传递依赖，保持 core_service 可独立导入
+        from .orchestrator import WorkerOrchestrator
+
+        orchestrator = WorkerOrchestrator.get_instance()
+
+        with self.get_db() as db:
+            worker = crud.get_worker(db, worker_id)
+            if not worker:
+                raise WorkerNotFoundError(worker_id)
+            if worker.status == "running":
+                raise WorkerAlreadyRunningError(worker_id)
+
+        # 检查 Worker 是否已在运行
+        if orchestrator.is_connected(worker_id):
+            return {"worker_id": worker_id, "status": "running", "already_running": True}
+
+        # 启动 Worker 进程
+        pid = orchestrator.start_worker_process(worker_id)
+
+        # 发送 start 命令（携带策略配置）
+        config = self._build_worker_config(worker_id)
+        response = orchestrator.send_command_and_wait(worker_id, "start", config)
+
+        if response and response.get("status") == "ok":
+            with self.get_db() as db:
+                # Worker 模型有 pid 字段，启动成功应一并持久化
+                crud.update_worker_status(db, worker_id, "running", pid=pid)
+            return {"worker_id": worker_id, "status": "running", "pid": pid}
+        else:
+            orchestrator.kill_worker_process(worker_id)
+            raise WorkerOperationError("启动", worker_id, message="Worker 启动超时")
+
+    def _stop_worker_via_orchestrator(self, worker_id: int) -> dict:
+        """通过 WorkerOrchestrator 停止 Worker 进程。"""
+        # 延迟导入的原因同 _start_worker_via_orchestrator
+        from .orchestrator import WorkerOrchestrator
+
+        orchestrator = WorkerOrchestrator.get_instance()
+
+        if not orchestrator.is_connected(worker_id):
+            # Worker 未连接，直接更新 DB
+            with self.get_db() as db:
+                crud.update_worker_status(db, worker_id, "stopped")
+            return {"worker_id": worker_id, "status": "stopped", "was_connected": False}
+
+        orchestrator.stop_worker_process(worker_id)
+        with self.get_db() as db:
+            crud.update_worker_status(db, worker_id, "stopped")
+        return {"worker_id": worker_id, "status": "stopped"}
+
+    def _get_status_via_orchestrator(self, worker_id: int) -> dict:
+        """通过 WorkerOrchestrator 获取实时状态。"""
+        # 延迟导入的原因同 _start_worker_via_orchestrator
+        from .orchestrator import WorkerOrchestrator
+
+        orchestrator = WorkerOrchestrator.get_instance()
+
+        with self.get_db() as db:
+            worker = crud.get_worker(db, worker_id)
+            if not worker:
+                raise WorkerNotFoundError(worker_id)
+
+        info = orchestrator.get_worker_info(worker_id)
+        if info and info.is_alive:
+            response = orchestrator.send_command_and_wait(worker_id, "status")
+            if response and response.get("status") == "ok":
+                data = response.get("data", {})
+                return {
+                    "worker_id": worker_id,
+                    "db_status": worker.status,
+                    "runtime_status": data.get("status"),
+                    "is_running": data.get("status") == "running",
+                    "pid": data.get("pid"),
+                }
+
+        # Worker 未连接，返回 DB 状态
+        return {
+            "worker_id": worker_id,
+            "db_status": worker.status,
+            "runtime_status": None,
+            "is_running": False,
+            "message": "Worker 进程未连接",
+        }
+
+    def _build_worker_config(self, worker_id: int) -> dict:
+        """构建 Worker 启动配置。"""
+        with self.get_db() as db:
+            worker = crud.get_worker(db, worker_id)
+            if not worker:
+                return {}
+            return {
+                "strategy_name": worker.strategy_id,
+                "exchange": worker.exchange or "binance",
+                "name": worker.name,
+            }
 
     async def async_start_worker(self, worker_id: int) -> dict:
         """
