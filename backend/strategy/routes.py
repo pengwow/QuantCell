@@ -17,6 +17,7 @@ from .schemas import (
     StrategyGenerateResponse,
     StrategyListData,
     StrategyListResponse,
+    StrategyParseRequest,
     StrategyUploadRequest,
     StrategyUploadResponse,
 )
@@ -98,9 +99,11 @@ def upload_strategy(request: Request, strategy_request: StrategyUploadRequest) -
 
 
 @router.post("/parse", response_model=ApiResponse)
-def parse_strategy(request: StrategyDetailRequest) -> ApiResponse:
+def parse_strategy(request: StrategyParseRequest) -> ApiResponse:
+    # file_content 在 StrategyParseRequest 中为必填(min_length=1)，
+    # 缺失/空字符串由 Pydantic 返回 422，而非路由手工返回 400。
     _validate_strategy_name(request.strategy_name)
-    if not request.file_content or not request.file_content.strip():
+    if not request.file_content.strip():
         raise HTTPException(status_code=400, detail="文件内容不能为空")
     try:
         info = get_strategy_service()._parse_strategy_file(request.strategy_name, request.file_content)

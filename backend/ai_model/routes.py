@@ -24,7 +24,7 @@ AI模型配置API路由
 """
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 
@@ -39,14 +39,12 @@ from settings.models import SystemConfigBusiness as SystemConfig
 from utils.auth import jwt_auth_required, jwt_auth_required_sync
 
 from .config_utils import get_default_provider_and_models
+from .schemas import (
+    AIModelCheckRequest,
+    AIModelCreate,
+    AIModelUpdate,
+)
 from .services import AIModelService
-
-if TYPE_CHECKING:
-    from .schemas import (
-        AIModelCheckRequest,
-        AIModelCreate,
-        AIModelUpdate,
-    )
 
 # 创建AI模型配置API路由
 router = APIRouter(prefix="/api/ai-models", tags=["ai-model-config"])
