@@ -14,8 +14,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, "/Users/liupeng/workspace/quant/QuantCell/backend")
-
 # 启动内存跟踪
 tracemalloc.start()
 

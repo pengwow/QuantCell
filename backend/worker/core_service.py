@@ -22,8 +22,6 @@ from utils.db_session import get_db_session
 from utils.logger import LogType, get_logger
 
 from . import crud, models, schemas
-from . import state as _ws
-from .config import AXON_QUANT_AVAILABLE
 from .exceptions import (
     LogQueryError,
     MetricsError,
@@ -94,23 +92,6 @@ class WorkerCoreService:
     def reset_instance(cls):
         """重置单例状态（用于测试）"""
         cls._instance = None
-
-    def _ensure_initialized(self) -> None:
-        """
-        检查 trading_system 是否已初始化
-
-        Raises:
-            RuntimeError: 如果 trading_system 未完成初始化
-        """
-        if _ws.trading_system is None:
-            msg = "WorkerCoreService: trading_system 单例未注册。请检查 worker 模块是否正常初始化。"
-            raise RuntimeError(msg)
-
-        if not getattr(_ws.trading_system, "_initialized", False):
-            msg = "WorkerCoreService: trading_system 尚未完成初始化。请先调用 trading_system.initialize() 完成初始化。"
-            raise RuntimeError(msg)
-
-        logger.debug("[WorkerCoreService] trading_system 初始化检查通过")
 
     def _load_config(self) -> dict[str, Any]:
         """从环境变量和默认配置文件加载配置"""
@@ -674,8 +655,7 @@ class WorkerCoreService:
         """
         启动 Worker（同步版本，供 CLI 使用）
 
-        优先通过 WorkerOrchestrator 启动独立子进程，失败时降级到
-        trading_system.start_strategy() 进程内启动。
+        优先通过 WorkerOrchestrator 启动独立子进程，失败即失败、不降级。
 
         Args:
             worker_id: Worker ID
@@ -689,8 +669,8 @@ class WorkerCoreService:
             WorkerOperationError: 启动失败
         """
         # 注意: Orchestrator 路径（独立子进程）不依赖 trading_system 初始化，
-        # 因此 _ensure_initialized() 只能在降级分支调用，否则 CLI 独立进程
-        # （从未执行 trading_system.initialize()）将永远无法启动 Worker。
+        # 因此本方法不调用 _ensure_initialized()，CLI 独立进程
+        # （从未执行 trading_system.initialize()）也能正常启动 Worker。
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
@@ -700,11 +680,10 @@ class WorkerCoreService:
 
         logger.info(f"[WorkerCoreService] 同步启动 Worker {worker_id}")
 
-        # 优先尝试 Orchestrator 路径（独立子进程）。
-        # 注意：Orchestrator RuntimeError（如 ZMQ 注册超时、Popen 失败）表示独立
-        # 子进程确实无法启动——此时不降级，直接 re-raise。若降级到 trading_system，
-        # 会掩盖 "Worker 进程已拉起但注册失败" 状态不一致，导致同一 Worker 被
-        # 两条路径同时操作。仅 ZMQ / ZMQ_CONFIG 不可用这类真正"不相关"异常才降级。
+        # 仅走 Orchestrator 路径（独立子进程），失败即失败、不降级到 trading_system。
+        # 降级会掩盖 "Worker 进程已拉起但注册失败" 的状态不一致，且 ZMQ 地址被
+        # FastAPI 占用（CLI/API 共存）时会错误地在 CLI 进程内拉起瞬时策略
+        # （CLI 退出即死、DB 却 running）。
         try:
             return self._start_worker_via_orchestrator(worker_id)
         except WorkerNotFoundError:
@@ -717,16 +696,10 @@ class WorkerCoreService:
             logger.error(f"[WorkerCoreService] Orchestrator 启动 Worker {worker_id} 失败: {e}")
             raise WorkerOperationError("启动", worker_id, message=str(e)) from e
         except Exception as e:
-            logger.warning(f"[WorkerCoreService] Orchestrator 路径异常，降级到 trading_system: {e}")
-            # 降级到原有 trading_system 进程内路径，保留原有异常语义
-            self._ensure_initialized()
-            if not AXON_QUANT_AVAILABLE:
-                raise WorkerOperationError("启动", worker_id, message="axon-quant 未安装")
-            success = asyncio.run(_ws.trading_system.start_strategy(worker_id))
-            if not success:
-                raise WorkerOperationError("启动", worker_id, message="trading_system 启动策略失败")
-            logger.info(f"[WorkerCoreService] Worker {worker_id} 启动成功 (trading_system 降级路径)")
-            return {"worker_id": worker_id, "status": "running"}
+            # 不降级到 trading_system 进程内路径；任何 Orchestrator 异常统一转译，
+            # 让 CLI/API 拿到明确失败原因（含 ZMQ 端口被 FastAPI 占用这类共存场景）。
+            logger.error(f"[WorkerCoreService] Orchestrator 启动 Worker {worker_id} 失败: {e}")
+            raise WorkerOperationError("启动", worker_id, message=str(e)) from e
 
     def _start_worker_via_orchestrator(self, worker_id: int) -> dict:
         """通过 WorkerOrchestrator 启动 Worker 独立进程。"""
@@ -918,12 +891,10 @@ class WorkerCoreService:
         """异步启动 Worker（与 CLI 同步版本调用链一致，经 Orchestrator→ZMQ 启动独立子进程）。
 
         统一走 self.start_worker() 的同步实现，通过线程池执行，保证 FastAPI
-        与 CLI 行为完全一致：优先 Orchestrator 独立子进程路径，失败时降级到
-        trading_system 进程内路径（降级路径内再判断 AXON_QUANT_AVAILABLE）。
+        与 CLI 行为完全一致：仅经 Orchestrator 启动独立子进程，失败不降级。
         """
         logger.info(f"[WorkerCoreService] 异步启动 Worker {worker_id}")
-        # 注意：不调用 _ensure_initialized()，原因与 start_worker 相同——
-        # Orchestrator 路径不依赖 trading_system，CLI/API 必须同语义
+        # 不调用 _ensure_initialized()：Orchestrator 路径不依赖 trading_system，CLI/API 必须同语义
         try:
             success = await worker_state_manager.transition(worker_id, "starting")
             if not success:
@@ -975,8 +946,8 @@ class WorkerCoreService:
         """
         停止 Worker（同步版本，供 CLI 使用）
 
-        优先通过 WorkerOrchestrator 停止独立子进程（含 DB 状态修正），
-        失败时降级到 trading_system.stop_strategy() 进程内停止。
+        通过 WorkerOrchestrator 停止独立子进程（ZMQ 优雅停止 → DB pid SIGTERM 兜底），
+        失败即失败、不降级。
 
         Args:
             worker_id: Worker ID
@@ -988,8 +959,8 @@ class WorkerCoreService:
             WorkerNotFoundError: Worker 不存在
             WorkerOperationError: 停止失败
         """
-        # Orchestrator 路径不依赖 trading_system 初始化（同 start_worker 的
-        # 原因），_ensure_initialized() 移到降级分支。
+        # Orchestrator 路径不依赖 trading_system 初始化（同 start_worker 的原因），
+        # 本方法不调用 _ensure_initialized()。
         with self.get_db() as db:
             worker = crud.get_worker(db, worker_id)
             if not worker:
@@ -1002,22 +973,16 @@ class WorkerCoreService:
         except WorkerNotFoundError:
             raise
         except Exception as e:
-            logger.warning(f"[WorkerCoreService] Orchestrator 路径失败，降级到 trading_system: {e}")
-            self._ensure_initialized()
-            success = asyncio.run(_ws.trading_system.stop_strategy(worker_id))
-            if not success:
-                msg = "停止"
-                raise WorkerOperationError(msg, worker_id, message="trading_system 停止策略失败")
-
-            logger.info(f"[WorkerCoreService] Worker {worker_id} 停止成功 (trading_system 降级路径)")
-            return {"worker_id": worker_id, "status": "stopped"}
+            # 不降级到 trading_system 进程内路径；_stop_worker_via_orchestrator 内部
+            # 已含 DB pid SIGTERM 兜底，走到这里说明兜底之外仍有异常，统一转译。
+            logger.error(f"[WorkerCoreService] Orchestrator 停止 Worker {worker_id} 失败: {e}")
+            raise WorkerOperationError("停止", worker_id, message=str(e)) from e
 
     async def async_stop_worker(self, worker_id: int) -> dict:
         """异步停止 Worker（与 CLI 同步版本调用链一致，经 Orchestrator→ZMQ 停止独立子进程）。
 
         统一走 self.stop_worker() 的同步实现，通过线程池执行，保证 FastAPI
-        与 CLI 行为完全一致：ZMQ 优雅停止→DB pid SIGTERM 兜底→最后降级到
-        trading_system 进程内路径。
+        与 CLI 行为完全一致：ZMQ 优雅停止 → DB pid SIGTERM 兜底，失败不降级。
         """
         logger.info(f"[WorkerCoreService] 异步停止 Worker {worker_id}")
         # 不调用 _ensure_initialized()，原因同 async_start_worker
@@ -1081,9 +1046,9 @@ class WorkerCoreService:
         Raises:
             WorkerOperationError: 重启失败
         """
-        # 不调用 _ensure_initialized()：stop/start 内部已把初始化检查收敛到
-        # 各自的降级分支（Orchestrator 路径不依赖 trading_system），CLI 独立
-        # 进程执行 restart 也不应被无关的 RuntimeError 阻断。
+        # 不调用 _ensure_initialized()：stop/start 均只走 Orchestrator 独立子进程路径
+        # （不依赖 trading_system），CLI 独立进程执行 restart 也不应被无关的
+        # RuntimeError 阻断。
         logger.info(f"[WorkerCoreService] 同步重启 Worker {worker_id}")
 
         try:

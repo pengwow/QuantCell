@@ -1,17 +1,7 @@
 """WorkerCoreService 与 WorkerOrchestrator 集成测试。"""
 
 import asyncio
-import os
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
-
-# tests/unit/worker → backend 需上三级；两级只到 tests/，
-# tests/utils/ 会遮蔽真正的 backend/utils，导致 utils.logger 导入失败
-backend_path = os.path.join(os.path.dirname(__file__), "..", "..", "..")
-if backend_path not in sys.path:
-    sys.path.insert(0, backend_path)
 
 from worker.core_service import WorkerCoreService
 from worker.orchestrator import WorkerOrchestrator

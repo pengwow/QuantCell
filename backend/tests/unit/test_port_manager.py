@@ -141,11 +141,11 @@ class TestPortAllocationNormal:
         """重复获取同一服务端口应返回缓存值"""
         manager = PortManager()
 
-        port1 = manager.get_port("zmq_data")
-        port2 = manager.get_port("zmq_data")
+        port1 = manager.get_port("fastapi")
+        port2 = manager.get_port("fastapi")
 
         assert port1 == port2
-        assert "zmq_data" in manager.allocated_ports
+        assert "fastapi" in manager.allocated_ports
 
     def test_get_all_services_ports(self, temp_config_dir):
         """获取所有服务的端口"""
@@ -160,13 +160,11 @@ class TestPortAllocationNormal:
         """get_all_ports 返回正确的字典结构"""
         manager = PortManager()
         manager.get_port("fastapi")
-        manager.get_port("zmq_data")
 
         all_ports = manager.get_all_ports()
 
         assert isinstance(all_ports, dict)
         assert "fastapi" in all_ports
-        assert "zmq_data" in all_ports
         assert all_ports["fastapi"] is not None
         start_port, end_port = PORT_RANGES["fastapi"]["range"]
         assert start_port <= all_ports["fastapi"] <= end_port
@@ -313,7 +311,6 @@ class TestConfigPersistence:
         """重新加载配置会清空当前配置并从文件加载"""
         manager = PortManager()
         manager.get_port("fastapi")
-        manager.get_port("zmq_data")
 
         initial_count = len(manager.allocated_ports)
 
@@ -669,13 +666,13 @@ class TestIntegrationScenarios:
         """释放后重新分配可能获得不同端口"""
         manager = PortManager()
 
-        manager.get_port("zmq_data")
-        manager.release_port("zmq_data")
+        manager.get_port("fastapi")
+        manager.release_port("fastapi")
 
-        port2 = manager.get_port("zmq_data")
+        port2 = manager.get_port("fastapi")
 
         assert port2 > 0
-        assert "zmq_data" in manager.allocated_ports
+        assert "fastapi" in manager.allocated_ports
 
 
 if __name__ == "__main__":

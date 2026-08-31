@@ -1,9 +1,13 @@
-import os
-
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-os.environ["DEBUG"] = "true"
+
+# DEBUG 用 fixture + monkeypatch 设置（自动恢复），避免模块级 os.environ
+# 泄漏把后续测试（如 ai_model 认证测试）污染成 debug 直通。
+@pytest.fixture(autouse=True)
+def _debug_mode(monkeypatch):
+    monkeypatch.setenv("DEBUG", "true")
 
 
 def _make_app():

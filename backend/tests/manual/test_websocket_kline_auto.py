@@ -22,13 +22,9 @@ WebSocket K线数据自动测试脚本 (pytest)
 """
 
 import asyncio
-import sys
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-
-# 添加项目根目录到Python路径
-sys.path.insert(0, "/Users/liupeng/workspace/quant/QuantCell/backend")
 
 from exchange.binance.config import BinanceConfig
 from exchange.binance.websocket_client import BinanceDataParser, BinanceWebSocketClient

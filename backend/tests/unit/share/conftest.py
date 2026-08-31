@@ -8,16 +8,22 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-sys.path.insert(0, "/Users/liupeng/workspace/quant/QuantCell/backend")
-
-
-# 模拟 worker.service 模块
+# 模拟 worker.service 模块（模块级注入 + teardown 恢复，防全仓污染）
 _mock_service_module = MagicMock()
 _mock_service_module.get_workers = AsyncMock(return_value=[])
 _mock_service_module.get_worker = AsyncMock(return_value={})
 _mock_service_module.get_positions = AsyncMock(return_value=[])
 _mock_service_module.get_orders = AsyncMock(return_value=[])
+_saved_service = sys.modules.get("worker.service")
 sys.modules["worker.service"] = _mock_service_module
+
+
+def teardown_module() -> None:
+    """恢复被注入的 worker.service。"""
+    if _saved_service is None:
+        sys.modules.pop("worker.service", None)
+    else:
+        sys.modules["worker.service"] = _saved_service
 
 
 @pytest.fixture(scope="session")
@@ -136,8 +142,9 @@ def test_client(db_session):
     app.dependency_overrides[get_current_user] = override_get_current_user
 
     # 兜底:若 main 中没有注册 share_router,则手动注册
-    routes_paths = [r.path for r in app.routes]
-    if not any("/api/share" in p for p in routes_paths):
+    # getattr 容错：新版 Starlette 的 _IncludedRouter 没有 .path 属性
+    routes_paths = [getattr(r, "path", "") for r in app.routes]
+    if not any("/api/share" in (p or "") for p in routes_paths):
         app.include_router(share_router)
 
     # 不走 lifespan,避免 ZMQ 监控 / 调度器等后台任务污染事件循环

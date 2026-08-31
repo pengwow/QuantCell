@@ -38,6 +38,16 @@ def _is_debug_mode() -> bool:
 IS_DEBUG_MODE = _is_debug_mode()
 
 
+def _auth_disabled() -> bool:
+    """debug 跳过判定。
+
+    env(DEBUG/APP_ENV)每次请求实时读取——测试文件常在模块级先被其他测试
+    导入 utils.auth 之后才设置 os.environ["DEBUG"]，若只看导入时固化的
+    IS_DEBUG_MODE 会漏掉后设的 env；同时保留模块级变量供测试直接 patch。
+    """
+    return IS_DEBUG_MODE or _is_debug_mode()
+
+
 def _extract_bearer_token(request: Request) -> str:
     """从 Authorization 头提取 Bearer token，失败抛 HTTP 401。"""
     auth = request.headers.get("Authorization")
@@ -126,7 +136,7 @@ def jwt_auth_required(func: Callable) -> Callable:
 
     @wraps(func)
     async def wrapper(request: Request, *args, **kwargs):
-        if IS_DEBUG_MODE:
+        if _auth_disabled():
             logger.debug(f"Debug模式：跳过JWT认证 - {request.url.path}")
             return await func(request, *args, **kwargs)
 
@@ -148,7 +158,7 @@ def jwt_auth_required_sync(func: Callable) -> Callable:
 
     @wraps(func)
     def wrapper(request: Request, *args, **kwargs):
-        if IS_DEBUG_MODE:
+        if _auth_disabled():
             logger.debug(f"Debug模式：跳过JWT认证 - {request.url.path}")
             return func(request, *args, **kwargs)
 

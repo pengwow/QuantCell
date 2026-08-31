@@ -10,12 +10,9 @@ Share 远端集成(quantcell.top)测试
 """
 
 import os
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-sys.path.insert(0, "/Users/liupeng/workspace/quant/QuantCell/backend")
 
 
 def _reset_singleton():

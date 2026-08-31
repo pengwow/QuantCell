@@ -16,16 +16,10 @@ def pytest_addoption(parser):
     )
 
 
-import sys
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi.testclient import TestClient
-
-# 添加backend目录到Python路径
-backend_dir = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(backend_dir))
 
 from main import app
 

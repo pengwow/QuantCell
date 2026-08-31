@@ -1,18 +1,17 @@
 """
 Trading Worker 简化单元测试
 
-测试 Trading Worker 相关组件的单元功能，不依赖 zmq 和 binance 模块
-"""
+测试 Worker 状态管理组件的单元功能，不依赖 zmq 和 binance 模块。
 
-import os
-import sys
-from unittest.mock import Mock
+注意：旧版本通过 spec_from_file_location 加载模块并把 sqlalchemy/collector/
+utils/worker 等顶层包替换为 Mock（sys.modules 直改且不恢复），在全量测试时
+会污染全局模块缓存，导致后续集成测试出现 "collector.db is not a package"
+等连锁错误。现改为直接 import 真实模块（依赖均在环境中存在）。
+"""
 
 import pytest
 
-# 添加项目路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../.."))
-
+from worker.worker_state import WorkerState, WorkerStatus
 
 # =============================================================================
 # Worker 状态测试
@@ -24,29 +23,6 @@ class TestWorkerState:
 
     def test_worker_state_transitions(self):
         """测试 Worker 状态转换"""
-        import importlib.util
-
-        state_path = os.path.join(os.path.dirname(__file__), "../../../worker/worker_state.py")
-        spec = importlib.util.spec_from_file_location("worker.worker_state", state_path)
-        state_module = importlib.util.module_from_spec(spec)
-        state_module.__package__ = "worker"
-
-        # Mock 依赖
-        sys.modules["sqlalchemy"] = Mock()
-        sys.modules["sqlalchemy.orm"] = Mock()
-        sys.modules["collector"] = Mock()
-        sys.modules["collector.db"] = Mock()
-        sys.modules["collector.db.database"] = Mock()
-        sys.modules["utils"] = Mock()
-        sys.modules["utils.logger"] = Mock()
-        sys.modules["worker"] = Mock()
-        sys.modules["worker.crud"] = Mock()
-
-        spec.loader.exec_module(state_module)
-
-        WorkerState = state_module.WorkerState
-        WorkerStatus = state_module.WorkerStatus
-
         status = WorkerStatus(worker_id="test-worker")
 
         # 初始状态是 INITIALIZING
@@ -77,28 +53,6 @@ class TestWorkerState:
 
     def test_worker_error_handling(self):
         """测试 Worker 错误处理"""
-        import importlib.util
-
-        state_path = os.path.join(os.path.dirname(__file__), "../../../worker/worker_state.py")
-        spec = importlib.util.spec_from_file_location("worker.worker_state", state_path)
-        state_module = importlib.util.module_from_spec(spec)
-        state_module.__package__ = "worker"
-
-        # Mock 依赖
-        sys.modules["sqlalchemy"] = Mock()
-        sys.modules["sqlalchemy.orm"] = Mock()
-        sys.modules["collector"] = Mock()
-        sys.modules["collector.db"] = Mock()
-        sys.modules["collector.db.database"] = Mock()
-        sys.modules["utils"] = Mock()
-        sys.modules["utils.logger"] = Mock()
-        sys.modules["worker"] = Mock()
-        sys.modules["worker.crud"] = Mock()
-
-        spec.loader.exec_module(state_module)
-
-        WorkerStatus = state_module.WorkerStatus
-
         status = WorkerStatus(worker_id="test-worker")
 
         # 记录错误
@@ -114,29 +68,6 @@ class TestWorkerState:
 
     def test_worker_heartbeat(self):
         """测试 Worker 心跳"""
-        import importlib.util
-
-        state_path = os.path.join(os.path.dirname(__file__), "../../../worker/worker_state.py")
-        spec = importlib.util.spec_from_file_location("worker.worker_state", state_path)
-        state_module = importlib.util.module_from_spec(spec)
-        state_module.__package__ = "worker"
-
-        # Mock 依赖
-        sys.modules["sqlalchemy"] = Mock()
-        sys.modules["sqlalchemy.orm"] = Mock()
-        sys.modules["collector"] = Mock()
-        sys.modules["collector.db"] = Mock()
-        sys.modules["collector.db.database"] = Mock()
-        sys.modules["utils"] = Mock()
-        sys.modules["utils.logger"] = Mock()
-        sys.modules["worker"] = Mock()
-        sys.modules["worker.crud"] = Mock()
-
-        spec.loader.exec_module(state_module)
-
-        WorkerStatus = state_module.WorkerStatus
-        WorkerState = state_module.WorkerState
-
         status = WorkerStatus(worker_id="test-worker")
 
         # 先转换到 RUNNING 状态（is_healthy 要求 RUNNING 或 PAUSED 状态）

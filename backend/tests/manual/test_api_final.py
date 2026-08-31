@@ -2,12 +2,7 @@
 
 import asyncio
 import os
-import sys
 import time
-from pathlib import Path
-
-backend_dir = Path(__file__).parent / "backend"
-sys.path.insert(0, str(backend_dir))
 
 from openai import AsyncOpenAI, Timeout
 

@@ -6,6 +6,7 @@ Worker 管理 CLI
 直接调用 WorkerCoreService，无需启动 FastAPI 服务。
 """
 
+import os
 import sys
 
 import typer
@@ -437,13 +438,30 @@ def worker_kill(worker_id: str = typer.Argument(..., help="Worker ID")):
     """强制终止 Worker 进程"""
     wid = _to_int(worker_id, "Worker ID")
     try:
-        from worker.orchestrator import WorkerOrchestrator
+        # CLI 是独立进程，orchestrator 注册表恒为空；FastAPI 运行时又占用 5559
+        # 无法 bind 路由命令，因此 kill 直接读 DB pid 发 SIGKILL，与 stop 的
+        # pid 兜底保持一致，保证 API 运行/非运行两种场景都可用。
+        with _service.get_db() as db:
+            worker = crud.get_worker(db, wid)
+        if worker is None:
+            typer.echo(f"Worker {wid} 不存在")
+            raise typer.Exit(1)
 
-        orch = WorkerOrchestrator.get_instance()
-        if orch.kill_worker_process(wid):
-            typer.echo(f"Worker {wid} 已强制终止")
-        else:
-            typer.echo(f"Worker {wid} 未连接")
+        pid = getattr(worker, "pid", None)
+        if not pid:
+            typer.echo(f"Worker {wid} 无进程 PID（未启动）")
+            return
+
+        try:
+            os.kill(pid, 9)
+            typer.echo(f"Worker {wid} 已强制终止 (PID={pid})")
+        except ProcessLookupError:
+            typer.echo(f"Worker {wid} 进程 (PID={pid}) 已不存在")
+
+        with _service.get_db() as db:
+            crud.update_worker_status(db, wid, "stopped", pid=None)
+    except typer.Exit:
+        raise
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)

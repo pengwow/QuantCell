@@ -292,14 +292,23 @@ async def lifespan(app: FastAPI):
 
     _shutdown_start = _time.monotonic()
 
-    # 2秒强制退出定时器（兜底：即使事件循环/线程卡死，也能快速退出）
+    # 强制退出兜底定时器（仅在优雅关闭被卡死时才触发）。
+    # 修复旧实现的三处缺陷：
+    #   1) 旧 2s 预算小于各步骤 wait_for 超时之和，健康关闭也被腰斩（DB 提交/插件停用中断）；
+    #   2) 定时器从不取消，TestClient 场景下关闭完成后仍会硬杀整个 pytest 进程；
+    #   3) 恒 os._exit(0)，掩盖关闭失败。
+    # 现改为：预算放宽到 15s（远大于各步骤超时之和），关闭正常完成后 set 事件取消
+    # 兜底；真正卡死触发时用非零退出码，让进程管理器能感知异常退出。
+    _shutdown_done = _th.Event()
+
     def _force_exit_timer():
-        _th.Event().wait(2.0)
+        if _shutdown_done.wait(15.0):
+            return  # 优雅关闭正常完成，取消兜底，不退出
         _elapsed = _time.monotonic() - _shutdown_start
         import logging as _log
 
-        _log.getLogger(__name__).warning(f"[FORCE EXIT] 2秒强制退出定时器触发 (已等待 {_elapsed:.2f}s)")
-        _os._exit(0)
+        _log.getLogger(__name__).error(f"[FORCE EXIT] 优雅关闭超时（>15s，已等待 {_elapsed:.2f}s），强制退出")
+        _os._exit(1)
 
     _force_thread = _th.Thread(target=_force_exit_timer, daemon=True, name="force-exit-timer")
     _force_thread.start()
@@ -408,6 +417,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[Lifespan] WorkerOrchestrator 清理失败: {e}")
 
+    _shutdown_done.set()  # 优雅关闭完成，取消强制退出兜底定时器
     logger.info("========== 应用关闭完成 ==========")
 
 

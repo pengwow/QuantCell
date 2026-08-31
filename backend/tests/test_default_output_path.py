@@ -6,8 +6,6 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 
 def test_default_path_generation():
     """测试默认路径生成逻辑"""

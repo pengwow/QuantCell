@@ -39,18 +39,20 @@ def _print_data_range(metrics_or_result: dict) -> None:
     """打印回测数据的时间范围 + bar 数"""
     start_ns = metrics_or_result.get("data_start_ns", 0)
     end_ns = metrics_or_result.get("data_end_ns", 0)
-    metrics_or_result.get("bar_count", 0)
+    bar_count = metrics_or_result.get("bar_count", 0)
     if start_ns <= 0 or end_ns <= 0:
         return
-    _format_ts_iso(start_ns)
-    _format_ts_iso(end_ns)
+    start_iso = _format_ts_iso(start_ns)
+    end_iso = _format_ts_iso(end_ns)
     duration_secs = (end_ns - start_ns) / 1e9
     if duration_secs >= 86400:
-        f"{duration_secs / 86400:.1f} 天"
+        duration_str = f"{duration_secs / 86400:.1f} 天"
     elif duration_secs >= 3600:
-        f"{duration_secs / 3600:.1f} 小时"
+        duration_str = f"{duration_secs / 3600:.1f} 小时"
     else:
-        pass
+        duration_str = f"{duration_secs:.0f} 秒"
+    # 面向终端用户的展示信息（CLI 输出路径），用 print 而非 logger
+    print(f"数据范围: {start_iso} → {end_iso} ({duration_str}),共 {bar_count} 根 K 线")
 
 
 class QuantCellJSONEncoder(json.JSONEncoder):

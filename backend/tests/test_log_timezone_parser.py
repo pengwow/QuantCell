@@ -10,14 +10,10 @@
 
 import os
 import shutil
-import sys
 import tempfile
 from datetime import UTC, datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from worker.log_utils import LogTimezoneParser
 

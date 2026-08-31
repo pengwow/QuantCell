@@ -12,9 +12,9 @@ from typing import Any
 
 import pytest
 
-# 确保能够导入后端模块
+# 注：backend 路径由根 conftest 统一加入 sys.path
+# project_root 实际指向 backend，仅用于本地性能报告输出目录
 project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
 
 
 class PerformanceReportCollector:

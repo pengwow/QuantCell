@@ -1,10 +1,17 @@
-import os
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-os.environ["DEBUG"] = "true"
+
+# 用 fixture + monkeypatch 设置 DEBUG，测试后自动恢复 env：
+# 模块级 os.environ["DEBUG"]="true" 是进程级全局泄漏，会把后续其它测试
+# （如 ai_model 认证测试，它们 patch utils.auth.IS_DEBUG_MODE=False 强制认证）
+# 污染成 debug 直通，导致 401 断言失败。
+@pytest.fixture(autouse=True)
+def _debug_mode(monkeypatch):
+    monkeypatch.setenv("DEBUG", "true")
 
 
 def _make_app():

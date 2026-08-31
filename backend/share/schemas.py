@@ -9,12 +9,9 @@ Worker 分享系统 Pydantic Schema
   WorkerMetaSnapshot / ShareSnapshot 等"白名单只读快照"已不再使用
 """
 
-from typing import TYPE_CHECKING
+from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 # ============================================================
 # 受保护端点（需要登录）
