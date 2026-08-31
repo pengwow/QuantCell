@@ -81,11 +81,11 @@ class WebSearchTool(Tool):
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         from cli.web import web_search
 
+        # cli.web_search 当前只接受 query/count/api_key，不再透传 proxy
         return web_search(
             query,
             count=count or self.max_results,
             api_key=self.api_key,
-            proxy=self.proxy,
         )
 
 
@@ -152,9 +152,5 @@ class WebFetchTool(Tool):
     ) -> str:
         from cli.web import web_fetch
 
-        return web_fetch(
-            url,
-            extract_mode=extractMode,
-            max_chars=maxChars or self.max_chars,
-            proxy=self.proxy,
-        )
+        # cli.web_fetch 当前只接受 url，不再透传 extract_mode/max_chars/proxy
+        return web_fetch(url)

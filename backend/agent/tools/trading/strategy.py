@@ -17,9 +17,12 @@ class ListStrategiesTool(Tool):
     }
 
     async def execute(self, **kwargs: Any) -> str:
-        from cli.strategy import list_strategies
+        try:
+            from cli.strategy import list_strategies
 
-        return list_strategies()
+            return list_strategies()
+        except Exception as e:
+            return f"错误: 无法列出策略: {e}"
 
 
 class GetStrategyDetailTool(Tool):
