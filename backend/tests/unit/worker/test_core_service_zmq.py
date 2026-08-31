@@ -1,8 +1,9 @@
 """WorkerCoreService 与 WorkerOrchestrator 集成测试。"""
 
+import asyncio
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -176,3 +177,38 @@ class TestCoreServicePublicMethods:
             result = service.get_worker_status(11)
             mock_status.assert_called_once_with(11)
             assert result["is_running"] is True
+
+    def test_batch_core_writes_final_state(self):
+        """批量启动成功后，状态机应从 STARTING 回写为 RUNNING（防中间态卡死）。"""
+        from worker.state_guard import BatchOperationResult, WorkerState
+
+        service = WorkerCoreService()
+        guard = MagicMock()
+        batch_result = BatchOperationResult(total=1, success_ids=[11], results=[])
+        guard.batch_transition = AsyncMock(return_value=batch_result)
+        guard.transition = MagicMock()
+        with (
+            patch.object(service, "start_worker", return_value={"worker_id": 11, "status": "running"}),
+            patch("worker.worker_state.worker_state_manager.transition", new=AsyncMock()),
+        ):
+            result = asyncio.run(service._run_batch_core(guard, [11], WorkerState.STARTING, "start"))
+        assert 11 in result.success_ids
+        guard.transition.assert_called_with(11, WorkerState.RUNNING)
+
+    def test_batch_core_failure_moves_to_failed_and_error_state(self):
+        """批量某 Worker 真实操作失败时，应从 success 移入 failed 并回写 ERROR。"""
+        from worker.state_guard import BatchOperationResult, WorkerState
+
+        service = WorkerCoreService()
+        guard = MagicMock()
+        batch_result = BatchOperationResult(total=1, success_ids=[11], results=[])
+        guard.batch_transition = AsyncMock(return_value=batch_result)
+        guard.transition = MagicMock()
+        with (
+            patch.object(service, "start_worker", side_effect=RuntimeError("boom")),
+            patch("worker.worker_state.worker_state_manager.transition", new=AsyncMock()),
+        ):
+            result = asyncio.run(service._run_batch_core(guard, [11], WorkerState.STARTING, "start"))
+        assert result.success_ids == []
+        assert 11 in result.failed_dict
+        guard.transition.assert_called_with(11, WorkerState.ERROR)
