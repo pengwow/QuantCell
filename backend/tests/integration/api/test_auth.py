@@ -114,14 +114,15 @@ class TestJWTTokenValidation:
         assert response.status_code == 200
 
     def test_token_future_iat(self, client: TestClient, mocker):
-        """测试iat为未来时间的令牌"""
+        """测试iat为未来时间的令牌（verify_iat 默认开启，未来 iat 应被拒绝）"""
         from fixtures.mocks.auth_mock import MockJWTToken
 
         future_time = datetime.now(UTC) + timedelta(hours=1)
         token = MockJWTToken.create_token_with_claims({"iat": future_time})
         headers = {"Authorization": f"Bearer {token}"}
         response = client.delete("/api/strategy/sma_cross", headers=headers)
-        assert response.status_code == 200
+        # PyJWT 默认 verify_iat=True，未来 iat 触发 ImmatureSignatureError → 401
+        assert response.status_code == 401
 
     def test_token_without_expiration(self, client: TestClient, mocker):
         """测试没有过期时间的令牌"""

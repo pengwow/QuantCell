@@ -85,9 +85,24 @@ class TestStrategyGenerateAPI:
         assert "code" in data["data"]
 
     def test_generate_sync_no_config(self, client, mock_auth, mock_should_refresh, auth_headers):
-        """测试未配置AI模型时的同步生成（API 现在自动使用默认模型，返回 200）"""
-        with patch("ai_model.routes_strategy.get_default_ai_config") as mock_config:
-            mock_config.return_value = None
+        """测试未显式指定模型时的同步生成（自动使用默认模型；mock 掉真实 API 调用）"""
+        with patch("ai_model.routes_strategy.create_strategy_generator") as mock_create:
+            mock_generator = MagicMock()
+            mock_generator.model_id = "step-3.7-flash"
+            mock_generator.generate_strategy.return_value = {
+                "success": True,
+                "code": "class TestStrategy:\n    pass",
+                "raw_content": "这是一个测试策略",
+                "metadata": {
+                    "model": "step-3.7-flash",
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150,
+                    "elapsed_time": 1.0,
+                    "request_id": "req_no_config",
+                },
+            }
+            mock_create.return_value = mock_generator
 
             response = client.post(
                 "/api/ai-models/strategy/generate-sync",

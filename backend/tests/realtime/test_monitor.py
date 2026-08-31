@@ -54,7 +54,8 @@ class TestRealtimeMonitor:
 
         assert realtime_monitor.stats["total_messages"] == 0
         assert realtime_monitor.stats["total_connections"] == 0
-        assert realtime_monitor.stats["processing_times"] == []
+        # processing_times 是 deque（maxlen=1000），重置后为空
+        assert len(realtime_monitor.stats["processing_times"]) == 0
 
     def test_record_connection_success(self, realtime_monitor):
         """测试记录成功连接"""
