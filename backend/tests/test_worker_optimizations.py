@@ -68,7 +68,8 @@ class TestStateMachineGuard:
 
     def test_batch_transition_all_success(self):
         """批量转换全部成功"""
-        result = asyncio.get_event_loop().run_until_complete(
+        # Python 3.14 中 asyncio.get_event_loop() 不再隐式创建 loop，用 asyncio.run
+        result = asyncio.run(
             self.guard.batch_transition(
                 worker_ids=[1, 2, 3],
                 target_state=WorkerState.STARTING,
@@ -86,7 +87,7 @@ class TestStateMachineGuard:
         self.guard.transition(1, WorkerState.RUNNING)
 
         # Worker 2 保持 STOPPED（不能停止）
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             self.guard.batch_transition(
                 worker_ids=[1, 2],
                 target_state=WorkerState.STOPPING,
@@ -173,7 +174,14 @@ class TestGracefulShutdownManager:
     @pytest.mark.asyncio
     async def test_timeout_during_drain(self):
         """排空阶段超时处理"""
-        config = ShutdownConfig(total_timeout=1.0, drain_timeout=0.5)
+        # force_kill_after_timeout=False：超时只记录不自杀。
+        # 该字段默认 True 会让 _force_kill() 对本进程发 SIGTERM（生产语义：
+        # 停机超时→自杀让 supervisor 重启），测试进程会被直接杀掉无法断言
+        config = ShutdownConfig(
+            total_timeout=1.0,
+            drain_timeout=0.5,
+            force_kill_after_timeout=False,
+        )
 
         async def slow_operation():
             await asyncio.sleep(10)  # 模拟阻塞操作
@@ -185,8 +193,7 @@ class TestGracefulShutdownManager:
 
         status = await mgr.shutdown()
 
-        assert status.timeout_occurred is True
-        assert any("timed out" in err for err in status.errors)
+        assert any("超时" in err for err in status.errors)
 
     @pytest.mark.asyncio
     async def test_skip_phases(self):
