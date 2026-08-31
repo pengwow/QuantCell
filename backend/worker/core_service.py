@@ -418,6 +418,11 @@ class WorkerCoreService:
         """
         批量操作Worker（同步版本，供CLI使用）
 
+        两步语义：
+        1. 状态机校验/转换（StateMachineGuard.batch_transition）
+        2. 对转换成功的 Worker 逐个执行真实操作（start/stop/restart，
+           与单机命令同一调用链，经 Orchestrator→ZMQ 管理独立进程）
+
         Args:
             worker_ids: Worker ID列表
             operation: 操作类型 (start/stop/restart)
@@ -447,16 +452,17 @@ class WorkerCoreService:
         except RuntimeError:
             loop = None
 
+        # 状态机转换与真实操作解析不能直接 asyncio.run（若已在事件循环中会冲突）
         if loop and loop.is_running():
             import concurrent.futures
 
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 batch_result = pool.submit(
                     asyncio.run,
-                    guard.batch_transition(worker_ids, target_state, operation),
+                    self._run_batch_core(guard, worker_ids, target_state, operation),
                 ).result()
         else:
-            batch_result = asyncio.run(guard.batch_transition(worker_ids, target_state, operation))
+            batch_result = asyncio.run(self._run_batch_core(guard, worker_ids, target_state, operation))
 
         result = {
             "success": batch_result.success_ids,
@@ -466,7 +472,7 @@ class WorkerCoreService:
         }
 
         logger.info(
-            f"[WorkerCoreService] 批量{operation}完成 (状态机验证): "
+            f"[WorkerCoreService] 批量{operation}完成 (状态机+真实操作): "
             f"成功={len(batch_result.success_ids)}, "
             f"失败={len(batch_result.failed_dict)}, "
             f"总计={batch_result.total}"
@@ -474,8 +480,62 @@ class WorkerCoreService:
 
         return result
 
+    async def _run_batch_core(
+        self,
+        guard: Any,
+        worker_ids: list[int],
+        target_state: Any,
+        operation: str,
+    ) -> Any:
+        """批量操作的统一内核（同步/异步两条路径共用）。历经三阶段：
+
+        1. 状态机校验/批量转换（StateMachineGuard）
+        2. 对转换成功的 Worker 顺序执行真实操作（与单机命令同一调用链）
+        3. 回写状态机终态（running/stopped/error），防止机器长期停留在
+           starting/stopping 中间态，阻塞后续批量/单机状态转换
+
+        ponytail: 步骤 2 顺序执行而非并发——批量 Worker 数通常很小，
+        并发 Popen+ZMQ 注册窗会放大路由竞态，收益不抵复杂度。
+        """
+        from .state_guard import WorkerState
+        from .worker_state import worker_state_manager
+
+        batch_result = await guard.batch_transition(worker_ids, target_state, operation)
+
+        op_fn = {
+            "start": self.start_worker,
+            "stop": self.stop_worker,
+            "restart": self.restart_worker,
+        }[operation]
+        final_state = WorkerState.RUNNING if operation in ("start", "restart") else WorkerState.STOPPED
+
+        for wid in list(batch_result.success_ids):
+            try:
+                await asyncio.to_thread(op_fn, wid)
+                # 回写状态机终态：真实操作已完成的语义不能被 starting/stopping 覆盖
+                write_result = guard.transition(wid, final_state)
+                if not write_result.success:
+                    logger.warning(
+                        f"[WorkerCoreService] 批量{operation}: Worker {wid} 终态回写失败: {write_result.message}"
+                    )
+                await worker_state_manager.transition(wid, final_state.value)
+                logger.info(f"[WorkerCoreService] 批量{operation}: Worker {wid} 执行成功")
+            except Exception as e:
+                logger.warning(f"[WorkerCoreService] 批量{operation}: Worker {wid} 执行失败: {e}")
+                try:
+                    guard.transition(wid, WorkerState.ERROR)
+                    await worker_state_manager.transition(wid, "error", error_message=str(e))
+                except Exception:
+                    pass
+                batch_result.success_ids.remove(wid)
+                batch_result.failed_dict[wid] = str(e)
+        return batch_result
+
     async def async_batch_operation(self, worker_ids: list[int], operation: str) -> dict[str, Any]:
-        """批量操作Worker（异步版本，直接await协程避免死锁）"""
+        """批量操作Worker（异步版本，直接await协程避免死锁）
+
+        与同步版本共用 _run_batch_core 内核，行为完全一致。
+        """
         from .state_guard import StateMachineGuard, WorkerState
 
         valid_operations = {
@@ -492,7 +552,7 @@ class WorkerCoreService:
 
         target_state = valid_operations[operation]
         guard = StateMachineGuard()
-        batch_result = await guard.batch_transition(worker_ids, target_state, operation)
+        batch_result = await self._run_batch_core(guard, worker_ids, target_state, operation)
 
         result = {
             "success": batch_result.success_ids,
@@ -640,13 +700,24 @@ class WorkerCoreService:
 
         logger.info(f"[WorkerCoreService] 同步启动 Worker {worker_id}")
 
-        # 优先尝试 Orchestrator 路径（独立子进程），失败时降级到 trading_system
+        # 优先尝试 Orchestrator 路径（独立子进程）。
+        # 注意：Orchestrator RuntimeError（如 ZMQ 注册超时、Popen 失败）表示独立
+        # 子进程确实无法启动——此时不降级，直接 re-raise。若降级到 trading_system，
+        # 会掩盖 "Worker 进程已拉起但注册失败" 状态不一致，导致同一 Worker 被
+        # 两条路径同时操作。仅 ZMQ / ZMQ_CONFIG 不可用这类真正"不相关"异常才降级。
         try:
             return self._start_worker_via_orchestrator(worker_id)
         except WorkerNotFoundError:
             raise
+        except WorkerAlreadyRunningError:
+            raise
+        except RuntimeError as e:
+            # RuntimeError: orchestrator.start_worker_process 内显式抛错
+            # (注册超时 / transport 创建失败)，明确指示独立进程路径失败。
+            logger.error(f"[WorkerCoreService] Orchestrator 启动 Worker {worker_id} 失败: {e}")
+            raise WorkerOperationError("启动", worker_id, message=str(e)) from e
         except Exception as e:
-            logger.warning(f"[WorkerCoreService] Orchestrator 路径失败，降级到 trading_system: {e}")
+            logger.warning(f"[WorkerCoreService] Orchestrator 路径异常，降级到 trading_system: {e}")
             # 降级到原有 trading_system 进程内路径，保留原有异常语义
             self._ensure_initialized()
             if not AXON_QUANT_AVAILABLE:
@@ -804,103 +875,101 @@ class WorkerCoreService:
         }
 
     def _build_worker_config(self, worker_id: int) -> dict:
-        """构建 Worker 启动配置。
+        """构建 Worker 启动配置（start 命令 params，daemon 在独立进程中消费）。
 
         注意：ORM Worker 模型没有 exchange 字段，exchange 保存在
         trading_config JSON 中；策略名称用冗余的 strategy_name 字段，
-        而非整型的 strategy_id。
+        而非整型的 strategy_id。symbols/timeframe/strategy_params 从
+        关联的 Strategy 模型解析，供 daemon 加载策略实例与品种配置。
         """
         with self.get_db() as db:
+            from strategy.models import Strategy
+
             worker = crud.get_worker(db, worker_id)
             if not worker:
                 return {}
             trading_config = worker.get_trading_config_dict()
+            symbols = worker.get_symbols() if hasattr(worker, "get_symbols") else []
+            strategy_params = {}
+            if worker.strategy_id is not None:
+                strategy = db.query(Strategy).filter(Strategy.id == worker.strategy_id).first()
+                if strategy is not None and strategy.parameters:
+                    try:
+                        raw_params = (
+                            json.loads(strategy.parameters)
+                            if isinstance(strategy.parameters, str)
+                            else strategy.parameters
+                        )
+                        if isinstance(raw_params, dict):
+                            strategy_params = raw_params
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(f"[WorkerCoreService] 策略参数 JSON 解析失败: worker_id={worker_id}, error={e}")
             return {
                 "strategy_name": worker.strategy_name,
                 "exchange": trading_config.get("exchange", "binance"),
+                "trading_mode": trading_config.get("trading_mode", "paper"),
                 "name": worker.name,
+                "symbols": symbols,
+                "timeframe": trading_config.get("timeframe", "1h"),
+                "strategy_params": strategy_params,
             }
 
     async def async_start_worker(self, worker_id: int) -> dict:
+        """异步启动 Worker（与 CLI 同步版本调用链一致，经 Orchestrator→ZMQ 启动独立子进程）。
+
+        统一走 self.start_worker() 的同步实现，通过线程池执行，保证 FastAPI
+        与 CLI 行为完全一致：优先 Orchestrator 独立子进程路径，失败时降级到
+        trading_system 进程内路径（降级路径内再判断 AXON_QUANT_AVAILABLE）。
         """
-        异步版本启动 Worker - 状态驱动的非阻塞模式
-
-        调用链：
-        外部调用 → core_service.async_start_worker()
-          → 状态转换: stopped → starting
-          → 异步执行 _do_start_worker()
-
-        Args:
-            worker_id: Worker ID
-
-        Returns:
-            dict: {"worker_id": int, "status": "starting", "message": str}
-        """
-        self._ensure_initialized()
-
-        if not AXON_QUANT_AVAILABLE:
-            msg = "启动"
-            raise WorkerOperationError(msg, worker_id, message="axon-quant 未安装，无法启动策略")
-
         logger.info(f"[WorkerCoreService] 异步启动 Worker {worker_id}")
-
+        # 注意：不调用 _ensure_initialized()，原因与 start_worker 相同——
+        # Orchestrator 路径不依赖 trading_system，CLI/API 必须同语义
         try:
             success = await worker_state_manager.transition(worker_id, "starting")
             if not success:
                 state = await worker_state_manager.get_state(worker_id)
                 current_status = state.status if state else "unknown"
-
                 if current_status == "running":
                     return {
                         "worker_id": worker_id,
                         "status": "running",
                         "message": "Worker 已经处于运行状态",
                     }
-                elif current_status == "starting":
+                if current_status == "starting":
                     return {
                         "worker_id": worker_id,
                         "status": "starting",
                         "message": "Worker 正在启动中...",
                     }
-                else:
-                    msg = "启动"
-                    raise WorkerOperationError(msg, worker_id, f"当前状态 ({current_status}) 不允许启动")
+                msg = "启动"
+                raise WorkerOperationError(msg, worker_id, f"当前状态 ({current_status}) 不允许启动")
 
-            asyncio.create_task(self._do_start_worker(worker_id))
+            # 后台异步执行启动逻辑，避免阻塞 API 响应
+            async def _runner():
+                try:
+                    result = await asyncio.to_thread(self.start_worker, worker_id)
+                    logger.info(f"[async_start_worker] Worker {worker_id} 启动完成: {result}")
+                except WorkerNotFoundError:
+                    raise
+                except Exception as e:
+                    logger.exception(f"[async_start_worker] Worker {worker_id} 启动失败")
+                    await worker_state_manager.transition(worker_id, "error", error_message=str(e))
+
+            asyncio.create_task(_runner())
 
             return {
                 "worker_id": worker_id,
                 "status": "starting",
                 "message": "Worker 启动请求已接收，正在异步处理中...",
             }
-
-        except Exception as e:
-            logger.error(f"[WorkerCoreService] 异步启动 Worker {worker_id} 失败: {e}")
+        except WorkerNotFoundError:
             raise
-
-    async def _do_start_worker(self, worker_id: int):
-        """
-        执行 Worker 启动的后台异步任务
-
-        直接调用 trading_system.start_strategy()，
-        由 TradingSystem 内部处理策略配置加载、TradingNode 创建和异步运行。
-
-        Args:
-            worker_id: Worker ID
-        """
-        try:
-            success = await _ws.trading_system.start_strategy(worker_id)
-            if success:
-                logger.info(f"[_do_start_worker] Worker {worker_id} 启动成功")
-            else:
-                logger.error(f"[_do_start_worker] Worker {worker_id} 启动失败")
-                await worker_state_manager.transition(worker_id, "error", error_message="trading_system 启动策略失败")
+        except WorkerOperationError:
+            raise
         except Exception as e:
-            logger.error(f"[_do_start_worker] Worker {worker_id} 启动过程异常: {e}")
-            import traceback
-
-            traceback.print_exc()
-            await worker_state_manager.transition(worker_id, "error", error_message=str(e))
+            logger.exception(f"[WorkerCoreService] 异步启动 Worker {worker_id} 失败")
+            # 未包装成 WorkerOperationError 的异常（如 DB 层异常）统一转译
+            raise WorkerOperationError("启动", worker_id, message=str(e)) from e
 
     def stop_worker(self, worker_id: int) -> dict:
         """
@@ -944,102 +1013,58 @@ class WorkerCoreService:
             return {"worker_id": worker_id, "status": "stopped"}
 
     async def async_stop_worker(self, worker_id: int) -> dict:
+        """异步停止 Worker（与 CLI 同步版本调用链一致，经 Orchestrator→ZMQ 停止独立子进程）。
+
+        统一走 self.stop_worker() 的同步实现，通过线程池执行，保证 FastAPI
+        与 CLI 行为完全一致：ZMQ 优雅停止→DB pid SIGTERM 兜底→最后降级到
+        trading_system 进程内路径。
         """
-        异步版本停止 Worker - 状态驱动的非阻塞模式
-
-        调用链：
-        外部调用 → core_service.async_stop_worker()
-          → 状态转换: running → stopping
-          → 异步执行 _do_stop_worker()
-
-        Args:
-            worker_id: Worker ID
-
-        Returns:
-            dict: {"worker_id": int, "status": "stopping", "message": str}
-        """
-        self._ensure_initialized()
-
         logger.info(f"[WorkerCoreService] 异步停止 Worker {worker_id}")
-
+        # 不调用 _ensure_initialized()，原因同 async_start_worker
         try:
             success = await worker_state_manager.transition(worker_id, "stopping")
             if not success:
                 state = await worker_state_manager.get_state(worker_id)
                 current_status = state.status if state else "unknown"
-
                 if current_status == "stopped":
                     return {
                         "worker_id": worker_id,
                         "status": "stopped",
                         "message": "Worker 已经处于停止状态",
                     }
-                elif current_status == "stopping":
+                if current_status == "stopping":
                     return {
                         "worker_id": worker_id,
                         "status": "stopping",
                         "message": "Worker 正在停止中...",
                     }
-                else:
-                    msg = "停止"
-                    raise WorkerOperationError(msg, worker_id, f"当前状态 ({current_status}) 不允许停止")
+                msg = "停止"
+                raise WorkerOperationError(msg, worker_id, f"当前状态 ({current_status}) 不允许停止")
 
-            asyncio.create_task(self._do_stop_worker(worker_id))
+            async def _runner():
+                try:
+                    result = await asyncio.to_thread(self.stop_worker, worker_id)
+                    logger.info(f"[async_stop_worker] Worker {worker_id} 停止完成: {result}")
+                except WorkerNotFoundError:
+                    raise
+                except Exception as e:
+                    logger.exception(f"[async_stop_worker] Worker {worker_id} 停止失败")
+                    await worker_state_manager.transition(worker_id, "error", error_message=str(e))
+
+            asyncio.create_task(_runner())
 
             return {
                 "worker_id": worker_id,
                 "status": "stopping",
                 "message": "Worker 停止请求已接收，正在异步处理中...",
             }
-
-        except Exception as e:
-            logger.error(f"[WorkerCoreService] 异步停止 Worker {worker_id} 失败: {e}")
+        except WorkerNotFoundError:
             raise
-
-    async def _do_stop_worker(self, worker_id: int):
-        """
-        执行 Worker 停止的后台异步任务
-
-        直接调用 trading_system.stop_strategy()，
-        由 TradingSystem 内部处理 asyncio Task 取消、TradingNode dispose。
-
-        注意：stop_strategy() 返回 False 不一定代表失败——
-        可能因为运行时已经不存在（线程意外退出但状态已同步为 stopped），
-        此时不应转为 error 状态。
-
-        Args:
-            worker_id: Worker ID
-        """
-        try:
-            success = await _ws.trading_system.stop_strategy(worker_id)
-            if success:
-                logger.info(f"[_do_stop_worker] Worker {worker_id} 停止成功")
-            else:
-                # 检查当前状态：如果已经 stopped，不需要转为 error
-                current_state = await worker_state_manager.get_state(worker_id)
-                if current_state and current_state.status == "stopped":
-                    logger.info(f"[_do_stop_worker] Worker {worker_id} 状态已为 stopped, 无需额外处理")
-                else:
-                    logger.warning(
-                        f"[_do_stop_worker] Worker {worker_id} stop_strategy 返回 False, "
-                        f"当前状态={current_state.status if current_state else 'unknown'}"
-                    )
-                    try:
-                        await worker_state_manager.transition(
-                            worker_id,
-                            "stopped",
-                        )
-                    except Exception as te:
-                        logger.warning(f"[_do_stop_worker] Worker {worker_id} 强制转为 stopped 失败: {te}")
+        except WorkerOperationError:
+            raise
         except Exception as e:
-            logger.error(f"[_do_stop_worker] Worker {worker_id} 停止过程异常: {e}")
-            import traceback
-
-            traceback.print_exc()
-            try:
-                await worker_state_manager.transition(worker_id, "error", error_message=str(e))
-            except Exception as transition_err:
-                logger.error(f"[_do_stop_worker] 状态转换失败: {transition_err}")
+            logger.exception(f"[WorkerCoreService] 异步停止 Worker {worker_id} 失败")
+            raise WorkerOperationError("停止", worker_id, message=str(e)) from e
 
     def restart_worker(self, worker_id: int) -> dict:
         """
@@ -1056,7 +1081,9 @@ class WorkerCoreService:
         Raises:
             WorkerOperationError: 重启失败
         """
-        self._ensure_initialized()
+        # 不调用 _ensure_initialized()：stop/start 内部已把初始化检查收敛到
+        # 各自的降级分支（Orchestrator 路径不依赖 trading_system），CLI 独立
+        # 进程执行 restart 也不应被无关的 RuntimeError 阻断。
         logger.info(f"[WorkerCoreService] 同步重启 Worker {worker_id}")
 
         try:
