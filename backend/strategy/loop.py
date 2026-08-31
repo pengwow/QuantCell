@@ -109,6 +109,11 @@ class StrategyLoop:
             try:
                 ticker = self._adapter.get_ticker(self._symbol)
                 close_price = float(ticker.get("last", 0.0))
+                if close_price <= 0:
+                    # 行情源未就绪（如 paper 模式无真实行情）：跳过本轮，
+                    # 不把 0 价 bar 喂给策略（会污染均线/指标窗口的脏数据）
+                    self._stop_event.wait(self._interval)
+                    continue
                 bar = {
                     "open": float(ticker.get("open", close_price)),
                     "high": float(ticker.get("high", close_price)),

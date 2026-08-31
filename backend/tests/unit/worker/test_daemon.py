@@ -85,3 +85,93 @@ class TestWorkerDaemon:
         result = daemon._handle_command({"cmd": "unknown", "request_id": "r1"})
         assert result["status"] == "error"
         daemon.cleanup()
+
+
+class TestDaemonStrategyKernel:
+    """daemon 策略执行内核：start 命令真实构建 StrategyLoop 并启动。"""
+
+    def test_start_command_launches_strategy_loop(self, monkeypatch):
+        """start 命令应加载策略实例、构建 StrategyLoop 并调用 start()。"""
+        daemon = WorkerDaemon(worker_id=11)
+
+        started = {}
+
+        class _FakeLoop:
+            def __init__(self, adapter, strategy, symbol, event_callback=None):
+                self.adapter = adapter
+                self.strategy = strategy
+                self.symbol = symbol
+                self.event_callback = event_callback
+                started["loop"] = self
+
+            def start(self):
+                started["started"] = True
+
+            def stop(self):
+                pass
+
+        # 策略加载器返回 None → 走占位策略降级分支（不依赖真实 strategies 目录）
+        monkeypatch.setattr(
+            "backtest.strategy_loader_service.StrategyLoaderService.load_event_strategy_multi",
+            staticmethod(lambda **kwargs: None),
+        )
+        monkeypatch.setattr("strategy.loop.StrategyLoop", _FakeLoop)
+
+        resp = daemon._handle_command(
+            {"cmd": "start", "request_id": "r1", "params": {"strategy_name": "unknown_strategy"}}
+        )
+        assert resp["status"] == "ok"
+        assert started.get("started") is True
+        assert daemon._strategy_loop is not None
+        daemon._stop_strategy()
+        assert daemon._strategy_loop is None
+
+    def test_start_command_failure_returns_error(self, monkeypatch):
+        """StrategyLoop 构建抛异常时，start 命令应返回 error 而非假 running。
+
+        注：策略加载器失败不会走 error（与 StrategyManager 语义一致，降级占位
+        策略），此测试验证的是运行时构建失败的兜底路径。
+        """
+        daemon = WorkerDaemon(worker_id=11)
+        monkeypatch.setattr(
+            "backtest.strategy_loader_service.StrategyLoaderService.load_event_strategy_multi",
+            staticmethod(lambda **kwargs: None),
+        )
+
+        class _BoomLoop:
+            def __init__(self, **kwargs):
+                raise RuntimeError("loop build failed")
+
+        monkeypatch.setattr("strategy.loop.StrategyLoop", _BoomLoop)
+        resp = daemon._handle_command({"cmd": "start", "request_id": "r1", "params": {}})
+        assert resp["status"] == "error"
+        assert "策略启动失败" in resp["data"]["error"]
+        assert daemon._running is False
+        daemon.cleanup()
+
+    def test_emit_strategy_event_updates_stats_and_forwards(self):
+        """订单事件应计数并转发 ZMQ；bar.processed 只更新心跳统计不转发。"""
+        daemon = WorkerDaemon(worker_id=11)
+
+        sent = []
+
+        class _FakeTransport:
+            def send_event(self, event):
+                sent.append(event)
+
+            def close(self, linger=0):
+                pass
+
+        daemon._transport = _FakeTransport()
+
+        daemon._emit_strategy_event("order.placed", {"symbol": "BTCUSDT", "side": "Buy"})
+        assert daemon._orders_count == 1
+        assert len(sent) == 1
+        assert sent[0]["event_type"] == "order"
+
+        daemon._emit_strategy_event("bar.processed", {"price": 123.45, "action": "buy"})
+        assert daemon._last_price == 123.45
+        assert daemon._last_action == "buy"
+        assert len(sent) == 1  # bar.processed 不转发
+
+        daemon.cleanup()

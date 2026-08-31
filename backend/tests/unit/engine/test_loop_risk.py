@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from strategy.loop import StrategyLoop
@@ -198,3 +199,30 @@ def test_event_callback_on_order_placed():
     assert len(placed) == 1
     assert placed[0][1]["side"] == "Buy"
     assert placed[0][1]["quantity"] > 0
+
+
+def test_zero_price_bar_skipped():
+    """0 价行情（paper 模式无真实行情）应跳过 on_bar，不把脏数据喂给策略。
+
+    回归场景：daemon 的 _PaperAdapter 无行情源时 get_ticker 返回 last=0，
+    _run_loop 若仍调 on_bar，均线/指标窗口会被 0 收盘价污染。
+    """
+    adapter = FakeAdapter()
+    adapter._ticker = {**adapter._ticker, "last": 0.0}
+
+    class CountingStrategy(FakeStrategy):
+        def __init__(self):
+            super().__init__(FakeAction("buy", confidence=0.8, target_position=0.1))
+            self.bars_seen = 0
+
+        def on_bar(self, bar, ctx=None):
+            self.bars_seen += 1
+            return self._action
+
+    strategy = CountingStrategy()
+    loop = StrategyLoop(adapter=adapter, strategy=strategy, symbol="BTCUSDT", interval=0.02)
+    loop.start()
+    time.sleep(0.1)
+    loop.stop()
+
+    assert strategy.bars_seen == 0, "0 价行情不应触发 on_bar"
