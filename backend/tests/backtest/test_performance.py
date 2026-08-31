@@ -30,9 +30,7 @@ import pytest
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
-# 确保能够导入后端模块
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
+# backend 路径由根 conftest 统一加入 sys.path
 
 # 这些测试在 commit 9866f56 中已经不再适用（向量化回测引擎 Engine/LegacyEngine 已删除）
 try:

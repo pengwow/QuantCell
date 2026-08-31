@@ -3,14 +3,11 @@ KlineFileManager 单元测试
 """
 
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 
 import pandas as pd
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.kline_file_manager import KlineFileManager
 

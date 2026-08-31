@@ -29,7 +29,9 @@ class TestEventBus:
 
         subscribers = event_bus.get_subscribers("test.event")
         assert len(subscribers) == 1
-        assert callback.__name__ in subscribers
+        # py3.14 起 MagicMock 不再提供默认 __name__ 属性；
+        # EventBus 对无 __name__ 的回调回退为类型名
+        assert type(callback).__name__ in subscribers
 
     def test_unsubscribe(self, event_bus):
         """测试取消订阅功能"""

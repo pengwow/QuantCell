@@ -4,65 +4,77 @@
 """
 
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-# 添加backend目录到Python路径
-# 使用绝对路径
-test_file = Path(__file__).resolve()
-backend_dir = test_file.parent.parent.parent.parent  # tests/unit/ai_model -> tests/unit -> tests -> backend
-sys.path.insert(0, str(backend_dir))
-
 # mock数据库模块，避免导入链触发重型依赖
 # 注意：worker 模块不再 mock，因为 share/routes.py 需要导入 worker.dependencies，
 # 而 worker 模块已移除旧交易引擎依赖，可正常导入
-_MOCK_MODULES = {
-    "settings.models": MagicMock(),
-    "collector.db.database": MagicMock(),
-    "collector.db.models": MagicMock(),
-}
-for _name, _mock in _MOCK_MODULES.items():
-    sys.modules.setdefault(_name, _mock)
+#
+# 注入遵循 setdefault 语义：仅当模块尚未被加载时才用 mock 顶替。
+# 若 collector.db.database 已被其它测试真实加载（如全量运行），继续 mock 会把
+# main/share/worker 等整条导入链污染成绑定 MagicMock Base 的脏模块，清理后
+# 反而出现"同一 MetaData 重复注册 workers 表"的类型分裂。
+_SAVED_DB_MODULES: dict[str, object | None] = {}
+_MOCK_MODULES = ["settings.models", "collector.db.database", "collector.db.models"]
+_db_was_mocked = False
+for _name in _MOCK_MODULES:
+    _SAVED_DB_MODULES[_name] = sys.modules.get(_name)
+    if _name not in sys.modules:
+        sys.modules[_name] = MagicMock()
+        if _name == "collector.db.database":
+            _db_was_mocked = True
 
 import ai_model.routes_strategy
 from main import app
 
-# 清理mock条目和被污染的模块，避免影响后续测试文件的收集
-# 不清理ai_model和ai_model.routes_strategy（本测试需要它们）
-_KEEP_MODULES = {
-    "ai_model",
-    "ai_model.routes_strategy",
-    "ai_model.routes",
-    "ai_model.schemas_strategy",
-    "ai_model.config_utils",
-    "ai_model.prompts",
-    "ai_model.strategy_generator",
-    "ai_model.thinking_chain",
-    "ai_model.performance_monitor",
-}
-for _mod_name in [*list(_MOCK_MODULES.keys()), "main"]:
-    sys.modules.pop(_mod_name, None)
-# 清理因mock collector.db.database而使用了mock Base的模块
-for _mod_name in list(sys.modules.keys()):
-    if _mod_name in _KEEP_MODULES:
-        continue
-    if _mod_name.startswith(
-        (
-            "strategy.",
-            "backtest.",
-            "settings.",
-            "collector.",
-            "system.",
-            "factor.",
-            "worker.",
-        )
-    ):
-        sys.modules.pop(_mod_name, None)
-for _mod_name in ["strategy", "backtest", "settings", "collector", "system", "factor"]:
-    sys.modules.pop(_mod_name, None)
+# 恢复被 mock 的模块条目
+for _name in _MOCK_MODULES:
+    _orig = _SAVED_DB_MODULES[_name]
+    if _orig is None:
+        sys.modules.pop(_name, None)
+    else:
+        sys.modules[_name] = _orig
+_SAVED_DB_MODULES.clear()
+
+if _db_was_mocked:
+    # 清理mock期间被污染的模块，避免影响后续测试文件的收集（模块级立即执行，
+    # 因为后续测试文件在收集阶段就要 import，等不到本模块测试跑完的 teardown）
+    # 不清理ai_model和ai_model.routes_strategy（本测试需要它们）
+    _KEEP_MODULES = {
+        "ai_model",
+        "ai_model.routes_strategy",
+        "ai_model.routes",
+        "ai_model.schemas_strategy",
+        "ai_model.config_utils",
+        "ai_model.prompts",
+        "ai_model.strategy_generator",
+        "ai_model.thinking_chain",
+        "ai_model.performance_monitor",
+    }
+    for _mod_name in list(sys.modules.keys()):
+        if _mod_name in _KEEP_MODULES or _mod_name in _MOCK_MODULES:
+            continue
+        if _mod_name.startswith(
+            (
+                "strategy.",
+                "backtest.",
+                "settings.",
+                "collector.",
+                "system.",
+                "factor.",
+                "worker.",
+                # share 模块经 main 的导入链在 mock Base 期间加载，类绑定会被
+                # MagicMock Base 固化，必须清理让后续 share 测试拿到真 Base
+                "share.",
+            )
+        ):
+            sys.modules.pop(_mod_name, None)
+    for _mod_name in ["strategy", "backtest", "settings", "collector", "system", "factor", "share", "main"]:
+        if _mod_name not in _MOCK_MODULES:
+            sys.modules.pop(_mod_name, None)
 
 # 创建测试客户端
 client = TestClient(app)

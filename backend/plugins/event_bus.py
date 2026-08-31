@@ -10,6 +10,12 @@ if TYPE_CHECKING:
 logger = get_logger(__name__, LogType.APPLICATION)
 
 
+def _callback_name(callback: Callable) -> str:
+    """回调展示名。订阅方承诺的是 Callable，不一定是带 __name__ 的函数
+    （functools.partial、可调用对象、测试 Mock 都没有 __name__）。"""
+    return getattr(callback, "__name__", None) or type(callback).__name__
+
+
 class EventBus:
     def __init__(self):
         self._subscribers: dict[str, list[Callable]] = {}
@@ -21,16 +27,16 @@ class EventBus:
                 self._subscribers[event_name] = []
             if callback not in self._subscribers[event_name]:
                 self._subscribers[event_name].append(callback)
-                logger.info(f"订阅事件: {event_name} -> {callback.__name__}")
+                logger.info(f"订阅事件: {event_name} -> {_callback_name(callback)}")
 
     def unsubscribe(self, event_name: str, callback: Callable) -> None:
         with self._lock:
             if event_name in self._subscribers:
                 try:
                     self._subscribers[event_name].remove(callback)
-                    logger.info(f"取消订阅事件: {event_name} -> {callback.__name__}")
+                    logger.info(f"取消订阅事件: {event_name} -> {_callback_name(callback)}")
                 except ValueError:
-                    logger.warning(f"订阅者不存在: {event_name} -> {callback.__name__}")
+                    logger.warning(f"订阅者不存在: {event_name} -> {_callback_name(callback)}")
 
     def publish(self, event_name: str, data: Any = None) -> None:
         with self._lock:
@@ -41,7 +47,7 @@ class EventBus:
                 callback(data)
             except Exception as e:
                 logger.error(
-                    f"事件 {event_name} 的订阅者 {callback.__name__} 执行异常",
+                    f"事件 {event_name} 的订阅者 {_callback_name(callback)} 执行异常",
                     exception=e,
                 )
 
@@ -56,7 +62,7 @@ class EventBus:
                 loop.run_in_executor(None, callback, data)
             except Exception as e:
                 logger.error(
-                    f"异步事件 {event_name} 的订阅者 {callback.__name__} 启动异常",
+                    f"异步事件 {event_name} 的订阅者 {_callback_name(callback)} 启动异常",
                     exception=e,
                 )
 
@@ -64,7 +70,7 @@ class EventBus:
         with self._lock:
             subscribers = list(self._subscribers.get(event_name, []))
 
-        return [getattr(cb, "__name__", type(cb).__name__) for cb in subscribers]
+        return [_callback_name(cb) for cb in subscribers]
 
     def clear(self) -> None:
         with self._lock:

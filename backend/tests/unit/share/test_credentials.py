@@ -12,13 +12,10 @@
 """
 
 import os
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
-sys.path.insert(0, "/Users/liupeng/workspace/quant/QuantCell/backend")
 
 
 def _reset_singleton():

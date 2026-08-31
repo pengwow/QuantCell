@@ -4,9 +4,6 @@ import asyncio
 import sys
 from pathlib import Path
 
-backend_dir = Path(__file__).parent / "backend"
-sys.path.insert(0, str(backend_dir))
-
 
 def test_memory_store():
     """测试 MemoryStore 基本功能"""

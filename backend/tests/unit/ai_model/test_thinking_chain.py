@@ -5,14 +5,10 @@
 
 import json
 import os
-import sys
 import uuid
 from datetime import datetime
 
 import pytest
-
-# 添加项目根目录到 Python 路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
 # 设置测试环境
 os.environ["DB_TYPE"] = "sqlite"

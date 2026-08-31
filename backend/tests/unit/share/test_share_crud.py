@@ -7,10 +7,7 @@ Share CRUD 单元测试
 - 远端字段保留（remote_id/short_url/remote_status/remote_error）
 """
 
-import sys
 from datetime import datetime, timedelta
-
-sys.path.insert(0, "/Users/liupeng/workspace/quant/QuantCell/backend")
 
 
 def test_create_share_token_basic(db_session, sample_worker):

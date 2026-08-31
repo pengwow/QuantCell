@@ -10,15 +10,10 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-# backend 根目录加 path
-backend_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(backend_root))
 
 from backtest.baseline import BaselineBacktestService
 

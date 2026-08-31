@@ -8,6 +8,7 @@
 - 数据持久化
 """
 
+import importlib.util
 import json
 import os
 import sys
@@ -18,9 +19,20 @@ from pathlib import Path
 
 import pytest
 
-# 直接导入 performance_monitor 模块，避免循环导入
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "ai_model"))
-from performance_monitor import PerformanceMonitor, get_performance_monitor
+# 直接从文件加载 performance_monitor.py，避免两条污染：
+# 1) 不触发 ai_model/__init__.py 重型导入链（routes/prompts/schemas 等）
+# 2) 不把 backend/ai_model 目录插进 sys.path —— 该目录里的 services.py
+#    会在全量测试时遮蔽 backend/services 包（报 "services is not a package"）
+_perf_spec = importlib.util.spec_from_file_location(
+    "performance_monitor",
+    Path(__file__).parent.parent.parent.parent / "ai_model" / "performance_monitor.py",
+)
+assert _perf_spec is not None and _perf_spec.loader is not None
+_perf_module = importlib.util.module_from_spec(_perf_spec)
+_perf_spec.loader.exec_module(_perf_module)
+sys.modules["performance_monitor"] = _perf_module
+PerformanceMonitor = _perf_module.PerformanceMonitor
+get_performance_monitor = _perf_module.get_performance_monitor
 
 
 class TestPerformanceMonitorSingleton:

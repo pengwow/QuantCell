@@ -7,14 +7,10 @@ Share 路由层测试
 - 撤销 / 列表 / retry-remote
 """
 
-import sys
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-sys.path.insert(0, "/Users/liupeng/workspace/quant/QuantCell/backend")
-
 
 # ============================================================
 # 共享 fixtures
@@ -55,53 +51,11 @@ def mock_jwt_user_b():
         yield m
 
 
-@pytest.fixture
-def test_client(db_session):
-    """FastAPI TestClient 复用 db_session
-
-    默认覆盖 get_db / get_db_session / get_current_user,
-    让测试无需登录即可调用受保护端点。
-    """
-    from fastapi.testclient import TestClient
-
-    # 显式触发 share 模块加载，确保 router 被注册
-    import share.models
-    import share.routes
-    from collector.db.database import get_db
-    from main import app
-    from share import router as share_router
-    from worker.dependencies import get_current_user, get_db_session
-
-    def override_get_db():
-        try:
-            yield db_session
-        finally:
-            pass
-
-    def override_get_db_session():
-        """share 路由使用 worker.dependencies.get_db_session"""
-        try:
-            yield db_session
-        finally:
-            pass
-
-    # 默认匿名用户（未登录）— 不走 JWT 解码
-    async def override_get_current_user():
-        return {"user_id": "anonymous", "user_name": "Anonymous"}
-
-    app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_db_session] = override_get_db_session
-    # 默认覆盖：避免无 token 时直接 raise 401；具体测试会用 mock_jwt_user_a/b 进一步覆盖
-    app.dependency_overrides[get_current_user] = override_get_current_user
-
-    # 兜底：若 main 中没有注册 share_router，则手动注册
-    routes_paths = [r.path for r in app.routes]
-    if not any("/api/share" in p for p in routes_paths):
-        app.include_router(share_router)
-
-    with TestClient(app) as client:
-        yield client
-    app.dependency_overrides.clear()
+# 测试文件原本覆盖了 conftest 的同名 fixture 并使用 `with TestClient(app)`，
+# 这会触发 FastAPI lifespan：shutdown 阶段 core/lifespan.py 装有 2 秒强制
+# os._exit(0) 定时器，shutdown 一旦超过 2 秒就静默杀掉整个 pytest 进程
+# （无 summary、exit 0）。conftest 版特意不用 with 以跳过 lifespan，
+# 故这里直接复用 conftest 的 test_client，不再重复定义。
 
 
 @contextmanager

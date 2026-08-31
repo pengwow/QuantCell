@@ -2,11 +2,6 @@
 
 import contextlib
 import os
-import sys
-from pathlib import Path
-
-backend_dir = Path(__file__).parent / "backend"
-sys.path.insert(0, str(backend_dir))
 
 
 def test_max_history_config():

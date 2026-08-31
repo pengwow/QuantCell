@@ -157,8 +157,9 @@ def test_collect_data_writes_parquet_with_schema(monkeypatch, tmp_path: Path):
     assert loaded["timestamp"].dtype == "int64"
     # update_id 类型
     assert loaded["update_id"].dtype == "int64"
-    # symbol 类型
-    assert loaded["symbol"].dtype == "object"
+    # symbol 类型：pandas 2.x 起字符串列可能是 object 或 StringDtype（str64）,
+    # 用 is_string_dtype 兼容两者
+    assert pd.api.types.is_string_dtype(loaded["symbol"])
 
 
 def test_read_range_returns_rows(monkeypatch, tmp_path: Path):

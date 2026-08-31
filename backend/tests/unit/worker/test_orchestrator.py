@@ -1,17 +1,6 @@
 """Worker 编排器测试。"""
 
-import os
-import sys
 import time
-from unittest.mock import MagicMock, patch
-
-import pytest
-
-# tests/unit/worker → backend 需上三级；两级只到 tests/，
-# tests/utils/ 会遮蔽真正的 backend/utils，导致 utils.logger 导入失败
-backend_path = os.path.join(os.path.dirname(__file__), "..", "..", "..")
-if backend_path not in sys.path:
-    sys.path.insert(0, backend_path)
 
 from worker.orchestrator import WorkerConnectionInfo, WorkerOrchestrator
 

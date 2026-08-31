@@ -1,17 +1,8 @@
 """Worker Daemon 测试。"""
 
 import os
-import sys
-import time
 
 import pytest
-
-# 向上三级定位到 backend 目录（tests/unit/worker -> backend），
-# 使 `utils`/`worker` 等顶层包可被导入；若仅上两级会落到 tests 目录，
-# 其中同名 `utils` 包会遮蔽 backend/utils 导致 utils.logger 导入失败。
-backend_path = os.path.join(os.path.dirname(__file__), "..", "..", "..")
-if backend_path not in sys.path:
-    sys.path.insert(0, backend_path)
 
 from worker.daemon import WorkerDaemon, parse_args
 

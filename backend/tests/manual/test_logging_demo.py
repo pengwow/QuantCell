@@ -2,12 +2,6 @@
 
 import asyncio
 import os
-import sys
-from pathlib import Path
-
-# 添加后端目录到路径
-backend_dir = Path(__file__).parent / "backend"
-sys.path.insert(0, str(backend_dir))
 
 
 async def test_api_logging():

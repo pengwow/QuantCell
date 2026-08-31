@@ -10,6 +10,25 @@ from pathlib import Path
 
 import pytest
 
+# 注入记录与恢复：防止 prompts.manager 假模块永久占用 sys.modules
+# 而毒害全仓后续测试（teardown_module 为 pytest 模块级收尾钩子）。
+_SAVED_MODULES: dict[str, object | None] = {}
+
+
+def _inject(name: str, module: object) -> None:
+    _SAVED_MODULES[name] = sys.modules.get(name)
+    sys.modules[name] = module
+
+
+def teardown_module() -> None:
+    for name, orig in _SAVED_MODULES.items():
+        if orig is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = orig
+    _SAVED_MODULES.clear()
+
+
 # 直接从文件加载模块，避免触发 ai_model/__init__.py 的完整导入链
 # 使用绝对路径
 _test_file = Path(__file__).resolve()
@@ -21,7 +40,7 @@ _prompts_dir = _ai_model_dir / "prompts"
 spec = importlib.util.spec_from_file_location("prompts.manager", _prompts_dir / "manager.py")
 assert spec is not None and spec.loader is not None, "无法加载 prompts.manager 模块"
 manager_module = importlib.util.module_from_spec(spec)
-sys.modules["prompts.manager"] = manager_module
+_inject("prompts.manager", manager_module)
 spec.loader.exec_module(manager_module)
 
 PromptCategory = manager_module.PromptCategory

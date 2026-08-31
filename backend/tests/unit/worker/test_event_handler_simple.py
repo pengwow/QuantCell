@@ -4,15 +4,11 @@
 避免复杂导入链
 """
 
-import sys
 from collections import deque
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-
-# 添加正确的路径
-sys.path.insert(0, "/workspace/backend")
 
 
 # 直接测试 EventHandler 类，避免导入整个模块

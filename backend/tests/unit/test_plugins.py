@@ -2,30 +2,11 @@
 插件模块单元测试
 """
 
+import json
 import sys
 from unittest.mock import MagicMock
 
-# Mock ALL dependencies first, before any imports from the project
-mock_logger = MagicMock()
-sys.modules["utils.logger"] = MagicMock()
-sys.modules["utils.logger"].get_logger = MagicMock(return_value=mock_logger)
-sys.modules["utils.logger"].get_plugin_logger = MagicMock(return_value=mock_logger)
-sys.modules["utils.logger"].LogType = MagicMock()
-
-# Mock collector.db
-sys.modules["collector"] = MagicMock()
-sys.modules["collector.db"] = MagicMock()
-sys.modules["collector.db.database"] = MagicMock()
-sys.modules["collector.db.models"] = MagicMock()
-
-# Mock fastapi
-sys.modules["fastapi"] = MagicMock()
-sys.modules["fastapi"].FastAPI = MagicMock()
-
-# Mock other plugin modules
-sys.modules["plugins.event_bus"] = MagicMock()
-sys.modules["plugins.plugin_loader"] = MagicMock()
-sys.modules["plugins.plugin_installer"] = MagicMock()
+import pytest
 
 
 # Mock plugin_store completely to avoid pytz and sqlalchemy
@@ -51,13 +32,57 @@ class MockPluginStore:
         return True
 
 
-sys.modules["plugins.plugin_store"] = MagicMock()
-sys.modules["plugins.plugin_store"].PluginStore = MockPluginStore
+@pytest.fixture(scope="module", autouse=True)
+def _isolate_plugin_deps():
+    """注入隔离桩，模块测试结束后手动恢复原模块。
 
-# Now import the things we need
-import json
+    此前是模块级裸写 sys.modules["utils.logger"/"collector"/"fastapi"] = MagicMock，
+    全量测试时这些顶层包被永久 Mock 化，导致后续集成测试出现
+    "collector.db is not a package"、"isinstance() arg 2 must be a type"
+    等连锁错误。
+    注：monkeypatch 为 function 级 fixture，无法被 module 级请求，
+    故这里用 saved/orig 字典手动恢复。
+    """
+    mock_logger = MagicMock()
+    injected: dict[str, MagicMock] = {}
 
-import pytest
+    utils_logger = MagicMock()
+    utils_logger.get_logger = MagicMock(return_value=mock_logger)
+    utils_logger.get_plugin_logger = MagicMock(return_value=mock_logger)
+    utils_logger.LogType = MagicMock()
+    injected["utils.logger"] = utils_logger
+
+    collector = MagicMock()
+    collector_db = MagicMock()
+    collector_db.database = MagicMock()
+    collector_db.models = MagicMock()
+    collector.db = collector_db
+    injected["collector"] = collector
+    injected["collector.db"] = collector_db
+    injected["collector.db.database"] = collector_db.database
+    injected["collector.db.models"] = collector_db.models
+
+    fastapi_mod = MagicMock()
+    fastapi_mod.FastAPI = MagicMock()
+    injected["fastapi"] = fastapi_mod
+
+    injected["plugins.event_bus"] = MagicMock()
+    injected["plugins.plugin_loader"] = MagicMock()
+    injected["plugins.plugin_installer"] = MagicMock()
+    plugin_store_stub = MagicMock()
+    plugin_store_stub.PluginStore = MockPluginStore
+    injected["plugins.plugin_store"] = plugin_store_stub
+
+    saved: dict[str, object | None] = {}
+    for name, stub in injected.items():
+        saved[name] = sys.modules.get(name)
+        sys.modules[name] = stub
+    yield
+    for name, orig in saved.items():
+        if orig is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = orig
 
 
 class TestPluginBase:

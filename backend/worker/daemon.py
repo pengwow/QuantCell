@@ -134,7 +134,9 @@ class WorkerDaemon:
             self._status = "stopped"
             return make_response(self.worker_id, request_id, STATUS_OK, {"stopped": True})
         elif cmd == "update_params":
-            return make_response(self.worker_id, request_id, STATUS_OK, {"updated": True})
+            # 动态更新策略参数尚未实现（当前占位策略/paper adapter 无参数可更新）。
+            # 明确返回 error 而非伪成功，避免 CLI/前端误以为参数已生效。
+            return make_response(self.worker_id, request_id, STATUS_ERROR, {"error": "update_params 尚未实现"})
         else:
             # 不实现 restart：编排层（core_service.restart_worker）用
             # stop+start 两跳实现，daemon 无需感知复合命令

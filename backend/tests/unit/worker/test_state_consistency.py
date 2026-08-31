@@ -10,17 +10,12 @@ Worker 模块隔离单元测试
 避免导入整个项目模块导致的依赖问题。
 """
 
-import os
 import re
-import sys
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../.."))
-
 
 # =============================================================================
 # 从 worker.state 复制的代码（隔离测试）

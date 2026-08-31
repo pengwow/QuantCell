@@ -3,16 +3,10 @@
 Mock WorkerCoreService 实例，验证 CLI 命令的输入/输出行为。
 """
 
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 runner = CliRunner()
 

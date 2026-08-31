@@ -388,10 +388,11 @@ class TestMultiSymbolPerSymbolMetrics:
 
         from backtest.engine_service import EventDrivenBacktestService
 
-        # _aggregate_multi_results 不依赖 data_provider,传 mock 即可
+        # 多品种汇总不依赖 data_provider,传 mock 即可
+        # （方法曾名 _aggregate_multi_results，重构后为 _format_results）
         svc = EventDrivenBacktestService(data_provider=MagicMock())
-        formatted = svc._aggregate_multi_results(
-            raw_results=raw_results,
+        formatted = svc._format_results(
+            results=raw_results,
             per_symbol_results=per_symbol,
             symbols=["ETHUSDT", "BTCUSDT"],
             timeframe="15m",
@@ -399,13 +400,20 @@ class TestMultiSymbolPerSymbolMetrics:
         )
 
         # 每个 symbol 顶层 metrics 用自己 PnL
-        assert formatted["results_by_symbol"]["ETHUSDT"]["metrics"]["total_pnl"] == -100.0
-        assert formatted["results_by_symbol"]["BTCUSDT"]["metrics"]["total_pnl"] == -200.0
-        # 顶层 metrics 是聚合 PnL
-        assert formatted["metrics"]["total_pnl"] == -300.0
+        # 注意：format_axon_results 的 metrics 是前端数组格式 [{key, value}]
+        def _metric_value(metrics_list, key):
+            return next(m["value"] for m in metrics_list if m["key"] == key)
+
+        eth_metrics = formatted["results_by_symbol"]["ETHUSDT"]["metrics"]
+        btc_metrics = formatted["results_by_symbol"]["BTCUSDT"]["metrics"]
+        assert _metric_value(eth_metrics, "total_pnl") == -100.0
+        assert _metric_value(btc_metrics, "total_pnl") == -200.0
+        # portfolio 级别 metrics 是聚合 PnL
+        portfolio_metrics = formatted["portfolio"]["metrics"]
+        assert _metric_value(portfolio_metrics, "total_pnl") == -300.0
         # trades / equity_curve 透传到顶层
-        assert "trades" in formatted["results_by_symbol"]["ETHUSDT"]
-        assert "equity_curve" in formatted["results_by_symbol"]["ETHUSDT"]
+        assert formatted["results_by_symbol"]["ETHUSDT"]["trades"] == []
+        assert formatted["results_by_symbol"]["ETHUSDT"]["equity_curve"] == []
 
     def test_trades_equity_curve_propagated_to_top_level(self):
         """trades / equity_curve 透传到 results_by_symbol[k] 顶层"""
@@ -421,8 +429,8 @@ class TestMultiSymbolPerSymbolMetrics:
         from backtest.engine_service import EventDrivenBacktestService
 
         svc = EventDrivenBacktestService(data_provider=MagicMock())
-        formatted = svc._aggregate_multi_results(
-            raw_results={"total_pnl": -100.0},
+        formatted = svc._format_results(
+            results={"total_pnl": -100.0},
             per_symbol_results=per_symbol,
             symbols=["ETHUSDT"],
             timeframe="15m",
@@ -445,16 +453,24 @@ class TestMultiSymbolPerSymbolMetrics:
         from backtest.engine_service import EventDrivenBacktestService
 
         svc = EventDrivenBacktestService(data_provider=MagicMock())
-        formatted = svc._aggregate_multi_results(
-            raw_results=raw_results,
+        formatted = svc._format_results(
+            results=raw_results,
             per_symbol_results=per_symbol,
             symbols=["ETHUSDT", "BTCUSDT"],
             timeframe="15m",
             strategy_name="axon_dual_ma",
         )
-        assert formatted["metrics"]["trade_count"] == 30
-        assert formatted["results_by_symbol"]["ETHUSDT"]["metrics"]["trade_count"] == 20
-        assert formatted["results_by_symbol"]["BTCUSDT"]["metrics"]["trade_count"] == 10
+
+        def _metric_value(metrics_list, key):
+            return next(m["value"] for m in metrics_list if m["key"] == key)
+
+        # 总交易次数 = 各 symbol trade_count 之和（formatter 中 key 为 total_trades）
+        eth_metrics = formatted["results_by_symbol"]["ETHUSDT"]["metrics"]
+        btc_metrics = formatted["results_by_symbol"]["BTCUSDT"]["metrics"]
+        portfolio_metrics = formatted["portfolio"]["metrics"]
+        assert _metric_value(portfolio_metrics, "total_trades") == 30
+        assert _metric_value(eth_metrics, "total_trades") == 20
+        assert _metric_value(btc_metrics, "total_trades") == 10
 
 
 class TestTotalPnlNoDoubleCountFees:
@@ -501,23 +517,20 @@ class TestTotalPnlNoDoubleCountFees:
         # 修复后的 total_pnl 字段 = -18,134(NAV 变化),fee 304k 独立显示
 
     def test_total_pnl_formula_no_fee_subtraction(self):
-        """total_pnl 公式不应在应用层手算(已下沉到 axon_quant 阶段 B)
+        """total_pnl 公式不应在应用层手算(已下沉到 axon_quant)
 
         Stage 3 阶段 B 后:total_pnl / total_fees / win_rate / sharpe_ratio 等
-        指标全部从 ``axon_quant.RunResult`` 读取,backtest_loop 只做结果转换。
-        此处断言 backtest_loop._run_with_axon 中**不出现** "total_pnl =" 这类
-        手算公式(除注释外),确保 fee 不会被重复扣。
+        指标全部从 ``axon_quant.RunResult`` 读取,backtest_loop 只做结果转换
+        (旧的 _run_with_axon 已被 run() 取代)。此处断言 BacktestLoop 类源码
+        中**不出现** "total_pnl =" 这类手算公式(除注释外),确保 fee 不会被重复扣。
         """
         import inspect
         import re
 
         from backtest.backtest_loop import BacktestLoop
 
-        src = inspect.getsource(BacktestLoop._run_with_axon)
-        # 去掉 docstring / 注释
-        no_docstring = re.sub(r'"""[\s\S]*?"""', "", src)
-        no_docstring = re.sub(r"'''[\s\S]*?'''", "", no_docstring)
-        code_only = "\n".join(line for line in no_docstring.splitlines() if not line.strip().startswith("#"))
+        src = inspect.getsource(BacktestLoop)
+        code_only = "\n".join(line for line in src.splitlines() if not line.strip().startswith("#"))
         # 应用层不应再手算 total_pnl = ... realized/unrealized/fee ...
         # (axon_quant 内部 6 状态机已算好,直接读 result.total_pnl)
         has_manual_formula = bool(re.search(r"total_pnl\s*=\s*[^=].*(realized|unrealized|fee)", code_only))

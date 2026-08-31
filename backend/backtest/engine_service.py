@@ -160,6 +160,7 @@ class EventDrivenBacktestService:
             engine_config=engine_config,
             strategy_name=strategy_name,
             init_cash=init_cash,
+            data_dict=data_dict,
         )
 
         # 3. 加载数据到引擎
@@ -293,12 +294,12 @@ class EventDrivenBacktestService:
             )
         else:
             # 多品种结果汇总
-            formatted_results = self._aggregate_multi_results(
-                raw_results=raw_results,
-                per_symbol_results=per_symbol_results,
+            formatted_results = self._format_results(
+                results=raw_results,
                 symbols=symbols,
                 timeframe=timeframes[0] if timeframes else "15m",
                 strategy_name=strategy_name,
+                per_symbol_results=per_symbol_results,
             )
 
         logger.info("[EventDrivenBacktestService] 回测完成")
@@ -336,6 +337,7 @@ class EventDrivenBacktestService:
         engine_config: dict | None,
         strategy_name: str,
         init_cash: float,
+        data_dict: dict[str, pd.DataFrame],
     ):
         """
         初始化回测循环（直接使用 BacktestLoop，不再通过中间包装层）
@@ -344,6 +346,7 @@ class EventDrivenBacktestService:
             engine_config: 引擎配置字典
             strategy_name: 策略名称
             init_cash: 初始资金
+            data_dict: 品种 -> K线 DataFrame，用于无 time_range 时推导回测时间范围
 
         Returns:
             BacktestLoop: 已初始化的回测循环实例
@@ -568,11 +571,12 @@ class EventDrivenBacktestService:
         symbols: list[str],
         timeframe: str,
         strategy_name: str,
+        per_symbol_results: dict,
     ) -> dict:
         """汇总多品种回测结果
 
         Args:
-            raw_results: 跨品种聚合后的指标(PnL/fills/fees 累加,data_start 取 min 等)
+            results: 跨品种聚合后的指标(PnL/fills/fees 累加,data_start 取 min 等)
             per_symbol_results: 每个品种单独的原始结果,用于 results_by_symbol[k].metrics
                 填单品种 metrics(否则 output_results 显示的"贡献盈亏"是聚合 PnL)
             symbols: 品种列表
@@ -586,10 +590,10 @@ class EventDrivenBacktestService:
 
         # 计算 portfolio-level 指标(从 per_symbol_results 重算,不能简单 sum 百分比类)
         n = len(per_symbol_results)
-        total_pnl = raw_results.get("total_pnl", 0.0)
-        total_trades = raw_results.get("trade_count", 0)
-        total_fills = raw_results.get("fills", 0)
-        raw_results.get("total_fees", 0.0)
+        total_pnl = results.get("total_pnl", 0.0)
+        total_trades = results.get("trade_count", 0)
+        total_fills = results.get("fills", 0)
+        results.get("total_fees", 0.0)
 
         # initial_equity / final_equity:每品种独立资金池(每 run 都 initial_cash 起步)
         # 假设所有品种用同一 initial_cash,从第一个结果读
@@ -642,14 +646,14 @@ class EventDrivenBacktestService:
             else:
                 sharpe_ratio = sum(r.get("sharpe_ratio", 0.0) for r in per_symbol_results.values()) / n
 
-        # 填充 raw_results 的 portfolio-level 字段,让 output_results 能读到
+        # 填充 results 的 portfolio-level 字段,让 output_results 能读到
         # (原本只有 sum/min/max 字段,initial_equity/win_rate 等需显式计算)
-        raw_results["initial_equity"] = initial_equity
-        raw_results["final_equity"] = final_equity
-        raw_results["total_return"] = total_return
-        raw_results["win_rate"] = win_rate
-        raw_results["max_drawdown"] = max_dd_pct  # 用 pct 字段(百分比,单位一致)
-        raw_results["sharpe_ratio"] = sharpe_ratio
+        results["initial_equity"] = initial_equity
+        results["final_equity"] = final_equity
+        results["total_return"] = total_return
+        results["win_rate"] = win_rate
+        results["max_drawdown"] = max_dd_pct  # 用 pct 字段(百分比,单位一致)
+        results["sharpe_ratio"] = sharpe_ratio
 
         return {
             "strategy_name": strategy_name,
@@ -667,11 +671,10 @@ class EventDrivenBacktestService:
             },
             # portfolio 级别的 metrics 使用聚合数据格式化
             "portfolio": ResultFormatterService.format_axon_results(
-                results={**raw_results, "trades": [], "equity_curve": []},
+                results={**results, "trades": [], "equity_curve": []},
                 symbol=symbols[0] if symbols else "PORTFOLIO",
                 timeframe=timeframe,
                 strategy_name=strategy_name,
-                instruments=instruments,
             ).get("portfolio", {}),
             # 保留 _meta 和 account 信息
             "_meta": {

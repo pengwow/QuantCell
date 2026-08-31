@@ -12,7 +12,6 @@ trading engine 集成测试模块
 日期: 2026-02-15
 """
 
-import sys
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -20,10 +19,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# 确保 backend 目录在 Python 路径中
+# backend 目录定位：仅用于测试数据路径（sys.path 由根 conftest 统一管理）
 backend_dir = Path(__file__).parent.parent.parent
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
 
 # 这些测试在 commit 9866f56 中已经不再适用（向量化回测引擎 Engine/LegacyEngine 已删除）
 try:

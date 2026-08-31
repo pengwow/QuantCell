@@ -10,6 +10,28 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# 注入记录表：_inject 会把每个被替换/新增的 sys.modules 条目记录下来，
+# teardown_module（pytest 模块级收尾钩子）在全部测试结束后恢复原状，
+# 避免顶层包 ai_model/prompts 被假模块永久替换而毒害全仓后续测试。
+_SAVED_MODULES: dict[str, object | None] = {}
+
+
+def _inject(name: str, module: object) -> None:
+    """记录并注入模块到 sys.modules（模块级隔离专用）。"""
+    _SAVED_MODULES[name] = sys.modules.get(name)
+    sys.modules[name] = module
+
+
+def teardown_module() -> None:
+    """恢复本模块注入的所有 sys.modules 条目。"""
+    for name, orig in _SAVED_MODULES.items():
+        if orig is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = orig
+    _SAVED_MODULES.clear()
+
+
 # 直接从文件加载模块，避免触发 ai_model/__init__.py 的完整导入链
 # 使用绝对路径
 _test_file = Path(__file__).resolve()
@@ -21,7 +43,7 @@ _prompts_dir = _ai_model_dir / "prompts"
 spec = importlib.util.spec_from_file_location("prompts.manager", _prompts_dir / "manager.py")
 assert spec is not None and spec.loader is not None, "无法加载 prompts.manager 模块"
 manager_module = importlib.util.module_from_spec(spec)
-sys.modules["prompts.manager"] = manager_module
+_inject("prompts.manager", manager_module)
 spec.loader.exec_module(manager_module)
 
 PromptCategory = manager_module.PromptCategory
@@ -31,24 +53,24 @@ PromptManager = manager_module.PromptManager
 prompts_module = type(sys)("prompts")
 prompts_module.PromptCategory = PromptCategory
 prompts_module.PromptManager = PromptManager
-sys.modules["prompts"] = prompts_module
+_inject("prompts", prompts_module)
 
 # 设置 ai_model 包
 ai_model_module = type(sys)("ai_model")
 ai_model_module.prompts = prompts_module
-sys.modules["ai_model"] = ai_model_module
-sys.modules["ai_model.prompts"] = prompts_module
+_inject("ai_model", ai_model_module)
+_inject("ai_model.prompts", prompts_module)
 
 # 加载 performance_monitor 模块
 spec_pm = importlib.util.spec_from_file_location("performance_monitor", _ai_model_dir / "performance_monitor.py")
 assert spec_pm is not None and spec_pm.loader is not None, "无法加载 performance_monitor 模块"
 pm_module = importlib.util.module_from_spec(spec_pm)
-sys.modules["performance_monitor"] = pm_module
+_inject("performance_monitor", pm_module)
 spec_pm.loader.exec_module(pm_module)
 
 # 将 performance_monitor 添加到 ai_model 包
 ai_model_module.performance_monitor = pm_module
-sys.modules["ai_model.performance_monitor"] = pm_module
+_inject("ai_model.performance_monitor", pm_module)
 
 # 模拟 thinking_chain 模块
 thinking_chain_module = type(sys)("thinking_chain")
@@ -87,8 +109,8 @@ class MockThinkingChainManager:
 
 
 thinking_chain_module.ThinkingChainManager = MockThinkingChainManager
-sys.modules["thinking_chain"] = thinking_chain_module
-sys.modules["ai_model.thinking_chain"] = thinking_chain_module
+_inject("thinking_chain", thinking_chain_module)
+_inject("ai_model.thinking_chain", thinking_chain_module)
 ai_model_module.thinking_chain = thinking_chain_module
 
 # 加载 strategy_generator 模块
@@ -97,14 +119,14 @@ assert spec_sg is not None and spec_sg.loader is not None, "无法加载 strateg
 sg_module = importlib.util.module_from_spec(spec_sg)
 
 # 注册 strategy_generator 模块
-sys.modules["strategy_generator"] = sg_module
+_inject("strategy_generator", sg_module)
 
 # 执行模块
 spec_sg.loader.exec_module(sg_module)
 
 # 将 strategy_generator 添加到 ai_model 包
 ai_model_module.strategy_generator = sg_module
-sys.modules["ai_model.strategy_generator"] = sg_module
+_inject("ai_model.strategy_generator", sg_module)
 
 # 导出需要的类和函数
 StrategyGenerator = sg_module.StrategyGenerator
