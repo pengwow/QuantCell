@@ -30,7 +30,7 @@
 import json
 import uuid
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -65,12 +65,10 @@ from .strategy_generator import (
     StrategyGenerator,
 )
 from .thinking_chain import ThinkingChainManager
-
-if TYPE_CHECKING:
-    from .thinking_chain_schemas import (
-        ThinkingChainCreate,
-        ThinkingChainUpdate,
-    )
+from .thinking_chain_schemas import (
+    ThinkingChainCreate,
+    ThinkingChainUpdate,
+)
 
 # 创建策略生成API路由
 router = APIRouter(prefix="/api/ai-models/strategy", tags=["ai-strategy-generation"])

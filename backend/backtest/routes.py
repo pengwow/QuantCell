@@ -32,8 +32,8 @@ from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from typing import TYPE_CHECKING
 
+from strategy.schemas import StrategyUploadRequest
 from utils.auth import jwt_auth_required_sync
 from utils.rbac import is_guest_user
 
@@ -51,9 +51,6 @@ from .schemas import (
     StrategyConfigRequest,
 )
 from .service import BacktestService
-
-if TYPE_CHECKING:
-    from strategy.schemas import StrategyUploadRequest
 
 # 创建回测服务实例
 backtest_service = BacktestService()
