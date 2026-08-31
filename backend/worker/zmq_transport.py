@@ -56,9 +56,26 @@ class WorkerZmqTransport:
             self.event_push.connect(event_pull_addr)
         if cmd_push_addr:
             self.cmd_dealer.connect(cmd_push_addr)
-            # 注册帧: ROUTER 只有在收到 DEALER 消息后才会把其 identity
-            # 加入路由表。命令是单向的，所以 Worker 必须先主动发一帧。
-            self.cmd_dealer.send(b"register")
+            # DONTWAIT：若 ROUTER 尚未 bind 或对端端列已满，立即抛 ZMQError
+            # 而不是在 send 队列里无限排队等待，让上层 _register_loop 接手重试。
+            # 曾观察到：ROUTER bind 延迟数十毫秒，register 帧在 ZMQ 内部排队、
+            # 但 _wait_for_worker_registration 还没开始等，导致消费窗口错过。
+            try:
+                self.cmd_dealer.send(b"register", zmq.DONTWAIT)  # type: ignore[attr-defined]
+            except zmq.ZMQError as e:
+                # 帧未送达（对端未就绪/队列已满），留给周期重发。
+                logger = self._get_internal_logger()
+                logger.debug(f"[WorkerZmqTransport] 首次 register 未送达 (DONTWAIT): {e}")
+
+    def _get_internal_logger(self):
+        """最小依赖的内置日志获取。
+
+        本模块为传输层，不在顶部 import utils.logger 以避免在非 daemon 场景
+        （如单元测试只导入 transport，日志系统未初始化）下触发副作用。
+        """
+        import logging
+
+        return logging.getLogger("worker.zmq_transport")
 
     def send_register(self) -> None:
         """发送 register 帧（幂等）。
@@ -140,6 +157,10 @@ class OrchestratorZmqTransport:
             self.cmd_router.bind(f"tcp://127.0.0.1:{port}")
             self._cmd_push_endpoint = f"tcp://127.0.0.1:{port}"
 
+        # 孤儿响应缓存：并发命令时乱序到达的"别人的响应"暂存于此，
+        # 由对应 request_id 的 wait_for_response 领取（并发互吞问题的解药）
+        self._orphan_responses: dict[str, dict[str, Any]] = {}
+
     @property
     def event_pull_endpoint(self) -> str:
         return self._event_pull_endpoint
@@ -148,32 +169,77 @@ class OrchestratorZmqTransport:
     def cmd_push_endpoint(self) -> str:
         return self._cmd_push_endpoint
 
-    def send_command(self, worker_id: int, command: dict[str, Any]) -> None:
-        """按 worker identity (worker-{id}) 精确路由命令到指定 Worker。"""
-        self._drain_router()
-        self.cmd_router.send_multipart(
-            [
-                f"worker-{worker_id}".encode(),
-                encode_message(command),
-            ]
-        )
+    def send_command(
+        self,
+        worker_id: int,
+        command: dict[str, Any],
+        on_identity_seen: Any | None = None,
+        deadline: float | None = None,
+    ) -> bool:
+        """按 worker identity (worker-{id}) 精确路由命令到指定 Worker。
 
-    def _drain_router(self) -> None:
-        """清空 ROUTER 待处理帧 (注册帧) 以刷新路由表。
+        Args:
+            worker_id: 目标 Worker ID
+            command: 命令消息体
+            on_identity_seen: 可选回调 `fn(worker_id:int)->None`，
+                              每次收到 register 帧时触发，用于外部注册表更新。
+            deadline: 可选绝对秒级 deadline（time.time() 尺度）。
 
-        ROUTER 只有在 recv 时才处理 DEALER 发来的消息并记录其 identity
-        到路由表。命令是单向的，因此在发命令前必须先 drain 注册帧。
+        Returns:
+            bool: 是否确认目标 identity 已进入 ROUTER 路由表后发出命令。
+                  False 表示目标 register 在 deadline 内未到达，命令未发出。
+
+        旧实现：每次调用 _drain_router 无差别清空 cmd_router，在多 Worker
+        并行启动场景下会清掉"其他 Worker 的 register 帧"，导致其他 Worker
+        后续命令路由偶现失败。
+        新实现：用 zmq.Poller 逐帧消费，对每个 register 帧更新注册表（通过
+        on_identity_seen 回调回填），只消费到目标 identity 出现为止；其他
+        Worker 的 register 都会被正确登记，不会丢失。
         """
         import zmq
 
+        target_identity = f"worker-{worker_id}".encode()
+
+        end_ts = deadline if deadline is not None else (time.time() + 0.1)  # 默认 100ms
+        poller = zmq.Poller()
+        poller.register(self.cmd_router, zmq.POLLIN)
         self.cmd_router.setsockopt(zmq.RCVTIMEO, 10)
+        target_ready = False
         try:
-            while True:
-                self.cmd_router.recv_multipart()
-        except zmq.Again:
-            pass
+            while time.time() < end_ts:
+                remain_ms = max(1, int((end_ts - time.time()) * 1000))
+                ready = dict(poller.poll(timeout=min(remain_ms, 20)))
+                if self.cmd_router not in ready:
+                    continue
+                try:
+                    frames = self.cmd_router.recv_multipart()
+                except zmq.Again:
+                    continue
+                if not frames:
+                    continue
+                identity = frames[0]
+                try:
+                    wid = int(identity.decode().removeprefix("worker-"))
+                except UnicodeDecodeError, ValueError:
+                    continue
+                if on_identity_seen is not None:
+                    try:
+                        on_identity_seen(wid)
+                    except Exception:
+                        pass
+                if identity == target_identity:
+                    target_ready = True
+                    break
         finally:
             self.cmd_router.setsockopt(zmq.RCVTIMEO, -1)
+            poller.unregister(self.cmd_router)
+
+        if not target_ready:
+            # ROUTER_MANDATORY 默认 0：未知 identity 的消息会被静默丢弃。
+            # 未确认路由就绪时不发送，避免下游误认为命令已送达。
+            return False
+        self.cmd_router.send_multipart([target_identity, encode_message(command)])
+        return True
 
     def recv_event(self, timeout_ms: int = 100) -> dict[str, Any] | None:
         """接收一个事件/响应 (带超时)。"""
@@ -189,20 +255,42 @@ class OrchestratorZmqTransport:
         return decode_message(raw)
 
     def wait_for_response(self, worker_id: int, request_id: str, timeout_ms: int = 5000) -> dict[str, Any] | None:
-        """在事件通道上等待指定 Worker 对特定 request_id 的响应。"""
+        """在事件通道上等待指定 Worker 对特定 request_id 的响应。
+
+        并发正确性：多个命令并发等待时，A 的 wait 可能先收到 B 的响应。
+        不匹配的响应不再丢弃，而是存入 _orphan_responses 缓存（按 request_id
+        索引），B 的 wait 每轮先查缓存命中即返回——响应不会因乱序被误吞，
+        避免等待方假超时（超时对 start 命令意味着 kill 已启动的 Worker）。
+        """
         deadline = time.time() + (timeout_ms / 1000.0)
         while time.time() < deadline:
+            # 先查孤儿缓存（其他等待者替我们收到的响应）
+            cached = self._orphan_responses.pop(request_id, None)
+            if cached is not None:
+                if time.time() - cached.get("_ts", 0) > 60:
+                    continue  # 过期残留，跳过
+                return cached
             remaining_ms = max(100, int((deadline - time.time()) * 1000))
             msg = self.recv_event(timeout_ms=min(remaining_ms, 500))
             if msg is None:
                 continue
-            if (
-                msg.get("type") == "response"
-                and msg.get("worker_id") == worker_id
-                and msg.get("request_id") == request_id
-            ):
+            if msg.get("type") != "response":
+                continue  # 心跳/事件混入（理论上不会，防御性跳过）
+            if msg.get("worker_id") == worker_id and msg.get("request_id") == request_id:
                 return msg
+            # 别人的响应：存入缓存供对应等待者领取，而非丢弃
+            req_id = msg.get("request_id")
+            if req_id and req_id not in self._orphan_responses:
+                msg["_ts"] = time.time()
+                self._orphan_responses[req_id] = msg
         return None
+
+    def store_orphan_response(self, msg: dict[str, Any]) -> None:
+        """把非命令等待期间收到的响应存入孤儿缓存（供 wait_for_response 领取）。"""
+        req_id = msg.get("request_id")
+        if req_id:
+            msg["_ts"] = time.time()
+            self._orphan_responses[req_id] = msg
 
     def close(self) -> None:
         try:

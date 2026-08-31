@@ -255,12 +255,24 @@ async def lifespan(app: FastAPI):
         orchestrator.ensure_transport()
         logger.info("[Lifespan] WorkerOrchestrator ZMQ 通道已初始化")
 
-        # 健康检查循环: 独立进程 Worker 的心跳超时检测
+        # 健康检查循环: 独立进程 Worker 的心跳超时检测 + 事件消费
         async def _orchestrator_health_check():
             while True:
                 await asyncio.sleep(30)
                 try:
-                    orchestrator.check_health()
+                    # check_health 内部先 drain event_pull 积压（heartbeat 回填
+                    # 注册表、order/log 落入外部事件队列），再做 60s 离线判定。
+                    # 经 to_thread 执行：drain 含短超时 socket 轮询，不阻塞事件循环
+                    await asyncio.to_thread(orchestrator.check_health)
+                    for wid, event_type, payload in orchestrator.pop_external_events():
+                        await manager.broadcast(
+                            {
+                                "type": "worker_event",
+                                "topic": "worker",
+                                "data": {"worker_id": wid, "event_type": event_type, "payload": payload},
+                            },
+                            topic="worker",
+                        )
                 except Exception as e:
                     logger.warning(f"[健康检查循环] 异常: {e}")
 

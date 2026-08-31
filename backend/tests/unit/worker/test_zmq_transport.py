@@ -77,6 +77,34 @@ class TestWorkerZmqTransport:
         worker.close()
         orchestrator.close()
 
+    def test_wait_for_response_picks_orphan_reply(self):
+        """并发命令回归（P2-N①）：A 的 wait 先收到 B 的响应不丢弃而是缓存，
+        B 的 wait 能从缓存领取自己的响应，而非 5s 假超时。"""
+        orchestrator = OrchestratorZmqTransport()
+        reply_a = make_response(11, "req-a", STATUS_OK, {"who": "a"})
+        reply_b = make_response(11, "req-b", STATUS_OK, {"who": "b"})
+
+        # 第 1 次 recv 返回 B 的响应（乱序），之后无新消息
+        recv_seq = [reply_b]
+        original_recv = orchestrator.recv_event
+        orchestrator.recv_event = lambda timeout_ms=100: recv_seq.pop(0) if recv_seq else None  # type: ignore[assignment]
+
+        # A 等 req-a：第 1 轮收到 B → 缓存；之后 socket 无新消息，A 本轮超时（返回 None）
+        early = orchestrator.wait_for_response(11, "req-a", timeout_ms=200)
+        assert early is None
+        # 模拟 A 的响应被"另一个等待者"代收后存入孤儿缓存
+        orchestrator.store_orphan_response(reply_a)
+        # B 等 req-b：第一轮查缓存直接命中，不需要 socket 数据
+        result = orchestrator.wait_for_response(11, "req-b", timeout_ms=300)
+        assert result is not None
+        assert result["data"]["who"] == "b"
+        # A 重试：从缓存领取
+        result_a = orchestrator.wait_for_response(11, "req-a", timeout_ms=300)
+        assert result_a is not None
+        assert result_a["data"]["who"] == "a"
+        orchestrator.recv_event = original_recv
+        orchestrator.close()
+
 
 class TestOrchestratorZmqTransport:
     def test_create_orchestrator(self):

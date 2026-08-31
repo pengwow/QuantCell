@@ -99,6 +99,68 @@ class TestWorkerOrchestrator:
         assert summary["disconnected"] == 1
         assert 2 in summary["disconnected_ids"]
 
+    def test_check_health_drains_heartbeat_keeps_worker_alive(self):
+        """drain 积压心跳后 last_heartbeat 被刷新，空闲 Worker 不再被误判离线。
+
+        回归场景（P2-①）：event_pull 长期无人消费 → 心跳积压 → 60s 误判。
+        """
+        o = WorkerOrchestrator()
+
+        class _FakeTransport:
+            def __init__(self):
+                self.queue = [
+                    {
+                        "type": "event",
+                        "worker_id": 11,
+                        "event_type": "heartbeat",
+                        "payload": {"pid": 12345, "status": "running"},
+                    }
+                ]
+
+            def recv_event(self, timeout_ms=100):
+                return self.queue.pop(0) if self.queue else None
+
+            def close(self, linger=0):
+                pass
+
+        o._transport = _FakeTransport()
+        o._register_worker(11, pid=12345)
+        o._registry[11].last_heartbeat = time.time() - 120  # 已"过期"的心跳
+        summary = o.check_health()
+        assert summary["disconnected"] == 0  # drain 刷新后不应误判离线
+        assert o._registry[11].last_heartbeat > time.time() - 10
+
+    def test_external_events_collected_and_popped(self):
+        """order/log 等非心跳事件在 drain 时进入外部队列，可被 pop 提取。"""
+        o = WorkerOrchestrator()
+
+        class _FakeTransport:
+            def __init__(self):
+                self.queue = [
+                    {
+                        "type": "event",
+                        "worker_id": 11,
+                        "event_type": "order",
+                        "payload": {"symbol": "BTCUSDT"},
+                    }
+                ]
+
+            def recv_event(self, timeout_ms=100):
+                return self.queue.pop(0) if self.queue else None
+
+            def close(self, linger=0):
+                pass
+
+        o._transport = _FakeTransport()
+        o.check_health()
+        events = o.pop_external_events()
+        assert len(events) == 1
+        wid, etype, payload = events[0]
+        assert wid == 11
+        assert etype == "order"
+        assert payload["symbol"] == "BTCUSDT"
+        assert o.pop_external_events() == []  # pop 后清空
+
     def test_cleanup(self):
         o = WorkerOrchestrator()
         o._register_worker(11, pid=12345)
