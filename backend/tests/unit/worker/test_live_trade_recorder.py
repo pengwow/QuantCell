@@ -376,16 +376,13 @@ class TestLiveTradeRecorder:
         """测试订单事件分发逻辑"""
         recorder._get_db = Mock(return_value=db_session)
 
-        # 模拟各个订单事件
         with patch.object(recorder, "_handle_order_accepted") as mock_handle_accepted:
-            event = Mockaxon_quantOrderAccepted()
-            # 给event添加类型标识以便 _dispatch_order_event 可以识别
             from axon_quant.core.events import OrderAccepted
 
-            event.__class__ = OrderAccepted
-            # 使用 type('MockOrderAccepted', (OrderAccepted,), {})
+            # _dispatch_order_event 按 type(event).__name__ 分发（"OrderAccepted"），
+            # 动态类的类名必须恰好是 "OrderAccepted"，否则落入未知类型分支被忽略
             mock_order_accepted = type(
-                "MockOrderAccepted",
+                "OrderAccepted",
                 (OrderAccepted,),
                 {
                     "client_order_id": "test-123",

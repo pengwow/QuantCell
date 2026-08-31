@@ -89,29 +89,31 @@ class TestCLIWorker:
         assert "positions" in result.stdout
         assert "orders" in result.stdout
 
-    def test_worker_subcommand_help(self):
-        """测试各子命令的帮助"""
-        subcommands = [
-            "create",
-            "delete",
-            "start",
-            "stop",
-            "restart",
-            "status",
-            "list-workers",
-            "summary",
-            "stats",
-            "logs",
-            "trades",
-            "positions",
-            "orders",
-            "trading-stats",
-            "pnl-distribution",
-            "trade-history",
-        ]
-        for cmd in subcommands:
-            result = run_cli("worker", [cmd, "--help"])
-            assert result.returncode == 0, f"worker {cmd} --help 失败: {result.stderr}"
+    WORKER_SUBCOMMANDS = [
+        "create",
+        "delete",
+        "start",
+        "stop",
+        "restart",
+        "status",
+        "list-workers",
+        "summary",
+        "stats",
+        "logs",
+        "trades",
+        "positions",
+        "orders",
+        "trading-stats",
+        "pnl-distribution",
+        "trade-history",
+    ]
+
+    @pytest.mark.parametrize("cmd", WORKER_SUBCOMMANDS)
+    def test_worker_subcommand_help(self, cmd):
+        """测试各子命令的帮助（逐命令参数化：单个 CLI 进程 import 约 3-5s，
+        若在一个测试函数内串行 16 个子命令会超过 pytest-timeout 的 30s 上限）"""
+        result = run_cli("worker", [cmd, "--help"])
+        assert result.returncode == 0, f"worker {cmd} --help 失败: {result.stderr}"
 
     def test_worker_create_missing_args(self):
         """测试创建 Worker 缺少必填参数"""
