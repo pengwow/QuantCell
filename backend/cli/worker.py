@@ -40,6 +40,21 @@ def _to_int(value: str, name: str = "ID") -> int:
         raise typer.Exit(1)
 
 
+def _ensure_zmq_available(orch) -> None:
+    """确保 Orchestrator 的 ZMQ 通道可用。
+
+    CLI 是独立进程，需 bind 5558/5559 才能作为路由端收发命令；若 FastAPI 正在
+    运行并占用这两个端口，bind 会失败。此时给出明确提示而非底层报错，引导用户
+    走 API 或先停 FastAPI（不引入 HTTP 回退，尊重"CLI 不依赖 FastAPI"约束）。
+    """
+    try:
+        orch.ensure_transport()
+    except Exception:
+        typer.echo("ZMQ 通道不可用（FastAPI 可能正在运行并占用 5558/5559 端口）。", err=True)
+        typer.echo("请通过 API 管理 Worker，或先停止 FastAPI 后再执行本命令。", err=True)
+        raise typer.Exit(1)
+
+
 @app.command("summary")
 def worker_summary():
     """系统摘要 - 显示所有Worker的汇总信息"""
@@ -474,7 +489,7 @@ def worker_discover():
         from worker.orchestrator import WorkerOrchestrator
 
         orch = WorkerOrchestrator.get_instance()
-        orch.ensure_transport()
+        _ensure_zmq_available(orch)
         typer.echo("正在扫描 Worker...")
         # 发送 ping 到所有 DB 中的 running Worker
         # 注: crud 中函数是 get_workers（返回 (workers, total) 元组），不是 list_workers
@@ -489,6 +504,8 @@ def worker_discover():
                 typer.echo(f"  Worker {w.id} ({w.name}) 无响应")
         connected = orch.list_connected_workers()
         typer.echo(f"\n已连接: {len(connected)} 个 Worker")
+    except typer.Exit:
+        raise
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
@@ -501,7 +518,7 @@ def worker_health():
         from worker.orchestrator import WorkerOrchestrator
 
         orch = WorkerOrchestrator.get_instance()
-        orch.ensure_transport()
+        _ensure_zmq_available(orch)
         summary = orch.check_health()
         typer.echo("=== Worker 健康检查 ===")
         typer.echo(f"总数: {summary['total']}")
@@ -509,6 +526,8 @@ def worker_health():
         typer.echo(f"已断开: {summary['disconnected']}")
         if summary["disconnected_ids"]:
             typer.echo(f"断开的 Worker: {summary['disconnected_ids']}")
+    except typer.Exit:
+        raise
     except Exception as e:
         typer.echo(f"错误: {e}", err=True)
         raise typer.Exit(1)
