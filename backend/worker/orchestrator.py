@@ -5,8 +5,10 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from utils.logger import LogType, get_logger
@@ -54,6 +56,10 @@ class WorkerOrchestrator:
         self._registry: dict[int, WorkerConnectionInfo] = {}
         self._running = False
         self._transport = None
+        # event_pull 的互斥：wait_for_response（命令期）与 check_health 的
+        # drain 共享同一个 PULL socket，必须串行消费，否则响应会被 drain 误吞
+        self._event_lock = threading.Lock()
+        self._external_events: list[tuple[int | None, str, dict]] = []
         self._logger = get_logger("worker.orchestrator", LogType.APPLICATION)
         self._initialized = True
 
@@ -85,7 +91,11 @@ class WorkerOrchestrator:
             self.config.cmd_push_addr,
         ]
         self._logger.info(f"[Orchestrator] 启动 Worker {worker_id}: {' '.join(cmd)}")
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # cwd 锚定 backend 根：`-m worker.daemon` 的模块查找发生在 daemon 代码
+        # 执行之前，若 CLI/API 从其他目录启动，worker 包不在 sys.path 会直接
+        # ModuleNotFoundError（daemon main() 内的 sys.path 防御救不了 -m 阶段）。
+        backend_root = str(Path(__file__).resolve().parent.parent)
+        proc = subprocess.Popen(cmd, cwd=backend_root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         pid = proc.pid
         # 等待 daemon 完成 ZMQ 注册（register 帧到达 router），而非固定
         # sleep 0.5s：daemon 启动需 import 大量模块，固定睡眠会错过注册帧
@@ -217,7 +227,64 @@ class WorkerOrchestrator:
     def _get_disconnected_workers(self) -> list[int]:
         return [wid for wid, info in self._registry.items() if info.connected and not info.is_alive]
 
+    # ==================== 事件消费（PULL 通道 drain） ====================
+
+    def _drain_and_process_events(self) -> None:
+        """drain 事件通道积压，回填心跳、暂存外部事件。
+
+        前因：FastAPI 空闲期无人 recv event_pull，heartbeat 事件在 PULL 队列
+        堆积（HWM 1000 后被丢），last_heartbeat 停摆 → 60s 误判离线。
+        本方法在每次 check_health 时清空积压：heartbeat 直接回填注册表，
+        order/log 等外部事件存入 _external_events 供 lifespan 广播。
+
+        与 wait_for_response 的并发互斥由 _event_lock 保证：命令等待期间
+        不 drain，避免响应被误消费后命令假超时。
+        """
+        if self._transport is None:
+            return
+        with self._event_lock:
+            while True:
+                try:
+                    msg = self._transport.recv_event(timeout_ms=20)
+                except Exception as e:
+                    self._logger.debug(f"[Orchestrator] 事件 drain 异常: {e}")
+                    break
+                if msg is None:
+                    break
+                if msg.get("type") == "response":
+                    # 并发命令的响应可能落在 drain 窗口：存入孤儿缓存供对应
+                    # wait_for_response 领取，不丢弃（避免并发命令假超时误杀）
+                    self._transport.store_orphan_response(msg)
+                    continue
+                worker_id = msg.get("worker_id")
+                event_type = msg.get("event_type")
+                payload = msg.get("payload") or {}
+                if event_type == "heartbeat" and worker_id is not None:
+                    if payload.get("status") == "stopped":
+                        # daemon 停前最后一拍：直接标记离线，避免 60s 内
+                        # 显示 "stopped 但 connected" 的矛盾中间态
+                        self._unregister_worker(worker_id)
+                        continue
+                    info = self._registry.get(worker_id)
+                    if info is None:
+                        info = WorkerConnectionInfo(worker_id=worker_id)
+                        self._registry[worker_id] = info
+                    info.connected = True
+                    info.last_heartbeat = time.time()
+                    info.pid = payload.get("pid") or info.pid
+                    info.status = payload.get("status") or info.status
+                else:
+                    self._external_events.append((worker_id, event_type, payload))
+
+    def pop_external_events(self) -> list[tuple[int | None, str, dict]]:
+        """取出 drain 期间收集的外部事件（order/log 等）并清空。"""
+        with self._event_lock:
+            events = list(self._external_events)
+            self._external_events.clear()
+            return events
+
     def check_health(self) -> dict[str, Any]:
+        self._drain_and_process_events()
         disconnected = self._get_disconnected_workers()
         if disconnected:
             self._logger.warning(f"[健康检查] {len(disconnected)} 个 Worker 已断开: {disconnected}")
@@ -238,21 +305,59 @@ class WorkerOrchestrator:
         command = make_command(worker_id, cmd, params)
         if not self._transport:
             self._transport = self._create_transport()
-        # 发送前确保路由就绪（重连场景），并与响应等待共享同一时间预算
+        # 总 deadline = 当前时间 + timeout，在 ensure_routable → send_command
+        # → wait_for_response 三阶段共享，避免累计等待远超用户预期
         deadline = time.time() + timeout
-        if not self._ensure_worker_routable(worker_id, deadline=deadline):
-            self._logger.warning(f"[Orchestrator] Worker {worker_id} 未注册，命令 {cmd} 无法路由")
+
+        # 1) 显式 routable 探测：预算封顶为总超时的 40%（0.3s~2s）。
+        #    此前把整个 deadline 传给探测，CLI 探测场景可能在等待 register 帧
+        #    时耗尽全部预算，导致随后的命令发送/响应窗口归零而超时误杀。
+        routable_budget = min(2.0, max(0.3, timeout * 0.4))
+        routable_deadline = min(deadline, time.time() + routable_budget)
+        if not self._ensure_worker_routable(worker_id, deadline=routable_deadline):
+            # 未探测到，但 send_command 内部还会做一轮 poller 消费，
+            # 此时仍有机会命中，因此不直接返回——留给下面的 send_command 自行判定
+            pass
+
+        # 2) 发送命令：把剩余 budget 传给 send_command，它会消费 register
+        #    帧并回调 _on_identity_seen 更新注册表 connected 状态
+        remaining = max(0.001, deadline - time.time())
+
+        def _on_id(wid: int) -> None:
+            # 消费到 register 帧时立刻回填注册表，不走 _wait_for_worker_registration
+            # 的"等目标帧"逻辑；这样非目标 Worker 的 register 也不会丢失
+            info = self._registry.get(wid)
+            ts = time.time()
+            if info is not None:
+                info.connected = True
+                info.last_heartbeat = ts
+            else:
+                self._registry[wid] = WorkerConnectionInfo(
+                    worker_id=wid, connected=True, last_heartbeat=ts, status="unknown"
+                )
+
+        send_deadline = time.time() + min(remaining, max(0.05, remaining))
+        sent = self._transport.send_command(
+            worker_id,
+            command,
+            on_identity_seen=_on_id,
+            deadline=send_deadline,
+        )
+        if not sent:
+            self._logger.warning(f"[Orchestrator] Worker {worker_id} 路由未就绪，命令 {cmd} 已丢弃（未发送）")
             return None
+
         remaining_ms = int((deadline - time.time()) * 1000)
         if remaining_ms <= 0:
             self._logger.warning(f"[Orchestrator] 命令 {cmd} 超时 (Worker {worker_id})")
             return None
-        self._transport.send_command(worker_id, command)
-        response = self._transport.wait_for_response(
-            worker_id,
-            command["request_id"],
-            timeout_ms=remaining_ms,
-        )
+        # 持锁等待响应：与 check_health 的 drain 互斥，防止本轮响应被 drain 吞掉
+        with self._event_lock:
+            response = self._transport.wait_for_response(
+                worker_id,
+                command["request_id"],
+                timeout_ms=remaining_ms,
+            )
         if response:
             self._update_heartbeat(worker_id)
             if cmd == "status" and "data" in response:
@@ -268,6 +373,8 @@ class WorkerOrchestrator:
         command = make_command(worker_id, cmd, params)
         if not self._transport:
             self._transport = self._create_transport()
+        # no-wait 版本：不等待身份、不报错；如果目标未注册，send_command
+        # 返回 False 时也不处理（fire-and-forget 语义）
         self._transport.send_command(worker_id, command)
 
     def _create_transport(self):
