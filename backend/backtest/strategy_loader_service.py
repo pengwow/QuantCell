@@ -356,3 +356,127 @@ class StrategyLoaderService:
                 param_names = list(cls.__annotations__.keys())
 
         return param_names
+
+    @staticmethod
+    def _find_strategy_class(module):
+        """在策略模块中查找策略类，排除基类本身。
+
+        优先级：strategy.base.BaseStrategy 子类 → EventDrivenStrategy 子类。
+        基类（BaseStrategy/EventDrivenStrategy）本身被排除，抽象基类不会命中。
+
+        Args:
+            module: 已导入的策略模块
+
+        Returns:
+            第一个匹配的策略类，找不到返回 None
+        """
+        # 延迟导入基类：本模块被 CLI（--help）等场景懒加载，
+        # 顶部引入 strategy.base 会拉高启动成本，故在函数内按需导入。
+        from strategy.base import BaseStrategy
+
+        try:
+            from backtest.strategies.event_strategy import EventDrivenStrategy
+        except ImportError:
+            EventDrivenStrategy = None
+
+        bases = [BaseStrategy]
+        if EventDrivenStrategy is not None:
+            bases.append(EventDrivenStrategy)
+
+        for name in dir(module):
+            if name.startswith("_"):
+                continue
+            obj = getattr(module, name)
+            if not isinstance(obj, type):
+                continue
+            for base in bases:
+                if obj is base:
+                    continue
+                try:
+                    if issubclass(obj, base):
+                        return obj
+                except TypeError:
+                    # 某些内建/ABC 对象 issubclass 会抛 TypeError，跳过即可
+                    continue
+        return None
+
+    @staticmethod
+    def _find_strategy_config_class(module, strategy_class):
+        """查找策略对应的 Config 类（<StrategyName>Config）。
+
+        Args:
+            module: 策略模块
+            strategy_class: 策略类
+
+        Returns:
+            命名的 Config 类，找不到返回 None（调用方回退到 StrategyConfig）
+        """
+        candidate_name = strategy_class.__name__ + "Config"
+        candidate = getattr(module, candidate_name, None)
+        return candidate if isinstance(candidate, type) else None
+
+    @staticmethod
+    def _instantiate_strategy(
+        strategy_class,
+        strategy_params: dict,
+        instrument_ids,
+        bar_types,
+        config_class=None,
+    ):
+        """实例化策略类。
+
+        当前 8 策略模板统一签名 `__init__(self, config: StrategyConfig)`，
+        因此走 config 分支：
+        - 用 StrategyConfig（或策略专属 Config 子类）构造配置对象
+        - symbol 从 instrument_ids[0]["symbol"] 提取
+        - params 原样透传 strategy_params
+
+        Args:
+            strategy_class: 策略类
+            strategy_params: 策略参数字典
+            instrument_ids: 品种列表（list[dict]，含 symbol）
+            bar_types: bar 类型列表
+            config_class: 可选，策略专属 Config 子类，None 时回退 StrategyConfig
+
+        Returns:
+            策略实例
+
+        Raises:
+            StrategyLoadError: 缺少 instrument_ids/bar_types 时
+        """
+        import inspect
+
+        from strategy.base import StrategyConfig
+
+        try:
+            sig = inspect.signature(strategy_class.__init__)
+            param_names = list(sig.parameters.keys())
+        except TypeError, ValueError:
+            param_names = []
+
+        if "config" in param_names:
+            if instrument_ids is None or bar_types is None:
+                raise StrategyLoadError(f"策略 {strategy_class.__name__} 需要传入 instrument_ids 和 bar_types。")
+            if not instrument_ids or not bar_types:
+                raise StrategyLoadError(f"策略 {strategy_class.__name__} 要求 instrument_ids 和 bar_types 非空。")
+
+            config_cls = config_class or StrategyConfig
+
+            # 提取 symbol：instrument_ids 形如 [{"symbol": "BTCUSDT", "venue": "BINANCE"}]
+            first = instrument_ids[0]
+            symbol = first["symbol"] if isinstance(first, dict) else str(first)
+
+            config = config_cls(
+                name=strategy_class.__name__,
+                symbol=symbol,
+                params=dict(strategy_params),
+            )
+            return strategy_class(config)
+
+        # 非 config 风格策略：参数直接透传（保留兼容路径）
+        params = dict(strategy_params)
+        if instrument_ids is not None:
+            params["instrument_ids"] = instrument_ids
+        if bar_types is not None:
+            params["bar_types"] = bar_types
+        return strategy_class(**params)
