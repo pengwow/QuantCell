@@ -288,10 +288,11 @@ Content here."""
 
     def test_check_requirements_met(self, loader):
         """测试检查满足的依赖"""
-        # 使用一个肯定存在的命令
+        # 使用一个肯定存在的命令（sh 在所有 Unix-like 系统都存在，
+        # 避免 macOS 上 python 不在 PATH 而 python3 才在的差异）
         skill_meta = {
             "requires": {
-                "bins": ["python"],
+                "bins": ["sh"],
             }
         }
 

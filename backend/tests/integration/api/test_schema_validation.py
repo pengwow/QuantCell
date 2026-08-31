@@ -351,11 +351,11 @@ class TestCommonSchemas:
         assert request.page_size == 10
 
     def test_pagination_request_zero_page(self):
-        """测试零页码的分页请求"""
+        """测试零页码的分页请求（page 从 1 开始，page=0 被 ge=1 拒绝）"""
         from common.schemas import PaginationRequest
 
-        request = PaginationRequest(page=0)
-        assert request.page == 0
+        with pytest.raises(ValidationError):
+            PaginationRequest(page=0)
 
     def test_pagination_request_large_page_size(self):
         """测试超大页面大小的分页请求"""

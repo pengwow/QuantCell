@@ -157,7 +157,7 @@ class TestStrategyDetailAPI:
 class TestStrategyUploadAPI:
     """策略上传API测试类"""
 
-    def test_upload_strategy_success(self, client: TestClient):
+    def test_upload_strategy_success(self, client: TestClient, valid_auth_headers: dict[str, str]):
         """测试策略上传成功"""
         request_data = {
             "strategy_name": "test_strategy_upload",
@@ -172,12 +172,12 @@ class TestStrategyUploadAPI:
             "description": "测试策略",
             "tags": ["test", "demo"],
         }
-        response = client.post("/api/strategy/upload", json=request_data)
+        response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 0
 
-    def test_upload_strategy_update_existing(self, client: TestClient):
+    def test_upload_strategy_update_existing(self, client: TestClient, valid_auth_headers: dict[str, str]):
         """测试更新现有策略"""
         request_data = {
             "id": 1,
@@ -186,16 +186,16 @@ class TestStrategyUploadAPI:
             "version": "2.0.0",
             "description": "更新后的策略",
         }
-        response = client.post("/api/strategy/upload", json=request_data)
+        response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code == 200
 
-    def test_upload_strategy_minimal_data(self, client: TestClient):
+    def test_upload_strategy_minimal_data(self, client: TestClient, valid_auth_headers: dict[str, str]):
         """测试最小数据上传"""
         request_data = {
             "strategy_name": "minimal_strategy",
             "file_content": "class MinimalStrategy(Strategy):\n    pass",
         }
-        response = client.post("/api/strategy/upload", json=request_data)
+        response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code == 200
 
     # ========== 请求体验证测试 ==========
@@ -262,23 +262,23 @@ class TestStrategyExecuteAPI:
 
     @pytest.mark.parametrize("mode", ["invalid_mode", "", None])
     def test_execute_strategy_invalid_mode(self, client: TestClient, mode):
-        """测试无效执行模式"""
+        """测试无效执行模式（execute 端点已移除，返回404）"""
         request_data = {"params": {}, "mode": mode}
         response = client.post("/api/strategy/sma_cross/execute", json=request_data)
-        # 应该返回422验证错误
-        assert response.status_code in [400, 422]
+        # /execute 路由已随策略执行迁移到 worker 而移除，统一返回 404
+        assert response.status_code == 404
 
     def test_execute_strategy_missing_mode(self, client: TestClient):
-        """测试缺少执行模式"""
+        """测试缺少执行模式（execute 端点已移除，返回404）"""
         request_data = {"params": {}}
         response = client.post("/api/strategy/sma_cross/execute", json=request_data)
-        assert response.status_code == 422
+        assert response.status_code == 404
 
     def test_execute_strategy_invalid_params(self, client: TestClient):
-        """测试无效参数"""
+        """测试无效参数（execute 端点已移除，返回404）"""
         request_data = {"params": "invalid_params_type", "mode": "backtest"}
         response = client.post("/api/strategy/sma_cross/execute", json=request_data)
-        assert response.status_code == 422
+        assert response.status_code == 404
 
 
 class TestStrategyParseAPI:
@@ -389,17 +389,17 @@ class TestStrategyAPIEdgeCases:
             "123numeric",  # 数字开头
         ],
     )
-    def test_strategy_name_variations(self, client: TestClient, strategy_name):
+    def test_strategy_name_variations(self, client: TestClient, strategy_name, valid_auth_headers: dict[str, str]):
         """测试各种策略名称格式"""
         request_data = {
             "strategy_name": strategy_name,
             "file_content": f"class {strategy_name.title()}(Strategy):\n    pass",
         }
-        response = client.post("/api/strategy/upload", json=request_data)
+        response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
         # 应该接受或根据业务规则拒绝
         assert response.status_code in [200, 400]
 
-    def test_strategy_with_special_characters(self, client: TestClient):
+    def test_strategy_with_special_characters(self, client: TestClient, valid_auth_headers: dict[str, str]):
         """测试特殊字符的策略名称"""
         special_names = [
             "strategy with spaces",
@@ -412,30 +412,30 @@ class TestStrategyAPIEdgeCases:
                 "strategy_name": name,
                 "file_content": "class Test(Strategy):\n    pass",
             }
-            response = client.post("/api/strategy/upload", json=request_data)
+            response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
             # 可能接受或拒绝
             assert response.status_code in [200, 400]
 
-    def test_strategy_with_unicode(self, client: TestClient):
+    def test_strategy_with_unicode(self, client: TestClient, valid_auth_headers: dict[str, str]):
         """测试Unicode字符的策略名称"""
         request_data = {
             "strategy_name": "测试策略",
             "file_content": "class TestStrategy(Strategy):\n    pass",
         }
-        response = client.post("/api/strategy/upload", json=request_data)
+        response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code in [200, 400]
 
-    def test_strategy_large_file_content(self, client: TestClient):
+    def test_strategy_large_file_content(self, client: TestClient, valid_auth_headers: dict[str, str]):
         """测试大文件内容"""
         large_content = "class LargeStrategy(Strategy):\n    pass\n" + "# comment\n" * 1000
         request_data = {
             "strategy_name": "large_strategy",
             "file_content": large_content,
         }
-        response = client.post("/api/strategy/upload", json=request_data)
+        response = client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
         assert response.status_code in [200, 413]  # 413 = Payload Too Large
 
-    def test_concurrent_strategy_uploads(self, client: TestClient):
+    def test_concurrent_strategy_uploads(self, client: TestClient, valid_auth_headers: dict[str, str]):
         """测试并发策略上传（简化版）"""
         import concurrent.futures
 
@@ -444,7 +444,7 @@ class TestStrategyAPIEdgeCases:
                 "strategy_name": f"concurrent_strategy_{index}",
                 "file_content": f"class ConcurrentStrategy{index}(Strategy):\n    pass",
             }
-            return client.post("/api/strategy/upload", json=request_data)
+            return client.post("/api/strategy/upload", json=request_data, headers=valid_auth_headers)
 
         # 使用线程池模拟并发
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:

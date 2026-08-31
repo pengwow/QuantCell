@@ -261,117 +261,9 @@ class TestSystemStartupFlow:
         except PortAllocationError as e:
             pytest.fail(f"启动流程中端口分配失败: {e}")
 
-    def test_zmq_services_use_dynamic_ports(self, temp_config_dir):
-        """ZMQ 服务使用动态分配的端口
-
-        验证 CommManager 初始化时能正确从 PortManager 获取 ZMQ 端口。
-        注意：PortManager 可能返回默认端口或范围内的端口。
-        """
-        manager = PortManager()
-
-        # 分配所有 ZMQ 相关服务端口
-        zmq_data_port = manager.get_port("zmq_data")
-        zmq_control_port = manager.get_port("zmq_control")
-        zmq_status_port = manager.get_port("zmq_status")
-        zmq_broadcast_port = manager.get_port("zmq_broadcast")
-
-        # 验证所有 ZMQ 端口有效：要么是默认端口，要么在定义的范围内
-        for service_name, port in [
-            ("zmq_data", zmq_data_port),
-            ("zmq_control", zmq_control_port),
-            ("zmq_status", zmq_status_port),
-            ("zmq_broadcast", zmq_broadcast_port),
-        ]:
-            config = PORT_RANGES[service_name]
-            default_port = config["default"]
-            start, end = config["range"]
-
-            # 端口应该是默认端口或在范围内
-            is_valid = port == default_port or (start <= port < end)
-            assert is_valid, (
-                f"{service_name} 端口 {port} 无效: 既不是默认端口 {default_port}，也不在范围 {start}-{end - 1} 内"
-            )
-
-        # 验证各服务使用不同端口
-        zmq_ports = [
-            zmq_data_port,
-            zmq_control_port,
-            zmq_status_port,
-            zmq_broadcast_port,
-        ]
-        assert len(set(zmq_ports)) == len(zmq_ports), "ZMQ 服务应使用不同端口"
-
-        # 验证配置文件包含所有 ZMQ 服务
-        all_ports = manager.get_all_ports()
-        for service in ["zmq_data", "zmq_control", "zmq_status", "zmq_broadcast"]:
-            assert service in all_ports
-
-    def test_worker_ipc_port_consistency(self, temp_config_dir):
-        """Worker IPC 各组件使用一致的端口配置
-
-        验证 CommManager、WorkerClient、WorkerManager 使用相同的端口来源。
-        """
-        manager = PortManager()
-
-        # 模拟 CommManager 初始化（从 PortManager 获取端口）
-        comm_data_port = manager.get_port("zmq_data")
-        comm_control_port = manager.get_port("zmq_control")
-        comm_status_port = manager.get_port("zmq_status")
-
-        # 再次获取相同服务的端口（模拟其他组件初始化）
-        worker_data_port = manager.get_port("zmq_data")
-        worker_control_port = manager.get_port("zmq_control")
-        worker_status_port = manager.get_port("zmq_status")
-
-        # 验证所有组件获得相同的端口
-        assert comm_data_port == worker_data_port
-        assert comm_control_port == worker_control_port
-        assert comm_status_port == worker_status_port
-
-    def test_all_services_startup_sequence(self, temp_config_dir):
-        """完整的服务启动序列测试
-
-        按照实际启动顺序分配所有服务端口，验证整体一致性。
-        """
-        manager = PortManager()
-
-        # 启动顺序：FastAPI -> ZMQ services
-        startup_sequence = [
-            ("fastapi", 8000),
-            ("zmq_data", 5555),
-            ("zmq_control", 5556),
-            ("zmq_status", 5557),
-            ("zmq_broadcast", 5558),
-        ]
-
-        allocated_ports = {}
-
-        for service_name, default_port in startup_sequence:
-            port = manager.get_port(service_name)
-            allocated_ports[service_name] = port
-
-            # 验证端口有效：要么是默认端口，要么在定义的范围内
-            config = PORT_RANGES[service_name]
-            start, end = config["range"]
-            is_valid = port == default_port or (start <= port < end)
-            assert is_valid, (
-                f"{service_name} 端口 {port} 无效: 既不是默认端口 {default_port}，也不在范围 {start}-{end - 1} 内"
-            )
-
-        # 验证所有服务都已分配
-        assert len(allocated_ports) == len(PORT_RANGES)
-
-        # 验证配置文件完整性
-        with open(manager.config_path, encoding="utf-8") as f:
-            saved_config = json.load(f)
-
-        assert len(saved_config["services"]) == len(PORT_RANGES)
-        for service_name in allocated_ports:
-            assert service_name in saved_config["services"]
-            assert saved_config["services"][service_name]["port"] == allocated_ports[service_name]
+    # ============================================================
 
 
-# ============================================================
 # TestMultiInstancePortIsolation - 多实例端口隔离测试
 # ============================================================
 
@@ -736,12 +628,11 @@ class TestFrontendBackendPortSync:
 
         manager = PortManager()
 
-        # 分配一些端口
+        # 分配端口
         manager.get_port("fastapi")
-        manager.get_port("zmq_data")
 
         # 调用 API（需要异步执行）
-        response = asyncio.get_event_loop().run_until_complete(get_system_ports())
+        response = asyncio.run(get_system_ports())
 
         # 验证响应结构
         assert response["code"] == 0
@@ -770,7 +661,7 @@ class TestFrontendBackendPortSync:
         manager.get_port("fastapi")
 
         # 查询存在的服务
-        response = asyncio.get_event_loop().run_until_complete(get_service_port("fastapi"))
+        response = asyncio.run(get_service_port("fastapi"))
 
         assert response["code"] == 0
         assert response["data"]["service"] == "fastapi"
@@ -787,7 +678,7 @@ class TestFrontendBackendPortSync:
 
         # 查询不存在的服务应抛出 HTTPException
         with pytest.raises(HTTPException) as exc_info:
-            asyncio.get_event_loop().run_until_complete(get_service_port("invalid_service"))
+            asyncio.run(get_service_port("invalid_service"))
 
         assert exc_info.value.status_code == 404
 
@@ -798,51 +689,12 @@ class TestFrontendBackendPortSync:
         """
         from api.system_ports import health_check
 
-        response = asyncio.get_event_loop().run_until_complete(health_check())
+        response = asyncio.run(health_check())
 
         assert response["status"] == "healthy"
         assert response["service"] == "port-manager"
         assert "timestamp" in response
         assert "version" in response
-
-    def test_frontend_port_config_format(self, temp_config_dir):
-        """前端获取的端口配置格式正确
-
-        模拟前端 fetchPortConfig() 调用后的数据处理。
-        """
-        from api.system_ports import get_system_ports
-
-        manager = PortManager()
-
-        # 分配所有服务
-        for service_name in PORT_RANGES:
-            manager.get_port(service_name)
-
-        # 获取端口配置
-        response = asyncio.get_event_loop().run_until_complete(get_system_ports())
-        data = response["data"]
-
-        # 验证前端需要的字段都存在
-        required_fields_for_frontend = [
-            "fastapi",
-            "zmq_data",
-            "zmq_control",
-            "zmq_status",
-            "zmq_broadcast",
-        ]
-
-        for field in required_fields_for_frontend:
-            assert field in data, f"缺少前端所需字段: {field}"
-            assert "port" in data[field], f"{field} 缺少 port 字段"
-            assert "service" in data[field], f"{field} 缺少 service 字段"
-            assert isinstance(data[field]["port"], int), f"{field}.port 应为整数"
-
-        # 验证元数据字段
-        metadata = data["metadata"]
-        assert "pid" in metadata
-        assert "start_time" in metadata
-        assert "last_updated" in metadata
-        assert "config_file" in metadata
 
     def test_port_consistency_between_api_and_manager(self, temp_config_dir):
         """API 返回的端口与 PortManager 内部状态一致
@@ -854,13 +706,13 @@ class TestFrontendBackendPortSync:
 
         manager = PortManager()
 
-        # 动态分配多个服务
-        services_to_allocate = ["fastapi", "zmq_data", "zmq_broadcast"]
+        # 动态分配服务（当前只有 fastapi）
+        services_to_allocate = ["fastapi"]
         for service in services_to_allocate:
             manager.get_port(service)
 
         # 从 API 获取（API 内部也调用同一个全局 port_manager）
-        api_response = asyncio.get_event_loop().run_until_complete(get_system_ports())
+        api_response = asyncio.run(get_system_ports())
         api_data = api_response["data"]
 
         # 从 Manager 获取
@@ -967,8 +819,8 @@ class TestEdgeCasesAndStress:
             """写入线程：循环分配和释放端口"""
             try:
                 for _ in range(20):
-                    manager.get_port("zmq_data")
-                    manager.release_port("zmq_data")
+                    manager.get_port("fastapi")
+                    manager.release_port("fastapi")
             except Exception as e:
                 errors.append(f"Writer error: {e}")
 
@@ -1004,11 +856,10 @@ class TestEdgeCasesAndStress:
         """
         manager = PortManager()
 
+        # 仅保留当前 PORT_RANGES 中真实存在的服务（fastapi）
         boundary_tests = [
             ("fastapi", 8000),
             ("fastapi", 8009),
-            ("zmq_data", 5550),
-            ("zmq_data", 5559),
         ]
 
         with patch.object(PortManager, "_is_port_available", return_value=True):
@@ -1105,14 +956,14 @@ class TestEdgeCasesAndStress:
         iterations = 1000
 
         for _ in range(iterations):
-            manager.get_port("zmq_data")
+            manager.get_port("fastapi")
             manager.get_all_ports()
 
             if _ % 100 == 99:
-                manager.release_port("zmq_data")
+                manager.release_port("fastapi")
 
         # 验证功能仍然正常
-        final_port = manager.get_port("zmq_data")
+        final_port = manager.get_port("fastapi")
         assert final_port > 0
         assert manager.get_all_ports() is not None
 
@@ -1182,21 +1033,19 @@ class TestErrorHandling:
         """
         manager = PortManager()
 
-        # 先分配一些端口
+        # 先分配端口
         manager.get_port("fastapi")
-        manager.get_port("zmq_data")
-
         dict(manager.allocated_ports)
 
-        # 修改配置文件
+        # 修改配置文件：写入一个新的 fastapi 端口
         with open(manager.config_path, "w", encoding="utf-8") as f:
             json.dump(
                 {
                     "version": "1.0",
                     "updated_at": "2024-01-01T00:00:00",
                     "services": {
-                        "zmq_control": {
-                            "port": 5565,
+                        "fastapi": {
+                            "port": 8005,
                             "pid": 11111,
                             "start_time": "2024-01-01T00:00:00",
                             "last_used": "2024-01-01T00:00:00",
@@ -1211,8 +1060,8 @@ class TestErrorHandling:
         manager.reload_config()
 
         # 验证新配置已加载
-        assert "zmq_control" in manager.allocated_ports
-        assert manager.allocated_ports["zmq_control"].port == 5565
+        assert "fastapi" in manager.allocated_ports
+        assert manager.allocated_ports["fastapi"].port == 8005
 
 
 if __name__ == "__main__":
