@@ -6,7 +6,7 @@
 import importlib.util
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -137,15 +137,43 @@ APIRateLimitError = sg_module.APIRateLimitError
 ResponseParseError = sg_module.ResponseParseError
 
 
+class FakeBackend:
+    """模拟 axon_quant LLMBackend 的同步接口（chat / stream_chat）
+
+    返回原始 axon 格式；可通过 chat_error / stream_error 注入 RuntimeError，
+    用于测试业务代码基于 classify_llm_error 的错误分类逻辑。
+    """
+
+    def __init__(self, chat_resp=None, stream_deltas=None):
+        self.chat_resp = chat_resp or {
+            "content": "```python\nclass Demo:\n    pass\n```",
+            "reasoning_content": "",
+            "finish_reason": "Stop",
+            "prompt_tokens": 1,
+            "completion_tokens": 2,
+            "total_tokens": 3,
+        }
+        self.stream_deltas = stream_deltas or []
+        self.chat_error = None
+        self.stream_error = None
+
+    def chat(self, messages):
+        if self.chat_error is not None:
+            raise self.chat_error
+        return self.chat_resp
+
+    def stream_chat(self, messages):
+        if self.stream_error is not None:
+            raise self.stream_error
+        return self.stream_deltas
+
+
 class TestStrategyGeneratorInit:
     """测试 StrategyGenerator 初始化"""
 
     def test_init_with_required_params(self):
         """测试使用必需参数初始化"""
-        with patch("strategy_generator.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_openai.return_value = mock_client
-
+        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
             generator = StrategyGenerator(api_key="test-key")
 
             assert generator.api_key == "test-key"
@@ -155,10 +183,7 @@ class TestStrategyGeneratorInit:
 
     def test_init_with_all_params(self):
         """测试使用所有参数初始化"""
-        with patch("strategy_generator.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_openai.return_value = mock_client
-
+        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
             generator = StrategyGenerator(
                 api_key="test-key",
                 api_host="https://custom.api.com",
@@ -173,58 +198,27 @@ class TestStrategyGeneratorInit:
 
     def test_init_api_host_trailing_slash(self):
         """测试 API host 去除尾部斜杠"""
-        with patch("strategy_generator.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_openai.return_value = mock_client
-
+        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
             generator = StrategyGenerator(
                 api_key="test-key",
                 api_host="https://api.example.com/",
             )
 
-            # 内部会去除尾部斜杠并添加 /v1
+            # 内部会去除尾部斜杠（/v1 由 create_llm_backend 补齐）
             assert generator.api_host == "https://api.example.com"
 
-    def test_init_creates_openai_client(self):
-        """测试初始化创建 OpenAI 客户端"""
-        with patch("strategy_generator.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_openai.return_value = mock_client
-
+    def test_init_creates_llm_backend(self):
+        """测试初始化创建 axon LLM backend"""
+        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()) as mock_create:
             StrategyGenerator(api_key="test-key")
 
-            mock_openai.assert_called_once()
-            call_kwargs = mock_openai.call_args.kwargs
+            mock_create.assert_called_once()
+            call_kwargs = mock_create.call_args.kwargs
             assert call_kwargs["api_key"] == "test-key"
-            assert call_kwargs["base_url"] == "https://api.openai.com/v1"
-
-    def test_get_base_url_adds_v1(self):
-        """测试 _get_base_url 方法添加 /v1"""
-        with patch("strategy_generator.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_openai.return_value = mock_client
-
-            generator = StrategyGenerator(
-                api_key="test-key",
-                api_host="https://api.example.com",
-            )
-
-            base_url = generator._get_base_url()
-            assert base_url == "https://api.example.com/v1"
-
-    def test_get_base_url_no_duplicate_v1(self):
-        """测试 _get_base_url 不重复添加 /v1"""
-        with patch("strategy_generator.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_openai.return_value = mock_client
-
-            generator = StrategyGenerator(
-                api_key="test-key",
-                api_host="https://api.example.com/v1",
-            )
-
-            base_url = generator._get_base_url()
-            assert base_url == "https://api.example.com/v1"
+            assert call_kwargs["base_url"] == StrategyGenerator.DEFAULT_API_HOST
+            assert call_kwargs["model"] == StrategyGenerator.DEFAULT_MODEL
+            assert call_kwargs["max_tokens"] == StrategyGenerator.DEFAULT_MAX_TOKENS
+            assert call_kwargs["timeout_secs"] == int(StrategyGenerator.DEFAULT_TIMEOUT)
 
 
 class TestStrategyGeneratorCodeExtraction:
@@ -233,9 +227,7 @@ class TestStrategyGeneratorCodeExtraction:
     @pytest.fixture
     def generator(self):
         """创建测试用的生成器实例"""
-        with patch("strategy_generator.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_openai.return_value = mock_client
+        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
             return StrategyGenerator(api_key="test-key")
 
     def test_extract_code_with_python_markers(self, generator):
@@ -350,9 +342,7 @@ class TestStrategyGeneratorResponseParsing:
     @pytest.fixture
     def generator(self):
         """创建测试用的生成器实例"""
-        with patch("strategy_generator.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_openai.return_value = mock_client
+        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
             return StrategyGenerator(api_key="test-key")
 
     def test_parse_response_success(self, generator):
@@ -411,153 +401,139 @@ class TestStrategyGeneratorErrorHandling:
     @pytest.fixture
     def generator(self):
         """创建测试用的生成器实例"""
-        with patch("strategy_generator.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_openai.return_value = mock_client
+        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
             return StrategyGenerator(api_key="test-key")
 
     @pytest.mark.asyncio
     async def test_generate_strategy_stream_authentication_error(self, generator):
         """测试流式生成时认证错误处理"""
-        from openai import AuthenticationError
+        generator._backend.stream_error = RuntimeError("auth error: invalid key")
 
-        with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = AuthenticationError("Invalid API key", response=MagicMock(), body=None)
+        chunks = []
+        async for chunk in generator.generate_strategy_stream("test requirement"):
+            chunks.append(chunk)
 
-            chunks = []
-            async for chunk in generator.generate_strategy_stream("test requirement"):
-                chunks.append(chunk)
-
-            # 现在会返回思维链事件 + 错误事件
-            assert len(chunks) >= 2
-            # 最后一个chunk应该是错误
-            assert chunks[-1]["type"] == "error"
-            assert chunks[-1]["error_code"] == "api_authentication_error"
-            assert "API密钥无效" in chunks[-1]["error"]
-            # 检查思维链事件
-            thinking_chain_chunks = [c for c in chunks if c["type"] == "thinking_chain"]
-            assert len(thinking_chain_chunks) >= 1
+        # 现在会返回思维链事件 + 错误事件
+        assert len(chunks) >= 2
+        # 最后一个chunk应该是错误
+        assert chunks[-1]["type"] == "error"
+        assert chunks[-1]["error_code"] == "api_authentication_error"
+        assert "API密钥无效" in chunks[-1]["error"]
+        # 检查思维链事件
+        thinking_chain_chunks = [c for c in chunks if c["type"] == "thinking_chain"]
+        assert len(thinking_chain_chunks) >= 1
 
     @pytest.mark.asyncio
     async def test_generate_strategy_stream_rate_limit_error(self, generator):
         """测试流式生成时速率限制错误处理"""
-        from openai import RateLimitError
+        generator._backend.stream_error = RuntimeError("rate limited (retry_after=3s)")
 
-        with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = RateLimitError("Rate limit exceeded", response=MagicMock(), body=None)
+        chunks = []
+        async for chunk in generator.generate_strategy_stream("test requirement"):
+            chunks.append(chunk)
 
-            chunks = []
-            async for chunk in generator.generate_strategy_stream("test requirement"):
-                chunks.append(chunk)
-
-            # 现在会返回思维链事件 + 错误事件
-            assert len(chunks) >= 2
-            # 最后一个chunk应该是错误
-            assert chunks[-1]["type"] == "error"
-            assert chunks[-1]["error_code"] == "api_rate_limit_error"
-            assert "请求过于频繁" in chunks[-1]["error"]
+        # 现在会返回思维链事件 + 错误事件
+        assert len(chunks) >= 2
+        # 最后一个chunk应该是错误
+        assert chunks[-1]["type"] == "error"
+        assert chunks[-1]["error_code"] == "api_rate_limit_error"
+        assert "请求过于频繁" in chunks[-1]["error"]
 
     @pytest.mark.asyncio
     async def test_generate_strategy_stream_timeout_error(self, generator):
         """测试流式生成时超时错误处理"""
-        from openai import APITimeoutError
+        generator._backend.stream_error = RuntimeError("network error: request timeout")
 
-        with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = APITimeoutError("Request timed out")
+        chunks = []
+        async for chunk in generator.generate_strategy_stream("test requirement"):
+            chunks.append(chunk)
 
-            chunks = []
-            async for chunk in generator.generate_strategy_stream("test requirement"):
-                chunks.append(chunk)
-
-            # 现在会返回思维链事件 + 错误事件
-            assert len(chunks) >= 2
-            # 最后一个chunk应该是错误
-            assert chunks[-1]["type"] == "error"
-            assert chunks[-1]["error_code"] == "api_connection_error"
-            assert "超时" in chunks[-1]["error"]
+        # 现在会返回思维链事件 + 错误事件
+        assert len(chunks) >= 2
+        # 最后一个chunk应该是错误
+        assert chunks[-1]["type"] == "error"
+        assert chunks[-1]["error_code"] == "api_connection_error"
+        assert "超时" in chunks[-1]["error"]
 
     @pytest.mark.asyncio
     async def test_generate_strategy_stream_connection_error(self, generator):
         """测试流式生成时连接错误处理"""
-        # 模拟连接错误
-        with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = Exception("Connection failed")
+        generator._backend.stream_error = RuntimeError("network error: connection reset")
 
-            chunks = []
-            async for chunk in generator.generate_strategy_stream("test requirement"):
-                chunks.append(chunk)
+        chunks = []
+        async for chunk in generator.generate_strategy_stream("test requirement"):
+            chunks.append(chunk)
 
-            # 现在会返回思维链事件 + 错误事件
-            assert len(chunks) >= 2
-            # 最后一个chunk应该是错误
-            assert chunks[-1]["type"] == "error"
+        # 现在会返回思维链事件 + 错误事件
+        assert len(chunks) >= 2
+        # 最后一个chunk应该是错误
+        assert chunks[-1]["type"] == "error"
+        assert chunks[-1]["error_code"] == "api_connection_error"
 
     @pytest.mark.asyncio
     async def test_generate_strategy_stream_generic_exception(self, generator):
         """测试流式生成时通用异常处理"""
-        with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = Exception("Unexpected error")
+        # 非 RuntimeError 的异常走通用分支
+        generator._backend.stream_error = ValueError("Unexpected error")
 
-            chunks = []
-            async for chunk in generator.generate_strategy_stream("test requirement"):
-                chunks.append(chunk)
+        chunks = []
+        async for chunk in generator.generate_strategy_stream("test requirement"):
+            chunks.append(chunk)
 
-            # 现在会返回思维链事件 + 错误事件
-            assert len(chunks) >= 2
-            # 最后一个chunk应该是错误
-            assert chunks[-1]["type"] == "error"
-            assert chunks[-1]["error_code"] == "generation_failed"
-            assert "策略生成失败" in chunks[-1]["error"]
+        # 现在会返回思维链事件 + 错误事件
+        assert len(chunks) >= 2
+        # 最后一个chunk应该是错误
+        assert chunks[-1]["type"] == "error"
+        assert chunks[-1]["error_code"] == "generation_failed"
+        assert "策略生成失败" in chunks[-1]["error"]
 
     def test_generate_strategy_authentication_error(self, generator):
         """测试同步生成时认证错误处理"""
-        from openai import AuthenticationError
+        generator._backend.chat_error = RuntimeError("auth error: invalid key")
 
-        with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = AuthenticationError("Invalid API key", response=MagicMock(), body=None)
+        with pytest.raises(APIAuthenticationError) as exc_info:
+            generator.generate_strategy("test requirement")
 
-            with pytest.raises(APIAuthenticationError) as exc_info:
-                generator.generate_strategy("test requirement")
-
-            assert exc_info.value.error_code == "api_authentication_error"
-            assert "API密钥无效" in exc_info.value.message
+        assert exc_info.value.error_code == "api_authentication_error"
+        assert "API密钥无效" in exc_info.value.message
 
     def test_generate_strategy_rate_limit_error(self, generator):
         """测试同步生成时速率限制错误处理"""
-        from openai import RateLimitError
+        generator._backend.chat_error = RuntimeError("rate limited (retry_after=3s)")
 
-        with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = RateLimitError("Rate limit exceeded", response=MagicMock(), body=None)
+        with pytest.raises(APIRateLimitError) as exc_info:
+            generator.generate_strategy("test requirement")
 
-            with pytest.raises(APIRateLimitError) as exc_info:
-                generator.generate_strategy("test requirement")
-
-            assert exc_info.value.error_code == "api_rate_limit_error"
-            assert "请求过于频繁" in exc_info.value.message
+        assert exc_info.value.error_code == "api_rate_limit_error"
+        assert "请求过于频繁" in exc_info.value.message
 
     def test_generate_strategy_timeout_error(self, generator):
         """测试同步生成时超时错误处理"""
-        from openai import APITimeoutError
+        generator._backend.chat_error = RuntimeError("network error: request timeout")
 
-        with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = APITimeoutError("Request timed out")
+        with pytest.raises(APIConnectionError) as exc_info:
+            generator.generate_strategy("test requirement")
 
-            with pytest.raises(APIConnectionError) as exc_info:
-                generator.generate_strategy("test requirement")
-
-            assert exc_info.value.error_code == "api_connection_error"
-            assert "超时" in exc_info.value.message
+        assert exc_info.value.error_code == "api_connection_error"
+        assert "超时" in exc_info.value.message
 
     def test_generate_strategy_connection_error(self, generator):
         """测试同步生成时连接错误处理"""
-        # 使用通用的 Exception 来模拟连接错误
-        with patch.object(generator._client.chat.completions, "create") as mock_create:
-            mock_create.side_effect = Exception("Connection failed")
+        generator._backend.chat_error = RuntimeError("network error: connection reset")
 
-            with pytest.raises(StrategyGenerationError) as exc_info:
-                generator.generate_strategy("test requirement")
+        with pytest.raises(APIConnectionError) as exc_info:
+            generator.generate_strategy("test requirement")
 
-            assert exc_info.value.error_code == "generation_failed"
+        assert exc_info.value.error_code == "api_connection_error"
+
+    def test_generate_strategy_generic_error(self, generator):
+        """测试同步生成时通用异常处理（非 RuntimeError 走 generation_failed）"""
+        generator._backend.chat_error = ValueError("Unexpected error")
+
+        with pytest.raises(StrategyGenerationError) as exc_info:
+            generator.generate_strategy("test requirement")
+
+        assert exc_info.value.error_code == "generation_failed"
 
 
 class TestStrategyGeneratorValidation:
@@ -566,9 +542,7 @@ class TestStrategyGeneratorValidation:
     @pytest.fixture
     def generator(self):
         """创建测试用的生成器实例"""
-        with patch("strategy_generator.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_openai.return_value = mock_client
+        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
             return StrategyGenerator(api_key="test-key")
 
     def test_validate_code_valid(self, generator):
@@ -628,9 +602,7 @@ class TestStrategyGeneratorBuildPrompt:
     @pytest.fixture
     def generator(self):
         """创建测试用的生成器实例"""
-        with patch("strategy_generator.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_openai.return_value = mock_client
+        with patch("strategy_generator.create_llm_backend", return_value=FakeBackend()):
             return StrategyGenerator(api_key="test-key")
 
     def test_build_prompt_with_default_vars(self, generator):

@@ -14,18 +14,10 @@ from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-from openai import APIConnectionError as OpenAIAPIConnectionError
-from openai import (
-    APIError,
-    APITimeoutError,
-    AuthenticationError,
-    OpenAI,
-    RateLimitError,
-)
-
 from ai_model.performance_monitor import get_performance_monitor
 from ai_model.prompts import PromptCategory, PromptManager
 from ai_model.thinking_chain import ThinkingChainManager
+from axon_bridge.llm import classify_llm_error, create_llm_backend
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -137,12 +129,15 @@ class StrategyGenerator:
         self.temperature = temperature or self.DEFAULT_TEMPERATURE
         self.chain_type = chain_type
 
-        # 初始化OpenAI客户端，设置超时时间
-        # 流式请求需要更长的超时时间，因为数据是逐步返回的
-        self._client = OpenAI(
+        # 初始化 axon LLM backend：temperature/max_tokens/超时在构造时固定，
+        # 后续调用不再逐次传递这些参数
+        self._backend = create_llm_backend(
             api_key=api_key,
-            base_url=self._get_base_url(),
-            timeout=self.DEFAULT_TIMEOUT,
+            base_url=self.api_host,
+            model=self.model_name,
+            temperature=self.temperature,
+            max_tokens=self.DEFAULT_MAX_TOKENS,
+            timeout_secs=int(self.DEFAULT_TIMEOUT),
         )
 
         # 初始化提示词管理器
@@ -280,13 +275,6 @@ class StrategyGenerator:
             }
         return {}
 
-    def _get_base_url(self) -> str:
-        """获取基础URL，确保包含/v1路径"""
-        base_url = self.api_host
-        if not base_url.endswith("/v1"):
-            base_url = f"{base_url}/v1"
-        return base_url
-
     def generate_strategy(
         self,
         requirement: str,
@@ -329,42 +317,38 @@ class StrategyGenerator:
             prompt = self._build_prompt(requirement, prompt_category, **template_vars)
             logger.debug(f"[{request_id}] 提示词长度: {len(prompt)}字符")
 
-            # 调用API（使用model_name进行API调用）
-            response = self._client.chat.completions.create(
-                model=self.model_name,
-                messages=[
+            # 调用 axon backend（同步，内部 block_on；model/temperature/max_tokens 构造时已固定）
+            raw = self._backend.chat(
+                [
                     {
                         "role": "system",
                         "content": "你是一个专业的量化交易策略生成专家。",
                     },
                     {"role": "user", "content": prompt},
-                ],
-                temperature=self.temperature,
-                max_tokens=self.DEFAULT_MAX_TOKENS,
+                ]
             )
 
             # 提取响应内容
-            content = response.choices[0].message.content
+            content = raw.get("content") or ""
             elapsed_time = time.time() - start_time
 
             logger.info(
-                f"[{request_id}] API调用成功，耗时: {elapsed_time:.2f}s, "
-                f"Token使用: {response.usage.total_tokens if response.usage else 'N/A'}"
+                f"[{request_id}] API调用成功，耗时: {elapsed_time:.2f}s, Token使用: {raw.get('total_tokens', 'N/A')}"
             )
 
             # 解析响应
-            result = self._parse_response(content or "")
+            result = self._parse_response(content)
             result["metadata"] = {
                 "request_id": request_id,
                 "model": self.model_id,
                 "elapsed_time": elapsed_time,
-                "total_tokens": response.usage.total_tokens if response.usage else None,
-                "prompt_tokens": response.usage.prompt_tokens if response.usage else None,
-                "completion_tokens": response.usage.completion_tokens if response.usage else None,
+                "total_tokens": raw.get("total_tokens"),
+                "prompt_tokens": raw.get("prompt_tokens"),
+                "completion_tokens": raw.get("completion_tokens"),
             }
 
             # 记录性能指标
-            total_tokens = response.usage.total_tokens if response.usage else None
+            total_tokens = raw.get("total_tokens")
             self._performance_monitor.record_request(
                 model_id=self.model_id,
                 success=result.get("success", False),
@@ -375,66 +359,34 @@ class StrategyGenerator:
 
             return result
 
-        except AuthenticationError as e:
+        except RuntimeError as e:
+            # axon backend 的错误统一抛 RuntimeError，按消息内容分类映射到业务异常
             elapsed_time = time.time() - start_time
-            logger.error(f"[{request_id}] API认证失败: {e}")
+            kind = classify_llm_error(e)
+            error_code_map = {
+                "auth": "api_authentication_error",
+                "rate_limit": "api_rate_limit_error",
+                "timeout": "api_timeout_error",
+                "network": "api_connection_error",
+            }
+            logger.error(f"[{request_id}] API调用失败({kind}): {e}")
             self._performance_monitor.record_request(
                 model_id=self.model_id,
                 success=False,
                 generation_time=elapsed_time,
                 tokens_used=None,
-                error_code="api_authentication_error",
+                error_code=error_code_map.get(kind, "api_error"),
             )
-            msg = f"API密钥无效或已过期: {e!s}"
-            raise APIAuthenticationError(msg)
-        except RateLimitError as e:
-            elapsed_time = time.time() - start_time
-            logger.error(f"[{request_id}] API速率限制: {e}")
-            self._performance_monitor.record_request(
-                model_id=self.model_id,
-                success=False,
-                generation_time=elapsed_time,
-                tokens_used=None,
-                error_code="api_rate_limit_error",
-            )
-            msg = f"请求过于频繁，请稍后再试: {e!s}"
-            raise APIRateLimitError(msg)
-        except APITimeoutError as e:
-            elapsed_time = time.time() - start_time
-            logger.error(f"[{request_id}] API请求超时: {e}")
-            self._performance_monitor.record_request(
-                model_id=self.model_id,
-                success=False,
-                generation_time=elapsed_time,
-                tokens_used=None,
-                error_code="api_timeout_error",
-            )
-            msg = f"请求超时，请检查网络连接: {e!s}"
-            raise APIConnectionError(msg)
-        except OpenAIAPIConnectionError as e:
-            elapsed_time = time.time() - start_time
-            logger.error(f"[{request_id}] API连接错误: {e}")
-            self._performance_monitor.record_request(
-                model_id=self.model_id,
-                success=False,
-                generation_time=elapsed_time,
-                tokens_used=None,
-                error_code="api_connection_error",
-            )
-            msg = f"无法连接到API服务: {e!s}"
-            raise APIConnectionError(msg)
-        except APIError as e:
-            elapsed_time = time.time() - start_time
-            logger.error(f"[{request_id}] API错误: {e}")
-            self._performance_monitor.record_request(
-                model_id=self.model_id,
-                success=False,
-                generation_time=elapsed_time,
-                tokens_used=None,
-                error_code="api_error",
-            )
-            msg = f"API服务错误: {e!s}"
-            raise StrategyGenerationError(msg, "api_error")
+            if kind == "auth":
+                raise APIAuthenticationError(f"API密钥无效或已过期: {e!s}") from e
+            if kind == "rate_limit":
+                raise APIRateLimitError(f"请求过于频繁，请稍后再试: {e!s}") from e
+            # timeout / network 保留旧 OpenAI 时代的用户文案区分
+            if kind == "timeout":
+                raise APIConnectionError(f"请求超时，请检查网络连接: {e!s}") from e
+            if kind == "network":
+                raise APIConnectionError(f"无法连接到API服务: {e!s}") from e
+            raise StrategyGenerationError(f"API调用失败: {e!s}", "api_error") from e
         except Exception as e:
             elapsed_time = time.time() - start_time
             logger.error(f"[{request_id}] 策略生成失败: {e}")
@@ -537,19 +489,16 @@ class StrategyGenerator:
             logger.info(f"[{request_id}] 思维链步骤2: 设计策略 - 开始")
             await asyncio.sleep(0.1)  # 确保事件及时发送
 
-            # 流式调用API（使用model_name进行API调用）
-            stream = self._client.chat.completions.create(
-                model=self.model_name,
-                messages=[
+            # 流式调用 axon backend（同步 stream_chat 一次性收集全部 delta 后返回，
+            # 本方法内部累积完整内容、不逐块推给客户端，与旧行为一致）
+            deltas = self._backend.stream_chat(
+                [
                     {
                         "role": "system",
                         "content": "你是一个专业的量化交易策略生成专家。",
                     },
                     {"role": "user", "content": prompt},
-                ],
-                temperature=self.temperature,
-                max_tokens=self.DEFAULT_MAX_TOKENS,
-                stream=True,
+                ]
             )
 
             # 步骤2: 设计策略 - 完成
@@ -562,18 +511,9 @@ class StrategyGenerator:
             logger.info(f"[{request_id}] 思维链步骤3: 生成代码 - 开始")
             await asyncio.sleep(0.1)  # 确保事件及时发送
 
-            # 内部累积完整内容，不再流式传输
-            full_content = ""
-            chunk_count = 0
-
-            for chunk in stream:
-                chunk_count += 1
-                # 检查 choices 是否为空，避免 IndexError
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    full_content += delta
+            # 内部累积完整内容，不再流式传输（只拼接 content 类型的增量）
+            full_content = "".join(d.get("content", "") for d in deltas if d.get("type") == "content")
+            chunk_count = len(deltas)
 
             # 步骤3: 生成代码 - 完成
             yield self._create_thinking_chain_event(2, "completed", "代码生成完成")
@@ -618,80 +558,35 @@ class StrategyGenerator:
                 },
             }
 
-        except AuthenticationError as e:
+        except RuntimeError as e:
+            # axon backend 的错误统一抛 RuntimeError，按消息内容分类映射到错误事件
             elapsed_time = time.time() - start_time
-            logger.error(f"[{request_id}] API认证失败: {e}")
-            self._performance_monitor.record_request(
-                model_id=self.model_id,
-                success=False,
-                generation_time=elapsed_time,
-                tokens_used=None,
-                error_code="api_authentication_error",
-            )
-            # 更新思维链状态为错误
-            if self._thinking_chain_state:
-                yield self._create_thinking_chain_event(self._current_step_index, "error", f"API认证失败: {e!s}")
-            yield {
-                "type": "error",
-                "error": f"API密钥无效或已过期: {e!s}",
-                "error_code": "api_authentication_error",
-                "request_id": request_id,
+            kind = classify_llm_error(e)
+            # kind → (错误码, 用户文案, 思维链文案)，文案保留旧 OpenAI 语义便于前端展示
+            error_info_map = {
+                "auth": ("api_authentication_error", f"API密钥无效或已过期: {e!s}", f"API认证失败: {e!s}"),
+                "rate_limit": ("api_rate_limit_error", f"请求过于频繁，请稍后再试: {e!s}", f"API速率限制: {e!s}"),
+                "timeout": ("api_connection_error", f"请求超时，请检查网络连接: {e!s}", f"请求超时: {e!s}"),
+                "network": ("api_connection_error", f"无法连接到API服务: {e!s}", f"API连接错误: {e!s}"),
             }
-        except RateLimitError as e:
-            elapsed_time = time.time() - start_time
-            logger.error(f"[{request_id}] API速率限制: {e}")
+            error_code, error_msg, chain_msg = error_info_map.get(
+                kind, ("api_error", f"API调用失败: {e!s}", f"API调用失败: {e!s}")
+            )
+            logger.error(f"[{request_id}] API调用失败({kind}): {e}")
             self._performance_monitor.record_request(
                 model_id=self.model_id,
                 success=False,
                 generation_time=elapsed_time,
                 tokens_used=None,
-                error_code="api_rate_limit_error",
+                error_code=error_code,
             )
             # 更新思维链状态为错误
             if self._thinking_chain_state:
-                yield self._create_thinking_chain_event(self._current_step_index, "error", f"API速率限制: {e!s}")
+                yield self._create_thinking_chain_event(self._current_step_index, "error", chain_msg)
             yield {
                 "type": "error",
-                "error": f"请求过于频繁，请稍后再试: {e!s}",
-                "error_code": "api_rate_limit_error",
-                "request_id": request_id,
-            }
-        except APITimeoutError as e:
-            elapsed_time = time.time() - start_time
-            logger.error(f"[{request_id}] API请求超时: {e}")
-            self._performance_monitor.record_request(
-                model_id=self.model_id,
-                success=False,
-                generation_time=elapsed_time,
-                tokens_used=None,
-                error_code="api_timeout_error",
-            )
-            # 更新思维链状态为错误
-            if self._thinking_chain_state:
-                yield self._create_thinking_chain_event(self._current_step_index, "error", f"请求超时: {e!s}")
-            yield {
-                "type": "error",
-                "error": f"请求超时，请检查网络连接: {e!s}",
-                "error_code": "api_connection_error",
-                "request_id": request_id,
-            }
-        except OpenAIAPIConnectionError as e:
-            elapsed_time = time.time() - start_time
-            logger.error(f"[{request_id}] API连接错误: {e}")
-            self._performance_monitor.record_request(
-                model_id=self.model_id,
-                success=False,
-                generation_time=elapsed_time,
-                tokens_used=None,
-                error_code="api_connection_error",
-            )
-            # 更新思维链状态为错误
-            if self._thinking_chain_state:
-                yield self._create_thinking_chain_event(self._current_step_index, "error", f"API连接错误: {e!s}")
-            yield {
-                "type": "error",
-                "error": f"无法连接到API服务: {e!s}",
-                "error_code": "api_connection_error",
+                "error": error_msg,
+                "error_code": error_code,
                 "request_id": request_id,
             }
         except Exception as e:
