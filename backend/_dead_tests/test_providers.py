@@ -3,7 +3,6 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from agent.providers.base import LLMProvider, LLMResponse, StreamChunk, StreamEvent
 from agent.providers.openai_provider import OpenAIProvider
 
