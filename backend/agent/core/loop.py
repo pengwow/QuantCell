@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from axon_bridge.llm import accumulate_stream, chat_to_dict
 from utils.logger import LogType, get_logger
 
 from ..session.manager import Session, SessionManager
@@ -18,8 +20,6 @@ from .memory import AutoCompact, Consolidator, Dream, MemoryStore
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from pathlib import Path
-
-    from ..providers.base import LLMProvider
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
@@ -40,7 +40,7 @@ class AgentLoop:
 
     def __init__(
         self,
-        provider: LLMProvider,
+        llm_backend,
         workspace: Path,
         model: str | None = None,
         max_iterations: int = 40,
@@ -50,9 +50,10 @@ class AgentLoop:
         reasoning_effort: str | None = None,
         context_window_tokens: int = 128000,  # 默认上下文窗口（可根据模型调整）
     ):
-        self.provider = provider
+        self.llm_backend = llm_backend
         self.workspace = workspace
-        self.model = model or provider.get_default_model()
+        # 旧 provider.get_default_model() 的兜底逻辑内联到这里
+        self.model = model or os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
         self.max_iterations = max_iterations
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -68,7 +69,7 @@ class AgentLoop:
         self.memory_store = MemoryStore(workspace)
         self.consolidator = Consolidator(
             store=self.memory_store,
-            provider=provider,
+            llm_backend=llm_backend,
             model=self.model,
             sessions=self.sessions,
             context_window_tokens=context_window_tokens,
@@ -83,7 +84,7 @@ class AgentLoop:
         )
         self.dream = Dream(
             store=self.memory_store,
-            provider=provider,
+            llm_backend=llm_backend,
             model=self.model,
         )
 
@@ -145,34 +146,27 @@ class AgentLoop:
                 llm_start = time.time()
                 logger.info(f"[AgentLoop] 调用 LLM API... (model={self.model}, messages={len(messages)})")
 
-                response = await self.provider.chat(
-                    messages=messages,
-                    tools=self.tools.get_definitions(),
-                    model=self.model,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                    reasoning_effort=self.reasoning_effort,
-                )
+                response = await chat_to_dict(self.llm_backend, messages, tools=self.tools.get_definitions())
 
                 llm_elapsed = time.time() - llm_start
                 logger.info(
-                    f"[AgentLoop] LLM API 响应完成, 耗时: {llm_elapsed:.2f}s, finish_reason={response.finish_reason}, has_tool_calls={response.has_tool_calls}"
+                    f"[AgentLoop] LLM API 响应完成, 耗时: {llm_elapsed:.2f}s, finish_reason={response['finish_reason']}, has_tool_calls={response['has_tool_calls']}"
                 )
 
             except Exception as e:
                 logger.error(f"[AgentLoop] LLM API 调用失败: {type(e).__name__}: {e}")
                 raise
 
-            if response.has_tool_calls:
+            if response["has_tool_calls"]:
                 if on_progress:
                     thoughts = [
-                        self._strip_think(response.content),
-                        response.reasoning_content,
+                        self._strip_think(response["content"]),
+                        response["reasoning_content"],
                     ]
                     combined_thoughts = "\n\n".join(filter(None, thoughts))
                     if combined_thoughts:
                         await on_progress(combined_thoughts)
-                    await on_progress(self._tool_hint(response.tool_calls), tool_hint=True)
+                    await on_progress(self._tool_hint(response["tool_calls"]), tool_hint=True)
 
                 tool_call_dicts = [
                     {
@@ -185,16 +179,16 @@ class AgentLoop:
                             else tc["arguments"],
                         },
                     }
-                    for tc in response.tool_calls
+                    for tc in response["tool_calls"]
                 ]
                 messages = self.context.add_assistant_message(
                     messages,
-                    response.content,
+                    response["content"],
                     tool_call_dicts,
-                    reasoning_content=response.reasoning_content,
+                    reasoning_content=response["reasoning_content"],
                 )
 
-                for tool_call in response.tool_calls:
+                for tool_call in response["tool_calls"]:
                     tools_used.append(tool_call["name"])
                     args_str = json.dumps(tool_call.get("arguments", {}), ensure_ascii=False)
                     logger.info(f"[AgentLoop] 执行工具: {tool_call['name']}({args_str[:200]})")
@@ -209,15 +203,15 @@ class AgentLoop:
 
                     messages = self.context.add_tool_result(messages, tool_call["id"], tool_call["name"], result)
             else:
-                clean = self._strip_think(response.content)
-                if response.finish_reason == "error":
+                clean = self._strip_think(response["content"])
+                if response["finish_reason"] == "error":
                     logger.error(f"LLM 返回错误: {(clean or '')[:200]}")
                     final_content = clean or "抱歉，调用 AI 模型时遇到错误。"
                     break
                 messages = self.context.add_assistant_message(
                     messages,
                     clean,
-                    reasoning_content=response.reasoning_content,
+                    reasoning_content=response["reasoning_content"],
                 )
                 final_content = clean
                 logger.info(f"[AgentLoop] 获得 LLM 文本响应, 长度: {len(clean) if clean else 0}")
@@ -255,7 +249,7 @@ class AgentLoop:
         """
         import time
 
-        from ..providers.base import StreamEvent
+        from .events import StreamEvent
 
         loop_start_time = time.time()
         logger.info(f"[AgentLoop] 开始流式 Agent 循环, 初始消息数: {len(initial_messages)}")
@@ -292,45 +286,37 @@ class AgentLoop:
                 llm_start = time.time()
                 logger.info(f"[AgentLoop] 调用流式 LLM API... (model={self.model}, messages={len(messages)})")
 
-                async for chunk in self.provider.chat_stream(
-                    messages=messages,
-                    tools=self.tools.get_definitions(),
-                    model=self.model,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                    reasoning_effort=self.reasoning_effort,
-                ):
+                async for chunk in accumulate_stream(self.llm_backend, messages):
                     # 文本内容 - 立即推送给客户端
-                    if chunk.delta:
-                        response_content += chunk.delta
-
+                    if chunk.get("delta"):
+                        response_content += chunk["delta"]
                         if on_stream:
                             await on_stream(
                                 StreamEvent(
                                     event_type="content",
                                     data={
-                                        "content": chunk.delta,
+                                        "content": chunk["delta"],
                                         "full_content": response_content,
                                     },
                                 )
                             )
 
                     # 推理过程（DeepSeek-R1 等）
-                    if chunk.reasoning_content:
-                        reasoning_parts.append(chunk.reasoning_content)
-
+                    if chunk.get("reasoning_content"):
+                        reasoning_parts.append(chunk["reasoning_content"])
                         if on_stream:
                             await on_stream(
                                 StreamEvent(
                                     event_type="reasoning",
-                                    data={"content": chunk.reasoning_content},
+                                    data={"content": chunk["reasoning_content"]},
                                 )
                             )
 
-                    # 工具调用完成
-                    if chunk.is_tool_call and chunk.tool_calls:
-                        response_tool_calls = chunk.tool_calls
-                        finish_reason = chunk.finish_reason
+                    # 结束事件:捕获 finish_reason 与工具调用
+                    if "finish_reason" in chunk:
+                        finish_reason = chunk["finish_reason"]
+                        if chunk.get("is_tool_call") and chunk.get("tool_calls"):
+                            response_tool_calls = chunk["tool_calls"]
 
                 llm_elapsed = time.time() - llm_start
                 logger.info(f"[AgentLoop] 流式 LLM 响应完成, 耗时: {llm_elapsed:.2f}s, finish_reason={finish_reason}")
@@ -601,7 +587,7 @@ class AgentLoop:
         """
         import time
 
-        from ..providers.base import StreamEvent
+        from .events import StreamEvent
 
         start_time = time.time()
         logger.info(f"[AgentLoop] ====== 开始流式处理消息: {content[:100]}... (session={session_key}) ======")
