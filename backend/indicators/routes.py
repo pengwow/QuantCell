@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
-from openai import OpenAI
 from pydantic import BaseModel, Field
 
+from axon_bridge.llm import classify_llm_error, create_llm_backend
 from common.schemas import ApiResponse
 from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
@@ -691,23 +691,21 @@ async def call_ai_generate_code(prompt: str, existing_code: str = "") -> str:
     logger.info(f"使用模型: {model}, API Host: {api_host}")
 
     try:
-        client = OpenAI(
+        backend = create_llm_backend(
             api_key=api_key,
-            base_url=f"{api_host}/v1" if not api_host.endswith("/v1") else api_host,
-            timeout=120.0,
-        )
-
-        response = client.chat.completions.create(
+            base_url=api_host,
             model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
             temperature=0.7,
             max_tokens=4096,
+            timeout_secs=120,
         )
-
-        generated_code = response.choices[0].message.content
+        raw = await backend.chat_async(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+        generated_code = raw.get("content") or ""
 
         if not generated_code:
             msg = f"LLM模型 [{model}] 返回了空内容，请尝试更换其他模型"
@@ -719,26 +717,19 @@ async def call_ai_generate_code(prompt: str, existing_code: str = "") -> str:
         logger.info(f"AI生成指标代码成功, 长度: {len(cleaned_code)}")
         return cleaned_code
 
-    except Exception as e:
-        error_msg = str(e)
-        # 提取有意义的错误信息
-        if "authentication" in error_msg.lower() or "401" in error_msg or "invalid_api_key" in error_msg.lower():
-            msg = f"AI模型认证失败 (401): 请检查API密钥是否正确。原始错误: {error_msg}"
-            raise Exception(msg)
-        elif "connection" in error_msg.lower() or "timeout" in error_msg.lower() or "network" in error_msg.lower():
-            msg = f"AI模型连接失败: 无法连接到 {api_host}。请检查网络和API地址是否正确。原始错误: {error_msg}"
-            raise Exception(msg)
-        elif "rate_limit" in error_msg.lower() or "429" in error_msg:
-            msg = f"AI模型请求频率限制 (429): 请稍后重试。原始错误: {error_msg}"
-            raise Exception(msg)
-        elif "model" in error_msg.lower() and (
-            "not_found" in error_msg.lower() or "does_not_exist" in error_msg.lower()
-        ):
-            msg = f"AI模型不存在: 模型名称 [{model}] 无效，请在系统设置中选择正确的模型。原始错误: {error_msg}"
-            raise Exception(msg)
-        else:
-            msg = f"AI生成指标代码失败: {error_msg}"
-            raise Exception(msg)
+    except RuntimeError as e:
+        kind = classify_llm_error(e)
+        if kind == "auth":
+            msg = f"AI模型认证失败 (401): 请检查API密钥是否正确。原始错误: {e}"
+            raise Exception(msg) from e
+        if kind == "rate_limit":
+            msg = f"AI模型请求频率限制 (429): 请稍后重试。原始错误: {e}"
+            raise Exception(msg) from e
+        if kind in ("timeout", "network"):
+            msg = f"AI模型连接失败: 无法连接到 {api_host}。请检查网络和API地址是否正确。原始错误: {e}"
+            raise Exception(msg) from e
+        msg = f"AI模型调用失败: {e}"
+        raise Exception(msg) from e
 
 
 def _clean_generated_code(code: str) -> str:
@@ -858,33 +849,26 @@ Follow these rules:
 
 ## Fixed Code:"""
 
-        from ai_model.services import AIModelService
-
         api_key_val = provider_config.get("api_key") or ""
-        adapter = AIModelService.get_adapter(
-            provider_config["id"],
-            api_key_val,
-            provider_config.get("api_host"),
-        )
-        if not adapter:
-            return None
-
-        client = getattr(adapter, "_client", None)
-        if not client:
+        api_host_val = provider_config.get("api_host") or ""
+        if not api_host_val:
             return None
 
         model_name = model_id.split("-", 1)[-1] if "-" in str(model_id) else str(model_id)
-        response = await client.chat.completions.create(
+        backend = create_llm_backend(
+            api_key=api_key_val,
+            base_url=api_host_val,
             model=model_name,
-            messages=[
-                {"role": "system", "content": DEFAULT_INDICATOR_SYSTEM_PROMPT},
-                {"role": "user", "content": repair_prompt},
-            ],
             temperature=0.2,
             max_tokens=4096,
         )
-
-        repaired = response.choices[0].message.content or ""
+        raw = await backend.chat_async(
+            [
+                {"role": "system", "content": DEFAULT_INDICATOR_SYSTEM_PROMPT},
+                {"role": "user", "content": repair_prompt},
+            ]
+        )
+        repaired = raw.get("content") or ""
         if repaired and len(repaired) > 50:
             cleaned = re.sub(r"^```(?:python)?\s*\n?", "", repaired.strip())
             cleaned = re.sub(r"\n?```\s*$", "", cleaned)
