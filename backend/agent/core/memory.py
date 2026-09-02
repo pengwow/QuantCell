@@ -14,13 +14,13 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from axon_bridge.llm import chat_to_dict
 from utils.logger import LogType, get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from ..providers.base import LLMProvider
     from ..session.manager import Session, SessionManager
 
 
@@ -204,7 +204,7 @@ class Consolidator:
     def __init__(
         self,
         store: MemoryStore,
-        provider: LLMProvider,
+        llm_backend,
         model: str,
         sessions: SessionManager,
         context_window_tokens: int,
@@ -213,7 +213,7 @@ class Consolidator:
         max_completion_tokens: int = 4096,
     ):
         self.store = store
-        self.provider = provider
+        self.llm_backend = llm_backend
         self.model = model
         self.sessions = sessions
         self.context_window_tokens = context_window_tokens
@@ -301,17 +301,15 @@ class Consolidator:
 以简洁的项目符号输出，每行一个事实。不要前言，不要评论。
 如果没有值得注意的事情，输出：(nothing)"""
 
-            response = await self.provider.chat(
-                messages=[
+            response = await chat_to_dict(
+                self.llm_backend,
+                [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": formatted},
                 ],
-                model=self.model,
-                temperature=0.1,
-                max_tokens=1024,
             )
 
-            summary = response.content or "[no summary]"
+            summary = response["content"] or "[no summary]"
             self.store.append_history(summary)
             logger.info(f"Consolidation archived {len(messages)} messages -> {len(summary)} chars")
             return summary
@@ -527,12 +525,12 @@ class Dream:
     def __init__(
         self,
         store: MemoryStore,
-        provider: LLMProvider,
+        llm_backend,
         model: str,
         max_batch_size: int = 20,
     ):
         self.store = store
-        self.provider = provider
+        self.llm_backend = llm_backend
         self.model = model
         self.max_batch_size = max_batch_size
 
@@ -588,17 +586,15 @@ class Dream:
         full_prompt = f"## Conversation History\n{history_text}\n\n{file_context}"
 
         try:
-            phase1_response = await self.provider.chat(
-                messages=[
+            phase1_response = await chat_to_dict(
+                self.llm_backend,
+                [
                     {"role": "system", "content": phase1_prompt},
                     {"role": "user", "content": full_prompt},
                 ],
-                model=self.model,
-                temperature=0.1,
-                max_tokens=2048,
             )
 
-            analysis = phase1_response.content or ""
+            analysis = phase1_response["content"] or ""
             logger.debug(f"Dream Phase 1 analysis ({len(analysis)} chars): {analysis[:500]}")
 
         except Exception as e:
@@ -628,20 +624,18 @@ class Dream:
 只输出更新后的完整 MEMORY.md 内容，不要添加任何解释或评论。"""
 
             try:
-                phase2_response = await self.provider.chat(
-                    messages=[
+                phase2_response = await chat_to_dict(
+                    self.llm_backend,
+                    [
                         {
                             "role": "system",
                             "content": "你是记忆管理助手，负责更新 MEMORY.md 文件。",
                         },
                         {"role": "user", "content": phase2_prompt},
                     ],
-                    model=self.model,
-                    temperature=0.1,
-                    max_tokens=4096,
                 )
 
-                new_memory = phase2_response.content or ""
+                new_memory = phase2_response["content"] or ""
                 if new_memory and new_memory != current_memory:
                     self.store.write_memory(new_memory)
                     logger.info(f"Dream: updated MEMORY.md ({len(new_memory)} chars)")

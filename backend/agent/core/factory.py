@@ -1,12 +1,13 @@
 """Agent 工厂 - 创建和管理 Agent 单例实例"""
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
+from axon_bridge.llm import create_llm_backend
 from utils.logger import LogType, get_logger
 
-from ..providers.openai_provider import OpenAIProvider
 from .loop import AgentLoop
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -160,24 +161,32 @@ def get_agent() -> AgentLoop:
             else:
                 model_id = None
 
-            # 创建提供者（使用系统配置的API密钥和主机）
-            provider = OpenAIProvider(
-                api_key=provider_config.get("api_key"),
-                base_url=provider_config.get("api_host") or None,
+            model = model_id or os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
+            llm_backend = create_llm_backend(
+                api_key=provider_config.get("api_key") or "",
+                base_url=provider_config.get("api_host") or "",
+                model=model,
+                temperature=0.1,
+                max_tokens=4096,
             )
-
-            logger.info(f"Agent使用系统配置: 提供商={provider_config['name']}, 模型={model_id}")
+            logger.info(f"Agent使用系统配置: 提供商={provider_config['name']}, 模型={model}")
         else:
             # 使用环境变量配置
-            provider = OpenAIProvider()
-            model_id = None
+            model = os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
+            llm_backend = create_llm_backend(
+                api_key=os.environ.get("OPENAI_API_KEY", ""),
+                base_url=os.environ.get("OPENAI_BASE_URL") or "",
+                model=model,
+                temperature=0.1,
+                max_tokens=4096,
+            )
             logger.info("Agent使用环境变量配置")
 
         # 创建 Agent
         _agent_instance = AgentLoop(
-            provider=provider,
+            llm_backend=llm_backend,
             workspace=workspace,
-            model=model_id,  # 使用系统配置中的模型
+            model=model,
             max_iterations=40,
             temperature=0.1,
             max_tokens=4096,
