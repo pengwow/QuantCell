@@ -9,6 +9,27 @@ from agent.core.memory import AutoCompact, Consolidator, Dream, MemoryStore
 from agent.session.manager import SessionManager
 
 
+class FakeLLMBackend:
+    """模拟 axon_quant LLMBackend(返回原始 axon 格式,桥接层负责归一化)
+
+    results 列表按调用顺序产出: 字符串作为 content 返回,Exception 实例则抛出。
+    """
+
+    def __init__(self, results=None):
+        self.results = results or []
+        self.call_count = 0
+
+    async def chat_async(self, messages):
+        if self.call_count < len(self.results):
+            item = self.results[self.call_count]
+            self.call_count += 1
+        else:
+            item = ""
+        if isinstance(item, Exception):
+            raise item
+        return {"content": item, "reasoning_content": "", "finish_reason": "Stop"}
+
+
 class TestMemoryStore:
     """测试 MemoryStore"""
 
@@ -151,18 +172,14 @@ class TestConsolidator:
         return SessionManager(temp_workspace)
 
     @pytest.fixture
-    def mock_provider(self):
-        provider = MagicMock()
-        response = MagicMock()
-        response.content = "- 用户偏好：使用简洁的语言"
-        provider.chat = AsyncMock(return_value=response)
-        return provider
+    def fake_backend(self):
+        return FakeLLMBackend(["- 用户偏好：使用简洁的语言"])
 
     @pytest.fixture
-    def consolidator(self, store, mock_provider, sessions):
+    def consolidator(self, store, fake_backend, sessions):
         return Consolidator(
             store=store,
-            provider=mock_provider,
+            llm_backend=fake_backend,
             model="test-model",
             sessions=sessions,
             context_window_tokens=4096,
@@ -173,7 +190,7 @@ class TestConsolidator:
     def test_consolidator_creation(self, consolidator):
         """测试Consolidator创建"""
         assert consolidator.store is not None
-        assert consolidator.provider is not None
+        assert consolidator.llm_backend is not None
         assert consolidator.model == "test-model"
 
     def test_get_lock(self, consolidator):
@@ -392,25 +409,21 @@ class TestDream:
         return MemoryStore(temp_workspace)
 
     @pytest.fixture
-    def mock_provider(self):
-        provider = MagicMock()
-        response = MagicMock()
-        response.content = "[MEMORY] 用户居住在东京\n[MEMORY] 用户有一只猫叫 Luna"
-        provider.chat = AsyncMock(return_value=response)
-        return provider
+    def fake_backend(self):
+        return FakeLLMBackend(["[MEMORY] 用户居住在东京\n[MEMORY] 用户有一只猫叫 Luna"])
 
     @pytest.fixture
-    def dream(self, store, mock_provider):
+    def dream(self, store, fake_backend):
         return Dream(
             store=store,
-            provider=mock_provider,
+            llm_backend=fake_backend,
             model="test-model",
         )
 
     def test_dream_creation(self, dream):
         """测试Dream创建"""
         assert dream.store is not None
-        assert dream.provider is not None
+        assert dream.llm_backend is not None
         assert dream.model == "test-model"
 
     @pytest.mark.asyncio
@@ -434,12 +447,10 @@ class TestDream:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_run_phase1_skip(self, dream, store, mock_provider):
+    async def test_run_phase1_skip(self, dream, store, fake_backend):
         """测试Phase 1返回SKIP"""
         # 修改mock返回
-        response = MagicMock()
-        response.content = "[SKIP]"
-        mock_provider.chat = AsyncMock(return_value=response)
+        fake_backend.results = ["[SKIP]"]
 
         store.append_history("Test history")
 
@@ -448,10 +459,10 @@ class TestDream:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_run_phase1_error(self, dream, store, mock_provider):
+    async def test_run_phase1_error(self, dream, store, fake_backend):
         """测试Phase 1错误"""
         # 修改mock抛出异常
-        mock_provider.chat = AsyncMock(side_effect=Exception("API Error"))
+        fake_backend.results = [Exception("API Error")]
 
         store.append_history("Test history")
 
@@ -460,25 +471,10 @@ class TestDream:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_run_phase2_error(self, dream, store, mock_provider):
+    async def test_run_phase2_error(self, dream, store, fake_backend):
         """测试Phase 2错误"""
         # Phase 1成功，Phase 2失败
-        call_count = 0
-
-        def side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # Phase 1
-                response = MagicMock()
-                response.content = "[MEMORY] New fact"
-                return response
-            else:
-                # Phase 2
-                msg = "Phase 2 Error"
-                raise Exception(msg)
-
-        mock_provider.chat = AsyncMock(side_effect=side_effect)
+        fake_backend.results = ["[MEMORY] New fact", Exception("Phase 2 Error")]
 
         store.append_history("Test history")
 

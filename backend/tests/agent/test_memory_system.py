@@ -5,6 +5,25 @@ import sys
 from pathlib import Path
 
 
+class FakeLLMBackend:
+    """模拟 axon_quant LLMBackend(返回原始 axon 格式,桥接层负责归一化)
+
+    results 列表按调用顺序产出: 字符串作为 content 返回。
+    """
+
+    def __init__(self, results=None):
+        self.results = results or []
+        self.call_count = 0
+
+    async def chat_async(self, messages):
+        if self.call_count < len(self.results):
+            item = self.results[self.call_count]
+            self.call_count += 1
+        else:
+            item = ""
+        return {"content": item, "reasoning_content": "", "finish_reason": "Stop"}
+
+
 def test_memory_store():
     """测试 MemoryStore 基本功能"""
 
@@ -52,8 +71,6 @@ def test_memory_store():
 async def test_consolidator():
     """测试 Consolidator 功能"""
 
-    from unittest.mock import AsyncMock, MagicMock
-
     from agent.core.memory import Consolidator, MemoryStore
 
     workspace = Path("/tmp/test_consolidator")
@@ -61,11 +78,8 @@ async def test_consolidator():
 
     store = MemoryStore(workspace)
 
-    # Mock provider
-    mock_provider = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = "- 用户偏好：使用简洁的语言"
-    mock_provider.chat = AsyncMock(return_value=mock_response)
+    # Fake LLM backend
+    fake_backend = FakeLLMBackend(["- 用户偏好：使用简洁的语言"])
 
     # Mock sessions
     from agent.session.manager import SessionManager
@@ -75,7 +89,7 @@ async def test_consolidator():
     # 创建 consolidator
     consolidator = Consolidator(
         store=store,
-        provider=mock_provider,
+        llm_backend=fake_backend,
         model="test-model",
         sessions=sessions,
         context_window_tokens=4096,
@@ -125,7 +139,6 @@ async def test_auto_compact():
     """测试 AutoCompact 功能"""
 
     from datetime import datetime, timedelta
-    from unittest.mock import AsyncMock, MagicMock
 
     from agent.core.memory import AutoCompact, Consolidator, MemoryStore
     from agent.session.manager import SessionManager
@@ -136,15 +149,12 @@ async def test_auto_compact():
     store = MemoryStore(workspace)
     sessions = SessionManager(workspace)
 
-    # Mock provider
-    mock_provider = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = "(nothing)"
-    mock_provider.chat = AsyncMock(return_value=mock_response)
+    # Fake LLM backend
+    fake_backend = FakeLLMBackend(["(nothing)"])
 
     consolidator = Consolidator(
         store=store,
-        provider=mock_provider,
+        llm_backend=fake_backend,
         model="test-model",
         sessions=sessions,
         context_window_tokens=4096,
@@ -208,8 +218,6 @@ async def test_auto_compact():
 async def test_dream():
     """测试 Dream 功能"""
 
-    from unittest.mock import AsyncMock, MagicMock
-
     from agent.core.memory import Dream, MemoryStore
 
     workspace = Path("/tmp/test_dream")
@@ -222,17 +230,12 @@ async def test_dream():
     store.append_history("用户说：我有一只猫叫 Luna")
     store.write_memory("- 用户信息待补充")
 
-    # Mock provider
-    mock_provider = MagicMock()
-
-    # Phase 1 response
-    phase1_response = MagicMock()
-    phase1_response.content = "[MEMORY] 用户居住在东京\n[MEMORY] 用户有一只猫叫 Luna"
-    mock_provider.chat = AsyncMock(return_value=phase1_response)
+    # Fake LLM backend: Phase 1 分析结果(第二次调用返回空,不更新 MEMORY.md)
+    fake_backend = FakeLLMBackend(["[MEMORY] 用户居住在东京\n[MEMORY] 用户有一只猫叫 Luna"])
 
     dream = Dream(
         store=store,
-        provider=mock_provider,
+        llm_backend=fake_backend,
         model="test-model",
     )
 

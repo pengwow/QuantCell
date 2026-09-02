@@ -1,42 +1,53 @@
 """Agent 循环测试"""
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from agent.core.loop import AgentLoop
-from agent.providers.base import LLMProvider, LLMResponse, StreamChunk
 
 
-class MockProvider(LLMProvider):
-    """模拟 LLM 提供者"""
+class FakeLLMBackend:
+    """模拟 axon_quant LLMBackend(返回原始 axon 格式,桥接层负责归一化)"""
 
-    def __init__(self, responses=None):
+    def __init__(self, responses=None, stream_chunks=None):
+        # responses: 依次返回的 chat 原始 dict 列表
         self.responses = responses or []
+        self.stream_chunks = stream_chunks or []
         self.call_count = 0
 
-    async def chat(self, **kwargs):
+    def _next(self):
         if self.call_count < len(self.responses):
-            response = self.responses[self.call_count]
+            resp = self.responses[self.call_count]
             self.call_count += 1
-            return response
-        return LLMResponse(
-            content="Mock response",
-            has_tool_calls=False,
-            tool_calls=[],
-        )
+            return resp
+        return {"content": "Mock response", "reasoning_content": "", "finish_reason": "Stop"}
 
-    async def chat_stream(self, **kwargs):
-        for response in self.responses:
-            yield StreamChunk(
-                content=response.content,
-                delta=response.content,
-                finish_reason="stop" if not response.has_tool_calls else "tool_calls",
-                tool_calls=response.tool_calls if response.has_tool_calls else None,
-            )
+    async def chat_async(self, messages):
+        return self._next()
 
-    def get_default_model(self):
-        return "mock-model"
+    async def chat_with_tools_async(self, messages, tools):
+        return self._next()
+
+    async def stream_chat_async(self, messages):
+        for c in self.stream_chunks:
+            yield c
+
+
+def text_response(content: str) -> dict:
+    """构造纯文本响应的原始 axon dict"""
+    return {"content": content, "reasoning_content": "", "finish_reason": "Stop"}
+
+
+def tool_call_response(tool_name: str, arguments: dict, call_id: str = "call_1") -> dict:
+    """构造工具调用响应的原始 axon dict"""
+    return {
+        "content": "",
+        "reasoning_content": "",
+        "finish_reason": "ToolCalls",
+        "tool_calls": json.dumps([{"id": call_id, "function_name": tool_name, "arguments": json.dumps(arguments)}]),
+    }
 
 
 class TestAgentLoop:
@@ -49,18 +60,10 @@ class TestAgentLoop:
     @pytest.mark.asyncio
     async def test_process_message_simple(self, temp_workspace):
         """测试简单消息处理"""
-        provider = MockProvider(
-            [
-                LLMResponse(
-                    content="Hello!",
-                    has_tool_calls=False,
-                    tool_calls=[],
-                )
-            ]
-        )
+        backend = FakeLLMBackend([text_response("Hello!")])
 
         agent = AgentLoop(
-            provider=provider,
+            llm_backend=backend,
             workspace=temp_workspace,
         )
 
@@ -78,29 +81,15 @@ class TestAgentLoop:
         test_file = temp_workspace / "test.txt"
         test_file.write_text("Test content")
 
-        provider = MockProvider(
+        backend = FakeLLMBackend(
             [
-                LLMResponse(
-                    content=None,
-                    has_tool_calls=True,
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "read_file",
-                            "arguments": {"path": "test.txt"},
-                        }
-                    ],
-                ),
-                LLMResponse(
-                    content="File content: Test content",
-                    has_tool_calls=False,
-                    tool_calls=[],
-                ),
+                tool_call_response("read_file", {"path": "test.txt"}),
+                text_response("File content: Test content"),
             ]
         )
 
         agent = AgentLoop(
-            provider=provider,
+            llm_backend=backend,
             workspace=temp_workspace,
         )
         agent.register_tool(ReadFileTool(temp_workspace))
@@ -112,18 +101,15 @@ class TestAgentLoop:
     @pytest.mark.asyncio
     async def test_process_message_stream(self, temp_workspace):
         """测试流式消息处理"""
-        provider = MockProvider(
-            [
-                LLMResponse(
-                    content="Stream response",
-                    has_tool_calls=False,
-                    tool_calls=[],
-                )
+        backend = FakeLLMBackend(
+            stream_chunks=[
+                {"type": "content", "content": "Stream response"},
+                {"type": "done", "finish_reason": "Stop"},
             ]
         )
 
         agent = AgentLoop(
-            provider=provider,
+            llm_backend=backend,
             workspace=temp_workspace,
         )
 
@@ -143,23 +129,11 @@ class TestAgentLoop:
     @pytest.mark.asyncio
     async def test_max_iterations(self, temp_workspace):
         """测试最大迭代限制"""
-        # 创建一个总是返回工具调用的provider
-        tool_response = LLMResponse(
-            content=None,
-            has_tool_calls=True,
-            tool_calls=[
-                {
-                    "id": "call_1",
-                    "name": "mock_tool",
-                    "arguments": {},
-                }
-            ],
-        )
-
-        provider = MockProvider([tool_response] * 10)
+        # 创建一个总是返回工具调用的 backend
+        backend = FakeLLMBackend([tool_call_response("mock_tool", {})] * 10)
 
         agent = AgentLoop(
-            provider=provider,
+            llm_backend=backend,
             workspace=temp_workspace,
             max_iterations=3,
         )
@@ -182,12 +156,13 @@ class TestAgentLoop:
     @pytest.mark.asyncio
     async def test_error_handling(self, temp_workspace):
         """测试错误处理"""
-        # 创建一个会抛出异常的provider
-        provider = MockProvider([])
-        provider.chat = AsyncMock(side_effect=Exception("API Error"))
+        # 创建一个会抛出异常的 backend
+        backend = FakeLLMBackend([])
+        backend.chat_async = AsyncMock(side_effect=Exception("API Error"))
+        backend.chat_with_tools_async = AsyncMock(side_effect=Exception("API Error"))
 
         agent = AgentLoop(
-            provider=provider,
+            llm_backend=backend,
             workspace=temp_workspace,
         )
 
@@ -248,18 +223,10 @@ This is the actual response."""
     @pytest.mark.asyncio
     async def test_process_direct(self, temp_workspace):
         """测试直接处理消息"""
-        provider = MockProvider(
-            [
-                LLMResponse(
-                    content="Direct response",
-                    has_tool_calls=False,
-                    tool_calls=[],
-                )
-            ]
-        )
+        backend = FakeLLMBackend([text_response("Direct response")])
 
         agent = AgentLoop(
-            provider=provider,
+            llm_backend=backend,
             workspace=temp_workspace,
         )
 
@@ -270,18 +237,10 @@ This is the actual response."""
     @pytest.mark.asyncio
     async def test_save_turn(self, temp_workspace):
         """测试保存对话轮次"""
-        provider = MockProvider(
-            [
-                LLMResponse(
-                    content="Response",
-                    has_tool_calls=False,
-                    tool_calls=[],
-                )
-            ]
-        )
+        backend = FakeLLMBackend([text_response("Response")])
 
         agent = AgentLoop(
-            provider=provider,
+            llm_backend=backend,
             workspace=temp_workspace,
         )
 
@@ -301,18 +260,10 @@ This is the actual response."""
     @pytest.mark.asyncio
     async def test_session_key(self, temp_workspace):
         """测试不同的会话key"""
-        provider = MockProvider(
-            [
-                LLMResponse(
-                    content="Response",
-                    has_tool_calls=False,
-                    tool_calls=[],
-                )
-            ]
-        )
+        backend = FakeLLMBackend([text_response("Response")])
 
         agent = AgentLoop(
-            provider=provider,
+            llm_backend=backend,
             workspace=temp_workspace,
         )
 
