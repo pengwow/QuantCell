@@ -172,6 +172,16 @@ from .backtest import (
     spot_instrument,
     swap_instrument,
 )
+from .llm import (
+    accumulate_stream,
+    chat_to_dict,
+    classify_llm_error,
+    create_llm_backend,
+    flatten_tools,
+    normalize_chat_response,
+    parse_tool_calls,
+    to_axon_messages,
+)
 
 
 # —— core.events shim (上游 axon_quant 尚未暴露这些事件类) ——
@@ -549,14 +559,18 @@ __all__ = [
     "TradingTools",
     "TrajectoryRecorder",
     "WeightedVoteStrategy",
+    "accumulate_stream",
     "add_funding_schedule",
     "binance_testnet_config",
     "build_order_submitted_event",
+    "chat_to_dict",
+    "classify_llm_error",
     "create_backtest_engine",
     "create_cancel_order_event",
     "create_candle_engine",
     "create_inference_engine",
     "create_limit_order",
+    "create_llm_backend",
     "create_market_order",
     "create_onnx_engine",
     "create_spot_instrument",
@@ -564,6 +578,7 @@ __all__ = [
     "credentials",
     "extract_run_result",
     "extract_run_stats",
+    "flatten_tools",
     "get_current_ns_timestamp",
     "get_instrument_id",
     "limit_order",
@@ -576,8 +591,11 @@ __all__ = [
     "make_risk_config",
     "map_error",
     "market_order",
+    "normalize_chat_response",
     "okx_testnet_config",
+    "parse_tool_calls",
     "spot_instrument",
     "swap_instrument",
+    "to_axon_messages",
     "to_ns_timestamp",
 ]
