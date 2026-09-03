@@ -9,6 +9,9 @@ from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
+# 导入JWT认证装饰器（utils.auth 真实存在，禁止静默降级导致接口裸奔）
+from utils.auth import jwt_auth_required_sync
+
 from ..db import DataPoolBusiness as DataPool
 from ..schemas import ApiResponse
 from ..schemas_data_pool import (
@@ -24,15 +27,6 @@ from ..schemas_data_pool import (
     DataPoolUpdate,
     DataPoolUpdateResponse,
 )
-
-# 导入JWT认证装饰器
-try:
-    from utils.auth import jwt_auth_required_sync
-except ImportError:
-    # 如果认证模块不存在，创建一个空装饰器
-    def jwt_auth_required_sync(func):
-        return func
-
 
 # 创建API路由实例
 router = APIRouter(

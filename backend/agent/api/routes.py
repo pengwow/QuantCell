@@ -4,14 +4,17 @@ import asyncio
 import json
 import re
 import time
+from datetime import datetime
 from enum import StrEnum
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from utils.logger import LogType, get_logger
 
+from ..config.manager import ToolParamManager, mask_sensitive_value
+from ..config.schemas import BatchUpdateRequest, ImportConfigRequest, SetValueRequest
 from ..core.factory import get_agent
 
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -347,7 +350,7 @@ async def chat_stream(request: ChatRequest):
             yield f"event: start\ndata: {start_data}\n\n"
             await asyncio.sleep(0)
 
-            async for event in agent.process_message_stream(
+            async for event in agent.iter_message_stream(
                 content=request.message,
                 session_key=request.session_id,
             ):
@@ -511,20 +514,6 @@ async def get_session(session_id: str):
 
 
 # ==================== 工具参数管理 API ====================
-
-from datetime import datetime
-from typing import TYPE_CHECKING
-
-from fastapi import Query
-
-from agent.config.manager import ToolParamManager, mask_sensitive_value
-
-if TYPE_CHECKING:
-    from agent.config.schemas import (
-        BatchUpdateRequest,
-        ImportConfigRequest,
-        SetValueRequest,
-    )
 
 
 @router.get("/tools/params/tools")

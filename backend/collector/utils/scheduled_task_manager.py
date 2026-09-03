@@ -1,6 +1,6 @@
 # 定时任务管理器，用于管理和执行定时任务
 
-from datetime import datetime
+from datetime import UTC, datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -314,7 +314,7 @@ class ScheduledTaskManager:
         logger.info(f"开始执行定时任务: task_id={task_id}")
 
         # 更新任务状态为运行中
-        ScheduledTaskBusiness.update(task_id=task_id, status="running", last_run_time=datetime.now(timezone.utc))
+        ScheduledTaskBusiness.update(task_id=task_id, status="running", last_run_time=datetime.now(UTC))
 
         try:
             # 获取任务信息
@@ -398,7 +398,7 @@ class ScheduledTaskManager:
                 get_data.run()
 
             # 更新上次采集日期
-            ScheduledTaskBusiness.update(task_id=task_info["id"], last_collected_date=datetime.now(timezone.utc))
+            ScheduledTaskBusiness.update(task_id=task_info["id"], last_collected_date=datetime.now(UTC))
 
             logger.info(f"加密货币数据下载完成: symbols={symbols}, exchange={exchange}")
         except Exception as e:

@@ -81,9 +81,12 @@ class KlinePersistenceConsumer:
                 return False
 
             # 转换symbol格式 BTCUSDT -> BTC/USDT
-            base_symbol = symbol.replace("USDT", "/USDT").replace("BTC", "/BTC").replace("ETH", "/ETH")
-            if "/" not in base_symbol:
-                base_symbol = f"{symbol[:-4]}/{symbol[-4:]}" if symbol.endswith("USDT") else symbol
+            # ponytail: 按常见计价资产后缀拆分，未匹配则保留原样；新增计价资产时在此补充
+            base_symbol = symbol
+            for quote in ("USDT", "USDC", "BUSD", "FDUSD", "BTC", "ETH", "BNB"):
+                if symbol.endswith(quote) and len(symbol) > len(quote):
+                    base_symbol = f"{symbol[: -len(quote)]}/{quote}"
+                    break
 
             # 创建数据库会话
             db = SessionLocal()

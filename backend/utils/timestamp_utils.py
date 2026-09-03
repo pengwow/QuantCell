@@ -510,6 +510,10 @@ def convert_to_datetime(
 
     try:
         tz = "utc" if timezone == "utc" else None
+        # pd.to_datetime 的 unit 仅对数值输入生效：纯数字字符串会被当作日期文本
+        # 解析并 coerce 成 NaT，先统一转成数值再按检测精度转换
+        if isinstance(first_val, str):
+            data = pd.to_numeric(data, errors=errors)
         result = pd.to_datetime(data, unit=detected_precision, errors=errors, utc=bool(tz))
 
         if is_sequence and len(result) > 0 and hasattr(result, "__getitem__"):

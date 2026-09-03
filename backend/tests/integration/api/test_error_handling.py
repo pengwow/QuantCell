@@ -241,8 +241,7 @@ class TestBusinessErrorHandling:
         assert data["code"] == 1
 
     def test_invalid_strategy_execution_error(self, client: TestClient, mocker):
-        """测试无效策略执行错误 - 使用策略执行路由"""
-        mocker.patch("strategy.service.StrategyService.load_strategy", return_value=None)
+        """测试无效策略执行错误 - execute 端点已随策略执行迁移到 worker 而移除，统一返回 404"""
         request_data = {
             "mode": "backtest",
             "params": {},

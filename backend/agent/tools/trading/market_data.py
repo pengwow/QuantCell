@@ -172,9 +172,3 @@ class FetchMarketDataTool(Tool):
         from cli.market import fetch_market_data
 
         return fetch_market_data(symbol, data_type, interval, limit, market_type)
-
-
-TOOLS_MAP = {
-    "get_crypto_symbols": GetCryptoSymbolsTool,
-    "fetch_market_data": FetchMarketDataTool,
-}

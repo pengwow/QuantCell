@@ -156,7 +156,6 @@ class SessionManager:
         import uuid
 
         session_id = str(uuid.uuid4())[:8]
-        datetime.now().isoformat()
         session = self.get_or_create(session_id)
         session_name = name or f"会话 {datetime.now().strftime('%Y/%m/%d %H:%M:%S')}"
         session_data = session.to_dict()

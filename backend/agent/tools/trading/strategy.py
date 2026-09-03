@@ -325,13 +325,3 @@ class DeployStrategyTool(Tool):
             trading_mode,
             auto_start,
         )
-
-
-TOOLS_MAP = {
-    "run_backtest": RunBacktestTool,
-    "generate_strategy": GenerateStrategyTool,
-    "analyze_backtest_result": AnalyzeBacktestResultTool,
-    "optimize_strategy_params": OptimizeStrategyParamsTool,
-    "diagnose_strategy": DiagnoseStrategyTool,
-    "deploy_strategy": DeployStrategyTool,
-}
