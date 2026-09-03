@@ -403,7 +403,7 @@ class RLService:
             msg = f"无法加载 {symbol} {interval} 数据"
             raise ValueError(msg)
 
-        env = self.create_env(data, reward_type=reward_type)
+        env = self.create_env(data, reward_type=reward_type, initial_capital=initial_capital)
         wrapped_env = GymnasiumWrapper(env)
 
         model = self.load_model(model_path)
