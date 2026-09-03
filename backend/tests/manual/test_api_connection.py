@@ -47,6 +47,9 @@ async def test_with_longer_timeout():
     api_key = os.environ.get("OPENAI_API_KEY", "")
     base_url = os.environ.get("OPENAI_BASE_URL")
 
+    if not api_key:
+        return False
+
     try:
         client = AsyncOpenAI(
             api_key=api_key,
@@ -77,6 +80,9 @@ async def test_with_tools():
 
     api_key = os.environ.get("OPENAI_API_KEY", "")
     base_url = os.environ.get("OPENAI_BASE_URL")
+
+    if not api_key:
+        return False
 
     tools = [
         {

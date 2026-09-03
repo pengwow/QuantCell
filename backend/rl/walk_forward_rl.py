@@ -5,20 +5,20 @@ Trains and evaluates RL models across time-series splits for OOS validation.
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from backtest.walk_forward import WalkForwardService
 from rl.evaluation import EvaluationMetrics, evaluate_model
+from utils.logger import LogType, get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     import pandas as pd
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, LogType.APPLICATION)
 
 
 class RLWalkForwardService:

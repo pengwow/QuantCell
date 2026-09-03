@@ -15,14 +15,14 @@
 
 from __future__ import annotations
 
-import argparse
-import logging
 import time
 from pathlib import Path
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+from utils.logger import LogType, get_logger
+
+logger = get_logger(__name__, LogType.APPLICATION)
 
 
 def create_env(df, initial_capital=100_000, transaction_cost=0.001, warmup=20):
@@ -33,7 +33,8 @@ def create_env(df, initial_capital=100_000, transaction_cost=0.001, warmup=20):
         def __init__(self):
             super().__init__()
             self._df = df.values
-            self._close_idx = list(df.columns).index("Close")
+            # 数据加载统一为小写列名（BacktestDataProvider），故此处取 "close"
+            self._close_idx = list(df.columns).index("close")
             self._init = initial_capital
             self._tc = transaction_cost
             self._warmup = warmup
@@ -167,7 +168,6 @@ def objective(trial, df_train, df_val, n_timesteps):
 
         portfolio = info.get("portfolio_value", 100_000)
         trades = info.get("trades", 0)
-        total_reward / (np.std([total_reward]) + 1e-8)
 
         # 综合评分：收益率 + 夏普 - 过度交易惩罚
         pnl_pct = (portfolio - 100_000) / 100_000 * 100
@@ -190,13 +190,12 @@ def run_hpo(
     """运行超参数优化"""
     import optuna
 
-    from rl.service import RLService
+    from backtest.data_provider import BacktestDataProvider
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-    # 加载数据
-    svc = RLService()
-    df = svc._fetch_market_data(symbol, "15m", 90)
+    # 加载数据（统一走 BacktestDataProvider，替代旧 rl.service 的下发逻辑）
+    df = BacktestDataProvider().load_klines(symbol, "15m")
 
     # 分割训练/验证集（80/20）
     split = int(len(df) * 0.8)
@@ -218,11 +217,7 @@ def run_hpo(
         n_trials=n_trials,
         show_progress_bar=True,
     )
-    time.time() - start
-
-    # 输出结果
-    for _k, _v in study.best_params.items():
-        pass
+    logger.info(f"[HPO] 优化完成: 最佳参数={study.best_params}, 耗时={time.time() - start:.1f}s")
 
     # 用最佳参数训练最终模型
     env = create_env(df_train)
@@ -262,11 +257,20 @@ def run_hpo(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="PPO 超参数优化")
-    parser.add_argument("--symbol", default="BTCUSDT", help="交易对")
-    parser.add_argument("--trials", type=int, default=30, help="优化轮数")
-    parser.add_argument("--timesteps", type=int, default=10000, help="每轮训练步数")
-    parser.add_argument("--output", default=None, help="输出目录")
-    args = parser.parse_args()
+    from typing import Annotated
 
-    run_hpo(args.symbol, args.trials, args.timesteps, args.output)
+    import typer
+
+    app = typer.Typer(help="PPO 超参数优化", add_completion=False)
+
+    @app.command()
+    def optimize(
+        symbol: Annotated[str, typer.Option("--symbol", help="交易对")] = "BTCUSDT",
+        trials: Annotated[int, typer.Option("--trials", help="优化轮数")] = 30,
+        timesteps: Annotated[int, typer.Option("--timesteps", help="每轮训练步数")] = 10000,
+        output: Annotated[str | None, typer.Option("--output", help="输出目录")] = None,
+    ):
+        """运行 PPO 超参数优化。"""
+        run_hpo(symbol, trials, timesteps, output)
+
+    app()
