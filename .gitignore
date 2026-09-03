@@ -26,6 +26,7 @@ backend/data/system.db
 backend/backtest/results/*.json
 backend/strategies/*
 backend/.trash/
+frontend/.trash/
 backend/.DS_Store
 backend/.DS_Stores
 backend/backtest/results/*
