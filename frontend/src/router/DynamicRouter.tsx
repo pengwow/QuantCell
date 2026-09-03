@@ -125,5 +125,3 @@ export function DynamicRouter() {
 
   return useRoutes(routes);
 }
-
-import { setPageTitle } from '@/utils/pageTitle';
