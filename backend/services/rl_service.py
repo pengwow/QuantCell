@@ -223,6 +223,7 @@ class RLService:
         data: pd.DataFrame,
         features: list[str] | None = None,
         reward_type: str = "pnl",
+        initial_capital: float = 100_000.0,
     ) -> Any:
         """Create an RL training environment.
 
@@ -241,7 +242,7 @@ class RLService:
             df["timestamp"] = range(len(df))
 
         market_data = df.to_dict("records")
-        config = _make_env_config(max_steps=len(df))
+        config = _make_env_config(initial_capital=initial_capital, max_steps=len(df))
         return _rl_bridge.TradingEnv(config=config, market_data=market_data, reward=reward_type)
 
     def train(self, config: RLTrainConfig) -> RLTrainResult:
