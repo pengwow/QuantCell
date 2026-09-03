@@ -7,8 +7,6 @@ from utils.logger import LogType, get_logger
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
-# 导入配置管理API路由
-# from .scripts.convert_to_qlib import convert_crypto_to_qlib
 
 from .api.archive import router as archive_router
 from .api.data import router as data_router
@@ -18,7 +16,7 @@ from .api.exchanges import router as exchanges_router
 from .api.market_data import router as market_data_router
 from .api.scheduled_tasks import router as scheduled_tasks_router
 from .api.system import router as system_router
-from .schemas import ApiResponse, DataConvertRequest
+from .schemas import ApiResponse
 
 # 创建API路由实例
 router = APIRouter(prefix="/api")
@@ -49,74 +47,6 @@ router.include_router(deriv_router)
 
 # 创建数据处理API路由子路由
 router_data = APIRouter(prefix="/data", tags=["data-processing"])
-
-
-@router_data.get("/status", response_model=ApiResponse)
-@router_data.post(
-    "/convert/qlib",
-    response_model=ApiResponse,
-    summary="将CSV数据转换为QLib格式",
-    description="将指定目录下的CSV数据转换为QLib格式，支持多种参数配置，包括频率、字段映射等",
-    responses={
-        200: {"description": "数据转换成功", "model": ApiResponse},
-        500: {"description": "数据转换失败"},
-    },
-)
-def convert_data_to_qlib(request: DataConvertRequest):
-    """将CSV数据转换为QLib格式API
-
-    将指定目录下的CSV数据转换为QLib格式，支持多种参数配置
-
-    Args:
-        request: 数据转换请求参数，包含CSV目录、QLib目录、频率等信息
-
-    Returns:
-        ApiResponse: API响应，包含转换状态和结果信息
-
-    Raises:
-        HTTPException: 当转换过程中发生错误时抛出
-    """
-    try:
-        logger.info(f"开始处理数据转换请求: {request.model_dump()}")
-
-        # 调用转换函数
-        result = convert_crypto_to_qlib(
-            csv_dir=request.csv_dir,
-            qlib_dir=request.qlib_dir,
-            freq=request.freq,
-            date_field_name=request.date_field_name,
-            file_suffix=request.file_suffix,
-            symbol_field_name=request.symbol_field_name,
-            include_fields=request.include_fields,
-            max_workers=request.max_workers,
-            limit_nums=request.limit_nums,
-        )
-
-        if result:
-            logger.info("数据转换请求处理完成")
-            return ApiResponse(
-                code=0,
-                message="数据转换为QLib格式成功",
-                data={
-                    "csv_dir": request.csv_dir,
-                    "qlib_dir": request.qlib_dir,
-                    "freq": request.freq,
-                },
-            )
-        else:
-            logger.error("数据转换失败")
-            return ApiResponse(
-                code=1,
-                message="数据转换为QLib格式失败",
-                data={
-                    "csv_dir": request.csv_dir,
-                    "qlib_dir": request.qlib_dir,
-                    "freq": request.freq,
-                },
-            )
-    except Exception as e:
-        logger.error(f"数据转换过程中发生错误: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router_data.get("/status", response_model=ApiResponse)

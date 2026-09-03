@@ -369,7 +369,7 @@ def update_system_config_table(session: Session, db_type: str) -> None:
                             text("""INSERT INTO system_config_new (key, value, description, plugin, created_at, updated_at)
                                    SELECT key, value, description, plugin, created_at, updated_at FROM system_config""")
                         )
-                    except:
+                    except Exception:
                         # 如果plugin列不存在，使用不包含plugin列的查询
                         logger.info("plugin列不存在，使用不包含plugin列的查询复制数据...")
                         session.execute(

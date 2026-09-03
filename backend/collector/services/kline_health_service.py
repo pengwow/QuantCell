@@ -100,12 +100,6 @@ class KlineHealthChecker:
         # 添加过滤条件
         query = query.filter(and_(KlineModel.symbol == symbol, KlineModel.interval == interval))
 
-        if start:
-            query = query.filter(KlineModel.date >= start)
-
-        if end:
-            query = query.filter(KlineModel.date <= end)
-
         # 执行查询并转换为DataFrame
         kline_list = query.all()
         df = pd.DataFrame(
@@ -122,6 +116,18 @@ class KlineHealthChecker:
                 for k in kline_list
             ]
         )
+
+        # 模型没有 date 列（timestamp 为自适应精度的字符串存储，无法直接与 datetime 比较），
+        # 时间范围过滤基于 convert_to_datetime 在内存完成，避免引用不存在的列抛 AttributeError
+        if not df.empty and (start is not None or end is not None):
+            # 库内时间戳统一视作 UTC，与 convert_to_datetime 的 UTC 输出对齐
+            dt_series = pd.Series(convert_to_datetime(df["timestamp"]).values, index=df.index)
+            mask = pd.Series(True, index=df.index)
+            if start is not None:
+                mask &= dt_series >= pd.Timestamp(start, tz="UTC")
+            if end is not None:
+                mask &= dt_series <= pd.Timestamp(end, tz="UTC")
+            df = df[mask]
 
         if not df.empty:
             # 按时间戳排序

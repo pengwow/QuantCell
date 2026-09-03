@@ -89,15 +89,6 @@ class FeatureInfoResponse(BaseModel):
     count: int = Field(default=0, description="特征数量")
 
 
-class LoadDataRequest(BaseModel):
-    """加载数据请求模型
-
-    空的请求模型，不需要任何参数
-    """
-
-    pass
-
-
 class SymbolFeaturesResponse(BaseModel):
     """股票特征响应模型
 

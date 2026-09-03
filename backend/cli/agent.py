@@ -104,7 +104,6 @@ def _run_tool_async(tool_name: str, **kwargs):
 # ==================== Session 命令组 ====================
 
 
-@app.command("list")
 def session_list(
     format: str = typer.Option("text", "--format", "-f", help="输出格式 (text/json)"),
 ):
@@ -124,7 +123,6 @@ def session_list(
             typer.echo(f"  {s.get('key', s.get('id'))} - {s.get('updated_at', '')}")
 
 
-@app.command("info")
 def session_info(
     session_id: str = typer.Argument(..., help="会话ID"),
 ):
@@ -139,7 +137,6 @@ def session_info(
     typer.echo(json.dumps(info, ensure_ascii=False, indent=2))
 
 
-@app.command("create")
 def session_create(
     name: str = typer.Option("", "--name", "-n", help="会话名称"),
 ):
@@ -149,7 +146,6 @@ def session_create(
     typer.echo(f"会话已创建: {json.dumps(session, ensure_ascii=False)}")
 
 
-@app.command("delete")
 def session_delete(
     session_id: str = typer.Argument(..., help="会话ID"),
     force: bool = typer.Option(False, "--force", "-f", help="跳过确认"),
@@ -171,7 +167,6 @@ def session_delete(
         raise typer.Exit(1)
 
 
-@app.command("clear")
 def session_clear(
     session_id: str = typer.Argument(..., help="会话ID"),
 ):
@@ -188,7 +183,6 @@ def session_clear(
 # ==================== Tool 命令组 ====================
 
 
-@app.command("list")
 def tool_list(
     format: str = typer.Option("text", "--format", "-f", help="输出格式 (text/json)"),
 ):
@@ -207,7 +201,6 @@ def tool_list(
             typer.echo(f"  {t.get('name')} - {t.get('description', '')}")
 
 
-@app.command("info")
 def tool_info(
     tool_name: str = typer.Argument(..., help="工具名称"),
 ):
@@ -249,7 +242,6 @@ def tool_info(
 # ==================== Chat 命令组 ====================
 
 
-@app.command("send")
 def chat_send(
     message: str = typer.Argument(..., help="消息内容"),
     session_id: str | None = typer.Option(None, "--session", "-s", help="会话ID"),
@@ -268,7 +260,6 @@ async def _run_chat(message: str, session_id: str | None):
     return None
 
 
-@app.command("history")
 def chat_history(
     session_id: str = typer.Argument(..., help="会话ID"),
 ):
@@ -289,7 +280,6 @@ def chat_history(
 # ==================== Workspace 命令组 ====================
 
 
-@app.command("list")
 def workspace_list():
     """列出工作空间文件"""
     try:
@@ -322,7 +312,6 @@ async def _workspace_list():
     return json.dumps({"files": [], "directories": []})
 
 
-@app.command("cat")
 def workspace_cat(
     file_name: str = typer.Argument(..., help="文件名"),
 ):
@@ -347,7 +336,6 @@ async def _workspace_cat(file_path):
     return ""
 
 
-@app.command("clean")
 def workspace_clean(
     force: bool = typer.Option(False, "--force", "-f", help="跳过确认"),
 ):
@@ -371,7 +359,6 @@ def workspace_clean(
 # ==================== Params 命令组 ====================
 
 
-@app.command("tools")
 def params_tools():
     """显示所有可配置参数的工具"""
     try:
@@ -386,7 +373,6 @@ def params_tools():
         typer.echo(f"错误: {e}")
 
 
-@app.command("show")
 def params_show(
     tool_name: str = typer.Argument(..., help="工具名称"),
 ):
@@ -408,7 +394,6 @@ def params_show(
         typer.echo(f"错误: {e}")
 
 
-@app.command("set")
 def params_set(
     tool_name: str = typer.Argument(..., help="工具名称"),
     param_name: str = typer.Argument(..., help="参数名"),
@@ -428,7 +413,6 @@ def params_set(
         raise typer.Exit(1)
 
 
-@app.command("delete")
 def params_delete(
     tool_name: str = typer.Argument(..., help="工具名称"),
     param_name: str = typer.Argument(..., help="参数名"),
@@ -450,7 +434,6 @@ def params_delete(
         raise typer.Exit(1)
 
 
-@app.command("import")
 def params_import(
     file_path: str = typer.Argument(..., help="JSON文件路径"),
 ):
@@ -472,7 +455,6 @@ def params_import(
         raise typer.Exit(1)
 
 
-@app.command("export")
 def params_export(
     output: str = typer.Option("params_export.json", "--output", "-o", help="输出文件"),
 ):
@@ -491,7 +473,6 @@ def params_export(
         raise typer.Exit(1)
 
 
-@app.command("validate")
 def params_validate(
     tool_name: str = typer.Argument(..., help="工具名称"),
 ):
@@ -523,7 +504,6 @@ def params_validate(
 # ==================== Action 命令组 ====================
 
 
-@app.command("generate-strategy")
 def action_generate_strategy(
     requirement: str = typer.Option(..., "--requirement", "-r", help="策略需求描述"),
     name: str = typer.Option(..., "--name", "-n", help="策略名称"),
@@ -545,7 +525,6 @@ def action_generate_strategy(
         raise typer.Exit(1)
 
 
-@app.command("analyze-backtest")
 def action_analyze_backtest(
     backtest_id: str = typer.Option(..., "--backtest-id", help="回测ID"),
 ):
@@ -565,7 +544,6 @@ def action_analyze_backtest(
         raise typer.Exit(1)
 
 
-@app.command("optimize-params")
 def action_optimize_params(
     strategy_name: str = typer.Option(..., "--strategy-name", help="策略名称"),
     param_ranges: str = typer.Option(..., "--param-ranges", help="参数范围JSON"),
@@ -579,7 +557,6 @@ def action_optimize_params(
         raise typer.Exit(1)
 
 
-@app.command("diagnose")
 def action_diagnose(
     strategy_name: str = typer.Option(..., "--strategy-name", help="策略名称"),
 ):
@@ -593,7 +570,6 @@ def action_diagnose(
         raise typer.Exit(1)
 
 
-@app.command("fetch-market")
 def action_fetch_market(
     symbol: str = typer.Option(..., "--symbol", help="交易对"),
 ):
@@ -613,7 +589,6 @@ def action_fetch_market(
         raise typer.Exit(1)
 
 
-@app.command("deploy")
 def action_deploy(
     strategy_name: str = typer.Option(..., "--strategy-name", help="策略名称"),
     symbols: str = typer.Option(..., "--symbols", help="交易对，逗号分隔"),

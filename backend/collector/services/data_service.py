@@ -10,16 +10,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+import pandas as pd
+from sqlalchemy import and_
+
 from utils.logger import LogType, get_logger
 
 logger = get_logger(__name__, LogType.APPLICATION)
 
 from exchange import BinanceCollector, OKXCollector
+from utils.timestamp_utils import convert_to_datetime
 
 from ..db import crud
-from ..db.database import init_database_config
-from ..db.models import CryptoSymbol
-from ..db.models import SystemConfigBusiness as SystemConfig
+from ..db.database import SessionLocal, init_database_config
+from ..db.models import CryptoFutureKline, CryptoSpotKline, CryptoSymbol, StockKline
 from ..utils.task_manager import task_manager
 
 if TYPE_CHECKING:
@@ -28,7 +31,6 @@ if TYPE_CHECKING:
     from ..schemas.data import (
         DownloadCryptoRequest,
         ExportCryptoRequest,
-        LoadDataRequest,
     )
 
 # 基础源数据目录：项目后端根目录的 data/source 目录
@@ -171,11 +173,25 @@ class GetData:
 class ExportData:
     """数据导出工具类
 
-    提供从数据库导出K线数据到CSV/Parquet文件的功能。
+    提供从数据库导出K线数据到CSV文件的功能。
     """
 
-    def __init__(self):
-        pass
+    # candle_type -> K线数据模型映射（与数据库建表一一对应）
+    _KLINE_MODELS = {
+        "spot": CryptoSpotKline,
+        "future": CryptoFutureKline,
+        "stock": StockKline,
+    }
+
+    def __init__(self, db=None):
+        # 支持外部注入会话便于测试；未注入时自建会话并确保数据库配置已初始化
+        # 用标志记录会话所有权，finally 里据此决定是否关闭（外部会话由调用方管理）
+        self._owns_session = db is None
+        if self._owns_session:
+            init_database_config()
+            self.db = SessionLocal()
+        else:
+            self.db = db
 
     def export_kline_data(
         self,
@@ -189,21 +205,75 @@ class ExportData:
         max_workers=1,
         auto_download=True,
     ):
+        # ponytail: max_workers/auto_download 暂未实现（串行导出、缺失数据只记录不补抓），
+        # 数据量上来后再引入线程池或触发下载任务
+        model = self._KLINE_MODELS.get(candle_type)
+        if model is None:
+            raise ValueError(f"不支持的candle_type: {candle_type}，可选: {list(self._KLINE_MODELS)}")
+
+        export_dir = Path(save_dir) if save_dir else SOURCE_DATA_DIR / "export"
+        export_dir.mkdir(parents=True, exist_ok=True)
+
         result = {"success": True, "exported_files": [], "missing_ranges": {}}
 
         try:
-            logger.info("开始导出K线数据...")
-            logger.info(f"交易对: {symbols}")
-            logger.info(f"时间范围: {start} 至 {end}")
-            logger.info(f"时间间隔: {interval}")
+            logger.info(f"开始导出K线数据: 交易对={symbols}, 区间={start}至{end}, 周期={interval}")
 
-            result["exported_files"] = [f"{symbol}_{interval}.csv" for symbol in symbols]
+            for symbol in symbols:
+                # 数据库中 symbol 存在带斜杠与不带斜杠两种写法，两种格式都兼容
+                raw_symbol = symbol.replace("/", "")
+                klines = (
+                    self.db.query(model)
+                    .filter(and_(model.symbol.in_([symbol, raw_symbol]), model.interval == interval))
+                    .all()
+                )
+
+                df = pd.DataFrame(
+                    [
+                        {
+                            "timestamp": k.timestamp,
+                            "open": float(k.open),
+                            "high": float(k.high),
+                            "low": float(k.low),
+                            "close": float(k.close),
+                            "volume": float(k.volume),
+                        }
+                        for k in klines
+                    ]
+                )
+
+                if df.empty:
+                    result["missing_ranges"][symbol] = [{"error": "数据库中无该品种数据"}]
+                    continue
+
+                # timestamp 为自适应精度的字符串存储，统一转 datetime 后再按时间范围过滤与排序
+                df["dt"] = convert_to_datetime(df["timestamp"])
+                df.sort_values("dt", inplace=True)
+
+                if start:
+                    # 库内时间戳统一视作 UTC，与 convert_to_datetime 的 UTC 输出对齐
+                    df = df[df["dt"] >= pd.Timestamp(start, tz="UTC")]
+                if end:
+                    df = df[df["dt"] <= pd.Timestamp(end, tz="UTC")]
+
+                if df.empty:
+                    result["missing_ranges"][symbol] = [{"error": "指定时间范围内无数据"}]
+                    continue
+
+                export_path = export_dir / f"{raw_symbol}_{interval}.csv"
+                df.drop(columns="dt").to_csv(export_path, index=False)
+                result["exported_files"].append(str(export_path))
+                logger.info(f"已导出 {symbol} {interval}: {len(df)} 条 -> {export_path}")
 
         except Exception as e:
             logger.error(f"导出失败: {e}")
             logger.exception(e)
             result["success"] = False
             result["missing_ranges"] = {symbol: [{"error": str(e)}] for symbol in symbols}
+        finally:
+            # 仅关闭自建会话，外部注入的会话由调用方管理
+            if self._owns_session:
+                self.db.close()
 
         return result
 
@@ -408,187 +478,6 @@ class DataService:
         """
         self.db = db
 
-    def load_data(self, request: LoadDataRequest) -> dict[str, Any]:
-        """加载QLib数据
-
-        从系统配置表中获取qlib_dir配置，加载QLib格式的数据
-
-        Args:
-            request: 加载数据请求
-
-        Returns:
-            Dict[str, Any]: 包含加载结果的数据
-        """
-        from settings.models import SystemConfigBusiness as SystemConfig
-
-        logger.info("开始加载QLib数据")
-
-        # 从系统配置表中获取qlib_dir配置
-        qlib_dir = SystemConfig.get("qlib_data_dir")
-
-        if not qlib_dir:
-            # 如果配置不存在，使用默认值
-            qlib_dir = "data/qlib_data"
-            logger.warning(f"未找到qlib_data_dir配置，使用默认值: {qlib_dir}")
-
-        logger.info(f"从系统配置获取QLib数据目录: {qlib_dir}")
-
-        # 调用数据加载器加载数据
-        success = data_loader.init_qlib(qlib_dir)
-
-        if success:
-            logger.info(f"QLib数据加载成功，目录: {qlib_dir}")
-
-            # 获取加载的数据信息
-            data_info = data_loader.get_loaded_data_info()
-            return {
-                "success": success,
-                "message": "数据加载成功",
-                "data_info": data_info,
-                "qlib_dir": qlib_dir,
-            }
-        else:
-            logger.error(f"QLib数据加载失败，目录: {qlib_dir}")
-            return {"success": success, "message": "数据加载失败", "qlib_dir": qlib_dir}
-
-    def get_data_info(self) -> dict[str, Any]:
-        """获取已加载的数据信息
-
-        Returns:
-            Dict[str, Any]: 包含已加载数据信息的数据
-        """
-        logger.info("开始获取已加载的数据信息")
-
-        # 获取已加载的数据信息
-        data_info = data_loader.get_loaded_data_info()
-
-        logger.info("成功获取已加载的数据信息")
-        return data_info
-
-    def get_calendars(
-        self,
-        freq: str | None = None,
-        start_time: str | None = None,
-        end_time: str | None = None,
-    ) -> dict[str, Any]:
-        """获取交易日历信息
-
-        Args:
-            freq: 可选，指定频率，如'day'、'1min'、'1m'等
-            start_time: 可选，开始时间，格式YYYY-MM-DD HH:mm:SS
-            end_time: 可选，结束时间，格式YYYY-MM-DD HH:mm:SS
-
-        Returns:
-            Dict[str, Any]: 包含交易日历信息的数据
-        """
-        logger.info(f"开始获取交易日历信息，频率: {freq}, 开始时间: {start_time}, 结束时间: {end_time}")
-
-        # 确保QLib已初始化
-        if not data_loader.is_data_loaded():
-            logger.info("QLib数据未加载，开始加载数据")
-
-            # 从系统配置获取qlib_data_dir
-            qlib_dir = SystemConfig.get("qlib_data_dir")
-
-            if not qlib_dir:
-                qlib_dir = "data/crypto_data"
-                logger.warning(f"未找到qlib_data_dir配置，使用默认值: {qlib_dir}")
-
-            # 初始化QLib
-            success = data_loader.init_qlib(qlib_dir)
-            if not success:
-                logger.error("QLib初始化失败，无法获取交易日历")
-                return {"success": False, "message": "QLib初始化失败，无法获取交易日历"}
-
-        # 获取已加载的日历数据
-        calendars = data_loader.get_calendars()
-        logger.info(f"从data_loader获取到的日历数据: {list(calendars.keys())}")
-
-        # 处理频率参数
-        target_freq = freq or "1d"
-
-        # 如果请求的频率不在已加载的日历中，尝试获取
-        if target_freq not in calendars:
-            logger.info(f"请求的频率{target_freq}不在已加载的日历中，尝试获取")
-
-            # 导入D类
-            from qlib.data import D
-
-            logger.info("D类已成功导入")
-
-            # 直接调用D.calendar()获取日历数据
-            calendar_dates = D.calendar(freq=target_freq, start_time=start_time, end_time=end_time)
-            logger.info(f"成功调用D.calendar()，获取到{len(calendar_dates)}个交易日")
-
-            # 将numpy.ndarray转换为Python标准类型列表，将Timestamp对象转换为字符串
-            calendar_list = []
-            for date in calendar_dates:
-                try:
-                    # 转换Timestamp对象为字符串格式
-                    date_str = str(date)
-                    calendar_list.append(date_str)
-                except Exception as e:
-                    logger.warning(f"转换日期时出现异常: {e}, 日期: {date}")
-                    continue
-
-            # 将获取到的日历添加到已加载的日历中
-            calendars[target_freq] = calendar_list
-            calendar_dates = calendar_list
-        else:
-            # 使用已加载的日历数据
-            calendar_dates = calendars[target_freq]
-            logger.info(f"使用已加载的日历数据，频率: {target_freq}，共{len(calendar_dates)}个交易日")
-
-        # 构建响应
-        calendar = {
-            "freq": target_freq,
-            "dates": calendar_dates,
-            "count": len(calendar_dates),
-        }
-
-        return {"success": True, "message": "获取交易日历成功", "calendar": calendar}
-
-    def get_instruments(self, index_name: str | None = None) -> dict[str, Any]:
-        """获取成分股信息
-
-        Args:
-            index_name: 可选，指定指数名称
-
-        Returns:
-            Dict[str, Any]: 包含成分股信息的数据
-        """
-        logger.info(f"开始获取成分股信息，指数名称: {index_name}")
-
-        # 获取所有成分股
-        instruments = data_loader.get_instruments()
-
-        if index_name:
-            # 获取指定指数的成分股
-            if index_name in instruments:
-                instrument = {
-                    "index_name": index_name,
-                    "symbols": instruments[index_name],
-                    "count": len(instruments[index_name]),
-                }
-                return {
-                    "success": True,
-                    "message": "获取成分股成功",
-                    "instrument": instrument,
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": f"未找到指数{index_name}的成分股信息",
-                    "index_name": index_name,
-                }
-        else:
-            # 返回所有成分股
-            result = {"instruments": []}
-            for idx, symbols in instruments.items():
-                result["instruments"].append({"index_name": idx, "symbols": symbols, "count": len(symbols)})
-
-            return {"success": True, "message": "获取所有成分股成功", "result": result}
-
     def get_features(self, symbol: str | None = None) -> dict[str, Any]:
         """获取特征信息
 
@@ -669,92 +558,6 @@ class DataService:
             "message": "获取货币特征成功",
             "feature_info": feature_info,
         }
-
-    def get_data_status(self) -> dict[str, Any]:
-        """获取数据服务状态
-
-        Returns:
-            Dict[str, Any]: 包含数据服务状态的数据
-        """
-        logger.info("开始获取数据服务状态")
-
-        # 获取数据加载状态
-        data_loaded = data_loader.is_data_loaded()
-        qlib_dir = data_loader.get_qlib_dir()
-
-        status = {"data_loaded": data_loaded, "qlib_dir": qlib_dir, "status": "running"}
-
-        logger.info(f"成功获取数据服务状态: {status}")
-
-        return {"success": True, "message": "获取数据服务状态成功", "status": status}
-
-    def get_qlib_status(self) -> dict[str, Any]:
-        """获取QLib状态
-
-        Returns:
-            Dict[str, Any]: 包含QLib状态的数据
-        """
-        logger.info("开始获取QLib状态")
-
-        # 获取QLib状态
-        data_loaded = data_loader.is_data_loaded()
-        qlib_dir = data_loader.get_qlib_dir()
-
-        # 获取已加载的数据信息
-        data_info = data_loader.get_loaded_data_info()
-
-        qlib_status = {
-            "initialized": data_loaded,
-            "qlib_dir": qlib_dir,
-            "data_info": data_info,
-        }
-
-        logger.info(f"成功获取QLib状态: {qlib_status}")
-
-        return {
-            "success": True,
-            "message": "获取QLib状态成功",
-            "qlib_status": qlib_status,
-        }
-
-    def reload_qlib(self) -> dict[str, Any]:
-        """重新加载QLib
-
-        Returns:
-            Dict[str, Any]: 包含重新加载结果的数据
-        """
-        from settings.models import SystemConfigBusiness as SystemConfig
-
-        logger.info("开始重新加载QLib")
-
-        # 从系统配置获取qlib_data_dir
-        qlib_dir = SystemConfig.get("qlib_data_dir")
-
-        if not qlib_dir:
-            qlib_dir = "data/crypto_data"
-            logger.warning(f"未找到qlib_data_dir配置，使用默认值: {qlib_dir}")
-
-        # 重新初始化QLib
-        success = data_loader.init_qlib(qlib_dir)
-
-        if success:
-            logger.info(f"QLib重新加载成功，数据目录: {qlib_dir}")
-
-            # 获取已加载的数据信息
-            data_info = data_loader.get_loaded_data_info()
-            return {
-                "success": success,
-                "message": "QLib重新加载成功",
-                "qlib_dir": qlib_dir,
-                "data_info": data_info,
-            }
-        else:
-            logger.error(f"QLib重新加载失败，数据目录: {qlib_dir}")
-            return {
-                "success": success,
-                "message": "QLib重新加载失败",
-                "qlib_dir": qlib_dir,
-            }
 
     def create_download_task(self, request: DownloadCryptoRequest) -> dict[str, Any]:
         """创建加密货币数据下载任务
@@ -1413,8 +1216,8 @@ class DataService:
         logger.info(f"开始导出加密货币数据，请求参数: {request.model_dump()}")
 
         try:
-            # 实例化导出工具
-            export_data = ExportData()
+            # 实例化导出工具（复用当前服务的数据库会话）
+            export_data = ExportData(db=self.db)
 
             # 执行导出
             result = export_data.export_kline_data(

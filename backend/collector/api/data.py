@@ -20,6 +20,7 @@ from ..db.database import get_db
 from ..db.models import CryptoFutureKline, CryptoSpotKline, StockKline
 from ..schemas import ApiResponse
 from ..services import DataService
+from ..services.kline_health_service import KlineHealthChecker
 
 # 创建API路由实例
 router = APIRouter(prefix="/data", tags=["data-management"])
@@ -36,7 +37,6 @@ if TYPE_CHECKING:
     from ..schemas.data import (
         DownloadCryptoRequest,
         ExportCryptoRequest,
-        LoadDataRequest,
     )
 
 # 创建数据质量API子路由
@@ -301,8 +301,6 @@ async def clean_kline_data(
     Returns:
         ApiResponse: 清理结果
     """
-    from backend.collector.services.kline_health_service import KlineHealthChecker
-
     # 格式化 symbol 字段，去除其中的 "/" 字符
     formatted_symbol = symbol.replace("/", "")
 
@@ -471,111 +469,6 @@ async def clean_kline_data(
         raise HTTPException(status_code=500, detail=f"数据清理失败: {e!s}")
 
 
-@router.post("/load", response_model=ApiResponse)
-def load_data(request: LoadDataRequest):
-    """加载QLib数据
-
-    从系统配置表中获取qlib_dir配置，加载QLib格式的数据
-
-    Args:
-        request: 加载数据请求，不需要任何参数
-
-    Returns:
-        ApiResponse: 包含加载结果的响应
-    """
-    try:
-        data_service = DataService()
-        result = data_service.load_data(request)
-
-        if result["success"]:
-            return ApiResponse(code=0, message=result["message"], data=result["data_info"])
-        else:
-            return ApiResponse(code=1, message=result["message"], data={"qlib_dir": result["qlib_dir"]})
-    except Exception as e:
-        logger.error(f"加载数据失败: {e}")
-        logger.exception(e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/info", response_model=ApiResponse)
-def get_data_info():
-    """获取已加载的数据信息
-
-    Returns:
-        ApiResponse: 包含已加载数据信息的响应
-    """
-    try:
-        data_service = DataService()
-        result = data_service.get_data_info()
-
-        return ApiResponse(code=0, message="获取数据信息成功", data=result)
-    except Exception as e:
-        logger.error(f"获取数据信息失败: {e}")
-        logger.exception(e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/calendars", response_model=ApiResponse)
-def get_calendars(
-    freq: str | None = Query(None, description="频率，如'day'、'1min'、'1m'等"),
-    start_time: str | None = Query(None, description="开始时间，格式YYYY-MM-DD HH:mm:SS"),
-    end_time: str | None = Query(None, description="结束时间，格式YYYY-MM-DD HH:mm:SS"),
-):
-    """获取交易日历信息
-
-    Args:
-        freq: 可选，指定频率，如'day'、'1min'、'1m'等
-        start_time: 可选，开始时间，格式YYYY-MM-DD HH:mm:SS
-        end_time: 可选，结束时间，格式YYYY-MM-DD HH:mm:SS
-
-    Returns:
-        ApiResponse: 包含交易日历信息的响应
-    """
-    try:
-        data_service = DataService()
-        result = data_service.get_calendars(freq, start_time, end_time)
-
-        if result["success"]:
-            return ApiResponse(code=0, message=result["message"], data=result["calendar"])
-        else:
-            return ApiResponse(code=1, message=result["message"], data={})
-    except Exception as e:
-        logger.error(f"获取交易日历失败: {e}")
-        logger.exception(e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/instruments", response_model=ApiResponse)
-def get_instruments(index_name: str | None = Query(None, description="指数名称")):
-    """获取成分股信息
-
-    Args:
-        index_name: 可选，指定指数名称
-
-    Returns:
-        ApiResponse: 包含成分股信息的响应
-    """
-    try:
-        data_service = DataService()
-        result = data_service.get_instruments(index_name)
-
-        if result["success"]:
-            if index_name:
-                return ApiResponse(code=0, message=result["message"], data=result["instrument"])
-            else:
-                return ApiResponse(code=0, message=result["message"], data=result["result"])
-        else:
-            return ApiResponse(
-                code=1,
-                message=result["message"],
-                data={"index_name": result["index_name"]},
-            )
-    except Exception as e:
-        logger.error(f"获取成分股失败: {e}")
-        logger.exception(e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/features", response_model=ApiResponse)
 def get_features(
     symbol: str | None = Query(None, description="货币名称"),
@@ -628,73 +521,6 @@ def get_symbol_features(symbol: str, db: Session = Depends(get_db)):
             return ApiResponse(code=1, message=result["message"], data={})
     except Exception as e:
         logger.error(f"获取货币特征失败: {e}")
-        logger.exception(e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/status", response_model=ApiResponse)
-def get_data_status():
-    """获取数据服务状态
-
-    Returns:
-        ApiResponse: 包含数据服务状态的响应
-    """
-    try:
-        data_service = DataService()
-        result = data_service.get_data_status()
-
-        if result["success"]:
-            return ApiResponse(code=0, message=result["message"], data=result["status"])
-        else:
-            return ApiResponse(code=1, message=result["message"], data={})
-    except Exception as e:
-        logger.error(f"获取数据服务状态失败: {e}")
-        logger.exception(e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/qlib/status", response_model=ApiResponse)
-def get_qlib_status():
-    """获取QLib状态
-
-    Returns:
-        ApiResponse: 包含QLib状态的响应
-    """
-    try:
-        data_service = DataService()
-        result = data_service.get_qlib_status()
-
-        if result["success"]:
-            return ApiResponse(code=0, message=result["message"], data=result["qlib_status"])
-        else:
-            return ApiResponse(code=1, message=result["message"], data={})
-    except Exception as e:
-        logger.error(f"获取QLib状态失败: {e}")
-        logger.exception(e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/qlib/reload", response_model=ApiResponse)
-def reload_qlib():
-    """重新加载QLib
-
-    Returns:
-        ApiResponse: 包含重新加载结果的响应
-    """
-    try:
-        data_service = DataService()
-        result = data_service.reload_qlib()
-
-        if result["success"]:
-            return ApiResponse(
-                code=0,
-                message=result["message"],
-                data={"qlib_dir": result["qlib_dir"], "data_info": result["data_info"]},
-            )
-        else:
-            return ApiResponse(code=1, message=result["message"], data={"qlib_dir": result["qlib_dir"]})
-    except Exception as e:
-        logger.error(f"QLib重新加载失败: {e}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
 

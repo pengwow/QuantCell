@@ -89,35 +89,6 @@ class DataDownloadRequest(BaseModel):
     )
 
 
-class DataConvertRequest(BaseModel):
-    """数据转换请求模型
-
-    Attributes:
-        csv_dir: CSV数据目录
-        qlib_dir: QLib数据保存目录
-        freq: 交易频率，如"day"、"1min"等
-        date_field_name: CSV中的日期字段名称
-        file_suffix: CSV文件后缀
-        symbol_field_name: CSV中的交易对字段名称
-        include_fields: 要转换的字段列表，逗号分隔
-        max_workers: 最大工作线程数
-        limit_nums: 限制转换的文件数量，用于调试
-    """
-
-    csv_dir: str = Field(..., description="CSV数据目录")
-    qlib_dir: str = Field(..., description="QLib数据保存目录")
-    freq: str = Field(default="day", description="交易频率，如'day'、'1min'等")
-    date_field_name: str = Field(default="date", description="CSV中的日期字段名称")
-    file_suffix: str = Field(default=".csv", description="CSV文件后缀")
-    symbol_field_name: str = Field(default="symbol", description="CSV中的交易对字段名称")
-    include_fields: str = Field(
-        default="date,open,high,low,close,volume",
-        description="要转换的字段列表，逗号分隔",
-    )
-    max_workers: int = Field(default=16, description="最大工作线程数")
-    limit_nums: int | None = Field(None, description="限制转换的文件数量，用于调试")
-
-
 class ScheduledTaskCreate(BaseModel):
     """定时任务创建请求模型
 

@@ -567,24 +567,53 @@ class AgentLoop:
         session_key: str = "default",
         on_stream: Callable[..., Awaitable[None]] | None = None,
     ):
+        """回调模式流式处理：事件实时推给 on_stream
+
+        如需 async-for 消费（如 SSE 接口），使用 iter_message_stream。
         """
-        流式处理消息 - 实时返回事件
+        return await self._run_message_stream(content, session_key, on_stream)
 
-        用法示例:
-            async for event in agent.process_message_stream("你好"):
-                print(event.event_type, event.data)
+    async def iter_message_stream(self, content: str, session_key: str = "default"):
+        """async-for 模式流式处理：将回调流桥接为异步迭代器
 
-            # 或者使用回调
-            await agent.process_message_stream("你好", on_stream=my_callback)
-
-        Args:
-            content: 用户消息内容
-            session_key: 会话标识
-            on_stream: 可选的事件回调函数 (event: StreamEvent) -> None
-
-        Yields:
-            StreamEvent: 流式事件（当不使用 on_stream 回调时）
+        事件经队列从后台任务转发，任务结束后以哨兵收尾；
+        后台任务的异常在消费侧重新抛出。
         """
+        queue: asyncio.Queue = asyncio.Queue()
+        done_sentinel = object()
+
+        async def _push(event):
+            await queue.put(event)
+
+        async def _runner():
+            try:
+                await self._run_message_stream(content, session_key, on_stream=_push)
+            except Exception as e:
+                # 后台任务的异常无法直接传给消费者，放入队列由消费侧抛出
+                await queue.put(e)
+            finally:
+                await queue.put(done_sentinel)
+
+        task = asyncio.create_task(_runner())
+        try:
+            while True:
+                item = await queue.get()
+                if item is done_sentinel:
+                    break
+                if isinstance(item, BaseException):
+                    raise item
+                yield item
+        finally:
+            # 消费者提前退出（如客户端断开）时停止后台任务
+            task.cancel()
+
+    async def _run_message_stream(
+        self,
+        content: str,
+        session_key: str = "default",
+        on_stream: Callable[..., Awaitable[None]] | None = None,
+    ):
+        """流式处理消息的主体实现：事件实时推给 on_stream 回调"""
         import time
 
         from .events import StreamEvent
@@ -661,7 +690,7 @@ class AgentLoop:
 
             raise
 
-        # 如果没有回调，返回空（实际使用时应该总是传入 on_stream 或使用 async for）
+        # 回调协议无返回值，事件均经 on_stream 推送
         return
 
     async def process_direct(

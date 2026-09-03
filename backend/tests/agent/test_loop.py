@@ -127,6 +127,44 @@ class TestAgentLoop:
         assert "complete" in event_types
 
     @pytest.mark.asyncio
+    async def test_iter_message_stream(self, temp_workspace):
+        """async-for 模式应转发全部流事件（SSE 桥接契约）"""
+        backend = FakeLLMBackend(
+            stream_chunks=[
+                {"type": "content", "content": "Stream response"},
+                {"type": "done", "finish_reason": "Stop"},
+            ]
+        )
+
+        agent = AgentLoop(
+            llm_backend=backend,
+            workspace=temp_workspace,
+        )
+
+        events = [event async for event in agent.iter_message_stream("Hello")]
+
+        assert len(events) > 0
+        event_types = [e.event_type for e in events]
+        assert "start" in event_types
+        assert "complete" in event_types
+
+    @pytest.mark.asyncio
+    async def test_iter_message_stream_propagates_error(self, temp_workspace):
+        """后台任务异常应经队列桥接在消费侧重新抛出"""
+        agent = AgentLoop(
+            llm_backend=FakeLLMBackend([]),
+            workspace=temp_workspace,
+        )
+
+        async def _boom(content, session_key, on_stream=None):
+            raise RuntimeError("boom")
+
+        agent._run_message_stream = _boom
+
+        with pytest.raises(RuntimeError, match="boom"):
+            _ = [event async for event in agent.iter_message_stream("Hello")]
+
+    @pytest.mark.asyncio
     async def test_max_iterations(self, temp_workspace):
         """测试最大迭代限制"""
         # 创建一个总是返回工具调用的 backend

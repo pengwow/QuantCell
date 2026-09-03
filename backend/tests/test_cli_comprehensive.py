@@ -384,17 +384,16 @@ class TestCLIAgent:
     """测试 agent CLI 模块"""
 
     def test_agent_help(self):
-        """测试 agent --help"""
+        """测试 agent --help：顶层应由命令组构成（与 cli/__init__.py 挂载一致）"""
         result = run_cli("agent", ["--help"])
         assert result.returncode == 0
-        assert "list" in result.stdout
-        assert "send" in result.stdout
-        assert "history" in result.stdout
-        assert "tools" in result.stdout
+        assert "session" in result.stdout
+        assert "chat" in result.stdout
+        assert "params" in result.stdout
 
     def test_agent_tools(self):
-        """测试显示工具列表"""
-        result = run_cli("agent", ["tools"])
+        """测试显示工具列表（params 命令组）"""
+        result = run_cli("agent", ["params", "tools"])
         assert result.returncode == 0
 
 

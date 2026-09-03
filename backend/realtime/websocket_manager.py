@@ -100,24 +100,21 @@ class WebSocketManager:
             logger.warning(f"交易所客户端不存在: {exchange_name}")
             return False
 
-        # 断开连接
-        asyncio.create_task(self._disconnect_client(exchange_name))
-
-        # 从客户端列表中移除
-        del self.clients[exchange_name]
+        # 先移除引用再异步断开，client 直接传入；
+        # 若任务内重新查表，会因条目已删除而永不执行断开（原泄漏点）
+        client = self.clients.pop(exchange_name)
+        asyncio.create_task(self._disconnect_client(client))
         logger.info(f"成功注销交易所客户端: {exchange_name}")
         return True
 
-    async def _disconnect_client(self, exchange_name: str) -> None:
+    async def _disconnect_client(self, client) -> None:
         """
         断开客户端连接（异步）
 
         Args:
-            exchange_name: 交易所名称
+            client: 交易所客户端实例
         """
-        if exchange_name in self.clients:
-            client = self.clients[exchange_name]
-            await client.disconnect()
+        await client.disconnect()
 
     def add_message_handler(self, handler: Callable[[dict[str, Any]], None]) -> None:
         """
