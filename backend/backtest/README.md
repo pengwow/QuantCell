@@ -2,15 +2,18 @@
 
 ## 概述
 
-回测模块提供量化交易策略的回测执行和分析功能。支持单货币对和多货币对回测，提供完整的回测结果分析和回放功能。
+回测模块提供量化交易策略的回测执行和分析功能。支持单货币对和多货币对回测，提供完整的回测结果分析。
 
 ## 功能特性
 
 - **策略回测**: 支持多种策略的回测执行
+
 - **多货币对回测**: 支持多货币对并行回测
+
 - **回测分析**: 提供详细的回测结果分析
+
 - **数据完整性检查**: 检查回测数据的完整性
-- **回放功能**: 支持回测结果的可视化回放
+
 - **结果管理**: 回测结果的保存、加载和删除
 
 ## 目录结构
@@ -31,28 +34,27 @@ backtest/
 
 ### 回测管理
 
-| 方法 | 端点 | 描述 |
-|------|------|------|
-| GET | `/api/backtest/list` | 获取回测列表 |
-| POST | `/api/backtest/run` | 执行回测 |
-| POST | `/api/backtest/stop` | 终止回测 |
-| GET | `/api/backtest/{backtest_id}` | 获取回测详情 |
+| 方法     | 端点                                   | 描述     |
+| ------ | ------------------------------------ | ------ |
+| GET    | `/api/backtest/list`                 | 获取回测列表 |
+| POST   | `/api/backtest/run`                  | 执行回测   |
+| POST   | `/api/backtest/stop`                 | 终止回测   |
+| GET    | `/api/backtest/{backtest_id}`        | 获取回测详情 |
 | DELETE | `/api/backtest/delete/{backtest_id}` | 删除回测结果 |
 
 ### 回测分析
 
-| 方法 | 端点 | 描述 |
-|------|------|------|
-| POST | `/api/backtest/analyze` | 分析回测结果 |
-| GET | `/api/backtest/{backtest_id}/symbols` | 获取回测货币对列表 |
-| GET | `/api/backtest/{backtest_id}/replay` | 获取回测回放数据 |
+| 方法   | 端点                                    | 描述        |
+| ---- | ------------------------------------- | --------- |
+| POST | `/api/backtest/analyze`               | 分析回测结果    |
+| GET  | `/api/backtest/{backtest_id}/symbols` | 获取回测货币对列表 |
 
 ### 数据管理
 
-| 方法 | 端点 | 描述 |
-|------|------|------|
-| POST | `/api/backtest/check-data` | 检查数据完整性 |
-| POST | `/api/backtest/download-data` | 下载缺失数据 |
+| 方法   | 端点                            | 描述      |
+| ---- | ----------------------------- | ------- |
+| POST | `/api/backtest/check-data`    | 检查数据完整性 |
+| POST | `/api/backtest/download-data` | 下载缺失数据  |
 
 ## 使用示例
 
@@ -92,9 +94,7 @@ backtests = service.list_backtest_results()
 
 # 分析回测结果
 analysis = service.analyze_backtest("backtest_id")
-
-# 获取回放数据
-replay_data = service.get_replay_data("backtest_id", symbol="BTCUSDT")
+# 返回 {"status": "success", "backtest_id": ..., "analysis": {...}}
 ```
 
 ## 数据模型
@@ -142,8 +142,11 @@ class BacktestResult(BaseModel):
 ## 依赖
 
 - FastAPI: Web框架
+
 - Pydantic: 数据验证
+
 - Pandas: 数据处理
+
 - Loguru: 日志记录
 
 ## 注意事项
@@ -152,3 +155,4 @@ class BacktestResult(BaseModel):
 2. 多货币对回测会并行执行
 3. 回测结果会保存到文件系统和数据库
 4. 数据完整性检查会在回测前自动执行
+

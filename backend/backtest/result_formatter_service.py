@@ -410,10 +410,8 @@ class ResultFormatterService:
         initial_capital = results.get("initial_capital", 100000.0)
         final_nav = results.get("final_nav", 0.0)
         total_pnl = results.get("total_pnl", 0.0)
-        results.get("fills", 0)
         trade_count = results.get("trade_count", 0)
         max_dd_pct = results.get("max_drawdown_pct", 0.0)
-        results.get("max_drawdown", 0.0)
         win_rate = results.get("win_rate", 0.0)
         sharpe_ratio = results.get("sharpe_ratio", 0.0)
         total_fees = results.get("total_fees", 0.0)
@@ -673,9 +671,6 @@ class ResultFormatterService:
                 "type": "number",
             },
         ]
-
-        # 同时保留 dict 格式供内部使用
-        {m["key"]: m["value"] for m in metrics_list}
 
         formatted = {
             key: {

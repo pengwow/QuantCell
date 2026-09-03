@@ -266,43 +266,6 @@ def list_strategies(
 
 
 @app.command()
-def plot(
-    input_file: Annotated[str, Option("--input-file", "-i", help="输入结果文件")],
-    output_format: Annotated[str, Option("--format", "-o", help="输出格式(png/html/svg)")] = "html",
-    output_dir: Annotated[str, Option("--output-dir", "-d", help="输出目录")] = "./backtest_results",
-):
-    """绘制回测结果图表"""
-    console = Console()
-
-    input_path = Path(input_file)
-
-    if not input_path.exists():
-        console.print(f"[red]❌ 输入文件不存在: {input_file}[/red]")
-        raise typer.Exit(1)
-
-    try:
-        with open(input_path, encoding="utf-8") as f:
-            results = json.load(f)
-
-        from backtest.plot_utils import plot_backtest_results
-
-        plot_path = plot_backtest_results(results, output_format=output_format, output_dir=output_dir)
-
-        console.print("\n[bold green]✅ 图表生成成功![/bold green]")
-        console.print(f"📍 输出路径: {plot_path}")
-
-        if output_format == "html":
-            import webbrowser
-
-            webbrowser.open("file://" + str(Path(plot_path).absolute()))
-
-    except Exception as e:
-        logger.error(f"绘制图表失败: {e}")
-        console.print(f"[red]❌ 绘制失败: {e}[/red]")
-        raise typer.Exit(1)
-
-
-@app.command()
 def show(
     result_id: Annotated[int | None, Option("--id", help="结果ID")] = None,
     latest: Annotated[bool, Option("--latest/-l", help="显示最新结果")] = True,

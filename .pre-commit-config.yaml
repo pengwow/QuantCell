@@ -4,5 +4,7 @@ repos:
     hooks:
       - id: ruff
         args: [--fix]
+        # 归档的废弃代码不参与 lint（.trae_deleted 在根目录，也不在 backend/ruff.toml 配置管辖内）
+        exclude: ^\.trae_deleted/
       - id: ruff-format
         files: ^backend/

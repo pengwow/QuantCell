@@ -20,6 +20,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from backtest.result_analysis import ResultAnalyzer
+
 
 class BacktestService:
     """
@@ -449,56 +451,30 @@ class BacktestService:
         """
         分析回测结果
 
+        读取结果文件并用 ResultAnalyzer 做统计分析，
+        兼容传统单品种与 axon 单/多品种结果格式。
+
         Args:
             backtest_id: 回测ID
 
         Returns:
             dict: 分析结果
         """
-        try:
-            result_id = int(backtest_id) if backtest_id.isdigit() else backtest_id
-        except ValueError, AttributeError:
-            result_id = backtest_id
-
-        result = self.get_result(result_id)
+        result = self.get_result(backtest_id)
         if not result:
             return {"status": "error", "message": "回测结果不存在"}
 
-        return {
-            "status": "success",
-            "metrics": result.get("results", {}).get("stats", {}),
-            "trades": [],
-            "equity_curve": [],
-        }
+        raw_result = result.get("results")
+        if not isinstance(raw_result, dict) or not raw_result:
+            return {"status": "error", "message": "回测结果为空或格式无效"}
 
-    def get_replay_data(self, backtest_id: str, symbol: str | None = None) -> dict[str, Any]:
-        """
-        获取回测回放数据
-
-        Args:
-            backtest_id: 回测ID
-            symbol: 可选，指定货币对
-
-        Returns:
-            dict: 回放数据
-        """
         try:
-            result_id = int(backtest_id) if backtest_id.isdigit() else backtest_id
-        except ValueError, AttributeError:
-            result_id = backtest_id
+            analysis = ResultAnalyzer().analyze(raw_result)
+        except Exception as e:
+            self.logger.error(f"回测结果分析失败: {e}")
+            return {"status": "error", "message": f"回测结果分析失败: {e}"}
 
-        result = self.get_result(result_id)
-        if not result:
-            return {"status": "error", "message": "回测不存在"}
-
-        return {
-            "status": "success",
-            "data": {
-                "kline_data": [],
-                "trade_signals": [],
-                "equity_data": [],
-            },
-        }
+        return {"status": "success", "backtest_id": backtest_id, "analysis": analysis}
 
     def upload_strategy_file(self, strategy_name: str, file_content: str) -> bool:
         """

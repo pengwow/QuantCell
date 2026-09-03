@@ -7,7 +7,6 @@
     - 策略回测执行
     - 回测结果分析
     - 回测数据管理
-    - 回测回放功能
     - 事件驱动引擎支持
 
 使用示例:
@@ -24,7 +23,6 @@
     - routes.py: API路由定义
     - schemas.py: 数据模型定义
     - engines/: 回测引擎实现
-    - adapters/: 数据适配器
     - strategies/: 策略基类
 
 作者: QuantCell Team
@@ -58,18 +56,6 @@ def __getattr__(name):
         from .strategies.event_strategy import EventDrivenStrategyConfig
 
         return EventDrivenStrategyConfig
-    if name == "kline_to_bars":
-        from .adapters.data_adapter import kline_to_bars
-
-        return kline_to_bars
-    if name == "load_bars_from_csv":
-        from .adapters.data_adapter import load_bars_from_csv
-
-        return load_bars_from_csv
-    if name == "load_bars_from_parquet":
-        from .adapters.data_adapter import load_bars_from_parquet
-
-        return load_bars_from_parquet
     # schemas 中的类
     if name in [
         "BacktestConfig",
@@ -83,7 +69,6 @@ def __getattr__(name):
         "BacktestDeleteRequest",
         "BacktestStopRequest",
         "StrategyConfigRequest",
-        "BacktestReplayRequest",
         "DataIntegrityCheckRequest",
         "DataIntegrityCheckResponse",
         "DataDownloadResponse",
@@ -91,7 +76,6 @@ def __getattr__(name):
         "EquityPoint",
         "BacktestResult",
         "MultiBacktestResult",
-        "ReplayData",
     ]:
         from . import schemas
 
@@ -107,7 +91,6 @@ __all__ = [
     "BacktestDeleteRequest",
     "BacktestListRequest",
     "BacktestListResponse",
-    "BacktestReplayRequest",
     "BacktestResult",
     "BacktestRunRequest",
     "BacktestRunResponse",
@@ -122,12 +105,8 @@ __all__ = [
     "EventDrivenStrategy",
     "EventDrivenStrategyConfig",
     "MultiBacktestResult",
-    "ReplayData",
     "StrategyConfig",
     "StrategyConfigRequest",
     "TradeItem",
-    "kline_to_bars",
-    "load_bars_from_csv",
-    "load_bars_from_parquet",
     "router",
 ]

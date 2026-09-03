@@ -11,6 +11,7 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -33,6 +34,15 @@ def _format_ts_iso(ts_ns: int) -> str:
         return datetime.fromtimestamp(ts_ns / 1e9).strftime("%Y-%m-%d %H:%M:%S")
     except OSError, OverflowError, ValueError:
         return str(ts_ns)
+
+
+def _metrics_to_dict(raw_metrics: Any) -> dict[str, Any]:
+    """指标归一化：format_axon_results 产出 [{key, value, ...}] 列表格式，统一转 {key: value}"""
+    if isinstance(raw_metrics, dict):
+        return raw_metrics
+    if isinstance(raw_metrics, list):
+        return {m["key"]: m["value"] for m in raw_metrics if isinstance(m, dict) and "key" in m}
+    return {}
 
 
 def _print_data_range(metrics_or_result: dict) -> None:
@@ -105,23 +115,43 @@ class QuantCellJSONEncoder(json.JSONEncoder):
 class ResultAnalyzer:
     """回测结果分析器"""
 
+    # 结果字典中的框架键，不是真实品种结果，分析时跳过
+    _FRAMEWORK_KEYS = frozenset(
+        {
+            "portfolio",
+            "account",
+            "_meta",
+            "strategy_name",
+            "symbols",
+            "timeframe",
+            "is_multi_symbol",
+            "results_by_symbol",
+        }
+    )
+
     def analyze(self, results: dict[str, Any]) -> dict[str, Any]:
         """
         分析回测结果
 
         参数：
-            results: 回测结果字典，格式为 {symbol_timeframe: result} 或包含 portfolio 键
+            results: 回测结果字典，兼容三种形态：
+                - 传统单品种: {symbol_timeframe: result}
+                - axon 单品种 format_axon_results: {symbol_tf: {...}, account, portfolio, _meta}
+                - axon 多品种 _format_results: {is_multi_symbol, results_by_symbol, portfolio, ...}
 
         返回：
             Dict[str, Any]: 分析后的结果摘要
         """
-        # 检查是否是投资组合回测结果
-        if "portfolio" in results:
+        if not isinstance(results, dict):
+            results = {}
+
+        # 带 portfolio 键的组合结果（axon 格式的单品种/多品种都带 portfolio）
+        if isinstance(results.get("portfolio"), dict):
             return self._analyze_portfolio_results(results)
 
         # 传统单交易对回测结果
         summary = {
-            "total_symbols": len(results),
+            "total_symbols": 0,
             "total_trades": 0,
             "total_pnl": 0.0,
             "avg_win_rate": 0.0,
@@ -133,6 +163,10 @@ class ResultAnalyzer:
         sharpe_ratios = []
 
         for key, result in results.items():
+            # 跳过框架键和非 dict 值（如 strategy_name、_meta 等标量/列表字段）
+            if key in self._FRAMEWORK_KEYS or not isinstance(result, dict):
+                continue
+
             symbol_summary = self._analyze_single_result(key, result)
             summary["symbols"].append(symbol_summary)
 
@@ -145,6 +179,8 @@ class ResultAnalyzer:
             if "sharpe_ratio" in symbol_summary:
                 sharpe_ratios.append(symbol_summary["sharpe_ratio"])
 
+        summary["total_symbols"] = len(summary["symbols"])
+
         # 计算平均值
         if win_rates:
             summary["avg_win_rate"] = sum(win_rates) / len(win_rates)
@@ -154,13 +190,12 @@ class ResultAnalyzer:
         return summary
 
     def _analyze_portfolio_results(self, results: dict[str, Any]) -> dict[str, Any]:
-        """分析投资组合回测结果"""
-        portfolio = results.get("portfolio", {})
-        portfolio_metrics = portfolio.get("metrics", {})
+        """分析投资组合回测结果（portfolio.metrics 为列表格式，归一化后取值）"""
+        portfolio_metrics = _metrics_to_dict(results["portfolio"].get("metrics", {}))
 
         summary = {
             "is_portfolio": True,
-            "total_symbols": len([k for k in results if k != "portfolio"]),
+            "total_symbols": 0,
             "total_trades": portfolio_metrics.get("total_trades", 0),
             "total_pnl": portfolio_metrics.get("total_pnl", 0.0),
             "win_rate": portfolio_metrics.get("win_rate", 0.0),
@@ -172,41 +207,52 @@ class ResultAnalyzer:
             "symbols": [],
         }
 
-        # 分析各交易对
-        for key, result in results.items():
-            if key == "portfolio":
+        # 分析各交易对：多品种在 results_by_symbol，其余从顶层非框架键提取
+        # （results_by_symbol 优先，避免与顶层键重复时按品种名去重）
+        symbol_sources = [results.get("results_by_symbol", {}), results]
+        seen: set[str] = set()
+
+        for source in symbol_sources:
+            if not isinstance(source, dict):
                 continue
+            for key, result in source.items():
+                if key == "portfolio" or key in self._FRAMEWORK_KEYS or not isinstance(result, dict):
+                    continue
+                if key in seen:
+                    continue
+                seen.add(key)
+                summary["symbols"].append(self._analyze_single_result(key, result))
 
-            symbol_summary = self._analyze_single_result(key, result)
-            summary["symbols"].append(symbol_summary)
-
+        summary["total_symbols"] = len(summary["symbols"])
         return summary
 
     def _analyze_single_result(self, key: str, result: dict[str, Any]) -> dict[str, Any]:
-        """分析单个交易对的结果"""
+        """分析单个交易对的结果（metrics 兼容 list 与 dict 两种格式）"""
         # 解析symbol和timeframe
         parts = key.split("_")
         symbol = parts[0] if parts else key
         timeframe = parts[1] if len(parts) > 1 else "unknown"
 
+        result = result if isinstance(result, dict) else {}
+
         # 获取资金曲线
-        cash = result.get("cash", [])
+        cash = result.get("cash") or []
         init_cash = cash[0] if len(cash) > 0 else 0.0
         final_cash = cash[-1] if len(cash) > 0 else 0.0
 
         # 获取持仓
-        positions = result.get("positions", [])
+        positions = result.get("positions") or []
         if isinstance(positions, np.ndarray) and positions.ndim > 1:
             final_position = positions[-1, 0] if len(positions) > 0 else 0.0
         else:
             final_position = positions[-1] if len(positions) > 0 else 0.0
 
         # 获取交易数量
-        trades = result.get("trades", [])
+        trades = result.get("trades") or []
         trade_count = len(trades)
 
-        # 获取指标
-        metrics = result.get("metrics", {})
+        # 获取指标（format_axon_results 产出 list 格式，统一转 dict）
+        metrics = _metrics_to_dict(result.get("metrics", {}))
 
         return {
             "key": key,
@@ -785,11 +831,11 @@ def save_results(results: dict[str, Any], output_file: str, output_format: str =
 
 def output_results(results: dict[str, Any], output_format: str = "json", output_file: str | None = None) -> str:
     """
-    输出回测结果
+    输出回测结果：落盘到 JSON/CSV，屏幕上仅打印各品种的数据时间范围
 
     参数：
         results: 回测结果
-        output_format: 输出格式
+        output_format: 输出格式（table/both 是屏幕输出意图，落盘统一转 JSON）
         output_file: 输出文件路径，None则自动生成
 
     返回：
@@ -797,8 +843,6 @@ def output_results(results: dict[str, Any], output_format: str = "json", output_
     """
     # 如果没有指定输出文件，自动生成（使用统一的标准目录）
     if output_file is None:
-        from pathlib import Path
-
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # 统一保存到 logs/backtest/ 目录（与 cli.py 保持一致）
@@ -815,186 +859,31 @@ def output_results(results: dict[str, Any], output_format: str = "json", output_
         if save_format not in {"json", "csv"}:
             save_format = "json"
 
-    # 分离正常结果和失败信息
     normal_results = {k: v for k, v in results.items() if not k.startswith("_")}
-    download_failures = results.get("_download_failures", [])
-    incomplete_data_info = results.get("_incomplete_data_info", [])
-
-    # 检查是否是投资组合回测结果
-    is_portfolio = "portfolio" in normal_results
-    # 多品种回测(axon 适配层格式):顶层有 is_multi_symbol=True + results_by_symbol + 6 个其他键
-    # 旧逻辑把它当单品种,统计 len(normal_results) = 6 → 2 个品种显示 6 个货币对
+    # 组合结果判定：format_axon_results(单品种) 与 _format_results(多品种) 都带 portfolio 键
+    is_portfolio = isinstance(normal_results.get("portfolio"), dict)
     is_multi_symbol = normal_results.get("is_multi_symbol", False) is True
-    # 多品种路径当作 portfolio-like 处理(共享 metrics 摘要 + 子 symbol 列表)
-    is_aggregated = is_portfolio or is_multi_symbol
 
-    # 打印结果摘要
-    if is_portfolio or is_multi_symbol:
-        pass
-    else:
-        pass
+    # 打印组合级数据时间范围
+    if is_portfolio:
+        _print_data_range(_metrics_to_dict(normal_results["portfolio"].get("metrics", {})))
 
-    # 投资组合回测：先打印组合整体信息
-    # 多品种(axond 汇总)也走这一段,但 metrics 从 normal_results['metrics'] 取
-    if is_aggregated:
-        if is_portfolio:
-            portfolio = normal_results["portfolio"]
-            raw_metrics = portfolio.get("metrics", {})
-            # format_axon_results 返回的 metrics 是 [{key, value, ...}, ...] 列表格式
-            # 这里统一转为 {key: value} dict 格式
-            if isinstance(raw_metrics, list):
-                portfolio_metrics = {m["key"]: m["value"] for m in raw_metrics if "key" in m}
-            else:
-                portfolio_metrics = raw_metrics
-        else:
-            # 多品种路径 metrics 在 normal_results['metrics'],非 portfolio
-            portfolio_metrics = normal_results.get("metrics", {})
-
-        # 跨品种总交易次数:多品种累加输出 trade_count 字段,投资组合用 total_trades
-        # (axon 适配层没 total_trades 字段,实际数据放在 trade_count)
-        if is_multi_symbol:
-            portfolio_metrics.get("trade_count", 0)
-        else:
-            portfolio_metrics.get("total_trades", 0)
-
-        # win_rate / max_drawdown 在 format_axon_results 中已经是百分比值(如 47.83),
-        # 直接显示即可,不再 *100
-        _print_data_range(portfolio_metrics)
-
-    # 打印成功回测的结果
-    # 多品种(axond 汇总):交易对数据在 normal_results['results_by_symbol']
-    # 投资组合回测：交易对数据在 'symbols' 键内部
-    if is_portfolio and "symbols" in normal_results:
-        symbol_results = normal_results["symbols"]
-    elif is_multi_symbol and "results_by_symbol" in normal_results:
-        symbol_results = normal_results["results_by_symbol"]
-    else:
+    # 打印各品种的数据时间范围
+    # 多品种：交易对数据在 results_by_symbol；其余直接取顶层
+    symbol_results = normal_results.get("results_by_symbol") if is_multi_symbol else None
+    if not isinstance(symbol_results, dict):
         symbol_results = normal_results
 
     for key, result in symbol_results.items():
-        # 跳过非交易对的键（如 portfolio, account, _meta, framework 键等）
-        if key in (
-            "portfolio",
-            "account",
-            "_meta",
-            "strategy_name",
-            "symbols",
-            "timeframe",
-            "is_multi_symbol",
-            "results_by_symbol",
-            "metrics",
-        ):
+        # 跳过框架键和非交易对数据
+        if key.startswith("_") or key in ResultAnalyzer._FRAMEWORK_KEYS:
             continue
-
-        # 检查结果是否包含交易对数据的基本字段
         if not isinstance(result, dict) or "symbol" not in result:
             continue
-
-        result.get("symbol", key)
-
-        # 投资组合 / 多品种回测显示不同的信息
-        if is_aggregated:
-            # 从该交易对的结果中获取交易记录和盈亏
-            symbol_trades = result.get("trades", [])
-            raw_symbol_metrics = result.get("metrics", {})
-            if isinstance(raw_symbol_metrics, list):
-                symbol_metrics = {m["key"]: m["value"] for m in raw_symbol_metrics if "key" in m}
-            else:
-                symbol_metrics = raw_symbol_metrics
-            symbol_metrics.get("total_pnl", 0)
-            # 统一统计口径:多品种路径 trades 顶层(由 _aggregate_multi_results 透传) +
-            # metrics.trade_count 双兜底;单投资组合只用 trades
-            if is_multi_symbol:
-                (len(symbol_trades) if symbol_trades else symbol_metrics.get("trade_count", 0))
-            else:
-                (len(symbol_trades) if symbol_trades else symbol_metrics.get("total_trades", 0))
-        else:
-            # 传统回测显示完整信息
-            # 资金信息
-            cash = result.get("cash", [])
-            cash[0] if len(cash) > 0 else 0.0
-            cash[-1] if len(cash) > 0 else 0.0
-
-            # 持仓信息
-            positions = result.get("positions", [])
-            if isinstance(positions, np.ndarray) and positions.ndim > 1:
-                positions[-1, 0] if len(positions) > 0 else 0.0
-            else:
-                positions[-1] if len(positions) > 0 else 0.0
-
-            # 交易数量:
-            # 优先从 result.trades 取(事件驱动有 trade records);
-            # axon 适配层没 trade records,用 metrics.fills 替代(撮合成交笔数
-            # 在回测场景下 = 交易笔数)
-            trades = result.get("trades", [])
-            raw_metrics_inner = result.get("metrics", {})
-            if isinstance(raw_metrics_inner, list):
-                metrics_inner = {m["key"]: m["value"] for m in raw_metrics_inner if "key" in m}
-            else:
-                metrics_inner = raw_metrics_inner
-            len(trades) if trades else metrics_inner.get("total_trades", 0)
-            # 回测数据时间范围(纳秒 → ISO)
-            _print_data_range(metrics_inner)
-
-            # 指标
-            if isinstance(raw_metrics_inner, list):
-                metrics = {m["key"]: m["value"] for m in raw_metrics_inner if "key" in m}
-            else:
-                metrics = raw_metrics_inner
-            for metric_value in metrics.values():
-                if isinstance(metric_value, float):
-                    pass
-                else:
-                    pass
-
-    # 打印数据加载失败信息
-    if download_failures:
-        # 按失败类型分组
-        no_data_failures = [f for f in download_failures if f.get("failure_type") == "no_data_available"]
-        other_failures = [f for f in download_failures if f.get("failure_type") != "no_data_available"]
-
-        if no_data_failures:
-            for _failure in no_data_failures:
-                pass
-
-        if other_failures:
-            for _failure in other_failures:
-                pass
-
-    # 打印数据不完整警告信息
-    if incomplete_data_info:
-        for info in incomplete_data_info:
-            info["symbol"]
-            info["timeframe"]
-            info.get("coverage_percent", 0)
-            info.get("missing_percent", 0)
-            if info.get("warnings"):
-                for _warning in info["warnings"]:
-                    pass
-
-    # 打印统计摘要
-    if is_aggregated:
-        if is_multi_symbol:
-            # 多品种(axond 汇总)symbol_count 直接读 results_by_symbol 长度
-            # 旧逻辑用 len(normal_results) = 6 (5 个框架键 + results_by_symbol) → 2 个品种显示 6 个
-            len(normal_results.get("results_by_symbol", {}))
-        else:
-            # 投资组合:排除 portfolio / account 框架键
-            len([k for k in normal_results if k not in ("portfolio", "account")])
-        if is_portfolio:
-            pass
-    else:
-        pass
-    if incomplete_data_info:
-        pass
-    if download_failures:
-        pass
+        _print_data_range(_metrics_to_dict(result.get("metrics", {})))
 
     # 保存结果（使用 save_format，而非屏幕输出格式）
-    if save_results(results, output_file, save_format):
-        Path(output_file).resolve()
-    else:
-        pass
+    save_results(results, output_file, save_format)
 
     return output_file
 

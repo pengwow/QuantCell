@@ -303,34 +303,6 @@ class BacktestListResponse(ApiResponse):
     data: dict[str, Any] | None = Field(default=None, description="回测列表数据")
 
 
-class ReplayData(BaseSchema):
-    """
-    回放数据模型
-
-    Attributes:
-        kline: K线数据
-        trades: 交易信号
-        equity: 资金曲线
-        indicators: 技术指标数据
-    """
-
-    kline: list[dict[str, Any]] = Field(..., description="K线数据")
-    trades: list[dict[str, Any]] = Field(..., description="交易信号")
-    equity: list[dict[str, Any]] = Field(..., description="资金曲线")
-    indicators: dict[str, list[dict[str, Any]]] = Field(..., description="技术指标数据")
-
-
-class BacktestReplayResponse(ApiResponse):
-    """
-    回测回放数据响应
-
-    Attributes:
-        data: 回放数据
-    """
-
-    data: ReplayData | None = Field(default=None, description="回放数据")
-
-
 class BacktestListRequest(PaginationRequest):
     """
     回测列表请求模型
@@ -389,26 +361,6 @@ class StrategyConfigRequest(BaseSchema):
     params: dict[str, Any] = Field(
         default_factory=dict,
         description="策略参数",
-    )
-
-
-class BacktestReplayRequest(BaseSchema):
-    """
-    回测回放请求模型
-
-    Attributes:
-        backtest_id: 回测ID
-        symbol: 货币对，用于多货币对回测结果筛选
-    """
-
-    backtest_id: str = Field(
-        ...,
-        min_length=1,
-        description="回测ID",
-    )
-    symbol: str | None = Field(
-        default=None,
-        description="货币对，用于多货币对回测结果筛选",
     )
 
 
