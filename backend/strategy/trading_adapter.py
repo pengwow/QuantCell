@@ -23,6 +23,7 @@ from typing import Any
 
 # 使用项目日志系统
 from utils.logger import LogType, get_logger
+from utils.timestamp_utils import utc_now_naive
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.STRATEGY)
@@ -157,7 +158,7 @@ class TradingStrategyAdapter:
         2. 调用 QuantCell 策略的 on_start 方法
         3. 输出启动日志
         """
-        self._start_time = datetime.utcnow()
+        self._start_time = utc_now_naive()
         logger.info(f"策略启动: {type(self.qc_strategy).__name__}, 时间={self._start_time.isoformat()}")
 
         try:
@@ -176,7 +177,7 @@ class TradingStrategyAdapter:
         2. 输出统计日志
         3. 清理资源
         """
-        end_time = datetime.utcnow()
+        end_time = utc_now_naive()
         duration = None
         if self._start_time:
             duration = end_time - self._start_time
@@ -407,7 +408,7 @@ def convert_bar_to_qc(bar: Any) -> QCBar:
             low=float(getattr(bar, "low", 0)),
             close=float(getattr(bar, "close", 0)),
             volume=float(getattr(bar, "volume", 0)),
-            timestamp=datetime.utcnow(),
+            timestamp=utc_now_naive(),
             ts_event=0,
         )
 
@@ -451,7 +452,7 @@ def convert_tick_to_qc(tick: Any) -> dict[str, Any]:
             timestamp = datetime.fromtimestamp(tick.ts_event / 1e9)
             ts_event = tick.ts_event
         else:
-            timestamp = datetime.utcnow()
+            timestamp = utc_now_naive()
             ts_event = 0
 
         # 提取品种信息
@@ -618,7 +619,7 @@ def convert_position_to_qc(position: Any) -> dict[str, Any]:
             timestamp = datetime.fromtimestamp(position.ts_opened / 1e9)
             ts_opened = position.ts_opened
         else:
-            timestamp = datetime.utcnow()
+            timestamp = utc_now_naive()
             ts_opened = 0
 
         # 构建 QuantCell 持仓字典

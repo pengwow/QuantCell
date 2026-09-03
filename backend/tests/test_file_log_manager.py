@@ -23,6 +23,7 @@ from utils.file_log_manager import (
     PaginatedResult,
 )
 from utils.logger import LogLevel, LogRecord, LogType
+from utils.timestamp_utils import utc_now_naive
 
 
 @pytest.fixture(scope="function")
@@ -87,7 +88,7 @@ class TestLogWriting:
     def test_write_single_log(self, file_manager):
         """测试写入单条日志"""
         record = LogRecord(
-            timestamp=datetime.utcnow(),
+            timestamp=utc_now_naive(),
             level=LogLevel.INFO.value,
             message="测试日志消息",
             module="test_module",
@@ -106,7 +107,7 @@ class TestLogWriting:
         records = []
         for i in range(10):
             record = LogRecord(
-                timestamp=datetime.utcnow(),
+                timestamp=utc_now_naive(),
                 level=LogLevel.INFO.value,
                 message=f"批量测试消息 {i}",
                 module="test_module",
@@ -126,7 +127,7 @@ class TestLogWriting:
 
         for log_type in types:
             record = LogRecord(
-                timestamp=datetime.utcnow(),
+                timestamp=utc_now_naive(),
                 level=LogLevel.INFO.value,
                 message=f"{log_type.value} 类型日志",
                 module="test_module",
@@ -145,7 +146,7 @@ class TestLogWriting:
         )
 
         record = LogRecord(
-            timestamp=datetime.utcnow(),
+            timestamp=utc_now_naive(),
             level=LogLevel.ERROR.value,
             message="发生错误",
             module="test_module",
@@ -171,7 +172,7 @@ class TestLogQuerying:
             log_type = [LogType.SYSTEM, LogType.APPLICATION, LogType.API][i % 3]
 
             record = LogRecord(
-                timestamp=datetime.utcnow() - timedelta(minutes=i),
+                timestamp=utc_now_naive() - timedelta(minutes=i),
                 level=level.value,
                 message=f"测试消息 {i}: {''.join(['word'] * (i % 5 + 1))}",
                 module=f"module_{i % 3}",
@@ -256,7 +257,7 @@ class TestLogQuerying:
         """测试时间范围过滤"""
         self._setup_test_data(file_manager, 20)
 
-        now = datetime.utcnow()
+        now = utc_now_naive()
         start_time = now - timedelta(minutes=10)
         end_time = now - timedelta(minutes=5)
 
@@ -277,7 +278,7 @@ class TestStatistics:
         levels = [LogLevel.INFO] * 10 + [LogLevel.ERROR] * 5 + [LogLevel.WARNING] * 3
         for i, level in enumerate(levels):
             record = LogRecord(
-                timestamp=datetime.utcnow(),
+                timestamp=utc_now_naive(),
                 level=level.value,
                 message=f"统计测试 {i}",
                 module="stat_module",
@@ -305,7 +306,7 @@ class TestRecentLogs:
         # 写入一些历史日志
         for i in range(10):
             record = LogRecord(
-                timestamp=datetime.utcnow() - timedelta(minutes=i * 10),
+                timestamp=utc_now_naive() - timedelta(minutes=i * 10),
                 level=LogLevel.INFO.value,
                 message=f"最近日志 {i}",
                 module="recent_module",
@@ -329,7 +330,7 @@ class TestRecentLogs:
         """测试带级别过滤的最近日志"""
         for i, level in enumerate([LogLevel.INFO, LogLevel.ERROR, LogLevel.WARNING]):
             record = LogRecord(
-                timestamp=datetime.utcnow() - timedelta(minutes=i),
+                timestamp=utc_now_naive() - timedelta(minutes=i),
                 level=level.value,
                 message=f"过滤测试 {i}",
                 module="filter_module",
@@ -355,12 +356,12 @@ class TestCleanup:
         base_path.mkdir(parents=True, exist_ok=True)
 
         # 创建一个"旧"日志文件（30天前）
-        old_date = datetime.utcnow() - timedelta(days=35)
+        old_date = utc_now_naive() - timedelta(days=35)
         old_file = base_path / f"application_{old_date.strftime('%Y%m%d')}.log"
         old_file.write_text("old log entry\n")
 
         # 创建一个"新"日志文件（昨天）
-        yesterday = datetime.utcnow() - timedelta(days=1)
+        yesterday = utc_now_naive() - timedelta(days=1)
         new_file = base_path / f"application_{yesterday.strftime('%Y%m%d')}.log"
         new_file.write_text("new log entry\n")
 
@@ -390,7 +391,7 @@ class TestLogQueryEngine:
         # 写入测试数据
         for i in range(20):
             record = LogRecord(
-                timestamp=datetime.utcnow() - timedelta(minutes=i),
+                timestamp=utc_now_naive() - timedelta(minutes=i),
                 level=[LogLevel.INFO.value, LogLevel.ERROR.value][i % 2],
                 message=f"引擎测试消息 {i}",
                 module="engine_module",
@@ -488,7 +489,7 @@ class TestEdgeCases:
 
         for msg in special_messages:
             record = LogRecord(
-                timestamp=datetime.utcnow(),
+                timestamp=utc_now_naive(),
                 level=LogLevel.INFO.value,
                 message=msg,
                 module="special_module",
@@ -511,7 +512,7 @@ class TestEdgeCases:
         long_message = "x" * 10000
 
         record = LogRecord(
-            timestamp=datetime.utcnow(),
+            timestamp=utc_now_naive(),
             level=LogLevel.INFO.value,
             message=long_message,
             module="long_module",

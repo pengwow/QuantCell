@@ -45,6 +45,16 @@ logger = logging.getLogger(__name__)
 Precision = Literal["s", "ms", "us", "ns", "auto"]
 
 
+def utc_now_naive() -> datetime:
+    """当前 UTC 时间的 naive datetime，语义等价已弃用的 datetime.utcnow()。
+
+    既有 DB 字段（如 MarketData.last_update）与多处业务比较均基于 naive UTC，
+    直接迁移 aware datetime 会触发 naive/aware 比较的 TypeError，
+    故保持 naive 语义，仅消除弃用告警。
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 def detect_precision(timestamp: str | int) -> str:
     """
     检测时间戳的精度

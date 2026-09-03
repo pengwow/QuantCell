@@ -1,7 +1,7 @@
 # K线数据工厂类，实现基于工厂模式的统一数据获取接口
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import UTC, datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from utils.logger import LogType, get_logger
@@ -421,9 +421,7 @@ class CryptoSpotKlineFetcher(BaseKlineFetcher):
         Returns:
             tuple[bool, str]: (是否过期, 原因)
         """
-        from datetime import datetime
-
-        now = int(datetime.utcnow().timestamp() * 1000)
+        now = int(datetime.now(UTC).timestamp() * 1000)
 
         # 计算K线周期对应的毫秒数
         interval_ms = self._get_interval_ms(interval)

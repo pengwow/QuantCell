@@ -16,6 +16,7 @@ from utils.file_log_manager import (
     PaginatedResult,
     get_file_log_manager,
 )
+from utils.timestamp_utils import utc_now_naive
 
 
 class QueryCache:
@@ -330,7 +331,7 @@ class LogQueryEngine:
         """
         start_time_perf = time.perf_counter()
 
-        end_time = datetime.utcnow()
+        end_time = utc_now_naive()
         start_time = end_time.replace(hour=0, minute=0, second=0, microsecond=0)
         start_time = start_time.replace(day=end_time.day - (hours // 24))
 
