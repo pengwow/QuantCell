@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from utils.timestamp_utils import utc_now_naive
+
 if TYPE_CHECKING:
     from utils.logger import LogRecord
 
@@ -101,7 +103,7 @@ class FileLogManager:
             Path: 日志文件路径
         """
         if date is None:
-            date = datetime.utcnow()
+            date = utc_now_naive()
 
         # 创建类型子目录
         type_dir = self.base_log_dir / log_type
@@ -269,7 +271,7 @@ class FileLogManager:
         Returns:
             List[Dict]: 日志列表
         """
-        end_time = datetime.utcnow()
+        end_time = utc_now_naive()
         start_time = end_time - timedelta(minutes=minutes)
 
         filters = LogFilters(start_time=start_time, end_time=end_time, level=level)
@@ -334,7 +336,7 @@ class FileLogManager:
         Returns:
             int: 删除的文件数量
         """
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = utc_now_naive() - timedelta(days=days)
         deleted_count = 0
 
         try:

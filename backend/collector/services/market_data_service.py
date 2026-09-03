@@ -6,6 +6,7 @@
 from datetime import datetime, timedelta
 
 from utils.logger import LogType, get_logger
+from utils.timestamp_utils import utc_now_naive
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -110,7 +111,7 @@ class MarketDataService:
 
                 if record:
                     # 检查是否过期
-                    if record.last_update and datetime.utcnow() - record.last_update < self.cache_ttl:
+                    if record.last_update and utc_now_naive() - record.last_update < self.cache_ttl:
                         valid_data.append(
                             {
                                 "symbol": record.symbol,

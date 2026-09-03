@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Any
 
 from utils.logger import LogType, get_logger
+from utils.timestamp_utils import utc_now_naive
 
 # 获取模块日志器
 logger = get_logger(__name__, LogType.APPLICATION)
@@ -127,7 +128,7 @@ class MarketDataFetcher(ABC):
                 record.volume_24h = Decimal(str(data["volume_24h"])) if data.get("volume_24h") else None
                 record.high_24h = Decimal(str(data["high_24h"])) if data.get("high_24h") else None
                 record.low_24h = Decimal(str(data["low_24h"])) if data.get("low_24h") else None
-                record.last_update = datetime.utcnow()
+                record.last_update = utc_now_naive()
             else:
                 # 新建
                 new_record = MarketData(
@@ -141,7 +142,7 @@ class MarketDataFetcher(ABC):
                     volume_24h=Decimal(str(data["volume_24h"])) if data.get("volume_24h") else None,
                     high_24h=Decimal(str(data["high_24h"])) if data.get("high_24h") else None,
                     low_24h=Decimal(str(data["low_24h"])) if data.get("low_24h") else None,
-                    last_update=datetime.utcnow(),
+                    last_update=utc_now_naive(),
                 )
                 db.add(new_record)
 
@@ -251,7 +252,7 @@ class BinanceMarketDataFetcher(MarketDataFetcher):
                         "volume_24h": float(ticker["volume"]),
                         "high_24h": float(ticker["highPrice"]),
                         "low_24h": float(ticker["lowPrice"]),
-                        "last_update": datetime.utcnow().isoformat(),
+                        "last_update": utc_now_naive().isoformat(),
                     }
                     all_data.append(data)
                     await self._save_market_data_to_db(data)
@@ -283,7 +284,7 @@ class BinanceMarketDataFetcher(MarketDataFetcher):
                     "volume_24h": float(ticker["volume"]),
                     "high_24h": float(ticker["highPrice"]),
                     "low_24h": float(ticker["lowPrice"]),
-                    "last_update": datetime.utcnow().isoformat(),
+                    "last_update": utc_now_naive().isoformat(),
                 }
                 all_data.append(data)
                 await self._save_market_data_to_db(data)
