@@ -12,7 +12,6 @@
     - POST /stop: 终止回测
     - GET /{backtest_id}: 获取回测详情
     - GET /{backtest_id}/symbols: 获取回测货币对列表
-    - GET /{backtest_id}/replay: 获取回测回放数据
     - POST /analyze: 分析回测结果
     - DELETE /delete/{backtest_id}: 删除回测结果
     - POST /check-data: 检查数据完整性
@@ -28,13 +27,9 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from utils.logger import LogType, get_logger
-
-# 获取模块日志器
-logger = get_logger(__name__, LogType.APPLICATION)
-
 from strategy.schemas import StrategyUploadRequest
 from utils.auth import jwt_auth_required_sync
+from utils.logger import LogType, get_logger
 from utils.rbac import is_guest_user
 
 from .progress_tracker import StageStatus, get_progress_tracker
@@ -51,6 +46,9 @@ from .schemas import (
     StrategyConfigRequest,
 )
 from .service import BacktestService
+
+# 获取模块日志器（import 全部完成后定义）
+logger = get_logger(__name__, LogType.APPLICATION)
 
 # 创建回测服务实例
 backtest_service = BacktestService()
@@ -347,7 +345,10 @@ def analyze_backtest(request: BacktestAnalyzeRequest) -> ApiResponse:
 
         logger.info(f"回测结果分析完成，结果: {result}")
 
-        return ApiResponse(code=0, message="回测结果分析成功", data=result)
+        # 与 stop 端点一致：按 service 返回的 status 区分成败，error 时 message 透传原因
+        if result.get("status") == "success":
+            return ApiResponse(code=0, message="回测结果分析成功", data=result)
+        return ApiResponse(code=1, message=result.get("message", "回测结果分析失败"), data=result)
     except Exception as e:
         logger.error(f"回测结果分析失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -628,40 +629,6 @@ def get_backtest_symbols(backtest_id: str) -> ApiResponse:
             return ApiResponse(code=1, message="获取回测货币对列表失败", data={})
     except Exception as e:
         logger.error(f"获取回测货币对列表失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get(
-    "/{backtest_id}/replay",
-    response_model=ApiResponse,
-    summary="获取回测回放数据",
-    description="获取回测回放数据，包含K线数据、交易信号和权益曲线数据",
-)
-def get_replay_data(backtest_id: str, symbol: str | None = None) -> ApiResponse:
-    """
-    获取回测回放数据
-
-    Args:
-        backtest_id: 回测ID
-        symbol: 可选，指定货币对，用于多货币对回测结果
-
-    Returns:
-        ApiResponse: API响应，包含回测回放数据
-    """
-    try:
-        logger.info(f"获取回测回放数据请求，回测ID: {backtest_id}, 货币对: {symbol}")
-
-        # 获取回测回放数据
-        result = backtest_service.get_replay_data(backtest_id, symbol)
-
-        if result and result.get("status") == "success":
-            logger.info(f"成功获取回测回放数据，回测ID: {backtest_id}")
-            return ApiResponse(code=0, message="获取回测回放数据成功", data=result.get("data"))
-        else:
-            logger.error(f"获取回测回放数据失败，回测ID: {backtest_id}")
-            return ApiResponse(code=1, message="获取回测回放数据失败", data={})
-    except Exception as e:
-        logger.error(f"获取回测回放数据失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

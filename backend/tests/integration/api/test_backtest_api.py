@@ -254,13 +254,11 @@ class TestBacktestAnalyzeAPI:
         """测试分析回测结果成功"""
         mock_result = {
             "status": "success",
-            "metrics": {
-                "Return [%]": 15.5,
-                "Sharpe Ratio": 1.2,
-                "Max Drawdown [%]": -5.4,
+            "backtest_id": "bt_1234567890",
+            "analysis": {
+                "summary": {"total_symbols": 1},
+                "symbols": ["BTCUSDT"],
             },
-            "trades": [],
-            "equity_curve": [],
         }
         mocker.patch(
             "backtest.routes.backtest_service.analyze_backtest",
@@ -271,7 +269,7 @@ class TestBacktestAnalyzeAPI:
         response = client.post("/api/backtest/analyze", json=request_data)
         assert_api_response(response)
         data = response.json()
-        assert "metrics" in data["data"]
+        assert "analysis" in data["data"]
 
     def test_analyze_backtest_not_found(self, client: TestClient, mocker):
         """测试分析不存在的回测结果"""
@@ -284,6 +282,9 @@ class TestBacktestAnalyzeAPI:
         request_data = {"backtest_id": "bt_nonexistent"}
         response = client.post("/api/backtest/analyze", json=request_data)
         assert response.status_code == 200
+        data = response.json()
+        assert data["code"] == 1
+        assert "回测结果不存在" in data["message"]
 
     def test_analyze_backtest_missing_id(self, client: TestClient):
         """测试分析回测缺少ID"""
@@ -402,67 +403,6 @@ class TestBacktestSymbolsAPI:
         )
 
         response = client.get("/api/backtest/bt_nonexistent/symbols")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["code"] == 1
-
-
-class TestBacktestReplayAPI:
-    """回测回放API测试类"""
-
-    def test_get_replay_data_success(self, client: TestClient, mocker, assert_api_response):
-        """测试获取回放数据成功"""
-        mock_result = {
-            "status": "success",
-            "data": {
-                "kline_data": [
-                    {
-                        "timestamp": 1672531200000,
-                        "open": 100.0,
-                        "high": 105.0,
-                        "low": 95.0,
-                        "close": 102.0,
-                        "volume": 1000.0,
-                    }
-                ],
-                "trade_signals": [
-                    {
-                        "time": "2024-01-01 10:00:00",
-                        "type": "buy",
-                        "price": 100.0,
-                        "size": 1.0,
-                        "trade_id": "123",
-                    }
-                ],
-                "equity_data": [{"time": "2024-01-01 00:00:00", "equity": 10000.0}],
-            },
-        }
-        mocker.patch("backtest.routes.backtest_service.get_replay_data", return_value=mock_result)
-
-        response = client.get("/api/backtest/bt_1234567890/replay")
-        assert_api_response(response)
-        data = response.json()
-        assert "kline_data" in data["data"]
-        assert "trade_signals" in data["data"]
-        assert "equity_data" in data["data"]
-
-    def test_get_replay_data_with_symbol(self, client: TestClient, mocker, assert_api_response):
-        """测试获取指定货币对的回放数据"""
-        mock_result = {
-            "status": "success",
-            "data": {"kline_data": [], "trade_signals": [], "equity_data": []},
-        }
-        mocker.patch("backtest.routes.backtest_service.get_replay_data", return_value=mock_result)
-
-        response = client.get("/api/backtest/bt_1234567890/replay?symbol=BTCUSDT")
-        assert_api_response(response)
-
-    def test_get_replay_data_not_found(self, client: TestClient, mocker):
-        """测试获取不存在的回放数据"""
-        mock_result = {"status": "error", "message": "回测不存在"}
-        mocker.patch("backtest.routes.backtest_service.get_replay_data", return_value=mock_result)
-
-        response = client.get("/api/backtest/bt_nonexistent/replay")
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == 1

@@ -15,6 +15,7 @@
 import json
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -135,16 +136,38 @@ def generate_strategy(
         return result
 
 
+# 三种输入来源与 agent 工具 analyze_backtest_result 对齐（backtest_id / 结果文件 / 结果数据）
 @app.command("analyze")
 def analyze_backtest_result(
-    backtest_id: str = typer.Option(..., "--backtest-id", help="回测结果ID"),
+    backtest_id: Annotated[str | None, typer.Option("--backtest-id", help="回测结果ID")] = None,
+    result_file: Annotated[str | None, typer.Option("--result-file", help="回测结果JSON文件路径")] = None,
+    result_data: Annotated[str | None, typer.Option("--result-data", help="回测结果JSON字符串")] = None,
 ) -> str:
     """分析回测结果"""
     try:
-        from backtest.result_analysis import analyze_result
+        if not backtest_id and not result_file and not result_data:
+            result = json.dumps({"success": False, "suggestions": ["请提供回测ID、结果文件或结果数据"]})
+            typer.echo(result)
+            return result
 
-        data = analyze_result(backtest_id)
-        result = json.dumps({"success": True, "metrics": data})
+        if result_data or result_file:
+            from backtest.result_analysis import ResultAnalyzer
+
+            raw = json.loads(result_data or Path(result_file).read_text(encoding="utf-8"))
+            analysis = ResultAnalyzer().analyze(raw)
+            result = json.dumps({"success": True, "metrics": analysis}, ensure_ascii=False, default=str)
+            typer.echo(result)
+            return result
+
+        from backtest.service import BacktestService
+
+        data = BacktestService().analyze_backtest(backtest_id)
+        if data.get("status") != "success":
+            message = data.get("message", "分析失败")
+            result = json.dumps({"success": False, "suggestions": [message], "error": message})
+            typer.echo(result)
+            return result
+        result = json.dumps({"success": True, "metrics": data.get("analysis", {})}, ensure_ascii=False, default=str)
         typer.echo(result)
         return result
     except Exception as e:

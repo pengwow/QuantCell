@@ -107,9 +107,6 @@ class EventDrivenBacktestService:
         candle_type = "future" if trading_mode == "futures" else "spot"
 
         # 1. 加载数据
-        if show_progress:
-            pass
-
         if data_type == "kline":
             # K线数据：使用原有加载逻辑
             data_dict, _ = self.provider.load_multiple(
@@ -153,9 +150,6 @@ class EventDrivenBacktestService:
             raise ValueError(msg)
 
         # 2. 初始化引擎
-        if show_progress:
-            pass
-
         engine = self._initialize_engine(
             engine_config=engine_config,
             strategy_name=strategy_name,
@@ -164,9 +158,6 @@ class EventDrivenBacktestService:
         )
 
         # 3. 加载数据到引擎
-        if show_progress:
-            pass
-
         _instruments, bar_types = self._load_data_to_engine(
             engine=engine,
             data_dict=data_dict,
@@ -180,9 +171,6 @@ class EventDrivenBacktestService:
         )
 
         # 4. 加载策略
-        if show_progress:
-            pass
-
         from backtest.strategy_loader_service import StrategyLoaderService
 
         # 构造策略必需的 instrument_ids / bar_types
@@ -205,9 +193,6 @@ class EventDrivenBacktestService:
             raise ValueError(msg)
 
         # 4. 执行回测（axon_quant 适配层）
-        if show_progress:
-            pass
-
         if len(symbols) == 1:
             # 单品种：直接调用 run_with_strategy
             first_key = next(iter(loaded_data.keys()))
@@ -277,9 +262,6 @@ class EventDrivenBacktestService:
             raw_results = aggregated_metrics
 
         # 5. 格式化结果
-        if show_progress:
-            pass
-
         if len(symbols) == 1:
             # axon 引擎结果格式（final_nav/total_pnl/...）,
             # 与 event 格式（metrics/trades/...）不同,必须用 format_axon_results
@@ -593,7 +575,6 @@ class EventDrivenBacktestService:
         total_pnl = results.get("total_pnl", 0.0)
         total_trades = results.get("trade_count", 0)
         total_fills = results.get("fills", 0)
-        results.get("total_fees", 0.0)
 
         # initial_equity / final_equity:每品种独立资金池(每 run 都 initial_cash 起步)
         # 假设所有品种用同一 initial_cash,从第一个结果读

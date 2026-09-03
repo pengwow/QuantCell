@@ -197,7 +197,6 @@ class BacktestLoop:
 
             # 策略决策
             action = strategy.on_bar(bar, ctx) if is_base_strategy else strategy.on_bar(bar)
-            total_orders += 1
 
             # EventDrivenStrategy 可能返回 None（无引擎引用时）
             if action is None:
@@ -209,6 +208,8 @@ class BacktestLoop:
                 ratio = float(getattr(action, "target_position", 0.0) or 0.0)
                 qty = (ratio * self._initial_cash / close_price) if close_price > 0 else 0.0
                 engine.set_target_position(instrument, qty)
+                # 只统计策略实际发出的买卖决策（剔除 hold/none bar）
+                total_orders += 1
 
             # 触发调仓 + drain 事件
             engine.rebalance_to_target()

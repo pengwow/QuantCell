@@ -118,7 +118,7 @@ class MockBacktestService:
         return {
             "status": "success",
             "backtest_id": backtest_id,
-            "metrics": {
+            "analysis": {
                 "total_return": 0.15,
                 "sharpe_ratio": 1.2,
                 "max_drawdown": 0.05,
@@ -139,34 +139,6 @@ class MockBacktestService:
                     {"symbol": "ETHUSDT", "status": "success", "message": "回测成功"},
                 ],
                 "total": 2,
-            },
-        }
-
-    def get_replay_data(self, backtest_id: str, symbol: str | None = None) -> dict[str, Any]:
-        """获取回测回放数据"""
-        return {
-            "status": "success",
-            "data": {
-                "kline_data": [
-                    {
-                        "timestamp": 1609459200000,
-                        "open": 50000.0,
-                        "high": 51000.0,
-                        "low": 49000.0,
-                        "close": 50500.0,
-                        "volume": 1000.0,
-                    }
-                ],
-                "trade_signals": [
-                    {
-                        "time": "2024-01-01 10:00:00",
-                        "type": "buy",
-                        "price": 50000.0,
-                        "size": 1.0,
-                        "trade_id": "trade_001",
-                    }
-                ],
-                "equity_data": [{"time": "2024-01-01 00:00:00", "equity": 10000.0}],
             },
         }
 
