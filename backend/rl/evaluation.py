@@ -68,7 +68,9 @@ def _compute_metrics(nav_history: list[float], num_trades: int) -> EvaluationMet
     if len(neg_returns) > 0 and np.sum(np.abs(neg_returns)) > 0:
         profit_factor = float(np.sum(pos_returns) / np.sum(np.abs(neg_returns)))
     else:
-        profit_factor = float("inf") if len(pos_returns) > 0 else 0.0
+        # 无亏损交易时数学上趋于无穷；沿用 result_formatter_service 的 999.99 哨兵惯例，
+        # 避免 inf 泄漏进 JSON 响应（json.dumps 会产出非法的 Infinity 字面量）
+        profit_factor = 999.99 if len(pos_returns) > 0 else 0.0
 
     return EvaluationMetrics(
         total_pnl=round(total_pnl, 2),

@@ -22,6 +22,8 @@ def test_compute_metrics_monotonic_increase():
     assert m.win_rate == 1.0
     assert m.max_drawdown_pct == 0.0
     assert m.num_trades == 3
+    # 全正收益无亏损交易 → profit_factor 用有限哨兵而非 inf（防 JSON 序列化泄漏）
+    assert m.profit_factor == 999.99
 
 
 def test_compute_metrics_drawdown():
