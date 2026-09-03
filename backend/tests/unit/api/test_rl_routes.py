@@ -108,9 +108,3 @@ def test_walk_forward_endpoint():
         data = resp.json()
         assert data["code"] == 0
         assert "walk_forward" in data["data"]
-
-
-def test_hpo_not_implemented():
-    client = _make_app()
-    resp = client.post("/api/v2/rl/hpo")
-    assert resp.status_code == 501

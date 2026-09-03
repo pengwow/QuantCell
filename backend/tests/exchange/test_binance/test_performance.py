@@ -177,7 +177,8 @@ class TestPerformance:
 
             # 每个订单应该占用较少内存
             avg_size = total_size / 1000
-            assert avg_size < 1024  # 平均每个订单小于1KB
+            _diag = [(s.size, str(s.traceback)) for s in top_stats[:10]]
+            assert avg_size < 1024, f"avg={avg_size:.1f}B top10={_diag}"  # 平均每个订单小于1KB
         finally:
             paper_trading.logger = original_logger
             tracemalloc.stop()
