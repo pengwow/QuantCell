@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { Card, Alert, message } from 'antd';
 import { ExperimentOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
+import { rlApi } from '../../api/rlApi';
+import { getAccessToken } from '../../utils/tokenManager';
 import RLTrainConfigForm, { RLTrainConfig } from './components/RLTrainConfigForm';
 import RLModelList, { RLModel } from './components/RLModelList';
 import RLTrainingProgress, { TrainingProgress } from './components/RLTrainingProgress';
@@ -27,11 +29,10 @@ export default function RLTrainingPage() {
 
   const fetchModels = async () => {
     try {
-      const response = await fetch('/api/rl/models');
-      const data = await response.json();
-      if (data.code === 0) {
-        setModels(data.data?.models || []);
-      }
+      // 走 rlApi：baseURL=/api 补全为后端真实路由 /api/v2/rl/models，拦截器自动带 Authorization
+      // 响应拦截器已解包 ApiResponse，直接得到 [{ name }] 数组
+      const data = await rlApi.listModels();
+      setModels((data || []).map((m: { name: string }) => ({ ...m, path: m.name, size_kb: 0 })));
     } catch (err) {
       console.error('加载模型列表失败:', err);
     }
@@ -48,66 +49,39 @@ export default function RLTrainingPage() {
     abortControllerRef.current = new AbortController();
 
     try {
-      const response = await fetch('/api/rl/train/stream', {
+      // 后端仅有同步训练端点 /api/v2/rl/train（无 SSE 流），此前调用的 /api/rl/train/stream 从未存在
+      // 训练是长任务，保持 fetch（axios 默认 30s 超时会中断训练），手动带 Authorization
+      const response = await fetch('/api/v2/rl/train', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getAccessToken()}`,
+        },
+        // 表单的 learning_rate/initial_capital 等字段后端 TrainRequest 暂不消费，只传认识的字段
+        body: JSON.stringify({
+          algorithm: values.algorithm,
+          symbol: values.symbol,
+          interval: values.interval,
+          total_timesteps: values.timesteps,
+          reward_type: values.reward,
+          walk_forward: values.walk_forward,
+        }),
         signal: abortControllerRef.current.signal,
       });
 
-      if (!response.ok) {
-        throw new Error('请求失败');
+      const payload = await response.json();
+      // HTTPException（鉴权/校验失败）返回 {detail}，业务响应返回 {code, message, data}
+      if (payload.code !== 0) {
+        throw new Error(payload.message || payload.detail || '训练失败');
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error('无法读取响应流');
-      }
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = new TextDecoder().decode(value);
-        const rawEvents = chunk.split(/\n\n/).filter(e => e.trim());
-
-        for (const rawEvent of rawEvents) {
-          const lines = rawEvent.split('\n').map(l => l.trim()).filter(l => l);
-          let eventType = 'message';
-          let dataStr = '';
-
-          for (const line of lines) {
-            if (line.startsWith('event:')) {
-              eventType = line.slice(6).trim() || 'message';
-            } else if (line.startsWith('data:')) {
-              dataStr += line.slice(5).trim();
-            }
-          }
-
-          if (!dataStr) continue;
-
-          let data;
-          try {
-            data = JSON.parse(dataStr);
-          } catch {
-            continue;
-          }
-
-          const newProgress: TrainingProgress = {
-            type: eventType as TrainingProgress['type'],
-            ...data,
-          };
-          setProgress(newProgress);
-
-          if (eventType === 'complete') {
-            setResult(data.result);
-            message.success(`训练完成，模型: ${data.result?.model_name}`);
-          } else if (eventType === 'error') {
-            setError(data.error);
-            message.error(data.error);
-          }
-        }
-      }
+      const result: TrainingResult = {
+        model_id: payload.data?.model_id ?? '',
+        status: payload.data?.status ?? 'completed',
+        metrics: payload.data?.metrics ?? {},
+      };
+      setResult(result);
+      message.success(`训练完成，模型: ${result.model_id}`);
     } catch (err: any) {
       if (err.name === 'AbortError') {
         setError('训练已取消');
