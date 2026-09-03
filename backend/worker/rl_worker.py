@@ -5,12 +5,13 @@ Loads trained SB3 models (.zip) or ONNX models and generates trading signals.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+from utils.logger import LogType, get_logger
+
+logger = get_logger(__name__, LogType.APPLICATION)
 
 
 class RLWorker:

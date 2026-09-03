@@ -6,7 +6,6 @@ Unified entry point for RL training, HPO, Walk-Forward, and model registry.
 from __future__ import annotations
 
 import contextlib
-import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,11 +15,12 @@ import numpy as np
 
 from backtest.hpo_runner import HPORunner
 from backtest.walk_forward import WalkForwardService
+from utils.logger import LogType, get_logger
 
 if TYPE_CHECKING:
     import pandas as pd
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, LogType.APPLICATION)
 
 MODELS_DIR = Path(__file__).parent.parent / "data" / "models"
 

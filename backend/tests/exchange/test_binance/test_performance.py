@@ -13,6 +13,21 @@ from exchange.binance.config import OrderSide, OrderType
 from exchange.binance.paper_trading import PaperTradingAccount
 
 
+class _NullLogger:
+    """空日志器：所有日志方法均 no-op。
+
+    用于内存测试中隔离 create_order 内部日志带来的额外分配，
+    使 tracemalloc 只测量订单对象本身的内存开销（而非日志格式化/落盘）。
+    """
+
+    def info(self, *args, **kwargs): ...
+    def warning(self, *args, **kwargs): ...
+    def debug(self, *args, **kwargs): ...
+    def error(self, *args, **kwargs): ...
+    def critical(self, *args, **kwargs): ...
+    def exception(self, *args, **kwargs): ...
+
+
 class TestPerformance:
     """性能测试"""
 
@@ -132,32 +147,40 @@ class TestPerformance:
     # ==================== 内存使用测试 ====================
 
     def test_memory_usage_orders(self):
-        """测试订单内存使用"""
+        """测试订单内存使用（隔离日志开销，仅测量订单对象本身）"""
+        import exchange.binance.paper_trading as paper_trading
+
+        # create_order 内部会记录 info 日志，日志的格式化与落盘分配会污染
+        # tracemalloc 测量；此处用空日志器短路，使测量仅反映订单对象本身的开销
+        original_logger = paper_trading.logger
+        paper_trading.logger = _NullLogger()
+
         tracemalloc.start()
+        try:
+            # 创建1000个订单前的内存
+            snapshot1 = tracemalloc.take_snapshot()
 
-        # 创建1000个订单前的内存
-        snapshot1 = tracemalloc.take_snapshot()
+            for i in range(1000):
+                self.account.create_order(
+                    symbol="BTCUSDT",
+                    side=OrderSide.BUY,
+                    order_type=OrderType.LIMIT,
+                    quantity=0.0001,
+                    price=1000.0 + i,
+                )
 
-        for i in range(1000):
-            self.account.create_order(
-                symbol="BTCUSDT",
-                side=OrderSide.BUY,
-                order_type=OrderType.LIMIT,
-                quantity=0.0001,
-                price=1000.0 + i,
-            )
+            # 创建1000个订单后的内存
+            snapshot2 = tracemalloc.take_snapshot()
 
-        # 创建1000个订单后的内存
-        snapshot2 = tracemalloc.take_snapshot()
+            top_stats = snapshot2.compare_to(snapshot1, "lineno")
+            total_size = sum(stat.size for stat in top_stats[:5])
 
-        top_stats = snapshot2.compare_to(snapshot1, "lineno")
-        total_size = sum(stat.size for stat in top_stats[:5])
-
-        # 每个订单应该占用较少内存
-        avg_size = total_size / 1000
-        assert avg_size < 1024  # 平均每个订单小于1KB
-
-        tracemalloc.stop()
+            # 每个订单应该占用较少内存
+            avg_size = total_size / 1000
+            assert avg_size < 1024  # 平均每个订单小于1KB
+        finally:
+            paper_trading.logger = original_logger
+            tracemalloc.stop()
 
     def test_memory_usage_positions(self):
         """测试持仓内存使用"""

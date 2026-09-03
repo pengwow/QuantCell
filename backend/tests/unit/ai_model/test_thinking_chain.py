@@ -4,16 +4,10 @@
 """
 
 import json
-import os
 import uuid
 from datetime import datetime
 
 import pytest
-
-# 设置测试环境
-os.environ["DB_TYPE"] = "sqlite"
-os.environ["DB_FILE"] = ":memory:"
-
 from sqlalchemy import (
     Boolean,
     Column,

@@ -11,15 +11,12 @@
 
 from __future__ import annotations
 
-import logging
 import time
 from dataclasses import dataclass
-from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from utils.logger import LogType, get_logger
 
-METRICS_DIR = Path(__file__).parent.parent / "data" / "worker_metrics"
-METRICS_DIR.mkdir(parents=True, exist_ok=True)
+logger = get_logger(__name__, LogType.APPLICATION)
 
 
 @dataclass
@@ -113,9 +110,13 @@ class WorkerLifecycle:
                 logger.info("[Rule] 当前参数更优，保留")
 
     def _evaluate_current(self) -> dict:
-        """评估当前策略表现"""
-        # 从数据库获取最近的交易数据计算指标
-        return {"pnl": 0, "sharpe": 1.0, "trades": 10, "drawdown": 2.0}
+        """评估当前策略表现。
+
+        ponytail: 当前尚未持久化“已部署模型/参数”的引用，无法量化真实表现，
+        因此返回空指标会持续触发重训练/优化。已知上限：无状态评估。
+        升级路径：接入 worker 状态后根据最近交易记录计算真实指标替换此处。
+        """
+        return {"pnl": 0.0, "sharpe": 0.0, "trades": 0, "drawdown": 0.0}
 
     def _should_retrain(self, metrics: dict) -> bool:
         """RL: 检查是否需要重训练"""
@@ -129,33 +130,27 @@ class WorkerLifecycle:
         """规则策略: 检查是否需要优化参数"""
         return self._should_retrain(metrics)
 
+    @staticmethod
+    def _load_market_data(symbol: str = "BTCUSDT", interval: str = "15m"):
+        """加载本地K线数据（统一走 BacktestDataProvider，替代旧 rl.service 的下发逻辑）。"""
+        from backtest.data_provider import BacktestDataProvider
+
+        return BacktestDataProvider().load_klines(symbol, interval)
+
     def _retrain(self) -> str:
-        """RL: 重训练模型"""
-        from rl.lifecycle import LifecycleConfig, RLLifecycle
+        """RL: 重训练模型（委托统一 RLService 完成训练与保存）。"""
+        from services.rl_service import RLService, RLTrainConfig
 
-        RLLifecycle(
-            LifecycleConfig(
-                symbol="BTCUSDT",
-                interval="15m",
-                retrain_timesteps=self.config.retrain_timesteps,
-                eval_days=30,
-            )
+        config = RLTrainConfig(
+            symbol="BTCUSDT",
+            interval="15m",
+            algorithm="ppo",
+            total_timesteps=self.config.retrain_timesteps,
+            model_name=f"worker_{self.config.worker_id}",
         )
-        # 简化：直接训练新模型
-        from stable_baselines3 import PPO
-
-        from rl.env import TradingEnv
-        from rl.service import RLService
-
-        svc = RLService()
-        df = svc._fetch_market_data("BTCUSDT", "15m", 30)
-        env = TradingEnv(df.head(5000))
-        model = PPO("MlpPolicy", env, verbose=0, device="cpu")
-        model.learn(total_timesteps=self.config.retrain_timesteps)
-
-        model_path = str(METRICS_DIR / f"worker_{self.config.worker_id}_retrained.zip")
-        model.save(model_path)
-        return model_path
+        result = RLService().train(config)
+        logger.info(f"[RL] 重训练完成: {result.model_path}")
+        return result.model_path
 
     def _optimize_params(self) -> dict:
         """规则策略: 优化参数"""
@@ -169,12 +164,10 @@ class WorkerLifecycle:
 
             # 用当前数据回测
             from backtest.backtest_loop import BacktestLoop
-            from rl.service import RLService
             from strategy.base import StrategyConfig
             from strategy.templates.sma_crossover import SMACrossover
 
-            svc = RLService()
-            df = svc._fetch_market_data("BTCUSDT", "15m", 30)
+            df = self._load_market_data()
             config = StrategyConfig(
                 name="sma_crossover",
                 symbol="BTCUSDT",
@@ -190,40 +183,24 @@ class WorkerLifecycle:
         return study.best_params
 
     def _evaluate_model(self, model_path: str) -> dict:
-        """评估 RL 模型"""
-        from stable_baselines3 import PPO
+        """评估 RL 模型（使用统一 RLService 的真实回测指标）。"""
+        from services.rl_service import RLService
 
-        from rl.env import TradingEnv
-        from rl.service import RLService
-
-        svc = RLService()
-        df = svc._fetch_market_data("BTCUSDT", "15m", 30)
-        env = TradingEnv(df.head(5000))
-        model = PPO.load(model_path)
-
-        obs, _ = env.reset()
-        for _ in range(5000):
-            a, _ = model.predict(obs, deterministic=True)
-            obs, _, term, trunc, info = env.step(a)
-            if term or trunc:
-                break
-
+        bt = RLService().run_backtest(model_path, "BTCUSDT", "15m")
         return {
-            "pnl": info.get("portfolio_value", 100_000) - 100_000,
-            "sharpe": 1.5,
-            "trades": info.get("trades", 0),
-            "drawdown": 2.0,
+            "pnl": bt.get("total_pnl", 0.0),
+            "sharpe": bt.get("sharpe_ratio", 0.0),
+            "trades": bt.get("num_trades", 0),
+            "drawdown": abs(bt.get("max_drawdown_pct", 0.0)),
         }
 
     def _evaluate_params(self, params: dict) -> dict:
         """评估规则策略参数"""
         from backtest.backtest_loop import BacktestLoop
-        from rl.service import RLService
         from strategy.base import StrategyConfig
         from strategy.templates.sma_crossover import SMACrossover
 
-        svc = RLService()
-        df = svc._fetch_market_data("BTCUSDT", "15m", 30)
+        df = self._load_market_data()
         config = StrategyConfig(
             name="sma_crossover",
             symbol="BTCUSDT",
@@ -249,17 +226,24 @@ class WorkerLifecycle:
 
 
 if __name__ == "__main__":
-    import argparse
+    from typing import Annotated
 
-    parser = argparse.ArgumentParser(description="Worker 自动迭代生命周期")
-    parser.add_argument("--worker-id", type=int, required=True)
-    parser.add_argument("--type", choices=["rule", "rl"], default="rule")
-    parser.add_argument("--check-hours", type=int, default=24)
-    args = parser.parse_args()
+    import typer
 
-    config = WorkerLifecycleConfig(
-        worker_id=args.worker_id,
-        strategy_type=args.type,
-        check_interval_hours=args.check_hours,
-    )
-    WorkerLifecycle(config).run()
+    app = typer.Typer(help="Worker 自动迭代生命周期", add_completion=False)
+
+    @app.command()
+    def run(
+        worker_id: Annotated[int, typer.Option("--worker-id", help="Worker ID")],
+        strategy_type: Annotated[str, typer.Option("--type", help="策略类型 (rule/rl)")] = "rule",
+        check_hours: Annotated[int, typer.Option("--check-hours", help="检查间隔（小时）")] = 24,
+    ):
+        """运行 Worker 生命周期。"""
+        config = WorkerLifecycleConfig(
+            worker_id=worker_id,
+            strategy_type=strategy_type,
+            check_interval_hours=check_hours,
+        )
+        WorkerLifecycle(config).run()
+
+    app()
