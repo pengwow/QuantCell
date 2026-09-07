@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- Context + Provider + hook 同文件捆绑为常用模式，拆分割裂插件联动逻辑且无功能收益，禁用后降级为整页刷新 */
 import {
   createContext,
   useCallback,

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- Object.assign 复合组件模式（Show.Case/Show.Default）为刻意设计的公共 API，该插件无法识别，禁用后降级为整页刷新 */
 import { Children as ReactChildren, isValidElement } from "react";
 
 export type ShowProps =

@@ -126,7 +126,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       const list = await listShareTokens(workerId);
       setTokens(Array.isArray(list) ? list : []);
     } catch (err) {
-      // eslint-disable-next-line no-console
+       
       console.error('获取分享 token 列表失败:', err);
       setTokens([]);
       message.error(err instanceof Error ? err.message : t('error'));
@@ -180,7 +180,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       // 刷新列表
       fetchTokens();
     } catch (err) {
-      // eslint-disable-next-line no-console
+       
       console.error('生成分享链接失败:', err);
       message.error(err instanceof Error ? err.message : t('share.generate_failed'));
     } finally {
@@ -230,7 +230,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       document.body.removeChild(a);
       message.success(t('share.qr_downloaded') || '二维码已下载');
     } catch (err) {
-      // eslint-disable-next-line no-console
+       
       console.error('下载二维码失败:', err);
       message.error(t('share.qr_download_failed') || '二维码下载失败');
     }
@@ -273,7 +273,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       }
       message.success(t('share.copied'));
     } catch (err) {
-      // eslint-disable-next-line no-console
+       
       console.error('复制失败:', err);
       message.error(t('share.copy_failed'));
     }
@@ -288,7 +288,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       message.success(t('success'));
       fetchTokens();
     } catch (err) {
-      // eslint-disable-next-line no-console
+       
       console.error('撤销分享 token 失败:', err);
       message.error(err instanceof Error ? err.message : t('share.revoke_failed'));
     } finally {
@@ -305,7 +305,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       message.success(t('share.delete_success') || '已删除');
       fetchTokens();
     } catch (err) {
-      // eslint-disable-next-line no-console
+       
       console.error('删除分享 token 失败:', err);
       message.error((err instanceof Error ? err.message : t('share.delete_failed')) || '删除失败');
     } finally {
@@ -326,7 +326,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
       }
       fetchTokens();
     } catch (err) {
-      // eslint-disable-next-line no-console
+       
       console.error('重新上传分享失败:', err);
       message.error((err instanceof Error ? err.message : t('share.retry_remote_failed')) || '重试失败');
     } finally {

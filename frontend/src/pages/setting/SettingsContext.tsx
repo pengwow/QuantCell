@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- Context + Provider + hook 同文件捆绑为常用模式，拆分割裂联动且无功能收益，禁用后降级为整页刷新 */
 /**
  * SettingsContext - 设置页面全局状态管理
  * 用于在设置页面的各个子组件间共享配置数据

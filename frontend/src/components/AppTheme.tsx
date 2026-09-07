@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- 默认导出为组件集合对象（Dropdown/Icon/LinkButton），属刻意的复合组件 API，插件无法识别，禁用后降级为整页刷新 */
 import { useTranslation } from "react-i18next";
 import { IconDeviceDesktop, IconMoon, IconSun, type IconProps } from "@tabler/icons-react";
 import { Dropdown, type DropdownProps, Typography } from "antd";
@@ -12,7 +13,8 @@ export interface AppThemeProps {
   setThemeMode: (mode: ThemeMode) => void;
 }
 
-export const useAppThemeMenuItems = (props: AppThemeProps) => {
+// 仅 AppTheme 内部使用的菜单项 hook，无需导出（避免 react-refresh mixed export 告警）
+const useAppThemeMenuItems = (props: AppThemeProps) => {
   const { t } = useTranslation();
   const { themeMode, setThemeMode } = props;
 

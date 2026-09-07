@@ -55,7 +55,7 @@ export const usePolling = (
         await taskRef.current()
       } catch (err) {
         // 静默：单次失败不应中断轮询
-        // eslint-disable-next-line no-console
+         
         console.error('[usePolling] task error:', err)
       }
       schedule()

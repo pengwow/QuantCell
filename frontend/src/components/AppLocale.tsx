@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- 默认导出为组件集合对象（Dropdown/Icon/LinkButton），属刻意的复合组件 API，插件无法识别，禁用后降级为整页刷新 */
 import { useTranslation } from "react-i18next";
 import { Dropdown, type DropdownProps, Typography } from "antd";
 import type { MenuProps } from "antd";
@@ -6,7 +7,8 @@ import { IconLanguageEnZh, IconLanguageZhEn } from "./icons";
 
 import Show from "./Show";
 
-export const useAppLocaleMenuItems = () => {
+// 仅 AppLocale 内部使用的菜单项 hook，无需导出（避免 react-refresh mixed export 告警）
+const useAppLocaleMenuItems = () => {
   const { i18n } = useTranslation();
 
   const items: MenuProps["items"] = [
