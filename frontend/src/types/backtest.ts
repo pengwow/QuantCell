@@ -96,25 +96,6 @@ export interface ReplayData {
   interval: string;
 }
 
-// 合并结果摘要类型
-export interface MergeSummary {
-  total_currencies: number;
-  successful_currencies: number;
-  failed_currencies: number;
-  total_trades: number;
-  average_trades_per_currency: number;
-  total_initial_cash: number;
-  total_equity: number;
-  total_return: number;
-  average_return: number;
-  average_max_drawdown: number;
-  average_sharpe_ratio: number;
-  average_sortino_ratio: number;
-  average_calmar_ratio: number;
-  average_win_rate: number;
-  average_profit_factor: number;
-}
-
 // 货币对信息类型
 export interface SymbolInfo {
   symbol: string;
