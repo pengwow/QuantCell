@@ -32,8 +32,7 @@ export function TokenDisplay({ symbol, size = 32, style }: Props) {
     const loadTokenIcon = async () => {
       try {
         setIsLoading(true);
-        // 动态导入web3icons包
-        // @ts-ignore - 动态导入，类型在运行时确定
+        // 动态导入web3icons包（运行时确定类型，此处无类型错误，无需豁免注解）
         const web3icons = await import("@web3icons/react/dynamic");
         TokenIcon = web3icons.TokenIcon;
         setIsLoading(false);

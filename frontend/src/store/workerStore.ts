@@ -470,45 +470,33 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
       // ============================================
 
       batchStartWorkers: async (workerIds: number[]) => {
-        try {
-          const result = await workerApi.batchOperation({
-            worker_ids: workerIds,
-            operation: 'start',
-          });
-          workerIds.forEach(id => get().updateWorkerStatus(id, 'starting'));
-          setTimeout(() => get().fetchWorkers(), 2000);
-          return result;
-        } catch (error: any) {
-          throw error;
-        }
+        const result = await workerApi.batchOperation({
+          worker_ids: workerIds,
+          operation: 'start',
+        });
+        workerIds.forEach(id => get().updateWorkerStatus(id, 'starting'));
+        setTimeout(() => get().fetchWorkers(), 2000);
+        return result;
       },
 
       batchStopWorkers: async (workerIds: number[]) => {
-        try {
-          const result = await workerApi.batchOperation({
-            worker_ids: workerIds,
-            operation: 'stop',
-          });
-          workerIds.forEach(id => get().updateWorkerStatus(id, 'stopped'));
-          setTimeout(() => get().fetchWorkers(), 1000);
-          return result;
-        } catch (error: any) {
-          throw error;
-        }
+        const result = await workerApi.batchOperation({
+          worker_ids: workerIds,
+          operation: 'stop',
+        });
+        workerIds.forEach(id => get().updateWorkerStatus(id, 'stopped'));
+        setTimeout(() => get().fetchWorkers(), 1000);
+        return result;
       },
 
       batchRestartWorkers: async (workerIds: number[]) => {
-        try {
-          const result = await workerApi.batchOperation({
-            worker_ids: workerIds,
-            operation: 'restart',
-          });
-          workerIds.forEach(id => get().updateWorkerStatus(id, 'starting'));
-          setTimeout(() => get().fetchWorkers(), 3000);
-          return result;
-        } catch (error: any) {
-          throw error;
-        }
+        const result = await workerApi.batchOperation({
+          worker_ids: workerIds,
+          operation: 'restart',
+        });
+        workerIds.forEach(id => get().updateWorkerStatus(id, 'starting'));
+        setTimeout(() => get().fetchWorkers(), 3000);
+        return result;
       },
 
       // ============================================

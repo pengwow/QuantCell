@@ -375,15 +375,13 @@ function LogSettingsUnified({ onClose }: LogSettingsUnifiedProps) {
 
   function getRelativeTime(timeStr: string): string {
     try {
-      let time: Date;
-
       // 兼容多种时间格式
       if (!timeStr || timeStr === '-' || timeStr === 'None' || timeStr === 'null') {
         return '-';
       }
 
       // 处理 ISO 格式（带或不带时区）
-      time = new Date(timeStr);
+      const time = new Date(timeStr);
 
       // 检查日期是否有效
       if (isNaN(time.getTime())) {

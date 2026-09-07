@@ -50,7 +50,7 @@ const AppLocaleDropdown = ({ children, trigger = ["click"] }: AppLocaleDropdownP
   );
 };
 
-export interface AppLocaleIconProps extends Omit<React.SVGProps<SVGSVGElement>, 'ref'> {}
+export type AppLocaleIconProps = Omit<React.SVGProps<SVGSVGElement>, 'ref'>;
 
 const AppLocaleIcon = (props: AppLocaleIconProps) => {
   const { i18n } = useTranslation();

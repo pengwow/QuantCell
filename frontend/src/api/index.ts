@@ -731,7 +731,9 @@ export const indicatorApi = {
             const errorData = await response.json();
             if (errorData.detail) errorMessage = errorData.detail;
             else if (errorData.message) errorMessage = errorData.message;
-          } catch (e) {}
+          } catch {
+            // 响应体非 JSON（如 HTML 错误页）时保留默认错误信息
+          }
           throw new Error(errorMessage);
         }
 
