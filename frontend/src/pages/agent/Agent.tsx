@@ -676,6 +676,7 @@ const Agent = () => {
   useEffect(() => {
     fetchSessions();
     fetchTools();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 挂载时一次性初始化
   }, []);
 
   // 滚动到底部

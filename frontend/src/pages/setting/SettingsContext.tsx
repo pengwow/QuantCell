@@ -282,7 +282,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     } finally {
       setLoading(false);
     }
-  }, [applyTheme, refreshSystemMetrics, i18n]);
+  }, [applyTheme, refreshSystemMetrics, i18n, message]);
 
   // 保存配置
   const saveConfig = useCallback(async () => {
@@ -341,7 +341,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     } finally {
       setSaving(false);
     }
-  }, [generalSettings, notificationSettings, apiSettings]);
+  }, [generalSettings, notificationSettings, apiSettings, passwordModified, message]);
 
   // 重置配置
   const resetConfig = useCallback(() => {
@@ -353,7 +353,7 @@ export const SettingsProvider = ({ children }: SettingsProviderProps) => {
     setPasswordModified(false);
     applyTheme(defaultGeneralSettings.theme);
     message.success('设置已重置为默认值');
-  }, [applyTheme]);
+  }, [applyTheme, message]);
 
   // 检测通用设置是否有变更
   const hasGeneralSettingsChanged = useCallback(() => {

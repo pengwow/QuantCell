@@ -83,7 +83,7 @@ const BacktestList = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [message]);
 
   // 组件挂载时加载数据
   useEffect(() => {
@@ -538,6 +538,7 @@ const BacktestList = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [selectedRowKeys, filteredDataSource]);
 
   // 渲染工具栏 - 优化小屏幕布局

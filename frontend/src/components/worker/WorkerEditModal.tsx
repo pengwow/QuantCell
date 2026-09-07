@@ -158,6 +158,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
         setFormValuesFromWorker();
       }, 500); // 延迟以确保策略列表已加载
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [visible, worker]);
 
   // 设置表单值（从 worker 对象）

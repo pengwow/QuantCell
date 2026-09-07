@@ -295,12 +295,14 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
     } else {
       setMenuSelectedKey(void 0);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [location.pathname]);
 
   useEffect(() => {
     if (menuSelectedKey && menuSelectedKey !== getActiveMenuItem()?.key) {
       navigate(menuSelectedKey);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [menuSelectedKey]);
 
   return (

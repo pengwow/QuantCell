@@ -369,7 +369,7 @@ const Worker = () => {
     if (success) {
       apiMessage.success(t('worker_restart_success'));
     }
-  }, [restartWorker, t]);
+  }, [restartWorker, t, apiMessage]);
 
   const handleOptimize = useCallback(async (worker: WorkerType) => {
     try {
@@ -380,7 +380,7 @@ const Worker = () => {
     } catch (error: any) {
       apiMessage.error(`优化失败: ${error?.message || '未知错误'}`);
     }
-  }, [triggerOptimize, t, apiMessage, fetchWorkers]);
+  }, [apiMessage, fetchWorkers]);
 
   // ============================================
   // 批量操作处理函数
@@ -470,7 +470,7 @@ const Worker = () => {
         setSelectedWorker(null);
       }
     }
-  }, [deleteWorker, selectedWorker, setSelectedWorker, t]);
+  }, [deleteWorker, selectedWorker, setSelectedWorker, t, apiMessage]);
 
   const handleEdit = useCallback((worker: WorkerType, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -481,7 +481,7 @@ const Worker = () => {
   const handleRefresh = useCallback(() => {
     fetchWorkers();
     apiMessage.success(t('refresh_success'));
-  }, [fetchWorkers, t]);
+  }, [fetchWorkers, t, apiMessage]);
 
   const handleCreateSuccess = useCallback(() => {
     setCreateModalVisible(false);

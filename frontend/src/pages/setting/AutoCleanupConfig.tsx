@@ -63,7 +63,7 @@ const AutoCleanupConfig: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [antMessage]);
 
   useEffect(() => {
     loadConfig();

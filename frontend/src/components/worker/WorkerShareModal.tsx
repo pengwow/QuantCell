@@ -481,6 +481,7 @@ const WorkerShareModal: React.FC<WorkerShareModalProps> = ({
         },
       },
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
     [t, revokingId],
   );
 

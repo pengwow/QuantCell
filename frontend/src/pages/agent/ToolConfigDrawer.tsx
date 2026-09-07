@@ -117,6 +117,7 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
     if (visible) {
       loadTools();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [visible]);
 
   // 当选中工具变化时加载参数

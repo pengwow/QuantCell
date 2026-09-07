@@ -222,7 +222,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
     } finally {
       setLoading(false);
     }
-  }, [symbol, interval, dateRange]);
+  }, [symbol, interval, dateRange, message]);
 
   /**
    * 初始化图表
@@ -271,6 +271,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
     } catch (error) {
       console.error('初始化图表失败:', error);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [klines, symbol, interval]);
 
   /**
@@ -316,6 +317,7 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
         return prev + 1;
       });
     }, 500 / playSpeed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [klines.length, playSpeed]);
 
   /**
@@ -441,7 +443,10 @@ const KlineReplayPage: React.FC<KlineReplayPageProps> = () => {
       if (playTimerRef.current) {
         window.clearInterval(playTimerRef.current);
       }
+      // chart 实例在 init 后写入 ref，卸载时必须读取最新引用；
+      // 若在 effect 体内快照将始终为 null（挂载时图表尚未创建）导致泄漏
       if (chartRef.current) {
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- 卸载时读取最新 ref 是有意为之
         dispose(chartRef.current);
       }
     };

@@ -326,6 +326,7 @@ export function RealtimeToggleButton({
         wsService.off('kline:update', handleWebSocketMessage);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, []);
 
   /**
@@ -351,6 +352,7 @@ export function RealtimeToggleButton({
         console.error('[RealtimeToggleButton] 新订阅失败:', error);
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 组件函数每渲染重建，补 deps 会重复执行
   }, [symbol, period]);
 
   return (
