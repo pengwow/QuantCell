@@ -99,8 +99,11 @@ export default defineConfig({
           if (pkg === 'antd' || pkg.startsWith('@ant-design')) {
             return 'ui-vendor'
           }
-          // 图表库
-          if (pkg === 'echarts' || pkg === 'echarts-for-react' || pkg === 'klinecharts') {
+          // 图表库：klinecharts 用于主行情图（首屏），echarts 仅模型管理页使用，拆开避免首屏携带 echarts
+          if (pkg === 'klinecharts') {
+            return 'kline-vendor'
+          }
+          if (pkg === 'echarts' || pkg === 'echarts-for-react') {
             return 'chart-vendor'
           }
         },
