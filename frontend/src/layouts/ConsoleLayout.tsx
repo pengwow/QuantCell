@@ -58,7 +58,7 @@ const ConsoleLayout = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-    } catch (e) {
+    } catch {
       // 即使后端调用失败，也清除本地token
     }
     localStorage.removeItem('access_token');

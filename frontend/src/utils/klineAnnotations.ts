@@ -68,7 +68,7 @@ const jsonAnnotation: OverlayTemplate = {
         try {
           // 解析JSON数据
           jsonData = JSON.parse(extendData)
-        } catch (e) {
+        } catch {
           // 如果不是有效的JSON，作为普通文本处理
           jsonData = { 
             lines: [extendData], 
@@ -85,7 +85,7 @@ const jsonAnnotation: OverlayTemplate = {
         if (typeof result === 'string') {
           try {
             jsonData = JSON.parse(result)
-          } catch (e) {
+          } catch {
             jsonData = { 
               lines: [result], 
               colors: ['#000000'], 

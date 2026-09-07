@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { pluginRegistry } from '@/plugins/PluginRegistry';
 
 interface PluginPageProps {
@@ -6,18 +5,6 @@ interface PluginPageProps {
 }
 
 export default function PluginPage({ pluginName }: PluginPageProps) {
-  const [containerRef, setContainerRef] = useState<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const route = pluginRegistry.getRoutes().find((r) => r.pluginName === pluginName);
-    if (!route || !containerRef) return;
-
-    // 如果插件注册了 React 组件，直接渲染
-    if (route.element) {
-      return;
-    }
-  }, [pluginName, containerRef]);
-
   const route = pluginRegistry.getRoutes().find((r) => r.pluginName === pluginName);
 
   if (route?.element) {

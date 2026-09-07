@@ -81,7 +81,6 @@ import type {
   ArchiveMeta,
   ArchiveRow,
   DerivKind,
-  DataKind,
 } from '@/types/data';
 import {
   ARCHIVE_KINDS,

@@ -1096,7 +1096,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
                           JSON.parse(value);
                         }
                         return Promise.resolve();
-                      } catch (error) {
+                      } catch {
                         return Promise.reject(new Error('策略参数必须是有效的JSON格式'));
                       }
                     },

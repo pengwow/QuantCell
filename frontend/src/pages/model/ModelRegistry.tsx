@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Tag, Space, message, Modal, Form, Input, InputNumber } from 'antd';
-import { PlusOutlined, RocketOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, RocketOutlined } from '@ant-design/icons';
 import PageContainer from '@/components/PageContainer';
 import { modelApi, type ModelInfo } from '@/api/modelApi';
 

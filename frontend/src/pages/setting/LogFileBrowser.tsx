@@ -21,7 +21,6 @@ import {
   IconRefresh,
   IconSearch,
   IconFile,
-  IconFolder,
   IconInfoCircle,
   IconSortAscending,
   IconSortDescending,
@@ -108,7 +107,7 @@ const LogFileBrowser: React.FC = () => {
       title: '文件名',
       dataIndex: 'name',
       key: 'name',
-      render: (text: string, record: LogFileInfo) => (
+      render: (text: string) => (
         <div className="flex items-center gap-2">
           <IconFile size={16} className="text-blue-500" />
           <span className="font-mono text-sm">{text}</span>

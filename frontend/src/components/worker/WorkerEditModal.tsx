@@ -132,7 +132,7 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   // 策略相关
   const [strategies, setStrategies] = useState<any[]>([]);
   const [loadingStrategies, setLoadingStrategies] = useState(false);
-  const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
+  const [, setSelectedStrategyId] = useState<number | null>(null);
 
   // 交易所相关
   const [exchanges, setExchanges] = useState<any[]>([]);

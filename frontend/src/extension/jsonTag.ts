@@ -28,7 +28,7 @@ const jsonTag: OverlayTemplate = {
         try {
           // 解析JSON数据
           jsonData = JSON.parse(extendData)
-        } catch (e) {
+        } catch {
           // 如果不是有效的JSON，作为普通文本处理
           jsonData = { lines: [extendData], colors: ['#000000'], fontSize: 12, backgroundColor: 'rgba(255, 255, 255, 0.8)', borderColor: '#000000' }
         }
@@ -39,7 +39,7 @@ const jsonTag: OverlayTemplate = {
         if (typeof result === 'string') {
           try {
             jsonData = JSON.parse(result)
-          } catch (e) {
+          } catch {
             jsonData = { lines: [result], colors: ['#000000'], fontSize: 12, backgroundColor: 'rgba(255, 255, 255, 0.8)', borderColor: '#000000' }
           }
         } else {

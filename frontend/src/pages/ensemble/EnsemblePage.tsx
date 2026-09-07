@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Card, Table, Button, Select, Input, Space, Tag, message, Form } from 'antd';
-import { PlusOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { Card, Table, Button, Select, Input, Tag, message, Form } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
 import PageContainer from '@/components/PageContainer';
 import { ensembleApi, EnsembleInfo } from '@/api/ensembleApi';
 
 export default function EnsemblePage() {
   const [ensembles, setEnsembles] = useState<EnsembleInfo[]>([]);
   const [loading, setLoading] = useState(false);
-  const [predictResult, setPredictResult] = useState<any>(null);
   const [form] = Form.useForm();
 
   useEffect(() => { loadEnsembles(); }, []);

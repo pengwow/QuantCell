@@ -31,7 +31,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import Editor from '@monaco-editor/react';
 import { useIndicators, type Indicator, defaultIndicatorCode } from '../hooks/useIndicators';
-import { aiModelApi, indicatorApi, type ThinkingChainEventData } from '../api';
+import { indicatorApi, type ThinkingChainEventData } from '../api';
 import { useGuestRestriction } from '../hooks/useGuestRestriction';
 
 interface IndicatorEditorProps {
@@ -236,7 +236,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       );
       
       streamCancelRef.current = cancelStream;
-    } catch (err) {
+    } catch {
       message.error(t('indicator.aiGenerateError', 'AI生成失败'));
       setIsGenerating(false);
       setAiLoading(false);
@@ -295,7 +295,7 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       
       onSave(savedIndicator);
       onClose();
-    } catch (err) {
+    } catch {
       message.error(editingIndicator 
         ? t('indicator.updateError', '更新失败') 
         : t('indicator.createError', '创建失败')

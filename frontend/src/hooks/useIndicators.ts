@@ -156,7 +156,7 @@ export const useIndicators = () => {
   }, []);
 
   // 执行指标计算
-  const executeIndicator = useCallback(async (id: number, _params?: IndicatorParams) => {
+  const executeIndicator = useCallback(async (id: number) => {
     setLoading(true);
     setError(null);
     try {
@@ -225,7 +225,7 @@ export const useIndicators = () => {
                   onError(data.error);
                   return;
                 }
-              } catch (err) {
+              } catch {
                 onChunk(line.slice(6));
               }
             }

@@ -6,7 +6,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { IconArrowRight, IconLock, IconUser, IconUserPlus } from "@tabler/icons-react";
-import { Button, Card, Form, Input, Space, Typography, Divider, Tabs, App } from "antd";
+import { Button, Card, Form, Input, Space, Typography, Tabs, App } from "antd";
 import { saveToken } from "../../utils/tokenManager";
 import { setPageTitle } from "@/utils/pageTitle";
 

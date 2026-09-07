@@ -11,7 +11,6 @@ import {
   Select,
   Tooltip,
   Button,
-  message as apiMessage,
 } from 'antd';
 import {
   ClearOutlined,
@@ -20,17 +19,8 @@ import {
   FileTextOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import dayjs from 'dayjs';
 import { useWorkerStore } from '../../store/workerStore';
 import { fetchRecentLogs } from '../../api/workerApi';
-
-// WorkerLog 类型定义（避免循环依赖）
-interface WorkerLog {
-  timestamp: string;
-  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
-  source: string;
-  message: string;
-}
 
 const { Option } = Select;
 
@@ -101,13 +91,7 @@ const WorkerLogsPanel: React.FC<WorkerLogsPanelProps> = ({
     try {
       const res = await fetchRecentLogs(workerId, { limit: 100 });
       if (res.code === 0 && res.data.logs.length > 0) {
-        const formattedLogs = res.data.logs.map(log => ({
-          id: `buffer-${log.timestamp}-${Math.random().toString(36).substr(2, 9)}`,
-          timestamp: log.timestamp,
-          level: log.level as 'DEBUG' | 'INFO' | 'WARN' | 'ERROR',
-          source: 'memory-buffer',
-          message: log.message,
-        }));
+        // 缓冲区内有日志则跳过首次加载等待流式推送
         clearLogs();
         setInitialLogsLoaded(true);
       }

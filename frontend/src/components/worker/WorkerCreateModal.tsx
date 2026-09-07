@@ -139,7 +139,7 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
   // 策略参数
   const [strategyParams, setStrategyParams] = useState<StrategyParameter[]>([]);
   const [loadingParams, setLoadingParams] = useState(false);
-  const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
+  const [, setSelectedStrategyId] = useState<number | null>(null);
 
   // 获取所有数据
   useEffect(() => {

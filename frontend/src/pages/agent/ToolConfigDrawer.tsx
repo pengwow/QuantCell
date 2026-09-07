@@ -138,7 +138,7 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
           [paramName]: data.params[paramName].value,
         }));
         setShowSensitive(prev => ({ ...prev, [paramName]: true }));
-      } catch (error) {
+      } catch {
         message.error('获取敏感参数值失败');
       }
     } else {
@@ -200,7 +200,7 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       message.success('配置已导出');
-    } catch (error) {
+    } catch {
       message.error('导出失败');
     }
   };
@@ -234,7 +234,7 @@ const ToolConfigDrawer: React.FC<ToolConfigDrawerProps> = ({ visible, onClose })
             }
           },
         });
-      } catch (error) {
+      } catch {
         message.error('配置文件格式错误');
       }
     };

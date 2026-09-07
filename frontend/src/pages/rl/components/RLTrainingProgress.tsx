@@ -1,7 +1,5 @@
-import { Card, Progress, Statistic, Row, Col, Typography } from 'antd';
+import { Card, Progress, Statistic, Row, Col } from 'antd';
 import { LineChartOutlined, ClockCircleOutlined, FieldTimeOutlined, TrophyOutlined } from '@ant-design/icons';
-
-const { Text } = Typography;
 
 export interface TrainingProgress {
   type: 'start' | 'info' | 'progress' | 'complete' | 'error';
