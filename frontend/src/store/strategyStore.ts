@@ -60,7 +60,9 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const response = await strategyApi.getStrategies();
-      const strategies = response?.data?.strategies || response?.strategies || [];
+      // 后端策略列表仅返回 name/description 等精简字段（StrategyInfo），
+      // store 保留富模型 Strategy 以兼容历史消费方，字段未命中处页面均有兜底
+      const strategies = (response?.strategies ?? []) as unknown as Strategy[];
       set({ strategies, loading: false });
     } catch (error) {
       set({ error: error instanceof Error ? error.message : '获取策略列表失败', loading: false });

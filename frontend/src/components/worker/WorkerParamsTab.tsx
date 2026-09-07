@@ -9,7 +9,7 @@ import {
 } from 'antd';
 import type { Worker as WorkerType, StrategyParameter } from '../../types/worker';
 import { CodeOutlined, TagOutlined } from '@ant-design/icons';
-import { strategyApi } from '../../api';
+import { getStrategyParameters } from '../../api/workerApi';
 import { useState, useEffect } from 'react';
 
 interface WorkerParamsTabProps {
@@ -43,15 +43,7 @@ const WorkerParamsTab: React.FC<WorkerParamsTabProps> = ({ worker }) => {
       }
       setLoadingParams(true);
       try {
-        const response = await strategyApi.getStrategyParams(worker.strategy_info.id) as any;
-        let params: StrategyParameter[] = [];
-        if (Array.isArray(response)) {
-          params = response;
-        } else if (response?.data && Array.isArray(response.data)) {
-          params = response.data;
-        } else if (response?.data?.parameters && Array.isArray(response.data.parameters)) {
-          params = response.data.parameters;
-        }
+        const params = await getStrategyParameters(worker.strategy_info.id);
         setStrategyParams(params);
       } catch (error) {
         console.error('加载策略参数失败:', error);

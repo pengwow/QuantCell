@@ -151,9 +151,10 @@ const StrategyManagement = () => {
   const loadStrategies = async () => {
     try {
       setLoading(true);
-      const response = await strategyApi.getStrategies() as { strategies: Strategy[] };
+      const response = await strategyApi.getStrategies();
       if (response && response.strategies) {
-        setStrategies(response.strategies);
+        // 后端仅返回精简字段，页面消费 name/description 等子集，富模型字段有兜底
+        setStrategies(response.strategies as unknown as Strategy[]);
       }
     } catch (error) {
       console.error('加载策略列表失败:', error);

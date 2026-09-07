@@ -32,7 +32,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useWorkerStore } from '../../store/workerStore';
 import { strategyApi, dataApi, configApi } from '../../api';
-import type { StrategyParameter } from '../../types/worker';
+import type { StrategyInfo, StrategyParameter } from '../../types/worker';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -186,42 +186,11 @@ const WorkerCreateModal: React.FC<WorkerCreateModalProps> = ({
     }
   };
 
-  // 根据策略ID获取策略参数
-  const fetchStrategyParams = async (strategyId: number) => {
-    if (!strategyId) {
-      setStrategyParams([]);
-      return;
-    }
-
-    setLoadingParams(true);
-    try {
-      const response = await strategyApi.getStrategyParams(strategyId) as any;
-      let params: StrategyParameter[] = [];
-
-      if (Array.isArray(response)) {
-        params = response;
-      } else if (response?.data && Array.isArray(response.data)) {
-        params = response.data;
-      } else if (response?.data?.parameters && Array.isArray(response.data.parameters)) {
-        params = response.data.parameters;
-      }
-
-      console.log('策略参数:', params);
-      setStrategyParams(params);
-
-      // 将参数默认值设置到表单中
-      const paramsFormValue: Record<string, any> = {};
-      params.forEach((p) => {
-        const key = `param_${p.param_name}`;
-        paramsFormValue[key] = p.default_value ?? p.param_value ?? '';
-      });
-      form.setFieldsValue(paramsFormValue);
-    } catch (error) {
-      console.error('获取策略参数失败:', error);
-      setStrategyParams([]);
-    } finally {
-      setLoadingParams(false);
-    }
+  // 策略参数在 worker 创建完成后才存在（后端 GET /workers/{id}/strategy/parameters），
+  // 创建流程无 worker_id 可查询，参数区块按空数据隐藏，避免无效请求
+  const fetchStrategyParams = async (_strategyId: number) => {
+    setStrategyParams([]);
+    setLoadingParams(false);
   };
 
   // 获取已启用的交易所列表

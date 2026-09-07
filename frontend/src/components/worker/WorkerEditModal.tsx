@@ -32,7 +32,8 @@ import { useTranslation } from 'react-i18next';
 
 import { useWorkerStore } from '../../store/workerStore';
 import { strategyApi, dataApi, configApi } from '../../api';
-import type { StrategyParameter } from '../../types/worker';
+import { getStrategyParameters } from '../../api/workerApi';
+import type { StrategyInfo, StrategyParameter } from '../../types/worker';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -194,7 +195,9 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
     // 设置当前选中的策略
     if (currentStrategyId) {
       setSelectedStrategyId(currentStrategyId);
-      fetchStrategyParams(currentStrategyId);
+      if (worker.id) {
+        fetchStrategyParams(worker.id);
+      }
     }
 
     // 加载当前策略的参数值到表单
@@ -211,22 +214,16 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
   const fetchStrategies = async () => {
     setLoadingStrategies(true);
     try {
-      const response = await strategyApi.getStrategies() as any;
-      console.log('策略列表响应:', response);
+      const response = await strategyApi.getStrategies();
 
-      let strategyList: any[] = [];
-
+      // 兼容后端历史返回格式（数组 / { strategies: [...] }）
+      let strategyList: StrategyInfo[] = [];
       if (Array.isArray(response)) {
-        strategyList = response;
+        strategyList = response as StrategyInfo[];
       } else if (response?.strategies) {
         strategyList = response.strategies;
-      } else if (response?.data?.strategies) {
-        strategyList = response.data.strategies;
-      } else if (response?.data?.strategies?.[0]) {
-        strategyList = response.data.strategies[0];
       }
 
-      console.log('解析后的策略列表:', strategyList);
       setStrategies(strategyList);
     } catch (error) {
       console.error('获取策略列表失败:', error);
@@ -237,27 +234,16 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
     }
   };
 
-  // 根据策略ID获取策略参数
-  const fetchStrategyParams = async (strategyId: number) => {
-    if (!strategyId) {
+  // 根据 Worker ID 获取策略参数（参数挂在 worker 上：GET /workers/{id}/strategy/parameters）
+  const fetchStrategyParams = async (workerId: number) => {
+    if (!workerId) {
       setStrategyParams([]);
       return;
     }
 
     setLoadingParams(true);
     try {
-      const response = await strategyApi.getStrategyParams(strategyId) as any;
-      let params: StrategyParameter[] = [];
-
-      if (Array.isArray(response)) {
-        params = response;
-      } else if (response?.data && Array.isArray(response.data)) {
-        params = response.data;
-      } else if (response?.data?.parameters && Array.isArray(response.data.parameters)) {
-        params = response.data.parameters;
-      }
-
-      console.log('编辑页策略参数:', params);
+      const params = await getStrategyParameters(workerId);
       setStrategyParams(params);
 
       // 将参数默认值设置到表单中
@@ -562,7 +548,9 @@ const WorkerEditModal: React.FC<WorkerEditModalProps> = ({
                 notFoundContent={loadingStrategies ? <Spin size="small" /> : '暂无策略'}
                 onChange={(value: number) => {
                   setSelectedStrategyId(value);
-                  fetchStrategyParams(value);
+                  if (worker.id) {
+                    fetchStrategyParams(worker.id);
+                  }
                 }}
               >
                 {strategies
