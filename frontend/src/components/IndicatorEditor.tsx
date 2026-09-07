@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
 import {
   CheckCircleOutlined,
   QuestionCircleOutlined,
@@ -145,9 +146,9 @@ const IndicatorEditor: React.FC<IndicatorEditorProps> = ({
       } else {
         message.error(normalizedResult.message || t('indicator.verifyFailed', '代码验证失败'));
       }
-    } catch (err: any) {
+    } catch (err) {
       // 显示详细的错误信息
-      const errorMessage = err?.response?.data?.message || err?.message || t('indicator.verifyError', '验证出错');
+      const errorMessage = (axios.isAxiosError(err) ? err.response?.data?.message : '') || (err instanceof Error ? err.message : '') || t('indicator.verifyError', '验证出错');
       message.error(errorMessage);
     } finally {
       setLoading(false);

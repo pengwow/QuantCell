@@ -855,9 +855,9 @@ const DEFAULT_PLOT_COLORS = [
           } else {
             message.error(t('indicator.executeError', '指标执行失败') + ': ' + (result.message || '未知错误'));
           }
-        } catch (err: any) {
+        } catch (err) {
           console.error('执行自定义指标失败:', err);
-          message.error(t('indicator.executeFailed', '自定义指标执行失败') + ': ' + (err.message || err));
+          message.error(t('indicator.executeFailed', '自定义指标执行失败') + ': ' + (err instanceof Error ? err.message : String(err)));
         }
       }
     }

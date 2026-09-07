@@ -156,10 +156,10 @@ export const useConfigStore = create<ConfigState>()(
             isLoading: false,
             lastLoadedAt: Date.now(),
           });
-        } catch (error: any) {
+        } catch (error) {
           console.error('[ConfigStore] 加载配置失败:', error);
           set({
-            error: error.message || '加载系统配置失败',
+            error: error instanceof Error ? error.message : '加载系统配置失败',
             isLoading: false,
             config: DEFAULT_CONFIG,
             lastLoadedAt: Date.now(),

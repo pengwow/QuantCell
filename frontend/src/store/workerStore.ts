@@ -210,12 +210,12 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             pageSize: response.page_size,
             loading: false,
           });
-        } catch (error: any) {
+        } catch (error) {
           set({
-            error: error.message || '获取Worker列表失败',
+            error: error instanceof Error ? error.message : '获取Worker列表失败',
             loading: false,
           });
-          get().messageApi?.error(error.message || '获取Worker列表失败');
+          get().messageApi?.error(error instanceof Error ? error.message : '获取Worker列表失败');
         }
       },
 
@@ -227,12 +227,12 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             selectedWorker: worker,
             loadingDetail: false,
           });
-        } catch (error: any) {
+        } catch (error) {
           set({
-            detailError: error.message || '获取Worker详情失败',
+            detailError: error instanceof Error ? error.message : '获取Worker详情失败',
             loadingDetail: false,
           });
-          get().messageApi?.error(error.message || '获取Worker详情失败');
+          get().messageApi?.error(error instanceof Error ? error.message : '获取Worker详情失败');
         }
       },
 
@@ -246,12 +246,12 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             performance: latestPerformance,
             loadingPerformance: false,
           });
-        } catch (error: any) {
+        } catch (error) {
           set({
-            performanceError: error.message || '获取绩效数据失败',
+            performanceError: error instanceof Error ? error.message : '获取绩效数据失败',
             loadingPerformance: false,
           });
-          get().messageApi?.error(error.message || '获取绩效数据失败');
+          get().messageApi?.error(error instanceof Error ? error.message : '获取绩效数据失败');
         }
       },
 
@@ -267,12 +267,12 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             trades: response.items,
             loadingTrades: false,
           });
-        } catch (error: any) {
+        } catch (error) {
           set({
-            tradesError: error.message || '获取交易记录失败',
+            tradesError: error instanceof Error ? error.message : '获取交易记录失败',
             loadingTrades: false,
           });
-          get().messageApi?.error(error.message || '获取交易记录失败');
+          get().messageApi?.error(error instanceof Error ? error.message : '获取交易记录失败');
         }
       },
 
@@ -287,12 +287,12 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             logs: logs,
             loadingLogs: false,
           });
-        } catch (error: any) {
+        } catch (error) {
           set({
-            logsError: error.message || '获取日志失败',
+            logsError: error instanceof Error ? error.message : '获取日志失败',
             loadingLogs: false,
           });
-          get().messageApi?.error(error.message || '获取日志失败');
+          get().messageApi?.error(error instanceof Error ? error.message : '获取日志失败');
         }
       },
 
@@ -305,7 +305,7 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             value: index === 0 ? 0 : ((p.net_profit / (p.total_trades || 1)) * 100),
           }));
           set({ returnRateData });
-        } catch (error: any) {
+        } catch (error) {
           console.error('获取收益率数据失败:', error);
         }
       },
@@ -330,12 +330,12 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
             },
             loadingOverview: false,
           });
-        } catch (error: any) {
+        } catch (error) {
           set({
-            overviewError: error.message || '获取总览数据失败',
+            overviewError: error instanceof Error ? error.message : '获取总览数据失败',
             loadingOverview: false,
           });
-          get().messageApi?.error(error.message || '获取总览数据失败');
+          get().messageApi?.error(error instanceof Error ? error.message : '获取总览数据失败');
         }
       },
 
@@ -350,8 +350,8 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           // 刷新列表
           get().fetchWorkers();
           return worker;
-        } catch (error: any) {
-          get().messageApi?.error(error.message || '创建Worker失败');
+        } catch (error) {
+          get().messageApi?.error(error instanceof Error ? error.message : '创建Worker失败');
           return null;
         }
       },
@@ -367,8 +367,8 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           // 刷新列表
           get().fetchWorkers();
           return worker;
-        } catch (error: any) {
-          get().messageApi?.error(error.message || '更新Worker失败');
+        } catch (error) {
+          get().messageApi?.error(error instanceof Error ? error.message : '更新Worker失败');
           return null;
         }
       },
@@ -384,8 +384,8 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           // 刷新列表
           get().fetchWorkers();
           return true;
-        } catch (error: any) {
-          get().messageApi?.error(error.message || '删除Worker失败');
+        } catch (error) {
+          get().messageApi?.error(error instanceof Error ? error.message : '删除Worker失败');
           return false;
         }
       },
@@ -401,8 +401,8 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           // 刷新列表
           get().fetchWorkers();
           return worker;
-        } catch (error: any) {
-          get().messageApi?.error(error.message || '克隆Worker失败');
+        } catch (error) {
+          get().messageApi?.error(error instanceof Error ? error.message : '克隆Worker失败');
           return null;
         }
       },
@@ -420,8 +420,8 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           // 延迟刷新获取最新状态
           setTimeout(() => get().fetchWorkers(), 2000);
           return true;
-        } catch (error: any) {
-          get().messageApi?.error(error.message || '启动Worker失败');
+        } catch (error) {
+          get().messageApi?.error(error instanceof Error ? error.message : '启动Worker失败');
           return false;
         }
       },
@@ -435,8 +435,8 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           // 延迟刷新获取最新状态
           setTimeout(() => get().fetchWorkers(), 1000);
           return true;
-        } catch (error: any) {
-          const errorMsg = error?.message || error?.toString() || '';
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message || error.toString() : error ? String(error) : '';
           // 识别"已停止"的特殊情况，将其视为成功而非错误
           if (errorMsg.includes('已停止') || errorMsg.includes('already stopped') ||
               errorMsg.includes('不允许再次停止') || errorMsg.includes('当前状态为 stopped')) {
@@ -459,8 +459,8 @@ export const useWorkerStore = create<WorkerState & WorkerActions>()(
           // 延迟刷新获取最新状态
           setTimeout(() => get().fetchWorkers(), 3000);
           return true;
-        } catch (error: any) {
-          get().messageApi?.error(error.message || '重启Worker失败');
+        } catch (error) {
+          get().messageApi?.error(error instanceof Error ? error.message : '重启Worker失败');
           return false;
         }
       },

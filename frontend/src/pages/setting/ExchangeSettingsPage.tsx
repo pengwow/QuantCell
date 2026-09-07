@@ -411,11 +411,11 @@ const ExchangeSettingsPage = () => {
       await configApi.updateConfig(batchConfigs);
 
       message.success(t("config_saved") || "配置已保存");
-    } catch (error: any) {
+    } catch (error) {
       console.error("保存配置失败:", error);
       
       // 特殊处理 401 认证错误
-      if (error?.code === 401 || error?.message === '请先登录') {
+      if ((error as { code?: number })?.code === 401 || (error instanceof Error && error.message === '请先登录')) {
         message.error(t('auth_required') || '请先登录后再保存配置');
         // 延迟跳转到登录页
         setTimeout(() => {
@@ -481,8 +481,8 @@ const ExchangeSettingsPage = () => {
       } else {
         message.error(result.message);
       }
-    } catch (error: any) {
-      const errorMsg = error.message || "测试连接失败";
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "测试连接失败";
       setTestResult({ success: false, message: errorMsg });
       message.error(errorMsg);
     } finally {

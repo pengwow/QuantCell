@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import {
   Layout,
@@ -225,9 +226,9 @@ const ToolListDrawerWithConfig = ({
         });
         setEditingValues(prev => ({ ...prev, [toolName]: initialValues }));
       }
-    } catch (error: any) {
+    } catch (error) {
       // 404 表示工具无参数模板，这不是错误
-      if (error?.response?.status === 404) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
         setToolsParams(prev => ({ 
           ...prev, 
           [toolName]: { tool_name: toolName, params: {} } 
@@ -280,8 +281,8 @@ const ToolListDrawerWithConfig = ({
       await toolParamApi.setToolParam(toolName, paramName, value);
       message.success(`${paramName} 已更新`);
       await loadToolParams(toolName); // 刷新参数
-    } catch (error: any) {
-      message.error(`更新失败: ${error.message || '未知错误'}`);
+    } catch (error) {
+      message.error(`更新失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
   };
 

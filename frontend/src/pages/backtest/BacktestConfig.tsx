@@ -768,11 +768,11 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
 
         // 注意：不再立即显示成功消息，而是等待轮询完成
         // message.success('回测任务已创建，正在执行中...');
-      } catch (error: any) {
+      } catch (error) {
         // 清除启动超时
         clearTimeout(startTimeout);
 
-        if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+        if (error instanceof Error && (error.name === 'AbortError' || error.message?.includes('aborted'))) {
           console.log('回测已被用户终止');
           setErrorMessage('回测已终止');
           setStepStatus(prev => ({
@@ -783,7 +783,7 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
           message.info('回测已终止');
         } else {
           console.error('执行回测失败:', error);
-          const errorMsg = error.message || '执行回测失败';
+          const errorMsg = error instanceof Error ? error.message : '执行回测失败';
           setErrorMessage(errorMsg);
 
           setStepStatus(prev => {
@@ -802,13 +802,13 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         // 停止轮询
         stopProgressPolling();
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('执行回测失败:', error);
-      setErrorMessage(error.message || '执行回测失败');
+      setErrorMessage(error instanceof Error ? error.message : '执行回测失败');
       setIsBacktestRunning(false);
       setCurrentTaskId('');
       abortControllerRef.current = null;
-      message.error(error.message || '执行回测失败');
+      message.error(error instanceof Error ? error.message : '执行回测失败');
     } finally {
       setLoading(false);
     }
@@ -833,9 +833,9 @@ const BacktestConfig: React.FC<BacktestConfigProps> = ({ onRunBacktest, strategy
         }));
         message.info('回测已终止');
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('终止回测失败:', error);
-      message.error(error.message || '终止回测失败');
+      message.error(error instanceof Error ? error.message : '终止回测失败');
     }
   };
 

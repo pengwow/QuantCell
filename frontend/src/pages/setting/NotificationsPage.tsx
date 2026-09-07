@@ -343,8 +343,8 @@ const NotificationsPage = () => {
       } else {
         message.error(response.message || t("test_failed") || "测试失败");
       }
-    } catch (error: any) {
-      const errorMsg = error.message || t("test_failed") || "测试失败";
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : (t("test_failed") || "测试失败");
       setTestResult({ code: -1, message: errorMsg });
       message.error(errorMsg);
     } finally {

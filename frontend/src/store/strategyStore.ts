@@ -62,8 +62,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       const response = await strategyApi.getStrategies();
       const strategies = response?.data?.strategies || response?.strategies || [];
       set({ strategies, loading: false });
-    } catch (error: any) {
-      set({ error: error.message || '获取策略列表失败', loading: false });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '获取策略列表失败', loading: false });
     }
   },
 
@@ -83,8 +83,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       });
       await get().fetchStrategies();
       set({ loading: false });
-    } catch (error: any) {
-      set({ error: error.message || '创建策略失败', loading: false });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '创建策略失败', loading: false });
       throw error;
     }
   },
@@ -101,8 +101,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       }
       await get().fetchStrategies();
       set({ loading: false });
-    } catch (error: any) {
-      set({ error: error.message || '更新策略失败', loading: false });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '更新策略失败', loading: false });
       throw error;
     }
   },
@@ -116,8 +116,8 @@ export const useStrategyStore = create<StrategyState>((set, get) => ({
       }
       await get().fetchStrategies();
       set({ loading: false });
-    } catch (error: any) {
-      set({ error: error.message || '删除策略失败', loading: false });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '删除策略失败', loading: false });
       throw error;
     }
   },

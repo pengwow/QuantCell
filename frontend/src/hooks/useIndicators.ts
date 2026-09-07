@@ -86,8 +86,8 @@ export const useIndicators = () => {
     try {
       const data = await indicatorApi.getIndicators();
       setIndicators(data);
-    } catch (err: any) {
-      setError(err.message || '获取指标列表失败');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '获取指标列表失败');
     } finally {
       setLoading(false);
     }
@@ -101,8 +101,8 @@ export const useIndicators = () => {
       const result = await indicatorApi.createIndicator(data);
       await fetchIndicators();
       return result;
-    } catch (err: any) {
-      setError(err.message || '创建指标失败');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '创建指标失败');
       throw err;
     } finally {
       setLoading(false);
@@ -117,8 +117,8 @@ export const useIndicators = () => {
       const result = await indicatorApi.updateIndicator(id, data);
       await fetchIndicators();
       return result;
-    } catch (err: any) {
-      setError(err.message || '更新指标失败');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新指标失败');
       throw err;
     } finally {
       setLoading(false);
@@ -132,8 +132,8 @@ export const useIndicators = () => {
     try {
       await indicatorApi.deleteIndicator(id);
       await fetchIndicators();
-    } catch (err: any) {
-      setError(err.message || '删除指标失败');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除指标失败');
       throw err;
     } finally {
       setLoading(false);
@@ -147,8 +147,8 @@ export const useIndicators = () => {
     try {
       const result = await indicatorApi.verifyCode(code);
       return result;
-    } catch (err: any) {
-      setError(err.message || '代码验证失败');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '代码验证失败');
       throw err;
     } finally {
       setLoading(false);
@@ -162,8 +162,8 @@ export const useIndicators = () => {
     try {
       const result = await indicatorApi.getIndicatorParams(id);
       return result;
-    } catch (err: any) {
-      setError(err.message || '执行指标失败');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '执行指标失败');
       throw err;
     } finally {
       setLoading(false);
@@ -249,8 +249,8 @@ export const useIndicators = () => {
     try {
       const result = await indicatorApi.getIndicator(id);
       return result;
-    } catch (err: any) {
-      setError(err.message || '获取指标失败');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '获取指标失败');
       throw err;
     } finally {
       setLoading(false);
