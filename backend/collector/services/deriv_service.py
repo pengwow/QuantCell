@@ -161,7 +161,8 @@ class DerivService:
             truncated = True
 
         df_page = df.iloc[offset : offset + limit]
-        rows: list[dict] = df_page.where(pd.notnull(df_page), None).to_dict(orient="records")
+        # float 列无法直接存放 None，先转 object 再替换，避免 NaN 原样进入 API 响应
+        rows: list[dict] = df_page.astype(object).where(pd.notnull(df_page), None).to_dict(orient="records")
 
         return {"total": total, "rows": rows, "truncated": truncated}
 

@@ -5,7 +5,7 @@ K线数据健康检查服务
 用于检查数据库中kline表数据的健康状况，包括完整性、连续性、有效性和唯一性检查
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -120,8 +120,10 @@ class KlineHealthChecker:
         # 模型没有 date 列（timestamp 为自适应精度的字符串存储，无法直接与 datetime 比较），
         # 时间范围过滤基于 convert_to_datetime 在内存完成，避免引用不存在的列抛 AttributeError
         if not df.empty and (start is not None or end is not None):
-            # 库内时间戳统一视作 UTC，与 convert_to_datetime 的 UTC 输出对齐
-            dt_series = pd.Series(convert_to_datetime(df["timestamp"]).values, index=df.index)
+            # 库内时间戳统一视作 UTC，与 convert_to_datetime 的 UTC 输出对齐。
+            # 不能取 .values：DatetimeIndex.values 会丢失 UTC 时区退化为 naive，
+            # 与下方 pd.Timestamp(start, tz="UTC") 比较会抛 TypeError
+            dt_series = convert_to_datetime(df["timestamp"])
             mask = pd.Series(True, index=df.index)
             if start is not None:
                 mask &= dt_series >= pd.Timestamp(start, tz="UTC")
@@ -219,8 +221,10 @@ class KlineHealthChecker:
         if timestamp_numeric.empty:
             return result
 
-        # 生成完整的时间序列
-        expected_index = pd.date_range(start=timestamp_numeric.min(), end=timestamp_numeric.max(), freq=delta)
+        # 数值纳秒时间戳与 DatetimeIndex 类型不同，直接 difference 会对不上；
+        # 先统一转成 DatetimeIndex 再求差集
+        timestamp_index = pd.to_datetime(timestamp_numeric, unit="ns")
+        expected_index = pd.date_range(start=timestamp_index.min(), end=timestamp_index.max(), freq=delta)
         # 将numpy.int64转换为Python int
         result["expected_records"] = len(expected_index)
         result["actual_records"] = len(df)
@@ -230,7 +234,7 @@ class KlineHealthChecker:
             result["coverage_ratio"] = float(len(df) / len(expected_index))
 
         # 找出缺失的时间点
-        missing_periods = expected_index.difference(timestamp_numeric)
+        missing_periods = expected_index.difference(timestamp_index)
         if len(missing_periods) > 0:
             result["status"] = "fail"
             # 将numpy.int64转换为Python int
@@ -311,11 +315,12 @@ class KlineHealthChecker:
         result["data_end_date"] = str(data_end)
 
         # 计算预期的起始时间（假设应该从2023年1月1日开始）
-        expected_start = datetime(2023, 1, 1)
+        # convert_to_datetime 返回 UTC-aware，expected 边界必须同为 UTC-aware，否则比较抛 TypeError
+        expected_start = datetime(2023, 1, 1, tzinfo=UTC)
         result["expected_start_date"] = str(expected_start)
 
         # 计算预期的结束时间（假设应该到当前时间）
-        expected_end = datetime.now()
+        expected_end = datetime.now(UTC)
         result["expected_end_date"] = str(expected_end)
 
         # 检查是否缺少历史数据
